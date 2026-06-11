@@ -163,7 +163,7 @@ for s in sups:
          f'(Transactions!$E$2:$E${last}>=$C$6)*(Transactions!$E$2:$E${last}<=$D$6)*Transactions!')
     ws.append([s, f"={b}$J$2:$J${last})", f"=ROUND({b}$O$2:$O${last}),2)",
                f"=IF(B{r}>0,C{r}/B{r},\"\")",
-               f"=IF(B{r}>0,ROUND({b}$Q$2:$Q${last}),2)/B{r},\"\")",
+               f"=IF(B{r}>0,ROUND({b}$Q$2:$Q${last})/B{r},4),\"\")",
                f"=IF($B${9+len(sups)}>0,B{r}/$B${9+len(sups)},\"\")"])
     r += 1
 ws.append(["TOTAL", f"=SUM(B9:B{r-1})", f"=SUM(C9:C{r-1})",

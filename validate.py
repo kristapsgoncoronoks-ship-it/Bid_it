@@ -15,6 +15,7 @@ Batch checks:
 verdict per line: ok | warn | error ; a line with any error blocks commit until fixed.
 """
 import os, re, sqlite3, datetime, json
+from datetime import timezone as _tz
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 DB = f"{WORKDIR}/fuel_history.db"

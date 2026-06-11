@@ -1,7 +1,9 @@
+import os
 from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 
-wb = load_workbook("/home/claude/work/Q8_payment_summary_DE00752298_full_transactions.xlsx")
+WORKDIR = os.path.dirname(os.path.abspath(__file__))
+wb = load_workbook(os.path.join(WORKDIR, "Q8_payment_summary_DE00752298_full_transactions.xlsx"))
 ws = wb["Transactions"]
 last = ws.max_row
 fill = PatternFill("solid", start_color="1F4E78")
@@ -103,5 +105,5 @@ wse.column_dimensions["A"].width = 50
 wse.column_dimensions["B"].width = 14
 wse.column_dimensions["C"].width = 60
 
-wb.save("/home/claude/work/Q8_DE00752298_adjusted_pricing.xlsx")
+wb.save(os.path.join(WORKDIR, "Q8_DE00752298_adjusted_pricing.xlsx"))
 print("ok")

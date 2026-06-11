@@ -15,7 +15,7 @@ machine loss. Audit CSVs inside each snapshot are the tamper-evidence copy of
 the change log (an attacker editing audit_log in the live DB cannot edit
 yesterday's snapshot).
 """
-import os, sys, csv, json, hashlib, sqlite3, zipfile, glob, io
+import os, sys, csv, json, hashlib, sqlite3, zipfile, glob, io, tempfile
 from datetime import datetime
 from datetime import timezone as _tz
 
@@ -50,7 +50,7 @@ def _audit_csv(dbfile):
 
 def snapshot():
     os.makedirs(BACKUPDIR, exist_ok=True)
-    ts = datetime.datetime.now(_tz.utc).strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(_tz.utc).strftime("%Y%m%d_%H%M%S")
     path = os.path.join(BACKUPDIR, f"ffs_{ts}.zip")
     manifest = {}
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
@@ -59,13 +59,22 @@ def snapshot():
             src = os.path.join(WORKDIR, db)
             if not os.path.exists(src):
                 continue
-            mem = sqlite3.connect(":memory:")
-            sqlite3.connect(src).backup(mem)
-            buf = io.BytesIO()
-            for line in mem.iterdump():
-                buf.write((line + "\n").encode())
-            # also include the raw file (preferred restore form)
-            raw = open(src, "rb").read()
+            # Crash-consistent snapshot via the sqlite3 .backup() API into a temp
+            # file, then store that copy (rather than the live file, which may be
+            # mid-write). The raw copy is the preferred restore form.
+            tmpfd, tmppath = tempfile.mkstemp(prefix=f"bk_{db}_", dir=BACKUPDIR)
+            os.close(tmpfd)
+            try:
+                src_con = sqlite3.connect(src)
+                dst_con = sqlite3.connect(tmppath)
+                try:
+                    src_con.backup(dst_con)
+                finally:
+                    dst_con.close(); src_con.close()
+                raw = open(tmppath, "rb").read()
+            finally:
+                try: os.remove(tmppath)
+                except OSError: pass
             z.writestr(f"data/{db}", raw); manifest[f"data/{db}"] = _sha(raw)
             a = _audit_csv(db)
             z.writestr(f"audit_export/{db}.audit.csv", a)
@@ -100,6 +109,7 @@ def verify(path):
 
 def restore(path, target):
     os.makedirs(target, exist_ok=True)
+    target_real = os.path.realpath(target)
     with zipfile.ZipFile(path) as z:
         for info in z.infolist():
             if info.filename == "MANIFEST.sha256.json":
@@ -109,6 +119,12 @@ def restore(path, target):
                 if dest_rel.startswith(prefix):
                     dest_rel = dest_rel[len(prefix):]
             dest = os.path.join(target, dest_rel)
+            # Zip Slip guard: refuse any entry that escapes the target directory.
+            dest_real = os.path.realpath(dest)
+            if not (dest_real == target_real or
+                    dest_real.startswith(target_real + os.sep)):
+                raise ValueError(
+                    f"refusing to restore entry escaping target dir: {info.filename!r}")
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             with open(dest, "wb") as f:
                 f.write(z.read(info))

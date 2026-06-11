@@ -1,5 +1,8 @@
+import os
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
+
+WORKDIR = os.path.dirname(os.path.abspath(__file__))
 
 # (card, date, time, receipt, plate, product, location, qty, loc_price, disc, net_price, amount_net)
 # disc=None & net_price=None where invoice shows "-" (no discount; amount = qty x loc_price)
@@ -238,5 +241,5 @@ for c in ws4[r4]: c.font = Font(bold=True, name="Arial", size=10)
 for col, w in zip("ABCDE",[28,13,14,15,15]):
     ws4.column_dimensions[col].width = w
 
-wb.save("/home/claude/work/TFC_26056012270_transactions.xlsx")
+wb.save(os.path.join(WORKDIR, "TFC_26056012270_transactions.xlsx"))
 print("lines:", last-1, "cards:", len(card_totals))

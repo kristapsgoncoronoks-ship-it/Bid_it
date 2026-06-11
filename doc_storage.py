@@ -42,8 +42,16 @@ class LocalBackend:
         with open(path, "wb") as f:
             f.write(data)
         return path, None                      # locator, web_url
+    def _safe_path(self, locator):
+        """Resolve a stored locator and ensure it stays under docdir.
+        Guards against tampered/traversal locators (e.g. '../../etc/passwd')."""
+        base = os.path.realpath(self.docdir)
+        real = os.path.realpath(locator)
+        if not (real == base or real.startswith(base + os.sep)):
+            raise ValueError(f"locator escapes document store: {locator!r}")
+        return real
     def get(self, locator):
-        return open(locator, "rb").read()
+        return open(self._safe_path(locator), "rb").read()
 
 
 class SharePointBackend:

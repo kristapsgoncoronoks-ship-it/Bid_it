@@ -16,17 +16,28 @@ Pages:  /            dashboard (KPIs, diesel benchmark, monthly trend)
 Exports: /export/master  /export/history   (download the Excel deliverables)
 API:    /api/benchmark /api/compare /api/headtohead /api/entities /api/periods
 """
-import sqlite3, os
+import sqlite3, os, secrets
 from flask import Flask, request, jsonify, render_template_string, send_file, session, redirect
 from markupsafe import escape as esc
+from werkzeug.middleware.proxy_fix import ProxyFix
 import auth as _auth
 import audit as _audit_mod
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(WORKDIR, "fuel_history.db")
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 app.secret_key = _auth.secret_key()
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
+
+def _csrf_token():
+    """Lazily create and return a per-session CSRF token."""
+    if not session.get("_csrf"):
+        session["_csrf"] = secrets.token_urlsafe(32)
+    return session["_csrf"]
+
+def _csrf_input():
+    return f'<input type="hidden" name="_csrf" value="{esc(_csrf_token())}">'
 
 LOGIN_HTML = """<!doctype html><html><head><meta charset='utf-8'><title>Fleet Fuel - login</title>
 <style>body{font:14px -apple-system,Segoe UI,Arial;background:#f4f6f8;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
@@ -201,6 +212,10 @@ def _guard():
     role = session.get("role", "viewer")
     if request.path.startswith("/admin") and role != "admin":
         return page(FORBIDDEN, ""), 403
+    if request.method == "POST" and request.endpoint not in ("login", "setup"):
+        if request.form.get("_csrf") != session.get("_csrf"):
+            return page('<div class="card"><h2>Invalid or missing CSRF token</h2>'
+                        '<p>Please reload the page and try again.</p></div>', ""), 400
     if request.method == "POST" and role not in ("editor", "admin") \
             and request.endpoint != "login":
         return page(FORBIDDEN, ""), 403
@@ -266,7 +281,7 @@ def q_kpis(con, period):
         SELECT ROUND(SUM(net_eur),0) net, ROUND(SUM(vat_eur),0) vat,
                ROUND(SUM(net_eur)+SUM(vat_eur),0) gross,
                (SELECT ROUND(SUM(qty),0) FROM transactions WHERE period=? AND product_group='Diesel') litres,
-               (SELECT ROUND(SUM(net_eur_eff)/SUM(qty),4) FROM transactions WHERE period=? AND product_group='Diesel') eurl
+               (SELECT ROUND(SUM(net_eur_eff)/NULLIF(SUM(qty),0),4) FROM transactions WHERE period=? AND product_group='Diesel') eurl
         FROM transactions WHERE period=?""", (period, period, period)).fetchone()
     return r
 
@@ -369,28 +384,37 @@ def tbl(headers, rows):
 
 def psel(name, options, cur, allow_all=True):
     opts = (["ALL"] if allow_all else []) + list(options)
-    o = "".join(f'<option {"selected" if v==cur else ""}>{v}</option>' for v in opts)
-    return f'<label>{name}<select name="{name}">{o}</select></label>'
+    o = "".join(f'<option {"selected" if v==cur else ""}>{esc(v)}</option>' for v in opts)
+    return f'<label>{esc(name)}<select name="{esc(name)}">{o}</select></label>'
 
 # ---------------------------------------------------------------- pages
 @app.route("/")
 def dash():
     con = DB(); periods = q_periods(con)
-    period = request.args.get("period", periods[0])
+    period = request.args.get("period", periods[0] if periods else None)
+    if not period:
+        con.close()
+        return page('<div class="card"><h2>No data loaded yet</h2><p>Import an invoice batch '
+                    'or run the monthly close to populate transactions.</p></div>', "dash")
     k = q_kpis(con, period); bm = q_benchmark(con, period); tr = q_trend(con)
+    _litres = f"{k['litres']:,.0f}" if k['litres'] is not None else "—"
+    _eurl = f"€{k['eurl']:.4f}" if k['eurl'] is not None else "—"
+    _net = f"€{k['net']:,.0f}" if k['net'] is not None else "€0"
+    _vat = f"€{k['vat']:,.0f}" if k['vat'] is not None else "€0"
+    _gross = f"€{k['gross']:,.0f}" if k['gross'] is not None else "€0"
     kpis = f"""<div class="kpis">
-      <div class="kpi"><div class="v">{k['litres']:,.0f} L</div><div class="l">Diesel litres · {period}</div></div>
-      <div class="kpi"><div class="v">€{k['eurl']:.4f}</div><div class="l">Fleet eff. net €/L</div></div>
-      <div class="kpi"><div class="v">€{k['net']:,.0f}</div><div class="l">Net spend</div></div>
-      <div class="kpi"><div class="v">€{k['vat']:,.0f}</div><div class="l">Reclaimable VAT</div></div>
-      <div class="kpi"><div class="v">€{k['gross']:,.0f}</div><div class="l">Gross invoiced</div></div></div>"""
-    rows = [[f"<td>{r['supplier']}</td><td>{r['country']}</td>",
+      <div class="kpi"><div class="v">{_litres} L</div><div class="l">Diesel litres · {esc(period)}</div></div>
+      <div class="kpi"><div class="v">{_eurl}</div><div class="l">Fleet eff. net €/L</div></div>
+      <div class="kpi"><div class="v">{_net}</div><div class="l">Net spend</div></div>
+      <div class="kpi"><div class="v">{_vat}</div><div class="l">Reclaimable VAT</div></div>
+      <div class="kpi"><div class="v">{_gross}</div><div class="l">Gross invoiced</div></div></div>"""
+    rows = [[f"<td>{esc(r['supplier'])}</td><td>{esc(r['country'])}</td>",
              f"<td class=r>{r['litres']:,.0f}</td><td class=r>{r['doc']:.4f}</td>",
              f"<td class=r><b>{r['eff']:.4f}</b></td>"] for r in bm]
     bench = tbl(["Supplier","Country","Litres","€/L doc","€/L effective"], rows)
-    trows = [[f"<td>{r['period']}</td><td class=r>{r['litres']:,.0f}</td><td class=r>{r['eurl']:.4f}</td>"] for r in tr]
+    trows = [[f"<td>{esc(r['period'])}</td><td class=r>{r['litres']:,.0f}</td><td class=r>{r['eurl']:.4f}</td>"] for r in tr]
     trend = tbl(["Period","Diesel litres","Fleet eff. €/L"], trows)
-    psw = "".join(f'<option {"selected" if p==period else ""}>{p}</option>' for p in periods)
+    psw = "".join(f'<option {"selected" if p==period else ""}>{esc(p)}</option>' for p in periods)
     close = _close_status(period)
     body = (f'<form class="f" method="get"><label>Period<select name="period" onchange="this.form.submit()">{psw}</select></label></form>'
             + close + kpis + f'<div class="card"><h2>Diesel benchmark — effective net €/L (cheapest first)</h2>{bench}'
@@ -429,24 +453,24 @@ def _close_status(period):
         ic = "ok" if ok_ else "bad"
         mark = "\u2713" if ok_ else "\u2717"
         cells += (f'<div class="kpi"><div class="v {ic}">{mark}</div>'
-                  f'<div class="l">{label}<br><span class="note">{detail}</span></div></div>')
-    return f'<div class="card"><h2>Month-close status — {period}</h2><div class="kpis">{cells}</div></div>'
+                  f'<div class="l">{esc(label)}<br><span class="note">{esc(detail)}</span></div></div>')
+    return f'<div class="card"><h2>Month-close status — {esc(period)}</h2><div class="kpis">{cells}</div></div>'
 
 @app.route("/compare")
 def compare():
     con = DB(); f = q_filters(con)
     args = {k: request.args.get(k, "ALL") for k in ("period","supplier","country","product")}
-    if args["period"] == "ALL" and request.args.get("period") is None:
+    if args["period"] == "ALL" and request.args.get("period") is None and f["periods"]:
         args["period"] = f["periods"][0]
     args["date_from"] = request.args.get("date_from",""); args["date_to"] = request.args.get("date_to","")
     rows = q_compare(con, args)
     form = ('<form class="f" method="get">' + psel("period", f["periods"], args["period"])
             + psel("supplier", f["suppliers"], args["supplier"]) + psel("country", f["countries"], args["country"])
             + psel("product", f["products"], args["product"])
-            + f'<label>date from<input type="date" name="date_from" value="{args["date_from"]}"></label>'
-            + f'<label>date to<input type="date" name="date_to" value="{args["date_to"]}"></label>'
+            + f'<label>date from<input type="date" name="date_from" value="{esc(args["date_from"])}"></label>'
+            + f'<label>date to<input type="date" name="date_to" value="{esc(args["date_to"])}"></label>'
             + '<button>Apply</button></form>')
-    trs = [[f"<td>{r['supplier']}</td><td>{r['country']}</td><td>{r['product_group']}</td>",
+    trs = [[f"<td>{esc(r['supplier'])}</td><td>{esc(r['country'])}</td><td>{esc(r['product_group'])}</td>",
             f"<td class=r>{r['litres']:,.0f}</td><td class=r>{r['net_eur']:,.2f}</td><td class=r>{r['vat_eur']:,.2f}</td>",
             f"<td class=r>{r['eur_l_doc'] or ''}</td><td class=r><b>{r['eur_l_eff'] or ''}</b></td>"] for r in rows]
     body = form + f'<div class="card"><h2>Comparison — {len(rows)} groups</h2>' + \
@@ -456,12 +480,12 @@ def compare():
 @app.route("/headtohead")
 def h2h():
     con = DB(); periods = q_periods(con)
-    period = request.args.get("period", periods[0])
-    data = q_headtohead(con, period)
+    period = request.args.get("period", periods[0] if periods else None)
+    data = q_headtohead(con, period) if period else []
     tot = sum(d["overpay"] for d in data)
-    psw = "".join(f'<option {"selected" if p==period else ""}>{p}</option>' for p in periods)
-    rows = [[f"<td>{d['date']}</td><td>{d['country']}</td><td>{d['prices']}</td>",
-             f"<td class=ok>{d['cheapest']}</td><td class=r>{d['spread']:.4f}</td>",
+    psw = "".join(f'<option {"selected" if p==period else ""}>{esc(p)}</option>' for p in periods)
+    rows = [[f"<td>{esc(d['date'])}</td><td>{esc(d['country'])}</td><td>{esc(d['prices'])}</td>",
+             f"<td class=ok>{esc(d['cheapest'])}</td><td class=r>{d['spread']:.4f}</td>",
              f"<td class=r>{d['litres']:,}</td><td class='r bad'>{d['overpay']:,.0f}</td>"] for d in data]
     body = (f'<form class="f" method="get"><label>Period<select name="period" onchange="this.form.submit()">{psw}</select></label></form>'
             f'<div class="card"><h2>Same-day, same-country diesel overlaps — total overpay vs cheapest: <span class="bad">€{tot:,.0f}</span></h2>'
@@ -472,13 +496,13 @@ def h2h():
 @app.route("/entities")
 def entities():
     con = DB(); periods = q_periods(con)
-    period = request.args.get("period", periods[0])
-    rows = q_entities(con, period)
-    psw = "".join(f'<option {"selected" if p==period else ""}>{p}</option>' for p in periods)
-    trs = [[f"<td>{r['entity']}</td><td>{r['country']}</td>",
+    period = request.args.get("period", periods[0] if periods else None)
+    rows = q_entities(con, period) if period else []
+    psw = "".join(f'<option {"selected" if p==period else ""}>{esc(p)}</option>' for p in periods)
+    trs = [[f"<td>{esc(r['entity'])}</td><td>{esc(r['country'])}</td>",
             f"<td class=r>{r['net']:,.2f}</td><td class=r>{r['vat']:,.2f}</td><td class=r><b>{r['gross']:,.2f}</b></td>"] for r in rows]
     body = (f'<form class="f" method="get"><label>Period<select name="period" onchange="this.form.submit()">{psw}</select></label></form>'
-            f'<div class="card"><h2>Per-entity totals &amp; reclaimable VAT (EUR) — {period}</h2>'
+            f'<div class="card"><h2>Per-entity totals &amp; reclaimable VAT (EUR) — {esc(period) if period else "no data"}</h2>'
             + tbl(["Entity","Country","Net","VAT reclaimable","Gross"], trs)
             + '<div class="note">One VAT refund stream per entity registration per country.</div></div>')
     con.close(); return page(body, "ent")
@@ -486,16 +510,18 @@ def entities():
 @app.route("/stations")
 def stations():
     con = DB(); periods = q_periods(con)
-    period = request.args.get("period", periods[0])
-    rows = q_stations(con, period)
-    psw = "".join(f'<option {"selected" if p==period else ""}>{p}</option>' for p in periods)
+    period = request.args.get("period", periods[0] if periods else None)
+    rows = q_stations(con, period) if period else []
+    psw = "".join(f'<option {"selected" if p==period else ""}>{esc(p)}</option>' for p in periods)
     trs = []
     for r in rows:
-        flag = '<td class="ok">PREFER</td>' if r["eurl"]<=1.40 else ('<td class="bad">AVOID</td>' if r["eurl"]>=1.62 else "<td></td>")
-        trs.append([f"<td>{r['supplier']}</td><td>{r['country']}</td><td>{r['station']}</td>",
-                    f"<td class=r>{r['litres']:,.0f}</td><td class=r><b>{r['eurl']:.4f}</b></td>{flag}"])
+        eurl = r["eurl"]
+        flag = ('<td class="ok">PREFER</td>' if eurl is not None and eurl<=1.40
+                else ('<td class="bad">AVOID</td>' if eurl is not None and eurl>=1.62 else "<td></td>"))
+        trs.append([f"<td>{esc(r['supplier'])}</td><td>{esc(r['country'])}</td><td>{esc(r['station'])}</td>",
+                    f"<td class=r>{r['litres']:,.0f}</td><td class=r><b>{(eurl or 0):.4f}</b></td>{flag}"])
     body = (f'<form class="f" method="get"><label>Period<select name="period" onchange="this.form.submit()">{psw}</select></label></form>'
-            f'<div class="card"><h2>Diesel station scorecard ≥300 L — cheapest first ({period})</h2>'
+            f'<div class="card"><h2>Diesel station scorecard ≥300 L — cheapest first ({esc(period) if period else "no data"})</h2>'
             + tbl(["Supplier","Country","Station","Litres","Eff. €/L","Routing"], trs) + "</div>")
     con.close(); return page(body, "stn")
 
@@ -516,8 +542,9 @@ def api_periods():
 
 @app.route("/api/benchmark")
 def api_benchmark():
-    con = DB(); period = request.args.get("period", q_periods(con)[0])
-    out = [dict(r) for r in q_benchmark(con, period)]; con.close(); return jsonify(out)
+    con = DB(); ps = q_periods(con); period = request.args.get("period", ps[0] if ps else None)
+    out = [dict(r) for r in q_benchmark(con, period)] if period else []
+    con.close(); return jsonify(out)
 
 @app.route("/api/compare")
 def api_compare():
@@ -525,13 +552,14 @@ def api_compare():
 
 @app.route("/api/headtohead")
 def api_h2h():
-    con = DB(); period = request.args.get("period", q_periods(con)[0])
-    out = q_headtohead(con, period); con.close(); return jsonify(out)
+    con = DB(); ps = q_periods(con); period = request.args.get("period", ps[0] if ps else None)
+    out = q_headtohead(con, period) if period else []; con.close(); return jsonify(out)
 
 @app.route("/api/entities")
 def api_entities():
-    con = DB(); period = request.args.get("period", q_periods(con)[0])
-    out = [dict(r) for r in q_entities(con, period)]; con.close(); return jsonify(out)
+    con = DB(); ps = q_periods(con); period = request.args.get("period", ps[0] if ps else None)
+    out = [dict(r) for r in q_entities(con, period)] if period else []
+    con.close(); return jsonify(out)
 
 
 @app.route("/extract", methods=["GET", "POST"])
@@ -573,6 +601,7 @@ def _upload_form(backend_env):
                    for b in ("auto", "parser", "claude", "openai", "azure", "none"))
     return ('<div class="card"><h2>Import an invoice batch (PDF or ZIP)</h2>'
             '<form method="post" enctype="multipart/form-data" class="f">'
+            + _csrf_input() +
             '<label>file (.pdf or .zip)<input type="file" name="file" accept=".pdf,.zip" required></label>'
             f'<label>extractor<select name="backend">{opts}</select></label>'
             '<button>Extract draft</button></form>'
@@ -600,6 +629,7 @@ def _review_form(draft, token):
             f'confidence <span class="{ccls}">{esc(conf)}</span> · '
             f'{len(draft.get("files",[]))} PDF(s). {esc(draft.get("notes",""))}</div>'
             '<form method="post" action="/extract/confirm" class="f" style="margin-top:10px">'
+            + _csrf_input() +
             f'<input type="hidden" name="token" value="{esc(token)}">'
             f'<label>supplier code<input name="supplier" value="{esc(draft.get("supplier") or "")}" required></label>'
             f'<label>statement ref<input name="stmt_ref" value="{esc(draft.get("statement_ref") or "")}" required></label>'
@@ -712,7 +742,7 @@ def invoice_ctrl():
                       f'invoices, {n} VAT-bearing auto-synced to the registry. Attach the statement '
                       f'PDF via the Documents page.</b></div>')
         except Exception as e:
-            banner = f'<div class="card"><b class="bad">Statement error: {e}</b></div>' 
+            banner = f'<div class="card"><b class="bad">Statement error: {esc(str(e))}</b></div>'
     rows, orphans = invoice_control.run_control(period)
     order = {"MISSING": 0, "RECEIVED - DOC MISSING": 1}
     rows.sort(key=lambda x: (order.get(x["status"], 2), x["supplier"]))
@@ -721,26 +751,27 @@ def invoice_ctrl():
         cls = ("bad" if r["status"]=="MISSING" else
                "bad" if "DOC MISSING" in r["status"] else
                "" if r["status"]=="NO ACTIVITY" else "ok")
-        trs.append([f"<td>{r['supplier']}</td><td>{r['country']}</td><td>{r['slot']}</td>",
-                    f"<td>{r['expected']}</td><td>{r['invoice_no'] or '—'}</td>",
-                    f"<td class='{cls}'>{r['status']}</td><td class='note'>{r['note']}</td>"])
+        trs.append([f"<td>{esc(r['supplier'])}</td><td>{esc(r['country'])}</td><td>{esc(r['slot'])}</td>",
+                    f"<td>{esc(r['expected'])}</td><td>{esc(r['invoice_no'] or '—')}</td>",
+                    f"<td class='{cls}'>{esc(r['status'])}</td><td class='note'>{esc(r['note'])}</td>"])
     miss = sum(1 for r in rows if r["status"]=="MISSING")
-    orph = "".join(f"<li>{o}</li>" for o in orphans)
+    orph = "".join(f"<li>{esc(o)}</li>" for o in orphans)
     stmts = invoice_control.reconcile_statements(period)
     s_trs = []
     for r in stmts:
         cls = ("ok" if r["verdict"]=="PROCESS - COMPLETE" else
                "" if r["verdict"].startswith("DISCARD") else "bad")
-        s_trs.append([f"<td>{r['supplier']}</td><td>{r['statement']}</td><td>{r['invoice']}</td>",
-                      f"<td>{r['country']}</td><td class=r>{r['net']:,.2f}</td><td class=r>{r['vat']:,.2f}</td>",
-                      f"<td class='{cls}'>{r['verdict']}</td><td class='note'>{r['action']}</td>"])
+        s_trs.append([f"<td>{esc(r['supplier'])}</td><td>{esc(r['statement'])}</td><td>{esc(r['invoice'])}</td>",
+                      f"<td>{esc(r['country'])}</td><td class=r>{r['net']:,.2f}</td><td class=r>{r['vat']:,.2f}</td>",
+                      f"<td class='{cls}'>{esc(r['verdict'])}</td><td class='note'>{esc(r['action'])}</td>"])
     stmt_html = (('<div class="card"><h2>Statement reconciliation - every invoice the supplier issued, triaged by VAT</h2>'
                   + tbl(["Supplier","Statement","Issued invoice","Country","Net","VAT","Verdict","Action"], s_trs)
                   + '<div class="note">VAT &gt; 0 -> PROCESS (original required, feeds the refund claim). '
                     'VAT = 0 -> DISCARD (archive only). VAT-bearing lines auto-register so the VAT module '
                     'and receipt control see them.</div></div>') if stmts else "")
     reg_form = ('<div class="card"><h2>Register a summary statement</h2>'
-                f'<form method="post" action="/invoices?period={period}">'
+                f'<form method="post" action="/invoices?period={esc(period)}">'
+                + _csrf_input() +
                 '<input type="hidden" name="__stmt" value="1">'
                 '<div class="f"><label>supplier code<input name="supplier" placeholder="Q8" required></label>'
                 '<label>statement ref<input name="stmt_ref" required></label>'
@@ -752,8 +783,8 @@ def invoice_ctrl():
                 'placeholder="BEOI00118939; 2026-05-31; Belgium; EUR; 37955.70; 7970.70"></textarea>'
                 '<div style="margin-top:8px"><button>Register statement</button></div></form></div>')
     body = (banner + stmt_html + reg_form + f'<form class="f" method="get"><label>Period (YYYY-MM)'
-            f'<input name="period" value="{period}"></label><button>Run control</button></form>'
-            f'<div class="card"><h2>Invoice receipt control — {period}: '
+            f'<input name="period" value="{esc(period)}"></label><button>Run control</button></form>'
+            f'<div class="card"><h2>Invoice receipt control — {esc(period)}: '
             + (f'<span class="bad">{miss} missing to chase</span>' if miss else '<span class="ok">complete</span>')
             + '</h2>'
             + tbl(["Supplier","Country","Slot","Expected cadence","Invoice received","Status","Note"], trs)
@@ -816,6 +847,7 @@ def pricing():
         + '</div>'
         + '<div class="card"><h2>Upload MY Prices (your NET benchmark)</h2>'
         '<form method="post" action="/pricing/upload" enctype="multipart/form-data" class="f">'
+        + _csrf_input() +
         '<label>CSV file<input type="file" name="file" accept=".csv" required></label>'
         '<label><input type="checkbox" name="replace"> replace existing for these months</label>'
         '<button>Upload MY Prices</button></form>'
@@ -824,6 +856,7 @@ def pricing():
         'Also accepts wholesale index via columns <b>country,date,net_price</b> using the '
         'wholesale upload below.</div>'
         '<form method="post" action="/pricing/upload?kind=wholesale" enctype="multipart/form-data" class="f" style="margin-top:8px">'
+        + _csrf_input() +
         '<label>Wholesale index CSV<input type="file" name="file" accept=".csv" required></label>'
         '<button>Upload wholesale index</button></form>'
         '<div class="note">Wholesale columns: country,date,net_price. Enables the true-margin '
@@ -947,24 +980,25 @@ def vat():
         opts = "".join(f'<option {"selected" if s==status else ""}>{s}</option>'
                        for s in ["draft","ready","submitted","approved","paid","rejected","withdrawn"])
         frm = (f'<form method="post" style="margin:0">'
-               f'<input type="hidden" name="entity" value="{m["entity"]}">'
-               f'<input type="hidden" name="country" value="{m["country"]}">'
-               f'<input type="hidden" name="ref_period" value="{m["period"]}">'
+               + _csrf_input() +
+               f'<input type="hidden" name="entity" value="{esc(m["entity"])}">'
+               f'<input type="hidden" name="country" value="{esc(m["country"])}">'
+               f'<input type="hidden" name="ref_period" value="{esc(m["period"])}">'
                f'<select name="status" onchange="this.form.submit()">{opts}</select></form>')
         invs = VR.stream_invoices(con, m["entity"], m["country"], m["period"]) if not m["period"].endswith("YEAR") else []
         nd = sum(1 for s, ref in invs if not VR.docs_for(con, m["entity"], s, ref))
         doccov = ("" if m["period"].endswith("YEAR") else
                   (f'<span class="ok">{len(invs)}/{len(invs)} docs</span>' if invs and nd==0
                    else f'<span class="bad">{len(invs)-nd}/{len(invs)} docs</span>'))
-        rows.append([f"<td>{m['entity']}</td><td>{m['country']}</td><td>{m['period']}</td>",
-                     f"<td class=r>{m['vat_eur']:,.2f}</td><td class=r>{m['vat_local']:,.2f} {m['currency']}</td>",
-                     f"<td class='{vcls}'>{v}</td><td>{', '.join(m['missing'])}</td>",
-                     f"<td>{doccov}</td><td>{m['home']}</td><td>{m['deadline']}</td><td>{frm}</td>"])
+        rows.append([f"<td>{esc(m['entity'])}</td><td>{esc(m['country'])}</td><td>{esc(m['period'])}</td>",
+                     f"<td class=r>{m['vat_eur']:,.2f}</td><td class=r>{m['vat_local']:,.2f} {esc(m['currency'])}</td>",
+                     f"<td class='{vcls}'>{esc(v)}</td><td>{esc(', '.join(m['missing']))}</td>",
+                     f"<td>{doccov}</td><td>{esc(m['home'])}</td><td>{esc(m['deadline'])}</td><td>{frm}</td>"])
     total_ready = sum(m["vat_eur"] for m in matrix
                       if m["verdict"].startswith("READY") and not m["period"].endswith("YEAR"))
-    body = (banner + f'<div class="card"><h2>VAT refund applications {year} (2008/9/EC) — '
+    body = (banner + f'<div class="card"><h2>VAT refund applications {esc(year)} (2008/9/EC) — '
             f'quarterly READY total: <span class="ok">€{total_ready:,.0f}</span> &nbsp; '
-            f'<a href="/export/vat?year={year}">⬇ Generate claim workbook</a></h2>'
+            f'<a href="/export/vat?year={esc(year)}">⬇ Generate claim workbook</a></h2>'
             + tbl(["Entity","Refund country","Period","VAT EUR","VAT local","Threshold verdict",
                    "Months missing","Documents","Home portal","Deadline","Status"], rows)
             + '<div class="note">Statuses persist in the database. Yellow caveats and per-invoice '
@@ -996,16 +1030,17 @@ def documents():
         ent = SPECS[sup]["entity"][0] if sup in SPECS else ENTITY_OVERRIDE.get(sup, sup)
         for ref, dt in invs:
             docs = VR.docs_for(con, ent, sup, ref)
-            dl = " ".join(f'<a href="/doc/{d["id"]}">{esc(d["filename"])}</a> <span class="note">[{d["sha256"][:8]}, {d["kind"]}]</span>'
+            dl = " ".join(f'<a href="/doc/{d["id"]}">{esc(d["filename"])}</a> <span class="note">[{esc(d["sha256"][:8])}, {esc(d["kind"])}]</span>'
                           for d in docs) or '<span class="bad">MISSING</span>'
             up = (f'<form method="post" enctype="multipart/form-data" style="margin:0;display:flex;gap:6px">'
-                  f'<input type="hidden" name="entity" value="{ent}">'
-                  f'<input type="hidden" name="supplier" value="{sup}">'
-                  f'<input type="hidden" name="invoice_ref" value="{ref}">'
+                  + _csrf_input() +
+                  f'<input type="hidden" name="entity" value="{esc(ent)}">'
+                  f'<input type="hidden" name="supplier" value="{esc(sup)}">'
+                  f'<input type="hidden" name="invoice_ref" value="{esc(ref)}">'
                   f'<input type="file" name="doc" accept=".pdf,.jpg,.png,.tif" required>'
                   f'<select name="kind"><option>original_pdf</option><option>scan</option></select>'
                   f'<button>Attach</button></form>')
-            rows.append([f"<td>{ent}</td><td>{sup}</td><td>{ctry}</td><td>{ref}</td><td>{dt}</td>",
+            rows.append([f"<td>{esc(ent)}</td><td>{esc(sup)}</td><td>{esc(ctry)}</td><td>{esc(ref)}</td><td>{esc(dt)}</td>",
                          f"<td>{dl}</td><td>{up}</td>"])
     body = banner + ('<div class="card"><h2>Invoice document vault — every invoice needs its '
                      'original PDF or scan before submission</h2>'
@@ -1032,10 +1067,10 @@ def suppliers():
             ("Invoices","SELECT country, invoice_no, invoice_date, currency, gross_total FROM supplier_invoices WHERE supplier=?",("country","invoice_no","invoice_date","currency","gross_total"))):
             rows = con.execute(q, (s["code"],)).fetchall()
             if rows:
-                body_rows = "".join("<tr>" + "".join(f"<td>{r[col]}</td>" for col in cols) + "</tr>" for r in rows)
-                sect += f"<h2 style='margin-top:12px'>{title}</h2><table><tbody>{body_rows}</tbody></table>"
-        cards.append(f'<div class="card"><h2>{s["code"]} — {s["legal_name"]} '
-                     f'<span class="{"ok" if s["status"]=="active" else "bad"}">[{s["status"]}]</span></h2>'
+                body_rows = "".join("<tr>" + "".join(f"<td>{esc(r[col])}</td>" for col in cols) + "</tr>" for r in rows)
+                sect += f"<h2 style='margin-top:12px'>{esc(title)}</h2><table><tbody>{body_rows}</tbody></table>"
+        cards.append(f'<div class="card"><h2>{esc(s["code"])} — {esc(s["legal_name"])} '
+                     f'<span class="{"ok" if s["status"]=="active" else "bad"}">[{esc(s["status"])}]</span></h2>'
                      f"<table><tbody>{meta}</tbody></table>{sect}</div>")
     con.close()
     body = ('<div class="note" style="margin-bottom:10px">Supplier master data lives in '
@@ -1058,11 +1093,11 @@ def customers():
                                       ("VAT number","vat_number"),("Legal address","legal_address"),
                                       ("Country","country"),("Home tax portal","home_portal"),
                                       ("Notes","notes")) if c[k])
-        banks = "".join(f"<tr><td>{fld(r['iban'])}</td><td>{r['bank']}</td><td>{r['currency']}</td><td>{r['purpose']}</td></tr>"
+        banks = "".join(f"<tr><td>{fld(r['iban'])}</td><td>{esc(r['bank'])}</td><td>{esc(r['currency'])}</td><td>{esc(r['purpose'])}</td></tr>"
                         for r in con.execute("SELECT * FROM customer_bank_accounts WHERE customer=?", (c["code"],)))
-        accs = "".join(f"<tr><td>{r['supplier']}</td><td>{fld(r['account_no'])}</td><td class='note'>{r['notes']}</td></tr>"
+        accs = "".join(f"<tr><td>{esc(r['supplier'])}</td><td>{fld(r['account_no'])}</td><td class='note'>{esc(r['notes'])}</td></tr>"
                        for r in con.execute("SELECT * FROM customer_supplier_accounts WHERE customer=?", (c["code"],)))
-        cards.append(f'<div class="card"><h2>{c["code"]} — {c["company_name"]}</h2>'
+        cards.append(f'<div class="card"><h2>{esc(c["code"])} — {esc(c["company_name"])}</h2>'
                      f"<table><tbody>{meta}</tbody></table>"
                      + (f"<h2 style='margin-top:12px'>Bank accounts</h2><table><tbody>{banks}</tbody></table>" if banks else "")
                      + (f"<h2 style='margin-top:12px'>Supplier account numbers</h2><table><tbody>{accs}</tbody></table>" if accs else "")
@@ -1117,7 +1152,7 @@ def data_manager():
                 banner = '<div class="card"><b class="ok">Saved (change logged in History).</b></div>'
             con.commit()
         except Exception as e:
-            banner = f'<div class="card"><b class="bad">Error: {e}</b></div>'
+            banner = f'<div class="card"><b class="bad">Error: {esc(str(e))}</b></div>'
     # selectors
     dbsel = "".join(f'<option value="{k}" {"selected" if k==dbk else ""}>{k}</option>' for k in DATA_DBS)
     tsel = "".join(f'<option {"selected" if t==table else ""}>{t}</option>' for t in tables)
@@ -1128,18 +1163,20 @@ def data_manager():
     for r in con.execute(f"SELECT {','.join(cols)} FROM {table} LIMIT 200"):
         inputs = "".join(f'<td><input name="c_{c}" value="{esc("" if v is None else str(v))}" '
                          f'style="width:{max(70,min(200,len(str(v or ""))*8))}px"></td>' for c, v in zip(cols, r))
-        hpk = "".join(f'<input type="hidden" name="__pk_{k}" value="{r[cols.index(k)]}">' for k in pks)
-        rows_html += (f'<tr><form method="post" action="/data?db={dbk}&table={table}">{inputs}'
+        hpk = "".join(f'<input type="hidden" name="__pk_{k}" value="{esc(r[cols.index(k)])}">' for k in pks)
+        rows_html += (f'<tr><form method="post" action="/data?db={esc(dbk)}&table={esc(table)}">'
+                      + _csrf_input() + inputs +
                       f'<td style="white-space:nowrap">{hpk}'
                       f'<button name="__action" value="save">Save</button> '
                       f'<button name="__action" value="delete" style="background:var(--bad)" '
                       f'onclick="return confirm(\'Delete this row? The audit log keeps it.\')">Delete</button>'
                       f'</td></form></tr>')
     new_inputs = "".join(f'<td><input name="c_{c}" placeholder="{c}" style="width:90px"></td>' for c in cols)
-    rows_html += (f'<tr><form method="post" action="/data?db={dbk}&table={table}">{new_inputs}'
+    rows_html += (f'<tr><form method="post" action="/data?db={esc(dbk)}&table={esc(table)}">'
+                  + _csrf_input() + new_inputs +
                   f'<td><button name="__action" value="save">+ Add new</button></td></form></tr>')
     head_html = "".join(f"<th>{c}</th>" for c in cols) + "<th>actions</th>"
-    body = (banner + form + f'<div class="card"><h2>{dbk}.db / {table} — write new, edit, delete '
+    body = (banner + form + f'<div class="card"><h2>{esc(dbk)}.db / {esc(table)} — write new, edit, delete '
             f'(every change is audit-logged)</h2><table><thead><tr>{head_html}</tr></thead>'
             f'<tbody>{rows_html}</tbody></table>'
             '<div class="note">Primary-key edits create a new row (old one can be deleted); '
@@ -1161,17 +1198,17 @@ def history_page():
         f'<option {"selected" if t==table else ""}>{t}</option>' for t in tables)
     form = (f'<form class="f" method="get"><label>database<select name="db" onchange="this.form.submit()">{dbsel}</select></label>'
             f'<label>table<select name="table">{tsel}</select></label>'
-            f'<label>from date<input type="date" name="from" value="{f_}"></label>'
-            f'<label>till date<input type="date" name="till" value="{t_}"></label>'
-            f'<label>record key<input name="key" value="{key}" placeholder="e.g. OMUSS"></label>'
+            f'<label>from date<input type="date" name="from" value="{esc(f_)}"></label>'
+            f'<label>till date<input type="date" name="till" value="{esc(t_)}"></label>'
+            f'<label>record key<input name="key" value="{esc(key)}" placeholder="e.g. OMUSS"></label>'
             f'<button>Apply</button></form>')
     trs = []
     for r in rows:
         cls = {"INSERT":"ok","DELETE":"bad"}.get(r["action"], "")
         change = (_audit.diff(r["old_data"], r["new_data"]) if r["action"]=="UPDATE"
                   else (r["new_data"] or r["old_data"] or ""))
-        trs.append([f"<td>{r['ts']}</td><td>{r['tbl']}</td><td>{r['rowkey']}</td>",
-                    f"<td class='{cls}'>{r['action']}</td><td>{esc(r['changed_by'])}</td>" 
+        trs.append([f"<td>{esc(r['ts'])}</td><td>{esc(r['tbl'])}</td><td>{esc(r['rowkey'])}</td>",
+                    f"<td class='{cls}'>{esc(r['action'])}</td><td>{esc(r['changed_by'])}</td>"
                     f"<td class='note'>{esc(str(change)[:220])}</td>"])
     body = (form + f'<div class="card"><h2>Change history — {dbk}.db ({len(rows)} entries'
             + (f", {f_ or 'start'} → {t_ or 'now'}" if f_ or t_ else "") + ')</h2>'
@@ -1218,12 +1255,14 @@ def admin():
         me = u["username"] == session["user"]
         actions = ("" if me else
             f'<form method="post" style="display:inline">'
+            + _csrf_input() +
             f'<input type="hidden" name="username" value="{esc(u["username"])}">'
             f'<select name="role">{rsel(u["role"])}</select> '
             f'<button name="__act" value="role">Set role</button> '
             f'<button name="__act" value="toggle" style="background:var(--bad)">'
             f'{"Disable" if u["active"] else "Enable"}</button></form> '
             f'<form method="post" style="display:inline">'
+            + _csrf_input() +
             f'<input type="hidden" name="username" value="{esc(u["username"])}">'
             f'<input type="password" name="password" placeholder="new password" required '
             f'style="width:110px"> <button name="__act" value="reset">Reset pw</button></form>')
@@ -1233,6 +1272,7 @@ def admin():
                     f'{"active" if u["active"] else "DISABLED"}</td>',
                     f'<td>{esc(u["last_login"])}</td><td>{actions}</td>'])
     addf = ('<form method="post" class="f">'
+            + _csrf_input() +
             '<label>username<input name="username" required></label>'
             '<label>password<input type="password" name="password" required></label>'
             f'<label>role<select name="role">{rsel("editor")}</select></label>'

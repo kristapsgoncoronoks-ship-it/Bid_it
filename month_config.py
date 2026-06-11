@@ -1,6 +1,9 @@
 """MONTHLY CONFIG - the only file edited each month (besides dropping in new workbooks)."""
 PERIOD = "2026-05"
-FX = {"PLN": 1/4.27}  # to EUR; update from ECB monthly average
+# FX values are EUR per 1 unit of the foreign currency (i.e. multiply a foreign
+# amount by this to get EUR). E.g. EUR_PER_PLN = 1/4.27 means 4.27 PLN = 1 EUR.
+# Update from ECB monthly average.
+FX = {"EUR_PER_PLN": 1/4.27}
 FILES = {
     "Q8":    "Q8_DE00752298_adjusted_pricing.xlsx",  # use ADJUSTED file (rebate cols)
     "BP":    "BP_PL_0261167596_transactions.xlsx",

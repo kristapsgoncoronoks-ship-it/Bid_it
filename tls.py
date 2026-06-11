@@ -27,6 +27,7 @@ Diagnostics:  python3 tls.py   -> shows which source resolves, subject, issuer,
 expiry (warns < 30 days). Enforces TLS >= 1.2.
 """
 import os, ssl, tempfile, datetime, subprocess
+from datetime import timezone as _tz
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 

@@ -1,5 +1,6 @@
-import sys
-sys.path.insert(0, "/home/claude/work")
+import os, sys
+WORKDIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, WORKDIR)
 from e100_data import T
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -198,5 +199,5 @@ for c in ws4[tr4]: c.font = Font(bold=True, name="Arial", size=10)
 for col, w in zip("ABCDEFG",[26,12,12,15,12,12,12]):
     ws4.column_dimensions[col].width = w
 
-wb.save("/home/claude/work/E100_BE98759_BE99954_transactions.xlsx")
+wb.save(os.path.join(WORKDIR, "E100_BE98759_BE99954_transactions.xlsx"))
 print("saved", last-1, "lines,", last3-1, "cards")

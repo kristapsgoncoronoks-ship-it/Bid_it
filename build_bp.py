@@ -1,5 +1,8 @@
+import os
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
+
+WORKDIR = os.path.dirname(os.path.abspath(__file__))
 
 # (lp, card, date, reg, location, product, category, qty, unit_net, gross, vat%, vat, net)
 T = [
@@ -171,5 +174,5 @@ ws4["A1"].font = Font(bold=True, name="Arial", size=10)
 for col, w in zip("ABCD",[12,12,13,13]):
     ws4.column_dimensions[col].width = w
 
-wb.save("/home/claude/work/BP_PL_0261167596_transactions.xlsx")
+wb.save(os.path.join(WORKDIR, "BP_PL_0261167596_transactions.xlsx"))
 print("lines:", last-1)

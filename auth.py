@@ -21,6 +21,13 @@ ROLES = ("viewer", "editor", "admin")
 # viewer: read-only (all GET pages); editor: + all operational changes (POST);
 # admin: + user management panel (/admin)
 
+# scrypt cost. Legacy hashes were n=2**14; new/upgraded hashes use NEW_N.
+LEGACY_N = 2 ** 14          # 16384
+NEW_N = 2 ** 16             # 65536
+SCRYPT_R, SCRYPT_P = 8, 1
+# maxmem must cover 128 * n * r bytes (+ overhead). For NEW_N: 128*65536*8 ~= 64MiB.
+SCRYPT_MAXMEM = 132 * 1024 * 1024
+
 def connect():
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
@@ -33,13 +40,18 @@ def connect():
     """)
     try: con.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'editor'")
     except sqlite3.OperationalError: pass  # column already exists (safe)
+    # Per-user scrypt cost; existing hashes default to the legacy n so they keep
+    # verifying with their original parameters.
+    try: con.execute(f"ALTER TABLE users ADD COLUMN kdf_n INTEGER DEFAULT {LEGACY_N}")
+    except sqlite3.OperationalError: pass  # column already exists (safe)
     audit.install_audit(con, ["users"])   # user management is change-logged too
     try: os.chmod(DB, 0o600)
     except OSError: pass
     return con
 
-def _hash(password, salt):
-    return hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1)
+def _hash(password, salt, n=NEW_N, maxmem=SCRYPT_MAXMEM):
+    return hashlib.scrypt(password.encode(), salt=salt, n=n, r=SCRYPT_R, p=SCRYPT_P,
+                          maxmem=maxmem)
 
 def add_user(username, password, role="editor"):
     assert role in ROLES, f"role must be one of {ROLES}"
@@ -47,9 +59,9 @@ def add_user(username, password, role="editor"):
     salt = secrets.token_bytes(16)
     prev = con.execute("SELECT role FROM users WHERE username=?", (username,)).fetchone()
     keep_role = prev["role"] if prev and role == "editor" else role
-    con.execute("""INSERT OR REPLACE INTO users (username, salt, pw_hash, active, role)
-                   VALUES (?,?,?,1,?)""",
-                (username, salt, _hash(password, salt), keep_role))
+    con.execute("""INSERT OR REPLACE INTO users (username, salt, pw_hash, active, role, kdf_n)
+                   VALUES (?,?,?,1,?,?)""",
+                (username, salt, _hash(password, salt, NEW_N), keep_role, NEW_N))
     con.commit(); con.close()
 
 def set_role(username, role):
@@ -86,9 +98,24 @@ def list_users():
 def verify(username, password, remote=""):
     con = connect()
     u = con.execute("SELECT * FROM users WHERE username=? AND active=1", (username,)).fetchone()
-    ok = bool(u) and secrets.compare_digest(_hash(password, u["salt"]), u["pw_hash"])
+    if u is not None:
+        n = u["kdf_n"] or LEGACY_N
+        # maxmem must be large enough for whichever n this user was hashed with.
+        mm = SCRYPT_MAXMEM if n >= NEW_N else 132 * 1024 * 1024
+        ok = secrets.compare_digest(_hash(password, u["salt"], n, mm), u["pw_hash"])
+    else:
+        # Unknown user: still run a full scrypt against a dummy salt so login time
+        # does not reveal whether the username exists (timing oracle).
+        _hash(password, b"\x00" * 16, NEW_N, SCRYPT_MAXMEM)
+        ok = False
     con.execute("INSERT INTO login_log (username, success, remote) VALUES (?,?,?)",
                 (username, int(ok), remote))
+    # Transparent upgrade: on a successful login with a below-target cost, re-hash
+    # the password at the new n and persist it.
+    if ok and (u["kdf_n"] or LEGACY_N) < NEW_N:
+        new_salt = secrets.token_bytes(16)
+        con.execute("UPDATE users SET salt=?, pw_hash=?, kdf_n=? WHERE username=?",
+                    (new_salt, _hash(password, new_salt, NEW_N), NEW_N, username))
     con.commit(); con.close()
     if not ok:
         time.sleep(1.0)   # slow down brute force

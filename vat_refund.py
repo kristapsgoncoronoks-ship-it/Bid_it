@@ -110,46 +110,76 @@ def lock_state(con, ent, ctry, sup, ref):
 
 def set_status(con, ent, ctry, period, new):
     """Guarded status transition enforcing one-invoice-one-submission.
-    Returns (ok, message)."""
-    cur = con.execute("""SELECT status FROM vat_applications WHERE entity=? AND
-                         refund_country=? AND ref_period=?""", (ent, ctry, period)).fetchone()
-    cur = cur["status"] if cur else "draft"
-    if new in LOCKING:
-        if cur not in LOCKING:  # entering locked state -> validate & lock invoices
-            invs = stream_invoices(con, ent, ctry, period)
-            bad = [f"{s}:{r}" for s, r in invs if "INPUT" in r or r.startswith("ALL:")]
-            if bad:
-                return False, "BLOCKED - unresolved invoice refs (fill INPUTs first): " + "; ".join(bad)
-            conflicts = []
-            for s, r in invs:
-                other = lock_state(con, ent, ctry, s, r)
-                if other and other != period:
-                    conflicts.append(f"{s} invoice {r} already claimed in {other}")
-            if conflicts:
-                return False, "BLOCKED - duplicate submission: " + "; ".join(conflicts)
-            nodoc = [f"{s} {r}" for s, r in invs if not docs_for(con, ent, s, r)]
-            if nodoc:
-                return False, ("BLOCKED - physical document missing (attach original PDF "
-                               "or scan first): " + "; ".join(nodoc))
-            for s, r in invs:
-                con.execute("""INSERT OR IGNORE INTO vat_claimed_invoices
-                               (entity, refund_country, supplier, invoice_ref, ref_period)
-                               VALUES (?,?,?,?,?)""", (ent, ctry, s, r, period))
-    elif new in ("rejected", "withdrawn"):
-        con.execute("""DELETE FROM vat_claimed_invoices WHERE entity=? AND refund_country=?
-                       AND ref_period=?""", (ent, ctry, period))
-    elif cur in LOCKING:
-        return False, (f"BLOCKED - application is '{cur}' and holds invoice locks; "
-                       "use 'rejected' or 'withdrawn' to release before reverting.")
-    stamp = {"submitted": "submitted_date", "approved": "approved_date", "paid": "paid_date"}.get(new)
-    con.execute("""INSERT INTO vat_applications (entity, refund_country, ref_period, status)
-                   VALUES (?,?,?,?) ON CONFLICT(entity, refund_country, ref_period)
-                   DO UPDATE SET status=excluded.status, updated=CURRENT_TIMESTAMP""",
-                (ent, ctry, period, new))
-    if stamp:
-        con.execute(f"UPDATE vat_applications SET {stamp}=date('now') WHERE entity=? "
-                    "AND refund_country=? AND ref_period=?", (ent, ctry, period))
-    con.commit()
+    Returns (ok, message).
+
+    The whole transition (duplicate checks + invoice-lock acquisition + the
+    application upsert) runs as ONE transaction. Lock acquisition uses a plain
+    INSERT (not INSERT OR IGNORE) so a lost race surfaces as an IntegrityError on
+    the UNIQUE(entity, refund_country, supplier, invoice_ref) constraint; on that
+    we roll back and abort the status change rather than silently proceeding as if
+    we had won the lock."""
+    try:
+        # Open an immediate transaction so concurrent claimants serialize on write.
+        con.execute("BEGIN IMMEDIATE")
+    except sqlite3.OperationalError:
+        # Already inside a transaction (e.g. autocommit off / nested caller) - fine.
+        pass
+    try:
+        cur = con.execute("""SELECT status FROM vat_applications WHERE entity=? AND
+                             refund_country=? AND ref_period=?""", (ent, ctry, period)).fetchone()
+        cur = cur["status"] if cur else "draft"
+        if new in LOCKING:
+            if cur not in LOCKING:  # entering locked state -> validate & lock invoices
+                invs = stream_invoices(con, ent, ctry, period)
+                bad = [f"{s}:{r}" for s, r in invs if "INPUT" in r or r.startswith("ALL:")]
+                if bad:
+                    con.rollback()
+                    return False, "BLOCKED - unresolved invoice refs (fill INPUTs first): " + "; ".join(bad)
+                conflicts = []
+                for s, r in invs:
+                    other = lock_state(con, ent, ctry, s, r)
+                    if other and other != period:
+                        conflicts.append(f"{s} invoice {r} already claimed in {other}")
+                if conflicts:
+                    con.rollback()
+                    return False, "BLOCKED - duplicate submission: " + "; ".join(conflicts)
+                nodoc = [f"{s} {r}" for s, r in invs if not docs_for(con, ent, s, r)]
+                if nodoc:
+                    con.rollback()
+                    return False, ("BLOCKED - physical document missing (attach original PDF "
+                                   "or scan first): " + "; ".join(nodoc))
+                for s, r in invs:
+                    try:
+                        con.execute("""INSERT INTO vat_claimed_invoices
+                                       (entity, refund_country, supplier, invoice_ref, ref_period)
+                                       VALUES (?,?,?,?,?)""", (ent, ctry, s, r, period))
+                    except sqlite3.IntegrityError:
+                        # Another claim acquired this invoice lock between our check
+                        # and our insert. Abort the entire transition.
+                        con.rollback()
+                        other = lock_state(con, ent, ctry, s, r)
+                        return False, ("BLOCKED - duplicate submission (concurrent claim won the "
+                                       f"lock): {s} invoice {r} already claimed"
+                                       + (f" in {other}" if other else "") + " - retry not needed")
+        elif new in ("rejected", "withdrawn"):
+            con.execute("""DELETE FROM vat_claimed_invoices WHERE entity=? AND refund_country=?
+                           AND ref_period=?""", (ent, ctry, period))
+        elif cur in LOCKING:
+            con.rollback()
+            return False, (f"BLOCKED - application is '{cur}' and holds invoice locks; "
+                           "use 'rejected' or 'withdrawn' to release before reverting.")
+        stamp = {"submitted": "submitted_date", "approved": "approved_date", "paid": "paid_date"}.get(new)
+        con.execute("""INSERT INTO vat_applications (entity, refund_country, ref_period, status)
+                       VALUES (?,?,?,?) ON CONFLICT(entity, refund_country, ref_period)
+                       DO UPDATE SET status=excluded.status, updated=CURRENT_TIMESTAMP""",
+                    (ent, ctry, period, new))
+        if stamp:
+            con.execute(f"UPDATE vat_applications SET {stamp}=date('now') WHERE entity=? "
+                        "AND refund_country=? AND ref_period=?", (ent, ctry, period))
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
     return True, f"status -> {new}" + (" (invoices locked)" if new in LOCKING and cur not in LOCKING
                                        else " (locks released)" if new in ("rejected","withdrawn") else "")
 

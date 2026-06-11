@@ -1,5 +1,8 @@
+import os
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
+
+WORKDIR = os.path.dirname(os.path.abspath(__file__))
 
 # (card, date, time, product, station, country, currency, local_price, fx, eur_price, qty, amount_eur)
 T = []
@@ -265,5 +268,5 @@ for row in ws4.iter_rows(min_row=2, max_row=r4-1):
 for col, w in zip("ABCDE",[36,17,17,10,8]):
     ws4.column_dimensions[col].width = w
 
-wb.save("/home/claude/work/Q8_payment_summary_DE00752298_full_transactions.xlsx")
+wb.save(os.path.join(WORKDIR, "Q8_payment_summary_DE00752298_full_transactions.xlsx"))
 print("transactions:", last-1, "cards:", last2-1)

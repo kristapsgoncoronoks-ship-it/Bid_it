@@ -79,7 +79,7 @@ SPECS = {
     controls="Net+VAT=Gross +-0.01; implied unit vs doc +-0.01; VAT = net x rate +-0.02.",
     portal="BP/Aral fleet portal CSV", terms="Due 15th next month, split payment",
     sheet="Transactions",
-    expected={"lines": (46, 0), "gross_local": (72215.36, 0.02)},
+    expected={"lines": (46, 0), "gross_local": (72215.36, 0.02), "net_eur": (15621.23, 0.05)},
 ),
 "TFC": dict(
     entity=("UAB Motiejausko Transportas", "LT", "LT-reg"),
@@ -138,7 +138,7 @@ def _q8(r, ctx):
 
 def _bp(r, ctx):
     lp,card,date,reg,loc,prod,cat,qty,unit,gross,vatp,vat,net = r[:13]
-    rate = ctx["fx"]["PLN"]
+    rate = ctx["fx"]["EUR_PER_PLN"]   # EUR per 1 PLN (multiply PLN -> EUR)
     return dict(vehicle=f"{card}/{reg}", date=date, time="", station=loc, product=prod,
                 qty=qty, net_local=net, vat_local=vat, gross_local=gross,
                 net_eur=net*rate, vat_eur=vat*rate)

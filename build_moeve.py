@@ -1,5 +1,6 @@
-import sys
-sys.path.insert(0, "/home/claude/work")
+import os, sys
+WORKDIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, WORKDIR)
 from moeve_data import T, PT
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -145,5 +146,5 @@ ws4[f"A{r4+1}"].font = Font(italic=True, name="Arial", size=8)
 for col, w in zip("ABCDE",[34,12,15,15,17]):
     ws4.column_dimensions[col].width = w
 
-wb.save("/home/claude/work/Moeve_BA72400000187538_transactions.xlsx")
+wb.save(os.path.join(WORKDIR, "Moeve_BA72400000187538_transactions.xlsx"))
 print("saved", last-1)

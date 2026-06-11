@@ -1,5 +1,6 @@
-import sys
-sys.path.insert(0, "/home/claude/work")
+import os, sys
+WORKDIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, WORKDIR)
 from dkv_data import T, CT, A, B
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -159,5 +160,5 @@ ws4[f"A{r4+1}"].font = Font(italic=True, name="Arial", size=8)
 for col, w in zip("ABCDEF",[28,11,15,13,14,13]):
     ws4.column_dimensions[col].width = w
 
-wb.save("/home/claude/work/DKV_SE_May2026_transactions.xlsx")
+wb.save(os.path.join(WORKDIR, "DKV_SE_May2026_transactions.xlsx"))
 print("saved", last-1)

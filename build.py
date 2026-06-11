@@ -1,5 +1,8 @@
+import os
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+WORKDIR = os.path.dirname(os.path.abspath(__file__))
 
 # (invoice, card, date, time, product, station, price, qty, vat%, amount, card_total_stated)
 T = []
@@ -179,5 +182,5 @@ for row in ws3.iter_rows(min_row=2, max_row=12):
 for col, w in zip("ABCDE", [44,16,26,10,8]):
     ws3.column_dimensions[col].width = w
 
-wb.save("/home/claude/work/Q8_fuel_invoice_DE00752298_transactions.xlsx")
+wb.save(os.path.join(WORKDIR, "Q8_fuel_invoice_DE00752298_transactions.xlsx"))
 print("rows:", last-1)
