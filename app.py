@@ -793,16 +793,37 @@ def fx():
     the official ECB euro reference rate for the period, fetched on demand."""
     import ecb_rates as ECB, money
     banner = ""
+    is_admin = session.get("role") == "admin"
     if request.method == "POST" and request.form.get("__act") == "refresh":
         try:
             info = ECB.fetch_and_store()
-            banner = (f'<div class="card"><b class="ok">ECB rates refreshed — as of '
-                      f'{esc(info["asof"])}: {info["days"]} day(s), {len(info["currencies"])} '
-                      f'currencies cached.</b></div>')
+            banner = (f'<div class="card"><b class="ok">ECB rates scraped via {esc(info["source"])} '
+                      f'— as of {esc(info["asof"])}: {info["days"]} day(s), '
+                      f'{len(info["currencies"])} currencies cached.</b></div>')
         except Exception as e:
-            banner = (f'<div class="card"><b class="bad">Could not refresh ECB rates: '
-                      f'{esc(str(e))}</b><div class="note">The server needs outbound access to '
-                      f'www.ecb.europa.eu. Cached rates (if any) are still shown.</div></div>')
+            banner = (f'<div class="card"><b class="bad">Could not scrape ECB rates: '
+                      f'{esc(str(e))}</b><div class="note">The server needs outbound HTTPS to a rate '
+                      f'source (ECB, Frankfurter, exchangerate.host or er-api), or an admin can upload '
+                      f'rates instead. Cached rates (if any) are still shown.</div></div>')
+    elif request.method == "POST" and request.form.get("__act") == "upload":
+        if not is_admin:
+            banner = '<div class="card"><b class="bad">Only an admin can upload exchange rates.</b></div>'
+        else:
+            f = request.files.get("file")
+            try:
+                if not f or not f.filename:
+                    raise ValueError("no file selected")
+                data = f.read().decode("utf-8-sig", "replace")
+                rows = (ECB._parse(data) if f.filename.lower().endswith(".xml")
+                        else ECB.parse_csv(data))
+                info = ECB.store(rows, source=f"upload: {f.filename[:40]}")
+                banner = (f'<div class="card"><b class="ok">Uploaded {info["rows"]} rate(s) from '
+                          f'{esc(f.filename)} — as of {esc(info["asof"])}, '
+                          f'{len(info["currencies"])} currencies.</b></div>')
+            except Exception as e:
+                banner = (f'<div class="card"><b class="bad">Upload failed: {esc(str(e))}</b>'
+                          f'<div class="note">CSV columns: <b>date,currency,rate</b> '
+                          f'(rate = foreign units per 1 EUR), or upload an ECB eurofxref .xml.</div></div>')
     con = DB()
     rows = con.execute("""
         SELECT supplier, currency, period,
@@ -812,7 +833,7 @@ def fx():
         FROM transactions WHERE currency<>'EUR'
         GROUP BY supplier, currency, period ORDER BY period DESC, supplier""").fetchall()
     con.close()
-    asof = ECB.latest_asof()
+    asof, asof_src = ECB.latest_asof()
     trs, total_diff, flagged = [], 0.0, 0
     for r in rows:
         ecb_rate, ecb_date = ECB.rate_for(r["currency"], r["last_date"])
@@ -835,18 +856,24 @@ def fx():
                     f"<td class=r>{(r['net_local'] or 0):,.2f}</td><td class=r>{(r['net_eur'] or 0):,.2f}</td>",
                     f"<td class=r><b>{r['implied']:.5f}</b></td>" + ecb_cell + dev_cell + eur_cell])
     refresh = ('<form method="post" style="display:inline">' + _csrf_input()
-               + '<button name="__act" value="refresh">↻ Refresh ECB rates</button></form>')
+               + '<button name="__act" value="refresh">↻ Scrape ECB rates (live)</button></form>')
+    upload = ('<form method="post" enctype="multipart/form-data" style="display:inline-flex;gap:8px;align-items:center">'
+              + _csrf_input()
+              + '<input type="file" name="file" accept=".csv,.xml" required>'
+              + '<button name="__act" value="upload">⬆ Upload rates</button></form>') if is_admin else ""
     head = (f'<div class="kpis">'
             f'<div class="kpi"><div class="v">{esc(asof) if asof else "—"}</div>'
-            f'<div class="l">ECB rates as of</div></div>'
+            f'<div class="l">rates as of{(" · " + esc(asof_src)) if asof_src else ""}</div></div>'
             f'<div class="kpi"><div class="v {"bad" if abs(total_diff)>=1 else ""}">'
             f'€{total_diff:+,.0f}</div><div class="l">invoiced EUR vs EUR at ECB</div></div>'
             f'<div class="kpi"><div class="v {"bad" if flagged else "ok"}">{flagged}</div>'
             f'<div class="l">streams ≥2% off ECB</div></div></div>')
     body = (banner
-            + f'<div class="f" style="margin-bottom:12px">{refresh}'
-            + ('<span class="note" style="align-self:center">No ECB rates cached yet — click refresh '
-               '(needs internet access to the ECB).</span>' if not asof else '') + '</div>'
+            + f'<div class="f" style="margin-bottom:12px;align-items:center">{refresh}{upload}'
+            + (('<span class="note" style="align-self:center">No rates cached yet — '
+                + ('scrape live or upload a CSV/ECB-XML.' if is_admin
+                   else 'ask an admin to scrape or upload rates.') + '</span>') if not asof else '')
+            + '</div>'
             + head
             + '<div class="card"><h2>Invoice exchange rate vs ECB reference rate</h2>'
             + tbl(["Supplier", "Ccy", "Period", "Net local", "Net EUR", "Invoice rate",
@@ -856,7 +883,10 @@ def fx():
               'is the official euro reference rate on/just before the last fuelling date of the '
               'period. Deviation ≥ 2% is flagged — it can signal an FX markup or, at the extreme '
               '(e.g. an implied rate of 1.0), lines that were never converted. Amounts NET EUR, '
-              'final. Source: European Central Bank (ecb.europa.eu), fetched on demand.</div></div>')
+              'final. Rates are <b>scraped live</b> from the ECB (eurofxref / SDMX), with '
+              'Frankfurter, exchangerate.host and er-api as fallbacks — or, on a network without '
+              'outbound access, an <b>admin can upload</b> them (CSV <code>date,currency,rate</code> '
+              'or an ECB eurofxref .xml).</div></div>')
     return page(body, "fx")
 
 # ---------------------------------------------------------------- exports + API
