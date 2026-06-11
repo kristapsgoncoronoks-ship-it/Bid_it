@@ -248,6 +248,27 @@ def _reset_actor(resp):
             _audit_mod.reset_actor(con); con.close()
     return resp
 
+def _log_exc(context, e):
+    """Record a handled exception to the admin error log (keeps the user-facing
+    banner unchanged)."""
+    import traceback
+    _auth.log_error(context, type(e).__name__, str(e),
+                    traceback.format_exc(), session.get("user", ""))
+
+@app.errorhandler(Exception)
+def _on_error(e):
+    """Log any unhandled exception and show a friendly page. Normal HTTP errors
+    (404s, redirects, the 403/400 guard pages) pass through untouched."""
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        return e
+    import traceback
+    _auth.log_error(f"{request.method} {request.path}", type(e).__name__, str(e),
+                    traceback.format_exc(), session.get("user", ""))
+    return page('<div class="card"><h2>Something went wrong</h2>'
+                '<p>The error has been logged — an administrator can review it in the '
+                'Admin panel.</p></div>', ""), 500
+
 def DB():
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
@@ -541,6 +562,7 @@ def _close_status(period):
         items.append(("Statements reconciled", len(stmts) > 0 and nreg == 0,
                       f"{len(stmts)} lines, {nreg} unregistered" if stmts else "none registered"))
     except Exception as e:
+        _log_exc("dashboard close-status", e)
         items.append(("Controls", False, str(e)[:40]))
     try:
         import anomaly
@@ -801,6 +823,7 @@ def fx():
                       f'— as of {esc(info["asof"])}: {info["days"]} day(s), '
                       f'{len(info["currencies"])} currencies cached.</b></div>')
         except Exception as e:
+            _log_exc("ECB scrape", e)
             banner = (f'<div class="card"><b class="bad">Could not scrape ECB rates: '
                       f'{esc(str(e))}</b><div class="note">The server needs outbound HTTPS to a rate '
                       f'source (ECB, Frankfurter, exchangerate.host or er-api), or an admin can upload '
@@ -821,6 +844,7 @@ def fx():
                           f'{esc(f.filename)} — as of {esc(info["asof"])}, '
                           f'{len(info["currencies"])} currencies.</b></div>')
             except Exception as e:
+                _log_exc("ECB rate upload", e)
                 banner = (f'<div class="card"><b class="bad">Upload failed: {esc(str(e))}</b>'
                           f'<div class="note">CSV columns: <b>date,currency,rate</b> '
                           f'(rate = foreign units per 1 EUR), or upload an ECB eurofxref .xml.</div></div>')
@@ -938,6 +962,7 @@ def extract_batch():
         try:
             draft = EX.extract(data, f.filename, backend=request.form.get("backend") or None)
         except Exception as e:
+            _log_exc("import batch / extraction", e)
             return page(f'<div class="card"><b class="bad">Extraction error: {esc(str(e))}</b></div>'
                         + _upload_form(backend_env), "ext")
         if draft.get("error"):
@@ -1102,6 +1127,7 @@ def invoice_ctrl():
                       f'invoices, {n} VAT-bearing auto-synced to the registry. Attach the statement '
                       f'PDF via the Documents page.</b></div>')
         except Exception as e:
+            _log_exc("statement register", e)
             banner = f'<div class="card"><b class="bad">Statement error: {esc(str(e))}</b></div>'
     rows, orphans = invoice_control.run_control(period)
     order = {"MISSING": 0, "RECEIVED - DOC MISSING": 1}
@@ -1510,6 +1536,7 @@ def data_manager():
                 banner = '<div class="card"><b class="ok">Saved (change logged in History).</b></div>'
             con.commit()
         except Exception as e:
+            _log_exc("data manager", e)
             banner = f'<div class="card"><b class="bad">Error: {esc(str(e))}</b></div>'
     # selectors
     dbsel = "".join(f'<option value="{k}" {"selected" if k==dbk else ""}>{k}</option>' for k in DATA_DBS)
@@ -1607,9 +1634,13 @@ def admin():
             elif act == "reset":
                 _auth.add_user(tgt, request.form["password"])
                 banner = f"Password of <b>{esc(tgt)}</b> reset."
+            elif act == "clear_errors":
+                _auth.clear_errors()
+                banner = "Error log cleared."
             scon = _auth.connect(); _audit_mod.reset_actor(scon); scon.close()
             banner = f'<div class="card"><b class="ok">{banner}</b></div>'
         except Exception as e:
+            _log_exc("admin action", e)
             banner = f'<div class="card"><b class="bad">Error: {esc(str(e))}</b></div>'
     users, logins = _auth.list_users()
     rsel = lambda cur: "".join(f'<option {"selected" if r == cur else ""}>{r}</option>'
@@ -1665,6 +1696,30 @@ def admin():
             f'<td class="{ "ok" if l["success"] else "bad"}">'
             f'{"OK" if l["success"] else "FAILED"}</td><td>{esc(l["remote"] or "")}</td>']
            for l in logins]
+    # error log
+    errs = _auth.recent_errors(200)
+    etr = []
+    for er in errs:
+        msg = er.get("message") or ""
+        if er.get("detail"):
+            cell = (f'<details><summary>{esc(msg[:140]) or "(no message)"}</summary>'
+                    f'<pre style="white-space:pre-wrap;font-size:11px;color:var(--mut);'
+                    f'margin:6px 0 0">{esc(er["detail"])}</pre></details>')
+        else:
+            cell = esc(msg)
+        etr.append([f'<td class="note">{esc(er["ts"])}</td><td>{esc(er["username"] or "")}</td>',
+                    f'<td>{esc(er["context"] or "")}</td><td class="bad">{esc(er["etype"] or "")}</td>',
+                    f'<td>{cell}</td>'])
+    clearf = ('<form method="post" style="display:inline">' + _csrf_input()
+              + '<button name="__act" value="clear_errors" style="background:var(--bad)">'
+                'Clear error log</button></form>')
+    errcard = ('<div class="card"><h2>Error log</h2>'
+               + (tbl(["Time (UTC)", "User", "Context", "Type", "Message / traceback"], etr)
+                  if errs else '<p class="note">No errors logged.</p>')
+               + (f'<div style="margin-top:10px">{clearf}</div>' if errs else '')
+               + '<div class="note">Unhandled exceptions and failed operations (imports, ECB '
+                 'scrape/upload, statement register, data edits, admin actions) are recorded here '
+                 'with a traceback. Newest first; last 200 shown.</div></div>')
     import os as _os
     tls = _os.path.exists(_os.path.join(WORKDIR, "cert.pem"))
     body = (banner
@@ -1679,7 +1734,8 @@ def admin():
               f' &nbsp;|&nbsp; Session cookies: HttpOnly, SameSite'
               f'{", Secure (HTTPS)" if tls else ""}</p></div>'
             + '<div class="card"><h2>Recent logins</h2>'
-            + tbl(["Timestamp (UTC)", "Username", "Result", "From"], ltr) + "</div>")
+            + tbl(["Timestamp (UTC)", "Username", "Result", "From"], ltr) + "</div>"
+            + errcard)
     return page(body, "adm")
 
 @app.route("/doc/<int:doc_id>")

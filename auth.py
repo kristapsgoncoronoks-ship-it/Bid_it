@@ -58,6 +58,10 @@ def connect():
         active INTEGER DEFAULT 1, created TEXT DEFAULT (datetime('now')));
     CREATE TABLE IF NOT EXISTS login_log (
         ts TEXT DEFAULT (datetime('now')), username TEXT, success INTEGER, remote TEXT);
+    CREATE TABLE IF NOT EXISTS error_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT DEFAULT (datetime('now')),
+        username TEXT, context TEXT, etype TEXT, message TEXT, detail TEXT);
     """)
     try: con.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'editor'")
     except sqlite3.OperationalError: pass  # column already exists (safe)
@@ -117,6 +121,32 @@ def set_permission(role, perm, allowed):
     con.execute("""INSERT INTO role_permissions (role, perm, allowed) VALUES (?,?,?)
                    ON CONFLICT(role, perm) DO UPDATE SET allowed=excluded.allowed""",
                 (role, perm, int(bool(allowed))))
+    con.commit(); con.close()
+
+# ---------------------------------------------------------------- error log
+def log_error(context, etype, message, detail="", user=""):
+    """Record an application error for the Admin panel. Best-effort: logging must
+    never raise inside an error path, so all failures here are swallowed."""
+    try:
+        con = connect()
+        con.execute("""INSERT INTO error_log (username, context, etype, message, detail)
+                       VALUES (?,?,?,?,?)""",
+                    (user or "", (context or "")[:200], (etype or "")[:80],
+                     (message or "")[:1000], (detail or "")[:8000]))
+        con.commit(); con.close()
+    except Exception:
+        pass
+
+def recent_errors(limit=200):
+    con = connect()
+    rows = [dict(r) for r in con.execute(
+        "SELECT * FROM error_log ORDER BY id DESC LIMIT ?", (int(limit),))]
+    con.close()
+    return rows
+
+def clear_errors():
+    con = connect()
+    con.execute("DELETE FROM error_log")
     con.commit(); con.close()
 
 def _hash(password, salt, n=NEW_N, maxmem=SCRYPT_MAXMEM):
