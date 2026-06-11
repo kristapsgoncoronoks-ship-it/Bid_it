@@ -98,6 +98,23 @@ def test_admin_can_revoke_processor_capability(admin_session):
     auth.set_permission("processor", "pricing", True)
 
 
+def test_savings_page_renders_chart(client):
+    html = client.get("/savings").get_data(as_text=True)
+    assert "<svg" in html
+    assert "Avoidable overpay" in client.get("/").get_data(as_text=True)
+
+
+def test_transactions_drilldown(client):
+    r = client.get("/transactions?period=ALL&supplier=Q8")
+    assert r.status_code == 200
+    assert "Transactions —" in r.get_data(as_text=True)
+
+
+def test_export_stations_xlsx(client):
+    r = client.get("/export/stations")
+    assert r.status_code == 200 and r.get_data()[:2] == b"PK"
+
+
 def test_login_required_redirect():
     import app as A
     c = A.app.test_client()  # not logged in

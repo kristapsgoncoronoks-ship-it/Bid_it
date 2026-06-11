@@ -212,6 +212,7 @@ PERM_BY_ENDPOINT = {
     "documents":       "documents", "doc_download": "documents",
     "export_master":   "exports", "export_history": "exports",
     "export_pricing":  "exports", "export_vat": "exports", "export_compare": "exports",
+    "export_stations": "exports",
     "admin":           "user_admin",   # server setup / overall software changes
 }
 
@@ -361,6 +362,51 @@ def q_stations(con, period):
         FROM transactions WHERE period=? AND product_group='Diesel'
         GROUP BY supplier, country, station HAVING SUM(qty)>=300 ORDER BY eurl""", (period,)).fetchall()
 
+def q_savings(con, period):
+    """Avoidable overpay = for each day+country where 2+ suppliers fueled diesel,
+    litres x (this supplier's eff €/L − the cheapest rival's). Attributed to the
+    country and the supplier that charged the premium. NET EUR/L basis."""
+    rows = con.execute("""
+        SELECT date, country, supplier, SUM(qty) q, SUM(net_eur_eff) e
+        FROM transactions WHERE product_group='Diesel' AND period=?
+        GROUP BY date, country, supplier""", (period,)).fetchall()
+    g = {}
+    for r in rows:
+        if r["q"]:
+            g.setdefault((r["date"], r["country"]), {})[r["supplier"]] = (r["q"], r["e"])
+    total, by_country, by_supplier = 0.0, {}, {}
+    for (_d, c), bysup in g.items():
+        if len(bysup) < 2: continue
+        prices = {s: e / qy for s, (qy, e) in bysup.items()}
+        cheap = min(prices.values())
+        for s, (qy, e) in bysup.items():
+            over = qy * (prices[s] - cheap)
+            if over <= 0: continue
+            total += over
+            by_country[c] = by_country.get(c, 0) + over
+            by_supplier[s] = by_supplier.get(s, 0) + over
+    return {"total": round(total, 2),
+            "by_country": sorted(by_country.items(), key=lambda x: -x[1]),
+            "by_supplier": sorted(by_supplier.items(), key=lambda x: -x[1])}
+
+def svg_hbars(pairs, unit="", width=520, color="#0e5fa8", fmt=",.0f"):
+    """Dependency-free inline SVG horizontal bar chart from (label, value) pairs."""
+    pairs = [(str(l), float(v or 0)) for l, v in pairs]
+    if not pairs:
+        return '<p class="note">No data for this selection.</p>'
+    mx = max((v for _, v in pairs), default=0) or 1
+    rh, gap, lblw = 20, 9, 130
+    h = len(pairs) * (rh + gap) + 6
+    parts = []
+    for i, (l, v) in enumerate(pairs):
+        y = i * (rh + gap) + 4
+        bw = max(1.0, (width - lblw - 80) * (v / mx))
+        parts.append(
+            f'<text x="0" y="{y+14}" font-size="12" fill="#1a2733">{esc(l[:20])}</text>'
+            f'<rect x="{lblw}" y="{y}" width="{bw:.1f}" height="{rh}" rx="3" fill="{color}"/>'
+            f'<text x="{lblw+bw+6:.1f}" y="{y+14}" font-size="12" fill="#5b6b7a">{format(v, fmt)}{esc(unit)}</text>')
+    return f'<svg width="{width}" height="{h}" role="img" aria-label="bar chart">{"".join(parts)}</svg>'
+
 # ---------------------------------------------------------------- layout
 BASE = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -388,7 +434,9 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
 </style></head><body>
 <header><b>Fleet Fuel Analytics</b>
 <a href="/" class="{{'on' if page=='dash'}}">Dashboard</a>
+<a href="/savings" class="{{'on' if page=='sav'}}">Savings</a>
 <a href="/compare" class="{{'on' if page=='cmp'}}">Compare</a>
+<a href="/transactions" class="{{'on' if page=='txn'}}">Transactions</a>
 <a href="/headtohead" class="{{'on' if page=='h2h'}}">Head-to-head</a>
 <a href="/entities" class="{{'on' if page=='ent'}}">Entities &amp; VAT</a>
 <a href="/stations" class="{{'on' if page=='stn'}}">Stations</a>
@@ -445,6 +493,7 @@ def dash():
         return page('<div class="card"><h2>No data loaded yet</h2><p>Import an invoice batch '
                     'or run the monthly close to populate transactions.</p></div>', "dash")
     k = q_kpis(con, period); bm = q_benchmark(con, period); tr = q_trend(con)
+    sv = q_savings(con, period)
     _litres = f"{k['litres']:,.0f}" if k['litres'] is not None else "—"
     _eurl = f"€{k['eurl']:.4f}" if k['eurl'] is not None else "—"
     _net = f"€{k['net']:,.0f}" if k['net'] is not None else "€0"
@@ -455,11 +504,15 @@ def dash():
       <div class="kpi"><div class="v">{_eurl}</div><div class="l">Fleet eff. net €/L</div></div>
       <div class="kpi"><div class="v">{_net}</div><div class="l">Net spend</div></div>
       <div class="kpi"><div class="v">{_vat}</div><div class="l">Reclaimable VAT</div></div>
-      <div class="kpi"><div class="v">{_gross}</div><div class="l">Gross invoiced</div></div></div>"""
+      <a class="kpi" href="/savings" style="text-decoration:none;color:inherit">
+        <div class="v bad">€{sv['total']:,.0f}</div><div class="l">Avoidable overpay &rarr;</div></a></div>"""
+    # benchmark as a chart (cheapest first) + the table
+    bchart = svg_hbars([(f"{r['supplier']} {r['country']}", r['eff']) for r in bm],
+                       unit=" €/L", fmt=".4f", color="#1b7340")
     rows = [[f"<td>{esc(r['supplier'])}</td><td>{esc(r['country'])}</td>",
              f"<td class=r>{r['litres']:,.0f}</td><td class=r>{r['doc']:.4f}</td>",
              f"<td class=r><b>{r['eff']:.4f}</b></td>"] for r in bm]
-    bench = tbl(["Supplier","Country","Litres","€/L doc","€/L effective"], rows)
+    bench = bchart + tbl(["Supplier","Country","Litres","€/L doc","€/L effective"], rows)
     trows = [[f"<td>{esc(r['period'])}</td><td class=r>{r['litres']:,.0f}</td><td class=r>{r['eurl']:.4f}</td>"] for r in tr]
     trend = tbl(["Period","Diesel litres","Fleet eff. €/L"], trows)
     psw = "".join(f'<option {"selected" if p==period else ""}>{esc(p)}</option>' for p in periods)
@@ -547,19 +600,23 @@ def compare():
     qs = request.query_string.decode()
     export = f'<a href="/export/compare?{esc(qs)}">⬇ Export this view (Excel)</a>'
 
+    def drill(r):
+        return (f'/transactions?period={esc(pcur)}&supplier={esc(r["supplier"])}'
+                f'&country={esc(r["country"])}')
     trs = [[f"<td>{esc(r['supplier'])}</td><td>{esc(r['country'])}</td><td>{esc(r['product_group'])}</td>",
             f"<td class=r>{r['litres']:,.0f}</td><td class=r>{r['net_eur']:,.2f}</td><td class=r>{r['vat_eur']:,.2f}</td>",
-            f"<td class=r>{r['eur_l_doc'] or ''}</td><td class=r><b>{r['eur_l_eff'] or ''}</b></td>"] for r in rows]
+            f"<td class=r>{r['eur_l_doc'] or ''}</td><td class=r><b>{r['eur_l_eff'] or ''}</b></td>",
+            f'<td><a href="{drill(r)}">rows →</a></td>'] for r in rows]
     if rows:
         trs.append([f'<td colspan="3"><b>TOTAL ({tot["lines"]:,} lines)</b></td>',
                     f'<td class=r><b>{(tot["litres"] or 0):,.0f}</b></td>'
                     f'<td class=r><b>{(tot["net_eur"] or 0):,.2f}</b></td>'
                     f'<td class=r><b>{(tot["vat_eur"] or 0):,.2f}</b></td>',
-                    f'<td></td><td class=r><b>{tot["eur_l_eff"] or ""}</b></td>'])
+                    f'<td></td><td class=r><b>{tot["eur_l_eff"] or ""}</b></td>', '<td></td>'])
     body = (form
             + f'<div class="note" style="margin:-4px 0 12px">Filters: {chip_html} &nbsp;·&nbsp; {export}</div>'
             + f'<div class="card"><h2>Comparison — {len(rows)} group(s)</h2>'
-            + tbl(["Supplier","Country","Product","Qty","Net €","VAT €","€/L doc","€/L eff"], trs)
+            + tbl(["Supplier","Country","Product","Qty","Net €","VAT €","€/L doc","€/L eff","Detail"], trs)
             + '<div class="note">Prices are NET EUR/L, final (VAT excluded, rebates applied). '
               '€/L eff = net_eur_eff ÷ litres. Pick several suppliers/countries/locations to '
               'compare them side by side; narrow by date range within or across months (period = ALL).</div>'
@@ -640,10 +697,94 @@ def stations():
                 else ('<td class="bad">AVOID</td>' if eurl is not None and eurl>=1.62 else "<td></td>"))
         trs.append([f"<td>{esc(r['supplier'])}</td><td>{esc(r['country'])}</td><td>{esc(r['station'])}</td>",
                     f"<td class=r>{r['litres']:,.0f}</td><td class=r><b>{(eurl or 0):.4f}</b></td>{flag}"])
-    body = (f'<form class="f" method="get"><label>Period<select name="period" onchange="this.form.submit()">{psw}</select></label></form>'
+    body = (f'<form class="f" method="get"><label>Period<select name="period" onchange="this.form.submit()">{psw}</select></label>'
+            f'<a href="/export/stations?period={esc(period or "")}" style="align-self:end;padding:8px 12px;font-size:13px">⬇ Routing export (Excel)</a></form>'
             f'<div class="card"><h2>Diesel station scorecard ≥300 L — cheapest first ({esc(period) if period else "no data"})</h2>'
-            + tbl(["Supplier","Country","Station","Litres","Eff. €/L","Routing"], trs) + "</div>")
+            + tbl(["Supplier","Country","Station","Litres","Eff. €/L","Routing"], trs)
+            + '<div class="note">PREFER ≤ €1.40/L · AVOID ≥ €1.62/L (NET eff). Export gives drivers '
+              'the routing list per station.</div></div>')
     con.close(); return page(body, "stn")
+
+@app.route("/export/stations")
+def export_stations():
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    con = DB(); ps = q_periods(con)
+    period = request.args.get("period") or (ps[0] if ps else None)
+    rows = q_stations(con, period) if period else []
+    con.close()
+    wb = Workbook(); ws = wb.active; ws.title = "Routing"
+    ws.append(["Supplier", "Country", "Station", "Litres", "Eff EUR/L", "Routing", "Period"])
+    for c in ws[1]:
+        c.font = Font(bold=True, color="FFFFFF"); c.fill = PatternFill("solid", fgColor="0E5FA8")
+    for r in rows:
+        e = r["eurl"]
+        flag = "PREFER" if e is not None and e <= 1.40 else ("AVOID" if e is not None and e >= 1.62 else "")
+        ws.append([r["supplier"], r["country"], r["station"], r["litres"], e, flag, period])
+    for i, w in enumerate([10, 12, 30, 10, 11, 9, 10], 1):
+        ws.column_dimensions[chr(64 + i)].width = w
+    buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name=f"Fleet_Fuel_Routing_{period or 'all'}.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+@app.route("/savings")
+def savings():
+    con = DB(); periods = q_periods(con)
+    period = request.args.get("period", periods[0] if periods else None)
+    s = q_savings(con, period) if period else {"total": 0, "by_country": [], "by_supplier": []}
+    con.close()
+    psw = "".join(f'<option {"selected" if p==period else ""}>{esc(p)}</option>' for p in periods)
+    body = (f'<form class="f" method="get"><label>Period<select name="period" onchange="this.form.submit()">{psw}</select></label></form>'
+            f'<div class="kpis"><div class="kpi"><div class="v bad">€{s["total"]:,.0f}</div>'
+            f'<div class="l">avoidable overpay vs cheapest same-day rival · {esc(period) if period else "no data"}</div></div></div>'
+            + '<div class="card"><h2>Overpay by country</h2>'
+            + svg_hbars(s["by_country"], unit=" €") + '</div>'
+            + '<div class="card"><h2>Overpay by supplier</h2>'
+            + svg_hbars(s["by_supplier"], unit=" €", color="#c8102e") + '</div>'
+            + '<div class="note">Apples-to-apples: only days where 2+ suppliers fueled diesel in the '
+              'same country count. The premium is attributed to the dearer supplier. Drill into any '
+              'slice on the <a href="/transactions">Transactions</a> page. Prices NET EUR/L, final.</div>')
+    return page(body, "sav")
+
+@app.route("/transactions")
+def transactions():
+    con = DB(); f = q_filters(con)
+    period = request.args.get("period")
+    if period is None:
+        period = f["periods"][0] if f["periods"] else "ALL"
+    sup = [x for x in request.args.getlist("supplier") if x and x != "ALL"]
+    ctry = [x for x in request.args.getlist("country") if x and x != "ALL"]
+    df = request.args.get("date_from", ""); dt = request.args.get("date_to", "")
+    w, p = where(request.args, period)
+    rows = con.execute(f"""SELECT date, supplier, country, station, vehicle, product,
+        ROUND(qty,2) qty, ROUND(net_eur,2) net_eur, ROUND(vat_eur,2) vat_eur,
+        ROUND(net_eur_eff/NULLIF(qty,0),4) eurl
+        FROM transactions WHERE {w} ORDER BY date, supplier, station LIMIT 2000""", p).fetchall()
+    con.close()
+    pcur = period if period in f["periods"] else "ALL"
+    form = ('<form class="f" method="get">'
+            + f'<label>period<select name="period"><option {"selected" if pcur=="ALL" else ""}>ALL</option>'
+            + "".join(f'<option {"selected" if pp==pcur else ""}>{esc(pp)}</option>' for pp in f["periods"])
+            + '</select></label>'
+            + multisel("supplier", "suppliers", f["suppliers"], sup, size=6)
+            + multisel("country", "countries", f["countries"], ctry, size=6)
+            + f'<label>date from<input type="date" name="date_from" value="{esc(df)}"></label>'
+            + f'<label>date to<input type="date" name="date_to" value="{esc(dt)}"></label>'
+            + '<button>Apply filters</button>'
+            + '<a href="/transactions" style="align-self:end;padding:8px 12px;font-size:13px">Reset</a></form>')
+    trs = [[f"<td>{esc(r['date'])}</td><td>{esc(r['supplier'])}</td><td>{esc(r['country'])}</td>"
+            f"<td>{esc(r['station'])}</td><td>{esc(r['vehicle'])}</td><td>{esc(r['product'])}</td>",
+            f"<td class=r>{(r['qty'] or 0):,.2f}</td><td class=r>{(r['net_eur'] or 0):,.2f}</td>"
+            f"<td class=r>{(r['vat_eur'] or 0):,.2f}</td><td class=r>{r['eurl'] or ''}</td>"] for r in rows]
+    body = (form
+            + f'<div class="card"><h2>Transactions — {len(rows)} line(s)'
+            + (' <span class="note">(capped at 2,000 — narrow the filters)</span>' if len(rows) == 2000 else '')
+            + '</h2>'
+            + tbl(["Date","Supplier","Country","Station","Vehicle","Product","Qty","Net €","VAT €","€/L eff"], trs)
+            + '<div class="note">The line-level detail behind every report. Filter by period, '
+              'supplier(s), country(ies), and date range. Prices NET EUR/L, final.</div></div>')
+    return page(body, "txn")
 
 # ---------------------------------------------------------------- exports + API
 @app.route("/export/master")
