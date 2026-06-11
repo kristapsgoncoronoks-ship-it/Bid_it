@@ -18,9 +18,9 @@ output is a DRAFT: it is shown next to the PDF and a person confirms/edits befor
 the existing reconcile + commit runs. Extraction is never the authority.
 
 Returned draft shape (per batch):
-    {"supplier": str|None, "statement_ref": str|None, "statement_date": "YYYY-MM-DD"|None,
-     "currency": "EUR", "customer": str|None,
-     "lines": [{"invoice_no","date","country","currency","net","vat","_source"}],
+    {"supplier": str|None, "supplier_vat": str|None, "statement_ref": str|None,
+     "statement_date": "YYYY-MM-DD"|None, "currency": "EUR", "customer": str|None,
+     "lines": [{"invoice_no","date","country","currency","net","vat","fx_rate","_source"}],
      "notes": str, "backend": str, "confidence": "high|medium|low"}
 """
 import os, io, re, json, zipfile, subprocess, tempfile
@@ -29,12 +29,17 @@ EXTRACT_BACKEND = os.environ.get("EXTRACT_BACKEND", "auto")
 
 PROMPT = (
  "You extract structured data from fuel-invoice PDFs. Return ONLY JSON, no prose. "
- "Schema: {\"supplier\":string|null,\"statement_ref\":string|null,"
+ "Schema: {\"supplier\":string|null,\"supplier_vat\":string|null,"
+ "\"statement_ref\":string|null,"
  "\"statement_date\":\"YYYY-MM-DD\"|null,\"currency\":string,\"customer\":string|null,"
  "\"lines\":[{\"invoice_no\":string,\"date\":\"YYYY-MM-DD\",\"country\":string,"
- "\"currency\":string,\"net\":number,\"vat\":number}]}. "
+ "\"currency\":string,\"net\":number,\"vat\":number,\"fx_rate\":number|null}]}. "
  "One line per issued invoice. 'net' = taxable base excl. VAT, 'vat' = VAT amount. "
- "Country = full English name. If a value is unreadable use null; never invent."
+ "'supplier_vat' = the issuer's VAT/tax id if shown. 'fx_rate' = the exchange rate "
+ "printed on the invoice to convert the line currency into EUR, as units of the line "
+ "currency per 1 EUR (e.g. 4.27 for PLN); use null when the line is already EUR or no "
+ "rate is shown — never invent a rate. Country = full English name. If a value is "
+ "unreadable use null; never invent."
 )
 
 
@@ -160,7 +165,7 @@ def _ai_claude(texts):
     r = requests.post("https://api.anthropic.com/v1/messages",
         headers={"x-api-key": key, "anthropic-version": "2023-06-01",
                  "content-type": "application/json"},
-        json={"model": os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+        json={"model": os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-8"),
               "max_tokens": 2000, "messages": [{"role": "user", "content": content}]},
         timeout=120)
     r.raise_for_status()
@@ -204,6 +209,10 @@ def _ai_extract(backend, texts):
         for k in ("net", "vat"):
             try: ln[k] = round(float(ln.get(k) or 0), 2)
             except (TypeError, ValueError): ln[k] = 0.0
+        # exchange rate from the invoice (units of line currency per 1 EUR); null if absent
+        fx = ln.get("fx_rate")
+        try: ln["fx_rate"] = round(float(fx), 6) if fx not in (None, "", 0) else None
+        except (TypeError, ValueError): ln["fx_rate"] = None
     d.update(backend=backend, confidence="medium",
              notes=d.get("notes", "") + f" | AI draft ({backend}) - verify every value before commit")
     return d
