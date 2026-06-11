@@ -224,6 +224,48 @@ def test_fee_charged_on_paid_with_minimum(tmp_path, monkeypatch):
     vc.close()
 
 
+def test_payout_route_and_settlement(cd):
+    import vat_refund
+    cd.add_customer("ACME", "Acme SIA", "LV")
+    con = cd.connect(); cd.set_payout_route(con, "ACME", "us"); con.close()
+    assert cd.payout_route("ACME") == "us"
+    # to us: deduct fee, remit net
+    s = vat_refund.settlement("us", 1000, 130)
+    assert s["net_to_customer"] == 870.0 and s["fee_receivable"] == 0.0
+    # to customer: invoice the fee
+    s = vat_refund.settlement("customer", 1000, 130)
+    assert s["fee_receivable"] == 130.0 and s["net_to_customer"] == 0.0
+
+
+def test_fee_invoice_issued_after_paid(tmp_path, monkeypatch):
+    import customer_db
+    import vat_refund
+    monkeypatch.setattr(customer_db, "DB", str(tmp_path / "c.db"))
+    monkeypatch.setattr(customer_db, "_SCHEMA_READY", set())
+    monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "v.db"))
+    monkeypatch.setattr(vat_refund, "_SCHEMA_READY", set())
+    monkeypatch.setattr(vat_refund, "stream_invoices", lambda *a, **k: [])
+    customer_db.add_customer("ACME", "Acme SIA", "LV")
+    con = customer_db.connect()
+    customer_db.set_fee(con, "ACME", 8, 130)
+    customer_db.set_activation(con, "ACME", True)
+    con.close()
+    vc = vat_refund.connect()
+    vc.execute("CREATE TABLE transactions (entity TEXT, country TEXT, period TEXT, vat_eur REAL)")
+    vc.execute("INSERT INTO transactions VALUES ('ACME','Belgium','2026-04',1000)"); vc.commit()
+    vat_refund.set_status(vc, "ACME", "Belgium", "2026-Q2", "submitted")
+    # before paid -> can't invoice
+    ok, msg = vat_refund.issue_fee_invoice(vc, "ACME", "Belgium", "2026-Q2")
+    assert ok is False and "paid" in msg
+    vat_refund.set_status(vc, "ACME", "Belgium", "2026-Q2", "paid")
+    ok, no = vat_refund.issue_fee_invoice(vc, "ACME", "Belgium", "2026-Q2")
+    assert ok and no.startswith("F2026-")
+    # idempotent
+    ok2, no2 = vat_refund.issue_fee_invoice(vc, "ACME", "Belgium", "2026-Q2")
+    assert ok2 and no2 == no
+    vc.close()
+
+
 def test_fee_report_route(client):
     # a downloadable fee report exists per claim (404 for an unknown claim, but xlsx for any)
     r = client.get("/export/fee?entity=Nobody&country=Belgium&period=2026-Q2")
@@ -249,4 +291,4 @@ def test_customers_page_and_recovery_fee_render(client):
     assert "Onboard a new VAT-refund customer" in h
     assert "Activation checklist" in h
     rec = client.get("/recovery").get_data(as_text=True)
-    assert "Our fee" in rec and "fee report" in rec
+    assert "Our fee" in rec and "Settlement" in rec

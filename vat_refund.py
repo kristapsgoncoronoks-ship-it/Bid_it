@@ -62,7 +62,11 @@ def connect():
                 "ALTER TABLE vat_applications ADD COLUMN fee_eur REAL",
                 "ALTER TABLE vat_applications ADD COLUMN fee_pct REAL",
                 "ALTER TABLE vat_applications ADD COLUMN fee_min REAL",
-                "ALTER TABLE vat_applications ADD COLUMN fee_billed_date TEXT"):
+                "ALTER TABLE vat_applications ADD COLUMN fee_billed_date TEXT",
+                # settlement: where the refund landed + the fee invoice once issued
+                "ALTER TABLE vat_applications ADD COLUMN payout_to TEXT",
+                "ALTER TABLE vat_applications ADD COLUMN fee_invoice_no TEXT",
+                "ALTER TABLE vat_applications ADD COLUMN fee_invoice_date TEXT"):
         try: con.execute(ddl)
         except Exception: pass
     if DB != ":memory:":
@@ -259,15 +263,47 @@ def set_status(con, ent, ctry, period, new):
             base = (r["paid_amount"] if r and r["paid_amount"] else (r["vat_eur"] if r else 0)) or 0
             fee, _b = customer_db.compute_fee(base, (r["fee_pct"] if r else 0) or 0,
                                               (r["fee_min"] if r else 0) or 0)
-            con.execute("""UPDATE vat_applications SET fee_eur=?, fee_billed_date=date('now')
+            con.execute("""UPDATE vat_applications SET fee_eur=?, fee_billed_date=date('now'),
+                           payout_to=COALESCE(payout_to, ?)
                            WHERE entity=? AND refund_country=? AND ref_period=?""",
-                        (fee, ent, ctry, period))
+                        (fee, customer_db.payout_route(ent), ent, ctry, period))
         con.commit()
     except Exception:
         con.rollback()
         raise
     return True, f"status -> {new}" + (" (invoices locked)" if new in LOCKING and cur not in LOCKING
                                        else " (locks released)" if new in ("rejected","withdrawn") else "")
+
+def settlement(payout_to, refund_eur, fee_eur):
+    """How the fee is settled. payout_to='customer' -> we invoice the fee (receivable);
+    payout_to='us' -> we deduct the fee and remit the net to the customer."""
+    refund = float(refund_eur or 0); fee = money.f2(fee_eur or 0)
+    if payout_to == "us":
+        return {"route": "us", "refund": money.f2(refund), "fee": fee,
+                "net_to_customer": money.f2(refund - fee), "fee_receivable": 0.0}
+    return {"route": "customer", "refund": money.f2(refund), "fee": fee,
+            "net_to_customer": 0.0, "fee_receivable": fee}
+
+def issue_fee_invoice(con, ent, ctry, period):
+    """Assign a fee-invoice number/date to a paid claim. Returns (ok, number_or_msg)."""
+    r = con.execute("""SELECT fee_billed_date, fee_invoice_no FROM vat_applications
+                       WHERE entity=? AND refund_country=? AND ref_period=?""",
+                    (ent, ctry, period)).fetchone()
+    if not r:
+        return (False, "no such claim")
+    if not r["fee_billed_date"]:
+        return (False, "fee not charged yet — the refund must be paid first")
+    if r["fee_invoice_no"]:
+        return (True, r["fee_invoice_no"])               # already issued (idempotent)
+    yr = str(period).split("-")[0]
+    n = con.execute("SELECT COUNT(*) FROM vat_applications WHERE fee_invoice_no IS NOT NULL"
+                    ).fetchone()[0] + 1
+    inv_no = f"F{yr}-{n:04d}"
+    con.execute("""UPDATE vat_applications SET fee_invoice_no=?, fee_invoice_date=date('now')
+                   WHERE entity=? AND refund_country=? AND ref_period=?""",
+                (inv_no, ent, ctry, period))
+    con.commit()
+    return (True, inv_no)
 
 def submission_readiness(con, ent, ctry, period):
     """Read-only check of whether a claim CAN be submitted. Returns (ready, [issues]).
@@ -559,7 +595,7 @@ def recovery_report(year=None):
     con = connect()
     rows = con.execute("""SELECT entity, refund_country, ref_period, vat_eur, status,
         submitted_date, approved_date, paid_date, paid_amount,
-        fee_eur, fee_pct, fee_min, fee_billed_date
+        fee_eur, fee_pct, fee_min, fee_billed_date, payout_to, fee_invoice_no, fee_invoice_date
         FROM vat_applications WHERE status IN ('submitted','approved','paid')
         AND (? IS NULL OR ref_period LIKE ?) ORDER BY submitted_date""",
         (year, f"{year}-%" if year else None)).fetchall()
@@ -576,7 +612,8 @@ def recovery_report(year=None):
                         vat_eur=r["vat_eur"], status=r["status"], submitted=r["submitted_date"],
                         paid=r["paid_date"], paid_amount=r["paid_amount"], age_days=age,
                         fee_eur=r["fee_eur"], fee_pct=r["fee_pct"], fee_min=r["fee_min"],
-                        fee_billed_date=r["fee_billed_date"]))
+                        fee_billed_date=r["fee_billed_date"], payout_to=r["payout_to"],
+                        fee_invoice_no=r["fee_invoice_no"], fee_invoice_date=r["fee_invoice_date"]))
     con.close()
     summary = {s: money.fsum(o["vat_eur"] or 0 for o in out if o["status"] == s)
                for s in ("submitted", "approved", "paid")}

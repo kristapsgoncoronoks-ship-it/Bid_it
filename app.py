@@ -1316,51 +1316,77 @@ def api_pricing():
                                   request.args.get("pg", "Diesel"))
     return jsonify({"summary": summ, "rows": rows})
 
-@app.route("/recovery")
+@app.route("/recovery", methods=["GET", "POST"])
 def recovery():
     import vat_refund as VR, customer_db as CD
     year = request.args.get("year", "2026")
+    banner = ""
+    if request.method == "POST" and request.form.get("__act") == "issue_invoice":
+        con = VR.connect()
+        ok, res = VR.issue_fee_invoice(con, request.form.get("entity", ""),
+                                       request.form.get("country", ""), request.form.get("period", ""))
+        con.close()
+        banner = (f'<div class="card"><b class="{"ok" if ok else "bad"}">'
+                  + (f"Fee invoice {esc(res)} issued." if ok else f"Could not issue invoice: {esc(res)}")
+                  + '</b></div>')
     rows, summ = VR.recovery_report(year)
     trs = []
-    total_charged = 0.0
+    total_charged = total_net = total_recv = 0.0
     for r in rows:
         agecls = "bad" if isinstance(r["age_days"], int) and r["age_days"] > 120 else ""
         vat = r["vat_eur"] or 0
-        # the fee rate was FROZEN at submission; recompute live only for legacy rows
-        # that predate fee-freezing (fee_eur is null)
-        if r.get("fee_eur") is None:
+        if r.get("fee_eur") is None:   # legacy rows predating fee-freezing
             fee, basis = CD.compute_fee(vat, *CD.fee_for(r["entity"], r["country"]))
         else:
             fee = r["fee_eur"]
             pct_fee = round((r.get("fee_pct") or 0) / 100 * vat, 2)
             basis = "percent" if pct_fee >= (r.get("fee_min") or 0) else "minimum"
         billed = r.get("fee_billed_date")
+        refund = r.get("paid_amount") or vat
+        st = VR.settlement(r.get("payout_to"), refund, fee)
         if billed:
             total_charged += fee
-        feecls = "ok" if billed else "note"
-        fee_state = "charged" if billed else "pending refund"
+            total_net += st["net_to_customer"]; total_recv += st["fee_receivable"]
+        if st["route"] == "us":
+            settle = f'to us; remit <b>€{st["net_to_customer"]:,.2f}</b> net to customer'
+        else:
+            settle = f'to customer; invoice <b>€{st["fee_receivable"]:,.2f}</b> fee'
         link = (f'/export/fee?entity={esc(r["entity"])}&country={esc(r["country"])}'
                 f'&period={esc(r["period"])}')
+        inv_no = r.get("fee_invoice_no")
+        hid = (f'<input type="hidden" name="entity" value="{esc(r["entity"])}">'
+               f'<input type="hidden" name="country" value="{esc(r["country"])}">'
+               f'<input type="hidden" name="period" value="{esc(r["period"])}">')
+        if inv_no:
+            inv_cell = f'{esc(inv_no)} <a href="{link}">⬇ invoice</a>'
+        elif billed:
+            inv_cell = ('<form method="post" style="display:inline">' + _csrf_input() + hid
+                        + '<button name="__act" value="issue_invoice">Issue invoice</button></form> '
+                        + f'<a href="{link}">⬇ report</a>')
+        else:
+            inv_cell = f'<a href="{link}">⬇ report</a>'
         trs.append([f"<td>{esc(r['entity'])}</td><td>{esc(r['country'])}</td><td>{esc(r['period'])}</td>",
                     f"<td class=r>{vat:,.2f}</td>",
-                    f"<td class=r>{fee:,.2f}</td><td class='{feecls}'>{esc(basis)} · {fee_state}</td>",
-                    f"<td>{esc(r['status'])}</td><td>{esc(r['submitted'] or '')}</td>",
+                    f"<td class=r>{fee:,.2f}</td><td class='{'ok' if billed else 'note'}'>{esc(basis)} · {'charged' if billed else 'pending'}</td>",
+                    f"<td class=note>{settle}</td>",
+                    f"<td>{esc(r['status'])}</td>",
                     f"<td class='{agecls}'>{r['age_days'] if r['age_days']!='' else ''}</td>",
-                    f"<td>{esc(r['paid'] or '')}</td><td><a href=\"{link}\">⬇ fee report</a></td>"])
-    body = (f'<div class="card"><h2>VAT recovery tracking {esc(year)}</h2>'
+                    f"<td>{esc(r['paid'] or '')}</td><td>{inv_cell}</td>"])
+    body = (banner + f'<div class="card"><h2>VAT recovery &amp; fee settlement {esc(year)}</h2>'
             f'<div class="kpis"><div class="kpi"><div class="v">EUR {summ["submitted"]:,.0f}</div>'
             f'<div class="l">submitted</div></div>'
-            f'<div class="kpi"><div class="v">EUR {summ["approved"]:,.0f}</div><div class="l">approved</div></div>'
             f'<div class="kpi"><div class="v ok">EUR {summ["paid"]:,.0f}</div><div class="l">paid back</div></div>'
             f'<div class="kpi"><div class="v bad">EUR {summ["outstanding"]:,.0f}</div>'
             f'<div class="l">outstanding</div></div>'
-            f'<div class="kpi"><div class="v ok">EUR {total_charged:,.0f}</div><div class="l">fees charged (paid)</div></div></div>'
-            + tbl(["Entity","Country","Period","VAT EUR","Our fee","Basis · state","Status",
-                   "Submitted","Age (days)","Paid","Fee report"], trs)
-            + '<div class="note">Fee rate (% of refunded VAT, floored at the per-declaration minimum) '
-              'is set per customer / country and <b>frozen when the claim is submitted</b>. The fee '
-              'is <b>charged only when the refund is paid</b>; each claim has a downloadable fee '
-              'report. Age over 120 days flagged red - chase the tax authority.</div></div>')
+            f'<div class="kpi"><div class="v ok">EUR {total_charged:,.0f}</div><div class="l">fees charged</div></div>'
+            f'<div class="kpi"><div class="v">EUR {total_net:,.0f}</div><div class="l">net remitted to customers</div></div></div>'
+            + tbl(["Entity","Country","Period","VAT EUR","Our fee","Settlement","Status",
+                   "Age (days)","Paid","Fee invoice / report"], trs)
+            + '<div class="note">Fee rate is frozen at submission and <b>charged when the refund is '
+              'paid</b>. Settlement depends on where the refund lands (set per customer): to the '
+              '<b>customer</b> → we issue a fee invoice; to <b>us</b> → we deduct the fee and remit '
+              'the net. Issue the fee invoice once paid; the report becomes the invoice. Age over 120 '
+              'days flagged red.</div></div>')
     return page(body, "rec")
 
 @app.route("/readiness")
@@ -1585,6 +1611,10 @@ def customers():
                 CD.set_fee(con, code, request.form.get("fee_pct"), request.form.get("fee_min"))
                 con.close()
                 msg = f"Default fee for {esc(code)} set to {esc(request.form.get('fee_pct') or '0')}% (min €{esc(request.form.get('fee_min') or '0')})."
+            elif act == "set_payout":
+                con = CD.connect()
+                CD.set_payout_route(con, code, request.form.get("payout_route", "customer")); con.close()
+                msg = f"Payout route for {esc(code)} set."
             elif act == "set_country_fee":
                 country = request.form.get("fee_country", "").strip()
                 if not country:
@@ -1679,6 +1709,13 @@ def customers():
                  + f'<label>default fee %<input name="fee_pct" type="number" step="0.1" value="{fee_pct:g}" style="width:80px"></label>'
                  + f'<label>min € / declaration<input name="fee_min" type="number" step="0.01" value="{fee_min:g}" style="width:110px"></label>'
                  + '<button>Save default fee</button></form>')
+        _route = (c["payout_route"] if "payout_route" in c.keys() else None) or "customer"
+        payout_f = ('<form method="post" class="f" style="margin-top:6px">' + _csrf_input() + hid
+                    + '<input type="hidden" name="__act" value="set_payout">'
+                    + '<label>refund paid to<select name="payout_route">'
+                    + f'<option value="customer" {"selected" if _route!="us" else ""}>Customer account (we invoice the fee)</option>'
+                    + f'<option value="us" {"selected" if _route=="us" else ""}>Our account (we deduct fee, remit net)</option>'
+                    + '</select></label><button>Save payout route</button></form>')
         cf_rows = "".join(f"<tr><td>{esc(r['country'])}</td><td class=r>{(r['fee_pct'] or 0):g}%</td>"
                           f"<td class=r>€{(r['fee_min'] or 0):,.2f}</td></tr>"
                           for r in CD.country_fees(con, code))
@@ -1737,7 +1774,7 @@ def customers():
             + '<div class="note" style="margin-top:0">Priority is the % fee; if it falls below the '
               'minimum, the minimum is charged. Adjustable per declaration and per country — but '
               '<b>frozen once a claim is submitted</b>. Computed fees show on the Recovery page.</div>'
-            + fee_f
+            + fee_f + payout_f
             + (f'<table style="margin-top:6px"><thead><tr><th>Country override</th><th>Fee %</th>'
                f'<th>Min €</th></tr></thead><tbody>{cf_rows}</tbody></table>' if cf_rows else '')
             + cfee_f + '</div>')

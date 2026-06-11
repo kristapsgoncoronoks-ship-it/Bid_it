@@ -364,9 +364,10 @@ def _sheet_savings(wb, sv, period):
 
 
 def fee_report_workbook(claim, path=None):
-    """One-sheet service-fee calculation for a single VAT claim. `claim` is a
-    vat_applications row (dict). Fee = % of the refunded amount, or the minimum per
-    claim when the % is lower."""
+    """One-sheet service-fee invoice / calculation for a single VAT claim. `claim`
+    is a vat_applications row (dict). Fee = % of the refunded amount, or the minimum
+    per claim when the % is lower. The settlement depends on where the refund was
+    paid: to the customer (we invoice the fee) or to us (we deduct and remit net)."""
     from openpyxl.styles import Font
     ent = claim.get("entity") or ""
     ctry = claim.get("refund_country") or claim.get("country") or ""
@@ -378,18 +379,37 @@ def fee_report_workbook(claim, path=None):
     fee = claim.get("fee_eur")
     fee = money.f2(fee) if fee is not None else max(pct_fee, mn)
     basis = "percent (% of refund)" if pct_fee >= mn else "minimum per claim"
-    wb = Workbook(); ws = wb.active; ws.title = "Fee calculation"
-    _title(ws, per, f"Service fee calculation — {ent} / {ctry}", "A1:C1")
-    set_widths(ws, [34, 18, 4])
+    inv_no = claim.get("fee_invoice_no")
+    payout = claim.get("payout_to") or "customer"
+    net_to_customer = money.f2(amount - fee)
+    wb = Workbook(); ws = wb.active; ws.title = "Fee invoice" if inv_no else "Fee calculation"
+    heading = (f"Service fee invoice {inv_no}" if inv_no else "Service fee calculation")
+    _title(ws, per, f"{heading} — {ent} / {ctry}", "A1:C1")
+    set_widths(ws, [38, 18, 4])
     lines = [
         ("Customer", ent, None), ("Refund country", ctry, None),
         ("Claim period", per, None), ("Status", claim.get("status") or "", None),
+    ]
+    if inv_no:
+        lines += [("Fee invoice no.", inv_no, None),
+                  ("Invoice date", claim.get("fee_invoice_date") or "", None)]
+    lines += [
         ("", "", None),
         ("Refunded VAT amount (EUR)", amount, FMT_EUR),
         (f"Fee at contract rate ({pct:g}%)", pct_fee, FMT_EUR),
         ("Minimum fee per claim (EUR)", mn, FMT_EUR),
         ("FEE CHARGED (EUR)", fee, FMT_EUR),
         ("Basis", basis, None),
+        ("", "", None),
+        ("Refund paid to", "OUR account" if payout == "us" else "CUSTOMER account", None),
+    ]
+    if payout == "us":
+        lines += [("Less: our service fee (EUR)", fee, FMT_EUR),
+                  ("NET REMITTED TO CUSTOMER (EUR)", net_to_customer, FMT_EUR)]
+    else:
+        lines += [("FEE PAYABLE BY CUSTOMER (EUR)", fee, FMT_EUR),
+                  ("(remit to our account)", "", None)]
+    lines += [
         ("", "", None),
         ("Submitted", claim.get("submitted_date") or claim.get("submitted") or "", None),
         ("Refund paid", claim.get("paid_date") or claim.get("paid") or "", None),
@@ -402,7 +422,7 @@ def fee_report_workbook(claim, path=None):
         c2 = ws.cell(rr, 2, val if val is not None else "")
         if fmt:
             c2.number_format = fmt
-        if str(lbl).startswith("FEE CHARGED"):
+        if str(lbl).startswith(("FEE CHARGED", "NET REMITTED", "FEE PAYABLE")):
             c1.font = Font(bold=True, size=12)
             c2.font = Font(bold=True, size=12, color=ACC)
     ws.sheet_view.showGridLines = False

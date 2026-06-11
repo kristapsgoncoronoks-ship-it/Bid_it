@@ -115,6 +115,9 @@ def connect():
         # fee model: % of refunded VAT, floored at a per-declaration minimum (EUR)
         for ddl in ("ALTER TABLE customers ADD COLUMN fee_pct REAL DEFAULT 0",
                     "ALTER TABLE customers ADD COLUMN fee_min REAL DEFAULT 0",
+                    # where the refund is paid: 'customer' (we invoice the fee) or
+                    # 'us' (we receive it, deduct the fee, remit the net to the customer)
+                    "ALTER TABLE customers ADD COLUMN payout_route TEXT DEFAULT 'customer'",
                     # documents can be scoped to a refund country (NULL = customer-level)
                     "ALTER TABLE customer_documents ADD COLUMN country TEXT"):
             try: con.execute(ddl)
@@ -284,6 +287,20 @@ def set_fee(con, code, fee_pct, fee_min):
     con.execute("UPDATE customers SET fee_pct=?, fee_min=? WHERE code=?",
                 (float(fee_pct or 0), float(fee_min or 0), code))
     con.commit()
+
+def set_payout_route(con, code, route):
+    con.execute("UPDATE customers SET payout_route=? WHERE code=?",
+                ("us" if route == "us" else "customer", code))
+    con.commit()
+
+def payout_route(name_or_code):
+    """'customer' (refund to client, we invoice the fee) or 'us' (refund to us, we
+    deduct the fee and remit the net)."""
+    con = connect()
+    r = con.execute("SELECT payout_route FROM customers WHERE company_name=? OR code=?",
+                    (name_or_code, name_or_code)).fetchone()
+    con.close()
+    return (r["payout_route"] or "customer") if r else "customer"
 
 def set_country_fee(con, code, country, fee_pct, fee_min):
     """Per-country override of the % / minimum fee for one customer."""
