@@ -439,6 +439,7 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
 <a href="/transactions" class="{{'on' if page=='txn'}}">Transactions</a>
 <a href="/headtohead" class="{{'on' if page=='h2h'}}">Head-to-head</a>
 <a href="/entities" class="{{'on' if page=='ent'}}">Entities &amp; VAT</a>
+<a href="/fx" class="{{'on' if page=='fx'}}">FX vs ECB</a>
 <a href="/stations" class="{{'on' if page=='stn'}}">Stations</a>
 {% if 'invoice_control' in perms %}<a href="/invoices" class="{{'on' if page=='inv'}}">Invoice control</a>{% endif %}
 {% if 'data_import' in perms %}<a href="/extract" class="{{'on' if page=='ext'}}">Import batch</a>{% endif %}
@@ -785,6 +786,78 @@ def transactions():
             + '<div class="note">The line-level detail behind every report. Filter by period, '
               'supplier(s), country(ies), and date range. Prices NET EUR/L, final.</div></div>')
     return page(body, "txn")
+
+@app.route("/fx", methods=["GET", "POST"])
+def fx():
+    """Compare each invoice's effective exchange rate (net_local / net_eur) against
+    the official ECB euro reference rate for the period, fetched on demand."""
+    import ecb_rates as ECB, money
+    banner = ""
+    if request.method == "POST" and request.form.get("__act") == "refresh":
+        try:
+            info = ECB.fetch_and_store()
+            banner = (f'<div class="card"><b class="ok">ECB rates refreshed — as of '
+                      f'{esc(info["asof"])}: {info["days"]} day(s), {len(info["currencies"])} '
+                      f'currencies cached.</b></div>')
+        except Exception as e:
+            banner = (f'<div class="card"><b class="bad">Could not refresh ECB rates: '
+                      f'{esc(str(e))}</b><div class="note">The server needs outbound access to '
+                      f'www.ecb.europa.eu. Cached rates (if any) are still shown.</div></div>')
+    con = DB()
+    rows = con.execute("""
+        SELECT supplier, currency, period,
+               ROUND(SUM(net_local),2) net_local, ROUND(SUM(net_eur),2) net_eur,
+               ROUND(SUM(net_local)/NULLIF(SUM(net_eur),0),5) implied,
+               MAX(date) last_date
+        FROM transactions WHERE currency<>'EUR'
+        GROUP BY supplier, currency, period ORDER BY period DESC, supplier""").fetchall()
+    con.close()
+    asof = ECB.latest_asof()
+    trs, total_diff, flagged = [], 0.0, 0
+    for r in rows:
+        ecb_rate, ecb_date = ECB.rate_for(r["currency"], r["last_date"])
+        if ecb_rate:
+            dev = (r["implied"] - ecb_rate) / ecb_rate * 100 if ecb_rate else None
+            eur_at_ecb = money.f2((r["net_local"] or 0) / ecb_rate)
+            eur_diff = money.f2((r["net_eur"] or 0) - eur_at_ecb)
+            total_diff += eur_diff
+            bad = abs(dev) >= 2.0
+            flagged += 1 if bad else 0
+            cls = "bad" if bad else "ok"
+            ecb_cell = f"<td class=r>{ecb_rate:.5f}</td><td class=note>{esc(ecb_date or '')}</td>"
+            dev_cell = f"<td class='r {cls}'>{dev:+.2f}%</td>"
+            eur_cell = f"<td class=r>{eur_at_ecb:,.2f}</td><td class='r {cls}'>{eur_diff:+,.2f}</td>"
+        else:
+            ecb_cell = '<td class=r>—</td><td class=note>not fetched</td>'
+            dev_cell = '<td class=r>—</td>'
+            eur_cell = '<td class=r>—</td><td class=r>—</td>'
+        trs.append([f"<td>{esc(r['supplier'])}</td><td>{esc(r['currency'])}</td><td>{esc(r['period'])}</td>",
+                    f"<td class=r>{(r['net_local'] or 0):,.2f}</td><td class=r>{(r['net_eur'] or 0):,.2f}</td>",
+                    f"<td class=r><b>{r['implied']:.5f}</b></td>" + ecb_cell + dev_cell + eur_cell])
+    refresh = ('<form method="post" style="display:inline">' + _csrf_input()
+               + '<button name="__act" value="refresh">↻ Refresh ECB rates</button></form>')
+    head = (f'<div class="kpis">'
+            f'<div class="kpi"><div class="v">{esc(asof) if asof else "—"}</div>'
+            f'<div class="l">ECB rates as of</div></div>'
+            f'<div class="kpi"><div class="v {"bad" if abs(total_diff)>=1 else ""}">'
+            f'€{total_diff:+,.0f}</div><div class="l">invoiced EUR vs EUR at ECB</div></div>'
+            f'<div class="kpi"><div class="v {"bad" if flagged else "ok"}">{flagged}</div>'
+            f'<div class="l">streams ≥2% off ECB</div></div></div>')
+    body = (banner
+            + f'<div class="f" style="margin-bottom:12px">{refresh}'
+            + ('<span class="note" style="align-self:center">No ECB rates cached yet — click refresh '
+               '(needs internet access to the ECB).</span>' if not asof else '') + '</div>'
+            + head
+            + '<div class="card"><h2>Invoice exchange rate vs ECB reference rate</h2>'
+            + tbl(["Supplier", "Ccy", "Period", "Net local", "Net EUR", "Invoice rate",
+                   "ECB rate", "ECB date", "Deviation", "EUR @ECB", "EUR diff"], trs)
+            + '<div class="note">Rates are foreign units per 1 EUR. <b>Invoice rate</b> = '
+              'net_local ÷ net_eur (the rate the invoice effectively applied). <b>ECB rate</b> '
+              'is the official euro reference rate on/just before the last fuelling date of the '
+              'period. Deviation ≥ 2% is flagged — it can signal an FX markup or, at the extreme '
+              '(e.g. an implied rate of 1.0), lines that were never converted. Amounts NET EUR, '
+              'final. Source: European Central Bank (ecb.europa.eu), fetched on demand.</div></div>')
+    return page(body, "fx")
 
 # ---------------------------------------------------------------- exports + API
 @app.route("/export/master")

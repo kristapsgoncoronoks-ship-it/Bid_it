@@ -10,6 +10,9 @@ privkey.pem
 # ── Generated export files (regenerate, don't track) ──────────────
 Pricing_Intel_*.xlsx
 
+# ── Fetched/cached reference data (re-fetchable) ──────────────────
+ecb_rates.db
+
 # ── Runtime data & state (machine-specific) ────────────────────────
 backups/
 .extract_tmp/
