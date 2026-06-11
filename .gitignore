@@ -7,8 +7,7 @@ key.pem
 fullchain.pem
 privkey.pem
 
-# ── Generated payment / export files (regenerate, don't track) ─────
-SEPA_*.xml
+# ── Generated export files (regenerate, don't track) ──────────────
 Pricing_Intel_*.xlsx
 
 # ── Runtime data & state (machine-specific) ────────────────────────

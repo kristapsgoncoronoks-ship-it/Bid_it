@@ -28,7 +28,7 @@ code, databases, documents, reports — so the folder IS the backup unit.
 ## File map
 
 **Monthly pipeline**
-- `month_config.py` — the ONLY file edited monthly: period, files, FX, payments
+- `month_config.py` — the ONLY file edited monthly: period, files, FX
 - `ingest.py` — source adapters: xlsx / csv / xml / api (self-test: `python3 ingest.py`)
 - `supplier_specs.py` — trainable supplier registry (row maps + validation targets)
 - `consolidate.py` — maps to canonical schema, refuses to build on validation FAIL
@@ -51,7 +51,6 @@ code, databases, documents, reports — so the folder IS the backup unit.
   wholesale index); Excel grid export for pricing models
 - `validate.py` — line-level cross-checks (VAT rate, signs, ranges, batch tie-out) +
   regression store; blocks commit on errors
-- `payments.py` — SEPA pain.001 credit-transfer file from due invoices
 - `anomaly.py` — relative anomaly scan (station price, MoM jumps, volume spikes, off-period)
 - `db.py` — database abstraction; SQLite default, one env var switches to PostgreSQL
 - `watch_inbox.py` — optional folder watcher: auto-extract dropped PDF/ZIP into review queue

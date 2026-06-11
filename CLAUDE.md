@@ -35,7 +35,7 @@ competitor price-competitiveness intelligence, for five Baltic transport entitie
 - NET/effective price = `net_eur_eff / qty`. City dimension = the `station` column.
 
 ## Do NOT commit
-Secrets (.secret_key, certs), `security.db` (password hashes), generated SEPA/Excel,
+Secrets (.secret_key, certs), `security.db` (password hashes), generated Excel,
 runtime dirs (backups/, inbox/). See `.gitignore`.
 
 ## Testing

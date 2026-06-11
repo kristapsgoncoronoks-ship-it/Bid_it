@@ -343,7 +343,6 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
 <a href="/extract" class="{{'on' if page=='ext'}}">Import batch</a>
 <a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
 <a href="/recovery" class="{{'on' if page=='rec'}}">Recovery</a>
-<a href="/payments" class="{{'on' if page=='pay'}}">Payments</a>
 <a href="/anomalies" class="{{'on' if page=='ano'}}">Anomalies</a>
 <a href="/pricing" class="{{'on' if page=='pri'}}">Pricing intel</a>
 <a href="/documents" class="{{'on' if page=='doc'}}">Documents</a>
@@ -904,52 +903,6 @@ def recovery():
             + '<div class="note">Age over 120 days flagged red - chase the tax authority. '
               'Set status to paid on the VAT refunds page when the refund arrives.</div></div>')
     return page(body, "rec")
-
-@app.route("/payments", methods=["GET", "POST"])
-def payments_page():
-    import payments as PAY
-    role = session.get("role", "viewer")
-    period = request.values.get("period", "2026-05")
-    banner = ""
-    if request.method == "POST" and role in ("editor", "admin"):
-        xml, inc, skip = PAY.build_sepa(period, request.form["debtor_name"],
-                                        request.form["debtor_iban"], request.form.get("debtor_bic",""))
-        path = f"{WORKDIR}/SEPA_{period}.xml"
-        open(path, "w").write(xml)
-        banner = (f'<div class="card"><b class="ok">SEPA file generated: {len(inc)} payments, '
-                  f'EUR {sum(l["amount"] for l in inc):,.2f}. '
-                  f'<a href="/export/sepa?period={esc(period)}">Download SEPA_{esc(period)}.xml</a></b></div>')
-    rows = PAY.due_invoices(period)
-    trs = []
-    for r in rows:
-        eur = (r["currency"] or "EUR") == "EUR"
-        noiban = not r["iban"] or "INPUT" in (r["iban"] or "")
-        cls = "" if (eur and not noiban) else "bad"
-        note = "" if (eur and not noiban) else ("non-EUR (FX)" if not eur else "no IBAN on file")
-        trs.append([f"<td>{esc(r['supplier'])}</td><td>{esc(r['invoice_no'])}</td>",
-                    f"<td class=r>{(r['gross_total'] or 0):,.2f}</td><td>{esc(r['currency'] or '')}</td>",
-                    f"<td class='{cls}'>{esc((r['iban'] or '')[:24])}</td><td class='note'>{note}</td>"])
-    form = ('<form method="post" class="f">'
-            f'<input type="hidden" name="period" value="{esc(period)}">'
-            '<label>paying entity name<input name="debtor_name" required></label>'
-            '<label>debtor IBAN<input name="debtor_iban" required></label>'
-            '<label>debtor BIC<input name="debtor_bic"></label>'
-            '<button>Generate SEPA file</button></form>' if role in ("editor","admin") else "")
-    body = (banner + f'<form class="f" method="get"><label>Period<input name="period" value="{esc(period)}"></label><button>Show</button></form>'
-            + f'<div class="card"><h2>Payments due — {esc(period)}</h2>'
-            + tbl(["Supplier","Invoice","Amount","Ccy","Beneficiary IBAN","Note"], trs)
-            + '<div class="note">SEPA file includes EUR invoices with a beneficiary IBAN on file. '
-              'Non-EUR (PLN/SEK) are listed for your FX process. Upload the generated pain.001 '
-              'file to your bank.</div>' + form + "</div>")
-    return page(body, "pay")
-
-@app.route("/export/sepa")
-def export_sepa():
-    import os as _os
-    p = f"{WORKDIR}/SEPA_{request.args.get('period','2026-05')}.xml"
-    if _os.path.exists(p):
-        return send_file(p, as_attachment=True)
-    return "no SEPA file - generate it first", 404
 
 @app.route("/anomalies")
 def anomalies_page():

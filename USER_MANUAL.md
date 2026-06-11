@@ -55,9 +55,6 @@ registers the statement + vaults the PDFs (see §3a).
 **Recovery** — tracks submitted → approved → paid refund amounts with aging; claims
 unpaid over 120 days flagged red to chase the tax authority.
 
-**Payments** — invoices due for the period; generate a **SEPA bank file** (pain.001)
-for the EUR payments to upload to your bank. Non-EUR shown separately for FX.
-
 **Pricing intel** — the competitiveness engine. Toggle daily / weekly / monthly;
 each supplier's effective NET price per city is compared against three baselines:
 your MY Prices (upload as CSV: country,city,date,net_price), the supplier pack (vs
