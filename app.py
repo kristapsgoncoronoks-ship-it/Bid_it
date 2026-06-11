@@ -16,7 +16,7 @@ Pages:  /            dashboard (KPIs, diesel benchmark, monthly trend)
 Exports: /export/master  /export/history   (download the Excel deliverables)
 API:    /api/benchmark /api/compare /api/headtohead /api/entities /api/periods
 """
-import sqlite3, os, secrets
+import sqlite3, os, secrets, threading, time
 from flask import Flask, request, jsonify, render_template_string, send_file, session, redirect
 from markupsafe import escape as esc
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -273,6 +273,57 @@ def DB():
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     return con
+
+# ---------------------------------------------------------------- auto-backup
+# Admin sets how often (security.db setting 'backup_interval_hours'; 0 = off /
+# manual only). A daemon thread checks periodically and snapshots when due. The
+# manual button and the scheduler share one lock so two backups never overlap.
+_backup_lock = threading.Lock()
+_sched_started = False
+BACKUP_CHECK_SECONDS = 300  # how often the scheduler re-checks the schedule
+
+def backup_interval_hours():
+    try:
+        return float(_auth.get_setting("backup_interval_hours", "0") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+def run_backup_now():
+    """Take a snapshot under the shared lock. Returns (path, n_files)."""
+    import backup
+    with _backup_lock:
+        return backup.snapshot()
+
+def _backup_tick():
+    """One scheduler iteration: snapshot if a scheduled backup is due. Returns the
+    snapshot path if one was taken, else None. Never raises (logs instead)."""
+    import backup, traceback
+    try:
+        hrs = backup_interval_hours()
+        if hrs > 0 and backup.due(hrs):
+            path, _ = run_backup_now()
+            return path
+    except Exception as e:
+        try:
+            _auth.log_error("auto-backup", type(e).__name__, str(e),
+                            traceback.format_exc(), "system")
+        except Exception:
+            pass
+    return None
+
+def _backup_loop():
+    while True:
+        _backup_tick()
+        time.sleep(BACKUP_CHECK_SECONDS)
+
+def start_backup_scheduler():
+    """Start the background auto-backup thread once (called by the server
+    entrypoints; not started during imports/tests)."""
+    global _sched_started
+    if _sched_started:
+        return
+    _sched_started = True
+    threading.Thread(target=_backup_loop, name="backup-scheduler", daemon=True).start()
 
 # ---------------------------------------------------------------- queries
 def q_periods(con):
@@ -1637,6 +1688,46 @@ def admin():
             elif act == "clear_errors":
                 _auth.clear_errors()
                 banner = "Error log cleared."
+            elif act == "run_backup":
+                bpath, bn = run_backup_now()
+                banner = (f"Backup created: <b>{esc(os.path.basename(bpath))}</b> "
+                          f"({bn} files hashed — DBs + documents/ + audit CSVs).")
+            elif act == "set_backup_schedule":
+                hrs = request.form.get("interval", "0")
+                try:
+                    hrs_i = int(float(hrs))
+                except ValueError:
+                    hrs_i = 0
+                _auth.set_setting("backup_interval_hours", str(hrs_i))
+                banner = ("Automatic backups turned OFF (manual only)." if hrs_i <= 0
+                          else f"Automatic backups set to run every {hrs_i} hour(s).")
+            elif act == "verify_backup":
+                import backup as _bk, glob as _g
+                snaps = sorted(_g.glob(os.path.join(WORKDIR, "backups", "ffs_*.zip")))
+                if not snaps:
+                    raise ValueError("no backup snapshot found — run a backup first")
+                bad = _bk.verify(snaps[-1])
+                if bad:
+                    _auth.log_error("backup integrity", "IntegrityError",
+                                    f"{len(bad)} file(s) failed the SHA-256 check in "
+                                    f"{os.path.basename(snaps[-1])}", "; ".join(bad[:30]),
+                                    session["user"])
+                    raise ValueError(f"{len(bad)} file(s) FAILED integrity check — see error log")
+                banner = f"Backup <b>{esc(os.path.basename(snaps[-1]))}</b> verified — all hashes match."
+            elif act == "verify_docs":
+                import vat_refund as _vr
+                drows, dsum = _vr.verify_documents()
+                bad = [d for d in drows if d["status"] != "OK"]
+                if bad:
+                    _auth.log_error("document integrity", "IntegrityError",
+                                    f"{dsum['corrupt']} corrupt, {dsum['missing']} missing of "
+                                    f"{dsum['total']} document(s)",
+                                    "; ".join(f"{d['filename']} [{d['status']}] {d['detail']}"
+                                              for d in bad[:30]), session["user"])
+                    raise ValueError(f"document integrity FAILED — {dsum['corrupt']} corrupt, "
+                                     f"{dsum['missing']} missing — see error log")
+                banner = (f"All {dsum['total']} stored document(s) verified — "
+                          f"PDF/ZIP files intact (SHA-256 match).")
             scon = _auth.connect(); _audit_mod.reset_actor(scon); scon.close()
             banner = f'<div class="card"><b class="ok">{banner}</b></div>'
         except Exception as e:
@@ -1720,8 +1811,59 @@ def admin():
                + '<div class="note">Unhandled exceptions and failed operations (imports, ECB '
                  'scrape/upload, statement register, data edits, admin actions) are recorded here '
                  'with a traceback. Newest first; last 200 shown.</div></div>')
-    import os as _os
+    import os as _os, glob as _glob, datetime as _dt
     tls = _os.path.exists(_os.path.join(WORKDIR, "cert.pem"))
+    # backups & data-integrity status
+    snaps = sorted(_glob.glob(_os.path.join(WORKDIR, "backups", "ffs_*.zip")))
+    if snaps:
+        _when = _dt.datetime.fromtimestamp(_os.path.getmtime(snaps[-1])).strftime("%Y-%m-%d %H:%M")
+        last_bk = f'<span class="ok">{esc(_os.path.basename(snaps[-1]))}</span> ({esc(_when)}, {len(snaps)} kept)'
+    else:
+        last_bk = '<span class="bad">none yet — run a backup</span>'
+    dbstat = []
+    for _db in ("customers.db", "suppliers.db", "fuel_history.db", "security.db"):
+        _p = _os.path.join(WORKDIR, _db)
+        if not _os.path.exists(_p):
+            continue
+        try:
+            _cx = sqlite3.connect(_p); _ok = _cx.execute("PRAGMA quick_check").fetchone()[0]; _cx.close()
+            dbstat.append(f'{esc(_db)} <span class="{"ok" if _ok=="ok" else "bad"}">{esc(_ok)}</span>')
+        except Exception as _e:
+            dbstat.append(f'{esc(_db)} <span class="bad">{esc(str(_e)[:30])}</span>')
+    try:
+        import vat_refund as _vr2
+        _vc = _vr2.connect(); ndocs = _vc.execute("SELECT COUNT(*) FROM invoice_documents").fetchone()[0]; _vc.close()
+    except Exception:
+        ndocs = 0
+    _bkbtn = lambda a, lab, st="": (f'<form method="post" style="display:inline">{_csrf_input()}'
+                                    f'<button name="__act" value="{a}" style="{st}">{lab}</button></form> ')
+    # auto-backup schedule
+    _cur_hrs = int(backup_interval_hours())
+    _opts = [(0, "Off (manual only)"), (6, "Every 6 hours"), (12, "Every 12 hours"),
+             (24, "Daily (24h)"), (48, "Every 2 days"), (168, "Weekly")]
+    _osel = "".join(f'<option value="{v}" {"selected" if v==_cur_hrs else ""}>{esc(lab)}</option>'
+                    for v, lab in _opts)
+    _sched_txt = ("manual only" if _cur_hrs <= 0 else f"every {_cur_hrs}h")
+    schedule_form = ('<form method="post" class="f" style="margin:6px 0">' + _csrf_input()
+                     + f'<label>Automatic backup<select name="interval">{_osel}</select></label>'
+                     + '<button name="__act" value="set_backup_schedule">Save schedule</button></form>')
+    backupcard = ('<div class="card"><h2>Backups &amp; data integrity</h2>'
+                  f'<p>Last snapshot: {last_bk} &nbsp;·&nbsp; Schedule: <b>{esc(_sched_txt)}</b>'
+                  f'<br>DB integrity (quick_check): {" &nbsp; ".join(dbstat) or "—"}'
+                  f'<br>{ndocs} document file(s) tracked.</p>'
+                  + schedule_form
+                  + f'<div style="margin:8px 0">{_bkbtn("run_backup","↓ Run backup now")}'
+                  f'{_bkbtn("verify_backup","✓ Verify last backup")}'
+                  f'{_bkbtn("verify_docs","✓ Check document integrity")}</div>'
+                  '<div class="note">Backups run <b>automatically</b> on the schedule above (a '
+                  'background task snapshots when one is due) and can also be taken on demand. Each '
+                  'snapshot bundles the databases (crash-consistent copies), the physical '
+                  '<b>documents/</b> store (PDF/ZIP originals) and write-once audit CSVs, every file '
+                  'carrying a SHA-256 hash so corruption is detectable; the last 14 are kept. Sync the '
+                  '<b>backups/</b> folder to off-machine storage (OneDrive/SharePoint) so files survive '
+                  'disk loss. "Check document integrity" re-hashes every stored PDF/ZIP against the hash '
+                  'recorded at upload — any mismatch or missing file is written to the error log '
+                  'above.</div></div>')
     body = (banner
             + '<div class="card"><h2>Users &amp; permissions</h2>'
             + tbl(["Username", "Role", "Status", "Last login", "Actions"], utr)
@@ -1733,6 +1875,7 @@ def admin():
               f' &nbsp;|&nbsp; Password storage: <span class="ok">scrypt (salted)</span>'
               f' &nbsp;|&nbsp; Session cookies: HttpOnly, SameSite'
               f'{", Secure (HTTPS)" if tls else ""}</p></div>'
+            + backupcard
             + '<div class="card"><h2>Recent logins</h2>'
             + tbl(["Timestamp (UTC)", "Username", "Result", "From"], ltr) + "</div>"
             + errcard)
@@ -1763,6 +1906,7 @@ def api_vat():
 
 if __name__ == "__main__":
     import tls
+    start_backup_scheduler()
     _ctx, _desc = tls.build_context()
     if _ctx:
         app.config.update(SESSION_COOKIE_SECURE=True)

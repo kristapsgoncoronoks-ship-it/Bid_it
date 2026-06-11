@@ -62,6 +62,8 @@ def connect():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         ts TEXT DEFAULT (datetime('now')),
         username TEXT, context TEXT, etype TEXT, message TEXT, detail TEXT);
+    CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY, value TEXT);
     """)
     try: con.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'editor'")
     except sqlite3.OperationalError: pass  # column already exists (safe)
@@ -147,6 +149,19 @@ def recent_errors(limit=200):
 def clear_errors():
     con = connect()
     con.execute("DELETE FROM error_log")
+    con.commit(); con.close()
+
+# ---------------------------------------------------------------- settings
+def get_setting(key, default=None):
+    con = connect()
+    row = con.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
+    con.close()
+    return row["value"] if row else default
+
+def set_setting(key, value):
+    con = connect()
+    con.execute("""INSERT INTO app_settings (key, value) VALUES (?,?)
+                   ON CONFLICT(key) DO UPDATE SET value=excluded.value""", (key, str(value)))
     con.commit(); con.close()
 
 def _hash(password, salt, n=NEW_N, maxmem=SCRYPT_MAXMEM):

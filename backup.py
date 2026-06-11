@@ -15,7 +15,7 @@ machine loss. Audit CSVs inside each snapshot are the tamper-evidence copy of
 the change log (an attacker editing audit_log in the live DB cannot edit
 yesterday's snapshot).
 """
-import os, sys, csv, json, hashlib, sqlite3, zipfile, glob, io, tempfile
+import os, sys, csv, json, hashlib, sqlite3, zipfile, glob, io, tempfile, time
 from datetime import datetime
 from datetime import timezone as _tz
 
@@ -98,6 +98,25 @@ def snapshot():
     for old in snaps[:-KEEP]:
         os.remove(old)
     return path, len(manifest)
+
+
+def last_snapshot():
+    """(path, mtime_epoch) of the newest snapshot, or (None, None)."""
+    snaps = sorted(glob.glob(os.path.join(BACKUPDIR, "ffs_*.zip")))
+    if not snaps:
+        return (None, None)
+    return (snaps[-1], os.path.getmtime(snaps[-1]))
+
+
+def due(interval_hours):
+    """True if a scheduled backup is due: no snapshot yet, or the newest one is
+    older than interval_hours. interval_hours <= 0 means auto-backup is disabled."""
+    if not interval_hours or interval_hours <= 0:
+        return False
+    _, mtime = last_snapshot()
+    if mtime is None:
+        return True
+    return (time.time() - mtime) >= interval_hours * 3600
 
 
 def verify(path):

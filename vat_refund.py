@@ -96,6 +96,38 @@ def docs_for(con, ent, sup, ref):
     return con.execute("""SELECT * FROM invoice_documents WHERE entity=? AND supplier=?
                           AND invoice_ref=? ORDER BY uploaded_at""", (ent, sup, ref)).fetchall()
 
+def verify_documents(con=None):
+    """Integrity check for the physical documents (PDF/ZIP files): re-read each
+    stored file and compare its SHA-256 to the hash recorded when it was attached.
+    Detects corrupted or missing/jeopardised files. Returns (rows, summary)."""
+    import hashlib
+    import doc_storage
+    close = False
+    if con is None:
+        con = connect(); close = True
+    rows, ok, corrupt, missing = [], 0, 0, 0
+    for r in con.execute("""SELECT entity, supplier, invoice_ref, filename, stored_path,
+                            sha256, size, backend FROM invoice_documents ORDER BY id"""):
+        status, detail = "OK", ""
+        try:
+            data = doc_storage.get_bytes(r["stored_path"], DOCDIR)
+            actual = hashlib.sha256(data).hexdigest()
+            if actual != r["sha256"]:
+                status, detail = "CORRUPT", f"hash {actual[:8]} != recorded {r['sha256'][:8]}"
+                corrupt += 1
+            else:
+                ok += 1
+        except Exception as e:
+            status, detail = "MISSING", str(e)[:140]
+            missing += 1
+        rows.append({"entity": r["entity"], "supplier": r["supplier"],
+                     "invoice_ref": r["invoice_ref"], "filename": r["filename"],
+                     "sha256": r["sha256"], "backend": r["backend"],
+                     "status": status, "detail": detail})
+    if close:
+        con.close()
+    return rows, {"total": len(rows), "ok": ok, "corrupt": corrupt, "missing": missing}
+
 LOCKING = ("submitted", "approved", "paid")
 
 def stream_invoices(con, ent, ctry, period):
