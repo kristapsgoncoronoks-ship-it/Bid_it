@@ -32,9 +32,13 @@ def q_months(per):             # '2026-Q2' -> Apr-Jun; '2026-YEAR' -> all 12 mon
     y, q = per.split("-Q")
     return [f"{y}-{m:02d}" for m in range((int(q)-1)*3+1, (int(q)-1)*3+4)]
 
+_SCHEMA_READY = set()   # DB files whose schema is set up this process
+
 def connect():
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
+    if DB != ":memory:" and DB in _SCHEMA_READY:
+        return con
     con.execute("""CREATE TABLE IF NOT EXISTS vat_applications (
         entity TEXT, refund_country TEXT, ref_period TEXT,
         vat_eur REAL, vat_local REAL, currency TEXT,
@@ -56,6 +60,8 @@ def connect():
                 "ALTER TABLE invoice_documents ADD COLUMN web_url TEXT"):
         try: con.execute(ddl)
         except Exception: pass
+    if DB != ":memory:":
+        _SCHEMA_READY.add(DB)
     return con
 
 DOCDIR = f"{WORKDIR}/documents"

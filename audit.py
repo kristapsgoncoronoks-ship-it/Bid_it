@@ -54,7 +54,27 @@ def _cols_pk(con, table):
 def _jobj(prefix, cols):
     return "json_object(" + ", ".join(f"'{c}', {prefix}.{c}" for c in cols) + ")"
 
+_AUDIT_INSTALLED = set()   # (db_file, frozenset(tables)) already set up this process
+
+def _db_file(con):
+    try:
+        for _seq, name, file in con.execute("PRAGMA database_list"):
+            if name == "main":
+                return file or ":memory:"
+    except sqlite3.Error:
+        pass
+    return ":memory:"
+
 def install_audit(con, tables):
+    # The audit_log table and the per-table triggers PERSIST in the database file,
+    # so this DDL only needs to run once per DB per process. Re-running it on every
+    # connect() (which the module connect() helpers do) was the dominant request
+    # cost. Skip the work when we have already installed it this process (never
+    # cache :memory: DBs, whose path collides across distinct connections).
+    path = _db_file(con)
+    key = (path, frozenset(tables))
+    if path != ":memory:" and key in _AUDIT_INSTALLED:
+        return
     con.executescript(LOG_DDL)
     try: con.execute("ALTER TABLE audit_log ADD COLUMN changed_by TEXT")
     except sqlite3.OperationalError: pass  # column already exists (safe)
@@ -85,6 +105,8 @@ CREATE TRIGGER IF NOT EXISTS aud_{t}_d AFTER DELETE ON {t} BEGIN
                 con.execute("""INSERT INTO audit_log (tbl, rowkey, action, new_data)
                                VALUES (?,?, 'BASELINE', ?)""", (t, row[0], row[1]))
     con.commit()
+    if path != ":memory:":
+        _AUDIT_INSTALLED.add(key)
 
 def history(con, table=None, key_like=None, dt_from=None, dt_till=None, action=None, limit=500):
     w, p = ["1=1"], []

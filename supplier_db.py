@@ -151,13 +151,19 @@ INVOICE_REG = [
  ("DKV","Sweden","26/652169828/011","2026-05-31","2026-05","SEK",148330.66,"EUR 13,757.93"),
 ]
 
+_SCHEMA_READY = set()   # DB files whose schema is set up this process
+
 def connect():
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
-    con.executescript(SCHEMA)
-    try: con.execute("ALTER TABLE suppliers ADD COLUMN invoice_cadence TEXT DEFAULT 'monthly'")
-    except sqlite3.OperationalError: pass  # column already exists (safe)
-    audit.install_audit(con, ['suppliers', 'supplier_vat_registrations', 'supplier_bank_accounts', 'supplier_products', 'supplier_invoices'])
+    # Schema/migration/trigger setup persists in the file; only do it once per
+    # process per DB (this connect() is called many times per request).
+    if DB == ":memory:" or DB not in _SCHEMA_READY:
+        con.executescript(SCHEMA)
+        try: con.execute("ALTER TABLE suppliers ADD COLUMN invoice_cadence TEXT DEFAULT 'monthly'")
+        except sqlite3.OperationalError: pass  # column already exists (safe)
+        audit.install_audit(con, ['suppliers', 'supplier_vat_registrations', 'supplier_bank_accounts', 'supplier_products', 'supplier_invoices'])
+        _SCHEMA_READY.add(DB)
     return con
 
 def seed(con):

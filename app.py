@@ -531,11 +531,15 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
 <a href="/logout" style="margin-left:10px">Sign out</a></span>
 </header><main>{{ body|safe }}</main></body></html>"""
 
+_BASE_TMPL = None   # compiled once; render_template_string would recompile per call
 def page(body, p):
+    global _BASE_TMPL
+    if _BASE_TMPL is None:
+        _BASE_TMPL = app.jinja_env.from_string(BASE)
     role = session.get("role", "processor")
-    return render_template_string(BASE, body=body, page=p,
-                                  user=session.get("user", ""), role=role,
-                                  perms=_auth.permissions_for(role) if session.get("user") else set())
+    return _BASE_TMPL.render(body=body, page=p,
+                             user=session.get("user", ""), role=role,
+                             perms=_auth.permissions_for(role) if session.get("user") else set())
 
 def tbl(headers, rows):
     h = "".join(f"<th>{x}</th>" for x in headers)
@@ -596,9 +600,17 @@ def dash():
             f'<div class="card"><h2>Monthly trend</h2>{trend}<div class="note">Populates as periods are loaded via history.py.</div></div>')
     con.close(); return page(body, "dash")
 
+_close_cache = {}   # period -> (expires_epoch, html); the controls below are heavy
+_CLOSE_TTL = 30     # seconds
+
 def _close_status(period):
-    """Month-close checklist: one glance at where the period stands."""
+    """Month-close checklist: one glance at where the period stands. Cached for a
+    few seconds so repeated dashboard loads don't re-run the full receipt/anomaly
+    controls every time."""
     import sqlite3, os as _os
+    _hit = _close_cache.get(period)
+    if _hit and _hit[0] > time.time():
+        return _hit[1]
     items = []
     fc = sqlite3.connect(f"{WORKDIR}/fuel_history.db"); fc.row_factory = sqlite3.Row
     n = fc.execute("SELECT COUNT(*) c FROM transactions WHERE period=?", (period,)).fetchone()["c"]
@@ -629,7 +641,9 @@ def _close_status(period):
         mark = "\u2713" if ok_ else "\u2717"
         cells += (f'<div class="kpi"><div class="v {ic}">{mark}</div>'
                   f'<div class="l">{esc(label)}<br><span class="note">{esc(detail)}</span></div></div>')
-    return f'<div class="card"><h2>Month-close status — {esc(period)}</h2><div class="kpis">{cells}</div></div>'
+    html = f'<div class="card"><h2>Month-close status — {esc(period)}</h2><div class="kpis">{cells}</div></div>'
+    _close_cache[period] = (time.time() + _CLOSE_TTL, html)
+    return html
 
 @app.route("/compare")
 def compare():

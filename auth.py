@@ -49,33 +49,39 @@ SCRYPT_R, SCRYPT_P = 8, 1
 # maxmem must cover 128 * n * r bytes (+ overhead). For NEW_N: 128*65536*8 ~= 64MiB.
 SCRYPT_MAXMEM = 132 * 1024 * 1024
 
+_SCHEMA_READY = set()   # DB files whose schema is set up this process
+
 def connect():
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
-    con.executescript("""
-    CREATE TABLE IF NOT EXISTS users (
-        username TEXT PRIMARY KEY, salt BLOB, pw_hash BLOB,
-        active INTEGER DEFAULT 1, created TEXT DEFAULT (datetime('now')));
-    CREATE TABLE IF NOT EXISTS login_log (
-        ts TEXT DEFAULT (datetime('now')), username TEXT, success INTEGER, remote TEXT);
-    CREATE TABLE IF NOT EXISTS error_log (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ts TEXT DEFAULT (datetime('now')),
-        username TEXT, context TEXT, etype TEXT, message TEXT, detail TEXT);
-    CREATE TABLE IF NOT EXISTS app_settings (
-        key TEXT PRIMARY KEY, value TEXT);
-    """)
-    try: con.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'editor'")
-    except sqlite3.OperationalError: pass  # column already exists (safe)
-    # Per-user scrypt cost; existing hashes default to the legacy n so they keep
-    # verifying with their original parameters.
-    try: con.execute(f"ALTER TABLE users ADD COLUMN kdf_n INTEGER DEFAULT {LEGACY_N}")
-    except sqlite3.OperationalError: pass  # column already exists (safe)
-    _seed_permissions(con)
-    audit.install_audit(con, ["users", "role_permissions"])  # both change-logged
-    con.commit()
-    try: os.chmod(DB, 0o600)
-    except OSError: pass
+    # Schema/migrations/seeding persist in the file; run once per process per DB
+    # (connect() is called on every page render via permissions_for).
+    if DB == ":memory:" or DB not in _SCHEMA_READY:
+        con.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY, salt BLOB, pw_hash BLOB,
+            active INTEGER DEFAULT 1, created TEXT DEFAULT (datetime('now')));
+        CREATE TABLE IF NOT EXISTS login_log (
+            ts TEXT DEFAULT (datetime('now')), username TEXT, success INTEGER, remote TEXT);
+        CREATE TABLE IF NOT EXISTS error_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts TEXT DEFAULT (datetime('now')),
+            username TEXT, context TEXT, etype TEXT, message TEXT, detail TEXT);
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY, value TEXT);
+        """)
+        try: con.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'editor'")
+        except sqlite3.OperationalError: pass  # column already exists (safe)
+        # Per-user scrypt cost; existing hashes default to the legacy n so they keep
+        # verifying with their original parameters.
+        try: con.execute(f"ALTER TABLE users ADD COLUMN kdf_n INTEGER DEFAULT {LEGACY_N}")
+        except sqlite3.OperationalError: pass  # column already exists (safe)
+        _seed_permissions(con)
+        audit.install_audit(con, ["users", "role_permissions"])  # both change-logged
+        con.commit()
+        try: os.chmod(DB, 0o600)
+        except OSError: pass
+        _SCHEMA_READY.add(DB)
     return con
 
 def _seed_permissions(con):
