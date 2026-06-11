@@ -1421,6 +1421,8 @@ def vat():
     matrix = VR.claim_matrix(con, year)
     sts = {(r["entity"], r["refund_country"], r["ref_period"]): r["status"]
            for r in con.execute("SELECT * FROM vat_applications")}
+    docidx = VR.docs_index(con)        # one query instead of docs_for() per invoice
+    inv_cache = {}                     # shared supplier conn + issuer/invoice memo
     rows = []
     for m in matrix:
         status = sts.get((m["entity"], m["country"], m["period"]), "draft")
@@ -1434,8 +1436,8 @@ def vat():
                f'<input type="hidden" name="country" value="{esc(m["country"])}">'
                f'<input type="hidden" name="ref_period" value="{esc(m["period"])}">'
                f'<select name="status" onchange="this.form.submit()">{opts}</select></form>')
-        invs = VR.stream_invoices(con, m["entity"], m["country"], m["period"]) if not m["period"].endswith("YEAR") else []
-        nd = sum(1 for s, ref in invs if not VR.docs_for(con, m["entity"], s, ref))
+        invs = VR.stream_invoices(con, m["entity"], m["country"], m["period"], inv_cache) if not m["period"].endswith("YEAR") else []
+        nd = sum(1 for s, ref in invs if (m["entity"], s, ref) not in docidx)
         doccov = ("" if m["period"].endswith("YEAR") else
                   (f'<span class="ok">{len(invs)}/{len(invs)} docs</span>' if invs and nd==0
                    else f'<span class="bad">{len(invs)-nd}/{len(invs)} docs</span>'))
@@ -1453,6 +1455,8 @@ def vat():
             + '<div class="note">Statuses persist in the database. Yellow caveats and per-invoice '
               'claim packs are in the exported workbook. Quarterly min €400, annual min €50 '
               '(national equivalents apply).</div></div>')
+    if inv_cache.get("_scon") is not None:
+        inv_cache["_scon"].close()
     con.close(); return page(body, "vat")
 
 

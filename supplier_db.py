@@ -180,23 +180,25 @@ def seed(con):
     con.commit()
 
 # ---- API used by the VAT refund module (replaces vat_config ISSUERS/INVOICES) ----
-def get_issuer(code, country=None):
-    con = connect()
+def get_issuer(code, country=None, con=None):
+    own = con is None
+    if own: con = connect()
     s = con.execute("SELECT legal_name FROM suppliers WHERE code=?", (code,)).fetchone()
     v = con.execute("""SELECT vat_number, source FROM supplier_vat_registrations
                        WHERE supplier=? AND country=?""", (code, country)).fetchone()
-    con.close()
+    if own: con.close()
     name = s["legal_name"] if s else code
     if v and v["vat_number"]:
         return name, v["vat_number"], v["source"]
     return name, None, (v["source"] if v else "no VAT registration on file - INPUT")
 
-def get_invoices(code, country):
-    con = connect()
+def get_invoices(code, country, con=None):
+    own = con is None
+    if own: con = connect()
     rows = con.execute("""SELECT invoice_no, invoice_date FROM supplier_invoices
                           WHERE supplier=? AND country=? ORDER BY invoice_date""",
                        (code, country)).fetchall()
-    con.close()
+    if own: con.close()
     return [(r["invoice_no"], r["invoice_date"]) for r in rows] or \
            [(f"INPUT: {country} invoice", "")]
 

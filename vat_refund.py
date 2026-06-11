@@ -136,9 +136,16 @@ def verify_documents(con=None):
 
 LOCKING = ("submitted", "approved", "paid")
 
-def stream_invoices(con, ent, ctry, period):
+def stream_invoices(con, ent, ctry, period, cache=None):
     """Distinct (supplier, invoice_ref) used by a claim stream."""
-    return sorted({(L["supplier"], L["invoice"]) for L in invoice_lines(con, ent, ctry, period)})
+    return sorted({(L["supplier"], L["invoice"]) for L in invoice_lines(con, ent, ctry, period, cache)})
+
+def docs_index(con):
+    """One-query set of (entity, supplier, invoice_ref) that have >=1 document.
+    Lets callers check document coverage without an N+1 of docs_for()."""
+    return {(r["entity"], r["supplier"], r["invoice_ref"])
+            for r in con.execute(
+                "SELECT DISTINCT entity, supplier, invoice_ref FROM invoice_documents")}
 
 def lock_state(con, ent, ctry, sup, ref):
     r = con.execute("""SELECT ref_period FROM vat_claimed_invoices WHERE entity=? AND
@@ -264,17 +271,31 @@ def claim_matrix(con, year):
                         deadline=DEADLINE_FMT.format(year_plus1=int(year)+1)))
     return out
 
-def invoice_lines(con, ent, ctry, qtr):
+def invoice_lines(con, ent, ctry, qtr, cache=None):
     """Invoice-level detail for one claim: prefer per-invoice split via the note column,
-    fall back to registry invoice(s) carrying the country aggregate."""
+    fall back to registry invoice(s) carrying the country aggregate.
+
+    `cache` (optional dict) lets a caller rendering many claims share one
+    supplier-DB connection and memoize per-(supplier, country) issuer/invoice
+    lookups across calls, avoiding an N+1 of connections/queries."""
+    own_cache = cache is None
+    cache = cache if cache is not None else {}
+    scon = cache.get("_scon")
+    if scon is None:
+        scon = supplier_db.connect(); cache["_scon"] = scon
     months = q_months(qtr)
     sups = [r[0] for r in con.execute(
         """SELECT DISTINCT supplier FROM transactions WHERE entity=? AND country=?
            AND period IN (%s)""" % ",".join("?"*len(months)), [ent, ctry]+months)]
     lines = []
     for sup in sups:
-        issuer, vatid, vnote = supplier_db.get_issuer(sup, ctry)
-        regs = supplier_db.get_invoices(sup, ctry)
+        ck = (sup, ctry)
+        if ck in cache:
+            issuer, vatid, vnote, regs = cache[ck]
+        else:
+            issuer, vatid, vnote = supplier_db.get_issuer(sup, ctry, con=scon)
+            regs = supplier_db.get_invoices(sup, ctry, con=scon)
+            cache[ck] = (issuer, vatid, vnote, regs)
         refs = [r[0] for r in regs]
         rows = con.execute(
             """SELECT note, product_group, ROUND(SUM(net_eur),2) net, ROUND(SUM(vat_eur),2) vat,
@@ -300,6 +321,8 @@ def invoice_lines(con, ent, ctry, qtr):
                                   code=code, desc=desc, product=pg, currency=ccy,
                                   net_local=money.f2(netl), vat_local=money.f2(vatl),
                                   net_eur=money.f2(net), vat_eur=money.f2(vat)))
+    if own_cache and cache.get("_scon") is not None:
+        cache["_scon"].close()
     return lines
 
 # ---------------------------------------------------------------- Excel pack
