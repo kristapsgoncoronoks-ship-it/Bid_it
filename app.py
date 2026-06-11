@@ -214,7 +214,7 @@ PERM_BY_ENDPOINT = {
     "documents":       "documents", "doc_download": "documents",
     "export_master":   "exports", "export_history": "exports",
     "export_pricing":  "exports", "export_vat": "exports", "export_compare": "exports",
-    "export_stations": "exports", "export_summary": "exports",
+    "export_stations": "exports", "export_summary": "exports", "export_fee": "exports",
     "admin":           "user_admin",   # server setup / overall software changes
 }
 
@@ -894,6 +894,22 @@ def export_master():
 def export_history():
     return send_file(os.path.join(WORKDIR, "Fleet_Fuel_History_Report.xlsx"), as_attachment=True)
 
+@app.route("/export/fee")
+def export_fee():
+    """Service-fee calculation report for one VAT claim."""
+    import vat_refund as VR, reports
+    ent = request.args.get("entity", ""); ctry = request.args.get("country", "")
+    per = request.args.get("period", "")
+    con = VR.connect()
+    r = con.execute("""SELECT * FROM vat_applications WHERE entity=? AND refund_country=?
+                       AND ref_period=?""", (ent, ctry, per)).fetchone()
+    con.close()
+    if not r:
+        return page('<div class="card"><b class="bad">No such claim.</b></div>', ""), 404
+    path = reports.fee_report_workbook(dict(r))
+    return send_file(path, as_attachment=True, download_name=os.path.basename(path),
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
 @app.route("/export/summary")
 def export_summary():
     """Executive summary workbook: KPIs, per-supplier/country/entity breakdowns,
@@ -1304,25 +1320,31 @@ def recovery():
     year = request.args.get("year", "2026")
     rows, summ = VR.recovery_report(year)
     trs = []
-    total_fee = 0.0
+    total_charged = 0.0
     for r in rows:
         agecls = "bad" if isinstance(r["age_days"], int) and r["age_days"] > 120 else ""
         vat = r["vat_eur"] or 0
-        # the fee was FROZEN at submission; recompute live only for legacy rows that
-        # predate fee-freezing (fee_eur is null)
+        # the fee rate was FROZEN at submission; recompute live only for legacy rows
+        # that predate fee-freezing (fee_eur is null)
         if r.get("fee_eur") is None:
             fee, basis = CD.compute_fee(vat, *CD.fee_for(r["entity"], r["country"]))
         else:
             fee = r["fee_eur"]
             pct_fee = round((r.get("fee_pct") or 0) / 100 * vat, 2)
             basis = "percent" if pct_fee >= (r.get("fee_min") or 0) else "minimum"
-        total_fee += fee
+        billed = r.get("fee_billed_date")
+        if billed:
+            total_charged += fee
+        feecls = "ok" if billed else "note"
+        fee_state = "charged" if billed else "pending refund"
+        link = (f'/export/fee?entity={esc(r["entity"])}&country={esc(r["country"])}'
+                f'&period={esc(r["period"])}')
         trs.append([f"<td>{esc(r['entity'])}</td><td>{esc(r['country'])}</td><td>{esc(r['period'])}</td>",
                     f"<td class=r>{vat:,.2f}</td>",
-                    f"<td class=r>{fee:,.2f}</td><td class='note'>{esc(basis)} (locked)</td>",
+                    f"<td class=r>{fee:,.2f}</td><td class='{feecls}'>{esc(basis)} · {fee_state}</td>",
                     f"<td>{esc(r['status'])}</td><td>{esc(r['submitted'] or '')}</td>",
                     f"<td class='{agecls}'>{r['age_days'] if r['age_days']!='' else ''}</td>",
-                    f"<td>{esc(r['paid'] or '')}</td>"])
+                    f"<td>{esc(r['paid'] or '')}</td><td><a href=\"{link}\">⬇ fee report</a></td>"])
     body = (f'<div class="card"><h2>VAT recovery tracking {esc(year)}</h2>'
             f'<div class="kpis"><div class="kpi"><div class="v">EUR {summ["submitted"]:,.0f}</div>'
             f'<div class="l">submitted</div></div>'
@@ -1330,13 +1352,13 @@ def recovery():
             f'<div class="kpi"><div class="v ok">EUR {summ["paid"]:,.0f}</div><div class="l">paid back</div></div>'
             f'<div class="kpi"><div class="v bad">EUR {summ["outstanding"]:,.0f}</div>'
             f'<div class="l">outstanding</div></div>'
-            f'<div class="kpi"><div class="v">EUR {total_fee:,.0f}</div><div class="l">our fees (incl.)</div></div></div>'
-            + tbl(["Entity","Country","Period","VAT EUR","Our fee","Fee basis","Status","Submitted","Age (days)","Paid"], trs)
-            + '<div class="note">Fee = % of refunded VAT, floored at the per-declaration minimum, '
-              'set per customer and optionally per country on the Customers page. The fee is '
-              '<b>frozen (locked) when the claim is submitted</b> — later % / minimum changes only '
-              'affect un-submitted declarations. Age over 120 days flagged red - chase the tax '
-              'authority.</div></div>')
+            f'<div class="kpi"><div class="v ok">EUR {total_charged:,.0f}</div><div class="l">fees charged (paid)</div></div></div>'
+            + tbl(["Entity","Country","Period","VAT EUR","Our fee","Basis · state","Status",
+                   "Submitted","Age (days)","Paid","Fee report"], trs)
+            + '<div class="note">Fee rate (% of refunded VAT, floored at the per-declaration minimum) '
+              'is set per customer / country and <b>frozen when the claim is submitted</b>. The fee '
+              'is <b>charged only when the refund is paid</b>; each claim has a downloadable fee '
+              'report. Age over 120 days flagged red - chase the tax authority.</div></div>')
     return page(body, "rec")
 
 @app.route("/anomalies")

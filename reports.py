@@ -363,6 +363,56 @@ def _sheet_savings(wb, sv, period):
     ws.freeze_panes = "A3"; ws.sheet_view.showGridLines = False
 
 
+def fee_report_workbook(claim, path=None):
+    """One-sheet service-fee calculation for a single VAT claim. `claim` is a
+    vat_applications row (dict). Fee = % of the refunded amount, or the minimum per
+    claim when the % is lower."""
+    from openpyxl.styles import Font
+    ent = claim.get("entity") or ""
+    ctry = claim.get("refund_country") or claim.get("country") or ""
+    per = claim.get("ref_period") or claim.get("period") or ""
+    amount = (claim.get("paid_amount") or claim.get("vat_eur") or 0) or 0
+    pct = claim.get("fee_pct") or 0
+    mn = money.f2(claim.get("fee_min") or 0)
+    pct_fee = money.f2(pct / 100.0 * amount)
+    fee = claim.get("fee_eur")
+    fee = money.f2(fee) if fee is not None else max(pct_fee, mn)
+    basis = "percent (% of refund)" if pct_fee >= mn else "minimum per claim"
+    wb = Workbook(); ws = wb.active; ws.title = "Fee calculation"
+    _title(ws, per, f"Service fee calculation — {ent} / {ctry}", "A1:C1")
+    set_widths(ws, [34, 18, 4])
+    lines = [
+        ("Customer", ent, None), ("Refund country", ctry, None),
+        ("Claim period", per, None), ("Status", claim.get("status") or "", None),
+        ("", "", None),
+        ("Refunded VAT amount (EUR)", amount, FMT_EUR),
+        (f"Fee at contract rate ({pct:g}%)", pct_fee, FMT_EUR),
+        ("Minimum fee per claim (EUR)", mn, FMT_EUR),
+        ("FEE CHARGED (EUR)", fee, FMT_EUR),
+        ("Basis", basis, None),
+        ("", "", None),
+        ("Submitted", claim.get("submitted_date") or claim.get("submitted") or "", None),
+        ("Refund paid", claim.get("paid_date") or claim.get("paid") or "", None),
+        ("Fee billed", claim.get("fee_billed_date") or "(charged when refund is paid)", None),
+    ]
+    r0 = 4
+    for i, (lbl, val, fmt) in enumerate(lines):
+        rr = r0 + i
+        c1 = ws.cell(rr, 1, lbl)
+        c2 = ws.cell(rr, 2, val if val is not None else "")
+        if fmt:
+            c2.number_format = fmt
+        if str(lbl).startswith("FEE CHARGED"):
+            c1.font = Font(bold=True, size=12)
+            c2.font = Font(bold=True, size=12, color=ACC)
+    ws.sheet_view.showGridLines = False
+    safe = f"Fee_{ent}_{ctry}_{per}".replace(" ", "_")
+    safe = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in safe)
+    path = path or os.path.join(WORKDIR, safe + ".xlsx")
+    wb.save(path)
+    return path
+
+
 if __name__ == "__main__":
     import sys
     per = sys.argv[1] if len(sys.argv) > 1 else None

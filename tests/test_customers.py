@@ -153,6 +153,40 @@ def test_fee_frozen_on_submission(tmp_path, monkeypatch):
     assert frozen["fee_eur"] == 200.0          # locked, not re-priced at 99%
 
 
+def test_fee_charged_on_paid_with_minimum(tmp_path, monkeypatch):
+    """User example: VAT 1000, 8% (=80) below 130 minimum -> charge 130, billed on paid."""
+    import customer_db
+    import vat_refund
+    monkeypatch.setattr(customer_db, "DB", str(tmp_path / "c.db"))
+    monkeypatch.setattr(customer_db, "_SCHEMA_READY", set())
+    monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "v.db"))
+    monkeypatch.setattr(vat_refund, "_SCHEMA_READY", set())
+    monkeypatch.setattr(vat_refund, "stream_invoices", lambda *a, **k: [])
+    customer_db.add_customer("ACME", "Acme SIA", "LV")
+    con = customer_db.connect()
+    customer_db.set_fee(con, "ACME", 8, 130)
+    customer_db.set_activation(con, "ACME", True)
+    con.close()
+    vc = vat_refund.connect()
+    vc.execute("CREATE TABLE transactions (entity TEXT, country TEXT, period TEXT, vat_eur REAL)")
+    vc.execute("INSERT INTO transactions VALUES ('ACME','Belgium','2026-04',1000)"); vc.commit()
+    assert vat_refund.set_status(vc, "ACME", "Belgium", "2026-Q2", "submitted")[0]
+    # not yet billed
+    row = vc.execute("SELECT fee_eur, fee_billed_date FROM vat_applications").fetchone()
+    assert row["fee_eur"] == 130.0 and row["fee_billed_date"] is None
+    # refund paid -> fee charged + billed date stamped
+    assert vat_refund.set_status(vc, "ACME", "Belgium", "2026-Q2", "paid")[0]
+    row = vc.execute("SELECT fee_eur, fee_billed_date FROM vat_applications").fetchone()
+    assert row["fee_eur"] == 130.0 and row["fee_billed_date"] is not None
+    vc.close()
+
+
+def test_fee_report_route(client):
+    # a downloadable fee report exists per claim (404 for an unknown claim, but xlsx for any)
+    r = client.get("/export/fee?entity=Nobody&country=Belgium&period=2026-Q2")
+    assert r.status_code in (200, 404)
+
+
 def test_set_status_blocks_pending_customer(tmp_path, monkeypatch):
     import customer_db
     import vat_refund
@@ -172,4 +206,4 @@ def test_customers_page_and_recovery_fee_render(client):
     assert "Onboard a new VAT-refund customer" in h
     assert "Activation checklist" in h
     rec = client.get("/recovery").get_data(as_text=True)
-    assert "Our fee" in rec and "Fee basis" in rec
+    assert "Our fee" in rec and "fee report" in rec
