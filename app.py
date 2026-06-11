@@ -212,7 +212,7 @@ PERM_BY_ENDPOINT = {
     "documents":       "documents", "doc_download": "documents",
     "export_master":   "exports", "export_history": "exports",
     "export_pricing":  "exports", "export_vat": "exports", "export_compare": "exports",
-    "export_stations": "exports",
+    "export_stations": "exports", "export_summary": "exports",
     "admin":           "user_admin",   # server setup / overall software changes
 }
 
@@ -525,7 +525,7 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
 {% if 'data_import' in perms %}<a href="/data" class="{{'on' if page=='dat'}}">Data manager</a>{% endif %}
 <a href="/history" class="{{'on' if page=='his'}}">History</a>
 <span style="margin-left:auto" class="exp">
-{% if 'exports' in perms %}<a href="/export/master">⬇ Master xlsx</a><a href="/export/history">⬇ History report</a>{% endif %}
+{% if 'exports' in perms %}<a href="/export/summary">⬇ Summary report</a><a href="/export/master">⬇ Master xlsx</a><a href="/export/history">⬇ History report</a>{% endif %}
 {% if role == 'admin' %}<a href="/admin" class="{{'on' if page=='adm'}}">Admin</a>{% endif %}
 <span class="note" style="color:#9fb3c4">{{ user }} ({{ role }})</span>
 <a href="/logout" style="margin-left:10px">Sign out</a></span>
@@ -724,20 +724,33 @@ def export_compare():
     rows = q_compare(con, request.args, period)
     tot = q_compare_totals(con, request.args, period)
     con.close()
+    import reports as R
+    from openpyxl.formatting.rule import ColorScaleRule
     wb = Workbook(); ws = wb.active; ws.title = "Compare"
     headers = ["Supplier","Country","Product","Litres","Net EUR","VAT EUR","EUR/L doc","EUR/L eff"]
-    ws.append(headers)
-    for c in ws[1]:
-        c.font = Font(bold=True, color="FFFFFF"); c.fill = PatternFill("solid", fgColor="0E5FA8")
+    ws.append(headers); R.style_header(ws, 1, len(headers))
     for r in rows:
         ws.append([r["supplier"], r["country"], r["product_group"], r["litres"],
                    r["net_eur"], r["vat_eur"], r["eur_l_doc"], r["eur_l_eff"]])
-    ws.append([])
-    ws.append(["TOTAL", "", f'{tot["lines"]} lines', tot["litres"], tot["net_eur"],
-               tot["vat_eur"], "", tot["eur_l_eff"]])
-    for c in ws[ws.max_row]: c.font = Font(bold=True)
-    for i, w in enumerate([10,12,12,12,14,12,11,11], 1):
-        ws.column_dimensions[chr(64+i)].width = w
+    last = ws.max_row
+    R.band_rows(ws, 2, last, len(headers))
+    R.number_format(ws, 4, 2, last, R.FMT_INT)
+    for col in (5, 6): R.number_format(ws, col, 2, last, R.FMT_EUR)
+    for col in (7, 8): R.number_format(ws, col, 2, last, R.FMT_PRICE)
+    trow = last + 1
+    ws.cell(trow, 1, "TOTAL"); ws.cell(trow, 3, f'{tot["lines"]} lines')
+    ws.cell(trow, 4, tot["litres"] or 0).number_format = R.FMT_INT
+    ws.cell(trow, 5, tot["net_eur"] or 0).number_format = R.FMT_EUR
+    ws.cell(trow, 6, tot["vat_eur"] or 0).number_format = R.FMT_EUR
+    ws.cell(trow, 8, tot["eur_l_eff"] or 0).number_format = R.FMT_PRICE
+    R.totals_row(ws, trow, len(headers))
+    if last >= 2:
+        ws.conditional_formatting.add(f"H2:H{last}",
+            ColorScaleRule(start_type="min", start_color="63BE7B",
+                           mid_type="percentile", mid_value=50, mid_color="FFEB84",
+                           end_type="max", end_color="F8696B"))
+    R.set_widths(ws, [12, 14, 12, 12, 14, 12, 11, 11])
+    ws.freeze_panes = "A2"; ws.sheet_view.showGridLines = False
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return send_file(buf, as_attachment=True, download_name="Fleet_Fuel_Compare.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -802,16 +815,34 @@ def export_stations():
     period = request.args.get("period") or (ps[0] if ps else None)
     rows = q_stations(con, period) if period else []
     con.close()
+    import reports as R
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.formatting.rule import ColorScaleRule
     wb = Workbook(); ws = wb.active; ws.title = "Routing"
     ws.append(["Supplier", "Country", "Station", "Litres", "Eff EUR/L", "Routing", "Period"])
-    for c in ws[1]:
-        c.font = Font(bold=True, color="FFFFFF"); c.fill = PatternFill("solid", fgColor="0E5FA8")
+    R.style_header(ws, 1, 7)
     for r in rows:
         e = r["eurl"]
         flag = "PREFER" if e is not None and e <= 1.40 else ("AVOID" if e is not None and e >= 1.62 else "")
         ws.append([r["supplier"], r["country"], r["station"], r["litres"], e, flag, period])
-    for i, w in enumerate([10, 12, 30, 10, 11, 9, 10], 1):
-        ws.column_dimensions[chr(64 + i)].width = w
+    last = ws.max_row
+    R.band_rows(ws, 2, last, 7)
+    R.number_format(ws, 4, 2, last, R.FMT_INT)
+    R.number_format(ws, 5, 2, last, R.FMT_PRICE)
+    # colour the PREFER / AVOID flags
+    for rr in range(2, last + 1):
+        f = ws.cell(rr, 6).value
+        if f == "PREFER":
+            ws.cell(rr, 6).font = Font(bold=True, color=R.OKG)
+        elif f == "AVOID":
+            ws.cell(rr, 6).font = Font(bold=True, color=R.BADR)
+    if last >= 2:
+        ws.conditional_formatting.add(f"E2:E{last}",
+            ColorScaleRule(start_type="min", start_color="63BE7B",
+                           mid_type="percentile", mid_value=50, mid_color="FFEB84",
+                           end_type="max", end_color="F8696B"))
+    R.set_widths(ws, [12, 12, 34, 11, 11, 10, 10])
+    ws.freeze_panes = "A2"; ws.sheet_view.showGridLines = False
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return send_file(buf, as_attachment=True, download_name=f"Fleet_Fuel_Routing_{period or 'all'}.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -988,6 +1019,18 @@ def export_master():
 @app.route("/export/history")
 def export_history():
     return send_file(os.path.join(WORKDIR, "Fleet_Fuel_History_Report.xlsx"), as_attachment=True)
+
+@app.route("/export/summary")
+def export_summary():
+    """Executive summary workbook: KPIs, per-supplier/country/entity breakdowns,
+    trend and savings, with charts and conditional formatting."""
+    import reports
+    con = DB(); ps = q_periods(con); con.close()
+    period = request.args.get("period") or (ps[0] if ps else None)
+    path = reports.summary_workbook(period)
+    return send_file(path, as_attachment=True,
+                     download_name=os.path.basename(path),
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 @app.route("/api/periods")
 def api_periods():
