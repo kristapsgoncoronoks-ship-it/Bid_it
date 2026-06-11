@@ -57,7 +57,11 @@ def connect():
         UNIQUE (entity, supplier, invoice_ref, sha256))""")
     audit.install_audit(con, ["vat_applications", "vat_claimed_invoices", "invoice_documents"])
     for ddl in ("ALTER TABLE invoice_documents ADD COLUMN backend TEXT DEFAULT 'local'",
-                "ALTER TABLE invoice_documents ADD COLUMN web_url TEXT"):
+                "ALTER TABLE invoice_documents ADD COLUMN web_url TEXT",
+                # our fee, FROZEN onto the claim at submission (no adjustment afterwards)
+                "ALTER TABLE vat_applications ADD COLUMN fee_eur REAL",
+                "ALTER TABLE vat_applications ADD COLUMN fee_pct REAL",
+                "ALTER TABLE vat_applications ADD COLUMN fee_min REAL"):
         try: con.execute(ddl)
         except Exception: pass
     if DB != ":memory:":
@@ -226,6 +230,18 @@ def set_status(con, ent, ctry, period, new):
         if stamp:
             con.execute(f"UPDATE vat_applications SET {stamp}=date('now') WHERE entity=? "
                         "AND refund_country=? AND ref_period=?", (ent, ctry, period))
+        # Freeze our fee onto the claim the moment it is first submitted; once locked
+        # the fee can no longer be adjusted (per-country/% changes only affect drafts).
+        if new in LOCKING and cur not in LOCKING:
+            months = q_months(period)
+            ph = ",".join("?" * len(months))
+            ve = con.execute(f"SELECT ROUND(SUM(vat_eur),2) FROM transactions WHERE entity=? "
+                             f"AND country=? AND period IN ({ph})", [ent, ctry] + months).fetchone()[0] or 0.0
+            fpct, fmin = customer_db.fee_for(ent, ctry)
+            fee, _basis = customer_db.compute_fee(ve, fpct, fmin)
+            con.execute("""UPDATE vat_applications SET vat_eur=?, fee_eur=?, fee_pct=?, fee_min=?
+                           WHERE entity=? AND refund_country=? AND ref_period=?""",
+                        (ve, fee, fpct, fmin, ent, ctry, period))
         con.commit()
     except Exception:
         con.rollback()
@@ -465,7 +481,7 @@ def recovery_report(year=None):
     """Submitted vs approved vs paid, with aging of unpaid submitted claims."""
     con = connect()
     rows = con.execute("""SELECT entity, refund_country, ref_period, vat_eur, status,
-        submitted_date, approved_date, paid_date, paid_amount
+        submitted_date, approved_date, paid_date, paid_amount, fee_eur, fee_pct, fee_min
         FROM vat_applications WHERE status IN ('submitted','approved','paid')
         AND (? IS NULL OR ref_period LIKE ?) ORDER BY submitted_date""",
         (year, f"{year}-%" if year else None)).fetchall()
@@ -480,7 +496,8 @@ def recovery_report(year=None):
             except ValueError: pass
         out.append(dict(entity=r["entity"], country=r["refund_country"], period=r["ref_period"],
                         vat_eur=r["vat_eur"], status=r["status"], submitted=r["submitted_date"],
-                        paid=r["paid_date"], paid_amount=r["paid_amount"], age_days=age))
+                        paid=r["paid_date"], paid_amount=r["paid_amount"], age_days=age,
+                        fee_eur=r["fee_eur"], fee_pct=r["fee_pct"], fee_min=r["fee_min"]))
     con.close()
     summary = {s: money.fsum(o["vat_eur"] or 0 for o in out if o["status"] == s)
                for s in ("submitted", "approved", "paid")}

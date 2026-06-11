@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS customer_documents (
     customer TEXT, kind TEXT, filename TEXT, stored_path TEXT,
     sha256 TEXT, size INTEGER, backend TEXT DEFAULT 'local', web_url TEXT,
     uploaded_at TEXT DEFAULT (datetime('now')));
+CREATE TABLE IF NOT EXISTS customer_fees (
+    customer TEXT, country TEXT, fee_pct REAL DEFAULT 0, fee_min REAL DEFAULT 0,
+    PRIMARY KEY (customer, country));
 """
 
 # Documents a new VAT-refund customer must provide before activation.
@@ -97,7 +100,8 @@ def connect():
             try: con.execute(ddl)
             except sqlite3.OperationalError: pass  # column already exists (safe)
         audit.install_audit(con, ['customers', 'customer_bank_accounts',
-                                  'customer_supplier_accounts', 'customer_documents'])
+                                  'customer_supplier_accounts', 'customer_documents',
+                                  'customer_fees'])
         _SCHEMA_READY.add(DB)
     return con
 
@@ -174,9 +178,40 @@ def is_active(name_or_code):
 
 # ---------------------------------------------------------------- fees
 def set_fee(con, code, fee_pct, fee_min):
+    """Set the customer's DEFAULT fee (applied to refund countries with no override)."""
     con.execute("UPDATE customers SET fee_pct=?, fee_min=? WHERE code=?",
                 (float(fee_pct or 0), float(fee_min or 0), code))
     con.commit()
+
+def set_country_fee(con, code, country, fee_pct, fee_min):
+    """Per-country override of the % / minimum fee for one customer."""
+    con.execute("""INSERT INTO customer_fees (customer, country, fee_pct, fee_min)
+                   VALUES (?,?,?,?) ON CONFLICT(customer, country)
+                   DO UPDATE SET fee_pct=excluded.fee_pct, fee_min=excluded.fee_min""",
+                (code, country.strip(), float(fee_pct or 0), float(fee_min or 0)))
+    con.commit()
+
+def country_fees(con, code):
+    return con.execute("SELECT country, fee_pct, fee_min FROM customer_fees "
+                       "WHERE customer=? ORDER BY country", (code,)).fetchall()
+
+def fee_for(name_or_code, country=None):
+    """(fee_pct, fee_min) for a customer + refund country: the per-country override
+    if one exists, otherwise the customer's default fee, else (0, 0)."""
+    con = connect()
+    c = con.execute("SELECT code, fee_pct, fee_min FROM customers WHERE company_name=? OR code=?",
+                    (name_or_code, name_or_code)).fetchone()
+    if not c:
+        con.close()
+        return (0.0, 0.0)
+    pct, mn = float(c["fee_pct"] or 0), float(c["fee_min"] or 0)
+    if country:
+        o = con.execute("SELECT fee_pct, fee_min FROM customer_fees WHERE customer=? AND country=?",
+                        (c["code"], country)).fetchone()
+        if o:
+            pct, mn = float(o["fee_pct"] or 0), float(o["fee_min"] or 0)
+    con.close()
+    return (pct, mn)
 
 def compute_fee(refund_eur, fee_pct, fee_min):
     """Our fee on a refunded VAT amount. Priority is the % fee; if it falls below

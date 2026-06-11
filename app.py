@@ -1300,26 +1300,26 @@ def api_pricing():
 
 @app.route("/recovery")
 def recovery():
-    import vat_refund as VR, customer_db as CD, money
+    import vat_refund as VR, customer_db as CD
     year = request.args.get("year", "2026")
     rows, summ = VR.recovery_report(year)
-    # cache each customer's fee config so we don't re-query per row
-    fee_cfg = {}
-    def _fee_for(entity, vat):
-        if entity not in fee_cfg:
-            cu = CD.get_customer(entity)
-            fee_cfg[entity] = (cu.get("fee_pct") or 0, cu.get("fee_min") or 0)
-        return CD.compute_fee(vat, *fee_cfg[entity])
     trs = []
     total_fee = 0.0
     for r in rows:
         agecls = "bad" if isinstance(r["age_days"], int) and r["age_days"] > 120 else ""
-        fee, basis = _fee_for(r["entity"], r["vat_eur"] or 0)
-        if r["status"] in ("submitted", "approved", "paid"):
-            total_fee += fee
+        vat = r["vat_eur"] or 0
+        # the fee was FROZEN at submission; recompute live only for legacy rows that
+        # predate fee-freezing (fee_eur is null)
+        if r.get("fee_eur") is None:
+            fee, basis = CD.compute_fee(vat, *CD.fee_for(r["entity"], r["country"]))
+        else:
+            fee = r["fee_eur"]
+            pct_fee = round((r.get("fee_pct") or 0) / 100 * vat, 2)
+            basis = "percent" if pct_fee >= (r.get("fee_min") or 0) else "minimum"
+        total_fee += fee
         trs.append([f"<td>{esc(r['entity'])}</td><td>{esc(r['country'])}</td><td>{esc(r['period'])}</td>",
-                    f"<td class=r>{(r['vat_eur'] or 0):,.2f}</td>",
-                    f"<td class=r>{fee:,.2f}</td><td class='note'>{basis}</td>",
+                    f"<td class=r>{vat:,.2f}</td>",
+                    f"<td class=r>{fee:,.2f}</td><td class='note'>{esc(basis)} (locked)</td>",
                     f"<td>{esc(r['status'])}</td><td>{esc(r['submitted'] or '')}</td>",
                     f"<td class='{agecls}'>{r['age_days'] if r['age_days']!='' else ''}</td>",
                     f"<td>{esc(r['paid'] or '')}</td>"])
@@ -1332,9 +1332,11 @@ def recovery():
             f'<div class="l">outstanding</div></div>'
             f'<div class="kpi"><div class="v">EUR {total_fee:,.0f}</div><div class="l">our fees (incl.)</div></div></div>'
             + tbl(["Entity","Country","Period","VAT EUR","Our fee","Fee basis","Status","Submitted","Age (days)","Paid"], trs)
-            + '<div class="note">Fee = % of refunded VAT, floored at the per-declaration minimum '
-              '(set per customer on the Customers page). "basis" shows which applied. Age over 120 days '
-              'flagged red - chase the tax authority.</div></div>')
+            + '<div class="note">Fee = % of refunded VAT, floored at the per-declaration minimum, '
+              'set per customer and optionally per country on the Customers page. The fee is '
+              '<b>frozen (locked) when the claim is submitted</b> — later % / minimum changes only '
+              'affect un-submitted declarations. Age over 120 days flagged red - chase the tax '
+              'authority.</div></div>')
     return page(body, "rec")
 
 @app.route("/anomalies")
@@ -1507,7 +1509,15 @@ def customers():
                 con = CD.connect()
                 CD.set_fee(con, code, request.form.get("fee_pct"), request.form.get("fee_min"))
                 con.close()
-                msg = f"Fee for {esc(code)} set to {esc(request.form.get('fee_pct') or '0')}% (min €{esc(request.form.get('fee_min') or '0')})."
+                msg = f"Default fee for {esc(code)} set to {esc(request.form.get('fee_pct') or '0')}% (min €{esc(request.form.get('fee_min') or '0')})."
+            elif act == "set_country_fee":
+                country = request.form.get("fee_country", "").strip()
+                if not country:
+                    raise ValueError("country is required for a per-country fee")
+                con = CD.connect()
+                CD.set_country_fee(con, code, country, request.form.get("fee_pct"), request.form.get("fee_min"))
+                con.close()
+                msg = f"Per-country fee for {esc(code)} / {esc(country)} saved."
             elif act in ("activate", "deactivate"):
                 con = CD.connect()
                 if act == "activate":
@@ -1558,9 +1568,18 @@ def customers():
                     + '<button>Upload</button></form>')
         fee_f = ('<form method="post" class="f" style="margin-top:6px">' + _csrf_input() + hid
                  + '<input type="hidden" name="__act" value="set_fee">'
-                 + f'<label>fee %<input name="fee_pct" type="number" step="0.1" value="{fee_pct:g}" style="width:80px"></label>'
+                 + f'<label>default fee %<input name="fee_pct" type="number" step="0.1" value="{fee_pct:g}" style="width:80px"></label>'
                  + f'<label>min € / declaration<input name="fee_min" type="number" step="0.01" value="{fee_min:g}" style="width:110px"></label>'
-                 + '<button>Save fee</button></form>')
+                 + '<button>Save default fee</button></form>')
+        cf_rows = "".join(f"<tr><td>{esc(r['country'])}</td><td class=r>{(r['fee_pct'] or 0):g}%</td>"
+                          f"<td class=r>€{(r['fee_min'] or 0):,.2f}</td></tr>"
+                          for r in CD.country_fees(con, code))
+        cfee_f = ('<form method="post" class="f" style="margin-top:6px">' + _csrf_input() + hid
+                  + '<input type="hidden" name="__act" value="set_country_fee">'
+                  + '<label>country<input name="fee_country" required style="width:120px" placeholder="Belgium"></label>'
+                  + '<label>fee %<input name="fee_pct" type="number" step="0.1" style="width:80px"></label>'
+                  + '<label>min €<input name="fee_min" type="number" step="0.01" style="width:100px"></label>'
+                  + '<button>Save country fee</button></form>')
         act_btn = (f'<form method="post" style="display:inline">' + _csrf_input() + hid
                    + f'<button name="__act" value="{"deactivate" if active else "activate"}" '
                    + ('' if (active or ready) else 'disabled title="complete the checklist first" ')
@@ -1575,10 +1594,14 @@ def customers():
             + '<h2 style="margin-top:12px">Documents</h2>'
             + (f'<table><tbody>{docs}</tbody></table>' if docs else '<p class="note">none yet</p>')
             + upload_f
-            + f'<h2 style="margin-top:12px">Our fee — {fee_pct:g}% of refunded VAT, min €{fee_min:,.2f}/declaration</h2>'
+            + f'<h2 style="margin-top:12px">Our fee — default {fee_pct:g}% of refunded VAT, min €{fee_min:,.2f}/declaration</h2>'
             + '<div class="note" style="margin-top:0">Priority is the % fee; if it falls below the '
-              'minimum, the minimum is charged. Computed fees show on the Recovery page.</div>'
-            + fee_f + '</div>')
+              'minimum, the minimum is charged. Adjustable per declaration and per country — but '
+              '<b>frozen once a claim is submitted</b>. Computed fees show on the Recovery page.</div>'
+            + fee_f
+            + (f'<table style="margin-top:6px"><thead><tr><th>Country override</th><th>Fee %</th>'
+               f'<th>Min €</th></tr></thead><tbody>{cf_rows}</tbody></table>' if cf_rows else '')
+            + cfee_f + '</div>')
     con.close()
     new_f = ('<div class="card"><h2>Onboard a new VAT-refund customer</h2>'
              '<div class="note" style="margin-top:0">Created as <b>pending</b>; activate once the '

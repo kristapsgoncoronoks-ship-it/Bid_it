@@ -58,6 +58,50 @@ def test_untracked_customer_not_gated(cd):
     assert cd.is_active("NOT-A-CUSTOMER") is None
 
 
+def test_per_country_fee_override(cd):
+    cd.add_customer("ACME", "Acme SIA", "LV")
+    con = cd.connect()
+    cd.set_fee(con, "ACME", 15, 50)                       # default
+    cd.set_country_fee(con, "ACME", "Belgium", 10, 100)   # Belgium override
+    con.close()
+    assert cd.fee_for("ACME", "Belgium") == (10.0, 100.0)  # override
+    assert cd.fee_for("ACME", "Poland") == (15.0, 50.0)    # default
+    assert cd.fee_for("ACME") == (15.0, 50.0)              # no country -> default
+
+
+def test_fee_frozen_on_submission(tmp_path, monkeypatch):
+    import customer_db
+    import vat_refund
+    monkeypatch.setattr(customer_db, "DB", str(tmp_path / "c.db"))
+    monkeypatch.setattr(customer_db, "_SCHEMA_READY", set())
+    monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "v.db"))
+    monkeypatch.setattr(vat_refund, "_SCHEMA_READY", set())
+    monkeypatch.setattr(vat_refund, "stream_invoices", lambda *a, **k: [])  # skip lock/doc checks
+    # active customer, Belgium override 10% / min 100
+    customer_db.add_customer("ACME", "Acme SIA", "LV")
+    con = customer_db.connect()
+    customer_db.set_country_fee(con, "ACME", "Belgium", 10, 100)
+    customer_db.set_activation(con, "ACME", True)
+    con.close()
+    vc = vat_refund.connect()
+    vc.execute("CREATE TABLE transactions (entity TEXT, country TEXT, period TEXT, vat_eur REAL)")
+    vc.execute("INSERT INTO transactions VALUES ('ACME','Belgium','2026-04',2000)")
+    vc.commit()
+    ok, msg = vat_refund.set_status(vc, "ACME", "Belgium", "2026-Q2", "submitted")
+    assert ok, msg
+    snap = vc.execute("SELECT fee_eur, fee_pct, vat_eur FROM vat_applications "
+                      "WHERE entity='ACME'").fetchone()
+    assert snap["fee_eur"] == 200.0 and snap["fee_pct"] == 10.0   # 10% of 2000
+    vc.close()
+    # changing the fee afterwards must NOT change the frozen claim
+    con = customer_db.connect()
+    customer_db.set_country_fee(con, "ACME", "Belgium", 99, 9999)
+    con.close()
+    rows, _summ = vat_refund.recovery_report("2026")
+    frozen = next(r for r in rows if r["entity"] == "ACME")
+    assert frozen["fee_eur"] == 200.0          # locked, not re-priced at 99%
+
+
 def test_set_status_blocks_pending_customer(tmp_path, monkeypatch):
     import customer_db
     import vat_refund
