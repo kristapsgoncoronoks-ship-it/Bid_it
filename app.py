@@ -843,7 +843,7 @@ def pricing():
         f'<div class="kpi"><div class="v">{summ["rows"]}</div><div class="l">price points ({esc(grain)})</div></div></div>'
         + tbl(["Country","City","Period","Supplier","Eff NET","MY","gap vs MY","Pack avg",
                "Margin vs whsl","EUR impact","Match"], trs)
-        + '<p style="margin-top:10px"><a href="/export/pricing?grain='+esc(grain)+'">⬇ Export daily/weekly/monthly grid (Excel)</a></p>'
+        + f'<p style="margin-top:10px"><a href="/export/pricing?grain={esc(grain)}">⬇ Export daily/weekly/monthly grid (Excel)</a></p>'
         + '</div>'
         + '<div class="card"><h2>Upload MY Prices (your NET benchmark)</h2>'
         '<form method="post" action="/pricing/upload" enctype="multipart/form-data" class="f">'

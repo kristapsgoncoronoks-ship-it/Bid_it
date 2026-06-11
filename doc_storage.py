@@ -3,7 +3,7 @@ DOCUMENT STORAGE BACKENDS - local folder (default) or SharePoint via Microsoft G
 
 The vault logic (hashing, dedup, submission guard) is unchanged; only WHERE the
 bytes live is pluggable. Locators stored in invoice_documents.stored_path:
-    local:      /home/claude/work/documents/<file>           (plain path, as before)
+    local:      <WORKDIR>/documents/<file>                    (plain path, as before)
     sharepoint: sp://{drive_id}/{item_id}                    (+ web_url column)
 
 ENABLE SHAREPOINT (one-time setup by your M365 admin):
