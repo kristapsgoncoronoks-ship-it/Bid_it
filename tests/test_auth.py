@@ -18,9 +18,35 @@ def temp_auth(tmp_path, monkeypatch):
 
 
 def test_verify_roundtrip(temp_auth):
-    temp_auth.add_user("alice", "s3cret!", role="editor")
+    temp_auth.add_user("alice", "s3cret!", role="processor")
     assert temp_auth.verify("alice", "s3cret!") is True
     assert temp_auth.verify("alice", "wrong") is False
+
+
+def test_role_permissions(temp_auth):
+    temp_auth.add_user("boss", "pw12345", role="admin")
+    temp_auth.add_user("alice", "pw12345", role="processor")
+    # admin holds every capability incl. the admin-only boundary
+    assert temp_auth.has_perm("admin", "system_setup")
+    assert temp_auth.has_perm("admin", "user_admin")
+    # processor defaults to all grantable capabilities, never the admin-only ones
+    assert temp_auth.has_perm("processor", "data_import")
+    assert not temp_auth.has_perm("processor", "system_setup")
+    assert not temp_auth.has_perm("processor", "user_admin")
+    # admin can revoke a capability from the processor role
+    temp_auth.set_permission("processor", "pricing", False)
+    assert not temp_auth.has_perm("processor", "pricing")
+    # and grant it back
+    temp_auth.set_permission("processor", "pricing", True)
+    assert temp_auth.has_perm("processor", "pricing")
+
+
+def test_admin_only_perms_not_grantable(temp_auth):
+    import pytest as _pt
+    with _pt.raises(AssertionError):
+        temp_auth.set_permission("processor", "system_setup", True)
+    with _pt.raises(AssertionError):
+        temp_auth.set_permission("admin", "pricing", False)  # admin perms are fixed
 
 
 def test_unknown_user_is_false(temp_auth):

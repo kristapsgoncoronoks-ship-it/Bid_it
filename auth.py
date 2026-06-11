@@ -17,9 +17,30 @@ import audit
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 DB = f"{WORKDIR}/security.db"
 
-ROLES = ("viewer", "editor", "admin")
-# viewer: read-only (all GET pages); editor: + all operational changes (POST);
-# admin: + user management panel (/admin)
+ROLES = ("processor", "admin")
+# admin:     full control, including server setup, certificates, and user /
+#            permission administration ("overall software changes").
+# processor: day-to-day operations. Capabilities are admin-configurable, but a
+#            processor can NEVER do server setup or user/permission admin.
+
+# Grantable capabilities — an admin can toggle each of these for the processor
+# role from the Admin panel.
+PERMISSIONS = {
+    "data_import":     "Import batches & edit transaction data",
+    "invoice_control": "Register & triage supplier statements",
+    "vat_claims":      "Manage VAT refund claims & status",
+    "pricing":         "Upload pricing & wholesale data",
+    "documents":       "Attach & manage invoice documents",
+    "exports":         "Download Excel / data exports",
+}
+# Admin-only capabilities — the "server setup & overall software changes"
+# boundary. These are never grantable to a processor.
+ADMIN_ONLY = {
+    "user_admin":   "Manage users & adjust Processor permissions",
+    "system_setup": "Server setup, certificates & configuration",
+}
+# Legacy role names map onto the processor capability set for backward compat.
+_LEGACY = {"viewer": "processor", "editor": "processor"}
 
 # scrypt cost. Legacy hashes were n=2**14; new/upgraded hashes use NEW_N.
 LEGACY_N = 2 ** 14          # 16384
@@ -44,21 +65,71 @@ def connect():
     # verifying with their original parameters.
     try: con.execute(f"ALTER TABLE users ADD COLUMN kdf_n INTEGER DEFAULT {LEGACY_N}")
     except sqlite3.OperationalError: pass  # column already exists (safe)
-    audit.install_audit(con, ["users"])   # user management is change-logged too
+    _seed_permissions(con)
+    audit.install_audit(con, ["users", "role_permissions"])  # both change-logged
+    con.commit()
     try: os.chmod(DB, 0o600)
     except OSError: pass
     return con
+
+def _seed_permissions(con):
+    """Ensure the role_permissions table exists and the processor role has a row
+    for every grantable capability (default: granted)."""
+    con.execute("""CREATE TABLE IF NOT EXISTS role_permissions (
+        role TEXT, perm TEXT, allowed INTEGER DEFAULT 1,
+        PRIMARY KEY (role, perm))""")
+    have = {r["perm"] for r in con.execute(
+        "SELECT perm FROM role_permissions WHERE role='processor'")}
+    for perm in PERMISSIONS:
+        if perm not in have:
+            con.execute("INSERT INTO role_permissions (role, perm, allowed) "
+                        "VALUES ('processor', ?, 1)", (perm,))
+
+def permissions_for(role):
+    """Set of capability keys the role currently holds."""
+    if role == "admin":
+        return set(PERMISSIONS) | set(ADMIN_ONLY)
+    role = _LEGACY.get(role, role)
+    con = connect()
+    perms = {r["perm"] for r in con.execute(
+        "SELECT perm FROM role_permissions WHERE role=? AND allowed=1", (role,))}
+    con.close()
+    return perms
+
+def has_perm(role, perm):
+    if role == "admin":
+        return True
+    return perm in permissions_for(role)
+
+def get_role_permissions(role="processor"):
+    """perm -> bool map for the Admin UI (defaults to granted if unset)."""
+    role = _LEGACY.get(role, role)
+    con = connect()
+    rows = {r["perm"]: bool(r["allowed"]) for r in con.execute(
+        "SELECT perm, allowed FROM role_permissions WHERE role=?", (role,))}
+    con.close()
+    return {perm: rows.get(perm, True) for perm in PERMISSIONS}
+
+def set_permission(role, perm, allowed):
+    assert role == "processor", "only the processor role's permissions are configurable"
+    assert perm in PERMISSIONS, f"unknown permission {perm}"
+    con = connect()
+    con.execute("""INSERT INTO role_permissions (role, perm, allowed) VALUES (?,?,?)
+                   ON CONFLICT(role, perm) DO UPDATE SET allowed=excluded.allowed""",
+                (role, perm, int(bool(allowed))))
+    con.commit(); con.close()
 
 def _hash(password, salt, n=NEW_N, maxmem=SCRYPT_MAXMEM):
     return hashlib.scrypt(password.encode(), salt=salt, n=n, r=SCRYPT_R, p=SCRYPT_P,
                           maxmem=maxmem)
 
-def add_user(username, password, role="editor"):
+def add_user(username, password, role="processor"):
     assert role in ROLES, f"role must be one of {ROLES}"
     con = connect()
     salt = secrets.token_bytes(16)
     prev = con.execute("SELECT role FROM users WHERE username=?", (username,)).fetchone()
-    keep_role = prev["role"] if prev and role == "editor" else role
+    # a password reset (role left at the default) must not change an existing role
+    keep_role = prev["role"] if prev and role == "processor" else role
     con.execute("""INSERT OR REPLACE INTO users (username, salt, pw_hash, active, role, kdf_n)
                    VALUES (?,?,?,1,?,?)""",
                 (username, salt, _hash(password, salt, NEW_N), keep_role, NEW_N))
@@ -135,7 +206,7 @@ if __name__ == "__main__":
     if cmd == "add":
         import getpass
         pw = sys.argv[3] if len(sys.argv) > 3 else getpass.getpass(f"Password for {sys.argv[2]}: ")
-        role = sys.argv[4] if len(sys.argv) > 4 else "editor"
+        role = sys.argv[4] if len(sys.argv) > 4 else "processor"
         add_user(sys.argv[2], pw, role)
         print(f"user '{sys.argv[2]}' created/updated (role: {role})")
     elif cmd == "disable":

@@ -63,6 +63,41 @@ def test_export_compare_returns_xlsx(client):
     assert r.get_data()[:2] == b"PK"  # xlsx is a zip
 
 
+def test_processor_blocked_from_admin(admin_session):
+    import app as A
+    import auth
+    auth.add_user("proc_test", "Pw!23456", role="processor")
+    c = A.app.test_client()
+    c.post("/login", data={"username": "proc_test", "password": "Pw!23456"})
+    # no Admin nav link, and /admin is forbidden
+    assert "/admin" not in c.get("/").get_data(as_text=True)
+    assert c.get("/admin").status_code == 403
+    # but normal operations are allowed by default
+    assert c.get("/data").status_code == 200
+    assert c.get("/pricing").status_code == 200
+
+
+def test_admin_can_revoke_processor_capability(admin_session):
+    import re
+    import app as A
+    import auth
+    auth.add_user("proc2", "Pw!23456", role="processor")
+    ca = A.app.test_client()
+    ca.post("/login", data={"username": admin_session["user"], "password": admin_session["pw"]})
+    adm = ca.get("/admin").get_data(as_text=True)
+    tok = re.search(r'name="_csrf" value="([^"]+)"', adm).group(1)
+    # save perms with pricing unchecked -> revoked
+    ca.post("/admin", data={"_csrf": tok, "__act": "perms", "perm_data_import": "on",
+                            "perm_invoice_control": "on", "perm_vat_claims": "on",
+                            "perm_documents": "on", "perm_exports": "on"})
+    cp = A.app.test_client()
+    cp.post("/login", data={"username": "proc2", "password": "Pw!23456"})
+    assert cp.get("/pricing").status_code == 403
+    assert cp.get("/data").status_code == 200
+    # restore so other tests/state are unaffected
+    auth.set_permission("processor", "pricing", True)
+
+
 def test_login_required_redirect():
     import app as A
     c = A.app.test_client()  # not logged in

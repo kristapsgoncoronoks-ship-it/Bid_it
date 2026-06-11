@@ -135,7 +135,8 @@ def setup():
                      + '<a class="btn" href="/login">Go to sign in &rarr;</a>'
                      '<p class="hint" style="text-align:center;margin-top:16px">'
                      'Next: sign in, then add your colleagues under Admin (start them as '
-                     '&ldquo;viewer&rdquo;). Daily guide: USER_MANUAL.md</p></div>')
+                     '&ldquo;processor&rdquo; and tune their permissions). Daily guide: '
+                     'USER_MANUAL.md</p></div>')
             return SETUP_HTML.replace("{BODY}", inner)
     # GET or error: the create-admin form
     form = (
@@ -168,7 +169,7 @@ def login():
                         remote=request.remote_addr or ""):
             session["user"] = request.form["username"]
             u = _auth.get_user(session["user"])
-            session["role"] = (u or {}).get("role", "viewer")
+            session["role"] = (u or {}).get("role", "processor")
             return redirect("/")
         err = '<div class="err">Invalid username or password.</div>'
     return LOGIN_HTML.replace("{ERR}", err)
@@ -199,6 +200,21 @@ def _needs_setup():
     except Exception:
         return True
 
+# Endpoint -> capability required to use it. Endpoints not listed are view-only
+# (any logged-in user). Admin holds every capability; a processor holds the
+# subset an admin has granted (see auth.PERMISSIONS / auth.has_perm).
+PERM_BY_ENDPOINT = {
+    "extract_batch":   "data_import", "extract_confirm": "data_import",
+    "data_manager":    "data_import",
+    "invoice_ctrl":    "invoice_control",
+    "vat":             "vat_claims", "api_vat": "vat_claims",
+    "pricing":         "pricing", "pricing_upload": "pricing", "api_pricing": "pricing",
+    "documents":       "documents", "doc_download": "documents",
+    "export_master":   "exports", "export_history": "exports",
+    "export_pricing":  "exports", "export_vat": "exports", "export_compare": "exports",
+    "admin":           "user_admin",   # server setup / overall software changes
+}
+
 @app.before_request
 def _guard():
     if request.endpoint in ("setup", "static") or request.endpoint is None:
@@ -209,15 +225,16 @@ def _guard():
         return
     if not session.get("user"):
         return redirect("/login")
-    role = session.get("role", "viewer")
-    if request.path.startswith("/admin") and role != "admin":
-        return page(FORBIDDEN, ""), 403
+    role = session.get("role", "processor")
+    # CSRF on every state-changing POST (login/setup are pre-session, exempt).
     if request.method == "POST" and request.endpoint not in ("login", "setup"):
         if request.form.get("_csrf") != session.get("_csrf"):
             return page('<div class="card"><h2>Invalid or missing CSRF token</h2>'
                         '<p>Please reload the page and try again.</p></div>', ""), 400
-    if request.method == "POST" and role not in ("editor", "admin") \
-            and request.endpoint != "login":
+    # Capability enforcement: block any endpoint whose required permission the
+    # current role lacks (covers both the page view and its POST action).
+    req_perm = PERM_BY_ENDPOINT.get(request.endpoint)
+    if req_perm and not _auth.has_perm(role, req_perm):
         return page(FORBIDDEN, ""), 403
     if request.method == "POST":
         for con in _all_db_cons():
@@ -375,28 +392,29 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
 <a href="/headtohead" class="{{'on' if page=='h2h'}}">Head-to-head</a>
 <a href="/entities" class="{{'on' if page=='ent'}}">Entities &amp; VAT</a>
 <a href="/stations" class="{{'on' if page=='stn'}}">Stations</a>
-<a href="/invoices" class="{{'on' if page=='inv'}}">Invoice control</a>
-<a href="/extract" class="{{'on' if page=='ext'}}">Import batch</a>
-<a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
+{% if 'invoice_control' in perms %}<a href="/invoices" class="{{'on' if page=='inv'}}">Invoice control</a>{% endif %}
+{% if 'data_import' in perms %}<a href="/extract" class="{{'on' if page=='ext'}}">Import batch</a>{% endif %}
+{% if 'vat_claims' in perms %}<a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>{% endif %}
 <a href="/recovery" class="{{'on' if page=='rec'}}">Recovery</a>
 <a href="/anomalies" class="{{'on' if page=='ano'}}">Anomalies</a>
-<a href="/pricing" class="{{'on' if page=='pri'}}">Pricing intel</a>
-<a href="/documents" class="{{'on' if page=='doc'}}">Documents</a>
+{% if 'pricing' in perms %}<a href="/pricing" class="{{'on' if page=='pri'}}">Pricing intel</a>{% endif %}
+{% if 'documents' in perms %}<a href="/documents" class="{{'on' if page=='doc'}}">Documents</a>{% endif %}
 <a href="/suppliers" class="{{'on' if page=='sup'}}">Suppliers</a>
 <a href="/customers" class="{{'on' if page=='cus'}}">Customers</a>
-<a href="/data" class="{{'on' if page=='dat'}}">Data manager</a>
+{% if 'data_import' in perms %}<a href="/data" class="{{'on' if page=='dat'}}">Data manager</a>{% endif %}
 <a href="/history" class="{{'on' if page=='his'}}">History</a>
 <span style="margin-left:auto" class="exp">
-<a href="/export/master">⬇ Master xlsx</a><a href="/export/history">⬇ History report</a>
+{% if 'exports' in perms %}<a href="/export/master">⬇ Master xlsx</a><a href="/export/history">⬇ History report</a>{% endif %}
 {% if role == 'admin' %}<a href="/admin" class="{{'on' if page=='adm'}}">Admin</a>{% endif %}
 <span class="note" style="color:#9fb3c4">{{ user }} ({{ role }})</span>
 <a href="/logout" style="margin-left:10px">Sign out</a></span>
 </header><main>{{ body|safe }}</main></body></html>"""
 
 def page(body, p):
+    role = session.get("role", "processor")
     return render_template_string(BASE, body=body, page=p,
-                                  user=session.get("user", ""),
-                                  role=session.get("role", ""))
+                                  user=session.get("user", ""), role=role,
+                                  perms=_auth.permissions_for(role) if session.get("user") else set())
 
 def tbl(headers, rows):
     h = "".join(f"<th>{x}</th>" for x in headers)
@@ -667,9 +685,7 @@ def api_entities():
 @app.route("/extract", methods=["GET", "POST"])
 def extract_batch():
     import extract as EX
-    role = session.get("role", "viewer")
-    if role not in ("editor", "admin"):
-        return page(FORBIDDEN, ""), 403
+    # access is enforced centrally in _guard (capability: data_import)
     backend_env = EX.EXTRACT_BACKEND
     body = ""
     if request.method == "POST" and "file" in request.files:
@@ -758,9 +774,7 @@ def _review_form(draft, token):
 def extract_confirm():
     import extract as EX, invoice_control as IC, vat_refund as VR
     import os as _os, pickle
-    role = session.get("role", "viewer")
-    if role not in ("editor", "admin"):
-        return page(FORBIDDEN, ""), 403
+    # access is enforced centrally in _guard (capability: data_import)
     token = request.form["token"]
     tmpf = _os.path.join(WORKDIR, ".extract_tmp", token + ".pkl")
     if request.form.get("__do") == "cancel":
@@ -968,9 +982,7 @@ def pricing():
 @app.route("/pricing/upload", methods=["POST"])
 def pricing_upload():
     import pricing_intel as PI, csv, io
-    role = session.get("role", "viewer")
-    if role not in ("editor", "admin"):
-        return page(FORBIDDEN, ""), 403
+    # access is enforced centrally in _guard (capability: pricing)
     kind = request.args.get("kind", "myprices")
     f = request.files.get("file")
     if not f:
@@ -1329,13 +1341,19 @@ def admin():
             tgt = request.form.get("username", "").strip()
             scon = _auth.connect(); _audit_mod.set_actor(scon, session["user"]); scon.close()
             if act == "add":
-                _auth.add_user(tgt, request.form["password"], request.form.get("role", "editor"))
+                _auth.add_user(tgt, request.form["password"], request.form.get("role", "processor"))
                 banner = f"User <b>{esc(tgt)}</b> created/updated (password scrypt-hashed)."
             elif act == "role":
                 if tgt == session["user"]:
                     raise ValueError("you cannot change your own role")
                 _auth.set_role(tgt, request.form["role"])
                 banner = f"Role of <b>{esc(tgt)}</b> set to {esc(request.form['role'])}."
+            elif act == "perms":
+                # admin adjusts the processor role's capabilities (checkbox = granted)
+                for perm in _auth.PERMISSIONS:
+                    _auth.set_permission("processor", perm,
+                                         request.form.get(f"perm_{perm}") == "on")
+                banner = "Processor permissions updated."
             elif act == "toggle":
                 if tgt == session["user"]:
                     raise ValueError("you cannot disable your own account")
@@ -1377,11 +1395,28 @@ def admin():
             + _csrf_input() +
             '<label>username<input name="username" required></label>'
             '<label>password<input type="password" name="password" required></label>'
-            f'<label>role<select name="role">{rsel("editor")}</select></label>'
+            f'<label>role<select name="role">{rsel("processor")}</select></label>'
             '<button name="__act" value="add">+ Create user</button></form>'
             '<div class="note">Passwords are stored as salted scrypt hashes - never in '
-            'plain text. Roles: viewer = read-only, editor = operational changes, '
-            'admin = + this panel. All user-management changes are audit-logged.</div>')
+            'plain text. <b>Admin</b> = full control incl. server setup &amp; this panel; '
+            '<b>Processor</b> = day-to-day operations with the capabilities granted below '
+            '(never server setup or user administration). All changes are audit-logged.</div>')
+    # Processor capability editor (admin-configurable).
+    cur = _auth.get_role_permissions("processor")
+    pchecks = "".join(
+        f'<label class="chk" style="display:flex;gap:7px;align-items:center;font-size:13px;'
+        f'flex-direction:row;color:var(--ink);margin:3px 0">'
+        f'<input type="checkbox" name="perm_{esc(k)}" {"checked" if cur.get(k) else ""}> '
+        f'<b>{esc(k)}</b> — {esc(desc)}</label>'
+        for k, desc in _auth.PERMISSIONS.items())
+    permf = ('<div class="card"><h2>Processor permissions</h2>'
+             '<div class="note" style="margin-top:0">Tick what the <b>Processor</b> role may do. '
+             'Server setup and user / permission administration are reserved for Admin and '
+             'cannot be granted here.</div>'
+             '<form method="post" style="margin-top:8px">'
+             + _csrf_input() + pchecks
+             + '<div style="margin-top:10px"><button name="__act" value="perms">Save processor permissions</button></div>'
+             + '</form></div>')
     ltr = [[f'<td>{esc(l["ts"])}</td><td>{esc(l["username"])}</td>',
             f'<td class="{ "ok" if l["success"] else "bad"}">'
             f'{"OK" if l["success"] else "FAILED"}</td><td>{esc(l["remote"] or "")}</td>']
@@ -1392,6 +1427,7 @@ def admin():
             + '<div class="card"><h2>Users &amp; permissions</h2>'
             + tbl(["Username", "Role", "Status", "Last login", "Actions"], utr)
             + addf + "</div>"
+            + permf
             + f'<div class="card"><h2>Security status</h2>'
               f'<p>TLS certificate: '
               f'{"<span class=ok>cert.pem present - app serves HTTPS</span>" if tls else "<span class=bad>none - run python3 make_cert.py (self-signed) or install a CA cert</span>"}'
