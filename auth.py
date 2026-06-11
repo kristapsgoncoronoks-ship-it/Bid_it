@@ -29,6 +29,7 @@ PERMISSIONS = {
     "data_import":     "Import batches & edit transaction data",
     "invoice_control": "Register & triage supplier statements",
     "vat_claims":      "Manage VAT refund claims & status",
+    "customers":       "Onboard & manage VAT-refund customers (docs, fees, activation)",
     "pricing":         "Upload pricing & wholesale data",
     "documents":       "Attach & manage invoice documents",
     "exports":         "Download Excel / data exports",

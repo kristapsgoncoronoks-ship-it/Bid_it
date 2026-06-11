@@ -34,7 +34,19 @@ CREATE TABLE IF NOT EXISTS customer_bank_accounts (
 CREATE TABLE IF NOT EXISTS customer_supplier_accounts (
     customer TEXT, supplier TEXT, account_no TEXT, notes TEXT,
     PRIMARY KEY (customer, supplier));
+CREATE TABLE IF NOT EXISTS customer_documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer TEXT, kind TEXT, filename TEXT, stored_path TEXT,
+    sha256 TEXT, size INTEGER, backend TEXT DEFAULT 'local', web_url TEXT,
+    uploaded_at TEXT DEFAULT (datetime('now')));
 """
+
+# Documents a new VAT-refund customer must provide before activation.
+REQUIRED_DOCS = {
+    "trade_registry":  "Trade registry extract (verify client data)",
+    "signed_contract": "Signed service contract",
+}
+DOCDIR = f"{WORKDIR}/documents"
 
 CUSTOMERS = [
  ("JUPITER","Jupiter Plus AS","INPUT: EE company reg code","EE100127540",
@@ -79,15 +91,102 @@ def connect():
     con.row_factory = sqlite3.Row
     if DB == ":memory:" or DB not in _SCHEMA_READY:
         con.executescript(SCHEMA)
-        audit.install_audit(con, ['customers', 'customer_bank_accounts', 'customer_supplier_accounts'])
+        # fee model: % of refunded VAT, floored at a per-declaration minimum (EUR)
+        for ddl in ("ALTER TABLE customers ADD COLUMN fee_pct REAL DEFAULT 0",
+                    "ALTER TABLE customers ADD COLUMN fee_min REAL DEFAULT 0"):
+            try: con.execute(ddl)
+            except sqlite3.OperationalError: pass  # column already exists (safe)
+        audit.install_audit(con, ['customers', 'customer_bank_accounts',
+                                  'customer_supplier_accounts', 'customer_documents'])
         _SCHEMA_READY.add(DB)
     return con
 
 def seed(con):
-    con.executemany("INSERT OR REPLACE INTO customers VALUES (?,?,?,?,?,?,?,?,?,?,?)", CUSTOMERS)
+    con.executemany("""INSERT OR REPLACE INTO customers
+        (code, company_name, reg_number, vat_number, legal_address, country,
+         home_portal, phone, email, status, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?)""", CUSTOMERS)
     con.executemany("INSERT OR REPLACE INTO customer_bank_accounts VALUES (?,?,?,?,?,?,?)", BANKS)
     con.executemany("INSERT OR REPLACE INTO customer_supplier_accounts VALUES (?,?,?,?)", SUPPLIER_ACCOUNTS)
     con.commit()
+
+# ---------------------------------------------------------------- onboarding
+def add_customer(code, company_name, country="", reg_number="", vat_number="",
+                 home_portal="", notes=""):
+    """Create a NEW customer in 'pending' status (must be activated after the
+    required documents and bank account are on file)."""
+    con = connect()
+    con.execute("""INSERT INTO customers
+        (code, company_name, reg_number, vat_number, legal_address, country,
+         home_portal, phone, email, status, notes)
+        VALUES (?,?,?,?,?,?,?,?,?, 'pending', ?)""",
+        (code.strip().upper(), company_name.strip(), reg_number or "INPUT: reg number",
+         vat_number or "INPUT: VAT number", "INPUT: legal address", country.strip(),
+         home_portal or "INPUT: home portal", None, None, notes))
+    con.commit(); con.close()
+
+def add_document(con, code, kind, filename, file_bytes):
+    """Vault a customer document (trade registry, signed contract, ...) hash-verified."""
+    import hashlib
+    import doc_storage
+    sha = hashlib.sha256(file_bytes).hexdigest()
+    safe = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in f"{code}_{kind}_{filename}")
+    be = doc_storage.backend(DOCDIR)
+    stored, web_url = be.put(safe, file_bytes)
+    con.execute("""INSERT INTO customer_documents
+        (customer, kind, filename, stored_path, sha256, size, backend, web_url)
+        VALUES (?,?,?,?,?,?,?,?)""",
+        (code, kind, filename, stored, sha, len(file_bytes), be.name, web_url))
+    con.commit()
+    return sha
+
+def documents(con, code):
+    return con.execute("SELECT * FROM customer_documents WHERE customer=? ORDER BY id",
+                       (code,)).fetchall()
+
+def _has_doc(con, code, kind):
+    return con.execute("SELECT 1 FROM customer_documents WHERE customer=? AND kind=? LIMIT 1",
+                       (code, kind)).fetchone() is not None
+
+def _bank_ok(con, code):
+    return con.execute("""SELECT 1 FROM customer_bank_accounts
+        WHERE customer=? AND iban IS NOT NULL AND iban NOT LIKE '%INPUT%' LIMIT 1""",
+        (code,)).fetchone() is not None
+
+def activation_checklist(con, code):
+    """Returns ([(label, ok), ...], ready_bool) for the activation requirements."""
+    items = [("Trade registry extract", _has_doc(con, code, "trade_registry")),
+             ("Bank account (IBAN) on file", _bank_ok(con, code)),
+             ("Signed contract", _has_doc(con, code, "signed_contract"))]
+    return items, all(ok for _, ok in items)
+
+def set_activation(con, code, active):
+    con.execute("UPDATE customers SET status=? WHERE code=?",
+                ("active" if active else "pending", code))
+    con.commit()
+
+def is_active(name_or_code):
+    """True/False if the (tracked) customer is activated; None if not tracked."""
+    con = connect()
+    r = con.execute("SELECT status FROM customers WHERE company_name=? OR code=?",
+                    (name_or_code, name_or_code)).fetchone()
+    con.close()
+    return None if r is None else (r["status"] == "active")
+
+# ---------------------------------------------------------------- fees
+def set_fee(con, code, fee_pct, fee_min):
+    con.execute("UPDATE customers SET fee_pct=?, fee_min=? WHERE code=?",
+                (float(fee_pct or 0), float(fee_min or 0), code))
+    con.commit()
+
+def compute_fee(refund_eur, fee_pct, fee_min):
+    """Our fee on a refunded VAT amount. Priority is the % fee; if it falls below
+    the per-declaration minimum, the minimum is charged. Returns (fee, basis)."""
+    import money
+    pct_fee = money.f2((float(fee_pct or 0) / 100.0) * float(refund_eur or 0))
+    minimum = money.f2(fee_min or 0)
+    if pct_fee >= minimum:
+        return pct_fee, "percent"
+    return minimum, "minimum"
 
 def get_customer(name_or_code):
     con = connect()

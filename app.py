@@ -208,6 +208,7 @@ PERM_BY_ENDPOINT = {
     "data_manager":    "data_import",
     "invoice_ctrl":    "invoice_control",
     "vat":             "vat_claims", "api_vat": "vat_claims",
+    "customers":       "customers",
     "pricing":         "pricing", "pricing_upload": "pricing", "api_pricing": "pricing",
     "pricing_market":  "pricing",
     "documents":       "documents", "doc_download": "documents",
@@ -392,7 +393,7 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
 {% if 'pricing' in perms %}<a href="/pricing" class="{{'on' if page=='pri'}}">Pricing intel</a>{% endif %}
 {% if 'documents' in perms %}<a href="/documents" class="{{'on' if page=='doc'}}">Documents</a>{% endif %}
 <a href="/suppliers" class="{{'on' if page=='sup'}}">Suppliers</a>
-<a href="/customers" class="{{'on' if page=='cus'}}">Customers</a>
+{% if 'customers' in perms %}<a href="/customers" class="{{'on' if page=='cus'}}">Customers</a>{% endif %}
 {% if 'data_import' in perms %}<a href="/data" class="{{'on' if page=='dat'}}">Data manager</a>{% endif %}
 <a href="/history" class="{{'on' if page=='his'}}">History</a>
 <span style="margin-left:auto" class="exp">
@@ -1299,14 +1300,26 @@ def api_pricing():
 
 @app.route("/recovery")
 def recovery():
-    import vat_refund as VR
+    import vat_refund as VR, customer_db as CD, money
     year = request.args.get("year", "2026")
     rows, summ = VR.recovery_report(year)
+    # cache each customer's fee config so we don't re-query per row
+    fee_cfg = {}
+    def _fee_for(entity, vat):
+        if entity not in fee_cfg:
+            cu = CD.get_customer(entity)
+            fee_cfg[entity] = (cu.get("fee_pct") or 0, cu.get("fee_min") or 0)
+        return CD.compute_fee(vat, *fee_cfg[entity])
     trs = []
+    total_fee = 0.0
     for r in rows:
         agecls = "bad" if isinstance(r["age_days"], int) and r["age_days"] > 120 else ""
+        fee, basis = _fee_for(r["entity"], r["vat_eur"] or 0)
+        if r["status"] in ("submitted", "approved", "paid"):
+            total_fee += fee
         trs.append([f"<td>{esc(r['entity'])}</td><td>{esc(r['country'])}</td><td>{esc(r['period'])}</td>",
                     f"<td class=r>{(r['vat_eur'] or 0):,.2f}</td>",
+                    f"<td class=r>{fee:,.2f}</td><td class='note'>{basis}</td>",
                     f"<td>{esc(r['status'])}</td><td>{esc(r['submitted'] or '')}</td>",
                     f"<td class='{agecls}'>{r['age_days'] if r['age_days']!='' else ''}</td>",
                     f"<td>{esc(r['paid'] or '')}</td>"])
@@ -1316,10 +1329,12 @@ def recovery():
             f'<div class="kpi"><div class="v">EUR {summ["approved"]:,.0f}</div><div class="l">approved</div></div>'
             f'<div class="kpi"><div class="v ok">EUR {summ["paid"]:,.0f}</div><div class="l">paid back</div></div>'
             f'<div class="kpi"><div class="v bad">EUR {summ["outstanding"]:,.0f}</div>'
-            f'<div class="l">outstanding</div></div></div>'
-            + tbl(["Entity","Country","Period","VAT EUR","Status","Submitted","Age (days)","Paid"], trs)
-            + '<div class="note">Age over 120 days flagged red - chase the tax authority. '
-              'Set status to paid on the VAT refunds page when the refund arrives.</div></div>')
+            f'<div class="l">outstanding</div></div>'
+            f'<div class="kpi"><div class="v">EUR {total_fee:,.0f}</div><div class="l">our fees (incl.)</div></div></div>'
+            + tbl(["Entity","Country","Period","VAT EUR","Our fee","Fee basis","Status","Submitted","Age (days)","Paid"], trs)
+            + '<div class="note">Fee = % of refunded VAT, floored at the per-declaration minimum '
+              '(set per customer on the Customers page). "basis" shows which applied. Age over 120 days '
+              'flagged red - chase the tax authority.</div></div>')
     return page(body, "rec")
 
 @app.route("/anomalies")
@@ -1468,34 +1483,119 @@ def suppliers():
             + "".join(cards))
     return page(body, "sup")
 
-@app.route("/customers")
+@app.route("/customers", methods=["GET", "POST"])
 def customers():
-    import customer_db
-    con = customer_db.connect()
+    import customer_db as CD
+    banner = ""
+    if request.method == "POST":
+        try:
+            act = request.form["__act"]; code = request.form.get("code", "").strip().upper()
+            if act == "add_customer":
+                CD.add_customer(code, request.form.get("company_name", ""),
+                                request.form.get("country", ""), request.form.get("reg_number", ""),
+                                request.form.get("vat_number", ""), request.form.get("home_portal", ""))
+                msg = f"Customer {esc(code)} created — pending activation."
+            elif act == "upload_doc":
+                f = request.files.get("file")
+                if not f or not f.filename:
+                    raise ValueError("no file selected")
+                con = CD.connect()
+                CD.add_document(con, code, request.form.get("kind", "other"), f.filename, f.read())
+                con.close()
+                msg = f"Document ({esc(request.form.get('kind',''))}) uploaded for {esc(code)}."
+            elif act == "set_fee":
+                con = CD.connect()
+                CD.set_fee(con, code, request.form.get("fee_pct"), request.form.get("fee_min"))
+                con.close()
+                msg = f"Fee for {esc(code)} set to {esc(request.form.get('fee_pct') or '0')}% (min €{esc(request.form.get('fee_min') or '0')})."
+            elif act in ("activate", "deactivate"):
+                con = CD.connect()
+                if act == "activate":
+                    _items, ready = CD.activation_checklist(con, code)
+                    if not ready:
+                        con.close()
+                        raise ValueError("cannot activate — required documents / bank account not complete")
+                CD.set_activation(con, code, act == "activate"); con.close()
+                msg = f"Customer {esc(code)} {'ACTIVATED' if act=='activate' else 'set to pending'}."
+            else:
+                raise ValueError("unknown action")
+            banner = f'<div class="card"><b class="ok">{msg}</b></div>'
+        except Exception as e:
+            _log_exc("customer management", e)
+            banner = f'<div class="card"><b class="bad">Error: {esc(str(e))}</b></div>'
+
+    con = CD.connect()
     cards = []
-    for c in con.execute("SELECT * FROM customers ORDER BY code"):
+    for c in con.execute("SELECT * FROM customers ORDER BY status DESC, code"):
+        code = c["code"]
+        active = c["status"] == "active"
+        items, ready = CD.activation_checklist(con, code)
+        status_badge = (f'<span class="ok">● ACTIVE</span>' if active
+                        else f'<span class="bad">● PENDING ACTIVATION</span>')
+        chk = "".join(f'<div class="row"><span class="{"ok" if ok else "bad"}">'
+                      f'{"✓" if ok else "✗"}</span> {esc(lbl)}</div>' for lbl, ok in items)
         def fld(v):
             v2 = esc(str(v)) if v is not None else ""
             return f'<span class="bad">{v2}</span>' if v and "INPUT" in str(v) else v2
         meta = "".join(f"<tr><td style='color:var(--mut);width:160px'>{lbl}</td><td>{fld(c[k])}</td></tr>"
                        for lbl, k in (("Company name","company_name"),("Registration number","reg_number"),
-                                      ("VAT number","vat_number"),("Legal address","legal_address"),
-                                      ("Country","country"),("Home tax portal","home_portal"),
-                                      ("Notes","notes")) if c[k])
-        banks = "".join(f"<tr><td>{fld(r['iban'])}</td><td>{esc(r['bank'])}</td><td>{esc(r['currency'])}</td><td>{esc(r['purpose'])}</td></tr>"
-                        for r in con.execute("SELECT * FROM customer_bank_accounts WHERE customer=?", (c["code"],)))
-        accs = "".join(f"<tr><td>{esc(r['supplier'])}</td><td>{fld(r['account_no'])}</td><td class='note'>{esc(r['notes'])}</td></tr>"
-                       for r in con.execute("SELECT * FROM customer_supplier_accounts WHERE customer=?", (c["code"],)))
-        cards.append(f'<div class="card"><h2>{esc(c["code"])} — {esc(c["company_name"])}</h2>'
-                     f"<table><tbody>{meta}</tbody></table>"
-                     + (f"<h2 style='margin-top:12px'>Bank accounts</h2><table><tbody>{banks}</tbody></table>" if banks else "")
-                     + (f"<h2 style='margin-top:12px'>Supplier account numbers</h2><table><tbody>{accs}</tbody></table>" if accs else "")
-                     + "</div>")
+                                      ("VAT number","vat_number"),("Country","country"),
+                                      ("Home tax portal","home_portal"),("Notes","notes")) if c[k])
+        banks = "".join(f"<tr><td>{fld(r['iban'])}</td><td>{esc(r['bank'])}</td><td>{esc(r['currency'])}</td></tr>"
+                        for r in con.execute("SELECT * FROM customer_bank_accounts WHERE customer=?", (code,)))
+        docs = "".join(f"<tr><td>{esc(d['kind'])}</td><td>{esc(d['filename'])}</td>"
+                       f"<td class='note'>sha {esc((d['sha256'] or '')[:8])}</td></tr>"
+                       for d in CD.documents(con, code))
+        fee_pct = c["fee_pct"] or 0; fee_min = c["fee_min"] or 0
+        # management forms
+        opt = lambda v: "".join(f'<option value="{k}" {"selected" if k==v else ""}>{esc(lbl)}</option>'
+                                for k, lbl in {**CD.REQUIRED_DOCS, "other": "Other"}.items())
+        hid = f'<input type="hidden" name="code" value="{esc(code)}">'
+        upload_f = ('<form method="post" enctype="multipart/form-data" class="f" style="margin-top:8px">'
+                    + _csrf_input() + hid + '<input type="hidden" name="__act" value="upload_doc">'
+                    + f'<label>document<select name="kind">{opt("trade_registry")}</select></label>'
+                    + '<label>file<input type="file" name="file" required></label>'
+                    + '<button>Upload</button></form>')
+        fee_f = ('<form method="post" class="f" style="margin-top:6px">' + _csrf_input() + hid
+                 + '<input type="hidden" name="__act" value="set_fee">'
+                 + f'<label>fee %<input name="fee_pct" type="number" step="0.1" value="{fee_pct:g}" style="width:80px"></label>'
+                 + f'<label>min € / declaration<input name="fee_min" type="number" step="0.01" value="{fee_min:g}" style="width:110px"></label>'
+                 + '<button>Save fee</button></form>')
+        act_btn = (f'<form method="post" style="display:inline">' + _csrf_input() + hid
+                   + f'<button name="__act" value="{"deactivate" if active else "activate"}" '
+                   + ('' if (active or ready) else 'disabled title="complete the checklist first" ')
+                   + f'style="background:{"var(--bad)" if active else "var(--ok)"}">'
+                   + f'{"Deactivate" if active else "Activate"}</button></form>')
+        cards.append(
+            f'<div class="card"><h2>{esc(code)} — {esc(c["company_name"])} &nbsp; {status_badge}</h2>'
+            + f'<table><tbody>{meta}</tbody></table>'
+            + (f"<h2 style='margin-top:12px'>Bank accounts</h2><table><tbody>{banks}</tbody></table>" if banks else "")
+            + '<h2 style="margin-top:12px">Activation checklist</h2>' + (chk or '<p class="note">—</p>')
+            + '<div style="margin-top:8px">' + act_btn + '</div>'
+            + '<h2 style="margin-top:12px">Documents</h2>'
+            + (f'<table><tbody>{docs}</tbody></table>' if docs else '<p class="note">none yet</p>')
+            + upload_f
+            + f'<h2 style="margin-top:12px">Our fee — {fee_pct:g}% of refunded VAT, min €{fee_min:,.2f}/declaration</h2>'
+            + '<div class="note" style="margin-top:0">Priority is the % fee; if it falls below the '
+              'minimum, the minimum is charged. Computed fees show on the Recovery page.</div>'
+            + fee_f + '</div>')
     con.close()
-    body = ('<div class="note" style="margin-bottom:10px">Customer (entity) master data lives in '
-            '<b>customers.db</b> — separated from the supplier master (suppliers.db) and from the '
-            'claims database (fuel_history.db). These profiles feed the APPLICANT block of every '
-            'VAT refund claim pack; red INPUT fields must be completed before first submission.</div>'
+    new_f = ('<div class="card"><h2>Onboard a new VAT-refund customer</h2>'
+             '<div class="note" style="margin-top:0">Created as <b>pending</b>; activate once the '
+             'trade registry, bank account and signed contract are on file.</div>'
+             '<form method="post" class="f">' + _csrf_input()
+             + '<input type="hidden" name="__act" value="add_customer">'
+             '<label>code<input name="code" required style="width:90px"></label>'
+             '<label>company name<input name="company_name" required></label>'
+             '<label>country<input name="country" style="width:70px" placeholder="LV"></label>'
+             '<label>reg number<input name="reg_number"></label>'
+             '<label>VAT number<input name="vat_number"></label>'
+             '<button>+ Create customer</button></form></div>')
+    body = (banner + new_f
+            + '<div class="note" style="margin-bottom:10px">Customer (entity) master data lives in '
+              '<b>customers.db</b>. Each new customer must be <b>activated</b> — requires a trade '
+              'registry extract, a bank account, and a signed contract — before claims can be '
+              'submitted for them.</div>'
             + "".join(cards))
     return page(body, "cus")
 

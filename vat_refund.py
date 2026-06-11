@@ -163,6 +163,11 @@ def set_status(con, ent, ctry, period, new):
     the UNIQUE(entity, refund_country, supplier, invoice_ref) constraint; on that
     we roll back and abort the status change rather than silently proceeding as if
     we had won the lock."""
+    # A tracked customer must be ACTIVATED (onboarding documents complete) before a
+    # claim can be submitted on their behalf. Untracked entities are not gated.
+    if new in LOCKING and customer_db.is_active(ent) is False:
+        return False, (f"customer '{ent}' is not activated — complete the trade registry, "
+                       f"bank account and signed contract on the Customers page first")
     try:
         # Open an immediate transaction so concurrent claimants serialize on write.
         con.execute("BEGIN IMMEDIATE")

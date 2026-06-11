@@ -1,0 +1,80 @@
+"""Tests for VAT-refund customer onboarding: activation gating, documents, and
+the fee model (% of refunded VAT floored at a per-declaration minimum)."""
+import importlib
+
+import pytest
+
+
+@pytest.fixture()
+def cd(tmp_path, monkeypatch):
+    import customer_db
+    importlib.reload(customer_db)
+    monkeypatch.setattr(customer_db, "DB", str(tmp_path / "cust.db"))
+    monkeypatch.setattr(customer_db, "DOCDIR", str(tmp_path / "docs"))
+    return customer_db
+
+
+def test_new_customer_is_pending_with_incomplete_checklist(cd):
+    cd.add_customer("ACME", "Acme SIA", "LV")
+    assert cd.is_active("ACME") is False
+    con = cd.connect()
+    items, ready = cd.activation_checklist(con, "ACME")
+    con.close()
+    assert ready is False
+    assert [lbl for lbl, _ in items] == ["Trade registry extract",
+                                         "Bank account (IBAN) on file", "Signed contract"]
+
+
+def test_activation_requires_docs_and_bank(cd):
+    cd.add_customer("ACME", "Acme SIA", "LV")
+    con = cd.connect()
+    # cannot activate yet
+    _i, ready = cd.activation_checklist(con, "ACME")
+    assert ready is False
+    con.execute("INSERT INTO customer_bank_accounts (customer,iban,bank,currency,purpose) "
+                "VALUES ('ACME','LV80BANK0001','MyBank','EUR','refund payout')")
+    con.commit()
+    cd.add_document(con, "ACME", "trade_registry", "reg.pdf", b"REG")
+    cd.add_document(con, "ACME", "signed_contract", "contract.pdf", b"CONTRACT")
+    _i, ready = cd.activation_checklist(con, "ACME")
+    assert ready is True
+    cd.set_activation(con, "ACME", True)
+    con.close()
+    assert cd.is_active("ACME") is True
+
+
+def test_fee_priority_percent_then_minimum(cd):
+    # 15% of 1000 = 150 (above the 50 minimum) -> percent
+    assert cd.compute_fee(1000, 15, 50) == (150.0, "percent")
+    # 15% of 100 = 15 (below 50) -> minimum charged
+    assert cd.compute_fee(100, 15, 50) == (50.0, "minimum")
+    # nothing refunded -> minimum still applies
+    assert cd.compute_fee(0, 15, 50) == (50.0, "minimum")
+    # no fee configured
+    assert cd.compute_fee(1000, 0, 0) == (0.0, "percent")
+
+
+def test_untracked_customer_not_gated(cd):
+    assert cd.is_active("NOT-A-CUSTOMER") is None
+
+
+def test_set_status_blocks_pending_customer(tmp_path, monkeypatch):
+    import customer_db
+    import vat_refund
+    monkeypatch.setattr(customer_db, "DB", str(tmp_path / "cust.db"))
+    monkeypatch.setattr(customer_db, "_SCHEMA_READY", set())
+    monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "vat.db"))
+    monkeypatch.setattr(vat_refund, "_SCHEMA_READY", set())
+    customer_db.add_customer("BLK", "Blocked UAB", "LT")   # pending
+    con = vat_refund.connect()
+    ok, msg = vat_refund.set_status(con, "BLK", "Belgium", "2026-Q2", "submitted")
+    con.close()
+    assert ok is False and "not activated" in msg
+
+
+def test_customers_page_and_recovery_fee_render(client):
+    h = client.get("/customers").get_data(as_text=True)
+    assert "Onboard a new VAT-refund customer" in h
+    assert "Activation checklist" in h
+    rec = client.get("/recovery").get_data(as_text=True)
+    assert "Our fee" in rec and "Fee basis" in rec
