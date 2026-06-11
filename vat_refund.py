@@ -12,7 +12,7 @@ Statuses: draft -> ready -> submitted -> approved -> paid (free text allowed)
 import sqlite3, sys, collections
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
-import supplier_db, customer_db, audit
+import supplier_db, customer_db, audit, money
 from vat_config import (GOODS_CODE,
                         MIN_QUARTER, MIN_ANNUAL, DEADLINE_FMT,
                         LOCAL_CCY_INPUT, COMPLIANCE_NOTES)
@@ -191,30 +191,34 @@ def claim_matrix(con, year):
                COUNT(*) n
         FROM transactions WHERE period LIKE ? GROUP BY entity, country, period""",
         (f"{year}-%",)).fetchall()
-    streams = collections.defaultdict(lambda: {"qs": collections.defaultdict(lambda: [0.0,0.0,0]),
+    streams = collections.defaultdict(lambda: {"qs": collections.defaultdict(
+                                                   lambda: [money.D(0), money.D(0), 0]),
                                                "ccy": "EUR"})
     loaded_periods = set()
     for r in rows:
         s = streams[(r["entity"], r["country"])]
         q = quarter(r["period"])
-        s["qs"][q][0] += r["ve"]; s["qs"][q][1] += r["vl"]; s["qs"][q][2] += r["n"]
+        # accumulate VAT exactly as Decimal so the EUR-threshold test below never
+        # flips on binary-float noise
+        s["qs"][q][0] += money.D(r["ve"]); s["qs"][q][1] += money.D(r["vl"]); s["qs"][q][2] += r["n"]
         s["ccy"] = r["currency"]; loaded_periods.add(r["period"])
     out = []
     for (ent, ctry), s in sorted(streams.items()):
-        year_ve = sum(v[0] for v in s["qs"].values())
-        year_vl = sum(v[1] for v in s["qs"].values())
+        year_ve = money.q2(sum((v[0] for v in s["qs"].values()), money.D(0)))
+        year_vl = money.q2(sum((v[1] for v in s["qs"].values()), money.D(0)))
         for q, (ve, vl, n) in sorted(s["qs"].items()):
+            ve = money.q2(ve)            # quarterly VAT, exact cents
             missing = [m for m in q_months(q) if m not in loaded_periods]
             if ve >= MIN_QUARTER: verdict = "READY (>= 400 EUR quarterly min)"
             elif year_ve >= MIN_ANNUAL: verdict = "DEFER TO ANNUAL (below 400, year >= 50)"
             else: verdict = "BELOW ANNUAL MIN - accumulate"
-            out.append(dict(entity=ent, country=ctry, period=q, vat_eur=round(ve,2),
-                            vat_local=round(vl,2), currency=s["ccy"], lines=n,
+            out.append(dict(entity=ent, country=ctry, period=q, vat_eur=money.f2(ve),
+                            vat_local=money.f2(vl), currency=s["ccy"], lines=n,
                             verdict=verdict, missing=missing,
                             home=customer_db.portal(ent),
                             deadline=DEADLINE_FMT.format(year_plus1=int(year)+1)))
         out.append(dict(entity=ent, country=ctry, period=f"{year}-YEAR",
-                        vat_eur=round(year_ve,2), vat_local=round(year_vl,2),
+                        vat_eur=money.f2(year_ve), vat_local=money.f2(year_vl),
                         currency=s["ccy"], lines=sum(v[2] for v in s["qs"].values()),
                         verdict=("READY (annual >= 50 EUR)" if year_ve >= MIN_ANNUAL
                                  else "BELOW ANNUAL MIN"),
@@ -256,8 +260,8 @@ def invoice_lines(con, ent, ctry, qtr):
                                   vat_id=vatid or "INPUT: " + vnote,
                                   invoice=inv, inv_date=dates.get(inv, ""),
                                   code=code, desc=desc, product=pg, currency=ccy,
-                                  net_local=round(netl,2), vat_local=round(vatl,2),
-                                  net_eur=round(net,2), vat_eur=round(vat,2)))
+                                  net_local=money.f2(netl), vat_local=money.f2(vatl),
+                                  net_eur=money.f2(net), vat_eur=money.f2(vat)))
     return lines
 
 # ---------------------------------------------------------------- Excel pack
@@ -412,8 +416,8 @@ def recovery_report(year=None):
                         vat_eur=r["vat_eur"], status=r["status"], submitted=r["submitted_date"],
                         paid=r["paid_date"], paid_amount=r["paid_amount"], age_days=age))
     con.close()
-    summary = {s: round(sum(o["vat_eur"] or 0 for o in out if o["status"] == s), 2)
+    summary = {s: money.fsum(o["vat_eur"] or 0 for o in out if o["status"] == s)
                for s in ("submitted", "approved", "paid")}
-    summary["outstanding"] = round(sum(o["vat_eur"] or 0 for o in out
-                                       if o["status"] in ("submitted", "approved")), 2)
+    summary["outstanding"] = money.fsum(o["vat_eur"] or 0 for o in out
+                                        if o["status"] in ("submitted", "approved"))
     return out, summary

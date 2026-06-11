@@ -28,10 +28,14 @@ competitor price-competitiveness intelligence, for five Baltic transport entitie
   set the actor via `audit.set_actor`/`reset_actor` in app.py's before/after hooks.
 - Prices everywhere are NET EUR/L, final (VAT excluded, rebates applied). State this
   basis on any new report surface.
+- Money is quantized via `money.py` (Decimal, ROUND_HALF_UP) — use `money.f2/fsum`
+  when rounding/summing amounts and `money.q2` for EUR-threshold decisions; don't
+  use bare `round()` on currency. Storage columns stay SQLite REAL.
 - HTML output is escaped with `markupsafe.escape` (aliased `esc`) — never f-string
   raw DB values into a page.
-- Roles: viewer (read), editor (writes/POST), admin (+ /admin, /setup). Enforced
-  centrally in `_guard()`.
+- Roles: `admin` (full incl. /admin, /setup, server setup) and `processor`
+  (day-to-day; capabilities are admin-configurable, never server/user admin).
+  Enforced centrally in `_guard()` via `auth.has_perm` / `PERM_BY_ENDPOINT`.
 - NET/effective price = `net_eur_eff / qty`. City dimension = the `station` column.
 
 ## Do NOT commit

@@ -6,6 +6,7 @@ workbook line to the canonical schema, VALIDATES each supplier against its
 Run:  python3 consolidate.py
 """
 import pickle, sys
+import money
 from supplier_specs import SPECS, ROW_MAPS, prod_group
 from month_config import PERIOD, FX, FILES
 from ingest import fetch_records
@@ -40,16 +41,16 @@ for sup, fname in FILES.items():
         ROWS.append([ent, sup, m.get("country", spec["country"]), m["vehicle"], norm_date(m["date"]),
                      m.get("time",""), m["station"], m["product"], prod_group(m["product"]),
                      m["qty"], m.get("currency", spec["currency"]),
-                     round(m["net_local"],2), round(m["vat_local"],2), round(m["gross_local"],2),
-                     round(m["net_eur"],2), round(m["vat_eur"],2),
-                     round(m.get("net_eur_eff", m["net_eur"]),2), m.get("note","")])
+                     money.f2(m["net_local"]), money.f2(m["vat_local"]), money.f2(m["gross_local"]),
+                     money.f2(m["net_eur"]), money.f2(m["vat_eur"]),
+                     money.f2(m.get("net_eur_eff", m["net_eur"])), m.get("note","")])
     sub = ROWS[n0:]
     # ---- validation against expected (the training check) ----
     calc = {
         "lines": len(sub),
-        "gross_local": round(sum(x[13] for x in sub),2),
-        "net_eur": round(sum(x[14] for x in sub),2),
-        "gross_eur": round(sum(x[14]+x[15] for x in sub),2),
+        "gross_local": money.fsum(x[13] for x in sub),
+        "net_eur": money.fsum(x[14] for x in sub),
+        "gross_eur": money.fsum(x[14]+x[15] for x in sub),
         "diesel_litres": round(sum(x[9] for x in sub if x[8]=="Diesel"),2),
     }
     ok = True
