@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS customer_countries (
     customer TEXT, country TEXT, status TEXT DEFAULT 'pending',
     requested_at TEXT, activated_at TEXT,
     PRIMARY KEY (customer, country));
+CREATE TABLE IF NOT EXISTS country_requirements (
+    country TEXT, kind TEXT, PRIMARY KEY (country, kind));
 """
 
 # Documents a new VAT-refund customer must provide before activation.
@@ -53,10 +55,18 @@ REQUIRED_DOCS = {
     "trade_registry":  "Trade registry extract (verify client data)",
     "signed_contract": "Signed service contract",
 }
-# Documents required to activate a specific REFUND COUNTRY for a customer.
-REQUIRED_COUNTRY_DOCS = {
-    "power_of_attorney": "Power of attorney / authorisation to file in this country",
+# Catalogue of country-activation document kinds. Which of these a given refund
+# country requires is configured per country (country_requirements); some need
+# only a power of attorney, others several. Default = power of attorney only.
+DOC_KINDS = {
+    "power_of_attorney": "Power of attorney / authorisation to file",
+    "vat_certificate":   "Local VAT registration certificate",
+    "tax_mandate":       "Tax representative / fiscal mandate",
+    "fleet_list":        "Vehicle fleet list",
+    "company_extract":   "Company registry extract (local language)",
+    "id_signatory":      "ID copy of the authorised signatory",
 }
+DEFAULT_COUNTRY_DOCS = ["power_of_attorney"]
 DOCDIR = f"{WORKDIR}/documents"
 
 CUSTOMERS = [
@@ -111,7 +121,7 @@ def connect():
             except sqlite3.OperationalError: pass  # column already exists (safe)
         audit.install_audit(con, ['customers', 'customer_bank_accounts',
                                   'customer_supplier_accounts', 'customer_documents',
-                                  'customer_fees', 'customer_countries'])
+                                  'customer_fees', 'customer_countries', 'country_requirements'])
         _SCHEMA_READY.add(DB)
     return con
 
@@ -213,9 +223,32 @@ def request_country(con, code, country):
 def add_country_document(con, code, country, kind, filename, file_bytes):
     return add_document(con, code, kind, filename, file_bytes, country=country.strip())
 
+def set_country_requirements(con, country, kinds):
+    """Replace the set of documents a refund country requires for activation."""
+    country = country.strip()
+    con.execute("DELETE FROM country_requirements WHERE country=?", (country,))
+    for k in kinds:
+        if k in DOC_KINDS:
+            con.execute("INSERT OR IGNORE INTO country_requirements (country, kind) VALUES (?,?)",
+                        (country, k))
+    con.commit()
+
+def required_docs_for_country(con, country):
+    """List of required document kinds for a country (default: power of attorney)."""
+    rows = [r["kind"] for r in con.execute(
+        "SELECT kind FROM country_requirements WHERE country=?", (country.strip(),))]
+    return rows or list(DEFAULT_COUNTRY_DOCS)
+
+def all_country_requirements(con):
+    out = {}
+    for r in con.execute("SELECT country, kind FROM country_requirements ORDER BY country, kind"):
+        out.setdefault(r["country"], []).append(r["kind"])
+    return out
+
 def country_doc_checklist(con, code, country):
     """([(label, ok), ...], ready) for the documents required to activate a country."""
-    items = [(lbl, _has_doc(con, code, k, country)) for k, lbl in REQUIRED_COUNTRY_DOCS.items()]
+    kinds = required_docs_for_country(con, country)
+    items = [(DOC_KINDS.get(k, k), _has_doc(con, code, k, country)) for k in kinds]
     return items, all(ok for _, ok in items)
 
 def activate_country(con, code, country, active):

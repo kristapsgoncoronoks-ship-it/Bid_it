@@ -91,6 +91,49 @@ def test_per_country_activation_flow(cd):
     assert cust_ready is False
 
 
+def test_per_country_document_requirements(cd):
+    con = cd.connect()
+    cd.set_country_requirements(con, "Germany", ["power_of_attorney", "vat_certificate"])
+    assert set(cd.required_docs_for_country(con, "Germany")) == {"power_of_attorney", "vat_certificate"}
+    assert cd.required_docs_for_country(con, "Belgium") == ["power_of_attorney"]   # default
+    cd.add_customer("ACME", "Acme SIA", "LV")
+    cd.add_country_document(con, "ACME", "Germany", "power_of_attorney", "p.pdf", b"P")
+    _i, ready = cd.country_doc_checklist(con, "ACME", "Germany")
+    assert ready is False                                   # VAT certificate still missing
+    cd.add_country_document(con, "ACME", "Germany", "vat_certificate", "v.pdf", b"V")
+    _i, ready = cd.country_doc_checklist(con, "ACME", "Germany")
+    assert ready is True
+    con.close()
+
+
+def test_submission_readiness(tmp_path, monkeypatch):
+    import customer_db
+    import vat_refund
+    monkeypatch.setattr(customer_db, "DB", str(tmp_path / "c.db"))
+    monkeypatch.setattr(customer_db, "_SCHEMA_READY", set())
+    monkeypatch.setattr(customer_db, "DOCDIR", str(tmp_path / "docs"))
+    monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "v.db"))
+    monkeypatch.setattr(vat_refund, "_SCHEMA_READY", set())
+    monkeypatch.setattr(vat_refund, "stream_invoices", lambda *a, **k: [])
+    customer_db.add_customer("ACME", "Acme SIA", "LV")     # pending, country not started
+    vc = vat_refund.connect()
+    ready, issues = vat_refund.submission_readiness(vc, "ACME", "Belgium", "2026-Q2")
+    assert ready is False and any("not activated" in i for i in issues)
+    con = customer_db.connect()
+    customer_db.set_activation(con, "ACME", True)
+    customer_db.add_country_document(con, "ACME", "Belgium", "power_of_attorney", "p.pdf", b"P")
+    customer_db.activate_country(con, "ACME", "Belgium", True)
+    con.close()
+    ready, issues = vat_refund.submission_readiness(vc, "ACME", "Belgium", "2026-Q2")
+    assert ready is True and issues == []
+    vc.close()
+
+
+def test_readiness_page(client):
+    h = client.get("/readiness").get_data(as_text=True)
+    assert "Ready to submit" in h and "Open claims" in h
+
+
 def test_country_gate_blocks_until_activated(tmp_path, monkeypatch):
     import customer_db
     import vat_refund

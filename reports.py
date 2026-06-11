@@ -413,6 +413,45 @@ def fee_report_workbook(claim, path=None):
     return path
 
 
+def claims_overview_workbook(overview, year, path=None):
+    """VAT-refund submission readiness: 'Ready to submit' + 'Open claims' sheets."""
+    wb = Workbook(); first = True
+    # ready-to-submit
+    ws = wb.active; ws.title = "Ready to submit"
+    hdr = ["Entity", "Country", "Period", "VAT EUR", "Can submit?", "Blocking reasons"]
+    for j, h in enumerate(hdr, 1):
+        ws.cell(1, j, h)
+    style_header(ws, 1, len(hdr))
+    rr = 2
+    for c in overview["to_submit"]:
+        ws.cell(rr, 1, c["entity"]); ws.cell(rr, 2, c["country"]); ws.cell(rr, 3, c["period"])
+        ws.cell(rr, 4, c["vat_eur"] or 0).number_format = FMT_EUR
+        cell = ws.cell(rr, 5, "READY" if c["ready"] else "BLOCKED")
+        cell.font = Font(bold=True, color=OKG if c["ready"] else BADR)
+        ws.cell(rr, 6, "; ".join(c["issues"]))
+        rr += 1
+    band_rows(ws, 2, rr - 1, len(hdr))
+    set_widths(ws, [24, 14, 12, 14, 12, 50]); ws.freeze_panes = "A2"; ws.sheet_view.showGridLines = False
+    # open claims
+    ws2 = wb.create_sheet("Open claims")
+    hdr2 = ["Entity", "Country", "Period", "VAT EUR", "Status", "Submitted", "Age (days)"]
+    for j, h in enumerate(hdr2, 1):
+        ws2.cell(1, j, h)
+    style_header(ws2, 1, len(hdr2))
+    rr = 2
+    for c in overview["open"]:
+        ws2.cell(rr, 1, c["entity"]); ws2.cell(rr, 2, c["country"]); ws2.cell(rr, 3, c["period"])
+        ws2.cell(rr, 4, c["vat_eur"] or 0).number_format = FMT_EUR
+        ws2.cell(rr, 5, c["status"]); ws2.cell(rr, 6, c["submitted"] or "")
+        ws2.cell(rr, 7, c["age_days"] if c["age_days"] != "" else "")
+        rr += 1
+    band_rows(ws2, 2, rr - 1, len(hdr2))
+    set_widths(ws2, [24, 14, 12, 14, 12, 13, 11]); ws2.freeze_panes = "A2"; ws2.sheet_view.showGridLines = False
+    path = path or os.path.join(WORKDIR, f"VAT_Claim_Readiness_{year}.xlsx")
+    wb.save(path)
+    return path
+
+
 if __name__ == "__main__":
     import sys
     per = sys.argv[1] if len(sys.argv) > 1 else None

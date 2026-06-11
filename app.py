@@ -207,7 +207,7 @@ PERM_BY_ENDPOINT = {
     "extract_batch":   "data_import", "extract_confirm": "data_import",
     "data_manager":    "data_import",
     "invoice_ctrl":    "invoice_control",
-    "vat":             "vat_claims", "api_vat": "vat_claims",
+    "vat":             "vat_claims", "api_vat": "vat_claims", "readiness": "vat_claims",
     "customers":       "customers",
     "pricing":         "pricing", "pricing_upload": "pricing", "api_pricing": "pricing",
     "pricing_market":  "pricing",
@@ -215,6 +215,7 @@ PERM_BY_ENDPOINT = {
     "export_master":   "exports", "export_history": "exports",
     "export_pricing":  "exports", "export_vat": "exports", "export_compare": "exports",
     "export_stations": "exports", "export_summary": "exports", "export_fee": "exports",
+    "export_readiness": "exports",
     "admin":           "user_admin",   # server setup / overall software changes
 }
 
@@ -387,7 +388,8 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
 <a href="/stations" class="{{'on' if page=='stn'}}">Stations</a>
 {% if 'invoice_control' in perms %}<a href="/invoices" class="{{'on' if page=='inv'}}">Invoice control</a>{% endif %}
 {% if 'data_import' in perms %}<a href="/extract" class="{{'on' if page=='ext'}}">Import batch</a>{% endif %}
-{% if 'vat_claims' in perms %}<a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>{% endif %}
+{% if 'vat_claims' in perms %}<a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
+<a href="/readiness" class="{{'on' if page=='rdy'}}">Claims</a>{% endif %}
 <a href="/recovery" class="{{'on' if page=='rec'}}">Recovery</a>
 <a href="/anomalies" class="{{'on' if page=='ano'}}">Anomalies</a>
 {% if 'pricing' in perms %}<a href="/pricing" class="{{'on' if page=='pri'}}">Pricing intel</a>{% endif %}
@@ -1361,6 +1363,57 @@ def recovery():
               'report. Age over 120 days flagged red - chase the tax authority.</div></div>')
     return page(body, "rec")
 
+@app.route("/readiness")
+def readiness():
+    """Can we submit? Per claimable quarter: READY vs BLOCKED (with reasons), plus
+    a report of currently open (submitted/awaiting-refund) claims."""
+    import vat_refund as VR
+    year = request.args.get("year", "2026")
+    ov = VR.claims_overview(year)
+    ts, op = ov["to_submit"], ov["open"]
+    nready = sum(1 for c in ts if c["ready"])
+    trs1 = []
+    for c in ts:
+        verdict = ('<span class="ok">READY ✓</span>' if c["ready"]
+                   else '<span class="bad">BLOCKED ✗</span>')
+        trs1.append([f"<td>{esc(c['entity'])}</td><td>{esc(c['country'])}</td><td>{esc(c['period'])}</td>",
+                     f"<td class=r>{(c['vat_eur'] or 0):,.2f}</td>",
+                     f"<td>{verdict}</td><td class='note'>{esc('; '.join(c['issues']))}</td>"])
+    trs2 = []
+    open_vat = 0.0
+    for c in op:
+        open_vat += c["vat_eur"] or 0
+        agecls = "bad" if isinstance(c["age_days"], int) and c["age_days"] > 120 else ""
+        trs2.append([f"<td>{esc(c['entity'])}</td><td>{esc(c['country'])}</td><td>{esc(c['period'])}</td>",
+                     f"<td class=r>{(c['vat_eur'] or 0):,.2f}</td>",
+                     f"<td>{esc(c['status'])}</td><td>{esc(c['submitted'] or '')}</td>",
+                     f"<td class='{agecls}'>{c['age_days'] if c['age_days'] != '' else ''}</td>"])
+    body = (f'<form class="f" method="get"><label>Year<input name="year" value="{esc(year)}" style="width:80px"></label>'
+            f'<a href="/export/readiness?year={esc(year)}" style="align-self:end;padding:8px 12px;font-size:13px">⬇ Export (Excel)</a></form>'
+            + '<div class="kpis">'
+            + f'<div class="kpi"><div class="v ok">{nready}</div><div class="l">ready to submit</div></div>'
+            + f'<div class="kpi"><div class="v {"bad" if len(ts)-nready else ""}">{len(ts)-nready}</div><div class="l">blocked</div></div>'
+            + f'<div class="kpi"><div class="v">{len(op)}</div><div class="l">open claims</div></div>'
+            + f'<div class="kpi"><div class="v">EUR {open_vat:,.0f}</div><div class="l">open VAT</div></div></div>'
+            + '<div class="card"><h2>Ready to submit — can we file this claim?</h2>'
+            + tbl(["Entity", "Country", "Period", "VAT EUR", "Submission", "Blocking reasons"], trs1)
+            + '<div class="note">READY = customer &amp; refund country activated, all invoice refs '
+              'resolved, all documents attached, no duplicate locks, and the quarterly threshold met. '
+              'Then submit on the VAT refunds page.</div></div>'
+            + '<div class="card"><h2>Open claims — submitted, awaiting refund</h2>'
+            + tbl(["Entity", "Country", "Period", "VAT EUR", "Status", "Submitted", "Age (days)"], trs2)
+            + '<div class="note">Open = submitted/approved, not yet paid. Age over 120 days '
+              'flagged red — chase the tax authority.</div></div>')
+    return page(body, "rdy")
+
+@app.route("/export/readiness")
+def export_readiness():
+    import vat_refund as VR, reports
+    year = request.args.get("year", "2026")
+    path = reports.claims_overview_workbook(VR.claims_overview(year), year)
+    return send_file(path, as_attachment=True, download_name=os.path.basename(path),
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
 @app.route("/anomalies")
 def anomalies_page():
     import anomaly
@@ -1575,6 +1628,13 @@ def customers():
                         raise ValueError(f"cannot activate {country} — required country documents not received")
                 CD.activate_country(con, code, country, act == "activate_country"); con.close()
                 msg = f"Refund country {esc(country)} {'activated' if act=='activate_country' else 'set to pending'} for {esc(code)}."
+            elif act == "set_country_reqs":
+                country = request.form.get("req_country", "").strip()
+                if not country:
+                    raise ValueError("refund country is required")
+                kinds = [k for k in CD.DOC_KINDS if request.form.get(f"req_{k}") == "on"]
+                con = CD.connect(); CD.set_country_requirements(con, country, kinds); con.close()
+                msg = f"Document requirements for {esc(country)} updated ({len(kinds) or 'default'} required)."
             else:
                 raise ValueError("unknown action")
             banner = f'<div class="card"><b class="ok">{msg}</b></div>'
@@ -1643,10 +1703,11 @@ def customers():
             cchk = " · ".join(f'<span class="{"ok" if ok else "bad"}">{"✓" if ok else "✗"} {esc(lbl)}</span>'
                               for lbl, ok in citems)
             chid = hid + f'<input type="hidden" name="country2" value="{esc(cc)}">'
+            kopt = "".join(f'<option value="{k}">{esc(lbl)}</option>' for k, lbl in CD.DOC_KINDS.items())
             cup = ('<form method="post" enctype="multipart/form-data" style="display:inline">' + _csrf_input()
                    + chid + '<input type="hidden" name="__act" value="upload_country_doc">'
-                   + '<input type="hidden" name="kind" value="power_of_attorney">'
-                   + '<input type="file" name="file" required style="width:150px"><button>Receive doc</button></form> ')
+                   + f'<select name="kind">{kopt}</select>'
+                   + '<input type="file" name="file" required style="width:140px"><button>Receive doc</button></form> ')
             cbtn = ('<form method="post" style="display:inline">' + _csrf_input() + chid
                     + f'<button name="__act" value="{"deactivate_country" if cact else "activate_country"}" '
                     + ('' if (cact or cready) else 'disabled title="receive the documents first" ')
@@ -1680,7 +1741,27 @@ def customers():
             + (f'<table style="margin-top:6px"><thead><tr><th>Country override</th><th>Fee %</th>'
                f'<th>Min €</th></tr></thead><tbody>{cf_rows}</tbody></table>' if cf_rows else '')
             + cfee_f + '</div>')
+    # global per-country document requirements (which docs each country needs)
+    req_rows = "".join(
+        f"<tr><td>{esc(cy)}</td><td>{esc(', '.join(CD.DOC_KINDS.get(k, k) for k in ks))}</td></tr>"
+        for cy, ks in CD.all_country_requirements(con).items())
     con.close()
+    req_checks = "".join(
+        f'<label class="chk" style="display:inline-flex;gap:5px;margin:0 14px 4px 0;font-size:13px">'
+        f'<input type="checkbox" name="req_{esc(k)}"> {esc(lbl)}</label>' for k, lbl in CD.DOC_KINDS.items())
+    req_card = ('<div class="card"><h2>Country document requirements</h2>'
+                '<div class="note" style="margin-top:0">Set which documents each refund country '
+                'requires for activation — some need only a power of attorney, others several. '
+                'Countries with no rule default to a power of attorney.</div>'
+                + (f'<table style="margin-top:6px"><thead><tr><th>Country</th>'
+                   f'<th>Required documents</th></tr></thead><tbody>{req_rows}</tbody></table>'
+                   if req_rows else '')
+                + '<form method="post" style="margin-top:8px">' + _csrf_input()
+                + '<input type="hidden" name="__act" value="set_country_reqs">'
+                + '<label class="f" style="margin-bottom:6px">refund country'
+                  '<input name="req_country" required style="width:160px" placeholder="Germany"></label>'
+                + '<div style="margin:4px 0">' + req_checks + '</div>'
+                + '<button>Save requirements</button></form></div>')
     new_f = ('<div class="card"><h2>Onboard a new VAT-refund customer</h2>'
              '<div class="note" style="margin-top:0">Created as <b>pending</b>; activate once the '
              'trade registry, bank account and signed contract are on file.</div>'
@@ -1692,7 +1773,7 @@ def customers():
              '<label>reg number<input name="reg_number"></label>'
              '<label>VAT number<input name="vat_number"></label>'
              '<button>+ Create customer</button></form></div>')
-    body = (banner + new_f
+    body = (banner + new_f + req_card
             + '<div class="note" style="margin-bottom:10px">Customer (entity) master data lives in '
               '<b>customers.db</b>. Each new customer must be <b>activated</b> — requires a trade '
               'registry extract, a bank account, and a signed contract — before claims can be '

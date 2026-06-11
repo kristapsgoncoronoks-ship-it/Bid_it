@@ -269,6 +269,63 @@ def set_status(con, ent, ctry, period, new):
     return True, f"status -> {new}" + (" (invoices locked)" if new in LOCKING and cur not in LOCKING
                                        else " (locks released)" if new in ("rejected","withdrawn") else "")
 
+def submission_readiness(con, ent, ctry, period):
+    """Read-only check of whether a claim CAN be submitted. Returns (ready, [issues]).
+    Mirrors the blocking conditions in set_status without writing anything."""
+    issues = []
+    if customer_db.is_active(ent) is False:
+        issues.append("customer not activated")
+    if customer_db.country_active(ent, ctry) is False:
+        issues.append(f"refund country '{ctry}' not activated")
+    invs = stream_invoices(con, ent, ctry, period)
+    bad = [r for s, r in invs if "INPUT" in r or r.startswith("ALL:")]
+    if bad:
+        issues.append(f"{len(bad)} unresolved invoice ref(s)")
+    nodoc = [(s, r) for s, r in invs if not docs_for(con, ent, s, r)]
+    if nodoc:
+        issues.append(f"{len(nodoc)} invoice(s) missing documents")
+    conflicts = [(s, r) for s, r in invs
+                 if (lock_state(con, ent, ctry, s, r) or period) != period]
+    if conflicts:
+        issues.append(f"{len(conflicts)} invoice(s) locked by another claim")
+    return (len(issues) == 0, issues)
+
+def claims_overview(year):
+    """For the VAT-refund 'can we submit?' report: every claimable quarter split
+    into TO-SUBMIT (with a readiness verdict) and OPEN (submitted/approved, aging)."""
+    import datetime
+    con = connect()
+    matrix = claim_matrix(con, year)
+    sts = {(r["entity"], r["refund_country"], r["ref_period"]): r["status"]
+           for r in con.execute("SELECT entity, refund_country, ref_period, status FROM vat_applications")}
+    subm = {(r["entity"], r["refund_country"], r["ref_period"]): r["submitted_date"]
+            for r in con.execute("SELECT entity, refund_country, ref_period, submitted_date FROM vat_applications")}
+    today = datetime.date.today()
+    to_submit, open_claims = [], []
+    for m in matrix:
+        if m["period"].endswith("YEAR") or (m["vat_eur"] or 0) <= 0:
+            continue
+        key = (m["entity"], m["country"], m["period"])
+        status = sts.get(key, "draft")
+        if status in ("submitted", "approved"):
+            age = ""
+            sd = subm.get(key)
+            if sd:
+                try: age = (today - datetime.date.fromisoformat(sd)).days
+                except ValueError: pass
+            open_claims.append(dict(entity=m["entity"], country=m["country"], period=m["period"],
+                                    vat_eur=m["vat_eur"], status=status, submitted=sd, age_days=age))
+        elif status not in ("paid", "rejected", "withdrawn"):
+            ready, issues = submission_readiness(con, m["entity"], m["country"], m["period"])
+            if not m["verdict"].startswith("READY"):
+                issues = issues + [m["verdict"].split(" (")[0].lower()]
+            ready = (len(issues) == 0)
+            to_submit.append(dict(entity=m["entity"], country=m["country"], period=m["period"],
+                                  vat_eur=m["vat_eur"], verdict=m["verdict"],
+                                  ready=ready, issues=issues, missing=m["missing"]))
+    con.close()
+    return {"to_submit": to_submit, "open": open_claims}
+
 def claim_matrix(con, year):
     """All streams for the year: per (entity, country) give Q1..Q4 + YEAR VAT, currency, status."""
     rows = con.execute("""
