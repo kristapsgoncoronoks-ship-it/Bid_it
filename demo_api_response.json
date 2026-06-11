@@ -1,0 +1,6 @@
+{"status": "ok", "data": {"transactions": [
+  {"date": "2026-06-05", "vehicle": "XYZ789", "station": "API Station 1", "product": "DIESEL",
+   "qty": 380.5, "net_eur": 562.14, "vat_eur": 118.05},
+  {"date": "2026-06-12", "vehicle": "XYZ789", "station": "API Station 2", "product": "ADBLUE",
+   "qty": 38.0, "net_eur": 25.84, "vat_eur": 5.43}
+]}}

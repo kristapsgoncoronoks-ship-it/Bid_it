@@ -1,0 +1,43 @@
+# ── Secrets & certificates (NEVER commit) ──────────────────────────
+.secret_key
+cert.pem
+key.pem
+*.pfx
+*.p12
+fullchain.pem
+privkey.pem
+
+# ── Generated payment / export files (regenerate, don't track) ─────
+SEPA_*.xml
+Pricing_Intel_*.xlsx
+
+# ── Runtime data & state (machine-specific) ────────────────────────
+backups/
+.extract_tmp/
+inbox/
+review_queue/
+inbox_processed/
+service.log
+consolidated_rows.pkl
+tls_*/
+fullchain_*.pem
+
+# ── Databases: see note below ──────────────────────────────────────
+# By default we DO track the master-data + history DBs so a clone is
+# usable, but NOT the security DB (contains password hashes & logins).
+security.db
+
+# ── Python ─────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# ── OS / editor noise ──────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

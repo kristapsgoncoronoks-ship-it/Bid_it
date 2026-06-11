@@ -1,0 +1,6 @@
+flask
+openpyxl
+requests
+cryptography
+waitress
+pypdf

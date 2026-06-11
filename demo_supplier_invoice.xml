@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns:cac="urn:demo:cac" xmlns:cbc="urn:demo:cbc">
+  <cbc:ID>DEMO-2026-06-001</cbc:ID>
+  <cbc:IssueDate>2026-06-30</cbc:IssueDate>
+  <cac:LegalMonetaryTotal><cbc:TaxExclusiveAmount>1693.42</cbc:TaxExclusiveAmount></cac:LegalMonetaryTotal>
+  <cac:InvoiceLine>
+    <cbc:DeliveryDate>2026-06-03</cbc:DeliveryDate><cbc:VehicleID>ABC123</cbc:VehicleID>
+    <cbc:Station>Demo Station North</cbc:Station><cbc:Product>DIESEL</cbc:Product>
+    <cbc:Quantity>450.00</cbc:Quantity><cbc:NetAmount>675.00</cbc:NetAmount><cbc:VatAmount>141.75</cbc:VatAmount>
+  </cac:InvoiceLine>
+  <cac:InvoiceLine>
+    <cbc:DeliveryDate>2026-06-10</cbc:DeliveryDate><cbc:VehicleID>ABC123</cbc:VehicleID>
+    <cbc:Station>Demo Station South</cbc:Station><cbc:Product>DIESEL</cbc:Product>
+    <cbc:Quantity>612.40</cbc:Quantity><cbc:NetAmount>955.34</cbc:NetAmount><cbc:VatAmount>200.62</cbc:VatAmount>
+  </cac:InvoiceLine>
+  <cac:InvoiceLine>
+    <cbc:DeliveryDate>2026-06-10</cbc:DeliveryDate><cbc:VehicleID>ABC123</cbc:VehicleID>
+    <cbc:Station>Demo Station South</cbc:Station><cbc:Product>ADBLUE</cbc:Product>
+    <cbc:Quantity>45.00</cbc:Quantity><cbc:NetAmount>63.08</cbc:NetAmount><cbc:VatAmount>13.25</cbc:VatAmount>
+  </cac:InvoiceLine>
+</Invoice>
