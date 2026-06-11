@@ -244,21 +244,33 @@ def q_filters(con):
         "suppliers": [r[0] for r in con.execute("SELECT DISTINCT supplier FROM transactions ORDER BY 1")],
         "countries": [r[0] for r in con.execute("SELECT DISTINCT country FROM transactions ORDER BY 1")],
         "products":  [r[0] for r in con.execute("SELECT DISTINCT product_group FROM transactions ORDER BY 1")],
+        "stations":  [r[0] for r in con.execute(
+            "SELECT DISTINCT station FROM transactions WHERE station<>'' ORDER BY 1")],
         "periods":   q_periods(con),
     }
 
-def where(args):
+def where(args, period=None):
+    """Build a parameterized WHERE from report filters.
+
+    `args` is a request.args MultiDict. supplier / country / station accept
+    MULTIPLE values (rendered as `col IN (?,...)`); period / product are single;
+    date_from / date_to bound the `date` column. `period` overrides args["period"]
+    so the route can supply a resolved default (latest month)."""
     w, p = ["1=1"], []
-    for col, key in (("period","period"),("supplier","supplier"),("country","country"),
-                     ("product_group","product")):
-        v = args.get(key)
-        if v and v != "ALL": w.append(f"{col}=?"); p.append(v)
-    if args.get("date_from"): w.append("date>=?"); p.append(args["date_from"])
-    if args.get("date_to"):   w.append("date<=?"); p.append(args["date_to"])
+    period = period if period is not None else args.get("period")
+    if period and period != "ALL": w.append("period=?"); p.append(period)
+    prod = args.get("product")
+    if prod and prod != "ALL": w.append("product_group=?"); p.append(prod)
+    for col, key in (("supplier","supplier"), ("country","country"), ("station","station")):
+        vals = [x for x in args.getlist(key) if x and x != "ALL"]
+        if vals:
+            w.append(f"{col} IN ({','.join('?' * len(vals))})"); p += vals
+    if args.get("date_from"): w.append("date>=?"); p.append(args.get("date_from"))
+    if args.get("date_to"):   w.append("date<=?"); p.append(args.get("date_to"))
     return " AND ".join(w), p
 
-def q_compare(con, args):
-    w, p = where(args)
+def q_compare(con, args, period=None):
+    w, p = where(args, period)
     return con.execute(f"""
         SELECT supplier, country, product_group,
                ROUND(SUM(qty),0) litres, ROUND(SUM(net_eur),2) net_eur,
@@ -267,6 +279,15 @@ def q_compare(con, args):
                ROUND(SUM(net_eur_eff)/NULLIF(SUM(qty),0),4) eur_l_eff
         FROM transactions WHERE {w}
         GROUP BY supplier, country, product_group ORDER BY eur_l_eff""", p).fetchall()
+
+def q_compare_totals(con, args, period=None):
+    """Grand totals for the filtered set (one row), for the report summary."""
+    w, p = where(args, period)
+    return con.execute(f"""
+        SELECT ROUND(SUM(qty),0) litres, ROUND(SUM(net_eur),2) net_eur,
+               ROUND(SUM(vat_eur),2) vat_eur, COUNT(*) lines,
+               ROUND(SUM(net_eur_eff)/NULLIF(SUM(qty),0),4) eur_l_eff
+        FROM transactions WHERE {w}""", p).fetchone()
 
 def q_benchmark(con, period):
     return con.execute("""
@@ -387,6 +408,15 @@ def psel(name, options, cur, allow_all=True):
     o = "".join(f'<option {"selected" if v==cur else ""}>{esc(v)}</option>' for v in opts)
     return f'<label>{esc(name)}<select name="{esc(name)}">{o}</select></label>'
 
+def multisel(name, label, options, selected, size=4):
+    """A <select multiple> for picking several values (e.g. several suppliers).
+    No selection = no filter (all). `selected` is the list of chosen values."""
+    sel = set(selected or [])
+    o = "".join(f'<option {"selected" if v in sel else ""}>{esc(v)}</option>' for v in options)
+    sz = min(max(len(list(options)), 2), size)
+    return (f'<label>{esc(label)} <span class="note" style="font-weight:400">(ctrl/⌘-click for several)</span>'
+            f'<select name="{esc(name)}" multiple size="{sz}">{o}</select></label>')
+
 # ---------------------------------------------------------------- pages
 @app.route("/")
 def dash():
@@ -459,23 +489,95 @@ def _close_status(period):
 @app.route("/compare")
 def compare():
     con = DB(); f = q_filters(con)
-    args = {k: request.args.get(k, "ALL") for k in ("period","supplier","country","product")}
-    if args["period"] == "ALL" and request.args.get("period") is None and f["periods"]:
-        args["period"] = f["periods"][0]
-    args["date_from"] = request.args.get("date_from",""); args["date_to"] = request.args.get("date_to","")
-    rows = q_compare(con, args)
-    form = ('<form class="f" method="get">' + psel("period", f["periods"], args["period"])
-            + psel("supplier", f["suppliers"], args["supplier"]) + psel("country", f["countries"], args["country"])
-            + psel("product", f["products"], args["product"])
-            + f'<label>date from<input type="date" name="date_from" value="{esc(args["date_from"])}"></label>'
-            + f'<label>date to<input type="date" name="date_to" value="{esc(args["date_to"])}"></label>'
-            + '<button>Apply</button></form>')
+    # Period is single-select (defaults to latest month, or ALL once chosen).
+    period = request.args.get("period")
+    if period is None:
+        period = f["periods"][0] if f["periods"] else "ALL"
+    # supplier / country / station are multi-select (pick several).
+    sup = [x for x in request.args.getlist("supplier") if x and x != "ALL"]
+    ctry = [x for x in request.args.getlist("country") if x and x != "ALL"]
+    stn = [x for x in request.args.getlist("station") if x and x != "ALL"]
+    prod = request.args.get("product", "ALL")
+    df = request.args.get("date_from", ""); dt = request.args.get("date_to", "")
+    rows = q_compare(con, request.args, period)
+    tot = q_compare_totals(con, request.args, period)
+
+    pcur = period if period in (f["periods"]) else "ALL"
+    form = ('<form class="f" method="get">'
+            + f'<label>period<select name="period"><option {"selected" if pcur=="ALL" else ""}>ALL</option>'
+            + "".join(f'<option {"selected" if p==pcur else ""}>{esc(p)}</option>' for p in f["periods"])
+            + '</select></label>'
+            + multisel("supplier", "suppliers", f["suppliers"], sup, size=6)
+            + multisel("country", "countries", f["countries"], ctry, size=6)
+            + multisel("station", "locations", f["stations"], stn, size=6)
+            + psel("product", f["products"], prod)
+            + f'<label>date from<input type="date" name="date_from" value="{esc(df)}"></label>'
+            + f'<label>date to<input type="date" name="date_to" value="{esc(dt)}"></label>'
+            + '<button>Apply filters</button>'
+            + '<a href="/compare" style="align-self:end;padding:8px 12px;font-size:13px">Reset</a>'
+            + '</form>')
+
+    # Active-filter chips + export link carrying the same query string.
+    chips = []
+    if pcur != "ALL": chips.append(f"period {esc(pcur)}")
+    if sup: chips.append("suppliers: " + esc(", ".join(sup)))
+    if ctry: chips.append("countries: " + esc(", ".join(ctry)))
+    if stn: chips.append(f"{len(stn)} location(s)")
+    if prod != "ALL": chips.append("product " + esc(prod))
+    if df or dt: chips.append(f"date {esc(df or '…')}→{esc(dt or '…')}")
+    chip_html = (' &nbsp;·&nbsp; '.join(chips)) if chips else "no filters (all data)"
+    qs = request.query_string.decode()
+    export = f'<a href="/export/compare?{esc(qs)}">⬇ Export this view (Excel)</a>'
+
     trs = [[f"<td>{esc(r['supplier'])}</td><td>{esc(r['country'])}</td><td>{esc(r['product_group'])}</td>",
             f"<td class=r>{r['litres']:,.0f}</td><td class=r>{r['net_eur']:,.2f}</td><td class=r>{r['vat_eur']:,.2f}</td>",
             f"<td class=r>{r['eur_l_doc'] or ''}</td><td class=r><b>{r['eur_l_eff'] or ''}</b></td>"] for r in rows]
-    body = form + f'<div class="card"><h2>Comparison — {len(rows)} groups</h2>' + \
-           tbl(["Supplier","Country","Product","Qty","Net €","VAT €","€/L doc","€/L eff"], trs) + "</div>"
+    if rows:
+        trs.append([f'<td colspan="3"><b>TOTAL ({tot["lines"]:,} lines)</b></td>',
+                    f'<td class=r><b>{(tot["litres"] or 0):,.0f}</b></td>'
+                    f'<td class=r><b>{(tot["net_eur"] or 0):,.2f}</b></td>'
+                    f'<td class=r><b>{(tot["vat_eur"] or 0):,.2f}</b></td>',
+                    f'<td></td><td class=r><b>{tot["eur_l_eff"] or ""}</b></td>'])
+    body = (form
+            + f'<div class="note" style="margin:-4px 0 12px">Filters: {chip_html} &nbsp;·&nbsp; {export}</div>'
+            + f'<div class="card"><h2>Comparison — {len(rows)} group(s)</h2>'
+            + tbl(["Supplier","Country","Product","Qty","Net €","VAT €","€/L doc","€/L eff"], trs)
+            + '<div class="note">Prices are NET EUR/L, final (VAT excluded, rebates applied). '
+              '€/L eff = net_eur_eff ÷ litres. Pick several suppliers/countries/locations to '
+              'compare them side by side; narrow by date range within or across months (period = ALL).</div>'
+            + "</div>")
     con.close(); return page(body, "cmp")
+
+@app.route("/export/compare")
+def export_compare():
+    """Excel export of the current filtered Compare view (same query string)."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    con = DB()
+    period = request.args.get("period")
+    if period is None:
+        ps = q_periods(con); period = ps[0] if ps else "ALL"
+    rows = q_compare(con, request.args, period)
+    tot = q_compare_totals(con, request.args, period)
+    con.close()
+    wb = Workbook(); ws = wb.active; ws.title = "Compare"
+    headers = ["Supplier","Country","Product","Litres","Net EUR","VAT EUR","EUR/L doc","EUR/L eff"]
+    ws.append(headers)
+    for c in ws[1]:
+        c.font = Font(bold=True, color="FFFFFF"); c.fill = PatternFill("solid", fgColor="0E5FA8")
+    for r in rows:
+        ws.append([r["supplier"], r["country"], r["product_group"], r["litres"],
+                   r["net_eur"], r["vat_eur"], r["eur_l_doc"], r["eur_l_eff"]])
+    ws.append([])
+    ws.append(["TOTAL", "", f'{tot["lines"]} lines', tot["litres"], tot["net_eur"],
+               tot["vat_eur"], "", tot["eur_l_eff"]])
+    for c in ws[ws.max_row]: c.font = Font(bold=True)
+    for i, w in enumerate([10,12,12,12,14,12,11,11], 1):
+        ws.column_dimensions[chr(64+i)].width = w
+    buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name="Fleet_Fuel_Compare.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 @app.route("/headtohead")
 def h2h():

@@ -42,6 +42,27 @@ def test_csrf_token_present_in_forms(client):
     assert 'name="_csrf"' in html, "data page form missing CSRF token"
 
 
+def test_compare_multi_supplier_filter(client):
+    import re
+    html = client.get("/compare?period=ALL&supplier=Q8&supplier=BP").get_data(as_text=True)
+    shown = set(re.findall(r"<td>(Q8|BP|TFC|E100|MOEVE|DKV)</td>", html))
+    assert shown <= {"Q8", "BP"}, f"filter leaked other suppliers: {shown}"
+    assert shown, "expected Q8/BP rows"
+
+
+def test_compare_has_multiselect_and_totals(client):
+    html = client.get("/compare").get_data(as_text=True)
+    assert 'name="supplier" multiple' in html
+    assert 'name="station" multiple' in html
+    assert "TOTAL (" in html
+
+
+def test_export_compare_returns_xlsx(client):
+    r = client.get("/export/compare?period=ALL&supplier=Q8")
+    assert r.status_code == 200
+    assert r.get_data()[:2] == b"PK"  # xlsx is a zip
+
+
 def test_login_required_redirect():
     import app as A
     c = A.app.test_client()  # not logged in
