@@ -132,15 +132,21 @@ def set_permission(role, perm, allowed):
     con.commit(); con.close()
 
 # ---------------------------------------------------------------- error log
+ERROR_LOG_KEEP = 2000     # cap so security.db can't grow without bound
+
 def log_error(context, etype, message, detail="", user=""):
     """Record an application error for the Admin panel. Best-effort: logging must
-    never raise inside an error path, so all failures here are swallowed."""
+    never raise inside an error path, so all failures here are swallowed. The table
+    is capped to the most recent ERROR_LOG_KEEP rows."""
     try:
         con = connect()
         con.execute("""INSERT INTO error_log (username, context, etype, message, detail)
                        VALUES (?,?,?,?,?)""",
                     (user or "", (context or "")[:200], (etype or "")[:80],
                      (message or "")[:1000], (detail or "")[:8000]))
+        # prune anything beyond the cap (cheap: id is the PK, so this is indexed)
+        con.execute("DELETE FROM error_log WHERE id <= "
+                    "(SELECT MAX(id) FROM error_log) - ?", (ERROR_LOG_KEEP,))
         con.commit(); con.close()
     except Exception:
         pass
@@ -232,6 +238,9 @@ def verify(username, password, remote=""):
         ok = False
     con.execute("INSERT INTO login_log (username, success, remote) VALUES (?,?,?)",
                 (username, int(ok), remote))
+    # cap the login history so it can't grow without bound
+    con.execute("DELETE FROM login_log WHERE rowid <= "
+                "(SELECT MAX(rowid) FROM login_log) - 1000")
     # Transparent upgrade: on a successful login with a below-target cost, re-hash
     # the password at the new n and persist it.
     if ok and (u["kdf_n"] or LEGACY_N) < NEW_N:

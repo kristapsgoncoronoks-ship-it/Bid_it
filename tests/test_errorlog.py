@@ -23,6 +23,14 @@ def test_log_recent_clear_roundtrip(temp_auth):
     assert temp_auth.recent_errors() == []
 
 
+def test_error_log_is_capped(temp_auth, monkeypatch):
+    # the table must not grow without bound
+    monkeypatch.setattr(temp_auth, "ERROR_LOG_KEEP", 25)
+    for i in range(80):
+        temp_auth.log_error("cap", "E", f"m{i}")
+    assert len(temp_auth.recent_errors(10000)) <= 26
+
+
 def test_log_error_never_raises(temp_auth, monkeypatch):
     # even if the DB blows up, logging must be a no-op, not an exception
     monkeypatch.setattr(temp_auth, "connect", lambda: (_ for _ in ()).throw(RuntimeError()))
