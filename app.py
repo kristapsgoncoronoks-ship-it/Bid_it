@@ -209,6 +209,7 @@ PERM_BY_ENDPOINT = {
     "invoice_ctrl":    "invoice_control",
     "vat":             "vat_claims", "api_vat": "vat_claims",
     "pricing":         "pricing", "pricing_upload": "pricing", "api_pricing": "pricing",
+    "pricing_market":  "pricing",
     "documents":       "documents", "doc_download": "documents",
     "export_master":   "exports", "export_history": "exports",
     "export_pricing":  "exports", "export_vat": "exports", "export_compare": "exports",
@@ -1225,9 +1226,29 @@ def pricing():
         + _csrf_input() +
         '<label>Wholesale index CSV<input type="file" name="file" accept=".csv" required></label>'
         '<button>Upload wholesale index</button></form>'
-        '<div class="note">Wholesale columns: country,date,net_price. Enables the true-margin '
-        '(margin vs wholesale) column — Platts, national pre-tax benchmark, or Brent proxy.</div></div>')
+        + '<form method="post" action="/pricing/market" style="margin-top:6px">' + _csrf_input()
+        + '<button>↻ Scrape market prices (official/open data)</button></form>'
+        '<div class="note">Wholesale columns: country,date,net_price (NET, pre-tax). Enables the '
+        'true-margin (margin vs wholesale) column. <b>Scrape</b> pulls from official open-data '
+        'sources (EU Weekly Oil Bulletin / national portals) configured via MARKET_JSON_URL / '
+        'MARKET_CSV_URL — or upload a CSV on a locked-down network.</div></div>')
     return page(body, "pri")
+
+@app.route("/pricing/market", methods=["POST"])
+def pricing_market():
+    """Scrape official/open-data diesel market prices into the wholesale index."""
+    import market_prices as MP
+    try:
+        info = MP.fetch_and_store()
+        banner = (f'<div class="card"><b class="ok">Loaded {info["rows"]} market price(s) via '
+                  f'{esc(info["source"])} — as of {esc(info["asof"])}, '
+                  f'{len(info["countries"])} countries. The margin-vs-market column now reflects '
+                  f'them.</b></div>')
+    except Exception as e:
+        _log_exc("market-price scrape", e)
+        banner = (f'<div class="card"><b class="bad">Could not scrape market prices: '
+                  f'{esc(str(e))}</b></div>')
+    return page(banner + '<p><a href="/pricing">→ Back to Pricing intel</a></p>', "pri")
 
 @app.route("/pricing/upload", methods=["POST"])
 def pricing_upload():
