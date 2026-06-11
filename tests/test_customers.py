@@ -69,6 +69,57 @@ def test_per_country_fee_override(cd):
     assert cd.fee_for("ACME") == (15.0, 50.0)              # no country -> default
 
 
+def test_per_country_activation_flow(cd):
+    cd.add_customer("ACME", "Acme SIA", "LV")
+    con = cd.connect()
+    # no country started -> not gated
+    assert cd.country_active("ACME", "Belgium") is None
+    cd.request_country(con, "ACME", "Belgium")
+    assert cd.country_active("ACME", "Belgium") is False        # requested, not active
+    _i, ready = cd.country_doc_checklist(con, "ACME", "Belgium")
+    assert ready is False                                       # POA not received
+    cd.add_country_document(con, "ACME", "Belgium", "power_of_attorney", "poa.pdf", b"POA")
+    _i, ready = cd.country_doc_checklist(con, "ACME", "Belgium")
+    assert ready is True
+    cd.activate_country(con, "ACME", "Belgium", True)
+    con.close()
+    assert cd.country_active("ACME", "Belgium") is True
+    # country docs are isolated from the customer-level onboarding checklist
+    con = cd.connect()
+    _i, cust_ready = cd.activation_checklist(con, "ACME")
+    con.close()
+    assert cust_ready is False
+
+
+def test_country_gate_blocks_until_activated(tmp_path, monkeypatch):
+    import customer_db
+    import vat_refund
+    monkeypatch.setattr(customer_db, "DB", str(tmp_path / "c.db"))
+    monkeypatch.setattr(customer_db, "_SCHEMA_READY", set())
+    monkeypatch.setattr(customer_db, "DOCDIR", str(tmp_path / "docs"))
+    monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "v.db"))
+    monkeypatch.setattr(vat_refund, "_SCHEMA_READY", set())
+    monkeypatch.setattr(vat_refund, "stream_invoices", lambda *a, **k: [])
+    customer_db.add_customer("ACME", "Acme SIA", "LV")
+    con = customer_db.connect()
+    customer_db.set_activation(con, "ACME", True)          # customer active
+    customer_db.request_country(con, "ACME", "Belgium")    # country requested, NOT active
+    con.close()
+    vc = vat_refund.connect()
+    vc.execute("CREATE TABLE transactions (entity TEXT, country TEXT, period TEXT, vat_eur REAL)")
+    vc.execute("INSERT INTO transactions VALUES ('ACME','Belgium','2026-04',1000)"); vc.commit()
+    ok, msg = vat_refund.set_status(vc, "ACME", "Belgium", "2026-Q2", "submitted")
+    assert ok is False and "country 'Belgium' is not activated" in msg
+    # receive POA + activate -> submission now passes the country gate
+    con = customer_db.connect()
+    customer_db.add_country_document(con, "ACME", "Belgium", "power_of_attorney", "poa.pdf", b"POA")
+    customer_db.activate_country(con, "ACME", "Belgium", True)
+    con.close()
+    ok, msg = vat_refund.set_status(vc, "ACME", "Belgium", "2026-Q2", "submitted")
+    assert ok, msg
+    vc.close()
+
+
 def test_fee_frozen_on_submission(tmp_path, monkeypatch):
     import customer_db
     import vat_refund

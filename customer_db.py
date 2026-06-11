@@ -42,12 +42,20 @@ CREATE TABLE IF NOT EXISTS customer_documents (
 CREATE TABLE IF NOT EXISTS customer_fees (
     customer TEXT, country TEXT, fee_pct REAL DEFAULT 0, fee_min REAL DEFAULT 0,
     PRIMARY KEY (customer, country));
+CREATE TABLE IF NOT EXISTS customer_countries (
+    customer TEXT, country TEXT, status TEXT DEFAULT 'pending',
+    requested_at TEXT, activated_at TEXT,
+    PRIMARY KEY (customer, country));
 """
 
 # Documents a new VAT-refund customer must provide before activation.
 REQUIRED_DOCS = {
     "trade_registry":  "Trade registry extract (verify client data)",
     "signed_contract": "Signed service contract",
+}
+# Documents required to activate a specific REFUND COUNTRY for a customer.
+REQUIRED_COUNTRY_DOCS = {
+    "power_of_attorney": "Power of attorney / authorisation to file in this country",
 }
 DOCDIR = f"{WORKDIR}/documents"
 
@@ -96,12 +104,14 @@ def connect():
         con.executescript(SCHEMA)
         # fee model: % of refunded VAT, floored at a per-declaration minimum (EUR)
         for ddl in ("ALTER TABLE customers ADD COLUMN fee_pct REAL DEFAULT 0",
-                    "ALTER TABLE customers ADD COLUMN fee_min REAL DEFAULT 0"):
+                    "ALTER TABLE customers ADD COLUMN fee_min REAL DEFAULT 0",
+                    # documents can be scoped to a refund country (NULL = customer-level)
+                    "ALTER TABLE customer_documents ADD COLUMN country TEXT"):
             try: con.execute(ddl)
             except sqlite3.OperationalError: pass  # column already exists (safe)
         audit.install_audit(con, ['customers', 'customer_bank_accounts',
                                   'customer_supplier_accounts', 'customer_documents',
-                                  'customer_fees'])
+                                  'customer_fees', 'customer_countries'])
         _SCHEMA_READY.add(DB)
     return con
 
@@ -128,28 +138,36 @@ def add_customer(code, company_name, country="", reg_number="", vat_number="",
          home_portal or "INPUT: home portal", None, None, notes))
     con.commit(); con.close()
 
-def add_document(con, code, kind, filename, file_bytes):
-    """Vault a customer document (trade registry, signed contract, ...) hash-verified."""
+def add_document(con, code, kind, filename, file_bytes, country=None):
+    """Vault a customer document (hash-verified). country=None for customer-level
+    docs (trade registry, contract); a country for country-specific docs (POA)."""
     import hashlib
     import doc_storage
     sha = hashlib.sha256(file_bytes).hexdigest()
-    safe = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in f"{code}_{kind}_{filename}")
+    tag = (country or "GEN")
+    safe = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in f"{code}_{tag}_{kind}_{filename}")
     be = doc_storage.backend(DOCDIR)
     stored, web_url = be.put(safe, file_bytes)
     con.execute("""INSERT INTO customer_documents
-        (customer, kind, filename, stored_path, sha256, size, backend, web_url)
-        VALUES (?,?,?,?,?,?,?,?)""",
-        (code, kind, filename, stored, sha, len(file_bytes), be.name, web_url))
+        (customer, kind, filename, stored_path, sha256, size, backend, web_url, country)
+        VALUES (?,?,?,?,?,?,?,?,?)""",
+        (code, kind, filename, stored, sha, len(file_bytes), be.name, web_url, country))
     con.commit()
     return sha
 
-def documents(con, code):
-    return con.execute("SELECT * FROM customer_documents WHERE customer=? ORDER BY id",
-                       (code,)).fetchall()
+def documents(con, code, country=None):
+    if country is None:
+        return con.execute("SELECT * FROM customer_documents WHERE customer=? AND "
+                           "(country IS NULL OR country='') ORDER BY id", (code,)).fetchall()
+    return con.execute("SELECT * FROM customer_documents WHERE customer=? AND country=? ORDER BY id",
+                       (code, country)).fetchall()
 
-def _has_doc(con, code, kind):
-    return con.execute("SELECT 1 FROM customer_documents WHERE customer=? AND kind=? LIMIT 1",
-                       (code, kind)).fetchone() is not None
+def _has_doc(con, code, kind, country=None):
+    if country is None:
+        return con.execute("SELECT 1 FROM customer_documents WHERE customer=? AND kind=? AND "
+                           "(country IS NULL OR country='') LIMIT 1", (code, kind)).fetchone() is not None
+    return con.execute("SELECT 1 FROM customer_documents WHERE customer=? AND kind=? AND country=? "
+                       "LIMIT 1", (code, kind, country)).fetchone() is not None
 
 def _bank_ok(con, code):
     return con.execute("""SELECT 1 FROM customer_bank_accounts
@@ -173,6 +191,57 @@ def is_active(name_or_code):
     con = connect()
     r = con.execute("SELECT status FROM customers WHERE company_name=? OR code=?",
                     (name_or_code, name_or_code)).fetchone()
+    con.close()
+    return None if r is None else (r["status"] == "active")
+
+# ---------------------------------------------------------------- per refund country
+def _code_of(con, name_or_code):
+    r = con.execute("SELECT code FROM customers WHERE company_name=? OR code=?",
+                    (name_or_code, name_or_code)).fetchone()
+    return r["code"] if r else None
+
+def request_country(con, code, country):
+    """Start activation for a refund country: mark its documents as requested."""
+    con.execute("""INSERT INTO customer_countries (customer, country, status, requested_at)
+                   VALUES (?,?, 'requested', datetime('now'))
+                   ON CONFLICT(customer, country) DO UPDATE SET
+                     status=CASE WHEN customer_countries.status='active' THEN 'active' ELSE 'requested' END,
+                     requested_at=COALESCE(customer_countries.requested_at, datetime('now'))""",
+                (code, country.strip()))
+    con.commit()
+
+def add_country_document(con, code, country, kind, filename, file_bytes):
+    return add_document(con, code, kind, filename, file_bytes, country=country.strip())
+
+def country_doc_checklist(con, code, country):
+    """([(label, ok), ...], ready) for the documents required to activate a country."""
+    items = [(lbl, _has_doc(con, code, k, country)) for k, lbl in REQUIRED_COUNTRY_DOCS.items()]
+    return items, all(ok for _, ok in items)
+
+def activate_country(con, code, country, active):
+    if active:
+        con.execute("""INSERT INTO customer_countries (customer, country, status, activated_at)
+                       VALUES (?,?, 'active', datetime('now'))
+                       ON CONFLICT(customer, country) DO UPDATE SET
+                         status='active', activated_at=datetime('now')""", (code, country.strip()))
+    else:
+        con.execute("UPDATE customer_countries SET status='pending' WHERE customer=? AND country=?",
+                    (code, country.strip()))
+    con.commit()
+
+def country_rows(con, code):
+    return con.execute("SELECT * FROM customer_countries WHERE customer=? ORDER BY country",
+                       (code,)).fetchall()
+
+def country_active(name_or_code, country):
+    """True/False if a (customer, country) activation row exists; None if no row
+    (country activation not started — not gated, for backward compatibility)."""
+    con = connect()
+    code = _code_of(con, name_or_code)
+    if code is None:
+        con.close(); return None
+    r = con.execute("SELECT status FROM customer_countries WHERE customer=? AND country=?",
+                    (code, country)).fetchone()
     con.close()
     return None if r is None else (r["status"] == "active")
 

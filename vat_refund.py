@@ -172,6 +172,11 @@ def set_status(con, ent, ctry, period, new):
     if new in LOCKING and customer_db.is_active(ent) is False:
         return False, (f"customer '{ent}' is not activated — complete the trade registry, "
                        f"bank account and signed contract on the Customers page first")
+    # Each refund country is activated separately (request + receive its documents).
+    # Once activation has been started for a country it must reach 'active' to submit.
+    if new in LOCKING and customer_db.country_active(ent, ctry) is False:
+        return False, (f"refund country '{ctry}' is not activated for '{ent}' — request and "
+                       f"receive the country documents (power of attorney) on the Customers page")
     try:
         # Open an immediate transaction so concurrent claimants serialize on write.
         con.execute("BEGIN IMMEDIATE")

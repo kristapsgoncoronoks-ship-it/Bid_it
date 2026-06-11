@@ -1527,6 +1527,32 @@ def customers():
                         raise ValueError("cannot activate — required documents / bank account not complete")
                 CD.set_activation(con, code, act == "activate"); con.close()
                 msg = f"Customer {esc(code)} {'ACTIVATED' if act=='activate' else 'set to pending'}."
+            elif act == "request_country":
+                country = request.form.get("country2", "").strip()
+                if not country:
+                    raise ValueError("refund country is required")
+                con = CD.connect(); CD.request_country(con, code, country); con.close()
+                msg = f"Documents requested for {esc(code)} / {esc(country)}."
+            elif act == "upload_country_doc":
+                country = request.form.get("country2", "").strip()
+                f = request.files.get("file")
+                if not country or not f or not f.filename:
+                    raise ValueError("country and file are required")
+                con = CD.connect()
+                CD.add_country_document(con, code, country,
+                                        request.form.get("kind", "power_of_attorney"), f.filename, f.read())
+                con.close()
+                msg = f"Country document received for {esc(code)} / {esc(country)}."
+            elif act in ("activate_country", "deactivate_country"):
+                country = request.form.get("country2", "").strip()
+                con = CD.connect()
+                if act == "activate_country":
+                    _i, cready = CD.country_doc_checklist(con, code, country)
+                    if not cready:
+                        con.close()
+                        raise ValueError(f"cannot activate {country} — required country documents not received")
+                CD.activate_country(con, code, country, act == "activate_country"); con.close()
+                msg = f"Refund country {esc(country)} {'activated' if act=='activate_country' else 'set to pending'} for {esc(code)}."
             else:
                 raise ValueError("unknown action")
             banner = f'<div class="card"><b class="ok">{msg}</b></div>'
@@ -1585,12 +1611,42 @@ def customers():
                    + ('' if (active or ready) else 'disabled title="complete the checklist first" ')
                    + f'style="background:{"var(--bad)" if active else "var(--ok)"}">'
                    + f'{"Deactivate" if active else "Activate"}</button></form>')
+        # per refund country: request -> receive documents -> activate
+        ctry_html = ""
+        for cr in CD.country_rows(con, code):
+            cc = cr["country"]; cact = cr["status"] == "active"
+            citems, cready = CD.country_doc_checklist(con, code, cc)
+            cbadge = ('<span class="ok">● ACTIVE</span>' if cact
+                      else f'<span class="bad">● {esc((cr["status"] or "pending").upper())}</span>')
+            cchk = " · ".join(f'<span class="{"ok" if ok else "bad"}">{"✓" if ok else "✗"} {esc(lbl)}</span>'
+                              for lbl, ok in citems)
+            chid = hid + f'<input type="hidden" name="country2" value="{esc(cc)}">'
+            cup = ('<form method="post" enctype="multipart/form-data" style="display:inline">' + _csrf_input()
+                   + chid + '<input type="hidden" name="__act" value="upload_country_doc">'
+                   + '<input type="hidden" name="kind" value="power_of_attorney">'
+                   + '<input type="file" name="file" required style="width:150px"><button>Receive doc</button></form> ')
+            cbtn = ('<form method="post" style="display:inline">' + _csrf_input() + chid
+                    + f'<button name="__act" value="{"deactivate_country" if cact else "activate_country"}" '
+                    + ('' if (cact or cready) else 'disabled title="receive the documents first" ')
+                    + f'style="background:{"var(--bad)" if cact else "var(--ok)"}">'
+                    + f'{"Deactivate" if cact else "Activate"}</button></form>')
+            ctry_html += (f'<div class="row" style="flex-wrap:wrap;gap:8px;align-items:center">'
+                          f'<b>{esc(cc)}</b> {cbadge} <span class="note">{cchk}</span> {cup}{cbtn}</div>')
+        addc = ('<form method="post" class="f" style="margin-top:6px">' + _csrf_input() + hid
+                + '<input type="hidden" name="__act" value="request_country">'
+                + '<label>refund country<input name="country2" required style="width:150px" placeholder="Belgium"></label>'
+                + '<button>Request documents</button></form>')
         cards.append(
             f'<div class="card"><h2>{esc(code)} — {esc(c["company_name"])} &nbsp; {status_badge}</h2>'
             + f'<table><tbody>{meta}</tbody></table>'
             + (f"<h2 style='margin-top:12px'>Bank accounts</h2><table><tbody>{banks}</tbody></table>" if banks else "")
             + '<h2 style="margin-top:12px">Activation checklist</h2>' + (chk or '<p class="note">—</p>')
             + '<div style="margin-top:8px">' + act_btn + '</div>'
+            + '<h2 style="margin-top:12px">Refund countries (activate separately)</h2>'
+            + '<div class="note" style="margin-top:0">Request the country documents (power of '
+              'attorney), receive them, then activate that country. Claims can only be submitted '
+              'for activated countries.</div>'
+            + (ctry_html or '<p class="note">no countries requested yet</p>') + addc
             + '<h2 style="margin-top:12px">Documents</h2>'
             + (f'<table><tbody>{docs}</tbody></table>' if docs else '<p class="note">none yet</p>')
             + upload_f
