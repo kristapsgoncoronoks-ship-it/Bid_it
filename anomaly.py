@@ -4,9 +4,11 @@ Read-only over fuel_history.db; no thresholds hardcoded into the data, all relat
 
     python3 anomaly.py [period]
 
-Flags:
-  station_price   a station's diesel >X% above its country's average that month
-  price_jump      a supplier's country price moved >X% vs the previous month
+Flags (all RELATIVE — fuel prices swing widely over time, so we never use an absolute
+price level or an absolute month-over-month limit):
+  station_price   a station's diesel >X% above its country's average THAT MONTH
+  price_divergence a supplier's price moved much more (or less) than the MARKET moved
+                   that month — i.e. it diverged from everyone else, not just "moved"
   volume_spike    a vehicle's monthly litres far above its own trailing average
   off_period      a transaction dated outside the loaded period
 """
@@ -14,9 +16,9 @@ import os, sys, sqlite3, collections
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 DB = f"{WORKDIR}/fuel_history.db"
-STATION_PCT = 0.15      # 15% above country average
-JUMP_PCT = 0.10         # 10% month-over-month
-VOLUME_MULT = 2.5       # 2.5x own average
+STATION_PCT = 0.15        # 15% above its country's average in the SAME month
+DIVERGENCE_PCT = 0.10     # supplier's MoM move diverges 10pp from the market's MoM move
+VOLUME_MULT = 2.5         # 2.5x own average
 
 
 def find(period):
@@ -47,11 +49,20 @@ def find(period):
                    FROM transactions WHERE period=? AND product_group='Diesel'
                    GROUP BY supplier, country""", (per,))}
         cur, old = pc(period), pc(prev)
-        for k, p in cur.items():
-            if k in old and old[k] and abs(p/old[k]-1) > JUMP_PCT:
-                flags.append(("price_jump", "warn",
-                    f"{k[0]} {k[1]}: {old[k]:.3f} -> {p:.3f} EUR/L "
-                    f"({(p/old[k]-1)*100:+.0f}% vs {prev})"))
+        # The market itself moves week to week — flag a supplier only when its move
+        # DIVERGES from the overall market move (median across suppliers), so normal
+        # volatility (everyone moving together) is never flagged.
+        moves = sorted(p/old[k]-1 for k, p in cur.items() if k in old and old[k])
+        if moves:
+            market = moves[len(moves)//2]            # median market MoM move
+            for k, p in cur.items():
+                if k in old and old[k]:
+                    move = p/old[k]-1
+                    div = move - market
+                    if abs(div) > DIVERGENCE_PCT:
+                        flags.append(("price_divergence", "warn",
+                            f"{k[0]} {k[1]}: {old[k]:.3f} -> {p:.3f} EUR/L ({move*100:+.0f}%) "
+                            f"vs market {market*100:+.0f}% — diverged {div*100:+.0f}pp"))
 
     # vehicle volume spike vs own trailing average
     hist = collections.defaultdict(list)

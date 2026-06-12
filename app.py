@@ -932,25 +932,54 @@ def entities():
             + '<div class="note">One VAT refund stream per entity registration per country.</div></div>')
     con.close(); return page(body, "ent")
 
+# Routing flags are RELATIVE to the market, not absolute price bands — fuel prices
+# swing widely over time (e.g. 1.4 -> 1.0 EUR/L in a week), so a fixed "PREFER <=1.40"
+# would be meaningless once the market moves. We compare each station to its OWN
+# country's volume-weighted price for the SAME period, ±a small margin.
+ROUTE_MARGIN = float(os.environ.get("ROUTE_MARGIN", "0.03"))   # 3% cheaper/dearer
+
+def _country_benchmarks(rows):
+    """Per-country volume-weighted effective NET EUR/L for the displayed period."""
+    agg = {}
+    for r in rows:
+        if r["eurl"] is None:
+            continue
+        a = agg.setdefault(r["country"], [0.0, 0.0])
+        a[0] += (r["eurl"] or 0) * (r["litres"] or 0); a[1] += (r["litres"] or 0)
+    return {c: s / q for c, (s, q) in agg.items() if q}
+
+def _route_flag(eurl, country, bench):
+    b = bench.get(country)
+    if eurl is None or not b:
+        return ""
+    if eurl <= b * (1 - ROUTE_MARGIN):
+        return "PREFER"
+    if eurl >= b * (1 + ROUTE_MARGIN):
+        return "AVOID"
+    return ""
+
 @app.route("/stations")
 def stations():
     con = DB(); periods = q_periods(con)
     period = request.args.get("period", periods[0] if periods else None)
     rows = q_stations(con, period) if period else []
+    bench = _country_benchmarks(rows)
     psw = "".join(f'<option {"selected" if p==period else ""}>{esc(p)}</option>' for p in periods)
     trs = []
     for r in rows:
         eurl = r["eurl"]
-        flag = ('<td class="ok">PREFER</td>' if eurl is not None and eurl<=1.40
-                else ('<td class="bad">AVOID</td>' if eurl is not None and eurl>=1.62 else "<td></td>"))
+        rf = _route_flag(eurl, r["country"], bench)
+        flag = ('<td class="ok">PREFER</td>' if rf == "PREFER"
+                else '<td class="bad">AVOID</td>' if rf == "AVOID" else "<td></td>")
         trs.append([f"<td>{esc(r['supplier'])}</td><td>{esc(r['country'])}</td><td>{esc(r['station'])}</td>",
                     f"<td class=r>{r['litres']:,.0f}</td><td class=r><b>{(eurl or 0):.4f}</b></td>{flag}"])
     body = (f'<form class="f" method="get"><label>Period<select name="period" onchange="this.form.submit()">{psw}</select></label>'
             f'<a href="/export/stations?period={esc(period or "")}" style="align-self:end;padding:8px 12px;font-size:13px">⬇ Routing export (Excel)</a></form>'
             f'<div class="card"><h2>Diesel station scorecard ≥300 L — cheapest first ({esc(period) if period else "no data"})</h2>'
             + tbl(["Supplier","Country","Station","Litres","Eff. €/L","Routing"], trs)
-            + '<div class="note">PREFER ≤ €1.40/L · AVOID ≥ €1.62/L (NET eff). Export gives drivers '
-              'the routing list per station.</div></div>')
+            + f'<div class="note">PREFER / AVOID are <b>relative to each country\'s price for this '
+              f'period</b> (±{ROUTE_MARGIN*100:.0f}% of the volume-weighted average), so they track the '
+              'market instead of a fixed band. Export gives drivers the routing list per station.</div></div>')
     con.close(); return page(body, "stn")
 
 @app.route("/export/stations")
@@ -962,6 +991,7 @@ def export_stations():
     period = request.args.get("period") or (ps[0] if ps else None)
     rows = q_stations(con, period) if period else []
     con.close()
+    bench = _country_benchmarks(rows)
     import reports as R
     from openpyxl.styles import Font, PatternFill
     from openpyxl.formatting.rule import ColorScaleRule
@@ -970,7 +1000,7 @@ def export_stations():
     R.style_header(ws, 1, 7)
     for r in rows:
         e = r["eurl"]
-        flag = "PREFER" if e is not None and e <= 1.40 else ("AVOID" if e is not None and e >= 1.62 else "")
+        flag = _route_flag(e, r["country"], bench)
         ws.append([r["supplier"], r["country"], r["station"], r["litres"], e, flag, period])
     last = ws.max_row
     R.band_rows(ws, 2, last, 7)
