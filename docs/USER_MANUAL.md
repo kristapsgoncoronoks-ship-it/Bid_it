@@ -112,8 +112,10 @@ records. Deleted rows are recoverable: their full values stay in History.
 table, **from date / till date**, and record key. Each row shows when, what, the
 action, **who (By column)**, and a field-level diff or full snapshot.
 
-**Admin** (admins only) — user management, login log, security status (TLS,
-password storage).
+**Admin** (admins only) — user management (create users, set roles, reset passwords,
+disable accounts) and **adjust processor capabilities**; the login log and the **error
+log**; security status (TLS, password storage); the backup schedule with one‑click
+**Run backup**, **Verify last backup** and **Check document integrity**.
 
 ## 3. Monthly routine (processor)
 
@@ -275,8 +277,8 @@ detect corruption or a missing original.
 - **A new supplier:** master data via Data manager (or `supplier_master.py` seed), set
   the **invoice_cadence** (drives receipt control), register its first statement —
   the invoices auto-sync. Transaction-level loading (prices into benchmarks)
-  additionally needs a ~30-minute row-map training in `supplier_specs.py` — see
-  README "onboarding".
+  additionally needs a one-time row-map setup in `supplier_specs.py` (see
+  [FILE_INDEX.md](FILE_INDEX.md) for where each module lives).
 
 ## 8. Excel deliverables — what each file is
 
@@ -285,6 +287,9 @@ detect corruption or a missing original.
 | **Fleet_Fuel_Master_<month>.xlsx** | Runbook, supplier specs, all transactions, diesel benchmark, interactive supplier comparison (edit the **blue cells**), head-to-head, entity & VAT view, payment calendar, station scorecard |
 | **Fleet_Fuel_History_Report.xlsx** | Month-over-month trends from the database: prices, litres, entity VAT, station drift, plus a DB guide with ready-made SQL |
 | **VAT_Refund_Claims_<year>.xlsx** | Claim overview + one filing-ready pack per stream; **yellow cells = INPUT to complete**, orange = excluded/locked elsewhere |
+| **VAT_Claim_Readiness_<year>.xlsx** | The Claims page export: "Ready to submit" (with blocking reasons) + "Open claims" (aging) sheets |
+| **VAT_Fees_Statement_<year>.xlsx** | The Recovery page export: charged fees and net remittances aggregated per customer, plus a per-claim detail sheet |
+| **Pricing grid (daily/weekly/monthly)** | The Pricing intel export for building pricing models — effective NET price per supplier/city vs your baselines |
 
 Convention everywhere: **blue cells** are interactive inputs you may change;
 **yellow cells** are missing data you must supply; nothing else should be edited by

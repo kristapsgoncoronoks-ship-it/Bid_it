@@ -21,7 +21,8 @@ Works on Windows, macOS and Linux. Only requirement: Python 3.10+
    PART 3.)
 
 No terminal, no config files. To add colleagues later: sign in → Admin → create
-users (start them as "viewer"). Daily guide: USER_MANUAL.md.
+users with role **processor** (and, in the Admin panel, untick any capabilities they
+shouldn't have). Daily guide: USER_MANUAL.md.
 
 ### Prefer a guided terminal installer?
 Run **`install.bat`** (Windows) or **`./install.sh`** (macOS/Linux) instead — same
@@ -118,7 +119,8 @@ sudo -u fleetfuel /opt/fleetfuel/venv/bin/python app.py
 #    From the server: curl -k https://127.0.0.1:8050/login   (expect HTTP 200)
 #    Stop with Ctrl+C.
 
-# 4.3 Create colleagues later in the web Admin panel (role 'viewer' by default).
+# 4.3 Create colleagues later in the web Admin panel (role 'processor'; an admin can
+#     narrow a processor's capabilities there).
 ```
 
 ## PART 5 — Run as a permanent service (systemd)
@@ -284,7 +286,8 @@ ls -la /opt/fleetfuel/app/*.db                                           # -rw--
 sudo systemctl is-active fleetfuel nginx                                 # active active
 ```
 Then in a browser: log in → Admin panel shows "TLS certificate: present", create one
-test viewer account, confirm a viewer cannot save in Data manager (403).
+test processor account with the data‑import capability unticked, and confirm it cannot
+save in Data manager (403).
 
 ## PART 10 — Monthly operation (after setup)
 

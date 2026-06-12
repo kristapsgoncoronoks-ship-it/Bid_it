@@ -85,7 +85,7 @@ This keeps the whole system a single, copy‑anywhere folder. The files group lo
 fleet_fuel_system/
 ├── app.py serve.py            # web app (≈25 pages + JSON API + Excel) and prod launcher
 ├── auth.py audit.py           # users/roles/login + trigger-based change history
-├── db.py db_tuning.py process_lock.py# DB abstraction, WAL/busy-timeout tuning, cross-process lock
+├── db.py db_tuning.py process_lock.py  # DB abstraction, WAL/busy-timeout tuning, cross-process lock
 ├── backup.py tls.py make_cert.py  # snapshots+integrity, TLS context, self-signed certs
 │
 ├── ingest.py extract.py       # source adapters (xlsx/csv/xml/api); PDF/ZIP → draft
@@ -105,7 +105,7 @@ fleet_fuel_system/
 ├── gunicorn_conf.py                   # multi-process worker config (Linux)
 ├── documents/                  # the document vault (local backend; git-ignored content)
 ├── tests/                      # pytest suite (128+ tests)
-└── docs/                       # INSTALL · USER_MANUAL · ARCHITECTURE · GIT_SETUP
+└── docs/                       # INSTALL · USER_MANUAL · ARCHITECTURE · FILE_INDEX · GIT_SETUP
 ```
 
 See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the full module map and data model.

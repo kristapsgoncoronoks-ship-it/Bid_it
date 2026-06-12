@@ -7,7 +7,7 @@ What is implemented in code, what must be done on the host, and why.
 | Measure | Where | Notes |
 |---|---|---|
 | Login required on every page & API | `app.py` + `auth.py` | Session cookie (HttpOnly, SameSite=Lax; Secure under HTTPS); 1s delay on failed logins; attempts logged in `security.db` |
-| Role-based permissions | `app.py` guard | viewer = read-only, editor = operational changes (POST), admin = + user management. Enforced centrally before every request |
+| Capability-based permissions | `app.py` guard (`PERM_BY_ENDPOINT` / `auth.has_perm`) | Two roles: **processor** (day-to-day work; admin-configurable capabilities, never server/user admin) and **admin** (everything, incl. user admin). Enforced centrally before every request |
 | Admin panel | `/admin` | Create users, set roles, enable/disable, reset passwords, see login log + security status. Self-demotion/self-disable blocked; all actions audit-logged with the admin's name |
 | TLS / HTTPS - any certificate | `tls.py` + `app.py` | Auto-resolves in order: `TLS_PFX` (commercial .pfx/.p12 + `TLS_PFX_PASSWORD`) -> `TLS_CERT`+`TLS_KEY` (+`TLS_CHAIN` for the intermediate bundle, +`TLS_KEY_PASSWORD` for encrypted keys) -> `fullchain.pem`/`privkey.pem` (Let's Encrypt naming) -> `cert.pem`/`key.pem` (self-signed via `make_cert.py`). TLS >= 1.2 enforced; startup prints subject/issuer/expiry and warns < 30 days. Diagnose with `python3 tls.py` |
 | No secrets in audit log | `audit.py` | BLOB columns (password salt/hash) are structurally excluded from change snapshots |
@@ -49,7 +49,8 @@ What is implemented in code, what must be done on the host, and why.
    (signs everyone out).
 5. **Account hygiene** — one account per person (attribution depends on it); disable
    accounts on offboarding via the Admin panel or `python3 auth.py disable <user>`.
-   Assign `viewer` by default; grant `editor`/`admin` deliberately.
+   Default new users to `processor` and narrow their capabilities as needed; grant
+   `admin` deliberately.
 6. **TLS certificate** — any source works (see table). Quick recipes:
    - Self-signed (internal use): `python3 make_cert.py` (one browser warning, accept once)
    - Commercial CA (separate intermediate): `export TLS_CERT=fuel.crt TLS_KEY=fuel.key TLS_CHAIN=ca_bundle.crt`
