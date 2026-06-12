@@ -1017,8 +1017,10 @@ def transactions():
     period = request.args.get("period")
     if period is None:
         period = f["periods"][0] if f["periods"] else "ALL"
+    ent = [x for x in request.args.getlist("entity") if x and x != "ALL"]
     sup = [x for x in request.args.getlist("supplier") if x and x != "ALL"]
     ctry = [x for x in request.args.getlist("country") if x and x != "ALL"]
+    stn = [x for x in request.args.getlist("station") if x and x != "ALL"]
     df = request.args.get("date_from", ""); dt = request.args.get("date_to", "")
     w, p = where(request.args, period)
     rows = con.execute(f"""SELECT date, supplier, country, station, vehicle, product,
@@ -1031,8 +1033,10 @@ def transactions():
             + f'<label>period<select name="period"><option {"selected" if pcur=="ALL" else ""}>ALL</option>'
             + "".join(f'<option {"selected" if pp==pcur else ""}>{esc(pp)}</option>' for pp in f["periods"])
             + '</select></label>'
+            + multisel("entity", "client", f["entities"], ent, size=6)
             + multisel("supplier", "suppliers", f["suppliers"], sup, size=6)
             + multisel("country", "countries", f["countries"], ctry, size=6)
+            + multisel("station", "location (station)", f["stations"], stn, size=6)
             + f'<label>date from<input type="date" name="date_from" value="{esc(df)}"></label>'
             + f'<label>date to<input type="date" name="date_to" value="{esc(dt)}"></label>'
             + '<button>Apply filters</button>'
@@ -1047,7 +1051,8 @@ def transactions():
             + '</h2>'
             + tbl(["Date","Supplier","Country","Station","Vehicle","Product","Qty","Net €","VAT €","€/L eff"], trs)
             + '<div class="note">The line-level detail behind every report. Filter by period, '
-              'supplier(s), country(ies), and date range. Prices NET EUR/L, final.</div></div>')
+              'client(s), supplier(s), country(ies), location/station(s), and date range. '
+              'Prices NET EUR/L, final.</div></div>')
     return page(body, "txn")
 
 @app.route("/fx", methods=["GET", "POST"])

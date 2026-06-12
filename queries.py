@@ -14,6 +14,8 @@ def q_periods(con):
 
 def q_filters(con):
     return {
+        "entities":  [r[0] for r in con.execute(
+            "SELECT DISTINCT entity FROM transactions WHERE entity<>'' ORDER BY 1")],
         "suppliers": [r[0] for r in con.execute("SELECT DISTINCT supplier FROM transactions ORDER BY 1")],
         "countries": [r[0] for r in con.execute("SELECT DISTINCT country FROM transactions ORDER BY 1")],
         "products":  [r[0] for r in con.execute("SELECT DISTINCT product_group FROM transactions ORDER BY 1")],
@@ -26,16 +28,17 @@ def q_filters(con):
 def where(args, period=None):
     """Build a parameterized WHERE from report filters.
 
-    `args` is a request.args MultiDict. supplier / country / station accept
-    MULTIPLE values (rendered as `col IN (?,...)`); period / product are single;
-    date_from / date_to bound the `date` column. `period` overrides args["period"]
-    so the route can supply a resolved default (latest month)."""
+    `args` is a request.args MultiDict. entity (client) / supplier / country /
+    station accept MULTIPLE values (rendered as `col IN (?,...)`); period / product
+    are single; date_from / date_to bound the `date` column. `period` overrides
+    args["period"] so the route can supply a resolved default (latest month)."""
     w, p = ["1=1"], []
     period = period if period is not None else args.get("period")
     if period and period != "ALL": w.append("period=?"); p.append(period)
     prod = args.get("product")
     if prod and prod != "ALL": w.append("product_group=?"); p.append(prod)
-    for col, key in (("supplier", "supplier"), ("country", "country"), ("station", "station")):
+    for col, key in (("entity", "entity"), ("supplier", "supplier"),
+                     ("country", "country"), ("station", "station")):
         vals = [x for x in args.getlist(key) if x and x != "ALL"]
         if vals:
             w.append(f"{col} IN ({','.join('?' * len(vals))})"); p += vals
