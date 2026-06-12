@@ -2,7 +2,8 @@
 
 This document describes how the Fleet Fuel & VAT Refund System is put together: the
 six building blocks, the data model, the module map, and the conventions that keep it
-consistent. For setup see **[INSTALL.md](INSTALL.md)**; for day‑to‑day use see
+consistent. For **visual schematics** of every flow see **[DIAGRAMS.md](DIAGRAMS.md)**;
+for setup see **[INSTALL.md](INSTALL.md)**; for day‑to‑day use see
 **[USER_MANUAL.md](USER_MANUAL.md)**.
 
 ---

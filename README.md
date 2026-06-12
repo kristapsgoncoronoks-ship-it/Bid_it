@@ -80,6 +80,7 @@ for unattended IT setup.
 | **[docs/INSTALL.md](docs/INSTALL.md)** | Full server setup — one‑click, Ubuntu service (systemd), Windows service, TLS, nginx proxy, multi‑process (gunicorn/waitress), backups. |
 | **[docs/USER_MANUAL.md](docs/USER_MANUAL.md)** | How to work with the system day‑to‑day — every page, the monthly routine, VAT refunds, the waiting room, the vault. |
 | **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | The six building blocks, the data model, the module map, and the key conventions. |
+| **[docs/DIAGRAMS.md](docs/DIAGRAMS.md)** | Visual schematics — system overview, upload OK/Bad flow, monthly close, VAT claim lifecycle, databases, storage, request/worker flow. |
 | **[docs/FILE_INDEX.md](docs/FILE_INDEX.md)** | A plain‑language index of what every file in the repo does. |
 | **[SECURITY.md](SECURITY.md)** | Security model, data protection, and the DPA basis for AI extraction. |
 | **[docs/GIT_SETUP.md](docs/GIT_SETUP.md)** | Cloning, branching, and what is / isn't committed. |
