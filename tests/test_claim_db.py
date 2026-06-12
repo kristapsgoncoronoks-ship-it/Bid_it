@@ -55,3 +55,17 @@ def test_migration_is_idempotent(tmp_path, monkeypatch):
     con = vat_refund.connect()
     assert con.execute("SELECT COUNT(*) FROM vat_applications").fetchone()[0] == 1
     con.close()
+
+
+def test_goods_codes_match_directive_art9():
+    """Art. 9 codes (2008/9/EC): road tolls = 4 (not generic 3); AdBlue/parking/other
+    residual = 10 (NOT 9 = luxuries/entertainment, which is non-deductible)."""
+    import vat_config
+    importlib.reload(vat_config)
+    gc = vat_config.GOODS_CODE
+    assert gc["Toll/Fees"][0] == "4"
+    assert gc["AdBlue"][0] == "10"
+    assert gc["Parking"][0] == "10"
+    assert gc["Service/Other"][0] == "10"
+    assert all(code != "9" for code, _desc in gc.values())  # code 9 = luxuries, never used
+    assert gc["Diesel"][0] == "1"                            # fuel mappings unchanged

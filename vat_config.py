@@ -41,15 +41,15 @@ INVOICES = {
     ("DKV", "Sweden"):  [("26/651689595/011", "2026-05-15"), ("26/652169828/011", "2026-05-31")],
 }
 
-# Goods codes per Commission Reg. (EC) 1174/2009 Annex
+# Goods codes per Reg. (EC) 1174/2009 / Reg. (EU) 79/2012 Annex III (2008/9/EC Art. 9)
 GOODS_CODE = {
     "Diesel": ("1", "Fuel"),
     "HVO": ("1", "Fuel"),
     "Promo adj": ("1", "Fuel (price correction)"),
-    "AdBlue": ("9", "Other - operating fluid (AdBlue)"),
-    "Toll/Fees": ("3", "Road tolls and road user charges"),
-    "Parking": ("9", "Other - parking"),
-    "Service/Other": ("9", "Other"),
+    "AdBlue": ("10", "Other - operating fluid (AdBlue)"),  # code 3 ("means of transport") is a defensible alternative — confirm per refund country
+    "Toll/Fees": ("4", "Road tolls and road user charges"),
+    "Parking": ("10", "Other - parking"),
+    "Service/Other": ("10", "Other"),
 }
 
 # Minimum claim amounts (EUR or national equivalent set by refund state)
