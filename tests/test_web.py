@@ -201,6 +201,41 @@ def test_intake_upload_gating_and_override(client, monkeypatch, tmp_path):
     auth.set_setting("intake_override_until", "0")        # don't leak override state
 
 
+def test_vat_module_is_admin_only(admin_session):
+    """The VAT-refund module (claims/readiness/recovery) is admin-only; a processor is
+    blocked and the nav link is hidden."""
+    import app as A, auth
+    auth.add_user("vatproc", "Pw!23456", role="processor")
+    cp = A.app.test_client()
+    cp.post("/login", data={"username": "vatproc", "password": "Pw!23456"})
+    for path in ("/vat", "/readiness", "/recovery"):
+        assert cp.get(path).status_code == 403, path
+    assert "VAT refunds" not in cp.get("/").get_data(as_text=True)
+
+
+def test_admin_module_toggle(client):
+    """An admin can switch whole parts of the app on/off in the Admin panel."""
+    import re
+    def tok():
+        return re.search(r'name="_csrf" value="([^"]+)"',
+                         client.get("/admin").get_data(as_text=True)).group(1)
+    assert client.get("/fx").status_code == 200
+    on = {"mod_analytics": "on", "mod_intake": "on", "mod_compliance": "on", "mod_vat": "on"}
+    client.post("/admin", data={"_csrf": tok(), "__act": "set_modules", **on})  # fx omitted -> off
+    assert client.get("/fx").status_code == 403
+    assert client.get("/savings").status_code == 200       # analytics still on
+    assert "FX vs ECB" not in client.get("/").get_data(as_text=True)
+    # turn analytics off too -> its pages 403 and the menu disappears
+    client.post("/admin", data={"_csrf": tok(), "__act": "set_modules",
+                                "mod_intake": "on", "mod_compliance": "on", "mod_vat": "on"})
+    assert client.get("/savings").status_code == 403
+    assert ">Analytics<" not in client.get("/").get_data(as_text=True)
+    # re-enable everything (don't leak state to other tests)
+    client.post("/admin", data={"_csrf": tok(), "__act": "set_modules",
+                                **on, "mod_analytics": "on", "mod_fx": "on"})
+    assert client.get("/fx").status_code == 200 and client.get("/savings").status_code == 200
+
+
 def test_worklist_card_actions(monkeypatch):
     import app as A
     import vat_refund as VR

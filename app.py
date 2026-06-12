@@ -439,6 +439,33 @@ PERM_BY_ENDPOINT = {
 ADMIN_ONLY = {"vat", "api_vat", "readiness", "recovery",
               "export_vat", "export_readiness", "export_fees", "export_fee"}
 
+# Switchable PARTS of the app. An admin turns these on/off in the Admin panel; a
+# disabled part is hidden from the menu and its pages return "turned off". Core pages
+# (dashboard, entities, customers, suppliers, admin) are always on.
+MODULES = {
+    "analytics":  ("Analytics — savings, compare, stations, anomalies, pricing",
+                   {"savings", "compare", "transactions", "h2h", "stations", "anomalies_page",
+                    "pricing", "pricing_market", "pricing_portal", "pricing_adopt_benchmark",
+                    "pricing_upload", "api_pricing", "export_compare", "export_stations",
+                    "export_pricing", "export_benchmark"}),
+    "intake":     ("Intake — import, waiting room, files, document mining",
+                   {"extract_batch", "extract_confirm", "intake_queue_page", "intake_review",
+                    "imports", "files_archive", "doc_mining_page", "data_manager"}),
+    "compliance": ("Compliance — invoice control, contract audit, documents",
+                   {"invoice_ctrl", "contracts", "documents", "doc_download"}),
+    "vat":        ("VAT refunds — claims, readiness, recovery & fees (admin only)",
+                   {"vat", "api_vat", "readiness", "recovery", "export_vat",
+                    "export_readiness", "export_fees", "export_fee"}),
+    "fx":         ("FX vs ECB exchange rates", {"fx"}),
+}
+_ENDPOINT_MODULE = {ep: k for k, (_lbl, eps) in MODULES.items() for ep in eps}
+
+def module_enabled(key):
+    return _auth.get_setting(f"module_{key}", "on") != "off"
+
+def enabled_modules():
+    return {k for k in MODULES if module_enabled(k)}
+
 @app.before_request
 def _guard():
     if request.endpoint in ("setup", "static", "app_js") or request.endpoint is None:
@@ -458,6 +485,12 @@ def _guard():
     # VAT-refund module is admin-only, whatever capabilities a processor may hold.
     if request.endpoint in ADMIN_ONLY and role != "admin":
         return page(FORBIDDEN, ""), 403
+    # A switched-off part is unavailable to everyone (an admin re-enables it in /admin).
+    mod = _ENDPOINT_MODULE.get(request.endpoint)
+    if mod and not module_enabled(mod):
+        return page('<div class="card"><h2>This part is turned off</h2>'
+                    f'<p>An administrator has switched off the <b>{esc(MODULES[mod][0])}</b> '
+                    'part. It can be turned back on in the Admin panel → Modules.</p></div>', ""), 403
     # Capability enforcement: block any endpoint whose required permission the
     # current role lacks (covers both the page view and its POST action).
     req_perm = PERM_BY_ENDPOINT.get(request.endpoint)
@@ -722,7 +755,7 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
 </style></head><body>
 <header><b>⛽ Fleet Fuel</b>
 <a href="/" class="{{'on' if page=='dash'}}">Dashboard</a>
-<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['sav','cmp','txn','h2h','stn','ano','pri'] else ''}}">Analytics</span><div class="mdrop"><span>
+{% if 'analytics' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['sav','cmp','txn','h2h','stn','ano','pri'] else ''}}">Analytics</span><div class="mdrop"><span>
   <a href="/savings" class="{{'on' if page=='sav'}}">Savings</a>
   <a href="/compare" class="{{'on' if page=='cmp'}}">Compare</a>
   <a href="/transactions" class="{{'on' if page=='txn'}}">Transactions</a>
@@ -730,20 +763,20 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
   <a href="/stations" class="{{'on' if page=='stn'}}">Stations</a>
   <a href="/anomalies" class="{{'on' if page=='ano'}}">Anomalies</a>
   {% if 'pricing' in perms %}<a href="/pricing" class="{{'on' if page=='pri'}}">Pricing intel</a>{% endif %}
-</span></div></div>
+</span></div></div>{% endif %}
 <div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ent','vat','rdy','rec','fx'] else ''}}">VAT &amp; fees</span><div class="mdrop"><span>
   <a href="/entities" class="{{'on' if page=='ent'}}">Entities &amp; VAT</a>
-  {% if is_admin %}<a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
+  {% if is_admin and 'vat' in modules %}<a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
   <a href="/readiness" class="{{'on' if page=='rdy'}}">Claims readiness</a>
   <a href="/recovery" class="{{'on' if page=='rec'}}">Recovery &amp; fees</a>{% endif %}
-  <a href="/fx" class="{{'on' if page=='fx'}}">FX vs ECB</a>
+  {% if 'fx' in modules %}<a href="/fx" class="{{'on' if page=='fx'}}">FX vs ECB</a>{% endif %}
 </span></div></div>
-{% if 'invoice_control' in perms or 'documents' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['inv','con','doc'] else ''}}">Compliance</span><div class="mdrop"><span>
+{% if 'compliance' in modules and ('invoice_control' in perms or 'documents' in perms) %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['inv','con','doc'] else ''}}">Compliance</span><div class="mdrop"><span>
   {% if 'invoice_control' in perms %}<a href="/invoices" class="{{'on' if page=='inv'}}">Invoice control</a>
   <a href="/contracts" class="{{'on' if page=='con'}}">Contract audit</a>{% endif %}
   {% if 'documents' in perms %}<a href="/documents" class="{{'on' if page=='doc'}}">Documents</a>{% endif %}
 </span></div></div>{% endif %}
-{% if 'data_import' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ext','queue','imp','fil','min'] else ''}}">Intake</span><div class="mdrop"><span>
+{% if 'intake' in modules and 'data_import' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ext','queue','imp','fil','min'] else ''}}">Intake</span><div class="mdrop"><span>
   <a href="/extract" class="{{'on' if page=='ext'}}">Import batch</a>
   <a href="/queue" class="{{'on' if page=='queue'}}">Waiting room</a>
   <a href="/imports" class="{{'on' if page=='imp'}}">Import log</a>
@@ -773,6 +806,7 @@ def page(body, p):
     role = session.get("role", "processor")
     return _BASE_TMPL.render(body=body, page=p,
                              user=session.get("user", ""), role=role, is_admin=(role == "admin"),
+                             modules=enabled_modules() if session.get("user") else set(),
                              perms=_auth.permissions_for(role) if session.get("user") else set())
 
 def tbl(headers, rows):
@@ -3398,6 +3432,11 @@ def admin():
                     _auth.set_permission("processor", perm,
                                          request.form.get(f"perm_{perm}") == "on")
                 banner = "Processor permissions updated."
+            elif act == "set_modules":
+                # admin turns whole parts of the app on/off
+                for k in MODULES:
+                    _auth.set_setting(f"module_{k}", "on" if request.form.get(f"mod_{k}") == "on" else "off")
+                banner = "Modules updated — the menu reflects what's turned on."
             elif act == "toggle":
                 if tgt == session["user"]:
                     raise ValueError("you cannot disable your own account")
@@ -3586,10 +3625,26 @@ def admin():
                   'disk loss. "Check document integrity" re-hashes every stored PDF/ZIP against the hash '
                   'recorded at upload — any mismatch or missing file is written to the error log '
                   'above.</div></div>')
+    modchecks = "".join(
+        f'<label class="chk" style="display:flex;gap:7px;align-items:center;font-size:13px;'
+        f'flex-direction:row;color:var(--ink);margin:3px 0">'
+        f'<input type="checkbox" name="mod_{esc(k)}" {"checked" if module_enabled(k) else ""}> '
+        f'<b>{esc(k)}</b> — {esc(lbl)}</label>'
+        for k, (lbl, _eps) in MODULES.items())
+    modf = ('<div class="card"><h2>Modules — turn parts of the app on / off</h2>'
+            '<div class="note" style="margin-top:0">Switch whole parts of the system on or off. '
+            'A part that is off disappears from the menu and its pages are unavailable to everyone '
+            '(you can turn it back on here at any time). Core pages — dashboard, entities, '
+            'customers, suppliers and this panel — are always on.</div>'
+            '<form method="post" style="margin-top:8px">'
+            + _csrf_input() + modchecks
+            + '<div style="margin-top:10px"><button name="__act" value="set_modules">'
+              'Save modules</button></div></form></div>')
     body = (banner
             + '<div class="card"><h2>Users &amp; permissions</h2>'
             + tbl(["Username", "Role", "Status", "Last login", "Actions"], utr)
             + addf + "</div>"
+            + modf
             + permf
             + f'<div class="card"><h2>Security status</h2>'
               f'<p>TLS certificate: '
