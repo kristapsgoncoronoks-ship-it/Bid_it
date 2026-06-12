@@ -19,6 +19,7 @@ several worker processes behind a proxy for a team, with no change of code.
 | **Engine** | Consolidate → validate (tie‑out to invoice totals) → build monthly master workbook → load history/trend. |
 | **VAT refunds** | Claims per **entity × country × period** (Q1–Q4 or annual), 400/50 EUR thresholds, submission‑readiness, one‑invoice‑one‑submission locks, claim packs. Low‑VAT quarters **merge dynamically** into the annual claim. |
 | **Service fees** | % of refunded VAT floored at a per‑declaration minimum; per‑customer/per‑country overrides; rate frozen at submission, charged at payout; fee invoice + settlement. |
+| **Price intelligence** | Competitor NET‑price tracking and margin analysis against three baselines, plus a **dynamic client‑portal scraper** — pluggable per‑supplier adapters that pull each entity's own authorized portal prices into the benchmark (credentials encrypted at rest). |
 | **Compliance** | Receipt control (cadence × activity), statement reconciliation with VAT triage, anomaly scan, full audit trail. |
 | **Document vault** | Originals stored under a logical, human‑navigable tree — `Customer (reg no) / Year / Country / Claim period / file` — identical across **local / SharePoint / FTP(S)** backends; SHA‑256 dedup + integrity verification. |
 | **Platform** | Roles (admin/processor), login lockout & IP throttle, CSP/security headers, scheduled backups with integrity checks, TLS, multi‑process scalability. |

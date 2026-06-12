@@ -58,8 +58,9 @@ def bucket(date_iso, grain):
 
 
 # ---------------------------------------------------------------- MY Prices intake
-def load_my_prices(rows, replace_period=None):
+def load_my_prices(rows, replace_period=None, source="upload"):
     """rows: list of dicts/tuples (country, city, date, net_price[, product_group]).
+    `source` tags where the prices came from (e.g. 'upload', 'portal:Q8').
     Returns count loaded."""
     con = connect()
     if replace_period:
@@ -72,8 +73,8 @@ def load_my_prices(rows, replace_period=None):
         else:
             c, city, d, p = r[0], r[1], r[2], r[3]
             pg = r[4] if len(r) > 4 else "Diesel"
-        con.execute("INSERT OR REPLACE INTO my_prices (country,city,date,product_group,net_price)"
-                    " VALUES (?,?,?,?,?)", (c, city.strip(), d, pg, float(p)))
+        con.execute("INSERT OR REPLACE INTO my_prices (country,city,date,product_group,net_price,source)"
+                    " VALUES (?,?,?,?,?,?)", (c, city.strip(), d, pg, float(p), source))
         n += 1
     con.commit(); con.close()
     return n

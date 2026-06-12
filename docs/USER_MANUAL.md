@@ -89,6 +89,11 @@ other suppliers same city), and a wholesale index (upload to unlock true margin)
 Sorted by EUR impact so the money is at the top; unmatched volume shown openly.
 Export the daily/weekly/monthly grid to Excel to build pricing models. All prices
 NET final, VAT excluded, rebates applied — stated on the page so it's unarguable.
+The **Client portal price scraping** card automates the MY‑Prices benchmark: an admin
+adds a supplier portal (a no‑code JSON/CSV config, or a custom adapter) and stores the
+entity's login (encrypted at rest); **Scrape now** pulls that account's NET prices
+straight into MY Prices (source `portal:<SUPPLIER>`). Use only portals you're
+authorized to access; on a locked‑down box run the scraper from a connected machine.
 
 **Anomalies** — a relative scan flagging stations priced above their country average,
 month-over-month price jumps, vehicle volume spikes and off-period dates.

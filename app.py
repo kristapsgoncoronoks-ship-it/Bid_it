@@ -328,7 +328,7 @@ PERM_BY_ENDPOINT = {
     "vat":             "vat_claims", "api_vat": "vat_claims", "readiness": "vat_claims",
     "customers":       "customers",
     "pricing":         "pricing", "pricing_upload": "pricing", "api_pricing": "pricing",
-    "pricing_market":  "pricing",
+    "pricing_market":  "pricing", "pricing_portal": "pricing",
     "documents":       "documents", "doc_download": "documents",
     "export_master":   "exports", "export_history": "exports",
     "export_pricing":  "exports", "export_vat": "exports", "export_compare": "exports",
@@ -1730,8 +1730,70 @@ def pricing():
         '<div class="note">Wholesale columns: country,date,net_price (NET, pre-tax). Enables the '
         'true-margin (margin vs wholesale) column. <b>Scrape</b> pulls from official open-data '
         'sources (EU Weekly Oil Bulletin / national portals) configured via MARKET_JSON_URL / '
-        'MARKET_CSV_URL — or upload a CSV on a locked-down network.</div></div>')
+        'MARKET_CSV_URL — or upload a CSV on a locked-down network.</div></div>'
+        + _portals_card())
     return page(body, "pri")
+
+def _portals_card():
+    """Client supplier-portal scrapers: configured portals with a 'Scrape now' button,
+    and (admin) forms to add a portal + store its encrypted credentials. Populating MY
+    Prices automatically from the entities' own authorized accounts."""
+    import portal_scraper as PS
+    is_admin = session.get("role") == "admin"
+    try:
+        portals = PS.list_portals()
+    except Exception as e:
+        _log_exc("portal list", e)
+        portals = []
+    rows = []
+    for p in portals:
+        lr = p["last_run"]
+        last = (f'<span class="{"ok" if lr["status"]=="ok" else "bad" if lr["status"]=="failed" else ""}">'
+                f'{esc(lr["status"])}</span> · {esc(lr.get("finished") or "")} · {lr["rows"]} rows'
+                if lr else '<span class="note">never</span>')
+        creds = ('<span class="ok">stored</span>' if p["has_creds"]
+                 else '<span class="bad">none</span>')
+        scrape_btn = ('<form method="post" action="/pricing/portal" style="display:inline">' + _csrf_input()
+                      + f'<input type="hidden" name="supplier" value="{esc(p["supplier"])}">'
+                      + f'<input type="hidden" name="entity" value="{esc(p["entity"] or "")}">'
+                      + '<button name="__act" value="scrape">↻ Scrape now</button></form>'
+                      if p["enabled"] and (p["has_creds"] or p["kind"] == "demo") else
+                      '<span class="note">configure creds</span>')
+        rows.append([f"<td>{esc(p['supplier'])}</td><td>{esc(p['entity'] or '—')}</td>",
+                     f"<td>{esc(p['kind'])}</td><td>{'on' if p['enabled'] else 'off'}</td>",
+                     f"<td>{creds}</td><td class=note>{last}</td><td>{scrape_btn}</td>"])
+    table = (tbl(["Supplier", "Entity", "Kind", "Enabled", "Credentials", "Last run", ""], rows)
+             if rows else '<p class="note">No portals configured yet.</p>')
+    admin_forms = ""
+    if is_admin:
+        admin_forms = (
+            '<details style="margin-top:10px"><summary><b>Add / update a portal (admin)</b></summary>'
+            '<form method="post" action="/pricing/portal" class="f" style="margin-top:8px">' + _csrf_input()
+            + '<label>supplier code<input name="supplier" required style="width:110px"></label>'
+            + '<label>kind<select name="kind">'
+            + ''.join(f'<option>{k}</option>' for k in ("demo", "http_json", "csv", "custom"))
+            + '</select></label>'
+            + '<label>base URL<input name="base_url" style="width:220px" placeholder="https://portal.supplier.com"></label>'
+            + '<label><input type="checkbox" name="enabled" checked> enabled</label>'
+            + '<label style="flex-basis:100%">config JSON (endpoints / field map; see portal_scraper.py)'
+              '<textarea name="config" rows="3" style="width:100%;font-family:monospace" '
+              'placeholder=\'{"price_url":"/api/prices","rows_path":"data","map":{"country":"ctry","city":"station","date":"day","net_price":"net"}}\'></textarea></label>'
+            + '<button name="__act" value="save_config">Save portal</button></form>'
+            '<form method="post" action="/pricing/portal" class="f" style="margin-top:6px">' + _csrf_input()
+            + '<label>supplier<input name="supplier" required style="width:90px"></label>'
+            + '<label>entity<input name="entity" required style="width:120px"></label>'
+            + '<label>username<input name="username" autocomplete="off"></label>'
+            + '<label>password / token<input name="secret" type="password" autocomplete="new-password"></label>'
+            + '<button name="__act" value="save_creds">Store credentials (encrypted)</button></form>'
+            '</details>')
+    note = ('<div class="note">Pulls each entity\'s own NET prices from its authorized supplier '
+            'portal into <b>MY Prices</b> (source <code>portal:&lt;SUPPLIER&gt;</code>), so the '
+            'benchmark stays current without manual CSV uploads. Credentials are encrypted at rest; '
+            'use only portals you are authorized to access. Live portals need outbound network — on a '
+            'locked-down box, scrape from a connected machine or keep using CSV upload. '
+            'Run on a schedule with <kbd>python portal_scraper.py --scrape &lt;SUP&gt; &lt;ENT&gt;</kbd> '
+            'via cron/Task Scheduler.</div>')
+    return ('<div class="card"><h2>Client portal price scraping</h2>' + table + admin_forms + note + '</div>')
 
 @app.route("/pricing/market", methods=["POST"])
 def pricing_market():
@@ -1747,6 +1809,46 @@ def pricing_market():
         _log_exc("market-price scrape", e)
         banner = (f'<div class="card"><b class="bad">Could not scrape market prices: '
                   f'{esc(str(e))}</b></div>')
+    return page(banner + '<p><a href="/pricing">→ Back to Pricing intel</a></p>', "pri")
+
+@app.route("/pricing/portal", methods=["POST"])
+def pricing_portal():
+    """Configure client supplier-portal scrapers and run them. Scraping needs the
+    pricing capability; storing credentials / portal config is admin-only (secrets)."""
+    import portal_scraper as PS
+    is_admin = session.get("role") == "admin"
+    act = request.form.get("__act")
+    banner = ""
+    try:
+        if act == "scrape":
+            res = PS.scrape(request.form["supplier"].strip(),
+                            request.form.get("entity", "").strip(),
+                            request.form.get("date_from") or None,
+                            request.form.get("date_to") or None)
+            banner = (f'<div class="card"><b class="ok">Scraped {esc(res["supplier"])}: '
+                      f'loaded {res["loaded"]} price row(s) into MY Prices '
+                      f'(from {res["fetched"]} fetched). The grid &amp; margin columns now '
+                      f'reflect them.</b></div>')
+        elif act == "save_config" and is_admin:
+            cfg_raw = request.form.get("config", "").strip() or "{}"
+            import json as _json
+            PS.set_config(request.form["supplier"].strip(), request.form.get("kind", "demo"),
+                          base_url=request.form.get("base_url", "").strip(),
+                          config=_json.loads(cfg_raw),
+                          enabled=bool(request.form.get("enabled")))
+            banner = '<div class="card"><b class="ok">Portal configuration saved.</b></div>'
+        elif act == "save_creds" and is_admin:
+            PS.set_credentials(request.form["supplier"].strip(), request.form["entity"].strip(),
+                               request.form.get("username", "").strip(), request.form.get("secret", ""))
+            banner = '<div class="card"><b class="ok">Portal credentials stored (encrypted).</b></div>'
+        elif act == "delete_creds" and is_admin:
+            PS.delete_credentials(request.form["supplier"].strip(), request.form["entity"].strip())
+            banner = '<div class="card"><b class="ok">Credentials removed.</b></div>'
+        elif not is_admin and act in ("save_config", "save_creds", "delete_creds"):
+            banner = '<div class="card"><b class="bad">Only an admin can change portal credentials/config.</b></div>'
+    except Exception as e:
+        _log_exc("portal scrape/config", e)
+        banner = f'<div class="card"><b class="bad">Portal action failed: {esc(str(e))}</b></div>'
     return page(banner + '<p><a href="/pricing">→ Back to Pricing intel</a></p>', "pri")
 
 @app.route("/pricing/upload", methods=["POST"])

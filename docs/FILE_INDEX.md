@@ -58,6 +58,7 @@ siblings directly), so this index is how you navigate them. See
 | `invoice_control.py` | Receipt control (cadence × activity) and statement reconciliation with VAT triage (process / discard / discard‑domestic). |
 | `document_vault.py` | The document vault: the logical folder‑path builder and the storage backends — local / SharePoint / FTP(S) — plus integrity and re‑file helpers. |
 | `pricing_intelligence.py` | Competitor NET‑price tracking and margin analysis against three baselines. |
+| `portal_scraper.py` | Dynamic client‑portal price scraping: pluggable per‑supplier adapters that log into the entities' own authorized supplier portals and load NET prices into MY Prices. Credentials encrypted at rest (`portal.db`). |
 | `anomaly.py` | Relative anomaly scan (station price vs country average, MoM jumps, volume spikes, off‑period dates). |
 | `ecb_rates.py` / `market_prices.py` | Reference FX (ECB) and market fuel‑price pulls. |
 | `money.py` | Decimal money helpers (ROUND_HALF_UP): `f2/fsum/q2`. Use these, never bare `round()` on currency. |

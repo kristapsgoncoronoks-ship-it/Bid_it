@@ -17,6 +17,9 @@ ecb_rates.db
 # ── Intake 'waiting room' queue (operational state, machine-specific) ──
 intake.db
 
+# ── Client-portal scraper: configs, ENCRYPTED credentials, run history ──
+portal.db
+
 # ── Cross-process lock store + SQLite WAL sidecars (transient, machine-specific) ──
 locks.db
 *.db-wal

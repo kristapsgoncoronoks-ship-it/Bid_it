@@ -55,6 +55,7 @@ consistent. For setup see **[INSTALL.md](INSTALL.md)**; for day‑to‑day use s
 | `fuel_history.db` | `vat_refund.py`, `history.py`, `invoice_control.py` | `transactions` (canonical fuel lines), `vat_applications` (claim lifecycle + fees), `vat_claimed_invoices` (one‑invoice‑one‑submission locks), `invoice_documents` (vault index, SHA‑256), `invoice_receipt_control` |
 | `security.db` *(not committed)* | `auth.py` | `users` (scrypt hashes), `role_permissions`, `login_log`, `error_log`, `app_settings` |
 | `intake.db` *(operational)* | `waiting_room.py` | `intake_jobs` (the waiting‑room queue) |
+| `portal.db` *(secrets, not committed)* | `portal_scraper.py` | `portal_configs`, `portal_credentials` (encrypted), `portal_runs` |
 | `ecb_rates.db` *(cache)* | `ecb_rates.py` | `ecb_fx` (reference FX) |
 
 Separation keeps *who we are* (customers), *who they are* (suppliers), and *what
