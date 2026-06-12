@@ -259,3 +259,80 @@ flowchart LR
     ADMIN["admin<br/>everything + server/user admin"] --> G
     PROC["processor<br/>day-to-day; configurable capabilities;<br/>never server/user admin"] --> G
 ```
+
+---
+
+## 9. Scaling — one box to a multi-server fleet
+
+The same codebase grows by **configuration, not rewrite**. Node roles split the web
+tier from a worker fleet; signed-cookie sessions need no sticky routing (one shared
+`FFS_SECRET_KEY`); the database tier moves SQLite → PostgreSQL via `db.py`; documents
+move to object storage. Full ladder & env reference in **[SCALING.md](SCALING.md)**.
+
+```mermaid
+flowchart TB
+    LB["nginx / load balancer"]
+    LB --> W1["web #1"]
+    LB --> W2["web #2"]
+    LB --> WN["web #N"]
+
+    subgraph WEB["FFS_ROLE=web · FFS_SECRET_KEY=shared"]
+        W1
+        W2
+        WN
+    end
+
+    subgraph WORK["FFS_ROLE=worker · waiting_room.py --work"]
+        K1["worker #1<br/>extraction"]
+        KM["worker #M"]
+    end
+
+    Q[("shared intake queue<br/>lease-based, reclaim on crash")]
+    PG[("PostgreSQL<br/>master + queue + leases<br/>(+ PgBouncer)")]
+    OBJ["object storage<br/>SharePoint / S3 / FTPS"]
+    BKP["off-machine backup sync"]
+
+    WEB -->|enqueue| Q
+    WORK -->|claim| Q
+    Q --- PG
+    WEB --> PG
+    WORK --> PG
+    WEB --> OBJ
+    WORK --> OBJ
+    PG -.-> BKP
+    OBJ -.-> BKP
+```
+
+> **Status:** node roles, shared sessions, pluggable storage, the lease queue + leader-
+> elected scheduler, and the `?`→`%s` paramstyle shim ship today (tested on SQLite). The
+> live PostgreSQL cutover (dialect functions, audit-trigger port, `SKIP LOCKED` queue)
+> is the remaining work — see SCALING.md "Remaining blockers".
+
+---
+
+## 10. Self-control — errors, backups & data integrity
+
+Every failure is recorded where an admin can see it, and the physical PDF/ZIP store is
+verified against its recorded hashes. The loop is *active*: an integrity failure both
+raises a red banner and writes an entry to the error log.
+
+```mermaid
+flowchart TB
+    subgraph ERR["Error self-control"]
+        H["handled failure<br/>(_log_exc in except)"] --> EL[("error_log<br/>security.db")]
+        U["unhandled exception<br/>(@app.errorhandler)"] --> EL
+        APPLOG["applog → logs/app.log<br/>(dev/ops)"]
+        H -.-> APPLOG
+        EL --> ADM["Admin panel<br/>error log view"]
+    end
+
+    subgraph BK["Backup & integrity"]
+        SNAP["backup.snapshot()<br/>scheduled or one-click"] --> ZIP[("backups/ffs_*.zip<br/>SHA-256 MANIFEST")]
+        VB["Verify last backup"] --> ZIP
+        VD["Check document integrity<br/>vat_refund.verify_documents()"] --> DOCS[("documents/ store<br/>re-hash vs invoice_documents.sha256")]
+        VB -- mismatch --> FAIL["✗ red banner"]
+        VD -- "corrupt / missing" --> FAIL
+    end
+
+    FAIL --> EL
+```

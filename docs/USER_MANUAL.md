@@ -49,6 +49,12 @@ The service auto-starts on boot and restarts itself if it ever crashes; backups 
 a nightly schedule. Adding colleagues is done in the web **Admin** panel (create them
 as **processor**), not on the server.
 
+> **Growing past one server.** The same software runs unchanged from a single laptop to
+> a multi-server fleet (separate web nodes + a worker fleet + a PostgreSQL database +
+> off-machine document storage), set up entirely through configuration. That's an IT
+> concern, not a day-to-day one — the full ladder and settings are in
+> **[SCALING.md](SCALING.md)**.
+
 ---
 
 ## 1. Signing in & roles
@@ -460,8 +466,10 @@ hand — regenerate instead.
   answer) + Stations (which exact stations to prefer/avoid).
 - **…add a colleague with limited access?** Admin → Create user → role *processor*,
   then untick the capabilities they shouldn't have (e.g. leave only VAT claims).
-- **…handle a tax office rejection?** Set the stream to *rejected* (locks release),
-  fix the issue, refile in a later period.
+- **…handle a tax office rejection?** Advance the claim to **3B Rejection** — the
+  invoice locks are **kept** so you can appeal (**3D**) or invoice the fee. Only use
+  **Withdraw (release locks)** if you must re-claim from scratch, then fix and refile
+  (see §5).
 - **…prove an invoice was only claimed once?** VAT workbook pack: the Duplicate
   control column; or query `vat_claimed_invoices` — each ref appears exactly once.
 

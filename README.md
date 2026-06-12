@@ -23,7 +23,8 @@ several worker processes behind a proxy for a team, with no change of code.
 | **Price intelligence** | Competitor NET‑price tracking and margin analysis, a **self‑sourced benchmark** from your own multi‑supplier purchases (best price achieved + avoidable overpay), and a **dynamic client‑portal scraper** (encrypted credentials). |
 | **Compliance** | Receipt control (cadence × activity), statement reconciliation with VAT triage, a **contract‑compliance auditor** (catches short discounts / over‑ceiling prices to claw back), **document mining** (auto‑fills INPUT gaps from the vault), anomaly scan, full audit trail. |
 | **Document vault** | Originals stored under a logical, human‑navigable tree — `Customer (reg no) / Year / Country / Claim period / file` — identical across **local / SharePoint / FTP(S)** backends; SHA‑256 dedup + integrity verification. |
-| **Platform** | Roles (admin/processor; the VAT module is admin‑only), **admin on/off switches for whole app parts**, login lockout & IP throttle, CSP/security headers, scheduled backups with integrity checks, TLS, multi‑process scalability, versioned schema migrations + a logging layer. |
+| **Platform** | Roles (admin/processor; the VAT module is admin‑only), **admin on/off switches for whole app parts**, login lockout & IP throttle, CSP/security headers, scheduled backups with **document‑integrity checks** and an **admin error log** (every failure recorded for review), TLS, versioned schema migrations + a logging layer. |
+| **Scales with you** | One laptop → a team behind a proxy → a multi‑server fleet, by **configuration, not rewrite**: node roles (`FFS_ROLE` web/worker), shared signed‑cookie sessions (`FFS_SECRET_KEY`, no sticky sessions), pluggable storage (local / SharePoint / FTPS), a lease‑based queue + leader‑elected scheduler, and a **SQLite→PostgreSQL** database abstraction. See **[docs/SCALING.md](docs/SCALING.md)**. |
 
 ---
 
@@ -81,7 +82,9 @@ for unattended IT setup.
 | **[docs/INSTALL.md](docs/INSTALL.md)** | Full server setup — one‑click, Ubuntu service (systemd), Windows service, TLS, nginx proxy, multi‑process (gunicorn/waitress), backups. |
 | **[docs/USER_MANUAL.md](docs/USER_MANUAL.md)** | How to work with the system day‑to‑day — every page, the monthly routine, VAT refunds, the waiting room, the vault. |
 | **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | The six building blocks, the data model, the module map, and the key conventions. |
-| **[docs/DIAGRAMS.md](docs/DIAGRAMS.md)** | Visual schematics — system overview, upload OK/Bad flow, monthly close, VAT claim lifecycle, databases, storage, request/worker flow. |
+| **[docs/DIAGRAMS.md](docs/DIAGRAMS.md)** | Visual schematics — system overview, upload OK/Bad flow, monthly close, VAT claim lifecycle, databases, storage, request/worker flow, **multi‑server topology**, and the **backup & integrity self‑control loop**. |
+| **[docs/SCALING.md](docs/SCALING.md)** | Horizontal scaling — the ladder (tune → Postgres → offload storage → worker fleet → load‑balance), target topology, env‑var reference, and the honest remaining blockers to a validated Postgres cutover. |
+| **[docs/ROADMAP.md](docs/ROADMAP.md)** | How the system should evolve to support the business — outcome‑driven plan across three horizons, with KPIs. |
 | **[docs/FILE_INDEX.md](docs/FILE_INDEX.md)** | A plain‑language index of what every file in the repo does. |
 | **[SECURITY.md](SECURITY.md)** | Security model, data protection, and the DPA basis for AI extraction. |
 | **[docs/GIT_SETUP.md](docs/GIT_SETUP.md)** | Cloning, branching, and what is / isn't committed. |
@@ -113,7 +116,7 @@ This keeps the whole system a single, copy‑anywhere folder. The files group lo
 fleet_fuel_system/
 ├── app.py serve.py            # web app (≈25 pages + JSON API + Excel) and prod launcher
 ├── auth.py audit.py           # users/roles/login + trigger-based change history
-├── db.py db_tuning.py process_lock.py  # DB abstraction, WAL/busy-timeout tuning, cross-process lock
+├── db.py db_tuning.py process_lock.py  # SQLite→Postgres abstraction, WAL/busy-timeout tuning, cross-process lease
 ├── db_migrate.py applog.py    # versioned schema migrations (run once per DB) + logging layer
 ├── backup.py tls.py make_cert.py  # snapshots+integrity, TLS context, self-signed certs
 │
@@ -133,8 +136,8 @@ fleet_fuel_system/
 ├── setup_wizard.py start.* install.*  # first-run wizard + one-click launchers
 ├── gunicorn_conf.py                   # multi-process worker config (Linux)
 ├── documents/                  # the document vault (local backend; git-ignored content)
-├── tests/                      # pytest suite (190+ tests)
-└── docs/                       # INSTALL · USER_MANUAL · ARCHITECTURE · FILE_INDEX · GIT_SETUP
+├── tests/                      # pytest suite (235+ tests)
+└── docs/                       # INSTALL · USER_MANUAL · ARCHITECTURE · DIAGRAMS · SCALING · ROADMAP · FILE_INDEX · GIT_SETUP
 ```
 
 See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the full module map and data model.
