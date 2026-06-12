@@ -396,9 +396,16 @@ def DB():
 
 # ---------------------------------------------------------------- auto-backup
 # Admin sets how often (security.db setting 'backup_interval_hours'; 0 = off /
-# manual only). A daemon thread checks periodically and snapshots when due. The
-# manual button and the scheduler share one lock so two backups never overlap.
-_backup_lock = threading.Lock()
+# manual only). A daemon thread checks periodically and snapshots when due.
+#
+# MULTI-PROCESS: every worker process runs this loop, but only ONE may take
+# scheduled backups — otherwise N processes would each snapshot when the schedule
+# comes due. We elect a leader with a cross-process lease ("backup-scheduler");
+# only the leader checks/snapshots, and it renews the lease each tick so if it
+# dies another process takes over within one lease window. A second cross-process
+# lock ("backup-run") guards the snapshot itself so a manual "Run backup now" in
+# one process can never overlap a scheduled (or manual) backup in another.
+_backup_lock = threading.Lock()           # in-process guard (fast path)
 _sched_started = False
 BACKUP_CHECK_SECONDS = 300  # how often the scheduler re-checks the schedule
 
@@ -409,10 +416,18 @@ def backup_interval_hours():
         return 0.0
 
 def run_backup_now():
-    """Take a snapshot under the shared lock. Returns (path, n_files)."""
-    import backup
+    """Take a snapshot under both the in-process lock and a cross-process lock, so
+    backups never overlap even across worker processes. Returns (path, n_files).
+    Raises RuntimeError if another process is already snapshotting."""
+    import backup, proclock
+    me = proclock.whoami()
     with _backup_lock:
-        return backup.snapshot()
+        if not proclock.acquire("backup-run", ttl=900, holder=me):
+            raise RuntimeError("a backup is already running in another process")
+        try:
+            return backup.snapshot()
+        finally:
+            proclock.release("backup-run", me)
 
 def _backup_tick():
     """One scheduler iteration: snapshot if a scheduled backup is due. Returns the
@@ -432,8 +447,13 @@ def _backup_tick():
     return None
 
 def _backup_loop():
+    import proclock
+    me = proclock.whoami()
     while True:
-        _backup_tick()
+        # only the elected leader checks the schedule / snapshots; the lease is
+        # renewed here each tick and expires if this process dies.
+        if proclock.acquire("backup-scheduler", ttl=2 * BACKUP_CHECK_SECONDS, holder=me):
+            _backup_tick()
         time.sleep(BACKUP_CHECK_SECONDS)
 
 def start_backup_scheduler():
@@ -447,18 +467,24 @@ def start_backup_scheduler():
 
 # ---------------------------------------------------------------- intake worker
 # Drains the document "waiting room" in the background, one job at a time, so a
-# burst of uploads is processed steadily instead of overloading the server. Like
-# the backup scheduler it's started only by the server entrypoints, never on
-# import, so tests/CLI tools are unaffected. Set INTAKE_WORKER=0 to disable (e.g.
-# when running a dedicated `python intake_queue.py --work` process instead).
+# burst of uploads is processed steadily instead of overloading the server.
+#
+# MULTI-PROCESS: unlike the backup scheduler this needs NO leader election — the
+# queue claim uses BEGIN IMMEDIATE on intake.db, so any number of worker processes
+# can drain concurrently and a job is handed to exactly one of them. Running it in
+# every process simply adds throughput. A little random jitter on the idle poll
+# keeps the processes from waking in lockstep. Started only by the server
+# entrypoints (never on import), so tests/CLI are unaffected. Set INTAKE_WORKER=0
+# to opt a process out (e.g. when you run a dedicated `python intake_queue.py
+# --work` process instead).
 _intake_started = False
 
 def _intake_loop():
-    import intake_queue as IQ
+    import intake_queue as IQ, random
     while True:
         try:
             if IQ.drain() == 0:
-                time.sleep(IQ.POLL_SECONDS)
+                time.sleep(IQ.POLL_SECONDS + random.uniform(0, IQ.POLL_SECONDS))
         except Exception as e:
             try:
                 import traceback
@@ -1384,29 +1410,40 @@ def intake_queue_page():
     kpis = ('<div class="kpis">'
             + f'<div class="kpi"><div class="v">{c["queued"]}</div><div class="l">queued</div></div>'
             + f'<div class="kpi"><div class="v">{c["processing"]}</div><div class="l">processing</div></div>'
+            + f'<div class="kpi"><div class="v {"bad" if c["waiting"] else ""}">{c["waiting"]}</div><div class="l">waiting for API tokens</div></div>'
+            + f'<div class="kpi"><div class="v {"bad" if c["held"] else ""}">{c["held"]}</div><div class="l">held — needs manual send</div></div>'
             + f'<div class="kpi"><div class="v ok">{c["ready"]}</div><div class="l">ready to review</div></div>'
             + f'<div class="kpi"><div class="v {"bad" if c["failed"] else ""}">{c["failed"]}</div><div class="l">failed</div></div>'
             + f'<div class="kpi"><div class="v">{c["done"]}</div><div class="l">done</div></div></div>')
     rows = []
     for j in IQ.jobs(limit=100):
         st = j["status"]
-        stcls = {"ready": "ok", "failed": "bad", "done": "note"}.get(st, "")
+        stcls = {"ready": "ok", "failed": "bad", "waiting": "bad",
+                 "held": "bad", "done": "note"}.get(st, "")
+        label = "Send now" if st == "held" else "Retry now"
+        retry_btn = ('<form method="post" style="display:inline">' + _csrf_input()
+                     + f'<input type="hidden" name="job" value="{j["id"]}">'
+                     + f'<button name="__act" value="requeue">{label}</button></form>')
         if st == "ready":
             act_cell = f'<a href="/queue/review/{j["id"]}">Review &amp; commit →</a>'
-        elif st == "failed":
-            act_cell = ('<form method="post" style="display:inline">' + _csrf_input()
-                        + f'<input type="hidden" name="job" value="{j["id"]}">'
-                        + '<button name="__act" value="requeue">Retry</button></form>')
+        elif st in ("failed", "waiting", "held"):
+            act_cell = retry_btn
         else:
             act_cell = '<span class="note">—</span>'
         disc = ('<form method="post" style="display:inline">' + _csrf_input()
                 + f'<input type="hidden" name="job" value="{j["id"]}">'
                 + '<button name="__act" value="discard" style="background:var(--mut)">Discard</button></form>')
+        # show the retry schedule for waiting jobs and a manual-send hint for held
+        statetxt = esc(st)
+        if st == "waiting" and j.get("next_attempt_at"):
+            statetxt = f'{esc(st)}<br><span class="note">retry ≥ {esc(j["next_attempt_at"])} UTC</span>'
+        elif st == "held":
+            statetxt = f'{esc(st)}<br><span class="note">auto-retry stopped · press Send</span>'
         rows.append([
             f'<td>{j["id"]}</td><td>{esc(j["filename"] or "")}</td>',
             f'<td>{esc(j["backend"] or "auto")}</td><td>{esc(j["period"] or "")}</td>',
             f'<td>{esc(j["uploaded_by"] or "")}</td><td class="note">{esc(j["uploaded_at"] or "")}</td>',
-            f'<td class="{stcls}">{esc(st)}</td><td class="r">{j["attempts"]}</td>',
+            f'<td class="{stcls}">{statetxt}</td><td class="r">{j["attempts"]}</td>',
             f'<td class="note">{esc((j["error"] or "")[:60])}</td>',
             f'<td>{act_cell} {disc}</td>'])
     process_form = ('<form method="post" class="f" style="margin-bottom:12px">' + _csrf_input()
@@ -1416,7 +1453,11 @@ def intake_queue_page():
             + '<div class="note">Uploaded batches are stored durably on arrival and '
               'extracted later, one at a time, so a burst of uploads never overloads the '
               'server. A background worker drains this automatically; you can also process '
-              'on demand below.</div></div>'
+              'on demand below.<br>If the AI extractor runs out of tokens/quota, the job '
+              f'is parked as <b>waiting</b> and retried automatically every '
+              f'{IQ.RETRY_AFTER_TOKENS // 3600}h. After {IQ.MAX_TOKEN_RETRIES} retries the '
+              'auto-processing stops and the job is <b>held</b> in the waiting room — it '
+              'stays safe until you top up the API credit and press <b>Send now</b>.</div></div>'
             + '<div class="card"><h2>Process backlog</h2>' + process_form
             + '<div class="note">Or run a dedicated worker process: '
               '<kbd>python intake_queue.py --work</kbd>.</div></div>'

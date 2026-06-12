@@ -45,8 +45,10 @@ CCY = ["USD", "GBP", "CHF", "SEK", "NOK", "DKK", "PLN", "CZK", "HUF", "RON", "BG
 
 
 def connect():
+    import dbtune
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
+    dbtune.tune(con)  # WAL + busy_timeout for safe multi-process access
     con.execute("""CREATE TABLE IF NOT EXISTS ecb_fx (
         date TEXT, currency TEXT, rate REAL, source TEXT,
         PRIMARY KEY (date, currency))""")

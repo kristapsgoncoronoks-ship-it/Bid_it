@@ -13,6 +13,7 @@ import sqlite3, sys, collections
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 import supplier_db, customer_db, audit, money
+import dbtune
 from vat_config import (GOODS_CODE,
                         MIN_QUARTER, MIN_ANNUAL, DEADLINE_FMT,
                         LOCAL_CCY_INPUT, COMPLIANCE_NOTES)
@@ -37,6 +38,7 @@ _SCHEMA_READY = set()   # DB files whose schema is set up this process
 def connect():
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
+    dbtune.tune(con)  # WAL + busy_timeout for safe multi-process access
     audit.bind(con)   # audit triggers call ffs_actor(); register it every connect
     if DB != ":memory:" and DB in _SCHEMA_READY:
         return con

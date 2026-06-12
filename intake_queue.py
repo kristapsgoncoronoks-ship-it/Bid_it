@@ -44,10 +44,20 @@ DB = os.environ.get("INTAKE_DB", f"{WORKDIR}/intake.db")
 INBOX = os.environ.get("INTAKE_INBOX", f"{WORKDIR}/inbox")
 
 LEASE_SECONDS = 600          # a claimed job is "owned" for this long before reclaim
-MAX_ATTEMPTS = 5             # give up (-> failed) after this many tries
+MAX_ATTEMPTS = 5             # give up (-> failed) after this many HARD tries
 BACKOFF_BASE = 30            # seconds; doubles each retry up to BACKOFF_MAX
 BACKOFF_MAX = 1800
 POLL_SECONDS = 5            # worker idle poll interval
+# When the AI backend is out of tokens/quota or rate-limited, the job is parked in
+# 'waiting' and retried on this cadence — every few hours — WITHOUT counting toward
+# MAX_ATTEMPTS (a quota outage is not the document's fault). Default 4 hours;
+# override with INTAKE_RETRY_AFTER_TOKENS.
+RETRY_AFTER_TOKENS = int(os.environ.get("INTAKE_RETRY_AFTER_TOKENS", 4 * 3600))
+# ...but don't retry forever: after this many 4-hour attempts the quota is clearly
+# not coming back on its own, so STOP auto-processing and put the job in 'held' —
+# it stays safely in the waiting room until a user presses "Send now" to retry it
+# manually. Default 6 (≈24h of trying); override with INTAKE_MAX_TOKEN_RETRIES.
+MAX_TOKEN_RETRIES = int(os.environ.get("INTAKE_MAX_TOKEN_RETRIES", 6))
 
 _SCHEMA_READY = set()
 
@@ -61,8 +71,9 @@ CREATE TABLE IF NOT EXISTS intake_jobs (
     period TEXT,
     uploaded_by TEXT,
     uploaded_at TEXT DEFAULT (datetime('now')),
-    status TEXT DEFAULT 'queued',          -- queued|processing|ready|failed|done
+    status TEXT DEFAULT 'queued',          -- queued|processing|ready|failed|done|waiting|held
     attempts INTEGER DEFAULT 0,
+    defer_count INTEGER DEFAULT 0,         -- consecutive token/quota deferrals
     lease_until TEXT,
     next_attempt_at TEXT,
     started_at TEXT,
@@ -84,14 +95,17 @@ def _at(epoch):
 
 
 def connect():
+    import dbtune
     con = sqlite3.connect(DB, timeout=30)
     con.row_factory = sqlite3.Row
-    # a queue wants durability over raw speed, and WAL lets a reader (the web UI)
-    # see progress while the worker writes.
+    # a queue wants durability and cross-process concurrency: WAL lets the web UI
+    # read progress while a worker writes, and busy_timeout lets several worker
+    # processes claim jobs without tripping "database is locked".
+    dbtune.tune(con)
     if DB != ":memory:" and DB not in _SCHEMA_READY:
         con.executescript(SCHEMA)
-        try: con.execute("PRAGMA journal_mode=WAL")
-        except sqlite3.OperationalError: pass
+        try: con.execute("ALTER TABLE intake_jobs ADD COLUMN defer_count INTEGER DEFAULT 0")
+        except sqlite3.OperationalError: pass  # column already exists (safe)
         _SCHEMA_READY.add(DB)
     elif DB == ":memory:":
         con.executescript(SCHEMA)
@@ -173,7 +187,7 @@ def _claim(con):
     now = _now()
     con.execute("BEGIN IMMEDIATE")
     row = con.execute("""SELECT * FROM intake_jobs WHERE
-          (status='queued'   AND (next_attempt_at IS NULL OR next_attempt_at<=?))
+          (status IN ('queued','waiting') AND (next_attempt_at IS NULL OR next_attempt_at<=?))
        OR (status='processing' AND lease_until IS NOT NULL AND lease_until<=?)
         ORDER BY id LIMIT 1""", (now, now)).fetchone()
     if not row:
@@ -204,7 +218,8 @@ def process_one():
         attempts = row["attempts"] + 1      # _claim incremented it
         try:
             data = read_bytes(row["stored_path"])
-            draft = EX.extract(data, row["filename"], backend=row["backend"] or None)
+            draft = EX.extract(data, row["filename"], backend=row["backend"] or None,
+                               strict=True)
             if draft.get("error"):
                 raise RuntimeError(draft["error"])
             con.execute("""UPDATE intake_jobs SET status='ready', finished_at=?,
@@ -212,6 +227,30 @@ def process_one():
                         (_now(), json.dumps(_strip_draft(draft)), jid))
             con.commit()
             return (jid, "ready")
+        except EX.TransientExtractionError as e:
+            # upstream out of tokens / rate-limited. This is not the document's
+            # fault, so roll the hard-attempt counter back to its pre-claim value
+            # and instead track consecutive token deferrals separately.
+            deferred = row["defer_count"] + 1
+            if deferred >= MAX_TOKEN_RETRIES:
+                # the quota isn't coming back on its own — stop auto-processing and
+                # hold the job in the waiting room for a manual "Send now".
+                msg = (f"held after {deferred} token-quota retries — press Send to "
+                       f"retry manually ({e})")[:500]
+                con.execute("""UPDATE intake_jobs SET status='held', attempts=?,
+                               defer_count=?, error=?, lease_until=NULL,
+                               next_attempt_at=NULL WHERE id=?""",
+                            (row["attempts"], deferred, msg, jid))
+                con.commit()
+                return (jid, "held")
+            msg = f"waiting for AI tokens (retry {deferred}/{MAX_TOKEN_RETRIES}) — {e}"[:500]
+            con.execute("""UPDATE intake_jobs SET status='waiting', attempts=?,
+                           defer_count=?, error=?, lease_until=NULL,
+                           next_attempt_at=? WHERE id=?""",
+                        (row["attempts"], deferred, msg,
+                         _at(time.time() + RETRY_AFTER_TOKENS), jid))
+            con.commit()
+            return (jid, "waiting")
         except Exception as e:
             msg = f"{type(e).__name__}: {e}"[:500]
             if attempts >= MAX_ATTEMPTS:
@@ -253,7 +292,7 @@ def counts():
     con = connect()
     rows = con.execute("SELECT status, COUNT(*) n FROM intake_jobs GROUP BY status").fetchall()
     con.close()
-    out = {s: 0 for s in ("queued", "processing", "ready", "failed", "done")}
+    out = {s: 0 for s in ("queued", "waiting", "held", "processing", "ready", "failed", "done")}
     for r in rows:
         out[r["status"]] = r["n"]
     return out
@@ -305,6 +344,21 @@ def complete(job_id):
         pass
     return True
 
+def requeue(job_id):
+    """Force a job back to 'queued' for immediate reprocessing, clearing any
+    backoff/retry gate and the attempt counter. Works from any state (failed,
+    waiting, ready) — e.g. an admin clicking 'Retry now' on a job that is waiting
+    for AI tokens, or retrying a failure. Returns False if the job/file is gone."""
+    r = get_job(job_id)
+    if not r or not r["stored_path"] or not os.path.exists(_safe_inbox(r["stored_path"])):
+        return False
+    con = connect()
+    con.execute("""UPDATE intake_jobs SET status='queued', attempts=0, defer_count=0,
+                   lease_until=NULL, next_attempt_at=NULL, error=NULL, started_at=NULL,
+                   finished_at=NULL, draft=NULL WHERE id=?""", (job_id,))
+    con.commit(); con.close()
+    return True
+
 def discard(job_id):
     """Drop a job without processing (e.g. an erroneous upload). Removes the inbox
     bytes and the row."""
@@ -340,7 +394,7 @@ if __name__ == "__main__":
         # offline smoke test: stub the extractor so the queue mechanics (durability,
         # dedupe, claim, ready) are exercised without needing a real PDF/AI call.
         import tempfile, shutil, extract as EX
-        EX.extract = lambda data, name, backend=None: {
+        EX.extract = lambda data, name, backend=None, strict=False: {
             "supplier": "DEMO", "lines": [{"invoice_no": "X1", "net": 100, "vat": 21}],
             "backend": backend or "stub", "confidence": "low", "_pdf_bytes": []}
         d = tempfile.mkdtemp()

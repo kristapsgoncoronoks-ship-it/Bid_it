@@ -37,7 +37,7 @@ def test_enqueue_is_durable_and_dedupes(iq):
 
 
 def test_process_to_ready(iq, monkeypatch):
-    _stub_extract(monkeypatch, lambda data, name, backend=None: {
+    _stub_extract(monkeypatch, lambda data, name, backend=None, strict=False: {
         "supplier": "ACME", "lines": [{"invoice_no": "I1", "net": 10, "vat": 2}],
         "backend": backend or "stub", "_pdf_bytes": [("a.pdf", data)]})
     jid, _ = iq.enqueue(b"%PDF-1.4 x", "a.pdf", backend="none")
@@ -53,7 +53,7 @@ def test_process_to_ready(iq, monkeypatch):
 
 
 def test_retry_then_fail(iq, monkeypatch):
-    def boom(data, name, backend=None):
+    def boom(data, name, backend=None, strict=False):
         raise RuntimeError("backend down")
     _stub_extract(monkeypatch, boom)
     monkeypatch.setattr(iq, "MAX_ATTEMPTS", 3)
@@ -74,7 +74,7 @@ def test_retry_then_fail(iq, monkeypatch):
 def test_stale_lease_is_reclaimed(iq, monkeypatch):
     # a crash mid-processing leaves a 'processing' row with an expired lease; the
     # next claim must reclaim and reprocess it (at-least-once).
-    _stub_extract(monkeypatch, lambda data, name, backend=None: {
+    _stub_extract(monkeypatch, lambda data, name, backend=None, strict=False: {
         "lines": [], "backend": "stub", "_pdf_bytes": []})
     jid, _ = iq.enqueue(b"%PDF-1.4 z", "c.pdf")
     con = iq.connect()
@@ -86,7 +86,7 @@ def test_stale_lease_is_reclaimed(iq, monkeypatch):
 
 
 def test_complete_and_discard(iq, monkeypatch):
-    _stub_extract(monkeypatch, lambda data, name, backend=None: {"lines": [], "_pdf_bytes": []})
+    _stub_extract(monkeypatch, lambda data, name, backend=None, strict=False: {"lines": [], "_pdf_bytes": []})
     jid, _ = iq.enqueue(b"%PDF-1.4 q", "d.pdf")
     iq.process_one()
     path = os.path.join(iq.INBOX, iq.get_job(jid)["stored_path"])
@@ -100,8 +100,55 @@ def test_complete_and_discard(iq, monkeypatch):
     assert iq.get_job(jid2) is None and not os.path.exists(p2)
 
 
+def test_token_quota_waits_then_holds(iq, monkeypatch):
+    """An out-of-tokens error parks the job as 'waiting' and retries on the long
+    cadence without counting toward MAX_ATTEMPTS; after MAX_TOKEN_RETRIES it stops
+    auto-processing and is 'held' for a manual send."""
+    import extract as EX
+    def out_of_tokens(data, name, backend=None, strict=False):
+        if strict:
+            raise EX.TransientExtractionError("openai: 429 insufficient_quota")
+        return {"lines": []}
+    _stub_extract(monkeypatch, out_of_tokens)
+    monkeypatch.setattr(iq, "MAX_TOKEN_RETRIES", 3)
+    monkeypatch.setattr(iq, "RETRY_AFTER_TOKENS", 0)   # immediate re-eligibility
+    jid, _ = iq.enqueue(b"%PDF-1.4 q", "x.pdf", backend="openai")
+
+    assert iq.process_one() == (jid, "waiting")
+    j = iq.get_job(jid)
+    assert j["status"] == "waiting" and j["defer_count"] == 1 and j["attempts"] == 0
+    assert iq.process_one() == (jid, "waiting")        # defer 2 (still not a hard fail)
+    assert iq.process_one() == (jid, "held")           # defer 3 -> held
+    j = iq.get_job(jid)
+    assert j["status"] == "held" and j["attempts"] == 0
+    assert iq.process_one() is None                    # held jobs are NOT auto-claimed
+    # the document is safe and the bytes are kept for a manual resend
+    assert os.path.exists(os.path.join(iq.INBOX, j["stored_path"]))
+
+    # the manual "Send now" button -> requeue resets it for immediate reprocessing
+    assert iq.requeue(jid) is True
+    j = iq.get_job(jid)
+    assert j["status"] == "queued" and j["defer_count"] == 0
+
+
+def test_requeue_recovers_held_to_ready_when_tokens_return(iq, monkeypatch):
+    import extract as EX
+    state = {"broke": True}
+    def maybe(data, name, backend=None, strict=False):
+        if state["broke"] and strict:
+            raise EX.TransientExtractionError("claude: overloaded_error")
+        return {"lines": [], "_pdf_bytes": []}
+    _stub_extract(monkeypatch, maybe)
+    monkeypatch.setattr(iq, "MAX_TOKEN_RETRIES", 1)
+    jid, _ = iq.enqueue(b"%PDF-1.4 z", "y.pdf", backend="claude")
+    assert iq.process_one() == (jid, "held")           # immediately held (cap=1)
+    state["broke"] = False                              # tokens topped up
+    iq.requeue(jid)                                     # user presses Send now
+    assert iq.process_one() == (jid, "ready")
+
+
 def test_drain_processes_backlog(iq, monkeypatch):
-    _stub_extract(monkeypatch, lambda data, name, backend=None: {"lines": [], "_pdf_bytes": []})
+    _stub_extract(monkeypatch, lambda data, name, backend=None, strict=False: {"lines": [], "_pdf_bytes": []})
     for i in range(5):
         iq.enqueue(f"%PDF-1.4 file{i}".encode(), f"f{i}.pdf")
     assert iq.drain(limit=10) == 5

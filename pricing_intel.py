@@ -24,7 +24,9 @@ DB = f"{WORKDIR}/fuel_history.db"
 
 
 def connect():
+    import dbtune
     con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    dbtune.tune(con)  # WAL + busy_timeout for safe multi-process access
     con.executescript("""
     CREATE TABLE IF NOT EXISTS my_prices (
         country TEXT, city TEXT, date TEXT, product_group TEXT DEFAULT 'Diesel',

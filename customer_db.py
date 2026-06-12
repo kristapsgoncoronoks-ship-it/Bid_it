@@ -17,6 +17,7 @@ API: get_customer(name_or_code) -> dict incl. payout account; portal(name)
 """
 import sqlite3, sys
 import audit
+import dbtune
 
 import os
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
@@ -110,6 +111,7 @@ _SCHEMA_READY = set()   # DB files whose schema is set up this process
 def connect():
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
+    dbtune.tune(con)  # WAL + busy_timeout for safe multi-process access
     audit.bind(con)   # audit triggers call ffs_actor(); register it every connect
     if DB == ":memory:" or DB not in _SCHEMA_READY:
         con.executescript(SCHEMA)

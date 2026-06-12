@@ -17,6 +17,11 @@ ecb_rates.db
 # ── Intake 'waiting room' queue (operational state, machine-specific) ──
 intake.db
 
+# ── Cross-process lock store + SQLite WAL sidecars (transient, machine-specific) ──
+locks.db
+*.db-wal
+*.db-shm
+
 # ── Runtime data & state (machine-specific) ────────────────────────
 backups/
 .extract_tmp/

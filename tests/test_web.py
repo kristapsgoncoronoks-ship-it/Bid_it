@@ -52,7 +52,7 @@ def test_intake_queue_flow(client, monkeypatch, tmp_path):
     monkeypatch.setattr(IQ, "DB", str(tmp_path / "intake.db"))
     monkeypatch.setattr(IQ, "INBOX", str(tmp_path / "inbox"))
     IQ._SCHEMA_READY.clear()
-    monkeypatch.setattr(EX, "extract", lambda data, name, backend=None: {
+    monkeypatch.setattr(EX, "extract", lambda data, name, backend=None, strict=False: {
         "supplier": "DEMO", "statement_ref": "S1", "statement_date": "2026-05-01",
         "lines": [{"invoice_no": "INV1", "net": 100, "vat": 21, "country": "DE"}],
         "backend": backend or "stub", "confidence": "low", "_pdf_bytes": [(name, data)]})

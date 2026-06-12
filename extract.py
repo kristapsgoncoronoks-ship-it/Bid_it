@@ -27,6 +27,28 @@ import os, io, re, json, zipfile, subprocess, tempfile
 
 EXTRACT_BACKEND = os.environ.get("EXTRACT_BACKEND", "auto")
 
+
+class TransientExtractionError(Exception):
+    """The AI backend failed for a reason that is expected to clear on its own —
+    out of tokens/quota, rate-limited, overloaded, or a temporary 5xx/timeout.
+    The intake queue catches this and retries the job later instead of giving up."""
+
+
+# substrings that mark an upstream error as "retry later, not our fault"
+_TRANSIENT_SIGNS = (
+    "insufficient_quota", "exceeded your current quota", "quota", "credit",
+    "billing", "out of tokens", "tokens exhausted", "token limit", "ran out",
+    "rate limit", "rate_limit", "ratelimit", "too many requests", "429",
+    "overloaded", "overloaded_error", "capacity", "temporarily", "try again",
+    "service unavailable", "unavailable", "timeout", "timed out", "503", "502", "504",
+)
+
+def is_transient_error(msg):
+    """True if an extraction error looks like a recoverable upstream condition
+    (quota/rate-limit/overload/timeout) rather than a permanent problem."""
+    m = str(msg).lower()
+    return any(s in m for s in _TRANSIENT_SIGNS)
+
 PROMPT = (
  "You extract structured data from fuel-invoice PDFs. Return ONLY JSON, no prose. "
  "Schema: {\"supplier\":string|null,\"supplier_vat\":string|null,"
@@ -219,7 +241,12 @@ def _ai_extract(backend, texts):
 
 
 # ---------------------------------------------------------------- orchestration
-def extract(upload_bytes, filename, backend=None):
+def extract(upload_bytes, filename, backend=None, strict=False):
+    """Turn an upload into a draft. `strict=True` (used by the deferred intake
+    queue) RAISES TransientExtractionError when the AI backend is out of
+    tokens/quota or rate-limited, so the job can be retried later rather than
+    silently producing an empty draft. The interactive path leaves strict=False
+    and degrades to manual entry on any AI failure."""
     backend = backend or EXTRACT_BACKEND
     files = unpack(upload_bytes, filename)
     if not files:
@@ -242,6 +269,9 @@ def extract(upload_bytes, filename, backend=None):
             try:
                 draft = _ai_extract(be, texts)
             except Exception as e:
+                # out-of-tokens / rate-limit / overload: let the queue retry later
+                if strict and is_transient_error(e):
+                    raise TransientExtractionError(f"{be}: {e}")
                 draft = empty(f"AI extraction failed ({be}: {e}) - enter manually", "none")
     if draft is None:
         draft = empty("no parser matched and no AI backend configured - enter manually", "none")

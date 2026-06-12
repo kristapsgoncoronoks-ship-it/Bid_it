@@ -13,6 +13,7 @@ CLI:
 """
 import os, sqlite3, hashlib, secrets, sys, time
 import audit
+import dbtune
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 DB = f"{WORKDIR}/security.db"
@@ -55,6 +56,7 @@ _SCHEMA_READY = set()   # DB files whose schema is set up this process
 def connect():
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
+    dbtune.tune(con)  # WAL + busy_timeout for safe multi-process access
     audit.bind(con)   # audit triggers call ffs_actor(); register it every connect
     # Schema/migrations/seeding persist in the file; run once per process per DB
     # (connect() is called on every page render via permissions_for).
@@ -285,12 +287,21 @@ def verify(username, password, remote=""):
     return ok
 
 def secret_key():
-    """Persistent Flask session key, file mode 0600, generated once."""
+    """Persistent Flask session key shared by ALL worker processes (so sessions
+    and CSRF tokens validate across processes), file mode 0600, generated once.
+    Uses an atomic O_EXCL create so two processes starting at the same time on a
+    fresh install can't generate two different keys (which would invalidate each
+    other's sessions) — the loser simply reads the winner's key."""
     path = f"{WORKDIR}/.secret_key"
     if not os.path.exists(path):
-        with open(path, "wb") as f:
-            f.write(secrets.token_bytes(32))
-        os.chmod(path, 0o600)
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                os.write(fd, secrets.token_bytes(32))
+            finally:
+                os.close(fd)
+        except FileExistsError:
+            pass  # another process created it first — read it below
     return open(path, "rb").read()
 
 if __name__ == "__main__":
