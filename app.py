@@ -140,6 +140,36 @@ APP_JS = r"""/* progressive enhancement: sort + filter + horizontal scroll + key
     if(pend){ pend=false; var u=NAV[e.key.toLowerCase()]; if(u){e.preventDefault(); location.href=u;} return; }
     if(e.key==='g'){ pend=true; setTimeout(function(){pend=false;},1200); }
   });
+
+  // First-run setup & login: make the password fields friendly — a show/hide
+  // toggle and a live "is it long enough / do they match" hint. Runs only on the
+  // pages that opt in with [data-setup]; no-op everywhere else.
+  (function(){
+    var f=document.querySelector('form[data-setup]'); if(!f) return;
+    f.querySelectorAll('.pwtoggle').forEach(function(t){
+      var inp=document.getElementById(t.getAttribute('data-for')); if(!inp) return;
+      t.addEventListener('click',function(){
+        var hidden=inp.type==='password';
+        inp.type=hidden?'text':'password'; t.textContent=hidden?'hide':'show';
+      });
+    });
+    var p=document.getElementById('pw'), p2=document.getElementById('pw2'),
+        msg=document.getElementById('pwmsg');
+    function check(){
+      if(!msg||!p) return;
+      var v=p.value, v2=p2?p2.value:'';
+      if(!v){ msg.textContent=''; msg.className='pwmsg'; return; }
+      if(v.length<8){ msg.textContent='A little longer — '+v.length+'/8 characters';
+                      msg.className='pwmsg bad'; return; }
+      if(p2&&v2&&v!==v2){ msg.textContent='Passwords don’t match yet';
+                          msg.className='pwmsg bad'; return; }
+      if(p2&&!v2){ msg.textContent='Looks good — now repeat it below';
+                   msg.className='pwmsg ok'; return; }
+      msg.textContent='Looks good ✓'; msg.className='pwmsg ok';
+    }
+    if(p) p.addEventListener('input',check);
+    if(p2) p2.addEventListener('input',check);
+  })();
 })();
 """
 
@@ -163,11 +193,14 @@ LOGIN_HTML = """<!doctype html><html><head><meta charset='utf-8'><title>Fleet Fu
 .box{background:#fff;border:1px solid #dde4ea;border-radius:10px;padding:28px 30px;width:300px}
 h1{font-size:16px;margin:0 0 14px}input{width:100%;box-sizing:border-box;padding:8px;margin:5px 0 12px;border:1px solid #dde4ea;border-radius:6px}
 button{width:100%;background:#0e5fa8;color:#fff;border:0;border-radius:6px;padding:9px;cursor:pointer}
-.err{color:#c8102e;font-size:13px;margin-bottom:8px}</style></head><body>
+.err{color:#c8102e;font-size:13px;margin-bottom:8px}
+.pwwrap{position:relative}.pwwrap input{padding-right:54px}
+.pwtoggle{position:absolute;right:10px;top:14px;font-size:12px;color:#0e5fa8;cursor:pointer;user-select:none}</style></head><body>
 <div class="box"><h1>Fleet Fuel Analytics</h1>{ERR}
-<form method="post"><input name="username" placeholder="username" autofocus required>
-<input type="password" name="password" placeholder="password" required>
-<button>Sign in</button></form></div></body></html>"""
+<form method="post" data-setup><input name="username" placeholder="username" autofocus required>
+<div class="pwwrap"><input type="password" name="password" id="pw" placeholder="password" required>
+<span class="pwtoggle" data-for="pw">show</span></div>
+<button>Sign in</button></form></div><script src="/app.js" defer></script></body></html>"""
 
 SETUP_HTML = """<!doctype html><html><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
@@ -193,6 +226,11 @@ button:hover{background:#0b4d89}
 .hint{font-size:12.5px;color:var(--mut);margin-top:6px}
 .chk{display:flex;align-items:flex-start;gap:8px;margin-top:18px;font-size:14px}
 .chk input{width:auto;margin-top:3px}
+.pwwrap{position:relative}.pwwrap input{padding-right:58px}
+.pwtoggle{position:absolute;right:11px;top:50%;transform:translateY(-50%);font-size:12.5px;
+ color:var(--blue);cursor:pointer;user-select:none;font-weight:500}
+.pwmsg{font-size:12.5px;margin-top:6px;min-height:16px}
+.pwmsg.ok{color:var(--ok)}.pwmsg.bad{color:var(--bad)}
 .done .big{font-size:40px;color:var(--ok);text-align:center}
 .row{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--bd);font-size:14px}
 .row .ic{color:var(--ok);font-weight:700}
@@ -201,7 +239,7 @@ a.btn{display:block;text-align:center;background:var(--blue);color:#fff;text-dec
  border-radius:8px;padding:12px;font-weight:600;margin-top:22px}
 </style></head><body><div class="wrap"><div class="card">{BODY}</div>
 <p style="text-align:center;color:#9fb3c4;font-size:12px;margin-top:14px">Fleet Fuel &amp; VAT Refund System</p>
-</div></body></html>"""
+</div><script src="/app.js" defer></script></body></html>"""
 
 @app.route("/setup", methods=["GET", "POST"])
 def setup():
@@ -265,14 +303,17 @@ def setup():
         '<p class="sub">Create your administrator account. This is a one-time step; '
         'it takes about a minute.</p>'
         + (f'<div class="err">{esc(err)}</div>' if err else '')
-        + '<form method="post">'
+        + '<form method="post" data-setup>'
         '<label>Administrator username</label>'
         f'<input name="username" value="{esc(request.form.get("username","")) if request.method=="POST" else ""}" autofocus required>'
         '<label>Password</label>'
-        '<input type="password" name="password" required>'
+        '<div class="pwwrap"><input type="password" name="password" id="pw" required>'
+        '<span class="pwtoggle" data-for="pw">show</span></div>'
         '<div class="hint">At least 8 characters. Stored as a salted hash — never in plain text.</div>'
+        '<div id="pwmsg" class="pwmsg"></div>'
         '<label>Repeat password</label>'
-        '<input type="password" name="password2" required>'
+        '<div class="pwwrap"><input type="password" name="password2" id="pw2" required>'
+        '<span class="pwtoggle" data-for="pw2">show</span></div>'
         '<div class="chk"><input type="checkbox" name="makecert" id="mc" checked>'
         '<label for="mc" style="margin:0;color:var(--ink)">Create an HTTPS certificate now '
         '(self-signed — your browser will ask you to trust it once). Uncheck if your IT '

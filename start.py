@@ -13,13 +13,14 @@ def ensure_deps():
         import flask, openpyxl, cryptography  # noqa
         return
     except ImportError:
-        print("Installing required packages (first run only)...")
+        print("First run: installing the bits Fleet Fuel needs (about a minute)...")
         for extra in ([], ["--break-system-packages"], ["--user"]):
             r = subprocess.run([sys.executable, "-m", "pip", "install", "-q",
                                 "-r", "requirements.txt", *extra], capture_output=True)
             if r.returncode == 0:
-                print("  packages installed."); return
-        print("  Could not auto-install. Run:  pip install -r requirements.txt")
+                print("  done — everything is installed."); return
+        print("  Couldn't install automatically. Open a terminal here and run:\n"
+              "      pip install -r requirements.txt\n  then start again.")
 
 def open_browser(url):
     time.sleep(2.0)
@@ -31,9 +32,10 @@ if __name__ == "__main__":
     import tls
     scheme = "https" if tls.resolve() else "http"
     url = f"{scheme}://localhost:8050"
-    print(f"\n  Fleet Fuel system starting...")
-    print(f"  Open your browser to:  {url}")
-    print(f"  (the browser should open automatically; press Ctrl+C here to stop)\n")
+    print(f"\n  Fleet Fuel is starting...")
+    print(f"  Your browser should open automatically at:  {url}")
+    print(f"  First time? You'll see a short setup page to create your admin login.")
+    print(f"  (leave this window open while you work; press Ctrl+C here to stop)\n")
     threading.Thread(target=open_browser, args=(url,), daemon=True).start()
     from app import app
     ctx, _ = tls.build_context()

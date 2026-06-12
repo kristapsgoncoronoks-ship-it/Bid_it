@@ -6,6 +6,51 @@ for security policy see [SECURITY.md](../SECURITY.md); for architecture see
 
 ---
 
+## 0. Starting the app
+
+**Which case are you?**
+
+### A. On your own computer (one person)
+
+1. **Start it** — double-click the launcher in the program folder:
+   `start.bat` (Windows) · `start.command` (macOS) · `start.sh` (Linux).
+   The first run installs what it needs (about a minute) and opens your browser
+   automatically. *(Only requirement: Python 3.10+ — if it's missing, the launcher
+   tells you where to get it. Full steps in [INSTALL.md](INSTALL.md).)*
+2. **First time only** — a **setup page** appears: choose an admin username and
+   password, leave the HTTPS box ticked, click **Create account & finish**.
+3. **Open it any time** at **`http://localhost:8050`** (or `https://…` once a
+   certificate is in place). Sign in with the account you created.
+4. **Stop it** — close the small console window the launcher opened, or press
+   **`Ctrl+C`** in it. Your data stays on disk; start again whenever you like.
+
+> The console window must stay open while you use the app — it *is* the running
+> program. Closing it shuts the app down cleanly (nothing is lost).
+
+### B. On a shared server (a team)
+
+On a server the app runs continuously as a background **service**, so nobody has to
+keep a window open. IT sets this up once (full walkthrough — Ubuntu and Windows, TLS,
+reverse proxy, automatic backups — in [INSTALL.md](INSTALL.md)). Day-to-day you just
+open the company address in a browser, e.g. **`https://fuel.yourcompany.local`**, and
+sign in.
+
+To start / stop / restart the service (Linux, run by IT):
+
+```bash
+sudo systemctl start fleetfuel       # start
+sudo systemctl stop fleetfuel        # stop
+sudo systemctl restart fleetfuel     # restart (e.g. after a config change)
+sudo systemctl status fleetfuel      # is it running?
+journalctl -u fleetfuel -n 50        # recent log lines
+```
+
+The service auto-starts on boot and restarts itself if it ever crashes; backups run on
+a nightly schedule. Adding colleagues is done in the web **Admin** panel (create them
+as **processor**), not on the server.
+
+---
+
 ## 1. Signing in & roles
 
 Open `https://<server>:8050` (or your company URL) and sign in. Your role is shown

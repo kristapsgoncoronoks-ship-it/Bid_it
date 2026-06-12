@@ -26,27 +26,49 @@ several worker processes behind a proxy for a team, with no change of code.
 
 ---
 
-## Quick start
+## Get started in 3 steps
 
-**One‑click (no terminal).** Double‑click the launcher for your OS — it installs
-dependencies, starts the server, and opens the browser to a first‑run wizard that
-creates the admin account:
+No terminal, no config files — just double‑click and follow the screen.
 
-- Windows: `start.bat`  ·  macOS: `start.command`  ·  Linux: `start.sh`
+1. **Install Python once** (only if you don't have it). Get it free from
+   [python.org/downloads](https://www.python.org/downloads/). On Windows, tick
+   **“Add Python to PATH”** during install.
+2. **Double‑click the launcher for your computer:**
 
-**From a terminal:**
+   | Windows | macOS | Linux |
+   |---------|-------|-------|
+   | `start.bat` | `start.command` | `start.sh` |
+
+   The first run installs everything it needs (about a minute) and opens your browser
+   automatically.
+3. **Follow the welcome page.** It asks you to pick an admin username and password —
+   that's the whole setup. A green “You're all set” screen sends you to sign in.
+
+That's it. Leave the small console window open while you work; close it (or press
+`Ctrl+C`) to stop the app.
+
+> **If your computer blocks the launcher** (some macOS/Windows security prompts), right‑click
+> it → **Open** once, or run `python start.py` from a terminal in this folder. Same result.
+
+<details>
+<summary><b>Prefer the command line?</b></summary>
 
 ```bash
-pip install -r requirements.txt          # flask, openpyxl, waitress (+ requests for live pulls)
+pip install -r requirements.txt          # flask, openpyxl, waitress, cryptography, pypdf (+ requests)
+python start.py                          # installs deps if needed, opens the browser, runs setup
+# or run the pieces directly:
 python app.py                            # dev server  → http://localhost:8050
-# or, production:
-python serve.py                          # waitress (Windows + Linux), HTTPS if a cert is present
+python serve.py                          # production (waitress; Windows + Linux), HTTPS if a cert is present
 ```
 
-First launch shows the **setup wizard** (creates the admin user). After that, sign in
-and work from the web UI.
+A guided terminal installer is also available: `./install.sh` (Linux/macOS) or
+`install.bat` (Windows) — it checks Python, installs packages, makes a certificate,
+creates the admin account, and runs a self‑check. Add `--yes --user admin --password '…'`
+for unattended IT setup.
 
-> Full step‑by‑step server install (Ubuntu **and** Windows, TLS, systemd, nginx,
+</details>
+
+> Full step‑by‑step **server** install (Ubuntu **and** Windows, TLS, systemd, nginx,
 > backups, multi‑process) is in **[docs/INSTALL.md](docs/INSTALL.md)**.
 
 ---
@@ -105,7 +127,7 @@ fleet_fuel_system/
 ├── setup_wizard.py start.* install.*  # first-run wizard + one-click launchers
 ├── gunicorn_conf.py                   # multi-process worker config (Linux)
 ├── documents/                  # the document vault (local backend; git-ignored content)
-├── tests/                      # pytest suite (128+ tests)
+├── tests/                      # pytest suite (170+ tests)
 └── docs/                       # INSTALL · USER_MANUAL · ARCHITECTURE · FILE_INDEX · GIT_SETUP
 ```
 

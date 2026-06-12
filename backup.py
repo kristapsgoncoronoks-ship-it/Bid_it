@@ -80,11 +80,18 @@ def snapshot():
             a = _audit_csv(db)
             z.writestr(f"audit_export/{db}.audit.csv", a)
             manifest[f"audit_export/{db}.audit.csv"] = _sha(a)
+        # The document vault and data lake store files under a nested logical tree
+        # (<kind|customer>/.../file), so walk each EXTRA_DIR recursively — a flat glob
+        # would hit a subdirectory and abort the whole backup. Archive paths keep the
+        # relative tree so restore rebuilds the vault exactly.
         for d in EXTRA_DIRS:
-            for f in glob.glob(os.path.join(WORKDIR, d, "*")):
-                arc = f"{d}/{os.path.basename(f)}"
-                raw = open(f, "rb").read()
-                z.writestr(arc, raw); manifest[arc] = _sha(raw)
+            base = os.path.join(WORKDIR, d)
+            for root, _dirs, files in os.walk(base):
+                for fn in files:
+                    full = os.path.join(root, fn)
+                    arc = os.path.relpath(full, WORKDIR).replace(os.sep, "/")
+                    raw = open(full, "rb").read()
+                    z.writestr(arc, raw); manifest[arc] = _sha(raw)
         for f in glob.glob(os.path.join(WORKDIR, "*.py")) + \
                  glob.glob(os.path.join(WORKDIR, "*.xlsx")) + \
                  [os.path.join(WORKDIR, "README.md"), os.path.join(WORKDIR, "SECURITY.md")]:

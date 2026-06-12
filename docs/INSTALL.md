@@ -71,8 +71,10 @@ sudo chown -R fleetfuel:fleetfuel /opt/fleetfuel/app
 
 # 2.3 Python dependencies (in a virtual environment)
 sudo -u fleetfuel python3 -m venv /opt/fleetfuel/venv
-sudo -u fleetfuel /opt/fleetfuel/venv/bin/pip install \
-    flask openpyxl requests cryptography gunicorn
+sudo -u fleetfuel /opt/fleetfuel/venv/bin/pip install -r requirements.txt
+#    (installs flask, openpyxl, requests, cryptography, waitress, pypdf)
+#    For scale-out on Linux you can also add gunicorn (see Part 6b):
+#    sudo -u fleetfuel /opt/fleetfuel/venv/bin/pip install gunicorn
 
 # 2.4 Restrictive permissions on data files
 cd /opt/fleetfuel/app
@@ -106,18 +108,27 @@ sudo -u fleetfuel /opt/fleetfuel/venv/bin/python tls.py
 
 ## PART 4 — First run & users
 
+There is **no built-in default password**. The very first time the app is reached it
+shows a one-time **setup page** that creates *your* admin account — so nothing ships
+with a known login. Create the admin in whichever way suits the server:
+
 ```bash
-# 4.1 Change the default admin password IMMEDIATELY
 cd /opt/fleetfuel/app
-sudo -u fleetfuel /opt/fleetfuel/venv/bin/python auth.py add kristaps   # prompts
+
+# 4.1 Create the admin account. Two equivalent ways — pick one:
+#   (a) Browser: do a test start (4.2) and open https://127.0.0.1:8050 — the setup
+#       page lets you choose the admin username + password. Recommended.
+#   (b) Headless: create it from the terminal before starting the service:
+sudo -u fleetfuel /opt/fleetfuel/venv/bin/python auth.py add kristaps   # prompts for password
 sudo -u fleetfuel /opt/fleetfuel/venv/bin/python -c \
     "import auth; auth.set_role('kristaps','admin')"
 
-# 4.2 Test start (foreground)
+# 4.2 Test start (foreground). app.py terminates TLS itself, so this proves the
+#     certificate end-to-end before you wrap it in the service/proxy:
 sudo -u fleetfuel /opt/fleetfuel/venv/bin/python app.py
 #    -> " * TLS enabled -> https://127.0.0.1:8050"  + certificate details
 #    From the server: curl -k https://127.0.0.1:8050/login   (expect HTTP 200)
-#    Stop with Ctrl+C.
+#    Stop with Ctrl+C, then continue to Part 5 to run it permanently (serve.py).
 
 # 4.3 Create colleagues later in the web Admin panel (role 'processor'; an admin can
 #     narrow a processor's capabilities there).

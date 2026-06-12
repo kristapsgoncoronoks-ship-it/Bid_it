@@ -33,6 +33,34 @@ def test_due_respects_age(bk):
     assert bk.due(24) is True          # older than 24h
 
 
+# ------------------------------------------------ nested vault/lake in a snapshot
+def test_snapshot_includes_nested_documents(tmp_path, monkeypatch):
+    """The document vault & data lake store files under a nested tree
+    (<kind>/<supplier>/<period>/<file>). The snapshot must recurse into them — a flat
+    glob used to hit a subdirectory and abort the whole backup."""
+    import backup
+    importlib.reload(backup)
+    work = tmp_path / "app"; (work).mkdir()
+    monkeypatch.setattr(backup, "WORKDIR", str(work))
+    monkeypatch.setattr(backup, "BACKUPDIR", str(tmp_path / "backups"))
+    monkeypatch.setattr(backup, "DATA", [])          # no DBs in this isolated tree
+    monkeypatch.setattr(backup, "EXTRA_DIRS", ["data_lake", "documents"])
+    os.makedirs(backup.BACKUPDIR, exist_ok=True)
+    nested = work / "data_lake" / "ai_extract" / "BP" / "2026-05"
+    nested.mkdir(parents=True)
+    (nested / "abc123_invoice.json").write_bytes(b'{"net":1000}')
+    (work / "documents").mkdir()                     # empty dir must not break it
+
+    path, n = backup.snapshot()
+    assert n >= 1
+    assert backup.verify(path) == []                 # all hashes match
+    out = backup.restore(path, str(tmp_path / "out"))
+    restored = os.path.join(out, "data_lake", "ai_extract", "BP", "2026-05",
+                            "abc123_invoice.json")
+    assert os.path.exists(restored)                  # nested tree rebuilt intact
+    assert open(restored, "rb").read() == b'{"net":1000}'
+
+
 # ---------------------------------------------------------------- settings
 def test_settings_roundtrip(tmp_path, monkeypatch):
     import auth
