@@ -114,9 +114,12 @@ a discount line's value, or — when the separate rebate invoice isn't present �
 **expected** rebate estimated from historic data, so known discounting is never lost.
 
 **Import batch** — upload a supplier's PDF, a ZIP, or a structured **XML e‑invoice**
-(UBL/CII, EN 16931 — these parse deterministically at high confidence, no AI). Two ways
-to process: **Extract draft now** (process immediately and review), or **Queue for
-later** which parks the file in the **Waiting room** for background processing (see §3b).
+(UBL/CII, EN 16931 — these parse deterministically at high confidence, no AI). Every
+upload box is also a **drag‑and‑drop zone**: drag a file from your file manager straight
+onto it, or click to browse. The box turns green and shows the file name once it's
+attached. Two ways to process: **Extract draft now** (process immediately and review),
+or **Queue for later** which parks the file in the **Waiting room** for background
+processing (see §3b).
 On confirm, it registers the statement + vaults the source (see §3a). When an AI
 backend processes an invoice, its structured output is also archived in a **data lake**
 (separate from the PDF) so it can be reused without re-calling the API. Your VAT‑refund

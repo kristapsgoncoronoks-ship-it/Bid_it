@@ -170,6 +170,60 @@ APP_JS = r"""/* progressive enhancement: sort + filter + horizontal scroll + key
     if(p) p.addEventListener('input',check);
     if(p2) p2.addEventListener('input',check);
   })();
+
+  // Drag-and-drop for file uploads. Every <input type=file> is wrapped in a friendly
+  // drop zone: click to browse, or drag a file onto it. Progressive enhancement — the
+  // plain input still works if this never runs. Dropped files are placed back on the
+  // input via a DataTransfer, so the existing multipart form POST is unchanged.
+  function bytes(n){
+    if(n<1024) return n+' B';
+    if(n<1048576) return (n/1024).toFixed(0)+' KB';
+    return (n/1048576).toFixed(1)+' MB';
+  }
+  document.querySelectorAll('input[type=file]').forEach(function(inp){
+    if(inp.dataset.dz) return; inp.dataset.dz='1';
+    var multi=inp.multiple, accept=(inp.getAttribute('accept')||'').trim();
+    var inLabel=!!(inp.closest&&inp.closest('label'));
+    var zone=document.createElement('div'); zone.className='dropzone';
+    var icon=document.createElement('div'); icon.className='dzicon'; icon.textContent='↑';
+    var main=document.createElement('div');
+    main.innerHTML='<b class="dzlink">Choose a file</b> or drag it here';
+    var name=document.createElement('div'); name.className='dzname';
+    zone.appendChild(icon); zone.appendChild(main);
+    if(accept){ var h=document.createElement('div'); h.className='dzhint';
+                h.textContent='Accepts '+accept; zone.appendChild(h); }
+    zone.appendChild(name);
+    inp.parentNode.insertBefore(zone, inp); zone.appendChild(inp);  // input kept (hidden) for submit
+    function show(){
+      var fs=inp.files;
+      if(fs&&fs.length){
+        name.textContent=fs.length>1 ? (fs.length+' files selected')
+                                      : (fs[0].name+'  ('+bytes(fs[0].size)+')');
+        zone.classList.add('has');
+      } else { name.textContent=''; zone.classList.remove('has'); }
+    }
+    // If the input sits inside a <label>, a native click already opens the dialog —
+    // don't add our own (it would open it twice). Otherwise make the zone clickable.
+    if(!inLabel) zone.addEventListener('click',function(e){ if(e.target!==inp) inp.click(); });
+    inp.addEventListener('change',show);
+    ['dragenter','dragover'].forEach(function(ev){
+      zone.addEventListener(ev,function(e){e.preventDefault();e.stopPropagation();zone.classList.add('drag');});
+    });
+    ['dragleave','dragend'].forEach(function(ev){
+      zone.addEventListener(ev,function(e){e.preventDefault();e.stopPropagation();zone.classList.remove('drag');});
+    });
+    zone.addEventListener('drop',function(e){
+      e.preventDefault(); e.stopPropagation(); zone.classList.remove('drag');
+      var dropped=e.dataTransfer&&e.dataTransfer.files; if(!dropped||!dropped.length) return;
+      try{
+        var dt=new DataTransfer(), lim=multi?dropped.length:1;
+        for(var i=0;i<lim;i++) dt.items.add(dropped[i]);
+        inp.files=dt.files;
+        inp.dispatchEvent(new Event('change',{bubbles:true}));
+      }catch(err){ /* very old browser without DataTransfer: keep click-to-pick */ }
+      show();
+    });
+  });
 })();
 """
 
@@ -646,6 +700,17 @@ select,input{padding:6px 8px;border:1px solid var(--line);border-radius:6px;font
 button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 16px;cursor:pointer}
 .note{color:var(--mut);font-size:12px;margin-top:8px}
 .exp a{margin-right:14px}
+.dropzone{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+ border:1.5px dashed var(--line);border-radius:8px;padding:13px 16px;background:#fafbfc;cursor:pointer;
+ color:var(--mut);font-size:12.5px;text-align:center;transition:border-color .12s,background .12s}
+.dropzone:hover{border-color:var(--acc)}
+.dropzone.drag{border-color:var(--acc);background:#eef5fc;color:var(--acc)}
+.dropzone .dzicon{font-size:19px;line-height:1}
+.dropzone .dzname{color:var(--ink);font-weight:600;word-break:break-all}
+.dropzone .dzhint{font-size:11.5px}
+.dropzone .dzlink{color:var(--acc)}
+.dropzone.has{border-style:solid;border-color:var(--ok);background:#f2faf5}
+.dropzone input[type=file]{position:absolute;width:1px;height:1px;opacity:0;clip:rect(0 0 0 0)}
 </style></head><body>
 <header><b>⛽ Fleet Fuel</b>
 <a href="/" class="{{'on' if page=='dash'}}">Dashboard</a>
