@@ -351,3 +351,62 @@ def test_login_required_redirect():
     r = c.get("/")
     assert r.status_code == 302
     assert "/login" in r.headers.get("Location", "")
+
+
+def test_vat_advance_and_withdraw_routes(client, monkeypatch):
+    """The /vat POST wires the status dropdown (with note/deadline) to set_status_code
+    and the withdraw button to withdraw_claim."""
+    import vat_refund as VR
+    calls = {}
+    monkeypatch.setattr(VR, "set_status_code",
+                        lambda con, e, c, p, code, note=None, deadline=None:
+                        calls.update(adv=(e, c, p, code, note, deadline)) or (True, "status → 2 Submitted"))
+    monkeypatch.setattr(VR, "withdraw_claim",
+                        lambda con, e, c, p: calls.update(wd=(e, c, p)) or (True, "status -> withdrawn"))
+    import re
+    tok = re.search(r'name="_csrf" value="([^"]+)"',
+                    client.get("/vat").get_data(as_text=True)).group(1)
+    r = client.post("/vat", data={"_csrf": tok, "entity": "Acme", "country": "DE",
+                                  "ref_period": "2026-Q1", "status": "2",
+                                  "note": "filed via portal", "deadline": ""})
+    assert "status → 2 Submitted" in r.get_data(as_text=True)
+    assert calls["adv"] == ("Acme", "DE", "2026-Q1", "2", "filed via portal", None)
+    r = client.post("/vat", data={"_csrf": tok, "__act": "withdraw", "entity": "Acme",
+                                  "country": "DE", "ref_period": "2026-Q1", "status": ""})
+    assert "withdrawn" in r.get_data(as_text=True) and calls["wd"] == ("Acme", "DE", "2026-Q1")
+
+
+def test_customers_template_upload_generate_and_unfilled_warning(client, monkeypatch, tmp_path):
+    """Template upload -> generate fills customer data; unfilled fields warn on screen
+    first and 'force' downloads anyway."""
+    import io, re
+    import customer_master as CD
+    monkeypatch.setattr(CD, "DB", str(tmp_path / "c.db"))
+    monkeypatch.setattr(CD, "_SCHEMA_READY", set())
+    monkeypatch.setattr(CD, "DOCDIR", str(tmp_path / "docs"))
+    CD.add_customer("ACME", "Acme SIA", "LV", reg_number="LV123")
+
+    def tok():
+        return re.search(r'name="_csrf" value="([^"]+)"',
+                         client.get("/customers").get_data(as_text=True)).group(1)
+
+    r = client.post("/customers", data={
+        "_csrf": tok(), "__act": "add_template", "tname": "Contract", "tkind": "signed_contract",
+        "file": (io.BytesIO(b"Contract: {{company_name}} reg {{reg_number}} sign {{signer}}"),
+                 "contract.txt")}, content_type="multipart/form-data")
+    assert "uploaded" in r.get_data(as_text=True)
+    con = CD.connect(); tid = CD.list_templates(con)[0]["id"]; con.close()
+
+    # unfilled {{signer}} -> on-screen warning, no download
+    r = client.post("/customers", data={"_csrf": tok(), "__act": "gen_doc", "code": "ACME",
+                                        "tid": str(tid), "gen_country": "", "file_as": ""})
+    body = r.get_data(as_text=True)
+    assert "field(s) have no data" in body and "signer" in body and "Download anyway" in body
+
+    # force -> the file downloads, customer data filled
+    r = client.post("/customers", data={"_csrf": tok(), "__act": "gen_doc", "code": "ACME",
+                                        "tid": str(tid), "gen_country": "", "file_as": "",
+                                        "force": "1"})
+    assert r.headers.get("Content-Disposition", "").startswith("attachment")
+    out = r.get_data(as_text=True)
+    assert "Acme SIA" in out and "LV123" in out and "{{signer}}" in out

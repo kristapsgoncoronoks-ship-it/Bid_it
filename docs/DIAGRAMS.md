@@ -117,21 +117,65 @@ flowchart LR
 
 ---
 
-## 4. VAT refund claim lifecycle
+## 4. VAT refund claim lifecycle (status codes 1A → 5)
 
-A claim per entity × country × period. Low-VAT quarters merge dynamically into the
-annual claim; submission locks the invoices (one invoice, one submission).
+A claim per entity × country × period. **1A–1E are system-controlled** — derived from
+the adjustable checklist (contract, customer data, bank account, NACE, trade register,
+power of attorney + invoices processed, documents attached, period ended). The rest
+are advanced manually. Submission locks the invoices (one invoice, one submission);
+rejection / appeal / confiscation **keep** the locks — only an explicit withdraw
+releases them.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Draft
-    Draft --> Ready: every invoice has<br/>its vault document
-    Draft --> Annual: low-VAT quarter merges
-    Annual --> Ready
-    Ready --> Submitted: filed via portal (locks invoices)
-    Submitted --> Paid: refund received
-    Paid --> Fee: service fee invoiced & settled
-    Fee --> [*]
+    state "SYSTEM-CONTROLLED (checklist)" as auto {
+        s1A: 1A missing documents
+        s1B: 1B docs received — period not ended
+        s1C: 1C can be submitted
+        s1E: 1E ready to submit
+        s1A --> s1B: checklist complete
+        s1B --> s1E: period ends
+        s1B --> s1C: caveat (e.g. defers to annual)
+        s1C --> s1E
+    }
+    s2: 2 submitted (locks invoices)
+    s2A: 2A successfully submitted
+    s2B: 2B document request (deadline)
+    s3: 3 decision received
+    s3A: 3A money received (fee chargeable)
+    s3B: 3B rejection (locks kept)
+    s3D: 3D under appeal (locks kept)
+    s3C: 3C confiscation (locks kept)
+    s4: 4 invoice fee / 4A invoice credit
+    s5: 5 closed
+
+    [*] --> auto
+    s1E --> s2: hard-gated on checklist + period end
+    s2 --> s2A
+    s2 --> s2B
+    s2A --> s3
+    s2B --> s3
+    s3 --> s3A
+    s3 --> s3B
+    s3B --> s3D: appeal
+    s3D --> s3A: appeal won
+    s3 --> s3C
+    s3A --> s4: by payout route
+    s3C --> s4
+    s4 --> s5
+    s5 --> [*]
+```
+
+The checklist itself is **adjustable** (Customers page) and **system-verified**:
+
+```mermaid
+flowchart LR
+    RULES["checklist_rules (admin-editable)<br/>contract · customer data · bank ·<br/>NACE · trade register · POA"] --> EVAL["evaluate_checklist()<br/>documents present & not expired<br/>+ data fields verified"]
+    CLAIM["+ claim-level checks<br/>invoices processed · docs attached ·<br/>period ended"] --> EVAL
+    EVAL --> STAGE{"derive_stage()"}
+    STAGE -->|"items missing"| A1["1A"]
+    STAGE -->|"complete, period open"| B1["1B"]
+    STAGE -->|"complete + ended"| E1["1C / 1E"]
 ```
 
 ---

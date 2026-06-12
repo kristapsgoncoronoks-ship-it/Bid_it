@@ -14,6 +14,7 @@ CLI:
 import os, sqlite3, hashlib, secrets, sys, time
 import audit
 import db_tuning
+import db_migrate
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 DB = f"{WORKDIR}/security.db"
@@ -74,12 +75,12 @@ def connect():
         CREATE TABLE IF NOT EXISTS app_settings (
             key TEXT PRIMARY KEY, value TEXT);
         """)
-        try: con.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'editor'")
-        except sqlite3.OperationalError: pass  # column already exists (safe)
-        # Per-user scrypt cost; existing hashes default to the legacy n so they keep
-        # verifying with their original parameters.
-        try: con.execute(f"ALTER TABLE users ADD COLUMN kdf_n INTEGER DEFAULT {LEGACY_N}")
-        except sqlite3.OperationalError: pass  # column already exists (safe)
+        # versioned migrations: run once per database (db_migrate). Append only.
+        # (kdf_n: per-user scrypt cost; existing hashes keep their legacy parameters.)
+        db_migrate.apply(con, "auth", [
+            "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'editor'",
+            f"ALTER TABLE users ADD COLUMN kdf_n INTEGER DEFAULT {LEGACY_N}",
+        ])
         _seed_permissions(con)
         audit.install_audit(con, ["users", "role_permissions"])  # both change-logged
         con.commit()

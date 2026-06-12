@@ -1,4 +1,5 @@
 import sqlite3
+import db_migrate
 """
 AUDIT LAYER - automatic change history for ALL databases.
 
@@ -98,8 +99,7 @@ def install_audit(con, tables):
     if path != ":memory:" and key in _AUDIT_INSTALLED:
         return
     con.executescript(LOG_DDL)
-    try: con.execute("ALTER TABLE audit_log ADD COLUMN changed_by TEXT")
-    except sqlite3.OperationalError: pass  # column already exists (safe)
+    db_migrate.apply(con, "audit", ["ALTER TABLE audit_log ADD COLUMN changed_by TEXT"])
     for t in tables:
         cols, pk = _cols_pk(con, t)
         oldj, newj = _jobj("OLD", cols), _jobj("NEW", cols)

@@ -17,12 +17,13 @@ several worker processes behind a proxy for a team, with no change of code.
 | **Intake** | Upload PDF/ZIP/XML invoice batches; deterministic PDF parser (offline), **UBL/CII e‑invoice parsing** (EN 16931, 100% confidence), or AI extraction (Claude/OpenAI/Azure). A durable **“waiting room” queue** parks uploads and processes them in the background so bursts never overload the server. |
 | **Master data** | Separate SQLite databases — our entities (`customers.db`), suppliers (`suppliers.db`), transactions (`fuel_history.db`), and the **VAT‑refund claim records isolated in their own `vat_claims.db`** so the monthly rebuild can't corrupt them. AI‑processed extraction output is archived in a **data lake** (same storage backends as the PDF vault). |
 | **Engine** | Consolidate → validate (tie‑out to invoice totals) → build monthly master workbook → load history/trend. |
-| **VAT refunds** | Claims per **entity × country × period** (Q1–Q4 or annual), 400/50 EUR thresholds, submission‑readiness, one‑invoice‑one‑submission locks, claim packs. Low‑VAT quarters **merge dynamically** into the annual claim. |
+| **VAT refunds** *(admin‑only module)* | Claims per **entity × country × period** (Q1–Q4 or annual), 400/50 EUR thresholds, one‑invoice‑one‑submission locks, claim packs. A **controlled status workflow 1A→5**: the pre‑submission stages (1A missing docs · 1B period not ended · 1C/1E ready) are **derived by the system from an adjustable checklist** (contract, customer data, bank account, NACE, trade register, power of attorney) with a **hard period‑end gate**; then 2 submitted → 2B document request → 3 decision → 3A money → 3B rejection / 3D appeal / 3C confiscation (locks kept) → 4/4A invoice fee/credit → 5 closed. Low‑VAT quarters **merge dynamically** into the annual claim. |
+| **Customer CRM** | The Customers page is a mini‑CRM: onboarding + per‑country activation, the adjustable checklist rules, **document generation from your own templates** ({{placeholders}} filled with customer data; .txt/.html/.md/.docx, optional PDF), document **validity dates** (expired POA re‑blocks claims), fee terms & payout routing. |
 | **Service fees** | % of refunded VAT floored at a per‑declaration minimum; per‑customer/per‑country overrides; rate frozen at submission, charged at payout; fee invoice + settlement. |
 | **Price intelligence** | Competitor NET‑price tracking and margin analysis, a **self‑sourced benchmark** from your own multi‑supplier purchases (best price achieved + avoidable overpay), and a **dynamic client‑portal scraper** (encrypted credentials). |
 | **Compliance** | Receipt control (cadence × activity), statement reconciliation with VAT triage, a **contract‑compliance auditor** (catches short discounts / over‑ceiling prices to claw back), **document mining** (auto‑fills INPUT gaps from the vault), anomaly scan, full audit trail. |
 | **Document vault** | Originals stored under a logical, human‑navigable tree — `Customer (reg no) / Year / Country / Claim period / file` — identical across **local / SharePoint / FTP(S)** backends; SHA‑256 dedup + integrity verification. |
-| **Platform** | Roles (admin/processor), login lockout & IP throttle, CSP/security headers, scheduled backups with integrity checks, TLS, multi‑process scalability. |
+| **Platform** | Roles (admin/processor; the VAT module is admin‑only), **admin on/off switches for whole app parts**, login lockout & IP throttle, CSP/security headers, scheduled backups with integrity checks, TLS, multi‑process scalability, versioned schema migrations + a logging layer. |
 
 ---
 
@@ -89,12 +90,15 @@ for unattended IT setup.
 
 ## Roles
 
-- **admin** — everything, including server setup, user administration, and editing
-  processor capabilities.
-- **processor** — day‑to‑day work (import, claims, documents, exports). Capabilities
-  are configurable by an admin; a processor can never do server/user administration.
+- **admin** — everything, including the **VAT‑refund module** (claims, readiness,
+  recovery & fees, customer CRM), server setup, user administration, editing
+  processor capabilities, and **switching whole app parts on/off** (Admin → Modules).
+- **processor** — day‑to‑day work (import, compliance, analytics, documents, exports).
+  Capabilities are configurable by an admin; a processor can never see the VAT‑refund
+  module or do server/user administration.
 
-Authorization is enforced centrally per endpoint (`auth.has_perm` / `PERM_BY_ENDPOINT`).
+Authorization is enforced centrally per endpoint (`auth.has_perm` / `PERM_BY_ENDPOINT`,
+plus the `ADMIN_ONLY` set and the module on/off switches).
 
 ---
 
@@ -110,6 +114,7 @@ fleet_fuel_system/
 ├── app.py serve.py            # web app (≈25 pages + JSON API + Excel) and prod launcher
 ├── auth.py audit.py           # users/roles/login + trigger-based change history
 ├── db.py db_tuning.py process_lock.py  # DB abstraction, WAL/busy-timeout tuning, cross-process lock
+├── db_migrate.py applog.py    # versioned schema migrations (run once per DB) + logging layer
 ├── backup.py tls.py make_cert.py  # snapshots+integrity, TLS context, self-signed certs
 │
 ├── ingest.py extract.py       # source adapters (xlsx/csv/xml/api); PDF/ZIP → draft
@@ -128,7 +133,7 @@ fleet_fuel_system/
 ├── setup_wizard.py start.* install.*  # first-run wizard + one-click launchers
 ├── gunicorn_conf.py                   # multi-process worker config (Linux)
 ├── documents/                  # the document vault (local backend; git-ignored content)
-├── tests/                      # pytest suite (170+ tests)
+├── tests/                      # pytest suite (190+ tests)
 └── docs/                       # INSTALL · USER_MANUAL · ARCHITECTURE · FILE_INDEX · GIT_SETUP
 ```
 

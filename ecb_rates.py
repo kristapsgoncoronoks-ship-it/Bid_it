@@ -56,15 +56,14 @@ DEFAULT_TIMEOUT = int(os.environ.get("ECB_TIMEOUT", "30"))
 
 
 def connect():
-    import db_tuning
+    import db_tuning, db_migrate
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
     db_tuning.tune(con)  # WAL + busy_timeout for safe multi-process access
     con.execute("""CREATE TABLE IF NOT EXISTS ecb_fx (
         date TEXT, currency TEXT, rate REAL, source TEXT,
         PRIMARY KEY (date, currency))""")
-    try: con.execute("ALTER TABLE ecb_fx ADD COLUMN source TEXT")
-    except sqlite3.OperationalError: pass  # column already exists (safe)
+    db_migrate.apply(con, "ecb_rates", ["ALTER TABLE ecb_fx ADD COLUMN source TEXT"])
     return con
 
 

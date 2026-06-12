@@ -44,6 +44,7 @@ locks.db
 
 # ── Runtime data & state (machine-specific) ────────────────────────
 backups/
+logs/
 .extract_tmp/
 inbox/
 review_queue/

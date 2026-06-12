@@ -17,7 +17,7 @@ API: get_customer(name_or_code) -> dict incl. payout account; portal(name)
 """
 import sqlite3, sys
 import audit
-import db_tuning
+import db_tuning, db_migrate
 
 import os
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
@@ -138,18 +138,22 @@ def connect():
     audit.bind(con)   # audit triggers call ffs_actor(); register it every connect
     if DB == ":memory:" or DB not in _SCHEMA_READY:
         con.executescript(SCHEMA)
-        # fee model: % of refunded VAT, floored at a per-declaration minimum (EUR)
-        for ddl in ("ALTER TABLE customers ADD COLUMN fee_pct REAL DEFAULT 0",
-                    "ALTER TABLE customers ADD COLUMN fee_min REAL DEFAULT 0",
-                    # where the refund is paid: 'customer' (we invoice the fee) or
-                    # 'us' (we receive it, deduct the fee, remit the net to the customer)
-                    "ALTER TABLE customers ADD COLUMN payout_route TEXT DEFAULT 'customer'",
-                    # documents can be scoped to a refund country (NULL = customer-level)
-                    "ALTER TABLE customer_documents ADD COLUMN country TEXT",
-                    # NACE business-activity code (checklist 'NACE' requirement)
-                    "ALTER TABLE customers ADD COLUMN nace_code TEXT"):
-            try: con.execute(ddl)
-            except sqlite3.OperationalError: pass  # column already exists (safe)
+        # versioned migrations: each runs ONCE per database (db_migrate). Append only.
+        db_migrate.apply(con, "customer_master", [
+            # fee model: % of refunded VAT, floored at a per-declaration minimum (EUR)
+            "ALTER TABLE customers ADD COLUMN fee_pct REAL DEFAULT 0",
+            "ALTER TABLE customers ADD COLUMN fee_min REAL DEFAULT 0",
+            # where the refund is paid: 'customer' (we invoice the fee) or
+            # 'us' (we receive it, deduct the fee, remit the net to the customer)
+            "ALTER TABLE customers ADD COLUMN payout_route TEXT DEFAULT 'customer'",
+            # documents can be scoped to a refund country (NULL = customer-level)
+            "ALTER TABLE customer_documents ADD COLUMN country TEXT",
+            # NACE business-activity code (checklist 'NACE' requirement)
+            "ALTER TABLE customers ADD COLUMN nace_code TEXT",
+            # documents can expire (power of attorney, VAT certificate) — an
+            # expired document no longer satisfies the checklist
+            "ALTER TABLE customer_documents ADD COLUMN valid_until TEXT",
+        ])
         # seed the adjustable submission checklist once (empty table -> defaults)
         if not con.execute("SELECT 1 FROM checklist_rules LIMIT 1").fetchone():
             con.executemany("""INSERT OR IGNORE INTO checklist_rules
@@ -186,9 +190,11 @@ def add_customer(code, company_name, country="", reg_number="", vat_number="",
          home_portal or "INPUT: home portal", None, None, notes))
     con.commit(); con.close()
 
-def add_document(con, code, kind, filename, file_bytes, country=None):
+def add_document(con, code, kind, filename, file_bytes, country=None, valid_until=None):
     """Vault a customer document (hash-verified). country=None for customer-level
-    docs (trade registry, contract); a country for country-specific docs (POA)."""
+    docs (trade registry, contract); a country for country-specific docs (POA).
+    `valid_until` (ISO date, optional) marks when the document expires — an expired
+    document stops satisfying the checklist."""
     import hashlib
     import document_vault
     sha = hashlib.sha256(file_bytes).hexdigest()
@@ -202,9 +208,10 @@ def add_document(con, code, kind, filename, file_bytes, country=None):
     be = document_vault.backend(DOCDIR)
     stored, web_url = be.put(safe, file_bytes)
     con.execute("""INSERT INTO customer_documents
-        (customer, kind, filename, stored_path, sha256, size, backend, web_url, country)
-        VALUES (?,?,?,?,?,?,?,?,?)""",
-        (code, kind, filename, stored, sha, len(file_bytes), be.name, web_url, country))
+        (customer, kind, filename, stored_path, sha256, size, backend, web_url, country, valid_until)
+        VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (code, kind, filename, stored, sha, len(file_bytes), be.name, web_url, country,
+         valid_until or None))
     con.commit()
     return sha
 
@@ -216,11 +223,26 @@ def documents(con, code, country=None):
                        (code, country)).fetchall()
 
 def _has_doc(con, code, kind, country=None):
+    """A document of `kind` is on file AND still valid — a document past its
+    `valid_until` (e.g. an expired power of attorney) no longer satisfies the
+    checklist, exactly like a missing one."""
+    valid = "(valid_until IS NULL OR valid_until='' OR valid_until >= date('now'))"
     if country is None:
-        return con.execute("SELECT 1 FROM customer_documents WHERE customer=? AND kind=? AND "
-                           "(country IS NULL OR country='') LIMIT 1", (code, kind)).fetchone() is not None
-    return con.execute("SELECT 1 FROM customer_documents WHERE customer=? AND kind=? AND country=? "
-                       "LIMIT 1", (code, kind, country)).fetchone() is not None
+        return con.execute(f"SELECT 1 FROM customer_documents WHERE customer=? AND kind=? AND "
+                           f"(country IS NULL OR country='') AND {valid} LIMIT 1",
+                           (code, kind)).fetchone() is not None
+    return con.execute(f"SELECT 1 FROM customer_documents WHERE customer=? AND kind=? AND country=? "
+                       f"AND {valid} LIMIT 1", (code, kind, country)).fetchone() is not None
+
+def expiring_documents(con, within_days=60):
+    """Documents that are expired or expiring within `within_days` — for alerts."""
+    return [dict(r) for r in con.execute(
+        """SELECT customer, kind, filename, country, valid_until,
+                  CAST(julianday(valid_until) - julianday('now') AS INTEGER) days_left
+           FROM customer_documents
+           WHERE valid_until IS NOT NULL AND valid_until != ''
+             AND julianday(valid_until) - julianday('now') <= ?
+           ORDER BY valid_until""", (within_days,))]
 
 def _bank_ok(con, code):
     return con.execute("""SELECT 1 FROM customer_bank_accounts
@@ -374,6 +396,44 @@ def fill_template(raw, ext, fields):
     leftover = sorted(set(_re.findall(r"\{\{(\w+)\}\}", probe)))
     return filled, ext, leftover
 
+def text_to_pdf(text, title="document"):
+    """Minimal, dependency-free text→PDF (A4, Helvetica 11pt, word-wrapped, paginated).
+    Good enough for a contract/POA draft; no images or rich styling."""
+    import textwrap
+    lines = []
+    for para in text.split("\n"):
+        lines.extend(textwrap.wrap(para, width=92) or [""])
+    per_page, leading, x, y0 = 54, 14, 50, 800
+    pages = [lines[i:i + per_page] for i in range(0, len(lines), per_page)] or [[""]]
+
+    def pdf_escape(s):
+        return s.replace("\\", r"\\").replace("(", r"\(").replace(")", r"\)")
+
+    objs = []                                   # object bodies, 1-indexed
+    page_ids = [4 + 2 * i for i in range(len(pages))]
+    kids = " ".join(f"{pid} 0 R" for pid in page_ids)
+    objs.append("<< /Type /Catalog /Pages 2 0 R >>")                       # 1
+    objs.append(f"<< /Type /Pages /Kids [{kids}] /Count {len(pages)} >>")  # 2
+    objs.append("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")  # 3
+    for i, pg in enumerate(pages):                                         # 4,6,8…
+        content = "BT /F1 11 Tf {} {} Td {} ET".format(
+            x, y0, f" 0 -{leading} Td ".join(f"({pdf_escape(l)}) Tj" for l in pg))
+        objs.append(f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
+                    f"/Resources << /Font << /F1 3 0 R >> >> /Contents {page_ids[i]+1} 0 R >>")
+        objs.append(f"<< /Length {len(content)} >>\nstream\n{content}\nendstream")
+    out, offsets = ["%PDF-1.4"], []
+    pos = len(out[0]) + 1
+    for n, body in enumerate(objs, 1):
+        obj = f"{n} 0 obj\n{body}\nendobj"
+        offsets.append(pos); pos += len(obj) + 1
+        out.append(obj)
+    xref_pos = pos
+    xref = ["xref", f"0 {len(objs)+1}", "0000000000 65535 f "]
+    xref += [f"{o:010d} 00000 n " for o in offsets]
+    out.append("\n".join(xref))
+    out.append(f"trailer\n<< /Size {len(objs)+1} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF")
+    return "\n".join(out).encode("latin-1", "replace")
+
 def add_template(con, name, kind, filename, body):
     ext = (filename.rsplit(".", 1)[-1] if "." in (filename or "") else "txt").lower()
     cur = con.execute("""INSERT INTO doc_templates (name, kind, ext, filename, body)
@@ -394,14 +454,20 @@ def delete_template(con, tid):
     con.execute("DELETE FROM doc_templates WHERE id=?", (tid,))
     con.commit()
 
-def generate_document(con, tid, code, country=None):
+def generate_document(con, tid, code, country=None, as_pdf=False):
     """Fill template `tid` with customer `code`'s data. Returns (bytes, out_filename, ext,
-    leftover_placeholders) or (None, …) if the template is missing."""
+    leftover_placeholders) or (None, …) if the template is missing. `as_pdf=True`
+    converts a text-based template (.txt/.md/.html) to a simple PDF; .docx stays .docx."""
     t = get_template(con, tid)
     if not t:
         return None, None, None, []
     fields = merge_fields(con, code, country)
     filled, ext, leftover = fill_template(t["body"], t["ext"], fields)
+    if as_pdf and ext != "docx":
+        text = filled.decode("utf-8", "replace")
+        if ext == "html":
+            text = _re.sub(r"<[^>]+>", "", text)        # strip tags for the PDF draft
+        filled, ext = text_to_pdf(text, t["name"] or "document"), "pdf"
     base = (t["name"] or "document").strip().replace(" ", "_")
     out_name = f"{base}_{code}" + (f"_{country}" if country else "") + f".{ext}"
     return filled, out_name, ext, leftover

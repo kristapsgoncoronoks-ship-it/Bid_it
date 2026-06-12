@@ -20,6 +20,7 @@ Logic:
 Usage:  python3 invoice_control.py [2026-05]
 """
 import sqlite3, sys, collections
+import db_migrate
 
 import os
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
@@ -195,8 +196,8 @@ def register_statement(supplier, statement_ref, period, statement_date, lines,
     """lines: iterable of (invoice_no, invoice_date, country, currency, net, vat)."""
     import supplier_master
     con = supplier_master.connect()
-    try: con.execute("ALTER TABLE supplier_statements ADD COLUMN customer TEXT")
-    except sqlite3.OperationalError: pass  # column already exists (safe)
+    db_migrate.apply(con, "invoice_control",
+                     ["ALTER TABLE supplier_statements ADD COLUMN customer TEXT"])
     if not customer:
         customer, _ = _statement_customer(con, supplier)
     con.execute("""INSERT OR REPLACE INTO supplier_statements

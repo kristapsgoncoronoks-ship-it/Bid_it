@@ -17,6 +17,7 @@ Helpers for other modules:
 import sqlite3, sys
 import audit
 import db_tuning
+import db_migrate
 
 import os
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
@@ -163,8 +164,9 @@ def connect():
     # process per DB (this connect() is called many times per request).
     if DB == ":memory:" or DB not in _SCHEMA_READY:
         con.executescript(SCHEMA)
-        try: con.execute("ALTER TABLE suppliers ADD COLUMN invoice_cadence TEXT DEFAULT 'monthly'")
-        except sqlite3.OperationalError: pass  # column already exists (safe)
+        db_migrate.apply(con, "supplier_master", [
+            "ALTER TABLE suppliers ADD COLUMN invoice_cadence TEXT DEFAULT 'monthly'",
+        ])
         # Structured contract terms for the compliance auditor: the rebate that SHOULD
         # be applied (EUR/L) and/or a NET price ceiling (EUR/L) for matching lines.
         con.execute("""CREATE TABLE IF NOT EXISTS supplier_discounts (

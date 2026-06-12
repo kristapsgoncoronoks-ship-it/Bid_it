@@ -940,21 +940,56 @@ def _worklist_card(year):
     blocked = [c for c in ov["to_submit"] if not c.get("ready")]
     for c in ready:
         items.append(("ok", f"Submit {esc(c['entity'])} · {esc(c['country'])} "
-                      f"{esc(c['period'])} — €{c['vat_eur']:,.0f} VAT ready", "/readiness"))
+                      f"{esc(c['period'])} — €{c['vat_eur']:,.0f} VAT ready (1E)", "/readiness"))
     for c in blocked:
         why = ", ".join(c.get("issues") or []) or "not ready"
-        items.append(("bad", f"Unblock {esc(c['entity'])} · {esc(c['country'])} "
+        sev = "bad" if c.get("code") != "1B" else ""     # 1B is just waiting for period end
+        items.append((sev, f"Unblock {esc(c['entity'])} · {esc(c['country'])} "
                       f"{esc(c['period'])} — {esc(why)}", "/readiness"))
+        # filing deadline approaching while the claim is still not submitted
+        dd = c.get("deadline_days")
+        if isinstance(dd, int) and dd <= 90:
+            items.append(("bad", f"Deadline {esc(c.get('deadline',''))} ({dd}d) for "
+                          f"{esc(c['entity'])} · {esc(c['country'])} {esc(c['period'])} — "
+                          "not submitted yet", "/readiness"))
+    # open document requests (2B) / appeals (3D) with their response deadlines
+    for c in ov.get("open", []):
+        if c.get("code") in ("2B", "3D") :
+            what = "document request" if c.get("code") == "2B" else "appeal"
+            dl = f" — respond by {esc(c['action_deadline'])}" if c.get("action_deadline") else ""
+            items.append(("bad", f"Answer {what} for {esc(c['entity'])} · {esc(c['country'])} "
+                          f"{esc(c['period'])}{dl}", "/vat"))
     for r in recs:
         if r["status"] in ("submitted", "approved") and isinstance(r["age_days"], int) \
            and r["age_days"] >= _AGING_DAYS:
             items.append(("bad", f"Chase {esc(r['entity'])} · {esc(r['country'])} "
                           f"{esc(r['period'])} — submitted {r['age_days']}d ago, unpaid",
                           "/recovery"))
+        # money received -> advance to 4 (invoice fee) / 4A (credit), then close
+        if r.get("status_code") == "3A" and r.get("next_code"):
+            items.append(("", f"Advance {esc(r['entity'])} · {esc(r['country'])} "
+                          f"{esc(r['period'])} — money received, → {esc(r['next_code'])} "
+                          f"{'invoice the fee' if r['next_code'] == '4' else 'credit the customer'}",
+                          "/recovery"))
         if r["fee_billed_date"] and (r["payout_to"] or "customer") == "customer" \
            and not r["fee_invoice_no"]:
             items.append(("", f"Invoice fee for {esc(r['entity'])} · {esc(r['country'])} "
                           f"{esc(r['period'])} — €{(r['fee_eur'] or 0):,.0f}", "/recovery"))
+    # customer documents (POA, certificates) that expired or expire soon — an expired
+    # document silently turns its claims back to 1A, so flag it early
+    try:
+        import customer_master as _cm
+        ccon = _cm.connect()
+        for d in _cm.expiring_documents(ccon, within_days=60)[:6]:
+            left = d.get("days_left")
+            when = ("EXPIRED" if isinstance(left, int) and left < 0
+                    else f"expires in {left}d" if isinstance(left, int) else "expiring")
+            where = f" ({d['country']})" if d.get("country") else ""
+            items.append(("bad", f"Renew {esc(d['kind'])} for {esc(d['customer'])}{esc(where)} "
+                          f"— {when} ({esc(d['valid_until'])})", "/customers"))
+        ccon.close()
+    except Exception as e:
+        _log_exc("worklist expiring docs", e)
     if not items:
         return ('<div class="card"><h2>What needs action</h2>'
                 '<p class="note">Nothing outstanding — all claims are submitted, '
@@ -2651,6 +2686,15 @@ def recovery():
         banner = (f'<div class="card"><b class="{"ok" if ok else "bad"}">'
                   + (f"Fee invoice {esc(res)} issued." if ok else f"Could not issue invoice: {esc(res)}")
                   + '</b></div>')
+    elif request.method == "POST" and request.form.get("__act") == "advance":
+        # advance the claim's workflow code (4 invoice fee / 4A credit / 5 closed, …)
+        con = VR.connect()
+        ok, res = VR.set_status_code(con, request.form.get("entity", ""),
+                                     request.form.get("country", ""),
+                                     request.form.get("period", ""),
+                                     request.form.get("to", ""))
+        con.close()
+        banner = f'<div class="card"><b class="{"ok" if ok else "bad"}">{esc(res)}</b></div>'
     rows, summ = VR.recovery_report(year)
     trs = []
     total_charged = total_net = total_recv = 0.0
@@ -2687,11 +2731,30 @@ def recovery():
                         + f'<a href="{link}">⬇ report</a>')
         else:
             inv_cell = f'<a href="{link}">⬇ report</a>'
+        # workflow cell: the claim's status code + suggested next step (after 3A the
+        # payout route decides: 4 invoice the fee / 4A credit; then 5 closed)
+        code = r.get("status_code") or {"submitted": "2", "approved": "3", "paid": "3A"}.get(r["status"], "")
+        nxt = r.get("next_code")
+        wf = f'<b>{esc(code)}</b> {esc(VR.STATUS_LABELS.get(code, ""))}'
+        bits = []
+        if r.get("decision_date"):
+            bits.append(f"decision {esc(r['decision_date'])}")
+        if r.get("action_deadline"):
+            bits.append(f'<b class="bad">deadline {esc(r["action_deadline"])}</b>')
+        if r.get("status_note"):
+            bits.append(esc(r["status_note"]))
+        if bits:
+            wf += f'<div class="note">{" · ".join(bits)}</div>'
+        if nxt:
+            wf += ('<form method="post" style="margin:2px 0 0">' + _csrf_input() + hid
+                   + f'<input type="hidden" name="to" value="{nxt}">'
+                   + f'<button name="__act" value="advance" style="font-size:11px;padding:3px 8px">'
+                     f'→ {nxt} {esc(VR.STATUS_LABELS[nxt])}</button></form>')
         trs.append([f"<td>{esc(r['entity'])}</td><td>{esc(r['country'])}</td><td>{esc(r['period'])}</td>",
                     f"<td class=r>{vat:,.2f}</td>",
                     f"<td class=r>{fee:,.2f}</td><td class='{'ok' if billed else 'note'}'>{esc(basis)} · {'charged' if billed else 'pending'}</td>",
                     f"<td class=note>{settle}</td>",
-                    f"<td>{esc(r['status'])}</td>",
+                    f"<td>{wf}</td>",
                     f"<td class='{agecls}'>{r['age_days'] if r['age_days']!='' else ''}</td>",
                     f"<td>{esc(r['paid'] or '')}</td><td>{inv_cell}</td>"])
     body = (banner + f'<form class="f" method="get"><label>Year<input name="year" value="{esc(year)}" style="width:80px"></label>'
@@ -2704,12 +2767,13 @@ def recovery():
             f'<div class="l">outstanding</div></div>'
             f'<div class="kpi"><div class="v ok">EUR {total_charged:,.0f}</div><div class="l">fees charged</div></div>'
             f'<div class="kpi"><div class="v">EUR {total_net:,.0f}</div><div class="l">net remitted to customers</div></div></div>'
-            + tbl(["Entity","Country","Period","VAT EUR","Our fee","Settlement","Status",
+            + tbl(["Entity","Country","Period","VAT EUR","Our fee","Settlement","Workflow (2→5)",
                    "Age (days)","Paid","Fee invoice / report"], trs)
             + '<div class="note">Fee rate is frozen at submission and <b>charged when the refund is '
               'paid</b>. Settlement depends on where the refund lands (set per customer): to the '
-              '<b>customer</b> → we issue a fee invoice; to <b>us</b> → we deduct the fee and remit '
-              'the net. Issue the fee invoice once paid; the report becomes the invoice. Age over 120 '
+              '<b>customer</b> → <b>4 invoice the fee</b>; to <b>us</b> → <b>4A credit</b> (deduct '
+              'the fee, remit the net). The workflow column suggests the next step — after the money '
+              'arrives (3A) advance to 4/4A, issue the fee invoice, then close (5). Age over 120 '
               'days flagged red.</div></div>')
     return page(body, "rec")
 
@@ -2724,19 +2788,30 @@ def readiness():
     nready = sum(1 for c in ts if c["ready"])
     trs1 = []
     for c in ts:
-        verdict = ('<span class="ok">READY ✓</span>' if c["ready"]
-                   else '<span class="bad">BLOCKED ✗</span>')
+        code = c.get("code", "")
+        verdict = (f'<span class="ok">{esc(code)} READY ✓</span>' if c["ready"]
+                   else f'<span class="bad">{esc(code)} {esc(c.get("code_label", "BLOCKED"))} ✗</span>')
+        dd = c.get("deadline_days")
+        dcls = "bad" if isinstance(dd, int) and dd <= 90 else "note"
+        dl = (f'<span class="{dcls}">{esc(c.get("deadline", ""))}'
+              + (f" ({dd}d)" if isinstance(dd, int) else "") + "</span>")
         trs1.append([f"<td>{esc(c['entity'])}</td><td>{esc(c['country'])}</td><td>{esc(c['period'])}</td>",
                      f"<td class=r>{(c['vat_eur'] or 0):,.2f}</td>",
-                     f"<td>{verdict}</td><td class='note'>{esc('; '.join(c['issues']))}</td>"])
+                     f"<td>{verdict}</td><td class='note'>{esc('; '.join(c['issues']))}</td>",
+                     f"<td>{dl}</td>"])
     trs2 = []
     open_vat = 0.0
     for c in op:
         open_vat += c["vat_eur"] or 0
         agecls = "bad" if isinstance(c["age_days"], int) and c["age_days"] > 120 else ""
+        st = f"<b>{esc(c.get('code', ''))}</b> {esc(c.get('code_label', c['status']))}"
+        if c.get("action_deadline"):
+            st += f' <span class="bad">deadline {esc(c["action_deadline"])}</span>'
+        if c.get("note"):
+            st += f' <span class="note">{esc(c["note"])}</span>'
         trs2.append([f"<td>{esc(c['entity'])}</td><td>{esc(c['country'])}</td><td>{esc(c['period'])}</td>",
                      f"<td class=r>{(c['vat_eur'] or 0):,.2f}</td>",
-                     f"<td>{esc(c['status'])}</td><td>{esc(c['submitted'] or '')}</td>",
+                     f"<td>{st}</td><td>{esc(c['submitted'] or '')}</td>",
                      f"<td class='{agecls}'>{c['age_days'] if c['age_days'] != '' else ''}</td>"])
     body = (f'<form class="f" method="get"><label>Year<input name="year" value="{esc(year)}" style="width:80px"></label>'
             f'<a href="/export/readiness?year={esc(year)}" style="align-self:end;padding:8px 12px;font-size:13px">⬇ Export (Excel)</a></form>'
@@ -2746,14 +2821,20 @@ def readiness():
             + f'<div class="kpi"><div class="v">{len(op)}</div><div class="l">open claims</div></div>'
             + f'<div class="kpi"><div class="v">EUR {open_vat:,.0f}</div><div class="l">open VAT</div></div></div>'
             + '<div class="card"><h2>Ready to submit — can we file this claim?</h2>'
-            + tbl(["Entity", "Country", "Period", "VAT EUR", "Submission", "Blocking reasons"], trs1)
-            + '<div class="note">READY = customer &amp; refund country activated, all invoice refs '
-              'resolved, all documents attached, no duplicate locks, and the quarterly threshold met. '
-              'Then submit on the VAT refunds page.</div></div>'
+            + tbl(["Entity", "Country", "Period", "VAT EUR", "Stage (1A→1E)", "Blocking reasons",
+                   "Filing deadline"], trs1)
+            + '<div class="note">A claim is <b>1E ready</b> when the system checklist passes — '
+              'submission checklist complete (contract, customer data, bank account, NACE, trade '
+              'register, power of attorney), all invoice refs resolved, all documents attached, '
+              'no duplicate locks, threshold met, and the <b>period has ended</b>. Then submit on '
+              'the VAT refunds page. Filing deadline (30 Sep of the following year) turns red '
+              'inside 90 days.</div></div>'
             + '<div class="card"><h2>Open claims — submitted, awaiting refund</h2>'
-            + tbl(["Entity", "Country", "Period", "VAT EUR", "Status", "Submitted", "Age (days)"], trs2)
-            + '<div class="note">Open = submitted/approved, not yet paid. Age over 120 days '
-              'flagged red — chase the tax authority.</div></div>')
+            + tbl(["Entity", "Country", "Period", "VAT EUR", "Workflow status", "Submitted",
+                   "Age (days)"], trs2)
+            + '<div class="note">Open = submitted/awaiting decision. A red deadline is an open '
+              'document request (2B) or appeal (3D). Age over 120 days flagged red — chase the '
+              'tax authority.</div></div>')
     return page(body, "rdy")
 
 @app.route("/export/readiness")
@@ -2817,11 +2898,32 @@ def _vat_status_cell(con, VR, m, cache):
     for c in VR.MANUAL_CODES:
         opts.append(f'<option value="{c}" {"selected" if c==cur_manual else ""}>'
                     f'{c} — {esc(VR.STATUS_LABELS[c])}</option>')
+    row = con.execute("""SELECT decision_date, status_note, action_deadline, payout_to
+                         FROM vat_applications WHERE entity=? AND refund_country=?
+                         AND ref_period=?""", (ent, ctry, period)).fetchone()
+    meta = ""
+    if row:
+        bits = []
+        if row["decision_date"]:
+            bits.append(f"decision {esc(row['decision_date'])}")
+        if row["action_deadline"]:
+            bits.append(f'<b class="bad">deadline {esc(row["action_deadline"])}</b>')
+        if row["status_note"]:
+            bits.append(f'note: {esc(row["status_note"])}')
+        if bits:
+            meta = f'<div class="note" style="margin:2px 0 0">{" · ".join(bits)}</div>'
+    nxt = VR.suggested_next(cur_manual, row["payout_to"] if row else None) if cur_manual else None
+    hint = (f'<div class="note" style="margin:2px 0 0">next: {nxt} — '
+            f'{esc(VR.STATUS_LABELS[nxt])}</div>' if nxt else "")
     frm = ('<form method="post" style="margin:4px 0 0">' + _csrf_input() +
            f'<input type="hidden" name="entity" value="{esc(ent)}">'
            f'<input type="hidden" name="country" value="{esc(ctry)}">'
            f'<input type="hidden" name="ref_period" value="{esc(period)}">'
-           f'<select name="status" onchange="this.form.submit()">{"".join(opts)}</select></form>')
+           f'<select name="status">{"".join(opts)}</select> '
+           '<input name="note" placeholder="note / reason" style="width:110px;font-size:12px"> '
+           '<input name="deadline" type="date" title="deadline (for 2B document request / 3D appeal)" '
+           'style="font-size:12px"> '
+           '<button style="font-size:12px;padding:4px 10px">Set</button></form>')
     wd = ""
     eng = con.execute("""SELECT status FROM vat_applications WHERE entity=? AND
                          refund_country=? AND ref_period=?""", (ent, ctry, period)).fetchone()
@@ -2832,7 +2934,7 @@ def _vat_status_cell(con, VR, m, cache):
               f'<input type="hidden" name="ref_period" value="{esc(period)}">'
               '<button name="__act" value="withdraw" style="background:var(--mut);'
               'font-size:11px;padding:3px 8px">Withdraw (release locks)</button></form>')
-    return badge + chk + frm + wd
+    return badge + meta + hint + chk + frm + wd
 
 @app.route("/vat", methods=["GET", "POST"])
 def vat():
@@ -2844,7 +2946,9 @@ def vat():
         if request.form.get("__act") == "withdraw":
             ok, msg = VR.withdraw_claim(con, ent, ctry, per)
         else:
-            ok, msg = VR.set_status_code(con, ent, ctry, per, request.form["status"])
+            ok, msg = VR.set_status_code(con, ent, ctry, per, request.form["status"],
+                                         note=request.form.get("note", "").strip() or None,
+                                         deadline=request.form.get("deadline", "").strip() or None)
         cls = "ok" if ok else "bad"
         banner = (f'<div class="card"><b class="{cls}">{esc(msg)}</b></div>')
     year = request.args.get("year", "2026")
@@ -2978,6 +3082,9 @@ def suppliers():
             + "".join(cards))
     return page(body, "sup")
 
+class _GenWarn(Exception):
+    """Carries a pre-rendered warning banner out of the gen_doc action (unfilled fields)."""
+
 @app.route("/customers", methods=["GET", "POST"])
 def customers():
     import customer_master as CD
@@ -2995,7 +3102,8 @@ def customers():
                 if not f or not f.filename:
                     raise ValueError("no file selected")
                 con = CD.connect()
-                CD.add_document(con, code, request.form.get("kind", "other"), f.filename, f.read())
+                CD.add_document(con, code, request.form.get("kind", "other"), f.filename, f.read(),
+                                valid_until=request.form.get("valid_until", "").strip() or None)
                 con.close()
                 msg = f"Document ({esc(request.form.get('kind',''))}) uploaded for {esc(code)}."
             elif act == "set_fee":
@@ -3036,8 +3144,9 @@ def customers():
                 if not country or not f or not f.filename:
                     raise ValueError("country and file are required")
                 con = CD.connect()
-                CD.add_country_document(con, code, country,
-                                        request.form.get("kind", "power_of_attorney"), f.filename, f.read())
+                CD.add_document(con, code, request.form.get("kind", "power_of_attorney"),
+                                f.filename, f.read(), country=country,
+                                valid_until=request.form.get("valid_until", "").strip() or None)
                 con.close()
                 msg = f"Country document received for {esc(code)} / {esc(country)}."
             elif act in ("activate_country", "deactivate_country"):
@@ -3077,22 +3186,39 @@ def customers():
                 con = CD.connect()
                 data, outname, ext, leftover = CD.generate_document(
                     con, int(request.form.get("tid", "0")), code,
-                    request.form.get("gen_country", "").strip() or None)
-                if request.form.get("file_as") and data is not None:
+                    request.form.get("gen_country", "").strip() or None,
+                    as_pdf=request.form.get("as_pdf") == "on")
+                if data is None:
+                    con.close(); raise ValueError("template not found")
+                if leftover and not request.form.get("force"):
+                    # UNFILLED FIELDS: warn on screen instead of silently downloading a
+                    # document with {{placeholders}} left in. Offer to fix the data or
+                    # download anyway.
+                    con.close()
+                    keep = "".join(f'<input type="hidden" name="{esc(k)}" value="{esc(v)}">'
+                                   for k, v in request.form.items() if k != "_csrf")
+                    banner = ('<div class="card" style="border-left:4px solid var(--bad)">'
+                              f'<b class="bad">&#9888; {len(leftover)} field(s) have no data:</b> '
+                              + ", ".join(f"<code>{{{{{esc(f)}}}}}</code>" for f in leftover)
+                              + '<div class="note">Fill the missing customer data below, or '
+                                'download the draft with the placeholders left in.</div>'
+                              + '<form method="post" style="margin-top:6px">' + _csrf_input() + keep
+                              + '<input type="hidden" name="force" value="1">'
+                              + '<button style="background:var(--mut)">Download anyway</button>'
+                              '</form></div>')
+                    raise _GenWarn(banner)
+                if request.form.get("file_as"):
                     # also file the generated draft as a customer document of the kind it
                     # fulfils (so it can satisfy the checklist once signed/uploaded later)
                     CD.add_document(con, code, request.form.get("file_as"), outname, data,
                                     country=request.form.get("gen_country", "").strip() or None)
                 con.close()
-                if data is None:
-                    raise ValueError("template not found")
                 from flask import Response
                 mt = {"docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                      "html": "text/html", "md": "text/markdown"}.get(ext, "text/plain")
+                      "html": "text/html", "md": "text/markdown",
+                      "pdf": "application/pdf"}.get(ext, "text/plain")
                 resp = Response(data, mimetype=mt)
                 resp.headers["Content-Disposition"] = f'attachment; filename="{outname}"'
-                if leftover:
-                    resp.headers["X-Unfilled-Fields"] = ",".join(leftover)
                 return resp
             elif act in ("add_checklist_rule", "toggle_checklist_rule", "del_checklist_rule"):
                 if session.get("role") != "admin":
@@ -3117,6 +3243,8 @@ def customers():
             else:
                 raise ValueError("unknown action")
             banner = f'<div class="card"><b class="ok">{msg}</b></div>'
+        except _GenWarn as w:
+            banner = w.args[0]                     # unfilled-fields warning, pre-rendered
         except Exception as e:
             _log_exc("customer management", e)
             banner = f'<div class="card"><b class="bad">Error: {esc(str(e))}</b></div>'
@@ -3154,8 +3282,17 @@ def customers():
                                       ("Home tax portal","home_portal"),("Notes","notes")) if c[k])
         banks = "".join(f"<tr><td>{fld(r['iban'])}</td><td>{esc(r['bank'])}</td><td>{esc(r['currency'])}</td></tr>"
                         for r in con.execute("SELECT * FROM customer_bank_accounts WHERE customer=?", (code,)))
+        import datetime as _dt
+        _today = _dt.date.today().isoformat()
+        def _validity(d):
+            vu = d["valid_until"] if "valid_until" in d.keys() else None
+            if not vu:
+                return ""
+            return (f'<span class="bad">EXPIRED {esc(vu)}</span>' if vu < _today
+                    else f'<span class="note">valid until {esc(vu)}</span>')
         docs = "".join(f"<tr><td>{esc(d['kind'])}</td><td>{esc(d['filename'])}</td>"
-                       f"<td class='note'>sha {esc((d['sha256'] or '')[:8])}</td></tr>"
+                       f"<td class='note'>sha {esc((d['sha256'] or '')[:8])}</td>"
+                       f"<td>{_validity(d)}</td></tr>"
                        for d in CD.documents(con, code))
         fee_pct = c["fee_pct"] or 0; fee_min = c["fee_min"] or 0
         # management forms
@@ -3171,6 +3308,8 @@ def customers():
                     + _csrf_input() + hid + '<input type="hidden" name="__act" value="upload_doc">'
                     + f'<label>document<select name="kind">{opt("trade_registry")}</select></label>'
                     + '<label>file<input type="file" name="file" required></label>'
+                    + '<label>valid until<input type="date" name="valid_until" title="optional — '
+                      'an expired document stops satisfying the checklist"></label>'
                     + '<button>Upload</button></form>')
         # generate a document (contract / POA / …) by filling a template with this
         # customer's data — the mini-CRM mail-merge.
@@ -3185,6 +3324,8 @@ def customers():
                      + '<label>refund country (for POA)<input name="gen_country" '
                        'style="width:120px" placeholder="optional"></label>'
                      + f'<label>filing<select name="file_as">{file_as_opts}</select></label>'
+                     + '<label style="flex-direction:row;align-items:center;gap:5px">'
+                       '<input type="checkbox" name="as_pdf" style="width:auto"> as PDF</label>'
                      + '<button>Generate document</button></form>')
         fee_f = ('<form method="post" class="f" style="margin-top:6px">' + _csrf_input() + hid
                  + '<input type="hidden" name="__act" value="set_fee">'
@@ -3226,7 +3367,9 @@ def customers():
             cup = ('<form method="post" enctype="multipart/form-data" style="display:inline">' + _csrf_input()
                    + chid + '<input type="hidden" name="__act" value="upload_country_doc">'
                    + f'<select name="kind">{kopt}</select>'
-                   + '<input type="file" name="file" required style="width:140px"><button>Receive doc</button></form> ')
+                   + '<input type="file" name="file" required style="width:140px">'
+                   + '<input type="date" name="valid_until" title="valid until (optional)" '
+                     'style="font-size:12px"><button>Receive doc</button></form> ')
             cbtn = ('<form method="post" style="display:inline">' + _csrf_input() + chid
                     + f'<button name="__act" value="{"deactivate_country" if cact else "activate_country"}" '
                     + ('' if (cact or cready) else 'disabled title="receive the documents first" ')

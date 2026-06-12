@@ -193,3 +193,84 @@ def test_template_merge_and_generate(tmp_path, monkeypatch):
     cm.delete_template(con, tid)
     assert cm.get_template(con, tid) is None
     con.close()
+
+
+# ------------------------------------------------------------ per-status data + 4/4A/5
+def test_status_note_deadline_and_decision_date(tmp_path, monkeypatch):
+    cm, vr = _modules(tmp_path, monkeypatch)
+    _complete_checklist(cm); _invoice_doc(vr)
+    con = vr.connect()
+    assert vr.set_status_code(con, "Acme SIA", "Belgium", "2026-Q1", "2")[0]
+    # document request with a response deadline + note
+    ok, _ = vr.set_status_code(con, "Acme SIA", "Belgium", "2026-Q1", "2B",
+                               note="authority wants CMRs", deadline="2026-07-15")
+    assert ok
+    r = con.execute("SELECT status_note, action_deadline, decision_date FROM vat_applications"
+                    ).fetchone()
+    assert r["status_note"] == "authority wants CMRs" and r["action_deadline"] == "2026-07-15"
+    assert r["decision_date"] is None                   # no decision yet
+    # decision arrives -> decision_date stamped, open-action deadline cleared
+    assert vr.set_status_code(con, "Acme SIA", "Belgium", "2026-Q1", "3A")[0]
+    r = con.execute("SELECT decision_date, action_deadline FROM vat_applications").fetchone()
+    assert r["decision_date"] and r["action_deadline"] is None
+    con.close()
+
+
+def test_suggested_next_and_close_lifecycle(tmp_path, monkeypatch):
+    cm, vr = _modules(tmp_path, monkeypatch)
+    # the suggestion respects the payout route after money received
+    assert vr.suggested_next("3A", "customer") == "4"
+    assert vr.suggested_next("3A", "us") == "4A"
+    assert vr.suggested_next("4") == "5" and vr.suggested_next("5") is None
+    assert vr.suggested_next("3B") == "3D"              # rejection -> appeal
+    # full closing lifecycle keeps the engine at 'paid'
+    _complete_checklist(cm); _invoice_doc(vr)
+    con = vr.connect()
+    for code in ("2", "3A", "4", "5"):
+        assert vr.set_status_code(con, "Acme SIA", "Belgium", "2026-Q1", code)[0], code
+    r = con.execute("SELECT status, status_code FROM vat_applications").fetchone()
+    assert (r["status"], r["status_code"]) == ("paid", "5")
+    con.close()
+
+
+def test_expired_document_fails_checklist(tmp_path, monkeypatch):
+    """An expired power of attorney stops satisfying the checklist (claim back to 1A)."""
+    cm, vr = _modules(tmp_path, monkeypatch)
+    _complete_checklist(cm)
+    con = cm.connect()
+    # expire the POA
+    con.execute("UPDATE customer_documents SET valid_until='2020-01-01' "
+                "WHERE kind='power_of_attorney'")
+    con.commit(); con.close()
+    vcon = vr.connect()
+    stage, items = vr.derive_stage(vcon, "Acme SIA", "Belgium", "2026-Q1")
+    assert stage == "1A"
+    assert any(l == "Power of attorney" and not ok for l, ok in items)
+    vcon.close()
+    # renew it -> ready again
+    con = cm.connect()
+    cm.add_document(con, "ACME", "power_of_attorney", "poa2.pdf", b"P2",
+                    country="Belgium", valid_until="2030-01-01")
+    con.close()
+    vcon = vr.connect()
+    assert vr.derive_stage(vcon, "Acme SIA", "Belgium", "2026-Q1")[0] == "1E"
+    vcon.close()
+
+
+def test_generate_pdf_output(tmp_path, monkeypatch):
+    import customer_master as cm
+    import importlib, io
+    importlib.reload(cm)
+    monkeypatch.setattr(cm, "DB", str(tmp_path / "c.db"))
+    monkeypatch.setattr(cm, "_SCHEMA_READY", set())
+    monkeypatch.setattr(cm, "DOCDIR", str(tmp_path / "cdocs"))
+    cm.add_customer("ACME", "Acme SIA", "LV", reg_number="LV123")
+    con = cm.connect()
+    tid = cm.add_template(con, "Contract", "signed_contract", "c.txt",
+                          b"Contract between {{company_name}} (reg {{reg_number}}) and Agency.")
+    data, name, ext, left = cm.generate_document(con, tid, "ACME", as_pdf=True)
+    con.close()
+    assert ext == "pdf" and name.endswith(".pdf") and data.startswith(b"%PDF") and left == []
+    from pypdf import PdfReader
+    text = PdfReader(io.BytesIO(data)).pages[0].extract_text()
+    assert "Acme SIA" in text and "LV123" in text

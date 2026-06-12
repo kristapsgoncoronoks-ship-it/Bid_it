@@ -13,7 +13,7 @@ import sqlite3, sys, collections
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 import supplier_master, customer_master, audit, money
-import db_tuning
+import db_tuning, db_migrate
 from vat_config import (GOODS_CODE,
                         MIN_QUARTER, MIN_ANNUAL, DEADLINE_FMT,
                         LOCAL_CCY_INPUT, COMPLIANCE_NOTES)
@@ -79,22 +79,28 @@ def connect():
         kind TEXT DEFAULT 'original_pdf', uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
         UNIQUE (entity, supplier, invoice_ref, sha256))""")
     audit.install_audit(con, ["vat_applications", "vat_claimed_invoices", "invoice_documents"])
-    for ddl in ("ALTER TABLE invoice_documents ADD COLUMN backend TEXT DEFAULT 'local'",
-                "ALTER TABLE invoice_documents ADD COLUMN web_url TEXT",
-                # our fee: rate FROZEN at submission, fee CHARGED when refund is paid
-                "ALTER TABLE vat_applications ADD COLUMN fee_eur REAL",
-                "ALTER TABLE vat_applications ADD COLUMN fee_pct REAL",
-                "ALTER TABLE vat_applications ADD COLUMN fee_min REAL",
-                "ALTER TABLE vat_applications ADD COLUMN fee_billed_date TEXT",
-                # settlement: where the refund landed + the fee invoice once issued
-                "ALTER TABLE vat_applications ADD COLUMN payout_to TEXT",
-                "ALTER TABLE vat_applications ADD COLUMN fee_invoice_no TEXT",
-                "ALTER TABLE vat_applications ADD COLUMN fee_invoice_date TEXT",
-                # workflow status CODE (1A..5); the legacy `status` column stays the
-                # coarse engine state (draft/submitted/approved/paid) that drives locks.
-                "ALTER TABLE vat_applications ADD COLUMN status_code TEXT"):
-        try: con.execute(ddl)
-        except Exception: pass
+    # versioned migrations: each runs ONCE per database (see db_migrate). Append only.
+    db_migrate.apply(con, "vat_refund", [
+        "ALTER TABLE invoice_documents ADD COLUMN backend TEXT DEFAULT 'local'",
+        "ALTER TABLE invoice_documents ADD COLUMN web_url TEXT",
+        # our fee: rate FROZEN at submission, fee CHARGED when refund is paid
+        "ALTER TABLE vat_applications ADD COLUMN fee_eur REAL",
+        "ALTER TABLE vat_applications ADD COLUMN fee_pct REAL",
+        "ALTER TABLE vat_applications ADD COLUMN fee_min REAL",
+        "ALTER TABLE vat_applications ADD COLUMN fee_billed_date TEXT",
+        # settlement: where the refund landed + the fee invoice once issued
+        "ALTER TABLE vat_applications ADD COLUMN payout_to TEXT",
+        "ALTER TABLE vat_applications ADD COLUMN fee_invoice_no TEXT",
+        "ALTER TABLE vat_applications ADD COLUMN fee_invoice_date TEXT",
+        # workflow status CODE (1A..5); the legacy `status` column stays the
+        # coarse engine state (draft/submitted/approved/paid) that drives locks.
+        "ALTER TABLE vat_applications ADD COLUMN status_code TEXT",
+        # per-status data: when the decision arrived, why (note), and the
+        # deadline of an open action (document request 2B / appeal 3D)
+        "ALTER TABLE vat_applications ADD COLUMN decision_date TEXT",
+        "ALTER TABLE vat_applications ADD COLUMN status_note TEXT",
+        "ALTER TABLE vat_applications ADD COLUMN action_deadline TEXT",
+    ])
     _migrate_from_analytics(con)
     if DB != ":memory:":
         _SCHEMA_READY.add(DB)
@@ -539,10 +545,33 @@ def current_code(con, ent, ctry, period, verdict=None, cache=None):
     code, _ = derive_stage(con, ent, ctry, period, verdict, cache)
     return code
 
-def set_status_code(con, ent, ctry, period, code):
+def filing_deadline(period):
+    """Statutory 2008/9/EC filing deadline for a claim period: 30 September of the
+    following year. Returns a datetime.date."""
+    import datetime
+    return datetime.date(int(str(period)[:4]) + 1, 9, 30)
+
+def suggested_next(code, payout_to=None):
+    """The recommended next manual step after `code` (None if terminal/no suggestion).
+    After the money arrives (3A) the route decides: refund to customer → 4 invoice the
+    fee; refund to us → 4A credit the customer the net."""
+    return {
+        "2": "2A", "2A": None, "2B": None,
+        "3": "3A",
+        "3A": ("4A" if (payout_to or "customer") == "us" else "4"),
+        "3B": "3D", "3D": None,
+        "3C": ("4A" if (payout_to or "customer") == "us" else "4"),
+        "4": "5", "4A": "5", "5": None,
+    }.get(code)
+
+def set_status_code(con, ent, ctry, period, code, note=None, deadline=None):
     """Advance a claim along the controllable workflow. Pre-submission codes are
     system-controlled (rejected here). Submitting (2) is HARD-GATED on the system
-    checklist + period end. 3B/3C/3D keep the invoice locks."""
+    checklist + period end. 3B/3C/3D keep the invoice locks.
+
+    `note` records WHY (rejection reason, what documents were requested, appeal
+    grounds); `deadline` (ISO date) records the open action's deadline — the
+    document-request response date (2B) or the appeal deadline (3D)."""
     code = (code or "").strip()
     if code in AUTO_CODES:
         return False, f"'{code} {STATUS_LABELS.get(code,'')}' is system-controlled — it follows the checklist automatically"
@@ -571,8 +600,19 @@ def set_status_code(con, ent, ctry, period, code):
     con.execute("""UPDATE vat_applications SET status_code=?, updated=CURRENT_TIMESTAMP
                    WHERE entity=? AND refund_country=? AND ref_period=?""",
                 (code, ent, ctry, period))
+    # per-status data: decision date on first decision code; the note; the open-action
+    # deadline lives only while a 2B/3D is open (cleared when the claim moves on).
+    if code in ("3", "3A", "3B", "3C"):
+        con.execute("""UPDATE vat_applications SET decision_date=COALESCE(decision_date, date('now'))
+                       WHERE entity=? AND refund_country=? AND ref_period=?""", (ent, ctry, period))
+    if note:
+        con.execute("""UPDATE vat_applications SET status_note=? WHERE entity=? AND
+                       refund_country=? AND ref_period=?""", (str(note)[:500], ent, ctry, period))
+    con.execute("""UPDATE vat_applications SET action_deadline=? WHERE entity=? AND
+                   refund_country=? AND ref_period=?""",
+                ((deadline or None) if code in ("2B", "3D") else None, ent, ctry, period))
     con.commit()
-    return True, f"status → {code} {STATUS_LABELS[code]}"
+    return True, f"status → {code} {STATUS_LABELS[code]}" + (f" (note recorded)" if note else "")
 
 def withdraw_claim(con, ent, ctry, period):
     """Admin escape hatch: cancel a claim and RELEASE its invoice locks (the only path
@@ -659,10 +699,10 @@ def claims_overview(year):
     import datetime
     con = connect()
     matrix = claim_matrix(con, year)
-    sts = {(r["entity"], r["refund_country"], r["ref_period"]): r["status"]
-           for r in con.execute("SELECT entity, refund_country, ref_period, status FROM vat_applications")}
-    subm = {(r["entity"], r["refund_country"], r["ref_period"]): r["submitted_date"]
-            for r in con.execute("SELECT entity, refund_country, ref_period, submitted_date FROM vat_applications")}
+    apps = {(r["entity"], r["refund_country"], r["ref_period"]): r
+            for r in con.execute("""SELECT entity, refund_country, ref_period, status,
+                                    submitted_date, status_code, action_deadline, status_note
+                                    FROM vat_applications""")}
     today = datetime.date.today()
     to_submit, open_claims = [], []
     cache = {}   # shared across all streams: one supplier + one analytics connection,
@@ -671,23 +711,41 @@ def claims_overview(year):
         if m["period"].endswith("YEAR") or (m["vat_eur"] or 0) <= 0:
             continue
         key = (m["entity"], m["country"], m["period"])
-        status = sts.get(key, "draft")
+        a = apps.get(key)
+        status = a["status"] if a else "draft"
         if status in ("submitted", "approved"):
             age = ""
-            sd = subm.get(key)
+            sd = a["submitted_date"] if a else None
             if sd:
                 try: age = (today - datetime.date.fromisoformat(sd)).days
                 except ValueError: pass
+            code = (a["status_code"] if a else None) or {"submitted": "2", "approved": "3"}[status]
             open_claims.append(dict(entity=m["entity"], country=m["country"], period=m["period"],
-                                    vat_eur=m["vat_eur"], status=status, submitted=sd, age_days=age))
+                                    vat_eur=m["vat_eur"], status=status, submitted=sd, age_days=age,
+                                    code=code, code_label=STATUS_LABELS.get(code, code),
+                                    action_deadline=a["action_deadline"] if a else None,
+                                    note=a["status_note"] if a else None))
         elif status not in ("paid", "rejected", "withdrawn"):
             ready, issues = submission_readiness(con, m["entity"], m["country"], m["period"], cache)
             if not m["verdict"].startswith("READY"):
                 issues = issues + [m["verdict"].split(" (")[0].lower()]
+            stage, items = derive_stage(con, m["entity"], m["country"], m["period"],
+                                        m["verdict"], cache)
+            # surface the failed CUSTOMER-checklist rules (the invoice-level ones are
+            # already covered by submission_readiness) and the period-end gate
+            overlap = {"All invoices received & processed", "All invoice documents attached",
+                       "Claim period ended"}
+            issues = issues + [l for l, ok in items if not ok and l not in overlap]
+            if stage == "1B":
+                issues = issues + [f"period not ended (ends {period_end_date(m['period'])})"]
             ready = (len(issues) == 0)
+            fdl = filing_deadline(m["period"])
             to_submit.append(dict(entity=m["entity"], country=m["country"], period=m["period"],
                                   vat_eur=m["vat_eur"], verdict=m["verdict"],
-                                  ready=ready, issues=issues, missing=m["missing"]))
+                                  ready=ready, issues=issues, missing=m["missing"],
+                                  code=stage, code_label=STATUS_LABELS.get(stage, stage),
+                                  deadline=fdl.isoformat(),
+                                  deadline_days=(fdl - today).days))
     for k in ("_scon", "_acon", "_cmcon"):           # close the shared connections opened lazily
         if cache.get(k) is not None:
             try: cache[k].close()
@@ -941,7 +999,8 @@ def recovery_report(year=None):
     con = connect()
     rows = con.execute("""SELECT entity, refund_country, ref_period, vat_eur, status,
         submitted_date, approved_date, paid_date, paid_amount,
-        fee_eur, fee_pct, fee_min, fee_billed_date, payout_to, fee_invoice_no, fee_invoice_date
+        fee_eur, fee_pct, fee_min, fee_billed_date, payout_to, fee_invoice_no, fee_invoice_date,
+        status_code, decision_date, status_note, action_deadline
         FROM vat_applications WHERE status IN ('submitted','approved','paid')
         AND (? IS NULL OR ref_period LIKE ?) ORDER BY submitted_date""",
         (year, f"{year}-%" if year else None)).fetchall()
@@ -954,12 +1013,16 @@ def recovery_report(year=None):
             try:
                 age = (today - datetime.date.fromisoformat(r["submitted_date"])).days
             except ValueError: pass
+        code = r["status_code"] or {"submitted": "2", "approved": "3", "paid": "3A"}[r["status"]]
         out.append(dict(entity=r["entity"], country=r["refund_country"], period=r["ref_period"],
                         vat_eur=r["vat_eur"], status=r["status"], submitted=r["submitted_date"],
                         paid=r["paid_date"], paid_amount=r["paid_amount"], age_days=age,
                         fee_eur=r["fee_eur"], fee_pct=r["fee_pct"], fee_min=r["fee_min"],
                         fee_billed_date=r["fee_billed_date"], payout_to=r["payout_to"],
-                        fee_invoice_no=r["fee_invoice_no"], fee_invoice_date=r["fee_invoice_date"]))
+                        fee_invoice_no=r["fee_invoice_no"], fee_invoice_date=r["fee_invoice_date"],
+                        status_code=code, next_code=suggested_next(code, r["payout_to"]),
+                        decision_date=r["decision_date"], status_note=r["status_note"],
+                        action_deadline=r["action_deadline"]))
     con.close()
     summary = {s: money.fsum(o["vat_eur"] or 0 for o in out if o["status"] == s)
                for s in ("submitted", "approved", "paid")}

@@ -22,6 +22,8 @@ siblings directly), so this index is how you navigate them. See
 | `backup.py` | Crash‑consistent snapshots of all DBs + the document store + audit CSVs into `backups/`, each entry SHA‑256'd; `verify()`, `restore()`, rotation. |
 | `db.py` | Database abstraction seam — SQLite by default, the documented path to PostgreSQL. |
 | `db_tuning.py` | Applies WAL + busy_timeout + synchronous=NORMAL to every connection so multiple processes can share the `.db` files safely. |
+| `db_migrate.py` | Versioned schema migrations: each module's ALTERs run **once per database** (recorded in `_ffs_migrations`) instead of being retried on every connect. |
+| `applog.py` | The logging layer — `applog.get(name)` returns a configured logger (rotating `logs/app.log`, WARNING+ to stderr). |
 | `process_lock.py` | Cross‑process advisory lease lock (SQLite) — makes the scheduled backup a singleton and guards “one at a time” operations. |
 | `tls.py` | Builds the TLS context from a cert/key/chain or a PKCS#12 `.pfx` (env‑configurable). |
 | `make_cert.py` | Generates a self‑signed certificate for internal use. |

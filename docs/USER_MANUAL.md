@@ -58,12 +58,13 @@ in the top bar next to your name. There are two roles:
 
 | Role | Can do |
 |---|---|
-| **processor** | The day-to-day worker: import batches, register statements, attach documents, run VAT claims, manage customers/fees, use every page and export. **Cannot** do server setup, user administration, or overall software changes. Individual capabilities are configurable by an admin. |
-| **admin** | Everything a processor can, **plus** the **Admin** panel: create users, assign roles, reset passwords, disable accounts, **adjust which capabilities processors have**, review the login & error logs, run/verify backups, and check document integrity. |
+| **processor** | The day-to-day worker: import batches, register statements, attach documents, pricing analytics, exports. **Cannot** see the VAT-refund module (claims, readiness, recovery, customers/CRM), do server setup, user administration, or overall software changes. Individual capabilities are configurable by an admin. |
+| **admin** | Everything, **plus** the **VAT-refund module** (claims 1A→5, readiness, recovery & fees, the customer CRM) and the **Admin** panel: create users, assign roles, reset passwords, disable accounts, **adjust which capabilities processors have**, **switch whole parts of the app on/off (Modules)**, review the login & error logs, run/verify backups, and check document integrity. |
 
-A processor's capabilities (data import, invoice control, VAT claims, customers,
-pricing, documents, exports) are switches an admin sets in the Admin panel — so you
-can give one colleague claims‑only access and another import‑only, for example.
+A processor's capabilities (data import, invoice control, pricing, documents,
+exports) are switches an admin sets in the Admin panel — so you can give one
+colleague import‑only access and another compliance‑only, for example. The
+**VAT‑refund module is always admin‑only**, whatever capabilities a processor holds.
 
 Every change you save is recorded in the audit log **under your username** — visible
 on the History page. Sessions are protected (login lockout after repeated failures,
@@ -185,12 +186,22 @@ month-over-month price jumps, vehicle volume spikes and off-period dates.
 **Documents** — the invoice vault (see §6).
 
 **Suppliers / Customers** — the master-data cards. Suppliers: legal identity, VAT
-registrations, bank accounts, products, invoice registry. **Customers** also drives
-the VAT‑refund lifecycle: onboarding (trade registry, bank account, signed contract),
-**per‑country activation** (request → receive the country's documents, e.g. power of
-attorney), and the **fee terms** (% of refunded VAT and the per‑declaration minimum,
-with per‑country overrides, and where the refund is paid). Red **INPUT** = data still
-to be collected; a customer/country must be activated before a claim can be submitted.
+registrations, bank accounts, products, invoice registry. **Customers (CRM, admin
+only)** is the mini‑CRM that drives the VAT‑refund lifecycle:
+- the **adjustable submission checklist rules** (default: contract, customer data,
+  bank account, NACE business activity, trade register, power of attorney) — the
+  system verifies these, nobody ticks them by hand, and the claim statuses 1A→1E
+  follow them automatically;
+- onboarding & **per‑country activation** (request → receive the country's documents);
+- **document templates**: upload your own contract / power‑of‑attorney template with
+  `{{placeholders}}` (e.g. `{{company_name}}`, `{{reg_number}}`, `{{bank_iban}}`,
+  `{{refund_country}}`) as .txt/.html/.md/.docx — the system **generates the document
+  per customer** (optionally as PDF), warns on screen about any unfilled fields, and
+  can file the draft in the customer's documents;
+- documents can carry a **valid‑until date** — an expired power of attorney stops
+  satisfying the checklist and is flagged on the dashboard worklist before it expires;
+- the **fee terms** (% of refunded VAT, per‑declaration minimum, per‑country
+  overrides, and where the refund is paid). Red **INPUT** = data still to be collected.
 
 **Data manager** — direct table editing for master data (processor with data‑import
 capability). Pick database →
@@ -218,9 +229,12 @@ table, **from date / till date**, and record key. Each row shows when, what, the
 action, **who (By column)**, and a field-level diff or full snapshot.
 
 **Admin** (admins only) — user management (create users, set roles, reset passwords,
-disable accounts) and **adjust processor capabilities**; the login log and the **error
-log**; security status (TLS, password storage); the backup schedule with one‑click
-**Run backup**, **Verify last backup** and **Check document integrity**.
+disable accounts) and **adjust processor capabilities**; **Modules — switch whole
+parts of the app on/off** (analytics, intake, compliance, VAT refunds, FX): a part
+that's off disappears from the menu and its pages answer "turned off" until re‑enabled;
+the login log and the **error log**; security status (TLS, password storage); the
+backup schedule with one‑click **Run backup**, **Verify last backup** and **Check
+document integrity**.
 
 ## 3. Monthly routine (processor)
 
@@ -291,35 +305,67 @@ chased. If a supplier confirms in writing that no invoice exists for a flagged s
 a processor can set `waived=1` on that row in the Data manager (claims database →
 invoice_receipt_control); the waiver survives re-runs.
 
-## 5. VAT refunds, quarter by quarter (processor)
+## 5. VAT refunds, quarter by quarter (admin only)
+
+The whole VAT-refund module — **VAT refunds, Claims readiness, Recovery & fees, and
+the Customers (CRM) page** — is visible to **admins only**.
 
 The page shows every stream — **entity × refund country × period (Q1–Q4 + YEAR)** —
 with the VAT amount in EUR and local currency, the threshold verdict, document
-coverage, home portal, deadline and status.
+coverage, home portal, deadline and the **workflow status (1A→5)**.
 
 **Threshold verdicts:** READY (≥ €400 quarterly), DEFER TO ANNUAL (under €400 but the
 year total ≥ €50), BELOW ANNUAL MIN (accumulate). Quarters show "months missing"
 until all three months are loaded — file only after the quarter is complete.
 
-**The quarterly run:**
-1. After quarter end, click **Generate claim workbook** (or run `vat_refund.py`).
-   The Excel contains one Overview plus one **claim-pack sheet per stream**: the
-   APPLICANT block (your entity's registration data and payout IBAN from the
-   customer master), then invoice-level lines — issuer, issuer VAT ID, invoice ref,
-   goods code, taxable base and VAT **in the refund country's currency**.
-2. Fix every **yellow INPUT cell** before filing — missing invoice refs, VAT IDs,
-   applicant data. The system will physically refuse to let you submit otherwise.
-3. Confirm document coverage is green ("3/3 docs") — every invoice needs its original.
-4. File in the entity's home portal (e-MTA / EDS / Mano VMI), then set the stream's
-   status to **submitted** in the dropdown.
+### The status workflow (1A → 5)
 
-**Statuses & the locks:** draft → ready → **submitted** → approved → paid.
-Setting *submitted* runs three checks and then **locks every invoice in the claim** —
-one invoice can be claimed exactly once, ever, including across quarterly vs annual.
-You'll see a red BLOCKED banner if: an invoice is already claimed elsewhere, any
-ref is still INPUT, or any document is missing. *rejected* / *withdrawn* release the
-locks (the invoices become claimable again); going from submitted straight back to
-draft is deliberately impossible.
+Every claim carries a status code. The **pre-submission stages are system-controlled**
+— nobody can tick them by hand; the claim climbs automatically as the checklist
+completes:
+
+| Code | Meaning | Who sets it |
+|---|---|---|
+| **1A** | Missing documents / checklist incomplete | system |
+| **1B** | All documents received — period not ended | system |
+| **1C** | Can be submitted (a caveat remains, e.g. defers to annual) | system |
+| **1E** | Ready to submit | system |
+| **2** | Submitted | you |
+| **2A** | Successfully submitted | you |
+| **2B** | Document request received *(record the response deadline)* | you |
+| **3** | Decision received | you |
+| **3A** | Money received *(fee becomes chargeable)* | you |
+| **3B** | Rejection *(locks kept — appeal or invoice the fee)* | you |
+| **3D** | Under appeal *(locks kept)* | you |
+| **3C** | Confiscation by government *(locks kept)* | you |
+| **4** | Ready to invoice fee (refund went to the customer) | you |
+| **4A** | Ready to invoice credit (refund came to us) | you |
+| **5** | Closed | you |
+
+The system checklist behind 1A→1E is **adjustable** (Customers page): by default
+*contract, customer data, bank account, NACE business activity, trade register,
+power of attorney*, plus the claim-level checks — all invoices received & processed,
+all invoice documents attached, and **the claim period has ended** (a hard gate: a
+Q2 claim physically cannot be submitted before 30 June).
+
+When you advance a status you can attach a **note** (rejection reason, what was
+requested) and — for 2B/3D — a **deadline**; both show on the claim and feed the
+dashboard worklist.
+
+**The quarterly run:**
+1. After quarter end, watch the stream reach **1E Ready to submit** (open its
+   *checklist* link to see exactly what's missing while it's 1A).
+2. Click **Generate claim workbook** (or run `vat_refund.py`) and fix every
+   **yellow INPUT cell** — the system refuses to submit otherwise.
+3. Confirm document coverage is green ("3/3 docs") — every invoice needs its original.
+4. File in the entity's home portal (e-MTA / EDS / Mano VMI), then set the stream to
+   **2 Submitted**.
+
+**Locks.** Setting *2 Submitted* **locks every invoice in the claim** — one invoice is
+claimed exactly once, ever, including across quarterly vs annual. Rejection (3B),
+appeal (3D) and confiscation (3C) **keep the locks** — you contest the decision or
+invoice the fee; only an explicit admin **Withdraw (release locks)** frees the
+invoices for a corrected re-claim.
 
 **Quarterly vs annual, handled dynamically.** Low‑VAT quarters (under €400) defer into
 the **annual** claim, while strong quarters can still be filed quarterly. The annual
@@ -338,14 +384,16 @@ Rates are set per customer with optional per‑country overrides on the Customer
 
 - The fee **rate is frozen the moment a claim is submitted** — later rate changes only
   affect un‑submitted claims.
-- The fee is **charged when the refund is paid** (status → *paid*), computed on the
+- The fee is **charged when the money is received** (status → *3A*), computed on the
   amount actually refunded.
 - **Settlement follows where the refund lands** (set per customer): paid to the
-  *customer* → we **issue a fee invoice**; paid to *us* → we **deduct the fee and remit
-  the net** to the customer.
-- On the Recovery page, once a claim is paid, click **Issue invoice** (the per‑claim fee
-  report becomes the invoice), and download the monthly **fees statement** for the
-  aggregate per customer.
+  *customer* → advance to **4 Ready to invoice fee** and **issue the fee invoice**;
+  paid to *us* → advance to **4A Ready to invoice credit** (we deduct the fee and remit
+  the net).
+- The Recovery page's **Workflow (2→5)** column shows each claim's status code with
+  its decision date / deadline / note and a one‑click **suggested next step** —
+  after 3A it offers 4 or 4A (by payout route), then **5 Closed**. Download the
+  monthly **fees statement** for the aggregate per customer.
 
 ## 6. The document vault
 

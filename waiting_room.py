@@ -95,7 +95,7 @@ def _at(epoch):
 
 
 def connect():
-    import db_tuning
+    import db_tuning, db_migrate
     con = sqlite3.connect(DB, timeout=30)
     con.row_factory = sqlite3.Row
     # a queue wants durability and cross-process concurrency: WAL lets the web UI
@@ -104,8 +104,8 @@ def connect():
     db_tuning.tune(con)
     if DB != ":memory:" and DB not in _SCHEMA_READY:
         con.executescript(SCHEMA)
-        try: con.execute("ALTER TABLE intake_jobs ADD COLUMN defer_count INTEGER DEFAULT 0")
-        except sqlite3.OperationalError: pass  # column already exists (safe)
+        db_migrate.apply(con, "waiting_room",
+                         ["ALTER TABLE intake_jobs ADD COLUMN defer_count INTEGER DEFAULT 0"])
         _SCHEMA_READY.add(DB)
     elif DB == ":memory:":
         con.executescript(SCHEMA)
