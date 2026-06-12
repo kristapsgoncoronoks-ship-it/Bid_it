@@ -460,23 +460,40 @@ def issue_fee_invoice(con, ent, ctry, period):
     con.commit()
     return (True, inv_no)
 
-def submission_readiness(con, ent, ctry, period):
+def submission_readiness(con, ent, ctry, period, cache=None):
     """Read-only check of whether a claim CAN be submitted. Returns (ready, [issues]).
-    Mirrors the blocking conditions in set_status without writing anything."""
+    Mirrors the blocking conditions in set_status without writing anything. `cache`
+    (optional) is shared across many streams to avoid per-stream connections and
+    per-invoice queries (one docs/locks index + memoised activation lookups)."""
+    cache = cache if cache is not None else {}
     issues = []
-    if customer_master.is_active(ent) is False:
+    ia = cache.setdefault("_isactive", {})
+    if ent not in ia:
+        ia[ent] = customer_master.is_active(ent)
+    if ia[ent] is False:
         issues.append("customer not activated")
-    if customer_master.country_active(ent, ctry) is False:
+    ca = cache.setdefault("_ctryactive", {})
+    if (ent, ctry) not in ca:
+        ca[(ent, ctry)] = customer_master.country_active(ent, ctry)
+    if ca[(ent, ctry)] is False:
         issues.append(f"refund country '{ctry}' not activated")
-    invs = stream_invoices(con, ent, ctry, period)
+    invs = stream_invoices(con, ent, ctry, period, cache)
     bad = [r for s, r in invs if "INPUT" in r or r.startswith("ALL:")]
     if bad:
         issues.append(f"{len(bad)} unresolved invoice ref(s)")
-    nodoc = [(s, r) for s, r in invs if not docs_for(con, ent, s, r)]
+    docidx = cache.get("_docidx")
+    if docidx is None:
+        docidx = cache["_docidx"] = docs_index(con)
+    nodoc = [(s, r) for s, r in invs if (ent, s, r) not in docidx]
     if nodoc:
         issues.append(f"{len(nodoc)} invoice(s) missing documents")
-    conflicts = [(s, r) for s, r in invs
-                 if (lock_state(con, ent, ctry, s, r) or period) != period]
+    locks = cache.get("_locks")
+    if locks is None:
+        locks = cache["_locks"] = {
+            (r["entity"], r["refund_country"], r["supplier"], r["invoice_ref"]): r["ref_period"]
+            for r in con.execute("""SELECT entity, refund_country, supplier, invoice_ref, ref_period
+                                    FROM vat_claimed_invoices""")}
+    conflicts = [(s, r) for s, r in invs if locks.get((ent, ctry, s, r), period) != period]
     if conflicts:
         issues.append(f"{len(conflicts)} invoice(s) locked by another claim")
     return (len(issues) == 0, issues)
@@ -493,6 +510,8 @@ def claims_overview(year):
             for r in con.execute("SELECT entity, refund_country, ref_period, submitted_date FROM vat_applications")}
     today = datetime.date.today()
     to_submit, open_claims = [], []
+    cache = {}   # shared across all streams: one supplier + one analytics connection,
+                 # one docs/locks index, memoised activation lookups
     for m in matrix:
         if m["period"].endswith("YEAR") or (m["vat_eur"] or 0) <= 0:
             continue
@@ -507,13 +526,17 @@ def claims_overview(year):
             open_claims.append(dict(entity=m["entity"], country=m["country"], period=m["period"],
                                     vat_eur=m["vat_eur"], status=status, submitted=sd, age_days=age))
         elif status not in ("paid", "rejected", "withdrawn"):
-            ready, issues = submission_readiness(con, m["entity"], m["country"], m["period"])
+            ready, issues = submission_readiness(con, m["entity"], m["country"], m["period"], cache)
             if not m["verdict"].startswith("READY"):
                 issues = issues + [m["verdict"].split(" (")[0].lower()]
             ready = (len(issues) == 0)
             to_submit.append(dict(entity=m["entity"], country=m["country"], period=m["period"],
                                   vat_eur=m["vat_eur"], verdict=m["verdict"],
                                   ready=ready, issues=issues, missing=m["missing"]))
+    for k in ("_scon", "_acon"):           # close the shared connections opened lazily
+        if cache.get(k) is not None:
+            try: cache[k].close()
+            except Exception: pass
     con.close()
     return {"to_submit": to_submit, "open": open_claims}
 
@@ -678,6 +701,7 @@ def build_workbook(con, year):
 
     # one sheet per quarterly claim stream with VAT > 0
     done = set()
+    pack_cache = {}   # share one supplier + analytics connection across all claim packs
     for m in matrix:
         if m["period"].endswith("YEAR") or m["vat_eur"] <= 0: continue
         key = (m["entity"], m["country"], m["period"])
@@ -706,7 +730,7 @@ def build_workbook(con, year):
                     "VAT (local)","Net EUR","VAT EUR","Duplicate control","Document(s) attached"])
         head(ws2, 6)
         rr = 7
-        for L in invoice_lines(con, m["entity"], m["country"], m["period"]):
+        for L in invoice_lines(con, m["entity"], m["country"], m["period"], pack_cache):
             other = lock_state(con, m["entity"], m["country"], L["supplier"], L["invoice"])
             L["lock"] = ("LOCKED here" if other == m["period"]
                          else f"EXCLUDE - claimed in {other}" if other else "free")
@@ -733,6 +757,10 @@ def build_workbook(con, year):
             ws2.column_dimensions[col].width = w
 
     path = f"{WORKDIR}/VAT_Refund_Claims_{year}.xlsx"
+    for k in ("_scon", "_acon"):
+        if pack_cache.get(k) is not None:
+            try: pack_cache[k].close()
+            except Exception: pass
     wb.save(path)
     return path, matrix
 
