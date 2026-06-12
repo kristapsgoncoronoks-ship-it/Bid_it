@@ -68,12 +68,25 @@ APP_JS = r"""/* progressive enhancement: sort + filter + horizontal scroll + key
     });
     body.concat(totals).forEach(function(r){tb.appendChild(r);});
   }
+  // expose the (responsive, wrapping) nav height so sticky table headers can
+  // park right below it; keep it current as the header reflows.
+  function navh(){
+    var h=document.querySelector('header');
+    document.documentElement.style.setProperty('--navh',(h?h.offsetHeight:56)+'px');
+  }
+  navh(); window.addEventListener('resize',navh);
   document.querySelectorAll('table').forEach(function(t){
     var head=t.tHead;
-    // wrap for horizontal scroll on small screens
-    if(t.parentNode && !t.parentNode.classList.contains('tablewrap')){
+    // Wrap for horizontal scroll ONLY when the table is genuinely wider than the
+    // space it has. An overflow wrapper becomes a scroll container that defeats
+    // the sticky header on page scroll, so narrow tables stay unwrapped and get
+    // a header that sticks under the nav; wide ones trade that for h-scroll.
+    if(t.parentNode && !t.parentNode.classList.contains('tablewrap')
+       && t.offsetWidth > t.parentNode.clientWidth + 1){
       var w=document.createElement('div'); w.className='tablewrap';
       t.parentNode.insertBefore(w,t); w.appendChild(t);
+    } else {
+      t.classList.add('sticky');   // eligible for a sticky header
     }
     if(head&&head.rows.length){
       var ths=head.rows[0].cells, st={col:-1,asc:true};
@@ -96,7 +109,8 @@ APP_JS = r"""/* progressive enhancement: sort + filter + horizontal scroll + key
           r.style.display=(!q||(r.textContent||'').toLowerCase().indexOf(q)>=0)?'':'none';
         });
       });
-      t.parentNode.parentNode.insertBefore(inp,t.parentNode);
+      var anchor=t.parentNode.classList.contains('tablewrap')?t.parentNode:t;
+      anchor.parentNode.insertBefore(inp,anchor);
     }
   });
   // keyboard nav built from the actual menu: press "g" then the first letter of a menu item
@@ -318,7 +332,7 @@ PERM_BY_ENDPOINT = {
     "export_master":   "exports", "export_history": "exports",
     "export_pricing":  "exports", "export_vat": "exports", "export_compare": "exports",
     "export_stations": "exports", "export_summary": "exports", "export_fee": "exports",
-    "export_readiness": "exports",
+    "export_readiness": "exports", "export_fees": "exports",
     "admin":           "user_admin",   # server setup / overall software changes
 }
 
@@ -481,6 +495,7 @@ main{max-width:1180px;margin:22px auto;padding:0 18px}
 h2{font-size:15px;margin:0 0 10px}
 table{width:100%;border-collapse:collapse;font-size:13.5px}
 th{background:#eef2f6;text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.sticky thead th{position:sticky;top:var(--navh,56px);z-index:10}
 td{padding:6px 9px;border-bottom:1px solid #eef1f4}tr:hover td{background:#f7fafc}
 .r{text-align:right}.ok{color:var(--ok);font-weight:600}.bad{color:var(--bad);font-weight:600}
 form.f{display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:14px}
@@ -581,8 +596,11 @@ def dash():
     trend = tbl(["Period","Diesel litres","Fleet eff. €/L"], trows)
     psw = "".join(f'<option {"selected" if p==period else ""}>{esc(p)}</option>' for p in periods)
     close = _close_status(period)
+    worklist = ""
+    if "vat_claims" in _auth.permissions_for(session.get("role", "processor")):
+        worklist = _worklist_card(int(period[:4]) if period[:4].isdigit() else 2026)
     body = (f'<form class="f" method="get"><label>Period<select name="period" onchange="this.form.submit()">{psw}</select></label></form>'
-            + close + kpis + f'<div class="card"><h2>Diesel benchmark — effective net €/L (cheapest first)</h2>{bench}'
+            + close + worklist + kpis + f'<div class="card"><h2>Diesel benchmark — effective net €/L (cheapest first)</h2>{bench}'
             f'<div class="note">Effective includes rebate layers (Q8/Port One).</div></div>'
             f'<div class="card"><h2>Monthly trend</h2>{trend}<div class="note">Populates as periods are loaded via history.py.</div></div>')
     con.close(); return page(body, "dash")
@@ -633,6 +651,55 @@ def _close_status(period):
     html = f'<div class="card"><h2>Month-close status — {esc(period)}</h2><div class="kpis">{cells}</div></div>'
     _close_cache[period] = (time.time() + _CLOSE_TTL, html)
     return html
+
+_AGING_DAYS = 120   # an unpaid submitted claim older than this needs chasing
+
+def _worklist_card(year):
+    """A 'what needs action' worklist for VAT recovery: claims ready to submit,
+    claims blocked on documents, aging unpaid claims, and fees ready to invoice.
+    Each line links to the page where the action is taken. Returns '' on any
+    error (the dashboard must still render) and logs it."""
+    try:
+        import vat_refund as VR
+        ov = VR.claims_overview(year)
+        recs, _ = VR.recovery_report(str(year))
+    except Exception as e:
+        _log_exc("dashboard worklist", e)
+        return ""
+    items = []   # (severity class, text, href)
+    ready = [c for c in ov["to_submit"] if c.get("ready")]
+    blocked = [c for c in ov["to_submit"] if not c.get("ready")]
+    for c in ready:
+        items.append(("ok", f"Submit {esc(c['entity'])} · {esc(c['country'])} "
+                      f"{esc(c['period'])} — €{c['vat_eur']:,.0f} VAT ready", "/readiness"))
+    for c in blocked:
+        why = ", ".join(c.get("issues") or []) or "not ready"
+        items.append(("bad", f"Unblock {esc(c['entity'])} · {esc(c['country'])} "
+                      f"{esc(c['period'])} — {esc(why)}", "/readiness"))
+    for r in recs:
+        if r["status"] in ("submitted", "approved") and isinstance(r["age_days"], int) \
+           and r["age_days"] >= _AGING_DAYS:
+            items.append(("bad", f"Chase {esc(r['entity'])} · {esc(r['country'])} "
+                          f"{esc(r['period'])} — submitted {r['age_days']}d ago, unpaid",
+                          "/recovery"))
+        if r["fee_billed_date"] and (r["payout_to"] or "customer") == "customer" \
+           and not r["fee_invoice_no"]:
+            items.append(("", f"Invoice fee for {esc(r['entity'])} · {esc(r['country'])} "
+                          f"{esc(r['period'])} — €{(r['fee_eur'] or 0):,.0f}", "/recovery"))
+    if not items:
+        return ('<div class="card"><h2>What needs action</h2>'
+                '<p class="note">Nothing outstanding — all claims are submitted, '
+                'chased, and settled. 🎉</p></div>')
+    SEV = {"bad": "✗", "ok": "▶", "": "•"}
+    shown = items[:12]
+    lis = "".join(f'<li><a href="{href}" style="text-decoration:none;color:inherit">'
+                  f'<span class="{sev}">{SEV[sev]}</span> {txt}</a></li>'
+                  for sev, txt, href in shown)
+    more = (f'<li class="note">…and {len(items)-len(shown)} more</li>'
+            if len(items) > len(shown) else "")
+    return ('<div class="card"><h2>What needs action '
+            f'<span class="note">({len(items)})</span></h2>'
+            f'<ul style="margin:0;padding-left:18px;line-height:1.9">{lis}{more}</ul></div>')
 
 @app.route("/compare")
 def compare():
@@ -1485,7 +1552,9 @@ def recovery():
                     f"<td>{esc(r['status'])}</td>",
                     f"<td class='{agecls}'>{r['age_days'] if r['age_days']!='' else ''}</td>",
                     f"<td>{esc(r['paid'] or '')}</td><td>{inv_cell}</td>"])
-    body = (banner + f'<div class="card"><h2>VAT recovery &amp; fee settlement {esc(year)}</h2>'
+    body = (banner + f'<form class="f" method="get"><label>Year<input name="year" value="{esc(year)}" style="width:80px"></label>'
+            f'<a href="/export/fees?year={esc(year)}" style="align-self:end;padding:8px 12px;font-size:13px">⬇ Fees statement (Excel)</a></form>'
+            + f'<div class="card"><h2>VAT recovery &amp; fee settlement {esc(year)}</h2>'
             f'<div class="kpis"><div class="kpi"><div class="v">EUR {summ["submitted"]:,.0f}</div>'
             f'<div class="l">submitted</div></div>'
             f'<div class="kpi"><div class="v ok">EUR {summ["paid"]:,.0f}</div><div class="l">paid back</div></div>'
@@ -1550,6 +1619,15 @@ def export_readiness():
     import vat_refund as VR, reports
     year = request.args.get("year", "2026")
     path = reports.claims_overview_workbook(VR.claims_overview(year), year)
+    return send_file(path, as_attachment=True, download_name=os.path.basename(path),
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+@app.route("/export/fees")
+def export_fees():
+    import vat_refund as VR, reports
+    year = request.args.get("year", "2026")
+    rows, _ = VR.recovery_report(year)
+    path = reports.fees_statement_workbook(rows, year)
     return send_file(path, as_attachment=True, download_name=os.path.basename(path),
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 

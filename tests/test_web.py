@@ -43,6 +43,42 @@ def test_csrf_token_present_in_forms(client):
     assert 'name="_csrf"' in html, "data page form missing CSRF token"
 
 
+def test_worklist_card_actions(monkeypatch):
+    import app as A
+    import vat_refund as VR
+    monkeypatch.setattr(VR, "claims_overview", lambda y: {
+        "to_submit": [
+            {"entity": "Acme", "country": "DE", "period": "2026-Q1",
+             "vat_eur": 1500, "ready": True, "issues": []},
+            {"entity": "Beta", "country": "PL", "period": "2026-Q1",
+             "vat_eur": 800, "ready": False, "issues": ["country not activated"]},
+        ], "open": []})
+    monkeypatch.setattr(VR, "recovery_report", lambda y: ([
+        {"entity": "Acme", "country": "DE", "period": "2025-Q4", "vat_eur": 1000,
+         "status": "submitted", "age_days": 200, "paid_amount": None,
+         "fee_eur": None, "fee_pct": 8, "fee_min": 130, "fee_billed_date": None,
+         "payout_to": None, "fee_invoice_no": None},
+        {"entity": "Acme", "country": "PL", "period": "2025-Q3", "vat_eur": 2000,
+         "status": "paid", "age_days": "", "paid_amount": 2000,
+         "fee_eur": 160, "fee_pct": 8, "fee_min": 130, "fee_billed_date": "2026-01-01",
+         "payout_to": "customer", "fee_invoice_no": None},
+    ], {}))
+    html = A._worklist_card(2026)
+    assert "Submit Acme" in html           # ready-to-submit
+    assert "Unblock Beta" in html          # blocked, with reason
+    assert "country not activated" in html
+    assert "Chase Acme" in html            # aging > 120 days
+    assert "Invoice fee for Acme" in html  # billed, payout customer, not invoiced
+
+
+def test_worklist_card_empty(monkeypatch):
+    import app as A
+    import vat_refund as VR
+    monkeypatch.setattr(VR, "claims_overview", lambda y: {"to_submit": [], "open": []})
+    monkeypatch.setattr(VR, "recovery_report", lambda y: ([], {}))
+    assert "Nothing outstanding" in A._worklist_card(2026)
+
+
 def test_compare_multi_supplier_filter(client):
     import re
     html = client.get("/compare?period=ALL&supplier=Q8&supplier=BP").get_data(as_text=True)

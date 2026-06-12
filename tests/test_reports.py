@@ -27,3 +27,39 @@ def test_export_summary_route(client):
 def test_export_compare_styled(client):
     r = client.get("/export/compare?period=2026-05")
     assert r.status_code == 200 and r.get_data()[:2] == b"PK"
+
+
+def test_fees_statement_workbook(tmp_path):
+    import reports
+    from openpyxl import load_workbook
+    rows = [
+        # paid to US: fee deducted, net remitted = 1000-130 = 870
+        dict(entity="Acme", country="DE", period="2026-Q1", vat_eur=1000.0, status="paid",
+             paid_amount=1000.0, age_days="", fee_eur=130.0, fee_pct=8.0, fee_min=130.0,
+             fee_billed_date="2026-04-01", payout_to="us", fee_invoice_no=None),
+        # paid to CUSTOMER: fee invoiced (receivable)
+        dict(entity="Acme", country="PL", period="2026-Q1", vat_eur=2000.0, status="paid",
+             paid_amount=2000.0, age_days="", fee_eur=160.0, fee_pct=8.0, fee_min=130.0,
+             fee_billed_date="2026-04-02", payout_to="customer", fee_invoice_no="F2026-0001"),
+        # not yet billed -> excluded from the statement
+        dict(entity="Beta", country="DE", period="2026-Q1", vat_eur=500.0, status="submitted",
+             paid_amount=None, age_days=10, fee_eur=None, fee_pct=8.0, fee_min=130.0,
+             fee_billed_date=None, payout_to=None, fee_invoice_no=None),
+    ]
+    path = reports.fees_statement_workbook(rows, "2026", path=str(tmp_path / "fees.xlsx"))
+    wb = load_workbook(path)
+    assert wb.sheetnames == ["Fees by customer", "Fee detail"]
+    ws = wb["Fees by customer"]
+    # one aggregated customer row (Acme); Beta excluded (unbilled)
+    body = [r for r in ws.iter_rows(min_row=4, values_only=True) if r[0] == "Acme"]
+    assert len(body) == 1
+    _, claims, vat, fee, recv, net = body[0]
+    assert claims == 2 and vat == 1000 + 2000 and fee == 130 + 160
+    assert recv == 160 and net == 870
+    # detail sheet only has the two billed lines
+    assert wb["Fee detail"].max_row - 1 == 2
+
+
+def test_export_fees_route(client):
+    r = client.get("/export/fees?year=2026")
+    assert r.status_code == 200 and r.get_data()[:2] == b"PK"

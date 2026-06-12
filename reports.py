@@ -472,6 +472,89 @@ def claims_overview_workbook(overview, year, path=None):
     return path
 
 
+def fees_statement_workbook(rows, year, path=None):
+    """Monthly fees statement: charged fees and net remittances per customer.
+    `rows` is recovery_report() output. Only claims whose fee has been billed
+    (the refund was paid) count. Sheet 1 aggregates by customer; sheet 2 lists
+    every charged line. All EUR, VAT-excluded."""
+    from openpyxl.styles import Font
+    billed = [r for r in rows if r.get("fee_billed_date")]
+    # aggregate per entity
+    agg = {}
+    detail = []
+    for r in billed:
+        ent = r.get("entity") or ""
+        vat = r.get("vat_eur") or 0
+        fee = r.get("fee_eur") or 0
+        refund = r.get("paid_amount") or vat
+        payout = r.get("payout_to") or "customer"
+        receivable = fee if payout == "customer" else 0.0
+        net = (refund - fee) if payout == "us" else refund
+        pct_fee = (r.get("fee_pct") or 0) / 100.0 * vat
+        basis = "percent" if pct_fee >= (r.get("fee_min") or 0) else "minimum"
+        a = agg.setdefault(ent, {"n": 0, "vat": 0.0, "fee": 0.0, "recv": 0.0, "net": 0.0})
+        a["n"] += 1; a["vat"] += vat; a["fee"] += fee
+        a["recv"] += receivable; a["net"] += (net if payout == "us" else 0.0)
+        detail.append((ent, r.get("country") or "", r.get("period") or "", vat, fee, basis,
+                       payout, receivable, net, r.get("fee_invoice_no") or "",
+                       r.get("fee_billed_date") or ""))
+
+    wb = Workbook()
+    ws = wb.active; ws.title = "Fees by customer"
+    _title(ws, str(year), "Service fees statement — charged fees & net remittances", "A1:F1")
+    hdr = ["Customer", "Claims", "VAT refunded", "Fees charged",
+           "Receivable (invoiced)", "Net remitted (deducted)"]
+    for j, h in enumerate(hdr, 1):
+        ws.cell(3, j, h)
+    style_header(ws, 3, len(hdr))
+    rr = 4
+    for ent in sorted(agg):
+        a = agg[ent]
+        ws.cell(rr, 1, ent)
+        ws.cell(rr, 2, a["n"]).number_format = FMT_INT
+        ws.cell(rr, 3, money.f2(a["vat"])).number_format = FMT_EUR
+        ws.cell(rr, 4, money.f2(a["fee"])).number_format = FMT_EUR
+        ws.cell(rr, 5, money.f2(a["recv"])).number_format = FMT_EUR
+        ws.cell(rr, 6, money.f2(a["net"])).number_format = FMT_EUR
+        rr += 1
+    band_rows(ws, 4, rr - 1, len(hdr))
+    if rr > 4:
+        totals_row(ws, rr, len(hdr))
+        ws.cell(rr, 1, "TOTAL").font = Font(bold=True)
+        for col in (2, 3, 4, 5, 6):
+            L = get_column_letter(col)
+            ws.cell(rr, col).value = f"=SUM({L}4:{L}{rr-1})"
+            ws.cell(rr, col).number_format = FMT_INT if col == 2 else FMT_EUR
+    set_widths(ws, [26, 9, 16, 14, 18, 20]); ws.freeze_panes = "A4"
+    ws.sheet_view.showGridLines = False
+
+    ws2 = wb.create_sheet("Fee detail")
+    hdr2 = ["Customer", "Country", "Period", "VAT EUR", "Fee EUR", "Basis",
+            "Refund paid to", "Receivable", "Net remitted", "Fee invoice", "Billed"]
+    for j, h in enumerate(hdr2, 1):
+        ws2.cell(1, j, h)
+    style_header(ws2, 1, len(hdr2))
+    rr = 2
+    for d in detail:
+        ent, ctry, per, vat, fee, basis, payout, recv, net, inv, billed_dt = d
+        ws2.cell(rr, 1, ent); ws2.cell(rr, 2, ctry); ws2.cell(rr, 3, per)
+        ws2.cell(rr, 4, money.f2(vat)).number_format = FMT_EUR
+        ws2.cell(rr, 5, money.f2(fee)).number_format = FMT_EUR
+        ws2.cell(rr, 6, basis)
+        ws2.cell(rr, 7, "us" if payout == "us" else "customer")
+        ws2.cell(rr, 8, money.f2(recv)).number_format = FMT_EUR
+        ws2.cell(rr, 9, money.f2(net) if payout == "us" else "").number_format = FMT_EUR
+        ws2.cell(rr, 10, inv); ws2.cell(rr, 11, billed_dt)
+        rr += 1
+    band_rows(ws2, 2, rr - 1, len(hdr2))
+    set_widths(ws2, [24, 10, 10, 13, 12, 10, 13, 13, 14, 14, 12])
+    ws2.freeze_panes = "A2"; ws2.sheet_view.showGridLines = False
+
+    path = path or os.path.join(WORKDIR, f"VAT_Fees_Statement_{year}.xlsx")
+    wb.save(path)
+    return path
+
+
 if __name__ == "__main__":
     import sys
     per = sys.argv[1] if len(sys.argv) > 1 else None
