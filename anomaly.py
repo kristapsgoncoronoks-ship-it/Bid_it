@@ -30,24 +30,41 @@ def _outlier_high(value, sample):
     sd = statistics.pstdev(sample)
     return sd > 0 and value > statistics.fmean(sample) + ANOMALY_SIGMAS * sd
 
-def _robust_outlier(value, sample):
-    """Iglewicz-Hoaglin modified z-score (median + MAD) — robust, NOT masked by the very
-    point being tested (important for per-line checks in small per-period buckets). All
-    learned from the sample. Returns 'HIGH' / 'LOW' / None."""
+def _robust_stats(sample):
+    """Precompute the bucket-level stats (median, MAD, pstdev) that `_robust_outlier`
+    needs, ONCE per sample — they're identical for every value tested against the same
+    bucket. Returns None when the sample is too small to learn a bound (mirrors the
+    `len(sample) < 3` guard in the per-value check)."""
     if len(sample) < 3:
         return None
     med = statistics.median(sample)
     mad = statistics.median([abs(x - med) for x in sample])
+    sd = statistics.pstdev(sample)               # only used in the MAD==0 fallback branch
+    return (med, mad, sd)
+
+def _robust_flag(value, stats):
+    """Iglewicz-Hoaglin modified z-score (median + MAD) — robust, NOT masked by the very
+    point being tested (important for per-line checks in small per-period buckets). All
+    learned from the sample (via precomputed `stats` from `_robust_stats`). Returns
+    'HIGH' / 'LOW' / None. Byte-identical to the inlined median+MAD computation."""
+    if stats is None:
+        return None
+    med, mad, sd = stats
     if mad > 0:
         z = 0.6745 * (value - med) / mad
         thr = 3.5                                # the standard modified-z cutoff
     else:                                        # most values identical -> use std-dev
-        sd = statistics.pstdev(sample)
         if sd <= 0:
             return None
         z = (value - med) / sd
         thr = ANOMALY_SIGMAS
     return "HIGH" if z > thr else "LOW" if z < -thr else None
+
+def _robust_outlier(value, sample):
+    """Convenience wrapper: compute the sample stats and flag `value` in one call.
+    Kept for callers/tests that pass a raw sample; the hot path in `annotate` precomputes
+    the stats once per bucket and calls `_robust_flag` directly."""
+    return _robust_flag(value, _robust_stats(sample))
 
 
 def expected_rebates(con):
@@ -85,6 +102,9 @@ def annotate(rows, hist_rebates=None):
     for r in rows:
         if r.get("product_group") == "Diesel" and (r.get("qty") or 0) > 0 and r.get("eurl"):
             buckets[(r.get("country"), r.get("period"))].append(r["eurl"])
+    # median + MAD are identical for every row in a bucket — compute them ONCE here
+    # instead of recomputing per row inside _robust_outlier (and re-medianing at display).
+    bucket_stats = {k: _robust_stats(s) for k, s in buckets.items()}
     out = []
     for r in rows:
         net = r.get("net_eur") or 0
@@ -95,11 +115,11 @@ def annotate(rows, hist_rebates=None):
         anomaly = relates_to = expected_rebate = None
         if is_discount:
             relates_to = f"{r.get('supplier','')} {r.get('country','')} {r.get('period') or ''}".strip()
-        sample = buckets.get((r.get("country"), r.get("period")), [])
+        stats = bucket_stats.get((r.get("country"), r.get("period")))
         if pg == "Diesel" and (r.get("qty") or 0) > 0 and r.get("eurl"):
-            flag = _robust_outlier(r["eurl"], sample)
+            flag = _robust_flag(r["eurl"], stats)
             if flag:
-                med = statistics.median(sample)
+                med = stats[0]                     # bucket median (== statistics.median(sample))
                 tag = ((r.get("country") or "") + " " + (r.get("period") or "")).strip()
                 anomaly = f"{r['eurl']:.3f} EUR/L — {flag} outlier vs {tag} median {med:.3f}"
         exp = hist_rebates.get((r.get("supplier"), r.get("country")))

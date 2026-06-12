@@ -102,6 +102,98 @@ def test_annotate_shows_applied_rebate():
     assert a["rebate"] == 40.0 and not a["is_discount"]   # Port One rebate visible on the line
 
 
+def test_annotate_identical_after_stats_hoist():
+    """Guard for the median/MAD hoist: annotate() must produce a byte-identical result
+    to a per-row reference that recomputes median+MAD inline (the pre-refactor behavior).
+    Mixed buckets (multi-row, MAD>0; identical-values, MAD==0; <3 rows; empty/None)."""
+    import anomaly, statistics, collections
+
+    def reference(rows, hist_rebates=None):
+        hist_rebates = hist_rebates or {}
+        buckets = collections.defaultdict(list)
+        for r in rows:
+            if r.get("product_group") == "Diesel" and (r.get("qty") or 0) > 0 and r.get("eurl"):
+                buckets[(r.get("country"), r.get("period"))].append(r["eurl"])
+        out = []
+        for r in rows:
+            net = r.get("net_eur") or 0
+            eff = r.get("net_eur_eff")
+            rebate = (net - eff) if eff is not None else 0.0
+            pg = r.get("product_group")
+            is_discount = (net < 0) or (pg in anomaly.DISCOUNT_GROUPS)
+            anomaly_s = relates_to = expected_rebate = None
+            if is_discount:
+                relates_to = f"{r.get('supplier','')} {r.get('country','')} {r.get('period') or ''}".strip()
+            sample = buckets.get((r.get("country"), r.get("period")), [])
+            if pg == "Diesel" and (r.get("qty") or 0) > 0 and r.get("eurl"):
+                # recompute median+MAD PER ROW (old hot path)
+                if len(sample) >= 3:
+                    med = statistics.median(sample)
+                    mad = statistics.median([abs(x - med) for x in sample])
+                    if mad > 0:
+                        z = 0.6745 * (r["eurl"] - med) / mad; thr = 3.5
+                        flag = "HIGH" if z > thr else "LOW" if z < -thr else None
+                    else:
+                        sd = statistics.pstdev(sample)
+                        if sd <= 0:
+                            flag = None
+                        else:
+                            z = (r["eurl"] - med) / sd; thr = anomaly.ANOMALY_SIGMAS
+                            flag = "HIGH" if z > thr else "LOW" if z < -thr else None
+                    if flag:
+                        med2 = statistics.median(sample)
+                        tag = ((r.get("country") or "") + " " + (r.get("period") or "")).strip()
+                        anomaly_s = f"{r['eurl']:.3f} EUR/L — {flag} outlier vs {tag} median {med2:.3f}"
+            exp = hist_rebates.get((r.get("supplier"), r.get("country")))
+            if exp and abs(rebate) < 0.005 and pg == "Diesel" and (r.get("qty") or 0) > 0:
+                expected_rebate = exp * r["qty"]
+            out.append({"anomaly": anomaly_s, "rebate": rebate, "is_discount": is_discount,
+                        "relates_to": relates_to, "expected_rebate": expected_rebate})
+        return out
+
+    rows = [
+        # bucket A (Germany 05): MAD>0, one HIGH outlier
+        {"country": "Germany", "period": "2026-05", "supplier": "BP", "product_group": "Diesel",
+         "qty": 100, "net_eur": 140.0, "net_eur_eff": 140.0, "eurl": 1.40},
+        {"country": "Germany", "period": "2026-05", "supplier": "BP", "product_group": "Diesel",
+         "qty": 100, "net_eur": 141.0, "net_eur_eff": 141.0, "eurl": 1.41},
+        {"country": "Germany", "period": "2026-05", "supplier": "BP", "product_group": "Diesel",
+         "qty": 100, "net_eur": 139.0, "net_eur_eff": 139.0, "eurl": 1.39},
+        {"country": "Germany", "period": "2026-05", "supplier": "BP", "product_group": "Diesel",
+         "qty": 100, "net_eur": 250.0, "net_eur_eff": 250.0, "eurl": 2.50},
+        # bucket B (Poland 05): all identical -> MAD==0, sd==0 -> nothing flagged
+        {"country": "Poland", "period": "2026-05", "supplier": "DKV", "product_group": "Diesel",
+         "qty": 100, "net_eur": 130.0, "net_eur_eff": 130.0, "eurl": 1.30},
+        {"country": "Poland", "period": "2026-05", "supplier": "DKV", "product_group": "Diesel",
+         "qty": 100, "net_eur": 130.0, "net_eur_eff": 130.0, "eurl": 1.30},
+        {"country": "Poland", "period": "2026-05", "supplier": "DKV", "product_group": "Diesel",
+         "qty": 100, "net_eur": 130.0, "net_eur_eff": 130.0, "eurl": 1.30},
+        # bucket C (Spain 05): <3 rows -> no stats
+        {"country": "Spain", "period": "2026-05", "supplier": "MOEVE", "product_group": "Diesel",
+         "qty": 100, "net_eur": 120.0, "net_eur_eff": 120.0, "eurl": 1.20},
+        {"country": "Spain", "period": "2026-05", "supplier": "MOEVE", "product_group": "Diesel",
+         "qty": 100, "net_eur": 122.0, "net_eur_eff": 122.0, "eurl": 1.22},
+        # non-diesel / discount line -> no bucket
+        {"country": "Spain", "period": "2026-05", "supplier": "MOEVE", "product_group": "Promo adj",
+         "qty": 0, "net_eur": -25.0, "net_eur_eff": -25.0, "eurl": None},
+    ]
+    hist = {("Q8", "Belgium"): 0.40}
+    assert anomaly.annotate([dict(r) for r in rows], hist) == reference([dict(r) for r in rows], hist)
+    # and the flagged line is the 2.50 outlier, exact string preserved
+    ann = anomaly.annotate([dict(r) for r in rows], hist)
+    assert ann[3]["anomaly"] == "2.500 EUR/L — HIGH outlier vs Germany 2026-05 median 1.405"
+    assert all(a["anomaly"] is None for i, a in enumerate(ann) if i != 3)
+
+
+def test_robust_outlier_wrapper_matches_flag():
+    """The retained _robust_outlier wrapper equals _robust_flag(_robust_stats(...))."""
+    import anomaly
+    for sample, val in [([1.0, 1.1, 1.05, 2.0], 2.0), ([1.0, 1.0, 1.0], 1.0),
+                        ([1.0, 1.1], 1.0), ([], 1.0)]:
+        assert anomaly._robust_outlier(val, sample) == \
+               anomaly._robust_flag(val, anomaly._robust_stats(sample))
+
+
 def test_routing_flag_is_learned_from_spread():
     import app
     # mean 1.05, std-dev 0.05 -> the trigger price is LEARNED from this market's spread
