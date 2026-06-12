@@ -192,6 +192,23 @@ def set_discount_rule(supplier, country="%", station_like="%", product_group="Di
     con.commit(); rid = con.execute("SELECT last_insert_rowid()").fetchone()[0]; con.close()
     return rid
 
+def set_vat_registration(supplier, country, vat_number, source="document mining"):
+    """Upsert a supplier's VAT registration for a country (used to fill INPUT gaps)."""
+    con = connect()
+    con.execute("""INSERT INTO supplier_vat_registrations (supplier, country, vat_number, source)
+                   VALUES (?,?,?,?)
+                   ON CONFLICT(supplier, country) DO UPDATE SET vat_number=excluded.vat_number,
+                     source=excluded.source""",
+                (supplier, country, vat_number, source))
+    con.commit(); con.close()
+
+def vat_registrations():
+    con = connect()
+    rows = [dict(r) for r in con.execute(
+        "SELECT supplier, country, vat_number, source FROM supplier_vat_registrations")]
+    con.close()
+    return rows
+
 def discount_rules(active_only=True):
     con = connect()
     q = "SELECT * FROM supplier_discounts" + (" WHERE active=1" if active_only else "") + " ORDER BY supplier, id"

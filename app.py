@@ -324,6 +324,7 @@ PERM_BY_ENDPOINT = {
     "extract_batch":   "data_import", "extract_confirm": "data_import",
     "data_manager":    "data_import",
     "intake_queue_page": "data_import", "intake_review": "data_import",
+    "doc_mining_page": "data_import",
     "invoice_ctrl":    "invoice_control", "contracts": "invoice_control",
     "vat":             "vat_claims", "api_vat": "vat_claims", "readiness": "vat_claims",
     "customers":       "customers",
@@ -611,7 +612,8 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
 {% if 'documents' in perms %}<a href="/documents" class="{{'on' if page=='doc'}}">Documents</a>{% endif %}
 <a href="/suppliers" class="{{'on' if page=='sup'}}">Suppliers</a>
 {% if 'customers' in perms %}<a href="/customers" class="{{'on' if page=='cus'}}">Customers</a>{% endif %}
-{% if 'data_import' in perms %}<a href="/data" class="{{'on' if page=='dat'}}">Data manager</a>{% endif %}
+{% if 'data_import' in perms %}<a href="/data" class="{{'on' if page=='dat'}}">Data manager</a>
+<a href="/mining" class="{{'on' if page=='min'}}">Doc mining</a>{% endif %}
 <a href="/history" class="{{'on' if page=='his'}}">History</a>
 <span style="margin-left:auto" class="exp">
 {% if 'exports' in perms %}<a href="/export/summary">⬇ Summary report</a><a href="/export/master">⬇ Master xlsx</a><a href="/export/history">⬇ History report</a>{% endif %}
@@ -1591,6 +1593,52 @@ def intake_review(job_id):
     with open(_os.path.join(tmp, token + ".pkl"), "wb") as pf:
         pickle.dump(pairs, pf)
     return page(_review_form(draft, token, intake_job=job_id, period=job.get("period")), "queue")
+
+@app.route("/mining", methods=["GET", "POST"])
+def doc_mining_page():
+    """Mine the vaulted documents for VAT numbers and propose fills for the INPUT
+    gaps in master data. Capability: data_import (it writes master data on apply)."""
+    import doc_mining as DM
+    banner = ""
+    if request.method == "POST" and request.form.get("__act") == "apply":
+        try:
+            if request.form.get("kind") == "supplier":
+                DM.apply_supplier_vat(request.form["who"], request.form["country"],
+                                      request.form["value"])
+            else:
+                DM.apply_customer_vat(request.form["who"], request.form["value"])
+            banner = (f'<div class="card"><b class="ok">Applied {esc(request.form["value"])} '
+                      f'to {esc(request.form["who"])}. Logged in History.</b></div>')
+        except Exception as e:
+            _log_exc("doc mining apply", e)
+            banner = f'<div class="card"><b class="bad">Could not apply: {esc(str(e))}</b></div>'
+    try:
+        props = DM.proposals()
+    except Exception as e:
+        _log_exc("doc mining scan", e)
+        props = []
+    trs = []
+    for p in props:
+        who = p.get("supplier") or p.get("customer")
+        applyf = ('<form method="post" style="display:inline">' + _csrf_input()
+                  + f'<input type="hidden" name="kind" value="{esc(p["kind"])}">'
+                  + f'<input type="hidden" name="who" value="{esc(who)}">'
+                  + f'<input type="hidden" name="country" value="{esc(p.get("country") or "")}">'
+                  + f'<input type="hidden" name="value" value="{esc(p["value"])}">'
+                  + '<button name="__act" value="apply">Apply</button></form>')
+        trs.append([f"<td>{esc(p['kind'])}</td><td>{esc(who)}</td><td>{esc(p.get('country') or '')}</td>",
+                    f"<td>{esc(p['field'])}</td><td><b>{esc(p['value'])}</b></td>",
+                    f"<td class=note>{esc(p['reason'])}</td><td>{applyf}</td>"])
+    body = (banner + '<div class="card"><h2>Document mining — fill INPUT gaps from your vault</h2>'
+            + f'<div class="kpis"><div class="kpi"><div class="v">{len(props)}</div>'
+              '<div class="l">proposed fills</div></div></div>'
+            + (tbl(["For", "Who", "Country", "Field", "Proposed value", "Why", ""], trs) if trs
+               else '<p class="note">No proposals — either no gaps, or no matching VAT numbers found in the '
+                    'vaulted documents. (PDF mining needs poppler/pypdf; structured XML always works.)</p>')
+            + '<div class="note">Re-reads every vaulted invoice document (PDF text + structured XML), extracts '
+              'EU VAT numbers, and proposes them only where the master field is still empty/INPUT and the country '
+              'code matches. Nothing is written until you press <b>Apply</b> (which is audit-logged).</div></div>')
+    return page(body, "min")
 
 @app.route("/contracts", methods=["GET", "POST"])
 def contracts():
