@@ -437,7 +437,10 @@ PERM_BY_ENDPOINT = {
 # The VAT-refund module (claims, readiness, recovery/fees + their exports/API) is
 # restricted to admins regardless of any processor capability.
 ADMIN_ONLY = {"vat", "api_vat", "readiness", "recovery",
-              "export_vat", "export_readiness", "export_fees", "export_fee"}
+              "export_vat", "export_readiness", "export_fees", "export_fee",
+              # customer/CRM data (checklist, templates, document generation) is part of
+              # the VAT-refund module, so the same admin-only access applies.
+              "customers"}
 
 # Switchable PARTS of the app. An admin turns these on/off in the Admin panel; a
 # disabled part is hidden from the menu and its pages return "turned off". Core pages
@@ -785,7 +788,7 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
 </span></div></div>{% endif %}
 <div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['sup','cus','dat'] else ''}}">Master data</span><div class="mdrop"><span>
   <a href="/suppliers" class="{{'on' if page=='sup'}}">Suppliers</a>
-  {% if 'customers' in perms %}<a href="/customers" class="{{'on' if page=='cus'}}">Customers</a>{% endif %}
+  {% if is_admin %}<a href="/customers" class="{{'on' if page=='cus'}}">Customers (CRM)</a>{% endif %}
   {% if 'data_import' in perms %}<a href="/data" class="{{'on' if page=='dat'}}">Data manager</a>{% endif %}
 </span></div></div>
 <a href="/history" class="{{'on' if page=='his'}}">History</a>
@@ -3059,6 +3062,38 @@ def customers():
                 con.execute("UPDATE customers SET nace_code=? WHERE code=?",
                             (request.form.get("nace_code", "").strip(), code)); con.commit(); con.close()
                 msg = f"NACE business activity code saved for {esc(code)}."
+            elif act == "add_template":
+                f = request.files.get("file")
+                if not f or not f.filename:
+                    raise ValueError("choose a template file")
+                con = CD.connect()
+                CD.add_template(con, request.form.get("tname", ""), request.form.get("tkind", "other"),
+                                f.filename, f.read()); con.close()
+                msg = f"Template '{esc(request.form.get('tname',''))}' uploaded."
+            elif act == "del_template":
+                con = CD.connect(); CD.delete_template(con, int(request.form.get("tid", "0"))); con.close()
+                msg = "Template removed."
+            elif act == "gen_doc":
+                con = CD.connect()
+                data, outname, ext, leftover = CD.generate_document(
+                    con, int(request.form.get("tid", "0")), code,
+                    request.form.get("gen_country", "").strip() or None)
+                if request.form.get("file_as") and data is not None:
+                    # also file the generated draft as a customer document of the kind it
+                    # fulfils (so it can satisfy the checklist once signed/uploaded later)
+                    CD.add_document(con, code, request.form.get("file_as"), outname, data,
+                                    country=request.form.get("gen_country", "").strip() or None)
+                con.close()
+                if data is None:
+                    raise ValueError("template not found")
+                from flask import Response
+                mt = {"docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                      "html": "text/html", "md": "text/markdown"}.get(ext, "text/plain")
+                resp = Response(data, mimetype=mt)
+                resp.headers["Content-Disposition"] = f'attachment; filename="{outname}"'
+                if leftover:
+                    resp.headers["X-Unfilled-Fields"] = ",".join(leftover)
+                return resp
             elif act in ("add_checklist_rule", "toggle_checklist_rule", "del_checklist_rule"):
                 if session.get("role") != "admin":
                     raise ValueError("only an admin can change the checklist rules")
@@ -3094,6 +3129,9 @@ def customers():
         if r["check_type"] == "document" and r["scope"] == "customer":
             cust_doc_kinds.setdefault(r["ref"], CD.DOC_KINDS.get(r["ref"])
                                       or r["ref"].replace("_", " ").capitalize())
+    templates = CD.list_templates(con)
+    tmpl_opts = "".join(f'<option value="{t["id"]}">{esc(t["name"])} ({esc(t["ext"])})</option>'
+                        for t in templates)
     cards = []
     for c in con.execute("SELECT * FROM customers ORDER BY status DESC, code"):
         code = c["code"]
@@ -3134,6 +3172,20 @@ def customers():
                     + f'<label>document<select name="kind">{opt("trade_registry")}</select></label>'
                     + '<label>file<input type="file" name="file" required></label>'
                     + '<button>Upload</button></form>')
+        # generate a document (contract / POA / …) by filling a template with this
+        # customer's data — the mini-CRM mail-merge.
+        gen_f = ""
+        if templates:
+            file_as_opts = '<option value="">(download only)</option>' + "".join(
+                f'<option value="{k}">also file as {esc(lbl)}</option>'
+                for k, lbl in cust_doc_kinds.items())
+            gen_f = ('<form method="post" class="f" style="margin-top:8px">' + _csrf_input() + hid
+                     + '<input type="hidden" name="__act" value="gen_doc">'
+                     + f'<label>template<select name="tid">{tmpl_opts}</select></label>'
+                     + '<label>refund country (for POA)<input name="gen_country" '
+                       'style="width:120px" placeholder="optional"></label>'
+                     + f'<label>filing<select name="file_as">{file_as_opts}</select></label>'
+                     + '<button>Generate document</button></form>')
         fee_f = ('<form method="post" class="f" style="margin-top:6px">' + _csrf_input() + hid
                  + '<input type="hidden" name="__act" value="set_fee">'
                  + f'<label>default fee %<input name="fee_pct" type="number" step="0.1" value="{fee_pct:g}" style="width:80px"></label>'
@@ -3205,6 +3257,10 @@ def customers():
             + '<h2 style="margin-top:12px">Documents</h2>'
             + (f'<table><tbody>{docs}</tbody></table>' if docs else '<p class="note">none yet</p>')
             + upload_f
+            + (('<h2 style="margin-top:12px">Generate document from a template</h2>'
+                '<div class="note" style="margin-top:0">Fills the template with this '
+                'customer\'s data (mail-merge). Optionally file the draft as a document.</div>'
+                + gen_f) if gen_f else "")
             + f'<h2 style="margin-top:12px">Our fee — default {fee_pct:g}% of refunded VAT, min €{fee_min:,.2f}/declaration</h2>'
             + '<div class="note" style="margin-top:0">Priority is the % fee; if it falls below the '
               'minimum, the minimum is charged. Adjustable per declaration and per country — but '
@@ -3222,8 +3278,7 @@ def customers():
     rrows = ""
     for r in CD.list_checklist_rules(con):
         verify = (f"data · {esc(r['ref'])}" if r["check_type"] == "data"
-                  else "document · " + esc(CD.DOC_KINDS.get(r["ref"])
-                                           or CD.REQUIRED_DOCS.get(r["ref"]) or r["ref"]))
+                  else f"document · {esc(CD.DOC_KINDS.get(r['ref']) or CD.REQUIRED_DOCS.get(r['ref']) or r['ref'])}")
         st = '<span class="ok">on</span>' if r["active"] else '<span class="note">off</span>'
         actions = ""
         if is_admin:
@@ -3256,6 +3311,34 @@ def customers():
             + f'<div class="note">Data verifiers available: {esc(", ".join(CD.DATA_VERIFIERS))}. '
               'Document rules accept any kind (e.g. signed_contract, trade_registry, '
               'power_of_attorney, or a new one you define).</div>')
+    # document templates (mini-CRM mail-merge): upload once, generate per customer
+    trows = "".join(
+        f'<tr><td>{esc(t["name"])}</td><td>{esc(t["kind"])}</td><td>{esc(t["ext"])}</td>'
+        f'<td>{esc(t["filename"])}</td><td>'
+        + (('<form method="post" style="display:inline">' + _csrf_input()
+            + f'<input type="hidden" name="tid" value="{t["id"]}">'
+            + '<button name="__act" value="del_template" style="background:var(--bad);'
+              'font-size:11px;padding:3px 8px">×</button></form>') if is_admin else "")
+        + '</td></tr>' for t in templates)
+    tkind_opts = "".join(f'<option value="{esc(k)}">{esc(l)}</option>'
+                         for k, l in {**cust_doc_kinds, "power_of_attorney": "Power of attorney",
+                                      "other": "Other"}.items())
+    tmpl_add_f = ('<form method="post" enctype="multipart/form-data" class="f" style="margin-top:8px">'
+                  + _csrf_input() + '<input type="hidden" name="__act" value="add_template">'
+                  + '<label>name<input name="tname" required style="width:150px" placeholder="Contract"></label>'
+                  + f'<label>fulfils kind<select name="tkind">{tkind_opts}</select></label>'
+                  + '<label>file<input type="file" name="file" required></label>'
+                  + '<button>Upload template</button></form>') if is_admin else ""
+    tmpl_card = ('<div class="card"><h2>Document templates (contract, power of attorney…)</h2>'
+                 '<div class="note" style="margin-top:0">Upload your own template once; the system '
+                 'fills the <code>{{placeholders}}</code> with each customer\'s data to generate the '
+                 'document (per customer, below). Supported: <b>.txt / .html / .md</b> (full) and '
+                 '<b>.docx</b> (best-effort). Available fields: '
+                 + str(esc(", ".join("{{" + f + "}}" for f in CD.template_fields()))) + '.</div>'
+                 + (f'<table style="margin-top:6px"><thead><tr><th>name</th><th>fulfils kind</th>'
+                    f'<th>type</th><th>file</th><th></th></tr></thead><tbody>{trows}</tbody></table>'
+                    if templates else '<p class="note">no templates yet</p>')
+                 + tmpl_add_f + '</div>')
     rules_card = ('<div class="card"><h2>Submission checklist rules (adjustable)</h2>'
                   '<div class="note" style="margin-top:0">The <b>system</b> verifies these before a '
                   'claim can be submitted — a claim climbs <b>1A→1E</b> automatically as each passes; '
@@ -3293,7 +3376,7 @@ def customers():
              '<label>reg number<input name="reg_number"></label>'
              '<label>VAT number<input name="vat_number"></label>'
              '<button>+ Create customer</button></form></div>')
-    body = (banner + rules_card + new_f + req_card
+    body = (banner + rules_card + tmpl_card + new_f + req_card
             + '<div class="note" style="margin-bottom:10px">Customer (entity) master data lives in '
               '<b>customers.db</b>. Each new customer must be <b>activated</b> — requires a trade '
               'registry extract, a bank account, and a signed contract — before claims can be '

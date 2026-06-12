@@ -53,6 +53,10 @@ CREATE TABLE IF NOT EXISTS checklist_rules (
     key TEXT PRIMARY KEY, label TEXT, scope TEXT DEFAULT 'customer',
     check_type TEXT DEFAULT 'document', ref TEXT,
     active INTEGER DEFAULT 1, sort INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS doc_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT, kind TEXT, ext TEXT, filename TEXT, body BLOB,
+    uploaded_at TEXT DEFAULT (datetime('now')));
 """
 
 # The claim-submission checklist is ADJUSTABLE (rules change): each rule is a
@@ -299,6 +303,108 @@ def evaluate_checklist(con, code, country=None):
 def checklist_ready(con, code, country=None):
     items = evaluate_checklist(con, code, country)
     return all(ok for _, _, _, ok in items)
+
+# ---------------------------------------------------------------- mini-CRM: documents
+# Generate documents (contract, power of attorney, …) by filling {{placeholders}} in an
+# uploaded template with the customer's own data. The user prepares the template; the
+# system only substitutes the fields. Supported templates: .txt/.html/.md (full) and
+# .docx (best-effort text replacement inside the Word XML).
+import re as _re
+
+def merge_fields(con, code, country=None):
+    """The data available to a template for one customer (+ refund country). Returns a
+    {placeholder: value} dict — every value a string. Use as {{company_name}} etc."""
+    import datetime
+    c = con.execute("SELECT * FROM customers WHERE code=?", (code,)).fetchone()
+    f = {}
+    if c:
+        for k in c.keys():
+            f[k] = c[k]
+    bank = con.execute("""SELECT iban, swift, bank FROM customer_bank_accounts
+                          WHERE customer=? ORDER BY iban LIMIT 1""", (code,)).fetchone()
+    f["bank_iban"] = bank["iban"] if bank else ""
+    f["bank_swift"] = bank["swift"] if bank else ""
+    f["bank_name"] = bank["bank"] if bank else ""
+    f["refund_country"] = country or ""
+    f["today"] = datetime.date.today().isoformat()
+    return {k: ("" if v is None else str(v)) for k, v in f.items()}
+
+def template_fields():
+    """The placeholder names a template may use (for the on-screen hint)."""
+    base = ["company_name", "code", "reg_number", "vat_number", "legal_address", "country",
+            "nace_code", "home_portal", "phone", "email", "status",
+            "bank_iban", "bank_swift", "bank_name", "refund_country", "today"]
+    return base
+
+def _fill_text(raw, fields):
+    text = raw.decode("utf-8", "replace")
+    for k, v in fields.items():
+        text = text.replace("{{" + k + "}}", v)
+    return text.encode("utf-8")
+
+def _fill_docx(raw, fields):
+    """Replace {{placeholders}} inside a .docx (a zip of XML). Best-effort: works when a
+    placeholder isn't split across formatting runs. Falls back to leaving it as-is."""
+    import io, zipfile
+    src = io.BytesIO(raw); out = io.BytesIO()
+    with zipfile.ZipFile(src) as zin:
+        names = zin.namelist()
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout:
+            for n in names:
+                data = zin.read(n)
+                if n.endswith(".xml") and (n.startswith("word/") or n == "word/document.xml"):
+                    text = data.decode("utf-8", "replace")
+                    for k, v in fields.items():
+                        # XML-escape the value so it stays valid markup
+                        sv = (v.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+                        text = text.replace("{{" + k + "}}", sv)
+                    data = text.encode("utf-8")
+                zout.writestr(n, data)
+    return out.getvalue()
+
+def fill_template(raw, ext, fields):
+    """Fill a template's bytes with `fields`. Returns (bytes, ext, leftover_placeholders)."""
+    ext = (ext or "txt").lower().lstrip(".")
+    if ext == "docx":
+        filled = _fill_docx(raw, fields)
+        probe = filled.decode("latin-1", "ignore")
+    else:
+        filled = _fill_text(raw, fields)
+        probe = filled.decode("utf-8", "replace")
+    leftover = sorted(set(_re.findall(r"\{\{(\w+)\}\}", probe)))
+    return filled, ext, leftover
+
+def add_template(con, name, kind, filename, body):
+    ext = (filename.rsplit(".", 1)[-1] if "." in (filename or "") else "txt").lower()
+    cur = con.execute("""INSERT INTO doc_templates (name, kind, ext, filename, body)
+                         VALUES (?,?,?,?,?)""",
+                      ((name or "template").strip(), (kind or "other").strip(), ext,
+                       filename, sqlite3.Binary(body)))
+    con.commit()
+    return cur.lastrowid
+
+def list_templates(con):
+    return con.execute("""SELECT id, name, kind, ext, filename, uploaded_at
+                          FROM doc_templates ORDER BY name""").fetchall()
+
+def get_template(con, tid):
+    return con.execute("SELECT * FROM doc_templates WHERE id=?", (tid,)).fetchone()
+
+def delete_template(con, tid):
+    con.execute("DELETE FROM doc_templates WHERE id=?", (tid,))
+    con.commit()
+
+def generate_document(con, tid, code, country=None):
+    """Fill template `tid` with customer `code`'s data. Returns (bytes, out_filename, ext,
+    leftover_placeholders) or (None, …) if the template is missing."""
+    t = get_template(con, tid)
+    if not t:
+        return None, None, None, []
+    fields = merge_fields(con, code, country)
+    filled, ext, leftover = fill_template(t["body"], t["ext"], fields)
+    base = (t["name"] or "document").strip().replace(" ", "_")
+    out_name = f"{base}_{code}" + (f"_{country}" if country else "") + f".{ext}"
+    return filled, out_name, ext, leftover
 
 def activation_checklist(con, code):
     """Returns ([(label, ok), ...], ready_bool) for the activation requirements."""

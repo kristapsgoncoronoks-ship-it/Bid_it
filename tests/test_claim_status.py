@@ -162,3 +162,34 @@ def test_disabling_a_rule_changes_the_gate(tmp_path, monkeypatch):
     vcon = vr.connect()
     assert vr.derive_stage(vcon, "Acme SIA", "Belgium", "2026-Q1")[0] == "1E"
     vcon.close()
+
+
+# ------------------------------------------------------------ mini-CRM doc generation
+def test_template_merge_and_generate(tmp_path, monkeypatch):
+    import customer_master as cm
+    import importlib
+    importlib.reload(cm)
+    monkeypatch.setattr(cm, "DB", str(tmp_path / "c.db"))
+    monkeypatch.setattr(cm, "_SCHEMA_READY", set())
+    monkeypatch.setattr(cm, "DOCDIR", str(tmp_path / "cdocs"))
+    cm.add_customer("ACME", "Acme SIA", "LV", reg_number="LV123", vat_number="LV456")
+    con = cm.connect()
+    # text template fills fully and reports leftover placeholders
+    out, ext, left = cm.fill_template(b"{{company_name}} / {{reg_number}} / {{nope}}", "txt",
+                                      cm.merge_fields(con, "ACME"))
+    assert b"Acme SIA / LV123 /" in out and left == ["nope"]
+    # docx template: placeholder inside the Word XML is replaced
+    import io, zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("word/document.xml", "<w:t>POA for {{company_name}} in {{refund_country}}</w:t>")
+    tid = cm.add_template(con, "POA", "power_of_attorney", "poa.docx", buf.getvalue())
+    data, name, dext, _ = cm.generate_document(con, tid, "ACME", country="Belgium")
+    assert dext == "docx" and name == "POA_ACME_Belgium.docx"
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        assert "Acme SIA" in z.read("word/document.xml").decode() and "Belgium" in z.read("word/document.xml").decode()
+    # list + delete
+    assert any(t["name"] == "POA" for t in cm.list_templates(con))
+    cm.delete_template(con, tid)
+    assert cm.get_template(con, tid) is None
+    con.close()
