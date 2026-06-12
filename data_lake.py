@@ -132,6 +132,51 @@ def counts():
     return {r["kind"]: {"files": r["n"], "bytes": r["b"] or 0} for r in rows}
 
 
+def delete(file_id):
+    """EXPLICITLY remove an artifact (the only way a file leaves the lake besides a
+    corruption removal). Drops the stored bytes and the index row. Returns True if a
+    row was removed."""
+    con = connect()
+    r = con.execute("SELECT stored_path FROM data_lake_files WHERE id=?", (file_id,)).fetchone()
+    if not r:
+        con.close()
+        return False
+    try:
+        document_vault.delete(r["stored_path"], LAKE_DIR)
+    except Exception:
+        pass
+    con.execute("DELETE FROM data_lake_files WHERE id=?", (file_id,))
+    con.commit(); con.close()
+    return True
+
+
+def verify():
+    """Integrity check: re-read every stored artifact and compare its SHA-256 to the
+    recorded hash. Returns (rows, summary{total, ok, corrupt, missing}). A file is only
+    ever LOST through an explicit delete() or being flagged here as corrupt/missing."""
+    con = connect()
+    rows = con.execute("SELECT id, kind, supplier, filename, stored_path, sha256, size "
+                       "FROM data_lake_files ORDER BY id").fetchall()
+    con.close()
+    out, summ = [], {"total": 0, "ok": 0, "corrupt": 0, "missing": 0}
+    for r in rows:
+        summ["total"] += 1
+        status, detail = "OK", ""
+        try:
+            actual = hashlib.sha256(get(r["stored_path"])).hexdigest()
+            if actual != r["sha256"]:
+                status, detail = "CORRUPT", f"hash {actual[:8]} != {r['sha256'][:8]}"
+        except FileNotFoundError:
+            status = "MISSING"
+        except Exception as e:
+            status, detail = "MISSING", str(e)[:60]
+        summ[{"OK": "ok", "CORRUPT": "corrupt", "MISSING": "missing"}[status]] += 1
+        out.append({"id": r["id"], "kind": r["kind"], "supplier": r["supplier"],
+                    "filename": r["filename"], "status": status, "detail": detail,
+                    "size": r["size"]})
+    return out, summ
+
+
 if __name__ == "__main__":
     import tempfile, shutil
     d = tempfile.mkdtemp()

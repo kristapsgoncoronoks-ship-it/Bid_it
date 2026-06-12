@@ -49,6 +49,30 @@ def test_query_filters(lake):
     assert len(lake.query(period="2026-05")) == 2
 
 
+def test_explicit_delete(lake):
+    loc = lake.put(b"bytes", "f.json", kind="raw_upload")
+    fid = lake.query()[0]["id"]
+    assert lake.delete(fid) is True
+    assert lake.query() == []                    # row gone
+    assert lake.delete(fid) is False             # idempotent / already gone
+
+
+def test_verify_detects_corruption(lake, tmp_path):
+    import os
+    lake.put(b"good", "g.json", kind="raw_upload")
+    bad_loc = lake.put(b"original", "b.json", kind="raw_upload")
+    # tamper with the stored bytes on disk (local backend stores the path as locator)
+    with open(bad_loc, "wb") as fh:
+        fh.write(b"tampered")
+    rows, summ = lake.verify()
+    assert summ["total"] == 2 and summ["corrupt"] == 1 and summ["ok"] == 1
+    assert any(r["status"] == "CORRUPT" for r in rows)
+    # a missing file is flagged too
+    os.remove(bad_loc)
+    _rows2, summ2 = lake.verify()
+    assert summ2["missing"] == 1
+
+
 def test_extract_ai_path_writes_to_lake(tmp_path, monkeypatch):
     """When an AI backend produces a draft, extract() archives it in the lake."""
     import extract, data_lake

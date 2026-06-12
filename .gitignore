@@ -26,9 +26,12 @@ intake.db
 # ── Client-portal scraper: configs, ENCRYPTED credentials, run history ──
 portal.db
 
-# ── Data lake: AI-processed extraction artifacts + index (machine-specific) ──
+# ── Data lake: archived uploads + AI-processed artifacts + index ──
 data_lake.db
 data_lake/
+
+# ── Data-import log (audit of every import; machine-specific) ──
+import_log.db
 
 # ── VAT claim records — isolated DB, rebuilt by migration from fuel_history on
 #    first run; on a real server this is LIVE data (back it up; see backup.py) ──

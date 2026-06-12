@@ -129,6 +129,17 @@ capability). Pick database →
 table; every row is editable inline (Save / Delete), the bottom row adds new
 records. Deleted rows are recoverable: their full values stay in History.
 
+**Imports** — the data‑import report: every upload, extraction and statement
+registration with its outcome (**received / success / partial / failed**), the user,
+file, client, supplier and record count. Filter by channel, status, client, supplier
+and date. Append‑only audit of what came in and whether it landed.
+
+**Files** — the permanent file archive (data lake). **Every uploaded file is archived
+here on arrival** (SHA‑256, same storage as the PDF vault) and kept forever; it is only
+removed by an **explicit Delete** here, or after **Verify integrity** flags it
+corrupt/missing — never lost automatically. Whether a file's *data* is processed/used is
+a separate concern: the file stays regardless.
+
 **Doc mining** — re‑reads the vaulted documents (PDF text + structured XML), extracts
 EU VAT numbers, and **proposes fills for the yellow INPUT gaps** in supplier/customer
 master data where the country code matches. Review each proposal and press **Apply**

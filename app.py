@@ -324,7 +324,7 @@ PERM_BY_ENDPOINT = {
     "extract_batch":   "data_import", "extract_confirm": "data_import",
     "data_manager":    "data_import",
     "intake_queue_page": "data_import", "intake_review": "data_import",
-    "doc_mining_page": "data_import",
+    "doc_mining_page": "data_import", "imports": "data_import", "files_archive": "data_import",
     "invoice_ctrl":    "invoice_control", "contracts": "invoice_control",
     "vat":             "vat_claims", "api_vat": "vat_claims", "readiness": "vat_claims",
     "customers":       "customers",
@@ -613,7 +613,9 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
 <a href="/suppliers" class="{{'on' if page=='sup'}}">Suppliers</a>
 {% if 'customers' in perms %}<a href="/customers" class="{{'on' if page=='cus'}}">Customers</a>{% endif %}
 {% if 'data_import' in perms %}<a href="/data" class="{{'on' if page=='dat'}}">Data manager</a>
-<a href="/mining" class="{{'on' if page=='min'}}">Doc mining</a>{% endif %}
+<a href="/mining" class="{{'on' if page=='min'}}">Doc mining</a>
+<a href="/imports" class="{{'on' if page=='imp'}}">Imports</a>
+<a href="/files" class="{{'on' if page=='fil'}}">Files</a>{% endif %}
 <a href="/history" class="{{'on' if page=='his'}}">History</a>
 <span style="margin-left:auto" class="exp">
 {% if 'exports' in perms %}<a href="/export/summary">⬇ Summary report</a><a href="/export/master">⬇ Master xlsx</a><a href="/export/history">⬇ History report</a>{% endif %}
@@ -1233,6 +1235,22 @@ def extract_batch():
     if request.method == "POST" and "file" in request.files:
         f = request.files["file"]
         data = f.read()
+        # DURABILITY: archive every uploaded file permanently in the data lake on
+        # arrival (SHA-256, same storage backends as the PDF vault) — it can only be
+        # removed later by an explicit user delete or a corruption flag, never lost.
+        # Whether its DATA is processed/used is a separate concern.
+        import data_lake as _DL, import_log as _IL, hashlib as _hl
+        _loc, _sha = None, _hl.sha256(data).hexdigest()
+        try:
+            _loc = _DL.put(data, f.filename, kind="raw_upload",
+                           supplier=request.form.get("backend") or None,
+                           source_name=f.filename, meta={"by": session.get("user")})
+        except Exception as e:
+            _log_exc("data lake archive", e)
+        _IL.log("upload", f.filename, "received", actor=session.get("user", "system"),
+                supplier=request.form.get("backend") or None, sha256=_sha,
+                file_locator=_loc, bytes=len(data),
+                message=f"archived to data lake ({request.form.get('__mode','now')})")
         if request.form.get("__mode") == "queue":
             # waiting room: store durably now, extract later in the background worker
             import waiting_room as IQ
@@ -1398,6 +1416,13 @@ def extract_confirm():
                           f'<td class="r">{res["line"].get("vat")}</td>'
                           f'<td class="{cls}">{res["verdict"]}</td>'
                           f'<td class="note">{esc("; ".join(res["messages"]))}</td></tr>')
+        try:
+            import import_log as _IL
+            _IL.log("statement", request.form.get("stmt_ref", "").strip(), "failed",
+                    actor=session.get("user", "system"), supplier=supplier, period=period,
+                    message=f"commit blocked: {vr['errors']} error(s), {vr['warnings']} warning(s)")
+        except Exception:
+            pass
         thead = "".join(f"<th>{h}</th>" for h in ["Invoice","Country","Net","VAT","Check","Issue"])
         return page('<div class="card"><b class="bad">Commit blocked - fix the errors '
                     f'({vr["errors"]} error, {vr["warnings"]} warning) and re-import:</b>'
@@ -1434,6 +1459,14 @@ def extract_confirm():
             IQ.complete(int(request.form["intake_job"]))
         except Exception as e:
             _log_exc("intake complete", e)
+    try:
+        import import_log as _IL
+        _IL.log("statement", request.form["stmt_ref"].strip(), "success",
+                actor=session.get("user", "system"), client=customer, supplier=supplier,
+                period=period, records=len(lines),
+                message=f"{len(lines)} invoices, {synced} VAT-bearing synced, {attached} PDFs vaulted")
+    except Exception as e:
+        _log_exc("import log statement", e)
     banner = (f'<div class="card"><b class="ok">Statement {esc(request.form["stmt_ref"])} '
               f'registered: {len(lines)} invoices ({synced} VAT-bearing synced), '
               f'{attached} PDFs vaulted. Review triage on the Invoice control page.</b></div>')
@@ -1644,6 +1677,106 @@ def doc_mining_page():
               'EU VAT numbers, and proposes them only where the master field is still empty/INPUT and the country '
               'code matches. Nothing is written until you press <b>Apply</b> (which is audit-logged).</div></div>')
     return page(body, "min")
+
+@app.route("/imports")
+def imports():
+    """Data-import report: every upload / extraction / statement registration with its
+    outcome (received / success / partial / failed). Filter by channel, status, client,
+    supplier and date. Capability: data_import."""
+    import import_log as IL
+    fl = IL.filters()
+    chan = request.args.get("channel") or None
+    status = request.args.get("status") or None
+    client = request.args.get("client") or None
+    supplier = request.args.get("supplier") or None
+    df = request.args.get("date_from", ""); dt = request.args.get("date_to", "")
+    rows = IL.recent(channel=chan, status=status, client=client, supplier=supplier,
+                     date_from=df or None, date_to=dt or None, limit=1000)
+    summ = IL.summary(30)
+    def sel(name, opts, cur):
+        o = '<option value="">all</option>' + "".join(
+            f'<option {"selected" if v==cur else ""}>{esc(v)}</option>' for v in opts)
+        return f'<label>{esc(name)}<select name="{esc(name)}">{o}</select></label>'
+    form = ('<form class="f" method="get">'
+            + sel("channel", fl["channels"], chan or "")
+            + sel("status", ["received", "success", "partial", "failed"], status or "")
+            + sel("client", fl["clients"], client or "")
+            + sel("supplier", fl["suppliers"], supplier or "")
+            + f'<label>from<input type="date" name="date_from" value="{esc(df)}"></label>'
+            + f'<label>to<input type="date" name="date_to" value="{esc(dt)}"></label>'
+            + '<button>Filter</button><a href="/imports" style="align-self:end;padding:8px 12px;font-size:13px">Reset</a></form>')
+    scls = {"success": "ok", "received": "", "partial": "", "failed": "bad"}
+    trs = [[f"<td class=note>{esc(r['ts'])}</td><td>{esc(r['actor'] or '')}</td>",
+            f"<td>{esc(r['channel'])}</td><td class='{scls.get(r['status'],'')}'>{esc(r['status'])}</td>",
+            f"<td>{esc(r['client'] or '')}</td><td>{esc(r['supplier'] or '')}</td>",
+            f"<td>{esc(r['source_name'] or '')}</td><td class=r>{r['records']}</td>",
+            f"<td class=note>{esc((r['message'] or '')[:80])}</td>"] for r in rows]
+    body = (form
+            + '<div class="kpis">'
+            + f'<div class="kpi"><div class="v">{summ["received"]}</div><div class="l">received (30d)</div></div>'
+            + f'<div class="kpi"><div class="v ok">{summ["success"]}</div><div class="l">success</div></div>'
+            + f'<div class="kpi"><div class="v">{summ["partial"]}</div><div class="l">partial</div></div>'
+            + f'<div class="kpi"><div class="v {"bad" if summ["failed"] else ""}">{summ["failed"]}</div><div class="l">failed</div></div></div>'
+            + f'<div class="card"><h2>Data imports — {len(rows)} event(s)</h2>'
+            + tbl(["Time (UTC)", "User", "Channel", "Status", "Client", "Supplier",
+                   "Source file", "Records", "Message"], trs)
+            + '<div class="note">Every import is logged: <b>received</b> (file archived in the '
+              'data lake on arrival), <b>success</b>/<b>partial</b>/<b>failed</b> extraction and '
+              'statement registration. Append-only audit trail.</div></div>')
+    return page(body, "imp")
+
+@app.route("/files", methods=["GET", "POST"])
+def files_archive():
+    """The permanent file archive (data lake): uploaded files and AI-processed outputs.
+    Files are kept forever — removed only by an explicit delete here or when integrity
+    verification flags them corrupt/missing. Capability: data_import."""
+    import data_lake as DL
+    banner = ""
+    if request.method == "POST":
+        if request.form.get("__act") == "delete":
+            if DL.delete(int(request.form.get("file_id", "0"))):
+                banner = '<div class="card"><b class="ok">File deleted (explicit user action).</b></div>'
+        elif request.form.get("__act") == "verify":
+            _rows, vs = DL.verify()
+            cls = "bad" if (vs["corrupt"] or vs["missing"]) else "ok"
+            banner = (f'<div class="card"><b class="{cls}">Integrity: {vs["ok"]}/{vs["total"]} OK, '
+                      f'{vs["corrupt"]} corrupt, {vs["missing"]} missing.</b> '
+                      + ('Corrupt/missing files can be deleted and re-uploaded.' if cls == "bad"
+                         else 'All archived files verified intact.') + '</div>')
+    kind = request.args.get("kind") or None
+    rows = DL.query(kind=kind, limit=500)
+    c = DL.counts()
+    kinds = sorted(c)
+    ksel = ('<form class="f" method="get"><label>kind<select name="kind" onchange="this.form.submit()">'
+            '<option value="">all</option>'
+            + "".join(f'<option {"selected" if k==(kind or "") else ""}>{esc(k)}</option>' for k in kinds)
+            + '</select></label></form>')
+    trs = []
+    for r in rows:
+        delf = ('<form method="post" style="display:inline" onsubmit="return confirm(\'Delete this file permanently?\')">'
+                + _csrf_input() + f'<input type="hidden" name="file_id" value="{r["id"]}">'
+                + '<button name="__act" value="delete" style="background:var(--bad)">Delete</button></form>')
+        trs.append([f"<td>{r['id']}</td><td>{esc(r['kind'])}</td><td>{esc(r['supplier'] or '')}</td>",
+                    f"<td>{esc(r['period'] or '')}</td><td>{esc(r['source_name'] or r['filename'] or '')}</td>",
+                    f"<td class=r>{(r['size'] or 0):,}</td><td class=note>{esc(r['created_at'])}</td>",
+                    f"<td>{delf}</td>"])
+    verifyf = ('<form method="post" style="display:inline">' + _csrf_input()
+               + '<button name="__act" value="verify">✓ Verify integrity</button></form>')
+    body = (banner
+            + '<div class="card"><h2>File archive (data lake)</h2>'
+            + '<div class="kpis">'
+            + "".join(f'<div class="kpi"><div class="v">{v["files"]}</div>'
+                      f'<div class="l">{esc(k)} ({v["bytes"]:,} B)</div></div>' for k, v in c.items())
+            + '</div>'
+            + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0">'
+            + ksel + verifyf + '</div>'
+            + (tbl(["#", "Kind", "Supplier", "Period", "Source file", "Size", "Archived", ""], trs)
+               if trs else '<p class="note">No files archived yet.</p>')
+            + '<div class="note"><b>Every uploaded file is archived here permanently on arrival</b> '
+              '(SHA-256, same storage as the PDF vault). A file is only ever removed by an explicit '
+              '<b>Delete</b> above, or after <b>Verify integrity</b> flags it corrupt/missing — never '
+              'lost automatically. Whether a file\'s data is processed/used is a separate concern.</div></div>')
+    return page(body, "fil")
 
 @app.route("/contracts", methods=["GET", "POST"])
 def contracts():

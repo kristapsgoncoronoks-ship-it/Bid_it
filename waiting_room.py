@@ -205,6 +205,18 @@ def _strip_draft(draft):
     bytes are re-derived from the kept inbox file when the draft is reviewed."""
     return {k: v for k, v in draft.items() if not k.startswith("_")}
 
+def _import_log(row, channel, status, records=0, message=""):
+    """Record an import event from a queue job (best-effort)."""
+    try:
+        import import_log
+        import_log.log(channel, row["filename"], status,
+                       actor=row["uploaded_by"] or "system",
+                       supplier=row["backend"], period=row["period"],
+                       sha256=row["sha256"], records=records, bytes=row["size"],
+                       message=message)
+    except Exception:
+        pass
+
 def process_one():
     """Claim and process one job. Returns (job_id, outcome) or None if the queue
     is idle. Never raises — failures are recorded on the row."""
@@ -226,6 +238,8 @@ def process_one():
                            draft=?, error=NULL, lease_until=NULL WHERE id=?""",
                         (_now(), json.dumps(_strip_draft(draft)), jid))
             con.commit()
+            _import_log(row, "extract", "success", records=len(draft.get("lines", [])),
+                        message=f"extracted via {draft.get('backend','')}")
             return (jid, "ready")
         except EX.TransientExtractionError as e:
             # upstream out of tokens / rate-limited. This is not the document's
@@ -258,6 +272,7 @@ def process_one():
                                finished_at=?, lease_until=NULL WHERE id=?""",
                             (msg, _now(), jid))
                 outcome = "failed"
+                _import_log(row, "extract", "failed", message=msg)
             else:
                 backoff = min(BACKOFF_BASE * (2 ** (attempts - 1)), BACKOFF_MAX)
                 con.execute("""UPDATE intake_jobs SET status='queued', error=?,

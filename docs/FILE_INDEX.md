@@ -55,7 +55,8 @@ siblings directly), so this index is how you navigate them. See
 | File | What it does |
 |------|--------------|
 | `vat_refund.py` / `vat_claims.db` | The heart: claims per entity × country × period, thresholds, one‑invoice‑one‑submission locks, the fee lifecycle, the document‑vault index, and the dynamic quarter→annual merge. Claim records live in their **own isolated database**; transactions are read from `fuel_history.db` via `analytics_connect()`. |
-| `data_lake.py` | The data lake: AI‑processed extraction artifacts stored as files (same backends as the document vault), indexed in `data_lake.db`, readable by any module. |
+| `data_lake.py` | The data lake / **permanent file archive**: every uploaded file (and AI‑processed output) stored as files (same backends as the document vault), indexed in `data_lake.db` with SHA‑256; `verify()` integrity, explicit `delete()` only. Readable by any module. |
+| `import_log.py` | Append‑only log of every data‑import attempt and outcome (received / success / partial / failed), with the actor, file, client/supplier and record count — the `/imports` report. |
 | `invoice_control.py` | Receipt control (cadence × activity) and statement reconciliation with VAT triage (process / discard / discard‑domestic). |
 | `contract_audit.py` | Contract‑compliance auditor: checks each invoiced line against the supplier's structured discount terms (`supplier_discounts`) and flags short discounts / over‑ceiling prices with the recoverable EUR. |
 | `doc_mining.py` | Mines the vaulted documents (PDF text + XML) for EU VAT numbers and proposes fills for the INPUT gaps in supplier/customer master data. |
