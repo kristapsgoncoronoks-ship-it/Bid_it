@@ -287,6 +287,10 @@ def run_worker(poll_seconds=POLL_SECONDS, stop=None):
             time.sleep(poll_seconds)
 
 
+# states of a job that has NOT been successfully extracted yet — these form the
+# "backlog" that blocks new uploads until cleared.
+PENDING_STATES = ("queued", "waiting", "held", "processing", "failed")
+
 # ---------------------------------------------------------------- queries / UI
 def counts():
     con = connect()
@@ -296,6 +300,34 @@ def counts():
     for r in rows:
         out[r["status"]] = r["n"]
     return out
+
+def pending_count():
+    """How many documents are still awaiting successful extraction (queued,
+    waiting, held, processing, or failed). 'ready' and 'done' don't count."""
+    con = connect()
+    ph = ",".join("?" * len(PENDING_STATES))
+    n = con.execute(f"SELECT COUNT(*) FROM intake_jobs WHERE status IN ({ph})",
+                    PENDING_STATES).fetchone()[0]
+    con.close()
+    return n
+
+def requeue_all(states=("waiting", "held", "failed")):
+    """Bulk 'send / restart workflow': reset every job in `states` back to 'queued'
+    for immediate reprocessing (clearing backoff/retry gates and counters). Returns
+    the number of jobs reset. The background worker (or a drain()) then processes
+    them; nothing is lost — the source bytes are untouched."""
+    con = connect()
+    ph = ",".join("?" * len(states))
+    ids = [r[0] for r in con.execute(
+        f"SELECT id FROM intake_jobs WHERE status IN ({ph})", tuple(states)).fetchall()]
+    if ids:
+        con.execute(f"""UPDATE intake_jobs SET status='queued', attempts=0, defer_count=0,
+                        lease_until=NULL, next_attempt_at=NULL, error=NULL,
+                        started_at=NULL, finished_at=NULL, draft=NULL
+                        WHERE status IN ({ph})""", tuple(states))
+        con.commit()
+    con.close()
+    return len(ids)
 
 def jobs(status=None, limit=100):
     con = connect()

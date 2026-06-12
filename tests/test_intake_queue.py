@@ -147,6 +147,32 @@ def test_requeue_recovers_held_to_ready_when_tokens_return(iq, monkeypatch):
     assert iq.process_one() == (jid, "ready")
 
 
+def test_pending_count_and_requeue_all(iq, monkeypatch):
+    import extract as EX
+    # one will succeed, two will get stuck (held) on token quota
+    state = {"broke": True}
+    def maybe(data, name, backend=None, strict=False):
+        if state["broke"] and strict:
+            raise EX.TransientExtractionError("openai: insufficient_quota")
+        return {"lines": [], "_pdf_bytes": []}
+    _stub_extract(monkeypatch, maybe)
+    monkeypatch.setattr(iq, "MAX_TOKEN_RETRIES", 1)     # straight to held
+    a, _ = iq.enqueue(b"%PDF-1.4 a", "a.pdf")
+    b, _ = iq.enqueue(b"%PDF-1.4 b", "b.pdf")
+    iq.drain()
+    # both are held (unprocessed) -> they count as pending backlog
+    assert iq.counts()["held"] == 2
+    assert iq.pending_count() == 2
+
+    # tokens come back; bulk "send / restart all" resets them and reprocesses
+    state["broke"] = False
+    reset = iq.requeue_all(("waiting", "held", "failed"))
+    assert reset == 2
+    assert iq.drain() == 2
+    assert iq.counts()["ready"] == 2
+    assert iq.pending_count() == 0                       # nothing pending now
+
+
 def test_drain_processes_backlog(iq, monkeypatch):
     _stub_extract(monkeypatch, lambda data, name, backend=None, strict=False: {"lines": [], "_pdf_bytes": []})
     for i in range(5):

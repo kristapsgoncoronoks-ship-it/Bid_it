@@ -501,6 +501,33 @@ def start_intake_worker():
     _intake_started = True
     threading.Thread(target=_intake_loop, name="intake-worker", daemon=True).start()
 
+# ---------------------------------------------------------------- intake gating
+# New documents may not be added to the waiting room while earlier ones are still
+# unprocessed (queued/waiting/held/processing/failed) — so a stuck backlog (e.g.
+# an AI token outage) gets cleared before more piles on. An admin can grant a
+# TEMPORARY override; it's stored as an expiry timestamp in security.db so it
+# applies across all worker processes and lapses on its own.
+INTAKE_OVERRIDE_MINUTES = 30
+
+def _intake_override_until():
+    try:
+        return float(_auth.get_setting("intake_override_until", "0") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+def _intake_override_remaining():
+    """Seconds left on the admin's temporary upload override (0 if none/expired)."""
+    return max(0, int(_intake_override_until() - time.time()))
+
+def _intake_uploads_blocked():
+    """Returns (blocked, pending_count). Blocked when there's an unprocessed
+    backlog and no active admin override."""
+    import intake_queue as IQ
+    pend = IQ.pending_count()
+    if pend == 0:
+        return False, 0
+    return (_intake_override_remaining() <= 0), pend
+
 # ---------------------------------------------------------------- queries
 # The read-only aggregations live in queries.py (small brick, easy to test).
 from queries import (q_periods, q_filters, where, q_compare, q_compare_totals,
@@ -1200,6 +1227,18 @@ def extract_batch():
         if request.form.get("__mode") == "queue":
             # waiting room: store durably now, extract later in the background worker
             import intake_queue as IQ
+            blocked, pend = _intake_uploads_blocked()
+            if blocked:
+                hint = ('An administrator can grant a temporary override on the '
+                        'waiting-room page.' if session.get("role") != "admin"
+                        else 'Use “Allow uploads (override)” on the waiting-room page '
+                             'to add anyway.')
+                return page('<div class="card"><b class="bad">New uploads are paused.</b>'
+                            f'<p>{pend} document(s) in the waiting room still need to be '
+                            'processed successfully. Clear them first — open the waiting '
+                            'room and press <b>Send / restart all</b>. ' + esc(hint) + '</p>'
+                            '<p><a href="/queue">→ Go to the waiting room</a></p></div>'
+                            + _upload_form(backend_env), "ext")
             try:
                 jid, st = IQ.enqueue(data, f.filename, backend=request.form.get("backend") or None,
                                      period=request.form.get("period") or None,
@@ -1236,7 +1275,22 @@ def _upload_form(backend_env):
                     f"The draft is always reviewed before commit.")
     opts = "".join(f'<option {"selected" if b==backend_env else ""}>{b}</option>'
                    for b in ("auto", "parser", "claude", "openai", "azure", "none"))
-    return ('<div class="card"><h2>Import an invoice batch (PDF or ZIP)</h2>'
+    blocked, pend = _intake_uploads_blocked()
+    block_note = ""
+    if pend:
+        if blocked:
+            block_note = ('<div class="card"><b class="bad">Queue uploads are paused.</b> '
+                          f'{pend} document(s) in the <a href="/queue">waiting room</a> still '
+                          'need to be processed successfully — clear them with <b>Send / '
+                          'restart all</b> first. (“Extract draft now” still works.)'
+                          + ('' if session.get("role") != "admin" else
+                             ' An admin can grant a temporary override there.') + '</div>')
+        else:
+            mins = _intake_override_remaining() // 60
+            block_note = ('<div class="card"><b class="ok">Upload override active</b> '
+                          f'(~{mins} min left): new queue uploads are allowed despite '
+                          f'{pend} pending document(s).</div>')
+    return (block_note + '<div class="card"><h2>Import an invoice batch (PDF or ZIP)</h2>'
             '<form method="post" enctype="multipart/form-data" class="f">'
             + _csrf_input() +
             '<label>file (.pdf or .zip)<input type="file" name="file" accept=".pdf,.zip" required></label>'
@@ -1378,6 +1432,7 @@ def intake_queue_page():
     queue state and lets you process the backlog now, review a ready draft, re-queue
     a failure, or discard a job. Access: data_import (enforced in _guard)."""
     import intake_queue as IQ
+    is_admin = session.get("role") == "admin"
     banner = ""
     if request.method == "POST":
         act = request.form.get("__act")
@@ -1388,21 +1443,34 @@ def intake_queue_page():
             except Exception as e:
                 _log_exc("intake drain", e)
                 banner = f'<div class="card"><b class="bad">Processing error: {esc(str(e))}</b></div>'
+        elif act == "send_all":
+            # bulk "manual send / restart workflow": reset every stuck job
+            # (waiting/held/failed) back to queued and run the whole backlog now.
+            try:
+                reset = IQ.requeue_all(("waiting", "held", "failed"))
+                done = IQ.drain(limit=500)
+                banner = (f'<div class="card"><b class="ok">Restarted {reset} stuck job(s) '
+                          f'and processed {done} document(s) from the waiting room.</b></div>')
+            except Exception as e:
+                _log_exc("intake send_all", e)
+                banner = f'<div class="card"><b class="bad">Bulk send failed: {esc(str(e))}</b></div>'
         elif act == "discard":
             IQ.discard(int(request.form.get("job", "0")))
             banner = '<div class="card"><b class="ok">Job discarded.</b></div>'
         elif act == "requeue":
-            jid = int(request.form.get("job", "0"))
-            j = IQ.get_job(jid)
-            if j:
-                try:
-                    IQ.enqueue(IQ.read_bytes(j["stored_path"]), j["filename"],
-                               backend=j["backend"], period=j["period"],
-                               user=session.get("user", "system"))
-                    banner = '<div class="card"><b class="ok">Job re-queued.</b></div>'
-                except Exception as e:
-                    _log_exc("intake requeue", e)
-                    banner = f'<div class="card"><b class="bad">Re-queue failed: {esc(str(e))}</b></div>'
+            if IQ.requeue(int(request.form.get("job", "0"))):
+                banner = '<div class="card"><b class="ok">Job re-queued for processing.</b></div>'
+            else:
+                banner = '<div class="card"><b class="bad">Could not re-queue (job or file missing).</b></div>'
+        elif act == "override_on" and is_admin:
+            _auth.set_setting("intake_override_until",
+                              str(time.time() + INTAKE_OVERRIDE_MINUTES * 60))
+            banner = (f'<div class="card"><b class="ok">Upload override enabled for '
+                      f'{INTAKE_OVERRIDE_MINUTES} minutes — new queue uploads are allowed '
+                      'despite the backlog.</b></div>')
+        elif act == "override_off" and is_admin:
+            _auth.set_setting("intake_override_until", "0")
+            banner = '<div class="card"><b class="ok">Upload override turned off.</b></div>'
     msg = request.args.get("msg")
     if msg:
         banner = f'<div class="card"><b class="ok">{esc(msg)}</b></div>' + banner
@@ -1446,9 +1514,33 @@ def intake_queue_page():
             f'<td class="{stcls}">{statetxt}</td><td class="r">{j["attempts"]}</td>',
             f'<td class="note">{esc((j["error"] or "")[:60])}</td>',
             f'<td>{act_cell} {disc}</td>'])
-    process_form = ('<form method="post" class="f" style="margin-bottom:12px">' + _csrf_input()
+    # bulk "manual send / restart workflow" for every pending document
+    send_all_btn = ('<form method="post" style="display:inline;margin-right:10px">' + _csrf_input()
+                    + '<button name="__act" value="send_all">↻ Send / restart all</button></form>')
+    process_form = ('<form method="post" class="f" style="margin:0">' + _csrf_input()
                     + '<label>batch size<input name="limit" value="5" style="width:60px" class="r"></label>'
-                    + '<button name="__act" value="process">Process queued now</button></form>')
+                    + '<button name="__act" value="process" style="background:var(--mut)">Process queued only</button></form>')
+    # upload-gating status + the admin temporary override controls
+    blocked, pend = _intake_uploads_blocked()
+    rem = _intake_override_remaining()
+    if pend == 0:
+        gate = ('<div class="note"><b class="ok">No backlog</b> — new documents can be '
+                'added to the waiting room.</div>')
+    elif rem > 0:
+        off = (('<form method="post" style="display:inline;margin-left:8px">' + _csrf_input()
+                + '<button name="__act" value="override_off" style="background:var(--mut)">'
+                  'Turn off override</button></form>') if is_admin else "")
+        gate = ('<div class="note"><b class="ok">Upload override active</b> '
+                f'(~{rem // 60} min left): new queue uploads allowed despite {pend} pending '
+                f'document(s).{off}</div>')
+    else:
+        ov = (('<form method="post" style="display:inline;margin-left:8px">' + _csrf_input()
+               + '<button name="__act" value="override_on">Allow uploads (override '
+               + f'{INTAKE_OVERRIDE_MINUTES} min)</button></form>') if is_admin else
+              '<span class="note"> An admin can grant a temporary override.</span>')
+        gate = ('<div class="note"><b class="bad">New uploads are paused</b> — '
+                f'{pend} document(s) here still need to be processed successfully. '
+                'Clear them with “Send / restart all”.' + ov + '</div>')
     body = (banner + '<div class="card"><h2>Document waiting room</h2>' + kpis
             + '<div class="note">Uploaded batches are stored durably on arrival and '
               'extracted later, one at a time, so a burst of uploads never overloads the '
@@ -1458,9 +1550,13 @@ def intake_queue_page():
               f'{IQ.RETRY_AFTER_TOKENS // 3600}h. After {IQ.MAX_TOKEN_RETRIES} retries the '
               'auto-processing stops and the job is <b>held</b> in the waiting room — it '
               'stays safe until you top up the API credit and press <b>Send now</b>.</div></div>'
-            + '<div class="card"><h2>Process backlog</h2>' + process_form
-            + '<div class="note">Or run a dedicated worker process: '
-              '<kbd>python intake_queue.py --work</kbd>.</div></div>'
+            + '<div class="card"><h2>Process backlog</h2>'
+            + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px">'
+            + send_all_btn + process_form + '</div>'
+            + '<div class="note"><b>Send / restart all</b> resets every waiting/held/failed '
+              'document and runs the whole backlog now. Or run a dedicated worker process: '
+              '<kbd>python intake_queue.py --work</kbd>.</div>'
+            + gate + '</div>'
             + '<div class="card"><h2>Jobs</h2>'
             + (tbl(["#", "File", "Extractor", "Period", "By", "Uploaded", "Status",
                     "Tries", "Last error", "Action"], rows) if rows

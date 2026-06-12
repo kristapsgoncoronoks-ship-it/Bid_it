@@ -80,6 +80,58 @@ def test_intake_queue_flow(client, monkeypatch, tmp_path):
     assert 'name="intake_job"' in rev and "DEMO" in rev and "INV1" in rev
 
 
+def test_intake_upload_gating_and_override(client, monkeypatch, tmp_path):
+    """While the waiting room has unprocessed docs, queueing a new one is blocked;
+    an admin temporary override lets it through; 'Send / restart all' clears it."""
+    import io, re
+    import intake_queue as IQ
+    import extract as EX
+    import auth
+    monkeypatch.setattr(IQ, "DB", str(tmp_path / "intake.db"))
+    monkeypatch.setattr(IQ, "INBOX", str(tmp_path / "inbox"))
+    IQ._SCHEMA_READY.clear()
+    auth.set_setting("intake_override_until", "0")        # clean slate
+
+    # extractor is "out of tokens" -> first queued doc gets stuck (held)
+    state = {"broke": True}
+    def maybe(data, name, backend=None, strict=False):
+        if state["broke"] and strict:
+            raise EX.TransientExtractionError("openai: insufficient_quota")
+        return {"supplier": "D", "lines": [], "backend": "stub", "_pdf_bytes": [(name, data)]}
+    monkeypatch.setattr(EX, "extract", maybe)
+    monkeypatch.setattr(IQ, "MAX_TOKEN_RETRIES", 1)
+
+    def csrf(path="/extract"):
+        return re.search(r'name="_csrf" value="([^"]+)"',
+                         client.get(path).get_data(as_text=True)).group(1)
+
+    def queue_upload(name):
+        return client.post("/extract", data={
+            "_csrf": csrf(), "__mode": "queue", "backend": "openai", "period": "2026-05",
+            "file": (io.BytesIO(b"%PDF-1.4 " + name.encode()), name)},
+            content_type="multipart/form-data")
+
+    assert queue_upload("one.pdf").status_code == 302    # first upload accepted
+    assert IQ.drain() == 1 and IQ.counts()["held"] == 1  # stuck -> backlog of 1
+
+    # second upload is now BLOCKED (backlog present, no override)
+    r = queue_upload("two.pdf")
+    assert r.status_code == 200 and "New uploads are paused" in r.get_data(as_text=True)
+    assert IQ.pending_count() == 1                        # two.pdf was NOT added
+
+    # admin enables the temporary override -> upload now goes through
+    r = client.post("/queue", data={"_csrf": csrf("/queue"), "__act": "override_on"})
+    assert "override enabled" in r.get_data(as_text=True).lower()
+    assert queue_upload("three.pdf").status_code == 302
+
+    # tokens are back; "Send / restart all" clears the whole backlog
+    state["broke"] = False
+    r = client.post("/queue", data={"_csrf": csrf("/queue"), "__act": "send_all"})
+    assert "Restarted" in r.get_data(as_text=True)
+    assert IQ.pending_count() == 0
+    auth.set_setting("intake_override_until", "0")        # don't leak override state
+
+
 def test_worklist_card_actions(monkeypatch):
     import app as A
     import vat_refund as VR
