@@ -61,7 +61,8 @@ def expected_rebates(con):
             FROM transactions WHERE product_group='Diesel' AND (net_eur-net_eur_eff)>0.001
             GROUP BY supplier, country"""):
         if r["q"]:
-            out[(r["supplier"], r["country"])] = round(r["reb"] / r["q"], 4)
+            # full precision — never round currency in the analytics; format at display
+            out[(r["supplier"], r["country"])] = r["reb"] / r["q"]
     return out
 
 
@@ -88,7 +89,7 @@ def annotate(rows, hist_rebates=None):
     for r in rows:
         net = r.get("net_eur") or 0
         eff = r.get("net_eur_eff")
-        rebate = round(net - eff, 2) if eff is not None else 0.0
+        rebate = (net - eff) if eff is not None else 0.0   # full precision; display rounds
         pg = r.get("product_group")
         is_discount = (net < 0) or (pg in DISCOUNT_GROUPS)
         anomaly = relates_to = expected_rebate = None
@@ -103,7 +104,7 @@ def annotate(rows, hist_rebates=None):
                 anomaly = f"{r['eurl']:.3f} EUR/L — {flag} outlier vs {tag} median {med:.3f}"
         exp = hist_rebates.get((r.get("supplier"), r.get("country")))
         if exp and abs(rebate) < 0.005 and pg == "Diesel" and (r.get("qty") or 0) > 0:
-            expected_rebate = round(exp * r["qty"], 2)
+            expected_rebate = exp * r["qty"]               # full precision; display rounds
         out.append({"anomaly": anomaly, "rebate": rebate, "is_discount": is_discount,
                     "relates_to": relates_to, "expected_rebate": expected_rebate})
     return out

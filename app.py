@@ -1096,10 +1096,10 @@ def transactions():
     stn = [x for x in request.args.getlist("station") if x and x != "ALL"]
     df = request.args.get("date_from", ""); dt = request.args.get("date_to", "")
     w, p = where(request.args, period)
+    # full precision from the DB — never pre-round currency for analytics; format at display
     rows = [dict(r) for r in con.execute(f"""SELECT period, date, supplier, country, station,
-        vehicle, product, product_group,
-        ROUND(qty,2) qty, ROUND(net_eur,2) net_eur, ROUND(net_eur_eff,2) net_eur_eff,
-        ROUND(vat_eur,2) vat_eur, ROUND(net_eur_eff/NULLIF(qty,0),4) eurl
+        vehicle, product, product_group, qty, net_eur, net_eur_eff,
+        net_eur_eff/NULLIF(qty,0) eurl
         FROM transactions WHERE {w} ORDER BY date, supplier, station LIMIT 2000""", p).fetchall()]
     import anomaly as AN
     hist_rebates = AN.expected_rebates(con)          # learn typical Port One-style rebates
@@ -1144,11 +1144,12 @@ def transactions():
         if a["expected_rebate"]:
             flags.append('<span class="note">Port One-style rebate expected (not on invoice) — '
                          'estimated from history</span>')
+        eurl_disp = f'{r["eurl"]:.4f}' if r["eurl"] is not None else ""
         body_rows += (f'<tr class="{cls}"><td>{esc(r["date"])}</td><td>{esc(r["supplier"])}</td>'
                       f'<td>{esc(r["country"])}</td><td>{esc(r["station"])}</td>'
                       f'<td>{esc(r["vehicle"])}</td><td>{esc(r["product"])}</td>'
                       f'<td class=r>{(r["qty"] or 0):,.2f}</td><td class=r>{(r["net_eur"] or 0):,.2f}</td>'
-                      f'<td class=r>{reb}</td><td class=r>{r["eurl"] or ""}</td>'
+                      f'<td class=r>{reb}</td><td class=r>{eurl_disp}</td>'
                       f'<td class=note>{" · ".join(flags)}</td></tr>')
     table = ('<table class="sticky"><thead><tr>' + "".join(f"<th>{h}</th>" for h in head_cells)
              + f'</tr></thead><tbody>{body_rows}</tbody></table>')
