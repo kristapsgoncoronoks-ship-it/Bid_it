@@ -294,6 +294,13 @@ def verify_documents(con=None):
 
 LOCKING = ("submitted", "approved", "paid")
 
+def _synthetic(ref, vat_id=None):
+    """True if a claim line is not tied to ONE registered invoice: an INPUT
+    placeholder (no registered invoice / no real VAT ID) or an ALL: aggregate.
+    Centralizes the predicate used by the lock gate, the readiness/checklist
+    gates and the workbook so they all block the same set of synthetic refs."""
+    return ("INPUT" in str(ref)) or str(ref).startswith("ALL:") or ("INPUT" in str(vat_id))
+
 def stream_invoices(con, ent, ctry, period, cache=None):
     """Distinct (supplier, invoice_ref) used by a claim stream."""
     return sorted({(L["supplier"], L["invoice"]) for L in invoice_lines(con, ent, ctry, period, cache)})
@@ -351,7 +358,7 @@ def set_status(con, ent, ctry, period, new, gate_activation=True):
         if new in LOCKING:
             if cur not in LOCKING:  # entering locked state -> validate & lock invoices
                 invs = stream_invoices(con, ent, ctry, period)
-                bad = [f"{s}:{r}" for s, r in invs if "INPUT" in r or r.startswith("ALL:")]
+                bad = [f"{s}:{r}" for s, r in invs if _synthetic(r)]
                 if bad:
                     con.rollback()
                     return False, "BLOCKED - unresolved invoice refs (fill INPUTs first): " + "; ".join(bad)
@@ -514,7 +521,7 @@ def submission_checklist(con, ent, ctry, period, cache=None):
         for _k, label, _scope, ok in customer_master.evaluate_checklist(cm, code, ctry):
             items.append((label, ok))
     invs = stream_invoices(con, ent, ctry, period, cache)
-    bad = [r for s, r in invs if "INPUT" in r or r.startswith("ALL:")]
+    bad = [r for s, r in invs if _synthetic(r)]
     items.append(("All invoices received & processed", len(invs) > 0 and not bad))
     docidx = cache.get("_docidx")
     if docidx is None:
@@ -678,7 +685,7 @@ def submission_readiness(con, ent, ctry, period, cache=None):
     if ca[(ent, ctry)] is False:
         issues.append(f"refund country '{ctry}' not activated")
     invs = stream_invoices(con, ent, ctry, period, cache)
-    bad = [r for s, r in invs if "INPUT" in r or r.startswith("ALL:")]
+    bad = [r for s, r in invs if _synthetic(r)]
     if bad:
         issues.append(f"{len(bad)} unresolved invoice ref(s)")
     docidx = cache.get("_docidx")
@@ -948,7 +955,25 @@ def build_workbook(con, year):
                     "VAT (local)","Net EUR","VAT EUR","Duplicate control","Document(s) attached"])
         head(ws2, 6)
         rr = 7
-        for L in invoice_lines(con, m["entity"], m["country"], m["period"], pack_cache):
+        lines = invoice_lines(con, m["entity"], m["country"], m["period"], pack_cache)
+        synth = [L for L in lines if _synthetic(L["invoice"], L.get("vat_id"))]
+        if synth:
+            # Refuse to emit data rows for a pack with any line not tied to ONE
+            # documented invoice (INPUT / ALL: / UNMATCHED). Render a single bold
+            # red BLOCKED banner and a zero TOTAL so the pack can never be filed
+            # as-is. RENDER-ONLY: the frozen amount in vat_applications is untouched.
+            cell = ws2.cell(row=rr, column=1)
+            cell.value = (f"BLOCKED - {len(synth)} line(s) not tied to a documented "
+                          "invoice; resolve before filing")
+            cell.font = Font(bold=True, color="C00000", name="Arial", size=10)
+            rr += 1
+            ws2.append(["TOTAL","","","","","","","","", 0, 0, 0, 0])
+            for c in ws2[rr]: c.font = b10
+            for col in (10,11,12,13): ws2.cell(row=rr, column=col).number_format = "#,##0.00"
+            for col, w in zip("ABCDEFGHIJKLMNO",[8,30,22,22,11,7,26,11,5,13,11,11,11,20,40]):
+                ws2.column_dimensions[col].width = w
+            continue
+        for L in lines:
             other = lock_state(con, m["entity"], m["country"], L["supplier"], L["invoice"])
             L["lock"] = ("LOCKED here" if other == m["period"]
                          else f"EXCLUDE - claimed in {other}" if other else "free")
