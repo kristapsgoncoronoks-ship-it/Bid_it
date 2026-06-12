@@ -376,6 +376,49 @@ def test_vat_advance_and_withdraw_routes(client, monkeypatch):
     assert "withdrawn" in r.get_data(as_text=True) and calls["wd"] == ("Acme", "DE", "2026-Q1")
 
 
+def test_claims_data_rows_have_edit_guard_but_still_save(client, monkeypatch, tmp_path):
+    """Claim rows in the Data manager stay fully editable but require a deliberate
+    Edit + confirm: inputs render readonly, an Edit affordance and data-confirm appear,
+    yet a CSRF-valid POST save still updates the row (the guard is client-side only)."""
+    import re
+    import vat_refund as VR
+    monkeypatch.setattr(VR, "DB", str(tmp_path / "claims.db"))
+    monkeypatch.setattr(VR, "ANALYTICS_DB", str(tmp_path / "claims.db"))
+    VR._SCHEMA_READY.clear()
+    con = VR.connect()
+    con.execute("""INSERT INTO vat_applications (entity, refund_country, ref_period,
+                   vat_eur, currency, status) VALUES ('Acme','Germany','2026-Q1',500,'EUR','draft')""")
+    con.commit(); con.close()
+
+    body = client.get("/data?db=claims&table=vat_applications").get_data(as_text=True)
+    assert "readonly" in body                                   # rows start read-only
+    assert "data-edit-row" in body                              # Edit affordance present
+    assert 'data-confirm="Save changes to this row?' in body    # confirm-before-save
+    assert "data-save-row" in body
+
+    tok = re.search(r'name="_csrf" value="([^"]+)"', body).group(1)
+    # a deliberate save (server behaviour unchanged) updates the row in place
+    r = client.post("/data?db=claims&table=vat_applications",
+                    data={"_csrf": tok, "__action": "save", "__pk_entity": "Acme",
+                          "__pk_refund_country": "Germany", "__pk_ref_period": "2026-Q1",
+                          "c_entity": "Acme", "c_refund_country": "Germany",
+                          "c_ref_period": "2026-Q1", "c_vat_eur": "777", "c_currency": "EUR",
+                          "c_status": "draft"})
+    assert "Saved" in r.get_data(as_text=True)
+    con = VR.connect()
+    got = con.execute("""SELECT vat_eur FROM vat_applications WHERE entity='Acme'
+                         AND refund_country='Germany' AND ref_period='2026-Q1'""").fetchone()
+    con.close()
+    assert got and float(got["vat_eur"]) == 777.0
+
+
+def test_other_data_dbs_not_readonly(client):
+    """The edit guard is scoped to the claims DB only — other Data-manager tables
+    keep their inputs immediately editable (no readonly / Edit gate)."""
+    body = client.get("/data?db=customers&table=customers").get_data(as_text=True)
+    assert "data-edit-row" not in body and "data-confirm" not in body
+
+
 def test_vat_doc_missing_cell_links_to_attach_ui(client, monkeypatch):
     """A doc-missing invoice on /vat must be one click from the attach UI: its red
     coverage cell links to /documents prefilled with that invoice's entity/supplier/ref."""

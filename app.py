@@ -240,6 +240,22 @@ APP_JS = r"""/* progressive enhancement: sort + filter + horizontal scroll + key
       try{ row.scrollIntoView({block:'center'}); }catch(e){ row.scrollIntoView(); }
     });
   })();
+
+  // Data manager (claims DB): accidental-edit guard. Rows render read-only with an
+  // explicit Edit toggle that clears readonly and reveals Save; the row form carries
+  // [data-confirm] so a deliberate confirm is required before the (unchanged) POST.
+  document.addEventListener('click',function(e){
+    var b=e.target&&e.target.closest&&e.target.closest('[data-edit-row]'); if(!b) return;
+    var form=b.closest('form'); if(!form) return;
+    form.querySelectorAll('input[readonly]').forEach(function(inp){ inp.removeAttribute('readonly'); });
+    var save=form.querySelector('[data-save-row]'); if(save) save.style.display='';
+    b.style.display='none';
+    var first=form.querySelector('input:not([type=hidden])'); if(first) first.focus();
+  });
+  document.addEventListener('submit',function(e){
+    var form=e.target; if(!form||!form.hasAttribute('data-confirm')) return;
+    if(!window.confirm(form.getAttribute('data-confirm'))) e.preventDefault();
+  });
 })();
 """
 
@@ -3724,16 +3740,26 @@ def data_manager():
     tsel = "".join(f'<option {"selected" if t==table else ""}>{t}</option>' for t in tables)
     form = (f'<form class="f" method="get"><label>database<select name="db" onchange="this.form.submit()">{dbsel}</select></label>'
             f'<label>table<select name="table" onchange="this.form.submit()">{tsel}</select></label></form>')
-    # rows with inline edit
+    # rows with inline edit. For the claims DB only, guard against an accidental
+    # one-slip change: rows render read-only with an explicit Edit toggle (reveals
+    # Save + clears readonly via /app.js) and a confirm-before-save. The server-side
+    # save handler is unchanged — the guard is purely client-side.
+    guard = (dbk == "claims")
+    ro = " readonly" if guard else ""
     rows_html = ""
     for r in con.execute(f"SELECT {','.join(cols)} FROM {table} LIMIT 200"):
-        inputs = "".join(f'<td><input name="c_{c}" value="{esc("" if v is None else str(v))}" '
+        inputs = "".join(f'<td><input name="c_{c}" value="{esc("" if v is None else str(v))}"{ro} '
                          f'style="width:{max(70,min(200,len(str(v or ""))*8))}px"></td>' for c, v in zip(cols, r))
         hpk = "".join(f'<input type="hidden" name="__pk_{k}" value="{esc(r[cols.index(k)])}">' for k in pks)
-        rows_html += (f'<tr><form method="post" action="/data?db={esc(dbk)}&table={esc(table)}">'
+        form_attr = (' data-confirm="Save changes to this row? Amounts are stored as entered."'
+                     if guard else "")
+        edit_btn = ('<button type="button" data-edit-row>Edit</button> ' if guard else "")
+        save_style = ' style="display:none"' if guard else ""
+        rows_html += (f'<tr><form method="post" action="/data?db={esc(dbk)}&table={esc(table)}"{form_attr}>'
                       + _csrf_input() + inputs +
                       f'<td style="white-space:nowrap">{hpk}'
-                      f'<button name="__action" value="save">Save</button> '
+                      f'{edit_btn}'
+                      f'<button name="__action" value="save" data-save-row{save_style}>Save</button> '
                       f'<button name="__action" value="delete" style="background:var(--bad)" '
                       f'onclick="return confirm(\'Delete this row? The audit log keeps it.\')">Delete</button>'
                       f'</td></form></tr>')
