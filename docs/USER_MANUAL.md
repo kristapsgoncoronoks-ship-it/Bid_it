@@ -62,14 +62,21 @@ currency conversion in the claims is transparent and auditable.
 **Transactions** — the raw canonical fuel lines for a period, filterable, for spot
 checks and drill‑down.
 
-**Import batch** — upload a supplier's PDF or a ZIP of PDFs. Two ways to process it:
-**Extract draft now** (process immediately and review), or **Queue for later** which
-parks the file in the **Waiting room** for background processing (see §3b). On confirm,
-it registers the statement + vaults the PDFs (see §3a).
+**Import batch** — upload a supplier's PDF, a ZIP, or a structured **XML e‑invoice**
+(UBL/CII, EN 16931 — these parse deterministically at high confidence, no AI). Two ways
+to process: **Extract draft now** (process immediately and review), or **Queue for
+later** which parks the file in the **Waiting room** for background processing (see §3b).
+On confirm, it registers the statement + vaults the source (see §3a).
 
 **Waiting room** — the durable intake queue for uploaded batches (see §3b).
 
 **Invoice control** — two controls on one page (see §4).
+
+**Contracts** — the **contract‑compliance auditor**: checks every invoiced line against
+the supplier's contracted discount terms and flags **short discounts** (rebate applied
+below contract) and **over‑ceiling** prices, with the **recoverable EUR** per breach to
+claw back. Add rules per supplier/country/station (SQL‑LIKE) with an expected discount
+(€/L) and/or a max NET price (€/L). Pure data — finds money you're already owed.
 
 **VAT refunds** — the claim matrix and lifecycle (see §5).
 
@@ -89,6 +96,11 @@ other suppliers same city), and a wholesale index (upload to unlock true margin)
 Sorted by EUR impact so the money is at the top; unmatched volume shown openly.
 Export the daily/weekly/monthly grid to Excel to build pricing models. All prices
 NET final, VAT excluded, rebates applied — stated on the page so it's unarguable.
+The **Self‑sourced benchmark** card turns your own data into competitor intelligence:
+for each country/period where you used 2+ suppliers, it shows the **best price you
+actually achieved** and the **avoidable overpay** vs that best (route volume to the
+cheaper supplier you already use) — no external data. **Adopt best‑of as MY benchmark**
+loads those prices so the margin/gap columns measure everyone against the best you got.
 The **Client portal price scraping** card automates the MY‑Prices benchmark: an admin
 adds a supplier portal (a no‑code JSON/CSV config, or a custom adapter) and stores the
 entity's login (encrypted at rest); **Scrape now** pulls that account's NET prices
@@ -112,6 +124,11 @@ to be collected; a customer/country must be activated before a claim can be subm
 capability). Pick database →
 table; every row is editable inline (Save / Delete), the bottom row adds new
 records. Deleted rows are recoverable: their full values stay in History.
+
+**Doc mining** — re‑reads the vaulted documents (PDF text + structured XML), extracts
+EU VAT numbers, and **proposes fills for the yellow INPUT gaps** in supplier/customer
+master data where the country code matches. Review each proposal and press **Apply**
+(audit‑logged) — nothing is written automatically.
 
 **History** — the audit trail of every change in every database: filter by database,
 table, **from date / till date**, and record key. Each row shows when, what, the

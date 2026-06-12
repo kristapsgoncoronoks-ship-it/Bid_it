@@ -30,7 +30,7 @@ siblings directly), so this index is how you navigate them. See
 | File | What it does |
 |------|--------------|
 | `ingest.py` | Source adapters — read supplier data from xlsx / csv / xml / API. |
-| `extract.py` | Turn a PDF/ZIP batch into a reviewable *draft*: deterministic parser (offline) or AI backend (Claude/OpenAI/Azure). |
+| `extract.py` | Turn a PDF/ZIP/**XML** batch into a reviewable *draft*: deterministic PDF parser, **UBL/CII e‑invoice parser** (EN 16931, 100% confidence), or AI backend (Claude/OpenAI/Azure). |
 | `waiting_room.py` | The durable “waiting room” queue + background worker: park uploads, extract later one at a time, retry on token‑quota outages, hold for manual send. |
 | `watch_inbox.py` | Optional folder watcher that auto‑extracts PDFs/ZIPs dropped into an inbox. |
 
@@ -56,8 +56,10 @@ siblings directly), so this index is how you navigate them. See
 |------|--------------|
 | `vat_refund.py` / `fuel_history.db` | The heart: claims per entity × country × period, thresholds, one‑invoice‑one‑submission locks, the fee lifecycle, the document‑vault index, and the dynamic quarter→annual merge. |
 | `invoice_control.py` | Receipt control (cadence × activity) and statement reconciliation with VAT triage (process / discard / discard‑domestic). |
+| `contract_audit.py` | Contract‑compliance auditor: checks each invoiced line against the supplier's structured discount terms (`supplier_discounts`) and flags short discounts / over‑ceiling prices with the recoverable EUR. |
+| `doc_mining.py` | Mines the vaulted documents (PDF text + XML) for EU VAT numbers and proposes fills for the INPUT gaps in supplier/customer master data. |
 | `document_vault.py` | The document vault: the logical folder‑path builder and the storage backends — local / SharePoint / FTP(S) — plus integrity and re‑file helpers. |
-| `pricing_intelligence.py` | Competitor NET‑price tracking and margin analysis against three baselines. |
+| `pricing_intelligence.py` | Competitor NET‑price tracking and margin analysis against three baselines, plus a **self‑sourced benchmark** built from your own multi‑supplier purchases (best price achieved + avoidable overpay). |
 | `portal_scraper.py` | Dynamic client‑portal price scraping: pluggable per‑supplier adapters that log into the entities' own authorized supplier portals and load NET prices into MY Prices. Credentials encrypted at rest (`portal.db`). |
 | `anomaly.py` | Relative anomaly scan (station price vs country average, MoM jumps, volume spikes, off‑period dates). |
 | `ecb_rates.py` / `market_prices.py` | Reference FX (ECB) and market fuel‑price pulls. |

@@ -14,13 +14,13 @@ several worker processes behind a proxy for a team, with no change of code.
 
 | Area | Capabilities |
 |------|--------------|
-| **Intake** | Upload PDF/ZIP invoice batches; deterministic parser (offline) or AI extraction (Claude/OpenAI/Azure). A durable **“waiting room” queue** parks uploads and processes them in the background so bursts never overload the server. |
+| **Intake** | Upload PDF/ZIP/XML invoice batches; deterministic PDF parser (offline), **UBL/CII e‑invoice parsing** (EN 16931, 100% confidence), or AI extraction (Claude/OpenAI/Azure). A durable **“waiting room” queue** parks uploads and processes them in the background so bursts never overload the server. |
 | **Master data** | Three separate SQLite databases — our entities (`customers.db`), suppliers (`suppliers.db`), transactions/claims/documents (`fuel_history.db`). |
 | **Engine** | Consolidate → validate (tie‑out to invoice totals) → build monthly master workbook → load history/trend. |
 | **VAT refunds** | Claims per **entity × country × period** (Q1–Q4 or annual), 400/50 EUR thresholds, submission‑readiness, one‑invoice‑one‑submission locks, claim packs. Low‑VAT quarters **merge dynamically** into the annual claim. |
 | **Service fees** | % of refunded VAT floored at a per‑declaration minimum; per‑customer/per‑country overrides; rate frozen at submission, charged at payout; fee invoice + settlement. |
-| **Price intelligence** | Competitor NET‑price tracking and margin analysis against three baselines, plus a **dynamic client‑portal scraper** — pluggable per‑supplier adapters that pull each entity's own authorized portal prices into the benchmark (credentials encrypted at rest). |
-| **Compliance** | Receipt control (cadence × activity), statement reconciliation with VAT triage, anomaly scan, full audit trail. |
+| **Price intelligence** | Competitor NET‑price tracking and margin analysis, a **self‑sourced benchmark** from your own multi‑supplier purchases (best price achieved + avoidable overpay), and a **dynamic client‑portal scraper** (encrypted credentials). |
+| **Compliance** | Receipt control (cadence × activity), statement reconciliation with VAT triage, a **contract‑compliance auditor** (catches short discounts / over‑ceiling prices to claw back), **document mining** (auto‑fills INPUT gaps from the vault), anomaly scan, full audit trail. |
 | **Document vault** | Originals stored under a logical, human‑navigable tree — `Customer (reg no) / Year / Country / Claim period / file` — identical across **local / SharePoint / FTP(S)** backends; SHA‑256 dedup + integrity verification. |
 | **Platform** | Roles (admin/processor), login lockout & IP throttle, CSP/security headers, scheduled backups with integrity checks, TLS, multi‑process scalability. |
 

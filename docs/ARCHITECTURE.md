@@ -35,7 +35,9 @@ consistent. For setup see **[INSTALL.md](INSTALL.md)**; for day‑to‑day use s
 3. ENGINE          consolidate.py → validate.py → build_master.py → history.py
         │
 4. COMPLIANCE      vat_refund.py (claims, locks, fees, vault index),
-                   invoice_control.py (receipt control / statement triage)
+                   invoice_control.py (receipt control / statement triage),
+                   contract_audit.py (discount-terms compliance),
+                   doc_mining.py (fill INPUT gaps from the vault)
         │
 5. PRESENTATION    app.py (Flask: ~25 pages + JSON API + Excel), pricing_intelligence.py,
                    reports.py, anomaly.py
