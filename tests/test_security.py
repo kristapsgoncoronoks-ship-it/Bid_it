@@ -29,6 +29,18 @@ def test_authenticated_pages_not_cached(client):
     assert "max-age" in A.app.test_client().get("/app.js").headers.get("Cache-Control", "")
 
 
+def test_doc_unknown_id_is_404(client):
+    r = client.get("/doc/999999")
+    assert r.status_code == 404
+    assert "No such document" in r.get_data(as_text=True)
+
+
+def test_csrf_wrong_token_rejected(client):
+    r = client.post("/data", data={"_dbk": "x", "_csrf": "not-the-token"})
+    assert r.status_code == 400
+    assert "CSRF" in r.get_data(as_text=True)
+
+
 def test_ip_throttle(admin_session):
     import auth
     c = A.app.test_client()

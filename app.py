@@ -482,7 +482,8 @@ def _guard():
     role = session.get("role", "processor")
     # CSRF on every state-changing POST (login/setup are pre-session, exempt).
     if request.method == "POST" and request.endpoint not in ("login", "setup"):
-        if request.form.get("_csrf") != session.get("_csrf"):
+        if not secrets.compare_digest(request.form.get("_csrf") or "",
+                                      session.get("_csrf") or ""):
             return page('<div class="card"><h2>Invalid or missing CSRF token</h2>'
                         '<p>Please reload the page and try again.</p></div>', ""), 400
     # VAT-refund module is admin-only, whatever capabilities a processor may hold.
@@ -3890,6 +3891,8 @@ def doc_download(doc_id):
     con = VR.connect()
     d = con.execute("SELECT * FROM invoice_documents WHERE id=?", (doc_id,)).fetchone()
     con.close()
+    if d is None:
+        return page('<div class="card"><b class="bad">No such document.</b></div>', ""), 404
     data = document_vault.get_bytes(d["stored_path"], VR.DOCDIR)
     return send_file(io.BytesIO(data), as_attachment=True, download_name=d["filename"])
 
