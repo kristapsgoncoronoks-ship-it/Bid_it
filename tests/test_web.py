@@ -81,6 +81,74 @@ def test_intake_queue_flow(client, monkeypatch, tmp_path):
     assert 'name="intake_job"' in rev and "DEMO" in rev and "INV1" in rev
 
 
+def test_upload_ok_confirms_and_sends_for_processing(client, monkeypatch, tmp_path):
+    """A good batch is confirmed OK, durably archived, and sent for processing (queue
+    mode redirects to the waiting room with an 'Upload OK' message)."""
+    import io, re
+    import waiting_room as IQ
+    import data_lake as DL, import_log as IL
+    monkeypatch.setattr(IQ, "DB", str(tmp_path / "intake.db"))
+    monkeypatch.setattr(IQ, "INBOX", str(tmp_path / "inbox"))
+    IQ._SCHEMA_READY.clear()
+    monkeypatch.setattr(DL, "LAKE_DIR", str(tmp_path / "lake"))
+    monkeypatch.setattr(DL, "DB", str(tmp_path / "lake.db")); DL._READY.clear()
+    monkeypatch.setattr(IL, "DB", str(tmp_path / "imp.db")); IL._READY.clear()
+
+    tok = re.search(r'name="_csrf" value="([^"]+)"',
+                    client.get("/extract").get_data(as_text=True)).group(1)
+    r = client.post("/extract", data={
+        "_csrf": tok, "__mode": "queue", "backend": "none", "period": "2026-05",
+        "file": (io.BytesIO(b"%PDF-1.4 good batch"), "good.pdf")},
+        content_type="multipart/form-data")
+    assert r.status_code == 302 and "Upload+OK" in r.headers["Location"]
+    assert IQ.counts()["queued"] == 1                      # sent for processing
+    assert DL.counts()["raw_upload"]["files"] == 1         # durably archived
+    assert IL.recent(limit=1)[0]["status"] == "received"   # logged OK
+
+
+def test_upload_bad_rejected_purged_and_resubmit(client, monkeypatch, tmp_path):
+    """A batch whose stored copy fails verification is REJECTED: nothing is processed,
+    the bad data is purged from the lake, and the user is told to re-upload the whole
+    batch."""
+    import io, re
+    import data_lake as DL, import_log as IL
+    monkeypatch.setattr(DL, "LAKE_DIR", str(tmp_path / "lake"))
+    monkeypatch.setattr(DL, "DB", str(tmp_path / "lake.db")); DL._READY.clear()
+    monkeypatch.setattr(IL, "DB", str(tmp_path / "imp.db")); IL._READY.clear()
+    # force the verification read-back to return the wrong bytes -> hash mismatch
+    monkeypatch.setattr(DL, "get", lambda loc: b"CORRUPTED")
+
+    tok = re.search(r'name="_csrf" value="([^"]+)"',
+                    client.get("/extract").get_data(as_text=True)).group(1)
+    r = client.post("/extract", data={
+        "_csrf": tok, "__mode": "now", "backend": "none", "period": "2026-05",
+        "file": (io.BytesIO(b"%PDF-1.4 real bytes"), "bad.pdf")},
+        content_type="multipart/form-data")
+    body = r.get_data(as_text=True)
+    assert r.status_code == 200
+    assert "batch rejected" in body and "re-upload the entire batch" in body
+    assert DL.query() == []                                # bad data purged
+    assert IL.recent(limit=1)[0]["status"] == "failed"     # logged Bad
+
+
+def test_upload_empty_file_rejected(client, monkeypatch, tmp_path):
+    """An empty upload is rejected with the resubmit message and stores nothing."""
+    import io, re
+    import data_lake as DL, import_log as IL
+    monkeypatch.setattr(DL, "LAKE_DIR", str(tmp_path / "lake"))
+    monkeypatch.setattr(DL, "DB", str(tmp_path / "lake.db")); DL._READY.clear()
+    monkeypatch.setattr(IL, "DB", str(tmp_path / "imp.db")); IL._READY.clear()
+    tok = re.search(r'name="_csrf" value="([^"]+)"',
+                    client.get("/extract").get_data(as_text=True)).group(1)
+    r = client.post("/extract", data={
+        "_csrf": tok, "__mode": "now", "backend": "none", "period": "2026-05",
+        "file": (io.BytesIO(b""), "empty.pdf")},
+        content_type="multipart/form-data")
+    body = r.get_data(as_text=True)
+    assert "batch rejected" in body and "re-upload the entire batch" in body
+    assert DL.query() == []
+
+
 def test_intake_upload_gating_and_override(client, monkeypatch, tmp_path):
     """While the waiting room has unprocessed docs, queueing a new one is blocked;
     an admin temporary override lets it through; 'Send / restart all' clears it."""

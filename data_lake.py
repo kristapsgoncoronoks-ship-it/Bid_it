@@ -150,6 +150,30 @@ def delete(file_id):
     return True
 
 
+def delete_locator(stored_path):
+    """Remove an artifact by its stored locator. Used to PURGE a bad upload whose stored
+    copy failed verification, so corrupt/partial data never lingers in the lake. Returns
+    the number of things removed (index rows and/or the physical bytes)."""
+    if not stored_path:
+        return 0
+    con = connect()
+    ids = [r["id"] for r in con.execute(
+        "SELECT id FROM data_lake_files WHERE stored_path=?", (stored_path,))]
+    con.close()
+    n = 0
+    for fid in ids:
+        if delete(fid):
+            n += 1
+    if not ids:
+        # No index row (e.g. bytes written but the index insert failed) — still try to
+        # drop the physical bytes so nothing bad is left behind.
+        try:
+            document_vault.delete(stored_path, LAKE_DIR); n += 1
+        except Exception:
+            pass
+    return n
+
+
 def verify():
     """Integrity check: re-read every stored artifact and compare its SHA-256 to the
     recorded hash. Returns (rows, summary{total, ok, corrupt, missing}). A file is only

@@ -120,6 +120,20 @@ onto it, or click to browse. The box turns green and shows the file name once it
 attached. Two ways to process: **Extract draft now** (process immediately and review),
 or **Queue for later** which parks the file in the **Waiting room** for background
 processing (see §3b).
+
+**Every upload is confirmed OK or rejected.** The moment a file arrives it is written
+to the durable data lake and immediately **read back and re-hashed** to prove it landed
+intact:
+- **✓ Upload OK** (green) — the file is safely archived (it can no longer be lost, only
+  deleted by a user) and is **sent for processing**. You then review the draft, or it
+  goes to the waiting room.
+- **✗ Upload failed — batch rejected** (red) — the file could not be stored safely. The
+  **bad data is discarded** (nothing is kept and nothing is processed) and you are asked
+  to **re-upload the entire batch**. The problem is recorded in the admin error log.
+
+The same OK/failed confirmation applies when attaching an original PDF/scan to an
+invoice in the **Documents** vault. Every upload — successful or failed — is recorded
+on the **Imports** report.
 On confirm, it registers the statement + vaults the source (see §3a). When an AI
 backend processes an invoice, its structured output is also archived in a **data lake**
 (separate from the PDF) so it can be reused without re-calling the API. Your VAT‑refund

@@ -57,6 +57,18 @@ def test_explicit_delete(lake):
     assert lake.delete(fid) is False             # idempotent / already gone
 
 
+def test_delete_locator_purges_bad_upload(lake):
+    """A bad upload (stored copy failed verification) is purged by locator so corrupt
+    data never lingers in the lake."""
+    assert lake.delete_locator(None) == 0        # tolerant of no locator
+    loc = lake.put(b"bytes", "f.json", kind="raw_upload")
+    assert lake.query() and lake.get(loc) == b"bytes"
+    assert lake.delete_locator(loc) >= 1         # purges the stored copy
+    assert lake.query() == []                    # index row gone
+    with pytest.raises(Exception):
+        lake.get(loc)                            # the bytes are gone too
+
+
 def test_verify_detects_corruption(lake, tmp_path):
     import os
     lake.put(b"good", "g.json", kind="raw_upload")

@@ -1530,6 +1530,36 @@ def api_entities():
     con.close(); return jsonify(out)
 
 
+def _human_bytes(n):
+    n = int(n or 0)
+    if n < 1024:
+        return f"{n} B"
+    if n < 1048576:
+        return f"{n/1024:.0f} KB"
+    return f"{n/1048576:.1f} MB"
+
+
+def _upload_receipt(filename, nbytes, sha, ok, why=""):
+    """An explicit, human-readable confirmation that an uploaded file was (OK) or was
+    not (Bad) safely stored. 'Upload OK' means the bytes are durably archived in the
+    data lake AND verified by reading them back and re-hashing — the file can no longer
+    be lost. Processing/using the file's DATA is a separate step shown below."""
+    fn = esc(filename or "file")
+    if ok:
+        return ('<div class="card" style="border-left:4px solid var(--ok)">'
+                f'<b class="ok">&#10003; Upload OK</b> — <b>{fn}</b> '
+                f'({_human_bytes(nbytes)}) was received and safely archived.'
+                f'<div class="note">Fingerprint <code>{esc(sha[:12])}</code>. '
+                'Stored in the data lake — it can’t be lost, only deleted by a user. '
+                'Processing the data is the next step.</div></div>')
+    return ('<div class="card" style="border-left:4px solid var(--bad)">'
+            f'<b class="bad">&#10007; Upload failed — batch rejected</b> — <b>{fn}</b> '
+            'could not be stored' + (f': {esc(why)}.' if why else '.') +
+            '<div class="note">The bad data was discarded — nothing was kept and nothing '
+            'was processed. Please <b>re-upload the entire batch</b>. The problem is '
+            'recorded in the admin error log.</div></div>')
+
+
 @app.route("/extract", methods=["GET", "POST"])
 def extract_batch():
     import extract as EX
@@ -1545,16 +1575,41 @@ def extract_batch():
         # Whether its DATA is processed/used is a separate concern.
         import data_lake as _DL, import_log as _IL, hashlib as _hl
         _loc, _sha = None, _hl.sha256(data).hexdigest()
-        try:
-            _loc = _DL.put(data, f.filename, kind="raw_upload",
-                           supplier=request.form.get("backend") or None,
-                           source_name=f.filename, meta={"by": session.get("user")})
-        except Exception as e:
-            _log_exc("data lake archive", e)
-        _IL.log("upload", f.filename, "received", actor=session.get("user", "system"),
+        _ok, _why = False, ""
+        if not data:
+            _why = "the file was empty (0 bytes)"
+        else:
+            try:
+                _loc = _DL.put(data, f.filename, kind="raw_upload",
+                               supplier=request.form.get("backend") or None,
+                               source_name=f.filename, meta={"by": session.get("user")})
+                # CONFIRM the stored copy: read it back and re-hash so 'OK' means the
+                # file truly landed intact, not merely that put() returned.
+                _back = _DL.get(_loc)
+                _ok = bool(_back) and _hl.sha256(_back).hexdigest() == _sha
+                if not _ok:
+                    _why = "the archived copy did not match the uploaded file"
+            except Exception as e:
+                _log_exc("data lake archive", e)
+                _why = str(e)
+        _IL.log("upload", f.filename, "received" if _ok else "failed",
+                actor=session.get("user", "system"),
                 supplier=request.form.get("backend") or None, sha256=_sha,
                 file_locator=_loc, bytes=len(data),
-                message=f"archived to data lake ({request.form.get('__mode','now')})")
+                message=(f"archived to data lake ({request.form.get('__mode','now')})"
+                         if _ok else f"archive failed: {_why}"))
+        if not _ok:
+            # Reject the whole batch: a file we couldn't store safely is never processed.
+            # PURGE any bad/partial copy so corrupt data doesn't linger, then send the
+            # user back to re-upload the entire batch.
+            if _loc:
+                try:
+                    _DL.delete_locator(_loc)
+                except Exception as e:
+                    _log_exc("purge bad upload", e)
+            return page(_upload_receipt(f.filename, len(data), _sha, False, _why)
+                        + _upload_form(backend_env), "ext")
+        receipt = _upload_receipt(f.filename, len(data), _sha, True)
         if request.form.get("__mode") == "queue":
             # waiting room: store durably now, extract later in the background worker
             import waiting_room as IQ
@@ -1564,11 +1619,12 @@ def extract_batch():
                         'waiting-room page.' if session.get("role") != "admin"
                         else 'Use “Allow uploads (override)” on the waiting-room page '
                              'to add anyway.')
-                return page('<div class="card"><b class="bad">New uploads are paused.</b>'
-                            f'<p>{pend} document(s) in the waiting room still need to be '
-                            'processed successfully. Clear them first — open the waiting '
-                            'room and press <b>Send / restart all</b>. ' + esc(hint) + '</p>'
-                            '<p><a href="/queue">→ Go to the waiting room</a></p></div>'
+                return page(receipt + '<div class="card"><b class="bad">New uploads are '
+                            'paused.</b>'
+                            f'<p>Your file is safely archived, but {pend} document(s) in the '
+                            'waiting room still need to be processed first. Clear them — open '
+                            'the waiting room and press <b>Send / restart all</b>. ' + esc(hint)
+                            + '</p><p><a href="/queue">→ Go to the waiting room</a></p></div>'
                             + _upload_form(backend_env), "ext")
             try:
                 jid, st = IQ.enqueue(data, f.filename, backend=request.form.get("backend") or None,
@@ -1576,25 +1632,33 @@ def extract_batch():
                                      user=session.get("user", "system"))
             except Exception as e:
                 _log_exc("intake enqueue", e)
-                return page(f'<div class="card"><b class="bad">Could not queue file: {esc(str(e))}</b></div>'
-                            + _upload_form(backend_env), "ext")
-            return redirect(f"/queue?msg=Queued+{esc(f.filename)}+(job+{jid},+{st})")
+                return page(receipt + '<div class="card"><b class="bad">Could not queue '
+                            f'file: {esc(str(e))}</b><div class="note">The upload itself is '
+                            'safe in the data lake; only the background job could not be '
+                            'created.</div></div>' + _upload_form(backend_env), "ext")
+            # Upload OK -> sent for processing (background). Land on the waiting room with
+            # an explicit confirmation.
+            return redirect(f"/queue?msg=Upload+OK:+{esc(f.filename)}+archived+%26+sent+for+"
+                            f"processing+(job+{jid},+{st})")
         try:
             draft = EX.extract(data, f.filename, backend=request.form.get("backend") or None)
         except Exception as e:
             _log_exc("import batch / extraction", e)
-            return page(f'<div class="card"><b class="bad">Extraction error: {esc(str(e))}</b></div>'
-                        + _upload_form(backend_env), "ext")
+            return page(receipt + '<div class="card"><b class="bad">Extraction error: '
+                        f'{esc(str(e))}</b><div class="note">The file is safely archived; '
+                        'only reading its data failed. You can retry or pick another '
+                        'extractor.</div></div>' + _upload_form(backend_env), "ext")
         if draft.get("error"):
-            return page(f'<div class="card"><b class="bad">{esc(draft["error"])}</b></div>'
-                        + _upload_form(backend_env), "ext")
+            return page(receipt + f'<div class="card"><b class="bad">{esc(draft["error"])}</b>'
+                        '<div class="note">The file is safely archived; review the message '
+                        'above and retry.</div></div>' + _upload_form(backend_env), "ext")
         # stash pdf bytes in a temp dir keyed by token; never put bytes in the form
         import tempfile, pickle, os as _os
         token = _os.urandom(8).hex()
         tmp = _os.path.join(WORKDIR, ".extract_tmp"); _os.makedirs(tmp, exist_ok=True); _os.chmod(tmp, 0o700)
         with open(_os.path.join(tmp, token + ".pkl"), "wb") as pf:
             pickle.dump(draft.get("_pdf_bytes", []), pf)
-        return page(_review_form(draft, token), "ext")
+        return page(receipt + _review_form(draft, token), "ext")
     return page(_upload_form(backend_env), "ext")
 
 
@@ -2751,11 +2815,32 @@ def documents():
     con = VR.connect()
     banner = ""
     if request.method == "POST":
+        import import_log as _IL, hashlib as _hl
         f = request.files["doc"]
-        ok, msg = VR.attach_document(con, request.form["entity"], request.form["supplier"],
-                                     request.form["invoice_ref"], file_bytes=f.read(),
-                                     filename=f.filename, kind=request.form.get("kind","scan"))
-        banner = f'<div class="card"><b class="{"ok" if ok else "bad"}">{msg}</b></div>'
+        _bytes = f.read()
+        _sha = _hl.sha256(_bytes).hexdigest() if _bytes else ""
+        if not _bytes:
+            ok, msg = False, f"{f.filename or 'file'} was empty (0 bytes) — nothing attached"
+        else:
+            try:
+                ok, msg = VR.attach_document(con, request.form["entity"], request.form["supplier"],
+                                             request.form["invoice_ref"], file_bytes=_bytes,
+                                             filename=f.filename, kind=request.form.get("kind", "scan"))
+            except Exception as e:
+                _log_exc("attach document", e)
+                ok, msg = False, f"could not store {f.filename or 'file'}: {e}"
+        _IL.log("upload", f.filename, "received" if ok else "failed",
+                actor=session.get("user", "system"), supplier=request.form.get("supplier"),
+                sha256=_sha, bytes=len(_bytes),
+                message=("document vault attach" if ok else f"attach failed: {msg}"))
+        border = "var(--ok)" if ok else "var(--bad)"
+        head = ("&#10003; Document attached OK" if ok else "&#10007; Attach failed")
+        banner = (f'<div class="card" style="border-left:4px solid {border}">'
+                  f'<b class="{"ok" if ok else "bad"}">{head}</b> — {esc(msg)}'
+                  + ('<div class="note">Stored in the document vault (SHA-256 verified); '
+                     'it can’t be lost, only deleted by a user.</div>' if ok else
+                     '<div class="note">Nothing was stored. Check the file and try again.</div>')
+                  + '</div>')
     rows = []
     for (sup, ctry), invs in sorted(INVOICES.items()):
         ent = SPECS[sup]["entity"][0] if sup in SPECS else ENTITY_OVERRIDE.get(sup, sup)
