@@ -54,7 +54,9 @@ consistent. For setup see **[INSTALL.md](INSTALL.md)**; for day‑to‑day use s
 |----------|--------------|------------|
 | `customers.db` | `customer_master.py` | `customers` (reg/VAT/payout/fee), `customer_bank_accounts`, `customer_documents`, `customer_countries` (per‑country activation), `customer_fees`, `country_requirements` |
 | `suppliers.db` | `supplier_master.py` | `suppliers` (+ cadence), `supplier_vat_registrations`, `supplier_bank_accounts`, `supplier_products`, `supplier_invoices`, `supplier_statements` |
-| `fuel_history.db` | `vat_refund.py`, `history.py`, `invoice_control.py` | `transactions` (canonical fuel lines), `vat_applications` (claim lifecycle + fees), `vat_claimed_invoices` (one‑invoice‑one‑submission locks), `invoice_documents` (vault index, SHA‑256), `invoice_receipt_control` |
+| `fuel_history.db` | `history.py`, `invoice_control.py` | `transactions` (canonical fuel lines, **rebuilt monthly**), `invoice_receipt_control` |
+| `vat_claims.db` *(isolated)* | `vat_refund.py` | `vat_applications` (claim lifecycle + fees), `vat_claimed_invoices` (one‑invoice‑one‑submission locks), `invoice_documents` (vault index, SHA‑256). **Kept in its own file so the monthly transaction rebuild can never corrupt the legal/financial claim records;** transactions are read from `fuel_history.db` on demand (`analytics_connect()`). |
+| `data_lake.db` + `data_lake/` *(not committed)* | `data_lake.py` | index of AI‑processed extraction artifacts; the files themselves go through the same storage backends as the document vault |
 | `security.db` *(not committed)* | `auth.py` | `users` (scrypt hashes), `role_permissions`, `login_log`, `error_log`, `app_settings` |
 | `intake.db` *(operational)* | `waiting_room.py` | `intake_jobs` (the waiting‑room queue) |
 | `portal.db` *(secrets, not committed)* | `portal_scraper.py` | `portal_configs`, `portal_credentials` (encrypted), `portal_runs` |

@@ -10,6 +10,12 @@ privkey.pem
 # ── Generated export files (regenerate, don't track) ──────────────
 Pricing_Intel_*.xlsx
 Fleet_Fuel_Summary_*.xlsx
+Fleet_Fuel_Master_*.xlsx
+Fleet_Fuel_History_Report.xlsx
+VAT_Refund_Claims_*.xlsx
+VAT_Claim_Readiness_*.xlsx
+VAT_Fees_Statement_*.xlsx
+Internal_Benchmark_*.xlsx
 
 # ── Fetched/cached reference data (re-fetchable) ──────────────────
 ecb_rates.db

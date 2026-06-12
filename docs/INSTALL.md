@@ -256,6 +256,12 @@ private LAN. No extra dependency (stdlib `ftplib`). Migrate existing local files
 
 ## PART 8 — Automatic backups
 
+Snapshots include every database — `customers.db`, `suppliers.db`, `fuel_history.db`,
+the isolated **`vat_claims.db`** (the legal/financial claim records — the most important
+to protect), `security.db` — plus the `documents/` vault and the `data_lake/` (each
+entry SHA‑256'd, with `verify()`). The first run also migrates legacy claim tables out
+of `fuel_history.db` into `vat_claims.db`.
+
 ```bash
 # Nightly snapshot at 02:30 (rotation keeps 14 inside backups/)
 sudo tee /etc/cron.d/fleetfuel-backup > /dev/null << 'EOF'

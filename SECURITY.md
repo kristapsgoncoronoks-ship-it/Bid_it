@@ -90,6 +90,35 @@ What is implemented in code, what must be done on the host, and why.
   measures 1–2 are the real boundary.
 - The live `audit_log` is writable by anyone with direct DB access; snapshots are the
   tamper evidence, so backup frequency bounds the exposure window.
-- Actor attribution is per-database, not per-connection: simultaneous web writes by
-  two users within the same request window could mis-attribute. Acceptable at this
-  team size; move to PostgreSQL + per-session context before heavy multi-user use.
+- The review-stash uses `pickle` for the uploaded PDF bytes, in a 0700 dir keyed by a
+  random server token (never user-controlled) — trusted server data only, but noted.
+
+## Beta security audit (2026-06)
+
+Reviewed for the beta and found sound; summary of the controls and the few notes:
+
+- **AuthN/Z** — scrypt password hashing, per-account + per-IP login lockout, session
+  fixation guard + 8h idle timeout; capability-based authorization enforced centrally
+  per endpoint (`PERM_BY_ENDPOINT` / `auth.has_perm`), admin-only gates on user/server
+  admin and on credential/config changes.
+- **Web** — CSP (`script-src 'self'`, vanilla JS), nosniff, X-Frame-Options DENY,
+  Referrer-Policy, HSTS, no-store on authenticated pages; CSRF token on every POST;
+  25 MB upload cap.
+- **Injection** — all SQL uses bound parameters; the only interpolated identifiers
+  (Data manager table name) are allow-listed against a fixed set; LIKE patterns in the
+  contract auditor are regex-escaped char-by-char.
+- **Secrets** — portal credentials are encrypted at rest (Fernet, key derived from the
+  app secret key); the secret key is a 0600 file created with O_EXCL; `security.db`,
+  certs, and the encrypted `portal.db` are never committed.
+- **Data integrity (beta change)** — the VAT-refund **claim records are isolated in
+  their own database** (`vat_claims.db`) so the monthly transaction rebuild can't
+  corrupt them; every change is audit-logged; SHA-256 on every vaulted document and the
+  data-lake artifacts; scheduled backups (incl. the claim DB and data lake) with
+  integrity verification.
+- **AI processing** — PDFs sent to a configured AI backend only under a DPA; the
+  AI-processed output is archived in the data lake (no extra exposure beyond the API
+  call); extraction output is always a reviewed draft, never authoritative.
+
+Resolved since the last review: audit-actor attribution is now thread-local and
+resolved per row by a per-connection SQL function, so concurrent web writes are
+attributed correctly (no longer a residual risk).
