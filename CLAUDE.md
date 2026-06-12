@@ -8,7 +8,7 @@ competitor price-competitiveness intelligence, for five Baltic transport entitie
   → installs deps, opens browser, first-run setup wizard creates the admin account.
 - Dev:        `python app.py`           (built-in server, HTTPS if cert present)
 - Production: `python serve.py`         (waitress; Windows + Linux)
-- Tests:      `python -m pytest tests/ -q` (190+ tests) + `python consolidate.py` smoke
+- Tests:      `python -m pytest tests/ -q` (210+ tests) + `python consolidate.py` smoke
 
 ## Architecture — six blocks (see README.md for the diagram)
 1. Intake     `ingest.py` (xlsx/csv/xml/api), `extract.py` (PDF/ZIP→draft)
@@ -17,7 +17,8 @@ competitor price-competitiveness intelligence, for five Baltic transport entitie
 3. Engine     `consolidate.py`→`validate.py`→`build_master.py`→`history.py`
 4. Compliance `vat_refund.py` (claims, locks), `invoice_control.py` (receipt/triage)
 5. Presentation `app.py` (Flask, ~18 pages + JSON API + Excel), `pricing_intelligence.py`
-6. Platform   `auth.py`, `audit.py`, `backup.py`, `tls.py`, `document_vault.py`, `db.py`
+6. Platform   `auth.py`, `audit.py`, `backup.py`, `tls.py`, `document_vault.py`, `db.py`,
+               `db_migrate.py`, `applog.py`, `data_lake.py`, `doc_storage.py`
 
 ## Key conventions (follow these)
 - Every module is location-independent: `WORKDIR = os.path.dirname(os.path.abspath(__file__))`.
@@ -28,6 +29,19 @@ competitor price-competitiveness intelligence, for five Baltic transport entitie
   Unexpected failures are logged via `applog.get(name)` (logs/app.log).
 - Every data change is audit-logged with `changed_by` (see `audit.py`); web requests
   set the actor via `audit.set_actor`/`reset_actor` in app.py's before/after hooks.
+- Errors self-control to the Admin panel: handled failures go BOTH to `applog`
+  (logs/app.log, dev/ops) AND to the admin-facing error log via `auth.log_error(...)`
+  (`error_log` in `security.db`; `recent_errors`/`clear_errors`). In app.py routes use
+  `_log_exc(context, e)` in except-blocks; a global `@app.errorhandler` captures any
+  unhandled exception (real HTTP 4xx/redirects pass through, never logged as errors).
+  Never `except: pass` — log it.
+- Backups & data integrity: `backup.snapshot/verify/restore/harden` writes
+  `backups/ffs_*.zip` with a SHA-256 `MANIFEST` over the 3 data DBs + `security.db`,
+  the `documents/` store and audit CSVs. `vat_refund.verify_documents()` re-hashes the
+  LIVE PDF/ZIP store against `invoice_documents.sha256` to catch in-place corruption.
+  Admin panel exposes `run_backup`/`verify_backup`/`verify_docs`; an opt-in scheduler
+  (`backup_interval_hours` setting, leader-elected across worker processes) auto-snaps.
+  Any integrity failure is written to the error log AND shown as a red banner.
 - Prices everywhere are NET EUR/L, final (VAT excluded, rebates applied). State this
   basis on any new report surface.
 - Money is quantized via `money.py` (Decimal, ROUND_HALF_UP) — use `money.f2/fsum`
@@ -63,6 +77,16 @@ PASS all suppliers. After test runs, restore demo-DB churn before committing:
   `history.py` → `invoice_control.py <period>` → `backup.py`.
 
 ## Known next steps (backlog)
+- VAT engine: `set_status('rejected')` still releases invoice locks
+  (`vat_refund.py` ~396); align it with 3B/3C/3D (keep locks; only `withdraw_claim`
+  releases). Small gate change + tests, but it touches lock/fee behavior.
+- Money sweep (full precision / `money.f2`) for the stored-master and analytics paths
+  still on bare `round()`: `build_master.py`, `queries.py`/`reports.py` overpay+total
+  (consolidate the duplicated overpay loop into one canonical impl), and the
+  `_num` fallback in `extract.py`'s e-invoice branch.
+- Test coverage for `invoice_control.py`, `ingest.py`, `build_master.py`, `history.py`.
+- Migrate the remaining ad-hoc `except: pass` blocks to `applog`/`_log_exc` logging.
 - PDF generation for .docx templates (text templates already export PDF).
 - Notifications (email) for worklist items: deadlines, expiring documents.
-- Migrate remaining ad-hoc `except: pass` blocks to `applog` logging.
+- Off-machine backup sync (OneDrive/SharePoint) so `backups/` survives disk loss —
+  currently an OS/cron concern, documented in the Admin "Backups" card.
