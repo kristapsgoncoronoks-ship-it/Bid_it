@@ -47,6 +47,10 @@ verified with a stubbed transport; the local backend is fully live).
 """
 import os, re
 
+import applog
+
+log = applog.get("document_vault")
+
 BACKEND = os.environ.get("DOC_BACKEND", "local")
 GRAPH = "https://graph.microsoft.com/v1.0"
 
@@ -239,7 +243,8 @@ class FtpBackend:
                 continue
             path = f"{path}/{part}" if path else part
             try: ftp.mkd(path)
-            except Exception: pass             # already exists (or no-permission to mkd)
+            except Exception as e:             # already exists (or no-permission to mkd)
+                log.debug("ftp mkd '%s' skipped (usually exists already): %s", path, e)
 
     def put(self, name, data):
         import io
@@ -251,7 +256,8 @@ class FtpBackend:
             return f"ftp://{remote}", None      # locator, web_url
         finally:
             try: ftp.quit()
-            except Exception: pass
+            except Exception as e:              # upload already done; connection drop only
+                log.warning("ftp quit failed after put '%s': %s", name, e)
 
     def get(self, locator):
         import io
@@ -262,17 +268,21 @@ class FtpBackend:
             return buf.getvalue()
         finally:
             try: ftp.quit()
-            except Exception: pass
+            except Exception as e:              # download already done; connection drop only
+                log.warning("ftp quit failed after get '%s': %s", remote, e)
 
     def delete(self, locator):
         remote = locator[len("ftp://"):]
         ftp = self._open()
         try:
             try: ftp.delete(remote)
-            except Exception: pass             # already gone
+            except Exception as e:             # treat as already gone, but record it
+                log.warning("ftp delete '%s' failed (treated as already gone): %s",
+                            remote, e)
         finally:
             try: ftp.quit()
-            except Exception: pass
+            except Exception as e:
+                log.warning("ftp quit failed after delete '%s': %s", remote, e)
 
 
 def backend(docdir):

@@ -13,7 +13,7 @@ import sqlite3, sys, collections
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 import supplier_master, customer_master, audit, money
-import db_tuning, db_migrate
+import db_tuning, db_migrate, applog
 from vat_config import (GOODS_CODE,
                         MIN_QUARTER, MIN_ANNUAL, DEADLINE_FMT,
                         LOCAL_CCY_INPUT, COMPLIANCE_NOTES)
@@ -26,6 +26,8 @@ WORKDIR = os.path.dirname(os.path.abspath(__file__))
 # legal/financial claim data. Transactions are read from the analytics DB on demand.
 DB = f"{WORKDIR}/vat_claims.db"            # claim records (this module owns it)
 ANALYTICS_DB = f"{WORKDIR}/fuel_history.db"  # transactions (read-only here)
+
+log = applog.get("vat_refund")
 
 def quarter(period):           # '2026-05' -> '2026-Q2'
     y, m = period.split("-")
@@ -144,7 +146,10 @@ def _migrate_from_analytics(con):
                 con.executemany(f"INSERT OR IGNORE INTO {t} ({','.join(cols)}) VALUES ({ph})", rows)
         con.commit()
     except Exception:
-        pass
+        # degrade gracefully (the claims DB simply starts empty), but never
+        # silently: an unnoticed failure here looks identical to "no legacy data"
+        log.exception("legacy claim-DB import failed — vat_claims.db may be "
+                      "missing migrated rows (source: %s)", ANALYTICS_DB)
     finally:
         src.close()
 
