@@ -2876,7 +2876,7 @@ def admin():
     else:
         last_bk = '<span class="bad">none yet — run a backup</span>'
     dbstat = []
-    for _db in ("customers.db", "suppliers.db", "fuel_history.db", "security.db"):
+    for _db in ("customers.db", "suppliers.db", "fuel_history.db", "vat_claims.db", "security.db"):
         _p = _os.path.join(WORKDIR, _db)
         if not _os.path.exists(_p):
             continue

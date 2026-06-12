@@ -20,6 +20,10 @@ intake.db
 # ── Client-portal scraper: configs, ENCRYPTED credentials, run history ──
 portal.db
 
+# ── VAT claim records — isolated DB, rebuilt by migration from fuel_history on
+#    first run; on a real server this is LIVE data (back it up; see backup.py) ──
+vat_claims.db
+
 # ── Cross-process lock store + SQLite WAL sidecars (transient, machine-specific) ──
 locks.db
 *.db-wal

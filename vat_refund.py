@@ -20,7 +20,12 @@ from vat_config import (GOODS_CODE,
 
 import os
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
-DB = f"{WORKDIR}/fuel_history.db"
+# The VAT-refund CLAIM records (applications, one-invoice locks, the document vault
+# index) live in their OWN database, isolated from the analytics/transactions store
+# that history.py rebuilds every month — so a monthly reload can never corrupt the
+# legal/financial claim data. Transactions are read from the analytics DB on demand.
+DB = f"{WORKDIR}/vat_claims.db"            # claim records (this module owns it)
+ANALYTICS_DB = f"{WORKDIR}/fuel_history.db"  # transactions (read-only here)
 
 def quarter(period):           # '2026-05' -> '2026-Q2'
     y, m = period.split("-")
@@ -72,9 +77,52 @@ def connect():
                 "ALTER TABLE vat_applications ADD COLUMN fee_invoice_date TEXT"):
         try: con.execute(ddl)
         except Exception: pass
+    _migrate_from_analytics(con)
     if DB != ":memory:":
         _SCHEMA_READY.add(DB)
     return con
+
+def analytics_connect():
+    """Connection to the analytics DB (fuel_history) for reading `transactions`.
+    Claim records are NOT here — they live in DB (vat_claims.db)."""
+    con = sqlite3.connect(ANALYTICS_DB)
+    con.row_factory = sqlite3.Row
+    db_tuning.tune(con)
+    return con
+
+def _migrate_from_analytics(con):
+    """One-time upgrade path: if the claim tables are empty in the (new) claims DB but
+    populated in the old shared fuel_history.db, copy them across. Idempotent — skips
+    once the claims DB has data. The originals are left in place (now unused)."""
+    if DB == ":memory:" or DB in _SCHEMA_READY:
+        return
+    try:
+        if con.execute("SELECT COUNT(*) FROM vat_applications").fetchone()[0] > 0:
+            return
+        if con.execute("SELECT COUNT(*) FROM invoice_documents").fetchone()[0] > 0:
+            return
+    except Exception:
+        return
+    if not os.path.exists(ANALYTICS_DB) or os.path.abspath(ANALYTICS_DB) == os.path.abspath(DB):
+        return
+    src = sqlite3.connect(ANALYTICS_DB)
+    try:
+        for t in ("vat_applications", "vat_claimed_invoices", "invoice_documents"):
+            try:
+                cols = [r[1] for r in src.execute(f"PRAGMA table_info({t})")]
+            except sqlite3.OperationalError:
+                cols = []
+            if not cols:
+                continue
+            rows = src.execute(f"SELECT {','.join(cols)} FROM {t}").fetchall()
+            if rows:
+                ph = ",".join("?" * len(cols))
+                con.executemany(f"INSERT OR IGNORE INTO {t} ({','.join(cols)}) VALUES ({ph})", rows)
+        con.commit()
+    except Exception:
+        pass
+    finally:
+        src.close()
 
 DOCDIR = f"{WORKDIR}/documents"
 
@@ -340,8 +388,10 @@ def set_status(con, ent, ctry, period, new):
             else:
                 months = q_months(period)
                 ph = ",".join("?" * len(months))
-                ve = con.execute(f"SELECT ROUND(SUM(vat_eur),2) FROM transactions WHERE entity=? "
-                                 f"AND country=? AND period IN ({ph})", [ent, ctry] + months).fetchone()[0] or 0.0
+                acon = analytics_connect()
+                ve = acon.execute(f"SELECT ROUND(SUM(vat_eur),2) FROM transactions WHERE entity=? "
+                                  f"AND country=? AND period IN ({ph})", [ent, ctry] + months).fetchone()[0] or 0.0
+                acon.close()
             fpct, fmin = customer_master.fee_for(ent, ctry)
             fee, _basis = customer_master.compute_fee(ve, fpct, fmin)
             con.execute("""UPDATE vat_applications SET vat_eur=?, fee_eur=?, fee_pct=?, fee_min=?
@@ -468,13 +518,16 @@ def claims_overview(year):
     return {"to_submit": to_submit, "open": open_claims}
 
 def claim_matrix(con, year):
-    """All streams for the year: per (entity, country) give Q1..Q4 + YEAR VAT, currency, status."""
-    rows = con.execute("""
+    """All streams for the year: per (entity, country) give Q1..Q4 + YEAR VAT, currency, status.
+    `con` is the claims connection; transactions are read from the analytics DB."""
+    acon = analytics_connect()
+    rows = acon.execute("""
         SELECT entity, country, currency, period,
                ROUND(SUM(vat_eur),2) ve, ROUND(SUM(vat_local),2) vl,
                COUNT(*) n
         FROM transactions WHERE period LIKE ? GROUP BY entity, country, period""",
         (f"{year}-%",)).fetchall()
+    acon.close()
     streams = collections.defaultdict(lambda: {"qs": collections.defaultdict(
                                                    lambda: [money.D(0), money.D(0), 0]),
                                                "ccy": "EUR"})
@@ -522,8 +575,11 @@ def invoice_lines(con, ent, ctry, qtr, cache=None):
     scon = cache.get("_scon")
     if scon is None:
         scon = supplier_master.connect(); cache["_scon"] = scon
+    acon = cache.get("_acon")             # analytics (transactions) connection
+    if acon is None:
+        acon = analytics_connect(); cache["_acon"] = acon
     months = q_months(qtr)
-    sups = [r[0] for r in con.execute(
+    sups = [r[0] for r in acon.execute(
         """SELECT DISTINCT supplier FROM transactions WHERE entity=? AND country=?
            AND period IN (%s)""" % ",".join("?"*len(months)), [ent, ctry]+months)]
     lines = []
@@ -536,7 +592,7 @@ def invoice_lines(con, ent, ctry, qtr, cache=None):
             regs = supplier_master.get_invoices(sup, ctry, con=scon)
             cache[ck] = (issuer, vatid, vnote, regs)
         refs = [r[0] for r in regs]
-        rows = con.execute(
+        rows = acon.execute(
             """SELECT note, product_group, ROUND(SUM(net_eur),2) net, ROUND(SUM(vat_eur),2) vat,
                       ROUND(SUM(net_local),2) netl, ROUND(SUM(vat_local),2) vatl, currency
                FROM transactions WHERE entity=? AND country=? AND supplier=?
@@ -560,8 +616,10 @@ def invoice_lines(con, ent, ctry, qtr, cache=None):
                                   code=code, desc=desc, product=pg, currency=ccy,
                                   net_local=money.f2(netl), vat_local=money.f2(vatl),
                                   net_eur=money.f2(net), vat_eur=money.f2(vat)))
-    if own_cache and cache.get("_scon") is not None:
-        cache["_scon"].close()
+    if own_cache:
+        for k in ("_scon", "_acon"):
+            if cache.get(k) is not None:
+                cache[k].close()
     return lines
 
 # ---------------------------------------------------------------- Excel pack

@@ -12,6 +12,7 @@ def dm(tmp_path, monkeypatch):
         importlib.reload(m)
     docdir = tmp_path / "documents"; docdir.mkdir()
     monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "fh.db"))
+    monkeypatch.setattr(vat_refund, "ANALYTICS_DB", str(tmp_path / "fh.db"))
     monkeypatch.setattr(vat_refund, "DOCDIR", str(docdir))
     monkeypatch.setattr(supplier_master, "DB", str(tmp_path / "sup.db"))
     supplier_master._SCHEMA_READY.clear()

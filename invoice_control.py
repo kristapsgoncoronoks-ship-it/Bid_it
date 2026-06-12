@@ -33,7 +33,11 @@ def _half(date):                      # ISO date -> 'H1' / 'H2'
 def run_control(period):
     import supplier_master, vat_refund, audit
     scon = supplier_master.connect()
-    fcon = vat_refund.connect()
+    # transactions + receipt-control live in the analytics DB; invoice DOCUMENTS live
+    # in the separate claims DB (so claim records are isolated from the monthly rebuild).
+    fcon = vat_refund.analytics_connect()
+    audit.bind(fcon)
+    ccon = vat_refund.connect()
     fcon.execute("""CREATE TABLE IF NOT EXISTS invoice_receipt_control (
         period TEXT, supplier TEXT, country TEXT, slot TEXT,
         expected TEXT, invoice_no TEXT, status TEXT, note TEXT,
@@ -56,7 +60,7 @@ def run_control(period):
     # received invoices from the registry + their documents
     received = collections.defaultdict(list)   # (supplier, country_or_None, slot) -> invoice rows
     docs_by_inv = {}
-    for d in fcon.execute("SELECT supplier, invoice_ref FROM invoice_documents"):
+    for d in ccon.execute("SELECT supplier, invoice_ref FROM invoice_documents"):
         docs_by_inv.setdefault((d["supplier"], d["invoice_ref"]), True)
     invs = scon.execute("""SELECT supplier, country, invoice_no, invoice_date
                            FROM supplier_invoices WHERE period=?""", (period,)).fetchall()
@@ -144,7 +148,7 @@ def run_control(period):
                         THEN invoice_receipt_control.status ELSE excluded.status END,
             checked_at=excluded.checked_at""", tuple(r.values()))
     fcon.commit()
-    scon.close(); fcon.close()
+    scon.close(); fcon.close(); ccon.close()
     return rows, orphans
 
 if __name__ == "__main__":

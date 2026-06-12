@@ -113,6 +113,7 @@ def test_attach_document_files_under_logical_path(tmp_path, monkeypatch):
     for m in (supplier_master, customer_master, vat_refund):
         importlib.reload(m)
     monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "fh.db"))
+    monkeypatch.setattr(vat_refund, "ANALYTICS_DB", str(tmp_path / "fh.db"))
     monkeypatch.setattr(vat_refund, "DOCDIR", str(tmp_path / "docs"))
     monkeypatch.setattr(supplier_master, "DB", str(tmp_path / "sup.db"))
     monkeypatch.setattr(customer_master, "DB", str(tmp_path / "cust.db"))
@@ -144,6 +145,7 @@ def test_documents_follow_claim_dynamically(tmp_path, monkeypatch):
     for m in (supplier_master, customer_master, vat_refund):
         importlib.reload(m)
     monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "fh.db"))
+    monkeypatch.setattr(vat_refund, "ANALYTICS_DB", str(tmp_path / "fh.db"))
     monkeypatch.setattr(vat_refund, "DOCDIR", str(tmp_path / "docs"))
     monkeypatch.setattr(supplier_master, "DB", str(tmp_path / "sup.db"))
     monkeypatch.setattr(customer_master, "DB", str(tmp_path / "cust.db"))
@@ -193,6 +195,7 @@ def test_annual_claim_excludes_already_claimed_quarters(tmp_path, monkeypatch):
     for m in (supplier_master, customer_master, vat_refund):
         importlib.reload(m)
     monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "fh.db"))
+    monkeypatch.setattr(vat_refund, "ANALYTICS_DB", str(tmp_path / "fh.db"))
     monkeypatch.setattr(vat_refund, "DOCDIR", str(tmp_path / "docs"))
     monkeypatch.setattr(supplier_master, "DB", str(tmp_path / "sup.db"))
     monkeypatch.setattr(customer_master, "is_active", lambda *a, **k: True)

@@ -124,6 +124,7 @@ def test_submission_readiness(tmp_path, monkeypatch):
     monkeypatch.setattr(customer_master, "_SCHEMA_READY", set())
     monkeypatch.setattr(customer_master, "DOCDIR", str(tmp_path / "docs"))
     monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "v.db"))
+    monkeypatch.setattr(vat_refund, "ANALYTICS_DB", str(tmp_path / "v.db"))
     monkeypatch.setattr(vat_refund, "_SCHEMA_READY", set())
     monkeypatch.setattr(vat_refund, "stream_invoices", lambda *a, **k: [])
     customer_master.add_customer("ACME", "Acme SIA", "LV")     # pending, country not started
@@ -152,6 +153,7 @@ def test_country_gate_blocks_until_activated(tmp_path, monkeypatch):
     monkeypatch.setattr(customer_master, "_SCHEMA_READY", set())
     monkeypatch.setattr(customer_master, "DOCDIR", str(tmp_path / "docs"))
     monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "v.db"))
+    monkeypatch.setattr(vat_refund, "ANALYTICS_DB", str(tmp_path / "v.db"))
     monkeypatch.setattr(vat_refund, "_SCHEMA_READY", set())
     monkeypatch.setattr(vat_refund, "stream_invoices", lambda *a, **k: [])
     customer_master.add_customer("ACME", "Acme SIA", "LV")
@@ -180,6 +182,7 @@ def test_fee_frozen_on_submission(tmp_path, monkeypatch):
     monkeypatch.setattr(customer_master, "DB", str(tmp_path / "c.db"))
     monkeypatch.setattr(customer_master, "_SCHEMA_READY", set())
     monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "v.db"))
+    monkeypatch.setattr(vat_refund, "ANALYTICS_DB", str(tmp_path / "v.db"))
     monkeypatch.setattr(vat_refund, "_SCHEMA_READY", set())
     monkeypatch.setattr(vat_refund, "stream_invoices", lambda *a, **k: [])  # skip lock/doc checks
     # active customer, Belgium override 10% / min 100
@@ -214,6 +217,7 @@ def test_fee_charged_on_paid_with_minimum(tmp_path, monkeypatch):
     monkeypatch.setattr(customer_master, "DB", str(tmp_path / "c.db"))
     monkeypatch.setattr(customer_master, "_SCHEMA_READY", set())
     monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "v.db"))
+    monkeypatch.setattr(vat_refund, "ANALYTICS_DB", str(tmp_path / "v.db"))
     monkeypatch.setattr(vat_refund, "_SCHEMA_READY", set())
     monkeypatch.setattr(vat_refund, "stream_invoices", lambda *a, **k: [])
     customer_master.add_customer("ACME", "Acme SIA", "LV")
@@ -254,6 +258,7 @@ def test_fee_invoice_issued_after_paid(tmp_path, monkeypatch):
     monkeypatch.setattr(customer_master, "DB", str(tmp_path / "c.db"))
     monkeypatch.setattr(customer_master, "_SCHEMA_READY", set())
     monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "v.db"))
+    monkeypatch.setattr(vat_refund, "ANALYTICS_DB", str(tmp_path / "v.db"))
     monkeypatch.setattr(vat_refund, "_SCHEMA_READY", set())
     monkeypatch.setattr(vat_refund, "stream_invoices", lambda *a, **k: [])
     customer_master.add_customer("ACME", "Acme SIA", "LV")
@@ -289,6 +294,7 @@ def test_set_status_blocks_pending_customer(tmp_path, monkeypatch):
     monkeypatch.setattr(customer_master, "DB", str(tmp_path / "cust.db"))
     monkeypatch.setattr(customer_master, "_SCHEMA_READY", set())
     monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "vat.db"))
+    monkeypatch.setattr(vat_refund, "ANALYTICS_DB", str(tmp_path / "vat.db"))
     monkeypatch.setattr(vat_refund, "_SCHEMA_READY", set())
     customer_master.add_customer("BLK", "Blocked UAB", "LT")   # pending
     con = vat_refund.connect()
