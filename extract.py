@@ -25,9 +25,22 @@ Returned draft shape (per batch):
 """
 import os, io, re, json, zipfile, subprocess, tempfile
 
+import applog
 import money
 
+log = applog.get("extract")
+
 EXTRACT_BACKEND = os.environ.get("EXTRACT_BACKEND", "auto")
+
+# ZIP decompression caps (zip-bomb guard): a crafted archive of a few KB can
+# decompress into gigabytes. Limits are generous for real statement batches.
+ZIP_MAX_MEMBERS = 500
+ZIP_MAX_MEMBER_BYTES = 50 * 1024 * 1024     # 50 MB per extracted file
+ZIP_MAX_TOTAL_BYTES = 200 * 1024 * 1024     # 200 MB per archive
+
+
+class ZipLimitError(ValueError):
+    """The ZIP exceeds the decompression caps — rejected, never extracted."""
 
 
 class TransientExtractionError(Exception):
@@ -68,17 +81,59 @@ PROMPT = (
 
 
 # ---------------------------------------------------------------- ZIP / PDF intake
+def _read_capped(f, name, budget):
+    """Read an open ZIP member in chunks, raising once `budget` bytes are crossed.
+    The header's declared size is checked separately — but headers can lie, so the
+    actual decompressed stream is metered too (never z.read() blind)."""
+    chunks, size = [], 0
+    while True:
+        chunk = f.read(1 << 20)
+        if not chunk:
+            return b"".join(chunks)
+        size += len(chunk)
+        if size > budget:
+            log.warning("ZIP rejected: member '%s' decompresses past %d bytes "
+                        "(declared size was smaller)", name, budget)
+            raise ZipLimitError(f"ZIP rejected: '{name}' decompresses past the "
+                                "safety caps (possible zip-bomb)")
+        chunks.append(chunk)
+
+
+def _zip_extract(upload_bytes, suffix):
+    """-> list of (basename, bytes) for ZIP members ending in `suffix`, enforcing
+    the decompression caps (member count, per-member bytes, cumulative total)."""
+    out, total = [], 0
+    with zipfile.ZipFile(io.BytesIO(upload_bytes)) as z:
+        infos = z.infolist()
+        if len(infos) > ZIP_MAX_MEMBERS:
+            log.warning("ZIP rejected: %d members (cap %d)", len(infos), ZIP_MAX_MEMBERS)
+            raise ZipLimitError(f"ZIP rejected: {len(infos)} members exceed the "
+                                f"{ZIP_MAX_MEMBERS}-file cap")
+        for info in infos:
+            n = info.filename
+            if not n.lower().endswith(suffix) or n.startswith("__MACOSX"):
+                continue
+            budget = min(ZIP_MAX_MEMBER_BYTES, ZIP_MAX_TOTAL_BYTES - total)
+            if info.file_size > budget:
+                log.warning("ZIP rejected: member '%s' declares %d bytes (caps: "
+                            "%d per file, %d total)", n, info.file_size,
+                            ZIP_MAX_MEMBER_BYTES, ZIP_MAX_TOTAL_BYTES)
+                raise ZipLimitError(f"ZIP rejected: '{n}' is too large to extract "
+                                    "safely (possible zip-bomb)")
+            with z.open(n) as f:
+                data = _read_capped(f, n, budget)
+            total += len(data)
+            out.append((os.path.basename(n), data))
+    return out
+
+
 def unpack(upload_bytes, filename):
     """-> list of (name, pdf_bytes). Accepts a single PDF or a ZIP of PDFs."""
-    out = []
     if filename.lower().endswith(".zip"):
-        with zipfile.ZipFile(io.BytesIO(upload_bytes)) as z:
-            for n in z.namelist():
-                if n.lower().endswith(".pdf") and not n.startswith("__MACOSX"):
-                    out.append((os.path.basename(n), z.read(n)))
-    elif filename.lower().endswith(".pdf"):
-        out.append((os.path.basename(filename), upload_bytes))
-    return out
+        return _zip_extract(upload_bytes, ".pdf")
+    if filename.lower().endswith(".pdf"):
+        return [(os.path.basename(filename), upload_bytes)]
+    return []
 
 
 def _have_pdftotext():
@@ -260,15 +315,10 @@ def _is_xml(filename, data):
 def _collect_xml(upload_bytes, filename):
     """-> list of (name, xml_bytes): a single .xml, or the .xml entries in a ZIP."""
     if filename.lower().endswith(".zip"):
-        out = []
         try:
-            with zipfile.ZipFile(io.BytesIO(upload_bytes)) as z:
-                for n in z.namelist():
-                    if n.lower().endswith(".xml") and not n.startswith("__MACOSX"):
-                        out.append((os.path.basename(n), z.read(n)))
+            return _zip_extract(upload_bytes, ".xml")   # same zip-bomb caps as PDFs
         except zipfile.BadZipFile:
             return []
-        return out
     if _is_xml(filename, upload_bytes):
         return [(os.path.basename(filename), upload_bytes)]
     return []

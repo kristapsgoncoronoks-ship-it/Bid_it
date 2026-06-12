@@ -1,6 +1,10 @@
 """The AI extraction backend must return invoice transactions, supplier data, and
-the exchange rate when the invoice shows one."""
+the exchange rate when the invoice shows one. ZIP intake must reject zip-bombs."""
+import io
 import json
+import zipfile
+
+import pytest
 
 import extract as EX
 
@@ -54,3 +58,61 @@ def test_amounts_round_half_up_into_draft(monkeypatch):
 def test_backends_are_provider_neutral():
     # the pipeline supports Claude, ChatGPT (OpenAI) and Azure, selected by env
     assert set(EX._AI) >= {"claude", "openai", "azure"}
+
+
+# ---------------------------------------------------------------- ZIP bomb caps
+def _zip_of(entries):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, data in entries:
+            z.writestr(name, data)
+    return buf.getvalue()
+
+
+def test_normal_zip_still_unpacks():
+    data = _zip_of([("a.pdf", b"%PDF-1.4 a"), ("sub/b.pdf", b"%PDF-1.4 b"),
+                    ("__MACOSX/junk.pdf", b"x"), ("notes.txt", b"skip me")])
+    files = EX.unpack(data, "batch.zip")
+    assert [n for n, _ in files] == ["a.pdf", "b.pdf"]
+    assert files[0][1] == b"%PDF-1.4 a"
+
+
+def test_high_ratio_zip_bomb_rejected():
+    # 60 MB of zeros compresses to a few KB but exceeds the 50 MB per-member cap.
+    bomb = _zip_of([("huge.pdf", b"\0" * (EX.ZIP_MAX_MEMBER_BYTES + 1024))])
+    assert len(bomb) < 1024 * 1024              # tiny on the wire, huge inflated
+    with pytest.raises(EX.ZipLimitError, match="zip-bomb"):
+        EX.unpack(bomb, "bomb.zip")
+
+
+def test_member_count_cap(monkeypatch):
+    monkeypatch.setattr(EX, "ZIP_MAX_MEMBERS", 5)
+    data = _zip_of([(f"f{i}.pdf", b"%PDF") for i in range(6)])
+    with pytest.raises(EX.ZipLimitError, match="cap"):
+        EX.unpack(data, "many.zip")
+
+
+def test_cumulative_total_cap(monkeypatch):
+    # each member is under the per-member cap, but together they cross the total
+    monkeypatch.setattr(EX, "ZIP_MAX_MEMBER_BYTES", 1024)
+    monkeypatch.setattr(EX, "ZIP_MAX_TOTAL_BYTES", 2048)
+    data = _zip_of([(f"f{i}.pdf", b"\0" * 1000) for i in range(3)])
+    with pytest.raises(EX.ZipLimitError):
+        EX.unpack(data, "total.zip")
+
+
+def test_lying_header_caught_by_chunked_read():
+    # headers can lie: even if the declared size passes, the actual decompressed
+    # stream is metered and cut off at the budget.
+    with pytest.raises(EX.ZipLimitError, match="zip-bomb"):
+        EX._read_capped(io.BytesIO(b"\0" * 4096), "liar.pdf", budget=1024)
+    assert EX._read_capped(io.BytesIO(b"\0" * 512), "ok.pdf", budget=1024) == b"\0" * 512
+
+
+def test_collect_xml_has_same_caps(monkeypatch):
+    monkeypatch.setattr(EX, "ZIP_MAX_MEMBER_BYTES", 1024)
+    data = _zip_of([("inv.xml", b"<x>" + b"\0" * 4096 + b"</x>")])
+    with pytest.raises(EX.ZipLimitError):
+        EX._collect_xml(data, "batch.zip")
+    # garbage that is not a ZIP still degrades to "no XML found"
+    assert EX._collect_xml(b"not a zip at all", "garbage.zip") == []
