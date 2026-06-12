@@ -324,7 +324,7 @@ PERM_BY_ENDPOINT = {
     "extract_batch":   "data_import", "extract_confirm": "data_import",
     "data_manager":    "data_import",
     "intake_queue_page": "data_import", "intake_review": "data_import",
-    "invoice_ctrl":    "invoice_control",
+    "invoice_ctrl":    "invoice_control", "contracts": "invoice_control",
     "vat":             "vat_claims", "api_vat": "vat_claims", "readiness": "vat_claims",
     "customers":       "customers",
     "pricing":         "pricing", "pricing_upload": "pricing", "api_pricing": "pricing",
@@ -599,7 +599,8 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
 <a href="/entities" class="{{'on' if page=='ent'}}">Entities &amp; VAT</a>
 <a href="/fx" class="{{'on' if page=='fx'}}">FX vs ECB</a>
 <a href="/stations" class="{{'on' if page=='stn'}}">Stations</a>
-{% if 'invoice_control' in perms %}<a href="/invoices" class="{{'on' if page=='inv'}}">Invoice control</a>{% endif %}
+{% if 'invoice_control' in perms %}<a href="/invoices" class="{{'on' if page=='inv'}}">Invoice control</a>
+<a href="/contracts" class="{{'on' if page=='con'}}">Contracts</a>{% endif %}
 {% if 'data_import' in perms %}<a href="/extract" class="{{'on' if page=='ext'}}">Import batch</a>
 <a href="/queue" class="{{'on' if page=='queue'}}">Waiting room</a>{% endif %}
 {% if 'vat_claims' in perms %}<a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
@@ -1588,6 +1589,83 @@ def intake_review(job_id):
     with open(_os.path.join(tmp, token + ".pkl"), "wb") as pf:
         pickle.dump(pairs, pf)
     return page(_review_form(draft, token, intake_job=job_id, period=job.get("period")), "queue")
+
+@app.route("/contracts", methods=["GET", "POST"])
+def contracts():
+    """Contract-compliance auditor: invoiced prices vs contracted discount terms,
+    with the recoverable EUR per breach. Capability: invoice_control."""
+    import contract_audit as CA, supplier_master as SM
+    banner = ""
+    if request.method == "POST":
+        act = request.form.get("__act")
+        try:
+            if act == "add_rule":
+                def _f(name):
+                    v = request.form.get(name, "").strip()
+                    return float(v) if v else None
+                SM.set_discount_rule(request.form["supplier"].strip(),
+                                     request.form.get("country", "%").strip() or "%",
+                                     request.form.get("station_like", "%").strip() or "%",
+                                     request.form.get("product_group", "Diesel").strip() or "Diesel",
+                                     expected_discount_eur_l=_f("expected_discount_eur_l"),
+                                     max_net_eur_l=_f("max_net_eur_l"),
+                                     note=request.form.get("note", "").strip())
+                banner = '<div class="card"><b class="ok">Contract rule added.</b></div>'
+            elif act == "del_rule":
+                SM.delete_discount_rule(int(request.form.get("rule_id", "0")))
+                banner = '<div class="card"><b class="ok">Rule removed.</b></div>'
+        except Exception as e:
+            _log_exc("contract rule", e)
+            banner = f'<div class="card"><b class="bad">{esc(str(e))}</b></div>'
+    period = request.args.get("period", "").strip() or None
+    flags, summ = CA.audit(period)
+    ftrs = [[f"<td>{esc(f['supplier'])}</td><td>{esc(f['country'])}</td><td>{esc(f['station'] or '')}</td>",
+             f"<td>{esc(f['period'])}</td><td class='{'bad'}'>{esc(f['issue'])}</td>",
+             f"<td class=r>{f['expected']:.3f}</td><td class=r>{f['actual']:.3f}</td>",
+             f"<td class=r>{f['litres']:,.0f}</td><td class='r bad'>{f['recover_eur']:,.2f}</td>",
+             f"<td class=note>{esc(f['note'])}</td>"] for f in flags[:200]]
+    rules = SM.discount_rules()
+    rtrs = []
+    for r in rules:
+        delf = ('<form method="post" style="display:inline">' + _csrf_input()
+                + f'<input type="hidden" name="rule_id" value="{r["id"]}">'
+                + '<button name="__act" value="del_rule" style="background:var(--mut)">×</button></form>')
+        rtrs.append([f"<td>{esc(r['supplier'])}</td><td>{esc(r['country'])}</td><td>{esc(r['station_like'])}</td>",
+                     f"<td>{esc(r['product_group'])}</td>",
+                     f"<td class=r>{('%.3f'%r['expected_discount_eur_l']) if r['expected_discount_eur_l'] is not None else '—'}</td>",
+                     f"<td class=r>{('%.3f'%r['max_net_eur_l']) if r['max_net_eur_l'] is not None else '—'}</td>",
+                     f"<td class=note>{esc(r['note'] or '')}</td><td>{delf}</td>"])
+    bysup = " · ".join(f"{esc(s)} €{v:,.0f}" for s, v in sorted(summ["by_supplier"].items(),
+                                                               key=lambda kv: -kv[1]))
+    body = (banner
+            + f'<form class="f" method="get"><label>Period (blank = all)<input name="period" value="{esc(period or "")}" style="width:110px"></label><button>Audit</button></form>'
+            + '<div class="card"><h2>Contract-compliance audit</h2>'
+            + '<div class="kpis">'
+            + f'<div class="kpi"><div class="v bad">EUR {summ["total_recover"]:,.0f}</div><div class="l">recoverable (rule breaches)</div></div>'
+            + f'<div class="kpi"><div class="v">{summ["flags"]}</div><div class="l">flags</div></div>'
+            + f'<div class="kpi"><div class="v">{summ["rules"]}</div><div class="l">active rules</div></div></div>'
+            + (f'<div class="note">By supplier: {bysup}</div>' if bysup else '')
+            + (tbl(["Supplier", "Country", "Station", "Period", "Issue", "Expected", "Actual",
+                    "Litres", "Recover €", "Note"], ftrs) if ftrs
+               else '<p class="note">No breaches against the current rules. Add rules below to audit against your contracts.</p>')
+            + '<div class="note">“short discount” = the rebate applied (net − effective, per litre) is below the '
+              'contracted EUR/L; “over ceiling” = effective NET price above a contracted max. Recover € = shortfall × litres.</div></div>'
+            + '<div class="card"><h2>Contract rules</h2>'
+            + (tbl(["Supplier", "Country", "Station LIKE", "Product", "Disc €/L", "Max €/L", "Note", ""], rtrs)
+               if rtrs else '<p class="note">No rules yet.</p>')
+            + '<form method="post" class="f" style="margin-top:10px">' + _csrf_input()
+            + '<label>supplier<input name="supplier" required style="width:90px"></label>'
+            + '<label>country LIKE<input name="country" value="%" style="width:90px"></label>'
+            + '<label>station LIKE<input name="station_like" value="%" style="width:120px"></label>'
+            + '<label>product<input name="product_group" value="Diesel" style="width:80px"></label>'
+            + '<label>expected discount €/L<input name="expected_discount_eur_l" style="width:90px" placeholder="e.g. 0.205"></label>'
+            + '<label>max NET €/L<input name="max_net_eur_l" style="width:80px" placeholder="optional"></label>'
+            + '<label>note<input name="note" style="width:160px"></label>'
+            + '<button name="__act" value="add_rule">Add rule</button></form>'
+            + '<div class="note">Country/station are SQL LIKE patterns (% = any). Use <b>expected discount</b> '
+              'for rebate-style suppliers (Q8/Port One, where effective &lt; doc price) and <b>max NET</b> where the '
+              'discount is in the doc price.</div></div>')
+    return page(body, "con")
 
 @app.route("/invoices", methods=["GET", "POST"])
 def invoice_ctrl():

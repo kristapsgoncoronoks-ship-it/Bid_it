@@ -165,9 +165,44 @@ def connect():
         con.executescript(SCHEMA)
         try: con.execute("ALTER TABLE suppliers ADD COLUMN invoice_cadence TEXT DEFAULT 'monthly'")
         except sqlite3.OperationalError: pass  # column already exists (safe)
-        audit.install_audit(con, ['suppliers', 'supplier_vat_registrations', 'supplier_bank_accounts', 'supplier_products', 'supplier_invoices'])
+        # Structured contract terms for the compliance auditor: the rebate that SHOULD
+        # be applied (EUR/L) and/or a NET price ceiling (EUR/L) for matching lines.
+        con.execute("""CREATE TABLE IF NOT EXISTS supplier_discounts (
+            id INTEGER PRIMARY KEY,
+            supplier TEXT, country TEXT DEFAULT '%', station_like TEXT DEFAULT '%',
+            product_group TEXT DEFAULT 'Diesel',
+            expected_discount_eur_l REAL, max_net_eur_l REAL,
+            note TEXT, active INTEGER DEFAULT 1)""")
+        audit.install_audit(con, ['suppliers', 'supplier_vat_registrations', 'supplier_bank_accounts',
+                                  'supplier_products', 'supplier_invoices', 'supplier_discounts'])
         _SCHEMA_READY.add(DB)
     return con
+
+def set_discount_rule(supplier, country="%", station_like="%", product_group="Diesel",
+                      expected_discount_eur_l=None, max_net_eur_l=None, note=""):
+    """Add/replace a contract term used by the compliance auditor: the rebate that
+    should be applied (EUR/L) and/or a NET price ceiling (EUR/L) for matching lines.
+    `country`/`station_like` are SQL LIKE patterns ('%' = any)."""
+    con = connect()
+    con.execute("""INSERT INTO supplier_discounts
+        (supplier, country, station_like, product_group, expected_discount_eur_l, max_net_eur_l, note, active)
+        VALUES (?,?,?,?,?,?,?,1)""",
+        (supplier.upper(), country, station_like, product_group,
+         expected_discount_eur_l, max_net_eur_l, note))
+    con.commit(); rid = con.execute("SELECT last_insert_rowid()").fetchone()[0]; con.close()
+    return rid
+
+def discount_rules(active_only=True):
+    con = connect()
+    q = "SELECT * FROM supplier_discounts" + (" WHERE active=1" if active_only else "") + " ORDER BY supplier, id"
+    rows = [dict(r) for r in con.execute(q)]
+    con.close()
+    return rows
+
+def delete_discount_rule(rule_id):
+    con = connect()
+    con.execute("DELETE FROM supplier_discounts WHERE id=?", (rule_id,))
+    con.commit(); con.close()
 
 def seed(con):
     con.executemany("""INSERT OR REPLACE INTO suppliers
