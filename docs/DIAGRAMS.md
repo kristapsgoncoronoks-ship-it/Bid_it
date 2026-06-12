@@ -262,7 +262,35 @@ flowchart LR
 
 ---
 
-## 9. Scaling — one box to a multi-server fleet
+## 9. Claim composition & document resolution
+
+A claim is built **from registered invoices** — one row per (invoice, product code), never
+a synthetic aggregate. A line that can't be tied to a documented invoice blocks filing, and
+is resolved in place by uploading or attaching an already-stored file.
+
+```mermaid
+flowchart TB
+    TX["transactions (fuel_history.db)"] --> IL["invoice_lines()"]
+    REG[("registered invoices")] --> IL
+    IL --> ROW["one row per (invoice, product code)<br/>Art. 9 goods code"]
+    IL --> UM{"resolves to one<br/>registered invoice?"}
+    UM -- no --> TAG["tag UNMATCHED"]
+    UM -- yes --> DOC{"document attached<br/>& valid?"}
+    TAG --> BLOCK["✗ synthetic / UNMATCHED line<br/>— pack cannot be filed"]
+    DOC -- missing --> BLOCK
+    DOC -- present --> OK["✓ filable line"]
+
+    BLOCK --> RES{"resolve from /vat"}
+    RES -- upload --> ATT["attach_document()<br/>SHA-256 dedup + wrong-attach warning"]
+    RES -- "search store" --> FIND["attach_existing()<br/>(data lake + this customer's vault)"]
+    FIND --> ATT
+    ATT --> DOC
+    OK --> LOCK["set_status('submitted')<br/>locks invoices · freezes nothing — rows stay editable (guarded)"]
+```
+
+---
+
+## 10. Scaling — one box to a multi-server fleet
 
 The same codebase grows by **configuration, not rewrite**. Node roles split the web
 tier from a worker fleet; signed-cookie sessions need no sticky routing (one shared
@@ -310,7 +338,7 @@ flowchart TB
 
 ---
 
-## 10. Self-control — errors, backups & data integrity
+## 11. Self-control — errors, backups & data integrity
 
 Every failure is recorded where an admin can see it, and the physical PDF/ZIP store is
 verified against its recorded hashes. The loop is *active*: an integrity failure both

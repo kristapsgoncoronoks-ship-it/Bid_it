@@ -358,6 +358,15 @@ When you advance a status you can attach a **note** (rejection reason, what was
 requested) and — for 2B/3D — a **deadline**; both show on the claim and feed the
 dashboard worklist.
 
+**What a claim contains.** A claim is built **from your registered invoices** — every
+line ties to **one specific invoice**, and there is **one row per product code** (row 1 =
+product code 1, row 2 = product code 2, …), never a combined "ALL" line. A transaction
+that can't be tied to a registered invoice shows as **UNMATCHED**, and a claim with any
+unmatched or document‑less line **cannot be filed** — resolve it by registering the
+invoice and attaching its document (search the vault or upload — see §6). Claim figures
+stay **editable** (Data manager → claims), but a row is protected against accidental
+change: it opens read‑only and only a deliberate **Edit** + a save **confirm** writes it.
+
 **The quarterly run:**
 1. After quarter end, watch the stream reach **1E Ready to submit** (open its
    *checklist* link to see exactly what's missing while it's 1A).
