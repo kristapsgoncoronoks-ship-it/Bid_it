@@ -90,3 +90,10 @@ PASS all suppliers. After test runs, restore demo-DB churn before committing:
 - Notifications (email) for worklist items: deadlines, expiring documents.
 - Off-machine backup sync (OneDrive/SharePoint) so `backups/` survives disk loss —
   currently an OS/cron concern, documented in the Admin "Backups" card.
+- Horizontal scale (see `docs/SCALING.md`). Done & testable: node roles (`FFS_ROLE`),
+  shared sessions (`FFS_SECRET_KEY`), pluggable storage, lease queue + leader scheduler,
+  and the `db.qmark_to_pyformat` paramstyle shim. Remaining for a validated Postgres
+  cutover (needs a LIVE Postgres): exercise `_PgShim` on real psycopg; port dialect-isms
+  (`datetime('now')`→`now()`, `INSERT OR IGNORE`→`ON CONFLICT`, `json_object` audit
+  triggers → a PG trigger fn); migrate the `intake` queue + `process_lock` leases to the
+  shared DB; Postgres-native backups (`pg_dump`).

@@ -292,7 +292,15 @@ def secret_key():
     and CSRF tokens validate across processes), file mode 0600, generated once.
     Uses an atomic O_EXCL create so two processes starting at the same time on a
     fresh install can't generate two different keys (which would invalidate each
-    other's sessions) — the loser simply reads the winner's key."""
+    other's sessions) — the loser simply reads the winner's key.
+
+    HORIZONTAL SCALE: behind a load balancer, set FFS_SECRET_KEY to the SAME value
+    on every web node. Sessions are signed cookies (no server-side store), so any
+    node validates any node's cookie — NO sticky sessions needed. When the env var
+    is unset we fall back to the per-machine .secret_key file (single-server default)."""
+    env = os.environ.get("FFS_SECRET_KEY")
+    if env:
+        return env.encode() if isinstance(env, str) else env
     path = f"{WORKDIR}/.secret_key"
     if not os.path.exists(path):
         try:

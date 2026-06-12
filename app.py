@@ -636,9 +636,22 @@ def _intake_loop():
                 pass
             time.sleep(IQ.POLL_SECONDS)
 
+def node_role():
+    """Deployment role of THIS process, for horizontal (multi-server) scaling:
+      all    (default) — serve web + run the intake worker (single-box / small fleet)
+      web    — serve web only; a dedicated worker fleet drains the queue elsewhere
+      worker — background processing only (run via `waiting_room.py --work`)
+    Set FFS_ROLE per node. The backup scheduler is NOT gated here: it self-elects a
+    single leader across all processes (process_lock), so it is safe everywhere."""
+    return os.environ.get("FFS_ROLE", "all").strip().lower()
+
 def start_intake_worker():
     global _intake_started
+    # Web-only nodes never drain the queue — that is the worker fleet's job. The
+    # legacy INTAKE_WORKER=0 switch still forces the in-process worker off too.
     if _intake_started or os.environ.get("INTAKE_WORKER", "1") == "0":
+        return
+    if node_role() == "web":
         return
     _intake_started = True
     threading.Thread(target=_intake_loop, name="intake-worker", daemon=True).start()

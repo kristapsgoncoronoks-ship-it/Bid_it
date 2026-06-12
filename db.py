@@ -19,15 +19,17 @@ Migration path (when you outgrow SQLite - many concurrent writers):
 
 HONEST STATUS — read before flipping DB_ENGINE in production:
   The Postgres branch below opens connections, maps SQLite column types to real
-  Postgres types on migration, and returns dict-style rows so `row["col"]` keeps
-  working. What it does NOT do yet: the modules write SQL with SQLite's qmark
-  paramstyle ("... VALUES (?)") and a few SQLite-isms (datetime('now'),
-  INSERT OR IGNORE, json_object in audit triggers). psycopg uses the pyformat
-  paramstyle ("%s") and Postgres spells those functions differently, so a real
-  cutover still needs a paramstyle shim (e.g. wrap connect() to translate ? -> %s)
-  and dialect-aware audit/migration DDL. Treat this file as the migration
-  scaffold, not a drop-in switch. It ships SQLite-active and import-guarded so
-  nothing breaks until you opt in.
+  Postgres types on migration, returns dict-style rows so `row["col"]` keeps
+  working, AND now wraps the connection in a paramstyle shim (_PgShim) that
+  translates the modules' SQLite qmark SQL ("... VALUES (?)") to psycopg's pyformat
+  ("%s") on every statement — see qmark_to_pyformat() (unit-tested). The psycopg
+  wiring itself still needs exercising against a LIVE Postgres before a production
+  cutover. What remains: dialect functions the modules spell the SQLite way —
+  datetime('now'), INSERT OR IGNORE, and the json_object audit triggers — need
+  Postgres equivalents (now(), ON CONFLICT, a PG trigger function). Treat this file
+  as the migration scaffold + paramstyle layer, not yet a drop-in switch. It ships
+  SQLite-active and import-guarded so nothing breaks until you opt in. See
+  docs/SCALING.md for the full horizontal-scaling plan and remaining blockers.
 """
 import os, sqlite3
 
@@ -44,6 +46,67 @@ def _pg_type(sqlite_decl):
     return "text"                                     # TEXT, NUMERIC, dates, default
 
 
+def qmark_to_pyformat(sql):
+    """Translate SQLite qmark placeholders (?) to psycopg pyformat (%s) so the SAME
+    module SQL runs on Postgres unchanged. A '?' inside a single-quoted string literal
+    is left alone, and any literal '%' is doubled to '%%' (psycopg's pyformat treats %
+    specially). This is the paramstyle shim the HONEST STATUS note above called for.
+
+    Pure function — fully unit-tested independent of any live database."""
+    out, in_str, i, n = [], False, 0, len(sql)
+    while i < n:
+        c = sql[i]
+        if in_str:
+            # psycopg scans the WHOLE query for %, so a literal % must be doubled even
+            # inside a string literal; ? inside a literal is data and is left alone.
+            out.append("%%" if c == "%" else c)
+            if c == "'":
+                if i + 1 < n and sql[i + 1] == "'":   # '' = escaped quote, still inside
+                    out.append("'"); i += 2; continue
+                in_str = False
+            i += 1; continue
+        if c == "'":
+            in_str = True; out.append(c)
+        elif c == "?":
+            out.append("%s")
+        elif c == "%":
+            out.append("%%")
+        else:
+            out.append(c)
+        i += 1
+    return "".join(out)
+
+
+class _PgCursor:
+    """psycopg cursor wrapper that rewrites qmark SQL (?) to pyformat (%s)."""
+    def __init__(self, cur): object.__setattr__(self, "_cur", cur)
+    def execute(self, sql, params=()):
+        self._cur.execute(qmark_to_pyformat(sql), params); return self._cur
+    def executemany(self, sql, params):
+        self._cur.executemany(qmark_to_pyformat(sql), params); return self._cur
+    def __iter__(self): return iter(self._cur)
+    def __getattr__(self, name): return getattr(self._cur, name)
+
+
+class _PgShim:
+    """Wraps a psycopg connection so module SQL written in SQLite's qmark style runs
+    unchanged on Postgres: it rewrites ? -> %s on execute/executemany, on both the
+    connection and the cursors it hands out. Active ONLY when DB_ENGINE=postgres — the
+    SQLite default path never sees this class.
+
+    NOTE: the ?->%s translation is unit-tested; the psycopg wiring here is verified by
+    construction and must be exercised against a live Postgres before a production
+    cutover (see docs/SCALING.md). Dialect functions (datetime('now'), INSERT OR IGNORE,
+    json_object triggers) are a separate, still-open item."""
+    def __init__(self, con): object.__setattr__(self, "_con", con)
+    def execute(self, sql, params=()):
+        return _PgCursor(self._con.cursor()).execute(sql, params)
+    def cursor(self, *a, **k):
+        return _PgCursor(self._con.cursor(*a, **k))
+    def __getattr__(self, name):          # commit/rollback/close/etc. pass through
+        return getattr(self._con, name)
+
+
 def connect(name):
     """name: logical db ('customers','suppliers','fuel_history','security')."""
     if ENGINE == "postgres":
@@ -53,7 +116,7 @@ def connect(name):
         # index rows by column name keep working unchanged.
         con = psycopg.connect(os.environ["DB_DSN"], autocommit=False, row_factory=dict_row)
         con.execute(f"SET search_path TO {name}, public")
-        return con
+        return _PgShim(con)            # qmark -> pyformat on every statement
     con = sqlite3.connect(f"{WORKDIR}/{name}.db")
     con.row_factory = sqlite3.Row
     return con
