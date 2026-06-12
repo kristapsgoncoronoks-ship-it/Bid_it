@@ -43,6 +43,17 @@ def test_activation_requires_docs_and_bank(cd):
     assert cd.is_active("ACME") is True
 
 
+def test_document_archived_under_logical_path(cd):
+    cd.add_customer("ACME", "Acme SIA", "LV", reg_number="LV40000")
+    con = cd.connect()
+    cd.add_document(con, "ACME", "power_of_attorney", "poa.pdf", b"POA", country="Poland")
+    sp = con.execute("SELECT stored_path FROM customer_documents WHERE customer='ACME'"
+                     ).fetchone()["stored_path"].replace("\\", "/")
+    con.close()
+    # <Customer> <RegNo>/customer-documents/<country>/<kind>/<file>
+    assert "Acme SIA LV40000/customer-documents/Poland/power_of_attorney/" in sp
+
+
 def test_fee_priority_percent_then_minimum(cd):
     # 15% of 1000 = 150 (above the 50 minimum) -> percent
     assert cd.compute_fee(1000, 15, 50) == (150.0, "percent")

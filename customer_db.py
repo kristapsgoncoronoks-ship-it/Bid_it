@@ -160,8 +160,13 @@ def add_document(con, code, kind, filename, file_bytes, country=None):
     import hashlib
     import doc_storage
     sha = hashlib.sha256(file_bytes).hexdigest()
-    tag = (country or "GEN")
-    safe = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in f"{code}_{tag}_{kind}_{filename}")
+    # archive under <Customer> <RegNo>/customer-documents/<country|general>/<kind>/<file>
+    try:
+        c = get_customer(code)
+        cust_name, reg = c.get("company_name", code), c.get("reg_number")
+    except Exception:
+        cust_name, reg = code, None
+    safe = doc_storage.customer_vault_path(cust_name, reg, country, kind, filename)
     be = doc_storage.backend(DOCDIR)
     stored, web_url = be.put(safe, file_bytes)
     con.execute("""INSERT INTO customer_documents

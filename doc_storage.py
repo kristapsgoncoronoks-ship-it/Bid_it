@@ -45,22 +45,89 @@ Network note: Graph calls need outbound internet - run on your machine/server
 (this sandboxed environment has egress disabled, so the SharePoint path here is
 verified with a stubbed transport; the local backend is fully live).
 """
-import os
+import os, re
 
 BACKEND = os.environ.get("DOC_BACKEND", "local")
 GRAPH = "https://graph.microsoft.com/v1.0"
+
+
+# ---------------------------------------------------------------- logical vault path
+# Documents are filed under a HUMAN-NAVIGABLE folder tree so they can be located by
+# hand on any backend. The SAME path is built regardless of where the bytes finally
+# live (local folder / SharePoint / FTP) — only the storage transport differs.
+#
+#   <Customer> <RegNo> / <Year> / <Country> / <Claim period> / <file>
+#   e.g.  Jupiter Plus AS EE100127540 / 2026 / Germany / Q2 / Jupiter_DKV_INV123.pdf
+#
+# Customer onboarding/country documents (not tied to an invoice) file under:
+#   <Customer> <RegNo> / customer-documents / <country|general> / <kind> / <file>
+_SAFE_EXTRA = " ._-()&+"
+
+def _seg(s, default="unsorted"):
+    """Sanitise ONE path segment so it is safe on every backend (no slashes, no
+    Windows-illegal chars, no leading/trailing dots/spaces)."""
+    s = ("" if s is None else str(s)).strip()
+    out = "".join(c if (c.isalnum() or c in _SAFE_EXTRA) else "_" for c in s)
+    out = out.strip(" .")
+    return out or default
+
+def vault_path(folders, filename):
+    """Join sanitised folder segments + a filename into the logical vault path."""
+    parts = [_seg(f) for f in folders]
+    parts.append(_seg(filename, default="document"))
+    return "/".join(parts)
+
+def _year_of(period):
+    m = re.match(r"^(\d{4})", str(period or ""))
+    return m.group(1) if m else "unsorted"
+
+def period_label(period):
+    """Map a period to its claim/declaration folder: monthly '2026-05' -> 'Q2',
+    quarterly '2026-Q3' -> 'Q3', annual '2026' -> 'Annual', else 'unsorted'."""
+    p = str(period or "").strip()
+    m = re.match(r"^\d{4}-Q([1-4])$", p)
+    if m:
+        return f"Q{m.group(1)}"
+    m = re.match(r"^\d{4}-(\d{2})", p)
+    if m:
+        return f"Q{(int(m.group(1)) - 1) // 3 + 1}"
+    if re.match(r"^\d{4}$", p):
+        return "Annual"
+    return "unsorted"
+
+def _customer_folder(customer, reg_number):
+    reg = (reg_number or "").strip()
+    if reg and reg.upper() != "INPUT":
+        return f"{customer} {reg}".strip()
+    return str(customer or "customer")
+
+def invoice_vault_path(customer, reg_number, country, period, filename):
+    """Logical path for a supplier-invoice document (the main archive tree)."""
+    return vault_path([_customer_folder(customer, reg_number), _year_of(period),
+                       country or "unknown-country", period_label(period)], filename)
+
+def customer_vault_path(customer, reg_number, scope, kind, filename):
+    """Logical path for an onboarding / country-activation customer document."""
+    return vault_path([_customer_folder(customer, reg_number), "customer-documents",
+                       scope or "general", kind or "other"], filename)
 
 
 class LocalBackend:
     name = "local"
     def __init__(self, docdir):
         self.docdir = docdir
-    def put(self, safe_name, data):
+    def put(self, name, data):
         os.makedirs(self.docdir, exist_ok=True)
-        path = f"{self.docdir}/{safe_name}"
-        with open(path, "wb") as f:
+        # `name` may be a multi-segment vault path; create the subfolders and keep
+        # the final file strictly inside docdir (guard tampered/'..' names).
+        real = os.path.realpath(os.path.join(self.docdir, name))
+        base = os.path.realpath(self.docdir)
+        if not real.startswith(base + os.sep):
+            raise ValueError(f"path escapes document store: {name!r}")
+        os.makedirs(os.path.dirname(real), exist_ok=True)
+        with open(real, "wb") as f:
             f.write(data)
-        return path, None                      # locator, web_url
+        return real, None                      # locator, web_url
     def _safe_path(self, locator):
         """Resolve a stored locator and ensure it stays under docdir.
         Guards against tampered/traversal locators (e.g. '../../etc/passwd')."""
@@ -71,6 +138,7 @@ class LocalBackend:
         return real
     def get(self, locator):
         return open(self._safe_path(locator), "rb").read()
+
 
 
 class SharePointBackend:
@@ -99,10 +167,13 @@ class SharePointBackend:
     def _h(self):
         return {"Authorization": f"Bearer {self.token()}"}
 
-    def put(self, safe_name, data):
+    def put(self, name, data):
         # simple upload (<4 MB per Graph docs; invoices are well under). For larger
-        # scans switch to an uploadSession - same endpoint family.
-        url = (f"{GRAPH}/drives/{self.drive}/root:/{self.folder}/{safe_name}:/content")
+        # scans switch to an uploadSession - same endpoint family. `name` may carry
+        # subfolders (the logical vault path); Graph creates intermediate folders.
+        from urllib.parse import quote
+        path = quote(f"{self.folder}/{name}".strip("/"), safe="/")
+        url = (f"{GRAPH}/drives/{self.drive}/root:/{path}:/content")
         r = self.rq.put(url, headers={**self._h(),
                         "Content-Type": "application/octet-stream"}, data=data, timeout=60)
         r.raise_for_status()
@@ -139,21 +210,22 @@ class FtpBackend:
         ftp.set_pasv(os.environ.get("FTP_PASSIVE", "1") != "0")
         return ftp
 
-    def _ensure_base(self, ftp):
+    def _ensure_dirs(self, ftp, dirpath):
+        """Create every folder in `dirpath` (the base + the document's subfolders)."""
         path = ""
-        for part in self.base.split("/"):
+        for part in dirpath.split("/"):
             if not part:
                 continue
             path = f"{path}/{part}" if path else part
             try: ftp.mkd(path)
             except Exception: pass             # already exists (or no-permission to mkd)
 
-    def put(self, safe_name, data):
+    def put(self, name, data):
         import io
         ftp = self._open()
         try:
-            self._ensure_base(ftp)
-            remote = f"{self.base}/{safe_name}" if self.base else safe_name
+            remote = f"{self.base}/{name}" if self.base else name
+            self._ensure_dirs(ftp, "/".join(remote.split("/")[:-1]))
             ftp.storbinary(f"STOR {remote}", io.BytesIO(data))
             return f"ftp://{remote}", None      # locator, web_url
         finally:

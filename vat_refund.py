@@ -79,11 +79,14 @@ def connect():
 DOCDIR = f"{WORKDIR}/documents"
 
 def attach_document(con, ent, sup, ref, src_path=None, file_bytes=None,
-                    filename=None, kind="original_pdf"):
+                    filename=None, kind="original_pdf", country=None, period=None):
     """Attach a physical document (original PDF or scan) to an invoice.
     Returns (ok, message). Hash-verified; duplicate file on the SAME invoice is
     skipped; the SAME file on a DIFFERENT invoice raises a warning (likely a
-    wrong attachment) but is allowed with the warning recorded in the message."""
+    wrong attachment) but is allowed with the warning recorded in the message.
+    The file is archived under the logical vault tree
+    <Customer> <RegNo>/<Year>/<Country>/<Claim period>/<file>; country/period are
+    looked up from the invoice registry when not passed in."""
     import hashlib, os
     import doc_storage
     if src_path:
@@ -99,7 +102,27 @@ def attach_document(con, ent, sup, ref, src_path=None, file_bytes=None,
                             (sha, ent, sup, ref)).fetchone()
     warn = (f" | WARNING: identical file already attached to invoice "
             f"{elsewhere['invoice_ref']} - verify correct document" if elsewhere else "")
-    safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in f"{ent}_{sup}_{ref}_{filename}")
+    # resolve the metadata that organises the archive (country/period of the
+    # invoice, and the customer's registration number) — all best-effort.
+    if country is None or period is None:
+        try:
+            scon = supplier_db.connect()
+            inv = scon.execute("""SELECT country, period FROM supplier_invoices
+                                  WHERE supplier=? AND invoice_no=?""", (sup, ref)).fetchone()
+            scon.close()
+            if inv:
+                country = country if country is not None else inv["country"]
+                period = period if period is not None else inv["period"]
+        except Exception:
+            pass
+    cust_name, reg = ent, None
+    try:
+        c = customer_db.get_customer(ent) or {}
+        cust_name = c.get("company_name") or ent
+        reg = c.get("reg_number")
+    except Exception:
+        pass
+    safe = doc_storage.invoice_vault_path(cust_name, reg, country, period, filename)
     be = doc_storage.backend(DOCDIR)
     stored, web_url = be.put(safe, file_bytes)
     con.execute("""INSERT INTO invoice_documents (entity, supplier, invoice_ref, filename,

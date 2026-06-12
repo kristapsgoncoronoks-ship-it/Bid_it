@@ -1410,7 +1410,9 @@ def extract_confirm():
             cand = next((b for nm, b in pdfs if inv and inv[:8] in nm), None)
             if inv and cand:
                 ok, _ = VR.attach_document(fcon, ent, supplier, inv, file_bytes=cand,
-                                           filename=f"{inv}.pdf", kind="original_pdf")
+                                           filename=f"{inv}.pdf", kind="original_pdf",
+                                           country=request.form.get(f"ctry_{i}", "").strip() or None,
+                                           period=period)
                 if ok: attached += 1
         fcon.close()
         _os.unlink(tmpf)
