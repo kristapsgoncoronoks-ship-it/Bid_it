@@ -323,6 +323,7 @@ def _needs_setup():
 PERM_BY_ENDPOINT = {
     "extract_batch":   "data_import", "extract_confirm": "data_import",
     "data_manager":    "data_import",
+    "intake_queue_page": "data_import", "intake_review": "data_import",
     "invoice_ctrl":    "invoice_control",
     "vat":             "vat_claims", "api_vat": "vat_claims", "readiness": "vat_claims",
     "customers":       "customers",
@@ -444,6 +445,36 @@ def start_backup_scheduler():
     _sched_started = True
     threading.Thread(target=_backup_loop, name="backup-scheduler", daemon=True).start()
 
+# ---------------------------------------------------------------- intake worker
+# Drains the document "waiting room" in the background, one job at a time, so a
+# burst of uploads is processed steadily instead of overloading the server. Like
+# the backup scheduler it's started only by the server entrypoints, never on
+# import, so tests/CLI tools are unaffected. Set INTAKE_WORKER=0 to disable (e.g.
+# when running a dedicated `python intake_queue.py --work` process instead).
+_intake_started = False
+
+def _intake_loop():
+    import intake_queue as IQ
+    while True:
+        try:
+            if IQ.drain() == 0:
+                time.sleep(IQ.POLL_SECONDS)
+        except Exception as e:
+            try:
+                import traceback
+                _auth.log_error("intake-worker", type(e).__name__, str(e),
+                                traceback.format_exc(), "system")
+            except Exception:
+                pass
+            time.sleep(IQ.POLL_SECONDS)
+
+def start_intake_worker():
+    global _intake_started
+    if _intake_started or os.environ.get("INTAKE_WORKER", "1") == "0":
+        return
+    _intake_started = True
+    threading.Thread(target=_intake_loop, name="intake-worker", daemon=True).start()
+
 # ---------------------------------------------------------------- queries
 # The read-only aggregations live in queries.py (small brick, easy to test).
 from queries import (q_periods, q_filters, where, q_compare, q_compare_totals,
@@ -515,7 +546,8 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
 <a href="/fx" class="{{'on' if page=='fx'}}">FX vs ECB</a>
 <a href="/stations" class="{{'on' if page=='stn'}}">Stations</a>
 {% if 'invoice_control' in perms %}<a href="/invoices" class="{{'on' if page=='inv'}}">Invoice control</a>{% endif %}
-{% if 'data_import' in perms %}<a href="/extract" class="{{'on' if page=='ext'}}">Import batch</a>{% endif %}
+{% if 'data_import' in perms %}<a href="/extract" class="{{'on' if page=='ext'}}">Import batch</a>
+<a href="/queue" class="{{'on' if page=='queue'}}">Waiting room</a>{% endif %}
 {% if 'vat_claims' in perms %}<a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
 <a href="/readiness" class="{{'on' if page=='rdy'}}">Claims</a>{% endif %}
 <a href="/recovery" class="{{'on' if page=='rec'}}">Recovery</a>
@@ -1139,6 +1171,18 @@ def extract_batch():
     if request.method == "POST" and "file" in request.files:
         f = request.files["file"]
         data = f.read()
+        if request.form.get("__mode") == "queue":
+            # waiting room: store durably now, extract later in the background worker
+            import intake_queue as IQ
+            try:
+                jid, st = IQ.enqueue(data, f.filename, backend=request.form.get("backend") or None,
+                                     period=request.form.get("period") or None,
+                                     user=session.get("user", "system"))
+            except Exception as e:
+                _log_exc("intake enqueue", e)
+                return page(f'<div class="card"><b class="bad">Could not queue file: {esc(str(e))}</b></div>'
+                            + _upload_form(backend_env), "ext")
+            return redirect(f"/queue?msg=Queued+{esc(f.filename)}+(job+{jid},+{st})")
         try:
             draft = EX.extract(data, f.filename, backend=request.form.get("backend") or None)
         except Exception as e:
@@ -1171,13 +1215,19 @@ def _upload_form(backend_env):
             + _csrf_input() +
             '<label>file (.pdf or .zip)<input type="file" name="file" accept=".pdf,.zip" required></label>'
             f'<label>extractor<select name="backend">{opts}</select></label>'
-            '<button>Extract draft</button></form>'
+            f'<label>period (YYYY-MM)<input name="period" value="{esc(request.values.get("period","2026-05"))}" style="width:100px"></label>'
+            '<button name="__mode" value="now">Extract draft now</button>'
+            '<button name="__mode" value="queue" style="background:var(--mut)">Queue for later</button>'
+            '</form>'
             f'<div class="note">{privacy} Deterministic parser is free and offline; '
             'auto uses it when the supplier is recognised and falls back to AI otherwise. '
-            'Nothing is saved until you review and confirm on the next screen.</div></div>')
+            'Nothing is saved until you review and confirm on the next screen. '
+            '<b>Queue for later</b> parks the file in the <a href="/queue">waiting room</a> '
+            '(durably stored, processed in the background) so a burst of uploads never '
+            'overloads the server.</div></div>')
 
 
-def _review_form(draft, token):
+def _review_form(draft, token, intake_job=None, period=None):
     rows = ""
     for i, ln in enumerate(draft.get("lines", [])):
         rows += ('<tr>'
@@ -1198,11 +1248,12 @@ def _review_form(draft, token):
             '<form method="post" action="/extract/confirm" class="f" style="margin-top:10px">'
             + _csrf_input() +
             f'<input type="hidden" name="token" value="{esc(token)}">'
-            f'<label>supplier code<input name="supplier" value="{esc(draft.get("supplier") or "")}" required></label>'
+            + (f'<input type="hidden" name="intake_job" value="{esc(str(intake_job))}">' if intake_job else "")
+            + f'<label>supplier code<input name="supplier" value="{esc(draft.get("supplier") or "")}" required></label>'
             f'<label>statement ref<input name="stmt_ref" value="{esc(draft.get("statement_ref") or "")}" required></label>'
             f'<label>statement date<input type="date" name="stmt_date" value="{esc(draft.get("statement_date") or "")}"></label>'
             f'<label>customer<input name="customer" value="{esc((draft.get("customer") or "").strip())}"></label>'
-            f'<label>period (YYYY-MM)<input name="period" value="{esc(request.values.get("period","2026-05"))}" required></label>'
+            f'<label>period (YYYY-MM)<input name="period" value="{esc(period or request.values.get("period","2026-05"))}" required></label>'
             '</label></div>'
             + '<table style="margin-top:10px"><thead><tr>'
             + "".join(f"<th>{h}</th>" for h in ["Invoice no","Date","Country","Ccy","Net","VAT","Source PDF"])
@@ -1283,10 +1334,120 @@ def extract_confirm():
                 if ok: attached += 1
         fcon.close()
         _os.unlink(tmpf)
+    # if this draft came from the waiting room, mark the job done (frees its bytes)
+    if request.form.get("intake_job"):
+        try:
+            import intake_queue as IQ
+            IQ.complete(int(request.form["intake_job"]))
+        except Exception as e:
+            _log_exc("intake complete", e)
     banner = (f'<div class="card"><b class="ok">Statement {esc(request.form["stmt_ref"])} '
               f'registered: {len(lines)} invoices ({synced} VAT-bearing synced), '
               f'{attached} PDFs vaulted. Review triage on the Invoice control page.</b></div>')
     return page(banner + f'<p><a href="/invoices?period={esc(period)}">→ Invoice control</a></p>', "ext")
+
+@app.route("/queue", methods=["GET", "POST"])
+def intake_queue_page():
+    """The 'waiting room': uploaded batches parked for deferred extraction. Shows
+    queue state and lets you process the backlog now, review a ready draft, re-queue
+    a failure, or discard a job. Access: data_import (enforced in _guard)."""
+    import intake_queue as IQ
+    banner = ""
+    if request.method == "POST":
+        act = request.form.get("__act")
+        if act == "process":
+            try:
+                n = IQ.drain(limit=int(request.form.get("limit", "5")))
+                banner = f'<div class="card"><b class="ok">Processed {n} job(s) from the queue.</b></div>'
+            except Exception as e:
+                _log_exc("intake drain", e)
+                banner = f'<div class="card"><b class="bad">Processing error: {esc(str(e))}</b></div>'
+        elif act == "discard":
+            IQ.discard(int(request.form.get("job", "0")))
+            banner = '<div class="card"><b class="ok">Job discarded.</b></div>'
+        elif act == "requeue":
+            jid = int(request.form.get("job", "0"))
+            j = IQ.get_job(jid)
+            if j:
+                try:
+                    IQ.enqueue(IQ.read_bytes(j["stored_path"]), j["filename"],
+                               backend=j["backend"], period=j["period"],
+                               user=session.get("user", "system"))
+                    banner = '<div class="card"><b class="ok">Job re-queued.</b></div>'
+                except Exception as e:
+                    _log_exc("intake requeue", e)
+                    banner = f'<div class="card"><b class="bad">Re-queue failed: {esc(str(e))}</b></div>'
+    msg = request.args.get("msg")
+    if msg:
+        banner = f'<div class="card"><b class="ok">{esc(msg)}</b></div>' + banner
+    c = IQ.counts()
+    kpis = ('<div class="kpis">'
+            + f'<div class="kpi"><div class="v">{c["queued"]}</div><div class="l">queued</div></div>'
+            + f'<div class="kpi"><div class="v">{c["processing"]}</div><div class="l">processing</div></div>'
+            + f'<div class="kpi"><div class="v ok">{c["ready"]}</div><div class="l">ready to review</div></div>'
+            + f'<div class="kpi"><div class="v {"bad" if c["failed"] else ""}">{c["failed"]}</div><div class="l">failed</div></div>'
+            + f'<div class="kpi"><div class="v">{c["done"]}</div><div class="l">done</div></div></div>')
+    rows = []
+    for j in IQ.jobs(limit=100):
+        st = j["status"]
+        stcls = {"ready": "ok", "failed": "bad", "done": "note"}.get(st, "")
+        if st == "ready":
+            act_cell = f'<a href="/queue/review/{j["id"]}">Review &amp; commit →</a>'
+        elif st == "failed":
+            act_cell = ('<form method="post" style="display:inline">' + _csrf_input()
+                        + f'<input type="hidden" name="job" value="{j["id"]}">'
+                        + '<button name="__act" value="requeue">Retry</button></form>')
+        else:
+            act_cell = '<span class="note">—</span>'
+        disc = ('<form method="post" style="display:inline">' + _csrf_input()
+                + f'<input type="hidden" name="job" value="{j["id"]}">'
+                + '<button name="__act" value="discard" style="background:var(--mut)">Discard</button></form>')
+        rows.append([
+            f'<td>{j["id"]}</td><td>{esc(j["filename"] or "")}</td>',
+            f'<td>{esc(j["backend"] or "auto")}</td><td>{esc(j["period"] or "")}</td>',
+            f'<td>{esc(j["uploaded_by"] or "")}</td><td class="note">{esc(j["uploaded_at"] or "")}</td>',
+            f'<td class="{stcls}">{esc(st)}</td><td class="r">{j["attempts"]}</td>',
+            f'<td class="note">{esc((j["error"] or "")[:60])}</td>',
+            f'<td>{act_cell} {disc}</td>'])
+    process_form = ('<form method="post" class="f" style="margin-bottom:12px">' + _csrf_input()
+                    + '<label>batch size<input name="limit" value="5" style="width:60px" class="r"></label>'
+                    + '<button name="__act" value="process">Process queued now</button></form>')
+    body = (banner + '<div class="card"><h2>Document waiting room</h2>' + kpis
+            + '<div class="note">Uploaded batches are stored durably on arrival and '
+              'extracted later, one at a time, so a burst of uploads never overloads the '
+              'server. A background worker drains this automatically; you can also process '
+              'on demand below.</div></div>'
+            + '<div class="card"><h2>Process backlog</h2>' + process_form
+            + '<div class="note">Or run a dedicated worker process: '
+              '<kbd>python intake_queue.py --work</kbd>.</div></div>'
+            + '<div class="card"><h2>Jobs</h2>'
+            + (tbl(["#", "File", "Extractor", "Period", "By", "Uploaded", "Status",
+                    "Tries", "Last error", "Action"], rows) if rows
+               else '<p class="note">The waiting room is empty.</p>')
+            + '</div>')
+    return page(body, "queue")
+
+@app.route("/queue/review/<int:job_id>")
+def intake_review(job_id):
+    """Open a ready queue job in the standard review/confirm screen. The source
+    PDF bytes are re-derived from the kept inbox file and stashed for the existing
+    confirm path; on commit the job is marked done."""
+    import intake_queue as IQ, extract as EX
+    import os as _os, pickle
+    job = IQ.get_job(job_id)
+    if not job or job["status"] != "ready":
+        return page('<div class="card"><b class="bad">Job is not ready to review (it may '
+                    'still be queued, processing, or failed).</b></div>'
+                    '<p><a href="/queue">← back to the waiting room</a></p>', "queue")
+    draft, _ = IQ.get_draft(job_id)
+    # re-derive (name, bytes) pairs from the kept inbox file so confirm can attach
+    # the source PDFs to the document vault exactly like the live path does.
+    pairs = EX.unpack(IQ.read_bytes(job["stored_path"]), job["filename"])
+    token = _os.urandom(8).hex()
+    tmp = _os.path.join(WORKDIR, ".extract_tmp"); _os.makedirs(tmp, exist_ok=True); _os.chmod(tmp, 0o700)
+    with open(_os.path.join(tmp, token + ".pkl"), "wb") as pf:
+        pickle.dump(pairs, pf)
+    return page(_review_form(draft, token, intake_job=job_id, period=job.get("period")), "queue")
 
 @app.route("/invoices", methods=["GET", "POST"])
 def invoice_ctrl():
@@ -2371,6 +2532,7 @@ def api_vat():
 if __name__ == "__main__":
     import tls
     start_backup_scheduler()
+    start_intake_worker()      # drain the document waiting room in the background
     _ctx, _desc = tls.build_context()
     if _ctx:
         app.config.update(SESSION_COOKIE_SECURE=True)

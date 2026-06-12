@@ -16,9 +16,10 @@ HOST = os.environ.get("BIND_HOST", "127.0.0.1")
 PORT = int(os.environ.get("BIND_PORT", "8050"))
 
 def main():
-    from app import app, start_backup_scheduler
+    from app import app, start_backup_scheduler, start_intake_worker
     import tls
     start_backup_scheduler()   # automatic backups per the admin-set schedule
+    start_intake_worker()      # drain the document waiting room in the background
     ctx, desc = tls.build_context()
     try:
         from waitress import serve as wserve

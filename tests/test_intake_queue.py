@@ -1,0 +1,109 @@
+"""Tests for the durable intake 'waiting room' queue: enqueue durability, dedupe,
+claim/process to ready, retry-with-backoff then failed, stale-lease reclaim, and
+the done/discard lifecycle."""
+import importlib
+import os
+
+import pytest
+
+
+@pytest.fixture()
+def iq(tmp_path, monkeypatch):
+    import intake_queue
+    importlib.reload(intake_queue)
+    monkeypatch.setattr(intake_queue, "DB", str(tmp_path / "intake.db"))
+    monkeypatch.setattr(intake_queue, "INBOX", str(tmp_path / "inbox"))
+    intake_queue._SCHEMA_READY.clear()
+    return intake_queue
+
+
+def _stub_extract(monkeypatch, fn):
+    import extract
+    monkeypatch.setattr(extract, "extract", fn)
+
+
+def test_enqueue_is_durable_and_dedupes(iq):
+    jid, st = iq.enqueue(b"%PDF-1.4 one", "a.pdf", backend="none", period="2026-05", user="amy")
+    assert st == "queued"
+    # the bytes hit disk before the row was committed
+    job = iq.get_job(jid)
+    assert os.path.exists(os.path.join(iq.INBOX, job["stored_path"]))
+    assert iq.read_bytes(job["stored_path"]) == b"%PDF-1.4 one"
+    assert job["uploaded_by"] == "amy"
+    # identical re-upload returns the SAME job (idempotent), not a duplicate
+    jid2, _ = iq.enqueue(b"%PDF-1.4 one", "a.pdf")
+    assert jid2 == jid
+    assert iq.counts()["queued"] == 1
+
+
+def test_process_to_ready(iq, monkeypatch):
+    _stub_extract(monkeypatch, lambda data, name, backend=None: {
+        "supplier": "ACME", "lines": [{"invoice_no": "I1", "net": 10, "vat": 2}],
+        "backend": backend or "stub", "_pdf_bytes": [("a.pdf", data)]})
+    jid, _ = iq.enqueue(b"%PDF-1.4 x", "a.pdf", backend="none")
+    assert iq.process_one() == (jid, "ready")
+    assert iq.process_one() is None              # queue now idle
+    job = iq.get_job(jid)
+    assert job["status"] == "ready" and job["draft"]
+    # the stored draft has no binary, but get_draft re-derives the pdf bytes
+    draft, pdfs = iq.get_draft(jid)
+    assert draft["supplier"] == "ACME"
+    assert pdfs and pdfs[0] == b"%PDF-1.4 x"
+    assert "_pdf_bytes" not in draft
+
+
+def test_retry_then_fail(iq, monkeypatch):
+    def boom(data, name, backend=None):
+        raise RuntimeError("backend down")
+    _stub_extract(monkeypatch, boom)
+    monkeypatch.setattr(iq, "MAX_ATTEMPTS", 3)
+    # zero the backoff so each retry is immediately eligible for the next claim
+    monkeypatch.setattr(iq, "BACKOFF_BASE", 0)
+    monkeypatch.setattr(iq, "BACKOFF_MAX", 0)
+    jid, _ = iq.enqueue(b"%PDF-1.4 y", "b.pdf")
+    assert iq.process_one() == (jid, "retry")    # attempt 1
+    job = iq.get_job(jid)
+    assert job["status"] == "queued" and job["next_attempt_at"] and "backend down" in job["error"]
+    assert iq.process_one() == (jid, "retry")    # attempt 2
+    assert iq.process_one() == (jid, "failed")   # attempt 3 hits the cap
+    assert iq.get_job(jid)["status"] == "failed"
+    # the source bytes are still on disk (failed jobs are kept for inspection)
+    assert os.path.exists(os.path.join(iq.INBOX, iq.get_job(jid)["stored_path"]))
+
+
+def test_stale_lease_is_reclaimed(iq, monkeypatch):
+    # a crash mid-processing leaves a 'processing' row with an expired lease; the
+    # next claim must reclaim and reprocess it (at-least-once).
+    _stub_extract(monkeypatch, lambda data, name, backend=None: {
+        "lines": [], "backend": "stub", "_pdf_bytes": []})
+    jid, _ = iq.enqueue(b"%PDF-1.4 z", "c.pdf")
+    con = iq.connect()
+    con.execute("UPDATE intake_jobs SET status='processing', lease_until='2000-01-01 00:00:00' WHERE id=?",
+                (jid,))
+    con.commit(); con.close()
+    assert iq.counts()["processing"] == 1
+    assert iq.process_one() == (jid, "ready")    # reclaimed despite being 'processing'
+
+
+def test_complete_and_discard(iq, monkeypatch):
+    _stub_extract(monkeypatch, lambda data, name, backend=None: {"lines": [], "_pdf_bytes": []})
+    jid, _ = iq.enqueue(b"%PDF-1.4 q", "d.pdf")
+    iq.process_one()
+    path = os.path.join(iq.INBOX, iq.get_job(jid)["stored_path"])
+    assert iq.complete(jid) is True
+    assert iq.get_job(jid)["status"] == "done"
+    assert not os.path.exists(path)              # inbox bytes freed after done
+
+    jid2, _ = iq.enqueue(b"%PDF-1.4 r", "e.pdf")
+    p2 = os.path.join(iq.INBOX, iq.get_job(jid2)["stored_path"])
+    assert iq.discard(jid2) is True
+    assert iq.get_job(jid2) is None and not os.path.exists(p2)
+
+
+def test_drain_processes_backlog(iq, monkeypatch):
+    _stub_extract(monkeypatch, lambda data, name, backend=None: {"lines": [], "_pdf_bytes": []})
+    for i in range(5):
+        iq.enqueue(f"%PDF-1.4 file{i}".encode(), f"f{i}.pdf")
+    assert iq.drain(limit=10) == 5
+    assert iq.counts()["ready"] == 5
+    assert iq.drain() == 0                        # nothing left
