@@ -37,6 +37,7 @@ _SCHEMA_READY = set()   # DB files whose schema is set up this process
 def connect():
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
+    audit.bind(con)   # audit triggers call ffs_actor(); register it every connect
     if DB != ":memory:" and DB in _SCHEMA_READY:
         return con
     con.execute("""CREATE TABLE IF NOT EXISTS vat_applications (

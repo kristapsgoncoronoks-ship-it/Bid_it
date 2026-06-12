@@ -55,6 +55,7 @@ _SCHEMA_READY = set()   # DB files whose schema is set up this process
 def connect():
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
+    audit.bind(con)   # audit triggers call ffs_actor(); register it every connect
     # Schema/migrations/seeding persist in the file; run once per process per DB
     # (connect() is called on every page render via permissions_for).
     if DB == ":memory:" or DB not in _SCHEMA_READY:

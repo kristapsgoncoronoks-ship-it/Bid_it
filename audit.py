@@ -18,7 +18,7 @@ API:
     as_of(con, table, ts)                 -> reconstructed table content as of a timestamp
     record_history(con, table, key)       -> full life story of one record
 """
-import json
+import json, threading
 
 LOG_DDL = """
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -31,17 +31,38 @@ CREATE INDEX IF NOT EXISTS ix_audit_ts ON audit_log(ts);
 CREATE TABLE IF NOT EXISTS audit_context (actor TEXT);
 """
 
-ACTOR_SQL = "COALESCE((SELECT actor FROM audit_context LIMIT 1), 'system')"
+# The actor that owns the CURRENT unit of work is held in thread-local storage,
+# NOT in a shared DB row. Under a threaded WSGI server (waitress) each request is
+# served on its own worker thread, so each thread sees its own actor with zero
+# cross-request interleave. Audit triggers read it through the per-connection
+# application-defined function ffs_actor() registered by bind() — the value is
+# resolved fresh for every row the trigger touches, on the very connection doing
+# the write. (The previous design stored the actor in a single committed
+# audit_context row shared across all connections, which raced under concurrency
+# and could attribute one user's change to another.)
+ACTOR_SQL = "ffs_actor()"
+
+_local = threading.local()
+
+def _current_actor():
+    return getattr(_local, "actor", "system")
+
+def bind(con):
+    """Register ffs_actor() on this connection so its audit triggers can read the
+    current thread's actor. MUST be called on every connection that may write to
+    an audited table (install_audit() does this for callers that go through it)."""
+    con.create_function("ffs_actor", 0, _current_actor)
 
 def set_actor(con, user):
-    """Attribute subsequent changes on this DATABASE to a user (persists in the db
-    file until reset, so call reset_actor() when the web request finishes)."""
-    con.execute("DELETE FROM audit_context")
-    con.execute("INSERT INTO audit_context VALUES (?)", (user,))
-    con.commit()
+    """Attribute subsequent changes by the CURRENT thread to `user`. Call
+    reset_actor() when the unit of work (e.g. a web request) finishes. `con` is
+    bound so direct callers' connections can resolve ffs_actor()."""
+    _local.actor = user
+    if con is not None:
+        bind(con)
 
-def reset_actor(con):
-    con.execute("DELETE FROM audit_context"); con.commit()
+def reset_actor(con=None):
+    _local.actor = "system"
 
 def _cols_pk(con, table):
     info = con.execute(f"PRAGMA table_info({table})").fetchall()
@@ -71,6 +92,7 @@ def install_audit(con, tables):
     # connect() (which the module connect() helpers do) was the dominant request
     # cost. Skip the work when we have already installed it this process (never
     # cache :memory: DBs, whose path collides across distinct connections).
+    bind(con)   # always — triggers call ffs_actor(); register it per connection
     path = _db_file(con)
     key = (path, frozenset(tables))
     if path != ":memory:" and key in _AUDIT_INSTALLED:
@@ -85,11 +107,11 @@ def install_audit(con, tables):
         old_trig = con.execute("""SELECT sql FROM sqlite_master WHERE type='trigger'
                                   AND name=?""", (f"aud_{t}_i",)).fetchone()
         if old_trig and ("changed_by" not in (old_trig[0] or "")
-                         or "/*v2*/" not in (old_trig[0] or "")):
+                         or "/*v3*/" not in (old_trig[0] or "")):
             for sfx in ("i","u","d"):
                 con.execute(f"DROP TRIGGER IF EXISTS aud_{t}_{sfx}")
         con.executescript(f"""
-CREATE TRIGGER IF NOT EXISTS aud_{t}_i AFTER INSERT ON {t} BEGIN /*v2*/
+CREATE TRIGGER IF NOT EXISTS aud_{t}_i AFTER INSERT ON {t} BEGIN /*v3*/
   INSERT INTO audit_log (tbl, rowkey, action, new_data, changed_by)
   VALUES ('{t}', NEW.{pk}, 'INSERT', {newj}, {ACTOR_SQL}); END;
 CREATE TRIGGER IF NOT EXISTS aud_{t}_u AFTER UPDATE ON {t} BEGIN

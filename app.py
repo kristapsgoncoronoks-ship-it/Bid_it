@@ -290,14 +290,6 @@ def logout():
     session.clear()
     return redirect("/login")
 
-_DB_OPENERS = None
-def _all_db_cons():
-    global _DB_OPENERS
-    if _DB_OPENERS is None:
-        import customer_db, supplier_db, vat_refund
-        _DB_OPENERS = (customer_db.connect, supplier_db.connect, vat_refund.connect)
-    return [op() for op in _DB_OPENERS]
-
 FORBIDDEN = ('<div class="card"><h2>Insufficient permissions</h2>'
              '<p>Your role does not allow this action. An administrator can change '
              'roles in the Admin panel.</p></div>')
@@ -352,14 +344,13 @@ def _guard():
     if req_perm and not _auth.has_perm(role, req_perm):
         return page(FORBIDDEN, ""), 403
     if request.method == "POST":
-        for con in _all_db_cons():
-            _audit_mod.set_actor(con, session["user"]); con.close()
+        # Actor is thread-local (audit triggers read it via ffs_actor()), so a
+        # single set covers every connection this request opens — no per-DB churn.
+        _audit_mod.set_actor(None, session["user"])
 
 @app.after_request
 def _reset_actor(resp):
-    if request.method == "POST" and session.get("user"):
-        for con in _all_db_cons():
-            _audit_mod.reset_actor(con); con.close()
+    _audit_mod.reset_actor()
     return resp
 
 def _log_exc(context, e):
