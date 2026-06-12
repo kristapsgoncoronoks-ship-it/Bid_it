@@ -1,4 +1,5 @@
 import sqlite3
+import db
 import db_migrate
 """
 AUDIT LAYER - automatic change history for ALL databases.
@@ -83,7 +84,7 @@ def _db_file(con):
         for _seq, name, file in con.execute("PRAGMA database_list"):
             if name == "main":
                 return file or ":memory:"
-    except sqlite3.Error:
+    except db.DBError:
         pass
     return ":memory:"
 

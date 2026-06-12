@@ -82,6 +82,47 @@ def test_tune_sets_wal_on_sqlite(monkeypatch):
         con.close()
 
 
+# -------------------------------------------------- portable exception aliases
+def test_dberror_alias_catches_sqlite_operationalerror():
+    # db.DBError must catch the SQLite operational class so the SAME `except`
+    # clause is engine-portable (it additionally catches psycopg's classes when
+    # psycopg is installed). On a SQLite-only install it is exactly the sqlite3 set.
+    import sqlite3
+    caught = False
+    try:
+        raise sqlite3.OperationalError("locked")
+    except db.DBError:
+        caught = True
+    assert caught
+    assert sqlite3.OperationalError in db.DBError
+
+
+def test_integrityerror_alias_catches_sqlite_integrityerror():
+    import sqlite3
+    caught = False
+    try:
+        raise sqlite3.IntegrityError("UNIQUE constraint failed")
+    except db.IntegrityError:
+        caught = True
+    assert caught
+    assert sqlite3.IntegrityError in db.IntegrityError
+
+
+def test_duplicate_key_insert_is_caught_by_integrityerror_alias():
+    # Behavioral: a real UNIQUE violation raises something db.IntegrityError catches.
+    import sqlite3
+    con = sqlite3.connect(":memory:")
+    con.execute("CREATE TABLE u (k TEXT PRIMARY KEY)")
+    con.execute("INSERT INTO u VALUES ('x')")
+    caught = False
+    try:
+        con.execute("INSERT INTO u VALUES ('x')")          # duplicate primary key
+    except db.IntegrityError:
+        caught = True
+    con.close()
+    assert caught
+
+
 # ------------------------------------------------------------------ secret key
 def test_secret_key_env_override(monkeypatch):
     import auth

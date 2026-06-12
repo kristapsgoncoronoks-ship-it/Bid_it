@@ -16,6 +16,8 @@ the change log (an attacker editing audit_log in the live DB cannot edit
 yesterday's snapshot).
 """
 import os, sys, csv, json, hashlib, sqlite3, zipfile, glob, io, tempfile, time
+
+import db
 from datetime import datetime
 from datetime import timezone as _tz
 
@@ -43,7 +45,7 @@ def _audit_csv(dbfile):
         w.writerow(["id", "ts", "tbl", "rowkey", "action", "old_data", "new_data", "changed_by"])
         for r in cur:
             w.writerow(r)
-    except sqlite3.OperationalError:
+    except db.DBError:
         w.writerow(["(no audit_log in this database)"])
     con.close()
     return out.getvalue().encode()

@@ -11,8 +11,7 @@ before this table existed — and recorded; afterwards a single indexed SELECT s
 whole list. Append new statements at the END of a module's list (positions are stable).
 Unexpected failures are LOGGED (applog), not swallowed.
 """
-import sqlite3
-
+import db
 import applog
 
 log = applog.get("db_migrate")
@@ -35,7 +34,7 @@ def apply(con, module, statements):
         dbkey = (module, con.execute("PRAGMA database_list").fetchone()[2])
         if dbkey in _DONE:
             return 0
-    except sqlite3.Error:
+    except db.DBError:
         pass
     con.execute(_SCHEMA)
     done = {r[0] for r in con.execute(
@@ -46,7 +45,7 @@ def apply(con, module, statements):
             continue
         try:
             con.execute(ddl)
-        except sqlite3.OperationalError as e:
+        except db.DBError as e:
             # pre-existing DBs already have the column/table — record and move on;
             # anything else is a real problem and is logged.
             if "duplicate column" not in str(e).lower() and "already exists" not in str(e).lower():

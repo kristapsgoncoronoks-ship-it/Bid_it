@@ -36,6 +36,20 @@ import os, sqlite3
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 ENGINE = os.environ.get("DB_ENGINE", "sqlite")
 
+# Engine-portable exception aliases. Handlers across the codebase that catch
+# sqlite3.OperationalError / sqlite3.IntegrityError should catch these instead so
+# the SAME `except` clause also catches the equivalent psycopg classes when running
+# on Postgres. On SQLite-only installs (the default — psycopg absent) these are just
+# the sqlite3 classes, so behavior is byte-identical. Always tuples so `except` works.
+DBError = (sqlite3.OperationalError,)         # connection/lock/operational failures
+IntegrityError = (sqlite3.IntegrityError,)    # constraint / unique-key violations
+try:                                          # extend with psycopg if it is installed
+    import psycopg
+    DBError = DBError + (psycopg.OperationalError, psycopg.Error)
+    IntegrityError = IntegrityError + (psycopg.errors.IntegrityError,)
+except Exception:                             # psycopg absent (SQLite-only) — fine
+    pass
+
 # SQLite stores a type *affinity*; map each to the closest Postgres type so the
 # migrated schema isn't an all-TEXT blob that loses numeric ordering/sums.
 def _pg_type(sqlite_decl):

@@ -13,7 +13,7 @@ import sqlite3, sys, collections
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 import supplier_master, customer_master, audit, money
-import db_tuning, db_migrate, applog
+import db, db_tuning, db_migrate, applog
 from vat_config import (GOODS_CODE,
                         MIN_QUARTER, MIN_ANNUAL, DEADLINE_FMT,
                         LOCAL_CCY_INPUT, COMPLIANCE_NOTES)
@@ -136,7 +136,7 @@ def _migrate_from_analytics(con):
         for t in ("vat_applications", "vat_claimed_invoices", "invoice_documents"):
             try:
                 cols = [r[1] for r in src.execute(f"PRAGMA table_info({t})")]
-            except sqlite3.OperationalError:
+            except db.DBError:
                 cols = []
             if not cols:
                 continue
@@ -339,7 +339,7 @@ def set_status(con, ent, ctry, period, new, gate_activation=True):
     try:
         # Open an immediate transaction so concurrent claimants serialize on write.
         con.execute("BEGIN IMMEDIATE")
-    except sqlite3.OperationalError:
+    except db.DBError:
         # Already inside a transaction (e.g. autocommit off / nested caller) - fine.
         pass
     try:
@@ -385,7 +385,7 @@ def set_status(con, ent, ctry, period, new, gate_activation=True):
                         con.execute("""INSERT INTO vat_claimed_invoices
                                        (entity, refund_country, supplier, invoice_ref, ref_period)
                                        VALUES (?,?,?,?,?)""", (ent, ctry, s, r, period))
-                    except sqlite3.IntegrityError:
+                    except db.IntegrityError:
                         # Another claim acquired this invoice lock between our check
                         # and our insert. Abort the entire transition.
                         con.rollback()

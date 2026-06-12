@@ -20,8 +20,6 @@ Two PRAGMAs make that work well; `tune()` applies them on every connection:
 Single-process (the historic default) is unaffected — these settings are correct
 there too. :memory: databases ignore WAL transparently, so tests are unaffected.
 """
-import sqlite3
-
 BUSY_MS = 15000        # how long a connection waits for a contended write lock
 
 
@@ -37,6 +35,6 @@ def tune(con, busy_ms=BUSY_MS, wal=True):
         if wal:
             con.execute("PRAGMA journal_mode=WAL")
             con.execute("PRAGMA synchronous=NORMAL")
-    except sqlite3.OperationalError:
+    except db.DBError:
         pass
     return con
