@@ -51,6 +51,37 @@ def test_qmark_question_mark_in_quoted_with_following_param():
     assert db.qmark_to_pyformat(sql) == "UPDATE t SET note='ok?' WHERE id=%s AND k=%s"
 
 
+# ---------------------------------------------------------------- db_tuning.tune
+def test_tune_noop_on_non_sqlite_engine(monkeypatch):
+    # Under Postgres, tune() must early-return WITHOUT issuing any PRAGMA — the
+    # first PRAGMA would otherwise crash. It returns the connection unchanged.
+    import db_tuning
+    monkeypatch.setattr(db, "ENGINE", "postgres")
+
+    class _Sentinel:
+        def execute(self, *a, **k):
+            raise AssertionError("tune() must issue no PRAGMA when ENGINE!=sqlite")
+
+    sentinel = _Sentinel()
+    assert db_tuning.tune(sentinel) is sentinel
+
+
+def test_tune_sets_wal_on_sqlite(monkeypatch):
+    # Positive control: the SQLite path still applies the PRAGMAs as before.
+    import sqlite3
+    import db_tuning
+    monkeypatch.setattr(db, "ENGINE", "sqlite")
+    con = sqlite3.connect(":memory:")
+    try:
+        db_tuning.tune(con, busy_ms=12345)
+        assert con.execute("PRAGMA busy_timeout").fetchone()[0] == 12345
+        # :memory: reports "memory" for journal_mode (WAL is ignored transparently),
+        # but the PRAGMA must have executed without raising.
+        assert con.execute("PRAGMA journal_mode").fetchone()[0] is not None
+    finally:
+        con.close()
+
+
 # ------------------------------------------------------------------ secret key
 def test_secret_key_env_override(monkeypatch):
     import auth

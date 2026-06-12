@@ -29,6 +29,9 @@ def tune(con, busy_ms=BUSY_MS, wal=True):
     """Apply the multi-process PRAGMAs to a fresh connection. Idempotent and
     cheap; safe to call on every connect(). Never raises (a read-only filesystem
     or :memory: db simply keeps its default)."""
+    import db                       # lazy import: db.py must not import db_tuning
+    if db.ENGINE != "sqlite":       # PRAGMAs are SQLite-only; no-op on Postgres
+        return con
     try:
         con.execute(f"PRAGMA busy_timeout={int(busy_ms)}")
         if wal:
