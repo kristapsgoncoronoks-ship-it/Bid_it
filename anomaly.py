@@ -30,6 +30,84 @@ def _outlier_high(value, sample):
     sd = statistics.pstdev(sample)
     return sd > 0 and value > statistics.fmean(sample) + ANOMALY_SIGMAS * sd
 
+def _robust_outlier(value, sample):
+    """Iglewicz-Hoaglin modified z-score (median + MAD) — robust, NOT masked by the very
+    point being tested (important for per-line checks in small per-period buckets). All
+    learned from the sample. Returns 'HIGH' / 'LOW' / None."""
+    if len(sample) < 3:
+        return None
+    med = statistics.median(sample)
+    mad = statistics.median([abs(x - med) for x in sample])
+    if mad > 0:
+        z = 0.6745 * (value - med) / mad
+        thr = 3.5                                # the standard modified-z cutoff
+    else:                                        # most values identical -> use std-dev
+        sd = statistics.pstdev(sample)
+        if sd <= 0:
+            return None
+        z = (value - med) / sd
+        thr = ANOMALY_SIGMAS
+    return "HIGH" if z > thr else "LOW" if z < -thr else None
+
+
+def expected_rebates(con):
+    """Learn the typical effective rebate per litre per (supplier, country) from ALL
+    HISTORY — the gap between the document price and the effective price (e.g. Q8's Port
+    One rebate, which arrives on a SEPARATE invoice we often don't see). This lets us
+    recognise/estimate discounting even where the rebate line isn't on the invoice."""
+    out = {}
+    for r in con.execute("""SELECT supplier, country,
+            SUM(net_eur-net_eur_eff) reb, SUM(qty) q
+            FROM transactions WHERE product_group='Diesel' AND (net_eur-net_eur_eff)>0.001
+            GROUP BY supplier, country"""):
+        if r["q"]:
+            out[(r["supplier"], r["country"])] = round(r["reb"] / r["q"], 4)
+    return out
+
+
+# product groups that are discount / adjustment lines rather than a fuel purchase
+DISCOUNT_GROUPS = ("Promo adj", "Discount", "Rebate", "Credit")
+
+def annotate(rows, hist_rebates=None):
+    """Annotate transaction rows IN PLACE (same order, same physical position) so an
+    anomaly or a discount can be read against the exact line it belongs to. `rows` are
+    dicts with: country, period, supplier, product_group, qty, eurl (effective EUR/L),
+    net_eur, net_eur_eff. Returns a list of annotation dicts aligned 1:1 with `rows`:
+        anomaly          reason string if the line's price is a learned outlier, else None
+        rebate           the discount actually applied on this line (net - effective)
+        is_discount      True for a separate discount/adjustment line (e.g. Promo adj)
+        relates_to       for a discount line: the supplier/country/period it applies to
+        expected_rebate  estimated rebate (EUR) history says should apply but is missing
+    Outliers are LEARNED per (country, period) from the rows — never a fixed threshold."""
+    hist_rebates = hist_rebates or {}
+    buckets = collections.defaultdict(list)
+    for r in rows:
+        if r.get("product_group") == "Diesel" and (r.get("qty") or 0) > 0 and r.get("eurl"):
+            buckets[(r.get("country"), r.get("period"))].append(r["eurl"])
+    out = []
+    for r in rows:
+        net = r.get("net_eur") or 0
+        eff = r.get("net_eur_eff")
+        rebate = round(net - eff, 2) if eff is not None else 0.0
+        pg = r.get("product_group")
+        is_discount = (net < 0) or (pg in DISCOUNT_GROUPS)
+        anomaly = relates_to = expected_rebate = None
+        if is_discount:
+            relates_to = f"{r.get('supplier','')} {r.get('country','')} {r.get('period') or ''}".strip()
+        sample = buckets.get((r.get("country"), r.get("period")), [])
+        if pg == "Diesel" and (r.get("qty") or 0) > 0 and r.get("eurl"):
+            flag = _robust_outlier(r["eurl"], sample)
+            if flag:
+                med = statistics.median(sample)
+                tag = ((r.get("country") or "") + " " + (r.get("period") or "")).strip()
+                anomaly = f"{r['eurl']:.3f} EUR/L — {flag} outlier vs {tag} median {med:.3f}"
+        exp = hist_rebates.get((r.get("supplier"), r.get("country")))
+        if exp and abs(rebate) < 0.005 and pg == "Diesel" and (r.get("qty") or 0) > 0:
+            expected_rebate = round(exp * r["qty"], 2)
+        out.append({"anomaly": anomaly, "rebate": rebate, "is_discount": is_discount,
+                    "relates_to": relates_to, "expected_rebate": expected_rebate})
+    return out
+
 
 def find(period):
     con = sqlite3.connect(DB); con.row_factory = sqlite3.Row

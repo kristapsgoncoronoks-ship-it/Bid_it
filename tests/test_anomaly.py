@@ -54,6 +54,54 @@ def test_no_absolute_price_threshold(tmp_path, monkeypatch):
     assert not any(f[0] == "price_divergence" for f in flags)
 
 
+def test_annotate_in_place_anomaly_discount_and_rebate(tmp_path, monkeypatch):
+    import anomaly, sqlite3
+    importlib.reload(anomaly)
+    # learn the historic Port One-style rebate for (Q8, Belgium): ~0.40 EUR/L
+    db = str(tmp_path / "fh.db")
+    con = sqlite3.connect(db); con.row_factory = sqlite3.Row
+    con.execute("""CREATE TABLE transactions (supplier, country, product_group, qty,
+                   net_eur, net_eur_eff)""")
+    con.executemany("INSERT INTO transactions VALUES (?,?,?,?,?,?)", [
+        ("Q8", "Belgium", "Diesel", 100, 140.0, 100.0)])   # rebate 0.40/L in history
+    con.commit()
+    hist = anomaly.expected_rebates(con); con.close()
+    assert hist[("Q8", "Belgium")] == 0.40
+
+    rows = [
+        # 4 normal Belgian diesel lines ~1.40, plus one HIGH outlier at 2.00
+        {"country": "Belgium", "period": "2026-05", "supplier": "TFC", "product_group": "Diesel",
+         "qty": 100, "net_eur": 140.0, "net_eur_eff": 140.0, "eurl": 1.40},
+        {"country": "Belgium", "period": "2026-05", "supplier": "TFC", "product_group": "Diesel",
+         "qty": 100, "net_eur": 141.0, "net_eur_eff": 141.0, "eurl": 1.41},
+        {"country": "Belgium", "period": "2026-05", "supplier": "TFC", "product_group": "Diesel",
+         "qty": 100, "net_eur": 139.0, "net_eur_eff": 139.0, "eurl": 1.39},
+        {"country": "Belgium", "period": "2026-05", "supplier": "TFC", "product_group": "Diesel",
+         "qty": 100, "net_eur": 200.0, "net_eur_eff": 200.0, "eurl": 2.00},   # outlier
+        # a Q8 line in Belgium with NO rebate applied -> history says ~0.40/L expected
+        {"country": "Belgium", "period": "2026-05", "supplier": "Q8", "product_group": "Diesel",
+         "qty": 100, "net_eur": 140.0, "net_eur_eff": 140.0, "eurl": 1.40},
+        # a separate discount/adjustment line (negative)
+        {"country": "Spain", "period": "2026-05", "supplier": "MOEVE", "product_group": "Promo adj",
+         "qty": 0, "net_eur": -25.0, "net_eur_eff": -25.0, "eurl": None},
+    ]
+    ann = anomaly.annotate(rows, hist)
+    assert len(ann) == len(rows)                       # 1:1, IN PLACE (no reorder)
+    assert ann[3]["anomaly"] and "HIGH outlier" in ann[3]["anomaly"]   # the 2.00 line
+    assert ann[0]["anomaly"] is None                    # normal lines not flagged
+    assert ann[4]["expected_rebate"] == 40.0            # 0.40/L * 100 L, off-invoice
+    assert ann[5]["is_discount"] and "MOEVE" in ann[5]["relates_to"]   # discount related
+
+
+def test_annotate_shows_applied_rebate():
+    import anomaly
+    rows = [{"country": "Belgium", "period": "2026-05", "supplier": "Q8",
+             "product_group": "Diesel", "qty": 100, "net_eur": 140.0,
+             "net_eur_eff": 100.0, "eurl": 1.00}]
+    a = anomaly.annotate(rows)[0]
+    assert a["rebate"] == 40.0 and not a["is_discount"]   # Port One rebate visible on the line
+
+
 def test_routing_flag_is_learned_from_spread():
     import app
     # mean 1.05, std-dev 0.05 -> the trigger price is LEARNED from this market's spread

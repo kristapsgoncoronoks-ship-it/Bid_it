@@ -583,6 +583,8 @@ table{width:100%;border-collapse:collapse;font-size:13.5px}
 th{background:#eef2f6;text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);white-space:nowrap}
 table.sticky thead th{position:sticky;top:var(--navh,56px);z-index:10}
 td{padding:6px 9px;border-bottom:1px solid #eef1f4}tr:hover td{background:#f7fafc}
+tr.anom td{background:#fff3cd}tr.anom:hover td{background:#ffe9a8}
+tr.disc td{background:#e7f0ff}tr.disc:hover td{background:#d7e6ff}
 .r{text-align:right}.ok{color:var(--ok);font-weight:600}.bad{color:var(--bad);font-weight:600}
 form.f{display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:14px}
 form.f label{display:flex;flex-direction:column;font-size:12px;color:var(--mut);gap:3px}
@@ -1069,10 +1071,14 @@ def transactions():
     stn = [x for x in request.args.getlist("station") if x and x != "ALL"]
     df = request.args.get("date_from", ""); dt = request.args.get("date_to", "")
     w, p = where(request.args, period)
-    rows = con.execute(f"""SELECT date, supplier, country, station, vehicle, product,
-        ROUND(qty,2) qty, ROUND(net_eur,2) net_eur, ROUND(vat_eur,2) vat_eur,
-        ROUND(net_eur_eff/NULLIF(qty,0),4) eurl
-        FROM transactions WHERE {w} ORDER BY date, supplier, station LIMIT 2000""", p).fetchall()
+    rows = [dict(r) for r in con.execute(f"""SELECT period, date, supplier, country, station,
+        vehicle, product, product_group,
+        ROUND(qty,2) qty, ROUND(net_eur,2) net_eur, ROUND(net_eur_eff,2) net_eur_eff,
+        ROUND(vat_eur,2) vat_eur, ROUND(net_eur_eff/NULLIF(qty,0),4) eurl
+        FROM transactions WHERE {w} ORDER BY date, supplier, station LIMIT 2000""", p).fetchall()]
+    import anomaly as AN
+    hist_rebates = AN.expected_rebates(con)          # learn typical Port One-style rebates
+    ann = AN.annotate(rows, hist_rebates)            # in-place per-line flags & discounts
     con.close()
     pcur = period if period in f["periods"] else "ALL"
     form = ('<form class="f" method="get">'
@@ -1087,18 +1093,56 @@ def transactions():
             + f'<label>date to<input type="date" name="date_to" value="{esc(dt)}"></label>'
             + '<button>Apply filters</button>'
             + '<a href="/transactions" style="align-self:end;padding:8px 12px;font-size:13px">Reset</a></form>')
-    trs = [[f"<td>{esc(r['date'])}</td><td>{esc(r['supplier'])}</td><td>{esc(r['country'])}</td>"
-            f"<td>{esc(r['station'])}</td><td>{esc(r['vehicle'])}</td><td>{esc(r['product'])}</td>",
-            f"<td class=r>{(r['qty'] or 0):,.2f}</td><td class=r>{(r['net_eur'] or 0):,.2f}</td>"
-            f"<td class=r>{(r['vat_eur'] or 0):,.2f}</td><td class=r>{r['eurl'] or ''}</td>"] for r in rows]
+    head_cells = ["Date","Supplier","Country","Station","Vehicle","Product","Qty","Net €",
+                  "Rebate/Discount €","€/L eff","Flags"]
+    n_anom = sum(1 for a in ann if a["anomaly"])
+    n_disc = sum(1 for a in ann if a["is_discount"])
+    n_exp = sum(1 for a in ann if a["expected_rebate"])
+    body_rows = ""
+    for r, a in zip(rows, ann):
+        cls = "anom" if a["anomaly"] else ("disc" if a["is_discount"] else "")
+        # rebate / discount cell: applied rebate (e.g. Port One), a discount line's value,
+        # or an expected-but-missing rebate learned from history
+        if a["is_discount"]:
+            reb = f'<span class="bad">discount {(r["net_eur"] or 0):,.2f}</span>'
+        elif a["rebate"] and a["rebate"] > 0.005:
+            reb = f'<span class="ok">−{a["rebate"]:,.2f}</span>'
+        elif a["expected_rebate"]:
+            reb = f'<span class="note">exp ~−{a["expected_rebate"]:,.2f}</span>'
+        else:
+            reb = ""
+        flags = []
+        if a["anomaly"]:
+            flags.append(f'<span class="bad">⚠ {esc(a["anomaly"])}</span>')
+        if a["is_discount"] and a["relates_to"]:
+            flags.append(f'<span class="note">discount → relates to {esc(a["relates_to"])}</span>')
+        if a["expected_rebate"]:
+            flags.append('<span class="note">Port One-style rebate expected (not on invoice) — '
+                         'estimated from history</span>')
+        body_rows += (f'<tr class="{cls}"><td>{esc(r["date"])}</td><td>{esc(r["supplier"])}</td>'
+                      f'<td>{esc(r["country"])}</td><td>{esc(r["station"])}</td>'
+                      f'<td>{esc(r["vehicle"])}</td><td>{esc(r["product"])}</td>'
+                      f'<td class=r>{(r["qty"] or 0):,.2f}</td><td class=r>{(r["net_eur"] or 0):,.2f}</td>'
+                      f'<td class=r>{reb}</td><td class=r>{r["eurl"] or ""}</td>'
+                      f'<td class=note>{" · ".join(flags)}</td></tr>')
+    table = ('<table class="sticky"><thead><tr>' + "".join(f"<th>{h}</th>" for h in head_cells)
+             + f'</tr></thead><tbody>{body_rows}</tbody></table>')
     body = (form
+            + '<div class="kpis">'
+            + f'<div class="kpi"><div class="v">{len(rows)}</div><div class="l">lines</div></div>'
+            + f'<div class="kpi"><div class="v {"bad" if n_anom else ""}">{n_anom}</div><div class="l">price anomalies</div></div>'
+            + f'<div class="kpi"><div class="v">{n_disc}</div><div class="l">discount/adj lines</div></div>'
+            + f'<div class="kpi"><div class="v">{n_exp}</div><div class="l">expected rebates (off-invoice)</div></div></div>'
             + f'<div class="card"><h2>Transactions — {len(rows)} line(s)'
             + (' <span class="note">(capped at 2,000 — narrow the filters)</span>' if len(rows) == 2000 else '')
             + '</h2>'
-            + tbl(["Date","Supplier","Country","Station","Vehicle","Product","Qty","Net €","VAT €","€/L eff"], trs)
-            + '<div class="note">The line-level detail behind every report. Filter by period, '
-              'client(s), supplier(s), country(ies), location/station(s), and date range. '
-              'Prices NET EUR/L, final.</div></div>')
+            + table
+            + '<div class="note">Line-level detail. <b>Anomalies are highlighted in place</b> (amber) — the '
+              'flag sits on the exact transaction, learned from each country/period\'s own price spread. '
+              '<b>Discount/adjustment lines</b> (blue) are marked and related to the supplier/country/period '
+              'they apply to. <b>Rebate/Discount €</b> shows the applied rebate (e.g. Q8 Port One), a '
+              'discount line\'s value, or an <i>expected</i> rebate estimated from history when the separate '
+              'rebate invoice isn\'t present. Filter by client, supplier, country, location, date.</div></div>')
     return page(body, "txn")
 
 @app.route("/fx", methods=["GET", "POST"])
@@ -1209,8 +1253,13 @@ def fx():
 @app.route("/export/master")
 def export_master():
     import glob
-    f = sorted(glob.glob(os.path.join(WORKDIR, "Fleet_Fuel_Master_*.xlsx")))[-1]
-    return send_file(f, as_attachment=True)
+    fs = sorted(glob.glob(os.path.join(WORKDIR, "Fleet_Fuel_Master_*.xlsx")))
+    if not fs:
+        return page('<div class="card"><b class="bad">No master workbook yet.</b>'
+                    '<p>Run the monthly pipeline to generate it: '
+                    '<kbd>python consolidate.py</kbd> then <kbd>python build_master.py</kbd>.</p></div>',
+                    "dash"), 404
+    return send_file(fs[-1], as_attachment=True)
 
 @app.route("/export/history")
 def export_history():

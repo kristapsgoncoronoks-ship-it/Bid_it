@@ -59,8 +59,14 @@ cheapest available option, the headline figure dispatch and procurement act on.
 **FX vs ECB** — the exchange rates used versus the official ECB reference, so any
 currency conversion in the claims is transparent and auditable.
 
-**Transactions** — the raw canonical fuel lines for a period, filterable, for spot
-checks and drill‑down.
+**Transactions** — the line‑level detail, filterable by client, supplier, country,
+location/station and date. **Anomalies are highlighted in place** (amber) — the flag
+sits on the exact transaction it belongs to, learned from each country/period's own
+price spread (no fixed threshold). **Discount/adjustment lines** (e.g. MOEVE promo
+lines) are highlighted (blue) and related to the supplier/country/period they apply to.
+The **Rebate/Discount** column shows the rebate actually applied (e.g. Q8's Port One),
+a discount line's value, or — when the separate rebate invoice isn't present — an
+**expected** rebate estimated from historic data, so known discounting is never lost.
 
 **Import batch** — upload a supplier's PDF, a ZIP, or a structured **XML e‑invoice**
 (UBL/CII, EN 16931 — these parse deterministically at high confidence, no AI). Two ways

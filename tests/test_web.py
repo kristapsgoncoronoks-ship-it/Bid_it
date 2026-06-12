@@ -12,8 +12,9 @@ def _get_routes():
         p = str(rule.rule)
         if "GET" not in rule.methods or "<" in p:
             continue
-        # export_fee needs a specific claim's query args; 404 without them is correct
-        if rule.endpoint in ("static", "logout", "export_fee"):
+        # export_fee needs a claim's query args, export_master needs a generated
+        # workbook on disk; both legitimately 404 without those, so skip the smoke.
+        if rule.endpoint in ("static", "logout", "export_fee", "export_master"):
             continue
         routes.append(p)
     return sorted(set(routes))
