@@ -137,32 +137,42 @@ def docs_for(con, ent, sup, ref):
     return con.execute("""SELECT * FROM invoice_documents WHERE entity=? AND supplier=?
                           AND invoice_ref=? ORDER BY uploaded_at""", (ent, sup, ref)).fetchall()
 
-def merge_documents_to_annual(con, ent, ctry, period):
-    """When low-VAT quarters are merged into a YEARLY claim (period '<year>-YEAR'),
-    move that year's invoice documents out of their per-quarter folders into the
-    year's 'Annual' folder, so the vault mirrors the merged claim.
+def file_documents_for_claim(con, ent, ctry, period):
+    """Re-file the documents of the invoices ACTUALLY locked into this claim
+    (vat_claimed_invoices for this exact ref_period) under the claim's period
+    folder, so the vault mirrors the real claim composition — dynamically.
+
+    This is what makes merging dynamic: claims are filed per invoice, not per
+    calendar quarter. If Q1/Q2 are low and get pulled into the yearly claim while
+    Q3 and Q4 are claimed quarterly, only the Q1/Q2 (and any late) invoices in the
+    YEAR claim move to 'Annual'; the Q3/Q4 documents stay under their own quarter
+    because they are locked to '<year>-Q3'/'<year>-Q4'. A quarterly claim is
+    typically a no-op (its documents are already in the matching quarter folder).
 
     Re-filed per document in a DB-safe order — write the new copy, point the row at
     it, THEN delete the old copy — so a crash never leaves the database referencing
-    a missing file. Idempotent (a document already in 'Annual' is skipped).
-    Returns the number of documents moved."""
+    a missing file. Idempotent. Returns the number of documents moved."""
     import doc_storage
-    year = str(period).split("-")[0]
     try:
         c = customer_db.get_customer(ent) or {}
         cust_name = c.get("company_name") or ent
         reg = c.get("reg_number")
     except Exception:
         cust_name, reg = ent, None
+    locked = con.execute("""SELECT supplier, invoice_ref FROM vat_claimed_invoices
+                            WHERE entity=? AND refund_country=? AND ref_period=?""",
+                         (ent, ctry, period)).fetchall()
     moved = 0
-    for sup, ref in stream_invoices(con, ent, ctry, period):
-        for d in docs_for(con, ent, sup, ref):
+    for lk in locked:
+        for d in docs_for(con, ent, lk["supplier"], lk["invoice_ref"]):
             old = d["stored_path"]
-            new_name = doc_storage.invoice_vault_path(cust_name, reg, ctry, year, d["filename"])
+            # filing folder follows the CLAIM's period (Annual for a yearly claim),
+            # not the invoice's calendar quarter.
+            new_name = doc_storage.invoice_vault_path(cust_name, reg, ctry, period, d["filename"])
             data = doc_storage.get_bytes(old, DOCDIR)
             new_loc, web_url = doc_storage.copy_to(new_name, data, DOCDIR)
             if str(new_loc) == str(old):
-                continue                                # already in the Annual folder
+                continue                                # already in the right folder
             con.execute("UPDATE invoice_documents SET stored_path=?, web_url=? WHERE id=?",
                         (new_loc, web_url, d["id"]))
             con.commit()                                # row now points at the new copy
@@ -254,6 +264,8 @@ def set_status(con, ent, ctry, period, new):
         cur = con.execute("""SELECT status FROM vat_applications WHERE entity=? AND
                              refund_country=? AND ref_period=?""", (ent, ctry, period)).fetchone()
         cur = cur["status"] if cur else "draft"
+        is_annual = str(period).endswith("-YEAR")
+        claim_set = None
         if new in LOCKING:
             if cur not in LOCKING:  # entering locked state -> validate & lock invoices
                 invs = stream_invoices(con, ent, ctry, period)
@@ -261,20 +273,32 @@ def set_status(con, ent, ctry, period, new):
                 if bad:
                     con.rollback()
                     return False, "BLOCKED - unresolved invoice refs (fill INPUTs first): " + "; ".join(bad)
-                conflicts = []
+                # A YEARLY claim is the mop-up for periods NOT already claimed
+                # quarterly: invoices already locked to a quarter are EXCLUDED from
+                # the annual claim (not a conflict). A quarterly claim still treats
+                # any overlap as a duplicate and blocks.
+                conflicts, claim_set = [], []
                 for s, r in invs:
                     other = lock_state(con, ent, ctry, s, r)
                     if other and other != period:
+                        if is_annual:
+                            continue                    # claimed in its own quarter
                         conflicts.append(f"{s} invoice {r} already claimed in {other}")
+                    else:
+                        claim_set.append((s, r))
                 if conflicts:
                     con.rollback()
                     return False, "BLOCKED - duplicate submission: " + "; ".join(conflicts)
-                nodoc = [f"{s} {r}" for s, r in invs if not docs_for(con, ent, s, r)]
+                if is_annual and not claim_set:
+                    con.rollback()
+                    return False, ("BLOCKED - nothing to claim annually: every invoice for this "
+                                   "year is already claimed in a quarterly filing")
+                nodoc = [f"{s} {r}" for s, r in claim_set if not docs_for(con, ent, s, r)]
                 if nodoc:
                     con.rollback()
                     return False, ("BLOCKED - physical document missing (attach original PDF "
                                    "or scan first): " + "; ".join(nodoc))
-                for s, r in invs:
+                for s, r in claim_set:
                     try:
                         con.execute("""INSERT INTO vat_claimed_invoices
                                        (entity, refund_country, supplier, invoice_ref, ref_period)
@@ -306,10 +330,18 @@ def set_status(con, ent, ctry, period, new):
         # locked the rate can no longer be adjusted (% / minimum changes only affect
         # un-submitted declarations).
         if new in LOCKING and cur not in LOCKING:
-            months = q_months(period)
-            ph = ",".join("?" * len(months))
-            ve = con.execute(f"SELECT ROUND(SUM(vat_eur),2) FROM transactions WHERE entity=? "
-                             f"AND country=? AND period IN ({ph})", [ent, ctry] + months).fetchone()[0] or 0.0
+            if is_annual and claim_set is not None:
+                # a yearly claim only carries the invoices NOT already claimed
+                # quarterly (the deferred quarters + any late invoices), so freeze
+                # the VAT from exactly that set rather than the whole calendar year.
+                keys = set(claim_set)
+                ve = money.f2(sum(L["vat_eur"] for L in invoice_lines(con, ent, ctry, period)
+                                  if (L["supplier"], L["invoice"]) in keys))
+            else:
+                months = q_months(period)
+                ph = ",".join("?" * len(months))
+                ve = con.execute(f"SELECT ROUND(SUM(vat_eur),2) FROM transactions WHERE entity=? "
+                                 f"AND country=? AND period IN ({ph})", [ent, ctry] + months).fetchone()[0] or 0.0
             fpct, fmin = customer_db.fee_for(ent, ctry)
             fee, _basis = customer_db.compute_fee(ve, fpct, fmin)
             con.execute("""UPDATE vat_applications SET vat_eur=?, fee_eur=?, fee_pct=?, fee_min=?
@@ -333,14 +365,15 @@ def set_status(con, ent, ctry, period, new):
     except Exception:
         con.rollback()
         raise
-    # If this is a YEARLY claim (low-VAT quarters merged into an annual filing),
-    # collapse the year's documents from their per-quarter folders into the
-    # 'Annual' folder. Done AFTER the claim is committed and outside its
-    # transaction (file moves aren't transactional); a failure here is purely
-    # organisational and never blocks the already-recorded status change.
-    if new in LOCKING and cur not in LOCKING and str(period).endswith("-YEAR"):
+    # Keep the vault in step with the claim: file the documents of the invoices
+    # actually locked into THIS claim under the claim's period folder. A quarterly
+    # claim is a no-op (docs already in that quarter); a yearly claim pulls its
+    # deferred/late invoices into 'Annual'. Done AFTER commit and outside the
+    # transaction (file moves aren't transactional); best-effort so it never blocks
+    # the already-recorded status change.
+    if new in LOCKING and cur not in LOCKING:
         try:
-            merge_documents_to_annual(con, ent, ctry, period)
+            file_documents_for_claim(con, ent, ctry, period)
         except Exception:
             pass
     return True, f"status -> {new}" + (" (invoices locked)" if new in LOCKING and cur not in LOCKING

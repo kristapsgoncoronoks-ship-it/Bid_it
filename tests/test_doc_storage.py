@@ -135,9 +135,10 @@ def test_attach_document_files_under_logical_path(tmp_path, monkeypatch):
     assert doc_storage.get_bytes(sp, str(tmp_path / "docs")) == b"%PDF inv"
 
 
-def test_merge_to_annual_relocates_documents(tmp_path, monkeypatch):
-    """When low-VAT quarters merge into a yearly claim, the documents move from
-    their per-quarter folders into the year's Annual folder (DB row + bytes)."""
+def test_documents_follow_claim_dynamically(tmp_path, monkeypatch):
+    """Dynamic merge: a Q3 invoice claimed quarterly stays in the Q3 folder, while
+    the low-VAT Q1/Q2 invoices pulled into the yearly claim move to Annual — each
+    document follows the claim its invoice was actually locked into."""
     import importlib, os
     import vat_refund, supplier_db, customer_db, doc_storage
     for m in (supplier_db, customer_db, vat_refund):
@@ -152,33 +153,73 @@ def test_merge_to_annual_relocates_documents(tmp_path, monkeypatch):
     scon.executemany("""INSERT INTO supplier_invoices
         (supplier, country, invoice_no, invoice_date, period, currency, gross_total)
         VALUES (?,?,?,?,?,?,?)""",
-        [("DKV", "Germany", "INV1", "2026-02-10", "2026-02", "EUR", 100),   # Q1
-         ("DKV", "Germany", "INV2", "2026-05-10", "2026-05", "EUR", 100)])  # Q2
+        [("DKV", "Germany", "INV1", "2026-02-10", "2026-02", "EUR", 100),   # Q1 (deferred)
+         ("DKV", "Germany", "INV2", "2026-05-10", "2026-05", "EUR", 100),   # Q2 (deferred)
+         ("DKV", "Germany", "INV3", "2026-08-10", "2026-08", "EUR", 9000)]) # Q3 (quarterly)
     scon.commit(); scon.close()
 
     con = vat_refund.connect()
-    vat_refund.attach_document(con, "JUP", "DKV", "INV1", file_bytes=b"%PDF q1", filename="INV1.pdf")
-    vat_refund.attach_document(con, "JUP", "DKV", "INV2", file_bytes=b"%PDF q2", filename="INV2.pdf")
-    before = {r["invoice_ref"]: r["stored_path"] for r in
-              con.execute("SELECT invoice_ref, stored_path FROM invoice_documents")}
-    assert "/Germany/Q1/" in before["INV1"].replace("\\", "/")
-    assert "/Germany/Q2/" in before["INV2"].replace("\\", "/")
+    for ref, body in (("INV1", b"q1"), ("INV2", b"q2"), ("INV3", b"q3")):
+        vat_refund.attach_document(con, "JUP", "DKV", ref, file_bytes=body, filename=f"{ref}.pdf")
+    # Q3 is claimed quarterly; Q1+Q2 are pulled into the yearly claim
+    con.executemany("""INSERT INTO vat_claimed_invoices
+        (entity, refund_country, supplier, invoice_ref, ref_period) VALUES (?,?,?,?,?)""",
+        [("JUP", "Germany", "DKV", "INV3", "2026-Q3"),
+         ("JUP", "Germany", "DKV", "INV1", "2026-YEAR"),
+         ("JUP", "Germany", "DKV", "INV2", "2026-YEAR")])
+    con.commit()
 
-    # merge the year's quarters into the annual claim
-    monkeypatch.setattr(vat_refund, "stream_invoices",
-                        lambda c, e, ct, p: [("DKV", "INV1"), ("DKV", "INV2")])
-    assert vat_refund.merge_documents_to_annual(con, "JUP", "Germany", "2026-YEAR") == 2
+    # filing the Q3 claim is a no-op (already in Q3); the yearly claim moves Q1/Q2
+    assert vat_refund.file_documents_for_claim(con, "JUP", "Germany", "2026-Q3") == 0
+    assert vat_refund.file_documents_for_claim(con, "JUP", "Germany", "2026-YEAR") == 2
 
-    after = {r["invoice_ref"]: r["stored_path"] for r in
+    paths = {r["invoice_ref"]: r["stored_path"].replace("\\", "/") for r in
              con.execute("SELECT invoice_ref, stored_path FROM invoice_documents")}
-    assert "/Germany/Annual/" in after["INV1"].replace("\\", "/")
-    assert "/Germany/Annual/" in after["INV2"].replace("\\", "/")
-    # old quarter files removed; bytes intact at the new Annual location
-    assert not os.path.exists(before["INV1"]) and not os.path.exists(before["INV2"])
-    assert doc_storage.get_bytes(after["INV1"], str(tmp_path / "docs")) == b"%PDF q1"
-    # idempotent: a second merge moves nothing
-    assert vat_refund.merge_documents_to_annual(con, "JUP", "Germany", "2026-YEAR") == 0
+    assert "/Germany/Q3/" in paths["INV3"]            # quarterly claim stayed put
+    assert "/Germany/Annual/" in paths["INV1"]        # deferred -> annual
+    assert "/Germany/Annual/" in paths["INV2"]
+    assert doc_storage.get_bytes(paths["INV1"], str(tmp_path / "docs")) == b"q1"
+    # idempotent
+    assert vat_refund.file_documents_for_claim(con, "JUP", "Germany", "2026-YEAR") == 0
     con.close()
+
+
+def test_annual_claim_excludes_already_claimed_quarters(tmp_path, monkeypatch):
+    """A yearly claim is the mop-up for un-claimed periods: a quarter already
+    submitted (Q3) is excluded from the annual lock set, not treated as a conflict,
+    so Q1+Q2 can be merged into the yearly claim while Q3 stays quarterly."""
+    import importlib
+    import vat_refund, supplier_db, customer_db
+    for m in (supplier_db, customer_db, vat_refund):
+        importlib.reload(m)
+    monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "fh.db"))
+    monkeypatch.setattr(vat_refund, "DOCDIR", str(tmp_path / "docs"))
+    monkeypatch.setattr(supplier_db, "DB", str(tmp_path / "sup.db"))
+    monkeypatch.setattr(customer_db, "is_active", lambda *a, **k: True)
+    monkeypatch.setattr(customer_db, "country_active", lambda *a, **k: True)
+    # year invoices: Q3A is its own quarter; Q1A/Q2A defer to the annual claim
+    monkeypatch.setattr(vat_refund, "stream_invoices",
+        lambda c, e, ct, p: ([("DKV", "Q3A"), ("DKV", "Q1A"), ("DKV", "Q2A")]
+                             if str(p).endswith("-YEAR") else [("DKV", "Q3A")]))
+    monkeypatch.setattr(vat_refund, "docs_for", lambda c, e, s, r: [{"id": 1}])
+
+    con = vat_refund.connect()
+    con.execute("""CREATE TABLE IF NOT EXISTS transactions (
+        period TEXT, entity TEXT, supplier TEXT, country TEXT, note TEXT,
+        product_group TEXT, net_eur REAL, vat_eur REAL, net_local REAL,
+        vat_local REAL, currency TEXT)""")
+    con.commit()
+    ok, msg = vat_refund.set_status(con, "JUP", "Germany", "2026-Q3", "submitted")
+    assert ok, msg
+    ok, msg = vat_refund.set_status(con, "JUP", "Germany", "2026-YEAR", "submitted")
+    assert ok, msg                                     # NOT blocked by the Q3 overlap
+
+    by = {}
+    for r in con.execute("SELECT invoice_ref, ref_period FROM vat_claimed_invoices"):
+        by.setdefault(r["ref_period"], set()).add(r["invoice_ref"])
+    con.close()
+    assert by["2026-Q3"] == {"Q3A"}                    # quarterly claim unchanged
+    assert by["2026-YEAR"] == {"Q1A", "Q2A"}          # Q3A excluded, no double-lock
 
 
 def test_backend_selection(monkeypatch, tmp_path):

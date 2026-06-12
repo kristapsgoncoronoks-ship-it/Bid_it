@@ -83,16 +83,17 @@ def _year_of(period):
 
 def period_label(period):
     """Map a period to its claim/declaration folder: monthly '2026-05' -> 'Q2',
-    quarterly '2026-Q3' -> 'Q3', annual '2026' -> 'Annual', else 'unsorted'."""
+    quarterly '2026-Q3' -> 'Q3', annual '2026-YEAR'/'2026' -> 'Annual', else
+    'unsorted'."""
     p = str(period or "").strip()
     m = re.match(r"^\d{4}-Q([1-4])$", p)
     if m:
         return f"Q{m.group(1)}"
+    if re.match(r"^\d{4}-YEAR$", p) or re.match(r"^\d{4}$", p):
+        return "Annual"
     m = re.match(r"^\d{4}-(\d{2})", p)
     if m:
         return f"Q{(int(m.group(1)) - 1) // 3 + 1}"
-    if re.match(r"^\d{4}$", p):
-        return "Annual"
     return "unsorted"
 
 def _customer_folder(customer, reg_number):
