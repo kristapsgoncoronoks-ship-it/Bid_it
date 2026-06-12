@@ -138,6 +138,19 @@ class LocalBackend:
         return real
     def get(self, locator):
         return open(self._safe_path(locator), "rb").read()
+    def delete(self, locator):
+        real = self._safe_path(locator)
+        base = os.path.realpath(self.docdir)
+        try:
+            os.remove(real)
+        except FileNotFoundError:
+            return
+        # prune folders left empty by the move (e.g. an emptied .../Germany/Q2)
+        d = os.path.dirname(real)
+        while d.startswith(base + os.sep):
+            try: os.rmdir(d)
+            except OSError: break
+            d = os.path.dirname(d)
 
 
 
@@ -186,6 +199,13 @@ class SharePointBackend:
                         headers=self._h(), timeout=60, allow_redirects=True)
         r.raise_for_status()
         return r.content
+
+    def delete(self, locator):
+        drive, item = locator[len("sp://"):].split("/", 1)
+        r = self.rq.delete(f"{GRAPH}/drives/{drive}/items/{item}",
+                           headers=self._h(), timeout=60)
+        if getattr(r, "status_code", 204) not in (200, 202, 204, 404):
+            r.raise_for_status()
 
 
 class FtpBackend:
@@ -243,6 +263,16 @@ class FtpBackend:
             try: ftp.quit()
             except Exception: pass
 
+    def delete(self, locator):
+        remote = locator[len("ftp://"):]
+        ftp = self._open()
+        try:
+            try: ftp.delete(remote)
+            except Exception: pass             # already gone
+        finally:
+            try: ftp.quit()
+            except Exception: pass
+
 
 def backend(docdir):
     if BACKEND == "sharepoint":
@@ -261,6 +291,24 @@ def get_bytes(locator, docdir):
     if loc.startswith("ftp://"):
         return FtpBackend().get(locator)
     return LocalBackend(docdir).get(locator)
+
+
+def delete(locator, docdir):
+    """Delete a stored document, routed by its locator prefix."""
+    loc = str(locator)
+    if loc.startswith("sp://"):
+        return SharePointBackend().delete(locator)
+    if loc.startswith("ftp://"):
+        return FtpBackend().delete(locator)
+    return LocalBackend(docdir).delete(locator)
+
+
+def copy_to(new_name, data, docdir):
+    """Write `data` to a new logical path on the current backend and return
+    (new_locator, web_url). Pairs with delete() for a DB-safe move: copy_to ->
+    update the stored_path row -> delete the old locator, so the database always
+    references a file that exists."""
+    return backend(docdir).put(new_name, data)
 
 
 def migrate_local_to_sharepoint(con, docdir):

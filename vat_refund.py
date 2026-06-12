@@ -137,6 +137,42 @@ def docs_for(con, ent, sup, ref):
     return con.execute("""SELECT * FROM invoice_documents WHERE entity=? AND supplier=?
                           AND invoice_ref=? ORDER BY uploaded_at""", (ent, sup, ref)).fetchall()
 
+def merge_documents_to_annual(con, ent, ctry, period):
+    """When low-VAT quarters are merged into a YEARLY claim (period '<year>-YEAR'),
+    move that year's invoice documents out of their per-quarter folders into the
+    year's 'Annual' folder, so the vault mirrors the merged claim.
+
+    Re-filed per document in a DB-safe order — write the new copy, point the row at
+    it, THEN delete the old copy — so a crash never leaves the database referencing
+    a missing file. Idempotent (a document already in 'Annual' is skipped).
+    Returns the number of documents moved."""
+    import doc_storage
+    year = str(period).split("-")[0]
+    try:
+        c = customer_db.get_customer(ent) or {}
+        cust_name = c.get("company_name") or ent
+        reg = c.get("reg_number")
+    except Exception:
+        cust_name, reg = ent, None
+    moved = 0
+    for sup, ref in stream_invoices(con, ent, ctry, period):
+        for d in docs_for(con, ent, sup, ref):
+            old = d["stored_path"]
+            new_name = doc_storage.invoice_vault_path(cust_name, reg, ctry, year, d["filename"])
+            data = doc_storage.get_bytes(old, DOCDIR)
+            new_loc, web_url = doc_storage.copy_to(new_name, data, DOCDIR)
+            if str(new_loc) == str(old):
+                continue                                # already in the Annual folder
+            con.execute("UPDATE invoice_documents SET stored_path=?, web_url=? WHERE id=?",
+                        (new_loc, web_url, d["id"]))
+            con.commit()                                # row now points at the new copy
+            try:
+                doc_storage.delete(old, DOCDIR)         # safe to drop the old copy
+            except Exception:
+                pass                                    # orphan at worst, never lost
+            moved += 1
+    return moved
+
 def verify_documents(con=None):
     """Integrity check for the physical documents (PDF/ZIP files): re-read each
     stored file and compare its SHA-256 to the hash recorded when it was attached.
@@ -297,6 +333,16 @@ def set_status(con, ent, ctry, period, new):
     except Exception:
         con.rollback()
         raise
+    # If this is a YEARLY claim (low-VAT quarters merged into an annual filing),
+    # collapse the year's documents from their per-quarter folders into the
+    # 'Annual' folder. Done AFTER the claim is committed and outside its
+    # transaction (file moves aren't transactional); a failure here is purely
+    # organisational and never blocks the already-recorded status change.
+    if new in LOCKING and cur not in LOCKING and str(period).endswith("-YEAR"):
+        try:
+            merge_documents_to_annual(con, ent, ctry, period)
+        except Exception:
+            pass
     return True, f"status -> {new}" + (" (invoices locked)" if new in LOCKING and cur not in LOCKING
                                        else " (locks released)" if new in ("rejected","withdrawn") else "")
 
