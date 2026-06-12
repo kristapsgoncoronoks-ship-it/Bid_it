@@ -66,7 +66,11 @@ checks and drill‑down.
 (UBL/CII, EN 16931 — these parse deterministically at high confidence, no AI). Two ways
 to process: **Extract draft now** (process immediately and review), or **Queue for
 later** which parks the file in the **Waiting room** for background processing (see §3b).
-On confirm, it registers the statement + vaults the source (see §3a).
+On confirm, it registers the statement + vaults the source (see §3a). When an AI
+backend processes an invoice, its structured output is also archived in a **data lake**
+(separate from the PDF) so it can be reused without re-calling the API. Your VAT‑refund
+**claim records live in their own isolated database** — protected from the monthly data
+rebuild — and are included in every backup.
 
 **Waiting room** — the durable intake queue for uploaded batches (see §3b).
 
