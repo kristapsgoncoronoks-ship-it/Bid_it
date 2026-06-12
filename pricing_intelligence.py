@@ -186,6 +186,88 @@ def margin_report(period=None, grain="month", product_group="Diesel"):
     return rows, summary
 
 
+def internal_benchmark(period=None, grain="month", product_group="Diesel"):
+    """SELF-SOURCED competitor benchmark — built only from YOUR OWN multi-supplier
+    purchases, no external/scraped data. For each country/city/bucket where you bought
+    from at least one supplier, report the best (lowest) effective NET price you
+    actually obtained, the spread, and the avoidable overpay vs that best.
+
+    Compared per COUNTRY × period (apples-to-apples across suppliers, like the
+    head-to-head view) — each supplier's volume-weighted effective price. Cells where
+    two or more suppliers competed are the genuinely comparable ones; the overpay there
+    is money you could have saved by routing volume to the cheaper supplier you were
+    already using. Returns (rows sorted by overpay desc, summary)."""
+    con = connect()
+    where = "product_group=?"; args = [product_group]
+    if period:
+        where += " AND period=?"; args.append(period)
+    raw = con.execute(f"""SELECT country, date, supplier,
+        SUM(qty) qty, SUM(net_eur_eff) net FROM transactions
+        WHERE {where} GROUP BY country, date, supplier""", args).fetchall()
+    con.close()
+    agg = {}   # (country, bucket, supplier) -> [qty, net]
+    for r in raw:
+        k = (r["country"], bucket(r["date"], grain), r["supplier"])
+        a = agg.setdefault(k, [0.0, 0.0]); a[0] += r["qty"] or 0; a[1] += r["net"] or 0
+    cells = {}
+    for (country, bk, sup), (q, net) in agg.items():
+        if q <= 0:
+            continue
+        cells.setdefault((country, bk), []).append({"supplier": sup, "qty": q, "net": net, "eff": net / q})
+    rows, tot_overpay, tot_litres = [], 0.0, 0.0
+    for (country, bk), sups in cells.items():
+        best = min(sups, key=lambda s: s["eff"])
+        litres = sum(s["qty"] for s in sups)
+        spend = sum(s["net"] for s in sups)
+        overpay = sum(s["qty"] * (s["eff"] - best["eff"]) for s in sups)
+        rows.append({
+            "country": country, "bucket": bk,
+            "best_price": round(best["eff"], 4), "best_supplier": best["supplier"],
+            "suppliers": len(sups), "your_avg": round(spend / litres, 4) if litres else None,
+            "spread": round(max(s["eff"] for s in sups) - best["eff"], 4),
+            "litres": round(litres, 1), "overpay_eur": round(overpay, 2)})
+        tot_overpay += overpay; tot_litres += litres
+    rows.sort(key=lambda r: r["overpay_eur"], reverse=True)
+    summary = {"total_overpay": round(tot_overpay, 2), "litres": round(tot_litres, 1),
+               "cells": len(rows),
+               "multi_supplier_cells": sum(1 for r in rows if r["suppliers"] > 1)}
+    return rows, summary
+
+
+def adopt_internal_benchmark(period=None, grain="month", product_group="Diesel"):
+    """Persist the best-of internal benchmark as the MY-Prices baseline (source
+    'internal'), so the margin/gap columns measure every supplier against the best
+    price you actually achieved. Returns the count loaded."""
+    rows, _ = internal_benchmark(period, grain, product_group)
+    myrows = [{"country": r["country"], "city": "(best-of)",
+               "date": _bucket_sample_date(r["bucket"], grain),
+               "net_price": r["best_price"], "product_group": product_group}
+              for r in rows]
+    return load_my_prices(myrows, source="internal")
+
+
+def internal_benchmark_workbook(period=None, grain="month", product_group="Diesel", path=None):
+    """Excel of the self-sourced benchmark + avoidable overpay, biggest first."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    rows, summ = internal_benchmark(period, grain, product_group)
+    path = path or f"{WORKDIR}/Internal_Benchmark_{grain}.xlsx"
+    wb = Workbook(); ws = wb.active; ws.title = "Best-of benchmark"
+    hdr = Font(bold=True, color="FFFFFF"); hf = PatternFill("solid", fgColor="0E5FA8")
+    cols = ["country", "bucket", "suppliers", "best_supplier", "best_price",
+            "your_avg", "spread", "litres", "overpay_eur"]
+    ws.append([f"Self-sourced benchmark — total avoidable overpay EUR {summ['total_overpay']:,.0f} "
+               f"across {summ['multi_supplier_cells']} multi-supplier cells (NET EUR/L, rebates applied)"])
+    ws.append(cols)
+    for c in range(1, len(cols) + 1):
+        ws.cell(2, c).font = hdr; ws.cell(2, c).fill = hf
+    for r in rows:
+        ws.append([r.get(k) for k in cols])
+    ws.freeze_panes = "A3"; ws.sheet_view.showGridLines = False
+    wb.save(path)
+    return path
+
+
 def _bucket_sample_date(bk, grain):
     if grain == "day":
         return bk

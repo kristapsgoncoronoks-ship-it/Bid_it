@@ -329,6 +329,7 @@ PERM_BY_ENDPOINT = {
     "customers":       "customers",
     "pricing":         "pricing", "pricing_upload": "pricing", "api_pricing": "pricing",
     "pricing_market":  "pricing", "pricing_portal": "pricing",
+    "pricing_adopt_benchmark": "pricing", "export_benchmark": "exports",
     "documents":       "documents", "doc_download": "documents",
     "export_master":   "exports", "export_history": "exports",
     "export_pricing":  "exports", "export_vat": "exports", "export_compare": "exports",
@@ -1731,8 +1732,47 @@ def pricing():
         'true-margin (margin vs wholesale) column. <b>Scrape</b> pulls from official open-data '
         'sources (EU Weekly Oil Bulletin / national portals) configured via MARKET_JSON_URL / '
         'MARKET_CSV_URL — or upload a CSV on a locked-down network.</div></div>'
+        + _benchmark_card(grain)
         + _portals_card())
     return page(body, "pri")
+
+def _benchmark_card(grain):
+    """Self-sourced competitor benchmark: the best price you actually achieved per
+    country/city and the avoidable overpay — built only from your own multi-supplier
+    purchases, no external data."""
+    import pricing_intelligence as PI
+    try:
+        rows, summ = PI.internal_benchmark(None, grain)
+    except Exception as e:
+        _log_exc("internal benchmark", e)
+        return ""
+    trs = []
+    for r in [x for x in rows if x["suppliers"] > 1][:50]:
+        trs.append([f"<td>{esc(r['country'])}</td><td>{esc(r['bucket'])}</td>",
+                    f"<td class=r>{r['suppliers']}</td><td>{esc(r['best_supplier'])}</td>",
+                    f"<td class=r>{r['best_price']:.3f}</td><td class=r>{(r['your_avg'] or 0):.3f}</td>",
+                    f"<td class=r>{r['spread']:.3f}</td><td class=r>{r['litres']:,.0f}</td>",
+                    f"<td class='r {'bad' if r['overpay_eur'] else ''}'>{r['overpay_eur']:,.0f}</td>"])
+    return ('<div class="card"><h2>Self-sourced benchmark (from your own purchases)</h2>'
+            '<div class="kpis">'
+            f'<div class="kpi"><div class="v bad">EUR {summ["total_overpay"]:,.0f}</div>'
+            '<div class="l">avoidable overpay vs best you achieved</div></div>'
+            f'<div class="kpi"><div class="v">{summ["multi_supplier_cells"]}</div>'
+            '<div class="l">comparable cells (2+ suppliers)</div></div>'
+            f'<div class="kpi"><div class="v">{summ["litres"]:,.0f} L</div><div class="l">litres covered</div></div></div>'
+            + (tbl(["Country", "Period", "Suppliers", "Best", "Best €/L",
+                    "Your avg", "Spread", "Litres", "Overpay €"], trs)
+               if trs else '<p class="note">Need two or more suppliers in the same country/period to compare.</p>')
+            + '<div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">'
+            + f'<a href="/export/benchmark?grain={esc(grain)}">⬇ Export benchmark (Excel)</a>'
+            + '<form method="post" action="/pricing/adopt-benchmark" style="display:inline">' + _csrf_input()
+            + f'<input type="hidden" name="grain" value="{esc(grain)}">'
+            + '<button>Adopt best-of as MY benchmark</button></form></div>'
+            '<div class="note">Each supplier you used is a price point — the lowest you actually paid '
+            'for the same product/place/period is your benchmark, and the overpay is what routing volume '
+            'to the cheaper supplier would have saved. No external/scraped data. '
+            '<b>Adopt</b> loads these best prices into MY Prices so the margin grid measures everyone '
+            'against them.</div></div>')
 
 def _portals_card():
     """Client supplier-portal scrapers: configured portals with a 'Scrape now' button,
@@ -1850,6 +1890,27 @@ def pricing_portal():
         _log_exc("portal scrape/config", e)
         banner = f'<div class="card"><b class="bad">Portal action failed: {esc(str(e))}</b></div>'
     return page(banner + '<p><a href="/pricing">→ Back to Pricing intel</a></p>', "pri")
+
+@app.route("/pricing/adopt-benchmark", methods=["POST"])
+def pricing_adopt_benchmark():
+    """Adopt the self-sourced best-of benchmark as the MY-Prices baseline."""
+    import pricing_intelligence as PI
+    grain = request.form.get("grain", "month")
+    try:
+        n = PI.adopt_internal_benchmark(None, grain)
+        banner = (f'<div class="card"><b class="ok">Adopted {n} best-of price point(s) as your '
+                  f'MY-Prices benchmark (source: internal). The gap/overpay columns now measure '
+                  f'every supplier against the best price you actually achieved.</b></div>')
+    except Exception as e:
+        _log_exc("adopt internal benchmark", e)
+        banner = f'<div class="card"><b class="bad">Could not adopt benchmark: {esc(str(e))}</b></div>'
+    return page(banner + '<p><a href="/pricing">→ Back to Pricing intel</a></p>', "pri")
+
+@app.route("/export/benchmark")
+def export_benchmark():
+    import pricing_intelligence as PI
+    path = PI.internal_benchmark_workbook(None, request.args.get("grain", "month"))
+    return send_file(path, as_attachment=True, download_name=os.path.basename(path))
 
 @app.route("/pricing/upload", methods=["POST"])
 def pricing_upload():
