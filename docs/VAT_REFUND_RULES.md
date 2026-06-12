@@ -57,15 +57,22 @@ refund state that opts into Art. 9(2) requires these:
 - 1.3 — Fuel for means of transport **for paying passengers** → .1–.5
 - (1.4 test vehicles · 1.5 lubricants · 1.6 resale · 1.7 goods-transport fuel · 1.8 cars/multipurpose · 1.9 recreational — Member-State-dependent; MEDIUM confidence on exact numbering)
 
+**Codes 2 (hiring) and 3 (other vehicle expenditure) carry the same two-axis split** — mass
+> 3 500 kg vs ≤ 3 500 kg, and "for paying passengers" — so vehicle hire/maintenance for a truck is
+also classified on the goods-vehicle axis. (Origin Reg. (EC) 1174/2009, superseded by Reg. (EU)
+79/2012 with effect 20 Feb 2012; codes carried over essentially unchanged.)
+
 The EU publishes which Member States require the Art. 9(2) sub-codes vs accept the bare top-level
 code: https://taxation-customs.ec.europa.eu/system/files/2016-09/information-document_en.pdf
 
 ## 4. Invoice copies & documentation (Art. 10)
 
 The refund state **may require a scanned copy** of the invoice/import document where the **taxable
-amount is ≥ €1 000** (or local equivalent) — **and ≥ €250 for FUEL** (the lower fuel threshold). We
-archive every PDF in the vault regardless, so this is satisfied de facto, but the **€250 fuel /
-€1 000 general** thresholds are the trigger.
+amount is ≥ €1 000** (or local equivalent) — **and ≥ €250 for FUEL** (the lower fuel threshold,
+confirmed). We archive every PDF in the vault regardless, so this is satisfied de facto, but the
+**€250 fuel / €1 000 general** thresholds are the trigger. Separately, under **Art. 20(1)** the
+refund state may demand the invoice (original or copy) **regardless of these thresholds** whenever it
+has reasonable doubt — another reason every original stays in the vault.
 
 ## 5. Processing timeline, information requests & interest (Arts. 19–27)
 
