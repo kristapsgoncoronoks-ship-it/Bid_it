@@ -28,8 +28,10 @@ DB_PATH = os.path.join(WORKDIR, "fuel_history.db")
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 app.secret_key = _auth.secret_key()
+import datetime as _dt
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
-                  MAX_CONTENT_LENGTH=25 * 1024 * 1024)   # cap uploads at 25 MB (DoS guard)
+                  MAX_CONTENT_LENGTH=25 * 1024 * 1024,    # cap uploads at 25 MB (DoS guard)
+                  PERMANENT_SESSION_LIFETIME=_dt.timedelta(hours=8))   # idle session timeout
 
 # Static, no-secret CSP: scripts only from this origin (/app.js), inline styles
 # allowed (the UI uses inline style attributes + inline SVG), no framing.
@@ -44,11 +46,14 @@ def _security_headers(resp):
     resp.headers.setdefault("X-Frame-Options", "DENY")
     resp.headers.setdefault("Referrer-Policy", "no-referrer")
     resp.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    # don't let browsers/proxies cache authenticated pages (the static /app.js sets
+    # its own Cache-Control, so setdefault leaves it alone)
+    resp.headers.setdefault("Cache-Control", "no-store")
     if request.is_secure:
         resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     return resp
 
-APP_JS = r"""/* progressive enhancement: click-to-sort + type-to-filter + "/" focus */
+APP_JS = r"""/* progressive enhancement: sort + filter + horizontal scroll + keyboard nav */
 (function(){
   function val(td){return td?(td.textContent||'').trim():'';}
   function num(s){var n=parseFloat(String(s).replace(/[^0-9.\-]/g,''));return isNaN(n)?null:n;}
@@ -56,8 +61,7 @@ APP_JS = r"""/* progressive enhancement: click-to-sort + type-to-filter + "/" fo
   function sortTable(t,col,asc){
     var tb=t.tBodies[0]; if(!tb) return;
     var all=Array.prototype.slice.call(tb.rows);
-    var body=all.filter(function(r){return !isTotal(r);});
-    var totals=all.filter(isTotal);
+    var body=all.filter(function(r){return !isTotal(r);}), totals=all.filter(isTotal);
     body.sort(function(a,b){
       var x=val(a.cells[col]),y=val(b.cells[col]),nx=num(x),ny=num(y),r;
       r=(nx!==null&&ny!==null)?nx-ny:x.localeCompare(y); return asc?r:-r;
@@ -65,16 +69,23 @@ APP_JS = r"""/* progressive enhancement: click-to-sort + type-to-filter + "/" fo
     body.concat(totals).forEach(function(r){tb.appendChild(r);});
   }
   document.querySelectorAll('table').forEach(function(t){
-    var head=t.tHead; if(!head||!head.rows.length) return;
-    var ths=head.rows[0].cells, st={col:-1,asc:true};
-    Array.prototype.forEach.call(ths,function(th,i){
-      th.style.cursor='pointer'; th.title='click to sort';
-      th.addEventListener('click',function(){
-        st.asc=st.col===i?!st.asc:true; st.col=i; sortTable(t,i,st.asc);
-        Array.prototype.forEach.call(ths,function(x){x.removeAttribute('data-sort');});
-        th.setAttribute('data-sort',st.asc?'▲':'▼');
+    var head=t.tHead;
+    // wrap for horizontal scroll on small screens
+    if(t.parentNode && !t.parentNode.classList.contains('tablewrap')){
+      var w=document.createElement('div'); w.className='tablewrap';
+      t.parentNode.insertBefore(w,t); w.appendChild(t);
+    }
+    if(head&&head.rows.length){
+      var ths=head.rows[0].cells, st={col:-1,asc:true};
+      Array.prototype.forEach.call(ths,function(th,i){
+        th.style.cursor='pointer'; th.title='click to sort';
+        th.addEventListener('click',function(){
+          st.asc=st.col===i?!st.asc:true; st.col=i; sortTable(t,i,st.asc);
+          Array.prototype.forEach.call(ths,function(x){x.removeAttribute('data-sort');});
+          th.setAttribute('data-sort',st.asc?'▲':'▼');
+        });
       });
-    });
+    }
     var tb=t.tBodies[0];
     if(tb&&tb.rows.length>=8){
       var inp=document.createElement('input');
@@ -85,14 +96,35 @@ APP_JS = r"""/* progressive enhancement: click-to-sort + type-to-filter + "/" fo
           r.style.display=(!q||(r.textContent||'').toLowerCase().indexOf(q)>=0)?'':'none';
         });
       });
-      t.parentNode.insertBefore(inp,t);
+      t.parentNode.parentNode.insertBefore(inp,t.parentNode);
     }
   });
+  // keyboard nav built from the actual menu: press "g" then the first letter of a menu item
+  var NAV={}, labels=[];
+  document.querySelectorAll('header a[href^="/"]').forEach(function(a){
+    var txt=(a.textContent||'').trim(), k=txt.toLowerCase()[0];
+    if(k && !NAV[k]){ NAV[k]=a.getAttribute('href'); labels.push(k+' → '+txt); }
+  });
+  function help(){
+    var b=document.getElementById('kh');
+    if(b){ b.remove(); return; }
+    b=document.createElement('div'); b.id='kh';
+    b.innerHTML='<div class="khbox"><b>Keyboard shortcuts</b>'
+      +'<p><kbd>/</kbd> filter rows · <kbd>g</kbd> then a letter to jump · click a column to sort · <kbd>?</kbd> toggle this</p>'
+      +'<div class="khgrid">'+labels.map(function(l){return '<span><kbd>g</kbd> '+l+'</span>';}).join('')+'</div>'
+      +'<p class="note">Esc / ? to close</p></div>';
+    b.addEventListener('click',function(e){if(e.target===b)b.remove();});
+    document.body.appendChild(b);
+  }
+  var pend=false;
   document.addEventListener('keydown',function(e){
-    if(e.key==='/'&&!/^(INPUT|SELECT|TEXTAREA)$/.test((e.target&&e.target.tagName)||'')){
-      var el=document.querySelector('.rowfilter, form.f input, input');
-      if(el){e.preventDefault(); el.focus();}
-    }
+    var tag=(e.target&&e.target.tagName)||'';
+    if(/^(INPUT|SELECT|TEXTAREA)$/.test(tag)) return;
+    if(e.key==='Escape'){var b=document.getElementById('kh'); if(b)b.remove(); pend=false; return;}
+    if(e.key==='/'){var el=document.querySelector('.rowfilter, form.f input, input'); if(el){e.preventDefault();el.focus();} return;}
+    if(e.key==='?'){e.preventDefault(); help(); return;}
+    if(pend){ pend=false; var u=NAV[e.key.toLowerCase()]; if(u){e.preventDefault(); location.href=u;} return; }
+    if(e.key==='g'){ pend=true; setTimeout(function(){pend=false;},1200); }
   });
 })();
 """
@@ -239,13 +271,15 @@ def login():
     err = ""
     if request.method == "POST":
         uname = request.form.get("username", "")
-        if _auth.is_locked(uname):
-            err = ('<div class="err">Account temporarily locked after too many failed '
-                   'attempts. Try again in a few minutes.</div>')
+        if _auth.is_locked(uname) or _auth.is_locked_ip(request.remote_addr):
+            err = ('<div class="err">Temporarily locked after too many failed attempts. '
+                   'Try again in a few minutes.</div>')
         elif _auth.verify(uname, request.form.get("password", ""), remote=request.remote_addr or ""):
+            session.clear()                         # session fixation: start fresh on login
             session["user"] = uname
             u = _auth.get_user(uname)
             session["role"] = (u or {}).get("role", "processor")
+            session.permanent = True
             return redirect("/")
         else:
             err = '<div class="err">Invalid username or password.</div>'
@@ -439,6 +473,15 @@ header{background:var(--ink);color:#fff;padding:14px 24px;display:flex;gap:26px;
 header b{font-size:17px}header a{color:#cfe0f0;text-decoration:none;font-size:13.5px}header a.on{color:#fff;border-bottom:2px solid #6db1e8;padding-bottom:3px}
 th[data-sort]::after{content:" " attr(data-sort);color:#6db1e8;font-weight:400}
 .rowfilter{margin:0 0 8px;padding:6px 9px;border:1px solid var(--line);border-radius:6px;width:240px;font-size:13px;background:#fff}
+.tablewrap{overflow-x:auto;margin:0 0 2px}
+kbd{background:#eef2f6;border:1px solid var(--line);border-radius:4px;padding:0 5px;font:12px ui-monospace,monospace}
+button:hover{filter:brightness(1.08)}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #6db1e8;outline-offset:1px}
+#kh{position:fixed;inset:0;background:rgba(10,20,30,.55);display:flex;align-items:flex-start;justify-content:center;z-index:50;padding-top:8vh}
+.khbox{background:#fff;border-radius:12px;padding:18px 22px;max-width:600px;box-shadow:0 10px 40px rgba(0,0,0,.3)}
+.khgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:3px 18px;font-size:13px;margin-top:6px}
+@media (max-width:760px){header{gap:12px;padding:10px 14px}main{padding:0 10px}.kpis{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}}
+@media print{header,form,.exp,button,.rowfilter,#kh{display:none!important}main{max-width:none;margin:0}.card{break-inside:avoid;border:0;box-shadow:none}body{background:#fff}}
 main{max-width:1180px;margin:22px auto;padding:0 18px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
 .kpi{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 16px}

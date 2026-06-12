@@ -23,6 +23,24 @@ def test_upload_size_capped():
     assert A.app.config["MAX_CONTENT_LENGTH"] == 25 * 1024 * 1024
 
 
+def test_authenticated_pages_not_cached(client):
+    assert client.get("/").headers.get("Cache-Control") == "no-store"
+    # the static asset keeps its own cache policy
+    assert "max-age" in A.app.test_client().get("/app.js").headers.get("Cache-Control", "")
+
+
+def test_ip_throttle(admin_session):
+    import auth
+    c = A.app.test_client()
+    for i in range(25):                          # spray many usernames from one IP
+        c.post("/login", data={"username": f"u{i}", "password": "X"},
+               environ_base={"REMOTE_ADDR": "9.9.9.9"})
+    assert auth.is_locked_ip("9.9.9.9")
+    r = c.post("/login", data={"username": admin_session["user"], "password": admin_session["pw"]},
+               environ_base={"REMOTE_ADDR": "9.9.9.9"})
+    assert "Temporarily locked" in r.get_data(as_text=True)
+
+
 def test_login_lockout(admin_session):
     import auth
     auth.add_user("lock_test", "Pw!23456", role="processor")
@@ -32,4 +50,4 @@ def test_login_lockout(admin_session):
     assert auth.is_locked("lock_test")
     # now even the correct password is refused while locked
     r = c.post("/login", data={"username": "lock_test", "password": "Pw!23456"})
-    assert "temporarily locked" in r.get_data(as_text=True)
+    assert "Temporarily locked" in r.get_data(as_text=True)

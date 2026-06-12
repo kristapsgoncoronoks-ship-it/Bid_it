@@ -183,6 +183,18 @@ def recent_failures(username):
 def is_locked(username):
     return bool(username) and recent_failures(username) >= LOGIN_MAX_FAILS
 
+LOGIN_IP_MAX_FAILS = 25    # failures from one source IP within the window -> throttle
+
+def is_locked_ip(remote):
+    """Throttle a source IP spraying many usernames (botnet brute force)."""
+    if not remote:
+        return False
+    con = connect()
+    n = con.execute("""SELECT COUNT(*) FROM login_log WHERE remote=? AND success=0
+        AND ts >= datetime('now', ?)""", (remote, f"-{LOGIN_WINDOW_MIN} minutes")).fetchone()[0]
+    con.close()
+    return n >= LOGIN_IP_MAX_FAILS
+
 def get_setting(key, default=None):
     con = connect()
     row = con.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
