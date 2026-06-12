@@ -16,6 +16,9 @@ verdict per line: ok | warn | error ; a line with any error blocks commit until 
 """
 import os, re, sqlite3, datetime, json
 from datetime import timezone as _tz
+from decimal import Decimal
+
+import money
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 DB = f"{WORKDIR}/fuel_history.db"
@@ -83,12 +86,14 @@ def validate_batch(lines, coversheet_total=None):
     for ln in lines:
         v, m = check_line(ln)
         results.append({"line": ln, "verdict": v, "messages": m})
-    gross = round(sum((_f(l.get("net")) or 0) + (_f(l.get("vat")) or 0) for l in lines), 2)
+    gross = money.fsum((_f(l.get("net")) or 0) + (_f(l.get("vat")) or 0) for l in lines)
     tie = None
     if coversheet_total is not None:
-        diff = round(gross - float(coversheet_total), 2)
-        tie = {"gross": gross, "stated": round(float(coversheet_total), 2),
-               "diff": diff, "ok": abs(diff) <= 0.02}
+        # threshold decision on Decimals (HALF_UP) so a diff sitting exactly on
+        # the 0.02 boundary never flips on binary-float noise; dict stays floats
+        d_diff = money.q2(gross) - money.q2(float(coversheet_total))
+        tie = {"gross": gross, "stated": money.f2(float(coversheet_total)),
+               "diff": float(d_diff), "ok": abs(d_diff) <= Decimal("0.02")}
     errors = sum(1 for r in results if r["verdict"] == "error")
     warns = sum(1 for r in results if r["verdict"] == "warn")
     can_commit = errors == 0 and (tie is None or tie["ok"])
