@@ -741,7 +741,7 @@ def claims_overview(year):
     into TO-SUBMIT (with a readiness verdict) and OPEN (submitted/approved, aging)."""
     import datetime
     con = connect()
-    matrix = claim_matrix(con, year)
+    matrix = claim_matrix(con, year, with_portal=False)   # /, /readiness never read m["home"]
     apps = {(r["entity"], r["refund_country"], r["ref_period"]): r
             for r in con.execute("""SELECT entity, refund_country, ref_period, status,
                                     submitted_date, status_code, action_deadline, status_note
@@ -796,9 +796,14 @@ def claims_overview(year):
     con.close()
     return {"to_submit": to_submit, "open": open_claims}
 
-def claim_matrix(con, year):
+def claim_matrix(con, year, with_portal=True):
     """All streams for the year: per (entity, country) give Q1..Q4 + YEAR VAT, currency, status.
-    `con` is the claims connection; transactions are read from the analytics DB."""
+    `con` is the claims connection; transactions are read from the analytics DB.
+
+    `home` (the entity's customer-portal URL) is only consumed on /vat and in the
+    claim workbook; callers that ignore it (claims_overview → / and /readiness) pass
+    with_portal=False to skip the per-entity customer_master.portal() lookups (each is
+    a fresh connection + 2 queries). When True the lookup is memoised per entity."""
     acon = analytics_connect()
     rows = acon.execute("""
         SELECT entity, country, currency, period,
@@ -819,6 +824,13 @@ def claim_matrix(con, year):
         s["qs"][q][0] += money.D(r["ve"]); s["qs"][q][1] += money.D(r["vl"]); s["qs"][q][2] += r["n"]
         s["ccy"] = r["currency"]; loaded_periods.add(r["period"])
     out = []
+    portals = {}   # memoise portal(ent) once per entity (used for both quarter & YEAR rows)
+    def home_of(ent):
+        if not with_portal:
+            return None
+        if ent not in portals:
+            portals[ent] = customer_master.portal(ent)
+        return portals[ent]
     for (ent, ctry), s in sorted(streams.items()):
         year_ve = money.q2(sum((v[0] for v in s["qs"].values()), money.D(0)))
         year_vl = money.q2(sum((v[1] for v in s["qs"].values()), money.D(0)))
@@ -831,14 +843,14 @@ def claim_matrix(con, year):
             out.append(dict(entity=ent, country=ctry, period=q, vat_eur=money.f2(ve),
                             vat_local=money.f2(vl), currency=s["ccy"], lines=n,
                             verdict=verdict, missing=missing,
-                            home=customer_master.portal(ent),
+                            home=home_of(ent),
                             deadline=DEADLINE_FMT.format(year_plus1=int(year)+1)))
         out.append(dict(entity=ent, country=ctry, period=f"{year}-YEAR",
                         vat_eur=money.f2(year_ve), vat_local=money.f2(year_vl),
                         currency=s["ccy"], lines=sum(v[2] for v in s["qs"].values()),
                         verdict=("READY (annual >= 50 EUR)" if year_ve >= MIN_ANNUAL
                                  else "BELOW ANNUAL MIN"),
-                        missing=[], home=customer_master.portal(ent),
+                        missing=[], home=home_of(ent),
                         deadline=DEADLINE_FMT.format(year_plus1=int(year)+1)))
     return out
 

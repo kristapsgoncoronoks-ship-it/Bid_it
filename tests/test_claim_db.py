@@ -38,6 +38,59 @@ def test_claim_db_separate_and_migrates(tmp_path, monkeypatch):
     assert any(r["entity"] == "ACME" and r["country"] == "Germany" for r in m)
 
 
+def _seed_multi_quarter(tmp_path, monkeypatch):
+    """ACME (Germany) with txns in two quarters; BETA (Poland) in one. Returns claims con."""
+    import vat_refund
+    importlib.reload(vat_refund)
+    analytics = tmp_path / "fuel_history.db"
+    a = sqlite3.connect(str(analytics))
+    a.execute("""CREATE TABLE transactions (entity, country, currency, period,
+                 vat_eur, vat_local)""")
+    for ent, ctry, ccy, per in [("ACME", "Germany", "EUR", "2026-01"),
+                                ("ACME", "Germany", "EUR", "2026-04"),
+                                ("BETA", "Poland", "PLN", "2026-02")]:
+        a.execute("INSERT INTO transactions VALUES (?,?,?,?,?,?)",
+                  (ent, ctry, ccy, per, 500, 600))
+    a.commit(); a.close()
+    monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "vat_claims.db"))
+    monkeypatch.setattr(vat_refund, "ANALYTICS_DB", str(analytics))
+    vat_refund._SCHEMA_READY.clear()
+    return vat_refund
+
+
+def test_claim_matrix_with_portal_false_skips_portal(tmp_path, monkeypatch):
+    """with_portal=False yields falsy home and never calls customer_master.portal."""
+    vat_refund = _seed_multi_quarter(tmp_path, monkeypatch)
+    import customer_master
+    calls = {"n": 0}
+    real = customer_master.portal
+    monkeypatch.setattr(customer_master, "portal",
+                        lambda ent: (calls.__setitem__("n", calls["n"] + 1) or real(ent)))
+    rows = vat_refund.claim_matrix(vat_refund.connect(), "2026", with_portal=False)
+    assert rows, "expected matrix rows"
+    assert all(not r["home"] for r in rows)
+    assert calls["n"] == 0
+
+
+def test_claim_matrix_default_memoises_portal_per_entity(tmp_path, monkeypatch):
+    """Default (with_portal=True) populates home and calls portal AT MOST once per entity,
+    not once per quarter/YEAR row."""
+    vat_refund = _seed_multi_quarter(tmp_path, monkeypatch)
+    import customer_master
+    seen = []
+    real = customer_master.portal
+    monkeypatch.setattr(customer_master, "portal",
+                        lambda ent: (seen.append(ent) or real(ent)))
+    rows = vat_refund.claim_matrix(vat_refund.connect(), "2026")
+    entities = {r["entity"] for r in rows}
+    # ACME has 2 quarter rows + 1 YEAR row = 3 rows but must be looked up at most once
+    acme_rows = [r for r in rows if r["entity"] == "ACME"]
+    assert len(acme_rows) >= 3
+    assert len(seen) <= len(entities)                 # <= distinct entities, never per-row
+    assert seen.count("ACME") <= 1
+    assert all("home" in r for r in rows)             # home key populated on default path
+
+
 def test_migration_is_idempotent(tmp_path, monkeypatch):
     import vat_refund
     importlib.reload(vat_refund)
