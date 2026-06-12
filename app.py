@@ -932,29 +932,42 @@ def entities():
             + '<div class="note">One VAT refund stream per entity registration per country.</div></div>')
     con.close(); return page(body, "ent")
 
-# Routing flags are RELATIVE to the market, not absolute price bands — fuel prices
-# swing widely over time (e.g. 1.4 -> 1.0 EUR/L in a week), so a fixed "PREFER <=1.40"
-# would be meaningless once the market moves. We compare each station to its OWN
-# country's volume-weighted price for the SAME period, ±a small margin.
-ROUTE_MARGIN = float(os.environ.get("ROUTE_MARGIN", "0.03"))   # 3% cheaper/dearer
+# Routing flags are LEARNED from the data, not fixed numbers. For each country/period
+# we learn both the price LEVEL and the price SPREAD from the actual transactions, and
+# flag a station only when it falls outside that market's own normal spread (± one
+# standard deviation). So the trigger price is never hardcoded: in a volatile market a
+# station must be much cheaper to be PREFER; in a tight market a small edge qualifies.
+# ROUTE_SIGMAS is the only knob (statistical sensitivity, default 1.0), env-overridable.
+import statistics as _stats
+ROUTE_SIGMAS = float(os.environ.get("ROUTE_SIGMAS", "1.0"))
 
 def _country_benchmarks(rows):
-    """Per-country volume-weighted effective NET EUR/L for the displayed period."""
-    agg = {}
+    """Learn each country's (volume-weighted mean, std-dev) of effective NET EUR/L for
+    the displayed period — both numbers come from the data, nothing is fixed."""
+    by = {}
     for r in rows:
         if r["eurl"] is None:
             continue
-        a = agg.setdefault(r["country"], [0.0, 0.0])
-        a[0] += (r["eurl"] or 0) * (r["litres"] or 0); a[1] += (r["litres"] or 0)
-    return {c: s / q for c, (s, q) in agg.items() if q}
+        by.setdefault(r["country"], []).append((r["eurl"], r["litres"] or 0))
+    out = {}
+    for c, vals in by.items():
+        prices = [p for p, _ in vals]
+        lsum = sum(l for _, l in vals)
+        mean = (sum(p * l for p, l in vals) / lsum) if lsum else _stats.fmean(prices)
+        sd = _stats.pstdev(prices) if len(prices) > 1 else 0.0
+        out[c] = (mean, sd)
+    return out
 
 def _route_flag(eurl, country, bench):
     b = bench.get(country)
     if eurl is None or not b:
         return ""
-    if eurl <= b * (1 - ROUTE_MARGIN):
+    mean, sd = b
+    if sd <= 0:                              # no spread in this market -> nothing stands out
+        return ""
+    if eurl <= mean - ROUTE_SIGMAS * sd:
         return "PREFER"
-    if eurl >= b * (1 + ROUTE_MARGIN):
+    if eurl >= mean + ROUTE_SIGMAS * sd:
         return "AVOID"
     return ""
 
@@ -977,9 +990,10 @@ def stations():
             f'<a href="/export/stations?period={esc(period or "")}" style="align-self:end;padding:8px 12px;font-size:13px">⬇ Routing export (Excel)</a></form>'
             f'<div class="card"><h2>Diesel station scorecard ≥300 L — cheapest first ({esc(period) if period else "no data"})</h2>'
             + tbl(["Supplier","Country","Station","Litres","Eff. €/L","Routing"], trs)
-            + f'<div class="note">PREFER / AVOID are <b>relative to each country\'s price for this '
-              f'period</b> (±{ROUTE_MARGIN*100:.0f}% of the volume-weighted average), so they track the '
-              'market instead of a fixed band. Export gives drivers the routing list per station.</div></div>')
+            + '<div class="note">PREFER / AVOID are <b>learned from the data</b>: a station is flagged '
+              'only when it falls outside its own country\'s normal price spread this period '
+              '(±1 std-dev of the volume-weighted average). No fixed price band — the trigger adapts to '
+              'how volatile each market actually is. Export gives drivers the routing list per station.</div></div>')
     con.close(); return page(body, "stn")
 
 @app.route("/export/stations")

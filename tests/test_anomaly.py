@@ -54,14 +54,21 @@ def test_no_absolute_price_threshold(tmp_path, monkeypatch):
     assert not any(f[0] == "price_divergence" for f in flags)
 
 
-def test_routing_flag_is_relative_to_market():
+def test_routing_flag_is_learned_from_spread():
     import app
+    # mean 1.05, std-dev 0.05 -> the trigger price is LEARNED from this market's spread
     rows = [{"country": "Germany", "litres": 1000, "eurl": 1.00},
             {"country": "Germany", "litres": 1000, "eurl": 1.10}]
-    bench = app._country_benchmarks(rows)          # ~1.05 volume-weighted
-    assert app._route_flag(1.00, "Germany", bench) == "PREFER"   # below market
-    assert app._route_flag(1.10, "Germany", bench) == "AVOID"    # above market
-    assert app._route_flag(1.05, "Germany", bench) == ""         # at market
+    bench = app._country_benchmarks(rows)
+    assert bench["Germany"][0] == 1.05                            # learned mean
+    assert app._route_flag(1.00, "Germany", bench) == "PREFER"   # >= 1 sigma below
+    assert app._route_flag(1.10, "Germany", bench) == "AVOID"    # >= 1 sigma above
+    assert app._route_flag(1.05, "Germany", bench) == ""         # within the spread
     # the SAME absolute price flips meaning when the market itself is higher
-    bench_high = app._country_benchmarks([{"country": "Germany", "litres": 1, "eurl": 1.60}])
-    assert app._route_flag(1.40, "Germany", bench_high) == "PREFER"   # 1.40 is now cheap
+    bench_high = app._country_benchmarks([{"country": "Germany", "litres": 1, "eurl": 1.55},
+                                          {"country": "Germany", "litres": 1, "eurl": 1.65}])
+    assert app._route_flag(1.40, "Germany", bench_high) == "PREFER"   # 1.40 is cheap at a 1.60 market
+    # a tight market (no spread) flags nothing — there is no learned outlier
+    flat = app._country_benchmarks([{"country": "PL", "litres": 1, "eurl": 1.30},
+                                    {"country": "PL", "litres": 1, "eurl": 1.30}])
+    assert app._route_flag(1.30, "PL", flat) == ""

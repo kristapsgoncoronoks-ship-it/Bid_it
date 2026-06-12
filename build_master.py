@@ -279,13 +279,19 @@ for r_ in ROWS:
         k = (r_[1], r_[2], r_[6]); agg[k][0]+=r_[9]; agg[k][1]+=r_[14]; agg[k][2]+=r_[16]
 rows = [(s,c,st,v[0],v[1],v[1]/v[0],v[2]/v[0]) for (s,c,st),v in agg.items() if v[0]>=300]
 rows.sort(key=lambda x: x[5])
-# Routing hint is RELATIVE to each country's price for this period (fuel prices swing
-# widely over time, so a fixed PREFER<=1.40 band is meaningless once the market moves).
-ROUTE_MARGIN = 0.03
-_cb = collections.defaultdict(lambda: [0.0, 0.0])
+# Routing hint is LEARNED from the data: each country's price LEVEL and SPREAD come
+# from the actual transactions this period, and a station is flagged only when it falls
+# outside that market's own normal spread (+/- 1 std-dev) -- no fixed price band, so it
+# tracks real volatility (fuel can move 1.4 -> 1.0 EUR/L in a week).
+import statistics as _st
+_prices = collections.defaultdict(list)   # country -> [(doc_price, litres)]
 for s,c,st,L,E,pl,ple in rows:
-    _cb[c][0] += pl*L; _cb[c][1] += L
-cbench = {c: tot/q for c,(tot,q) in _cb.items() if q}
+    _prices[c].append((pl, L))
+cbench = {}
+for c, vals in _prices.items():
+    ps = [p for p, _ in vals]; lsum = sum(l for _, l in vals)
+    mean = (sum(p*l for p, l in vals)/lsum) if lsum else _st.fmean(ps)
+    cbench[c] = (mean, _st.pstdev(ps) if len(ps) > 1 else 0.0)
 ws.append([])
 ws.append(["Supplier","Country","Station","Litres","Net EUR","EUR/L (doc)","EUR/L (eff)","Action hint"])
 head(ws,3)
@@ -293,8 +299,9 @@ r = 4
 for s,c,st,L,E,pl,ple in rows:
     hint = ""
     b = cbench.get(c)
-    if b and pl <= b*(1-ROUTE_MARGIN): hint = "PREFER"
-    elif b and pl >= b*(1+ROUTE_MARGIN): hint = "AVOID / renegotiate"
+    if b and b[1] > 0:
+        if pl <= b[0] - b[1]: hint = "PREFER"
+        elif pl >= b[0] + b[1]: hint = "AVOID / renegotiate"
     ws.append([s,c,st,round(L,0),round(E,2),round(pl,4),round(ple,4),hint])
     for cc in ws[r]: cc.font = norm
     ws[f"D{r}"].number_format = "#,##0"; ws[f"E{r}"].number_format = "#,##0"
@@ -302,7 +309,7 @@ for s,c,st,L,E,pl,ple in rows:
     if hint == "PREFER": ws[f"H{r}"].font = Font(bold=True, color="1B7340", name="Arial", size=9)
     if hint.startswith("AVOID"): ws[f"H{r}"].font = Font(bold=True, color="C8102E", name="Arial", size=9)
     r += 1
-ws[f"A{r+1}"] = "Sorted cheapest first by doc net EUR/L. PREFER/AVOID are relative to each country's average price this period (+/-3%), so they track the market, not a fixed band. 'eff' includes Port One rebate for Q8 lines. Static snapshot - regenerate via consolidate.py."
+ws[f"A{r+1}"] = "Sorted cheapest first by doc net EUR/L. PREFER/AVOID are LEARNED from the data: a station is flagged only when it falls outside its country's own price spread this period (+/- 1 std-dev) -- no fixed band, so it tracks real market volatility. 'eff' includes Port One rebate for Q8 lines. Regenerate via consolidate.py."
 ws[f"A{r+1}"].font = it8
 for col, w in zip("ABCDEFGH",[9,10,30,9,10,11,11,20]):
     ws.column_dimensions[col].width = w
