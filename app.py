@@ -434,6 +434,11 @@ PERM_BY_ENDPOINT = {
     "admin":           "user_admin",   # server setup / overall software changes
 }
 
+# The VAT-refund module (claims, readiness, recovery/fees + their exports/API) is
+# restricted to admins regardless of any processor capability.
+ADMIN_ONLY = {"vat", "api_vat", "readiness", "recovery",
+              "export_vat", "export_readiness", "export_fees", "export_fee"}
+
 @app.before_request
 def _guard():
     if request.endpoint in ("setup", "static", "app_js") or request.endpoint is None:
@@ -450,6 +455,9 @@ def _guard():
         if request.form.get("_csrf") != session.get("_csrf"):
             return page('<div class="card"><h2>Invalid or missing CSRF token</h2>'
                         '<p>Please reload the page and try again.</p></div>', ""), 400
+    # VAT-refund module is admin-only, whatever capabilities a processor may hold.
+    if request.endpoint in ADMIN_ONLY and role != "admin":
+        return page(FORBIDDEN, ""), 403
     # Capability enforcement: block any endpoint whose required permission the
     # current role lacks (covers both the page view and its POST action).
     req_perm = PERM_BY_ENDPOINT.get(request.endpoint)
@@ -725,9 +733,9 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
 </span></div></div>
 <div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ent','vat','rdy','rec','fx'] else ''}}">VAT &amp; fees</span><div class="mdrop"><span>
   <a href="/entities" class="{{'on' if page=='ent'}}">Entities &amp; VAT</a>
-  {% if 'vat_claims' in perms %}<a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
-  <a href="/readiness" class="{{'on' if page=='rdy'}}">Claims readiness</a>{% endif %}
-  <a href="/recovery" class="{{'on' if page=='rec'}}">Recovery &amp; fees</a>
+  {% if is_admin %}<a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
+  <a href="/readiness" class="{{'on' if page=='rdy'}}">Claims readiness</a>
+  <a href="/recovery" class="{{'on' if page=='rec'}}">Recovery &amp; fees</a>{% endif %}
   <a href="/fx" class="{{'on' if page=='fx'}}">FX vs ECB</a>
 </span></div></div>
 {% if 'invoice_control' in perms or 'documents' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['inv','con','doc'] else ''}}">Compliance</span><div class="mdrop"><span>
@@ -764,7 +772,7 @@ def page(body, p):
         _BASE_TMPL = app.jinja_env.from_string(BASE)
     role = session.get("role", "processor")
     return _BASE_TMPL.render(body=body, page=p,
-                             user=session.get("user", ""), role=role,
+                             user=session.get("user", ""), role=role, is_admin=(role == "admin"),
                              perms=_auth.permissions_for(role) if session.get("user") else set())
 
 def tbl(headers, rows):
@@ -821,7 +829,7 @@ def dash():
     psw = "".join(f'<option {"selected" if p==period else ""}>{esc(p)}</option>' for p in periods)
     close = _close_status(period)
     worklist = ""
-    if "vat_claims" in _auth.permissions_for(session.get("role", "processor")):
+    if session.get("role") == "admin":          # VAT-refund worklist is admin-only
         worklist = _worklist_card(int(period[:4]) if period[:4].isdigit() else 2026)
     body = (f'<form class="f" method="get"><label>Period<select name="period" onchange="this.form.submit()">{psw}</select></label></form>'
             + close + worklist + kpis + f'<div class="card"><h2>Diesel benchmark — effective net €/L (cheapest first)</h2>{bench}'
@@ -2749,35 +2757,67 @@ def api_recovery():
     rows, summ = VR.recovery_report(request.args.get("year", "2026"))
     return jsonify({"summary": summ, "claims": rows})
 
+def _vat_status_cell(con, VR, m, cache):
+    """Status cell: the system-derived/stored workflow CODE, the live checklist (so 1A
+    explains what's missing), and a dropdown to advance the manual lifecycle. A
+    withdraw action (admin) releases the invoice locks."""
+    ent, ctry, period = m["entity"], m["country"], m["period"]
+    is_year = period.endswith("YEAR")
+    code = VR.current_code(con, ent, ctry, period, m["verdict"], cache)
+    label = VR.STATUS_LABELS.get(code, code)
+    cls = ("ok" if code in ("1E", "2A", "3A", "4", "4A")
+           else "bad" if code in ("1A", "3B", "3C") else "")
+    badge = f'<b class="{cls}">{esc(code)} — {esc(label)}</b>'
+    chk = ""
+    if not is_year:
+        items = VR.submission_checklist(con, ent, ctry, period, cache)
+        lis = "".join(f'<div class="{"ok" if ok else "bad"}">{"✓" if ok else "✗"} {esc(l)}</div>'
+                      for l, ok in items)
+        chk = ('<details><summary class="note" style="cursor:pointer">checklist</summary>'
+               f'<div style="font-size:12px;margin:3px 0 0">{lis}</div></details>')
+    cur_manual = code if code in VR.MANUAL_CODES else ""
+    opts = [f'<option value="" disabled {"selected" if not cur_manual else ""}>advance…</option>']
+    for c in VR.MANUAL_CODES:
+        opts.append(f'<option value="{c}" {"selected" if c==cur_manual else ""}>'
+                    f'{c} — {esc(VR.STATUS_LABELS[c])}</option>')
+    frm = ('<form method="post" style="margin:4px 0 0">' + _csrf_input() +
+           f'<input type="hidden" name="entity" value="{esc(ent)}">'
+           f'<input type="hidden" name="country" value="{esc(ctry)}">'
+           f'<input type="hidden" name="ref_period" value="{esc(period)}">'
+           f'<select name="status" onchange="this.form.submit()">{"".join(opts)}</select></form>')
+    wd = ""
+    eng = con.execute("""SELECT status FROM vat_applications WHERE entity=? AND
+                         refund_country=? AND ref_period=?""", (ent, ctry, period)).fetchone()
+    if eng and eng["status"] in VR.LOCKING and session.get("role") == "admin":
+        wd = ('<form method="post" style="margin:2px 0 0">' + _csrf_input() +
+              f'<input type="hidden" name="entity" value="{esc(ent)}">'
+              f'<input type="hidden" name="country" value="{esc(ctry)}">'
+              f'<input type="hidden" name="ref_period" value="{esc(period)}">'
+              '<button name="__act" value="withdraw" style="background:var(--mut);'
+              'font-size:11px;padding:3px 8px">Withdraw (release locks)</button></form>')
+    return badge + chk + frm + wd
+
 @app.route("/vat", methods=["GET", "POST"])
 def vat():
     import vat_refund as VR
     con = VR.connect()
     banner = ""
     if request.method == "POST":
-        ok, msg = VR.set_status(con, request.form["entity"], request.form["country"],
-                                request.form["ref_period"], request.form["status"])
+        ent, ctry, per = request.form["entity"], request.form["country"], request.form["ref_period"]
+        if request.form.get("__act") == "withdraw":
+            ok, msg = VR.withdraw_claim(con, ent, ctry, per)
+        else:
+            ok, msg = VR.set_status_code(con, ent, ctry, per, request.form["status"])
         cls = "ok" if ok else "bad"
-        banner = (f'<div class="card"><b class="{cls}">{msg}</b></div>')
+        banner = (f'<div class="card"><b class="{cls}">{esc(msg)}</b></div>')
     year = request.args.get("year", "2026")
     matrix = VR.claim_matrix(con, year)
-    sts = {(r["entity"], r["refund_country"], r["ref_period"]): r["status"]
-           for r in con.execute("SELECT * FROM vat_applications")}
     docidx = VR.docs_index(con)        # one query instead of docs_for() per invoice
-    inv_cache = {}                     # shared supplier conn + issuer/invoice memo
+    inv_cache = {"_docidx": docidx}    # shared supplier/customer conns + memo, reused below
     rows = []
     for m in matrix:
-        status = sts.get((m["entity"], m["country"], m["period"]), "draft")
         v = m["verdict"]
         vcls = "ok" if v.startswith("READY") else ("bad" if "BELOW" in v else "")
-        opts = "".join(f'<option {"selected" if s==status else ""}>{s}</option>'
-                       for s in ["draft","ready","submitted","approved","paid","rejected","withdrawn"])
-        frm = (f'<form method="post" style="margin:0">'
-               + _csrf_input() +
-               f'<input type="hidden" name="entity" value="{esc(m["entity"])}">'
-               f'<input type="hidden" name="country" value="{esc(m["country"])}">'
-               f'<input type="hidden" name="ref_period" value="{esc(m["period"])}">'
-               f'<select name="status" onchange="this.form.submit()">{opts}</select></form>')
         invs = VR.stream_invoices(con, m["entity"], m["country"], m["period"], inv_cache) if not m["period"].endswith("YEAR") else []
         nd = sum(1 for s, ref in invs if (m["entity"], s, ref) not in docidx)
         doccov = ("" if m["period"].endswith("YEAR") else
@@ -2786,19 +2826,25 @@ def vat():
         rows.append([f"<td>{esc(m['entity'])}</td><td>{esc(m['country'])}</td><td>{esc(m['period'])}</td>",
                      f"<td class=r>{m['vat_eur']:,.2f}</td><td class=r>{m['vat_local']:,.2f} {esc(m['currency'])}</td>",
                      f"<td class='{vcls}'>{esc(v)}</td><td>{esc(', '.join(m['missing']))}</td>",
-                     f"<td>{doccov}</td><td>{esc(m['home'])}</td><td>{esc(m['deadline'])}</td><td>{frm}</td>"])
+                     f"<td>{doccov}</td><td>{esc(m['home'])}</td><td>{esc(m['deadline'])}</td>"
+                     f"<td>{_vat_status_cell(con, VR, m, inv_cache)}</td>"])
     total_ready = sum(m["vat_eur"] for m in matrix
                       if m["verdict"].startswith("READY") and not m["period"].endswith("YEAR"))
     body = (banner + f'<div class="card"><h2>VAT refund applications {esc(year)} (2008/9/EC) — '
             f'quarterly READY total: <span class="ok">€{total_ready:,.0f}</span> &nbsp; '
             f'<a href="/export/vat?year={esc(year)}">⬇ Generate claim workbook</a></h2>'
             + tbl(["Entity","Refund country","Period","VAT EUR","VAT local","Threshold verdict",
-                   "Months missing","Documents","Home portal","Deadline","Status"], rows)
-            + '<div class="note">Statuses persist in the database. Yellow caveats and per-invoice '
-              'claim packs are in the exported workbook. Quarterly min €400, annual min €50 '
-              '(national equivalents apply).</div></div>')
-    if inv_cache.get("_scon") is not None:
-        inv_cache["_scon"].close()
+                   "Months missing","Documents","Home portal","Deadline","Status (1A→5)"], rows)
+            + '<div class="note">Status follows a system-controlled checklist: a claim climbs '
+              '<b>1A→1E</b> automatically as documents/data are completed and the period ends, '
+              'then you advance it manually (2 Submitted → 3A Money received → 5 Closed). '
+              'Submission is blocked until the checklist is complete and the period has ended. '
+              'Edit the checklist rules on the Customers page. Quarterly min €400, annual min €50.'
+              '</div></div>')
+    for k in ("_scon", "_acon", "_cmcon"):
+        if inv_cache.get(k) is not None:
+            try: inv_cache[k].close()
+            except Exception: pass
     con.close(); return page(body, "vat")
 
 
@@ -2974,6 +3020,31 @@ def customers():
                 kinds = [k for k in CD.DOC_KINDS if request.form.get(f"req_{k}") == "on"]
                 con = CD.connect(); CD.set_country_requirements(con, country, kinds); con.close()
                 msg = f"Document requirements for {esc(country)} updated ({len(kinds) or 'default'} required)."
+            elif act == "set_nace":
+                con = CD.connect()
+                con.execute("UPDATE customers SET nace_code=? WHERE code=?",
+                            (request.form.get("nace_code", "").strip(), code)); con.commit(); con.close()
+                msg = f"NACE business activity code saved for {esc(code)}."
+            elif act in ("add_checklist_rule", "toggle_checklist_rule", "del_checklist_rule"):
+                if session.get("role") != "admin":
+                    raise ValueError("only an admin can change the checklist rules")
+                con = CD.connect()
+                if act == "add_checklist_rule":
+                    ok2, m2 = CD.set_checklist_rule(
+                        con, request.form.get("rkey", ""), request.form.get("rlabel", ""),
+                        request.form.get("rscope", "customer"), request.form.get("rcheck", "document"),
+                        request.form.get("rref", ""), active=1)
+                    if not ok2:
+                        con.close(); raise ValueError(m2)
+                    msg = m2
+                elif act == "toggle_checklist_rule":
+                    CD.toggle_checklist_rule(con, request.form.get("rkey"),
+                                             request.form.get("active") == "1")
+                    msg = "Checklist rule updated."
+                else:
+                    CD.delete_checklist_rule(con, request.form.get("rkey"))
+                    msg = "Checklist rule removed."
+                con.close()
             else:
                 raise ValueError("unknown action")
             banner = f'<div class="card"><b class="ok">{msg}</b></div>'
@@ -2982,15 +3053,26 @@ def customers():
             banner = f'<div class="card"><b class="bad">Error: {esc(str(e))}</b></div>'
 
     con = CD.connect()
+    # document kinds offered for a customer-level upload: the legacy required docs plus
+    # any customer-scoped 'document' checklist rule's kind (so a new rule is uploadable).
+    cust_doc_kinds = dict(CD.REQUIRED_DOCS)
+    for r in CD.list_checklist_rules(con, active_only=True):
+        if r["check_type"] == "document" and r["scope"] == "customer":
+            cust_doc_kinds.setdefault(r["ref"], CD.DOC_KINDS.get(r["ref"])
+                                      or r["ref"].replace("_", " ").capitalize())
     cards = []
     for c in con.execute("SELECT * FROM customers ORDER BY status DESC, code"):
         code = c["code"]
         active = c["status"] == "active"
         items, ready = CD.activation_checklist(con, code)
+        sub_items = CD.evaluate_checklist(con, code, None)   # customer-scoped checklist
         status_badge = (f'<span class="ok">● ACTIVE</span>' if active
                         else f'<span class="bad">● PENDING ACTIVATION</span>')
         chk = "".join(f'<div class="row"><span class="{"ok" if ok else "bad"}">'
                       f'{"✓" if ok else "✗"}</span> {esc(lbl)}</div>' for lbl, ok in items)
+        subchk = "".join(f'<div class="row"><span class="{"ok" if ok else "bad"}">'
+                         f'{"✓" if ok else "✗"}</span> {esc(lbl)}</div>' for _k, lbl, _sc, ok in sub_items)
+        nace_val = (c["nace_code"] if "nace_code" in c.keys() else "") or ""
         def fld(v):
             v2 = esc(str(v)) if v is not None else ""
             return f'<span class="bad">{v2}</span>' if v and "INPUT" in str(v) else v2
@@ -3006,8 +3088,13 @@ def customers():
         fee_pct = c["fee_pct"] or 0; fee_min = c["fee_min"] or 0
         # management forms
         opt = lambda v: "".join(f'<option value="{k}" {"selected" if k==v else ""}>{esc(lbl)}</option>'
-                                for k, lbl in {**CD.REQUIRED_DOCS, "other": "Other"}.items())
+                                for k, lbl in {**cust_doc_kinds, "other": "Other"}.items())
         hid = f'<input type="hidden" name="code" value="{esc(code)}">'
+        nace_f = ('<form method="post" class="f" style="margin-top:6px">' + _csrf_input() + hid
+                  + '<input type="hidden" name="__act" value="set_nace">'
+                  + f'<label>NACE business activity<input name="nace_code" value="{esc(nace_val)}" '
+                    'style="width:140px" placeholder="e.g. 49.41"></label>'
+                  + '<button>Save NACE</button></form>')
         upload_f = ('<form method="post" enctype="multipart/form-data" class="f" style="margin-top:8px">'
                     + _csrf_input() + hid + '<input type="hidden" name="__act" value="upload_doc">'
                     + f'<label>document<select name="kind">{opt("trade_registry")}</select></label>'
@@ -3071,6 +3158,11 @@ def customers():
             + (f"<h2 style='margin-top:12px'>Bank accounts</h2><table><tbody>{banks}</tbody></table>" if banks else "")
             + '<h2 style="margin-top:12px">Activation checklist</h2>' + (chk or '<p class="note">—</p>')
             + '<div style="margin-top:8px">' + act_btn + '</div>'
+            + '<h2 style="margin-top:12px">Submission checklist (system-controlled)</h2>'
+            + '<div class="note" style="margin-top:0">Customer-level requirements the system '
+              'verifies before any claim can be submitted (power of attorney is checked per refund '
+              'country below). Edit the rule set in the card at the top of this page.</div>'
+            + (subchk or '<p class="note">no active customer-level rules</p>') + nace_f
             + '<h2 style="margin-top:12px">Refund countries (activate separately)</h2>'
             + '<div class="note" style="margin-top:0">Request the country documents (power of '
               'attorney), receive them, then activate that country. Claims can only be submitted '
@@ -3091,7 +3183,55 @@ def customers():
     req_rows = "".join(
         f"<tr><td>{esc(cy)}</td><td>{esc(', '.join(CD.DOC_KINDS.get(k, k) for k in ks))}</td></tr>"
         for cy, ks in CD.all_country_requirements(con).items())
+    # adjustable submission checklist rules (admin)
+    is_admin = session.get("role") == "admin"
+    rrows = ""
+    for r in CD.list_checklist_rules(con):
+        verify = (f"data · {esc(r['ref'])}" if r["check_type"] == "data"
+                  else "document · " + esc(CD.DOC_KINDS.get(r["ref"])
+                                           or CD.REQUIRED_DOCS.get(r["ref"]) or r["ref"]))
+        st = '<span class="ok">on</span>' if r["active"] else '<span class="note">off</span>'
+        actions = ""
+        if is_admin:
+            rh = (_csrf_input() + f'<input type="hidden" name="rkey" value="{esc(r["key"])}">')
+            actions = (
+                '<form method="post" style="display:inline">' + rh
+                + f'<input type="hidden" name="active" value="{0 if r["active"] else 1}">'
+                + '<button name="__act" value="toggle_checklist_rule" style="background:var(--mut);'
+                  f'font-size:11px;padding:3px 8px">{"disable" if r["active"] else "enable"}</button></form> '
+                + '<form method="post" style="display:inline">' + rh
+                + '<button name="__act" value="del_checklist_rule" style="background:var(--bad);'
+                  'font-size:11px;padding:3px 8px">×</button></form>')
+        rrows += (f"<tr><td>{esc(r['key'])}</td><td>{esc(r['label'])}</td><td>{esc(r['scope'])}</td>"
+                  f"<td>{verify}</td><td>{st}</td><td>{actions}</td></tr>")
     con.close()
+    add_rule_f = ""
+    if is_admin:
+        add_rule_f = (
+            '<form method="post" class="f" style="margin-top:8px">' + _csrf_input()
+            + '<input type="hidden" name="__act" value="add_checklist_rule">'
+            + '<label>key<input name="rkey" required style="width:110px" placeholder="vat_cert"></label>'
+            + '<label>label<input name="rlabel" required style="width:200px"></label>'
+            + '<label>scope<select name="rscope"><option value="customer">customer</option>'
+              '<option value="country">country</option></select></label>'
+            + '<label>check<select name="rcheck"><option value="document">document</option>'
+              '<option value="data">data</option></select></label>'
+            + '<label>document kind / data verifier<input name="rref" required style="width:160px" '
+              'placeholder="signed_contract"></label>'
+            + '<button>Add / update rule</button></form>'
+            + f'<div class="note">Data verifiers available: {esc(", ".join(CD.DATA_VERIFIERS))}. '
+              'Document rules accept any kind (e.g. signed_contract, trade_registry, '
+              'power_of_attorney, or a new one you define).</div>')
+    rules_card = ('<div class="card"><h2>Submission checklist rules (adjustable)</h2>'
+                  '<div class="note" style="margin-top:0">The <b>system</b> verifies these before a '
+                  'claim can be submitted — a claim climbs <b>1A→1E</b> automatically as each passes; '
+                  'no one can tick them by hand. Rules change over time, so '
+                  + ('admins edit them here.' if is_admin else 'an admin can edit them here.')
+                  + ' <b>document</b> rules need a customer/country document of that kind; '
+                    '<b>data</b> rules check stored customer data.</div>'
+                  + f'<table style="margin-top:6px"><thead><tr><th>key</th><th>requirement</th>'
+                    f'<th>scope</th><th>verified by</th><th>active</th><th></th></tr></thead>'
+                    f'<tbody>{rrows}</tbody></table>' + add_rule_f + '</div>')
     req_checks = "".join(
         f'<label class="chk" style="display:inline-flex;gap:5px;margin:0 14px 4px 0;font-size:13px">'
         f'<input type="checkbox" name="req_{esc(k)}"> {esc(lbl)}</label>' for k, lbl in CD.DOC_KINDS.items())
@@ -3119,7 +3259,7 @@ def customers():
              '<label>reg number<input name="reg_number"></label>'
              '<label>VAT number<input name="vat_number"></label>'
              '<button>+ Create customer</button></form></div>')
-    body = (banner + new_f + req_card
+    body = (banner + rules_card + new_f + req_card
             + '<div class="note" style="margin-bottom:10px">Customer (entity) master data lives in '
               '<b>customers.db</b>. Each new customer must be <b>activated</b> — requires a trade '
               'registry extract, a bank account, and a signed contract — before claims can be '

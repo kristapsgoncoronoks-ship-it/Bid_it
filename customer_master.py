@@ -49,7 +49,26 @@ CREATE TABLE IF NOT EXISTS customer_countries (
     PRIMARY KEY (customer, country));
 CREATE TABLE IF NOT EXISTS country_requirements (
     country TEXT, kind TEXT, PRIMARY KEY (country, kind));
+CREATE TABLE IF NOT EXISTS checklist_rules (
+    key TEXT PRIMARY KEY, label TEXT, scope TEXT DEFAULT 'customer',
+    check_type TEXT DEFAULT 'document', ref TEXT,
+    active INTEGER DEFAULT 1, sort INTEGER DEFAULT 0);
 """
+
+# The claim-submission checklist is ADJUSTABLE (rules change): each rule is a
+# requirement the SYSTEM verifies before a claim can be submitted. `scope` is
+# 'customer' (checked once) or 'country' (per refund country, e.g. power of
+# attorney). `check_type` is 'document' (a customer_documents row of `ref` kind
+# exists) or 'data' (a built-in verifier named `ref` passes). Admins edit these
+# on the Customers page; these are only the defaults seeded into an empty table.
+DEFAULT_CHECKLIST = [
+    ("contract",          "Contract",                  "customer", "document", "signed_contract",  1),
+    ("customer_data",     "Customer data",             "customer", "data",     "customer_data",    2),
+    ("bank_account",      "Bank account",              "customer", "data",     "bank_account",     3),
+    ("nace",              "NACE business activity",    "customer", "data",     "nace",             4),
+    ("trade_register",    "Trade register / company register form", "customer", "document", "trade_registry", 5),
+    ("power_of_attorney", "Power of attorney",         "country",  "document", "power_of_attorney", 6),
+]
 
 # Documents a new VAT-refund customer must provide before activation.
 REQUIRED_DOCS = {
@@ -122,12 +141,21 @@ def connect():
                     # 'us' (we receive it, deduct the fee, remit the net to the customer)
                     "ALTER TABLE customers ADD COLUMN payout_route TEXT DEFAULT 'customer'",
                     # documents can be scoped to a refund country (NULL = customer-level)
-                    "ALTER TABLE customer_documents ADD COLUMN country TEXT"):
+                    "ALTER TABLE customer_documents ADD COLUMN country TEXT",
+                    # NACE business-activity code (checklist 'NACE' requirement)
+                    "ALTER TABLE customers ADD COLUMN nace_code TEXT"):
             try: con.execute(ddl)
             except sqlite3.OperationalError: pass  # column already exists (safe)
+        # seed the adjustable submission checklist once (empty table -> defaults)
+        if not con.execute("SELECT 1 FROM checklist_rules LIMIT 1").fetchone():
+            con.executemany("""INSERT OR IGNORE INTO checklist_rules
+                (key, label, scope, check_type, ref, active, sort)
+                VALUES (?,?,?,?,?,1,?)""", DEFAULT_CHECKLIST)
+            con.commit()
         audit.install_audit(con, ['customers', 'customer_bank_accounts',
                                   'customer_supplier_accounts', 'customer_documents',
-                                  'customer_fees', 'customer_countries', 'country_requirements'])
+                                  'customer_fees', 'customer_countries', 'country_requirements',
+                                  'checklist_rules'])
         _SCHEMA_READY.add(DB)
     return con
 
@@ -194,6 +222,83 @@ def _bank_ok(con, code):
     return con.execute("""SELECT 1 FROM customer_bank_accounts
         WHERE customer=? AND iban IS NOT NULL AND iban NOT LIKE '%INPUT%' LIMIT 1""",
         (code,)).fetchone() is not None
+
+def _field_ok(con, code, field):
+    """A customer column is present (non-empty, not a placeholder 'INPUT:' stub)."""
+    r = con.execute(f"SELECT {field} AS v FROM customers WHERE code=?", (code,)).fetchone()
+    v = (r["v"] if r else None) or ""
+    return bool(str(v).strip()) and "INPUT" not in str(v).upper()
+
+def _customer_data_ok(con, code):
+    """Core customer data is on file (registration, VAT, legal address)."""
+    return all(_field_ok(con, code, f) for f in ("reg_number", "vat_number", "legal_address"))
+
+# Built-in data verifiers a 'data' checklist rule can reference by `ref`.
+DATA_VERIFIERS = {
+    "customer_data": lambda con, code, country: _customer_data_ok(con, code),
+    "bank_account":  lambda con, code, country: _bank_ok(con, code),
+    "nace":          lambda con, code, country: _field_ok(con, code, "nace_code"),
+}
+
+# ---------------------------------------------------------------- adjustable checklist
+def list_checklist_rules(con, active_only=False):
+    """The submission checklist rules, in display order. Adjustable by admins."""
+    q = "SELECT * FROM checklist_rules"
+    if active_only:
+        q += " WHERE active=1"
+    return con.execute(q + " ORDER BY sort, key").fetchall()
+
+def set_checklist_rule(con, key, label, scope="customer", check_type="document",
+                       ref=None, active=1, sort=None):
+    """Add or update a checklist rule (admin). `key` is the stable identifier."""
+    key = (key or "").strip()
+    if not key:
+        return False, "a rule needs a key"
+    if check_type not in ("document", "data"):
+        return False, "check_type must be 'document' or 'data'"
+    if scope not in ("customer", "country"):
+        return False, "scope must be 'customer' or 'country'"
+    if check_type == "data" and (ref not in DATA_VERIFIERS):
+        return False, f"unknown data verifier '{ref}' (have: {', '.join(DATA_VERIFIERS)})"
+    if sort is None:
+        sort = (con.execute("SELECT COALESCE(MAX(sort),0)+1 FROM checklist_rules").fetchone()[0])
+    con.execute("""INSERT INTO checklist_rules (key, label, scope, check_type, ref, active, sort)
+                   VALUES (?,?,?,?,?,?,?)
+                   ON CONFLICT(key) DO UPDATE SET label=excluded.label, scope=excluded.scope,
+                     check_type=excluded.check_type, ref=excluded.ref, active=excluded.active,
+                     sort=excluded.sort""",
+                (key, (label or key).strip(), scope, check_type, (ref or key).strip(),
+                 1 if active else 0, int(sort)))
+    con.commit()
+    return True, f"checklist rule '{key}' saved"
+
+def toggle_checklist_rule(con, key, active):
+    con.execute("UPDATE checklist_rules SET active=? WHERE key=?", (1 if active else 0, key))
+    con.commit()
+
+def delete_checklist_rule(con, key):
+    con.execute("DELETE FROM checklist_rules WHERE key=?", (key,))
+    con.commit()
+
+def evaluate_checklist(con, code, country=None):
+    """SYSTEM-CONTROLLED evaluation of the adjustable checklist for a customer (and a
+    refund country, for country-scoped rules). Returns [(key, label, scope, ok)] over
+    the ACTIVE rules — the user cannot tick these; the system verifies each one."""
+    out = []
+    for r in list_checklist_rules(con, active_only=True):
+        if r["scope"] == "country" and not country:
+            continue                                   # country rule needs a country
+        if r["check_type"] == "data":
+            fn = DATA_VERIFIERS.get(r["ref"])
+            ok = bool(fn(con, code, country)) if fn else False
+        else:
+            ok = _has_doc(con, code, r["ref"], country if r["scope"] == "country" else None)
+        out.append((r["key"], r["label"], r["scope"], ok))
+    return out
+
+def checklist_ready(con, code, country=None):
+    items = evaluate_checklist(con, code, country)
+    return all(ok for _, _, _, ok in items)
 
 def activation_checklist(con, code):
     """Returns ([(label, ok), ...], ready_bool) for the activation requirements."""

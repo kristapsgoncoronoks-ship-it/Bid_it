@@ -38,6 +38,21 @@ def q_months(per):             # '2026-Q2' -> Apr-Jun; '2026-YEAR' -> all 12 mon
     y, q = per.split("-Q")
     return [f"{y}-{m:02d}" for m in range((int(q)-1)*3+1, (int(q)-1)*3+4)]
 
+def period_end_date(period):
+    """Last calendar day of a claim period. '2026-Q2' -> 2026-06-30;
+    '2026-YEAR' -> 2026-12-31. Returns a datetime.date."""
+    import datetime, calendar
+    p = str(period); y = int(p[:4])
+    if p.endswith("-YEAR"):
+        return datetime.date(y, 12, 31)
+    q = int(p.split("-Q")[1]); m = q * 3
+    return datetime.date(y, m, calendar.monthrange(y, m)[1])
+
+def period_ended(period, today=None):
+    """True once the claim period has fully closed (a period can't be filed early)."""
+    import datetime
+    return (today or datetime.date.today()) > period_end_date(period)
+
 _SCHEMA_READY = set()   # DB files whose schema is set up this process
 
 def connect():
@@ -74,7 +89,10 @@ def connect():
                 # settlement: where the refund landed + the fee invoice once issued
                 "ALTER TABLE vat_applications ADD COLUMN payout_to TEXT",
                 "ALTER TABLE vat_applications ADD COLUMN fee_invoice_no TEXT",
-                "ALTER TABLE vat_applications ADD COLUMN fee_invoice_date TEXT"):
+                "ALTER TABLE vat_applications ADD COLUMN fee_invoice_date TEXT",
+                # workflow status CODE (1A..5); the legacy `status` column stays the
+                # coarse engine state (draft/submitted/approved/paid) that drives locks.
+                "ALTER TABLE vat_applications ADD COLUMN status_code TEXT"):
         try: con.execute(ddl)
         except Exception: pass
     _migrate_from_analytics(con)
@@ -282,9 +300,14 @@ def lock_state(con, ent, ctry, sup, ref):
                     (ent, ctry, sup, ref)).fetchone()
     return r["ref_period"] if r else None
 
-def set_status(con, ent, ctry, period, new):
+def set_status(con, ent, ctry, period, new, gate_activation=True):
     """Guarded status transition enforcing one-invoice-one-submission.
     Returns (ok, message).
+
+    `gate_activation` (default True) enforces the customer/country activation flags
+    when entering a locked state. The workflow layer (`set_status_code`) sets it False
+    because it has already enforced the adjustable system checklist, which supersedes
+    the activation flags.
 
     The whole transition (duplicate checks + invoice-lock acquisition + the
     application upsert) runs as ONE transaction. Lock acquisition uses a plain
@@ -294,12 +317,12 @@ def set_status(con, ent, ctry, period, new):
     we had won the lock."""
     # A tracked customer must be ACTIVATED (onboarding documents complete) before a
     # claim can be submitted on their behalf. Untracked entities are not gated.
-    if new in LOCKING and customer_master.is_active(ent) is False:
+    if gate_activation and new in LOCKING and customer_master.is_active(ent) is False:
         return False, (f"customer '{ent}' is not activated — complete the trade registry, "
                        f"bank account and signed contract on the Customers page first")
     # Each refund country is activated separately (request + receive its documents).
     # Once activation has been started for a country it must reach 'active' to submit.
-    if new in LOCKING and customer_master.country_active(ent, ctry) is False:
+    if gate_activation and new in LOCKING and customer_master.country_active(ent, ctry) is False:
         return False, (f"refund country '{ctry}' is not activated for '{ent}' — request and "
                        f"receive the country documents (power of attorney) on the Customers page")
     try:
@@ -429,6 +452,138 @@ def set_status(con, ent, ctry, period, new):
     return True, f"status -> {new}" + (" (invoices locked)" if new in LOCKING and cur not in LOCKING
                                        else " (locks released)" if new in ("rejected","withdrawn") else "")
 
+# ===================================================================================
+# WORKFLOW STATUS CODES  (1A..5)  — a controllable claim lifecycle on top of the engine
+# ===================================================================================
+# The pre-submission codes (1A/1B/1C/1E) are SYSTEM-CONTROLLED: derived live from the
+# adjustable checklist + period end + threshold, never set by hand. The rest are
+# advanced manually and map to the coarse engine `status` that drives locks/fees.
+STATUS_LABELS = {
+    "1A": "Missing documents",
+    "1B": "Documents received — period not ended",
+    "1C": "Can be submitted",
+    "1E": "Ready to submit",
+    "2":  "Submitted",
+    "2A": "Successfully submitted",
+    "2B": "Document request received",
+    "3":  "Decision received",
+    "3A": "Money received",
+    "3B": "Rejection",
+    "3D": "Under appeal",
+    "3C": "Confiscation by government",
+    "4":  "Ready to invoice fee",
+    "4A": "Ready to invoice credit",
+    "5":  "Closed",
+}
+AUTO_CODES = ("1A", "1B", "1C", "1E")          # system-derived; never set by a user
+MANUAL_CODES = ("2", "2A", "2B", "3", "3A", "3B", "3D", "3C", "4", "4A", "5")
+# workflow code -> coarse engine status (drives the lock/fee machinery). 3B/3C/3D map
+# to LOCKING states so the invoice locks are KEPT (appeal / invoice the fee); only an
+# explicit withdraw releases them.
+ENGINE_OF = {
+    "2": "submitted", "2A": "submitted", "2B": "submitted", "3D": "submitted",
+    "3": "approved", "3B": "approved", "3C": "approved",
+    "3A": "paid", "4": "paid", "4A": "paid", "5": "paid",
+}
+
+def submission_checklist(con, ent, ctry, period, cache=None):
+    """SYSTEM-CONTROLLED checklist for one claim stream: the adjustable customer/country
+    requirements (customer_master.checklist_rules) PLUS the claim-level data checks.
+    Returns [(label, ok)] — the user cannot tick these; the system verifies each."""
+    cache = cache if cache is not None else {}
+    cm = cache.get("_cmcon")
+    if cm is None:
+        cm = cache["_cmcon"] = customer_master.connect()
+    codes = cache.setdefault("_codeof", {})
+    if ent not in codes:
+        codes[ent] = customer_master._code_of(cm, ent)
+    code = codes[ent]
+    items = []
+    if code is not None:
+        for _k, label, _scope, ok in customer_master.evaluate_checklist(cm, code, ctry):
+            items.append((label, ok))
+    invs = stream_invoices(con, ent, ctry, period, cache)
+    bad = [r for s, r in invs if "INPUT" in r or r.startswith("ALL:")]
+    items.append(("All invoices received & processed", len(invs) > 0 and not bad))
+    docidx = cache.get("_docidx")
+    if docidx is None:
+        docidx = cache["_docidx"] = docs_index(con)
+    nodoc = [(s, r) for s, r in invs if (ent, s, r) not in docidx]
+    items.append(("All invoice documents attached", len(invs) > 0 and not nodoc))
+    items.append(("Claim period ended", period_ended(period)))
+    return items
+
+def derive_stage(con, ent, ctry, period, verdict=None, cache=None):
+    """The SYSTEM-derived pre-submission stage. Returns (code, checklist):
+      1A missing items · 1B checklist done but period open · 1C can submit (a caveat,
+      e.g. below threshold) · 1E ready (all clear). Period-end is a hard gate."""
+    items = submission_checklist(con, ent, ctry, period, cache)
+    non_period = [(l, ok) for (l, ok) in items if l != "Claim period ended"]
+    if not all(ok for _, ok in non_period):
+        return "1A", items
+    if not period_ended(period):
+        return "1B", items
+    caveat = bool(verdict and not str(verdict).startswith("READY"))
+    return ("1C" if caveat else "1E"), items
+
+def current_code(con, ent, ctry, period, verdict=None, cache=None):
+    """The claim's effective workflow code: the stored manual code once one exists,
+    otherwise the live system-derived pre-submission stage."""
+    r = con.execute("""SELECT status, status_code FROM vat_applications
+                       WHERE entity=? AND refund_country=? AND ref_period=?""",
+                    (ent, ctry, period)).fetchone()
+    if r and r["status_code"]:
+        return r["status_code"]
+    if r and r["status"] in ("submitted", "approved", "paid"):   # legacy rows, no code
+        return {"submitted": "2", "approved": "3", "paid": "3A"}[r["status"]]
+    code, _ = derive_stage(con, ent, ctry, period, verdict, cache)
+    return code
+
+def set_status_code(con, ent, ctry, period, code):
+    """Advance a claim along the controllable workflow. Pre-submission codes are
+    system-controlled (rejected here). Submitting (2) is HARD-GATED on the system
+    checklist + period end. 3B/3C/3D keep the invoice locks."""
+    code = (code or "").strip()
+    if code in AUTO_CODES:
+        return False, f"'{code} {STATUS_LABELS.get(code,'')}' is system-controlled — it follows the checklist automatically"
+    if code not in MANUAL_CODES:
+        return False, f"unknown status '{code}'"
+    row = con.execute("""SELECT status FROM vat_applications WHERE entity=? AND
+                         refund_country=? AND ref_period=?""", (ent, ctry, period)).fetchone()
+    eng_now = row["status"] if row else "draft"
+    if eng_now not in LOCKING:
+        # not yet locked: the only legal first manual step is Submit (2), and only when
+        # the SYSTEM says the checklist is complete and the period has ended.
+        if code != "2":
+            return False, f"can't set '{STATUS_LABELS[code]}' before the claim is submitted"
+        stage, items = derive_stage(con, ent, ctry, period)
+        if stage == "1A":
+            missing = [l for l, ok in items if not ok and l != "Claim period ended"]
+            return False, "BLOCKED — checklist incomplete: " + "; ".join(missing)
+        if stage == "1B":
+            return False, ("BLOCKED — the claim period has not ended yet (ends "
+                           f"{period_end_date(period)})")
+    engine = ENGINE_OF.get(code)
+    if engine:
+        ok, msg = set_status(con, ent, ctry, period, engine, gate_activation=False)
+        if not ok:
+            return ok, msg
+    con.execute("""UPDATE vat_applications SET status_code=?, updated=CURRENT_TIMESTAMP
+                   WHERE entity=? AND refund_country=? AND ref_period=?""",
+                (code, ent, ctry, period))
+    con.commit()
+    return True, f"status → {code} {STATUS_LABELS[code]}"
+
+def withdraw_claim(con, ent, ctry, period):
+    """Admin escape hatch: cancel a claim and RELEASE its invoice locks (the only path
+    that frees invoices — rejection/confiscation/appeal keep them)."""
+    ok, msg = set_status(con, ent, ctry, period, "withdrawn", gate_activation=False)
+    if ok:
+        con.execute("""UPDATE vat_applications SET status_code=NULL, updated=CURRENT_TIMESTAMP
+                       WHERE entity=? AND refund_country=? AND ref_period=?""", (ent, ctry, period))
+        con.commit()
+    return ok, msg
+
 def settlement(payout_to, refund_eur, fee_eur):
     """How the fee is settled. payout_to='customer' -> we invoice the fee (receivable);
     payout_to='us' -> we deduct the fee and remit the net to the customer."""
@@ -533,7 +688,7 @@ def claims_overview(year):
             to_submit.append(dict(entity=m["entity"], country=m["country"], period=m["period"],
                                   vat_eur=m["vat_eur"], verdict=m["verdict"],
                                   ready=ready, issues=issues, missing=m["missing"]))
-    for k in ("_scon", "_acon"):           # close the shared connections opened lazily
+    for k in ("_scon", "_acon", "_cmcon"):           # close the shared connections opened lazily
         if cache.get(k) is not None:
             try: cache[k].close()
             except Exception: pass
@@ -640,7 +795,7 @@ def invoice_lines(con, ent, ctry, qtr, cache=None):
                                   net_local=money.f2(netl), vat_local=money.f2(vatl),
                                   net_eur=money.f2(net), vat_eur=money.f2(vat)))
     if own_cache:
-        for k in ("_scon", "_acon"):
+        for k in ("_scon", "_acon", "_cmcon"):
             if cache.get(k) is not None:
                 cache[k].close()
     return lines
@@ -757,7 +912,7 @@ def build_workbook(con, year):
             ws2.column_dimensions[col].width = w
 
     path = f"{WORKDIR}/VAT_Refund_Claims_{year}.xlsx"
-    for k in ("_scon", "_acon"):
+    for k in ("_scon", "_acon", "_cmcon"):
         if pack_cache.get(k) is not None:
             try: pack_cache[k].close()
             except Exception: pass
