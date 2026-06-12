@@ -376,6 +376,27 @@ def test_vat_advance_and_withdraw_routes(client, monkeypatch):
     assert "withdrawn" in r.get_data(as_text=True) and calls["wd"] == ("Acme", "DE", "2026-Q1")
 
 
+def test_vat_doc_missing_cell_links_to_attach_ui(client, monkeypatch):
+    """A doc-missing invoice on /vat must be one click from the attach UI: its red
+    coverage cell links to /documents prefilled with that invoice's entity/supplier/ref."""
+    import vat_refund as VR
+    monkeypatch.setattr(VR, "claim_matrix", lambda con, year: [{
+        "entity": "Acme", "country": "Germany", "period": "2026-Q1",
+        "vat_eur": 500.0, "vat_local": 500.0, "currency": "EUR",
+        "verdict": "READY", "missing": [], "home": "portal", "deadline": "2027-09-30"}])
+    # one invoice present, one missing its document
+    monkeypatch.setattr(VR, "stream_invoices",
+                        lambda con, e, c, p, cache=None: [("DKV", "INV-OK"), ("DKV", "INV-NODOC")])
+    monkeypatch.setattr(VR, "docs_index", lambda con: {("Acme", "DKV", "INV-OK")})
+    # keep the status cell deterministic (it otherwise queries the live claim DB)
+    monkeypatch.setattr(VR, "current_code", lambda con, e, c, p, v, cache: "1A")
+    monkeypatch.setattr(VR, "submission_checklist", lambda con, e, c, p, cache: [])
+    body = client.get("/vat").get_data(as_text=True)
+    # & is HTML-escaped to &amp; by esc() (correct: browsers parse it back)
+    assert 'href="/documents?entity=Acme&amp;supplier=DKV&amp;ref=INV-NODOC"' in body
+    assert "1/2 docs" in body                       # red coverage label, now a link
+
+
 def test_customers_template_upload_generate_and_unfilled_warning(client, monkeypatch, tmp_path):
     """Template upload -> generate fills customer data; unfilled fields warn on screen
     first and 'force' downloads anyway."""

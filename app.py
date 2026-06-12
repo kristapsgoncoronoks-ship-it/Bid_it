@@ -2980,7 +2980,14 @@ def vat():
                                          note=request.form.get("note", "").strip() or None,
                                          deadline=request.form.get("deadline", "").strip() or None)
         cls = "ok" if ok else "bad"
-        banner = (f'<div class="card"><b class="{cls}">{esc(msg)}</b></div>')
+        # A doc-missing block is actionable: link straight to the attach UI, prefilled
+        # with this claim's entity (the /documents table then lists its invoices).
+        resolve = ""
+        if msg.startswith("BLOCKED - physical document missing"):
+            from urllib.parse import quote
+            href = "/documents?entity=" + quote(ent)
+            resolve = (f' &nbsp; <a href="{esc(href)}">Resolve: attach a document &rarr;</a>')
+        banner = (f'<div class="card"><b class="{cls}">{esc(msg)}</b>{resolve}</div>')
     year = request.args.get("year", "2026")
     matrix = VR.claim_matrix(con, year)
     docidx = VR.docs_index(con)        # one query instead of docs_for() per invoice
@@ -2990,10 +2997,24 @@ def vat():
         v = m["verdict"]
         vcls = "ok" if v.startswith("READY") else ("bad" if "BELOW" in v else "")
         invs = VR.stream_invoices(con, m["entity"], m["country"], m["period"], inv_cache) if not m["period"].endswith("YEAR") else []
-        nd = sum(1 for s, ref in invs if (m["entity"], s, ref) not in docidx)
-        doccov = ("" if m["period"].endswith("YEAR") else
-                  (f'<span class="ok">{len(invs)}/{len(invs)} docs</span>' if invs and nd==0
-                   else f'<span class="bad">{len(invs)-nd}/{len(invs)} docs</span>'))
+        missing_inv = [(s, ref) for s, ref in invs if (m["entity"], s, ref) not in docidx]
+        nd = len(missing_inv)
+        if m["period"].endswith("YEAR"):
+            doccov = ""
+        elif invs and nd == 0:
+            doccov = f'<span class="ok">{len(invs)}/{len(invs)} docs</span>'
+        else:
+            # red coverage links straight to the attach UI, prefilled with the first
+            # doc-missing invoice (entity/supplier/ref) so it can be resolved in one click.
+            from urllib.parse import quote
+            label = f'<span class="bad">{len(invs)-nd}/{len(invs)} docs</span>'
+            if missing_inv:
+                ms, mref = missing_inv[0]
+                href = ("/documents?entity=" + quote(m["entity"]) + "&supplier=" + quote(ms)
+                        + "&ref=" + quote(mref))
+                doccov = f'<a href="{esc(href)}">{label}</a>'
+            else:
+                doccov = label
         rows.append([f"<td>{esc(m['entity'])}</td><td>{esc(m['country'])}</td><td>{esc(m['period'])}</td>",
                      f"<td class=r>{m['vat_eur']:,.2f}</td><td class=r>{m['vat_local']:,.2f} {esc(m['currency'])}</td>",
                      f"<td class='{vcls}'>{esc(v)}</td><td>{esc(', '.join(m['missing']))}</td>",
