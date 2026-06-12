@@ -85,6 +85,7 @@ for unattended IT setup.
 | **[docs/DIAGRAMS.md](docs/DIAGRAMS.md)** | Visual schematics — system overview, upload OK/Bad flow, monthly close, VAT claim lifecycle, databases, storage, request/worker flow, **multi‑server topology**, and the **backup & integrity self‑control loop**. |
 | **[docs/SCALING.md](docs/SCALING.md)** | Horizontal scaling — the ladder (tune → Postgres → offload storage → worker fleet → load‑balance), target topology, env‑var reference, and the honest remaining blockers to a validated Postgres cutover. |
 | **[docs/ROADMAP.md](docs/ROADMAP.md)** | How the system should evolve to support the business — outcome‑driven plan across three horizons, with KPIs. |
+| **[docs/VAT_REFUND_RULES.md](docs/VAT_REFUND_RULES.md)** | The Directive 2008/9/EC compliance reference — verified parameters (thresholds, deadline, periods), expenditure codes, country diesel recoverability, and a cross‑check against what the code encodes. |
 | **[docs/FILE_INDEX.md](docs/FILE_INDEX.md)** | A plain‑language index of what every file in the repo does. |
 | **[SECURITY.md](SECURITY.md)** | Security model, data protection, and the DPA basis for AI extraction. |
 | **[docs/GIT_SETUP.md](docs/GIT_SETUP.md)** | Cloning, branching, and what is / isn't committed. |
