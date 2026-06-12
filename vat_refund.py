@@ -210,6 +210,34 @@ def attach_document(con, ent, sup, ref, src_path=None, file_bytes=None,
     return True, (f"attached {filename} ({len(file_bytes):,} B, sha {sha[:8]}, {kind}, "
                   f"storage: {be.name}" + (f", {web_url}" if web_url else "")) + warn
 
+def attach_existing(con, ent, sup, ref, *, source, source_id, kind="scan"):
+    """Attach a file that is ALREADY stored (data lake or this customer's vault tree)
+    to invoice (ent, sup, ref). Reads the bytes from the chosen source and routes them
+    through attach_document(), so SHA dedup and the cross-invoice WARNING are identical
+    to a fresh upload — legal integrity is the same. Returns (ok, message)."""
+    import data_lake, document_vault
+    if source == "lake":
+        meta, data = data_lake.get_file(source_id)
+        if data is None:
+            return False, "source file not found"
+        return attach_document(con, ent, sup, ref, file_bytes=data,
+                               filename=meta["filename"], kind=kind)
+    if source == "vault":
+        # source_id is a stored_path of an invoice_documents row for THIS customer.
+        row = con.execute("""SELECT filename, stored_path FROM invoice_documents
+                             WHERE entity=? AND stored_path=?""",
+                          (ent, source_id)).fetchone()
+        if not row:
+            return False, "source file not found"
+        try:
+            data = document_vault.get_bytes(row["stored_path"], DOCDIR)
+        except Exception as e:
+            log.exception("attach_existing: vault read failed for %s", source_id)
+            return False, f"source file not found ({str(e)[:80]})"
+        return attach_document(con, ent, sup, ref, file_bytes=data,
+                               filename=row["filename"], kind=kind)
+    return False, f"unknown source '{source}'"
+
 def docs_for(con, ent, sup, ref):
     return con.execute("""SELECT * FROM invoice_documents WHERE entity=? AND supplier=?
                           AND invoice_ref=? ORDER BY uploaded_at""", (ent, sup, ref)).fetchall()

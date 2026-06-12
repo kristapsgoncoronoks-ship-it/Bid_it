@@ -224,6 +224,22 @@ APP_JS = r"""/* progressive enhancement: sort + filter + horizontal scroll + key
       show();
     });
   });
+
+  // /documents?ref=… : scroll the matching invoice row into view and highlight it,
+  // so a "Resolve" link from /vat lands the operator on the right invoice. Opt-in via
+  // a [data-doc-focus] marker carrying the ref; the row cell carries [data-doc-ref].
+  (function(){
+    var marker=document.querySelector('[data-doc-focus]');
+    if(!marker) return;
+    var ref=(marker.getAttribute('data-doc-focus')||'').trim(); if(!ref) return;
+    var cells=document.querySelectorAll('[data-doc-ref]');
+    Array.prototype.forEach.call(cells,function(td){
+      if((td.getAttribute('data-doc-ref')||'')!==ref) return;
+      var row=td.closest('tr'); if(!row) return;
+      row.style.outline='2px solid var(--accent, #0e5fa8)';
+      try{ row.scrollIntoView({block:'center'}); }catch(e){ row.scrollIntoView(); }
+    });
+  })();
 })();
 """
 
@@ -3015,33 +3031,63 @@ def documents():
     scon.close()
     con = VR.connect()
     banner = ""
+    find_block = ""
     if request.method == "POST":
         import import_log as _IL, hashlib as _hl
-        f = request.files["doc"]
-        _bytes = f.read()
-        _sha = _hl.sha256(_bytes).hexdigest() if _bytes else ""
-        if not _bytes:
-            ok, msg = False, f"{f.filename or 'file'} was empty (0 bytes) — nothing attached"
-        else:
+        act = request.form.get("__act", "upload")
+        if act == "find":
+            # Search files ALREADY stored (data lake + this customer's vault tree) so an
+            # operator can resolve a doc-missing invoice without re-uploading.
+            find_block = _documents_find_block(VR, request.form)
+        elif act == "attach_existing":
+            ent = request.form.get("entity", ""); sup = request.form.get("supplier", "")
+            ref = request.form.get("invoice_ref", "")
             try:
-                ok, msg = VR.attach_document(con, request.form["entity"], request.form["supplier"],
-                                             request.form["invoice_ref"], file_bytes=_bytes,
-                                             filename=f.filename, kind=request.form.get("kind", "scan"))
+                ok, msg = VR.attach_existing(con, ent, sup, ref,
+                                             source=request.form.get("source", ""),
+                                             source_id=request.form.get("source_id", ""),
+                                             kind=request.form.get("kind", "scan"))
             except Exception as e:
-                _log_exc("attach document", e)
-                ok, msg = False, f"could not store {f.filename or 'file'}: {e}"
-        _IL.log("upload", f.filename, "received" if ok else "failed",
-                actor=session.get("user", "system"), supplier=request.form.get("supplier"),
-                sha256=_sha, bytes=len(_bytes),
-                message=("document vault attach" if ok else f"attach failed: {msg}"))
-        border = "var(--ok)" if ok else "var(--bad)"
-        head = ("&#10003; Document attached OK" if ok else "&#10007; Attach failed")
-        banner = (f'<div class="card" style="border-left:4px solid {border}">'
-                  f'<b class="{"ok" if ok else "bad"}">{head}</b> — {esc(msg)}'
-                  + ('<div class="note">Stored in the document vault (SHA-256 verified); '
-                     'it can’t be lost, only deleted by a user.</div>' if ok else
-                     '<div class="note">Nothing was stored. Check the file and try again.</div>')
-                  + '</div>')
+                _log_exc("attach existing document", e)
+                ok, msg = False, f"could not attach stored file: {e}"
+            _IL.log("attach_existing", request.form.get("source_id"), "received" if ok else "failed",
+                    actor=session.get("user", "system"), supplier=sup,
+                    message=("document vault attach (existing file)" if ok else f"attach failed: {msg}"))
+            border = "var(--ok)" if ok else "var(--bad)"
+            head = ("&#10003; Stored file attached OK" if ok else "&#10007; Attach failed")
+            banner = (f'<div class="card" style="border-left:4px solid {border}">'
+                      f'<b class="{"ok" if ok else "bad"}">{head}</b> — {esc(msg)}'
+                      + ('<div class="note">Re-used an already-stored file — same SHA-256 dedup '
+                         'and cross-invoice warning as a fresh upload.</div>' if ok else
+                         '<div class="note">Nothing was attached. Check the source and try again.</div>')
+                      + '</div>')
+        else:
+            f = request.files["doc"]
+            _bytes = f.read()
+            _sha = _hl.sha256(_bytes).hexdigest() if _bytes else ""
+            if not _bytes:
+                ok, msg = False, f"{f.filename or 'file'} was empty (0 bytes) — nothing attached"
+            else:
+                try:
+                    ok, msg = VR.attach_document(con, request.form["entity"], request.form["supplier"],
+                                                 request.form["invoice_ref"], file_bytes=_bytes,
+                                                 filename=f.filename, kind=request.form.get("kind", "scan"))
+                except Exception as e:
+                    _log_exc("attach document", e)
+                    ok, msg = False, f"could not store {f.filename or 'file'}: {e}"
+            _IL.log("upload", f.filename, "received" if ok else "failed",
+                    actor=session.get("user", "system"), supplier=request.form.get("supplier"),
+                    sha256=_sha, bytes=len(_bytes),
+                    message=("document vault attach" if ok else f"attach failed: {msg}"))
+            border = "var(--ok)" if ok else "var(--bad)"
+            head = ("&#10003; Document attached OK" if ok else "&#10007; Attach failed")
+            banner = (f'<div class="card" style="border-left:4px solid {border}">'
+                      f'<b class="{"ok" if ok else "bad"}">{head}</b> — {esc(msg)}'
+                      + ('<div class="note">Stored in the document vault (SHA-256 verified); '
+                         'it can’t be lost, only deleted by a user.</div>' if ok else
+                         '<div class="note">Nothing was stored. Check the file and try again.</div>')
+                      + '</div>')
+    focus_ref = request.args.get("ref", "")
     rows = []
     for (sup, ctry), invs in sorted(INVOICES.items()):
         ent = SPECS[sup]["entity"][0] if sup in SPECS else ENTITY_OVERRIDE.get(sup, sup)
@@ -3056,16 +3102,83 @@ def documents():
                   f'<input type="hidden" name="invoice_ref" value="{esc(ref)}">'
                   f'<input type="file" name="doc" accept=".pdf,.jpg,.png,.tif" required>'
                   f'<select name="kind"><option>original_pdf</option><option>scan</option></select>'
-                  f'<button>Attach</button></form>')
-            rows.append([f"<td>{esc(ent)}</td><td>{esc(sup)}</td><td>{esc(ctry)}</td><td>{esc(ref)}</td><td>{esc(dt)}</td>",
+                  f'<button>Attach</button></form>'
+                  # Resolve from an ALREADY-stored file (data lake + this customer's vault).
+                  f'<form method="post" style="margin:4px 0 0;display:flex;gap:6px">'
+                  + _csrf_input() +
+                  f'<input type="hidden" name="entity" value="{esc(ent)}">'
+                  f'<input type="hidden" name="supplier" value="{esc(sup)}">'
+                  f'<input type="hidden" name="invoice_ref" value="{esc(ref)}">'
+                  f'<input type="text" name="q" placeholder="filename contains…" style="font-size:12px">'
+                  f'<button name="__act" value="find" style="font-size:12px;padding:3px 8px">Find stored</button></form>')
+            data_ref = f' data-doc-ref="{esc(ref)}"' if focus_ref else ""
+            rows.append([f"<td{data_ref}>{esc(ent)}</td><td>{esc(sup)}</td><td>{esc(ctry)}</td><td>{esc(ref)}</td><td>{esc(dt)}</td>",
                          f"<td>{dl}</td><td>{up}</td>"])
-    body = banner + ('<div class="card"><h2>Invoice document vault — every invoice needs its '
+    auto = (f'<div data-doc-focus="{esc(focus_ref)}"></div>' if focus_ref else "")
+    body = banner + find_block + auto + ('<div class="card"><h2>Invoice document vault — every invoice needs its '
                      'original PDF or scan before submission</h2>'
                      + tbl(["Entity","Supplier","Country","Invoice ref","Date","Attached document(s)","Upload"], rows)
                      + '<div class="note">Files are SHA-256 hashed; identical files on different '
                        'invoices trigger a wrong-attachment warning; submission is blocked while '
-                       'any invoice in the application has no document.</div></div>')
+                       'any invoice in the application has no document. Use <b>Find stored</b> to '
+                       'attach a file already in the data lake or this customer’s vault.</div></div>')
     con.close(); return page(body, "doc")
+
+def _documents_find_block(VR, form):
+    """Render the search-results card for the 'find a stored file' action: data-lake
+    artifacts plus THIS customer's existing invoice_documents (same-customer tree only).
+    Each result carries an Attach button that routes through VR.attach_existing ->
+    VR.attach_document, so dedup + the cross-invoice warning are preserved."""
+    import data_lake
+    ent = form.get("entity", ""); sup = form.get("supplier", ""); ref = form.get("invoice_ref", "")
+    q = (form.get("q", "") or "").strip().lower()
+    results = []   # (source, source_id, filename, supplier, sha, where)
+    try:
+        for r in data_lake.query(supplier=sup or None, limit=500):
+            fn = r.get("filename") or ""
+            if q and q not in fn.lower():
+                continue
+            results.append(("lake", str(r["id"]), fn, r.get("supplier") or "",
+                            (r.get("sha256") or "")[:8], f"data lake / {r.get('kind') or ''}"))
+    except Exception as e:
+        _log_exc("documents find: lake query", e)
+    # this customer's already-attached files (same-customer tree only)
+    con = VR.connect()
+    try:
+        for r in con.execute("""SELECT filename, stored_path, sha256, supplier, invoice_ref
+                                FROM invoice_documents WHERE entity=? ORDER BY id DESC""", (ent,)):
+            fn = r["filename"] or ""
+            if q and q not in fn.lower():
+                continue
+            results.append(("vault", r["stored_path"], fn, r["supplier"] or "",
+                            (r["sha256"] or "")[:8], f"vault / invoice {r['invoice_ref']}"))
+    except Exception as e:
+        _log_exc("documents find: vault query", e)
+    finally:
+        con.close()
+    if not results:
+        return ('<div class="card"><b>No stored files match</b> — '
+                f'searched the data lake and {esc(ent)}\'s vault'
+                + (f' for filenames containing “{esc(q)}”' if q else "") + '.</div>')
+    body_rows = []
+    for source, sid, fn, rsup, sha, where in results[:200]:
+        attach = ('<form method="post" style="margin:0">' + _csrf_input() +
+                  f'<input type="hidden" name="entity" value="{esc(ent)}">'
+                  f'<input type="hidden" name="supplier" value="{esc(sup)}">'
+                  f'<input type="hidden" name="invoice_ref" value="{esc(ref)}">'
+                  f'<input type="hidden" name="source" value="{esc(source)}">'
+                  f'<input type="hidden" name="source_id" value="{esc(sid)}">'
+                  '<button name="__act" value="attach_existing" '
+                  'style="font-size:12px;padding:3px 8px">Attach</button></form>')
+        body_rows.append(f"<tr><td>{esc(fn)}</td><td>{esc(rsup)}</td><td>{esc(sha)}</td>"
+                         f"<td>{esc(where)}</td><td>{attach}</td></tr>")
+    return ('<div class="card"><h2>Stored files for '
+            f'{esc(sup)} invoice {esc(ref)} ({esc(ent)})</h2>'
+            '<table><thead><tr><th>Filename</th><th>Supplier</th><th>SHA</th>'
+            '<th>Where</th><th>Attach</th></tr></thead><tbody>'
+            + "".join(body_rows) + '</tbody></table>'
+            '<div class="note">Attaching re-uses the stored bytes — same SHA-256 dedup and '
+            'cross-invoice warning as a fresh upload.</div></div>')
 
 @app.route("/suppliers")
 def suppliers():

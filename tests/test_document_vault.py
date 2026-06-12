@@ -136,6 +136,62 @@ def test_attach_document_files_under_logical_path(tmp_path, monkeypatch):
     assert document_vault.get_bytes(sp, str(tmp_path / "docs")) == b"%PDF inv"
 
 
+def test_attach_existing_from_lake_reuses_dedup_and_warning(tmp_path, monkeypatch):
+    """attach_existing() must route a file already stored in the data lake through
+    attach_document(), so the SHA dedup and the cross-invoice WARNING behave exactly
+    like a fresh upload — the legal integrity of an attached document is identical."""
+    import importlib
+    import vat_refund, supplier_master, customer_master, data_lake
+    for m in (supplier_master, customer_master, data_lake, vat_refund):
+        importlib.reload(m)
+    monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "fh.db"))
+    monkeypatch.setattr(vat_refund, "ANALYTICS_DB", str(tmp_path / "fh.db"))
+    monkeypatch.setattr(vat_refund, "DOCDIR", str(tmp_path / "docs"))
+    monkeypatch.setattr(supplier_master, "DB", str(tmp_path / "sup.db"))
+    monkeypatch.setattr(customer_master, "DB", str(tmp_path / "cust.db"))
+    monkeypatch.setattr(data_lake, "LAKE_DIR", str(tmp_path / "data_lake"))
+    monkeypatch.setattr(data_lake, "DB", str(tmp_path / "data_lake.db"))
+    data_lake._READY.clear()
+
+    customer_master.add_customer("JUP", "Jupiter Plus AS", "EE", reg_number="EE100127540")
+    scon = supplier_master.connect()
+    scon.executemany("""INSERT INTO supplier_invoices
+        (supplier, country, invoice_no, invoice_date, period, currency, gross_total)
+        VALUES (?,?,?,?,?,?,?)""",
+        [("DKV", "Germany", "INVA", "2026-05-10", "2026-05", "EUR", 100),
+         ("DKV", "Germany", "INVB", "2026-05-11", "2026-05", "EUR", 100)])
+    scon.commit(); scon.close()
+
+    # a file already in the lake (e.g. an AI-extracted scan)
+    loc = data_lake.put(b"%PDF stored scan", "scanA.pdf", kind="scan", supplier="DKV")
+    fid = data_lake.query(supplier="DKV")[0]["id"]
+
+    con = vat_refund.connect()
+    # attach the stored lake file to INVA -> a real invoice_documents row appears
+    ok, msg = vat_refund.attach_existing(con, "JUP", "DKV", "INVA",
+                                         source="lake", source_id=fid)
+    assert ok, msg
+    n = con.execute("""SELECT COUNT(*) n FROM invoice_documents
+                       WHERE entity='JUP' AND supplier='DKV' AND invoice_ref='INVA'""").fetchone()["n"]
+    assert n == 1
+    # the SAME file on a DIFFERENT invoice -> cross-invoice WARNING (wrong attachment)
+    ok, msg = vat_refund.attach_existing(con, "JUP", "DKV", "INVB",
+                                         source="lake", source_id=fid)
+    assert ok and "WARNING" in msg and "INVA" in msg
+    # the SAME file on the SAME invoice again -> dedup, nothing new stored
+    ok, msg = vat_refund.attach_existing(con, "JUP", "DKV", "INVA",
+                                         source="lake", source_id=fid)
+    assert ok and ("already attached" in msg or "skipped" in msg)
+    again = con.execute("""SELECT COUNT(*) n FROM invoice_documents
+                           WHERE entity='JUP' AND supplier='DKV' AND invoice_ref='INVA'""").fetchone()["n"]
+    assert again == 1                                  # no duplicate row
+    # missing source id is reported, not crashed
+    ok, msg = vat_refund.attach_existing(con, "JUP", "DKV", "INVA",
+                                         source="lake", source_id=999999)
+    assert not ok and "not found" in msg
+    con.close()
+
+
 def test_documents_follow_claim_dynamically(tmp_path, monkeypatch):
     """Dynamic merge: a Q3 invoice claimed quarterly stays in the Q3 folder, while
     the low-VAT Q1/Q2 invoices pulled into the yearly claim move to Annual — each
