@@ -40,8 +40,19 @@ DB = f"{WORKDIR}/ecb_rates.db"
 
 DAILY_URL = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
 HIST_90D_URL = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist-90d.xml"
-# currencies we care about most (others are stored too when a source returns them)
-CCY = ["USD", "GBP", "CHF", "SEK", "NOK", "DKK", "PLN", "CZK", "HUF", "RON", "BGN"]
+HIST_FULL_URL = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.xml"  # since 1999
+
+# Every European currency in the ECB euro reference set (rate = foreign units per 1 EUR).
+EUROPEAN = {
+    "EUR": "Euro", "BGN": "Bulgarian lev", "CZK": "Czech koruna", "DKK": "Danish krone",
+    "GBP": "Pound sterling", "HUF": "Hungarian forint", "PLN": "Polish złoty",
+    "RON": "Romanian leu", "SEK": "Swedish krona", "CHF": "Swiss franc",
+    "ISK": "Icelandic króna", "NOK": "Norwegian krone", "TRY": "Turkish lira",
+}
+# scrape/display priority — all European currencies (others the source returns are
+# stored too) plus USD, which fleets still meet.
+CCY = [c for c in EUROPEAN if c != "EUR"] + ["USD"]
+DEFAULT_TIMEOUT = int(os.environ.get("ECB_TIMEOUT", "30"))
 
 
 def connect():
@@ -258,6 +269,43 @@ def rate_for(currency, on_date=None):
             WHERE currency=? ORDER BY date DESC LIMIT 1""", (currency,)).fetchone()
     con.close()
     return (row["rate"], row["date"]) if row else (None, None)
+
+
+def backfill_history(timeout=None):
+    """Fetch the ECB FULL history (since 1999) and store it, so a relevant rate exists
+    for ANY transaction date — not just the last 90 days. Returns the store summary."""
+    timeout = timeout or DEFAULT_TIMEOUT
+    r = requests.get(HIST_FULL_URL, timeout=timeout); r.raise_for_status()
+    rows = _parse(r.text)
+    if not rows:
+        raise RuntimeError("ECB full history returned no usable data")
+    return _store(rows, "ECB full history")
+
+
+def latest_rates(currencies=None):
+    """Latest cached rate (foreign per 1 EUR) per currency — i.e. what's stored in the
+    database right now. `currencies` optionally limits/orders the result."""
+    if not os.path.exists(DB):
+        return {}
+    con = connect()
+    rows = con.execute("""SELECT currency, rate, date FROM ecb_fx e
+        WHERE date=(SELECT MAX(date) FROM ecb_fx e2 WHERE e2.currency=e.currency)""").fetchall()
+    con.close()
+    d = {r["currency"]: (r["rate"], r["date"]) for r in rows}
+    if currencies is not None:
+        return {c: d.get(c) for c in currencies}
+    return d
+
+
+def coverage():
+    """(min_date, max_date, n_rows, n_currencies) of the cached ECB rates."""
+    if not os.path.exists(DB):
+        return (None, None, 0, 0)
+    con = connect()
+    r = con.execute("SELECT MIN(date) a, MAX(date) b, COUNT(*) n, "
+                    "COUNT(DISTINCT currency) c FROM ecb_fx").fetchone()
+    con.close()
+    return (r["a"], r["b"], r["n"], r["c"])
 
 
 def latest_asof():

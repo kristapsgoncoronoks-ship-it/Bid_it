@@ -1178,14 +1178,22 @@ def fx():
     import ecb_rates as ECB, money
     banner = ""
     is_admin = session.get("role") == "admin"
-    if request.method == "POST" and request.form.get("__act") == "refresh":
+    import import_log as _IL
+    if request.method == "POST" and request.form.get("__act") in ("refresh", "backfill"):
+        full = request.form.get("__act") == "backfill"
         try:
-            info = ECB.fetch_and_store()
-            banner = (f'<div class="card"><b class="ok">ECB rates scraped via {esc(info["source"])} '
+            info = ECB.backfill_history() if full else ECB.fetch_and_store()
+            banner = (f'<div class="card"><b class="ok">ECB rates '
+                      f'{"backfilled (full history)" if full else "scraped"} via {esc(info["source"])} '
                       f'— as of {esc(info["asof"])}: {info["days"]} day(s), '
-                      f'{len(info["currencies"])} currencies cached.</b></div>')
+                      f'{len(info["currencies"])} currencies stored in the database.</b></div>')
+            _IL.log("fx", "ECB " + ("full history" if full else "daily"), "success",
+                    actor=session.get("user", "system"), records=info["rows"],
+                    message=f"{info['source']} · {len(info['currencies'])} currencies · as of {info['asof']}")
         except Exception as e:
             _log_exc("ECB scrape", e)
+            _IL.log("fx", "ECB scrape", "failed", actor=session.get("user", "system"),
+                    message=str(e)[:200])
             banner = (f'<div class="card"><b class="bad">Could not scrape ECB rates: '
                       f'{esc(str(e))}</b><div class="note">The server needs outbound HTTPS to a rate '
                       f'source (ECB, Frankfurter, exchangerate.host or er-api), or an admin can upload '
@@ -1210,15 +1218,33 @@ def fx():
                 banner = (f'<div class="card"><b class="bad">Upload failed: {esc(str(e))}</b>'
                           f'<div class="note">CSV columns: <b>date,currency,rate</b> '
                           f'(rate = foreign units per 1 EUR), or upload an ECB eurofxref .xml.</div></div>')
+    # filters so the competitor exchange can be filtered & compared
+    fsup = request.args.get("supplier") or None
+    fccy = request.args.get("currency") or None
+    fper = request.args.get("period") or None
     con = DB()
-    rows = con.execute("""
+    sup_opts = [r[0] for r in con.execute("SELECT DISTINCT supplier FROM transactions WHERE currency<>'EUR' ORDER BY 1")]
+    ccy_opts = [r[0] for r in con.execute("SELECT DISTINCT currency FROM transactions WHERE currency<>'EUR' ORDER BY 1")]
+    per_opts = [r[0] for r in con.execute("SELECT DISTINCT period FROM transactions WHERE currency<>'EUR' ORDER BY 1 DESC")]
+    fw, fp = ["currency<>'EUR'"], []
+    if fsup: fw.append("supplier=?"); fp.append(fsup)
+    if fccy: fw.append("currency=?"); fp.append(fccy)
+    if fper: fw.append("period=?");   fp.append(fper)
+    rows = con.execute(f"""
         SELECT supplier, currency, period,
-               ROUND(SUM(net_local),2) net_local, ROUND(SUM(net_eur),2) net_eur,
-               ROUND(SUM(net_local)/NULLIF(SUM(net_eur),0),5) implied,
-               MAX(date) last_date
-        FROM transactions WHERE currency<>'EUR'
-        GROUP BY supplier, currency, period ORDER BY period DESC, supplier""").fetchall()
+               SUM(net_local) net_local, SUM(net_eur) net_eur,
+               SUM(net_local)/NULLIF(SUM(net_eur),0) implied, MAX(date) last_date
+        FROM transactions WHERE {' AND '.join(fw)}
+        GROUP BY supplier, currency, period ORDER BY period DESC, supplier""", fp).fetchall()
     con.close()
+    # persist the competitor FX as a historic pattern, then read the control/trend
+    import supplier_fx as SFX
+    try:
+        SFX.snapshot()
+    except Exception as e:
+        _log_exc("supplier FX snapshot", e)
+    trend = [t for t in SFX.trend()
+             if (not fsup or t["supplier"] == fsup) and (not fccy or t["currency"] == fccy)]
     asof, asof_src = ECB.latest_asof()
     trs, total_diff, flagged = [], 0.0, 0
     for r in rows:
@@ -1243,10 +1269,29 @@ def fx():
                     f"<td class=r><b>{r['implied']:.5f}</b></td>" + ecb_cell + dev_cell + eur_cell])
     refresh = ('<form method="post" style="display:inline">' + _csrf_input()
                + '<button name="__act" value="refresh">↻ Scrape ECB rates (live)</button></form>')
+    backfill = (('<form method="post" style="display:inline">' + _csrf_input()
+                 + '<button name="__act" value="backfill" style="background:var(--mut)">⤓ Backfill full history</button></form>')
+                if is_admin else "")
     upload = ('<form method="post" enctype="multipart/form-data" style="display:inline-flex;gap:8px;align-items:center">'
               + _csrf_input()
               + '<input type="file" name="file" accept=".csv,.xml" required>'
               + '<button name="__act" value="upload">⬆ Upload rates</button></form>') if is_admin else ""
+    # reference card: every European currency and its latest rate stored in the database
+    cov = ECB.coverage()
+    latest = ECB.latest_rates(list(ECB.EUROPEAN) + ["USD"])
+    ccy_rows = []
+    for code, name in {**ECB.EUROPEAN, "USD": "US dollar"}.items():
+        lr = latest.get(code)
+        rate = "1.00000 (base)" if code == "EUR" else (f"{lr[0]:.5f}" if lr else "—")
+        ason = (lr[1] if lr else "") if code != "EUR" else ""
+        ccy_rows.append([f"<td>{esc(code)}</td><td>{esc(name)}</td>",
+                         f"<td class=r>{rate}</td><td class=note>{esc(ason)}</td>"])
+    ccy_card = ('<div class="card"><h2>European currencies — latest ECB rate in the database</h2>'
+                + tbl(["Code", "Currency", "Rate (per €1)", "As of"], ccy_rows)
+                + f'<div class="note">All ECB euro reference currencies are stored in <code>ecb_rates.db</code>'
+                + (f' — {cov[2]:,} daily rates across {cov[3]} currencies, {esc(cov[0] or "")} to {esc(cov[1] or "")}.'
+                   if cov[2] else ' (none cached yet — scrape or upload).')
+                + ' Use <b>Backfill full history</b> so a relevant rate exists for any transaction date.</div></div>')
     head = (f'<div class="kpis">'
             f'<div class="kpi"><div class="v">{esc(asof) if asof else "—"}</div>'
             f'<div class="l">rates as of{(" · " + esc(asof_src)) if asof_src else ""}</div></div>'
@@ -1254,13 +1299,47 @@ def fx():
             f'€{total_diff:+,.0f}</div><div class="l">invoiced EUR vs EUR at ECB</div></div>'
             f'<div class="kpi"><div class="v {"bad" if flagged else "ok"}">{flagged}</div>'
             f'<div class="l">streams ≥2% off ECB</div></div></div>')
+    # filter form (compare competitor FX by supplier / currency / period)
+    def _fsel(name, opts, cur):
+        o = '<option value="">all</option>' + "".join(
+            f'<option {"selected" if v == cur else ""}>{esc(v)}</option>' for v in opts)
+        return f'<label>{esc(name)}<select name="{esc(name)}" onchange="this.form.submit()">{o}</select></label>'
+    filt = ('<form class="f" method="get" style="margin-bottom:12px">'
+            + _fsel("supplier", sup_opts, fsup or "") + _fsel("currency", ccy_opts, fccy or "")
+            + _fsel("period", per_opts, fper or "")
+            + '<a href="/fx" style="align-self:end;padding:8px 12px;font-size:13px">Reset</a></form>')
+    # competitor FX markup trend — control vs the market, historic pattern
+    arrow = {"increasing": "↑", "decreasing": "↓", "stable": "→", "new": "•"}
+    tcls = {"increasing": "bad", "decreasing": "ok", "stable": "", "new": "note"}
+    ttrs = []
+    for t in trend:
+        d = "" if t["delta"] is None else f'{t["delta"]:+.2f}pp'
+        ttrs.append([f"<td>{esc(t['supplier'])}</td><td>{esc(t['currency'])}</td><td>{esc(t['period'])}</td>",
+                     f"<td class=r><b>{t['markup']:+.2f}%</b></td>",
+                     f"<td class='{tcls[t['direction']]}'>{arrow[t['direction']]} {esc(t['direction'])}</td>",
+                     f"<td class=r>{d}</td><td class=note>{t['points']} period(s)</td>"])
+    n_up = sum(1 for t in trend if t["increasing"])
+    trend_card = ('<div class="card"><h2>Competitor FX markup — control vs market (ECB)</h2>'
+                  + f'<div class="kpis"><div class="kpi"><div class="v {"bad" if n_up else "ok"}">{n_up}</div>'
+                    '<div class="l">markups increasing vs market</div></div></div>'
+                  + (tbl(["Supplier", "Ccy", "Period", "Markup vs ECB", "Trend", "Δ vs prev", "History"], ttrs)
+                     if ttrs else '<p class="note">FX history builds as more periods load — the trend needs '
+                                   '2+ periods to compare.</p>')
+                  + '<div class="note">Each supplier\'s implied FX rate vs the ECB market rate is stored as a '
+                    'historic pattern (<code>supplier_fx_history</code>). <b>Trend</b> shows whether the markup '
+                    'over the market is <span class="bad">increasing</span> (worse) or <span class="ok">'
+                    'decreasing</span> (better) vs the previous period — an FX cost control. Filter above to '
+                    'compare suppliers/currencies.</div></div>')
     body = (banner
-            + f'<div class="f" style="margin-bottom:12px;align-items:center">{refresh}{upload}'
+            + f'<div class="f" style="margin-bottom:12px;align-items:center;gap:8px">{refresh}{backfill}{upload}'
             + (('<span class="note" style="align-self:center">No rates cached yet — '
                 + ('scrape live or upload a CSV/ECB-XML.' if is_admin
                    else 'ask an admin to scrape or upload rates.') + '</span>') if not asof else '')
             + '</div>'
             + head
+            + filt
+            + trend_card
+            + ccy_card
             + '<div class="card"><h2>Invoice exchange rate vs ECB reference rate</h2>'
             + tbl(["Supplier", "Ccy", "Period", "Net local", "Net EUR", "Invoice rate",
                    "ECB rate", "ECB date", "Deviation", "EUR @ECB", "EUR diff"], trs)
