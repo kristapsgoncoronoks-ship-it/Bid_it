@@ -939,7 +939,7 @@ def _close_status(period):
     items.append(("Data loaded", n > 0, f"{n} transactions"))
     try:
         import invoice_control as IC
-        rows, orphans = IC.run_control(period)
+        rows, orphans = IC.control_summary(period)   # render path: read-only, no write/audit churn
         miss = sum(1 for r in rows if r["status"] == "MISSING")
         items.append(("Invoices received", miss == 0, f"{miss} missing" if miss else "all received"))
         stmts = IC.reconcile_statements(period)
@@ -2378,7 +2378,7 @@ def invoice_ctrl():
         except Exception as e:
             _log_exc("statement register", e)
             banner = f'<div class="card"><b class="bad">Statement error: {esc(str(e))}</b></div>'
-    rows, orphans = invoice_control.run_control(period)
+    rows, orphans = invoice_control.control_summary(period)   # render path: read-only, no write/audit churn
     order = {"MISSING": 0, "RECEIVED - DOC MISSING": 1}
     rows.sort(key=lambda x: (order.get(x["status"], 2), x["supplier"]))
     trs = []
@@ -2426,8 +2426,8 @@ def invoice_ctrl():
             + (f'<h2 style="margin-top:12px">Orphan transactions (not covered by any invoice)</h2><ul>{orph}</ul>' if orphans else '')
             + '<div class="note">Expectation = supplier cadence (every 14 / 30 days, from suppliers.db) '
               'x activity from transactions. NO ACTIVITY = no transactions, no invoice expected (OK). '
-              'Results persist audited in invoice_receipt_control; waive a slot via Data manager '
-              '(set waived=1).</div></div>')
+              'This view is read-only; results persist (audited) in invoice_receipt_control only on the '
+              'monthly-close run. Waive a slot via Data manager (set waived=1).</div></div>')
     return page(body, "inv")
 
 # ---------------------------------------------------------------- VAT refunds

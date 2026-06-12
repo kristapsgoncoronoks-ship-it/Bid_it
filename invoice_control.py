@@ -31,20 +31,30 @@ def _half(date):                      # ISO date -> 'H1' / 'H2'
     except (ValueError, TypeError):
         return "H1"
 
-def run_control(period):
+def run_control(period, persist=True):
+    """Compute receipt-control rows + orphans for the period.
+
+    persist=True (default, used by the CLI / monthly-close) writes the recomputed
+    rows into invoice_receipt_control, keeping manual waived/note overrides, and
+    fires the audit triggers. persist=False is a read-only render path: it computes
+    and returns the SAME (rows, orphans) but writes nothing and logs no audit churn.
+    Use control_summary(period) for the read-only path.
+    """
     import supplier_master, vat_refund, audit
     scon = supplier_master.connect()
     # transactions + receipt-control live in the analytics DB; invoice DOCUMENTS live
     # in the separate claims DB (so claim records are isolated from the monthly rebuild).
     fcon = vat_refund.analytics_connect()
-    audit.bind(fcon)
+    if persist:
+        audit.bind(fcon)
     ccon = vat_refund.connect()
     fcon.execute("""CREATE TABLE IF NOT EXISTS invoice_receipt_control (
         period TEXT, supplier TEXT, country TEXT, slot TEXT,
         expected TEXT, invoice_no TEXT, status TEXT, note TEXT,
         waived INTEGER DEFAULT 0, checked_at TEXT,
         PRIMARY KEY (period, supplier, country, slot))""")
-    audit.install_audit(fcon, ["invoice_receipt_control"])
+    if persist:
+        audit.install_audit(fcon, ["invoice_receipt_control"])
 
     cadence = {r["code"]: (r["invoice_cadence"] or "monthly")
                for r in scon.execute("SELECT code, invoice_cadence FROM suppliers")}
@@ -138,19 +148,27 @@ def run_control(period):
         if cadence.get(sup) == "monthly-per-country" and (sup, ctry) not in covered:
             orphans.append(f"{sup}/{ctry}: {a['n']} txns ({a['M']:,.0f} L) not covered by a country invoice")
 
-    # persist (keep manual waived/note overrides)
-    for r in rows:
-        fcon.execute("""INSERT INTO invoice_receipt_control
-            (period, supplier, country, slot, expected, invoice_no, status, note, checked_at)
-            VALUES (?,?,?,?,?,?,?,?, CURRENT_TIMESTAMP)
-            ON CONFLICT(period, supplier, country, slot) DO UPDATE SET
-            expected=excluded.expected, invoice_no=excluded.invoice_no,
-            status=CASE WHEN invoice_receipt_control.waived=1
-                        THEN invoice_receipt_control.status ELSE excluded.status END,
-            checked_at=excluded.checked_at""", tuple(r.values()))
-    fcon.commit()
+    # persist (keep manual waived/note overrides). The render path (persist=False)
+    # skips this entirely so a page GET never writes the recomputed rows or churns
+    # the audit log; the explicit monthly-close / CLI keeps the rows fresh.
+    if persist:
+        for r in rows:
+            fcon.execute("""INSERT INTO invoice_receipt_control
+                (period, supplier, country, slot, expected, invoice_no, status, note, checked_at)
+                VALUES (?,?,?,?,?,?,?,?, CURRENT_TIMESTAMP)
+                ON CONFLICT(period, supplier, country, slot) DO UPDATE SET
+                expected=excluded.expected, invoice_no=excluded.invoice_no,
+                status=CASE WHEN invoice_receipt_control.waived=1
+                            THEN invoice_receipt_control.status ELSE excluded.status END,
+                checked_at=excluded.checked_at""", tuple(r.values()))
+        fcon.commit()
     scon.close(); fcon.close(); ccon.close()
     return rows, orphans
+
+def control_summary(period):
+    """Read-only entry for render paths: SAME (rows, orphans) as run_control but
+    writes nothing to invoice_receipt_control and fires no audit triggers."""
+    return run_control(period, persist=False)
 
 if __name__ == "__main__":
     period = sys.argv[1] if len(sys.argv) > 1 else "2026-05"
