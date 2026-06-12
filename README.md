@@ -1,123 +1,149 @@
 # Fleet Fuel & VAT Refund System
 
-Self-contained system for multi-entity fleet fuel management: invoice extraction,
-supplier comparison, EU VAT refunds (Directive 2008/9/EC), receipt controls and a
-web UI. Runs anywhere with Python 3.12+ (`pip install flask openpyxl --break-system-packages`;
-`requests` only for live API pulls / SharePoint). Everything lives in this one folder —
-code, databases, documents, reports — so the folder IS the backup unit.
+A self‑contained Flask web application for **fuel‑invoice processing, EU VAT refunds
+(Directive 2008/9/EC), and competitor price intelligence**, built for five Baltic
+transport entities and the agency that files their cross‑border VAT claims.
 
-## Architecture
+Everything lives in one folder — code, databases, the document vault, and reports —
+so the folder *is* the unit of backup. It runs on a laptop for a single user or as
+several worker processes behind a proxy for a team, with no change of code.
 
-    SOURCES (xlsx / csv / xml / api)
-        └─ ingest.py ──► consolidate.py (validates vs invoice totals) ──► canonical lines
-                                  │
-        ┌─────────────────────────┼──────────────────────────────┐
-        ▼                         ▼                              ▼
-    build_master.py          history.py                    web UI app.py
-    (monthly master xlsx)    (fuel_history.db + trend)     (12 pages + JSON API)
+---
 
-    MASTER DATA (separated)            CLAIMS & CONTROLS (fuel_history.db)
-      customers.db  - our entities       vat_applications  - claim lifecycle
-      suppliers.db  - suppliers,         vat_claimed_invoices - one-invoice-one-
-                      VAT regs, banks,                        submission locks
-                      products,          invoice_documents - vault index (SHA-256)
-                      invoices,          invoice_receipt_control - cadence checks
-                      statements
-    All tables audit-logged by SQLite triggers (audit.py) - full old/new history.
+## What it does
 
-## File map
+| Area | Capabilities |
+|------|--------------|
+| **Intake** | Upload PDF/ZIP invoice batches; deterministic parser (offline) or AI extraction (Claude/OpenAI/Azure). A durable **“waiting room” queue** parks uploads and processes them in the background so bursts never overload the server. |
+| **Master data** | Three separate SQLite databases — our entities (`customers.db`), suppliers (`suppliers.db`), transactions/claims/documents (`fuel_history.db`). |
+| **Engine** | Consolidate → validate (tie‑out to invoice totals) → build monthly master workbook → load history/trend. |
+| **VAT refunds** | Claims per **entity × country × period** (Q1–Q4 or annual), 400/50 EUR thresholds, submission‑readiness, one‑invoice‑one‑submission locks, claim packs. Low‑VAT quarters **merge dynamically** into the annual claim. |
+| **Service fees** | % of refunded VAT floored at a per‑declaration minimum; per‑customer/per‑country overrides; rate frozen at submission, charged at payout; fee invoice + settlement. |
+| **Compliance** | Receipt control (cadence × activity), statement reconciliation with VAT triage, anomaly scan, full audit trail. |
+| **Document vault** | Originals stored under a logical, human‑navigable tree — `Customer (reg no) / Year / Country / Claim period / file` — identical across **local / SharePoint / FTP(S)** backends; SHA‑256 dedup + integrity verification. |
+| **Platform** | Roles (admin/processor), login lockout & IP throttle, CSP/security headers, scheduled backups with integrity checks, TLS, multi‑process scalability. |
 
-**Monthly pipeline**
-- `month_config.py` — the ONLY file edited monthly: period, files, FX
-- `ingest.py` — source adapters: xlsx / csv / xml / api (self-test: `python3 ingest.py`)
-- `supplier_specs.py` — trainable supplier registry (row maps + validation targets)
-- `consolidate.py` — maps to canonical schema, refuses to build on validation FAIL
-- `build_master.py` — Fleet_Fuel_Master_<period>.xlsx (benchmark, comparison, stations, VAT)
-- `history.py` — loads period into fuel_history.db (idempotent) + trend report
+---
 
-**Master data** (separate databases)
-- `customer_db.py` / `customers.db` — entities: reg number, VAT, address, payout IBAN, portals
-- `supplier_db.py` / `suppliers.db` — suppliers: legal data, per-country VAT regs, banks,
-  product catalogs, invoice registry, statements, cadence
-- `audit.py` — trigger-based change log in every DB; `history()`, `diff()`, `as_of()`
+## Quick start
 
-**VAT refunds & controls**
-- `vat_config.py` — regulatory constants: goods codes (Reg. 1174/2009), 400/50 EUR minimums,
-  deadline rule, compliance notes
-- `vat_refund.py` — claims per ENTITY x COUNTRY x PERIOD (Q1–Q4 + YEAR), thresholds,
-  claim packs with APPLICANT block, duplicate-submission locks, document vault
-- `pricing_intel.py` — competitor NET-price tracking & margin analysis; combinable
-  daily/weekly/monthly from one daily grain; three baselines (MY Price, supplier-pack,
-  wholesale index); Excel grid export for pricing models
-- `validate.py` — line-level cross-checks (VAT rate, signs, ranges, batch tie-out) +
-  regression store; blocks commit on errors
-- `anomaly.py` — relative anomaly scan (station price, MoM jumps, volume spikes, off-period)
-- `db.py` — database abstraction; SQLite default, one env var switches to PostgreSQL
-- `watch_inbox.py` — optional folder watcher: auto-extract dropped PDF/ZIP into review queue
-- `extract.py` — PDF/ZIP batch extraction: deterministic parser (offline) or AI
-  backend (Claude/OpenAI/Azure, pluggable via EXTRACT_BACKEND); produces a DRAFT only
-- `invoice_control.py` — receipt control (cadence x activity) + statement reconciliation
-  with VAT triage (PROCESS / DISCARD / DISCARD-DOMESTIC)
-- `doc_storage.py` — vault backends: local folder (default) or SharePoint via MS Graph
-  (setup steps in file header; set `DOC_BACKEND=sharepoint` + `SP_*` env vars)
+**One‑click (no terminal).** Double‑click the launcher for your OS — it installs
+dependencies, starts the server, and opens the browser to a first‑run wizard that
+creates the admin account:
 
-**Install & run**
-- `install.sh` / `install.bat` — one-click guided setup (runs `setup_wizard.py`)
-- `start.py` + `start.bat`/`start.sh`/`start.command` — one-click launch: installs
-  deps, starts the server, opens the browser to the first-run setup page (no terminal)
-- `setup_wizard.py` — the wizard itself; re-runnable; `--yes` mode for IT automation
+- Windows: `start.bat`  ·  macOS: `start.command`  ·  Linux: `start.sh`
 
-**UI & util**
-- `app.py` — `python3 app.py` → http://localhost:8050. Pages: Dashboard, Compare,
-  Head-to-head, Entities & VAT, Stations, Invoice control, VAT refunds, Documents,
-  Suppliers, Customers, Data manager, History. Exports + `/api/*` JSON.
-  Team deployment: `gunicorn -w 2 app:app` behind nginx (auth at proxy).
-- `cleanup.py` — safely stops a running app.py (never `pkill -f app.py`: it matches itself)
+**From a terminal:**
 
-**Data & reports in this folder**
-- `customers.db`, `suppliers.db`, `fuel_history.db`, `documents/` — system of record
-- `Fleet_Fuel_Master_2026-05.xlsx`, `Fleet_Fuel_History_Report.xlsx`,
-  `VAT_Refund_Claims_2026.xlsx` — current deliverables
-- supplier transaction workbooks (`*_transactions.xlsx`) — pipeline inputs for 2026-05
-- `demo_supplier_invoice.xml`, `demo_api_response.json` — ingest fixtures
+```bash
+pip install -r requirements.txt          # flask, openpyxl, waitress (+ requests for live pulls)
+python app.py                            # dev server  → http://localhost:8050
+# or, production:
+python serve.py                          # waitress (Windows + Linux), HTTPS if a cert is present
+```
 
-## Monthly close (runbook)
+First launch shows the **setup wizard** (creates the admin user). After that, sign in
+and work from the web UI.
 
-1. Drop supplier files (or pull via API) and edit `month_config.py`
-2. `python3 consolidate.py` — must PASS every supplier vs its invoice totals
-3. `python3 build_master.py` — master workbook
-4. `python3 history.py` — archive + trend report
-5. `python3 invoice_control.py <period>` — receipt control: chase MISSING, attach docs
-6. Register supplier statements (UI → Invoice control) — triage PROCESS / DISCARD;
-   domestic invoices auto-discard (home-country VAT → regular VAT return)
-7. Review payments calendar (master workbook / Entities page)
+> Full step‑by‑step server install (Ubuntu **and** Windows, TLS, systemd, nginx,
+> backups, multi‑process) is in **[docs/INSTALL.md](docs/INSTALL.md)**.
 
-## Quarterly VAT refunds
+---
 
-1. After quarter end: `python3 vat_refund.py <year>` → VAT_Refund_Claims_<year>.xlsx
-2. Per READY stream: fill yellow INPUTs (invoice refs, VAT IDs, applicant data),
-   confirm every invoice has its original in the vault (Documents page)
-3. File via the entity's home portal (e-MTA / EDS / Mano VMI); set status `submitted`
-   in the UI — this LOCKS the invoices (one invoice = one submission, ever);
-   `rejected`/`withdrawn` releases locks
-4. Deadline: 30 September of the following year. Below 400 EUR/quarter → annual claim.
+## Documentation
 
-## Built-in controls
+| Guide | What's in it |
+|-------|--------------|
+| **[docs/INSTALL.md](docs/INSTALL.md)** | Full server setup — one‑click, Ubuntu service (systemd), Windows service, TLS, nginx proxy, multi‑process (gunicorn/waitress), backups. |
+| **[docs/USER_MANUAL.md](docs/USER_MANUAL.md)** | How to work with the system day‑to‑day — every page, the monthly routine, VAT refunds, the waiting room, the vault. |
+| **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | The six building blocks, the data model, the module map, and the key conventions. |
+| **[SECURITY.md](SECURITY.md)** | Security model, data protection, and the DPA basis for AI extraction. |
+| **[docs/GIT_SETUP.md](docs/GIT_SETUP.md)** | Cloning, branching, and what is / isn't committed. |
 
-- Extraction validation: every supplier must reconcile to its invoice before anything builds
-- Receipt control: expected = cadence (14/30 days, per suppliers.db) x activity; orphan check
-- Statement reconciliation: supplier's issue list vs registry vs vault; VAT triage with
-  automatic DOMESTIC discard (entity-relative)
-- Duplicate-submission lock: DB UNIQUE constraint; quarterly-vs-annual overlap blocked
-- Document gate: no submission without original PDF/scan (SHA-256, wrong-file detection)
-- Audit: every insert/update/delete in every DB logged with old/new snapshots;
-  date-range queries + as-of reconstruction
+---
 
-## Open items / missing data (yellow INPUT fields)
+## Roles
 
-- Customer master: registration codes (5), VAT numbers (OMUSS, Motiejausko),
-  legal addresses (3), refund payout IBANs (all 6 entities)
-- Supplier master: Q8 per-country VAT IDs + 5 country invoice originals (FR/ES/DK/PL/AT),
-  BP NIP, TFC BE VAT number, Port One details
-- Per-issuer confirmation whether the card scheme is refundable under 2008/9/EC
-  (ECJ Vega International) or runs its own refund service
+- **admin** — everything, including server setup, user administration, and editing
+  processor capabilities.
+- **processor** — day‑to‑day work (import, claims, documents, exports). Capabilities
+  are configurable by an admin; a processor can never do server/user administration.
+
+Authorization is enforced centrally per endpoint (`auth.has_perm` / `PERM_BY_ENDPOINT`).
+
+---
+
+## Repository layout
+
+The Python modules are deliberately **flat** (siblings in the repo root): every module
+is location‑independent (`WORKDIR = os.path.dirname(os.path.abspath(__file__))`) and
+imports its siblings directly, and each `connect()` opens `<name>.db` next to the code.
+This keeps the whole system a single, copy‑anywhere folder. The files group logically:
+
+```
+fleet_fuel_system/
+├── app.py serve.py            # web app (≈25 pages + JSON API + Excel) and prod launcher
+├── auth.py audit.py           # users/roles/login + trigger-based change history
+├── db.py dbtune.py proclock.py# DB abstraction, WAL/busy-timeout tuning, cross-process lock
+├── backup.py tls.py make_cert.py  # snapshots+integrity, TLS context, self-signed certs
+│
+├── ingest.py extract.py       # source adapters (xlsx/csv/xml/api); PDF/ZIP → draft
+├── intake_queue.py            # durable "waiting room" queue + background worker
+├── consolidate.py validate.py # map to canonical schema + tie-out; blocks on errors
+├── build_master.py history.py # monthly master workbook; load + trend into fuel_history.db
+├── supplier_specs.py month_config.py vat_config.py  # registries / monthly + regulatory config
+│
+├── customer_db.py customers.db   # our entities (reg, VAT, payout IBAN, activation, fees)
+├── supplier_db.py suppliers.db   # suppliers (VAT regs, banks, products, invoice registry)
+├── vat_refund.py fuel_history.db # claims, locks, fees, document vault index
+├── invoice_control.py            # receipt control + statement reconciliation/triage
+├── doc_storage.py                # vault backends: local / SharePoint / FTP(S)
+├── pricing_intel.py anomaly.py reports.py  # price intelligence, anomaly scan, Excel reports
+│
+├── setup_wizard.py start.* install.*  # first-run wizard + one-click launchers
+├── gunicorn_conf.py                   # multi-process worker config (Linux)
+├── documents/                  # the document vault (local backend; git-ignored content)
+├── tests/                      # pytest suite (128+ tests)
+└── docs/                       # INSTALL · USER_MANUAL · ARCHITECTURE · GIT_SETUP
+```
+
+See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the full module map and data model.
+
+---
+
+## The runbooks (summary)
+
+**Monthly close** — drop supplier files → edit `month_config.py` → `python consolidate.py`
+(must PASS every supplier vs its invoice totals) → `python build_master.py` →
+`python history.py` → `python invoice_control.py <period>` → register statements & attach
+documents in the UI → `python backup.py`.
+
+**Quarterly VAT refunds** — after quarter end, review **Claims** (readiness) → for each
+READY stream confirm every invoice has its original in the vault → file via the entity's
+home portal → set status **submitted** in the UI (this *locks* the invoices). Low‑VAT
+quarters defer into the **annual** claim; the vault re‑files those documents into the
+year's `Annual` folder automatically. Deadline: 30 September of the following year.
+
+Step‑by‑step instructions for both are in **[docs/USER_MANUAL.md](docs/USER_MANUAL.md)**.
+
+---
+
+## Testing
+
+```bash
+python -m pytest tests/ -q        # the full suite
+python consolidate.py             # the pipeline smoke test (must PASS all suppliers)
+```
+
+---
+
+## Conventions (for contributors)
+
+- Prices everywhere are **NET EUR/L, final** (VAT excluded, rebates applied).
+- Money is quantized via `money.py` (Decimal, ROUND_HALF_UP) — never bare `round()` on currency.
+- HTML output is escaped with `markupsafe.escape` — never f‑string raw DB values into a page.
+- Every data change is audit‑logged with the acting user.
+- Do **not** commit secrets (`.secret_key`, certs), `security.db`, generated Excel, or
+  runtime dirs (`backups/`, `inbox/`). See `.gitignore`.
+
+More detail for AI/codebase contributors is in `CLAUDE.md`.

@@ -242,7 +242,7 @@ def setup():
             rows = [("Administrator account created", esc(u)),
                     ("Password stored securely", "salted scrypt hash")]
             rows.append(("HTTPS certificate",
-                         "self-signed, ready" if cert_made else "add later (see INSTALL.md)"))
+                         "self-signed, ready" if cert_made else "add later (see docs/INSTALL.md)"))
             rows.append(("First backup taken", "yes"))
             inner = ('<div class="done"><div class="big">&#10003;</div>'
                      '<h1 style="text-align:center">You\'re all set</h1>'
@@ -255,7 +255,7 @@ def setup():
                      '<p class="hint" style="text-align:center;margin-top:16px">'
                      'Next: sign in, then add your colleagues under Admin (start them as '
                      '&ldquo;processor&rdquo; and tune their permissions). Daily guide: '
-                     'USER_MANUAL.md</p></div>')
+                     'docs/USER_MANUAL.md</p></div>')
             return SETUP_HTML.replace("{BODY}", inner)
     # GET or error: the create-admin form
     form = (

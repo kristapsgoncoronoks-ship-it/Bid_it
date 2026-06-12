@@ -138,16 +138,27 @@ WorkingDirectory=/opt/fleetfuel/app
 #Environment=TLS_CERT=/etc/ssl/fuel.crt
 #Environment=TLS_KEY=/etc/ssl/fuel.key
 #Environment=TLS_CHAIN=/etc/ssl/ca_bundle.crt
-# SharePoint document vault (optional, see Part 7):
+# Document vault backend (optional, see Part 7) — pick ONE:
+#  SharePoint (Microsoft 365):
 #Environment=DOC_BACKEND=sharepoint
 #Environment=SP_TENANT_ID=...
 #Environment=SP_CLIENT_ID=...
 #Environment=SP_CLIENT_SECRET=...
 #Environment=SP_DRIVE_ID=...
 #Environment=SP_FOLDER=FuelVAT/Invoices
+#  FTP / FTPS file archive:
+#Environment=DOC_BACKEND=ftp
+#Environment=FTP_HOST=archive.example.com
+#Environment=FTP_USER=...
+#Environment=FTP_PASSWORD=...
+#Environment=FTP_DIR=fuelvault/invoices
+#Environment=FTP_TLS=1          # 1 = FTPS (encrypted, default); 0 = plain FTP (LAN only)
+# Background intake worker (waiting room) — on by default; set 0 to disable on this
+# process (e.g. when a separate `python intake_queue.py --work` process drains it):
+#Environment=INTAKE_WORKER=1
 # Supplier APIs (optional):
 #Environment=DKV_API_TOKEN=...
-ExecStart=/opt/fleetfuel/venv/bin/python app.py
+ExecStart=/opt/fleetfuel/venv/bin/python serve.py
 Restart=on-failure
 RestartSec=5
 
@@ -158,11 +169,13 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable --now fleetfuel
 sudo systemctl status fleetfuel          # active (running)
-journalctl -u fleetfuel -n 20            # shows "TLS enabled" + certificate line
+journalctl -u fleetfuel -n 20            # shows "waitress on ..." (+ certificate line if TLS)
 ```
 
-Single user on the server itself: you are DONE — browse to
-`https://127.0.0.1:8050`. For team access continue with Part 6.
+`serve.py` runs the production server (waitress) and starts the background workers
+(auto‑backup scheduler + intake‑queue drainer). Single user on the server itself: you
+are DONE — browse to `https://127.0.0.1:8050`. For team access continue with Part 6;
+for several worker processes see Part 6b.
 
 ## PART 6 — Team access: nginx reverse proxy + firewall
 
@@ -197,13 +210,34 @@ sudo ufw enable
 sudo ufw status
 ```
 
-For heavier multi-user load, switch the service ExecStart to gunicorn (plain HTTP
-behind the proxy, TLS terminated at nginx):
-`ExecStart=/opt/fleetfuel/venv/bin/gunicorn -w 2 -b 127.0.0.1:8050 app:app`
+## PART 6b — Multiple worker processes (scale-out)
 
-## PART 7 — SharePoint document vault (optional)
+The system is built to run as several worker processes over the same `.db` files
+(SQLite is tuned with WAL + busy_timeout, and background singletons coordinate via a
+cross‑process lock, so backups never duplicate and the intake queue hands each job to
+exactly one worker). For heavier load on Linux, run it under gunicorn with the provided
+config (it starts the background workers in each worker process):
 
-One-time, with your M365 admin (full details in `doc_storage.py` header):
+```bash
+/opt/fleetfuel/venv/bin/pip install gunicorn
+# systemd ExecStart:
+ExecStart=/opt/fleetfuel/venv/bin/gunicorn -c /opt/fleetfuel/app/gunicorn_conf.py app:app
+# tune workers/bind via env: WORKERS, THREADS, BIND   (default workers = 2*CPU + 1)
+```
+
+On Windows (no gunicorn/fork), run several `python serve.py` instances behind the
+proxy instead — the same locks and tuning apply. For very high concurrent **write**
+volume, migrate to PostgreSQL (`db.py` is the seam; see its header).
+
+## PART 7 — Document vault backend (optional)
+
+By default documents are stored locally under `documents/`. To use a network archive,
+set `DOC_BACKEND` in the systemd unit and restart. Files are filed under the same
+logical tree (`<Customer> <RegNo>/<Year>/<Country>/<Claim period>/<file>`) on every
+backend.
+
+**SharePoint (Microsoft 365)** — one‑time, with your M365 admin (full details in the
+`doc_storage.py` header):
 1. Entra ID → App registrations → New ("Fleet Fuel Vault") → client secret.
 2. Graph **application** permission `Sites.Selected` → admin consent → grant the app
    write access to the one target site.
@@ -212,6 +246,11 @@ One-time, with your M365 admin (full details in `doc_storage.py` header):
    `sudo systemctl restart fleetfuel`.
 5. Move existing local documents:
    `sudo -u fleetfuel /opt/fleetfuel/venv/bin/python -c "import vat_refund, doc_storage; con=vat_refund.connect(); print(doc_storage.migrate_local_to_sharepoint(con, vat_refund.DOCDIR), 'documents migrated')"`
+
+**FTP / FTPS file archive** — set `DOC_BACKEND=ftp` plus `FTP_HOST`, `FTP_USER`,
+`FTP_PASSWORD`, `FTP_DIR`, and keep `FTP_TLS=1` (FTPS, encrypted) unless on a trusted
+private LAN. No extra dependency (stdlib `ftplib`). Migrate existing local files:
+`... -c "import vat_refund, doc_storage; con=vat_refund.connect(); print(doc_storage.migrate_local_to_ftp(con, vat_refund.DOCDIR), 'documents migrated')"`
 
 ## PART 8 — Automatic backups
 

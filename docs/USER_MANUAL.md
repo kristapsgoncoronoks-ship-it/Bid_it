@@ -1,32 +1,41 @@
 # USER MANUAL — Fleet Fuel & VAT Refund System
 
-How to use the software day-to-day. For installation see INSTALL.md; for security
-policy see SECURITY.md; for architecture see README.md.
+How to use the software day-to-day. For installation see [INSTALL.md](INSTALL.md);
+for security policy see [SECURITY.md](../SECURITY.md); for architecture see
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
 ## 1. Signing in & roles
 
 Open `https://<server>:8050` (or your company URL) and sign in. Your role is shown
-in the top bar next to your name:
+in the top bar next to your name. There are two roles:
 
 | Role | Can do |
 |---|---|
-| **viewer** | See every page, use all filters, download all Excel exports. Cannot change anything (save buttons return "Insufficient permissions"). |
-| **editor** | Everything a viewer can, plus: change VAT claim statuses, upload documents, register statements, edit master data in the Data manager. |
-| **admin** | Everything, plus the **Admin** panel: create users, set roles, reset passwords, disable accounts, review the login log. |
+| **processor** | The day-to-day worker: import batches, register statements, attach documents, run VAT claims, manage customers/fees, use every page and export. **Cannot** do server setup, user administration, or overall software changes. Individual capabilities are configurable by an admin. |
+| **admin** | Everything a processor can, **plus** the **Admin** panel: create users, assign roles, reset passwords, disable accounts, **adjust which capabilities processors have**, review the login & error logs, run/verify backups, and check document integrity. |
+
+A processor's capabilities (data import, invoice control, VAT claims, customers,
+pricing, documents, exports) are switches an admin sets in the Admin panel — so you
+can give one colleague claims‑only access and another import‑only, for example.
 
 Every change you save is recorded in the audit log **under your username** — visible
-to everyone on the History page. Sign out with the link in the top bar.
+on the History page. Sessions are protected (login lockout after repeated failures,
+per‑IP throttle, 8‑hour idle timeout). Sign out with the link in the top bar.
 
 ## 2. The pages, left to right
 
 **Dashboard** — opens with a **month-close status strip** (data loaded? invoices
-received? statements reconciled? anomalies? backed up?) — the whole monthly checklist
-at a glance. Below, the month at a glance: diesel litres, fleet effective €/L, net spend,
-reclaimable VAT, gross invoiced. Below: the diesel benchmark (suppliers ranked
-cheapest-first by effective price) and the month-over-month trend. The period
-selector at the top switches months.
+received? statements reconciled? anomalies? backed up?) and a **“What needs action”
+worklist** — claims ready to submit, claims blocked on documents/activation, claims
+aging past 120 days unpaid, and fees ready to invoice — each line links straight to
+where you act. Below, the month at a glance: diesel litres, fleet effective €/L, net
+spend, reclaimable VAT. Then the diesel benchmark (suppliers ranked cheapest‑first by
+effective price) and the month‑over‑month trend. The period selector switches months.
+
+Tables across the app sort on a column click, type‑to‑filter once they pass a few
+rows, and keep their header visible while you scroll. Press **?** for keyboard shortcuts.
 
 **Compare** — answer "who was cheapest for X in Y during Z": pick period, supplier,
 country, product, and an optional date range; the table recomputes. "ALL" widens any
@@ -44,16 +53,34 @@ row here = one potential refund stream.
 **Stations** — diesel stations ≥300 L ranked by effective €/L with routing flags:
 green **PREFER** (≤1.40), red **AVOID** (≥1.62). Share with dispatchers.
 
-**Import batch** — upload a supplier's PDF or a ZIP of PDFs; the system extracts a
-draft of the issued-invoice lines, shows it for you to check and edit, and on confirm
-registers the statement + vaults the PDFs (see §3a).
+**Savings** — the avoidable‑overpay view as a chart: how much was spent above the
+cheapest available option, the headline figure dispatch and procurement act on.
+
+**FX vs ECB** — the exchange rates used versus the official ECB reference, so any
+currency conversion in the claims is transparent and auditable.
+
+**Transactions** — the raw canonical fuel lines for a period, filterable, for spot
+checks and drill‑down.
+
+**Import batch** — upload a supplier's PDF or a ZIP of PDFs. Two ways to process it:
+**Extract draft now** (process immediately and review), or **Queue for later** which
+parks the file in the **Waiting room** for background processing (see §3b). On confirm,
+it registers the statement + vaults the PDFs (see §3a).
+
+**Waiting room** — the durable intake queue for uploaded batches (see §3b).
 
 **Invoice control** — two controls on one page (see §4).
 
 **VAT refunds** — the claim matrix and lifecycle (see §5).
 
-**Recovery** — tracks submitted → approved → paid refund amounts with aging; claims
-unpaid over 120 days flagged red to chase the tax authority.
+**Claims** — the "can we file?" view: per claimable quarter, READY vs BLOCKED with the
+exact blocking reasons (activation, missing docs, unresolved refs, threshold), plus the
+list of open (submitted, awaiting refund) claims with aging. Export to Excel.
+
+**Recovery** — tracks submitted → approved → paid refund amounts with aging (unpaid
+over 120 days flagged red), **and the service‑fee settlement**: the fee charged per
+claim, whether we invoice the customer or deduct and remit the net, and a one‑click
+**fees statement** (Excel). Issue the fee invoice once a refund is paid (see §5a).
 
 **Pricing intel** — the competitiveness engine. Toggle daily / weekly / monthly;
 each supplier's effective NET price per city is compared against three baselines:
@@ -68,11 +95,16 @@ month-over-month price jumps, vehicle volume spikes and off-period dates.
 
 **Documents** — the invoice vault (see §6).
 
-**Suppliers / Customers** — the master-data cards: legal identity, VAT registrations,
-bank accounts, products, invoice registry (suppliers); registration data, payout
-account, portals (customers). Red **INPUT** = data still to be collected.
+**Suppliers / Customers** — the master-data cards. Suppliers: legal identity, VAT
+registrations, bank accounts, products, invoice registry. **Customers** also drives
+the VAT‑refund lifecycle: onboarding (trade registry, bank account, signed contract),
+**per‑country activation** (request → receive the country's documents, e.g. power of
+attorney), and the **fee terms** (% of refunded VAT and the per‑declaration minimum,
+with per‑country overrides, and where the refund is paid). Red **INPUT** = data still
+to be collected; a customer/country must be activated before a claim can be submitted.
 
-**Data manager** — direct table editing for master data (editor+). Pick database →
+**Data manager** — direct table editing for master data (processor with data‑import
+capability). Pick database →
 table; every row is editable inline (Save / Delete), the bottom row adds new
 records. Deleted rows are recoverable: their full values stay in History.
 
@@ -83,7 +115,7 @@ action, **who (By column)**, and a field-level diff or full snapshot.
 **Admin** (admins only) — user management, login log, security status (TLS,
 password storage).
 
-## 3. Monthly routine (editor)
+## 3. Monthly routine (processor)
 
 Day 1–3 of the new month, when supplier invoices arrive:
 
@@ -119,10 +151,28 @@ Day 1–3 of the new month, when supplier invoices arrive:
    For recognised suppliers this is offline and instant; for new layouts it uses the
    configured AI extractor (still a draft you confirm). Nothing is saved until you confirm.
 
+3b. **The Waiting room (deferred processing).** Heavy extraction (especially AI) is
+   decoupled from upload so a burst of files can't overload the server. Press **Queue
+   for later** on Import batch and the file is stored durably on arrival; a background
+   worker extracts it one at a time. The Waiting room page shows each job's state —
+   *queued → processing → ready* (then review & commit like §3a) — with counts and a
+   "Process queued now" button.
+   - **No data loss:** the uploaded bytes are written to disk before the job is recorded,
+     kept until you've reviewed and committed, and a crash mid‑process is retried.
+   - **AI out of tokens/quota:** the job is parked as **waiting** and retried
+     automatically every 4 hours, without counting as a failure. After several retries it
+     becomes **held** — it stays safely in the waiting room until you top up the API
+     credit and press **Send now** (or **Send / restart all** to re‑run the whole
+     backlog).
+   - **Backlog gate:** while documents are still unprocessed, adding new ones to the
+     waiting room is paused so a stuck pile can't grow — an admin can grant a temporary
+     override.
+
 4. **Dashboard / Compare / Head-to-head** — review prices, send Stations flags to
    dispatch, note negotiation evidence.
 5. **Backup** runs nightly automatically; after a heavy editing day you can run one
-   manually (`python3 backup.py`).
+   manually (`python3 backup.py`) or from the Admin panel (admins also get a one‑click
+   "Verify last backup" and "Check document integrity").
 
 ## 4. Reading the receipt control
 
@@ -131,10 +181,10 @@ every 30 days, or monthly-per-country) × **activity** (did transactions actuall
 happen in that slot/country). So "no invoice from Austria" is only a problem if
 there was Austrian fueling — otherwise the row says NO ACTIVITY and nothing is
 chased. If a supplier confirms in writing that no invoice exists for a flagged slot,
-an editor can set `waived=1` on that row in the Data manager (claims database →
+a processor can set `waived=1` on that row in the Data manager (claims database →
 invoice_receipt_control); the waiver survives re-runs.
 
-## 5. VAT refunds, quarter by quarter (editor)
+## 5. VAT refunds, quarter by quarter (processor)
 
 The page shows every stream — **entity × refund country × period (Q1–Q4 + YEAR)** —
 with the VAT amount in EUR and local currency, the threshold verdict, document
@@ -164,20 +214,57 @@ ref is still INPUT, or any document is missing. *rejected* / *withdrawn* release
 locks (the invoices become claimable again); going from submitted straight back to
 draft is deliberately impossible.
 
+**Quarterly vs annual, handled dynamically.** Low‑VAT quarters (under €400) defer into
+the **annual** claim, while strong quarters can still be filed quarterly. The annual
+claim is the *mop‑up* for whatever wasn't already claimed quarterly: e.g. Q1+Q2 small →
+annual, Q3 large → filed as Q3, Q4 → filed as Q4, then the annual claim picks up Q1+Q2
+(and any invoices the customer sent late). One invoice is still claimed exactly once.
+
 **Domestic VAT** never appears in these claims — it's discarded at statement triage
 (§3) and belongs in the entity's regular home VAT return.
+
+## 5a. Service fees & settlement (Recovery page)
+
+The agency fee is **% of the refunded VAT, floored at a per‑declaration minimum** —
+whichever is higher (e.g. 8% of €1,000 = €80, but a €130 minimum → €130 is charged).
+Rates are set per customer with optional per‑country overrides on the Customers page.
+
+- The fee **rate is frozen the moment a claim is submitted** — later rate changes only
+  affect un‑submitted claims.
+- The fee is **charged when the refund is paid** (status → *paid*), computed on the
+  amount actually refunded.
+- **Settlement follows where the refund lands** (set per customer): paid to the
+  *customer* → we **issue a fee invoice**; paid to *us* → we **deduct the fee and remit
+  the net** to the customer.
+- On the Recovery page, once a claim is paid, click **Issue invoice** (the per‑claim fee
+  report becomes the invoice), and download the monthly **fees statement** for the
+  aggregate per customer.
 
 ## 6. The document vault
 
 Every invoice must carry its physical document — original PDF or scan. On the
-Documents page each known invoice shows its attachments (click to download; a
-[SharePoint] link appears if the vault runs on SharePoint) or a red **MISSING** flag
-with an upload form. Files are SHA-256 fingerprinted: re-uploading the same file is
+Documents page each known invoice shows its attachments (click to download) or a red
+**MISSING** flag with an upload form. Submission of any VAT claim is blocked while a
+document is missing. Files are SHA‑256 fingerprinted: re‑uploading the same file is
 skipped, and attaching a file that already sits on a *different* invoice triggers a
-wrong-attachment warning. Submission of any VAT claim is blocked while a document
-is missing.
+wrong‑attachment warning.
 
-## 7. Master data: keeping it right (editor)
+**How it's organised.** Originals are filed under a logical, human‑navigable tree so
+they're easy to locate by hand:
+
+```
+<Customer> <RegNo> / <Year> / <Country> / <Claim period Qn|Annual> / <file>
+```
+
+The same structure is used whichever backend stores the bytes — **local folder**
+(default), **SharePoint**, or **FTP/FTPS** (set by the admin via `DOC_BACKEND`; see
+INSTALL.md). When low‑VAT quarters merge into the annual claim, the documents of the
+invoices in that claim are **automatically re‑filed** from their `Qn` folders into the
+year's `Annual` folder — so the vault always mirrors the real claim composition.
+`verify_documents` (Admin → Check document integrity) re‑hashes every stored file to
+detect corruption or a missing original.
+
+## 7. Master data: keeping it right (processor)
 
 - **A supplier changes IBAN / you learn a missing VAT number:** Data manager →
   suppliers → the relevant table → edit → Save. The change is logged with your name
@@ -213,7 +300,8 @@ hand — regenerate instead.
   stream must be READY, no "months missing", docs green — then file and set submitted.
 - **…know which supplier to use in Belgium tomorrow?** Head-to-head (structural
   answer) + Stations (which exact stations to prefer/avoid).
-- **…add a colleague read-only?** Admin → Create user → role *viewer*.
+- **…add a colleague with limited access?** Admin → Create user → role *processor*,
+  then untick the capabilities they shouldn't have (e.g. leave only VAT claims).
 - **…handle a tax office rejection?** Set the stream to *rejected* (locks release),
   fix the issue, refile in a later period.
 - **…prove an invoice was only claimed once?** VAT workbook pack: the Duplicate
@@ -224,7 +312,7 @@ hand — regenerate instead.
 - Build reports from data that doesn't reconcile to the invoices (validation FAIL stops the pipeline)
 - Submit a claim with INPUT invoice refs, missing documents, or an invoice already claimed elsewhere
 - Revert a submitted claim to draft without an explicit reject/withdraw
-- Let a viewer change anything, or any user change/disable their own admin account
+- Let a processor do server/user administration, or any user disable their own admin account
 - Include domestic-VAT invoices in refund claims
 - Record any change anonymously, or store a password in readable form
 
