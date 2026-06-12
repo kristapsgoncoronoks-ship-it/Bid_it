@@ -22,8 +22,9 @@ from datetime import timezone as _tz
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 BACKUPDIR = os.path.join(WORKDIR, "backups")
 KEEP = 14
-DATA = ["customers.db", "suppliers.db", "fuel_history.db", "vat_claims.db", "security.db"]
-EXTRA_DIRS = ["documents"]
+DATA = ["customers.db", "suppliers.db", "fuel_history.db", "vat_claims.db", "security.db",
+        "data_lake.db"]
+EXTRA_DIRS = ["documents", "data_lake"]
 EXCLUDE_PREFIX = ("backups", "__pycache__", ".secret_key")
 
 

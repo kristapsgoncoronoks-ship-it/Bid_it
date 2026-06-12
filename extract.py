@@ -391,6 +391,13 @@ def extract(upload_bytes, filename, backend=None, strict=False):
         if be in _AI:
             try:
                 draft = _ai_extract(be, texts)
+                # archive the AI-processed result in the data lake (same storage logic
+                # as the PDF vault) so any module can reuse it without re-calling the API.
+                try:
+                    import data_lake
+                    data_lake.put_extraction(draft, filename, be)
+                except Exception:
+                    pass
             except Exception as e:
                 # out-of-tokens / rate-limit / overload: let the queue retry later
                 if strict and is_transient_error(e):
