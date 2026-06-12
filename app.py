@@ -560,8 +560,21 @@ BASE = """<!doctype html><html><head><meta charset="utf-8">
 <title>Fleet Fuel Analytics</title><style>
 :root{--ink:#1a2733;--mut:#5b6b7a;--line:#dde4ea;--bg:#f4f6f8;--acc:#0e5fa8;--ok:#1b7340;--bad:#c8102e}
 *{box-sizing:border-box}body{margin:0;font:14px/1.45 -apple-system,Segoe UI,Roboto,Arial;color:var(--ink);background:var(--bg)}
-header{background:var(--ink);color:#fff;padding:14px 24px;display:flex;gap:26px;align-items:baseline;flex-wrap:wrap;position:sticky;top:0;z-index:20}
-header b{font-size:17px}header a{color:#cfe0f0;text-decoration:none;font-size:13.5px}header a.on{color:#fff;border-bottom:2px solid #6db1e8;padding-bottom:3px}
+header{background:linear-gradient(180deg,#22313e,#1a2733);color:#fff;padding:11px 22px;display:flex;gap:6px 16px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:20;box-shadow:0 1px 0 rgba(255,255,255,.04)}
+header b{font-size:16px;margin-right:4px;letter-spacing:.2px}
+header a{color:#cfe0f0;text-decoration:none;font-size:13.5px}
+header>a.on,.mlabel.on{color:#fff;border-bottom:2px solid #6db1e8;padding-bottom:2px}
+.menu{position:relative}
+.mlabel{color:#cfe0f0;font-size:13.5px;cursor:pointer;user-select:none;padding:2px 0;white-space:nowrap}
+.mlabel::after{content:"▾";color:#6db1e8;font-size:10px;margin-left:4px}
+.menu:hover .mlabel,.menu:focus-within .mlabel{color:#fff}
+.mdrop{position:absolute;top:100%;left:0;padding-top:8px;display:none;flex-direction:column;gap:1px;z-index:30}
+.menu:hover .mdrop,.menu:focus-within .mdrop{display:flex}
+.mdrop>span{background:#223240;border:1px solid #34485a;border-radius:9px;padding:6px;min-width:185px;display:flex;flex-direction:column;gap:1px;box-shadow:0 12px 30px rgba(0,0,0,.45)}
+.mdrop a{color:#cfe0f0;padding:7px 11px;border-radius:6px;white-space:nowrap;font-size:13px}
+.mdrop a:hover{background:#31485a;color:#fff}
+.mdrop a.on{background:#31485a;color:#fff}
+.rightnav{margin-left:auto;display:flex;align-items:center;gap:14px}
 th[data-sort]::after{content:" " attr(data-sort);color:#6db1e8;font-weight:400}
 .rowfilter{margin:0 0 8px;padding:6px 9px;border:1px solid var(--line);border-radius:6px;width:240px;font-size:13px;background:#fff}
 .tablewrap{overflow-x:auto;margin:0 0 2px}
@@ -593,37 +606,49 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
 .note{color:var(--mut);font-size:12px;margin-top:8px}
 .exp a{margin-right:14px}
 </style></head><body>
-<header><b>Fleet Fuel Analytics</b>
+<header><b>⛽ Fleet Fuel</b>
 <a href="/" class="{{'on' if page=='dash'}}">Dashboard</a>
-<a href="/savings" class="{{'on' if page=='sav'}}">Savings</a>
-<a href="/compare" class="{{'on' if page=='cmp'}}">Compare</a>
-<a href="/transactions" class="{{'on' if page=='txn'}}">Transactions</a>
-<a href="/headtohead" class="{{'on' if page=='h2h'}}">Head-to-head</a>
-<a href="/entities" class="{{'on' if page=='ent'}}">Entities &amp; VAT</a>
-<a href="/fx" class="{{'on' if page=='fx'}}">FX vs ECB</a>
-<a href="/stations" class="{{'on' if page=='stn'}}">Stations</a>
-{% if 'invoice_control' in perms %}<a href="/invoices" class="{{'on' if page=='inv'}}">Invoice control</a>
-<a href="/contracts" class="{{'on' if page=='con'}}">Contracts</a>{% endif %}
-{% if 'data_import' in perms %}<a href="/extract" class="{{'on' if page=='ext'}}">Import batch</a>
-<a href="/queue" class="{{'on' if page=='queue'}}">Waiting room</a>{% endif %}
-{% if 'vat_claims' in perms %}<a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
-<a href="/readiness" class="{{'on' if page=='rdy'}}">Claims</a>{% endif %}
-<a href="/recovery" class="{{'on' if page=='rec'}}">Recovery</a>
-<a href="/anomalies" class="{{'on' if page=='ano'}}">Anomalies</a>
-{% if 'pricing' in perms %}<a href="/pricing" class="{{'on' if page=='pri'}}">Pricing intel</a>{% endif %}
-{% if 'documents' in perms %}<a href="/documents" class="{{'on' if page=='doc'}}">Documents</a>{% endif %}
-<a href="/suppliers" class="{{'on' if page=='sup'}}">Suppliers</a>
-{% if 'customers' in perms %}<a href="/customers" class="{{'on' if page=='cus'}}">Customers</a>{% endif %}
-{% if 'data_import' in perms %}<a href="/data" class="{{'on' if page=='dat'}}">Data manager</a>
-<a href="/mining" class="{{'on' if page=='min'}}">Doc mining</a>
-<a href="/imports" class="{{'on' if page=='imp'}}">Imports</a>
-<a href="/files" class="{{'on' if page=='fil'}}">Files</a>{% endif %}
+<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['sav','cmp','txn','h2h','stn','ano','pri'] else ''}}">Analytics</span><div class="mdrop"><span>
+  <a href="/savings" class="{{'on' if page=='sav'}}">Savings</a>
+  <a href="/compare" class="{{'on' if page=='cmp'}}">Compare</a>
+  <a href="/transactions" class="{{'on' if page=='txn'}}">Transactions</a>
+  <a href="/headtohead" class="{{'on' if page=='h2h'}}">Head-to-head</a>
+  <a href="/stations" class="{{'on' if page=='stn'}}">Stations</a>
+  <a href="/anomalies" class="{{'on' if page=='ano'}}">Anomalies</a>
+  {% if 'pricing' in perms %}<a href="/pricing" class="{{'on' if page=='pri'}}">Pricing intel</a>{% endif %}
+</span></div></div>
+<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ent','vat','rdy','rec','fx'] else ''}}">VAT &amp; fees</span><div class="mdrop"><span>
+  <a href="/entities" class="{{'on' if page=='ent'}}">Entities &amp; VAT</a>
+  {% if 'vat_claims' in perms %}<a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
+  <a href="/readiness" class="{{'on' if page=='rdy'}}">Claims readiness</a>{% endif %}
+  <a href="/recovery" class="{{'on' if page=='rec'}}">Recovery &amp; fees</a>
+  <a href="/fx" class="{{'on' if page=='fx'}}">FX vs ECB</a>
+</span></div></div>
+{% if 'invoice_control' in perms or 'documents' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['inv','con','doc'] else ''}}">Compliance</span><div class="mdrop"><span>
+  {% if 'invoice_control' in perms %}<a href="/invoices" class="{{'on' if page=='inv'}}">Invoice control</a>
+  <a href="/contracts" class="{{'on' if page=='con'}}">Contract audit</a>{% endif %}
+  {% if 'documents' in perms %}<a href="/documents" class="{{'on' if page=='doc'}}">Documents</a>{% endif %}
+</span></div></div>{% endif %}
+{% if 'data_import' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ext','queue','imp','fil','min'] else ''}}">Intake</span><div class="mdrop"><span>
+  <a href="/extract" class="{{'on' if page=='ext'}}">Import batch</a>
+  <a href="/queue" class="{{'on' if page=='queue'}}">Waiting room</a>
+  <a href="/imports" class="{{'on' if page=='imp'}}">Import log</a>
+  <a href="/files" class="{{'on' if page=='fil'}}">File archive</a>
+  <a href="/mining" class="{{'on' if page=='min'}}">Doc mining</a>
+</span></div></div>{% endif %}
+<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['sup','cus','dat'] else ''}}">Master data</span><div class="mdrop"><span>
+  <a href="/suppliers" class="{{'on' if page=='sup'}}">Suppliers</a>
+  {% if 'customers' in perms %}<a href="/customers" class="{{'on' if page=='cus'}}">Customers</a>{% endif %}
+  {% if 'data_import' in perms %}<a href="/data" class="{{'on' if page=='dat'}}">Data manager</a>{% endif %}
+</span></div></div>
 <a href="/history" class="{{'on' if page=='his'}}">History</a>
-<span style="margin-left:auto" class="exp">
-{% if 'exports' in perms %}<a href="/export/summary">⬇ Summary report</a><a href="/export/master">⬇ Master xlsx</a><a href="/export/history">⬇ History report</a>{% endif %}
+<span class="rightnav">
+{% if 'exports' in perms %}<div class="menu" tabindex="0"><span class="mlabel">⬇ Export</span><div class="mdrop"><span>
+  <a href="/export/summary">Summary report</a><a href="/export/master">Master workbook</a><a href="/export/history">History report</a>
+</span></div></div>{% endif %}
 {% if role == 'admin' %}<a href="/admin" class="{{'on' if page=='adm'}}">Admin</a>{% endif %}
 <span class="note" style="color:#9fb3c4">{{ user }} ({{ role }})</span>
-<a href="/logout" style="margin-left:10px">Sign out</a></span>
+<a href="/logout">Sign out</a></span>
 </header><main>{{ body|safe }}</main><script src="/app.js" defer></script></body></html>"""
 
 _BASE_TMPL = None   # compiled once; render_template_string would recompile per call
