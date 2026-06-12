@@ -296,10 +296,13 @@ LOCKING = ("submitted", "approved", "paid")
 
 def _synthetic(ref, vat_id=None):
     """True if a claim line is not tied to ONE registered invoice: an INPUT
-    placeholder (no registered invoice / no real VAT ID) or an ALL: aggregate.
-    Centralizes the predicate used by the lock gate, the readiness/checklist
-    gates and the workbook so they all block the same set of synthetic refs."""
-    return ("INPUT" in str(ref)) or str(ref).startswith("ALL:") or ("INPUT" in str(vat_id))
+    placeholder (no registered invoice / no real VAT ID), an ALL: aggregate, or
+    an UNMATCHED transaction (no registered invoice resolves it). Centralizes the
+    predicate used by the lock gate, the readiness/checklist gates and the
+    workbook so they all block the same set of synthetic refs."""
+    ref = str(ref)
+    return (("INPUT" in ref) or ref.startswith("ALL:") or (ref == "UNMATCHED")
+            or ("INPUT" in str(vat_id)))
 
 def stream_invoices(con, ent, ctry, period, cache=None):
     """Distinct (supplier, invoice_ref) used by a claim stream."""
@@ -851,7 +854,11 @@ def invoice_lines(con, ent, ctry, qtr, cache=None):
             inv = next((ref for ref in refs if r["note"] and r["note"].split("/")[0] in r["note"]
                         and ref.startswith(r["note"].split(" ")[0])), None)
             inv = inv or next((ref for ref in refs if r["note"] and ref.split("/")[0] in r["note"]), None)
-            inv = inv or (refs[0] if len(refs) == 1 else "ALL: " + " + ".join(refs))
+            # No note match: resolve to the sole registered invoice if there is
+            # exactly one (legitimate); otherwise (zero or several) tag the row
+            # UNMATCHED so the gates treat it as a hard block instead of inventing
+            # an ALL: aggregate. UNMATCHED carries its VAT into the row.
+            inv = inv or (refs[0] if len(refs) == 1 else "UNMATCHED")
             a = by_inv[inv][r["product_group"]]
             a[0] += r["net"]; a[1] += r["vat"]; a[2] += r["netl"]; a[3] += r["vatl"]; a[4] = r["currency"]
         dates = dict(regs)

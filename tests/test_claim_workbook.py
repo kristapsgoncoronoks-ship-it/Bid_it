@@ -113,10 +113,7 @@ def test_workbook_blocks_synthetic_all_aggregate(tmp_path, monkeypatch):
 
 
 # ----------------------------------------------------------------- Order B
-ORDER_B_PLACEHOLDER = True
-
-
-def _DISABLED_test_invoice_lines_resolves_to_single_matched_invoice(tmp_path, monkeypatch):
+def test_invoice_lines_resolves_to_single_matched_invoice(tmp_path, monkeypatch):
     """Supplier with 2 registered invoices + a txn whose note matches ONE of them ->
     exactly one row tied to that specific invoice, never an ALL: aggregate."""
     cm, sm, vr = _modules(tmp_path, monkeypatch)
@@ -136,7 +133,7 @@ def _DISABLED_test_invoice_lines_resolves_to_single_matched_invoice(tmp_path, mo
     assert not vr._synthetic(lines[0]["invoice"], lines[0].get("vat_id"))
 
 
-def _DISABLED_test_invoice_lines_one_row_per_product_code(tmp_path, monkeypatch):
+def test_invoice_lines_one_row_per_product_code(tmp_path, monkeypatch):
     """Two product codes on the SAME matched invoice -> two rows, one per code."""
     cm, sm, vr = _modules(tmp_path, monkeypatch)
     _customer(cm)
@@ -156,7 +153,7 @@ def _DISABLED_test_invoice_lines_one_row_per_product_code(tmp_path, monkeypatch)
     assert len(lines) == 2
 
 
-def _DISABLED_test_invoice_lines_unmatched_marker_is_synthetic(tmp_path, monkeypatch):
+def test_invoice_lines_unmatched_marker_is_synthetic(tmp_path, monkeypatch):
     """A txn matching no invoice (supplier has 2 registered) -> a single UNMATCHED row
     that carries the VAT and is flagged synthetic (never an ALL: aggregate)."""
     cm, sm, vr = _modules(tmp_path, monkeypatch)
