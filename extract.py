@@ -240,6 +240,124 @@ def _ai_extract(backend, texts):
     return d
 
 
+# ---------------------------------------------------------------- structured e-invoices
+# EU e-invoicing (EN 16931) ships as structured XML — UBL Invoice or UN/CEFACT CII.
+# Those parse deterministically at 100% confidence (no AI). We read them
+# namespace-agnostically (by local element name), which also handles simpler
+# in-house XML invoice formats.
+def _xml_local(tag):
+    return tag.rsplit("}", 1)[-1]
+
+def _is_xml(filename, data):
+    if filename.lower().endswith(".xml"):
+        return True
+    head = data[:256].lstrip()[:64].lower()
+    return head.startswith(b"<?xml") or head.startswith(b"<invoice") or head.startswith(b"<rsm:") \
+        or head.startswith(b"<crossindustryinvoice")
+
+def _collect_xml(upload_bytes, filename):
+    """-> list of (name, xml_bytes): a single .xml, or the .xml entries in a ZIP."""
+    if filename.lower().endswith(".zip"):
+        out = []
+        try:
+            with zipfile.ZipFile(io.BytesIO(upload_bytes)) as z:
+                for n in z.namelist():
+                    if n.lower().endswith(".xml") and not n.startswith("__MACOSX"):
+                        out.append((os.path.basename(n), z.read(n)))
+        except zipfile.BadZipFile:
+            return []
+        return out
+    if _is_xml(filename, upload_bytes):
+        return [(os.path.basename(filename), upload_bytes)]
+    return []
+
+def _num(_s):
+    try:
+        return round(float(str(_s).replace(" ", "").replace(" ", "").replace(",", ".")), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+def _norm_date(s):
+    s = (s or "").strip()
+    if len(s) == 8 and s.isdigit():            # CII format 102: YYYYMMDD
+        return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+    return s[:10]
+
+def parse_einvoice(xml_bytes):
+    """Parse one UBL/CII/XML invoice into the standard draft shape. Lines are grouped
+    by country (delivery/origin where present) so each becomes one claimable invoice
+    row. Confidence 'high' — these are structured, not OCR'd."""
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(xml_bytes)
+    ln = _xml_local
+
+    def first(elem, *names):
+        for e in elem.iter():
+            if ln(e.tag) in names and (e.text or "").strip():
+                return e.text.strip()
+        return None
+
+    def party(*kinds):
+        """Find a supplier/seller party element and return (name, vat)."""
+        for e in root.iter():
+            if ln(e.tag) in kinds:
+                name = first(e, "RegistrationName", "Name")
+                vat = first(e, "CompanyID", "ID")
+                return name, (vat if vat and any(c.isalpha() for c in vat) else vat)
+        return None, None
+
+    doc_id = first(root, "ID") or ""
+    issue = _norm_date(first(root, "IssueDate", "IssueDateTime", "DateTimeString"))
+    currency = first(root, "DocumentCurrencyCode", "InvoiceCurrencyCode") or "EUR"
+    sup_name, sup_vat = party("AccountingSupplierParty", "SellerTradeParty")
+    cust_name, _ = party("AccountingCustomerParty", "BuyerTradeParty")
+
+    line_elems = [e for e in root.iter()
+                  if ln(e.tag) in ("InvoiceLine", "IncludedSupplyChainTradeLineItem", "Line")]
+    by_country = {}
+    for le in line_elems:
+        net = _num(first(le, "LineExtensionAmount", "NetAmount", "LineTotalAmount"))
+        vat = _num(first(le, "VatAmount", "TaxAmount"))
+        ctry = (first(le, "IdentificationCode", "CountryID", "Country", "OriginCountry") or "").strip()
+        agg = by_country.setdefault(ctry, [0.0, 0.0])
+        agg[0] += net; agg[1] += vat
+
+    lines = []
+    for ctry, (net, vat) in by_country.items():
+        lines.append({"invoice_no": doc_id, "date": issue, "country": ctry,
+                      "currency": currency, "net": round(net, 2), "vat": round(vat, 2),
+                      "_source": "e-invoice"})
+    if not lines:                              # totals-only invoice: fall back to header totals
+        net = _num(first(root, "TaxExclusiveAmount", "LineExtensionAmount"))
+        vat = _num(first(root, "TaxAmount"))
+        if net or vat:
+            lines = [{"invoice_no": doc_id, "date": issue, "country": "", "currency": currency,
+                      "net": net, "vat": vat, "_source": "e-invoice"}]
+    return {"supplier": sup_name, "supplier_vat": sup_vat, "statement_ref": doc_id,
+            "statement_date": issue, "currency": currency, "customer": cust_name,
+            "lines": lines, "notes": "structured e-invoice (UBL/CII/XML) — verify on review",
+            "backend": "e-invoice", "confidence": "high"}
+
+def _einvoice_draft(xmls):
+    """Merge one or more parsed e-invoice XMLs into a single review draft."""
+    merged, hdr = [], None
+    for name, data in xmls:
+        try:
+            d = parse_einvoice(data)
+        except Exception as e:
+            merged.append({"invoice_no": name, "date": "", "country": "", "currency": "EUR",
+                           "net": 0, "vat": 0, "_source": f"parse error: {e}"})
+            continue
+        hdr = hdr or d
+        merged.extend(d.get("lines", []))
+    draft = dict(hdr or {"supplier": None, "currency": "EUR", "backend": "e-invoice",
+                         "confidence": "high"})
+    draft["lines"] = merged
+    draft["files"] = [{"name": n, "size": len(b)} for n, b in xmls]
+    draft["_pdf_bytes"] = list(xmls)           # vault the XML source(s) on confirm
+    return draft
+
+
 # ---------------------------------------------------------------- orchestration
 def extract(upload_bytes, filename, backend=None, strict=False):
     """Turn an upload into a draft. `strict=True` (used by the deferred intake
@@ -248,6 +366,11 @@ def extract(upload_bytes, filename, backend=None, strict=False):
     silently producing an empty draft. The interactive path leaves strict=False
     and degrades to manual entry on any AI failure."""
     backend = backend or EXTRACT_BACKEND
+    # Structured e-invoices (UBL/CII/XML) parse deterministically at high confidence —
+    # no AI, regardless of the configured backend.
+    xmls = _collect_xml(upload_bytes, filename)
+    if xmls:
+        return _einvoice_draft(xmls)
     files = unpack(upload_bytes, filename)
     if not files:
         return {"error": "no PDF found in upload", "lines": [], "files": []}
