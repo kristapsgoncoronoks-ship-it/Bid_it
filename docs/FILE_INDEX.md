@@ -21,8 +21,8 @@ siblings directly), so this index is how you navigate them. See
 | `audit.py` | Trigger‑based change history in every database (old/new snapshots + acting user); `history()`, `diff()`, `as_of()`. |
 | `backup.py` | Crash‑consistent snapshots of all DBs + the document store + audit CSVs into `backups/`, each entry SHA‑256'd; `verify()`, `restore()`, rotation. |
 | `db.py` | Database abstraction seam — SQLite by default, the documented path to PostgreSQL. |
-| `dbtune.py` | Applies WAL + busy_timeout + synchronous=NORMAL to every connection so multiple processes can share the `.db` files safely. |
-| `proclock.py` | Cross‑process advisory lease lock (SQLite) — makes the scheduled backup a singleton and guards “one at a time” operations. |
+| `db_tuning.py` | Applies WAL + busy_timeout + synchronous=NORMAL to every connection so multiple processes can share the `.db` files safely. |
+| `process_lock.py` | Cross‑process advisory lease lock (SQLite) — makes the scheduled backup a singleton and guards “one at a time” operations. |
 | `tls.py` | Builds the TLS context from a cert/key/chain or a PKCS#12 `.pfx` (env‑configurable). |
 | `make_cert.py` | Generates a self‑signed certificate for internal use. |
 
@@ -31,7 +31,7 @@ siblings directly), so this index is how you navigate them. See
 |------|--------------|
 | `ingest.py` | Source adapters — read supplier data from xlsx / csv / xml / API. |
 | `extract.py` | Turn a PDF/ZIP batch into a reviewable *draft*: deterministic parser (offline) or AI backend (Claude/OpenAI/Azure). |
-| `intake_queue.py` | The durable “waiting room” queue + background worker: park uploads, extract later one at a time, retry on token‑quota outages, hold for manual send. |
+| `waiting_room.py` | The durable “waiting room” queue + background worker: park uploads, extract later one at a time, retry on token‑quota outages, hold for manual send. |
 | `watch_inbox.py` | Optional folder watcher that auto‑extracts PDFs/ZIPs dropped into an inbox. |
 
 ## Engine (monthly pipeline)
@@ -48,16 +48,16 @@ siblings directly), so this index is how you navigate them. See
 ## Master data
 | File | What it does |
 |------|--------------|
-| `customer_db.py` / `customers.db` | Our entities (the refund applicants): registration/VAT, payout IBAN, portals, onboarding & per‑country activation, and the fee terms. |
-| `supplier_db.py` / `suppliers.db` | Suppliers: legal identity, per‑country VAT registrations, banks, product catalogues, the invoice registry, statements, cadence. |
+| `customer_master.py` / `customers.db` | Our entities (the refund applicants): registration/VAT, payout IBAN, portals, onboarding & per‑country activation, and the fee terms. |
+| `supplier_master.py` / `suppliers.db` | Suppliers: legal identity, per‑country VAT registrations, banks, product catalogues, the invoice registry, statements, cadence. |
 
 ## VAT refunds, fees & compliance
 | File | What it does |
 |------|--------------|
 | `vat_refund.py` / `fuel_history.db` | The heart: claims per entity × country × period, thresholds, one‑invoice‑one‑submission locks, the fee lifecycle, the document‑vault index, and the dynamic quarter→annual merge. |
 | `invoice_control.py` | Receipt control (cadence × activity) and statement reconciliation with VAT triage (process / discard / discard‑domestic). |
-| `doc_storage.py` | The document vault: the logical folder‑path builder and the storage backends — local / SharePoint / FTP(S) — plus integrity and re‑file helpers. |
-| `pricing_intel.py` | Competitor NET‑price tracking and margin analysis against three baselines. |
+| `document_vault.py` | The document vault: the logical folder‑path builder and the storage backends — local / SharePoint / FTP(S) — plus integrity and re‑file helpers. |
+| `pricing_intelligence.py` | Competitor NET‑price tracking and margin analysis against three baselines. |
 | `anomaly.py` | Relative anomaly scan (station price vs country average, MoM jumps, volume spikes, off‑period dates). |
 | `ecb_rates.py` / `market_prices.py` | Reference FX (ECB) and market fuel‑price pulls. |
 | `money.py` | Decimal money helpers (ROUND_HALF_UP): `f2/fsum/q2`. Use these, never bare `round()` on currency. |
@@ -73,9 +73,9 @@ siblings directly), so this index is how you navigate them. See
 ## Sample / demo data generators (not part of the running app)
 | File | What it does |
 |------|--------------|
-| `build.py`, `build_bp.py`, `build_dkv.py`, `build_e100.py`, `build_moeve.py`, `build_tfc.py`, `build_full.py` | Generate the example supplier transaction workbooks used by the demo dataset (one per supplier). |
-| `dkv_data.py`, `e100_data.py`, `moeve_data.py` | The raw sample rows those builders use. |
-| `adjust.py` | Produces the Q8 adjusted‑pricing sample workbook. |
+| `sample_build_q8.py`, `sample_build_bp.py`, `sample_build_dkv.py`, `sample_build_e100.py`, `sample_build_moeve.py`, `sample_build_tfc.py`, `sample_build_q8_full.py` | Generate the example supplier transaction workbooks used by the demo dataset (one per supplier). |
+| `sample_dkv_data.py`, `sample_e100_data.py`, `sample_moeve_data.py` | The raw sample rows those builders use. |
+| `sample_q8_adjust.py` | Produces the Q8 adjusted‑pricing sample workbook. |
 
 ## Tests
 `tests/` — the pytest suite (web, security, auth, customers, claims, vault, intake

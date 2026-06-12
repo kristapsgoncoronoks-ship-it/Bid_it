@@ -272,7 +272,7 @@ detect corruption or a missing original.
 - **A new entity (customer):** add the row in customers + a payout bank account +
   its supplier account numbers. Red INPUTs on the Customers page show what's still
   missing; claim packs cannot be submitted until the applicant data is complete.
-- **A new supplier:** master data via Data manager (or `supplier_db.py` seed), set
+- **A new supplier:** master data via Data manager (or `supplier_master.py` seed), set
   the **invoice_cadence** (drives receipt control), register its first statement —
   the invoices auto-sync. Transaction-level loading (prices into benchmarks)
   additionally needs a ~30-minute row-map training in `supplier_specs.py` — see

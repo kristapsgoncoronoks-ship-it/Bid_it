@@ -11,13 +11,13 @@ Three-database architecture:
     fuel_history.db - what happened     (transactions, claims, documents)
 
 Usage:
-    python3 customer_db.py            -> (re)build + seed, print all profiles
-    python3 customer_db.py JUPITER    -> one profile
+    python3 customer_master.py            -> (re)build + seed, print all profiles
+    python3 customer_master.py JUPITER    -> one profile
 API: get_customer(name_or_code) -> dict incl. payout account; portal(name)
 """
 import sqlite3, sys
 import audit
-import dbtune
+import db_tuning
 
 import os
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
@@ -111,7 +111,7 @@ _SCHEMA_READY = set()   # DB files whose schema is set up this process
 def connect():
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
-    dbtune.tune(con)  # WAL + busy_timeout for safe multi-process access
+    db_tuning.tune(con)  # WAL + busy_timeout for safe multi-process access
     audit.bind(con)   # audit triggers call ffs_actor(); register it every connect
     if DB == ":memory:" or DB not in _SCHEMA_READY:
         con.executescript(SCHEMA)
@@ -158,7 +158,7 @@ def add_document(con, code, kind, filename, file_bytes, country=None):
     """Vault a customer document (hash-verified). country=None for customer-level
     docs (trade registry, contract); a country for country-specific docs (POA)."""
     import hashlib
-    import doc_storage
+    import document_vault
     sha = hashlib.sha256(file_bytes).hexdigest()
     # archive under <Customer> <RegNo>/customer-documents/<country|general>/<kind>/<file>
     try:
@@ -166,8 +166,8 @@ def add_document(con, code, kind, filename, file_bytes, country=None):
         cust_name, reg = c.get("company_name", code), c.get("reg_number")
     except Exception:
         cust_name, reg = code, None
-    safe = doc_storage.customer_vault_path(cust_name, reg, country, kind, filename)
-    be = doc_storage.backend(DOCDIR)
+    safe = document_vault.customer_vault_path(cust_name, reg, country, kind, filename)
+    be = document_vault.backend(DOCDIR)
     stored, web_url = be.put(safe, file_bytes)
     con.execute("""INSERT INTO customer_documents
         (customer, kind, filename, stored_path, sha256, size, backend, web_url, country)

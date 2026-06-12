@@ -9,12 +9,12 @@ import pytest
 
 @pytest.fixture()
 def iq(tmp_path, monkeypatch):
-    import intake_queue
-    importlib.reload(intake_queue)
-    monkeypatch.setattr(intake_queue, "DB", str(tmp_path / "intake.db"))
-    monkeypatch.setattr(intake_queue, "INBOX", str(tmp_path / "inbox"))
-    intake_queue._SCHEMA_READY.clear()
-    return intake_queue
+    import waiting_room
+    importlib.reload(waiting_room)
+    monkeypatch.setattr(waiting_room, "DB", str(tmp_path / "intake.db"))
+    monkeypatch.setattr(waiting_room, "INBOX", str(tmp_path / "inbox"))
+    waiting_room._SCHEMA_READY.clear()
+    return waiting_room
 
 
 def _stub_extract(monkeypatch, fn):

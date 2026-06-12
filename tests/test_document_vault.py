@@ -21,7 +21,7 @@ class FakeFtp:
 
 # ---------------------------------------------------------------- logical vault path
 def test_invoice_vault_path_structure():
-    import doc_storage as DS
+    import document_vault as DS
     # Customer (+reg) / Year / Country / Claim-period / file
     assert (DS.invoice_vault_path("Jupiter Plus AS", "EE100127540", "Germany",
                                   "2026-05", "BE98759.pdf")
@@ -36,14 +36,14 @@ def test_invoice_vault_path_structure():
 
 
 def test_customer_vault_path_structure():
-    import doc_storage as DS
+    import document_vault as DS
     assert (DS.customer_vault_path("SIA OMUSS", "LV123", "Poland", "power_of_attorney", "poa.pdf")
             == "SIA OMUSS LV123/customer-documents/Poland/power_of_attorney/poa.pdf")
     assert "/general/" in DS.customer_vault_path("SIA OMUSS", "LV123", None, "signed_contract", "c.pdf")
 
 
 def test_segment_sanitisation():
-    import doc_storage as DS
+    import document_vault as DS
     # slashes and illegal chars in a country/name can't break out of their segment
     p = DS.invoice_vault_path("Bad/Co:\\x", "R", "../etc", "2026-05", "a*b.pdf")
     assert ".." not in p.split("/")[2] and "\\" not in p and ":" not in p
@@ -51,7 +51,7 @@ def test_segment_sanitisation():
 
 
 def test_local_writes_nested_folders(tmp_path):
-    import doc_storage as DS
+    import document_vault as DS
     lb = DS.LocalBackend(str(tmp_path / "documents"))
     rel = DS.invoice_vault_path("Jupiter Plus AS", "EE1", "Germany", "2026-05", "x.pdf")
     loc, _ = lb.put(rel, b"%PDF nested")
@@ -60,7 +60,7 @@ def test_local_writes_nested_folders(tmp_path):
 
 
 def test_local_put_blocks_traversal(tmp_path):
-    import doc_storage as DS
+    import document_vault as DS
     import pytest
     lb = DS.LocalBackend(str(tmp_path / "documents"))
     with pytest.raises(ValueError):
@@ -68,7 +68,7 @@ def test_local_put_blocks_traversal(tmp_path):
 
 
 def test_local_roundtrip(tmp_path):
-    import doc_storage as DS
+    import document_vault as DS
     lb = DS.LocalBackend(str(tmp_path / "documents"))
     loc, url = lb.put("inv.pdf", b"%PDF-1.4 local")
     assert url is None
@@ -76,7 +76,7 @@ def test_local_roundtrip(tmp_path):
 
 
 def test_ftp_roundtrip_creates_nested_dirs(monkeypatch):
-    import doc_storage as DS
+    import document_vault as DS
     monkeypatch.setenv("FTP_DIR", "vault")
     store = {}
     fakes = []
@@ -94,7 +94,7 @@ def test_ftp_roundtrip_creates_nested_dirs(monkeypatch):
 
 
 def test_get_bytes_routes_by_locator_prefix(tmp_path, monkeypatch):
-    import doc_storage as DS
+    import document_vault as DS
     # ftp:// -> FtpBackend (stubbed)
     store = {"vault/x.pdf": b"hello-ftp"}
     monkeypatch.setattr(DS.FtpBackend, "_default_open", lambda self: FakeFtp(store))
@@ -109,16 +109,16 @@ def test_attach_document_files_under_logical_path(tmp_path, monkeypatch):
     """End-to-end: attach_document derives the customer reg-number + the invoice's
     country/period and files the PDF under the logical vault tree."""
     import importlib
-    import vat_refund, supplier_db, customer_db, doc_storage
-    for m in (supplier_db, customer_db, vat_refund):
+    import vat_refund, supplier_master, customer_master, document_vault
+    for m in (supplier_master, customer_master, vat_refund):
         importlib.reload(m)
     monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "fh.db"))
     monkeypatch.setattr(vat_refund, "DOCDIR", str(tmp_path / "docs"))
-    monkeypatch.setattr(supplier_db, "DB", str(tmp_path / "sup.db"))
-    monkeypatch.setattr(customer_db, "DB", str(tmp_path / "cust.db"))
+    monkeypatch.setattr(supplier_master, "DB", str(tmp_path / "sup.db"))
+    monkeypatch.setattr(customer_master, "DB", str(tmp_path / "cust.db"))
 
-    customer_db.add_customer("JUP", "Jupiter Plus AS", "EE", reg_number="EE100127540")
-    scon = supplier_db.connect()
+    customer_master.add_customer("JUP", "Jupiter Plus AS", "EE", reg_number="EE100127540")
+    scon = supplier_master.connect()
     scon.execute("""INSERT INTO supplier_invoices
         (supplier, country, invoice_no, invoice_date, period, currency, gross_total)
         VALUES ('DKV','Germany','INV1','2026-05-10','2026-05','EUR',100)""")
@@ -132,7 +132,7 @@ def test_attach_document_files_under_logical_path(tmp_path, monkeypatch):
     assert ok
     norm = sp.replace("\\", "/")
     assert "Jupiter Plus AS EE100127540/2026/Germany/Q2/" in norm
-    assert doc_storage.get_bytes(sp, str(tmp_path / "docs")) == b"%PDF inv"
+    assert document_vault.get_bytes(sp, str(tmp_path / "docs")) == b"%PDF inv"
 
 
 def test_documents_follow_claim_dynamically(tmp_path, monkeypatch):
@@ -140,16 +140,16 @@ def test_documents_follow_claim_dynamically(tmp_path, monkeypatch):
     the low-VAT Q1/Q2 invoices pulled into the yearly claim move to Annual — each
     document follows the claim its invoice was actually locked into."""
     import importlib, os
-    import vat_refund, supplier_db, customer_db, doc_storage
-    for m in (supplier_db, customer_db, vat_refund):
+    import vat_refund, supplier_master, customer_master, document_vault
+    for m in (supplier_master, customer_master, vat_refund):
         importlib.reload(m)
     monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "fh.db"))
     monkeypatch.setattr(vat_refund, "DOCDIR", str(tmp_path / "docs"))
-    monkeypatch.setattr(supplier_db, "DB", str(tmp_path / "sup.db"))
-    monkeypatch.setattr(customer_db, "DB", str(tmp_path / "cust.db"))
+    monkeypatch.setattr(supplier_master, "DB", str(tmp_path / "sup.db"))
+    monkeypatch.setattr(customer_master, "DB", str(tmp_path / "cust.db"))
 
-    customer_db.add_customer("JUP", "Jupiter Plus AS", "EE", reg_number="EE100127540")
-    scon = supplier_db.connect()
+    customer_master.add_customer("JUP", "Jupiter Plus AS", "EE", reg_number="EE100127540")
+    scon = supplier_master.connect()
     scon.executemany("""INSERT INTO supplier_invoices
         (supplier, country, invoice_no, invoice_date, period, currency, gross_total)
         VALUES (?,?,?,?,?,?,?)""",
@@ -178,7 +178,7 @@ def test_documents_follow_claim_dynamically(tmp_path, monkeypatch):
     assert "/Germany/Q3/" in paths["INV3"]            # quarterly claim stayed put
     assert "/Germany/Annual/" in paths["INV1"]        # deferred -> annual
     assert "/Germany/Annual/" in paths["INV2"]
-    assert doc_storage.get_bytes(paths["INV1"], str(tmp_path / "docs")) == b"q1"
+    assert document_vault.get_bytes(paths["INV1"], str(tmp_path / "docs")) == b"q1"
     # idempotent
     assert vat_refund.file_documents_for_claim(con, "JUP", "Germany", "2026-YEAR") == 0
     con.close()
@@ -189,14 +189,14 @@ def test_annual_claim_excludes_already_claimed_quarters(tmp_path, monkeypatch):
     submitted (Q3) is excluded from the annual lock set, not treated as a conflict,
     so Q1+Q2 can be merged into the yearly claim while Q3 stays quarterly."""
     import importlib
-    import vat_refund, supplier_db, customer_db
-    for m in (supplier_db, customer_db, vat_refund):
+    import vat_refund, supplier_master, customer_master
+    for m in (supplier_master, customer_master, vat_refund):
         importlib.reload(m)
     monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "fh.db"))
     monkeypatch.setattr(vat_refund, "DOCDIR", str(tmp_path / "docs"))
-    monkeypatch.setattr(supplier_db, "DB", str(tmp_path / "sup.db"))
-    monkeypatch.setattr(customer_db, "is_active", lambda *a, **k: True)
-    monkeypatch.setattr(customer_db, "country_active", lambda *a, **k: True)
+    monkeypatch.setattr(supplier_master, "DB", str(tmp_path / "sup.db"))
+    monkeypatch.setattr(customer_master, "is_active", lambda *a, **k: True)
+    monkeypatch.setattr(customer_master, "country_active", lambda *a, **k: True)
     # year invoices: Q3A is its own quarter; Q1A/Q2A defer to the annual claim
     monkeypatch.setattr(vat_refund, "stream_invoices",
         lambda c, e, ct, p: ([("DKV", "Q3A"), ("DKV", "Q1A"), ("DKV", "Q2A")]
@@ -223,7 +223,7 @@ def test_annual_claim_excludes_already_claimed_quarters(tmp_path, monkeypatch):
 
 
 def test_backend_selection(monkeypatch, tmp_path):
-    import doc_storage as DS
+    import document_vault as DS
     monkeypatch.setattr(DS, "BACKEND", "ftp")
     assert DS.backend(str(tmp_path)).name == "ftp"
     monkeypatch.setattr(DS, "BACKEND", "local")
@@ -232,7 +232,7 @@ def test_backend_selection(monkeypatch, tmp_path):
 
 def test_ftp_uses_tls_by_default(monkeypatch):
     # FTPS (encrypted) must be the default; plain FTP only when explicitly disabled.
-    import doc_storage as DS
+    import document_vault as DS
     import ftplib
     created = {}
     class Probe(ftplib.FTP_TLS):

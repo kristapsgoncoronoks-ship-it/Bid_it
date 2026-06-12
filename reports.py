@@ -38,10 +38,10 @@ FMT_PCT = "0.0%"
 
 
 def connect():
-    import dbtune
+    import db_tuning
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
-    dbtune.tune(con)  # WAL + busy_timeout for safe multi-process access
+    db_tuning.tune(con)  # WAL + busy_timeout for safe multi-process access
     return con
 
 

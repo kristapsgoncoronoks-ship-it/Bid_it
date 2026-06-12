@@ -13,7 +13,7 @@ CLI:
 """
 import os, sqlite3, hashlib, secrets, sys, time
 import audit
-import dbtune
+import db_tuning
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 DB = f"{WORKDIR}/security.db"
@@ -56,7 +56,7 @@ _SCHEMA_READY = set()   # DB files whose schema is set up this process
 def connect():
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
-    dbtune.tune(con)  # WAL + busy_timeout for safe multi-process access
+    db_tuning.tune(con)  # WAL + busy_timeout for safe multi-process access
     audit.bind(con)   # audit triggers call ffs_actor(); register it every connect
     # Schema/migrations/seeding persist in the file; run once per process per DB
     # (connect() is called on every page render via permissions_for).

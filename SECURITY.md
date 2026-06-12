@@ -79,7 +79,7 @@ What is implemented in code, what must be done on the host, and why.
   compliance). Consequences: access control is an obligation (login + host measures
   above), and include this processing in your records of processing activities.
 - VAT documentation must be RETAINED per refund-state rules (commonly 7–10 years) —
-  the duty is controlled access, not deletion. SharePoint backend (doc_storage.py,
+  the duty is controlled access, not deletion. SharePoint backend (document_vault.py,
   `Sites.Selected` grant) adds tenant permissions, versioning and retention policies
   to the vault.
 

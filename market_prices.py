@@ -1,6 +1,6 @@
 """
 MARKET PRICES - pull official / open-data fuel-price benchmarks from the internet
-and load them into pricing_intel.wholesale_prices (the external market index
+and load them into pricing_intelligence.wholesale_prices (the external market index
 behind the "margin vs wholesale" / "gap vs market" baseline on the Pricing page).
 
 We deliberately use LEGITIMATE public sources, not competitor-site scraping:
@@ -30,7 +30,7 @@ import datetime
 
 import requests
 
-import pricing_intel
+import pricing_intelligence
 
 # Map ISO codes / common names to the country names used in the system.
 COUNTRY_ALIASES = {
@@ -136,7 +136,7 @@ DEFAULT_ORDER = ["json", "csv"]
 
 def fetch_and_store(timeout=None, sources=None):
     """Scrape the first working configured source and load diesel NET prices into
-    pricing_intel.wholesale_prices. Returns dict(rows, countries, asof, source).
+    pricing_intelligence.wholesale_prices. Returns dict(rows, countries, asof, source).
     Raises RuntimeError naming every attempt if all sources fail."""
     timeout = timeout or float(os.environ.get("MARKET_TIMEOUT", "15"))
     if sources is None:
@@ -149,7 +149,7 @@ def fetch_and_store(timeout=None, sources=None):
             continue
         try:
             rows = fn(timeout)
-            n = pricing_intel.load_wholesale(rows)
+            n = pricing_intelligence.load_wholesale(rows)
             return {"rows": n, "countries": sorted({r["country"] for r in rows}),
                     "asof": max(r["date"] for r in rows), "source": rows[0]["source"]}
         except Exception as e:  # noqa: BLE001 - report and try the next source

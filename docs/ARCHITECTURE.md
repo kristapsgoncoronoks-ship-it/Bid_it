@@ -27,9 +27,9 @@ consistent. For setup see **[INSTALL.md](INSTALL.md)**; for day‑to‑day use s
 
 ```
 1. INTAKE          ingest.py (xlsx/csv/xml/api), extract.py (PDF/ZIP → draft),
-                   intake_queue.py (durable "waiting room" + background worker)
+                   waiting_room.py (durable "waiting room" + background worker)
         │
-2. MASTER DATA     customers.db (customer_db.py)   suppliers.db (supplier_db.py)
+2. MASTER DATA     customers.db (customer_master.py)   suppliers.db (supplier_master.py)
                    fuel_history.db (vat_refund.py / history.py)
         │
 3. ENGINE          consolidate.py → validate.py → build_master.py → history.py
@@ -37,11 +37,11 @@ consistent. For setup see **[INSTALL.md](INSTALL.md)**; for day‑to‑day use s
 4. COMPLIANCE      vat_refund.py (claims, locks, fees, vault index),
                    invoice_control.py (receipt control / statement triage)
         │
-5. PRESENTATION    app.py (Flask: ~25 pages + JSON API + Excel), pricing_intel.py,
+5. PRESENTATION    app.py (Flask: ~25 pages + JSON API + Excel), pricing_intelligence.py,
                    reports.py, anomaly.py
         │
-6. PLATFORM        auth.py, audit.py, backup.py, tls.py, doc_storage.py, db.py,
-                   dbtune.py, proclock.py
+6. PLATFORM        auth.py, audit.py, backup.py, tls.py, document_vault.py, db.py,
+                   db_tuning.py, process_lock.py
 ```
 
 ---
@@ -50,11 +50,11 @@ consistent. For setup see **[INSTALL.md](INSTALL.md)**; for day‑to‑day use s
 
 | Database | Owner module | Key tables |
 |----------|--------------|------------|
-| `customers.db` | `customer_db.py` | `customers` (reg/VAT/payout/fee), `customer_bank_accounts`, `customer_documents`, `customer_countries` (per‑country activation), `customer_fees`, `country_requirements` |
-| `suppliers.db` | `supplier_db.py` | `suppliers` (+ cadence), `supplier_vat_registrations`, `supplier_bank_accounts`, `supplier_products`, `supplier_invoices`, `supplier_statements` |
+| `customers.db` | `customer_master.py` | `customers` (reg/VAT/payout/fee), `customer_bank_accounts`, `customer_documents`, `customer_countries` (per‑country activation), `customer_fees`, `country_requirements` |
+| `suppliers.db` | `supplier_master.py` | `suppliers` (+ cadence), `supplier_vat_registrations`, `supplier_bank_accounts`, `supplier_products`, `supplier_invoices`, `supplier_statements` |
 | `fuel_history.db` | `vat_refund.py`, `history.py`, `invoice_control.py` | `transactions` (canonical fuel lines), `vat_applications` (claim lifecycle + fees), `vat_claimed_invoices` (one‑invoice‑one‑submission locks), `invoice_documents` (vault index, SHA‑256), `invoice_receipt_control` |
 | `security.db` *(not committed)* | `auth.py` | `users` (scrypt hashes), `role_permissions`, `login_log`, `error_log`, `app_settings` |
-| `intake.db` *(operational)* | `intake_queue.py` | `intake_jobs` (the waiting‑room queue) |
+| `intake.db` *(operational)* | `waiting_room.py` | `intake_jobs` (the waiting‑room queue) |
 | `ecb_rates.db` *(cache)* | `ecb_rates.py` | `ecb_fx` (reference FX) |
 
 Separation keeps *who we are* (customers), *who they are* (suppliers), and *what
@@ -70,7 +70,7 @@ data only by code.
   with a vanilla‑JS asset served from `/app.js` (CSP‑safe). `after_request` adds security
   headers and resets the actor.
 - **Background workers** (started by `serve.py` / `gunicorn_conf.py`, never on import):
-  the **backup scheduler** (leader‑elected via `proclock` so only one process snapshots)
+  the **backup scheduler** (leader‑elected via `process_lock` so only one process snapshots)
   and the **intake worker** (drains the waiting room; the queue claim hands each job to
   exactly one process, so every process can drain concurrently).
 
@@ -78,10 +78,10 @@ data only by code.
 
 ## Concurrency & scale
 
-- **SQLite tuned for multiple processes** (`dbtune.py`): WAL + `busy_timeout` +
+- **SQLite tuned for multiple processes** (`db_tuning.py`): WAL + `busy_timeout` +
   `synchronous=NORMAL` on every connection, so several worker processes share the `.db`
   files without “database is locked”.
-- **Cross‑process coordination** (`proclock.py`): a SQLite‑backed lease lock makes the
+- **Cross‑process coordination** (`process_lock.py`): a SQLite‑backed lease lock makes the
   scheduled backup a singleton and guards “one at a time” operations.
 - **Audit actor** is thread‑local and resolved per row by a per‑connection SQL function
   (`ffs_actor()`), so concurrent requests never mis‑attribute a change.
@@ -102,7 +102,7 @@ hand:
 <Customer> <RegNo> / customer-documents / <country|general> / <kind> / <file>
 ```
 
-`doc_storage.py` builds that path once (`invoice_vault_path` / `customer_vault_path`) and
+`document_vault.py` builds that path once (`invoice_vault_path` / `customer_vault_path`) and
 all backends store under it:
 
 - **local** (default) — `documents/…`; locator is the path.
@@ -140,4 +140,4 @@ python consolidate.py          # pipeline smoke test — must PASS every supplie
 ```
 
 Inline smoke tests also exist in several modules (run the module directly, e.g.
-`python doc_storage.py`, `python proclock.py`).
+`python document_vault.py`, `python process_lock.py`).

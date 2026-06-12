@@ -33,9 +33,9 @@ to keep the table lean. The authoritative audit happens at confirm time in the
 existing statement-registration path.
 
 CLI:
-    python intake_queue.py --work      drain forever (run as a separate worker)
-    python intake_queue.py --once      drain the current backlog and exit
-    python intake_queue.py --status    print counts by state
+    python waiting_room.py --work      drain forever (run as a separate worker)
+    python waiting_room.py --once      drain the current backlog and exit
+    python waiting_room.py --status    print counts by state
 """
 import os, sqlite3, hashlib, json, time, datetime
 
@@ -95,13 +95,13 @@ def _at(epoch):
 
 
 def connect():
-    import dbtune
+    import db_tuning
     con = sqlite3.connect(DB, timeout=30)
     con.row_factory = sqlite3.Row
     # a queue wants durability and cross-process concurrency: WAL lets the web UI
     # read progress while a worker writes, and busy_timeout lets several worker
     # processes claim jobs without tripping "database is locked".
-    dbtune.tune(con)
+    db_tuning.tune(con)
     if DB != ":memory:" and DB not in _SCHEMA_READY:
         con.executescript(SCHEMA)
         try: con.execute("ALTER TABLE intake_jobs ADD COLUMN defer_count INTEGER DEFAULT 0")

@@ -1,7 +1,7 @@
 import os, sys
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, WORKDIR)
-from e100_data import T
+from sample_e100_data import T
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 

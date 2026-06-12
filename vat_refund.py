@@ -12,8 +12,8 @@ Statuses: draft -> ready -> submitted -> approved -> paid (free text allowed)
 import sqlite3, sys, collections
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
-import supplier_db, customer_db, audit, money
-import dbtune
+import supplier_master, customer_master, audit, money
+import db_tuning
 from vat_config import (GOODS_CODE,
                         MIN_QUARTER, MIN_ANNUAL, DEADLINE_FMT,
                         LOCAL_CCY_INPUT, COMPLIANCE_NOTES)
@@ -38,7 +38,7 @@ _SCHEMA_READY = set()   # DB files whose schema is set up this process
 def connect():
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
-    dbtune.tune(con)  # WAL + busy_timeout for safe multi-process access
+    db_tuning.tune(con)  # WAL + busy_timeout for safe multi-process access
     audit.bind(con)   # audit triggers call ffs_actor(); register it every connect
     if DB != ":memory:" and DB in _SCHEMA_READY:
         return con
@@ -88,7 +88,7 @@ def attach_document(con, ent, sup, ref, src_path=None, file_bytes=None,
     <Customer> <RegNo>/<Year>/<Country>/<Claim period>/<file>; country/period are
     looked up from the invoice registry when not passed in."""
     import hashlib, os
-    import doc_storage
+    import document_vault
     if src_path:
         file_bytes = open(src_path, "rb").read()
         filename = filename or os.path.basename(src_path)
@@ -106,7 +106,7 @@ def attach_document(con, ent, sup, ref, src_path=None, file_bytes=None,
     # invoice, and the customer's registration number) — all best-effort.
     if country is None or period is None:
         try:
-            scon = supplier_db.connect()
+            scon = supplier_master.connect()
             inv = scon.execute("""SELECT country, period FROM supplier_invoices
                                   WHERE supplier=? AND invoice_no=?""", (sup, ref)).fetchone()
             scon.close()
@@ -117,13 +117,13 @@ def attach_document(con, ent, sup, ref, src_path=None, file_bytes=None,
             pass
     cust_name, reg = ent, None
     try:
-        c = customer_db.get_customer(ent) or {}
+        c = customer_master.get_customer(ent) or {}
         cust_name = c.get("company_name") or ent
         reg = c.get("reg_number")
     except Exception:
         pass
-    safe = doc_storage.invoice_vault_path(cust_name, reg, country, period, filename)
-    be = doc_storage.backend(DOCDIR)
+    safe = document_vault.invoice_vault_path(cust_name, reg, country, period, filename)
+    be = document_vault.backend(DOCDIR)
     stored, web_url = be.put(safe, file_bytes)
     con.execute("""INSERT INTO invoice_documents (entity, supplier, invoice_ref, filename,
                    stored_path, sha256, size, kind, backend, web_url)
@@ -152,9 +152,9 @@ def file_documents_for_claim(con, ent, ctry, period):
     Re-filed per document in a DB-safe order — write the new copy, point the row at
     it, THEN delete the old copy — so a crash never leaves the database referencing
     a missing file. Idempotent. Returns the number of documents moved."""
-    import doc_storage
+    import document_vault
     try:
-        c = customer_db.get_customer(ent) or {}
+        c = customer_master.get_customer(ent) or {}
         cust_name = c.get("company_name") or ent
         reg = c.get("reg_number")
     except Exception:
@@ -168,16 +168,16 @@ def file_documents_for_claim(con, ent, ctry, period):
             old = d["stored_path"]
             # filing folder follows the CLAIM's period (Annual for a yearly claim),
             # not the invoice's calendar quarter.
-            new_name = doc_storage.invoice_vault_path(cust_name, reg, ctry, period, d["filename"])
-            data = doc_storage.get_bytes(old, DOCDIR)
-            new_loc, web_url = doc_storage.copy_to(new_name, data, DOCDIR)
+            new_name = document_vault.invoice_vault_path(cust_name, reg, ctry, period, d["filename"])
+            data = document_vault.get_bytes(old, DOCDIR)
+            new_loc, web_url = document_vault.copy_to(new_name, data, DOCDIR)
             if str(new_loc) == str(old):
                 continue                                # already in the right folder
             con.execute("UPDATE invoice_documents SET stored_path=?, web_url=? WHERE id=?",
                         (new_loc, web_url, d["id"]))
             con.commit()                                # row now points at the new copy
             try:
-                doc_storage.delete(old, DOCDIR)         # safe to drop the old copy
+                document_vault.delete(old, DOCDIR)         # safe to drop the old copy
             except Exception:
                 pass                                    # orphan at worst, never lost
             moved += 1
@@ -188,7 +188,7 @@ def verify_documents(con=None):
     stored file and compare its SHA-256 to the hash recorded when it was attached.
     Detects corrupted or missing/jeopardised files. Returns (rows, summary)."""
     import hashlib
-    import doc_storage
+    import document_vault
     close = False
     if con is None:
         con = connect(); close = True
@@ -197,7 +197,7 @@ def verify_documents(con=None):
                             sha256, size, backend FROM invoice_documents ORDER BY id"""):
         status, detail = "OK", ""
         try:
-            data = doc_storage.get_bytes(r["stored_path"], DOCDIR)
+            data = document_vault.get_bytes(r["stored_path"], DOCDIR)
             actual = hashlib.sha256(data).hexdigest()
             if actual != r["sha256"]:
                 status, detail = "CORRUPT", f"hash {actual[:8]} != recorded {r['sha256'][:8]}"
@@ -246,12 +246,12 @@ def set_status(con, ent, ctry, period, new):
     we had won the lock."""
     # A tracked customer must be ACTIVATED (onboarding documents complete) before a
     # claim can be submitted on their behalf. Untracked entities are not gated.
-    if new in LOCKING and customer_db.is_active(ent) is False:
+    if new in LOCKING and customer_master.is_active(ent) is False:
         return False, (f"customer '{ent}' is not activated — complete the trade registry, "
                        f"bank account and signed contract on the Customers page first")
     # Each refund country is activated separately (request + receive its documents).
     # Once activation has been started for a country it must reach 'active' to submit.
-    if new in LOCKING and customer_db.country_active(ent, ctry) is False:
+    if new in LOCKING and customer_master.country_active(ent, ctry) is False:
         return False, (f"refund country '{ctry}' is not activated for '{ent}' — request and "
                        f"receive the country documents (power of attorney) on the Customers page")
     try:
@@ -342,8 +342,8 @@ def set_status(con, ent, ctry, period, new):
                 ph = ",".join("?" * len(months))
                 ve = con.execute(f"SELECT ROUND(SUM(vat_eur),2) FROM transactions WHERE entity=? "
                                  f"AND country=? AND period IN ({ph})", [ent, ctry] + months).fetchone()[0] or 0.0
-            fpct, fmin = customer_db.fee_for(ent, ctry)
-            fee, _basis = customer_db.compute_fee(ve, fpct, fmin)
+            fpct, fmin = customer_master.fee_for(ent, ctry)
+            fee, _basis = customer_master.compute_fee(ve, fpct, fmin)
             con.execute("""UPDATE vat_applications SET vat_eur=?, fee_eur=?, fee_pct=?, fee_min=?
                            WHERE entity=? AND refund_country=? AND ref_period=?""",
                         (ve, fee, fpct, fmin, ent, ctry, period))
@@ -355,12 +355,12 @@ def set_status(con, ent, ctry, period, new):
                                WHERE entity=? AND refund_country=? AND ref_period=?""",
                             (ent, ctry, period)).fetchone()
             base = (r["paid_amount"] if r and r["paid_amount"] else (r["vat_eur"] if r else 0)) or 0
-            fee, _b = customer_db.compute_fee(base, (r["fee_pct"] if r else 0) or 0,
+            fee, _b = customer_master.compute_fee(base, (r["fee_pct"] if r else 0) or 0,
                                               (r["fee_min"] if r else 0) or 0)
             con.execute("""UPDATE vat_applications SET fee_eur=?, fee_billed_date=date('now'),
                            payout_to=COALESCE(payout_to, ?)
                            WHERE entity=? AND refund_country=? AND ref_period=?""",
-                        (fee, customer_db.payout_route(ent), ent, ctry, period))
+                        (fee, customer_master.payout_route(ent), ent, ctry, period))
         con.commit()
     except Exception:
         con.rollback()
@@ -414,9 +414,9 @@ def submission_readiness(con, ent, ctry, period):
     """Read-only check of whether a claim CAN be submitted. Returns (ready, [issues]).
     Mirrors the blocking conditions in set_status without writing anything."""
     issues = []
-    if customer_db.is_active(ent) is False:
+    if customer_master.is_active(ent) is False:
         issues.append("customer not activated")
-    if customer_db.country_active(ent, ctry) is False:
+    if customer_master.country_active(ent, ctry) is False:
         issues.append(f"refund country '{ctry}' not activated")
     invs = stream_invoices(con, ent, ctry, period)
     bad = [r for s, r in invs if "INPUT" in r or r.startswith("ALL:")]
@@ -499,14 +499,14 @@ def claim_matrix(con, year):
             out.append(dict(entity=ent, country=ctry, period=q, vat_eur=money.f2(ve),
                             vat_local=money.f2(vl), currency=s["ccy"], lines=n,
                             verdict=verdict, missing=missing,
-                            home=customer_db.portal(ent),
+                            home=customer_master.portal(ent),
                             deadline=DEADLINE_FMT.format(year_plus1=int(year)+1)))
         out.append(dict(entity=ent, country=ctry, period=f"{year}-YEAR",
                         vat_eur=money.f2(year_ve), vat_local=money.f2(year_vl),
                         currency=s["ccy"], lines=sum(v[2] for v in s["qs"].values()),
                         verdict=("READY (annual >= 50 EUR)" if year_ve >= MIN_ANNUAL
                                  else "BELOW ANNUAL MIN"),
-                        missing=[], home=customer_db.portal(ent),
+                        missing=[], home=customer_master.portal(ent),
                         deadline=DEADLINE_FMT.format(year_plus1=int(year)+1)))
     return out
 
@@ -521,7 +521,7 @@ def invoice_lines(con, ent, ctry, qtr, cache=None):
     cache = cache if cache is not None else {}
     scon = cache.get("_scon")
     if scon is None:
-        scon = supplier_db.connect(); cache["_scon"] = scon
+        scon = supplier_master.connect(); cache["_scon"] = scon
     months = q_months(qtr)
     sups = [r[0] for r in con.execute(
         """SELECT DISTINCT supplier FROM transactions WHERE entity=? AND country=?
@@ -532,8 +532,8 @@ def invoice_lines(con, ent, ctry, qtr, cache=None):
         if ck in cache:
             issuer, vatid, vnote, regs = cache[ck]
         else:
-            issuer, vatid, vnote = supplier_db.get_issuer(sup, ctry, con=scon)
-            regs = supplier_db.get_invoices(sup, ctry, con=scon)
+            issuer, vatid, vnote = supplier_master.get_issuer(sup, ctry, con=scon)
+            regs = supplier_master.get_invoices(sup, ctry, con=scon)
             cache[ck] = (issuer, vatid, vnote, regs)
         refs = [r[0] for r in regs]
         rows = con.execute(
@@ -634,7 +634,7 @@ def build_workbook(con, year):
                      f"deadline {m['deadline']}; verdict: {m['verdict']}"
                      + ("; QUARTER INCOMPLETE - missing " + ", ".join(m["missing"]) if m["missing"] else ""))
         ws2["A2"].font = it8
-        cust = customer_db.get_customer(m["entity"])
+        cust = customer_master.get_customer(m["entity"])
         ws2["A3"] = (f"APPLICANT: {cust['company_name']} | Reg. no: {cust['reg_number']} | "
                      f"VAT: {cust['vat_number']} | Legal address: {cust['legal_address']}")
         ws2["A4"] = f"Refund payout account: {cust['payout']}"

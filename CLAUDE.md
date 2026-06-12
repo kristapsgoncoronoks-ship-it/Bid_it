@@ -13,11 +13,11 @@ competitor price-competitiveness intelligence, for five Baltic transport entitie
 ## Architecture — six blocks (see README.md for the diagram)
 1. Intake     `ingest.py` (xlsx/csv/xml/api), `extract.py` (PDF/ZIP→draft)
 2. Master data 3 SQLite DBs: `customers.db`, `suppliers.db`, `fuel_history.db`
-               via `customer_db.py`, `supplier_db.py`, `vat_refund.py`
+               via `customer_master.py`, `supplier_master.py`, `vat_refund.py`
 3. Engine     `consolidate.py`→`validate.py`→`build_master.py`→`history.py`
 4. Compliance `vat_refund.py` (claims, locks), `invoice_control.py` (receipt/triage)
-5. Presentation `app.py` (Flask, ~18 pages + JSON API + Excel), `pricing_intel.py`
-6. Platform   `auth.py`, `audit.py`, `backup.py`, `tls.py`, `doc_storage.py`, `db.py`
+5. Presentation `app.py` (Flask, ~18 pages + JSON API + Excel), `pricing_intelligence.py`
+6. Platform   `auth.py`, `audit.py`, `backup.py`, `tls.py`, `document_vault.py`, `db.py`
 
 ## Key conventions (follow these)
 - Every module is location-independent: `WORKDIR = os.path.dirname(os.path.abspath(__file__))`.
@@ -48,13 +48,13 @@ No pytest suite yet — the convention has been inline smoke tests:
 when logged in. A good next task: extract these into `tests/` with pytest.
 
 ## Common tasks
-- Add a supplier (data): `supplier_db.py` + set `invoice_cadence`; register a statement.
+- Add a supplier (data): `supplier_master.py` + set `invoice_cadence`; register a statement.
 - Add a supplier PDF parser: add a `parse_<x>()` to the PARSER REGISTRY in `extract.py`.
 - Monthly close: edit `month_config.py` → `consolidate.py` → `build_master.py` →
   `history.py` → `invoice_control.py <period>` → `backup.py`.
 
 ## Known next steps (backlog)
-- Wholesale price feed for true-margin view (`pricing_intel.wholesale_prices`).
+- Wholesale price feed for true-margin view (`pricing_intelligence.wholesale_prices`).
 - Extract inline smoke tests into a pytest suite.
 - Logging layer to replace remaining `except: pass` migration guards.
 - Migration-version table so ALTERs run once instead of every connect().

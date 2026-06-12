@@ -8,15 +8,15 @@ terms, payment terms, and the invoice registry. The transactional database
 suppliers only by code - clean separation of master data vs. transactions.
 
 Usage:
-    python3 supplier_db.py                 -> (re)build schema + seed, print cards
-    python3 supplier_db.py Q8              -> print one supplier card
+    python3 supplier_master.py                 -> (re)build schema + seed, print cards
+    python3 supplier_master.py Q8              -> print one supplier card
 Helpers for other modules:
     get_issuer(code, country) -> (legal_name, vat_id_or_None, note)
     get_invoices(code, country) -> [(invoice_no, date), ...]
 """
 import sqlite3, sys
 import audit
-import dbtune
+import db_tuning
 
 import os
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
@@ -157,7 +157,7 @@ _SCHEMA_READY = set()   # DB files whose schema is set up this process
 def connect():
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
-    dbtune.tune(con)  # WAL + busy_timeout for safe multi-process access
+    db_tuning.tune(con)  # WAL + busy_timeout for safe multi-process access
     audit.bind(con)   # audit triggers call ffs_actor(); register it every connect
     # Schema/migration/trigger setup persists in the file; only do it once per
     # process per DB (this connect() is called many times per request).

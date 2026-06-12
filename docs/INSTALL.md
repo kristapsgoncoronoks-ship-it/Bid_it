@@ -154,7 +154,7 @@ WorkingDirectory=/opt/fleetfuel/app
 #Environment=FTP_DIR=fuelvault/invoices
 #Environment=FTP_TLS=1          # 1 = FTPS (encrypted, default); 0 = plain FTP (LAN only)
 # Background intake worker (waiting room) — on by default; set 0 to disable on this
-# process (e.g. when a separate `python intake_queue.py --work` process drains it):
+# process (e.g. when a separate `python waiting_room.py --work` process drains it):
 #Environment=INTAKE_WORKER=1
 # Supplier APIs (optional):
 #Environment=DKV_API_TOKEN=...
@@ -237,7 +237,7 @@ logical tree (`<Customer> <RegNo>/<Year>/<Country>/<Claim period>/<file>`) on ev
 backend.
 
 **SharePoint (Microsoft 365)** — one‑time, with your M365 admin (full details in the
-`doc_storage.py` header):
+`document_vault.py` header):
 1. Entra ID → App registrations → New ("Fleet Fuel Vault") → client secret.
 2. Graph **application** permission `Sites.Selected` → admin consent → grant the app
    write access to the one target site.
@@ -245,12 +245,12 @@ backend.
 4. Fill the `SP_*` + `DOC_BACKEND=sharepoint` lines in the systemd unit, then:
    `sudo systemctl restart fleetfuel`.
 5. Move existing local documents:
-   `sudo -u fleetfuel /opt/fleetfuel/venv/bin/python -c "import vat_refund, doc_storage; con=vat_refund.connect(); print(doc_storage.migrate_local_to_sharepoint(con, vat_refund.DOCDIR), 'documents migrated')"`
+   `sudo -u fleetfuel /opt/fleetfuel/venv/bin/python -c "import vat_refund, document_vault; con=vat_refund.connect(); print(document_vault.migrate_local_to_sharepoint(con, vat_refund.DOCDIR), 'documents migrated')"`
 
 **FTP / FTPS file archive** — set `DOC_BACKEND=ftp` plus `FTP_HOST`, `FTP_USER`,
 `FTP_PASSWORD`, `FTP_DIR`, and keep `FTP_TLS=1` (FTPS, encrypted) unless on a trusted
 private LAN. No extra dependency (stdlib `ftplib`). Migrate existing local files:
-`... -c "import vat_refund, doc_storage; con=vat_refund.connect(); print(doc_storage.migrate_local_to_ftp(con, vat_refund.DOCDIR), 'documents migrated')"`
+`... -c "import vat_refund, document_vault; con=vat_refund.connect(); print(document_vault.migrate_local_to_ftp(con, vat_refund.DOCDIR), 'documents migrated')"`
 
 ## PART 8 — Automatic backups
 

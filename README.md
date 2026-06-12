@@ -85,21 +85,21 @@ This keeps the whole system a single, copy‑anywhere folder. The files group lo
 fleet_fuel_system/
 ├── app.py serve.py            # web app (≈25 pages + JSON API + Excel) and prod launcher
 ├── auth.py audit.py           # users/roles/login + trigger-based change history
-├── db.py dbtune.py proclock.py# DB abstraction, WAL/busy-timeout tuning, cross-process lock
+├── db.py db_tuning.py process_lock.py# DB abstraction, WAL/busy-timeout tuning, cross-process lock
 ├── backup.py tls.py make_cert.py  # snapshots+integrity, TLS context, self-signed certs
 │
 ├── ingest.py extract.py       # source adapters (xlsx/csv/xml/api); PDF/ZIP → draft
-├── intake_queue.py            # durable "waiting room" queue + background worker
+├── waiting_room.py            # durable "waiting room" queue + background worker
 ├── consolidate.py validate.py # map to canonical schema + tie-out; blocks on errors
 ├── build_master.py history.py # monthly master workbook; load + trend into fuel_history.db
 ├── supplier_specs.py month_config.py vat_config.py  # registries / monthly + regulatory config
 │
-├── customer_db.py customers.db   # our entities (reg, VAT, payout IBAN, activation, fees)
-├── supplier_db.py suppliers.db   # suppliers (VAT regs, banks, products, invoice registry)
+├── customer_master.py customers.db   # our entities (reg, VAT, payout IBAN, activation, fees)
+├── supplier_master.py suppliers.db   # suppliers (VAT regs, banks, products, invoice registry)
 ├── vat_refund.py fuel_history.db # claims, locks, fees, document vault index
 ├── invoice_control.py            # receipt control + statement reconciliation/triage
-├── doc_storage.py                # vault backends: local / SharePoint / FTP(S)
-├── pricing_intel.py anomaly.py reports.py  # price intelligence, anomaly scan, Excel reports
+├── document_vault.py                # vault backends: local / SharePoint / FTP(S)
+├── pricing_intelligence.py anomaly.py reports.py  # price intelligence, anomaly scan, Excel reports
 │
 ├── setup_wizard.py start.* install.*  # first-run wizard + one-click launchers
 ├── gunicorn_conf.py                   # multi-process worker config (Linux)

@@ -1,7 +1,7 @@
 import os, sys
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, WORKDIR)
-from dkv_data import T, CT, A, B
+from sample_dkv_data import T, CT, A, B
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 

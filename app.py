@@ -419,15 +419,15 @@ def run_backup_now():
     """Take a snapshot under both the in-process lock and a cross-process lock, so
     backups never overlap even across worker processes. Returns (path, n_files).
     Raises RuntimeError if another process is already snapshotting."""
-    import backup, proclock
-    me = proclock.whoami()
+    import backup, process_lock
+    me = process_lock.whoami()
     with _backup_lock:
-        if not proclock.acquire("backup-run", ttl=900, holder=me):
+        if not process_lock.acquire("backup-run", ttl=900, holder=me):
             raise RuntimeError("a backup is already running in another process")
         try:
             return backup.snapshot()
         finally:
-            proclock.release("backup-run", me)
+            process_lock.release("backup-run", me)
 
 def _backup_tick():
     """One scheduler iteration: snapshot if a scheduled backup is due. Returns the
@@ -447,12 +447,12 @@ def _backup_tick():
     return None
 
 def _backup_loop():
-    import proclock
-    me = proclock.whoami()
+    import process_lock
+    me = process_lock.whoami()
     while True:
         # only the elected leader checks the schedule / snapshots; the lease is
         # renewed here each tick and expires if this process dies.
-        if proclock.acquire("backup-scheduler", ttl=2 * BACKUP_CHECK_SECONDS, holder=me):
+        if process_lock.acquire("backup-scheduler", ttl=2 * BACKUP_CHECK_SECONDS, holder=me):
             _backup_tick()
         time.sleep(BACKUP_CHECK_SECONDS)
 
@@ -475,12 +475,12 @@ def start_backup_scheduler():
 # every process simply adds throughput. A little random jitter on the idle poll
 # keeps the processes from waking in lockstep. Started only by the server
 # entrypoints (never on import), so tests/CLI are unaffected. Set INTAKE_WORKER=0
-# to opt a process out (e.g. when you run a dedicated `python intake_queue.py
+# to opt a process out (e.g. when you run a dedicated `python waiting_room.py
 # --work` process instead).
 _intake_started = False
 
 def _intake_loop():
-    import intake_queue as IQ, random
+    import waiting_room as IQ, random
     while True:
         try:
             if IQ.drain() == 0:
@@ -522,7 +522,7 @@ def _intake_override_remaining():
 def _intake_uploads_blocked():
     """Returns (blocked, pending_count). Blocked when there's an unprocessed
     backlog and no active admin override."""
-    import intake_queue as IQ
+    import waiting_room as IQ
     pend = IQ.pending_count()
     if pend == 0:
         return False, 0
@@ -1226,7 +1226,7 @@ def extract_batch():
         data = f.read()
         if request.form.get("__mode") == "queue":
             # waiting room: store durably now, extract later in the background worker
-            import intake_queue as IQ
+            import waiting_room as IQ
             blocked, pend = _intake_uploads_blocked()
             if blocked:
                 hint = ('An administrator can grant a temporary override on the '
@@ -1419,7 +1419,7 @@ def extract_confirm():
     # if this draft came from the waiting room, mark the job done (frees its bytes)
     if request.form.get("intake_job"):
         try:
-            import intake_queue as IQ
+            import waiting_room as IQ
             IQ.complete(int(request.form["intake_job"]))
         except Exception as e:
             _log_exc("intake complete", e)
@@ -1433,7 +1433,7 @@ def intake_queue_page():
     """The 'waiting room': uploaded batches parked for deferred extraction. Shows
     queue state and lets you process the backlog now, review a ready draft, re-queue
     a failure, or discard a job. Access: data_import (enforced in _guard)."""
-    import intake_queue as IQ
+    import waiting_room as IQ
     is_admin = session.get("role") == "admin"
     banner = ""
     if request.method == "POST":
@@ -1557,7 +1557,7 @@ def intake_queue_page():
             + send_all_btn + process_form + '</div>'
             + '<div class="note"><b>Send / restart all</b> resets every waiting/held/failed '
               'document and runs the whole backlog now. Or run a dedicated worker process: '
-              '<kbd>python intake_queue.py --work</kbd>.</div>'
+              '<kbd>python waiting_room.py --work</kbd>.</div>'
             + gate + '</div>'
             + '<div class="card"><h2>Jobs</h2>'
             + (tbl(["#", "File", "Extractor", "Period", "By", "Uploaded", "Status",
@@ -1571,7 +1571,7 @@ def intake_review(job_id):
     """Open a ready queue job in the standard review/confirm screen. The source
     PDF bytes are re-derived from the kept inbox file and stashed for the existing
     confirm path; on commit the job is marked done."""
-    import intake_queue as IQ, extract as EX
+    import waiting_room as IQ, extract as EX
     import os as _os, pickle
     job = IQ.get_job(job_id)
     if not job or job["status"] != "ready":
@@ -1664,7 +1664,7 @@ def invoice_ctrl():
 # ---------------------------------------------------------------- VAT refunds
 @app.route("/pricing")
 def pricing():
-    import pricing_intel as PI
+    import pricing_intelligence as PI
     grain = request.args.get("grain", "month")
     country = request.args.get("country", "")
     rows, summ = PI.margin_report(None, grain)
@@ -1751,7 +1751,7 @@ def pricing_market():
 
 @app.route("/pricing/upload", methods=["POST"])
 def pricing_upload():
-    import pricing_intel as PI, csv, io
+    import pricing_intelligence as PI, csv, io
     # access is enforced centrally in _guard (capability: pricing)
     kind = request.args.get("kind", "myprices")
     f = request.files.get("file")
@@ -1785,20 +1785,20 @@ def pricing_upload():
 
 @app.route("/export/pricing")
 def export_pricing():
-    import pricing_intel as PI
+    import pricing_intelligence as PI
     path, _ = PI.export_excel(grain=request.args.get("grain", "month"))
     return send_file(path, as_attachment=True)
 
 @app.route("/api/pricing")
 def api_pricing():
-    import pricing_intel as PI
+    import pricing_intelligence as PI
     rows, summ = PI.margin_report(None, request.args.get("grain", "month"),
                                   request.args.get("pg", "Diesel"))
     return jsonify({"summary": summ, "rows": rows})
 
 @app.route("/recovery", methods=["GET", "POST"])
 def recovery():
-    import vat_refund as VR, customer_db as CD
+    import vat_refund as VR, customer_master as CD
     year = request.args.get("year", "2026")
     banner = ""
     if request.method == "POST" and request.form.get("__act") == "issue_invoice":
@@ -2007,10 +2007,10 @@ def vat():
 
 @app.route("/documents", methods=["GET", "POST"])
 def documents():
-    import vat_refund as VR, supplier_db
+    import vat_refund as VR, supplier_master
     from supplier_specs import SPECS
     ENTITY_OVERRIDE = {"PORTONE": "Jupiter Plus AS", "EUROWAG": "Adverza Germany SIA"}
-    scon = supplier_db.connect()
+    scon = supplier_master.connect()
     INVOICES = {}
     for r in scon.execute("SELECT supplier, country, invoice_no, invoice_date FROM supplier_invoices ORDER BY supplier, invoice_date"):
         INVOICES.setdefault((r["supplier"], r["country"]), []).append((r["invoice_no"], r["invoice_date"]))
@@ -2050,8 +2050,8 @@ def documents():
 
 @app.route("/suppliers")
 def suppliers():
-    import supplier_db
-    con = supplier_db.connect()
+    import supplier_master
+    con = supplier_master.connect()
     cards = []
     for s in con.execute("SELECT * FROM suppliers ORDER BY code"):
         meta = "".join(f"<tr><td style='color:var(--mut);width:140px'>{k.replace('_',' ')}</td><td>{esc(str(s[k]))}</td></tr>"
@@ -2079,7 +2079,7 @@ def suppliers():
 
 @app.route("/customers", methods=["GET", "POST"])
 def customers():
-    import customer_db as CD
+    import customer_master as CD
     banner = ""
     if request.method == "POST":
         try:
@@ -2311,7 +2311,7 @@ def customers():
 
 
 # ---------------------------------------------------------------- data manager + history
-import customer_db as _cdb, supplier_db as _sdb
+import customer_master as _cdb, supplier_master as _sdb
 import vat_refund as _vr
 import audit as _audit
 
@@ -2647,11 +2647,11 @@ def admin():
 
 @app.route("/doc/<int:doc_id>")
 def doc_download(doc_id):
-    import vat_refund as VR, doc_storage, io
+    import vat_refund as VR, document_vault, io
     con = VR.connect()
     d = con.execute("SELECT * FROM invoice_documents WHERE id=?", (doc_id,)).fetchone()
     con.close()
-    data = doc_storage.get_bytes(d["stored_path"], VR.DOCDIR)
+    data = document_vault.get_bytes(d["stored_path"], VR.DOCDIR)
     return send_file(io.BytesIO(data), as_attachment=True, download_name=d["filename"])
 
 @app.route("/export/vat")

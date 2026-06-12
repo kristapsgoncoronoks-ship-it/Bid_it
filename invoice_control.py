@@ -31,8 +31,8 @@ def _half(date):                      # ISO date -> 'H1' / 'H2'
         return "H1"
 
 def run_control(period):
-    import supplier_db, vat_refund, audit
-    scon = supplier_db.connect()
+    import supplier_master, vat_refund, audit
+    scon = supplier_master.connect()
     fcon = vat_refund.connect()
     fcon.execute("""CREATE TABLE IF NOT EXISTS invoice_receipt_control (
         period TEXT, supplier TEXT, country TEXT, slot TEXT,
@@ -178,8 +178,8 @@ COUNTRY_CODES = {"Austria":"AT","Belgium":"BE","Czechia":"CZ","Denmark":"DK","Es
 
 def _statement_customer(con, supplier):
     """Resolve which of our entities a supplier statement belongs to."""
-    import customer_db
-    ccon = customer_db.connect()
+    import customer_master
+    ccon = customer_master.connect()
     r = ccon.execute("""SELECT c.company_name, c.country FROM customer_supplier_accounts a
                         JOIN customers c ON c.code=a.customer WHERE a.supplier=?""",
                      (supplier,)).fetchone()
@@ -189,8 +189,8 @@ def _statement_customer(con, supplier):
 def register_statement(supplier, statement_ref, period, statement_date, lines,
                        notes=None, customer=None):
     """lines: iterable of (invoice_no, invoice_date, country, currency, net, vat)."""
-    import supplier_db
-    con = supplier_db.connect()
+    import supplier_master
+    con = supplier_master.connect()
     try: con.execute("ALTER TABLE supplier_statements ADD COLUMN customer TEXT")
     except sqlite3.OperationalError: pass  # column already exists (safe)
     if not customer:
@@ -215,8 +215,8 @@ def register_statement(supplier, statement_ref, period, statement_date, lines,
 
 def reconcile_statements(period):
     """For each statement of the period: verdict per issued invoice."""
-    import supplier_db, vat_refund
-    scon = supplier_db.connect(); fcon = vat_refund.connect()
+    import supplier_master, vat_refund
+    scon = supplier_master.connect(); fcon = vat_refund.connect()
     docs = {(d["supplier"], d["invoice_ref"]) for d in
             fcon.execute("SELECT supplier, invoice_ref FROM invoice_documents")}
     out = []
@@ -227,8 +227,8 @@ def reconcile_statements(period):
         except (KeyError, IndexError):
             pass
         if cust_name:
-            import customer_db
-            cc = customer_db.connect()
+            import customer_master
+            cc = customer_master.connect()
             r = cc.execute("SELECT country FROM customers WHERE company_name=?", (cust_name,)).fetchone()
             cust_country = r["country"] if r else None
             cc.close()

@@ -7,11 +7,11 @@ GUNICORN CONFIG — run the Fleet Fuel app as MULTIPLE worker processes (Linux).
 Why this file exists: gunicorn imports `app:app` directly and never calls our
 serve.py main(), so the background workers (auto-backup scheduler, intake-queue
 drainer) would never start. The post_fork hook below starts them in EVERY worker
-process. That's safe because the cross-process locks in proclock.py make the
+process. That's safe because the cross-process locks in process_lock.py make the
 scheduled backup a singleton (leader election) and the intake claim hands each
 queued job to exactly one worker — so more workers just means more throughput.
 
-SQLite is tuned for this in dbtune.py (WAL + busy_timeout) so concurrent worker
+SQLite is tuned for this in db_tuning.py (WAL + busy_timeout) so concurrent worker
 processes read/write the shared .db files without "database is locked". For a
 large number of concurrent WRITERS, migrate to Postgres (see db.py) — the app
 logic, audit, and locks are unchanged.
@@ -31,7 +31,7 @@ graceful_timeout = 30
 
 
 def post_fork(server, worker):
-    # start the background workers once per worker process; proclock dedupes the
+    # start the background workers once per worker process; process_lock dedupes the
     # singletons across processes.
     from app import start_backup_scheduler, start_intake_worker
     start_backup_scheduler()

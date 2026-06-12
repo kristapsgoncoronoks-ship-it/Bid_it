@@ -18,9 +18,9 @@ Atomicity comes from a single BEGIN IMMEDIATE transaction (SQLite's one-writer
 rule), so two processes racing to acquire the same free lock can't both win.
 
 Typical leader-election loop (see app.start_backup_scheduler):
-    me = proclock.whoami()
+    me = process_lock.whoami()
     while True:
-        if proclock.acquire("backup-scheduler", ttl=2*PERIOD, holder=me):
+        if process_lock.acquire("backup-scheduler", ttl=2*PERIOD, holder=me):
             ...do the singleton work, renewing the lease each iteration...
         time.sleep(PERIOD)
 """
@@ -117,4 +117,4 @@ if __name__ == "__main__":
     assert acquire("short", 60, "B") is True
     release("job", "A")
     assert held_by("job") is None
-    print("proclock self-test OK")
+    print("process_lock self-test OK")

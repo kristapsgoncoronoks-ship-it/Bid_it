@@ -6,7 +6,7 @@ without editing every module.
     DB_ENGINE=sqlite      (default) - file-based, zero setup, ideal single-server
     DB_ENGINE=postgres    - set DB_DSN=postgresql://user:pass@host/dbname
 
-How modules use it: customer_db / supplier_db / vat_refund call db.connect(name).
+How modules use it: customer_master / supplier_master / vat_refund call db.connect(name).
 For sqlite that returns a connection to <name>.db as today. For postgres it returns
 a psycopg connection to one database with <name> as a schema, preserving separation.
 

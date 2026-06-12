@@ -4,11 +4,11 @@ import time
 
 
 def _fresh(tmp_path):
-    import proclock
-    importlib.reload(proclock)
-    proclock.DB = str(tmp_path / "locks.db")
-    proclock._READY.clear()
-    return proclock
+    import process_lock
+    importlib.reload(process_lock)
+    process_lock.DB = str(tmp_path / "locks.db")
+    process_lock._READY.clear()
+    return process_lock
 
 
 def test_mutual_exclusion(tmp_path):

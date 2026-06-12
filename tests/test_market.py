@@ -13,14 +13,14 @@ class _Resp:
 
 @pytest.fixture()
 def mp(tmp_path, monkeypatch):
-    import pricing_intel
-    importlib.reload(pricing_intel)
-    monkeypatch.setattr(pricing_intel, "DB", str(tmp_path / "pi.db"))
+    import pricing_intelligence
+    importlib.reload(pricing_intelligence)
+    monkeypatch.setattr(pricing_intelligence, "DB", str(tmp_path / "pi.db"))
     import market_prices
     importlib.reload(market_prices)
-    # market_prices imported pricing_intel at module load; point it at our reload
-    monkeypatch.setattr(market_prices, "pricing_intel", pricing_intel)
-    return market_prices, pricing_intel
+    # market_prices imported pricing_intelligence at module load; point it at our reload
+    monkeypatch.setattr(market_prices, "pricing_intelligence", pricing_intelligence)
+    return market_prices, pricing_intelligence
 
 
 def test_normalize_and_parse(mp):
@@ -43,7 +43,7 @@ def test_norm_rows_filters_non_diesel_and_bad(mp):
 
 
 def test_fetch_and_store_into_wholesale(mp, monkeypatch):
-    market_prices, pricing_intel = mp
+    market_prices, pricing_intelligence = mp
     sample = '[{"country":"BE","date":"2026-05-26","net_price":1.31},' \
              '{"country":"PL","date":"2026-05-26","net_price":1.22}]'
     monkeypatch.setenv("MARKET_JSON_URL", "https://example/api")
@@ -51,7 +51,7 @@ def test_fetch_and_store_into_wholesale(mp, monkeypatch):
     info = market_prices.fetch_and_store(sources=["json"])
     assert info["rows"] == 2
     assert set(info["countries"]) == {"Belgium", "Poland"}
-    con = pricing_intel.connect()
+    con = pricing_intelligence.connect()
     n = con.execute("SELECT COUNT(*) FROM wholesale_prices").fetchone()[0]
     con.close()
     assert n == 2

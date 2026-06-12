@@ -47,7 +47,7 @@ def test_intake_queue_flow(client, monkeypatch, tmp_path):
     """Upload via the waiting room -> job is parked -> drain makes it ready ->
     the review screen opens with the intake_job marker for confirm."""
     import io, re
-    import intake_queue as IQ
+    import waiting_room as IQ
     import extract as EX
     monkeypatch.setattr(IQ, "DB", str(tmp_path / "intake.db"))
     monkeypatch.setattr(IQ, "INBOX", str(tmp_path / "inbox"))
@@ -84,7 +84,7 @@ def test_intake_upload_gating_and_override(client, monkeypatch, tmp_path):
     """While the waiting room has unprocessed docs, queueing a new one is blocked;
     an admin temporary override lets it through; 'Send / restart all' clears it."""
     import io, re
-    import intake_queue as IQ
+    import waiting_room as IQ
     import extract as EX
     import auth
     monkeypatch.setattr(IQ, "DB", str(tmp_path / "intake.db"))
