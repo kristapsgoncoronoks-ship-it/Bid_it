@@ -28,7 +28,80 @@ DB_PATH = os.path.join(WORKDIR, "fuel_history.db")
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 app.secret_key = _auth.secret_key()
-app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
+                  MAX_CONTENT_LENGTH=25 * 1024 * 1024)   # cap uploads at 25 MB (DoS guard)
+
+# Static, no-secret CSP: scripts only from this origin (/app.js), inline styles
+# allowed (the UI uses inline style attributes + inline SVG), no framing.
+_CSP = ("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+        "script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; "
+        "object-src 'none'")
+
+@app.after_request
+def _security_headers(resp):
+    resp.headers.setdefault("Content-Security-Policy", _CSP)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    resp.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    if request.is_secure:
+        resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return resp
+
+APP_JS = r"""/* progressive enhancement: click-to-sort + type-to-filter + "/" focus */
+(function(){
+  function val(td){return td?(td.textContent||'').trim():'';}
+  function num(s){var n=parseFloat(String(s).replace(/[^0-9.\-]/g,''));return isNaN(n)?null:n;}
+  function isTotal(r){return /\bTOTAL\b/i.test(r.textContent||'');}
+  function sortTable(t,col,asc){
+    var tb=t.tBodies[0]; if(!tb) return;
+    var all=Array.prototype.slice.call(tb.rows);
+    var body=all.filter(function(r){return !isTotal(r);});
+    var totals=all.filter(isTotal);
+    body.sort(function(a,b){
+      var x=val(a.cells[col]),y=val(b.cells[col]),nx=num(x),ny=num(y),r;
+      r=(nx!==null&&ny!==null)?nx-ny:x.localeCompare(y); return asc?r:-r;
+    });
+    body.concat(totals).forEach(function(r){tb.appendChild(r);});
+  }
+  document.querySelectorAll('table').forEach(function(t){
+    var head=t.tHead; if(!head||!head.rows.length) return;
+    var ths=head.rows[0].cells, st={col:-1,asc:true};
+    Array.prototype.forEach.call(ths,function(th,i){
+      th.style.cursor='pointer'; th.title='click to sort';
+      th.addEventListener('click',function(){
+        st.asc=st.col===i?!st.asc:true; st.col=i; sortTable(t,i,st.asc);
+        Array.prototype.forEach.call(ths,function(x){x.removeAttribute('data-sort');});
+        th.setAttribute('data-sort',st.asc?'▲':'▼');
+      });
+    });
+    var tb=t.tBodies[0];
+    if(tb&&tb.rows.length>=8){
+      var inp=document.createElement('input');
+      inp.placeholder='filter rows…'; inp.className='rowfilter';
+      inp.addEventListener('input',function(){
+        var q=inp.value.toLowerCase();
+        Array.prototype.forEach.call(tb.rows,function(r){
+          r.style.display=(!q||(r.textContent||'').toLowerCase().indexOf(q)>=0)?'':'none';
+        });
+      });
+      t.parentNode.insertBefore(inp,t);
+    }
+  });
+  document.addEventListener('keydown',function(e){
+    if(e.key==='/'&&!/^(INPUT|SELECT|TEXTAREA)$/.test((e.target&&e.target.tagName)||'')){
+      var el=document.querySelector('.rowfilter, form.f input, input');
+      if(el){e.preventDefault(); el.focus();}
+    }
+  });
+})();
+"""
+
+@app.route("/app.js")
+def app_js():
+    from flask import Response
+    return Response(APP_JS, mimetype="application/javascript",
+                    headers={"Cache-Control": "public, max-age=3600"})
 
 def _csrf_token():
     """Lazily create and return a per-session CSRF token."""
@@ -165,13 +238,17 @@ def setup():
 def login():
     err = ""
     if request.method == "POST":
-        if _auth.verify(request.form.get("username", ""), request.form.get("password", ""),
-                        remote=request.remote_addr or ""):
-            session["user"] = request.form["username"]
-            u = _auth.get_user(session["user"])
+        uname = request.form.get("username", "")
+        if _auth.is_locked(uname):
+            err = ('<div class="err">Account temporarily locked after too many failed '
+                   'attempts. Try again in a few minutes.</div>')
+        elif _auth.verify(uname, request.form.get("password", ""), remote=request.remote_addr or ""):
+            session["user"] = uname
+            u = _auth.get_user(uname)
             session["role"] = (u or {}).get("role", "processor")
             return redirect("/")
-        err = '<div class="err">Invalid username or password.</div>'
+        else:
+            err = '<div class="err">Invalid username or password.</div>'
     return LOGIN_HTML.replace("{ERR}", err)
 
 @app.route("/logout")
@@ -221,7 +298,7 @@ PERM_BY_ENDPOINT = {
 
 @app.before_request
 def _guard():
-    if request.endpoint in ("setup", "static") or request.endpoint is None:
+    if request.endpoint in ("setup", "static", "app_js") or request.endpoint is None:
         return
     if _needs_setup():
         return redirect("/setup")
@@ -358,8 +435,10 @@ BASE = """<!doctype html><html><head><meta charset="utf-8">
 <title>Fleet Fuel Analytics</title><style>
 :root{--ink:#1a2733;--mut:#5b6b7a;--line:#dde4ea;--bg:#f4f6f8;--acc:#0e5fa8;--ok:#1b7340;--bad:#c8102e}
 *{box-sizing:border-box}body{margin:0;font:14px/1.45 -apple-system,Segoe UI,Roboto,Arial;color:var(--ink);background:var(--bg)}
-header{background:var(--ink);color:#fff;padding:14px 24px;display:flex;gap:26px;align-items:baseline;flex-wrap:wrap}
+header{background:var(--ink);color:#fff;padding:14px 24px;display:flex;gap:26px;align-items:baseline;flex-wrap:wrap;position:sticky;top:0;z-index:20}
 header b{font-size:17px}header a{color:#cfe0f0;text-decoration:none;font-size:13.5px}header a.on{color:#fff;border-bottom:2px solid #6db1e8;padding-bottom:3px}
+th[data-sort]::after{content:" " attr(data-sort);color:#6db1e8;font-weight:400}
+.rowfilter{margin:0 0 8px;padding:6px 9px;border:1px solid var(--line);border-radius:6px;width:240px;font-size:13px;background:#fff}
 main{max-width:1180px;margin:22px auto;padding:0 18px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
 .kpi{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 16px}
@@ -403,7 +482,7 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
 {% if role == 'admin' %}<a href="/admin" class="{{'on' if page=='adm'}}">Admin</a>{% endif %}
 <span class="note" style="color:#9fb3c4">{{ user }} ({{ role }})</span>
 <a href="/logout" style="margin-left:10px">Sign out</a></span>
-</header><main>{{ body|safe }}</main></body></html>"""
+</header><main>{{ body|safe }}</main><script src="/app.js" defer></script></body></html>"""
 
 _BASE_TMPL = None   # compiled once; render_template_string would recompile per call
 def page(body, p):

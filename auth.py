@@ -165,6 +165,24 @@ def clear_errors():
     con.commit(); con.close()
 
 # ---------------------------------------------------------------- settings
+# ---------------------------------------------------------------- brute-force lockout
+LOGIN_MAX_FAILS = 8        # consecutive failures (since last success) before lockout
+LOGIN_WINDOW_MIN = 15      # within this many minutes
+
+def recent_failures(username):
+    """Failed logins for a username since the last success, within the window."""
+    con = connect()
+    n = con.execute("""SELECT COUNT(*) FROM login_log WHERE username=? AND success=0
+        AND ts >= datetime('now', ?)
+        AND ts > COALESCE((SELECT MAX(ts) FROM login_log WHERE username=? AND success=1),
+                          '1970-01-01')""",
+        (username, f"-{LOGIN_WINDOW_MIN} minutes", username)).fetchone()[0]
+    con.close()
+    return n
+
+def is_locked(username):
+    return bool(username) and recent_failures(username) >= LOGIN_MAX_FAILS
+
 def get_setting(key, default=None):
     con = connect()
     row = con.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
