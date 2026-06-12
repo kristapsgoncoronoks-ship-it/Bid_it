@@ -65,12 +65,12 @@ def connect():
         con.executescript("""
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY, salt BLOB, pw_hash BLOB,
-            active INTEGER DEFAULT 1, created TEXT DEFAULT (datetime('now')));
+            active INTEGER DEFAULT 1, created TEXT DEFAULT CURRENT_TIMESTAMP);
         CREATE TABLE IF NOT EXISTS login_log (
-            ts TEXT DEFAULT (datetime('now')), username TEXT, success INTEGER, remote TEXT);
+            ts TEXT DEFAULT CURRENT_TIMESTAMP, username TEXT, success INTEGER, remote TEXT);
         CREATE TABLE IF NOT EXISTS error_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ts TEXT DEFAULT (datetime('now')),
+            ts TEXT DEFAULT CURRENT_TIMESTAMP,
             username TEXT, context TEXT, etype TEXT, message TEXT, detail TEXT);
         CREATE TABLE IF NOT EXISTS app_settings (
             key TEXT PRIMARY KEY, value TEXT);

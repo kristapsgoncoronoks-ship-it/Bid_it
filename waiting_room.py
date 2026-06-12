@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS intake_jobs (
     backend TEXT,
     period TEXT,
     uploaded_by TEXT,
-    uploaded_at TEXT DEFAULT (datetime('now')),
+    uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
     status TEXT DEFAULT 'queued',          -- queued|processing|ready|failed|done|waiting|held
     attempts INTEGER DEFAULT 0,
     defer_count INTEGER DEFAULT 0,         -- consecutive token/quota deferrals

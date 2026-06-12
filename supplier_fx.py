@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS supplier_fx_history (
     supplier TEXT, currency TEXT, period TEXT,
     implied_rate REAL, ecb_rate REAL, ecb_date TEXT,
     deviation_pct REAL, net_eur REAL, eur_diff REAL,
-    captured_at TEXT DEFAULT (datetime('now')),
+    captured_at TEXT DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (supplier, currency, period));
 """
 
@@ -65,12 +65,12 @@ def snapshot(period=None):
         con.execute("""INSERT INTO supplier_fx_history
             (supplier, currency, period, implied_rate, ecb_rate, ecb_date,
              deviation_pct, net_eur, eur_diff, captured_at)
-            VALUES (?,?,?,?,?,?,?,?,?, datetime('now'))
+            VALUES (?,?,?,?,?,?,?,?,?, CURRENT_TIMESTAMP)
             ON CONFLICT(supplier, currency, period) DO UPDATE SET
               implied_rate=excluded.implied_rate, ecb_rate=excluded.ecb_rate,
               ecb_date=excluded.ecb_date, deviation_pct=excluded.deviation_pct,
               net_eur=excluded.net_eur, eur_diff=excluded.eur_diff,
-              captured_at=datetime('now')""",
+              captured_at=CURRENT_TIMESTAMP""",
             (r["supplier"], r["currency"], r["period"], implied, ecb_rate, ecb_date,
              dev, r["ne"], eur_diff))
         n += 1

@@ -22,7 +22,7 @@ _READY = set()
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS import_log (
     id INTEGER PRIMARY KEY,
-    ts TEXT DEFAULT (datetime('now')),
+    ts TEXT DEFAULT CURRENT_TIMESTAMP,
     actor TEXT,
     channel TEXT,                      -- upload | extract | statement | portal | ingest
     client TEXT, supplier TEXT, period TEXT,

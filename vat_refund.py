@@ -406,7 +406,7 @@ def set_status(con, ent, ctry, period, new, gate_activation=True):
                        DO UPDATE SET status=excluded.status, updated=CURRENT_TIMESTAMP""",
                     (ent, ctry, period, new))
         if stamp:
-            con.execute(f"UPDATE vat_applications SET {stamp}=date('now') WHERE entity=? "
+            con.execute(f"UPDATE vat_applications SET {stamp}=CURRENT_DATE WHERE entity=? "
                         "AND refund_country=? AND ref_period=?", (ent, ctry, period))
         # Freeze the fee RATE onto the claim the moment it is first submitted; once
         # locked the rate can no longer be adjusted (% / minimum changes only affect
@@ -441,7 +441,7 @@ def set_status(con, ent, ctry, period, new, gate_activation=True):
             base = (r["paid_amount"] if r and r["paid_amount"] else (r["vat_eur"] if r else 0)) or 0
             fee, _b = customer_master.compute_fee(base, (r["fee_pct"] if r else 0) or 0,
                                               (r["fee_min"] if r else 0) or 0)
-            con.execute("""UPDATE vat_applications SET fee_eur=?, fee_billed_date=date('now'),
+            con.execute("""UPDATE vat_applications SET fee_eur=?, fee_billed_date=CURRENT_DATE,
                            payout_to=COALESCE(payout_to, ?)
                            WHERE entity=? AND refund_country=? AND ref_period=?""",
                         (fee, customer_master.payout_route(ent), ent, ctry, period))
@@ -608,7 +608,7 @@ def set_status_code(con, ent, ctry, period, code, note=None, deadline=None):
     # per-status data: decision date on first decision code; the note; the open-action
     # deadline lives only while a 2B/3D is open (cleared when the claim moves on).
     if code in ("3", "3A", "3B", "3C"):
-        con.execute("""UPDATE vat_applications SET decision_date=COALESCE(decision_date, date('now'))
+        con.execute("""UPDATE vat_applications SET decision_date=COALESCE(decision_date, CURRENT_DATE)
                        WHERE entity=? AND refund_country=? AND ref_period=?""", (ent, ctry, period))
     if note:
         con.execute("""UPDATE vat_applications SET status_note=? WHERE entity=? AND
@@ -654,7 +654,7 @@ def issue_fee_invoice(con, ent, ctry, period):
     n = con.execute("SELECT COUNT(*) FROM vat_applications WHERE fee_invoice_no IS NOT NULL"
                     ).fetchone()[0] + 1
     inv_no = f"F{yr}-{n:04d}"
-    con.execute("""UPDATE vat_applications SET fee_invoice_no=?, fee_invoice_date=date('now')
+    con.execute("""UPDATE vat_applications SET fee_invoice_no=?, fee_invoice_date=CURRENT_DATE
                    WHERE entity=? AND refund_country=? AND ref_period=?""",
                 (inv_no, ent, ctry, period))
     con.commit()

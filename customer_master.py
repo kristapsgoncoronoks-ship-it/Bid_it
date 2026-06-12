@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS customer_documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     customer TEXT, kind TEXT, filename TEXT, stored_path TEXT,
     sha256 TEXT, size INTEGER, backend TEXT DEFAULT 'local', web_url TEXT,
-    uploaded_at TEXT DEFAULT (datetime('now')));
+    uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS customer_fees (
     customer TEXT, country TEXT, fee_pct REAL DEFAULT 0, fee_min REAL DEFAULT 0,
     PRIMARY KEY (customer, country));
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS checklist_rules (
 CREATE TABLE IF NOT EXISTS doc_templates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT, kind TEXT, ext TEXT, filename TEXT, body BLOB,
-    uploaded_at TEXT DEFAULT (datetime('now')));
+    uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP);
 """
 
 # The claim-submission checklist is ADJUSTABLE (rules change): each rule is a
@@ -226,7 +226,7 @@ def _has_doc(con, code, kind, country=None):
     """A document of `kind` is on file AND still valid — a document past its
     `valid_until` (e.g. an expired power of attorney) no longer satisfies the
     checklist, exactly like a missing one."""
-    valid = "(valid_until IS NULL OR valid_until='' OR valid_until >= date('now'))"
+    valid = "(valid_until IS NULL OR valid_until='' OR valid_until >= CURRENT_DATE)"
     if country is None:
         return con.execute(f"SELECT 1 FROM customer_documents WHERE customer=? AND kind=? AND "
                            f"(country IS NULL OR country='') AND {valid} LIMIT 1",
@@ -501,10 +501,10 @@ def _code_of(con, name_or_code):
 def request_country(con, code, country):
     """Start activation for a refund country: mark its documents as requested."""
     con.execute("""INSERT INTO customer_countries (customer, country, status, requested_at)
-                   VALUES (?,?, 'requested', datetime('now'))
+                   VALUES (?,?, 'requested', CURRENT_TIMESTAMP)
                    ON CONFLICT(customer, country) DO UPDATE SET
                      status=CASE WHEN customer_countries.status='active' THEN 'active' ELSE 'requested' END,
-                     requested_at=COALESCE(customer_countries.requested_at, datetime('now'))""",
+                     requested_at=COALESCE(customer_countries.requested_at, CURRENT_TIMESTAMP)""",
                 (code, country.strip()))
     con.commit()
 
@@ -542,9 +542,9 @@ def country_doc_checklist(con, code, country):
 def activate_country(con, code, country, active):
     if active:
         con.execute("""INSERT INTO customer_countries (customer, country, status, activated_at)
-                       VALUES (?,?, 'active', datetime('now'))
+                       VALUES (?,?, 'active', CURRENT_TIMESTAMP)
                        ON CONFLICT(customer, country) DO UPDATE SET
-                         status='active', activated_at=datetime('now')""", (code, country.strip()))
+                         status='active', activated_at=CURRENT_TIMESTAMP""", (code, country.strip()))
     else:
         con.execute("UPDATE customer_countries SET status='pending' WHERE customer=? AND country=?",
                     (code, country.strip()))

@@ -48,17 +48,17 @@ CREATE TABLE IF NOT EXISTS portal_configs (
     base_url TEXT,
     config TEXT,                       -- JSON: endpoints, field/column map, params
     enabled INTEGER DEFAULT 1,
-    updated_at TEXT DEFAULT (datetime('now')));
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS portal_credentials (
     supplier TEXT, entity TEXT,
     username TEXT, secret_enc BLOB,    -- encrypted at rest
     extra TEXT,                        -- optional JSON (e.g. account id), encrypted
-    updated_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (supplier, entity));
 CREATE TABLE IF NOT EXISTS portal_runs (
     id INTEGER PRIMARY KEY,
     supplier TEXT, entity TEXT,
-    started TEXT DEFAULT (datetime('now')), finished TEXT,
+    started TEXT DEFAULT CURRENT_TIMESTAMP, finished TEXT,
     status TEXT,                       -- running | ok | failed
     rows INTEGER DEFAULT 0, message TEXT);
 """
@@ -100,10 +100,10 @@ def _decrypt(blob):
 def set_config(supplier, kind, base_url="", config=None, enabled=True):
     con = connect()
     con.execute("""INSERT INTO portal_configs (supplier, kind, base_url, config, enabled, updated_at)
-                   VALUES (?,?,?,?,?, datetime('now'))
+                   VALUES (?,?,?,?,?, CURRENT_TIMESTAMP)
                    ON CONFLICT(supplier) DO UPDATE SET kind=excluded.kind,
                      base_url=excluded.base_url, config=excluded.config,
-                     enabled=excluded.enabled, updated_at=datetime('now')""",
+                     enabled=excluded.enabled, updated_at=CURRENT_TIMESTAMP""",
                 (supplier.upper(), kind, base_url, json.dumps(config or {}), 1 if enabled else 0))
     con.commit(); con.close()
 
@@ -130,10 +130,10 @@ def set_credentials(supplier, entity, username, secret, extra=None):
     """Store (encrypted) the login for an entity's account on a supplier portal."""
     con = connect()
     con.execute("""INSERT INTO portal_credentials (supplier, entity, username, secret_enc, extra, updated_at)
-                   VALUES (?,?,?,?,?, datetime('now'))
+                   VALUES (?,?,?,?,?, CURRENT_TIMESTAMP)
                    ON CONFLICT(supplier, entity) DO UPDATE SET username=excluded.username,
                      secret_enc=excluded.secret_enc, extra=excluded.extra,
-                     updated_at=datetime('now')""",
+                     updated_at=CURRENT_TIMESTAMP""",
                 (supplier.upper(), entity, username, _encrypt(secret),
                  _encrypt(json.dumps(extra)) if extra is not None else None))
     con.commit(); con.close()
@@ -317,7 +317,7 @@ def _start_run(con, supplier, entity):
     return cur.lastrowid
 
 def _finish_run(con, run_id, status, rows, message):
-    con.execute("UPDATE portal_runs SET finished=datetime('now'), status=?, rows=?, message=? WHERE id=?",
+    con.execute("UPDATE portal_runs SET finished=CURRENT_TIMESTAMP, status=?, rows=?, message=? WHERE id=?",
                 (status, rows, (message or "")[:500], run_id))
     con.commit()
 

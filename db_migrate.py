@@ -19,7 +19,7 @@ log = applog.get("db_migrate")
 
 _SCHEMA = """CREATE TABLE IF NOT EXISTS _ffs_migrations (
     module TEXT, idx INTEGER, statement TEXT,
-    applied_at TEXT DEFAULT (datetime('now')),
+    applied_at TEXT DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (module, idx))"""
 
 # (module, db-path) pairs already verified this process — skips even the SELECT.

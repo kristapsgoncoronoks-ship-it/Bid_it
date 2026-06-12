@@ -24,7 +24,7 @@ import json, threading
 LOG_DDL = """
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY,
-    ts TEXT DEFAULT (datetime('now')),
+    ts TEXT DEFAULT CURRENT_TIMESTAMP,
     tbl TEXT, rowkey TEXT, action TEXT,
     old_data TEXT, new_data TEXT, changed_by TEXT);
 CREATE INDEX IF NOT EXISTS ix_audit_tk ON audit_log(tbl, rowkey, ts);

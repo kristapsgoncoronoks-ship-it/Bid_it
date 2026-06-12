@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS data_lake_files (
     source_name TEXT, filename TEXT,
     stored_path TEXT, sha256 TEXT UNIQUE, size INTEGER,
     backend TEXT, meta TEXT,
-    created_at TEXT DEFAULT (datetime('now')));
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE INDEX IF NOT EXISTS ix_lake_kind ON data_lake_files(kind, supplier, period);
 """
 

@@ -142,7 +142,7 @@ def run_control(period):
     for r in rows:
         fcon.execute("""INSERT INTO invoice_receipt_control
             (period, supplier, country, slot, expected, invoice_no, status, note, checked_at)
-            VALUES (?,?,?,?,?,?,?,?, datetime('now'))
+            VALUES (?,?,?,?,?,?,?,?, CURRENT_TIMESTAMP)
             ON CONFLICT(period, supplier, country, slot) DO UPDATE SET
             expected=excluded.expected, invoice_no=excluded.invoice_no,
             status=CASE WHEN invoice_receipt_control.waived=1
