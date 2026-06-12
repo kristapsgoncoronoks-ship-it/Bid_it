@@ -25,6 +25,8 @@ Returned draft shape (per batch):
 """
 import os, io, re, json, zipfile, subprocess, tempfile
 
+import money
+
 EXTRACT_BACKEND = os.environ.get("EXTRACT_BACKEND", "auto")
 
 
@@ -112,7 +114,7 @@ def _num(s):
     s = s.replace("\u00a0", " ").strip()
     s = re.sub(r"(?<=\d)[ .](?=\d{3}\b)", "", s)   # strip thousands sep (space or dot)
     s = s.replace(",", ".")
-    try: return round(float(s), 2)
+    try: return money.f2(float(s))
     except ValueError: return 0.0
 
 def parse_eurowag(texts):
@@ -148,7 +150,7 @@ def parse_eurowag(texts):
             nets, vats = [], []
             for mm in re.finditer(r"\n\s*\d{1,2}\s+" + AMT + r"\s+" + AMT + r"\s+" + AMT + r"\s+EUR", t):
                 nets.append(_num(mm.group(1))); vats.append(_num(mm.group(2)))
-            net, vat = round(sum(nets), 2), round(sum(vats), 2)
+            net, vat = money.fsum(nets), money.fsum(vats)
         # country: second token after "Izpildes valsts ... / <native> / <local>"
         country = None
         mcn = re.search(r"Izpildes valsts[^\n/]*/?[^\n]*?([A-ZÀ-Ž][a-zà-ž]+)\s*$", t, re.M)
@@ -229,7 +231,7 @@ def _ai_extract(backend, texts):
     for ln in d.get("lines", []):
         ln.setdefault("_source", "ai")
         for k in ("net", "vat"):
-            try: ln[k] = round(float(ln.get(k) or 0), 2)
+            try: ln[k] = money.f2(float(ln.get(k) or 0))
             except (TypeError, ValueError): ln[k] = 0.0
         # exchange rate from the invoice (units of line currency per 1 EUR); null if absent
         fx = ln.get("fx_rate")
@@ -325,7 +327,7 @@ def parse_einvoice(xml_bytes):
     lines = []
     for ctry, (net, vat) in by_country.items():
         lines.append({"invoice_no": doc_id, "date": issue, "country": ctry,
-                      "currency": currency, "net": round(net, 2), "vat": round(vat, 2),
+                      "currency": currency, "net": money.f2(net), "vat": money.f2(vat),
                       "_source": "e-invoice"})
     if not lines:                              # totals-only invoice: fall back to header totals
         net = _num(first(root, "TaxExclusiveAmount", "LineExtensionAmount"))
