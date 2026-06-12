@@ -1,10 +1,29 @@
 """
-DOCUMENT STORAGE BACKENDS - local folder (default) or SharePoint via Microsoft Graph.
+DOCUMENT STORAGE BACKENDS - local folder (default), SharePoint (Microsoft Graph),
+or an FTP/FTPS file archive.
 
 The vault logic (hashing, dedup, submission guard) is unchanged; only WHERE the
-bytes live is pluggable. Locators stored in invoice_documents.stored_path:
+bytes live is pluggable, chosen by DOC_BACKEND. Locators stored in
+invoice_documents.stored_path / customer_documents.stored_path:
     local:      <WORKDIR>/documents/<file>                    (plain path, as before)
     sharepoint: sp://{drive_id}/{item_id}                    (+ web_url column)
+    ftp:        ftp://{remote_path}                           (path on the FTP server)
+
+get_bytes() routes a stored locator to the right backend by its prefix, so history
+keeps resolving even after you switch the default backend.
+
+ENABLE FTP / FTPS (a file-archive server):
+  Set on the machine running the app, then restart:
+     DOC_BACKEND=ftp
+     FTP_HOST=archive.example.com        FTP_PORT=21        (port optional)
+     FTP_USER=...                        FTP_PASSWORD=...
+     FTP_DIR=fuelvault/invoices          (base folder; created if missing)
+     FTP_TLS=1   -> FTPS, explicit TLS (DEFAULT, encrypted) | 0 -> plain FTP
+     FTP_PASSIVE=1  (default; set 0 for active mode)
+  Uses Python's stdlib ftplib only (no extra dependency, works on a stock Windows
+  box). PLAIN FTP IS CLEAR-TEXT - keep FTP_TLS=1 unless on a trusted private LAN.
+  Move existing local history with migrate_local_to_ftp() once.
+  (For SFTP/SSH instead of FTPS we'd add paramiko - say the word.)
 
 ENABLE SHAREPOINT (one-time setup by your M365 admin):
   1. Entra ID (Azure AD) > App registrations > New registration ("Fleet Fuel Vault").
@@ -98,17 +117,77 @@ class SharePointBackend:
         return r.content
 
 
+class FtpBackend:
+    """An FTP/FTPS file-archive backend (stdlib ftplib only). Bytes are stored
+    under FTP_DIR on the server; the locator is ftp://<remote_path>. A fresh
+    connection is opened per operation (robust against idle drops); tests inject a
+    fake connector. FTPS (explicit TLS) is the default — keep it on off-LAN."""
+    name = "ftp"
+
+    def __init__(self, connect=None):
+        self._open = connect or self._default_open
+        self.base = os.environ.get("FTP_DIR", "fuelvault").strip("/")
+
+    def _default_open(self):
+        import ftplib
+        use_tls = os.environ.get("FTP_TLS", "1") != "0"
+        ftp = (ftplib.FTP_TLS() if use_tls else ftplib.FTP())
+        ftp.connect(os.environ["FTP_HOST"], int(os.environ.get("FTP_PORT", "21")), timeout=60)
+        ftp.login(os.environ.get("FTP_USER", ""), os.environ.get("FTP_PASSWORD", ""))
+        if use_tls:
+            ftp.prot_p()                       # encrypt the data channel too
+        ftp.set_pasv(os.environ.get("FTP_PASSIVE", "1") != "0")
+        return ftp
+
+    def _ensure_base(self, ftp):
+        path = ""
+        for part in self.base.split("/"):
+            if not part:
+                continue
+            path = f"{path}/{part}" if path else part
+            try: ftp.mkd(path)
+            except Exception: pass             # already exists (or no-permission to mkd)
+
+    def put(self, safe_name, data):
+        import io
+        ftp = self._open()
+        try:
+            self._ensure_base(ftp)
+            remote = f"{self.base}/{safe_name}" if self.base else safe_name
+            ftp.storbinary(f"STOR {remote}", io.BytesIO(data))
+            return f"ftp://{remote}", None      # locator, web_url
+        finally:
+            try: ftp.quit()
+            except Exception: pass
+
+    def get(self, locator):
+        import io
+        remote = locator[len("ftp://"):]
+        ftp = self._open(); buf = io.BytesIO()
+        try:
+            ftp.retrbinary(f"RETR {remote}", buf.write)
+            return buf.getvalue()
+        finally:
+            try: ftp.quit()
+            except Exception: pass
+
+
 def backend(docdir):
     if BACKEND == "sharepoint":
         return SharePointBackend()
+    if BACKEND == "ftp":
+        return FtpBackend()
     return LocalBackend(docdir)
 
 
 def get_bytes(locator, docdir):
     """Route a stored locator to the right backend regardless of current default,
-    so local history keeps working after switching to SharePoint."""
-    if str(locator).startswith("sp://"):
+    so old history keeps working after switching backends."""
+    loc = str(locator)
+    if loc.startswith("sp://"):
         return SharePointBackend().get(locator)
+    if loc.startswith("ftp://"):
+        return FtpBackend().get(locator)
     return LocalBackend(docdir).get(locator)
 
 
@@ -124,6 +203,24 @@ def migrate_local_to_sharepoint(con, docdir):
         loc, url = sp.put(os.path.basename(r["stored_path"]), data)
         con.execute("UPDATE invoice_documents SET stored_path=?, backend='sharepoint', web_url=? WHERE id=?",
                     (loc, url, r["id"]))
+        moved += 1
+    con.commit()
+    return moved
+
+
+def migrate_local_to_ftp(con, docdir, table="invoice_documents"):
+    """One-time migration of existing local documents into the FTP archive.
+    Run on a machine with the FTP_* env vars set."""
+    ftp = FtpBackend()
+    moved = 0
+    for r in con.execute(f"SELECT id, stored_path FROM {table}").fetchall():
+        loc = str(r["stored_path"])
+        if loc.startswith("ftp://") or loc.startswith("sp://"):
+            continue
+        data = open(loc, "rb").read()
+        new_loc, _ = ftp.put(os.path.basename(loc), data)
+        con.execute(f"UPDATE {table} SET stored_path=?, backend='ftp', web_url=NULL WHERE id=?",
+                    (new_loc, r["id"]))
         moved += 1
     con.commit()
     return moved
@@ -163,4 +260,20 @@ if __name__ == "__main__":
     data = sp.get(loc)
     assert data == b"%PDF-1.4 from sharepoint"
     print("  download OK (", data[:20], ")")
+
+    print("=== FtpBackend path test (stubbed ftplib transport) ===")
+    class _FakeFtp:
+        store = {}                              # shared 'server' filesystem
+        def mkd(self, path): pass
+        def storbinary(self, cmd, fh): _FakeFtp.store[cmd[len("STOR "):]] = fh.read()
+        def retrbinary(self, cmd, cb): cb(_FakeFtp.store[cmd[len("RETR "):]])
+        def quit(self): pass
+    os.environ.update(FTP_DIR="fuelvault/invoices")
+    fb = FtpBackend(connect=lambda: _FakeFtp())
+    loc, url = fb.put("invoice.pdf", b"%PDF-1.4 ftp demo")
+    print("  upload ->", loc, "|", url)
+    assert loc == "ftp://fuelvault/invoices/invoice.pdf" and url is None
+    got = fb.get(loc)
+    assert got == b"%PDF-1.4 ftp demo"
+    print("  download OK (", got[:20], ")")
     print("All storage backend tests passed.")
