@@ -33,6 +33,18 @@ def test_all_get_pages_200(client):
     assert not failures, f"non-200 routes: {failures}"
 
 
+def test_export_history_200_when_file_absent(client, monkeypatch, tmp_path):
+    """/export/history degrades gracefully (200 + 'not generated yet') instead of a 500
+    when the generated deliverable is absent (e.g. a fresh checkout)."""
+    import app as A
+    monkeypatch.setattr(A, "WORKDIR", str(tmp_path))   # empty dir -> file does not exist
+    r = client.get("/export/history")
+    assert r.status_code == 200, r.status_code
+    body = r.get_data(as_text=True)
+    assert "No history report yet" in body
+    assert "history.py" in body
+
+
 def test_csrf_rejects_tokenless_post(client):
     r = client.post("/data", data={"_dbk": "x"})
     assert r.status_code == 400, f"expected 400 (CSRF), got {r.status_code}"

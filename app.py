@@ -1600,7 +1600,15 @@ def export_master():
 
 @app.route("/export/history")
 def export_history():
-    return send_file(os.path.join(WORKDIR, "Fleet_Fuel_History_Report.xlsx"), as_attachment=True)
+    path = os.path.join(WORKDIR, "Fleet_Fuel_History_Report.xlsx")
+    if not os.path.exists(path):
+        # degrade gracefully (200) when the deliverable hasn't been generated yet —
+        # e.g. on a fresh checkout, before the monthly close has run history.py.
+        return page('<div class="card"><b class="bad">No history report yet.</b>'
+                    '<p>It is produced by the monthly close: run '
+                    '<kbd>python history.py</kbd> (after consolidate / build_master).</p></div>',
+                    "dash")
+    return send_file(path, as_attachment=True)
 
 @app.route("/export/fee")
 def export_fee():
@@ -2944,7 +2952,8 @@ def _vat_status_cell(con, VR, m, cache):
     for c in VR.MANUAL_CODES:
         opts.append(f'<option value="{c}" {"selected" if c==cur_manual else ""}>'
                     f'{c} — {esc(VR.STATUS_LABELS[c])}</option>')
-    row = con.execute("""SELECT decision_date, status_note, action_deadline, payout_to
+    # one read of this PK row serves both the meta line below and the lock/withdraw gate
+    row = con.execute("""SELECT decision_date, status_note, action_deadline, payout_to, status
                          FROM vat_applications WHERE entity=? AND refund_country=?
                          AND ref_period=?""", (ent, ctry, period)).fetchone()
     meta = ""
@@ -2971,9 +2980,7 @@ def _vat_status_cell(con, VR, m, cache):
            'style="font-size:12px"> '
            '<button style="font-size:12px;padding:4px 10px">Set</button></form>')
     wd = ""
-    eng = con.execute("""SELECT status FROM vat_applications WHERE entity=? AND
-                         refund_country=? AND ref_period=?""", (ent, ctry, period)).fetchone()
-    if eng and eng["status"] in VR.LOCKING and session.get("role") == "admin":
+    if row and row["status"] in VR.LOCKING and session.get("role") == "admin":
         wd = ('<form method="post" style="margin:2px 0 0">' + _csrf_input() +
               f'<input type="hidden" name="entity" value="{esc(ent)}">'
               f'<input type="hidden" name="country" value="{esc(ctry)}">'
