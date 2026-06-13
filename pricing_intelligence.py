@@ -18,6 +18,7 @@ A supplier's effective NET = net_eur_eff / qty (rebates already in net_eur_eff,
 VAT excluded). City = the station town on the invoice.
 """
 import os, sqlite3, datetime, statistics
+import money
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 # transactions live in the engine-owned product DB (read-only from the app side,
@@ -191,8 +192,8 @@ def supplier_grid(period=None, grain="month", product_group="Diesel"):
     out = []
     for (c, city, bk, sup), (q, net) in agg.items():
         out.append({"country": c, "city": city, "bucket": bk, "supplier": sup,
-                    "qty": round(q, 1), "net_eur_eff": round(net, 2),
-                    "eff_price": round(net / q, 4) if q else None})
+                    "qty": round(q, 1), "net_eur_eff": money.f2(net),     # currency
+                    "eff_price": round(net / q, 4) if q else None})        # EUR/L (4dp)
     return out
 
 
@@ -308,10 +309,11 @@ def internal_benchmark(period=None, grain="month", product_group="Diesel"):
             "best_price": round(best["eff"], 4), "best_supplier": best["supplier"],
             "suppliers": len(sups), "your_avg": round(spend / litres, 4) if litres else None,
             "spread": round(max(s["eff"] for s in sups) - best["eff"], 4),
-            "litres": round(litres, 1), "overpay_eur": round(overpay, 2)})
+            "litres": round(litres, 1), "overpay_eur": money.f2(overpay)})  # currency
         tot_overpay += overpay; tot_litres += litres
     rows.sort(key=lambda r: r["overpay_eur"], reverse=True)
-    summary = {"total_overpay": round(tot_overpay, 2), "litres": round(tot_litres, 1),
+    # totals accumulated at full precision; the avoidable-overpay € is HALF_UP (money.f2)
+    summary = {"total_overpay": money.f2(tot_overpay), "litres": round(tot_litres, 1),
                "cells": len(rows),
                "multi_supplier_cells": sum(1 for r in rows if r["suppliers"] > 1)}
     return rows, summary

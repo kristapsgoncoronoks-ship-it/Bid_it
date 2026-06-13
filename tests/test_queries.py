@@ -44,3 +44,24 @@ def test_kpis_and_savings():
     sv = Q.q_savings(con, "2026-05")
     assert sv["total"] >= 0 and isinstance(sv["by_supplier"], list)
     con.close()
+
+
+def test_savings_total_is_money_f2_half_up():
+    """F-D: the avoidable-overpay total is quantized via money.f2 (HALF_UP), not bare
+    round() (banker's). Fixture: premium supplier 8 L at 1.015625 €/L vs cheapest at
+    1.000 €/L -> overpay exactly 0.125, which HALF_UP rounds to 0.13 (banker's -> 0.12)."""
+    import money
+    con = sqlite3.connect(":memory:"); con.row_factory = sqlite3.Row
+    con.execute("""CREATE TABLE transactions (period TEXT, date TEXT, country TEXT,
+                   supplier TEXT, product_group TEXT, qty REAL, net_eur_eff REAL)""")
+    con.executemany(
+        "INSERT INTO transactions VALUES (?,?,?,?,?,?,?)", [
+            ("2026-05", "2026-05-10", "Belgium", "CHEAP", "Diesel", 8.0, 8.0),       # 1.000 €/L
+            ("2026-05", "2026-05-10", "Belgium", "PREMIUM", "Diesel", 8.0, 8.125),   # 1.015625 €/L
+        ])
+    con.commit()
+    sv = Q.q_savings(con, "2026-05")
+    con.close()
+    assert sv["total"] == 0.13            # money.f2 HALF_UP, not round() banker's 0.12
+    assert sv["total"] == money.f2(0.125)
+    assert round(0.125, 2) == 0.12        # documents the banker's-rounding drift avoided

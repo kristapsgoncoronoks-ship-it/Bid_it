@@ -138,7 +138,8 @@ def _savings(con, period):
             total += over
             by_sup[s] = by_sup.get(s, 0) + over
             by_ctry[c] = by_ctry.get(c, 0) + over
-    return {"total": round(total, 2),
+    # `total` accumulated at full precision; final overpay quantized HALF_UP (money.f2).
+    return {"total": money.f2(total),
             "by_sup": sorted(by_sup.items(), key=lambda x: -x[1]),
             "by_ctry": sorted(by_ctry.items(), key=lambda x: -x[1])}
 

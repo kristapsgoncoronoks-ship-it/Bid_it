@@ -15,6 +15,7 @@ for rebate-style suppliers (where net_eur_eff < net_eur, e.g. Q8/Port One) and
 max_net for suppliers whose discount is baked into the doc price.
 """
 import os, re, sqlite3
+import money
 
 import supplier_master
 import db_tuning
@@ -68,7 +69,9 @@ def audit(period=None, tolerance=TOLERANCE):
                 continue
             def _flag(issue, expected, actual, recover):
                 nonlocal total
-                rec = round(recover, 2)
+                # recoverable EUR is currency -> money.f2 (HALF_UP); expected/actual are
+                # EUR/L prices (4dp), left as price-per-litre formatting.
+                rec = money.f2(recover)
                 if rec <= 0:
                     return
                 flags.append({"supplier": g["supplier"], "country": g["country"],
@@ -78,7 +81,7 @@ def audit(period=None, tolerance=TOLERANCE):
                               "actual": round(actual, 4), "recover_eur": rec,
                               "note": r["note"] or ""})
                 total += rec
-                by_sup[g["supplier"]] = round(by_sup.get(g["supplier"], 0.0) + rec, 2)
+                by_sup[g["supplier"]] = money.f2(by_sup.get(g["supplier"], 0.0) + rec)
             exp = r["expected_discount_eur_l"]
             if exp is not None and applied < exp - tolerance:
                 _flag("short discount", exp, applied, (exp - applied) * qty)
@@ -86,7 +89,7 @@ def audit(period=None, tolerance=TOLERANCE):
             if mx is not None and eff_l > mx + tolerance:
                 _flag("over ceiling", mx, eff_l, (eff_l - mx) * qty)
     flags.sort(key=lambda f: f["recover_eur"], reverse=True)
-    return flags, {"total_recover": round(total, 2), "flags": len(flags),
+    return flags, {"total_recover": money.f2(total), "flags": len(flags),
                    "by_supplier": by_sup, "rules": len(rules)}
 
 

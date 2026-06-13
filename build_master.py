@@ -1,4 +1,5 @@
 import collections
+import money
 from supplier_specs import SPECS
 from month_config import PAYMENTS, OPEN_ITEMS
 import month_config
@@ -212,12 +213,14 @@ def build(period=None):
     h2h.sort()
     tot_over = 0.0
     for row_ in h2h:
-        ws.append([row_[0], row_[1], row_[2], row_[3], round(row_[4],4), round(row_[5],0), round(row_[6],2)])
+        # spread (col E) is EUR/L (4dp) and litres (col F) integer; the overpay EUR
+        # (col G) is currency -> money.f2 (HALF_UP), not bare round().
+        ws.append([row_[0], row_[1], row_[2], row_[3], round(row_[4],4), round(row_[5],0), money.f2(row_[6])])
         tot_over += row_[6]
         for c in ws[r]: c.font = norm
         ws[f"E{r}"].number_format = "0.0000"; ws[f"F{r}"].number_format = "#,##0"; ws[f"G{r}"].number_format = "#,##0"
         r += 1
-    ws.append(["", "", "", "", "", "TOTAL overpay vs cheapest-available:", round(tot_over,2)])
+    ws.append(["", "", "", "", "", "TOTAL overpay vs cheapest-available:", money.f2(tot_over)])
     for c in ws[r]: c.font = b10
     ws[f"G{r}"].number_format = "#,##0"
     r += 1
@@ -317,7 +320,8 @@ def build(period=None):
         if b and b[1] > 0:
             if pl <= b[0] - b[1]: hint = "PREFER"
             elif pl >= b[0] + b[1]: hint = "AVOID / renegotiate"
-        ws.append([s,c,st,round(L,0),round(E,2),round(pl,4),round(ple,4),hint])
+        # Litres integer; EUR/L cols 4dp; Net EUR (col E) is currency -> money.f2.
+        ws.append([s,c,st,round(L,0),money.f2(E),round(pl,4),round(ple,4),hint])
         for cc in ws[r]: cc.font = norm
         ws[f"D{r}"].number_format = "#,##0"; ws[f"E{r}"].number_format = "#,##0"
         ws[f"F{r}"].number_format = "0.0000"; ws[f"G{r}"].number_format = "0.0000"

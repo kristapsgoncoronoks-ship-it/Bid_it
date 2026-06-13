@@ -6,6 +6,7 @@ returns rows/dicts. Kept separate from app.py so the web layer stays small and
 these are easy to test and reuse (the web routes and reports both build on them).
 All money is NET EUR; effective price = net_eur_eff / qty.
 """
+import money
 
 
 def q_periods(con):
@@ -112,7 +113,7 @@ def q_headtohead(con, period):
                     "prices": " | ".join(f"{s} {prices[s]:.4f}" for s in sorted(prices)),
                     "cheapest": cheap, "spread": round(max(prices.values()) - min(prices.values()), 4),
                     "litres": round(sum(v[0] for v in bysup.values())),
-                    "overpay": round(over, 2)})
+                    "overpay": money.f2(over)})       # currency -> HALF_UP
     return out
 
 
@@ -152,6 +153,9 @@ def q_savings(con, period):
             total += over
             by_country[c] = by_country.get(c, 0) + over
             by_supplier[s] = by_supplier.get(s, 0) + over
-    return {"total": round(total, 2),
+    # `total` accumulated at full precision; quantize the final overpay figure
+    # HALF_UP (money.f2), consistent with the VAT money basis. by_country/by_supplier
+    # are charted at integer-EUR display, so left at full precision.
+    return {"total": money.f2(total),
             "by_country": sorted(by_country.items(), key=lambda x: -x[1]),
             "by_supplier": sorted(by_supplier.items(), key=lambda x: -x[1])}
