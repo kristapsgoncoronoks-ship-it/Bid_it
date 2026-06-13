@@ -295,6 +295,13 @@ def _sheet_table(wb, title, rows, period, chart=False):
         cats = Reference(ws, min_col=1, min_row=2, max_row=rr - 1)
         ch.add_data(data, titles_from_data=True); ch.set_categories(cats)
         ws.add_chart(ch, "G2")
+        # second chart: effective €/L (col E, NET EUR/L basis) — directly comparable bars
+        # so the dearest supplier is obvious. References the SAME cells already written.
+        ch2 = BarChart(); ch2.type = "col"; ch2.title = "Effective €/L by supplier (NET, VAT-excl)"
+        ch2.height = 8; ch2.width = 14; ch2.legend = None
+        d2 = Reference(ws, min_col=5, min_row=1, max_row=rr - 1)
+        ch2.add_data(d2, titles_from_data=True); ch2.set_categories(cats)
+        ws.add_chart(ch2, "G18")
 
 
 def _sheet_entity(wb, rows, period):
@@ -317,6 +324,14 @@ def _sheet_entity(wb, rows, period):
     totals_row(ws, rr, len(hdr))
     set_widths(ws, [26, 14, 16, 16, 16])
     ws.freeze_panes = "A2"; ws.sheet_view.showGridLines = False
+    # chart: net spend by entity x country (col C = Net EUR), referencing the cells above.
+    if rr > 3:
+        ch = BarChart(); ch.type = "bar"; ch.title = "Net spend by entity (EUR)"
+        ch.height = 8; ch.width = 14; ch.legend = None
+        data = Reference(ws, min_col=3, min_row=1, max_row=rr - 1)
+        cats = Reference(ws, min_col=1, min_row=2, max_row=rr - 1)
+        ch.add_data(data, titles_from_data=True); ch.set_categories(cats)
+        ws.add_chart(ch, "G2")
 
 
 def _sheet_trend(wb, rows):
@@ -349,6 +364,7 @@ def _sheet_savings(wb, sv, period):
     ws.cell(4, 1, "Total avoidable overpay (EUR)").font = Font(bold=True)
     tc = ws.cell(4, 2, sv["total"]); tc.number_format = FMT_EUR
     tc.font = Font(bold=True, size=13, color=BADR)
+    ctry_block = None  # (header_row, first_data_row, last_data_row) for the chart
     for start_row, title, items in ((7, "Overpay by supplier", sv["by_sup"]),
                                     (7 + len(sv["by_sup"]) + 4, "Overpay by country", sv["by_ctry"])):
         ws.cell(start_row, 1, title).font = Font(bold=True, size=11)
@@ -363,7 +379,18 @@ def _sheet_savings(wb, sv, period):
         if r > start_row + 2:
             ws.conditional_formatting.add(f"B{start_row+2}:B{r-1}",
                 DataBarRule(start_type="min", end_type="max", color="F4A6A6"))
+            if title == "Overpay by country":
+                ctry_block = (start_row + 1, start_row + 2, r - 1)
     ws.freeze_panes = "A3"; ws.sheet_view.showGridLines = False
+    # chart: avoidable overpay (EUR) by country, referencing the country block cells.
+    if ctry_block:
+        hdr_row, first, last = ctry_block
+        ch = BarChart(); ch.type = "col"; ch.title = "Avoidable overpay (EUR) by country"
+        ch.height = 7.5; ch.width = 14; ch.legend = None
+        data = Reference(ws, min_col=2, min_row=hdr_row, max_row=last)
+        cats = Reference(ws, min_col=1, min_row=first, max_row=last)
+        ch.add_data(data, titles_from_data=True); ch.set_categories(cats)
+        ws.add_chart(ch, "E7")
 
 
 def fee_report_workbook(claim, path=None):

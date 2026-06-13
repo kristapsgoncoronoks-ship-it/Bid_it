@@ -155,6 +155,80 @@ def test_pivot_supplier_country_cell_matches_raw(workbook):
     assert bp_net == money.f2(raw_net[("BP", "Poland")]), bp_net
 
 
+def test_executive_summary_sheet_present_and_first(workbook):
+    """The Executive summary is the FIRST sheet and carries the period + NET basis."""
+    wb, _ = workbook
+    assert wb.sheetnames[0] == "Executive summary", wb.sheetnames
+    ws = wb["Executive summary"]
+    assert "EXECUTIVE SUMMARY" in str(ws["A1"].value)
+    assert "net EUR/L" in str(ws["A2"].value) and PERIOD in str(ws["A2"].value)
+
+
+def _kpi_value(ws, label):
+    """Find the KPI value cell sitting directly ABOVE its label cell."""
+    for row in ws.iter_rows():
+        for c in row:
+            if c.value == label:
+                return ws.cell(row=c.row - 1, column=c.column).value
+    return None
+
+
+def test_executive_summary_figures_preserved(workbook):
+    """PRESERVATION: the headline KPIs on the Executive summary EQUAL the figures summed
+    straight from the raw rows — proving the KPI sheet only re-displays, never recomputes
+    differently. Net spend and avoidable overpay are the load-bearing checks."""
+    wb, rows = workbook
+    ws = wb["Executive summary"]
+
+    # Net spend (EUR) == money.f2 of sum of net_eur over ALL rows (col 14).
+    raw_net = money.f2(money.fsum(r_[14] or 0.0 for r_ in rows))
+    assert _kpi_value(ws, "Net spend (EUR)") == raw_net
+
+    # Reclaimable VAT (EUR) == money.f2 of sum of vat_eur (col 15).
+    raw_vat = money.f2(money.fsum(r_[15] or 0.0 for r_ in rows))
+    assert _kpi_value(ws, "Reclaimable VAT (EUR)") == raw_vat
+
+    # Avoidable overpay (EUR): recompute the SAME head-to-head logic and confirm equality.
+    hh = collections.defaultdict(lambda: collections.defaultdict(lambda: [0.0, 0.0]))
+    for r_ in rows:
+        if r_[8] == "Diesel":
+            hh[(r_[4], r_[2])][r_[1]][0] += r_[9]
+            hh[(r_[4], r_[2])][r_[1]][1] += r_[16]
+    overpay = 0.0
+    for _k, bysup in hh.items():
+        if len(bysup) >= 2:
+            prices = {s: v[1] / v[0] for s, v in bysup.items()}
+            cheap = min(prices.values())
+            overpay += sum(v[0] * (prices[s] - cheap) for s, v in bysup.items())
+    assert _kpi_value(ws, "Avoidable overpay (EUR)") == money.f2(overpay)
+
+
+def test_executive_summary_and_benchmark_have_charts(workbook):
+    """At least one chart on the Executive summary (overpay by country) and one on the
+    Diesel benchmark sheet (effective €/L by supplier)."""
+    wb, _ = workbook
+    assert len(wb["Executive summary"]._charts) >= 1
+    assert len(wb["Diesel benchmark"]._charts) >= 1
+
+
+def test_fx_markup_cell_unchanged(workbook):
+    """A known EUR cell on an existing sheet (BP/PLN markup on FX analysis) is byte-for-byte
+    the canonical supplier_fx figure — formatting/highlighting did not perturb the number."""
+    wb, rows = workbook
+    import supplier_fx
+    canon = {(d["supplier"], d["currency"]): d for d in supplier_fx.analysis_from_rows(rows)}
+    bp = canon[("BP", "PLN")]
+    ws = wb["FX analysis"]
+    hdr = [c.value for c in ws[4]]
+    ix = {h: i for i, h in enumerate(hdr)}
+    for rr in range(5, ws.max_row + 1):
+        if ws.cell(row=rr, column=1).value == "BP" and ws.cell(row=rr, column=2).value == "PLN":
+            cell_markup = ws[rr][ix["EUR gain/loss (markup)"]].value
+            assert cell_markup == money.f2(bp["eur_diff"]), (cell_markup, bp["eur_diff"])
+            return
+    pytest.fail("BP/PLN row not found")
+
+
 def test_transactions_registered_as_excel_table(workbook):
     """The Transactions data range is registered as a proper Excel Table so the user
     can drop their own native PivotTables / filters on clean tabular data."""

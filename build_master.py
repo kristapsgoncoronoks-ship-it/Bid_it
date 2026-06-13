@@ -1,4 +1,5 @@
 import collections
+import datetime
 import money
 import supplier_fx
 from supplier_specs import SPECS
@@ -7,11 +8,19 @@ import month_config
 import consolidate
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.chart import BarChart, Reference
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 import os
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
+
+# Highlight thresholds (documented, deliberately simple):
+#   - a per-country overpay cell on the Executive summary is RED-filled when overpay > 0
+#     (any avoidable spend at all is worth flagging);
+#   - an FX-markup row is AMBER-filled when the absolute deviation exceeds FX_DEV_AMBER %
+#     (the supplier converted at a rate that drifted materially from the ECB market).
+FX_DEV_AMBER = 1.0   # percent deviation vs ECB above which an FX row is flagged amber
 
 
 def build(period=None):
@@ -38,8 +47,98 @@ def build(period=None):
         for c in ws[row]:
             if c.value: c.font = bw; c.fill = fillH; c.alignment = Alignment(horizontal="center", wrap_text=True)
 
+    # ============ 0. EXECUTIVE SUMMARY / KPIs (first sheet) ============
+    # Decision-ready headline. Every figure is REUSED from the same computations the
+    # detail sheets render -- NO number is recomputed differently. Basis: net EUR/L
+    # (VAT-excluded, rebates-applied). EUR via money.f2 (HALF_UP); per-litre at 4 dp.
+    diesel_litres = money.fsum(r_[9] or 0.0 for r_ in ROWS if r_[8] == "Diesel")
+    total_net = money.f2(money.fsum(r_[14] or 0.0 for r_ in ROWS))
+    total_vat = money.f2(money.fsum(r_[15] or 0.0 for r_ in ROWS))
+    _d_neteff = money.fsum(r_[16] or 0.0 for r_ in ROWS if r_[8] == "Diesel")
+    fleet_eurl = (_d_neteff / float(diesel_litres)) if diesel_litres else 0.0
+
+    # Avoidable overpay PER COUNTRY -- identical head-to-head logic to section 5b below
+    # (same-day, same-country, 2+ suppliers buying diesel; overpay vs the cheapest).
+    _hh = collections.defaultdict(lambda: collections.defaultdict(lambda: [0.0, 0.0]))
+    for r_ in ROWS:
+        if r_[8] == "Diesel":
+            _hh[(r_[4], r_[2])][r_[1]][0] += r_[9]; _hh[(r_[4], r_[2])][r_[1]][1] += r_[16]
+    overpay_by_ctry = collections.defaultdict(float)
+    for (d, c), bysup in _hh.items():
+        if len(bysup) >= 2:
+            prices = {s: v[1] / v[0] for s, v in bysup.items()}
+            cheap = min(prices.values())
+            overpay_by_ctry[c] += sum(v[0] * (prices[s] - cheap) for s, v in bysup.items())
+    total_overpay = money.f2(sum(overpay_by_ctry.values()))
+
+    # FX markup total -- canonical supplier_fx analysis (same rows the FX analysis sheet uses).
+    fx_rows_k = supplier_fx.analysis_from_rows(ROWS)
+    total_fx_markup = money.f2(sum(d["eur_diff"] or 0.0 for d in fx_rows_k))
+
+    # Top routing actions = the worst-overpay countries (route volume to the cheaper
+    # supplier you already use there). Same overpay figures as above.
+    top_actions = sorted(overpay_by_ctry.items(), key=lambda x: -x[1])[:3]
+
+    ws = wb.active; ws.title = "Executive summary"
+    ws["A1"] = "FLEET FUEL - EXECUTIVE SUMMARY"; ws["A1"].font = Font(bold=True, size=15, name="Arial")
+    ws["A2"] = (f"Period: {period}  |  Basis: net EUR/L (VAT-excluded, rebates-applied)  |  "
+                f"Generated: {datetime.date.today().isoformat()}")
+    ws["A2"].font = it8
+    kpiL = Font(name="Arial", size=9, color="5B6B7A")
+    kpiV = Font(bold=True, size=15, name="Arial", color="1F3864")
+    kpis = [
+        (diesel_litres, "Diesel litres", "#,##0", "1F3864"),
+        (total_net, "Net spend (EUR)", "#,##0.00", "1F3864"),
+        (total_vat, "Reclaimable VAT (EUR)", "#,##0.00", "1B7340"),
+        (fleet_eurl, "Fleet effective EUR/L", "0.0000", "1F3864"),
+        (total_overpay, "Avoidable overpay (EUR)", "#,##0.00", "C8102E"),
+        (total_fx_markup, "FX markup vs ECB (EUR)", "#,##0.00", "C8102E"),
+    ]
+    kr = 4
+    for i, (val, lab, fmt, col) in enumerate(kpis):
+        row = kr + (i // 3) * 3
+        cc = 1 + (i % 3) * 2
+        v = ws.cell(row=row, column=cc, value=val)
+        v.font = Font(bold=True, size=15, name="Arial", color=col); v.number_format = fmt
+        lc = ws.cell(row=row + 1, column=cc, value=lab); lc.font = kpiL
+    ar = kr + ((len(kpis) - 1) // 3 + 1) * 3 + 1
+    ws.cell(row=ar, column=1, value="TOP ROUTING ACTIONS (biggest avoidable overpay by country)").font = b10
+    ar += 1
+    ws.cell(row=ar, column=1, value="Country").font = bw
+    ws.cell(row=ar, column=2, value="Avoidable overpay (EUR)").font = bw
+    for c in (ws.cell(row=ar, column=1), ws.cell(row=ar, column=2)):
+        c.fill = fillH; c.alignment = Alignment(horizontal="center")
+    ar += 1
+    act_first = ar
+    if top_actions:
+        for ctry, ov in top_actions:
+            ws.cell(row=ar, column=1, value=f"Route {ctry} diesel to your cheapest supplier there").font = norm
+            ovc = ws.cell(row=ar, column=2, value=money.f2(ov)); ovc.number_format = "#,##0.00"; ovc.font = norm
+            if ov > 0:  # any avoidable overpay -> red flag
+                ovc.fill = PatternFill("solid", start_color="F4CCCC")
+            ar += 1
+    else:
+        ws.cell(row=ar, column=1, value="(no multi-supplier diesel days this period)").font = it8
+        ar += 1
+    ws.cell(row=ar + 1, column=1,
+            value=("All prices NET EUR/L, final (VAT excluded, rebates applied). Figures match the detail "
+                   "sheets (Diesel benchmark, Entity & VAT view, FX analysis); see those for the breakdown.")
+            ).font = it8
+    for col, w in zip("ABCDEF", [40, 18, 14, 18, 14, 18]):
+        ws.column_dimensions[col].width = w
+    # Chart: avoidable overpay EUR by country (from the same overpay figures above).
+    if top_actions and act_first <= ar - 1:
+        ch = BarChart(); ch.type = "col"; ch.title = "Avoidable overpay (EUR) by country"
+        ch.height = 7.5; ch.width = 14; ch.legend = None
+        data = Reference(ws, min_col=2, min_row=act_first, max_row=ar - 1)
+        cats = Reference(ws, min_col=1, min_row=act_first, max_row=ar - 1)
+        ch.add_data(data); ch.set_categories(cats)
+        ws.add_chart(ch, "D" + str(act_first))
+    ws.sheet_view.showGridLines = False
+    ws.freeze_panes = "A3"
+
     # ============ 1. RUNBOOK ============
-    ws = wb.active; ws.title = "Runbook"
+    ws = wb.create_sheet("Runbook")
     ws["A1"] = "FLEET FUEL MONTHLY CLOSE - RUNBOOK"; ws["A1"].font = Font(bold=True, size=13, name="Arial")
     ws["A2"] = "Period: May 2026 (template - reuse monthly)"; ws["A2"].font = it8
     steps = [
@@ -144,7 +243,7 @@ def build(period=None):
         ws.auto_filter.ref = f"A1:S{last}"
 
     # ============ 5. PIVOT: SUPPLIER x COUNTRY (DIESEL) ============
-    ws = wb.create_sheet("Diesel benchmark", 1)
+    ws = wb.create_sheet("Diesel benchmark", 2)
     ws["A1"] = "DIESEL NET EUR/L BENCHMARK - MAY 2026 (excl. VAT, after on-invoice discounts; 'effective' adds Q8 rebate layer)"
     ws["A1"].font = Font(bold=True, size=11, name="Arial")
     ws.append([])
@@ -180,10 +279,18 @@ def build(period=None):
         r += 1
     for col, w in zip("ABCDEFG",[16,12,11,13,11,15,13]):
         ws.column_dimensions[col].width = w
-
+    ws.freeze_panes = "A4"
+    # Chart: effective EUR/L by supplier x country (the per-combo benchmark rows, col G).
+    if tr > 4:
+        ch = BarChart(); ch.type = "col"; ch.title = "Effective EUR/L by supplier (diesel)"
+        ch.height = 7.5; ch.width = 16; ch.legend = None
+        data = Reference(ws, min_col=7, min_row=3, max_row=tr - 1)        # incl. header for title
+        cats = Reference(ws, min_col=1, min_row=4, max_row=tr - 1)
+        ch.add_data(data, titles_from_data=True); ch.set_categories(cats)
+        ws.add_chart(ch, "I3")
 
     # ============ 5b. SUPPLIER COMPARISON ============
-    ws = wb.create_sheet("Supplier comparison", 2)
+    ws = wb.create_sheet("Supplier comparison", 3)
     ws["A1"] = "SUPPLIER COMPARISON - by location, date, product"
     ws["A1"].font = Font(bold=True, size=11, name="Arial")
     sups = sorted({r_[1] for r_ in ROWS})
@@ -280,7 +387,7 @@ def build(period=None):
         ws.column_dimensions[chr(65+i)].width = max(ws.column_dimensions[chr(65+i)].width or 0, 10)
 
     # ============ 6. ENTITY & VAT VIEW ============
-    ws = wb.create_sheet("Entity & VAT view", 2)
+    ws = wb.create_sheet("Entity & VAT view", 3)
     ws["A1"] = "PER-ENTITY TOTALS, RECLAIMABLE VAT AND PAYMENT CALENDAR - MAY 2026"
     ws["A1"].font = Font(bold=True, size=11, name="Arial")
     ws.append([])
@@ -315,7 +422,7 @@ def build(period=None):
         ws.column_dimensions[col].width = w
 
     # ============ 7. STATION SCORECARD ============
-    ws = wb.create_sheet("Station scorecard", 3)
+    ws = wb.create_sheet("Station scorecard", 4)
     ws["A1"] = "DIESEL STATION SCORECARD (>=300 L) - routing guidance"; ws["A1"].font = Font(bold=True, size=11, name="Arial")
     agg = collections.defaultdict(lambda: [0.0,0.0,0.0])
     for r_ in ROWS:
@@ -391,6 +498,10 @@ def build(period=None):
         ws[f"D{r}"].number_format = "#,##0.00"; ws[f"E{r}"].number_format = "#,##0.00"
         ws[f"F{r}"].number_format = "0.000000"; ws[f"G{r}"].number_format = "0.000000"
         ws[f"I{r}"].number_format = "0.000"; ws[f"J{r}"].number_format = "#,##0.00"
+        # Amber-flag an FX-markup outlier: |deviation| beyond FX_DEV_AMBER % vs ECB.
+        if dev != "" and abs(dev) > FX_DEV_AMBER:
+            for cc in (ws[f"I{r}"], ws[f"J{r}"]):
+                cc.fill = PatternFill("solid", start_color="FCE5CD")
         r += 1
     if r == 5:
         ws[f"A{r}"] = "(no non-EUR suppliers this period)"; ws[f"A{r}"].font = it8
@@ -400,6 +511,7 @@ def build(period=None):
     ws[f"A{r+1}"].font = it8
     for col, w in zip("ABCDEFGHIJ",[10,9,12,13,13,13,12,12,12,20]):
         ws.column_dimensions[col].width = w
+    ws.freeze_panes = "A5"
 
     # ============ 9. PYTHON-COMPUTED CROSS-TAB PIVOTS ============
     # Reliable grids computed here (NOT fragile openpyxl native PivotTables): a labelled

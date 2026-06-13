@@ -13,9 +13,33 @@ def test_summary_workbook_structure(tmp_path):
         assert sheet in wb.sheetnames
     ws = wb["Summary"]
     assert "Fleet Fuel Report" in str(ws["A1"].value)
+    assert "NET EUR/L" in str(ws["A2"].value)  # basis stated on the first sheet
     assert len(ws._charts) >= 1               # a chart was added
     # KPI value cells are numeric
     assert isinstance(ws.cell(4, 3).value, (int, float))
+    # By supplier carries two charts (net spend + effective €/L); savings + entity each one.
+    assert len(wb["By supplier"]._charts) >= 2
+    assert len(wb["By entity (VAT)"]._charts) >= 1
+    assert len(wb["Savings"]._charts) >= 1
+
+
+def test_summary_kpi_figure_preserved(tmp_path):
+    """PRESERVATION: the Net-spend KPI on the Summary sheet EQUALS the sum of the per-supplier
+    Net EUR rows on the 'By supplier' sheet — the polish/charts did not change the figure."""
+    import reports
+    from openpyxl import load_workbook
+    path = reports.summary_workbook(path=str(tmp_path / "sum.xlsx"))
+    wb = load_workbook(path)
+    sup = wb["By supplier"]
+    # sum the Net EUR column (col 3) over the data rows (header=1, last row is TOTAL).
+    body_net = 0.0
+    for rr in range(2, sup.max_row):  # exclude TOTAL row (has a formula, not a value)
+        v = sup.cell(rr, 3).value
+        if isinstance(v, (int, float)):
+            body_net += v
+    # the Summary "Net spend (EUR)" KPI sits at row 4, col 3 (INK card).
+    kpi_net = wb["Summary"].cell(4, 3).value
+    assert abs(kpi_net - round(body_net, 2)) < 0.01, (kpi_net, body_net)
 
 
 def test_export_summary_route(client):
