@@ -3795,7 +3795,27 @@ def anomalies_page():
             + (f'<span class="bad">{len(flags)} flag(s)</span>' if flags else '<span class="ok">clean</span>') + '</h2>'
             + (tbl(["Type","Level","Detail"], trs) if flags else '<p>No anomalies detected.</p>')
             + '<div class="note">Relative checks: station price vs country average, month-over-month '
-              'price jumps, vehicle volume spikes, off-period dates. Tune thresholds in anomaly.py.</div></div>')
+              'price jumps, vehicle volume spikes, off-period dates, off-hours fuelings. '
+              'Tune thresholds in anomaly.py.</div></div>')
+    # time-of-day distribution (the under-used transactions.time dimension). Wrapped so a
+    # failure here cannot break the anomaly page — log and skip the table.
+    try:
+        tod = anomaly.time_of_day_summary(period)
+        if tod:
+            ttrs = []
+            for b in tod:
+                litres = format(b["litres"], ",.0f")
+                price = format(b["eur_l"], ".3f") if b["eur_l"] is not None else "—"
+                ttrs.append([f"<td>{esc(b['hour'])}</td>", f"<td>{esc(b['count'])}</td>",
+                             f"<td>{esc(litres)}</td>", f"<td>{esc(price)}</td>"])
+            body += ('<div class="card"><h2>Fuelling by time of day — '
+                     f'{esc(period)} (diesel)</h2>'
+                     + tbl(["Hour", "Fuellings", "Litres", "NET €/L"], ttrs)
+                     + '<div class="note">NET EUR/L, VAT-excluded. Hour parsed from the '
+                       'station-local fuelling time; rows with no time roll up under '
+                       '"unknown".</div></div>')
+    except Exception as e:
+        _log_exc("anomalies_page time_of_day", e)
     return page(body, "ano")
 
 @app.route("/api/recovery")

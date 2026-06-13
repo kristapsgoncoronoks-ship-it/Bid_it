@@ -194,6 +194,71 @@ def test_robust_outlier_wrapper_matches_flag():
                anomaly._robust_flag(val, anomaly._robust_stats(sample))
 
 
+def _seed_tod(path, rows):
+    """Seed a transactions table that includes the `time` column for time-of-day tests."""
+    con = sqlite3.connect(path)
+    con.execute("""CREATE TABLE transactions (period, supplier, country, station, vehicle,
+                   date, time, product_group, qty, net_eur_eff)""")
+    con.executemany("INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
+    con.commit(); con.close()
+
+
+def test_off_hours_flag_night_yes_day_no(tmp_path, monkeypatch):
+    import anomaly
+    importlib.reload(anomaly)
+    db = str(tmp_path / "fh.db")
+    _seed_tod(db, [
+        # 23:30 deep-night diesel -> flagged
+        ("2026-05", "BP", "Germany", "s", "V1", "2026-05-10", "23:30", "Diesel", 500, 500.0),
+        # 13:00 daytime diesel -> NOT flagged
+        ("2026-05", "BP", "Germany", "s", "V2", "2026-05-10", "13:00", "Diesel", 500, 500.0),
+    ])
+    monkeypatch.setattr(anomaly, "DB", db)
+    flags = anomaly.find("2026-05")
+    off = [f for f in flags if f[0] == "off_hours"]
+    assert len(off) == 1
+    assert "V1" in off[0][2] and "23:30" in off[0][2]
+    assert not any("V2" in f[2] for f in off)
+
+
+def test_off_hours_bad_time_does_not_raise_or_flag(tmp_path, monkeypatch):
+    import anomaly
+    importlib.reload(anomaly)
+    db = str(tmp_path / "fh.db")
+    _seed_tod(db, [
+        ("2026-05", "BP", "Germany", "s", "V1", "2026-05-10", "", "Diesel", 100, 100.0),
+        ("2026-05", "BP", "Germany", "s", "V2", "2026-05-10", "xx:yy", "Diesel", 100, 100.0),
+        ("2026-05", "BP", "Germany", "s", "V3", "2026-05-10", "25:00", "Diesel", 100, 100.0),
+    ])
+    monkeypatch.setattr(anomaly, "DB", db)
+    flags = anomaly.find("2026-05")   # must not raise
+    assert not any(f[0] == "off_hours" for f in flags)
+
+
+def test_time_of_day_summary_buckets_and_weighted_price(tmp_path, monkeypatch):
+    import anomaly
+    importlib.reload(anomaly)
+    db = str(tmp_path / "fh.db")
+    _seed_tod(db, [
+        # 08:00 bucket: 100L @1.40 and 100L @1.60 -> vol-weighted 1.50
+        ("2026-05", "BP", "Germany", "s", "V1", "2026-05-10", "08:15", "Diesel", 100, 140.0),
+        ("2026-05", "BP", "Germany", "s", "V2", "2026-05-11", "08:45", "Diesel", 100, 160.0),
+        # 14:00 bucket: single 200L @1.00
+        ("2026-05", "BP", "Germany", "s", "V3", "2026-05-12", "14:00", "Diesel", 200, 200.0),
+        # bad time -> 'unknown' bucket, not dropped from totals
+        ("2026-05", "BP", "Germany", "s", "V4", "2026-05-13", "nope", "Diesel", 50, 50.0),
+    ])
+    monkeypatch.setattr(anomaly, "DB", db)
+    summ = {b["hour"]: b for b in anomaly.time_of_day_summary("2026-05")}
+    assert summ["08:00"]["count"] == 2
+    assert summ["08:00"]["litres"] == 200
+    assert abs(summ["08:00"]["eur_l"] - 1.50) < 1e-9   # volume-weighted NET EUR/L
+    assert summ["14:00"]["count"] == 1 and abs(summ["14:00"]["eur_l"] - 1.00) < 1e-9
+    assert "unknown" in summ and summ["unknown"]["count"] == 1 and summ["unknown"]["litres"] == 50
+    # total count across buckets accounts for every row (none silently dropped)
+    assert sum(b["count"] for b in summ.values()) == 4
+
+
 def test_routing_flag_is_learned_from_spread():
     import app
     # mean 1.05, std-dev 0.05 -> the trigger price is LEARNED from this market's spread

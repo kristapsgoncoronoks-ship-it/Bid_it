@@ -11,6 +11,7 @@ price level or an absolute month-over-month limit):
                    that month — i.e. it diverged from everyone else, not just "moved"
   volume_spike    a vehicle's monthly litres far above its own trailing average
   off_period      a transaction dated outside the loaded period
+  off_hours       diesel fuelled in the deep-night window (possible card misuse)
 """
 import os, sys, sqlite3, collections, statistics
 
@@ -21,6 +22,33 @@ DB = f"{WORKDIR}/fuel_history.db"
 # is the only knob — the statistical sensitivity (default 2.0 = the standard outlier
 # distance), env-overridable — not a fuel-price number.
 ANOMALY_SIGMAS = float(os.environ.get("ANOMALY_SIGMAS", "2.0"))
+# Deep-night hours (local station time, 24h) at which a transport fleet fuelling is worth
+# a human look — possible fuel-card misuse. Env-overridable as a comma-list of hours.
+OFF_HOURS = tuple(int(h) for h in
+                  os.environ.get("OFF_HOURS", "22,23,0,1,2,3,4").split(",") if h.strip())
+
+
+def _has_col(con, table, col):
+    """True if `table` has column `col`. The live schema always carries `time`; this guard
+    keeps the off-hours/time-of-day analytics inert on a minimal table (e.g. older fixtures)
+    rather than raising on a missing column."""
+    try:
+        return any(r[1] == col for r in con.execute(f"PRAGMA table_info({table})"))
+    except sqlite3.Error:
+        return False
+
+
+def _parse_hour(t):
+    """Hour-of-day (0-23) from a 'HH:MM' time string, or None for empty/malformed input.
+    Defensive: never raises — bad/blank `time` rows just return None."""
+    if not t:
+        return None
+    s = str(t).strip()
+    parts = s.split(":")
+    if not parts or not parts[0].isdigit():
+        return None
+    h = int(parts[0])
+    return h if 0 <= h <= 23 else None
 
 def _outlier_high(value, sample):
     """True if `value` is a high outlier of `sample` (beyond mean + K·σ). The bound is
@@ -201,8 +229,66 @@ def find(period):
         flags.append(("off_period", "warn",
             f"{r['supplier']} {r['vehicle']}: {r['n']} txn(s) dated {r['date']} (loaded under {period})"))
 
+    # off-hours diesel fuelling (one flag per supplier+vehicle+date cluster). Parse the
+    # hour from `time` in PYTHON (defensive: empty/malformed `time` is skipped, never
+    # raises) and cluster the deep-night fuelings by (supplier, vehicle, date).
+    night = collections.defaultdict(list)   # (supplier, vehicle, date) -> [time, ...]
+    if _has_col(con, "transactions", "time"):
+        for r in con.execute("""SELECT supplier, vehicle, date, time FROM transactions
+                                WHERE period=? AND product_group='Diesel'
+                                ORDER BY vehicle, date, time""", (period,)):
+            h = _parse_hour(r["time"])
+            if h is not None and h in OFF_HOURS:
+                night[(r["supplier"], r["vehicle"], r["date"])].append(r["time"])
+    for (supplier, vehicle, date), times in night.items():
+        n = len(times)
+        sample = times[0]
+        flags.append(("off_hours", "warn",
+            f"{supplier} {vehicle}: {n} off-hours diesel fuelling(s) on {date} "
+            f"(e.g. {sample})"))
+
     con.close()
     return flags
+
+
+def time_of_day_summary(period, con=None):
+    """Hour-of-day distribution of DIESEL fuelings for `period` — the under-used
+    `transactions.time` dimension surfaced as analytics. Per bucket: count of fuelings,
+    total litres, and the VOLUME-WEIGHTED NET avg EUR/L (VAT-excluded). Rows with an
+    empty/malformed `time` are not dropped — they roll up into an 'unknown' bucket so the
+    totals stay honest. Pure/read-only; never raises. Returns a list of dicts ordered
+    0..23 then 'unknown', each: {hour, count, litres, eur_l}."""
+    own = con is None
+    if own:
+        con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        # accumulate in Python so we can hour-parse the same way the flag does (one source
+        # of truth) and route bad `time` to the 'unknown' bucket.
+        agg = {}   # hour-or-'unknown' -> [count, litres, net_eur_eff_sum]
+        if not _has_col(con, "transactions", "time"):
+            return []
+        for r in con.execute("""SELECT time, qty, net_eur_eff FROM transactions
+                                WHERE period=? AND product_group='Diesel'""", (period,)):
+            h = _parse_hour(r["time"])
+            key = h if h is not None else "unknown"
+            a = agg.setdefault(key, [0, 0.0, 0.0])
+            a[0] += 1
+            a[1] += r["qty"] or 0
+            a[2] += r["net_eur_eff"] or 0
+        out = []
+        order = list(range(24)) + ["unknown"]
+        for key in order:
+            if key not in agg:
+                continue
+            count, litres, net = agg[key]
+            # full precision; format at display (NET EUR/L, VAT-excluded)
+            eur_l = net / litres if litres else None
+            label = f"{key:02d}:00" if isinstance(key, int) else "unknown"
+            out.append({"hour": label, "count": count, "litres": litres, "eur_l": eur_l})
+        return out
+    finally:
+        if own:
+            con.close()
 
 
 if __name__ == "__main__":
