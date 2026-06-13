@@ -16,6 +16,8 @@ VAT_Refund_Claims_*.xlsx
 VAT_Claim_Readiness_*.xlsx
 VAT_Fees_Statement_*.xlsx
 Internal_Benchmark_*.xlsx
+Peer_Benchmark_*.xlsx
+Savings_Intelligence_*.xlsx
 
 # ── Fetched/cached reference data (re-fetchable) ──────────────────
 ecb_rates.db
