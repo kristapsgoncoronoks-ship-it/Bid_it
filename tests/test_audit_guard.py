@@ -76,6 +76,74 @@ def test_actor_thread_isolation(tmp_path):
     assert results == {"alice": {"alice"}, "bob": {"bob"}, "carol": {"carol"}}
 
 
+def _seed_audit_log(con):
+    con.execute("""CREATE TABLE audit_log (
+        id INTEGER PRIMARY KEY, ts TEXT DEFAULT CURRENT_TIMESTAMP,
+        tbl TEXT, rowkey TEXT, action TEXT,
+        old_data TEXT, new_data TEXT, changed_by TEXT)""")
+    rows = [
+        ("claims", "C1", "INSERT", "amy"),
+        ("claims", "C1", "UPDATE", "amy"),
+        ("claims", "C1", "UPDATE", "bob"),     # C1 revised 2x -> top churn
+        ("claims", "C2", "UPDATE", "amy"),
+        ("claims", "C3", "DELETE", "bob"),
+        ("invoices", "I1", "INSERT", None),    # NULL -> "(system)"
+        ("claims", "OLD", "BASELINE", None),   # MUST be excluded
+    ]
+    con.executemany(
+        "INSERT INTO audit_log (tbl, rowkey, action, changed_by) VALUES (?,?,?,?)", rows)
+    con.commit()
+
+
+def test_activity_summary_splits_and_churn(tmp_path):
+    import audit
+    importlib.reload(audit)
+    con = sqlite3.connect(":memory:")
+    _seed_audit_log(con)
+    act = audit.activity_summary(con, 30)
+
+    by_user = {u["changed_by"]: u for u in act["by_user"]}
+    # amy: 1 insert, 2 updates, 0 deletes (BASELINE excluded)
+    assert (by_user["amy"]["inserts"], by_user["amy"]["updates"],
+            by_user["amy"]["deletes"], by_user["amy"]["total"]) == (1, 2, 0, 3)
+    assert (by_user["bob"]["updates"], by_user["bob"]["deletes"]) == (1, 1)
+    assert "(system)" in by_user and by_user["(system)"]["inserts"] == 1
+
+    by_table = {t["tbl"]: t for t in act["by_table"]}
+    # claims: 1 insert + 3 updates + 1 delete = 5 (BASELINE not counted)
+    assert by_table["claims"]["total"] == 5
+    assert by_table["invoices"]["inserts"] == 1
+    # sorted by total desc
+    totals = [t["total"] for t in act["by_table"]]
+    assert totals == sorted(totals, reverse=True)
+
+    # churn: C1 updated twice -> first/most
+    assert act["churn"][0] == {"tbl": "claims", "rowkey": "C1", "updates": 2}
+    # no BASELINE rowkey anywhere
+    assert all(c["rowkey"] != "OLD" for c in act["churn"])
+    con.close()
+
+
+def test_activity_summary_empty_is_safe(tmp_path):
+    import audit
+    importlib.reload(audit)
+    con = sqlite3.connect(":memory:")
+    con.execute("""CREATE TABLE audit_log (id INTEGER PRIMARY KEY, ts TEXT,
+        tbl TEXT, rowkey TEXT, action TEXT, old_data TEXT, new_data TEXT, changed_by TEXT)""")
+    assert audit.activity_summary(con, 30) == {
+        "days": 30, "by_user": [], "by_table": [], "churn": []}
+    con.close()
+
+
+def test_activity_summary_never_raises(tmp_path):
+    import audit
+    importlib.reload(audit)
+    con = sqlite3.connect(":memory:")   # no audit_log table at all -> error path
+    assert audit.activity_summary(con, 30) == {
+        "days": 30, "by_user": [], "by_table": [], "churn": []}
+    con.close()
+
+
 def test_memory_dbs_not_cached(tmp_path):
     # two distinct :memory: DBs must each get their own triggers (no false cache hit)
     import audit

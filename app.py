@@ -2889,6 +2889,27 @@ def imports():
             + '<div class="note">Every import is logged: <b>received</b> (file archived in the '
               'data lake on arrival), <b>success</b>/<b>partial</b>/<b>failed</b> extraction and '
               'statement registration. Append-only audit trail.</div></div>')
+    try:
+        rel = IL.reliability(30)
+        def _rate(v):
+            return f"{v*100:.0f}%" if v is not None else "—"
+        crows = [[f"<td>{esc(c['channel'])}</td><td class=r>{c['total']}</td>",
+                  f"<td class=r ok>{c['success']}</td><td class=r>{c['partial']}</td>",
+                  f"<td class=r {'bad' if c['failed'] else ''}>{c['failed']}</td>",
+                  f"<td class=r>{esc(_rate(c['success_rate']))}</td>"]
+                 for c in rel["by_channel"]]
+        srows = [[f"<td>{esc(s['supplier'])}</td><td class=r>{s['total']}</td>",
+                  f"<td class=r>{esc(_rate(s['success_rate']))}</td>"]
+                 for s in rel["by_supplier"]]
+        body += ('<div class="card"><h2>Reliability by channel &amp; supplier (last 30d)</h2>'
+                 + '<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">'
+                 + '<div>' + tbl(["Channel", "Total", "Success", "Partial", "Failed", "Success rate"], crows) + '</div>'
+                 + '<div>' + tbl(["Supplier (top 20)", "Total", "Success rate"], srows) + '</div></div>'
+                 + '<div class="note">Success rate = success / (success + partial + failed) — '
+                   'extraction outcomes only; <b>received</b> (the arrival marker) is excluded from '
+                   'the denominator. Suppliers capped to the top 20 by volume.</div></div>')
+    except Exception as e:
+        _log_exc("imports reliability card", e)
     return page(body, "imp")
 
 @app.route("/files", methods=["GET", "POST"])
@@ -4813,6 +4834,26 @@ def history_page():
             + '<div class="note">BASELINE = state captured at audit installation. DELETE rows keep the '
               'full old record (restore by re-adding via Data manager). As-of reconstruction: '
               'audit.as_of(con, table, timestamp).</div></div>')
+    try:
+        act = _audit.activity_summary(con, 30)
+        urows = [[f"<td>{esc(u['changed_by'])}</td><td class=r ok>{u['inserts']}</td>",
+                  f"<td class=r>{u['updates']}</td><td class=r bad>{u['deletes']}</td>",
+                  f"<td class=r>{u['total']}</td>"] for u in act["by_user"]]
+        trows = [[f"<td>{esc(t['tbl'])}</td><td class=r ok>{t['inserts']}</td>",
+                  f"<td class=r>{t['updates']}</td><td class=r bad>{t['deletes']}</td>",
+                  f"<td class=r>{t['total']}</td>"] for t in act["by_table"]]
+        hrows = [[f"<td>{esc(h['tbl'])}</td><td>{esc(h['rowkey'])}</td>",
+                  f"<td class=r>{h['updates']}</td>"] for h in act["churn"]]
+        body += (f'<div class="card"><h2>Activity summary — {esc(dbk)}.db (last 30d)</h2>'
+                 + '<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">'
+                 + '<div>' + tbl(["User", "Ins", "Upd", "Del", "Total"], urows) + '</div>'
+                 + '<div>' + tbl(["Table", "Ins", "Upd", "Del", "Total"], trows) + '</div>'
+                 + '<div>' + tbl(["Most-revised record", "Key", "Updates"], hrows) + '</div></div>'
+                 + '<div class="note">BASELINE install-day snapshots are excluded. The '
+                   '"most-revised records" are the rows with the most UPDATEs in the window — '
+                   'the per-record rework hotspots.</div></div>')
+    except Exception as e:
+        _log_exc("history activity summary card", e)
     con.close(); return page(body, "his")
 
 @app.route("/admin", methods=["GET", "POST"])

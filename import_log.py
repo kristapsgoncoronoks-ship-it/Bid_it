@@ -92,6 +92,59 @@ def summary(days=30):
         out[r["status"]] = r["n"]
     return out
 
+def reliability(days=30, con=None):
+    """Import-reliability trends over the last `days`: extraction-outcome breakdowns by
+    channel and by supplier. Pure, read-only, never raises (returns a safe empty
+    structure on any error — like summary(), this is a reporting helper).
+
+    For each group we count received / success / partial / failed and a total, plus a
+    success_rate. success_rate counts OUTCOMES only: success / (success + partial +
+    failed). `received` is the arrival marker (the file landed in the data lake), NOT an
+    extraction outcome, so it is EXCLUDED from the rate denominator — otherwise a channel
+    that only ever logs arrivals (e.g. upload) would show a misleading 0% success. When a
+    group has no outcomes at all, success_rate is None (rendered as '—' on the page).
+
+    by_supplier is capped to the top 20 groups by total (the heavy-hitter suppliers — a
+    full per-supplier list belongs on the filtered /imports table, not this trend card).
+    """
+    SUPPLIER_CAP = 20
+    empty = {"days": int(days), "by_channel": [], "by_supplier": []}
+    try:
+        own = con is None
+        if own:
+            con = connect()
+        rows = con.execute(
+            """SELECT channel, supplier, status, COUNT(*) n FROM import_log
+               WHERE ts >= datetime('now', ?) GROUP BY channel, supplier, status""",
+            (f"-{int(days)} days",)).fetchall()
+        if own:
+            con.close()
+    except Exception:
+        return empty
+
+    def aggregate(key_name, keyfn):
+        groups = {}
+        for r in rows:
+            g = groups.setdefault(keyfn(r),
+                                  {"received": 0, "success": 0, "partial": 0, "failed": 0})
+            if r["status"] in g:
+                g[r["status"]] += r["n"]
+        out = []
+        for k, g in groups.items():
+            outcomes = g["success"] + g["partial"] + g["failed"]
+            out.append({key_name: k, "received": g["received"], "success": g["success"],
+                        "partial": g["partial"], "failed": g["failed"],
+                        "total": outcomes + g["received"],
+                        "success_rate": (g["success"] / outcomes) if outcomes else None})
+        out.sort(key=lambda d: d["total"], reverse=True)
+        return out
+
+    by_channel = aggregate("channel", lambda r: r["channel"] or "(none)")
+    by_supplier = aggregate("supplier", lambda r: (r["supplier"] or "").strip() or "(none)")
+    return {"days": int(days), "by_channel": by_channel,
+            "by_supplier": by_supplier[:SUPPLIER_CAP]}
+
+
 def filters():
     """Distinct clients/suppliers/channels seen, for the report's filter selects."""
     con = connect()

@@ -143,6 +143,64 @@ def history(con, table=None, key_like=None, dt_from=None, dt_till=None, action=N
                            FROM audit_log WHERE {' AND '.join(w)}
                            ORDER BY ts DESC, id DESC LIMIT {int(limit)}""", p).fetchall()
 
+def activity_summary(con, days=30):
+    """Audit-activity trends over the last `days`, read-only on the GIVEN connection
+    (the /history page already opens one con per selected DB and passes it here). Pure
+    and never raises — returns a safe empty structure on any error.
+
+    BASELINE rows are EXCLUDED: they are the one-time install-day snapshot of existing
+    data, not user activity, so they would otherwise swamp the per-table/per-user counts.
+
+    Returns:
+      by_user  — per-user INSERT/UPDATE/DELETE counts + total, sorted by total desc
+                 (NULL changed_by -> '(system)').
+      by_table — same split per table, sorted by total desc.
+      churn    — the top 10 (tbl, rowkey) pairs with the most UPDATEs in the window
+                 (the per-record "rework hotspots").
+    """
+    CHURN_CAP = 10
+    empty = {"days": int(days), "by_user": [], "by_table": [], "churn": []}
+    try:
+        rows = con.execute(
+            """SELECT COALESCE(changed_by,'(system)') AS changed_by, tbl, action,
+                      COUNT(*) n FROM audit_log
+               WHERE ts >= datetime('now', ?) AND action <> 'BASELINE'
+               GROUP BY changed_by, tbl, action""",
+            (f"-{int(days)} days",)).fetchall()
+        churn_rows = con.execute(
+            """SELECT tbl, rowkey, COUNT(*) updates FROM audit_log
+               WHERE ts >= datetime('now', ?) AND action = 'UPDATE'
+               GROUP BY tbl, rowkey ORDER BY updates DESC, tbl, rowkey LIMIT ?""",
+            (f"-{int(days)} days", CHURN_CAP)).fetchall()
+    except Exception:
+        return empty
+
+    # Index, not name, into the result rows: activity_summary works on whatever
+    # connection the caller hands it, which may not have row_factory=Row set (the
+    # /history openers do, but we must not depend on it). The SELECT column order
+    # below is fixed: (changed_by, tbl, action, n).
+    def aggregate(key_name, key_idx):
+        groups = {}
+        for r in rows:
+            g = groups.setdefault(r[key_idx],
+                                  {"inserts": 0, "updates": 0, "deletes": 0})
+            slot = {"INSERT": "inserts", "UPDATE": "updates", "DELETE": "deletes"}.get(r[2])
+            if slot:
+                g[slot] += r[3]
+        out = []
+        for k, g in groups.items():
+            out.append({key_name: k, "inserts": g["inserts"], "updates": g["updates"],
+                        "deletes": g["deletes"],
+                        "total": g["inserts"] + g["updates"] + g["deletes"]})
+        out.sort(key=lambda d: d["total"], reverse=True)
+        return out
+
+    by_user = aggregate("changed_by", 0)   # changed_by
+    by_table = aggregate("tbl", 1)         # tbl
+    churn = [{"tbl": r[0], "rowkey": r[1], "updates": r[2]}
+             for r in churn_rows]
+    return {"days": int(days), "by_user": by_user, "by_table": by_table, "churn": churn}
+
 def diff(old_json, new_json):
     """Human-readable field-level diff of two snapshots."""
     o = json.loads(old_json) if old_json else {}

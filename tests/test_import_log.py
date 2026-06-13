@@ -44,6 +44,43 @@ def test_logging_never_raises(il, monkeypatch):
     assert il.log("upload", "x", "received") is None
 
 
+def test_reliability_channel_and_supplier(il):
+    # mixed channels / suppliers / statuses
+    il.log("upload", "a", "received", supplier="DKV")
+    il.log("extract", "a", "success", supplier="DKV")
+    il.log("extract", "b", "success", supplier="DKV")
+    il.log("extract", "c", "partial", supplier="DKV")
+    il.log("extract", "d", "failed", supplier="BP")
+    il.log("statement", "S", "received")           # NULL supplier -> "(none)"
+
+    rel = il.reliability(30)
+    chans = {c["channel"]: c for c in rel["by_channel"]}
+    # extract: 2 success, 1 partial, 1 failed -> rate = 2/4 = 0.5; received excluded
+    ex = chans["extract"]
+    assert (ex["success"], ex["partial"], ex["failed"], ex["received"]) == (2, 1, 1, 0)
+    assert ex["total"] == 4 and abs(ex["success_rate"] - 0.5) < 1e-9
+    # upload: only a 'received' arrival -> no outcomes -> rate None, total 1
+    assert chans["upload"]["received"] == 1 and chans["upload"]["success_rate"] is None
+    # statement row has NULL supplier
+    sups = {s["supplier"]: s for s in rel["by_supplier"]}
+    assert "(none)" in sups and sups["(none)"]["received"] == 1
+    # DKV: 2 success of (2 success + 1 partial) outcomes -> 2/3
+    assert abs(sups["DKV"]["success_rate"] - 2 / 3) < 1e-9
+    # sorted by total desc
+    totals = [c["total"] for c in rel["by_channel"]]
+    assert totals == sorted(totals, reverse=True)
+
+
+def test_reliability_empty_is_safe(il):
+    rel = il.reliability(30)
+    assert rel == {"days": 30, "by_channel": [], "by_supplier": []}
+
+
+def test_reliability_never_raises(il, monkeypatch):
+    monkeypatch.setattr(il, "connect", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+    assert il.reliability(30) == {"days": 30, "by_channel": [], "by_supplier": []}
+
+
 def test_ts_default_is_iso_timestamp(il):
     # Regression for the datetime('now') -> CURRENT_TIMESTAMP portability change:
     # the column default must still stamp a non-empty, ISO-shaped, parseable value
