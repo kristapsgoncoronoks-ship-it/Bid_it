@@ -17,8 +17,9 @@ FX/pivots + report enhancements; monetization M5a/M2/M1/M3/M4/M6; CSRF hardening
 (`2dd8bdd`); time-of-day fuelling analytics + off-hours anomaly flag (`31df60b`);
 supplier/channel processing-reliability scorecard (`2bf5031`); per-vehicle NET €/L
 outlier flag + cost summary (`a6e0944`); data-lake confidence mining → parser-build
-priorities (`7db2d95`); import-reliability + audit-activity trends (`cc4df3d`).
-**→ The entire under-used-data analytics runway in section A is now cleared.**
+priorities (`7db2d95`); import-reliability + audit-activity trends (`cc4df3d`); the full
+`except: pass` → `applog` migration across the whole codebase (`4af7cf7`/`ce5ac8b`/`e51ef52`/`e116b43`).
+**→ Section A's under-used-data analytics runway AND the code-quality except-pass item are now cleared.**
 
 ---
 
@@ -69,9 +70,12 @@ priorities (`7db2d95`); import-reliability + audit-activity trends (`cc4df3d`).
   `FFS_ROLE=web`, a separate `python waiting_room.py --work`); docs + sample unit. *(M, low)*
 
 ### Code-quality
-- **Finish `except: pass` → `applog`/`_log_exc` migration** — incl.
-  `vat_refund.file_documents_for_claim` (locked-but-doc-unfiled silent),
-  `waiting_room._import_log` (monitoring-feed blind spot). *(S, low)*
+- ~~**Finish `except: pass` → `applog`/`_log_exc` migration**~~ ✅ SHIPPED
+  (`4af7cf7`, `ce5ac8b`, `e51ef52`, `e116b43`) — every silent swallow in real code now
+  logs (incl. the two named blind spots). Only documented-deliberate guards remain:
+  circular log-the-logging-failure fallbacks (`app.py`/`auth.py`/`applog.py`), the
+  `O_EXCL` secret-key create-race, the `BEGIN IMMEDIATE` nested-txn guard, the
+  `rejected`-keeps-locks no-op branch, and the two bootstrap scripts (`make_cert`/`start`).
 - **Money-precision sweep remnants** — `extract.py` `_num` e-invoice fallback; any
   remaining bare `round()` on currency. *(S, low)*
 - **Test coverage** for `invoice_control`/`ingest`/`build_master`/`history` (some added). *(M)*
