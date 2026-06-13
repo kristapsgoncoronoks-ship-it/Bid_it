@@ -43,6 +43,65 @@ def connect():
     return con
 
 
+def implied_vs_ecb(net_local, net_eur, currency, last_date):
+    """CANONICAL FX math for one (supplier, currency) aggregate. Given the summed
+    net_local / net_eur, the currency and the as-of (last fuelling) date, return
+    (implied_rate, ecb_rate, ecb_date, deviation_pct, eur_diff).
+
+    Convention (matches ecb_rates / the invoice data): rates are FOREIGN UNITS PER
+    1 EUR, so the supplier's implied rate is net_local / net_eur and a EUR figure is
+    net_local / rate. deviation_pct is the supplier's FX markup over the ECB market
+    (positive = the invoice converted at a weaker EUR than ECB, i.e. cost the fleet
+    more); eur_diff is the resulting EUR over/under-charge (net_eur minus what the ECB
+    rate would have produced). All full precision — callers format at display.
+    Returns (None,...) deviation/eur_diff when no ECB rate is available."""
+    implied = net_local / net_eur                        # full precision
+    ecb_rate, ecb_date = ecb_rates.rate_for(currency, last_date)
+    dev = (implied - ecb_rate) / ecb_rate * 100 if ecb_rate else None
+    eur_diff = (net_eur - net_local / ecb_rate) if ecb_rate else None
+    return implied, ecb_rate, ecb_date, dev, eur_diff
+
+
+def analysis_from_rows(rows, fields=None):
+    """Per (supplier, currency) FX analysis straight from canonical ROW tuples (the
+    consolidate pickle / build_master), with NO DB dependency — so the master workbook
+    can surface the same FX markup the historic snapshot stores, without history.load
+    having run first. EUR-only lines (currency EUR / blank) are skipped.
+
+    `fields` is the canonical field-name order (defaults to the standard one); each row
+    is a sequence positioned by it. Returns a list of dicts sorted by (supplier, currency):
+    supplier, currency, litres, net_local, net_eur, implied_rate, ecb_rate, ecb_date,
+    deviation_pct, eur_diff. Reuses implied_vs_ecb() — the math lives in ONE place."""
+    fields = fields or ["entity", "supplier", "country", "vehicle", "date", "time",
+                        "station", "product", "product_group", "qty", "currency",
+                        "net_local", "vat_local", "gross_local", "net_eur", "vat_eur",
+                        "net_eur_eff", "note"]
+    ix = {name: i for i, name in enumerate(fields)}
+    agg = collections.defaultdict(lambda: [0.0, 0.0, 0.0, ""])  # litres, nl, ne, last_date
+    for r in rows:
+        ccy = r[ix["currency"]]
+        if not ccy or ccy == "EUR":
+            continue
+        k = (r[ix["supplier"]], ccy)
+        a = agg[k]
+        a[0] += r[ix["qty"]] or 0.0
+        a[1] += r[ix["net_local"]] or 0.0
+        a[2] += r[ix["net_eur"]] or 0.0
+        d = r[ix["date"]]
+        if d and d > a[3]:
+            a[3] = d
+    out = []
+    for (sup, ccy), (litres, nl, ne, last_date) in sorted(agg.items()):
+        if not ne:
+            continue
+        implied, ecb_rate, ecb_date, dev, eur_diff = implied_vs_ecb(nl, ne, ccy, last_date)
+        out.append({"supplier": sup, "currency": ccy, "litres": litres,
+                    "net_local": nl, "net_eur": ne, "implied_rate": implied,
+                    "ecb_rate": ecb_rate, "ecb_date": ecb_date,
+                    "deviation_pct": dev, "eur_diff": eur_diff})
+    return out
+
+
 def snapshot(period=None):
     """Compute and UPSERT each (supplier, currency, period) implied FX rate vs ECB into
     the historic store. Idempotent. Returns the number of rows captured."""
@@ -58,10 +117,8 @@ def snapshot(period=None):
     for r in rows:
         if not r["ne"]:
             continue
-        implied = r["nl"] / r["ne"]                      # full precision
-        ecb_rate, ecb_date = ecb_rates.rate_for(r["currency"], r["last_date"])
-        dev = (implied - ecb_rate) / ecb_rate * 100 if ecb_rate else None
-        eur_diff = (r["ne"] - r["nl"] / ecb_rate) if ecb_rate else None
+        implied, ecb_rate, ecb_date, dev, eur_diff = implied_vs_ecb(
+            r["nl"], r["ne"], r["currency"], r["last_date"])
         con.execute("""INSERT INTO supplier_fx_history
             (supplier, currency, period, implied_rate, ecb_rate, ecb_date,
              deviation_pct, net_eur, eur_diff, captured_at)

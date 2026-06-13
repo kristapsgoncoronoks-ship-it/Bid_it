@@ -1,11 +1,14 @@
 import collections
 import money
+import supplier_fx
 from supplier_specs import SPECS
 from month_config import PAYMENTS, OPEN_ITEMS
 import month_config
 import consolidate
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 import os
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
@@ -98,24 +101,47 @@ def build(period=None):
     for col, w in zip("ABC",[30,16,70]): ws.column_dimensions[col].width = w
 
     # ============ 4. TRANSACTIONS ============
+    # FX rate column (S) makes the local->EUR conversion EXPLICIT and auditable: rate is
+    # FOREIGN UNITS PER 1 EUR (ECB convention, = net_local / net_eur), so a reader can
+    # verify net_local / rate ~= net_eur per line. EUR lines carry rate 1.0. Net/VAT/Gross
+    # EUR are quantized via money.f2 (HALF_UP); the per-line rate keeps 6 dp.
     ws = wb.create_sheet("Transactions")
     hdr = ["Entity","Supplier","Country","Vehicle/Card","Date","Time","Station","Product (doc)",
            "Product group","Qty (L/pc)","Currency","Net local","VAT local","Gross local",
-           "Net EUR","VAT EUR","Net EUR effective","Note"]
+           "Net EUR","VAT EUR","Net EUR effective","Note","FX rate (local/EUR)"]
     ws.append(hdr); head(ws,1)
     r = 2
     for row in ROWS:
-        ws.append(row); r += 1
+        ccy = row[10]; net_local = row[11]; net_eur = row[14]
+        if not ccy or ccy == "EUR":
+            fx = 1.0
+        elif net_eur:
+            fx = net_local / net_eur                       # foreign per 1 EUR
+        else:
+            fx = ""
+        ws.append(list(row) + [fx])
+        r += 1
     last = r-1
     for row in ws.iter_rows(min_row=2, max_row=last):
         for c in row: c.font = norm
     for col in "JLMNOPQ":
         for row in ws.iter_rows(min_row=2, max_row=last, min_col=ord(col)-64, max_col=ord(col)-64):
             row[0].number_format = "#,##0.00"
-    for col, w in zip("ABCDEFGHIJKLMNOPQR",[24,9,10,14,11,6,22,13,11,9,5,10,9,10,10,9,10,22]):
+    for row in ws.iter_rows(min_row=2, max_row=last, min_col=19, max_col=19):
+        row[0].number_format = "0.000000"
+    for col, w in zip("ABCDEFGHIJKLMNOPQRS",[24,9,10,14,11,6,22,13,11,9,5,10,9,10,10,9,10,22,16]):
         ws.column_dimensions[col].width = w
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:R{last}"
+    # Register the data range as a proper Excel Table (filterable, and a clean source for
+    # the user's OWN native Excel PivotTables). A table cannot coexist with auto_filter on
+    # the same range, so the Table provides the filter. Needs >= 1 data row.
+    if last >= 2:
+        tbl = Table(displayName="TransactionsTbl", ref=f"A1:S{last}")
+        tbl.tableStyleInfo = TableStyleInfo(
+            name="TableStyleLight9", showRowStripes=True, showColumnStripes=False)
+        ws.add_table(tbl)
+    else:
+        ws.auto_filter.ref = f"A1:S{last}"
 
     # ============ 5. PIVOT: SUPPLIER x COUNTRY (DIESEL) ============
     ws = wb.create_sheet("Diesel benchmark", 1)
@@ -332,6 +358,167 @@ def build(period=None):
     ws[f"A{r+1}"].font = it8
     for col, w in zip("ABCDEFGH",[9,10,30,9,10,11,11,20]):
         ws.column_dimensions[col].width = w
+
+    # ============ 8. FX ANALYSIS ============
+    # Surface each non-EUR supplier's FX markup vs the market. The math is NOT
+    # re-implemented here: supplier_fx.analysis_from_rows() runs the canonical
+    # implied_vs_ecb() per (supplier, currency). FX basis: ECB euro reference rate,
+    # nearest cached date on/before the last fuelling date (per ecb_rates.rate_for),
+    # convention = FOREIGN UNITS PER 1 EUR; implied rate = net_local / net_eur.
+    ws = wb.create_sheet("FX analysis")
+    ws["A1"] = ("SUPPLIER FX MARKUP vs ECB - per (supplier, non-EUR currency), MAY 2026")
+    ws["A1"].font = Font(bold=True, size=11, name="Arial")
+    ws["A2"] = ("Basis: net EUR/L (VAT-excluded, rebates-applied). FX = ECB euro reference rate, "
+                "nearest cached date on/before the last fuelling date; rates are foreign units per 1 EUR. "
+                "Implied rate = net local / net EUR. Deviation %% > 0 = invoice converted at a weaker EUR "
+                "than ECB (cost the fleet more); EUR gain/loss = net EUR minus the ECB-rate EUR.")
+    ws["A2"].font = it8; ws["A2"].alignment = Alignment(wrap_text=True)
+    ws.append([])
+    ws.append(["Supplier","Currency","Litres/qty","Net local","Net EUR","Implied rate",
+               "ECB rate","ECB date","Deviation %","EUR gain/loss (markup)"])
+    head(ws, 4)
+    fx_rows = supplier_fx.analysis_from_rows(ROWS)
+    r = 5
+    for d in fx_rows:
+        dev = "" if d["deviation_pct"] is None else round(d["deviation_pct"], 3)
+        eur_diff = "" if d["eur_diff"] is None else money.f2(d["eur_diff"])
+        ecb = "" if d["ecb_rate"] is None else round(d["ecb_rate"], 6)
+        ws.append([d["supplier"], d["currency"], round(d["litres"], 1),
+                   money.f2(d["net_local"]), money.f2(d["net_eur"]),
+                   round(d["implied_rate"], 6), ecb, d["ecb_date"] or "", dev, eur_diff])
+        for c in ws[r]: c.font = norm
+        ws[f"C{r}"].number_format = "#,##0.0"
+        ws[f"D{r}"].number_format = "#,##0.00"; ws[f"E{r}"].number_format = "#,##0.00"
+        ws[f"F{r}"].number_format = "0.000000"; ws[f"G{r}"].number_format = "0.000000"
+        ws[f"I{r}"].number_format = "0.000"; ws[f"J{r}"].number_format = "#,##0.00"
+        r += 1
+    if r == 5:
+        ws[f"A{r}"] = "(no non-EUR suppliers this period)"; ws[f"A{r}"].font = it8
+        r += 1
+    ws[f"A{r+1}"] = ("EUR-only suppliers (rate 1.0) are omitted. A blank ECB rate/deviation means no "
+                     "cached ECB rate covers the last fuelling date - refresh rates on the FX page.")
+    ws[f"A{r+1}"].font = it8
+    for col, w in zip("ABCDEFGHIJ",[10,9,12,13,13,13,12,12,12,20]):
+        ws.column_dimensions[col].width = w
+
+    # ============ 9. PYTHON-COMPUTED CROSS-TAB PIVOTS ============
+    # Reliable grids computed here (NOT fragile openpyxl native PivotTables): a labelled
+    # matrix with row/col totals per metric. All EUR via money.f2 (HALF_UP); per-litre
+    # prices keep 3 dp. Basis on every grid: net EUR/L (VAT-excluded, rebates-applied).
+    # (The Transactions sheet is ALSO a proper Excel Table so the user can drop their own
+    # native PivotTables on clean tabular data.)
+    countries = sorted({r_[2] for r_ in ROWS})
+    money_fmt = "#,##0.00"; litre_fmt = "#,##0"; perl_fmt = "0.000"
+
+    def _crosstab(sheet_name, title, row_label, row_keys, metrics):
+        """Render one or more stacked labelled grids on a new sheet. Each metric is
+        (header, accum, fmt, is_eur) where accum is dict[(row_key, country)] -> float;
+        a Total column/row is summed per metric. EUR sums go through money.f2; non-EUR
+        (litre) cells are integer-rounded."""
+        ws = wb.create_sheet(sheet_name)
+        ws["A1"] = title; ws["A1"].font = Font(bold=True, size=11, name="Arial")
+        ws["A2"] = ("Basis: net EUR/L (VAT-excluded, rebates-applied). Cross-tab computed in "
+                    "Python (deterministic). EUR via money.f2 (HALF_UP); EUR/L at 3 dp.")
+        ws["A2"].font = it8; ws["A2"].alignment = Alignment(wrap_text=True)
+        r0 = 4
+        for header, accum, fmt, is_eur in metrics:
+            ws.cell(row=r0, column=1, value=header).font = b10
+            hr = r0 + 1
+            ws.cell(row=hr, column=1, value=row_label)
+            for j, c in enumerate(countries):
+                ws.cell(row=hr, column=2 + j, value=c)
+            ws.cell(row=hr, column=2 + len(countries), value="TOTAL")
+            head(ws, hr)
+            col_tot = collections.defaultdict(float); grand = 0.0
+            for i, rk in enumerate(row_keys):
+                rr = hr + 1 + i
+                ws.cell(row=rr, column=1, value=rk).font = norm
+                rsum = 0.0
+                for j, c in enumerate(countries):
+                    v = accum.get((rk, c), 0.0)
+                    rsum += v; col_tot[c] += v
+                    cell = ws.cell(row=rr, column=2 + j)
+                    if v:
+                        cell.value = money.f2(v) if is_eur else round(v, 0)
+                        cell.number_format = fmt
+                    cell.font = norm
+                grand += rsum
+                tc = ws.cell(row=rr, column=2 + len(countries),
+                             value=(money.f2(rsum) if is_eur else round(rsum, 0)))
+                tc.number_format = fmt; tc.font = b10
+            tr = hr + 1 + len(row_keys)
+            ws.cell(row=tr, column=1, value="TOTAL").font = b10
+            for j, c in enumerate(countries):
+                tv = col_tot[c]
+                tc = ws.cell(row=tr, column=2 + j,
+                             value=(money.f2(tv) if is_eur else round(tv, 0)))
+                tc.number_format = fmt; tc.font = b10
+            gc = ws.cell(row=tr, column=2 + len(countries),
+                         value=(money.f2(grand) if is_eur else round(grand, 0)))
+            gc.number_format = fmt; gc.font = b10
+            r0 = tr + 3
+        ws.column_dimensions["A"].width = 22
+        for j in range(len(countries) + 1):
+            ws.column_dimensions[get_column_letter(2 + j)].width = 12
+        return ws
+
+    # 9a. Supplier x Country: litres, Net EUR, EUR/L effective per cell.
+    sups_p = sorted({r_[1] for r_ in ROWS})
+    sc_litres = collections.defaultdict(float)
+    sc_neteur = collections.defaultdict(float)
+    sc_neteff = collections.defaultdict(float)
+    for r_ in ROWS:
+        k = (r_[1], r_[2])
+        sc_litres[k] += r_[9] or 0.0
+        sc_neteur[k] += r_[14] or 0.0
+        sc_neteff[k] += r_[16] or 0.0
+    ws = _crosstab("Pivot Supplier x Country",
+                   "PIVOT: SUPPLIER x COUNTRY", "Supplier", sups_p,
+                   [("Litres / qty", sc_litres, litre_fmt, False),
+                    ("Net EUR", sc_neteur, money_fmt, True)])
+    # third block: EUR/L effective = Net EUR effective / litres per cell (3 dp), no totals
+    r0 = ws.max_row + 2
+    ws.cell(row=r0, column=1, value="EUR/L effective (net, VAT-excl, rebates-applied)").font = b10
+    hr = r0 + 1
+    ws.cell(row=hr, column=1, value="Supplier")
+    for j, c in enumerate(countries):
+        ws.cell(row=hr, column=2 + j, value=c)
+    head(ws, hr)
+    for i, sup in enumerate(sups_p):
+        rr = hr + 1 + i
+        ws.cell(row=rr, column=1, value=sup).font = norm
+        for j, c in enumerate(countries):
+            L = sc_litres.get((sup, c), 0.0)
+            cell = ws.cell(row=rr, column=2 + j)
+            if L:
+                cell.value = round(sc_neteff.get((sup, c), 0.0) / L, 3)
+                cell.number_format = perl_fmt
+            cell.font = norm
+
+    # 9b. Entity x Country: Net EUR, reclaimable VAT EUR, Gross EUR.
+    ents_p = sorted({r_[0] for r_ in ROWS})
+    ec_net = collections.defaultdict(float)
+    ec_vat = collections.defaultdict(float)
+    for r_ in ROWS:
+        k = (r_[0], r_[2])
+        ec_net[k] += r_[14] or 0.0
+        ec_vat[k] += r_[15] or 0.0
+    ec_gross = {k: ec_net[k] + ec_vat.get(k, 0.0) for k in set(ec_net) | set(ec_vat)}
+    _crosstab("Pivot Entity x Country",
+              "PIVOT: ENTITY x COUNTRY", "Entity", ents_p,
+              [("Net EUR", ec_net, money_fmt, True),
+               ("Reclaimable VAT EUR", ec_vat, money_fmt, True),
+               ("Gross EUR", ec_gross, money_fmt, True)])
+
+    # 9c. Product group x Country: litres / qty.
+    prods_p = sorted({r_[8] for r_ in ROWS if r_[8]})
+    pc_litres = collections.defaultdict(float)
+    for r_ in ROWS:
+        if r_[8]:
+            pc_litres[(r_[8], r_[2])] += r_[9] or 0.0
+    _crosstab("Pivot Product x Country",
+              "PIVOT: PRODUCT GROUP x COUNTRY", "Product group", prods_p,
+              [("Litres / qty", pc_litres, litre_fmt, False)])
 
     out_path = f"{WORKDIR}/Fleet_Fuel_Master_{period}.xlsx"
     wb.save(out_path)
