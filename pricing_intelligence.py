@@ -29,6 +29,12 @@ DB = f"{WORKDIR}/fuel_history.db"
 # their OWN read-write DB, decoupled from the product DB in D3.
 BENCHMARK_DB = f"{WORKDIR}/benchmark.db"
 
+# Per-entity-vs-peer benchmark (M1) min-cohort gate: a (country, bucket) cell needs at
+# least this many OTHER entities (excluding the entity itself) for a peer figure to be
+# emitted; fewer and the cell is SUPPRESSED ("cohort too small") so no single entity is
+# singled out — sound technical anonymisation that keeps a future cross-client sell open.
+PEER_MIN_CONTRIBUTORS = 2
+
 # DDL for the app-owned benchmark tables — applied once per DB via db_migrate
 # (APPEND-ONLY; positions are stable).
 _BENCHMARK_DDL = [
@@ -359,6 +365,121 @@ def internal_benchmark(period=None, grain="month", product_group="Diesel"):
                "cells": len(rows),
                "multi_supplier_cells": sum(1 for r in rows if r["suppliers"] > 1)}
     return rows, summary
+
+
+def peer_benchmark(period=None, grain="month", product_group="Diesel", min_contributors=None):
+    """PER-ENTITY vs PEER internal benchmark (M1) — fills the "no-benchmark" gap in the
+    pricing grid using the pooled invoice data itself. For each (country, bucket) and
+    each of OUR entities, compare the entity's effective NET EUR/L against the EQUAL-
+    WEIGHT-PER-ENTITY MEDIAN of the OTHER entities in the same cell (the entity itself
+    EXCLUDED). Where the entity pays ABOVE the peer median it is "addressable" spend.
+
+    Equal-weight-per-entity (median of the others' effective €/L, NOT volume-weighted)
+    is the robust, aggregated "cannot single out one entity" form. For exactly two other
+    entities the median is the mean of the two.
+
+    Min-cohort suppression: a cell with fewer than `min_contributors` OTHER entities
+    (default PEER_MIN_CONTRIBUTORS) is SUPPRESSED — no peer figure is emitted (rendered
+    "cohort too small") so no single entity can be singled out from the peer aggregate.
+
+    Prices are NET EUR/L, final (VAT excluded, rebates applied). `transactions` is read
+    READ-ONLY via the product boundary; per-litre carried at 3-4dp, EUR via money.f2.
+
+    Returns (rows, summary):
+      rows: [{entity, country, bucket, eff_price, qty, peers (count of OTHERS),
+              peer_median, gap, addressable_eur, suppressed (bool)}], biggest
+            addressable € first.
+      summary: {total_addressable_eur, cells, suppressed_cells}
+    """
+    import statistics
+    if min_contributors is None:
+        min_contributors = PEER_MIN_CONTRIBUTORS
+    # `transactions` is engine-owned; read it READ-ONLY from the product DB. Only
+    # transactions are used (no benchmark join) so a single read-only connection
+    # suffices — the per-entity rebucket/median is pure Python.
+    con = product_connect()
+    where = "product_group=?"; args = [product_group]
+    if period:
+        where += " AND period=?"; args.append(period)
+    raw = con.execute(f"""SELECT entity, country, period, date,
+        SUM(qty) qty, SUM(net_eur_eff) net FROM transactions
+        WHERE {where} GROUP BY entity, country, period, date""", args).fetchall()
+    con.close()
+    # rebucket on the PERIOD dimension we filtered (FINDINGS pricing #1) — bucket_period,
+    # NOT the raw date — so an off-period straggler groups into the period's cell.
+    agg = {}   # (country, bucket, entity) -> [qty, net]
+    for r in raw:
+        k = (r["country"], bucket_period(r["period"], r["date"], grain), r["entity"])
+        a = agg.setdefault(k, [0.0, 0.0]); a[0] += r["qty"] or 0; a[1] += r["net"] or 0
+    cells = {}   # (country, bucket) -> [{entity, qty, eff}]
+    for (country, bk, ent), (q, net) in agg.items():
+        if q <= 0:
+            continue
+        # entity's effective NET €/L — money-summed spend / litres (full-precision div)
+        cells.setdefault((country, bk), []).append(
+            {"entity": ent, "qty": q, "eff": money.fsum([net]) / q})
+    rows, tot_addr, suppressed_cells = [], 0.0, 0
+    for (country, bk), ents in cells.items():
+        for e in ents:
+            others = [o for o in ents if o["entity"] != e["entity"]]
+            n_peers = len(others)
+            if n_peers < min_contributors:
+                suppressed_cells += 1
+                rows.append({
+                    "entity": e["entity"], "country": country, "bucket": bk,
+                    "eff_price": round(e["eff"], 4), "qty": round(e["qty"], 1),
+                    "peers": n_peers, "peer_median": None, "gap": None,
+                    "addressable_eur": None, "suppressed": True})
+                continue
+            peer_median = statistics.median(o["eff"] for o in others)
+            gap = e["eff"] - peer_median
+            # the entity pays ABOVE the peer median -> addressable (€ HALF_UP, money.f2)
+            addressable = money.f2(gap * e["qty"]) if gap > 0 else 0.0
+            tot_addr += addressable
+            rows.append({
+                "entity": e["entity"], "country": country, "bucket": bk,
+                "eff_price": round(e["eff"], 4), "qty": round(e["qty"], 1),
+                "peers": n_peers, "peer_median": round(peer_median, 4),
+                "gap": round(gap, 4), "addressable_eur": addressable,
+                "suppressed": False})
+    rows.sort(key=lambda r: r["addressable_eur"] or -1e9, reverse=True)
+    summary = {"total_addressable_eur": money.f2(tot_addr), "cells": len(cells),
+               "suppressed_cells": suppressed_cells}
+    return rows, summary
+
+
+def peer_benchmark_workbook(period=None, grain="month", product_group="Diesel", path=None):
+    """Excel of the per-entity-vs-peer benchmark (M1): each entity's eff NET €/L vs the
+    peer median and the addressable € by country/bucket, biggest first. Suppressed cells
+    (cohort too small) are shown as such. NET EUR/L, final (VAT excluded, rebates
+    applied); € is money.f2 (HALF_UP)."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    rows, summ = peer_benchmark(period, grain, product_group)
+    path = path or f"{WORKDIR}/Peer_Benchmark_{grain}.xlsx"
+    wb = Workbook(); ws = wb.active; ws.title = "Per-entity vs peer"
+    hdr = Font(bold=True, color="FFFFFF"); hf = PatternFill("solid", fgColor="0E5FA8")
+    bad = PatternFill("solid", fgColor="FCE4E4")
+    cols = ["entity", "country", "bucket", "eff_price", "peers", "peer_median",
+            "gap", "qty", "addressable_eur", "suppressed"]
+    ws.append([f"Per-entity vs peer (M1) — total addressable EUR {summ['total_addressable_eur']:,.0f} "
+               f"across {summ['cells']} cells ({summ['suppressed_cells']} suppressed: cohort too small). "
+               f"NET EUR/L, final (VAT excluded, rebates applied). Peer = equal-weight median of the "
+               f"OTHER entities (the entity itself excluded)."])
+    ws.append(cols)
+    for c in range(1, len(cols) + 1):
+        ws.cell(2, c).font = hdr; ws.cell(2, c).fill = hf
+    for r in rows:
+        if r["suppressed"]:
+            ws.append([r["entity"], r["country"], r["bucket"], r["eff_price"], r["peers"],
+                       "cohort too small", "", r["qty"], "", "suppressed"])
+        else:
+            ws.append([r[k] for k in cols[:-1]] + [""])
+            if r["addressable_eur"] and r["addressable_eur"] > 0:
+                ws.cell(ws.max_row, 9).fill = bad
+    ws.freeze_panes = "A3"; ws.sheet_view.showGridLines = False
+    wb.save(path)
+    return path
 
 
 def adopt_internal_benchmark(period=None, grain="month", product_group="Diesel"):

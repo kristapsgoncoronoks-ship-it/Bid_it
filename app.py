@@ -460,6 +460,7 @@ PERM_BY_ENDPOINT = {
     "pricing":         "pricing", "pricing_upload": "pricing", "api_pricing": "pricing",
     "pricing_market":  "pricing", "pricing_portal": "pricing",
     "pricing_adopt_benchmark": "pricing", "export_benchmark": "exports",
+    "export_peer":     "exports",
     "intel":           "pricing", "export_intel": "exports",
     "documents":       "documents", "doc_download": "documents",
     "export_master":   "exports", "export_history": "exports",
@@ -485,7 +486,7 @@ MODULES = {
                    {"savings", "compare", "transactions", "h2h", "stations", "anomalies_page",
                     "pricing", "pricing_market", "pricing_portal", "pricing_adopt_benchmark",
                     "pricing_upload", "api_pricing", "export_compare", "export_stations",
-                    "export_pricing", "export_benchmark", "intel", "export_intel"}),
+                    "export_pricing", "export_benchmark", "export_peer", "intel", "export_intel"}),
     "intake":     ("Intake — import, waiting room, files, document mining",
                    {"extract_batch", "extract_confirm", "extract_ai_review",
                     "intake_queue_page", "intake_review",
@@ -1436,9 +1437,10 @@ def savings():
             + svg_hbars(s["by_country"], unit=" €") + '</div>'
             + '<div class="card"><h2>Overpay by supplier</h2>'
             + svg_hbars(s["by_supplier"], unit=" €", color="#c8102e") + '</div>'
-            + '<div class="note">Apples-to-apples: only days where 2+ suppliers fueled diesel in the '
-              'same country count. The premium is attributed to the dearer supplier. Drill into any '
-              'slice on the <a href="/transactions">Transactions</a> page. Prices NET EUR/L, final.</div>')
+            + '<div class="note"><b>Diesel-focused</b> — apples-to-apples: only days where 2+ suppliers '
+              'fueled diesel in the same country count (other product groups are not included). The premium '
+              'is attributed to the dearer supplier. Drill into any slice on the '
+              '<a href="/transactions">Transactions</a> page. Prices NET EUR/L, final.</div>')
     return page(body, "sav")
 
 @app.route("/transactions")
@@ -2931,6 +2933,7 @@ def pricing():
         'sources (EU Weekly Oil Bulletin / national portals) configured via MARKET_JSON_URL / '
         'MARKET_CSV_URL — or upload a CSV on a locked-down network.</div></div>'
         + _benchmark_card(grain)
+        + _peer_card(grain)
         + _portals_card())
     return page(body, "pri")
 
@@ -2971,6 +2974,60 @@ def _benchmark_card(grain):
             'to the cheaper supplier would have saved. No external/scraped data. '
             '<b>Adopt</b> loads these best prices into MY Prices so the margin grid measures everyone '
             'against them.</div></div>')
+
+def _peer_card(grain):
+    """Per-entity vs peer (M1): each entity's effective NET €/L against the equal-weight
+    MEDIAN of the OTHER entities in the same country/period, and the addressable € where
+    it pays above peer. Fills the "no-benchmark" gap from the pooled invoice data itself.
+    Min-cohort suppression labels cells with too few other entities."""
+    import pricing_intelligence as PI
+    try:
+        rows, summ = PI.peer_benchmark(None, grain)
+    except Exception as e:
+        _log_exc("peer benchmark", e)
+        return ""
+    # addressable € by country (reuse svg_hbars) — only countries with addressable spend
+    by_ctry = {}
+    for r in rows:
+        if r.get("addressable_eur"):
+            by_ctry[r["country"]] = by_ctry.get(r["country"], 0.0) + r["addressable_eur"]
+    bars = svg_hbars([(c, v) for c, v in sorted(by_ctry.items(), key=lambda x: -x[1]) if v > 0],
+                     unit=" €", fmt=",.0f", color="#c8102e")
+    trs = []
+    for r in rows[:80]:
+        if r["suppressed"]:
+            trs.append([f"<td>{esc(r['entity'])}</td><td>{esc(r['country'])}</td>",
+                        f"<td>{esc(r['bucket'])}</td><td class=r>{r['eff_price']:.3f}</td>",
+                        "<td class='r note' colspan=4>cohort too small "
+                        f"({r['peers']} other entit{'y' if r['peers']==1 else 'ies'}) — suppressed</td>"])
+        else:
+            cls = "bad" if r["gap"] and r["gap"] > 0 else ("ok" if r["gap"] and r["gap"] < 0 else "")
+            trs.append([f"<td>{esc(r['entity'])}</td><td>{esc(r['country'])}</td>",
+                        f"<td>{esc(r['bucket'])}</td><td class=r>{r['eff_price']:.3f}</td>",
+                        f"<td class=r>{r['peer_median']:.3f}</td><td class='r {cls}'>{r['gap']:+.3f}</td>",
+                        f"<td class=r>{r['qty']:,.0f}</td>",
+                        f"<td class='r {'bad' if r['addressable_eur'] else ''}'>{r['addressable_eur']:,.0f}</td>"])
+    return ('<div class="card"><h2>Per-entity vs peer (your entities, pooled)</h2>'
+            '<div class="kpis">'
+            f'<div class="kpi"><div class="v bad">EUR {summ["total_addressable_eur"]:,.0f}</div>'
+            '<div class="l">addressable vs peer median</div></div>'
+            f'<div class="kpi"><div class="v">{summ["cells"]}</div>'
+            '<div class="l">country/period cells</div></div>'
+            f'<div class="kpi"><div class="v">{summ["suppressed_cells"]}</div>'
+            '<div class="l">suppressed (cohort too small)</div></div></div>'
+            + ('<h3 style="margin:6px 0">Addressable by country (EUR)</h3>' + bars if by_ctry else '')
+            + (tbl(["Entity", "Country", "Period", "Eff €/L", "Peer median",
+                    "Gap", "Litres", "Addressable €"], trs)
+               if trs else '<p class="note">Need two or more of your entities in the same '
+               'country/period to compare.</p>')
+            + f'<p style="margin-top:10px"><a href="/export/peer?grain={esc(grain)}">'
+            '⬇ Export per-entity vs peer (Excel)</a></p>'
+            '<div class="note">Peer = the equal-weight (per-entity) <b>median</b> of the OTHER '
+            'entities\' effective NET €/L in the same country/period — the entity itself is '
+            'excluded. Where an entity pays above that median the gap × litres is addressable '
+            'spend. Cells with fewer than two other entities are <b>suppressed</b> so no single '
+            'entity is singled out. All prices NET EUR/L, final (VAT excluded, rebates applied).'
+            '</div></div>')
 
 def _portals_card():
     """Client supplier-portal scrapers: configured portals with a 'Scrape now' button,
@@ -3110,6 +3167,12 @@ def export_benchmark():
     path = PI.internal_benchmark_workbook(None, request.args.get("grain", "month"))
     return send_file(path, as_attachment=True, download_name=os.path.basename(path))
 
+@app.route("/export/peer")
+def export_peer():
+    import pricing_intelligence as PI
+    path = PI.peer_benchmark_workbook(None, request.args.get("grain", "month"))
+    return send_file(path, as_attachment=True, download_name=os.path.basename(path))
+
 @app.route("/pricing/upload", methods=["POST"])
 def pricing_upload():
     import pricing_intelligence as PI, csv, io
@@ -3194,8 +3257,10 @@ def intel():
         '<div class="card"><h2>Savings &amp; Intelligence</h2>'
         '<div class="note">Fuel-cost intelligence: avoidable overpay (route volume to the '
         'cheaper supplier you already use) + recoverable contract breaches + anomalies, in '
-        'one place. All prices NET EUR/L, final (VAT excluded, rebates applied). '
-        'VAT/claim figures are kept on the admin-only Recovery page.</div>'
+        'one place. The overpay/peer figures are <b>diesel-focused</b> (the detector default '
+        'product group) — other product groups are not included. All prices NET EUR/L, final '
+        '(VAT excluded, rebates applied). VAT/claim figures are kept on the admin-only '
+        'Recovery page.</div>'
         f'<div class="note">Period: {esc(s["period"] or "all loaded")}</div>'
         '<div class="kpis">'
         f'<div class="kpi"><div class="v bad">EUR {s["avoidable_overpay_eur"]:,.0f}</div>'
