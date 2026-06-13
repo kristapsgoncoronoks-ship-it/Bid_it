@@ -243,21 +243,24 @@ def margin_report(period=None, grain="month", product_group="Diesel"):
         wh = con.execute("""SELECT AVG(net_price) p FROM wholesale_prices
             WHERE country=? AND product_group=? AND substr(date,1,7)=substr(?,1,7)""",
             (g["country"], product_group, sample_date)).fetchone()
-        whole = round(wh["p"], 4) if wh and wh["p"] else None
-        gap_my = round(g["eff_price"] - my, 4) if my else None
+        # `is not None` (not a truthiness test): a legitimate benchmark price of
+        # exactly 0.0 is a real price, NOT "no benchmark" — a falsy-zero guard would
+        # drop the row from matched volume and suppress the gap. None == no benchmark.
+        whole = round(wh["p"], 4) if wh and wh["p"] is not None else None
+        gap_my = round(g["eff_price"] - my, 4) if my is not None else None
         rows.append({**g,
-            "my_price": round(my, 4) if my else None, "match": conf,
+            "my_price": round(my, 4) if my is not None else None, "match": conf,
             "gap_vs_my": gap_my,
             "eur_impact": round(gap_my * g["qty"], 2) if gap_my is not None else None,
             "pack_avg": pack_avg,
-            "gap_vs_pack": round(g["eff_price"] - pack_avg, 4) if pack_avg else None,
+            "gap_vs_pack": round(g["eff_price"] - pack_avg, 4) if pack_avg is not None else None,
             "wholesale": whole,
-            "margin_vs_wholesale": round(g["eff_price"] - whole, 4) if whole else None})
+            "margin_vs_wholesale": round(g["eff_price"] - whole, 4) if whole is not None else None})
     con.close()
     rows.sort(key=lambda r: r["eur_impact"] or -1e9, reverse=True)
     total_overpay = round(sum(r["eur_impact"] for r in rows if r["eur_impact"] and r["eur_impact"] > 0), 2)
-    matched_vol = sum(r["qty"] for r in rows if r["my_price"])
-    unmatched_vol = sum(r["qty"] for r in rows if not r["my_price"])
+    matched_vol = sum(r["qty"] for r in rows if r["my_price"] is not None)
+    unmatched_vol = sum(r["qty"] for r in rows if r["my_price"] is None)
     summary = {"total_overpay": total_overpay, "rows": len(rows),
                "matched_litres": round(matched_vol), "unmatched_litres": round(unmatched_vol)}
     return rows, summary
