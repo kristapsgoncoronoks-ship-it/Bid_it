@@ -641,6 +641,75 @@ def start_backup_scheduler():
     _sched_started = True
     threading.Thread(target=_backup_loop, name="backup-scheduler", daemon=True).start()
 
+# ---------------------------------------------------------------- notify scheduler
+# Sends the action-digest e-mail (notify.send_digest) on an admin-set cadence. Like
+# the backup scheduler it self-elects ONE leader across all worker processes
+# (process_lock), so exactly one digest goes out per interval no matter how many
+# processes run. notify_interval_hours = 0 turns it off; the last send is tracked in
+# a setting so a restart doesn't re-send immediately. Started only by the server
+# entrypoints (never on import), so tests/CLI never auto-send.
+_notify_started = False
+
+def notify_interval_hours():
+    try:
+        return float(_auth.get_setting("notify_interval_hours", "0") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+def _notify_due(hrs):
+    """True if at least `hrs` hours have passed since the last recorded digest send
+    (or none has ever been recorded). hrs<=0 means the scheduler is off."""
+    if hrs <= 0:
+        return False
+    last = _auth.get_setting("notify_last_sent", "") or ""
+    if not last:
+        return True
+    try:
+        import datetime as _dt
+        prev = _dt.datetime.fromisoformat(last)
+        return (_dt.datetime.utcnow() - prev).total_seconds() >= hrs * 3600
+    except (TypeError, ValueError):
+        return True
+
+def _notify_tick():
+    """One scheduler iteration: send the digest if it is due. Returns True if a send
+    was attempted, else False. Never raises (logs instead)."""
+    import traceback
+    try:
+        hrs = notify_interval_hours()
+        if _notify_due(hrs):
+            import notify as _notify, datetime as _dt
+            _notify.send_digest()
+            # record the attempt regardless of whether a message went out, so a
+            # quiet period (nothing outstanding) doesn't re-fire every tick.
+            _auth.set_setting("notify_last_sent", _dt.datetime.utcnow().isoformat())
+            return True
+    except Exception as e:
+        try:
+            _auth.log_error("notify-scheduler", type(e).__name__, str(e),
+                            traceback.format_exc(), "system")
+        except Exception:
+            pass
+    return False
+
+def _notify_loop():
+    import process_lock
+    me = process_lock.whoami()
+    while True:
+        # only the elected leader checks the schedule / sends the digest.
+        if process_lock.acquire("notify-scheduler", ttl=2 * BACKUP_CHECK_SECONDS, holder=me):
+            _notify_tick()
+        time.sleep(BACKUP_CHECK_SECONDS)
+
+def start_notify_scheduler():
+    """Start the background notify-digest thread once (called by the server
+    entrypoints; not started during imports/tests)."""
+    global _notify_started
+    if _notify_started:
+        return
+    _notify_started = True
+    threading.Thread(target=_notify_loop, name="notify-scheduler", daemon=True).start()
+
 # ---------------------------------------------------------------- intake worker
 # Drains the document "waiting room" in the background, one job at a time, so a
 # burst of uploads is processed steadily instead of overloading the server.
@@ -4390,6 +4459,7 @@ def api_vat():
 if __name__ == "__main__":
     import tls
     start_backup_scheduler()
+    start_notify_scheduler()   # e-mail the action digest on the admin-set cadence
     start_intake_worker()      # drain the document waiting room in the background
     _ctx, _desc = tls.build_context()
     if _ctx:
