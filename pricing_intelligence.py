@@ -212,11 +212,11 @@ def _my_price_lookup(con, country, city, date, pg="Diesel", tolerance=3):
     mavg = con.execute("""SELECT AVG(net_price) p FROM my_prices
         WHERE country=? AND city=? AND product_group=? AND substr(date,1,7)=substr(?,1,7)""",
         (country, city, pg, date)).fetchone()
-    if mavg and mavg["p"]: return mavg["p"], "city-avg"
+    if mavg and mavg["p"] is not None: return mavg["p"], "city-avg"
     cavg = con.execute("""SELECT AVG(net_price) p FROM my_prices
         WHERE country=? AND product_group=? AND substr(date,1,7)=substr(?,1,7)""",
         (country, pg, date)).fetchone()
-    if cavg and cavg["p"]: return cavg["p"], "country-avg"
+    if cavg and cavg["p"] is not None: return cavg["p"], "country-avg"
     return None, "no-benchmark"
 
 
@@ -252,14 +252,14 @@ def margin_report(period=None, grain="month", product_group="Diesel"):
         rows.append({**g,
             "my_price": round(my, 4) if my is not None else None, "match": conf,
             "gap_vs_my": gap_my,
-            "eur_impact": round(gap_my * g["qty"], 2) if gap_my is not None else None,
+            "eur_impact": money.f2(gap_my * g["qty"]) if gap_my is not None else None,
             "pack_avg": pack_avg,
             "gap_vs_pack": round(g["eff_price"] - pack_avg, 4) if pack_avg is not None else None,
             "wholesale": whole,
             "margin_vs_wholesale": round(g["eff_price"] - whole, 4) if whole is not None else None})
     con.close()
     rows.sort(key=lambda r: r["eur_impact"] or -1e9, reverse=True)
-    total_overpay = round(sum(r["eur_impact"] for r in rows if r["eur_impact"] and r["eur_impact"] > 0), 2)
+    total_overpay = money.f2(sum(r["eur_impact"] for r in rows if r["eur_impact"] and r["eur_impact"] > 0))
     matched_vol = sum(r["qty"] for r in rows if r["my_price"] is not None)
     unmatched_vol = sum(r["qty"] for r in rows if r["my_price"] is None)
     summary = {"total_overpay": total_overpay, "rows": len(rows),
