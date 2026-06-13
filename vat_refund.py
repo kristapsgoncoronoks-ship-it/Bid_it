@@ -668,6 +668,49 @@ def set_status_code(con, ent, ctry, period, code, note=None, deadline=None):
     con.commit()
     return True, f"status → {code} {STATUS_LABELS[code]}" + (f" (note recorded)" if note else "")
 
+def record_payment(con, ent, ctry, period, amount, date=None):
+    """Record the ACTUALLY-REFUNDED amount on a claim and move it to 'money received'
+    (3A). The service fee is contingency on the PAID amount, not the full claimed VAT:
+    we stamp paid_amount/paid_date, then drive the claim to 3A so the EXISTING paid
+    recompute (in set_status, the `new == "paid"` branch) recomputes
+    fee_eur = compute_fee(paid_amount, frozen fee_pct, frozen fee_min). The frozen
+    rate/minimum are NOT re-derived — only the fee BASE changes from claimed→paid.
+    Returns (ok, message)."""
+    try:
+        amt = money.f2(amount)
+    except (TypeError, ValueError):
+        return False, "invalid amount"
+    if amt < 0:
+        return False, "amount must be >= 0"
+    row = con.execute("""SELECT status FROM vat_applications WHERE entity=? AND
+                         refund_country=? AND ref_period=?""", (ent, ctry, period)).fetchone()
+    if not row:
+        return False, "no such claim"
+    if (row["status"] or "draft") not in LOCKING:
+        return False, "claim must be submitted before a payment can be recorded"
+    # Stamp the refunded amount FIRST so the paid-transition recompute reads it (the
+    # recompute falls back to the full claimed vat_eur when paid_amount is null).
+    con.execute("""UPDATE vat_applications SET paid_amount=?, updated=CURRENT_TIMESTAMP
+                   WHERE entity=? AND refund_country=? AND ref_period=?""",
+                (amt, ent, ctry, period))
+    con.commit()
+    # Drive to 3A 'Money received' — ENGINE_OF['3A']='paid', so set_status fires the
+    # canonical paid recompute on the frozen rate. REUSE that path; never re-derive
+    # the fee formula here.
+    ok, msg = set_status_code(con, ent, ctry, period, "3A")
+    if not ok:
+        return ok, msg
+    # Stamp the explicit refund date AFTER the transition (set_status stamps paid_date
+    # = CURRENT_DATE; an explicitly supplied date overrides it).
+    if date:
+        con.execute("""UPDATE vat_applications SET paid_date=? WHERE entity=? AND
+                       refund_country=? AND ref_period=?""", (date, ent, ctry, period))
+        con.commit()
+    r = con.execute("""SELECT fee_eur FROM vat_applications WHERE entity=? AND
+                       refund_country=? AND ref_period=?""", (ent, ctry, period)).fetchone()
+    fee = money.f2(r["fee_eur"]) if r and r["fee_eur"] is not None else 0.0
+    return True, f"payment €{amt:,.2f} recorded — fee €{fee:,.2f}"
+
 def withdraw_claim(con, ent, ctry, period):
     """Admin escape hatch: cancel a claim and RELEASE its invoice locks (the only path
     that frees invoices — rejection/confiscation/appeal keep them)."""

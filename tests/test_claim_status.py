@@ -211,6 +211,73 @@ def test_quarterly_freeze_base_is_claim_set_not_all_period_vat(tmp_path, monkeyp
     assert float(row["fee_eur"]) == 80.0     # 8% of 1000, not 108 (= 8% of 1350)
 
 
+def _submit_claim_pct8(tmp_path, monkeypatch):
+    """Set up + submit a claim whose fee FREEZES at pct=8, min=10 on vat_eur=1000.
+    Returns (cm, vr, con)."""
+    cm, vr = _modules(tmp_path, monkeypatch)
+    cm.add_customer("ACME", "Acme SIA", "LV")
+    cc = cm.connect()
+    cc.execute("UPDATE customers SET fee_pct=8, fee_min=10 WHERE code='ACME'")
+    cc.commit(); cc.close()
+    _complete_checklist(cm); _invoice_doc(vr)
+    con = vr.connect()
+    ok, msg = vr.set_status_code(con, "Acme SIA", "Belgium", "2026-Q1", "2")
+    assert ok, msg
+    return cm, vr, con
+
+
+def test_record_payment_bills_fee_on_paid_amount(tmp_path, monkeypatch):
+    """M5a: the fee re-bills on the ACTUALLY-refunded amount, not the full claimed VAT.
+    Partial refund of €600 (8% = €48, above min €10) -> fee 48, NOT 80 (= 8% of 1000).
+    Only the BASE changes; the frozen pct/min are untouched and compute_fee is reused."""
+    import customer_master as CM
+    cm, vr, con = _submit_claim_pct8(tmp_path, monkeypatch)
+    # frozen at submission: pct=8, min=10, base=1000 -> fee 80
+    pre = con.execute("""SELECT vat_eur, fee_eur, fee_pct, fee_min FROM vat_applications
+                         WHERE ref_period='2026-Q1'""").fetchone()
+    assert float(pre["vat_eur"]) == 1000.0 and float(pre["fee_eur"]) == 80.0
+
+    ok, msg = vr.record_payment(con, "Acme SIA", "Belgium", "2026-Q1", 600, "2026-07-15")
+    assert ok, msg
+    row = con.execute("""SELECT paid_amount, paid_date, status, status_code, fee_eur,
+                         fee_pct, fee_min FROM vat_applications WHERE ref_period='2026-Q1'"""
+                      ).fetchone()
+    assert float(row["paid_amount"]) == 600.0
+    assert row["paid_date"] == "2026-07-15"
+    assert row["status"] == "paid" and row["status_code"] == "3A"
+    # fee re-billed on the PAID amount via compute_fee, at the FROZEN rate
+    expect, _ = CM.compute_fee(600, row["fee_pct"], row["fee_min"])
+    assert float(row["fee_eur"]) == float(expect) == 48.0    # NOT 80 (8% of 1000)
+    # the frozen pct/min did NOT change
+    assert float(row["fee_pct"]) == 8.0 and float(row["fee_min"]) == 10.0
+    con.close()
+
+
+def test_record_payment_full_refund_fee_unchanged(tmp_path, monkeypatch):
+    """A full refund (paid == claimed) leaves the fee on the claimed basis (8% of 1000)."""
+    import customer_master as CM
+    cm, vr, con = _submit_claim_pct8(tmp_path, monkeypatch)
+    ok, msg = vr.record_payment(con, "Acme SIA", "Belgium", "2026-Q1", 1000, "2026-07-15")
+    assert ok, msg
+    row = con.execute("""SELECT paid_amount, fee_eur, fee_pct, fee_min FROM vat_applications
+                         WHERE ref_period='2026-Q1'""").fetchone()
+    assert float(row["paid_amount"]) == 1000.0
+    expect, _ = CM.compute_fee(1000, row["fee_pct"], row["fee_min"])
+    assert float(row["fee_eur"]) == float(expect) == 80.0    # unchanged from claimed basis
+    con.close()
+
+
+def test_record_payment_validates_and_gates(tmp_path, monkeypatch):
+    """Negative amounts and non-submitted claims are rejected."""
+    cm, vr, con = _submit_claim_pct8(tmp_path, monkeypatch)
+    ok, msg = vr.record_payment(con, "Acme SIA", "Belgium", "2026-Q1", -5, "2026-07-15")
+    assert not ok and ">= 0" in msg
+    # an unknown / unsubmitted claim can't take a payment
+    ok, msg = vr.record_payment(con, "Acme SIA", "Belgium", "2026-Q2", 100, "2026-07-15")
+    assert not ok
+    con.close()
+
+
 def test_raw_rejected_keeps_locks_only_withdraw_releases(tmp_path, monkeypatch):
     """R4: the RAW engine status 'rejected' (set_status, not the 3B code path) must
     KEEP the invoice locks — exactly like 3B. Freeing them on rejection would let the

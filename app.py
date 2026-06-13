@@ -3177,6 +3177,22 @@ def recovery():
                                      request.form.get("to", ""))
         con.close()
         banner = f'<div class="card"><b class="{"ok" if ok else "bad"}">{esc(res)}</b></div>'
+    elif request.method == "POST" and request.form.get("__act") == "record_payment":
+        # record the ACTUALLY-refunded amount; the fee re-bills on the paid amount
+        con = VR.connect()
+        ok = False; res = "could not record payment"
+        try:
+            ok, res = VR.record_payment(con, request.form.get("entity", ""),
+                                        request.form.get("country", ""),
+                                        request.form.get("period", ""),
+                                        request.form.get("amount", ""),
+                                        request.form.get("date", "") or None)
+        except Exception as e:
+            _log_exc("recovery/record_payment", e)
+            res = "could not record payment"
+        finally:
+            con.close()
+        banner = f'<div class="card"><b class="{"ok" if ok else "bad"}">{esc(res)}</b></div>'
     rows, summ = VR.recovery_report(year)
     trs = []
     total_charged = total_net = total_recv = 0.0
@@ -3232,6 +3248,15 @@ def recovery():
                    + f'<input type="hidden" name="to" value="{nxt}">'
                    + f'<button name="__act" value="advance" style="font-size:11px;padding:3px 8px">'
                      f'→ {nxt} {esc(VR.STATUS_LABELS[nxt])}</button></form>')
+        # Record the actually-refunded amount on an open (not yet paid) claim; the fee
+        # re-bills on the paid amount via vat_refund.record_payment.
+        if r["status"] in ("submitted", "approved"):
+            wf += ('<form method="post" style="margin:2px 0 0">' + _csrf_input() + hid
+                   + '<input name="amount" type="number" step="0.01" min="0" required '
+                     'placeholder="paid EUR" style="width:90px;font-size:11px">'
+                   + '<input name="date" type="date" style="font-size:11px">'
+                   + '<button name="__act" value="record_payment" '
+                     'style="font-size:11px;padding:3px 8px">Record payment</button></form>')
         trs.append([f"<td>{esc(r['entity'])}</td><td>{esc(r['country'])}</td><td>{esc(r['period'])}</td>",
                     f"<td class=r>{vat:,.2f}</td>",
                     f"<td class=r>{fee:,.2f}</td><td class='{'ok' if billed else 'note'}'>{esc(basis)} · {'charged' if billed else 'pending'}</td>",
