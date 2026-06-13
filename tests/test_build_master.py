@@ -42,6 +42,9 @@ def workbook(tmp_path_factory):
 
     # Deterministic ECB cache: a single seeded PLN rate so the FX-analysis deviation /
     # markup for the BP/PLN row is computed regardless of the live (gitignored) cache.
+    # The seed stays active THROUGH the yielded tests so any canonical recompute
+    # (supplier_fx.analysis_from_rows) uses the same rate the workbook was built with;
+    # the real ecb_rates.DB is restored in teardown.
     seed_db = tmp_path_factory.mktemp("ecb") / "ecb_rates.db"
     orig_db = ecb_rates.DB
     ecb_rates.DB = str(seed_db)
@@ -49,14 +52,13 @@ def workbook(tmp_path_factory):
         ecb_rates.store([("2026-05-31", "PLN", 4.31)], source="test seed")
         out_path = build_master.build(PERIOD)
         wb = openpyxl.load_workbook(out_path)
+        yield wb, rows
     finally:
         ecb_rates.DB = orig_db
-
-    yield wb, rows
-    try:
-        os.remove(out_path)
-    except OSError:
-        pass
+        try:
+            os.remove(out_path)
+        except OSError:
+            pass
 
 
 def test_expected_sheets_present(workbook):
