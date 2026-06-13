@@ -355,6 +355,33 @@ def jobs(status=None, limit=100):
     con.close()
     return [dict(r) for r in rows]
 
+# ordering for the monitoring panel: the STUCK states (failed/held need a human,
+# waiting is auto-retrying) float to the top, then in-flight, then the rest — newest
+# first within each band.
+_MONITOR_RANK = {"failed": 0, "held": 1, "waiting": 2, "processing": 3,
+                 "queued": 4, "ready": 5, "done": 6}
+
+def monitor_rows(limit=100):
+    """Active/recent jobs for the upload-monitoring panel: stuck jobs (failed/held/
+    waiting) first, then newest. Each row carries the queue fields PLUS the
+    supplier/confidence the extractor resolved into the draft (when a job is ready),
+    so the panel can show the extraction outcome without re-running anything."""
+    out = []
+    for j in jobs(limit=limit):
+        supplier = confidence = None
+        if j.get("draft"):
+            try:
+                d = json.loads(j["draft"])
+                supplier = d.get("supplier")
+                confidence = d.get("confidence")
+            except (ValueError, TypeError):
+                pass            # a malformed draft must not break the monitor view
+        j["draft_supplier"] = supplier
+        j["draft_confidence"] = confidence
+        out.append(j)
+    out.sort(key=lambda r: (_MONITOR_RANK.get(r["status"], 9), -r["id"]))
+    return out
+
 def get_job(job_id):
     con = connect()
     r = con.execute("SELECT * FROM intake_jobs WHERE id=?", (job_id,)).fetchone()

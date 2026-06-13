@@ -855,6 +855,7 @@ td{padding:6px 9px;border-bottom:1px solid #eef1f4}tr:hover td{background:#f7faf
 tr.anom td{background:#fff3cd}tr.anom:hover td{background:#ffe9a8}
 tr.disc td{background:#e7f0ff}tr.disc:hover td{background:#d7e6ff}
 .r{text-align:right}.ok{color:var(--ok);font-weight:600}.bad{color:var(--bad);font-weight:600}
+.warn{color:#9a6700;font-weight:600}
 form.f{display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:14px}
 form.f label{display:flex;flex-direction:column;font-size:12px;color:var(--mut);gap:3px}
 select,input{padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:13.5px;background:#fff}
@@ -2311,6 +2312,40 @@ def _ai_review_panel(result):
             + flags_tbl + note_html + det_html + prov + '</div>')
 
 
+def _intake_extract_outcomes(limit=20):
+    """Recent-uploads card for the monitoring panel: the durable extraction outcomes
+    from import_log (channel='extract' — written by the queue worker on each job),
+    showing the source/backend the extractor used and success/failure. The waiting_room
+    only records the supplier on the live draft; the lasting per-upload outcome trail
+    lives here, so we surface it rather than inventing data."""
+    try:
+        import import_log
+        events = import_log.recent(channel="extract", limit=limit)
+    except Exception as e:
+        _log_exc("intake extract outcomes", e)
+        return ('<div class="card"><h2>Recent uploads &amp; extraction outcome</h2>'
+                '<p class="bad">Could not read the import log.</p></div>')
+    if not events:
+        return ('<div class="card"><h2>Recent uploads &amp; extraction outcome</h2>'
+                '<p class="note">No extraction events logged yet. Outcomes appear here once '
+                'the worker processes a queued upload.</p></div>')
+    rows = []
+    for ev in events:
+        stcls = {"success": "ok", "failed": "bad", "partial": "warn"}.get(ev.get("status"), "")
+        rows.append([
+            f'<td class="note">{esc(ev.get("ts") or "")}</td>',
+            f'<td>{esc(ev.get("source_name") or "")}</td>',
+            f'<td>{esc(ev.get("supplier") or "")}</td>',
+            f'<td class="{stcls}">{esc(ev.get("status") or "")}</td>',
+            f'<td class="r">{esc(str(ev.get("records") or 0))}</td>',
+            f'<td class="note">{esc((ev.get("message") or "")[:90])}</td>'])
+    return ('<div class="card"><h2>Recent uploads &amp; extraction outcome</h2>'
+            '<div class="note">Per-upload extraction results (source/backend &amp; '
+            'success/failure) from the durable import log. NET EUR/L data basis is '
+            'unchanged; this card is operational telemetry only.</div>'
+            + tbl(["When (UTC)", "File", "Supplier", "Outcome", "Records", "Detail"], rows))
+
+
 @app.route("/queue", methods=["GET", "POST"])
 def intake_queue_page():
     """The 'waiting room': uploaded batches parked for deferred extraction. Shows
@@ -2369,7 +2404,10 @@ def intake_queue_page():
             + f'<div class="kpi"><div class="v {"bad" if c["failed"] else ""}">{c["failed"]}</div><div class="l">failed</div></div>'
             + f'<div class="kpi"><div class="v">{c["done"]}</div><div class="l">done</div></div></div>')
     rows = []
-    for j in IQ.jobs(limit=100):
+    # monitor_rows() floats stuck jobs (failed/held/waiting) to the top and attaches
+    # the supplier/confidence the extractor resolved into the draft, so this one table
+    # doubles as the upload-monitoring panel.
+    for j in IQ.monitor_rows(limit=100):
         st = j["status"]
         stcls = {"ready": "ok", "failed": "bad", "waiting": "bad",
                  "held": "bad", "done": "note"}.get(st, "")
@@ -2392,12 +2430,22 @@ def intake_queue_page():
             statetxt = f'{esc(st)}<br><span class="note">retry ≥ {esc(j["next_attempt_at"])} UTC</span>'
         elif st == "held":
             statetxt = f'{esc(st)}<br><span class="note">auto-retry stopped · press Send</span>'
+        # supplier as resolved by extraction (only known once ready); show the draft
+        # confidence alongside it as the extraction-quality signal.
+        supplier = j.get("draft_supplier")
+        if supplier:
+            conf = j.get("draft_confidence")
+            sup_cell = esc(supplier) + (
+                f'<br><span class="note">conf: {esc(conf)}</span>' if conf else "")
+        else:
+            sup_cell = '<span class="note">—</span>'
         rows.append([
             f'<td>{j["id"]}</td><td>{esc(j["filename"] or "")}</td>',
+            f'<td>{sup_cell}</td>',
             f'<td>{esc(j["backend"] or "auto")}</td><td>{esc(j["period"] or "")}</td>',
             f'<td>{esc(j["uploaded_by"] or "")}</td><td class="note">{esc(j["uploaded_at"] or "")}</td>',
             f'<td class="{stcls}">{statetxt}</td><td class="r">{j["attempts"]}</td>',
-            f'<td class="note">{esc((j["error"] or "")[:60])}</td>',
+            f'<td class="note">{esc((j["error"] or "")[:80])}</td>',
             f'<td>{act_cell} {disc}</td>'])
     # bulk "manual send / restart workflow" for every pending document
     send_all_btn = ('<form method="post" style="display:inline;margin-right:10px">' + _csrf_input()
@@ -2442,11 +2490,15 @@ def intake_queue_page():
               'document and runs the whole backlog now. Or run a dedicated worker process: '
               '<kbd>python waiting_room.py --work</kbd>.</div>'
             + gate + '</div>'
-            + '<div class="card"><h2>Jobs</h2>'
-            + (tbl(["#", "File", "Extractor", "Period", "By", "Uploaded", "Status",
-                    "Tries", "Last error", "Action"], rows) if rows
+            + '<div class="card"><h2>Jobs — live monitor</h2>'
+            + '<div class="note">Stuck jobs (failed / held / waiting) are listed first, '
+              'then newest. <b>Supplier</b> and its confidence appear once extraction has '
+              'produced a draft.</div>'
+            + (tbl(["#", "File", "Supplier", "Extractor", "Period", "By", "Uploaded",
+                    "Status", "Tries", "Last error", "Action"], rows) if rows
                else '<p class="note">The waiting room is empty.</p>')
-            + '</div>')
+            + '</div>'
+            + _intake_extract_outcomes())
     return page(body, "queue")
 
 @app.route("/queue/review/<int:job_id>")
