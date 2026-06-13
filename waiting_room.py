@@ -409,8 +409,14 @@ def run_worker(poll_seconds=POLL_SECONDS, stop=None):
 
 
 # states of a job that has NOT been successfully extracted yet — these form the
-# "backlog" that blocks new uploads until cleared.
+# "backlog" shown in the UI ("not done" work that still needs attention).
 PENDING_STATES = ("queued", "waiting", "held", "processing", "failed")
+
+# states that represent GENUINELY in-flight work and thus gate new uploads (so a
+# stuck backlog gets cleared before more piles on). 'failed'/'held' are TERMINAL
+# — they need a human, not the worker — so they must NOT freeze fleet-wide intake;
+# they're in PENDING_STATES (still "not done") but excluded from the upload gate.
+BLOCKING_STATES = ("queued", "waiting", "processing")
 
 # ---------------------------------------------------------------- queries / UI
 def counts():
@@ -422,13 +428,15 @@ def counts():
         out[r["status"]] = r["n"]
     return out
 
-def pending_count():
+def pending_count(states=PENDING_STATES):
     """How many documents are still awaiting successful extraction (queued,
-    waiting, held, processing, or failed). 'ready' and 'done' don't count."""
+    waiting, held, processing, or failed). 'ready' and 'done' don't count.
+    Pass `states=BLOCKING_STATES` for the upload gate, which must ignore the
+    TERMINAL failed/held states so one un-actioned doc can't freeze intake."""
     con = connect()
-    ph = ",".join("?" * len(PENDING_STATES))
+    ph = ",".join("?" * len(states))
     n = con.execute(f"SELECT COUNT(*) FROM intake_jobs WHERE status IN ({ph})",
-                    PENDING_STATES).fetchone()[0]
+                    tuple(states)).fetchone()[0]
     con.close()
     return n
 

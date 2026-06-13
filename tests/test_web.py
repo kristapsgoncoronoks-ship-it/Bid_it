@@ -190,8 +190,9 @@ def test_upload_empty_file_rejected(client, monkeypatch, tmp_path):
 
 
 def test_intake_upload_gating_and_override(client, monkeypatch, tmp_path):
-    """While the waiting room has unprocessed docs, queueing a new one is blocked;
-    an admin temporary override lets it through; 'Send / restart all' clears it."""
+    """While the waiting room has GENUINELY in-flight docs (queued), queueing a new
+    one is blocked; an admin temporary override lets it through; 'Send / restart
+    all' clears it. A terminal held/failed job alone must NOT freeze intake."""
     import io, re
     import waiting_room as IQ
     import extract as EX
@@ -201,7 +202,6 @@ def test_intake_upload_gating_and_override(client, monkeypatch, tmp_path):
     IQ._SCHEMA_READY.clear()
     auth.set_setting("intake_override_until", "0")        # clean slate
 
-    # extractor is "out of tokens" -> first queued doc gets stuck (held)
     state = {"broke": True}
     def maybe(data, name, backend=None, strict=False):
         if state["broke"] and strict:
@@ -221,17 +221,22 @@ def test_intake_upload_gating_and_override(client, monkeypatch, tmp_path):
             content_type="multipart/form-data")
 
     assert queue_upload("one.pdf").status_code == 302    # first upload accepted
-    assert IQ.drain() == 1 and IQ.counts()["held"] == 1  # stuck -> backlog of 1
+    assert IQ.drain() == 1 and IQ.counts()["held"] == 1  # stuck (held) -> TERMINAL
 
-    # second upload is now BLOCKED (backlog present, no override)
+    # a terminal held job must NOT block fleet-wide uploads -> this goes through
     r = queue_upload("two.pdf")
+    assert r.status_code == 302                           # NOT gated by held
+    assert IQ.counts()["queued"] == 1                     # two.pdf is now in-flight
+
+    # now there's a GENUINELY in-flight (queued) doc -> a third upload IS blocked
+    r = queue_upload("three.pdf")
     assert r.status_code == 200 and "New uploads are paused" in r.get_data(as_text=True)
-    assert IQ.pending_count() == 1                        # two.pdf was NOT added
+    assert IQ.pending_count(IQ.BLOCKING_STATES) == 1      # only two.pdf is in-flight
 
     # admin enables the temporary override -> upload now goes through
     r = client.post("/queue", data={"_csrf": csrf("/queue"), "__act": "override_on"})
     assert "override enabled" in r.get_data(as_text=True).lower()
-    assert queue_upload("three.pdf").status_code == 302
+    assert queue_upload("four.pdf").status_code == 302
 
     # tokens are back; "Send / restart all" clears the whole backlog
     state["broke"] = False

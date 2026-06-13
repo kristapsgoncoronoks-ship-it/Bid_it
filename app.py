@@ -768,8 +768,10 @@ def start_intake_worker():
 
 # ---------------------------------------------------------------- intake gating
 # New documents may not be added to the waiting room while earlier ones are still
-# unprocessed (queued/waiting/held/processing/failed) — so a stuck backlog (e.g.
-# an AI token outage) gets cleared before more piles on. An admin can grant a
+# GENUINELY in flight (queued/waiting/processing — see waiting_room.BLOCKING_STATES)
+# — so a stuck backlog (e.g. an AI token outage) gets cleared before more piles on.
+# Terminal failed/held jobs need a human, not the worker, and do NOT gate uploads.
+# An admin can grant a
 # TEMPORARY override; it's stored as an expiry timestamp in security.db so it
 # applies across all worker processes and lapses on its own.
 INTAKE_OVERRIDE_MINUTES = 30
@@ -785,10 +787,12 @@ def _intake_override_remaining():
     return max(0, int(_intake_override_until() - time.time()))
 
 def _intake_uploads_blocked():
-    """Returns (blocked, pending_count). Blocked when there's an unprocessed
-    backlog and no active admin override."""
+    """Returns (blocked, pending_count). Blocked when there's GENUINELY in-flight
+    work and no active admin override. Terminal failed/held jobs need a human but
+    are not in-flight, so they must NOT freeze fleet-wide uploads (BLOCKING_STATES
+    excludes them); they still surface as backlog elsewhere via PENDING_STATES."""
     import waiting_room as IQ
-    pend = IQ.pending_count()
+    pend = IQ.pending_count(IQ.BLOCKING_STATES)
     if pend == 0:
         return False, 0
     return (_intake_override_remaining() <= 0), pend
