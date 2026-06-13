@@ -963,7 +963,8 @@ def claims_overview(year):
             sd = a["submitted_date"] if a else None
             if sd:
                 try: age = (today - datetime.date.fromisoformat(sd)).days
-                except ValueError: pass
+                except ValueError as e:
+                    log.debug("vat_refund: unparseable submitted_date %r: %s", sd, e)
             code = (a["status_code"] if a else None) or {"submitted": "2", "approved": "3"}[status]
             open_claims.append(dict(entity=m["entity"], country=m["country"], period=m["period"],
                                     vat_eur=m["vat_eur"], status=status, submitted=sd, age_days=age,
@@ -994,7 +995,8 @@ def claims_overview(year):
     for k in ("_scon", "_acon", "_cmcon"):           # close the shared connections opened lazily
         if cache.get(k) is not None:
             try: cache[k].close()
-            except Exception: pass
+            except Exception as e:
+                log.debug("vat_refund: closing shared %s failed: %s", k, e)
     con.close()
     return {"to_submit": to_submit, "open": open_claims}
 
@@ -1264,7 +1266,8 @@ def build_workbook(con, year):
     for k in ("_scon", "_acon", "_cmcon"):
         if pack_cache.get(k) is not None:
             try: pack_cache[k].close()
-            except Exception: pass
+            except Exception as e:
+                log.debug("vat_refund: closing shared %s failed: %s", k, e)
     wb.save(path)
     return path, matrix
 
@@ -1303,7 +1306,8 @@ def recovery_report(year=None):
         if r["status"] in ("submitted", "approved") and r["submitted_date"]:
             try:
                 age = (today - datetime.date.fromisoformat(r["submitted_date"])).days
-            except ValueError: pass
+            except ValueError as e:
+                log.debug("vat_refund: unparseable submitted_date %r: %s", r["submitted_date"], e)
         code = r["status_code"] or {"submitted": "2", "approved": "3", "paid": "3A"}[r["status"]]
         out.append(dict(entity=r["entity"], country=r["refund_country"], period=r["ref_period"],
                         vat_eur=r["vat_eur"], status=r["status"], submitted=r["submitted_date"],

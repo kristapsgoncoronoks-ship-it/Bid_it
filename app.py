@@ -23,6 +23,8 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import auth as _auth
 import audit as _audit_mod
 import dataproduct
+import applog
+_log = applog.get("app")
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(WORKDIR, "fuel_history.db")
@@ -1133,7 +1135,9 @@ def _close_status(period):
         import anomaly
         a = len(anomaly.find(period))
         items.append(("Anomaly scan", True, f"{a} flag(s) to review" if a else "clean"))
-    except Exception: pass
+    except Exception as e:
+        _log_exc("dashboard anomaly scan", e)
+        items.append(("Anomaly scan", False, str(e)[:40]))
     bdir = f"{WORKDIR}/backups"
     has_b = _os.path.isdir(bdir) and any(f.startswith("ffs_") for f in _os.listdir(bdir))
     items.append(("Backup taken", has_b, "yes" if has_b else "run backup.py"))
@@ -4078,7 +4082,8 @@ def vat():
     for k in ("_scon", "_acon", "_cmcon"):
         if inv_cache.get(k) is not None:
             try: inv_cache[k].close()
-            except Exception: pass
+            except Exception as e:
+                _log.debug("inv_cache close failed for %s: %s", k, e)
     con.close(); return page(body, "vat")
 
 
