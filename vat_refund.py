@@ -286,8 +286,10 @@ def file_documents_for_claim(con, ent, ctry, period):
             con.commit()                                # row now points at the new copy
             try:
                 document_vault.delete(old, DOCDIR)         # safe to drop the old copy
-            except Exception:
-                pass                                    # orphan at worst, never lost
+            except Exception as e:
+                # orphan at worst, never lost — but record the orphan so it's visible
+                log.warning("file_documents_for_claim: could not delete old vault copy %s "
+                            "(orphaned, not lost): %s", old, e)
             moved += 1
     return moved
 

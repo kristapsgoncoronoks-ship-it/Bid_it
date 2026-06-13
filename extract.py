@@ -157,7 +157,8 @@ def pdf_text(pdf_bytes):
                                   capture_output=True, text=True, timeout=30).stdout
         finally:
             try: os.unlink(path)
-            except OSError: pass
+            except OSError as e:
+                log.debug("extract: temp cleanup failed for %s: %s", path, e)
     # fallback: pypdf (pip install pypdf) - no system dependency
     try:
         from pypdf import PdfReader

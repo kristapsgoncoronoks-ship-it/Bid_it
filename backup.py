@@ -18,8 +18,11 @@ yesterday's snapshot).
 import os, sys, csv, json, hashlib, sqlite3, zipfile, glob, io, tempfile, time
 
 import db
+import applog
 from datetime import datetime
 from datetime import timezone as _tz
+
+log = applog.get("backup")
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 BACKUPDIR = os.path.join(WORKDIR, "backups")
@@ -77,7 +80,8 @@ def snapshot():
                 raw = open(tmppath, "rb").read()
             finally:
                 try: os.remove(tmppath)
-                except OSError: pass
+                except OSError as e:
+                    log.debug("snapshot: temp backup cleanup failed for %s: %s", tmppath, e)
             z.writestr(f"data/{db}", raw); manifest[f"data/{db}"] = _sha(raw)
             a = _audit_csv(db)
             z.writestr(f"audit_export/{db}.audit.csv", a)

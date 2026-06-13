@@ -27,6 +27,9 @@ Typical leader-election loop (see app.start_backup_scheduler):
 import os, socket, sqlite3, time
 
 import db
+import applog
+
+log = applog.get("process_lock")
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 DB = os.environ.get("PROCLOCK_DB", f"{WORKDIR}/locks.db")
@@ -45,7 +48,8 @@ def _connect():
         con.execute("""CREATE TABLE IF NOT EXISTS proc_locks (
             name TEXT PRIMARY KEY, holder TEXT, expires REAL)""")
         try: con.execute("PRAGMA journal_mode=WAL")
-        except db.DBError: pass
+        except db.DBError as e:
+            log.debug("process_lock: lease op contended/failed: %s", e)
         con.execute("PRAGMA busy_timeout=15000")
         con.commit()
         _READY.add(DB)
@@ -74,7 +78,8 @@ def acquire(name, ttl, holder=None):
     except db.DBError:
         # could not get the write lock in time — treat as "not acquired"
         try: con.execute("ROLLBACK")
-        except db.DBError: pass
+        except db.DBError as e:
+            log.debug("process_lock: lease op contended/failed: %s", e)
         return False
     finally:
         con.close()

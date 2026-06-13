@@ -199,6 +199,23 @@ def test_pending_count_and_requeue_all(iq, monkeypatch):
     assert iq.pending_count() == 0                       # nothing pending now
 
 
+def test_import_log_swallows_and_logs_write_failure(iq, monkeypatch, caplog):
+    """The import-log feed is best-effort: a failing import_log.log write must NOT
+    propagate out of _import_log (control flow unchanged), and the swallowed failure
+    is now logged (no longer a silent monitoring blind spot)."""
+    import logging
+    import import_log
+    def boom(*a, **k):
+        raise RuntimeError("import-log table locked")
+    monkeypatch.setattr(import_log, "log", boom)
+    row = {"id": 42, "filename": "x.pdf", "uploaded_by": "amy", "backend": "none",
+           "period": "2026-05", "sha256": "deadbeef", "size": 3}
+    with caplog.at_level(logging.WARNING, logger="waiting_room"):
+        # must not raise despite the underlying write blowing up
+        iq._import_log(row, "manual", "ok")
+    assert any("_import_log" in r.message and "42" in r.message for r in caplog.records)
+
+
 def test_drain_processes_backlog(iq, monkeypatch):
     _stub_extract(monkeypatch, lambda data, name, backend=None, strict=False: {"lines": [], "_pdf_bytes": []})
     for i in range(5):

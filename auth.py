@@ -15,6 +15,9 @@ import os, sqlite3, hashlib, secrets, sys, time
 import audit
 import db_tuning
 import db_migrate
+import applog
+
+log = applog.get("auth")
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 DB = f"{WORKDIR}/security.db"
@@ -85,7 +88,8 @@ def connect():
         audit.install_audit(con, ["users", "role_permissions"])  # both change-logged
         con.commit()
         try: os.chmod(DB, 0o600)
-        except OSError: pass
+        except OSError as e:
+            log.warning("connect: could not restrict permissions on secrets DB %s: %s", DB, e)
         _SCHEMA_READY.add(DB)
     return con
 

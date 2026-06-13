@@ -302,8 +302,12 @@ def _import_log(row, channel, status, records=0, message=""):
                        supplier=row["backend"], period=row["period"],
                        sha256=row["sha256"], records=records, bytes=row["size"],
                        message=message)
-    except Exception:
-        pass
+    except Exception as e:
+        try:
+            job_id = row["id"]
+        except Exception:
+            job_id = "?"
+        log.warning("_import_log: failed to record import event for job %s: %s", job_id, e)
 
 def _do_register(con, row):
     """Engine-side handler for a REGISTRATION job (decoupling D4): write the

@@ -34,6 +34,9 @@ import os, sqlite3, json, csv, io, datetime
 
 import audit
 import db_tuning
+import applog
+
+log = applog.get("portal_scraper")
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 DB = os.environ.get("PORTAL_DB", f"{WORKDIR}/portal.db")
@@ -75,7 +78,8 @@ def connect():
         if DB != ":memory:":
             _SCHEMA_READY.add(DB)
             try: os.chmod(DB, 0o600)            # secrets live here
-            except OSError: pass
+            except OSError as e:
+                log.warning("connect: could not restrict permissions on secrets DB %s: %s", DB, e)
     return con
 
 
