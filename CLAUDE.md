@@ -106,9 +106,6 @@ PASS all suppliers. After test runs, restore demo-DB churn before committing:
   `history.py` → `invoice_control.py <period>` → `backup.py`.
 
 ## Known next steps (backlog)
-- VAT engine: `set_status('rejected')` still releases invoice locks
-  (`vat_refund.py` ~396); align it with 3B/3C/3D (keep locks; only `withdraw_claim`
-  releases). Small gate change + tests, but it touches lock/fee behavior.
 - Money sweep (full precision / `money.f2`) for the stored-master and analytics paths
   still on bare `round()`: `build_master.py`, `queries.py`/`reports.py` overpay+total
   (consolidate the duplicated overpay loop into one canonical impl), and the

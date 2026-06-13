@@ -190,9 +190,10 @@ def _recipients():
 #   NOOP   nothing to do this tick: no recipients / no transport configured, or
 #          nothing outstanding to report — legitimately nothing to send
 #   FAILED transport error (SMTP/connection) — should retry + be alerted on
-# SENT is truthy; NOOP/FAILED are falsy, so the legacy `if send_digest()` /
-# `is True`/`is False` contract is preserved for existing callers.
-SENT, NOOP, FAILED = True, False, "failed"
+# SENT is the ONLY truthy result; NOOP and FAILED are both falsy (and distinct via
+# `==`), so a naive `if send_digest():` treats a transport FAILURE as "not sent"
+# (safe) rather than success, and the legacy `is True`/`is False` contract holds.
+SENT, NOOP, FAILED = True, False, None
 
 
 def send_digest(transport=None, year=None):

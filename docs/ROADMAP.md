@@ -136,8 +136,8 @@ AI layer that compounds the data advantage.*
 - PDF generation for `.docx` templates (H1 #5).
 - Money-precision sweep (`build_master`, analytics overpay/total) + test coverage for
   `invoice_control`/`ingest`/`build_master`/`history` (H1 #6).
-- VAT engine: `set_status('rejected')` keep-locks gate; finish the `except: pass` → log
-  migration.
+- Finish the remaining `except: pass` → log migration. (The `rejected` keep-locks gate
+  is done — locks now release only via `withdraw_claim`.)
 
 This roadmap is a direction, not a contract — revisit it each quarter against the KPIs
 and what the entities are actually feeling as pain.

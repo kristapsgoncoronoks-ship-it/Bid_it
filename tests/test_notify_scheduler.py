@@ -22,7 +22,7 @@ def test_tick_sends_only_when_due(monkeypatch):
     import app as A
     import notify
     sends = []
-    monkeypatch.setattr(notify, "send_digest", lambda: sends.append(1))
+    monkeypatch.setattr(notify, "send_digest", lambda: sends.append(1) or notify.SENT)
 
     # due: interval set, never sent before
     _patch_settings(monkeypatch, {"notify_interval_hours": "24"})
