@@ -8,17 +8,17 @@ competitor price-competitiveness intelligence, for five Baltic transport entitie
   → installs deps, opens browser, first-run setup wizard creates the admin account.
 - Dev:        `python app.py`           (built-in server, HTTPS if cert present)
 - Production: `python serve.py`         (waitress; Windows + Linux)
-- Tests:      `python -m pytest tests/ -q` (240+ tests) + `python consolidate.py` smoke
+- Tests:      `python -m pytest tests/ -q` (315+ tests) + `python consolidate.py` smoke
 
 ## Architecture — six blocks (see README.md for the diagram)
-1. Intake     `ingest.py` (xlsx/csv/xml/api), `extract.py` (PDF/ZIP→draft)
-2. Master data 3 SQLite DBs: `customers.db`, `suppliers.db`, `fuel_history.db`
+1. Intake     `ingest.py` (xlsx/csv/xml/api), `extract.py` (PDF/ZIP→draft), `waiting_room.py` (durable queue + worker)
+2. Master data `customers.db`, `suppliers.db`, `fuel_history.db` (+ `benchmark.db`, `vat_claims.db`)
                via `customer_master.py`, `supplier_master.py`, `vat_refund.py`
-3. Engine     `consolidate.py`→`validate.py`→`build_master.py`→`history.py`
+3. Engine     `consolidate.py`→`validate.py`→`build_master.py`→`history.py`, orchestrated by `engine_close.py`
 4. Compliance `vat_refund.py` (claims, locks), `invoice_control.py` (receipt/triage)
-5. Presentation `app.py` (Flask, ~18 pages + JSON API + Excel), `pricing_intelligence.py`
-6. Platform   `auth.py`, `audit.py`, `backup.py`, `tls.py`, `document_vault.py`, `db.py`,
-               `db_migrate.py`, `applog.py`, `data_lake.py`, `doc_storage.py`
+5. Presentation `app.py` (Flask, ~25 pages + JSON API + Excel), `pricing_intelligence.py`
+6. Platform   `auth.py`, `audit.py`, `backup.py`, `tls.py`, `document_vault.py`, `db.py`, `dataproduct.py`,
+               `db_migrate.py`, `applog.py`, `data_lake.py`, `doc_storage.py`, `notify.py`, `process_lock.py`
 
 ## Platform capabilities — seven delegated works (the product lens)
 The six blocks are the *technical* decomposition; read the product as an **accounting
@@ -35,6 +35,16 @@ Platform floor under all seven: `auth`/`audit`/`backup`/`db`/`db_migrate`/`applo
 ## Key conventions (follow these)
 - Every module is location-independent: `WORKDIR = os.path.dirname(os.path.abspath(__file__))`.
 - All DB access goes through each module's `connect()`; `db.py` abstracts SQLite/Postgres.
+- Data-processing boundary: the ENGINE owns and WRITES the product DBs (`fuel_history.db` =
+  validated `transactions`/master, `suppliers.db` = supplier master); the app reads them
+  READ-ONLY via `dataproduct.connect()` — app code holds NO writable handle to the product
+  DBs (a stray write raises `OperationalError`). The monthly close runs as an INDEPENDENT
+  engine entrypoint `engine_close.py` (consolidate→build_master→history→run_control→backup,
+  `process_lock`-guarded, single audit trail, period-stamped pickle, restartable); the close
+  stage modules import side-effect-free (`history.load`/`build_master.build` are functions).
+  Statement registration is ENQUEUED to the engine worker (`waiting_room` kind=`register`,
+  actor propagated), not written in-request. Benchmark tables (`my_prices`/`wholesale_prices`)
+  live in `benchmark.db` (app/portal-owned). See `docs/PLATFORM.md`.
 - Schema migrations go through `db_migrate.apply(con, "<module>", [DDL, ...])` — a
   versioned migration table (`_ffs_migrations`) so each ALTER runs once per DB.
   APPEND new statements at the END of a module's list (positions are stable).
@@ -102,8 +112,9 @@ PASS all suppliers. After test runs, restore demo-DB churn before committing:
 ## Common tasks
 - Add a supplier (data): `supplier_master.py` + set `invoice_cadence`; register a statement.
 - Add a supplier PDF parser: add a `parse_<x>()` to the PARSER REGISTRY in `extract.py`.
-- Monthly close: edit `month_config.py` → `consolidate.py` → `build_master.py` →
-  `history.py` → `invoice_control.py <period>` → `backup.py`.
+- Monthly close: edit `month_config.py`, then run the orchestrator `python engine_close.py
+  [period]` (consolidate→build_master→history→run_control→backup, one audit trail, restartable).
+  The individual CLIs still run standalone for debugging.
 
 ## Known next steps (backlog)
 - Money sweep (full precision / `money.f2`) for the stored-master and analytics paths
@@ -113,7 +124,11 @@ PASS all suppliers. After test runs, restore demo-DB churn before committing:
 - Test coverage for `invoice_control.py`, `ingest.py`, `build_master.py`, `history.py`.
 - Migrate the remaining ad-hoc `except: pass` blocks to `applog`/`_log_exc` logging.
 - PDF generation for .docx templates (text templates already export PDF).
-- Notifications (email) for worklist items: deadlines, expiring documents.
+- Notifications: `notify.py` digest mailer (worklist + expiring docs + stuck queue jobs) on
+  a leader-elected scheduler is DONE; remaining = per-event alerts + an SMTP relay config UI.
+- Reliability hardening (`docs/RELIABILITY.md`): dead-letter/DLQ growth alerting, an
+  oldest-pending-job age SLO metric, `process_lock` fencing token + monotonic-clock deadline,
+  a per-job extract deadline, and the register-failure vaulted-doc reconcile.
 - Off-machine backup sync (OneDrive/SharePoint) so `backups/` survives disk loss —
   currently an OS/cron concern, documented in the Admin "Backups" card.
 - Horizontal scale (see `docs/SCALING.md`). Done & testable: node roles (`FFS_ROLE`),
