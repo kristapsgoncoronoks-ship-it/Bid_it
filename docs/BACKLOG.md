@@ -17,7 +17,8 @@ FX/pivots + report enhancements; monetization M5a/M2/M1/M3/M4/M6; CSRF hardening
 (`2dd8bdd`); time-of-day fuelling analytics + off-hours anomaly flag (`31df60b`);
 supplier/channel processing-reliability scorecard (`2bf5031`); per-vehicle NET €/L
 outlier flag + cost summary (`a6e0944`); data-lake confidence mining → parser-build
-priorities (`7db2d95`).
+priorities (`7db2d95`); import-reliability + audit-activity trends (`cc4df3d`).
+**→ The entire under-used-data analytics runway in section A is now cleared.**
 
 ---
 
@@ -59,7 +60,9 @@ priorities (`7db2d95`).
 - ~~**Data-lake `meta.confidence` mining**~~ ✅ SHIPPED (`7db2d95`) —
   `data_lake.parser_priority()` ranks suppliers by AI-extraction volume × low-confidence
   (best `parse_<x>()` ROI), on `/files`.
-- **Import-reliability / audit-activity trends** (aggregate `import_log`/`audit_log`). *(S, low)*
+- ~~**Import-reliability / audit-activity trends**~~ ✅ SHIPPED (`cc4df3d`) —
+  `import_log.reliability()` (success rate by channel & supplier) on `/imports`;
+  `audit.activity_summary()` (per-user/per-table activity + churn hotspots) on `/history`.
 
 ### Decoupling completion
 - **D6 — intake worker as a dedicated worker-process by default** (web nodes set
