@@ -25,7 +25,10 @@ later (see `SCALING.md`).
 **Turn transactions into intelligence and Excel deliverables.**
 - Owns it: `pricing_intelligence.py` (competitiveness, self-sourced benchmark, overpay),
   `anomaly.py`, `contract_audit.py` (recoverable € per contract breach), `reports.py` and
-  the master / history / summary / fees / pricing-grid exports.
+  the master / history / summary / fees / pricing-grid exports. Plus `ai_review.py` — the
+  **advisory** AI layer over already-extracted data (validation flags + a short analytics
+  note), default-OFF, sends derived data only (never the document), never mutates or gates
+  a figure; deterministic hard-checks stay in `validate.py`. See `docs/AI_REVIEW.md`.
 - Maturity: **high**. Gap: detection dead-ends at read-only tables — no "act on it"
   (overcharge → recovery packet → supplier credit).
 

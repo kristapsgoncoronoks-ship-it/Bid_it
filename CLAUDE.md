@@ -63,7 +63,9 @@ Platform floor under all seven: `auth`/`audit`/`backup`/`db`/`db_migrate`/`applo
   unstructured PDF with no registered `parse_<x>()` falls to the AI backend, and only
   when one is configured — `parser`/`none` keep every byte on the server. AI never
   extracts a figure a structured/parser path can; it belongs to post-extraction
-  validation/analytics, not capture.
+  validation/analytics, not capture (the **advisory AI review assistant** `ai_review.py`
+  is default-OFF, sends DERIVED DATA ONLY — never the PDF/IBAN/secret — and never mutates
+  or gates a figure; see `docs/AI_REVIEW.md`).
 - Money is quantized via `money.py` (Decimal, ROUND_HALF_UP) — use `money.f2/fsum`
   when rounding/summing amounts and `money.q2` for EUR-threshold decisions; don't
   use bare `round()` on currency. Storage columns stay SQLite REAL.
