@@ -104,14 +104,29 @@ def connect():
     # read progress while a worker writes, and busy_timeout lets several worker
     # processes claim jobs without tripping "database is locked".
     db_tuning.tune(con)
+    # APPEND-ONLY migration list (positions are stable; never reorder/delete).
+    _MIGR = [
+        "ALTER TABLE intake_jobs ADD COLUMN defer_count INTEGER DEFAULT 0",
+        # D4: a job 'kind' the worker dispatches on, plus a JSON payload for jobs
+        # that carry data rather than inbox bytes (e.g. statement registration).
+        "ALTER TABLE intake_jobs ADD COLUMN kind TEXT DEFAULT 'extract'",
+        "ALTER TABLE intake_jobs ADD COLUMN payload TEXT",
+    ]
     if DB != ":memory:" and DB not in _SCHEMA_READY:
         con.executescript(SCHEMA)
-        db_migrate.apply(con, "waiting_room",
-                         ["ALTER TABLE intake_jobs ADD COLUMN defer_count INTEGER DEFAULT 0"])
+        db_migrate.apply(con, "waiting_room", _MIGR)
         _SCHEMA_READY.add(DB)
     elif DB == ":memory:":
         con.executescript(SCHEMA)
+        db_migrate.apply(con, "waiting_room", _MIGR)
     return con
+
+
+# job kinds the worker dispatches on (the 'kind' column). EXTRACTION is the legacy
+# default (file bytes -> draft); REGISTRATION carries a validated statement payload
+# that the engine writes into suppliers.db off the web request (decoupling D4).
+KIND_EXTRACT = "extract"
+KIND_REGISTER = "register"
 
 
 # ---------------------------------------------------------------- inbox files
@@ -172,10 +187,51 @@ def enqueue(data, filename, backend=None, period=None, user="system"):
         return existing["id"], "queued" if existing["status"] in ("failed", "done") else existing["status"]
     stored = _write_inbox(sha, data)        # bytes are durably on disk FIRST
     cur = con.execute("""INSERT INTO intake_jobs
-        (sha256, filename, size, backend, period, uploaded_by, stored_path, status)
-        VALUES (?,?,?,?,?,?,?, 'queued')""",
-        (sha, filename, len(data), backend, period, user, stored))
+        (sha256, filename, size, backend, period, uploaded_by, stored_path, status, kind)
+        VALUES (?,?,?,?,?,?,?, 'queued', ?)""",
+        (sha, filename, len(data), backend, period, user, stored, KIND_EXTRACT))
     con.commit()                            # only now is the job visible/durable
+    jid = cur.lastrowid
+    con.close()
+    return jid, "queued"
+
+
+def enqueue_registration(payload, user="system"):
+    """Enqueue a supplier-statement REGISTRATION job (decoupling D4). `payload` is
+    the already-VALIDATED statement (supplier, statement_ref, period, statement_date,
+    lines, customer, notes, draft id) — the web request has done the synchronous
+    validation gate and PDF vaulting; only the suppliers.db WRITE is deferred here so
+    the request holds no writable suppliers.db handle. The engine worker dispatches
+    on kind='register' and calls invoice_control.register_statement (at-least-once;
+    that write is idempotent on its UNIQUE keys). Returns (job_id, status).
+
+    Carries NO inbox bytes — the payload IS the job. We still set a deterministic
+    sha256 over (supplier, statement_ref) so the UNIQUE index gives natural
+    de-duplication / requeue on a re-confirm of the same statement."""
+    supplier = (payload.get("supplier") or "").strip()
+    statement_ref = (payload.get("statement_ref") or "").strip()
+    if not supplier or not statement_ref:
+        raise ValueError("registration payload needs supplier + statement_ref")
+    sha = hashlib.sha256(f"register:{supplier}:{statement_ref}".encode()).hexdigest()
+    body = json.dumps(payload)
+    con = connect()
+    existing = con.execute("SELECT id, status FROM intake_jobs WHERE sha256=?", (sha,)).fetchone()
+    if existing:
+        # a re-confirm of the same statement: refresh the payload and re-queue it
+        # (registration is idempotent, so re-running is safe).
+        con.execute("""UPDATE intake_jobs SET status='queued', attempts=0, defer_count=0,
+                       lease_until=NULL, next_attempt_at=NULL, error=NULL,
+                       started_at=NULL, finished_at=NULL, payload=?,
+                       uploaded_by=?, uploaded_at=? WHERE id=?""",
+                    (body, user, _now(), existing["id"]))
+        con.commit(); con.close()
+        return existing["id"], "queued"
+    cur = con.execute("""INSERT INTO intake_jobs
+        (sha256, filename, size, backend, period, uploaded_by, status, kind, payload)
+        VALUES (?,?,?,?,?,?, 'queued', ?, ?)""",
+        (sha, f"{supplier} {statement_ref}", 0, supplier, payload.get("period"),
+         user, KIND_REGISTER, body))
+    con.commit()
     jid = cur.lastrowid
     con.close()
     return jid, "queued"
@@ -219,6 +275,39 @@ def _import_log(row, channel, status, records=0, message=""):
     except Exception:
         pass
 
+def _do_register(con, row):
+    """Engine-side handler for a REGISTRATION job (decoupling D4): write the
+    validated statement into suppliers.db OFF the web request. Returns the outcome
+    string. Idempotent — register_statement upserts on its UNIQUE keys, so the
+    queue's at-least-once retry can re-run this safely.
+
+    The confirming user is propagated as the AUDIT ACTOR: audit.set_actor binds the
+    thread-local actor that supplier_master.connect()'s ffs_actor() resolves, so the
+    suppliers.db audit triggers record changed_by=<user>, not 'system'. This mirrors
+    app.py's before/after-request actor hooks for the engine path. Note the engine
+    owns suppliers.db migrations (register_statement runs db_migrate.apply); the
+    read-only web app must never migrate suppliers.db."""
+    import invoice_control as IC, audit
+    jid = row["id"]
+    p = json.loads(row["payload"])
+    user = row["uploaded_by"] or "system"
+    audit.set_actor(None, user)
+    try:
+        synced = IC.register_statement(
+            p["supplier"], p["statement_ref"], p.get("period"),
+            p.get("statement_date"), p.get("lines") or [],
+            notes=p.get("notes"), customer=p.get("customer"))
+    finally:
+        audit.reset_actor()
+    con.execute("""UPDATE intake_jobs SET status='done', finished_at=?,
+                   error=NULL, lease_until=NULL WHERE id=?""", (_now(), jid))
+    con.commit()
+    _import_log(row, "register", "success", records=len(p.get("lines") or []),
+                message=f"statement {p['statement_ref']} registered "
+                        f"({synced} VAT-bearing synced)")
+    return "done"
+
+
 def process_one():
     """Claim and process one job. Returns (job_id, outcome) or None if the queue
     is idle. Never raises — failures are recorded on the row."""
@@ -230,6 +319,12 @@ def process_one():
             return None
         jid = row["id"]
         attempts = row["attempts"] + 1      # _claim incremented it
+        kind = (row["kind"] if "kind" in row.keys() else None) or KIND_EXTRACT
+        if kind == KIND_REGISTER:
+            try:
+                return (jid, _do_register(con, row))
+            except Exception as e:
+                return (jid, _fail_or_retry(con, row, jid, attempts, e, channel="register"))
         try:
             data = read_bytes(row["stored_path"])
             draft = EX.extract(data, row["filename"], backend=row["backend"] or None,
@@ -268,23 +363,32 @@ def process_one():
             con.commit()
             return (jid, "waiting")
         except Exception as e:
-            msg = f"{type(e).__name__}: {e}"[:500]
-            if attempts >= MAX_ATTEMPTS:
-                con.execute("""UPDATE intake_jobs SET status='failed', error=?,
-                               finished_at=?, lease_until=NULL WHERE id=?""",
-                            (msg, _now(), jid))
-                outcome = "failed"
-                _import_log(row, "extract", "failed", message=msg)
-            else:
-                backoff = min(BACKOFF_BASE * (2 ** (attempts - 1)), BACKOFF_MAX)
-                con.execute("""UPDATE intake_jobs SET status='queued', error=?,
-                               lease_until=NULL, next_attempt_at=? WHERE id=?""",
-                            (msg, _at(time.time() + backoff), jid))
-                outcome = "retry"
-            con.commit()
-            return (jid, outcome)
+            return (jid, _fail_or_retry(con, row, jid, attempts, e, channel="extract"))
     finally:
         con.close()
+
+
+def _fail_or_retry(con, row, jid, attempts, e, channel="extract"):
+    """Hard-failure handler shared by every job kind: dead-letter to 'failed' once
+    MAX_ATTEMPTS is reached (logging the failure to import_log so it surfaces in the
+    monitoring panel), else re-queue with capped exponential backoff. Never swallows
+    silently — the error is recorded on the row and logged."""
+    msg = f"{type(e).__name__}: {e}"[:500]
+    log.warning("job %s (%s) failed attempt %s: %s", jid, channel, attempts, msg)
+    if attempts >= MAX_ATTEMPTS:
+        con.execute("""UPDATE intake_jobs SET status='failed', error=?,
+                       finished_at=?, lease_until=NULL WHERE id=?""",
+                    (msg, _now(), jid))
+        outcome = "failed"
+        _import_log(row, channel, "failed", message=msg)
+    else:
+        backoff = min(BACKOFF_BASE * (2 ** (attempts - 1)), BACKOFF_MAX)
+        con.execute("""UPDATE intake_jobs SET status='queued', error=?,
+                       lease_until=NULL, next_attempt_at=? WHERE id=?""",
+                    (msg, _at(time.time() + backoff), jid))
+        outcome = "retry"
+    con.commit()
+    return outcome
 
 def drain(limit=50):
     """Process up to `limit` jobs, stopping when the queue is idle. Returns the
@@ -429,7 +533,12 @@ def requeue(job_id):
     waiting, ready) — e.g. an admin clicking 'Retry now' on a job that is waiting
     for AI tokens, or retrying a failure. Returns False if the job/file is gone."""
     r = get_job(job_id)
-    if not r or not r["stored_path"] or not os.path.exists(_safe_inbox(r["stored_path"])):
+    if not r:
+        return False
+    # a registration job carries its payload (no inbox bytes) — it is retryable as
+    # long as the payload survives; an extraction job needs its source file present.
+    is_register = (r["kind"] if "kind" in r.keys() else None) == KIND_REGISTER
+    if not is_register and (not r["stored_path"] or not os.path.exists(_safe_inbox(r["stored_path"]))):
         return False
     con = connect()
     con.execute("""UPDATE intake_jobs SET status='queued', attempts=0, defer_count=0,

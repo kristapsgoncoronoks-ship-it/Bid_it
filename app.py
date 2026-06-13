@@ -2055,7 +2055,7 @@ def _ai_review_button(token, intake_job=None, period=None):
 
 @app.route("/extract/confirm", methods=["POST"])
 def extract_confirm():
-    import extract as EX, invoice_control as IC, vat_refund as VR
+    import extract as EX, vat_refund as VR
     import os as _os, pickle
     # access is enforced centrally in _guard (capability: data_import)
     token = request.form["token"]
@@ -2109,10 +2109,22 @@ def extract_confirm():
                     f'({vr["errors"]} error, {vr["warnings"]} warning) and re-import:</b>'
                     f'<table><thead><tr>{thead}</tr></thead><tbody>{rows_html}</tbody></table>'
                     + "</div>", "ext")
-    synced = IC.register_statement(supplier, request.form["stmt_ref"].strip(), period,
-                                   request.form.get("stmt_date", "").strip(), lines,
-                                   notes="imported via batch extraction", customer=customer)
-    VAL.save_baseline(supplier, request.form["stmt_ref"].strip(), vlines)
+    stmt_ref = request.form["stmt_ref"].strip()
+    # D4: the suppliers.db WRITE is the last in-request product-DB write — move it
+    # behind the engine. Validation (above) and PDF vaulting (below, vat_claims.db is
+    # app-owned) stay synchronous so the operator still sees errors immediately, but the
+    # register_statement write is ENQUEUED and performed by the engine worker. The
+    # confirming user is carried so the worker propagates it as the audit actor. The web
+    # request therefore holds NO writable suppliers.db handle.
+    import waiting_room as IQ
+    reg_payload = {
+        "supplier": supplier, "statement_ref": stmt_ref, "period": period,
+        "statement_date": request.form.get("stmt_date", "").strip(),
+        "lines": lines, "customer": customer,
+        "notes": "imported via batch extraction", "draft": token,
+    }
+    job_id, _job_st = IQ.enqueue_registration(reg_payload, user=session.get("user", "system"))
+    VAL.save_baseline(supplier, stmt_ref, vlines)
     # attach source PDFs to the vault against their invoice refs
     attached = 0
     if _os.path.exists(tmpf):
@@ -2137,22 +2149,24 @@ def extract_confirm():
     # if this draft came from the waiting room, mark the job done (frees its bytes)
     if request.form.get("intake_job"):
         try:
-            import waiting_room as IQ
             IQ.complete(int(request.form["intake_job"]))
         except Exception as e:
             _log_exc("intake complete", e)
     try:
         import import_log as _IL
-        _IL.log("statement", request.form["stmt_ref"].strip(), "success",
+        _IL.log("statement", stmt_ref, "success",
                 actor=session.get("user", "system"), client=customer, supplier=supplier,
                 period=period, records=len(lines),
-                message=f"{len(lines)} invoices, {synced} VAT-bearing synced, {attached} PDFs vaulted")
+                message=f"{len(lines)} invoices validated, {attached} PDFs vaulted; "
+                        f"registration queued (job {job_id})")
     except Exception as e:
         _log_exc("import log statement", e)
-    banner = (f'<div class="card"><b class="ok">Statement {esc(request.form["stmt_ref"])} '
-              f'registered: {len(lines)} invoices ({synced} VAT-bearing synced), '
-              f'{attached} PDFs vaulted. Review triage on the Invoice control page.</b></div>')
-    return page(banner + f'<p><a href="/invoices?period={esc(period)}">→ Invoice control</a></p>', "ext")
+    banner = (f'<div class="card"><b class="ok">Statement {esc(stmt_ref)} '
+              f'queued for registration: {len(lines)} invoices validated, '
+              f'{attached} PDFs vaulted. The suppliers.db write is completing in the '
+              f'background — see the intake monitor below for the outcome.</b></div>')
+    return page(banner + '<p><a href="/extract">→ Intake monitor</a> &nbsp; '
+                f'<a href="/invoices?period={esc(period)}">→ Invoice control</a></p>', "ext")
 
 
 def _contract_price_terms(SM, supplier, country, product_group="Diesel"):
