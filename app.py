@@ -508,8 +508,76 @@ def module_enabled(key):
 def enabled_modules():
     return {k for k in MODULES if module_enabled(k)}
 
+# ---------------------------------------------------------------- /api/v1 token auth
+# The versioned external API is TOKEN-ONLY (a clean machine contract) — never
+# session/cookie. Each endpoint requires one capability SCOPE; a key holding it
+# may call it. This map is the single source of truth for "endpoint -> scope".
+API_V1_SCOPE = {
+    "api_v1_benchmark": "api:benchmark",
+    "api_v1_claim_status": "api:claims",
+    "api_v1_savings": "api:savings",
+}
+
+def _bearer_token():
+    """Read the API token from Authorization: Bearer <t> or X-API-Key. Returns the
+    raw token string or ''. Never logs the token."""
+    h = request.headers.get("Authorization", "")
+    if h[:7].lower() == "bearer ":
+        return h[7:].strip()
+    return (request.headers.get("X-API-Key", "") or "").strip()
+
+def _api_err(status, message):
+    """Uniform JSON error for the v1 API (no HTML, no session)."""
+    return jsonify({"error": message}), status
+
+@app.before_request
+def _api_v1_guard():
+    """Token-auth gate for /api/v1/* ONLY. Runs BEFORE the session _guard (registered
+    first) and fully owns these endpoints — it returns a response on every path so
+    _guard never touches them. It NEVER affects any other route: a non-/api/v1
+    endpoint falls straight through (returns None) to the unchanged session _guard.
+
+    Posture: missing/invalid/revoked token -> 401; valid token lacking the endpoint's
+    scope -> 403. Default-off: with no keys issued every call is 401."""
+    ep = request.endpoint
+    if ep not in API_V1_SCOPE:
+        return  # not a v1 endpoint — leave session auth fully intact
+    import api_keys
+    need = API_V1_SCOPE[ep]
+    try:
+        key = api_keys.verify(_bearer_token())
+    except Exception as e:
+        _log_exc("api_v1 token verify", e)
+        return _api_err(500, "internal error")
+    if key is None:
+        # missing / invalid / revoked / unknown all collapse to 401 (no oracle)
+        api_keys.log_usage(None, ep, 401)
+        return _api_err(401, "invalid or missing API key")
+    if not api_keys.has_scope(key, need):
+        api_keys.log_usage(key["id"], ep, 403)
+        return _api_err(403, f"key not authorized for scope {need}")
+    # authorized — stash the key so the after-hook can meter the final status, and
+    # let the view run.
+    request.environ["ffs_api_key_id"] = key["id"]
+    return
+
+@app.after_request
+def _api_v1_meter(resp):
+    """Meter an AUTHORIZED v1 call with its final status. Unauthorized calls were
+    already metered (with their 401/403) in the guard."""
+    kid = request.environ.get("ffs_api_key_id")
+    if kid is not None and request.endpoint in API_V1_SCOPE:
+        try:
+            import api_keys
+            api_keys.log_usage(kid, request.endpoint, resp.status_code)
+        except Exception as e:
+            _log_exc("api_v1 metering", e)
+    return resp
+
 @app.before_request
 def _guard():
+    if request.endpoint in API_V1_SCOPE:
+        return  # /api/v1 is fully owned by _api_v1_guard (token-only)
     if request.endpoint in ("setup", "static", "app_js") or request.endpoint is None:
         return
     if _needs_setup():
@@ -4610,6 +4678,22 @@ def admin():
                                      f"{dsum['missing']} missing — see error log")
                 banner = (f"All {dsum['total']} stored document(s) verified — "
                           f"PDF/ZIP files intact (SHA-256 match).")
+            elif act == "issue_api_key":
+                import api_keys
+                label = request.form.get("api_label", "").strip()
+                scopes = [s for s in api_keys.SCOPES if request.form.get(f"scope_{s}") == "on"]
+                kid, token = api_keys.issue(label, scopes, session["user"])
+                # The plaintext token is shown ONCE here and never stored (only its
+                # SHA-256 hash is persisted). esc() the token + label.
+                banner = (
+                    f'API key <b>#{kid}</b> issued ({esc(label) or "no label"}). '
+                    f'<b>Copy it now — it is shown only once and cannot be recovered:</b>'
+                    f'<br><code style="user-select:all;word-break:break-all;'
+                    f'background:#0001;padding:3px 6px;border-radius:4px">{esc(token)}</code>')
+            elif act == "revoke_api_key":
+                import api_keys
+                api_keys.revoke(int(request.form.get("key_id", "0")))
+                banner = f'API key <b>#{esc(request.form.get("key_id",""))}</b> revoked — it now fails on its next call.'
             scon = _auth.connect(); _audit_mod.reset_actor(scon); scon.close()
             banner = f'<div class="card"><b class="ok">{banner}</b></div>'
         except Exception as e:
@@ -4779,6 +4863,50 @@ def admin():
                  + f'<label>Review backend<select name="ai_review_backend">{_air_opts}</select></label>'
                  + '<button name="__act" value="set_ai_review">Save AI review setting</button>'
                  + '</form></div>')
+    # API keys (machine access to the versioned /api/v1 contract). Default-OFF: no keys
+    # exist until issued here. Tokens are SHA-256 hashed at rest and shown once at issue.
+    import api_keys
+    _akeys = api_keys.list_keys()
+    _ausage = api_keys.usage_summary()
+    aktr = []
+    for k in _akeys:
+        u = _ausage.get(k["id"], {})
+        revform = ("" if k["revoked"] else
+                   '<form method="post" style="display:inline">' + _csrf_input()
+                   + f'<input type="hidden" name="key_id" value="{k["id"]}">'
+                   + '<button name="__act" value="revoke_api_key" '
+                     'style="background:var(--bad)">Revoke</button></form>')
+        aktr.append([f'<td>#{k["id"]}</td><td>{esc(k["label"] or "")}</td>',
+                     f'<td class="note">{esc(k["scopes"] or "")}</td>',
+                     f'<td>{esc(k["owner"] or "")}</td>',
+                     f'<td class="{"bad" if k["revoked"] else "ok"}">'
+                     f'{"REVOKED" if k["revoked"] else "active"}</td>',
+                     f'<td class="note">{esc(k["last_used"] or "never")}</td>',
+                     f'<td>{u.get("calls", 0)}</td>',
+                     f'<td>{revform}</td>'])
+    scope_checks = "".join(
+        '<label class="chk" style="display:flex;gap:7px;align-items:center;font-size:13px;'
+        'flex-direction:row;color:var(--ink);margin:3px 0">'
+        f'<input type="checkbox" name="scope_{esc(s)}"> <b>{esc(s)}</b> — {esc(desc)}</label>'
+        for s, desc in api_keys.SCOPES.items())
+    apikeyf = ('<div class="card"><h2>API keys (machine access — /api/v1)</h2>'
+               '<div class="note" style="margin-top:0">Issue a bearer token for the '
+               'read-only versioned API (<code>/api/v1</code>). Tokens are stored only as a '
+               'SHA-256 hash (never in plain text, same as passwords) and the plaintext is '
+               'shown <b>once</b> at issue — copy it then. Each key carries the scopes you tick; '
+               'a call is allowed only for an endpoint whose scope the key holds. Revoke to cut '
+               'access immediately. <b>Default off:</b> with no keys, the API returns 401. Send '
+               'the token as <code>Authorization: Bearer &lt;token&gt;</code> or '
+               '<code>X-API-Key</code>. See docs/API.md.</div>'
+               + (tbl(["ID", "Label", "Scopes", "Owner", "Status", "Last used", "Calls", ""], aktr)
+                  if _akeys else '<p class="note">No API keys issued — the /api/v1 API is inert.</p>')
+               + '<form method="post" style="margin-top:10px">' + _csrf_input()
+               + '<label class="f" style="margin:0">label'
+               + '<input name="api_label" placeholder="e.g. PowerBI read"></label>'
+               + '<div style="margin:6px 0">' + scope_checks + '</div>'
+               + '<button name="__act" value="issue_api_key">+ Issue API key</button>'
+               + '<span class="note" style="margin-left:8px">tick at least one scope</span>'
+               + '</form></div>')
     body = (banner
             + '<div class="card"><h2>Users &amp; permissions</h2>'
             + tbl(["Username", "Role", "Status", "Last login", "Actions"], utr)
@@ -4786,6 +4914,7 @@ def admin():
             + modf
             + aireviewf
             + permf
+            + apikeyf
             + f'<div class="card"><h2>Security status</h2>'
               f'<p>TLS certificate: '
               f'{"<span class=ok>cert.pem present - app serves HTTPS</span>" if tls else "<span class=bad>none - run python3 make_cert.py (self-signed) or install a CA cert</span>"}'
@@ -4822,6 +4951,49 @@ def api_vat():
     con = VR.connect()
     out = VR.claim_matrix(con, request.args.get("year", "2026"))
     con.close(); return jsonify(out)
+
+# ---------------------------------------------------------------- /api/v1 (token API)
+# The versioned, TOKEN-ONLY external contract (see docs/API.md). Auth + scope are
+# enforced upstream by _api_v1_guard before any of these views run; a view that runs
+# has already proved its key carries the endpoint's scope. v1 is READ-ONLY: no write
+# or extract surface. Each producer is REUSED from the internal app, but every payload
+# is whitelisted to NON-SENSITIVE fields — never IBAN/payout/fee/secret/PII.
+
+@app.route("/api/v1/benchmark")
+def api_v1_benchmark():
+    """Internal price benchmark summary (NET EUR/L, VAT-excluded), per supplier/country
+    for a period. Reuses q_benchmark over the read-only product DB."""
+    con = DB()
+    ps = q_periods(con)
+    period = request.args.get("period") or (ps[0] if ps else None)
+    rows = [dict(r) for r in q_benchmark(con, period)] if period else []
+    con.close()
+    return jsonify({"period": period, "basis": "NET EUR/L (VAT excluded)", "rows": rows})
+
+# Claim-status fields safe to expose externally: the workflow stream + readiness only.
+# Deliberately EXCLUDES `home` (portal URL) and never carries any payout/fee/bank/PII
+# field (claim_matrix itself returns none, but we whitelist to be future-proof).
+_V1_CLAIM_FIELDS = ("entity", "country", "period", "vat_eur", "vat_local", "currency",
+                    "lines", "verdict", "missing", "deadline")
+
+@app.route("/api/v1/claim-status")
+def api_v1_claim_status():
+    """VAT claim status / readiness per (entity, country, period). Non-sensitive fields
+    only — workflow verdict + EUR/local VAT totals + line count; no payout/fee/bank/PII."""
+    import vat_refund as VR
+    con = VR.connect()
+    matrix = VR.claim_matrix(con, request.args.get("year", "2026"), with_portal=False)
+    con.close()
+    rows = [{k: r.get(k) for k in _V1_CLAIM_FIELDS} for r in matrix]
+    return jsonify({"claims": rows})
+
+@app.route("/api/v1/savings")
+def api_v1_savings():
+    """Savings-intelligence summary (avoidable overpay + recoverable contract €,
+    addressable total, per-country breakdown, top actions). All € are money.f2."""
+    import savings_intel
+    s = savings_intel.summary(request.args.get("period") or None)
+    return jsonify(s)
 
 if __name__ == "__main__":
     import tls

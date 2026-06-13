@@ -16,6 +16,11 @@ def _get_routes():
         # workbook on disk; both legitimately 404 without those, so skip the smoke.
         if rule.endpoint in ("static", "logout", "export_fee", "export_master"):
             continue
+        # /api/v1/* is the TOKEN-ONLY external contract: a session client correctly
+        # gets 401 (no bearer token). It has its own auth/contract suite
+        # (test_api_v1.py), so it's out of scope for this session-based page smoke.
+        if rule.endpoint in A.API_V1_SCOPE:
+            continue
         routes.append(p)
     return sorted(set(routes))
 
