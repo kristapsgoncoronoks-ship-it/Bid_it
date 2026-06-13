@@ -364,8 +364,8 @@ def setup():
             # try a first backup (best effort)
             try:
                 import backup; backup.snapshot()
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning("setup: first backup failed (non-blocking): %s", e)
             rows = [("Administrator account created", esc(u)),
                     ("Password stored securely", "salted scrypt hash")]
             rows.append(("HTTPS certificate",
@@ -2250,8 +2250,8 @@ def extract_confirm():
             _IL.log("statement", request.form.get("stmt_ref", "").strip(), "failed",
                     actor=session.get("user", "system"), supplier=supplier, period=period,
                     message=f"commit blocked: {vr['errors']} error(s), {vr['warnings']} warning(s)")
-        except Exception:
-            pass
+        except Exception as e:
+            _log.debug("statement-commit blocked: import_log write failed: %s", e)
         thead = "".join(f"<th>{h}</th>" for h in ["Invoice","Country","Net","VAT","Check","Issue"])
         return page('<div class="card"><b class="bad">Commit blocked - fix the errors '
                     f'({vr["errors"]} error, {vr["warnings"]} warning) and re-import:</b>'

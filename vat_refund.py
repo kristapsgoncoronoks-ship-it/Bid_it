@@ -193,15 +193,15 @@ def attach_document(con, ent, sup, ref, src_path=None, file_bytes=None,
             if inv:
                 country = country if country is not None else inv["country"]
                 period = period if period is not None else inv["period"]
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("vat_refund: supplier-invoice enrichment failed for %s/%s: %s", sup, ref, e)
     cust_name, reg = ent, None
     try:
         c = customer_master.get_customer(ent) or {}
         cust_name = c.get("company_name") or ent
         reg = c.get("reg_number")
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("vat_refund: customer lookup failed for %s: %s", ent, e)
     safe = document_vault.invoice_vault_path(cust_name, reg, country, period, filename)
     be = document_vault.backend(DOCDIR)
     stored, web_url = be.put(safe, file_bytes)
@@ -654,8 +654,9 @@ def set_status(con, ent, ctry, period, new, gate_activation=True):
     if new in LOCKING and cur not in LOCKING:
         try:
             file_documents_for_claim(con, ent, ctry, period)
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("vat_refund: file_documents_for_claim failed for %s/%s/%s "
+                        "(status change kept): %s", ent, ctry, period, e)
     return True, f"status -> {new}" + (" (invoices locked)" if new in LOCKING and cur not in LOCKING
                                        else " (locks released)" if new == "withdrawn"
                                        else " (invoices stay locked)" if new == "rejected" else "")
@@ -1432,8 +1433,8 @@ def receivables_forecast(year=None):
         if r["status"] in ("submitted", "approved") and r["submitted_date"]:
             try:
                 age = (today - datetime.date.fromisoformat(r["submitted_date"])).days
-            except ValueError:
-                pass
+            except ValueError as e:
+                log.debug("vat_refund: unparseable submitted_date %r: %s", r["submitted_date"], e)
         band = _aging_band(age) if r["status"] in ("submitted", "approved") else ""
         if band:
             aging[band]["eur"] = money.f2(aging[band]["eur"] + refund_receivable)
@@ -1446,8 +1447,9 @@ def receivables_forecast(year=None):
                          - datetime.date.fromisoformat(r["submitted_date"])).days
                     cycle_by_ctry[r["refund_country"]].append(d)
                     cycle_all.append(d)
-                except ValueError:
-                    pass
+                except ValueError as e:
+                    log.debug("vat_refund: unparseable cycle date(s) sub=%r paid=%r: %s",
+                              r["submitted_date"], r["paid_date"], e)
             if vat:
                 realiz_ct = realiz[r["refund_country"]]
                 realiz_ct["claimed"] = money.f2(realiz_ct["claimed"] + vat)
