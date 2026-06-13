@@ -462,20 +462,18 @@ def set_status(con, ent, ctry, period, new, gate_activation=True):
         # locked the rate can no longer be adjusted (% / minimum changes only affect
         # un-submitted declarations).
         if new in LOCKING and cur not in LOCKING:
-            if is_annual and claim_set is not None:
-                # a yearly claim only carries the invoices NOT already claimed
-                # quarterly (the deferred quarters + any late invoices), so freeze
-                # the VAT from exactly that set rather than the whole calendar year.
-                keys = set(claim_set)
-                ve = money.f2(sum(L["vat_eur"] for L in invoice_lines(con, ent, ctry, period)
-                                  if (L["supplier"], L["invoice"]) in keys))
-            else:
-                months = q_months(period)
-                ph = ",".join("?" * len(months))
-                acon = analytics_connect()
-                ve = acon.execute(f"SELECT ROUND(SUM(vat_eur),2) FROM transactions WHERE entity=? "
-                                  f"AND country=? AND period IN ({ph})", [ent, ctry] + months).fetchone()[0] or 0.0
-                acon.close()
+            # Freeze the VAT base from EXACTLY the invoices locked into THIS claim
+            # (`claim_set`), via invoice_lines — the same one-row-per-(invoice,code)
+            # basis used everywhere else. This is the canonical base for BOTH a yearly
+            # claim (the deferred/late mop-up, never the whole calendar year) AND a
+            # quarterly claim: a raw SUM(vat_eur) over all period transactions would
+            # wrongly include period invoices NOT in this claim (e.g. already locked to
+            # another claim), so the frozen vat_eur/fee would sit on a larger base than
+            # the invoices actually filed. `claim_set` is always populated here (it is
+            # built in the same `new in LOCKING and cur not in LOCKING` branch above).
+            keys = set(claim_set or ())
+            ve = money.f2(sum(L["vat_eur"] for L in invoice_lines(con, ent, ctry, period)
+                              if (L["supplier"], L["invoice"]) in keys))
             fpct, fmin = customer_master.fee_for(ent, ctry)
             fee, _basis = customer_master.compute_fee(ve, fpct, fmin)
             con.execute("""UPDATE vat_applications SET vat_eur=?, fee_eur=?, fee_pct=?, fee_min=?

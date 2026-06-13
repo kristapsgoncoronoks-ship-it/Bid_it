@@ -8,11 +8,13 @@ import pytest
 
 
 def _modules(tmp_path, monkeypatch):
-    import customer_master, vat_refund
-    importlib.reload(customer_master); importlib.reload(vat_refund)
+    import customer_master, supplier_master, vat_refund
+    importlib.reload(customer_master); importlib.reload(supplier_master)
+    importlib.reload(vat_refund)
     monkeypatch.setattr(customer_master, "DB", str(tmp_path / "c.db"))
     monkeypatch.setattr(customer_master, "_SCHEMA_READY", set())
     monkeypatch.setattr(customer_master, "DOCDIR", str(tmp_path / "cdocs"))
+    monkeypatch.setattr(supplier_master, "DB", str(tmp_path / "s.db"))
     monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "v.db"))
     monkeypatch.setattr(vat_refund, "ANALYTICS_DB", str(tmp_path / "a.db"))
     monkeypatch.setattr(vat_refund, "_SCHEMA_READY", set())
@@ -36,18 +38,52 @@ def _complete_checklist(cm):
     con.close()
 
 
-def _invoice_doc(vr):
+def _invoice_doc(vr, extra_vat=0.0):
     vc = vr.connect()
     vc.execute("""INSERT INTO invoice_documents (entity, supplier, invoice_ref, filename, sha256)
                   VALUES ('Acme SIA','BP','INV1','i.pdf','abc123')""")
     vc.commit(); vc.close()
+    # The fee-freeze base now sums the claim_set via invoice_lines (F-C), which needs a
+    # realistic transactions schema + a supplier registration so the BP/INV1 invoice
+    # resolves. Register BP with a real VAT number (so the line is not INPUT) and one
+    # registered invoice INV1; the txn note 'INV1' resolves the line to that invoice.
+    import supplier_master  # already reloaded + DB-monkeypatched by _modules()
+    sc = supplier_master.connect()
+    sc.execute("INSERT INTO suppliers (code, legal_name) VALUES ('BP','B2Mobility GmbH')")
+    sc.execute("""INSERT INTO supplier_vat_registrations (supplier, country, vat_number, source)
+                  VALUES ('BP','Belgium','BE0123456789','registry')""")
+    sc.execute("""INSERT INTO supplier_invoices (supplier, country, invoice_no, invoice_date)
+                  VALUES ('BP','Belgium','INV1','2026-01-10')""")
+    if extra_vat:
+        # a SECOND registered invoice so the off-claim txn (note 'INV2') resolves to
+        # its own (supplier, invoice) key — never folded onto INV1.
+        sc.execute("""INSERT INTO supplier_invoices (supplier, country, invoice_no, invoice_date)
+                      VALUES ('BP','Belgium','INV2','2026-02-10')""")
+    sc.commit(); sc.close()
     # transactions is engine-owned; analytics_connect() is now a READ-ONLY handle, so
     # seed the fee-freeze data through a direct writable connection to the tmp-path
     # ANALYTICS_DB. The submit path still reads them via analytics_connect().
     import sqlite3
     ac = sqlite3.connect(vr.ANALYTICS_DB)
-    ac.execute("CREATE TABLE IF NOT EXISTS transactions (entity TEXT, country TEXT, period TEXT, vat_eur REAL)")
-    ac.execute("INSERT INTO transactions VALUES ('Acme SIA','Belgium','2026-01',1000)")
+    ac.execute("""CREATE TABLE IF NOT EXISTS transactions (
+        entity TEXT, supplier TEXT, country TEXT, period TEXT, product_group TEXT,
+        note TEXT, qty REAL, currency TEXT, net_local REAL, vat_local REAL,
+        net_eur REAL, vat_eur REAL)""")
+    ac.execute("""INSERT INTO transactions
+        (entity, supplier, country, period, product_group, note, qty, currency,
+         net_local, vat_local, net_eur, vat_eur)
+        VALUES ('Acme SIA','BP','Belgium','2026-01','Diesel','INV1',500,'EUR',
+                4762,1000,4762,1000)""")
+    if extra_vat:
+        # A SECOND BP invoice in the SAME quarter that is NOT in the claim_set
+        # (stream_invoices is monkeypatched to return only INV1). A raw period-wide
+        # SUM(vat_eur) would wrongly fold this into the frozen base; the claim_set
+        # basis must not.
+        ac.execute("""INSERT INTO transactions
+            (entity, supplier, country, period, product_group, note, qty, currency,
+             net_local, vat_local, net_eur, vat_eur)
+            VALUES ('Acme SIA','BP','Belgium','2026-02','Diesel','INV2',500,'EUR',
+                    ?,?,?,?)""", (extra_vat * 4.762, extra_vat, extra_vat * 4.762, extra_vat))
     ac.commit(); ac.close()
 
 
@@ -143,6 +179,36 @@ def test_submit_gate_and_lock_lifecycle(tmp_path, monkeypatch):
     ok, _ = vr.withdraw_claim(con, "Acme SIA", "Belgium", "2026-Q1")
     assert ok and con.execute("SELECT COUNT(*) FROM vat_claimed_invoices").fetchone()[0] == 0
     con.close()
+
+
+def test_quarterly_freeze_base_is_claim_set_not_all_period_vat(tmp_path, monkeypatch):
+    """F-C: on quarterly submission the FROZEN fee VAT base must sum ONLY the invoices
+    actually in this claim (claim_set), mirroring the annual branch — NOT a raw
+    SUM(vat_eur) over ALL period transactions. Here BP has two Q1 invoices (INV1 €1000
+    in Jan, INV2 €350 in Feb) but stream_invoices puts only INV1 in the claim; the
+    frozen vat_eur must be 1000, and the fee 8% of 1000 = 80, NOT 8% of 1350."""
+    cm, vr = _modules(tmp_path, monkeypatch)
+    cm.add_customer("ACME", "Acme SIA", "LV")
+    # a real fee so the freeze is observable (% beats the minimum)
+    cc = cm.connect()
+    cc.execute("UPDATE customers SET fee_pct=8, fee_min=10 WHERE code='ACME'")
+    cc.commit(); cc.close()
+    _complete_checklist(cm)
+    _invoice_doc(vr, extra_vat=350.0)   # INV1 (€1000, in claim) + INV2 (€350, NOT in claim)
+
+    con = vr.connect()
+    ok, msg = vr.set_status_code(con, "Acme SIA", "Belgium", "2026-Q1", "2")
+    assert ok, msg
+    # only INV1 is locked into this claim
+    assert con.execute("SELECT COUNT(*) FROM vat_claimed_invoices").fetchone()[0] == 1
+    row = con.execute("""SELECT vat_eur, fee_eur, fee_pct FROM vat_applications
+                         WHERE entity='Acme SIA' AND refund_country='Belgium'
+                         AND ref_period='2026-Q1'""").fetchone()
+    con.close()
+    # frozen base = claim_set sum (1000), NOT all-period VAT (1350)
+    assert float(row["vat_eur"]) == 1000.0
+    assert float(row["fee_pct"]) == 8.0
+    assert float(row["fee_eur"]) == 80.0     # 8% of 1000, not 108 (= 8% of 1350)
 
 
 def test_raw_rejected_keeps_locks_only_withdraw_releases(tmp_path, monkeypatch):
