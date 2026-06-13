@@ -92,9 +92,13 @@ def test_fx_page_renders(client):
     assert "Invoice exchange rate vs ECB" in r.get_data(as_text=True)
 
 
-def test_admin_can_upload_rates(client):
+def test_admin_can_upload_rates(client, tmp_path, monkeypatch):
     import io
     import re
+    import ecb_rates
+    # redirect the rate cache to a temp DB so the upload never mutates the live
+    # ecb_rates.db (the `ecb` fixture does this; the web `client` fixture does not).
+    monkeypatch.setattr(ecb_rates, "DB", str(tmp_path / "ecb_upload_test.db"))
     html = client.get("/fx").get_data(as_text=True)
     assert 'value="upload"' in html  # admin sees the upload form
     tok = re.search(r'name="_csrf" value="([^"]+)"', html).group(1)
