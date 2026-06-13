@@ -2555,6 +2555,69 @@ def _intake_queue_health_card():
     return ('<div class="card"><h2>Queue health</h2>'
             + age_line + dlq_line + redrive + '</div>')
 
+
+def _fmt_pct(x):
+    """Render a 0..1 fraction as a whole-percent string; '—' when None (no data)."""
+    if x is None:
+        return "—"
+    return f"{round(x * 100)}%"
+
+def _fmt_dur(secs):
+    """Humanise a duration in seconds (reusing _humanize_age); '—' when None."""
+    if secs is None:
+        return "—"
+    return _humanize_age(secs)
+
+def _intake_reliability_card():
+    """Per-channel processing-reliability scorecard for the waiting room: success rate,
+    retry rate, median duration and the top failure reason per channel, plus an overall
+    failure-reason histogram. Read-only analytics over intake_jobs. A failure here must
+    never break the queue page — log and skip the card."""
+    import waiting_room as IQ
+    try:
+        sc = IQ.reliability_scorecard()
+    except Exception as e:
+        _log_exc("reliability scorecard", e)
+        return ""
+    channels = sc.get("channels") or []
+    if not channels:
+        return ('<div class="card"><h2>Processing reliability</h2>'
+                '<p class="note">No jobs have run through the waiting room yet.</p></div>')
+    rows = []
+    for ch in channels:
+        sr = ch.get("success_rate")
+        sr_cls = "ok" if (sr is not None and sr >= 0.9) else ("bad" if sr is not None and sr < 0.5 else "")
+        rr = ch.get("retry_rate")
+        rr_cls = "bad" if (rr is not None and rr > 0.25) else ""
+        terminal = ch.get("done", 0) + ch.get("failed", 0) + ch.get("held", 0)
+        jobs_note = (f'<br><span class="note">{esc(str(ch.get("pending", 0)))} in flight</span>'
+                     if ch.get("pending") else "")
+        top_err = ch.get("top_error") or ""
+        rows.append([
+            f'<td>{esc(str(ch.get("channel", "")))}</td>',
+            f'<td class="r">{esc(str(ch.get("total", 0)))}{jobs_note}</td>',
+            (f'<td class="r {sr_cls}">{esc(_fmt_pct(sr))}</td>'
+             f'<td class="note r">({esc(str(ch.get("done", 0)))}/{esc(str(terminal))})</td>'),
+            f'<td class="r {rr_cls}">{esc(_fmt_pct(rr))}</td>',
+            (f'<td class="r">{esc(_fmt_dur(ch.get("median_duration_s")))}</td>'
+             f'<td class="note r">n={esc(str(ch.get("duration_n", 0)))}</td>'),
+            f'<td class="note">{esc(top_err[:60])}</td>'])
+    table = tbl(["Channel", "Jobs", "Success", "", "Retry", "Median dur", "", "Top error"], rows)
+    # compact overall failure-reason histogram (across all failed + held jobs)
+    fr = sc.get("failure_reasons") or []
+    if fr:
+        items = "".join(
+            f'<li><span class="bad">{esc(str(cnt))}×</span> {esc(str(reason)[:80])}</li>'
+            for reason, cnt in fr[:8])
+        hist = (f'<h3>Failure reasons</h3><ul class="note" style="margin:4px 0">{items}</ul>')
+    else:
+        hist = '<p class="note">No failures recorded — every job has succeeded or is still in flight.</p>'
+    return ('<div class="card"><h2>Processing reliability</h2>'
+            '<div class="note">Per-channel (extractor) processing outcomes. Success rate is '
+            'over terminal jobs only (done vs failed/held); retry rate is jobs that needed '
+            'more than one attempt; median duration is finished − started.</div>'
+            + table + hist + '</div>')
+
 @app.route("/queue", methods=["GET", "POST"])
 def intake_queue_page():
     """The 'waiting room': uploaded batches parked for deferred extraction. Shows
@@ -2700,6 +2763,7 @@ def intake_queue_page():
               '<kbd>python waiting_room.py --work</kbd>.</div>'
             + gate + '</div>'
             + _intake_queue_health_card()
+            + _intake_reliability_card()
             + '<div class="card"><h2>Jobs — live monitor</h2>'
             + '<div class="note">Stuck jobs (failed / held / waiting) are listed first, '
               'then newest. <b>Supplier</b> and its confidence appear once extraction has '

@@ -575,6 +575,182 @@ def dlq_growth(window_hours=24, con=None, current_dlq=None):
         if own and con is not None:
             con.close()
 
+def _parse_ts(s):
+    """Parse a stored UTC timestamp ('%Y-%m-%d %H:%M:%S') into a naive UTC datetime.
+    Alias of _parse_uploaded_at — every TEXT time column on intake_jobs (uploaded_at,
+    started_at, finished_at) is written in the same format by _now()/_at()."""
+    return _parse_uploaded_at(s)
+
+
+def _error_key(err):
+    """Normalise a raw `error` message into a short, groupable failure-reason key.
+    Prefer a leading 'ExceptionType:' token (that's how _fail_or_retry formats
+    failures); else fall back to the first line, trimmed to ~60 chars. Returns ''
+    for an empty error so non-failures don't pollute the histogram."""
+    if not err:
+        return ""
+    first = str(err).strip().splitlines()[0].strip() if str(err).strip() else ""
+    if not first:
+        return ""
+    # "ExceptionType: detail" -> keep through the type token + a little context
+    if ":" in first:
+        head = first.split(":", 1)[0].strip()
+        # a bare TypeName (no spaces) is the canonical _fail_or_retry shape -> use it
+        if head and " " not in head:
+            return first[:60].strip()
+    return first[:60].strip()
+
+
+# terminal status buckets the scorecard scores on (see reliability_scorecard).
+_TERMINAL_OK = ("done",)               # successfully completed work
+_TERMINAL_BAD = ("failed", "held")     # needs a human — counts against success
+_PENDING_STATES_RC = ("queued", "waiting", "processing")  # still in flight
+
+
+def reliability_scorecard(con=None):
+    """Read-only supplier/channel PROCESSING-RELIABILITY scorecard over intake_jobs.
+    Pure analytics: it NEVER mutates the queue and NEVER raises — on any internal
+    error it logs a warning and returns the safe empty structure below (matching
+    queue_health's contract, so a render surface needs no try/except of its own).
+
+    Return shape (a dict)::
+
+        {
+          "channels": [          # one row per `backend` channel, busiest first
+            {
+              "channel": str,            # backend; 'auto' when the column is NULL
+              "total": int,              # all jobs on this channel
+              "done": int, "failed": int, "held": int, "ready": int,
+              "pending": int,            # queued + waiting + processing (in flight)
+              "success_rate": float|None,# done / (done+failed+held); None if no
+                                         #   terminal (done/failed/held) jobs yet
+              "retry_rate": float|None,  # fraction of jobs with attempts > 1;
+                                         #   None when total == 0
+              "median_duration_s": float|None,  # over jobs with BOTH started_at
+              "avg_duration_s": float|None,      #   and finished_at (else excluded)
+              "duration_n": int,         # how many jobs the durations are over
+              "top_error": str,          # most common normalised failure reason
+                                         #   on this channel ('' if no failures)
+            }, ...
+          ],
+          "failure_reasons": [  # histogram across ALL failed+held jobs, desc by count
+              (reason_key:str, count:int), ...
+          ],
+          "suppliers": [        # BEST-EFFORT, secondary: resolvable only for
+                                #   ready/done jobs (the draft carries the supplier).
+                                #   Failures have no supplier, so this is success-only.
+              {"supplier": str, "ready": int, "done": int, "total_resolved": int},
+              ...
+          ],
+        }
+
+    success_rate is deliberately over TERMINAL outcomes only (done vs failed/held) so
+    a big in-flight backlog doesn't depress a channel's score; pending jobs are
+    reported separately. Durations are end-to-end processing time
+    (finished_at - started_at) and skip any row missing either timestamp."""
+    safe = {"channels": [], "failure_reasons": [], "suppliers": []}
+    own = con is None
+    try:
+        if own:
+            con = connect()
+        rows = con.execute(
+            "SELECT backend, status, attempts, started_at, finished_at, error, draft "
+            "FROM intake_jobs").fetchall()
+
+        chans = {}              # channel -> accumulator dict
+        reasons = {}            # normalised failure reason -> count
+        suppliers = {}          # supplier -> {ready, done}
+
+        def _chan(name):
+            return chans.setdefault(name, {
+                "channel": name, "total": 0, "done": 0, "failed": 0, "held": 0,
+                "ready": 0, "pending": 0, "retried": 0, "durations": [],
+                "errors": {}})
+
+        for r in rows:
+            ch = (r["backend"] or "auto")
+            st = r["status"]
+            acc = _chan(ch)
+            acc["total"] += 1
+            if st in ("done", "failed", "held", "ready"):
+                acc[st] += 1
+            elif st in _PENDING_STATES_RC:
+                acc["pending"] += 1
+            # retry rate: a job that took more than one claim/attempt
+            try:
+                if r["attempts"] is not None and int(r["attempts"]) > 1:
+                    acc["retried"] += 1
+            except (TypeError, ValueError):
+                pass
+            # end-to-end duration only when BOTH timestamps parse
+            t0 = _parse_ts(r["started_at"])
+            t1 = _parse_ts(r["finished_at"])
+            if t0 is not None and t1 is not None:
+                d = (t1 - t0).total_seconds()
+                if d >= 0:
+                    acc["durations"].append(d)
+            # failure-reason histogram (per-channel top + overall), only for the
+            # terminal-bad states that actually represent a failure.
+            if st in _TERMINAL_BAD:
+                key = _error_key(r["error"])
+                if key:
+                    acc["errors"][key] = acc["errors"].get(key, 0) + 1
+                    reasons[key] = reasons.get(key, 0) + 1
+            # best-effort supplier (only resolvable from a ready/done draft)
+            if st in ("ready", "done") and r["draft"]:
+                try:
+                    sup = json.loads(r["draft"]).get("supplier")
+                except (ValueError, TypeError):
+                    sup = None
+                if sup:
+                    s = suppliers.setdefault(sup, {"ready": 0, "done": 0})
+                    if st in ("ready", "done"):
+                        s[st] += 1
+
+        channels = []
+        for acc in chans.values():
+            terminal = acc["done"] + acc["failed"] + acc["held"]
+            success_rate = (acc["done"] / terminal) if terminal else None
+            retry_rate = (acc["retried"] / acc["total"]) if acc["total"] else None
+            durs = sorted(acc["durations"])
+            n = len(durs)
+            if n:
+                avg = sum(durs) / n
+                mid = n // 2
+                median = durs[mid] if n % 2 else (durs[mid - 1] + durs[mid]) / 2
+            else:
+                avg = median = None
+            top_error = ""
+            if acc["errors"]:
+                top_error = max(acc["errors"].items(), key=lambda kv: (kv[1], kv[0]))[0]
+            channels.append({
+                "channel": acc["channel"], "total": acc["total"],
+                "done": acc["done"], "failed": acc["failed"], "held": acc["held"],
+                "ready": acc["ready"], "pending": acc["pending"],
+                "success_rate": success_rate, "retry_rate": retry_rate,
+                "median_duration_s": median, "avg_duration_s": avg,
+                "duration_n": n, "top_error": top_error,
+            })
+        # busiest channel first; ties broken by name for a stable order
+        channels.sort(key=lambda c: (-c["total"], c["channel"]))
+
+        failure_reasons = sorted(reasons.items(), key=lambda kv: (-kv[1], kv[0]))
+
+        sup_rows = [{"supplier": k, "ready": v["ready"], "done": v["done"],
+                     "total_resolved": v["ready"] + v["done"]}
+                    for k, v in suppliers.items()]
+        sup_rows.sort(key=lambda s: (-s["total_resolved"], s["supplier"]))
+
+        return {"channels": channels, "failure_reasons": failure_reasons,
+                "suppliers": sup_rows}
+    except Exception as e:
+        log.warning("reliability_scorecard failed: %s", e)
+        return safe
+    finally:
+        if own and con is not None:
+            con.close()
+
+
 # ---------------------------------------------------------------- queries / UI
 def counts():
     con = connect()
