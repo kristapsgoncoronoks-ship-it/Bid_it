@@ -15,7 +15,9 @@ FX/pivots + report enhancements; monetization M5a/M2/M1/M3/M4/M6; CSRF hardening
 
 **This sprint (section A, shipped):** intake DLQ alerting + oldest-pending-job age SLO
 (`2dd8bdd`); time-of-day fuelling analytics + off-hours anomaly flag (`31df60b`);
-supplier/channel processing-reliability scorecard (`2bf5031`).
+supplier/channel processing-reliability scorecard (`2bf5031`); per-vehicle NET €/L
+outlier flag + cost summary (`a6e0944`); data-lake confidence mining → parser-build
+priorities (`7db2d95`).
 
 ---
 
@@ -51,9 +53,12 @@ supplier/channel processing-reliability scorecard (`2bf5031`).
   failure-reason histogram + per-supplier from draft), rendered on `/queue`.
 - ~~**Time-of-day analytics + off-hours anomaly flag**~~ ✅ SHIPPED (`31df60b`) —
   `anomaly` `off_hours` flag (22:00–04:59 diesel) + `time_of_day_summary()`, on `/anomalies`.
-- **Per-vehicle €/L & consumption outliers.** *(M, low)*
-- **Data-lake `meta.confidence` mining** → which suppliers' PDFs most need a deterministic
-  parser (feeds Phase-3 parser priorities). *(S, low)*
+- ~~**Per-vehicle €/L & consumption outliers.**~~ ✅ SHIPPED (`a6e0944`) — `anomaly`
+  `vehicle_price` flag (fleet per-vehicle NET €/L distribution, high outliers) +
+  `vehicle_cost_summary()`, on `/anomalies`. (L/100km deferred — no odometer data.)
+- ~~**Data-lake `meta.confidence` mining**~~ ✅ SHIPPED (`7db2d95`) —
+  `data_lake.parser_priority()` ranks suppliers by AI-extraction volume × low-confidence
+  (best `parse_<x>()` ROI), on `/files`.
 - **Import-reliability / audit-activity trends** (aggregate `import_log`/`audit_log`). *(S, low)*
 
 ### Decoupling completion
