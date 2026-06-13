@@ -32,7 +32,13 @@ def _modules(tmp_path, monkeypatch):
 
 
 def _analytics(vr):
-    ac = vr.analytics_connect()
+    # transactions is engine-owned; analytics_connect() is now a READ-ONLY handle,
+    # so seed the fixture data through a direct writable connection to the (tmp-path,
+    # monkeypatched) ANALYTICS_DB. The claim code under test still reads via
+    # analytics_connect().
+    import sqlite3
+    ac = sqlite3.connect(vr.ANALYTICS_DB)
+    ac.row_factory = sqlite3.Row
     ac.execute("""CREATE TABLE IF NOT EXISTS transactions (
         period TEXT, entity TEXT, supplier TEXT, country TEXT, vehicle TEXT,
         date TEXT, time TEXT, station TEXT, product TEXT, product_group TEXT,

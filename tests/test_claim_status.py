@@ -41,8 +41,11 @@ def _invoice_doc(vr):
     vc.execute("""INSERT INTO invoice_documents (entity, supplier, invoice_ref, filename, sha256)
                   VALUES ('Acme SIA','BP','INV1','i.pdf','abc123')""")
     vc.commit(); vc.close()
-    # transactions live in the analytics DB; the submit path reads them to freeze the fee
-    ac = vr.analytics_connect()
+    # transactions is engine-owned; analytics_connect() is now a READ-ONLY handle, so
+    # seed the fee-freeze data through a direct writable connection to the tmp-path
+    # ANALYTICS_DB. The submit path still reads them via analytics_connect().
+    import sqlite3
+    ac = sqlite3.connect(vr.ANALYTICS_DB)
     ac.execute("CREATE TABLE IF NOT EXISTS transactions (entity TEXT, country TEXT, period TEXT, vat_eur REAL)")
     ac.execute("INSERT INTO transactions VALUES ('Acme SIA','Belgium','2026-01',1000)")
     ac.commit(); ac.close()

@@ -22,8 +22,21 @@ Usage:  python3 invoice_control.py [2026-05]
 import sqlite3, sys, collections
 import db_migrate
 
+import db_tuning
+
 import os
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
+FUEL_HISTORY_DB = f"{WORKDIR}/fuel_history.db"
+
+def _control_writer():
+    """Read-WRITE handle to fuel_history.db for the engine-side control writer.
+    invoice_receipt_control is an engine-owned table this module persists into during
+    the CLI / monthly-close (never from a web request — the render path uses the
+    read-only dataproduct accessor). Tuned to WAL like the canonical engine writer."""
+    con = sqlite3.connect(FUEL_HISTORY_DB)
+    con.row_factory = sqlite3.Row
+    db_tuning.tune(con)
+    return con
 
 def _half(date):                      # ISO date -> 'H1' / 'H2'
     try:
@@ -42,18 +55,31 @@ def run_control(period, persist=True):
     """
     import supplier_master, vat_refund, audit
     scon = supplier_master.connect()
-    # transactions + receipt-control live in the analytics DB; invoice DOCUMENTS live
+    # transactions + receipt-control live in fuel_history.db; invoice DOCUMENTS live
     # in the separate claims DB (so claim records are isolated from the monthly rebuild).
-    fcon = vat_refund.analytics_connect()
+    # The render path (persist=False) only READS, so it uses the app's read-only product
+    # accessor; the CLI / monthly-close writer (persist=True) is an engine-side writer of
+    # the invoice_receipt_control table and needs a read-write handle to fuel_history.db.
     if persist:
+        fcon = _control_writer()
         audit.bind(fcon)
+    else:
+        import dataproduct
+        fcon = dataproduct.connect("fuel_history")
     ccon = vat_refund.connect()
-    fcon.execute("""CREATE TABLE IF NOT EXISTS invoice_receipt_control (
-        period TEXT, supplier TEXT, country TEXT, slot TEXT,
-        expected TEXT, invoice_no TEXT, status TEXT, note TEXT,
-        waived INTEGER DEFAULT 0, checked_at TEXT,
-        PRIMARY KEY (period, supplier, country, slot))""")
+    # invoice_receipt_control is engine-owned: only the persist (read-write) writer
+    # creates/migrates/audits it. The render path (persist=False) holds a READ-ONLY
+    # handle to fuel_history.db, so a CREATE TABLE / install_audit here would raise
+    # "attempt to write a readonly database" on a fresh post-history deployment where
+    # the CLI has never created the table (the demo DB ships with it, hence green).
+    # The read path tolerates the table being absent below: the returned rows/orphans
+    # are computed from transactions/cadence, not from the control table.
     if persist:
+        fcon.execute("""CREATE TABLE IF NOT EXISTS invoice_receipt_control (
+            period TEXT, supplier TEXT, country TEXT, slot TEXT,
+            expected TEXT, invoice_no TEXT, status TEXT, note TEXT,
+            waived INTEGER DEFAULT 0, checked_at TEXT,
+            PRIMARY KEY (period, supplier, country, slot))""")
         audit.install_audit(fcon, ["invoice_receipt_control"])
 
     cadence = {r["code"]: (r["invoice_cadence"] or "monthly")

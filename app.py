@@ -22,6 +22,7 @@ from markupsafe import escape as esc
 from werkzeug.middleware.proxy_fix import ProxyFix
 import auth as _auth
 import audit as _audit_mod
+import dataproduct
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(WORKDIR, "fuel_history.db")
@@ -570,9 +571,11 @@ def _on_error(e):
                 'Admin panel.</p></div>', ""), 500
 
 def DB():
-    con = sqlite3.connect(DB_PATH)
-    con.row_factory = sqlite3.Row
-    return con
+    # fuel_history.db is OWNED and written by the data-processing engine (history.py).
+    # The app only READS it — open a read-only handle via the dataproduct accessor so
+    # any stray write from a web route surfaces as an error instead of corrupting a
+    # DB the app does not own. queries.py SELECTs work unchanged on a read-only handle.
+    return dataproduct.connect("fuel_history")
 
 # ---------------------------------------------------------------- auto-backup
 # Admin sets how often (security.db setting 'backup_interval_hours'; 0 = off /
@@ -1003,14 +1006,14 @@ def _close_status(period):
     """Month-close checklist: one glance at where the period stands. Cached for a
     few seconds so repeated dashboard loads don't re-run the full receipt/anomaly
     controls every time."""
-    import sqlite3, os as _os
+    import os as _os
     _hit = _close_cache.get(period)
     if _hit and _hit[0] > time.time():
         return _hit[1]
     if len(_close_cache) > 24:      # bound the cache (one entry per period)
         _close_cache.clear()
     items = []
-    fc = sqlite3.connect(f"{WORKDIR}/fuel_history.db"); fc.row_factory = sqlite3.Row
+    fc = dataproduct.connect("fuel_history")   # read-only: engine-owned product DB
     n = fc.execute("SELECT COUNT(*) c FROM transactions WHERE period=?", (period,)).fetchone()["c"]
     items.append(("Data loaded", n > 0, f"{n} transactions"))
     try:

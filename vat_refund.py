@@ -109,12 +109,15 @@ def connect():
     return con
 
 def analytics_connect():
-    """Connection to the analytics DB (fuel_history) for reading `transactions`.
-    Claim records are NOT here — they live in DB (vat_claims.db)."""
-    con = sqlite3.connect(ANALYTICS_DB)
-    con.row_factory = sqlite3.Row
-    db_tuning.tune(con)
-    return con
+    """Read-only connection to the analytics DB (fuel_history) for reading
+    `transactions`. fuel_history.db is OWNED/written by the data-processing engine
+    (history.py); claim records are NOT here — they live in DB (vat_claims.db).
+    Delegates to the dataproduct accessor so all app product READS share one
+    read-only window; the name/signature are unchanged for claim-side callers.
+    Passes this module's ANALYTICS_DB so the location-independent / test-monkeypatch
+    seam is preserved (the file may differ; the read-only window is the same)."""
+    import dataproduct
+    return dataproduct.connect("fuel_history", path=ANALYTICS_DB)
 
 def _migrate_from_analytics(con):
     """One-time upgrade path: if the claim tables are empty in the (new) claims DB but
