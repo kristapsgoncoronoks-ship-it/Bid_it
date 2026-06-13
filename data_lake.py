@@ -132,6 +132,84 @@ def counts():
     return {r["kind"]: {"files": r["n"], "bytes": r["b"] or 0} for r in rows}
 
 
+def parser_priority(con=None):
+    """Mine the AI-extraction archive to rank which suppliers most need a deterministic
+    ``parse_<x>()`` in extract.py's PARSER registry (Phase-3 parser priorities).
+
+    Every ``kind='ai_extract'`` row is a PDF that fell THROUGH to the AI backend because
+    no deterministic parser existed for it. Aggregating those per supplier — weighted by
+    volume and LOW confidence — surfaces the best parser-build ROI: each new parser
+    removes that supplier's PDFs from the AI path. ``confidence`` lives inside the per-row
+    ``meta`` JSON (values like "high"/"medium"/"low", or absent/None).
+
+    Read-only; NEVER raises (a bad/empty/None ``meta`` row is tolerated, not fatal — on
+    any internal error returns ``[]``). Accepts an optional open connection; opens/closes
+    its own when ``con is None``.
+
+    Returns a list of dicts, one per supplier, sorted by ``weighted_score`` desc then
+    ``ai_count`` desc. Each dict has the shape::
+
+        {"supplier": str,        # NULL/empty supplier collapses to "(unknown)"
+         "ai_count": int,        # number of AI extractions for that supplier
+         "high": int, "medium": int, "low": int, "unknown": int,  # confidence histogram
+         "backends": [str, ...], # distinct AI backend(s) seen (meta["backend"], else
+                                 #   the storage-backend column), sorted (context)
+         "weighted_score": int}  # priority heuristic (see weights below)
+
+    Priority heuristic (favours HIGH VOLUME + LOW CONFIDENCE)::
+
+        weighted_score = low*3 + unknown*2 + medium*2 + high*1
+
+    so a supplier with many low-confidence AI extractions ranks highest (best ROI for a
+    new parser), and equal-confidence suppliers rank by sheer volume.
+    """
+    own = con is None
+    try:
+        if own:
+            con = connect()
+        rows = con.execute(
+            "SELECT supplier, backend, meta FROM data_lake_files WHERE kind='ai_extract'"
+        ).fetchall()
+    except Exception:
+        return []
+    finally:
+        if own and con is not None:
+            con.close()
+
+    agg = {}
+    for r in rows:
+        sup = (r["supplier"] or "").strip() or "(unknown)"
+        a = agg.get(sup)
+        if a is None:
+            a = agg[sup] = {"supplier": sup, "ai_count": 0,
+                            "high": 0, "medium": 0, "low": 0, "unknown": 0,
+                            "_backends": set()}
+        a["ai_count"] += 1
+        conf, meta_be = None, None
+        try:
+            m = json.loads(r["meta"]) if r["meta"] else {}
+            if isinstance(m, dict):
+                conf = m.get("confidence")
+                meta_be = m.get("backend")           # the AI backend; the column is storage
+        except Exception:
+            conf, meta_be = None, None
+        bucket = str(conf).strip().lower() if conf is not None else ""
+        if bucket not in ("high", "medium", "low"):
+            bucket = "unknown"
+        a[bucket] += 1
+        be = (str(meta_be) if meta_be else (r["backend"] or "")).strip()
+        if be:
+            a["_backends"].add(be)
+
+    out = []
+    for a in agg.values():
+        a["weighted_score"] = a["low"] * 3 + a["unknown"] * 2 + a["medium"] * 2 + a["high"] * 1
+        a["backends"] = sorted(a.pop("_backends"))
+        out.append(a)
+    out.sort(key=lambda x: (x["weighted_score"], x["ai_count"]), reverse=True)
+    return out
+
+
 def delete(file_id):
     """EXPLICITLY remove an artifact (the only way a file leaves the lake besides a
     corruption removal). Drops the stored bytes and the index row. Returns True if a

@@ -2942,6 +2942,24 @@ def files_archive():
               '(SHA-256, same storage as the PDF vault). A file is only ever removed by an explicit '
               '<b>Delete</b> above, or after <b>Verify integrity</b> flags it corrupt/missing — never '
               'lost automatically. Whether a file\'s data is processed/used is a separate concern.</div></div>')
+    try:
+        pri = DL.parser_priority()
+        if pri:
+            prows = [[f"<td>{esc(p['supplier'])}</td><td class=r>{p['ai_count']}</td>",
+                      f"<td class=r>{p['high']}</td><td class=r>{p['medium']}</td>"
+                      f"<td class=r>{p['low']}</td><td class=r>{p['unknown']}</td>",
+                      f"<td class=note>{esc(', '.join(p['backends']))}</td>"
+                      f"<td class=r><b>{p['weighted_score']}</b></td>"]
+                     for p in pri]
+            body += ('<div class="card"><h2>Parser-build priorities (AI-extracted volume by supplier)</h2>'
+                     + tbl(["Supplier", "AI extractions", "High", "Medium", "Low",
+                            "Unknown", "Backend(s)", "Priority"], prows)
+                     + '<div class="note">Suppliers with many low-confidence AI extractions are the '
+                       'best candidates for a deterministic <code>parse_&lt;x&gt;()</code> in '
+                       'extract.py — each one removes those PDFs from the AI path. Priority = '
+                       '<code>low*3 + unknown*2 + medium*2 + high*1</code>.</div></div>')
+    except Exception as e:
+        _log_exc("files_archive/parser_priority", e)
     return page(body, "fil")
 
 @app.route("/contracts", methods=["GET", "POST"])

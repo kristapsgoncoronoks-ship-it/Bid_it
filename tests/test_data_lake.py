@@ -85,6 +85,81 @@ def test_verify_detects_corruption(lake, tmp_path):
     assert summ2["missing"] == 1
 
 
+def _seed_ai(lake, supplier, confidence, n=1, backend="claude", period="2026-05"):
+    """Insert n ai_extract rows for a supplier with a given confidence (unique bytes)."""
+    import json, uuid
+    for i in range(n):
+        meta = {} if confidence is _SENTINEL else {"backend": backend, "confidence": confidence}
+        blob = json.dumps({"supplier": supplier, "_uniq": uuid.uuid4().hex}).encode()
+        lake.put(blob, f"{supplier}_{confidence}_{i}.json",
+                 kind="ai_extract", supplier=supplier, period=period, meta=meta)
+
+
+_SENTINEL = object()
+
+
+def test_parser_priority_counts_and_histogram(lake):
+    _seed_ai(lake, "DKV", "low", n=2)
+    _seed_ai(lake, "DKV", "high", n=1)
+    _seed_ai(lake, "DKV", "MEDIUM", n=1)        # case-insensitive bucketing
+    pri = {p["supplier"]: p for p in lake.parser_priority()}
+    d = pri["DKV"]
+    assert d["ai_count"] == 4
+    assert d["low"] == 2 and d["high"] == 1 and d["medium"] == 1 and d["unknown"] == 0
+    assert d["backends"] == ["claude"]
+    # low*3 + medium*2 + high*1 = 6 + 2 + 1 = 9
+    assert d["weighted_score"] == 9
+
+
+def test_parser_priority_ranking_low_volume_outranks_few_high(lake):
+    _seed_ai(lake, "MANY_LOW", "low", n=4)      # score 12
+    _seed_ai(lake, "FEW_HIGH", "high", n=2)     # score 2
+    pri = lake.parser_priority()
+    assert [p["supplier"] for p in pri][:2] == ["MANY_LOW", "FEW_HIGH"]
+    assert pri[0]["weighted_score"] > pri[1]["weighted_score"]
+
+
+def test_parser_priority_bad_meta_falls_to_unknown(lake):
+    import json
+    con = lake.connect()
+    # absent meta, None meta, garbage meta, and non-dict JSON — none may raise
+    con.execute("INSERT INTO data_lake_files (kind, supplier, sha256, backend, meta) "
+                "VALUES ('ai_extract','GARBLE','s1','claude',NULL)")
+    con.execute("INSERT INTO data_lake_files (kind, supplier, sha256, backend, meta) "
+                "VALUES ('ai_extract','GARBLE','s2','claude','not json{')")
+    con.execute("INSERT INTO data_lake_files (kind, supplier, sha256, backend, meta) "
+                "VALUES ('ai_extract','GARBLE','s3','claude','[1,2,3]')")
+    con.execute("INSERT INTO data_lake_files (kind, supplier, sha256, backend, meta) "
+                "VALUES ('ai_extract','GARBLE','s4','claude',?)", (json.dumps({"confidence": None}),))
+    con.commit(); con.close()
+    pri = {p["supplier"]: p for p in lake.parser_priority()}
+    g = pri["GARBLE"]
+    assert g["ai_count"] == 4 and g["unknown"] == 4
+    assert g["high"] == g["medium"] == g["low"] == 0
+
+
+def test_parser_priority_null_supplier_collapses_to_unknown(lake):
+    con = lake.connect()
+    con.execute("INSERT INTO data_lake_files (kind, supplier, sha256, backend, meta) "
+                "VALUES ('ai_extract',NULL,'n1','claude','{\"confidence\":\"low\"}')")
+    con.execute("INSERT INTO data_lake_files (kind, supplier, sha256, backend, meta) "
+                "VALUES ('ai_extract','   ','n2','claude','{\"confidence\":\"low\"}')")
+    con.commit(); con.close()
+    pri = {p["supplier"]: p for p in lake.parser_priority()}
+    assert "(unknown)" in pri and pri["(unknown)"]["ai_count"] == 2
+
+
+def test_parser_priority_ignores_non_ai_kinds(lake):
+    lake.put(b"raw", "r.json", kind="raw_response", supplier="DKV")
+    _seed_ai(lake, "DKV", "low", n=1)
+    pri = lake.parser_priority()
+    assert len(pri) == 1 and pri[0]["supplier"] == "DKV" and pri[0]["ai_count"] == 1
+
+
+def test_parser_priority_empty_lake(lake):
+    assert lake.parser_priority() == []
+
+
 def test_extract_ai_path_writes_to_lake(tmp_path, monkeypatch):
     """When an AI backend produces a draft, extract() archives it in the lake."""
     import extract, data_lake
