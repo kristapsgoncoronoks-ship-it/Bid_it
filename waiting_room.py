@@ -111,6 +111,9 @@ def connect():
         # that carry data rather than inbox bytes (e.g. statement registration).
         "ALTER TABLE intake_jobs ADD COLUMN kind TEXT DEFAULT 'extract'",
         "ALTER TABLE intake_jobs ADD COLUMN payload TEXT",
+        # reliability telemetry: a sampled DLQ-size history for growth-rate alerting
+        # (queue_health / dlq_growth). Self-contained in intake.db; pruned to ~7 days.
+        "CREATE TABLE IF NOT EXISTS intake_health_samples (ts TEXT, dlq INTEGER)",
     ]
     if DB != ":memory:" and DB not in _SCHEMA_READY:
         con.executescript(SCHEMA)
@@ -445,6 +448,132 @@ PENDING_STATES = ("queued", "waiting", "held", "processing", "failed")
 # — they need a human, not the worker — so they must NOT freeze fleet-wide intake;
 # they're in PENDING_STATES (still "not done") but excluded from the upload gate.
 BLOCKING_STATES = ("queued", "waiting", "processing")
+
+# ---- reliability telemetry: DLQ size + oldest-pending-job age SLO ----------
+# DLQ ("dead-letter") = jobs in the TERMINAL failed/held states: the worker is done
+# with them and a human must redrive (the "Send / restart all" button -> requeue_all).
+# A DLQ at/above this is worth an alert.
+DLQ_ALERT_MIN = 1
+# Oldest still-auto-flowing job (a BLOCKING_STATES job) older than this is a
+# stalled-/starved-worker alarm: healthy jobs drain in seconds, so a multi-hour-old
+# queued/waiting/processing row means nothing is making progress.
+OLDEST_PENDING_SLO_HOURS = 6
+
+
+def _parse_uploaded_at(s):
+    """Parse an `uploaded_at` value (stored UTC '%Y-%m-%d %H:%M:%S', same format as
+    _now()) into a naive UTC datetime, tolerating a trailing fractional second or 'Z'
+    defensively. Returns None if it can't be parsed."""
+    if not s:
+        return None
+    s = str(s).strip().rstrip("Z").strip()
+    if "." in s:                              # drop a fractional-second tail if present
+        s = s.split(".", 1)[0]
+    try:
+        return datetime.datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
+def queue_health(con=None):
+    """Operational telemetry for the intake queue: DLQ size (terminal failed/held jobs
+    needing a human redrive) and the age of the oldest still-auto-flowing job (an SLO
+    on worker progress — a high value means the worker is stalled or starved).
+
+    Never raises: on any internal error it logs and returns a safe zeroed dict, so a
+    monitoring surface can render it without a try/except of its own (callers still
+    guard the render to be safe)."""
+    safe = {"failed": 0, "held": 0, "dlq": 0,
+            "oldest_pending_age_s": None, "oldest_pending_id": None,
+            "oldest_pending_uploaded_at": None, "dlq_growth_24h": 0,
+            "dlq_breach": False, "age_breach": False}
+    own = con is None
+    try:
+        if own:
+            con = connect()
+        c = counts()
+        failed = c.get("failed", 0)
+        held = c.get("held", 0)
+        dlq = failed + held
+        ph = ",".join("?" * len(BLOCKING_STATES))
+        row = con.execute(
+            f"""SELECT id, uploaded_at FROM intake_jobs WHERE status IN ({ph})
+                AND uploaded_at IS NOT NULL ORDER BY uploaded_at ASC LIMIT 1""",
+            tuple(BLOCKING_STATES)).fetchone()
+        age_s = oldest_id = oldest_at = None
+        if row is not None:
+            dt = _parse_uploaded_at(row["uploaded_at"])
+            if dt is not None:
+                age_s = max(0, int((datetime.datetime.utcnow() - dt).total_seconds()))
+                oldest_id = row["id"]
+                oldest_at = row["uploaded_at"]
+        growth = dlq_growth(24, con=con, current_dlq=dlq)
+        return {
+            "failed": failed, "held": held, "dlq": dlq,
+            "oldest_pending_age_s": age_s, "oldest_pending_id": oldest_id,
+            "oldest_pending_uploaded_at": oldest_at,
+            "dlq_growth_24h": growth,
+            "dlq_breach": dlq >= DLQ_ALERT_MIN,
+            "age_breach": age_s is not None and age_s >= OLDEST_PENDING_SLO_HOURS * 3600,
+        }
+    except Exception as e:
+        log.warning("queue_health failed: %s", e)
+        return safe
+    finally:
+        if own and con is not None:
+            con.close()
+
+
+def record_health_sample(con=None):
+    """Append one DLQ-size sample (ts, dlq=failed+held) to intake_health_samples and
+    prune rows older than ~7 days. Cheap/idempotent and NEVER raises — it's called on
+    every scheduler tick to accumulate the growth-rate history. Returns the sampled
+    DLQ size (or None on error)."""
+    own = con is None
+    try:
+        if own:
+            con = connect()
+        c = counts()
+        dlq = c.get("failed", 0) + c.get("held", 0)
+        cutoff = _at(time.time() - 7 * 86400)
+        con.execute("INSERT INTO intake_health_samples (ts, dlq) VALUES (?, ?)",
+                    (_now(), dlq))
+        con.execute("DELETE FROM intake_health_samples WHERE ts < ?", (cutoff,))
+        con.commit()
+        return dlq
+    except Exception as e:
+        log.warning("record_health_sample failed: %s", e)
+        return None
+    finally:
+        if own and con is not None:
+            con.close()
+
+
+def dlq_growth(window_hours=24, con=None, current_dlq=None):
+    """Net DLQ growth over the trailing `window_hours`: current DLQ minus the SMALLEST
+    sampled DLQ within the window (so it reports how much the pile has grown since its
+    recent low). Returns 0 when there is no sample in the window (or on error). Never
+    raises."""
+    own = con is None
+    try:
+        if own:
+            con = connect()
+        if current_dlq is None:
+            c = counts()
+            current_dlq = c.get("failed", 0) + c.get("held", 0)
+        since = _at(time.time() - window_hours * 3600)
+        row = con.execute(
+            "SELECT MIN(dlq) m FROM intake_health_samples WHERE ts >= ?",
+            (since,)).fetchone()
+        if row is None or row["m"] is None:
+            return 0
+        return max(0, current_dlq - int(row["m"]))
+    except Exception as e:
+        log.warning("dlq_growth failed: %s", e)
+        return 0
+    finally:
+        if own and con is not None:
+            con.close()
 
 # ---------------------------------------------------------------- queries / UI
 def counts():

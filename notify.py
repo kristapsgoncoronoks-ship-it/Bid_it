@@ -97,11 +97,19 @@ def _digest_sections(year=None):
         import waiting_room as WR
         cnt = WR.counts()
         stuck = (cnt.get("failed") or 0) + (cnt.get("held") or 0)
+        ilines = []
         if stuck:
-            sections.append(("Intake queue",
-                             [f"{stuck} document(s) stuck in intake "
-                              f"(failed={cnt.get('failed', 0)}, held={cnt.get('held', 0)}) "
-                              f"— review on the queue page"]))
+            ilines.append(f"{stuck} document(s) stuck in intake "
+                          f"(failed={cnt.get('failed', 0)}, held={cnt.get('held', 0)}) "
+                          f"— review on the queue page")
+        # a stalled/starved worker: the oldest still-flowing job is older than the SLO.
+        h = WR.queue_health()
+        if h.get("age_breach"):
+            hrs = (h.get("oldest_pending_age_s") or 0) // 3600
+            ilines.append(f"Oldest pending document is {hrs}h old — the intake worker "
+                          f"may be stalled (SLO {WR.OLDEST_PENDING_SLO_HOURS}h).")
+        if ilines:
+            sections.append(("Intake queue", ilines))
     except Exception as e:
         log.warning("digest: intake section failed: %s", e)
 

@@ -788,6 +788,14 @@ def _notify_loop():
     while True:
         # only the elected leader checks the schedule / sends the digest.
         if process_lock.acquire("notify-scheduler", ttl=2 * BACKUP_CHECK_SECONDS, holder=me):
+            # accumulate the DLQ growth-rate history every tick (cheap, never raises),
+            # so the queue-health metric has a sampled baseline even when no digest is
+            # due. record_health_sample swallows its own errors, but guard anyway.
+            try:
+                import waiting_room as _wr
+                _wr.record_health_sample()
+            except Exception as e:
+                _log_exc("intake health sample", e)
             _notify_tick()
         time.sleep(BACKUP_CHECK_SECONDS)
 
@@ -1233,6 +1241,14 @@ def _worklist_card(year):
         if stuck:
             items.append(("bad", f"{stuck} document(s) stuck in intake "
                           f"(failed/held) — review", "/queue"))
+        # the intake worker may be stalled/starved: the oldest still-flowing job is
+        # older than the SLO, so nothing is draining even though it's not "failed".
+        h = _wr.queue_health()
+        if h.get("age_breach"):
+            hrs = (h.get("oldest_pending_age_s") or 0) // 3600
+            items.append(("bad", f"Intake worker may be stalled — oldest pending "
+                          f"document is {hrs}h old (SLO {_wr.OLDEST_PENDING_SLO_HOURS}h)",
+                          "/queue"))
     except Exception as e:
         _log_exc("worklist intake stuck", e)
     if not items:
@@ -2495,6 +2511,50 @@ def _intake_extract_outcomes(limit=20):
             + tbl(["When (UTC)", "File", "Supplier", "Outcome", "Records", "Detail"], rows))
 
 
+def _humanize_age(secs):
+    """Render a duration in seconds as a compact 'Xh Ym' / 'Ym' / 'Xs' string."""
+    secs = int(secs)
+    if secs >= 3600:
+        return f"{secs // 3600}h {(secs % 3600) // 60}m"
+    if secs >= 60:
+        return f"{secs // 60}m"
+    return f"{secs}s"
+
+def _intake_queue_health_card():
+    """Reliability telemetry card for the waiting room: oldest-pending-job age SLO and
+    DLQ (failed/held) size with 24h growth. A failure here must never break the queue
+    page — log and skip the card."""
+    import waiting_room as IQ
+    try:
+        h = IQ.queue_health()
+    except Exception as e:
+        _log_exc("queue health", e)
+        return ""
+    slo = IQ.OLDEST_PENDING_SLO_HOURS
+    age_s = h.get("oldest_pending_age_s")
+    if age_s is None:
+        age_html = '<span class="ok">no jobs in flight</span>'
+    else:
+        cls = "bad" if h.get("age_breach") else ""
+        age_html = (f'<span class="{cls}">{esc(_humanize_age(age_s))}</span>'
+                    if cls else esc(_humanize_age(age_s)))
+    age_line = (f'<div>Oldest still-flowing job: {age_html} '
+                f'<span class="note">(SLO {esc(str(slo))}h — a higher value means the '
+                f'worker is stalled or starved)</span></div>')
+    dlq = h.get("dlq", 0)
+    dlq_cls = "bad" if h.get("dlq_breach") else "ok"
+    growth = h.get("dlq_growth_24h", 0)
+    growth_note = (f' <span class="bad">(+{esc(str(growth))} in 24h)</span>'
+                   if growth and growth > 0 else "")
+    dlq_line = (f'<div>Dead-letter (needs a human): '
+                f'<span class="{dlq_cls}">{esc(str(dlq))}</span> '
+                f'<span class="note">(failed {esc(str(h.get("failed", 0)))} / '
+                f'held {esc(str(h.get("held", 0)))})</span>{growth_note}</div>')
+    redrive = ('<div class="note">Redrive the dead-letter pile with the '
+               '<b>Send / restart all</b> button above.</div>')
+    return ('<div class="card"><h2>Queue health</h2>'
+            + age_line + dlq_line + redrive + '</div>')
+
 @app.route("/queue", methods=["GET", "POST"])
 def intake_queue_page():
     """The 'waiting room': uploaded batches parked for deferred extraction. Shows
@@ -2639,6 +2699,7 @@ def intake_queue_page():
               'document and runs the whole backlog now. Or run a dedicated worker process: '
               '<kbd>python waiting_room.py --work</kbd>.</div>'
             + gate + '</div>'
+            + _intake_queue_health_card()
             + '<div class="card"><h2>Jobs — live monitor</h2>'
             + '<div class="note">Stuck jobs (failed / held / waiting) are listed first, '
               'then newest. <b>Supplier</b> and its confidence appear once extraction has '

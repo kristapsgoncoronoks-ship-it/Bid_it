@@ -115,6 +115,8 @@ def test_intake_queue_flow(client, monkeypatch, tmp_path):
     # the waiting room lists the queued job
     qhtml = client.get("/queue").get_data(as_text=True)
     assert "batch.pdf" in qhtml and "Document waiting room" in qhtml
+    # the reliability telemetry card renders on the queue page
+    assert "Queue health" in qhtml
 
     # background worker equivalent: drain -> ready
     assert IQ.drain() == 1
