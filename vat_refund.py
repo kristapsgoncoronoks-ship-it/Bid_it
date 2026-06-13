@@ -434,13 +434,22 @@ def set_status(con, ent, ctry, period, new, gate_activation=True):
                         return False, ("BLOCKED - duplicate submission (concurrent claim won the "
                                        f"lock): {s} invoice {r} already claimed"
                                        + (f" in {other}" if other else "") + " - retry not needed")
-        elif new in ("rejected", "withdrawn"):
+        elif new == "withdrawn":
+            # The ONLY path that frees invoices (used by withdraw_claim). Rejection /
+            # appeal / confiscation deliberately KEEP the locks so the invoices can't
+            # be re-claimed elsewhere while the claim is contested.
             con.execute("""DELETE FROM vat_claimed_invoices WHERE entity=? AND refund_country=?
                            AND ref_period=?""", (ent, ctry, period))
+        elif new == "rejected":
+            # A rejected claim KEEPS its invoice locks (mirrors 3B's 'approved' engine
+            # state, whose lock-acquisition branch above is a no-op once cur is already
+            # locked). Locks are released ONLY by withdraw_claim — a rejection must not
+            # free invoices for re-claiming and risk a duplicate submission.
+            pass
         elif cur in LOCKING:
             con.rollback()
             return False, (f"BLOCKED - application is '{cur}' and holds invoice locks; "
-                           "use 'rejected' or 'withdrawn' to release before reverting.")
+                           "use 'withdrawn' to release the locks before reverting.")
         stamp = {"submitted": "submitted_date", "approved": "approved_date", "paid": "paid_date"}.get(new)
         con.execute("""INSERT INTO vat_applications (entity, refund_country, ref_period, status)
                        VALUES (?,?,?,?) ON CONFLICT(entity, refund_country, ref_period)
@@ -502,7 +511,8 @@ def set_status(con, ent, ctry, period, new, gate_activation=True):
         except Exception:
             pass
     return True, f"status -> {new}" + (" (invoices locked)" if new in LOCKING and cur not in LOCKING
-                                       else " (locks released)" if new in ("rejected","withdrawn") else "")
+                                       else " (locks released)" if new == "withdrawn"
+                                       else " (invoices stay locked)" if new == "rejected" else "")
 
 # ===================================================================================
 # WORKFLOW STATUS CODES  (1A..5)  — a controllable claim lifecycle on top of the engine

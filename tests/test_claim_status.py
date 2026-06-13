@@ -145,6 +145,34 @@ def test_submit_gate_and_lock_lifecycle(tmp_path, monkeypatch):
     con.close()
 
 
+def test_raw_rejected_keeps_locks_only_withdraw_releases(tmp_path, monkeypatch):
+    """R4: the RAW engine status 'rejected' (set_status, not the 3B code path) must
+    KEEP the invoice locks — exactly like 3B. Freeing them on rejection would let the
+    same invoices be re-claimed elsewhere (duplicate-submission exposure). Only
+    withdraw_claim releases the locks."""
+    cm, vr = _modules(tmp_path, monkeypatch)
+    cm.add_customer("ACME", "Acme SIA", "LV")
+    _complete_checklist(cm); _invoice_doc(vr)
+    con = vr.connect()
+
+    # submit -> invoices lock
+    ok, msg = vr.set_status_code(con, "Acme SIA", "Belgium", "2026-Q1", "2")
+    assert ok, msg
+    assert con.execute("SELECT COUNT(*) FROM vat_claimed_invoices").fetchone()[0] == 1
+
+    # drive the raw engine status to 'rejected' -> locks MUST remain
+    ok, msg = vr.set_status(con, "Acme SIA", "Belgium", "2026-Q1", "rejected",
+                            gate_activation=False)
+    assert ok, msg
+    assert "stay locked" in msg
+    assert con.execute("SELECT COUNT(*) FROM vat_claimed_invoices").fetchone()[0] == 1
+
+    # only an explicit withdraw frees them
+    ok, _ = vr.withdraw_claim(con, "Acme SIA", "Belgium", "2026-Q1")
+    assert ok and con.execute("SELECT COUNT(*) FROM vat_claimed_invoices").fetchone()[0] == 0
+    con.close()
+
+
 def test_disabling_a_rule_changes_the_gate(tmp_path, monkeypatch):
     cm, vr = _modules(tmp_path, monkeypatch)
     # everything EXCEPT NACE
