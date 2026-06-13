@@ -733,6 +733,10 @@ _intake_started = False
 
 def _intake_loop():
     import waiting_room as IQ, random
+    try:
+        IQ.reclaim_orphans()      # reclaim jobs left 'processing' by a crashed worker
+    except Exception as e:
+        _log_exc("intake-orphan-sweep", e)
     while True:
         try:
             if IQ.drain() == 0:

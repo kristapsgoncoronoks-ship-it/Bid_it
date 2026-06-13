@@ -85,6 +85,32 @@ def test_stale_lease_is_reclaimed(iq, monkeypatch):
     assert iq.process_one() == (jid, "ready")    # reclaimed despite being 'processing'
 
 
+def test_startup_orphan_sweep_reclaims_expired_lease(iq):
+    """R2: a crashed worker leaves a 'processing' row with an expired lease. The
+    startup orphan-sweep resets it to 'queued' immediately (don't wait LEASE_SECONDS
+    for the in-claim reclaim). A fresh, non-expired lease is left untouched."""
+    import datetime
+    jid_a, _ = iq.enqueue(b"%PDF-1.4 a", "orphan.pdf")     # expired lease -> reclaim
+    jid_b, _ = iq.enqueue(b"%PDF-1.4 b", "fresh.pdf")      # fresh lease -> untouched
+    future = (datetime.datetime.utcnow() + datetime.timedelta(seconds=300)
+              ).strftime("%Y-%m-%d %H:%M:%S")
+    con = iq.connect()
+    con.execute("UPDATE intake_jobs SET status='processing', lease_until='2000-01-01 00:00:00' WHERE id=?",
+                (jid_a,))
+    con.execute("UPDATE intake_jobs SET status='processing', lease_until=? WHERE id=?",
+                (future, jid_b))
+    con.commit(); con.close()
+
+    assert iq.reclaim_orphans() == 1                       # only the expired one
+
+    assert iq.get_job(jid_a)["status"] == "queued"         # reclaimed
+    assert iq.get_job(jid_a)["lease_until"] is None
+    assert iq.get_job(jid_b)["status"] == "processing"     # fresh lease untouched
+
+    # idempotent: a second sweep reclaims nothing
+    assert iq.reclaim_orphans() == 0
+
+
 def test_complete_and_discard(iq, monkeypatch):
     _stub_extract(monkeypatch, lambda data, name, backend=None, strict=False: {"lines": [], "_pdf_bytes": []})
     jid, _ = iq.enqueue(b"%PDF-1.4 q", "d.pdf")

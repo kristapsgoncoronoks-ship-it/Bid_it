@@ -258,6 +258,33 @@ def _claim(con):
     con.execute("COMMIT")
     return row
 
+def reclaim_orphans(con=None):
+    """Eagerly reclaim jobs orphaned by a crashed worker: reset 'processing' rows
+    whose lease has already expired back to 'queued' so they run on the NEXT drain
+    instead of waiting up to LEASE_SECONDS for the in-_claim reclaim to notice them.
+
+    Mirrors the stale-lease reclaim in _claim (status='processing' AND
+    lease_until<=now), but runs once eagerly on worker start. Idempotent: a fresh,
+    non-expired lease (lease_until>now) is left untouched, so it's safe to call on
+    every start. Returns the number of rows reclaimed."""
+    own = con is None
+    if own:
+        con = connect()
+    try:
+        now = _now()
+        cur = con.execute("""UPDATE intake_jobs SET status='queued', lease_until=NULL
+                             WHERE status='processing'
+                               AND lease_until IS NOT NULL AND lease_until<=?""", (now,))
+        con.commit()
+        n = cur.rowcount or 0
+    finally:
+        if own:
+            con.close()
+    if n:
+        log.info("startup orphan-sweep reclaimed %s stale 'processing' job(s)", n)
+    return n
+
+
 def _strip_draft(draft):
     """Drop binary/internal keys so the draft is JSON-storable. The source PDF
     bytes are re-derived from the kept inbox file when the draft is reviewed."""
@@ -403,6 +430,7 @@ def drain(limit=50):
 def run_worker(poll_seconds=POLL_SECONDS, stop=None):
     """Drain forever, sleeping when idle. `stop` is an optional callable returning
     True to exit (used by the in-app daemon thread for clean shutdown/tests)."""
+    reclaim_orphans()        # eagerly reclaim jobs left 'processing' by a crash
     while not (stop and stop()):
         if drain() == 0:
             time.sleep(poll_seconds)
