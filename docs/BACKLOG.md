@@ -13,14 +13,19 @@ logic fixes (goods-code, falsy-zero, quarterly fee-base, money sweep) + the froz
 clobber fix; pricing-correctness fixes (period bucketing, volume-weighted pack mean);
 FX/pivots + report enhancements; monetization M5a/M2/M1/M3/M4/M6; CSRF hardening.
 
+**This sprint (section A, shipped):** intake DLQ alerting + oldest-pending-job age SLO
+(`2dd8bdd`); time-of-day fuelling analytics + off-hours anomaly flag (`31df60b`);
+supplier/channel processing-reliability scorecard (`2bf5031`).
+
 ---
 
 ## A. Ready now — no decision needed (ordered by value)
 
 ### Reliability (RELIABILITY.md)
-- **DLQ alerting + oldest-pending-job age SLO metric.** Formalize `failed`/`held` into a
-  monitored dead-letter view with growth-rate alerting + a one-click redrive; expose
-  `MIN(created_at)` of pending jobs as the stuck-job alarm. *(M, low)*
+- ~~**DLQ alerting + oldest-pending-job age SLO metric.**~~ ✅ SHIPPED (`2dd8bdd`) —
+  `waiting_room.queue_health()` (DLQ size, oldest-pending age vs 6h SLO, `dlq_growth_24h`
+  from a sampled history), surfaced on `/queue` + worklist + notify digest; redrive reuses
+  the existing "Send / restart all".
 - **Register-failure reconcile.** A distinct "registration failed — statement X" worklist
   item + a vaulted-doc-without-registered-invoice reconcile sweep (the D4 split-brain
   hardening). *(M, low)*
@@ -41,9 +46,11 @@ FX/pivots + report enhancements; monetization M5a/M2/M1/M3/M4/M6; CSRF hardening
   re-points `stored_path` in `intake_jobs`/`data_lake_files`, not just `invoice_documents`. *(S, med)*
 
 ### Under-used-data leverage (DATA_ARCHITECTURE.md Part 2)
-- **Supplier processing-reliability scorecard** from intake telemetry (durations, retry
-  rate, failure-reason histogram per supplier/channel). *(M, low)*
-- **Time-of-day analytics + off-hours anomaly flag** (`transactions.time` is never read). *(M, low)*
+- ~~**Supplier processing-reliability scorecard**~~ ✅ SHIPPED (`2bf5031`) —
+  `waiting_room.reliability_scorecard()` (per-channel success/retry/median-duration +
+  failure-reason histogram + per-supplier from draft), rendered on `/queue`.
+- ~~**Time-of-day analytics + off-hours anomaly flag**~~ ✅ SHIPPED (`31df60b`) —
+  `anomaly` `off_hours` flag (22:00–04:59 diesel) + `time_of_day_summary()`, on `/anomalies`.
 - **Per-vehicle €/L & consumption outliers.** *(M, low)*
 - **Data-lake `meta.confidence` mining** → which suppliers' PDFs most need a deterministic
   parser (feeds Phase-3 parser priorities). *(S, low)*
