@@ -121,7 +121,11 @@ a discount line's value, or — when the separate rebate invoice isn't present �
 **expected** rebate estimated from historic data, so known discounting is never lost.
 
 **Import batch** — upload a supplier's PDF, a ZIP, or a structured **XML e‑invoice**
-(UBL/CII, EN 16931 — these parse deterministically at high confidence, no AI). Every
+(UBL/CII, EN 16931 — these parse deterministically at high confidence, no AI). A
+**hybrid PDF that carries the e‑invoice inside it (Factur‑X / ZUGFeRD / XRechnung)** is
+detected automatically and parsed the same deterministic, no‑AI way — you upload the
+ordinary‑looking PDF and the system reads its embedded data, keeping the original PDF on
+file. Every
 upload box is also a **drag‑and‑drop zone**: drag a file from your file manager straight
 onto it, or click to browse. The box turns green and shows the file name once it's
 attached. Two ways to process: **Extract draft now** (process immediately and review),

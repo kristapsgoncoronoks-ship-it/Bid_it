@@ -56,6 +56,14 @@ Platform floor under all seven: `auth`/`audit`/`backup`/`db`/`db_migrate`/`applo
   Any integrity failure is written to the error log AND shown as a red banner.
 - Prices everywhere are NET EUR/L, final (VAT excluded, rebates applied). State this
   basis on any new report surface.
+- Extraction is deterministic-first (`extract.py`): structured e-invoices (UBL/CII XML)
+  and **Factur-X/ZUGFeRD** embedded-XML inside hybrid PDFs parse with NO AI at high
+  confidence (`parse_einvoice`); the embedded-XML probe runs BEFORE `pdf_text`/the
+  `PARSERS` registry/AI and the ORIGINAL hybrid PDF is what gets vaulted. Only an
+  unstructured PDF with no registered `parse_<x>()` falls to the AI backend, and only
+  when one is configured — `parser`/`none` keep every byte on the server. AI never
+  extracts a figure a structured/parser path can; it belongs to post-extraction
+  validation/analytics, not capture.
 - Money is quantized via `money.py` (Decimal, ROUND_HALF_UP) — use `money.f2/fsum`
   when rounding/summing amounts and `money.q2` for EUR-threshold decisions; don't
   use bare `round()` on currency. Storage columns stay SQLite REAL.
