@@ -157,8 +157,8 @@ def _write_inbox(sha, data):
         dfd = os.open(INBOX, os.O_RDONLY)
         try: os.fsync(dfd)
         finally: os.close(dfd)
-    except (OSError, AttributeError):
-        pass                                # not supported (e.g. Windows) — best effort
+    except (OSError, AttributeError) as e:
+        log.debug("inbox dir fsync not supported (best effort): %s", e)  # e.g. Windows
     return fname
 
 def read_bytes(stored_path):
@@ -684,8 +684,8 @@ def reliability_scorecard(con=None):
             try:
                 if r["attempts"] is not None and int(r["attempts"]) > 1:
                     acc["retried"] += 1
-            except (TypeError, ValueError):
-                pass
+            except (TypeError, ValueError) as e:
+                log.debug("retry-rate stat: unparseable attempts value: %s", e)
             # end-to-end duration only when BOTH timestamps parse
             t0 = _parse_ts(r["started_at"])
             t1 = _parse_ts(r["finished_at"])
@@ -868,8 +868,8 @@ def complete(job_id):
     try:
         if r["stored_path"]:
             os.remove(_safe_inbox(r["stored_path"]))
-    except OSError:
-        pass
+    except OSError as e:
+        log.debug("mark-done: could not remove inbox bytes for job %s: %s", job_id, e)
     return True
 
 def requeue(job_id):
@@ -904,8 +904,8 @@ def discard(job_id):
     try:
         if r["stored_path"]:
             os.remove(_safe_inbox(r["stored_path"]))
-    except OSError:
-        pass
+    except OSError as e:
+        log.debug("discard: could not remove inbox bytes for job %s: %s", job_id, e)
     return True
 
 

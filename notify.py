@@ -161,8 +161,8 @@ class _SmtpTransport:
         with smtplib.SMTP(self.host, self.port or 25, timeout=30) as s:
             try:
                 s.starttls()
-            except Exception:
-                pass   # plain server / already TLS — best effort, not fatal
+            except Exception as e:
+                log.debug("STARTTLS unavailable on %s (best effort): %s", self.host, e)  # plain server / already TLS — not fatal
             if self.user:
                 s.login(self.user, self.password or "")
             s.send_message(msg)

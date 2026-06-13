@@ -20,10 +20,12 @@ import os, json, hashlib, sqlite3
 
 import document_vault
 import db_tuning
+import applog
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 LAKE_DIR = os.environ.get("DATA_LAKE_DIR", f"{WORKDIR}/data_lake")
 DB = os.environ.get("DATA_LAKE_DB", f"{WORKDIR}/data_lake.db")
+log = applog.get("data_lake")
 
 _READY = set()
 
@@ -221,8 +223,9 @@ def delete(file_id):
         return False
     try:
         document_vault.delete(r["stored_path"], LAKE_DIR)
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("data_lake: could not delete stored bytes for id %s (%s): %s",
+                    file_id, r["stored_path"], e)
     con.execute("DELETE FROM data_lake_files WHERE id=?", (file_id,))
     con.commit(); con.close()
     return True
@@ -247,8 +250,8 @@ def delete_locator(stored_path):
         # drop the physical bytes so nothing bad is left behind.
         try:
             document_vault.delete(stored_path, LAKE_DIR); n += 1
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("data_lake: could not delete orphan bytes %s: %s", stored_path, e)
     return n
 
 

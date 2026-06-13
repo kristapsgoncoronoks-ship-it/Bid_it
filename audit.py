@@ -21,6 +21,9 @@ API:
     record_history(con, table, key)       -> full life story of one record
 """
 import json, threading
+import applog
+
+log = applog.get("audit")
 
 LOG_DDL = """
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -84,8 +87,8 @@ def _db_file(con):
         for _seq, name, file in con.execute("PRAGMA database_list"):
             if name == "main":
                 return file or ":memory:"
-    except db.DBError:
-        pass
+    except db.DBError as e:
+        log.debug("_db_file: PRAGMA database_list failed, assuming :memory:: %s", e)
     return ":memory:"
 
 def install_audit(con, tables):

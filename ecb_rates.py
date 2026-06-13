@@ -35,8 +35,11 @@ import xml.etree.ElementTree as ET
 
 import requests
 
+import applog
+
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 DB = f"{WORKDIR}/ecb_rates.db"
+log = applog.get("ecb_rates")
 
 DAILY_URL = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
 HIST_90D_URL = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist-90d.xml"
@@ -82,8 +85,9 @@ def _parse(xml_text):
             if "currency" in a and "rate" in a:
                 try:
                     out.append((d, a["currency"], float(a["rate"])))
-                except ValueError:
-                    pass
+                except ValueError as e:
+                    log.debug("skipping non-numeric ECB rate %s/%s: %s",
+                              d, a.get("currency"), e)
     return out
 
 

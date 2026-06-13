@@ -23,10 +23,12 @@ import sqlite3, sys, collections
 import db_migrate
 
 import db_tuning
+import applog
 
 import os
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 FUEL_HISTORY_DB = f"{WORKDIR}/fuel_history.db"
+log = applog.get("invoice_control")
 
 def _control_writer():
     """Read-WRITE handle to fuel_history.db for the engine-side control writer.
@@ -273,8 +275,8 @@ def reconcile_statements(period):
         cust_name, cust_country = (None, None)
         try:
             cust_name = st["customer"]
-        except (KeyError, IndexError):
-            pass
+        except (KeyError, IndexError) as e:
+            log.debug("statement has no customer column: %s", e)
         if cust_name:
             import customer_master
             cc = customer_master.connect()

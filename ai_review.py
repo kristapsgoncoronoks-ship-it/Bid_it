@@ -146,8 +146,8 @@ def build_payload(draft, context, *, include_text=False, needs=()):
             if v is not None:
                 try:
                     sc[k] = float(v)
-                except (TypeError, ValueError):
-                    pass
+                except (TypeError, ValueError) as e:
+                    log.debug("supplier context: non-numeric %s dropped: %s", k, e)
         # carry an EXPLICITLY allow-listed field (e.g. needs=("iban",)) through verbatim;
         # the recursive redactor below keeps it only because it is in `needs`.
         for n in (needs or ()):

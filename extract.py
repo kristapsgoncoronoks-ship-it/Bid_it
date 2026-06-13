@@ -556,8 +556,8 @@ def extract(upload_bytes, filename, backend=None, strict=False):
                 try:
                     import data_lake
                     data_lake.put_extraction(draft, filename, be)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug("data lake archival skipped for %s: %s", filename, e)
             except Exception as e:
                 # out-of-tokens / rate-limit / overload: let the queue retry later
                 if strict and is_transient_error(e):

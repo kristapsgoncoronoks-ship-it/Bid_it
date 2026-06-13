@@ -4,9 +4,11 @@ tasklist/taskkill. Never matches its own command line.
     python3 cleanup.py
 """
 import os, sys, signal, subprocess, time
+import applog
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.join(WORKDIR, "app.py")
+log = applog.get("cleanup")
 
 
 def _is_target(argv, pid):
@@ -57,8 +59,8 @@ def _terminate(pid):
             return
     try:
         os.kill(pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        pass
+    except (ProcessLookupError, PermissionError) as e:
+        log.debug("SIGKILL of pid %s skipped: %s", pid, e)
 
 
 def stop_posix():
@@ -74,8 +76,8 @@ def stop_posix():
             argv = [a for a in argv if a]
             if _is_target(argv, pid):
                 _terminate(ipid); killed.append(pid)
-        except (PermissionError, FileNotFoundError, ProcessLookupError):
-            pass
+        except (PermissionError, FileNotFoundError, ProcessLookupError) as e:
+            log.debug("scan/terminate of pid %s skipped: %s", pid, e)
     return killed
 
 def stop_windows():

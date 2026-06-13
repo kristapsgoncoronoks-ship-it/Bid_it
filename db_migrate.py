@@ -34,8 +34,8 @@ def apply(con, module, statements):
         dbkey = (module, con.execute("PRAGMA database_list").fetchone()[2])
         if dbkey in _DONE:
             return 0
-    except db.DBError:
-        pass
+    except db.DBError as e:
+        log.debug("%s: could not derive migration cache key, applying anyway: %s", module, e)
     con.execute(_SCHEMA)
     done = {r[0] for r in con.execute(
         "SELECT idx FROM _ffs_migrations WHERE module=?", (module,))}

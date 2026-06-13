@@ -28,8 +28,10 @@ expiry (warns < 30 days). Enforces TLS >= 1.2.
 """
 import os, ssl, tempfile, datetime, subprocess
 from datetime import timezone as _tz
+import applog
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
+log = applog.get("tls")
 
 
 def _ctx():
@@ -108,8 +110,8 @@ def cert_info(certfile):
         try:
             exp = datetime.datetime.strptime(end, "%b %d %H:%M:%S %Y %Z")
             days = (exp - datetime.datetime.now(_tz.utc)).days
-        except ValueError:
-            pass
+        except ValueError as e:
+            log.debug("cert_info: unparseable notAfter %r: %s", end, e)
     return info.get("subject", "").strip(), info.get("issuer", "").strip(), end, days
 
 
