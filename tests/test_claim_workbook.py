@@ -179,3 +179,25 @@ def test_invoice_lines_unmatched_marker_is_synthetic(tmp_path, monkeypatch):
     assert not str(row["invoice"]).startswith("ALL:")
     assert float(row["vat_eur"]) == pytest.approx(16.8)
     assert vr._synthetic(row["invoice"])
+
+
+def test_invoice_lines_unknown_product_group_defaults_to_recoverable_10(tmp_path, monkeypatch):
+    """A product group NOT in vat_config.GOODS_CODE must default to goods code "10"
+    (Other, recoverable) — NEVER "9" (luxuries/entertainment), which is never
+    VAT-recoverable (2008/9/EC Art. 9, Reg. 79/2012). F-A."""
+    cm, sm, vr = _modules(tmp_path, monkeypatch)
+    from vat_config import GOODS_CODE
+    assert "Mystery product" not in GOODS_CODE  # guard the fixture's premise
+    _customer(cm)
+    _supplier(sm, invoices=[("INV-A", "2026-04-01")])
+    ac = _analytics(vr)
+    _txn(ac, period="2026-04", entity="Acme SIA", supplier="BP", country="Belgium",
+         product_group="Mystery product", note="INV-A mystery")
+    ac.commit(); ac.close()
+
+    con = vr.connect()
+    lines = vr.invoice_lines(con, "Acme SIA", "Belgium", "2026-Q2")
+    con.close()
+    assert len(lines) == 1
+    assert lines[0]["code"] == "10"
+    assert lines[0]["code"] != "9"

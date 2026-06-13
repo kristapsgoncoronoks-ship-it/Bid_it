@@ -917,7 +917,11 @@ def invoice_lines(con, ent, ctry, qtr, cache=None):
         dates = dict(regs)
         for inv, prods in by_inv.items():
             for pg, (net, vat, netl, vatl, ccy) in sorted(prods.items()):
-                code, desc = GOODS_CODE.get(pg, ("9", "Other"))
+                # Unknown product group -> goods code "10" (Other, recoverable), NOT
+                # "9" (luxuries/entertainment, NEVER VAT-recoverable; 2008/9/EC Art. 9,
+                # Reg. 79/2012). Defaulting to 9 would silently file an unclassified
+                # product under the one non-refundable code.
+                code, desc = GOODS_CODE.get(pg, ("10", "Other"))
                 lines.append(dict(supplier=sup, issuer=issuer,
                                   vat_id=vatid or "INPUT: " + vnote,
                                   invoice=inv, inv_date=dates.get(inv, ""),
