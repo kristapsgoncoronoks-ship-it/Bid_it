@@ -468,6 +468,7 @@ PERM_BY_ENDPOINT = {
     "export_pricing":  "exports", "export_vat": "exports", "export_compare": "exports",
     "export_stations": "exports", "export_summary": "exports", "export_fee": "exports",
     "export_readiness": "exports", "export_fees": "exports",
+    "export_evidence": "exports",
     "admin":           "user_admin",   # server setup / overall software changes
 }
 
@@ -475,7 +476,7 @@ PERM_BY_ENDPOINT = {
 # restricted to admins regardless of any processor capability.
 ADMIN_ONLY = {"vat", "api_vat", "readiness", "recovery", "receivables",
               "export_vat", "export_readiness", "export_fees", "export_fee",
-              "export_receivables",
+              "export_receivables", "export_evidence",
               # customer/CRM data (checklist, templates, document generation) is part of
               # the VAT-refund module, so the same admin-only access applies.
               "customers"}
@@ -497,7 +498,8 @@ MODULES = {
                    {"invoice_ctrl", "contracts", "documents", "doc_download"}),
     "vat":        ("VAT refunds — claims, readiness, recovery & fees (admin only)",
                    {"vat", "api_vat", "readiness", "recovery", "receivables", "export_vat",
-                    "export_readiness", "export_fees", "export_fee", "export_receivables"}),
+                    "export_readiness", "export_fees", "export_fee", "export_receivables",
+                    "export_evidence"}),
     "fx":         ("FX vs ECB exchange rates", {"fx"}),
 }
 _ENDPOINT_MODULE = {ep: k for k, (_lbl, eps) in MODULES.items() for ep in eps}
@@ -1823,6 +1825,40 @@ def export_fee():
     path = reports.fee_report_workbook(dict(r))
     return send_file(path, as_attachment=True, download_name=os.path.basename(path),
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+@app.route("/export/evidence", methods=["POST"])
+def export_evidence():
+    """Audit-ready EVIDENCE-EXPORT pack (M6): bundle a VAT claim's SHA-256-verified
+    original documents into one ZIP with an integrity MANIFEST + a cover summary, so
+    a claim's supporting evidence can be handed over provably-intact. Admin-only (VAT
+    surface). Re-verifies each document at export time; a MISSING/MISMATCH is flagged
+    in the cover/manifest, never hidden, and the download still works. Audited."""
+    import vat_refund as VR, io
+    ent = request.form.get("entity", ""); ctry = request.form.get("country", "")
+    per = request.form.get("period", "")
+    con = VR.connect()
+    try:
+        if not con.execute("""SELECT 1 FROM vat_applications WHERE entity=? AND
+                              refund_country=? AND ref_period=?""",
+                           (ent, ctry, per)).fetchone():
+            con.close()
+            return page('<div class="card"><b class="bad">No such claim.</b></div>', "rec"), 404
+        zip_bytes, summary = VR.evidence_pack(ent, ctry, per, con=con)
+        # audit the export action (no row mutation for a trigger to catch)
+        _audit_mod.record_event(con, "vat_applications",
+                                f"{ent}|{ctry}|{per}", "EVIDENCE_EXPORT",
+                                {"documents": summary["documents"], "ok": summary["ok"],
+                                 "mismatch": summary["mismatch"], "missing": summary["missing"],
+                                 "intact": summary["intact"]})
+    except Exception as e:
+        _log_exc("export/evidence", e)
+        con.close()
+        return page('<div class="card"><b class="bad">Could not build evidence pack.</b></div>',
+                    "rec"), 500
+    con.close()
+    fname = f"Evidence_{VR._safe_name(ent)}_{VR._safe_name(ctry)}_{VR._safe_name(per)}.zip"
+    return send_file(io.BytesIO(zip_bytes), as_attachment=True, download_name=fname,
+                     mimetype="application/zip")
 
 @app.route("/export/summary")
 def export_summary():
@@ -3439,6 +3475,11 @@ def recovery():
                         + f'<a href="{link}">⬇ report</a>')
         else:
             inv_cell = f'<a href="{link}">⬇ report</a>'
+        # audit-ready evidence pack: the claim's SHA-256-verified original documents,
+        # bundled with an integrity MANIFEST + cover summary (POST + CSRF, audited).
+        inv_cell += ('<form method="post" action="/export/evidence" style="margin:2px 0 0">'
+                     + _csrf_input() + hid
+                     + '<button style="font-size:11px;padding:3px 8px">⬇ Evidence pack</button></form>')
         # workflow cell: the claim's status code + suggested next step (after 3A the
         # payout route decides: 4 invoice the fee / 4A credit; then 5 closed)
         code = r.get("status_code") or {"submitted": "2", "approved": "3", "paid": "3A"}.get(r["status"], "")

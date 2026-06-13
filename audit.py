@@ -167,3 +167,17 @@ def as_of(con, table, ts):
 
 def record_history(con, table, key):
     return history(con, table=table, key_like=key, limit=200)
+
+def record_event(con, table, key, action, detail=None):
+    """Log an EXPLICIT (non-trigger) auditable action — e.g. an evidence-pack
+    export or other read/export action that has no row mutation for a trigger to
+    catch. Written into the same audit_log so it shows in the admin history,
+    attributed to the current thread's actor (ffs_actor()/changed_by). `detail`
+    is stored as the new_data JSON snapshot. Never use for data mutations — those
+    are captured automatically by the table triggers."""
+    install_audit(con, [])   # ensure audit_log exists + actor is bound
+    con.execute("""INSERT INTO audit_log (tbl, rowkey, action, new_data, changed_by)
+                   VALUES (?,?,?,?, ffs_actor())""",
+                (table, str(key), action,
+                 json.dumps(detail) if detail is not None else None))
+    con.commit()

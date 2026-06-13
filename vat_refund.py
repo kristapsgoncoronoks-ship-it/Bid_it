@@ -291,29 +291,40 @@ def file_documents_for_claim(con, ent, ctry, period):
             moved += 1
     return moved
 
+def _verify_one(stored_path, recorded_sha):
+    """Re-read ONE stored document and compare its live SHA-256 to the hash recorded
+    when it was attached. Returns (status, detail, data) where status is OK /
+    CORRUPT / MISSING and `data` is the raw bytes (None on MISSING). This is the
+    canonical per-document integrity check reused by both verify_documents() (the
+    whole-store sweep) and evidence_pack() (per-claim export) so they apply IDENTICAL
+    hashing/verification logic — never re-implement hashing in a caller."""
+    import hashlib
+    import document_vault
+    try:
+        data = document_vault.get_bytes(stored_path, DOCDIR)
+    except Exception as e:
+        return "MISSING", str(e)[:140], None
+    actual = hashlib.sha256(data).hexdigest()
+    if actual != recorded_sha:
+        return "CORRUPT", f"hash {actual[:8]} != recorded {str(recorded_sha)[:8]}", data
+    return "OK", "", data
+
 def verify_documents(con=None):
     """Integrity check for the physical documents (PDF/ZIP files): re-read each
     stored file and compare its SHA-256 to the hash recorded when it was attached.
     Detects corrupted or missing/jeopardised files. Returns (rows, summary)."""
-    import hashlib
-    import document_vault
     close = False
     if con is None:
         con = connect(); close = True
     rows, ok, corrupt, missing = [], 0, 0, 0
     for r in con.execute("""SELECT entity, supplier, invoice_ref, filename, stored_path,
                             sha256, size, backend FROM invoice_documents ORDER BY id"""):
-        status, detail = "OK", ""
-        try:
-            data = document_vault.get_bytes(r["stored_path"], DOCDIR)
-            actual = hashlib.sha256(data).hexdigest()
-            if actual != r["sha256"]:
-                status, detail = "CORRUPT", f"hash {actual[:8]} != recorded {r['sha256'][:8]}"
-                corrupt += 1
-            else:
-                ok += 1
-        except Exception as e:
-            status, detail = "MISSING", str(e)[:140]
+        status, detail, _data = _verify_one(r["stored_path"], r["sha256"])
+        if status == "OK":
+            ok += 1
+        elif status == "CORRUPT":
+            corrupt += 1
+        else:
             missing += 1
         rows.append({"entity": r["entity"], "supplier": r["supplier"],
                      "invoice_ref": r["invoice_ref"], "filename": r["filename"],
@@ -322,6 +333,141 @@ def verify_documents(con=None):
     if close:
         con.close()
     return rows, {"total": len(rows), "ok": ok, "corrupt": corrupt, "missing": missing}
+
+def evidence_pack(entity, refund_country, period, con=None):
+    """Audit-ready EVIDENCE-EXPORT pack (monetization M6).
+
+    Bundle a VAT claim's SHA-256-verified original documents into a single ZIP so a
+    claim's supporting evidence can be handed over provably-intact. The pack contains:
+      * the ORIGINAL PDF/ZIP files (named by invoice_ref) read via
+        document_vault.get_bytes(...) — the same vault accessor the rest of the module
+        uses, so any storage backend (local/SharePoint/FTPS) works unchanged;
+      * a MANIFEST.sha256.csv listing invoice_ref, supplier, filename, recorded sha256
+        and the live verify STATUS (OK / MISMATCH / MISSING) — mirroring backup.py's
+        SHA-256 MANIFEST so the recipient can re-prove integrity offline;
+      * a COVER.txt summary (entity / country / period, claimed VAT, # invoices,
+        # docs, and any MISSING/MISMATCH flagged loudly).
+
+    Integrity is re-verified at export time via _verify_one() (the SAME logic as
+    verify_documents()) — a corrupted or missing file is SURFACED in the cover +
+    manifest, never silently dropped. Returns (zip_bytes, summary) where summary is a
+    dict with the counts and the list of integrity failures.
+    """
+    import io, csv, zipfile, datetime
+    close = False
+    if con is None:
+        con = connect(); close = True
+    try:
+        app = con.execute("""SELECT vat_eur, vat_local, currency, status, status_code
+                             FROM vat_applications
+                             WHERE entity=? AND refund_country=? AND ref_period=?""",
+                          (entity, refund_country, period)).fetchone()
+        # the invoices LOCKED into this exact claim (period-stamped registration)
+        invoices = con.execute("""SELECT supplier, invoice_ref FROM vat_claimed_invoices
+                                  WHERE entity=? AND refund_country=? AND ref_period=?
+                                  ORDER BY supplier, invoice_ref""",
+                               (entity, refund_country, period)).fetchall()
+        manifest_rows = []          # (invoice_ref, supplier, filename, sha256, status, detail)
+        failures = []               # human-readable integrity failures
+        n_docs = ok = mismatch = missing = 0
+        used_names = set()
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for inv in invoices:
+                sup, ref = inv["supplier"], inv["invoice_ref"]
+                docs = docs_for(con, entity, sup, ref)
+                if not docs:
+                    manifest_rows.append((ref, sup, "", "", "MISSING",
+                                          "no document attached to this invoice"))
+                    missing += 1
+                    failures.append(f"{ref} ({sup}): MISSING — no document attached")
+                    continue
+                for d in docs:
+                    n_docs += 1
+                    # MISMATCH in the manifest == verify_documents' CORRUPT status:
+                    # the live bytes no longer hash to the recorded sha256.
+                    status, detail, data = _verify_one(d["stored_path"], d["sha256"])
+                    arc_status = "MISMATCH" if status == "CORRUPT" else status
+                    if status == "OK":
+                        ok += 1
+                    elif status == "CORRUPT":
+                        mismatch += 1
+                        failures.append(f"{ref} ({sup}): MISMATCH — {detail}")
+                    else:
+                        missing += 1
+                        failures.append(f"{ref} ({sup}): MISSING — {detail}")
+                    # safe, unique archive name: <invoice_ref>__<filename>
+                    base = f"{_safe_name(ref)}__{_safe_name(d['filename'] or 'document')}"
+                    name = base; i = 2
+                    while name in used_names:
+                        name = f"{base}.{i}"; i += 1
+                    used_names.add(name)
+                    manifest_rows.append((ref, sup, name, d["sha256"] or "",
+                                          arc_status, detail))
+                    # store the original bytes (even a MISMATCH: the recipient sees
+                    # exactly what is on disk, with the manifest flagging it).
+                    if data is not None:
+                        z.writestr(f"documents/{name}", data)
+
+            # ---- MANIFEST (mirrors backup.py's SHA-256 manifest, CSV form) ----
+            mbuf = io.StringIO()
+            w = csv.writer(mbuf)
+            w.writerow(["invoice_ref", "supplier", "filename", "sha256",
+                        "verify_status", "detail"])
+            for row in manifest_rows:
+                w.writerow(row)
+            z.writestr("MANIFEST.sha256.csv", mbuf.getvalue())
+
+            # ---- COVER summary ----
+            vat_eur = (app["vat_eur"] if app else None)
+            cover = [
+                "VAT REFUND — EVIDENCE PACK",
+                "=" * 60,
+                f"Entity         : {entity}",
+                f"Refund country : {refund_country}",
+                f"Claim period   : {period}",
+                f"Claimed VAT    : {money.f2(vat_eur):,.2f} EUR" if vat_eur is not None
+                    else "Claimed VAT    : (no application record)",
+                f"Status code    : {(app['status_code'] if app and app['status_code'] else (app['status'] if app else 'n/a'))}",
+                f"Invoices       : {len(invoices)}",
+                f"Documents      : {n_docs}",
+                f"Generated (UTC): {datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')}",
+                "",
+                "INTEGRITY",
+                "-" * 60,
+                f"Verified OK    : {ok}",
+                f"MISMATCH       : {mismatch}",
+                f"MISSING        : {missing}",
+            ]
+            if failures:
+                cover.append("")
+                cover.append("!! INTEGRITY FAILURES — evidence NOT fully intact:")
+                for f in failures:
+                    cover.append(f"   - {f}")
+            else:
+                cover.append("")
+                cover.append("All documents verified intact against their recorded SHA-256.")
+            cover.append("")
+            cover.append("Each document's live SHA-256 was re-verified against the hash recorded")
+            cover.append("when it was attached. Re-hash any file and compare to MANIFEST.sha256.csv")
+            cover.append("to independently confirm the evidence is unaltered.")
+            z.writestr("COVER.txt", "\n".join(cover) + "\n")
+
+        summary = {"entity": entity, "refund_country": refund_country, "period": period,
+                   "vat_eur": money.f2(app["vat_eur"]) if app and app["vat_eur"] is not None else 0.0,
+                   "invoices": len(invoices), "documents": n_docs,
+                   "ok": ok, "mismatch": mismatch, "missing": missing,
+                   "failures": failures, "intact": not failures}
+        return buf.getvalue(), summary
+    finally:
+        if close:
+            con.close()
+
+def _safe_name(s):
+    """Filesystem/zip-safe component of an invoice ref or filename."""
+    import re
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", str(s)).strip("_") or "x"
 
 LOCKING = ("submitted", "approved", "paid")
 
