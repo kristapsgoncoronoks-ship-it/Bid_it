@@ -1002,10 +1002,18 @@ def build_workbook(con, year):
                             refund_country=? AND ref_period=?""",
                          (m["entity"], m["country"], m["period"])).fetchone()
         status = st["status"] if st else "draft"
+        # Refresh the all-period recompute into the DRAFT row (or INSERT a new draft),
+        # but NEVER overwrite a SUBMITTED/approved/paid stream: its vat_eur/vat_local was
+        # FROZEN at submission over EXACTLY the locked claim_set (see set_status freeze,
+        # ~:464). claim_matrix sums over ALL period transactions, so a refresh here would
+        # clobber the frozen base (and the fee base downstream) whenever some invoices are
+        # locked to another claim. Guard the UPDATE half on status; the INSERT half is
+        # untouched (a not-yet-existing claim still gets its draft row created).
         con.execute("""INSERT INTO vat_applications (entity, refund_country, ref_period,
                        vat_eur, vat_local, currency, status) VALUES (?,?,?,?,?,?,?)
                        ON CONFLICT(entity, refund_country, ref_period) DO UPDATE SET
-                       vat_eur=excluded.vat_eur, vat_local=excluded.vat_local""",
+                       vat_eur=excluded.vat_eur, vat_local=excluded.vat_local
+                       WHERE vat_applications.status NOT IN ('submitted','approved','paid')""",
                     (m["entity"], m["country"], m["period"], m["vat_eur"], m["vat_local"],
                      m["currency"], status))
         ws.append([m["entity"], m["country"], m["period"], m["vat_eur"], m["vat_local"],

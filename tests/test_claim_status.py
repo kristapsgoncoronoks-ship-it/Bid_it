@@ -211,6 +211,67 @@ def test_quarterly_freeze_base_is_claim_set_not_all_period_vat(tmp_path, monkeyp
     assert float(row["fee_eur"]) == 80.0     # 8% of 1000, not 108 (= 8% of 1350)
 
 
+def test_build_workbook_does_not_clobber_submitted_frozen_base(tmp_path, monkeypatch):
+    """DATA_ARCHITECTURE #1: build_workbook upserts claim_matrix (an ALL-period
+    SUM(vat_eur)) into vat_applications. It must NEVER refresh a SUBMITTED stream's
+    FROZEN vat_eur/vat_local/fee. Here Q1 has €1000 in the claim_set (INV1) + €350
+    off-claim (INV2) -> claim_matrix recomputes 1350, but the frozen base stays 1000."""
+    cm, vr = _modules(tmp_path, monkeypatch)
+    monkeypatch.setattr(vr, "WORKDIR", str(tmp_path))   # keep generated Excel out of the repo
+    cm.add_customer("ACME", "Acme SIA", "LV")
+    cc = cm.connect()
+    cc.execute("UPDATE customers SET fee_pct=8, fee_min=10 WHERE code='ACME'")
+    cc.commit(); cc.close()
+    _complete_checklist(cm)
+    _invoice_doc(vr, extra_vat=350.0)   # INV1 (€1000, in claim) + INV2 (€350, off-claim)
+
+    con = vr.connect()
+    ok, msg = vr.set_status_code(con, "Acme SIA", "Belgium", "2026-Q1", "2")
+    assert ok, msg
+    pre = con.execute("""SELECT vat_eur, vat_local, fee_eur, status FROM vat_applications
+                         WHERE ref_period='2026-Q1'""").fetchone()
+    assert pre["status"] == "submitted"
+    assert float(pre["vat_eur"]) == 1000.0     # frozen claim_set base
+    assert float(pre["fee_eur"]) == 80.0       # 8% of 1000
+    # The freeze writes only vat_eur (the canonical claim base); vat_local is left as-is.
+    frozen_vat_local = pre["vat_local"]
+
+    # Sanity: claim_matrix (the source of the upsert) does see the all-period 1350.
+    mrow = [m for m in vr.claim_matrix(con, 2026, with_portal=False)
+            if m["period"] == "2026-Q1"][0]
+    assert float(mrow["vat_eur"]) == 1350.0    # all-period recompute differs from the freeze
+
+    # Generating the workbook AFTER submission must NOT clobber the frozen base.
+    vr.build_workbook(con, 2026)
+    post = con.execute("""SELECT vat_eur, vat_local, fee_eur FROM vat_applications
+                          WHERE ref_period='2026-Q1'""").fetchone()
+    con.close()
+    assert float(post["vat_eur"]) == 1000.0          # NOT clobbered to 1350
+    assert post["vat_local"] == frozen_vat_local     # not overwritten with the 1350-basis local
+    assert float(post["fee_eur"]) == 80.0            # fee base preserved
+
+
+def test_build_workbook_refreshes_draft_base(tmp_path, monkeypatch):
+    """Contrast: a DRAFT (un-submitted) stream IS refreshed by build_workbook from the
+    all-period claim_matrix — the guard only protects LOCKING (submitted/approved/paid)
+    streams, so the existing draft-refresh / draft-row-creation behaviour is preserved."""
+    cm, vr = _modules(tmp_path, monkeypatch)
+    monkeypatch.setattr(vr, "WORKDIR", str(tmp_path))
+    cm.add_customer("ACME", "Acme SIA", "LV")
+    _complete_checklist(cm)
+    _invoice_doc(vr, extra_vat=350.0)   # €1000 + €350 in Q1, nothing submitted
+
+    con = vr.connect()
+    # no application row exists yet -> the INSERT half must create a DRAFT row
+    assert con.execute("SELECT COUNT(*) FROM vat_applications").fetchone()[0] == 0
+    vr.build_workbook(con, 2026)
+    row = con.execute("""SELECT vat_eur, status FROM vat_applications
+                         WHERE ref_period='2026-Q1'""").fetchone()
+    assert row is not None and row["status"] == "draft"
+    assert float(row["vat_eur"]) == 1350.0     # draft refreshed to the all-period recompute
+    con.close()
+
+
 def _submit_claim_pct8(tmp_path, monkeypatch):
     """Set up + submit a claim whose fee FREEZES at pct=8, min=10 on vat_eur=1000.
     Returns (cm, vr, con)."""
