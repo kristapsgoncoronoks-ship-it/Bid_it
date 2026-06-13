@@ -60,3 +60,44 @@ def test_workbook_exports(pi, tmp_path):
     import os
     p = pi.internal_benchmark_workbook(None, "month", path=str(tmp_path / "bench.xlsx"))
     assert os.path.exists(p) and open(p, "rb").read(2) == b"PK"
+
+
+def test_off_period_straggler_groups_into_period_cell(tmp_path, monkeypatch):
+    """FINDINGS pricing #1: a row loaded under period 2026-05 but DATED 2026-04-30 (an
+    off-period straggler, the routine case anomaly.find treats as non-anomalous) must
+    bucket into the period's 2026-05 cell — not spawn a spurious 2026-04 single-supplier
+    bucket. The benchmark must compare it head-to-head against the period's other
+    suppliers and the overpay must reflect the full multi-supplier cell."""
+    import sqlite3, importlib
+    import pricing_intelligence
+    importlib.reload(pricing_intelligence)
+    fuel = str(tmp_path / "fuel_history.db")
+    monkeypatch.setattr(pricing_intelligence, "DB", fuel)
+    monkeypatch.setattr(pricing_intelligence, "BENCHMARK_DB", str(tmp_path / "benchmark.db"))
+    prod = sqlite3.connect(fuel)
+    prod.execute("""CREATE TABLE IF NOT EXISTS transactions (
+        period TEXT, country TEXT, supplier TEXT, station TEXT, date TEXT,
+        product_group TEXT, qty REAL, net_eur_eff REAL)""")
+    prod.executemany(
+        "INSERT INTO transactions (period,country,supplier,station,date,product_group,qty,net_eur_eff)"
+        " VALUES (?,?,?,?,?,?,?,?)", [
+            # all three rows loaded UNDER period 2026-05:
+            ("2026-05", "Belgium", "BP",  "Antwerp", "2026-05-10", "Diesel", 1000, 1400.0),  # 1.40
+            ("2026-05", "Belgium", "TFC", "Antwerp", "2026-05-12", "Diesel", 1000, 1500.0),  # 1.50
+            # straggler: dated in the PRIOR month but loaded under 2026-05
+            ("2026-05", "Belgium", "Q8",  "Antwerp", "2026-04-30", "Diesel", 1000, 1600.0),  # 1.60
+        ])
+    prod.commit(); prod.close()
+
+    rows, summ = pricing_intelligence.internal_benchmark("2026-05", "month")
+    # exactly ONE Belgium cell — the straggler did NOT create a 2026-04 bucket
+    be = [r for r in rows if r["country"] == "Belgium"]
+    assert len(be) == 1
+    cell = be[0]
+    assert cell["bucket"] == "2026-05"
+    assert cell["suppliers"] == 3                 # all three grouped together
+    assert summ["multi_supplier_cells"] == 1
+    # overpay computed on the FULL cell: TFC 1000*(1.50-1.40) + Q8 1000*(1.60-1.40)
+    #                                    = 100 + 200 = 300 (vs best BP 1.40)
+    assert cell["overpay_eur"] == 300.0
+    assert summ["total_overpay"] == 300.0

@@ -132,6 +132,40 @@ def bucket(date_iso, grain):
     return f"{d.year}-{d.month:02d}"     # month
 
 
+def bucket_period(period, date_iso, grain):
+    """Period-CONSISTENT bucket key (FINDINGS pricing #1). The reports FILTER rows by
+    the loaded `period` column, so they must BUCKET on the same dimension — otherwise
+    an off-period-dated straggler loaded under a period (the routine case `anomaly.find`
+    treats as non-anomalous) lands in a foreign date bucket and fragments the period's
+    representative multi-supplier cell.
+
+    - MONTH grain: the bucket IS the `period` itself, so every row loaded under a period
+      (including a straggler dated in the prior/next month) groups into one cell.
+    - DAY/WEEK grain: keep date-based buckets (the period's intra-period detail is the
+      point), but CLAMP a row dated outside its period to the period's nearest boundary
+      day so it never spawns a spurious out-of-period bucket.
+
+    `period` may be None/blank (multi-period reports with no filter) — then fall back to
+    the plain date bucket, which for month equals the row's own YYYY-MM."""
+    if not period:
+        return bucket(date_iso, grain)
+    if grain == "month":
+        return period
+    # day/week: clamp a straggler into the period window [period-01, period-end]
+    try:
+        d = datetime.date.fromisoformat(date_iso[:10])
+        y, m = int(period[:4]), int(period[5:7])
+    except (ValueError, TypeError, IndexError):
+        return bucket(date_iso, grain)
+    lo = datetime.date(y, m, 1)
+    hi = (datetime.date(y + (m == 12), (m % 12) + 1, 1) - datetime.timedelta(days=1))
+    if d < lo:
+        d = lo
+    elif d > hi:
+        d = hi
+    return bucket(d.isoformat(), grain)
+
+
 # ---------------------------------------------------------------- MY Prices intake
 def load_my_prices(rows, replace_period=None, source="upload"):
     """rows: list of dicts/tuples (country, city, date, net_price[, product_group]).
@@ -179,14 +213,15 @@ def supplier_grid(period=None, grain="month", product_group="Diesel"):
     args = [product_group]
     if period:
         where += " AND period=?"; args.append(period)
-    rows = con.execute(f"""SELECT country, station AS city, date, supplier,
+    rows = con.execute(f"""SELECT country, station AS city, period, date, supplier,
         SUM(qty) qty, SUM(net_eur_eff) net FROM transactions
-        WHERE {where} GROUP BY country, station, date, supplier""", args).fetchall()
+        WHERE {where} GROUP BY country, station, period, date, supplier""", args).fetchall()
     con.close()
-    # rebucket by grain and re-aggregate (volume-weighted)
+    # rebucket by grain and re-aggregate (volume-weighted). Bucket on the PERIOD
+    # dimension we filtered (bucket_period), not the raw date (FINDINGS pricing #1).
     agg = {}
     for r in rows:
-        key = (r["country"], r["city"], bucket(r["date"], grain), r["supplier"])
+        key = (r["country"], r["city"], bucket_period(r["period"], r["date"], grain), r["supplier"])
         a = agg.setdefault(key, [0.0, 0.0])
         a[0] += r["qty"]; a[1] += r["net"]
     out = []
@@ -285,13 +320,15 @@ def internal_benchmark(period=None, grain="month", product_group="Diesel"):
     where = "product_group=?"; args = [product_group]
     if period:
         where += " AND period=?"; args.append(period)
-    raw = con.execute(f"""SELECT country, date, supplier,
+    raw = con.execute(f"""SELECT country, period, date, supplier,
         SUM(qty) qty, SUM(net_eur_eff) net FROM transactions
-        WHERE {where} GROUP BY country, date, supplier""", args).fetchall()
+        WHERE {where} GROUP BY country, period, date, supplier""", args).fetchall()
     con.close()
     agg = {}   # (country, bucket, supplier) -> [qty, net]
+    # bucket on the PERIOD dimension we filtered (FINDINGS pricing #1) so an off-period
+    # straggler groups into the period's multi-supplier cell, not a stray date bucket.
     for r in raw:
-        k = (r["country"], bucket(r["date"], grain), r["supplier"])
+        k = (r["country"], bucket_period(r["period"], r["date"], grain), r["supplier"])
         a = agg.setdefault(k, [0.0, 0.0]); a[0] += r["qty"] or 0; a[1] += r["net"] or 0
     cells = {}
     for (country, bk, sup), (q, net) in agg.items():
