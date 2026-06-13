@@ -84,17 +84,17 @@ def _step(name, period, actor, fn):
     try:
         result = fn()
     except SystemExit as e:
-        # consolidate.run() raises SystemExit(1) on a validation failure (the CLI
-        # contract). Treat a non-zero exit as a hard stage failure, not a clean exit.
-        if e.code:
-            _log.error("close step %s FAILED for period %s (exit %s)", name, period, e.code)
-            import_log.log("close", name, "failed", actor=actor, period=period,
-                           message=f"{name}: validation/exit failure ({e.code})")
-            raise RuntimeError(
-                f"close halted at step '{name}' for period {period}: validation/exit "
-                f"failure ({e.code}). Fix the inputs and re-run — the close is safe to "
-                f"restart from the beginning.") from e
-        result = None
+        # Stages are library calls now, not CLIs — ANY SystemExit means the stage bailed
+        # (e.g. consolidate.run() raises SystemExit(1) on a validation failure). Never let
+        # the close press on past a stage that exited, even on a 0/None code.
+        code = 0 if e.code is None else e.code
+        _log.error("close step %s FAILED for period %s (exit %s)", name, period, code)
+        import_log.log("close", name, "failed", actor=actor, period=period,
+                       message=f"{name}: validation/exit failure ({code})")
+        raise RuntimeError(
+            f"close halted at step '{name}' for period {period}: validation/exit "
+            f"failure ({code}). Fix the inputs and re-run — the close is safe to "
+            f"restart from the beginning.") from e
     except Exception as e:
         _log.exception("close step %s FAILED for period %s", name, period)
         import_log.log("close", name, "failed", actor=actor, period=period,
