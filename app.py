@@ -3844,6 +3844,15 @@ def admin():
                 for k in MODULES:
                     _auth.set_setting(f"module_{k}", "on" if request.form.get(f"mod_{k}") == "on" else "off")
                 banner = "Modules updated — the menu reflects what's turned on."
+            elif act == "set_ai_review":
+                # advisory AI review backend (default 'none' = OFF). Reuses the same
+                # API keys as the extractor backends; no new env vars.
+                be = request.form.get("ai_review_backend", "none")
+                if be not in ("none", "claude", "openai", "azure"):
+                    be = "none"
+                _auth.set_setting("ai_review_backend", be)
+                banner = ("AI review assistant turned OFF." if be == "none"
+                          else f"AI review assistant set to <b>{esc(be)}</b> (advisory only).")
             elif act == "toggle":
                 if tgt == session["user"]:
                     raise ValueError("you cannot disable your own account")
@@ -4047,11 +4056,30 @@ def admin():
             + _csrf_input() + modchecks
             + '<div style="margin-top:10px"><button name="__act" value="set_modules">'
               'Save modules</button></div></form></div>')
+    # AI review assistant (advisory) — default OFF; reuses the extractor backend keys.
+    _air_cur = _auth.get_setting("ai_review_backend", "none") or "none"
+    _air_opts = "".join(f'<option value="{b}" {"selected" if b==_air_cur else ""}>{b}</option>'
+                        for b in ("none", "claude", "openai", "azure"))
+    aireviewf = ('<div class="card"><h2>AI review assistant (advisory)</h2>'
+                 '<div class="note" style="margin-top:0">An <b>advisory</b> second opinion '
+                 'over data that has ALREADY been extracted and checked deterministically. '
+                 'It flags only fuzzy concerns (supplier alias/VAT plausibility, '
+                 'price-vs-history); it <b>never changes a figure or status and never gates '
+                 'a commit</b>. <b>Default OFF.</b> It sends MINIMIZED DERIVED DATA only — '
+                 'never the PDF, never bank/secret fields. The chosen backend reuses the '
+                 'same API keys as the extractor (Claude/OpenAI/Azure) and is permitted '
+                 'under your DPA; <b>Azure</b> keeps the call inside your own tenant.</div>'
+                 '<form method="post" class="f" style="margin-top:8px">'
+                 + _csrf_input()
+                 + f'<label>Review backend<select name="ai_review_backend">{_air_opts}</select></label>'
+                 + '<button name="__act" value="set_ai_review">Save AI review setting</button>'
+                 + '</form></div>')
     body = (banner
             + '<div class="card"><h2>Users &amp; permissions</h2>'
             + tbl(["Username", "Role", "Status", "Last login", "Actions"], utr)
             + addf + "</div>"
             + modf
+            + aireviewf
             + permf
             + f'<div class="card"><h2>Security status</h2>'
               f'<p>TLS certificate: '
