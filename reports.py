@@ -393,6 +393,86 @@ def _sheet_savings(wb, sv, period):
         ws.add_chart(ch, "E7")
 
 
+def savings_intel_workbook(s, path=None):
+    """Consolidated "Savings & Intelligence" workbook from a savings_intel.summary()
+    dict `s`. A KPI/summary sheet (headline addressable EUR + by-country breakdown)
+    plus a top-actions detail sheet. Fuel-cost intelligence ONLY — NO VAT/claim/
+    recovery figures. All prices NET EUR/L, final (VAT excluded, rebates applied);
+    EUR totals are HALF_UP (money.f2), produced upstream by the detectors."""
+    period = s.get("period") or "all"
+    wb = Workbook()
+
+    # --- Summary / KPI sheet -------------------------------------------------
+    ws = wb.active; ws.title = "Summary"
+    _title(ws, period,
+           "Fuel-cost intelligence — NET EUR/L, final (VAT excluded, rebates applied). "
+           "No VAT/claim figures.", "A1:E1")
+    set_widths(ws, [26, 18, 18, 18, 18])
+    cards = [
+        (s["avoidable_overpay_eur"], "Avoidable overpay (EUR)", FMT_EUR, BADR),
+        (s["recoverable_contract_eur"], "Recoverable contract (EUR)", FMT_EUR, OKG),
+        (s["anomaly_count"], "Anomalies flagged", FMT_INT, ACC),
+        (s["total_addressable_eur"], "TOTAL addressable (EUR)", FMT_EUR, INK),
+    ]
+    for i, (val, lab, fmt, acc) in enumerate(cards):
+        _kpi_card(ws, 4, i + 1, val, lab, fmt, acc)
+
+    # by-country breakdown
+    r0 = 8
+    ws.cell(r0, 1, "Addressable by country").font = Font(bold=True, size=11)
+    hdr = ["Country", "Avoidable overpay EUR", "Recoverable contract EUR", "Addressable EUR"]
+    for j, h in enumerate(hdr, 1):
+        ws.cell(r0 + 1, j, h)
+    style_header(ws, r0 + 1, len(hdr))
+    rr = r0 + 2
+    for c in s["by_country"]:
+        ws.cell(rr, 1, c["country"])
+        ws.cell(rr, 2, c["overpay_eur"]).number_format = FMT_EUR
+        ws.cell(rr, 3, c["recover_eur"]).number_format = FMT_EUR
+        ws.cell(rr, 4, c["addressable_eur"]).number_format = FMT_EUR
+        rr += 1
+    band_rows(ws, r0 + 2, rr - 1, len(hdr))
+    if rr > r0 + 2:
+        ws.cell(rr, 1, "TOTAL")
+        for col, L in ((2, "B"), (3, "C"), (4, "D")):
+            ws.cell(rr, col, f"=SUM({L}{r0+2}:{L}{rr-1})").number_format = FMT_EUR
+        totals_row(ws, rr, len(hdr))
+        ws.conditional_formatting.add(f"D{r0+2}:D{rr-1}",
+            DataBarRule(start_type="min", end_type="max", color="F4A6A6"))
+        # chart: avoidable overpay (EUR) by country
+        ch = BarChart(); ch.type = "col"; ch.title = "Avoidable overpay (EUR) by country"
+        ch.height = 7.5; ch.width = 15; ch.legend = None
+        data = Reference(ws, min_col=2, min_row=r0 + 1, max_row=rr - 1)
+        cats = Reference(ws, min_col=1, min_row=r0 + 2, max_row=rr - 1)
+        ch.add_data(data, titles_from_data=True); ch.set_categories(cats)
+        ws.add_chart(ch, "F8")
+    ws.freeze_panes = "A3"; ws.sheet_view.showGridLines = False
+
+    # --- Top actions detail sheet -------------------------------------------
+    wa = wb.create_sheet("Top actions")
+    hdr = ["Opportunity", "Country", "Detail", "Addressable EUR"]
+    for j, h in enumerate(hdr, 1):
+        wa.cell(1, j, h)
+    style_header(wa, 1, len(hdr))
+    rr = 2
+    for a in s["top_actions"]:
+        wa.cell(rr, 1, a["kind"]); wa.cell(rr, 2, a["country"])
+        wa.cell(rr, 3, a["detail"])
+        wa.cell(rr, 4, a["eur"]).number_format = FMT_EUR
+        rr += 1
+    band_rows(wa, 2, rr - 1, len(hdr))
+    if rr > 2:
+        wa.cell(rr, 1, "TOTAL addressable")
+        wa.cell(rr, 4, f"=SUM(D2:D{rr-1})").number_format = FMT_EUR
+        totals_row(wa, rr, len(hdr))
+    set_widths(wa, [34, 12, 70, 16])
+    wa.freeze_panes = "A2"; wa.sheet_view.showGridLines = False
+
+    path = path or os.path.join(WORKDIR, f"Savings_Intelligence_{period}.xlsx")
+    wb.save(path)
+    return path
+
+
 def fee_report_workbook(claim, path=None):
     """One-sheet service-fee invoice / calculation for a single VAT claim. `claim`
     is a vat_applications row (dict). Fee = % of the refunded amount, or the minimum

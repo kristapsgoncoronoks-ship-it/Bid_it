@@ -460,6 +460,7 @@ PERM_BY_ENDPOINT = {
     "pricing":         "pricing", "pricing_upload": "pricing", "api_pricing": "pricing",
     "pricing_market":  "pricing", "pricing_portal": "pricing",
     "pricing_adopt_benchmark": "pricing", "export_benchmark": "exports",
+    "intel":           "pricing", "export_intel": "exports",
     "documents":       "documents", "doc_download": "documents",
     "export_master":   "exports", "export_history": "exports",
     "export_pricing":  "exports", "export_vat": "exports", "export_compare": "exports",
@@ -484,7 +485,7 @@ MODULES = {
                    {"savings", "compare", "transactions", "h2h", "stations", "anomalies_page",
                     "pricing", "pricing_market", "pricing_portal", "pricing_adopt_benchmark",
                     "pricing_upload", "api_pricing", "export_compare", "export_stations",
-                    "export_pricing", "export_benchmark"}),
+                    "export_pricing", "export_benchmark", "intel", "export_intel"}),
     "intake":     ("Intake — import, waiting room, files, document mining",
                    {"extract_batch", "extract_confirm", "extract_ai_review",
                     "intake_queue_page", "intake_review",
@@ -900,8 +901,9 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
 </style></head><body>
 <header><b>⛽ Fleet Fuel</b>
 <a href="/" class="{{'on' if page=='dash'}}">Dashboard</a>
-{% if 'analytics' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['sav','cmp','txn','h2h','stn','ano','pri'] else ''}}">Analytics</span><div class="mdrop"><span>
+{% if 'analytics' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['sav','int','cmp','txn','h2h','stn','ano','pri'] else ''}}">Analytics</span><div class="mdrop"><span>
   <a href="/savings" class="{{'on' if page=='sav'}}">Savings</a>
+  {% if 'pricing' in perms %}<a href="/intel" class="{{'on' if page=='int'}}">Savings &amp; intel</a>{% endif %}
   <a href="/compare" class="{{'on' if page=='cmp'}}">Compare</a>
   <a href="/transactions" class="{{'on' if page=='txn'}}">Transactions</a>
   <a href="/headtohead" class="{{'on' if page=='h2h'}}">Head-to-head</a>
@@ -3154,6 +3156,78 @@ def api_pricing():
     rows, summ = PI.margin_report(None, request.args.get("grain", "month"),
                                   request.args.get("pg", "Diesel"))
     return jsonify({"summary": summ, "rows": rows})
+
+
+@app.route("/intel")
+def intel():
+    """Consolidated Savings & Intelligence surface — avoidable overpay + recoverable
+    contract breaches + anomalies in ONE place (the indirect-monetization hook).
+    Fuel-cost intelligence ONLY: NO VAT/claim/recovery figures (those live on the
+    admin-only recovery surface). All prices NET EUR/L, final, VAT excluded."""
+    import savings_intel
+    period = request.args.get("period") or None
+    try:
+        s = savings_intel.summary(period)
+    except Exception as e:
+        _log_exc("savings intel summary", e)
+        return page('<div class="card"><h2>Savings &amp; Intelligence</h2>'
+                    '<p class="bad">Could not build the intelligence summary — see the '
+                    'admin error log.</p></div>', "int")
+    # by-country overpay bar (reuse svg_hbars) — only countries with avoidable overpay
+    bars = svg_hbars([(c["country"], c["overpay_eur"]) for c in s["by_country"]
+                      if c["overpay_eur"] > 0], unit=" €", fmt=",.0f", color="#c8102e")
+    crows = []
+    for c in s["by_country"]:
+        crows.append([
+            f"<td>{esc(c['country'])}</td>",
+            f"<td class='r bad'>{c['overpay_eur']:,.0f}</td>",
+            f"<td class='r ok'>{c['recover_eur']:,.0f}</td>",
+            f"<td class=r><b>{c['addressable_eur']:,.0f}</b></td>"])
+    arows = []
+    for a in s["top_actions"][:30]:
+        arows.append([
+            f"<td>{esc(a['kind'])}</td>",
+            f"<td>{esc(a['country'])}</td>",
+            f"<td>{esc(a['detail'])}</td>",
+            f"<td class=r><b>{a['eur']:,.0f}</b></td>"])
+    body = (
+        '<div class="card"><h2>Savings &amp; Intelligence</h2>'
+        '<div class="note">Fuel-cost intelligence: avoidable overpay (route volume to the '
+        'cheaper supplier you already use) + recoverable contract breaches + anomalies, in '
+        'one place. All prices NET EUR/L, final (VAT excluded, rebates applied). '
+        'VAT/claim figures are kept on the admin-only Recovery page.</div>'
+        f'<div class="note">Period: {esc(s["period"] or "all loaded")}</div>'
+        '<div class="kpis">'
+        f'<div class="kpi"><div class="v bad">EUR {s["avoidable_overpay_eur"]:,.0f}</div>'
+        '<div class="l">avoidable overpay</div></div>'
+        f'<div class="kpi"><div class="v ok">EUR {s["recoverable_contract_eur"]:,.0f}</div>'
+        '<div class="l">recoverable contract breaches</div></div>'
+        f'<div class="kpi"><div class="v">{s["anomaly_count"]}</div>'
+        '<div class="l">anomalies flagged</div></div>'
+        f'<div class="kpi"><div class="v">EUR {s["total_addressable_eur"]:,.0f}</div>'
+        '<div class="l">total addressable</div></div></div>'
+        f'<p style="margin-top:6px"><a href="/export/intel'
+        + (f'?period={esc(s["period"])}' if s["period"] else '') +
+        '">⬇ Export Savings &amp; Intelligence (Excel)</a></p></div>'
+        '<div class="card"><h2>Avoidable overpay by country (EUR)</h2>'
+        + bars + '</div>'
+        '<div class="card"><h2>Addressable by country</h2>'
+        + tbl(["Country", "Avoidable overpay", "Recoverable contract", "Addressable EUR"], crows)
+        + '</div>'
+        '<div class="card"><h2>Top actions (biggest € first)</h2>'
+        + tbl(["Opportunity", "Country", "Detail", "EUR"], arows)
+        + '<div class="note">Anomalies carry no € — they are surfaced as the count above and '
+        'on the Anomalies page.</div></div>')
+    return page(body, "int")
+
+
+@app.route("/export/intel")
+def export_intel():
+    import savings_intel, reports
+    s = savings_intel.summary(request.args.get("period") or None)
+    path = reports.savings_intel_workbook(s)
+    return send_file(path, as_attachment=True, download_name=os.path.basename(path),
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 @app.route("/recovery", methods=["GET", "POST"])
 def recovery():
