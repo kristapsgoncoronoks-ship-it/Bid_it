@@ -11,6 +11,12 @@ Pluggable providers (choose via env EXTRACT_BACKEND, default 'auto'):
     azure      Azure OpenAI, inside your tenant(AZURE_OPENAI_ENDPOINT, _KEY, _DEPLOYMENT)
     none       no extraction - returns empty draft for fully manual entry
 
+Structured e-invoices bypass the backend entirely: a plain UBL/CII/XML upload, and a
+hybrid PDF that embeds the EN 16931 invoice as an attachment (Factur-X / ZUGFeRD /
+Order-X / XRechnung), are both parsed DETERMINISTICALLY at high confidence with NO AI,
+regardless of the configured backend. For a hybrid PDF the embedded XML drives the
+draft but the ORIGINAL human-readable PDF is what gets vaulted on confirm.
+
 PRIVACY: 'parser' and 'none' keep every byte on this server. 'claude'/'openai'/
 'azure' send the PDF text/content to that processor over TLS for the extraction
 call only - permitted here because a DPA is in place (see SECURITY.md). The model
@@ -305,12 +311,25 @@ def _ai_extract(backend, texts):
 def _xml_local(tag):
     return tag.rsplit("}", 1)[-1]
 
+# Recognised invoice document roots (namespace-agnostic local names): UBL `Invoice`,
+# UN/CEFACT CII `CrossIndustryInvoice` (the Factur-X/ZUGFeRD/Order-X format) and the
+# older `CrossIndustryDocument`.
+_INVOICE_ROOTS = ("Invoice", "CrossIndustryInvoice", "CrossIndustryDocument")
+
 def _is_xml(filename, data):
     if filename.lower().endswith(".xml"):
         return True
     head = data[:256].lstrip()[:64].lower()
     return head.startswith(b"<?xml") or head.startswith(b"<invoice") or head.startswith(b"<rsm:") \
         or head.startswith(b"<crossindustryinvoice")
+
+def _xml_invoice_root(data):
+    """True if `data` parses as XML whose root local-name is an invoice root."""
+    import xml.etree.ElementTree as ET
+    try:
+        return _xml_local(ET.fromstring(data).tag) in _INVOICE_ROOTS
+    except Exception:
+        return False
 
 def _collect_xml(upload_bytes, filename):
     """-> list of (name, xml_bytes): a single .xml, or the .xml entries in a ZIP."""
@@ -410,6 +429,87 @@ def _einvoice_draft(xmls):
     return draft
 
 
+# ---------------------------------------------------------------- hybrid PDFs (Factur-X)
+# Factur-X / ZUGFeRD / Order-X / XRechnung ship a HUMAN-readable PDF that ALSO carries the
+# EN 16931 invoice as an embedded XML attachment (CII `CrossIndustryInvoice`, or UBL). We
+# pull that XML out and route it through the SAME deterministic `parse_einvoice` path — so a
+# hybrid invoice extracts at high confidence with zero AI, exactly like a plain e-invoice.
+
+# Conventional attachment filenames for the embedded invoice (case-insensitive).
+_FACTURX_NAMES = ("factur-x.xml", "zugferd-invoice.xml", "xrechnung.xml",
+                  "cii.xml", "order-x.xml")
+
+def _pdf_embedded_xml(pdf_bytes):
+    """Return the embedded invoice XML from a hybrid (Factur-X/ZUGFeRD) PDF, else None.
+    Never raises — an encrypted/corrupt/attachment-less PDF returns None so the caller
+    falls through to the normal text/parser/AI path. The extracted attachment is capped
+    at the same per-member size as the ZIP path (zip-bomb guard)."""
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+
+        # name -> list[bytes] of embedded files. Prefer the modern `reader.attachments`
+        # API; fall back to walking the catalog /Names /EmbeddedFiles name tree if that
+        # attribute is missing (older pypdf) or raises on this document.
+        attachments = {}
+        try:
+            for name, payloads in dict(reader.attachments).items():
+                if payloads:
+                    attachments[name] = payloads[0]
+        except Exception:
+            attachments = _embedded_files_via_catalog(reader)
+        if not attachments:
+            return None
+
+        # 1) a conventionally-named Factur-X/ZUGFeRD/Order-X/XRechnung attachment wins.
+        by_lower = {n.lower(): (n, b) for n, b in attachments.items()}
+        for known in _FACTURX_NAMES:
+            if known in by_lower:
+                _, data = by_lower[known]
+                return data if len(data) <= ZIP_MAX_MEMBER_BYTES else None
+        # 2) else any .xml attachment whose root is an invoice document.
+        for name, data in attachments.items():
+            if name.lower().endswith(".xml") and len(data) <= ZIP_MAX_MEMBER_BYTES \
+                    and _xml_invoice_root(data):
+                return data
+        return None
+    except Exception as e:
+        log.warning("embedded-XML probe failed (%s) - treating as plain PDF", e)
+        return None
+
+def _embedded_files_via_catalog(reader):
+    """Fallback embedded-file reader: walk /Root /Names /EmbeddedFiles. Returns
+    {name: bytes}. Best-effort; any malformed node is skipped."""
+    out = {}
+    try:
+        names = reader.trailer["/Root"]["/Names"]["/EmbeddedFiles"]["/Names"]
+        names = list(names)
+        for i in range(0, len(names) - 1, 2):
+            name = str(names[i])
+            spec = names[i + 1].get_object()
+            ef = spec.get("/EF", {})
+            stream = (ef.get("/UF") or ef.get("/F"))
+            if stream is None:
+                continue
+            out[name] = stream.get_object().get_data()
+    except Exception:
+        return {}
+    return out
+
+def _facturx_draft(files, xmls):
+    """Build the review draft for a batch of hybrid PDFs from their embedded XMLs.
+    Reuses `_einvoice_draft` for parsing + line merge, then OVERRIDES the vault payload
+    so the stored document is the ORIGINAL human-readable PDF (which also carries the
+    data), not the bare XML."""
+    draft = _einvoice_draft(xmls)
+    draft["files"] = [{"name": n, "size": len(b)} for n, b in files]
+    draft["_pdf_bytes"] = files                # vault the original hybrid PDF, not the XML
+    draft["backend"] = "e-invoice"
+    draft["confidence"] = "high"
+    draft["notes"] = "Factur-X/ZUGFeRD embedded e-invoice (CII/UBL) — verify on review"
+    return draft
+
+
 # ---------------------------------------------------------------- orchestration
 def extract(upload_bytes, filename, backend=None, strict=False):
     """Turn an upload into a draft. `strict=True` (used by the deferred intake
@@ -426,6 +526,13 @@ def extract(upload_bytes, filename, backend=None, strict=False):
     files = unpack(upload_bytes, filename)
     if not files:
         return {"error": "no PDF found in upload", "lines": [], "files": []}
+    # Hybrid PDFs (Factur-X/ZUGFeRD/Order-X/XRechnung) carry the EN 16931 invoice as an
+    # embedded XML — extract it and parse deterministically (no AI). Only when EVERY PDF
+    # in the batch yields an embedded invoice XML do we take this path; a mixed batch
+    # (some hybrid, some not) falls through to the normal text/parser/AI path unchanged.
+    embedded = [(n, _pdf_embedded_xml(b)) for n, b in files]
+    if all(x is not None for _, x in embedded):
+        return _facturx_draft(files, [(n, x) for n, x in embedded])
     texts = [(n, pdf_text(b)) for n, b in files]
 
     def empty(note, be):
