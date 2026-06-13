@@ -665,6 +665,115 @@ def fees_statement_workbook(rows, year, path=None):
     return path
 
 
+def receivables_forecast_workbook(fc, year, path=None):
+    """VAT-receivable / financing-ready view (INTERNAL, data-only). `fc` is the dict
+    from vat_refund.receivables_forecast(): per-claim receivable rows with the frozen
+    fee and the ROUTE-AWARE settlement figures (refund receivable owed by the state,
+    agency fee, customer net), the open-receivable aging, cycle-time medians, and the
+    realization rate per refund country. All EUR, NET basis (VAT-excluded prices; the
+    EUR columns are VAT amounts/refunds). The refund receivable and the agency fee are
+    two SEPARATE cash flows — never summed across the 'customer'/'us' routes. No outward
+    send — an export for the admin."""
+    from openpyxl.styles import Font
+    rows = fc.get("rows", [])
+    wb = Workbook()
+    ws = wb.active; ws.title = "Receivables"
+    _title(ws, str(year), "VAT receivables & payout forecast — internal, NET basis", "A1:H1")
+    hdr = ["Entity", "Country", "Period", "Status", "Payout route",
+           "Refund receivable EUR (from state)", "Agency fee EUR (frozen)",
+           "Customer net EUR", "Paid amount", "Submitted", "Approved", "Paid",
+           "Age (days)", "Aging band"]
+    for j, h in enumerate(hdr, 1):
+        ws.cell(3, j, h)
+    style_header(ws, 3, len(hdr))
+    rr = 4
+    for r in rows:
+        route = r.get("route") or "customer"
+        ws.cell(rr, 1, r.get("entity") or "")
+        ws.cell(rr, 2, r.get("country") or "")
+        ws.cell(rr, 3, r.get("period") or "")
+        ws.cell(rr, 4, f"{r.get('status_code') or ''} {r.get('status_label') or ''}".strip())
+        ws.cell(rr, 5, "deduct (to us)" if route == "us" else "direct (to customer)")
+        ws.cell(rr, 6, money.f2(r.get("refund_receivable_eur") or 0)).number_format = FMT_EUR
+        ws.cell(rr, 7, money.f2(r.get("fee_eur") or 0)).number_format = FMT_EUR
+        ws.cell(rr, 8, money.f2(r.get("net_to_customer_eur") or 0)).number_format = FMT_EUR
+        ws.cell(rr, 9, money.f2(r["paid_amount"]) if r.get("paid_amount") is not None else "").number_format = FMT_EUR
+        ws.cell(rr, 10, r.get("submitted") or "")
+        ws.cell(rr, 11, r.get("approved") or "")
+        ws.cell(rr, 12, r.get("paid") or "")
+        ws.cell(rr, 13, r["age_days"] if isinstance(r.get("age_days"), int) else "")
+        ws.cell(rr, 14, r.get("aging_band") or "")
+        rr += 1
+    band_rows(ws, 4, rr - 1, len(hdr))
+    set_widths(ws, [24, 11, 10, 18, 20, 22, 18, 16, 13, 11, 11, 11, 10, 11])
+    ws.freeze_panes = "A4"; ws.sheet_view.showGridLines = False
+
+    # Forecast / aging summary
+    ws2 = wb.create_sheet("Forecast")
+    forecast = fc.get("forecast", {})
+    aging = fc.get("aging", {})
+    ws2.cell(1, 1, "Open-receivable cash forecast (unpaid submitted/approved) — "
+                   "two SEPARATE flows, never summed across routes").font = Font(bold=True)
+    ws2.cell(3, 1, "Open claims"); ws2.cell(3, 2, forecast.get("open_count") or 0).number_format = FMT_INT
+    ws2.cell(4, 1, "Open refund receivable EUR (from state)")
+    ws2.cell(4, 2, money.f2(forecast.get("open_refund_receivable_eur") or 0)).number_format = FMT_EUR
+    ws2.cell(5, 1, "Realization-weighted refund EUR")
+    ws2.cell(5, 2, money.f2(forecast.get("open_weighted_refund_eur") or 0)).number_format = FMT_EUR
+    ws2.cell(6, 1, "Open agency fee receivable EUR")
+    ws2.cell(6, 2, money.f2(forecast.get("open_fee_receivable_eur") or 0)).number_format = FMT_EUR
+    ws2.cell(8, 1, "Aging band").font = Font(bold=True)
+    ws2.cell(8, 2, "Refund receivable EUR").font = Font(bold=True)
+    ws2.cell(8, 3, "Count").font = Font(bold=True)
+    by_band = aging.get("by_band", {})
+    r = 9
+    for band in ("0-30", "30-60", "60-90", "90+"):
+        b = by_band.get(band, {})
+        ws2.cell(r, 1, band)
+        ws2.cell(r, 2, money.f2(b.get("eur") or 0)).number_format = FMT_EUR
+        ws2.cell(r, 3, b.get("count") or 0).number_format = FMT_INT
+        r += 1
+    ws2.cell(r, 1, "TOTAL").font = Font(bold=True)
+    ws2.cell(r, 2, money.f2(aging.get("total_eur") or 0)).number_format = FMT_EUR
+    ws2.cell(r, 3, aging.get("total_count") or 0).number_format = FMT_INT
+    set_widths(ws2, [34, 20, 10])
+    ws2.sheet_view.showGridLines = False
+
+    # Cycle-time & realization by country
+    ws3 = wb.create_sheet("Cycle time & realization")
+    ct = fc.get("cycle_time", {})
+    realization = fc.get("realization", {})
+    ws3.cell(1, 1, "Median submitted→paid days, and realization (paid/claimed) by country").font = Font(bold=True)
+    hdr3 = ["Country", "Median days (paid)", "Claimed EUR", "Paid EUR", "Realization %"]
+    for j, h in enumerate(hdr3, 1):
+        ws3.cell(3, j, h)
+    style_header(ws3, 3, len(hdr3))
+    by_ctry = ct.get("by_country", {})
+    countries = sorted(set(by_ctry) | {c for c in realization if c != "overall"})
+    rr = 4
+    for c in countries:
+        rz = realization.get(c, {})
+        ws3.cell(rr, 1, c)
+        med = by_ctry.get(c)
+        ws3.cell(rr, 2, med if med is not None else "")
+        ws3.cell(rr, 3, money.f2(rz.get("claimed") or 0)).number_format = FMT_EUR
+        ws3.cell(rr, 4, money.f2(rz.get("paid") or 0)).number_format = FMT_EUR
+        ws3.cell(rr, 5, (rz.get("rate") if rz.get("rate") is not None else "")).number_format = FMT_PCT
+        rr += 1
+    band_rows(ws3, 4, rr - 1, len(hdr3))
+    ovr = realization.get("overall", {})
+    ws3.cell(rr, 1, "OVERALL").font = Font(bold=True)
+    ws3.cell(rr, 2, ct.get("overall") if ct.get("overall") is not None else "")
+    ws3.cell(rr, 3, money.f2(ovr.get("claimed") or 0)).number_format = FMT_EUR
+    ws3.cell(rr, 4, money.f2(ovr.get("paid") or 0)).number_format = FMT_EUR
+    ws3.cell(rr, 5, (ovr.get("rate") if ovr.get("rate") is not None else "")).number_format = FMT_PCT
+    set_widths(ws3, [16, 18, 14, 14, 14])
+    ws3.freeze_panes = "A4"; ws3.sheet_view.showGridLines = False
+
+    path = path or os.path.join(WORKDIR, f"VAT_Receivables_Forecast_{year}.xlsx")
+    wb.save(path)
+    return path
+
+
 if __name__ == "__main__":
     import sys
     per = sys.argv[1] if len(sys.argv) > 1 else None

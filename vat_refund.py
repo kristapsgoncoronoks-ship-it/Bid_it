@@ -1172,3 +1172,185 @@ def recovery_report(year=None):
     summary["outstanding"] = money.fsum(o["vat_eur"] or 0 for o in out
                                         if o["status"] in ("submitted", "approved"))
     return out, summary
+
+
+def _aging_band(days):
+    """Aging band for an open (unpaid submitted/approved) receivable, by days since
+    submission. Returns one of '0-30','30-60','60-90','90+' (a 45-day-old claim is
+    '30-60'; the lower bound is inclusive, the upper exclusive)."""
+    if not isinstance(days, int):
+        return ""
+    if days < 30:
+        return "0-30"
+    if days < 60:
+        return "30-60"
+    if days < 90:
+        return "60-90"
+    return "90+"
+
+
+def _median(values):
+    """Median of a list of numbers (None for an empty list). No external deps so the
+    module stays import-light; sorts and averages the two middle values for an even
+    count."""
+    xs = sorted(v for v in values if v is not None)
+    if not xs:
+        return None
+    n = len(xs)
+    mid = n // 2
+    if n % 2:
+        return xs[mid]
+    return (xs[mid - 1] + xs[mid]) / 2.0
+
+
+AGING_BANDS = ("0-30", "30-60", "60-90", "90+")
+
+
+def receivables_forecast(year=None):
+    """VAT-receivable / financing-ready view for the ADMIN VAT surface — an INTERNAL,
+    data-only forecast (no lending, no outward send).
+
+    Builds on the same submitted/approved/paid claim base + frozen fee fields as
+    recovery_report (so the fee math is never recomputed differently) and adds the
+    under-used VAT-lifecycle analytics flagged in docs/DATA_ARCHITECTURE.md:
+      * #2 cycle-time + payout forecasting — median submitted->paid days per country
+        and overall; aging of open receivables by EUR and count;
+      * #9 realization rate — paid_amount / vat_eur per refund country (which
+        jurisdictions haircut claims).
+
+    ROUTE-AWARE (mirrors the Recovery page): the per-claim figures come from
+    settlement(payout_to, vat_eur, fee_eur) — the SAME helper the recovery page uses —
+    so the two economically different cash flows are never conflated:
+      * refund_receivable_eur = vat_eur — the refund owed BY THE STATE, route-independent
+        (this is what's aged until the state pays the claim);
+      * fee_eur                = the frozen service fee (agency receivable);
+      * net_to_customer        = settlement()'s net (0 on the DEFAULT 'customer' route
+        where the customer collects the full refund and we invoice the fee separately;
+        vat − fee on the 'us' deduct route where we remit the net);
+      * route                  = payout_to ('customer' default, or 'us').
+
+    EUR figures via money.f2; the realization ratio is a fraction (format as % at
+    display). Never invents a figure — fee_eur is the frozen value (falls back to
+    compute_fee on the frozen/derived rate for legacy rows predating fee-freezing,
+    identical to the recovery page).
+
+    Returns a single dict:
+      rows           per-claim receivable rows (see below)
+      cycle_time     {"overall": median days|None, "by_country": {ctry: median}}
+      aging          {"by_band": {band: {"eur":.., "count":..}}, "total_eur":.., "total_count":..}
+      realization    {ctry: {"claimed":.., "paid":.., "rate": fraction|None}, ...} + "overall"
+      forecast       open expected-cash view — the refund receivable owed by the state
+                     (vat) and the agency fee receivable, kept separate (see below)
+    """
+    import datetime
+    con = connect()
+    rows = con.execute("""SELECT entity, refund_country, ref_period, vat_eur, status,
+        status_code, submitted_date, approved_date, paid_date, paid_amount,
+        fee_eur, fee_pct, fee_min, payout_to
+        FROM vat_applications WHERE status IN ('submitted','approved','paid')
+        AND (? IS NULL OR ref_period LIKE ?) ORDER BY refund_country, submitted_date""",
+        (year, f"{year}-%" if year else None)).fetchall()
+    today = datetime.date.today()
+    out = []
+    # cycle-time + realization accumulators, keyed by refund country
+    cycle_by_ctry = collections.defaultdict(list)   # paid claims: submitted->paid days
+    cycle_all = []
+    realiz = collections.defaultdict(lambda: {"claimed": 0.0, "paid": 0.0})
+    aging = {b: {"eur": 0.0, "count": 0} for b in AGING_BANDS}
+    for r in rows:
+        vat = r["vat_eur"] or 0
+        # Frozen fee_eur is canonical; legacy rows predating fee-freezing derive the
+        # fee from the customer's rate (same fallback the recovery page uses) so we
+        # never silently treat the fee as zero.
+        if r["fee_eur"] is None:
+            fpct, fmin = customer_master.fee_for(r["entity"], r["refund_country"])
+            fee, _b = customer_master.compute_fee(vat, fpct, fmin)
+        else:
+            fee = r["fee_eur"]
+        # Route-aware settlement (same helper as the recovery page). The REFUND
+        # RECEIVABLE owed by the state is vat (route-independent — what's aged until the
+        # state pays); net_to_customer / fee_receivable depend on payout_to.
+        route = r["payout_to"] or "customer"
+        st = settlement(route, vat, fee)
+        refund_receivable = st["refund"]            # == vat, route-independent
+        net_to_customer = st["net_to_customer"]     # 0 on 'customer', vat-fee on 'us'
+        # AGING of OPEN receivables (submitted/approved, not yet paid) by days since
+        # submission — on the REFUND RECEIVABLE (the cash owed by the state).
+        age = ""
+        if r["status"] in ("submitted", "approved") and r["submitted_date"]:
+            try:
+                age = (today - datetime.date.fromisoformat(r["submitted_date"])).days
+            except ValueError:
+                pass
+        band = _aging_band(age) if r["status"] in ("submitted", "approved") else ""
+        if band:
+            aging[band]["eur"] = money.f2(aging[band]["eur"] + refund_receivable)
+            aging[band]["count"] += 1
+        # cycle time + realization on PAID claims only
+        if r["status"] == "paid":
+            if r["submitted_date"] and r["paid_date"]:
+                try:
+                    d = (datetime.date.fromisoformat(r["paid_date"])
+                         - datetime.date.fromisoformat(r["submitted_date"])).days
+                    cycle_by_ctry[r["refund_country"]].append(d)
+                    cycle_all.append(d)
+                except ValueError:
+                    pass
+            if vat:
+                realiz_ct = realiz[r["refund_country"]]
+                realiz_ct["claimed"] = money.f2(realiz_ct["claimed"] + vat)
+                realiz_ct["paid"] = money.f2(realiz_ct["paid"] + (r["paid_amount"] or 0))
+        code = r["status_code"] or {"submitted": "2", "approved": "3", "paid": "3A"}[r["status"]]
+        out.append(dict(entity=r["entity"], country=r["refund_country"], period=r["ref_period"],
+                        status=r["status"], status_code=code,
+                        status_label=STATUS_LABELS.get(code, code),
+                        vat_eur=vat, fee_eur=fee, route=route,
+                        refund_receivable_eur=refund_receivable,
+                        net_to_customer_eur=net_to_customer,
+                        paid_amount=r["paid_amount"],
+                        submitted=r["submitted_date"], approved=r["approved_date"],
+                        paid=r["paid_date"], age_days=age, aging_band=band))
+    con.close()
+    # cycle-time medians
+    cycle_time = {"overall": _median(cycle_all),
+                  "by_country": {c: _median(v) for c, v in sorted(cycle_by_ctry.items())}}
+    # realization rate per country (paid/claimed) + overall
+    realization = {}
+    tot_claimed = tot_paid = 0.0
+    for c, v in sorted(realiz.items()):
+        rate = (v["paid"] / v["claimed"]) if v["claimed"] else None
+        realization[c] = {"claimed": money.f2(v["claimed"]), "paid": money.f2(v["paid"]),
+                          "rate": rate}
+        tot_claimed = money.f2(tot_claimed + v["claimed"])
+        tot_paid = money.f2(tot_paid + v["paid"])
+    realization["overall"] = {"claimed": tot_claimed, "paid": tot_paid,
+                              "rate": (tot_paid / tot_claimed) if tot_claimed else None}
+    # CASH FORECAST (route-aware, two SEPARATE flows — never summed across routes):
+    #   * REFUND RECEIVABLE = the vat of open (unpaid submitted/approved) claims — the
+    #     cash owed BY THE STATE. Route-independent: on BOTH routes the state pays this
+    #     amount; on 'customer' it goes to the customer, on 'us' it comes to us. This is
+    #     what's aged and realization-weighted (each open claim scaled by its refund
+    #     country's historical paid/claimed rate; no history -> 1.0, no haircut yet).
+    #   * AGENCY FEE RECEIVABLE = the frozen fee of open claims — the agency's own
+    #     receivable, invoiced separately on the default 'customer' route and deducted on
+    #     the 'us' route. Kept apart so the two economically different cash flows are not
+    #     conflated.
+    open_rows = [o for o in out if o["status"] in ("submitted", "approved")]
+    open_refund = money.fsum(o["refund_receivable_eur"] for o in open_rows)
+    open_fee = money.fsum(o["fee_eur"] for o in open_rows)
+    weighted = 0.0
+    for o in open_rows:
+        cr = realization.get(o["country"], {})
+        w = cr["rate"] if cr.get("rate") is not None else 1.0
+        weighted = money.f2(weighted + o["refund_receivable_eur"] * w)
+    aging_total_eur = money.fsum(aging[b]["eur"] for b in AGING_BANDS)
+    aging_total_count = sum(aging[b]["count"] for b in AGING_BANDS)
+    forecast = {"open_count": len(open_rows),
+                "open_refund_receivable_eur": open_refund,
+                "open_fee_receivable_eur": open_fee,
+                "open_weighted_refund_eur": weighted,
+                "aging_by_band": {b: aging[b]["eur"] for b in AGING_BANDS}}
+    return {"rows": out, "cycle_time": cycle_time,
+            "aging": {"by_band": aging, "total_eur": aging_total_eur,
+                      "total_count": aging_total_count},
+            "realization": realization, "forecast": forecast}

@@ -456,6 +456,7 @@ PERM_BY_ENDPOINT = {
     "doc_mining_page": "data_import", "imports": "data_import", "files_archive": "data_import",
     "invoice_ctrl":    "invoice_control", "contracts": "invoice_control",
     "vat":             "vat_claims", "api_vat": "vat_claims", "readiness": "vat_claims",
+    "receivables":     "vat_claims", "export_receivables": "exports",
     "customers":       "customers",
     "pricing":         "pricing", "pricing_upload": "pricing", "api_pricing": "pricing",
     "pricing_market":  "pricing", "pricing_portal": "pricing",
@@ -472,8 +473,9 @@ PERM_BY_ENDPOINT = {
 
 # The VAT-refund module (claims, readiness, recovery/fees + their exports/API) is
 # restricted to admins regardless of any processor capability.
-ADMIN_ONLY = {"vat", "api_vat", "readiness", "recovery",
+ADMIN_ONLY = {"vat", "api_vat", "readiness", "recovery", "receivables",
               "export_vat", "export_readiness", "export_fees", "export_fee",
+              "export_receivables",
               # customer/CRM data (checklist, templates, document generation) is part of
               # the VAT-refund module, so the same admin-only access applies.
               "customers"}
@@ -494,8 +496,8 @@ MODULES = {
     "compliance": ("Compliance — invoice control, contract audit, documents",
                    {"invoice_ctrl", "contracts", "documents", "doc_download"}),
     "vat":        ("VAT refunds — claims, readiness, recovery & fees (admin only)",
-                   {"vat", "api_vat", "readiness", "recovery", "export_vat",
-                    "export_readiness", "export_fees", "export_fee"}),
+                   {"vat", "api_vat", "readiness", "recovery", "receivables", "export_vat",
+                    "export_readiness", "export_fees", "export_fee", "export_receivables"}),
     "fx":         ("FX vs ECB exchange rates", {"fx"}),
 }
 _ENDPOINT_MODULE = {ep: k for k, (_lbl, eps) in MODULES.items() for ep in eps}
@@ -912,11 +914,12 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
   <a href="/anomalies" class="{{'on' if page=='ano'}}">Anomalies</a>
   {% if 'pricing' in perms %}<a href="/pricing" class="{{'on' if page=='pri'}}">Pricing intel</a>{% endif %}
 </span></div></div>{% endif %}
-<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ent','vat','rdy','rec','fx'] else ''}}">VAT &amp; fees</span><div class="mdrop"><span>
+<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ent','vat','rdy','rec','rcv','fx'] else ''}}">VAT &amp; fees</span><div class="mdrop"><span>
   <a href="/entities" class="{{'on' if page=='ent'}}">Entities &amp; VAT</a>
   {% if is_admin and 'vat' in modules %}<a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
   <a href="/readiness" class="{{'on' if page=='rdy'}}">Claims readiness</a>
-  <a href="/recovery" class="{{'on' if page=='rec'}}">Recovery &amp; fees</a>{% endif %}
+  <a href="/recovery" class="{{'on' if page=='rec'}}">Recovery &amp; fees</a>
+  <a href="/receivables" class="{{'on' if page=='rcv'}}">Receivables &amp; forecast</a>{% endif %}
   {% if 'fx' in modules %}<a href="/fx" class="{{'on' if page=='fx'}}">FX vs ECB</a>{% endif %}
 </span></div></div>
 {% if 'compliance' in modules and ('invoice_control' in perms or 'documents' in perms) %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['inv','con','doc'] else ''}}">Compliance</span><div class="mdrop"><span>
@@ -3497,6 +3500,116 @@ def export_fees():
     year = request.args.get("year", "2026")
     rows, _ = VR.recovery_report(year)
     path = reports.fees_statement_workbook(rows, year)
+    return send_file(path, as_attachment=True, download_name=os.path.basename(path),
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+@app.route("/receivables")
+def receivables():
+    """ADMIN-ONLY VAT receivables & payout forecast — an INTERNAL, data-only view
+    (no lending, no outward send). Surfaces the under-used VAT-lifecycle data
+    (DATA_ARCHITECTURE.md #2 cycle-time/forecast, #9 realization): per-claim
+    route-aware figures via settlement() — refund receivable (VAT owed by the state,
+    what's aged), frozen agency fee, and customer net (0 on the customer-payout route,
+    VAT−fee on the deduct route) — open-receivable aging, median submitted→paid days per
+    refund country, the realization rate (paid/claimed) per jurisdiction, and a two-flow
+    open-receivable cash forecast (refund vs fee, never summed). NET (VAT-excluded) EUR."""
+    import vat_refund as VR
+    year = request.args.get("year", "2026")
+    fc = VR.receivables_forecast(year)
+    rows = fc["rows"]; forecast = fc["forecast"]; aging = fc["aging"]
+    ct = fc["cycle_time"]; realization = fc["realization"]
+    _band_cls = {"0-30": "ok", "30-60": "", "60-90": "bad", "90+": "bad"}
+    trs = []
+    for r in rows:
+        band = r.get("aging_band") or ""
+        agecls = _band_cls.get(band, "")
+        refund = r.get("refund_receivable_eur") or 0
+        fee = r.get("fee_eur") or 0
+        net = r.get("net_to_customer_eur") or 0
+        route = r.get("route") or "customer"
+        route_lbl = "deduct (to us)" if route == "us" else "direct (to customer)"
+        paid_amt = r.get("paid_amount")
+        trs.append([
+            f"<td>{esc(r['entity'])}</td><td>{esc(r['country'])}</td><td>{esc(r['period'])}</td>",
+            f"<td><b>{esc(r.get('status_code') or '')}</b> {esc(r.get('status_label') or '')}</td>",
+            f"<td>{esc(route_lbl)}</td>",
+            f"<td class=r><b>{refund:,.2f}</b></td>",
+            f"<td class=r>{fee:,.2f}</td>",
+            f"<td class=r>{net:,.2f}</td>",
+            f"<td class=r>{(paid_amt or 0):,.2f}</td>" if paid_amt is not None else "<td class='r note'>—</td>",
+            f"<td>{esc(r.get('submitted') or '')}</td><td>{esc(r.get('paid') or '')}</td>",
+            f"<td class='{agecls}'>{r['age_days'] if isinstance(r.get('age_days'), int) else ''}"
+            + (f" <span class='note'>{esc(band)}</span>" if band else "") + "</td>"])
+    # aging-by-EUR bar (open expected payout per band)
+    by_band = aging["by_band"]
+    bars = svg_hbars([(b, by_band[b]["eur"]) for b in ("0-30", "30-60", "60-90", "90+")],
+                     unit=" EUR", fmt=",.0f", color="#0e5fa8")
+    # cycle-time + realization per country
+    ct_rows = []
+    by_ctry = ct["by_country"]
+    countries = sorted(set(by_ctry) | {c for c in realization if c != "overall"})
+    for c in countries:
+        rz = realization.get(c, {})
+        med = by_ctry.get(c)
+        rate = rz.get("rate")
+        ratecls = "bad" if (rate is not None and rate < 0.95) else "ok" if rate is not None else ""
+        ct_rows.append([
+            f"<td>{esc(c)}</td>",
+            f"<td class=r>{med:.0f}</td>" if med is not None else "<td class='r note'>—</td>",
+            f"<td class=r>{(rz.get('claimed') or 0):,.2f}</td>",
+            f"<td class=r>{(rz.get('paid') or 0):,.2f}</td>",
+            f"<td class='r {ratecls}'>{rate*100:.1f}%</td>" if rate is not None else "<td class='r note'>—</td>"])
+    ovr = realization.get("overall", {})
+    ovr_rate = ovr.get("rate")
+    ct_rows.append([
+        "<td><b>Overall</b></td>",
+        f"<td class=r><b>{ct['overall']:.0f}</b></td>" if ct["overall"] is not None else "<td class='r note'>—</td>",
+        f"<td class=r>{(ovr.get('claimed') or 0):,.2f}</td>",
+        f"<td class=r>{(ovr.get('paid') or 0):,.2f}</td>",
+        f"<td class=r><b>{ovr_rate*100:.1f}%</b></td>" if ovr_rate is not None else "<td class='r note'>—</td>"])
+    body = (
+        f'<form class="f" method="get"><label>Year<input name="year" value="{esc(year)}" style="width:80px"></label>'
+        f'<a href="/export/receivables?year={esc(year)}" style="align-self:end;padding:8px 12px;font-size:13px">⬇ Receivables &amp; forecast (Excel)</a></form>'
+        + '<div class="card"><h2>Open-receivable cash forecast</h2>'
+        + '<div class="kpis">'
+        + f'<div class="kpi"><div class="v">{forecast["open_count"]}</div><div class="l">open claims</div></div>'
+        + f'<div class="kpi"><div class="v">EUR {forecast["open_refund_receivable_eur"]:,.0f}</div>'
+          '<div class="l">refund receivable (from state)</div></div>'
+        + f'<div class="kpi"><div class="v">EUR {forecast["open_weighted_refund_eur"]:,.0f}</div>'
+          '<div class="l">realization-weighted refund</div></div>'
+        + f'<div class="kpi"><div class="v">EUR {forecast["open_fee_receivable_eur"]:,.0f}</div>'
+          '<div class="l">agency fee receivable</div></div></div>'
+        + '<h3>Open refund receivable by aging band</h3>' + bars
+        + '<div class="note">Open = submitted/approved, not yet paid. Two SEPARATE cash flows, '
+          'never summed across routes: the <b>refund receivable</b> is the VAT owed by the state '
+          '(route-independent — aged below until the state pays), and the <b>agency fee receivable</b> '
+          'is the frozen service fee (invoiced separately on the direct-to-customer route, deducted '
+          'on the to-us route). The realization-weighted figure scales each open claim\'s refund by '
+          'its refund country\'s historical paid/claimed rate (1.0 where no history yet) — a prudent '
+          'expected-cash view. Internal, data-only.</div></div>'
+        + '<div class="card"><h2>Cycle time &amp; realization by refund country</h2>'
+        + tbl(["Country", "Median submitted→paid (days)", "Claimed EUR", "Paid EUR", "Realization %"], ct_rows)
+        + '<div class="note">Median days and realization are computed on <b>paid</b> claims only. '
+          'Realization = paid / claimed (which jurisdictions haircut a claim); under 95% flagged '
+          'red. NET basis, VAT-excluded.</div></div>'
+        + '<div class="card"><h2>VAT receivables ' + esc(year) + '</h2>'
+        + tbl(["Entity", "Country", "Period", "Status", "Payout route",
+               "Refund receivable (from state)", "Agency fee", "Customer net",
+               "Paid amount", "Submitted", "Paid", "Age / band"], trs)
+        + '<div class="note">All EUR figures are VAT amounts/refunds (NET-basis prices, VAT '
+          'excluded). <b>Refund receivable</b> = VAT owed by the state (route-independent); '
+          '<b>agency fee</b> = frozen service fee; <b>customer net</b> = what the customer receives '
+          '(0 on the direct route where they collect the full refund and we invoice the fee; '
+          'VAT − fee on the deduct route where we remit the net). Aging band colours an open claim '
+          'by days since submission: 0-30 green, 30-60 neutral, 60-90/90+ red. This is an internal '
+          'financing-ready view — no external send.</div></div>')
+    return page(body, "rcv")
+
+@app.route("/export/receivables")
+def export_receivables():
+    import vat_refund as VR, reports
+    year = request.args.get("year", "2026")
+    path = reports.receivables_forecast_workbook(VR.receivables_forecast(year), year)
     return send_file(path, as_attachment=True, download_name=os.path.basename(path),
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
