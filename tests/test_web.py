@@ -46,8 +46,36 @@ def test_export_history_200_when_file_absent(client, monkeypatch, tmp_path):
 
 
 def test_csrf_rejects_tokenless_post(client):
-    r = client.post("/data", data={"_dbk": "x"})
+    # The `client` fixture logs in via the CSRF-exempt /login, which does NOT seed
+    # session["_csrf"]; this session has never rendered a form, so a state-changing
+    # POST carrying no token must be REJECTED. (An empty session token must fail the
+    # check — otherwise compare_digest("","") would let a cross-site POST through.)
+    with client.session_transaction() as s:
+        assert not s.get("_csrf"), "fixture session must have no established token"
+    r = client.post("/queue", data={"__act": "override_on"})
     assert r.status_code == 400, f"expected 400 (CSRF), got {r.status_code}"
+    assert b"CSRF" in r.data
+
+
+def test_csrf_accepts_tokened_post_after_form_seeded(client):
+    # The normal flow: GET a form page (seeds session["_csrf"] via _csrf_input),
+    # then POST carrying that token -> succeeds (200, not the 400 CSRF page).
+    body = client.get("/queue").get_data(as_text=True)
+    tok = re.search(r'name="_csrf" value="([^"]+)"', body).group(1)
+    r = client.post("/queue", data={"_csrf": tok, "__act": "override_on"})
+    assert r.status_code == 200, f"tokened POST should pass, got {r.status_code}"
+    assert b"Invalid or missing CSRF token" not in r.data
+
+
+def test_login_end_to_end_still_works(admin_session):
+    # GET /login renders (no auth), POST credentials authenticates, GET / serves the app.
+    import app as A
+    c = A.app.test_client()
+    assert c.get("/login").status_code == 200
+    r = c.post("/login", data={"username": admin_session["user"],
+                               "password": admin_session["pw"]})
+    assert r.status_code == 302 and "/login" not in r.headers.get("Location", "")
+    assert c.get("/").status_code == 200
 
 
 def test_csrf_token_present_in_forms(client):

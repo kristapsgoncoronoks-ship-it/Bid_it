@@ -38,8 +38,10 @@ CLI:
     python waiting_room.py --status    print counts by state
 """
 import os, sqlite3, hashlib, json, time, datetime
+import applog
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
+log = applog.get("waiting_room")
 DB = os.environ.get("INTAKE_DB", f"{WORKDIR}/intake.db")
 INBOX = os.environ.get("INTAKE_INBOX", f"{WORKDIR}/inbox")
 
@@ -374,8 +376,11 @@ def monitor_rows(limit=100):
                 d = json.loads(j["draft"])
                 supplier = d.get("supplier")
                 confidence = d.get("confidence")
-            except (ValueError, TypeError):
-                pass            # a malformed draft must not break the monitor view
+            except (ValueError, TypeError) as e:
+                # a malformed draft must not break the monitor view — skip the
+                # supplier/confidence enrichment for this row, but log the swallow.
+                log.warning("monitor_rows: skipping malformed draft for job %s (%s)",
+                            j.get("id"), e)
         j["draft_supplier"] = supplier
         j["draft_confidence"] = confidence
         out.append(j)

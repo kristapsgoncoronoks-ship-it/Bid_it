@@ -515,9 +515,13 @@ def _guard():
         return redirect("/login")
     role = session.get("role", "processor")
     # CSRF on every state-changing POST (login/setup are pre-session, exempt).
+    # A session that has never rendered a form has no established token; an empty
+    # session token must FAIL the check (compare_digest("","") is True), otherwise
+    # a tokenless cross-site POST would slip through.
     if request.method == "POST" and request.endpoint not in ("login", "setup"):
-        if not secrets.compare_digest(request.form.get("_csrf") or "",
-                                      session.get("_csrf") or ""):
+        sess_tok = session.get("_csrf") or ""
+        if not sess_tok or not secrets.compare_digest(
+                request.form.get("_csrf") or "", sess_tok):
             return page('<div class="card"><h2>Invalid or missing CSRF token</h2>'
                         '<p>Please reload the page and try again.</p></div>', ""), 400
     # VAT-refund module is admin-only, whatever capabilities a processor may hold.
