@@ -15,6 +15,7 @@ Ad-hoc queries (sqlite3 fuel_history.db or any SQL tool):
     FROM transactions WHERE product_group='Diesel' GROUP BY period, supplier;
 """
 import sqlite3, pickle, collections
+import db_tuning
 from openpyxl import Workbook
 from openpyxl.chart import LineChart, Reference
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -28,7 +29,14 @@ FIELDS = ["entity","supplier","country","vehicle","date","time","station","produ
           "net_eur","vat_eur","net_eur_eff","note"]
 
 # ---------------- 1. LOAD ----------------
+# This is the canonical engine WRITER of fuel_history.db. Apply the same WAL +
+# busy_timeout tuning the app/consumer connections use (pricing_intelligence,
+# vat_refund.analytics_connect) so every handle on this file agrees on the
+# journal mode — mixed WAL/rollback risks reader/writer contention on close.
+# (build_master.py writes only consolidated_rows.pkl and consolidate.py writes
+# no DB — neither holds a product-DB handle, so neither needs tuning.)
 con = sqlite3.connect(DB)
+db_tuning.tune(con)   # WAL + busy_timeout; idempotent, no-ops on :memory:/Postgres
 con.executescript("""
 CREATE TABLE IF NOT EXISTS transactions (
     period TEXT NOT NULL,
