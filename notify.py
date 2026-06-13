@@ -184,30 +184,43 @@ def _recipients():
 
 
 # ---------------------------------------------------------------- send
+# send_digest outcomes — the scheduler distinguishes these so a broken SMTP is
+# RETRIED (not silently stamped as done) and surfaced to the admin error log.
+#   SENT   genuine success (a message went out)
+#   NOOP   nothing to do this tick: no recipients / no transport configured, or
+#          nothing outstanding to report — legitimately nothing to send
+#   FAILED transport error (SMTP/connection) — should retry + be alerted on
+# SENT is truthy; NOOP/FAILED are falsy, so the legacy `if send_digest()` /
+# `is True`/`is False` contract is preserved for existing callers.
+SENT, NOOP, FAILED = True, False, "failed"
+
+
 def send_digest(transport=None, year=None):
     """Render and send the action digest. `transport` (with .send(to, subject, html,
     text)) is injected by tests; in production it is built from admin SMTP settings.
-    No-ops (logged, never raised) when there are no recipients, no transport, or
-    nothing to report. Returns True if a message was sent, else False."""
+
+    Returns one of SENT (truthy), NOOP, or FAILED so the scheduler can tell a real
+    SMTP failure (retry + alert) apart from a legitimate no-op (nothing to send).
+    Never raises — failures are logged and reported via the FAILED return."""
     recipients = _recipients()
     if not recipients:
         log.info("notify: no recipients configured (notify_recipients) — skipping digest")
-        return False
+        return NOOP
     if transport is None:
         transport = _settings_transport()
     if transport is None:
         log.info("notify: no SMTP host configured (smtp_host) — skipping digest")
-        return False
+        return NOOP
     text, html = render_digest(year)
     if not text:
         log.info("notify: nothing outstanding — no digest sent")
-        return False
+        return NOOP
     subject = "Fleet Fuel & VAT — action digest"
     try:
         transport.send(recipients, subject, html, text)
     except Exception as e:
         log.warning("notify: digest send failed: %s", e)
-        return False
+        return FAILED
     try:
         import import_log
         import_log.log("notify", "action-digest", "success", actor="scheduler",
@@ -216,7 +229,7 @@ def send_digest(transport=None, year=None):
     except Exception as e:
         log.warning("notify: import_log record failed: %s", e)
     log.info("notify: digest sent to %d recipient(s)", len(recipients))
-    return True
+    return SENT
 
 
 if __name__ == "__main__":

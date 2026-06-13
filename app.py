@@ -686,9 +686,18 @@ def _notify_tick():
         hrs = notify_interval_hours()
         if _notify_due(hrs):
             import notify as _notify, datetime as _dt
-            _notify.send_digest()
-            # record the attempt regardless of whether a message went out, so a
-            # quiet period (nothing outstanding) doesn't re-fire every tick.
+            result = _notify.send_digest()
+            if result == _notify.FAILED:
+                # transport (SMTP) error: do NOT advance last_sent so the digest is
+                # retried next tick, AND surface the blind spot to the admin error log
+                # — a broken SMTP must not silently mute all alerting.
+                _auth.log_error("notify-scheduler", "DigestSendFailed",
+                                "send_digest reported a transport failure; "
+                                "digest NOT sent and will retry next tick",
+                                "", "system")
+                return True
+            # success OR nothing-to-report: record the attempt so a quiet period
+            # (nothing outstanding) doesn't re-fire every tick.
             _auth.set_setting("notify_last_sent", _dt.datetime.utcnow().isoformat())
             return True
     except Exception as e:

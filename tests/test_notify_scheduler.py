@@ -65,6 +65,37 @@ def test_tick_records_last_sent_even_when_nothing_outstanding(monkeypatch):
     assert store.get("notify_last_sent")
 
 
+def test_tick_does_not_advance_on_send_failure(monkeypatch):
+    import app as A
+    import notify
+    # send_digest reports a transport (SMTP) failure -> the tick must NOT advance
+    # last_sent (so it retries next tick) AND must record an error (the blind spot).
+    monkeypatch.setattr(notify, "send_digest", lambda: notify.FAILED)
+    errors = []
+    monkeypatch.setattr(A._auth, "log_error",
+                        lambda *a, **k: errors.append((a, k)))
+    store = _patch_settings(monkeypatch, {"notify_interval_hours": "24"})
+
+    assert A._notify_tick() is True            # a send was attempted
+    assert not store.get("notify_last_sent")   # but last_sent was NOT advanced
+    assert errors, "an SMTP failure must be recorded to the admin error log"
+
+
+def test_tick_advances_on_nothing_to_report(monkeypatch):
+    import app as A
+    import notify
+    # NOOP (nothing outstanding) is NOT a failure -> advance last_sent, no error.
+    monkeypatch.setattr(notify, "send_digest", lambda: notify.NOOP)
+    errors = []
+    monkeypatch.setattr(A._auth, "log_error",
+                        lambda *a, **k: errors.append((a, k)))
+    store = _patch_settings(monkeypatch, {"notify_interval_hours": "24"})
+
+    assert A._notify_tick() is True
+    assert store.get("notify_last_sent")       # advanced
+    assert errors == []                        # no blind-spot alert
+
+
 def test_loop_ticks_only_as_leader(monkeypatch):
     import app as A
     import process_lock
