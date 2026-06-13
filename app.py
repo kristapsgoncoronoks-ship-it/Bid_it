@@ -1038,6 +1038,33 @@ def _worklist_card(year):
         ccon.close()
     except Exception as e:
         _log_exc("worklist expiring docs", e)
+    # claims blocked specifically on UNMATCHED/unresolved invoice refs — these are
+    # silent stalls (the transaction never matched a registered invoice), so surface
+    # them with a direct link to where they're resolved.
+    try:
+        import re as _re
+        n_unres = 0
+        for c in blocked:
+            for iss in (c.get("issues") or []):
+                if "unresolved invoice ref" in iss:
+                    m = _re.match(r"\s*(\d+)", iss)
+                    n_unres += int(m.group(1)) if m else 1
+        if n_unres:
+            items.append(("bad", f"Resolve UNMATCHED — {n_unres} unresolved "
+                          f"invoice ref(s)", "/readiness"))
+    except Exception as e:
+        _log_exc("worklist unmatched refs", e)
+    # documents stuck in the intake queue (failed extraction or held for manual retry)
+    # — otherwise they sit invisibly in the waiting room and nobody acts on them.
+    try:
+        import waiting_room as _wr
+        cnt = _wr.counts()
+        stuck = (cnt.get("failed") or 0) + (cnt.get("held") or 0)
+        if stuck:
+            items.append(("bad", f"{stuck} document(s) stuck in intake "
+                          f"(failed/held) — review", "/queue"))
+    except Exception as e:
+        _log_exc("worklist intake stuck", e)
     if not items:
         return ('<div class="card"><h2>What needs action</h2>'
                 '<p class="note">Nothing outstanding — all claims are submitted, '
