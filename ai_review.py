@@ -128,7 +128,10 @@ def build_payload(draft, context, *, include_text=False, needs=()):
                   for ln in draft.get("lines", [])],
     }
 
-    # 2) supplier expectations (name / aliases / expected VAT) — NO bank details
+    # 2) supplier expectations (name / aliases / expected VAT) — NO bank details — plus
+    # the contracted PURCHASE-price terms (NET EUR/L) for price-vs-contract reasoning,
+    # sourced from supplier_discounts (same as contract_audit): the contracted rebate and
+    # the price ceiling. These are the supplier purchase contract, NOT the agency fee.
     sup = context.get("supplier") or {}
     if sup:
         sc = {
@@ -136,6 +139,15 @@ def build_payload(draft, context, *, include_text=False, needs=()):
             "expected_vat": sup.get("expected_vat") or sup.get("vat"),
             "aliases": list(sup.get("aliases") or []),
         }
+        # EUR/L price terms keep full precision (not cents) — contract_audit compares to
+        # 4 dp; cent-quantization would corrupt a sub-cent rebate.
+        for k in ("expected_discount_eur_l", "price_ceiling_eur_l"):
+            v = sup.get(k)
+            if v is not None:
+                try:
+                    sc[k] = float(v)
+                except (TypeError, ValueError):
+                    pass
         # carry an EXPLICITLY allow-listed field (e.g. needs=("iban",)) through verbatim;
         # the recursive redactor below keeps it only because it is in `needs`.
         for n in (needs or ()):
@@ -143,13 +155,12 @@ def build_payload(draft, context, *, include_text=False, needs=()):
                 sc[n] = sup[n]
         payload["supplier_context"] = sc
 
-    # 3) customer contract terms (discount / ceiling) — NO bank/contact fields
+    # 3) customer identity only — the agency service-fee terms (fee_pct/fee_min) are NOT
+    # part of invoice validation and are never sent. NO bank/contact fields.
     cust = context.get("customer") or {}
     if cust:
         payload["customer_context"] = {
             "name": cust.get("name") or cust.get("company_name"),
-            "discount": cust.get("discount"),
-            "ceiling": cust.get("ceiling"),
         }
 
     # 4) price range (NET EUR/L) learned from history

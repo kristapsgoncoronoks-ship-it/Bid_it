@@ -25,13 +25,15 @@ DRAFT = {
     "pdf_text": "raw invoice text",
 }
 
-# supplier context carries bank/secret fields that must be redacted
+# supplier context carries bank/secret fields that must be redacted, plus the contracted
+# PURCHASE-price terms (NET EUR/L) sourced from supplier_discounts (NOT the agency fee).
 CONTEXT = {
     "supplier": {"expected_name": "DKV Euro Service", "expected_vat": "LV40003XXXX",
                  "aliases": ["DKV", "DKV MOBILITY"],
+                 "expected_discount_eur_l": 0.045, "price_ceiling_eur_l": 1.62,
                  "iban": "LV80BANK0000435195001", "swift": "HABALV22",
                  "beneficiary": "DKV Euro Service GmbH"},
-    "customer": {"name": "SIA Test", "discount": 0.02, "ceiling": 100000,
+    "customer": {"name": "SIA Test",
                  "contact_email": "ops@example.com", "bank_iban": "LV12..."},
     "price_samples": [1.51, 1.55, 1.58, 1.60, 1.62],
     "expenditure_codes": {"BE001": 1, "DE001": 1},
@@ -71,6 +73,25 @@ def test_secrets_redacted_unless_in_needs():
     # iban present ONLY when explicitly allow-listed in needs
     p2 = ai_review.build_payload(DRAFT, CONTEXT, needs=("iban",))
     assert "LV80BANK0000435195001" in repr(p2)
+
+
+def test_contract_price_terms_from_supplier_discounts_not_agency_fee():
+    """The supplier/contract context exposes the supplier_discounts purchase-price terms
+    (expected_discount_eur_l / price_ceiling_eur_l, NET EUR/L) and NEVER the agency
+    service-fee terms (fee_pct/fee_min)."""
+    p = _build()
+    sc = p["supplier_context"]
+    assert sc["expected_discount_eur_l"] == 0.045
+    assert sc["price_ceiling_eur_l"] == 1.62
+    flat = repr(p)
+    # the agency service fee is irrelevant to invoice validation and must never be sent
+    for fee_key in ("fee_pct", "fee_min"):
+        assert fee_key not in flat, f"agency-fee field {fee_key!r} leaked into payload"
+    # customer context is identity-only — the old discount/ceiling fee keys are gone
+    assert set(p["customer_context"]) == {"name"}
+    for legacy_key in ("discount", "ceiling"):
+        assert legacy_key not in p["customer_context"], \
+            f"legacy agency-fee key {legacy_key!r} leaked into customer_context"
 
 
 def test_deterministic_findings_populated():

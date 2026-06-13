@@ -449,6 +449,7 @@ def _needs_setup():
 # subset an admin has granted (see auth.PERMISSIONS / auth.has_perm).
 PERM_BY_ENDPOINT = {
     "extract_batch":   "data_import", "extract_confirm": "data_import",
+    "extract_ai_review": "data_import",
     "data_manager":    "data_import",
     "intake_queue_page": "data_import", "intake_review": "data_import",
     "doc_mining_page": "data_import", "imports": "data_import", "files_archive": "data_import",
@@ -484,7 +485,8 @@ MODULES = {
                     "pricing_upload", "api_pricing", "export_compare", "export_stations",
                     "export_pricing", "export_benchmark"}),
     "intake":     ("Intake — import, waiting room, files, document mining",
-                   {"extract_batch", "extract_confirm", "intake_queue_page", "intake_review",
+                   {"extract_batch", "extract_confirm", "extract_ai_review",
+                    "intake_queue_page", "intake_review",
                     "imports", "files_archive", "doc_mining_page", "data_manager"}),
     "compliance": ("Compliance — invoice control, contract audit, documents",
                    {"invoice_ctrl", "contracts", "documents", "doc_download"}),
@@ -1792,8 +1794,22 @@ def extract_batch():
         tmp = _os.path.join(WORKDIR, ".extract_tmp"); _os.makedirs(tmp, exist_ok=True); _os.chmod(tmp, 0o700)
         with open(_os.path.join(tmp, token + ".pkl"), "wb") as pf:
             pickle.dump(draft.get("_pdf_bytes", []), pf)
+        _stash_draft(token, draft)
         return page(receipt + _review_form(draft, token), "ext")
     return page(_upload_form(backend_env), "ext")
+
+
+def _default_period():
+    """The current/active close period, sourced from month_config (the one file edited
+    each month) — the SAME PERIOD consolidate.py/build_master.py/history.py key off.
+    Best-effort: if the import ever fails, fall back to the empty string (the form field
+    is required, so the user just fills it in)."""
+    try:
+        from month_config import PERIOD
+        return PERIOD
+    except Exception as e:
+        _log_exc("default period from month_config", e)
+        return ""
 
 
 def _upload_form(backend_env):
@@ -1824,7 +1840,7 @@ def _upload_form(backend_env):
             + _csrf_input() +
             '<label>file (.pdf, .zip or .xml)<input type="file" name="file" accept=".pdf,.zip,.xml" required></label>'
             f'<label>extractor<select name="backend">{opts}</select></label>'
-            f'<label>period (YYYY-MM)<input name="period" value="{esc(request.values.get("period","2026-05"))}" style="width:100px"></label>'
+            f'<label>period (YYYY-MM)<input name="period" value="{esc(request.values.get("period", _default_period()))}" style="width:100px"></label>'
             '<button name="__mode" value="now">Extract draft now</button>'
             '<button name="__mode" value="queue" style="background:var(--mut)">Queue for later</button>'
             '</form>'
@@ -1838,7 +1854,36 @@ def _upload_form(backend_env):
             'overloads the server.</div></div>')
 
 
-def _review_form(draft, token, intake_job=None, period=None):
+def _stash_draft(token, draft):
+    """Persist the cleaned review draft (no PDF bytes, no '_'-prefixed keys) next to the
+    token's PDF stash, so the advisory /extract/ai-review route can rebuild context from
+    the SAME token. Best-effort: a failure here never blocks the review screen."""
+    import os as _os, json as _json
+    clean = {k: v for k, v in (draft or {}).items() if not str(k).startswith("_")}
+    try:
+        tmp = _os.path.join(WORKDIR, ".extract_tmp")
+        _os.makedirs(tmp, exist_ok=True); _os.chmod(tmp, 0o700)
+        with open(_os.path.join(tmp, token + ".draft.json"), "w", encoding="utf-8") as f:
+            _json.dump(clean, f, ensure_ascii=False, default=str)
+    except Exception as e:
+        _log_exc("stash review draft", e)
+
+
+def _load_draft(token):
+    """Read back the cleaned draft for a token, or None."""
+    import os as _os, json as _json
+    p = _os.path.join(WORKDIR, ".extract_tmp", token + ".draft.json")
+    if not _os.path.exists(p):
+        return None
+    try:
+        with open(p, encoding="utf-8") as f:
+            return _json.load(f)
+    except Exception as e:
+        _log_exc("load review draft", e)
+        return None
+
+
+def _review_form(draft, token, intake_job=None, period=None, ai_panel=""):
     rows = ""
     for i, ln in enumerate(draft.get("lines", [])):
         rows += ('<tr>'
@@ -1864,7 +1909,7 @@ def _review_form(draft, token, intake_job=None, period=None):
             f'<label>statement ref<input name="stmt_ref" value="{esc(draft.get("statement_ref") or "")}" required></label>'
             f'<label>statement date<input type="date" name="stmt_date" value="{esc(draft.get("statement_date") or "")}"></label>'
             f'<label>customer<input name="customer" value="{esc((draft.get("customer") or "").strip())}"></label>'
-            f'<label>period (YYYY-MM)<input name="period" value="{esc(period or request.values.get("period","2026-05"))}" required></label>'
+            f'<label>period (YYYY-MM)<input name="period" value="{esc(period or request.values.get("period", _default_period()))}" required></label>'
             '</label></div>'
             + '<table style="margin-top:10px"><thead><tr>'
             + "".join(f"<th>{h}</th>" for h in ["Invoice no","Date","Country","Ccy","Net","VAT","Source PDF"])
@@ -1878,7 +1923,30 @@ def _review_form(draft, token, intake_job=None, period=None):
             '</div></form>'
             '<div class="note">Confirming registers the statement (VAT-bearing invoices '
             'auto-sync), attaches every source PDF to the document vault, and runs the '
-            'normal triage. You can still edit any field above first.</div></div>')
+            'normal triage. You can still edit any field above first.</div>'
+            + _ai_review_button(token, intake_job, period)
+            + '</div>'
+            + ai_panel)
+
+
+def _ai_review_button(token, intake_job=None, period=None):
+    """The 'AI review (advisory)' control under the draft. Shown only when a backend is
+    configured; otherwise a muted off-note. Advisory only — it never gates commit."""
+    import ai_review
+    if ai_review.resolve_backend() == "none":
+        return ('<div class="note" style="margin-top:10px">AI review is off — '
+                'enable it in <a href="/admin">Admin</a> (advisory only; it never '
+                'changes a figure or gates the commit).</div>')
+    return ('<form method="post" action="/extract/ai-review" style="margin-top:10px">'
+            + _csrf_input()
+            + f'<input type="hidden" name="token" value="{esc(token)}">'
+            + (f'<input type="hidden" name="intake_job" value="{esc(str(intake_job))}">'
+               if intake_job else "")
+            + f'<input type="hidden" name="period" value="{esc(period or request.values.get("period", _default_period()))}">'
+            + '<button>AI review (advisory)</button>'
+            + '<span class="note" style="margin-left:8px">A second opinion over the '
+              'already-extracted data — never changes anything, never gates commit.</span>'
+            + '</form>')
 
 
 @app.route("/extract/confirm", methods=["POST"])
@@ -1888,8 +1956,15 @@ def extract_confirm():
     # access is enforced centrally in _guard (capability: data_import)
     token = request.form["token"]
     tmpf = _os.path.join(WORKDIR, ".extract_tmp", token + ".pkl")
+    draftf = _os.path.join(WORKDIR, ".extract_tmp", token + ".draft.json")
+    def _drop_draft():
+        try:
+            if _os.path.exists(draftf): _os.unlink(draftf)
+        except OSError as e:
+            _log_exc("drop review draft", e)
     if request.form.get("__do") == "cancel":
         if _os.path.exists(tmpf): _os.unlink(tmpf)
+        _drop_draft()
         return redirect("/extract")
     n = int(request.form["nlines"])
     lines = []
@@ -1954,6 +2029,7 @@ def extract_confirm():
                 if ok: attached += 1
         fcon.close()
         _os.unlink(tmpf)
+    _drop_draft()
     # if this draft came from the waiting room, mark the job done (frees its bytes)
     if request.form.get("intake_job"):
         try:
@@ -1973,6 +2049,171 @@ def extract_confirm():
               f'registered: {len(lines)} invoices ({synced} VAT-bearing synced), '
               f'{attached} PDFs vaulted. Review triage on the Invoice control page.</b></div>')
     return page(banner + f'<p><a href="/invoices?period={esc(period)}">→ Invoice control</a></p>', "ext")
+
+
+def _contract_price_terms(SM, supplier, country, product_group="Diesel"):
+    """The contracted PURCHASE-price terms for (supplier, country) from
+    supplier_master.supplier_discounts — the SAME source/keying contract_audit.py uses.
+    Returns (expected_discount_eur_l, max_net_eur_l) on a NET EUR/L basis; either may be
+    None. Matches like contract_audit: supplier uppercased, country/station SQL-LIKE
+    ('%' = any), product_group exact (blank = any). MERGES across all matching active
+    rules: takes the first non-None rebate AND the first non-None ceiling, so a supplier
+    with a rebate-only rule and a separate ceiling-only rule surfaces BOTH. Full float
+    precision (no cent-quantization)."""
+    import contract_audit
+    want_sup = (supplier or "").upper()
+    exp_disc = ceiling = None
+    for r in SM.discount_rules():
+        if r.get("supplier") != want_sup:
+            continue
+        pg = r.get("product_group")
+        if pg and product_group and pg != product_group:
+            continue
+        if not contract_audit._like(country, r.get("country")):
+            continue
+        if exp_disc is None:
+            exp_disc = r.get("expected_discount_eur_l")
+        if ceiling is None:
+            ceiling = r.get("max_net_eur_l")
+        if exp_disc is not None and ceiling is not None:
+            break
+    return exp_disc, ceiling
+
+
+def _ai_review_context(draft):
+    """Assemble the (non-secret) context for ai_review.review from master data:
+    supplier expected name/VAT (supplier_master), customer contract terms
+    (customer_master, bank/contact fields stripped by ai_review), and a NET-EUR/L price
+    range learned from history. Best-effort — any lookup failure just omits that slice."""
+    import supplier_master as SM, customer_master as CM
+    ctx = {}
+    supplier = (draft.get("supplier") or "").strip()
+    customer = (draft.get("customer") or "").strip()
+    countries = [ (ln.get("country") or "").strip() for ln in draft.get("lines", []) ]
+    countries = [c for c in countries if c]
+    first_ctry = countries[0] if countries else None
+    if supplier:
+        try:
+            name, vat, _src = SM.get_issuer(supplier, first_ctry)
+            sc = {"expected_name": name, "expected_vat": vat, "aliases": []}
+            # Contract PRICE terms for the AI's price-vs-contract reasoning come from the
+            # SAME source contract_audit.py uses (supplier_master.supplier_discounts):
+            # the contracted rebate (EUR/L) and the NET price ceiling (EUR/L). These are
+            # the PURCHASE-price contract, NOT the agency's service fee (fee_pct/fee_min).
+            # Match the rule the way contract_audit does: uppercased supplier, country
+            # LIKE-pattern, Diesel product group ('%' = any). NET EUR/L basis.
+            try:
+                exp_disc, ceiling = _contract_price_terms(SM, supplier, first_ctry)
+                if exp_disc is not None:
+                    sc["expected_discount_eur_l"] = exp_disc
+                if ceiling is not None:
+                    sc["price_ceiling_eur_l"] = ceiling
+            except Exception as e:
+                _log_exc("ai-review contract terms", e)
+            ctx["supplier"] = sc
+        except Exception as e:
+            _log_exc("ai-review supplier context", e)
+    if customer:
+        try:
+            ccon = CM.connect()
+            f = CM.merge_fields(ccon, customer, first_ctry); ccon.close()
+            # Name only — the agency service-fee terms (fee_pct/fee_min) are domain #7
+            # invoicing and are irrelevant to invoice validation; never sent to the AI.
+            ctx["customer"] = {"name": f.get("company_name") or f.get("name") or customer}
+        except Exception as e:
+            _log_exc("ai-review customer context", e)
+    # NET-EUR/L price samples from history for the supplier's countries (display basis)
+    if supplier:
+        try:
+            import sqlite3 as _sq
+            hp = os.path.join(WORKDIR, "fuel_history.db")
+            if os.path.exists(hp) and countries:
+                hc = _sq.connect(hp)
+                qmarks = ",".join("?" for _ in set(countries))
+                rows = hc.execute(
+                    "SELECT net_eur_eff/NULLIF(qty,0) p FROM transactions "
+                    "WHERE supplier=? AND product_group='Diesel' AND qty>0 "
+                    f"AND country IN ({qmarks})",
+                    [supplier] + list(set(countries))).fetchall()
+                hc.close()
+                samples = [r[0] for r in rows if r[0] is not None]
+                if samples:
+                    ctx["price_samples"] = samples
+        except Exception as e:
+            _log_exc("ai-review price range", e)
+    return ctx
+
+
+@app.route("/extract/ai-review", methods=["POST"])
+def extract_ai_review():
+    """ADVISORY AI review of an already-extracted draft. Re-renders the same review/confirm
+    screen with an appended advisory panel (flags + analytics note + deterministic block).
+    Access: data_import (enforced in _guard). NEVER mutates the draft, NEVER gates commit —
+    the /extract/confirm deterministic gate is untouched."""
+    import ai_review
+    token = request.form.get("token", "")
+    intake_job = request.form.get("intake_job") or None
+    period = request.form.get("period") or None
+    draft = _load_draft(token)
+    if draft is None:
+        return page('<div class="card"><b class="bad">This draft is no longer available '
+                    'for review (the session expired). Re-extract the batch.</b></div>'
+                    '<p><a href="/extract">← back to import</a></p>', "ext")
+    backend = ai_review.resolve_backend()
+    if backend == "none":
+        # belt-and-braces: never call out when off
+        return page(_review_form(draft, token, intake_job=intake_job, period=period), "ext")
+    try:
+        ctx = _ai_review_context(draft)
+        result = ai_review.review(draft, ctx)
+    except Exception as e:
+        _log_exc("ai review", e)
+        panel = ('<div class="card"><b class="bad">AI review unavailable right now '
+                 f'({esc(str(e))}). It is advisory only — nothing was changed; you can '
+                 'still confirm the draft.</b></div>')
+        return page(_review_form(draft, token, intake_job=intake_job, period=period,
+                                 ai_panel=panel), "ext")
+    panel = _ai_review_panel(result)
+    return page(_review_form(draft, token, intake_job=intake_job, period=period,
+                             ai_panel=panel), "ext")
+
+
+def _ai_review_panel(result):
+    """Render the advisory panel: flags table + analytics note + deterministic block +
+    provenance. EVERY cell escaped. Advisory only — nothing here changes a figure."""
+    sev_cls = {"info": "", "warn": "warn", "error": "bad"}
+    rows = ""
+    for fl in result.get("flags", []):
+        cls = sev_cls.get(fl.get("severity"), "")
+        rows += (f'<tr><td class="{cls}">{esc(fl.get("severity",""))}</td>'
+                 f'<td>{esc(fl.get("field",""))}</td>'
+                 f'<td>{esc(fl.get("message",""))}</td>'
+                 f'<td class="note">{esc(fl.get("suggestion") or "")}</td></tr>')
+    if not rows:
+        rows = '<tr><td colspan="4" class="note">No advisory flags raised.</td></tr>'
+    thead = "".join(f"<th>{h}</th>" for h in ["Severity", "Field", "Message", "Suggestion"])
+    flags_tbl = (f'<table style="margin-top:8px"><thead><tr>{thead}</tr></thead>'
+                 f'<tbody>{rows}</tbody></table>')
+    note = result.get("note")
+    note_html = (f'<div class="note" style="margin-top:8px"><b>Analytics note:</b> '
+                 f'{esc(note)} <i>(prices in NET EUR/L, VAT-excluded.)</i></div>'
+                 if note else "")
+    det = result.get("deterministic") or {}
+    det_html = (f'<div class="note" style="margin-top:8px"><b>Deterministic findings:</b> '
+                f'{esc(str(det.get("errors", 0)))} error(s), '
+                f'{esc(str(det.get("warnings", 0)))} warning(s); '
+                f'can commit: <b>{esc(str(det.get("can_commit")))}</b>. '
+                'These — not the AI — decide whether commit is allowed.</div>')
+    prov = (f'<div class="note" style="margin-top:8px">'
+            f'{esc(result.get("backend",""))}'
+            + (f' · {esc(result.get("model",""))}' if result.get("model") else "")
+            + ' · advisory only — accept/reject is your decision; nothing was changed.</div>')
+    return ('<div class="card"><h2>AI review (advisory)</h2>'
+            '<div class="note" style="margin-top:0">A second opinion over the '
+            'already-extracted data. It never changes a figure or status and never gates '
+            'the commit.</div>'
+            + flags_tbl + note_html + det_html + prov + '</div>')
+
 
 @app.route("/queue", methods=["GET", "POST"])
 def intake_queue_page():
@@ -2132,6 +2373,7 @@ def intake_review(job_id):
     tmp = _os.path.join(WORKDIR, ".extract_tmp"); _os.makedirs(tmp, exist_ok=True); _os.chmod(tmp, 0o700)
     with open(_os.path.join(tmp, token + ".pkl"), "wb") as pf:
         pickle.dump(pairs, pf)
+    _stash_draft(token, draft)
     return page(_review_form(draft, token, intake_job=job_id, period=job.get("period")), "queue")
 
 @app.route("/mining", methods=["GET", "POST"])
