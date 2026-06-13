@@ -37,6 +37,10 @@ import_log.db
 #    first run; on a real server this is LIVE data (back it up; see backup.py) ──
 vat_claims.db
 
+# ── Benchmark prices (my_prices/wholesale_prices) — app/portal-owned DB, split out
+#    of fuel_history.db in D3; rebuilt by migration on first run, then LIVE data ──
+benchmark.db
+
 # ── Cross-process lock store + SQLite WAL sidecars (transient, machine-specific) ──
 locks.db
 *.db-wal

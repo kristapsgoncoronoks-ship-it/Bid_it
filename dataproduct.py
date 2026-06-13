@@ -17,8 +17,10 @@ sqlite3.OperationalError instead of silently writing a DB the app does not own.
 
 NOT routed here (deliberately left read-write by their owning modules / later orders):
   • vat_refund.connect()        — vat_claims.db, app/compliance-owned (read-write).
-  • pricing_intelligence.connect() — still WRITES my_prices/wholesale_prices into
-                                     fuel_history.db; that write moves in D3.
+  • pricing_intelligence.connect() — now WRITES my_prices/wholesale_prices into its
+                                     OWN benchmark.db (split out in D3); it reads
+                                     `transactions` from here READ-ONLY via
+                                     product_connect() → connect("fuel_history").
   • register_statement / suppliers.db writes — move in D4.
 
 Postgres seam: `_role()` documents where a Postgres cutover swaps to a read-only

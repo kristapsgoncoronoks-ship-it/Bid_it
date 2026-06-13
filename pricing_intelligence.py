@@ -20,26 +20,100 @@ VAT excluded). City = the station town on the invoice.
 import os, sqlite3, datetime, statistics
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
+# transactions live in the engine-owned product DB (read-only from the app side,
+# via dataproduct.connect("fuel_history")). DB names that file for the location-
+# independent / test-monkeypatch seam — it is NEVER opened read-write here (D1/D3).
 DB = f"{WORKDIR}/fuel_history.db"
+# The benchmark tables (my_prices/wholesale_prices) are app/portal-owned and live in
+# their OWN read-write DB, decoupled from the product DB in D3.
+BENCHMARK_DB = f"{WORKDIR}/benchmark.db"
+
+# DDL for the app-owned benchmark tables — applied once per DB via db_migrate
+# (APPEND-ONLY; positions are stable).
+_BENCHMARK_DDL = [
+    """CREATE TABLE IF NOT EXISTS my_prices (
+        country TEXT, city TEXT, date TEXT, product_group TEXT DEFAULT 'Diesel',
+        net_price REAL, source TEXT DEFAULT 'upload',
+        PRIMARY KEY (country, city, date, product_group))""",
+    """CREATE TABLE IF NOT EXISTS wholesale_prices (
+        country TEXT, date TEXT, product_group TEXT DEFAULT 'Diesel',
+        net_price REAL, source TEXT,
+        PRIMARY KEY (country, date, product_group))""",
+    "CREATE INDEX IF NOT EXISTS ix_myp ON my_prices(country, city, date)",
+    "CREATE INDEX IF NOT EXISTS ix_whp ON wholesale_prices(country, date)",
+]
 
 
 def connect():
-    import db_tuning
-    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    """Read-write handle to the app/portal-owned benchmark DB (my_prices/
+    wholesale_prices). The engine-owned product DB (fuel_history.db) is NOT opened
+    here — readers that need `transactions` use product_connect() (read-only)."""
+    import db_tuning, db_migrate
+    con = sqlite3.connect(BENCHMARK_DB); con.row_factory = sqlite3.Row
     db_tuning.tune(con)  # WAL + busy_timeout for safe multi-process access
-    con.executescript("""
-    CREATE TABLE IF NOT EXISTS my_prices (
-        country TEXT, city TEXT, date TEXT, product_group TEXT DEFAULT 'Diesel',
-        net_price REAL, source TEXT DEFAULT 'upload',
-        PRIMARY KEY (country, city, date, product_group));
-    CREATE TABLE IF NOT EXISTS wholesale_prices (
-        country TEXT, date TEXT, product_group TEXT DEFAULT 'Diesel',
-        net_price REAL, source TEXT,
-        PRIMARY KEY (country, date, product_group));
-    CREATE INDEX IF NOT EXISTS ix_myp ON my_prices(country, city, date);
-    CREATE INDEX IF NOT EXISTS ix_whp ON wholesale_prices(country, date);
-    """)
+    db_migrate.apply(con, "pricing_intelligence", _BENCHMARK_DDL)
+    _migrate_from_product(con)
     return con
+
+
+def product_connect():
+    """READ-ONLY handle to the engine-owned product DB for reading `transactions`.
+    Delegates to the dataproduct accessor so the app shares one read-only window;
+    passes this module's DB so the location-independent / test-monkeypatch seam
+    (DB) is preserved. The app never writes the product DB."""
+    import dataproduct
+    return dataproduct.connect("fuel_history", path=DB)
+
+
+# one-time data copy guard: (resolved BENCHMARK_DB path) once migration has run
+_MIGRATED = set()
+
+
+def _migrate_from_product(con):
+    """One-time upgrade path: if the benchmark tables are empty in the (new)
+    benchmark.db but populated in the old shared fuel_history.db, copy them across.
+    Idempotent — skips once benchmark.db has data (or once per process). The
+    originals are LEFT in place in fuel_history.db (same precedent as
+    vat_refund._migrate_from_analytics); the engine-owned DB just stops being
+    written by the app."""
+    if BENCHMARK_DB == ":memory:" or BENCHMARK_DB in _MIGRATED:
+        return
+    try:
+        if con.execute("SELECT COUNT(*) FROM my_prices").fetchone()[0] > 0:
+            _MIGRATED.add(BENCHMARK_DB); return
+        if con.execute("SELECT COUNT(*) FROM wholesale_prices").fetchone()[0] > 0:
+            _MIGRATED.add(BENCHMARK_DB); return
+    except sqlite3.Error:
+        return
+    if not os.path.exists(DB) or os.path.abspath(DB) == os.path.abspath(BENCHMARK_DB):
+        _MIGRATED.add(BENCHMARK_DB); return
+    import dataproduct
+    src = dataproduct.connect("fuel_history", path=DB)
+    try:
+        for t in ("my_prices", "wholesale_prices"):
+            try:
+                cols = [r[1] for r in src.execute(f"PRAGMA table_info({t})")]
+            except sqlite3.Error:
+                cols = []
+            if not cols:
+                continue
+            rows = src.execute(f"SELECT {','.join(cols)} FROM {t}").fetchall()
+            if rows:
+                ph = ",".join("?" * len(cols))
+                con.executemany(
+                    f"INSERT OR IGNORE INTO {t} ({','.join(cols)}) VALUES ({ph})",
+                    [tuple(r) for r in rows])
+        con.commit()
+    except sqlite3.Error:
+        # degrade gracefully (benchmark.db simply starts empty) but never silently:
+        # an unnoticed failure here looks identical to "no legacy data".
+        import applog
+        applog.get("pricing_intelligence").exception(
+            "legacy benchmark import failed — benchmark.db may be missing migrated "
+            "rows (source: %s)", DB)
+    finally:
+        src.close()
+    _MIGRATED.add(BENCHMARK_DB)
 
 
 # ---------------------------------------------------------------- time bucketing
@@ -96,7 +170,10 @@ def load_wholesale(rows):
 def supplier_grid(period=None, grain="month", product_group="Diesel"):
     """Volume-weighted supplier NET eff price per country/city/bucket.
     -> list of dicts: country, city, bucket, supplier, qty, net_eur_eff, eff_price."""
-    con = connect()
+    # `transactions` is engine-owned; read it READ-ONLY from the product DB. The
+    # benchmark tables aren't touched here, so no cross-DB join is needed — the
+    # per-grain rebucket/aggregation below is pure Python.
+    con = product_connect()
     where = "product_group=?"
     args = [product_group]
     if period:
@@ -197,7 +274,10 @@ def internal_benchmark(period=None, grain="month", product_group="Diesel"):
     two or more suppliers competed are the genuinely comparable ones; the overpay there
     is money you could have saved by routing volume to the cheaper supplier you were
     already using. Returns (rows sorted by overpay desc, summary)."""
-    con = connect()
+    # `transactions` is engine-owned; read it READ-ONLY from the product DB. This
+    # report uses only transactions (no benchmark join), so a single read-only
+    # product connection suffices — the best-of aggregation is pure Python.
+    con = product_connect()
     where = "product_group=?"; args = [product_group]
     if period:
         where += " AND period=?"; args.append(period)

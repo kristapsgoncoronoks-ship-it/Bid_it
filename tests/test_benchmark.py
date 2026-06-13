@@ -7,21 +7,25 @@ import pytest
 
 @pytest.fixture()
 def pi(tmp_path, monkeypatch):
+    import sqlite3
     import pricing_intelligence
     importlib.reload(pricing_intelligence)
-    monkeypatch.setattr(pricing_intelligence, "DB", str(tmp_path / "fuel_history.db"))
-    con = pricing_intelligence.connect()
-    con.execute("""CREATE TABLE IF NOT EXISTS transactions (
+    fuel = str(tmp_path / "fuel_history.db")
+    monkeypatch.setattr(pricing_intelligence, "DB", fuel)
+    monkeypatch.setattr(pricing_intelligence, "BENCHMARK_DB", str(tmp_path / "benchmark.db"))
+    # transactions live in the engine-owned product DB (read read-only by the app).
+    prod = sqlite3.connect(fuel)
+    prod.execute("""CREATE TABLE IF NOT EXISTS transactions (
         period TEXT, country TEXT, supplier TEXT, date TEXT, product_group TEXT,
         qty REAL, net_eur_eff REAL)""")
     # Belgium 2026-05: BP cheaper than TFC; both 1000 L
-    con.executemany("INSERT INTO transactions (period,country,supplier,date,product_group,qty,net_eur_eff)"
+    prod.executemany("INSERT INTO transactions (period,country,supplier,date,product_group,qty,net_eur_eff)"
                     " VALUES (?,?,?,?,?,?,?)", [
         ("2026-05", "Belgium", "BP",  "2026-05-10", "Diesel", 1000, 1400.0),   # 1.40 €/L
         ("2026-05", "Belgium", "TFC", "2026-05-12", "Diesel", 1000, 1500.0),   # 1.50 €/L
         ("2026-05", "Spain",   "MOEVE","2026-05-09", "Diesel", 500, 650.0),    # single supplier
     ])
-    con.commit(); con.close()
+    prod.commit(); prod.close()
     return pricing_intelligence
 
 

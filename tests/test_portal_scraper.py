@@ -15,6 +15,7 @@ def ps(tmp_path, monkeypatch):
     import pricing_intelligence
     importlib.reload(pricing_intelligence)
     monkeypatch.setattr(pricing_intelligence, "DB", str(tmp_path / "fuel_history.db"))
+    monkeypatch.setattr(pricing_intelligence, "BENCHMARK_DB", str(tmp_path / "benchmark.db"))
     return portal_scraper
 
 

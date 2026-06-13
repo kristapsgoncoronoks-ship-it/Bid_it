@@ -16,6 +16,7 @@ def mp(tmp_path, monkeypatch):
     import pricing_intelligence
     importlib.reload(pricing_intelligence)
     monkeypatch.setattr(pricing_intelligence, "DB", str(tmp_path / "pi.db"))
+    monkeypatch.setattr(pricing_intelligence, "BENCHMARK_DB", str(tmp_path / "benchmark.db"))
     import market_prices
     importlib.reload(market_prices)
     # market_prices imported pricing_intelligence at module load; point it at our reload
