@@ -259,6 +259,95 @@ def test_time_of_day_summary_buckets_and_weighted_price(tmp_path, monkeypatch):
     assert sum(b["count"] for b in summ.values()) == 4
 
 
+def _seed_veh(path, rows):
+    """Seed a transactions table for the per-vehicle EUR/L tests (no `time` column needed;
+    columns match the find() / vehicle_cost_summary() queries)."""
+    con = sqlite3.connect(path)
+    con.execute("""CREATE TABLE transactions (period, supplier, country, station, vehicle,
+                   date, product_group, qty, net_eur_eff)""")
+    con.executemany("INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?)", rows)
+    con.commit(); con.close()
+
+
+def test_vehicle_price_outlier_flags_only_the_expensive_vehicle(tmp_path, monkeypatch):
+    import anomaly
+    importlib.reload(anomaly)
+    db = str(tmp_path / "fh.db")
+    # five in-range vehicles ~1.40 EUR/L, one (V6) systematically expensive at ~1.90
+    rows = []
+    for i, eurl in enumerate([1.40, 1.41, 1.39, 1.40, 1.42], start=1):
+        rows.append(("2026-05", "BP", "Germany", "s", f"V{i}", "2026-05-10",
+                     "Diesel", 1000, eurl * 1000))
+    rows.append(("2026-05", "BP", "Germany", "s", "V6", "2026-05-10", "Diesel", 1000, 1900.0))
+    _seed_veh(db, rows)
+    monkeypatch.setattr(anomaly, "DB", db)
+    flags = anomaly.find("2026-05")
+    vp = [f for f in flags if f[0] == "vehicle_price"]
+    assert len(vp) == 1
+    assert "V6" in vp[0][2]
+    assert not any("V1" in f[2] for f in vp)
+
+
+def test_vehicle_price_no_flag_when_all_equal(tmp_path, monkeypatch):
+    import anomaly
+    importlib.reload(anomaly)
+    db = str(tmp_path / "fh.db")
+    rows = [("2026-05", "BP", "Germany", "s", f"V{i}", "2026-05-10", "Diesel", 1000, 1400.0)
+            for i in range(1, 6)]
+    _seed_veh(db, rows)
+    monkeypatch.setattr(anomaly, "DB", db)
+    flags = anomaly.find("2026-05")
+    assert not any(f[0] == "vehicle_price" for f in flags)
+
+
+def test_vehicle_price_excludes_below_min_litres_floor(tmp_path, monkeypatch):
+    import anomaly
+    importlib.reload(anomaly)
+    db = str(tmp_path / "fh.db")
+    # in-range fleet ~1.40; the would-be outlier V6 at 1.90 only bought 50 L (< 100 floor)
+    rows = []
+    for i, eurl in enumerate([1.40, 1.41, 1.39, 1.40, 1.42], start=1):
+        rows.append(("2026-05", "BP", "Germany", "s", f"V{i}", "2026-05-10",
+                     "Diesel", 1000, eurl * 1000))
+    rows.append(("2026-05", "BP", "Germany", "s", "V6", "2026-05-10", "Diesel", 50, 95.0))
+    _seed_veh(db, rows)
+    monkeypatch.setattr(anomaly, "DB", db)
+    flags = anomaly.find("2026-05")
+    assert not any(f[0] == "vehicle_price" for f in flags)
+
+
+def test_vehicle_cost_summary_weighted_price_spend_and_order(tmp_path, monkeypatch):
+    import anomaly
+    importlib.reload(anomaly)
+    db = str(tmp_path / "fh.db")
+    _seed_veh(db, [
+        # V1: 100L @1.40 + 100L @1.60 -> vol-weighted 1.50, spend 300, 2 fuellings
+        ("2026-05", "BP", "Germany", "s", "V1", "2026-05-10", "Diesel", 100, 140.0),
+        ("2026-05", "BP", "Germany", "s", "V1", "2026-05-11", "Diesel", 100, 160.0),
+        # V2: 200L @1.00 -> spend 200, 1 fuelling (cheapest)
+        ("2026-05", "BP", "Germany", "s", "V2", "2026-05-12", "Diesel", 200, 200.0),
+    ])
+    monkeypatch.setattr(anomaly, "DB", db)
+    summ = anomaly.vehicle_cost_summary("2026-05")
+    by = {v["vehicle"]: v for v in summ}
+    assert abs(by["V1"]["eur_l"] - 1.50) < 1e-9
+    assert by["V1"]["litres"] == 200 and abs(by["V1"]["spend"] - 300.0) < 1e-9
+    assert by["V1"]["n_fuellings"] == 2
+    assert abs(by["V2"]["eur_l"] - 1.00) < 1e-9
+    # costliest first
+    assert [v["vehicle"] for v in summ] == ["V1", "V2"]
+
+
+def test_vehicle_cost_summary_empty_period_returns_list(tmp_path, monkeypatch):
+    import anomaly
+    importlib.reload(anomaly)
+    db = str(tmp_path / "fh.db")
+    _seed_veh(db, [
+        ("2026-05", "BP", "Germany", "s", "V1", "2026-05-10", "Diesel", 100, 140.0)])
+    monkeypatch.setattr(anomaly, "DB", db)
+    assert anomaly.vehicle_cost_summary("2026-04") == []   # no rows, never raises
+
+
 def test_routing_flag_is_learned_from_spread():
     import app
     # mean 1.05, std-dev 0.05 -> the trigger price is LEARNED from this market's spread

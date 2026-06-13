@@ -10,6 +10,9 @@ price level or an absolute month-over-month limit):
   price_divergence a supplier's price moved much more (or less) than the MARKET moved
                    that month — i.e. it diverged from everyone else, not just "moved"
   volume_spike    a vehicle's monthly litres far above its own trailing average
+  vehicle_price   a vehicle's NET EUR/L is a high outlier vs the FLEET's per-vehicle
+                  spread this month (systematically expensive fuel — station choice /
+                  card misuse / wrong supplier)
   off_period      a transaction dated outside the loaded period
   off_hours       diesel fuelled in the deep-night window (possible card misuse)
 """
@@ -222,6 +225,27 @@ def find(period):
                 f"vehicle {veh}: {cur:.0f} L this month vs its own {avgp:.0f} L average "
                 f"(beyond its normal range)"))
 
+    # vehicle price outlier — LEARN the FLEET's per-vehicle NET EUR/L distribution this
+    # month and flag a vehicle whose volume-weighted price is a high outlier (beyond the
+    # fleet mean + K·σ), not a fixed %. A systematically-expensive vehicle points at
+    # station choice / card misuse / the wrong supplier. (True L/100km consumption would
+    # need an odometer/distance field, which transactions does not carry — future work.)
+    veh_prices = []   # [(vehicle, price)] for vehicles past the min-litres floor
+    for r in con.execute(
+        """SELECT vehicle, SUM(qty) q, SUM(net_eur_eff)/NULLIF(SUM(qty),0) p
+           FROM transactions WHERE period=? AND product_group='Diesel'
+           GROUP BY vehicle HAVING q>=100""", (period,)):   # 100 L floor: a per-vehicle
+        if r["p"] is not None:                               # purchase, smaller than the
+            veh_prices.append((r["vehicle"], r["p"]))        # 200 L station floor above
+    if veh_prices:
+        prices = [p for _, p in veh_prices]
+        mean = statistics.fmean(prices)
+        for veh, p in veh_prices:
+            if _outlier_high(p, prices):
+                flags.append(("vehicle_price", "warn",
+                    f"vehicle {veh}: {p:.3f} EUR/L is a high outlier vs the fleet's "
+                    f"{mean:.3f} mean this period"))
+
     # off-period dates (one flag per supplier+vehicle+date)
     for r in con.execute("""SELECT supplier, vehicle, date, COUNT(*) n FROM transactions
                             WHERE period=? AND substr(date,1,7)!=?
@@ -285,6 +309,37 @@ def time_of_day_summary(period, con=None):
             eur_l = net / litres if litres else None
             label = f"{key:02d}:00" if isinstance(key, int) else "unknown"
             out.append({"hour": label, "count": count, "litres": litres, "eur_l": eur_l})
+        return out
+    finally:
+        if own:
+            con.close()
+
+
+def vehicle_cost_summary(period, con=None):
+    """Per-vehicle DIESEL fuel cost for `period` — the under-used `transactions.vehicle`
+    dimension surfaced as analytics (which vehicles buy the most expensive fuel). Per
+    vehicle: number of fuellings, total litres, total spend (SUM net_eur_eff) and the
+    VOLUME-WEIGHTED NET EUR/L (VAT-excluded). Sorted by EUR/L desc so the costliest
+    vehicles surface first. Pure/read-only; never raises. Accepts an optional `con`
+    (opens/closes its own when None). Returns a list of dicts, each:
+        {vehicle, litres, eur_l, spend, n_fuellings}."""
+    own = con is None
+    if own:
+        con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    try:
+        out = []
+        for r in con.execute(
+            """SELECT vehicle, COUNT(*) n, SUM(qty) q, SUM(net_eur_eff) spend
+               FROM transactions WHERE period=? AND product_group='Diesel'
+               GROUP BY vehicle""", (period,)):
+            litres = r["q"] or 0
+            spend = r["spend"] or 0.0
+            # full precision; format at display (NET EUR/L, VAT-excluded)
+            eur_l = spend / litres if litres else None
+            out.append({"vehicle": r["vehicle"], "litres": litres, "eur_l": eur_l,
+                        "spend": spend, "n_fuellings": r["n"]})
+        # costliest first; None price (no litres) sinks to the bottom
+        out.sort(key=lambda d: (d["eur_l"] is not None, d["eur_l"] or 0), reverse=True)
         return out
     finally:
         if own:

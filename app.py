@@ -3859,8 +3859,8 @@ def anomalies_page():
             + (f'<span class="bad">{len(flags)} flag(s)</span>' if flags else '<span class="ok">clean</span>') + '</h2>'
             + (tbl(["Type","Level","Detail"], trs) if flags else '<p>No anomalies detected.</p>')
             + '<div class="note">Relative checks: station price vs country average, month-over-month '
-              'price jumps, vehicle volume spikes, off-period dates, off-hours fuelings. '
-              'Tune thresholds in anomaly.py.</div></div>')
+              'price jumps, vehicle volume spikes, per-vehicle price outliers, off-period dates, '
+              'off-hours fuelings. Tune thresholds in anomaly.py.</div></div>')
     # time-of-day distribution (the under-used transactions.time dimension). Wrapped so a
     # failure here cannot break the anomaly page — log and skip the table.
     try:
@@ -3880,6 +3880,27 @@ def anomalies_page():
                        '"unknown".</div></div>')
     except Exception as e:
         _log_exc("anomalies_page time_of_day", e)
+    # per-vehicle fuel cost (the under-used transactions.vehicle dimension). Wrapped so a
+    # failure here cannot break the anomaly page — log and skip the table.
+    try:
+        vcost = anomaly.vehicle_cost_summary(period)
+        if vcost:
+            vtrs = []
+            for v in vcost:
+                litres = format(v["litres"], ",.0f")
+                spend = format(v["spend"], ",.2f")
+                price = format(v["eur_l"], ".3f") if v["eur_l"] is not None else "—"
+                vtrs.append([f"<td>{esc(v['vehicle'])}</td>", f"<td>{esc(v['n_fuellings'])}</td>",
+                             f"<td>{esc(litres)}</td>", f"<td>{esc(spend)}</td>",
+                             f"<td>{esc(price)}</td>"])
+            body += ('<div class="card"><h2>Vehicle fuel cost (NET €/L) — '
+                     f'{esc(period)} (diesel)</h2>'
+                     + tbl(["Vehicle", "Fuellings", "Litres", "Spend €", "NET €/L"], vtrs)
+                     + '<div class="note">NET EUR/L, VAT-excluded. Volume-weighted per '
+                       'vehicle; costliest first. A vehicle systematically high here may '
+                       'point at station choice, card misuse, or the wrong supplier.</div></div>')
+    except Exception as e:
+        _log_exc("anomalies_page vehicle_cost", e)
     return page(body, "ano")
 
 @app.route("/api/recovery")
