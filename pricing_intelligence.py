@@ -17,7 +17,7 @@ Margin baselines (all three):
 A supplier's effective NET = net_eur_eff / qty (rebates already in net_eur_eff,
 VAT excluded). City = the station town on the invoice.
 """
-import os, sqlite3, datetime, statistics
+import os, sqlite3, datetime
 import money
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
@@ -271,10 +271,15 @@ def margin_report(period=None, grain="month", product_group="Diesel"):
         # representative date for the bucket = first day we can reconstruct; use bucket
         sample_date = _bucket_sample_date(g["bucket"], grain)
         my, conf = _my_price_lookup(con, g["country"], g["city"], sample_date, product_group)
-        # pack: average of OTHER suppliers same cell
-        others = [p for (s, p, q) in pack[(g["country"], g["city"], g["bucket"])]
-                  if s != g["supplier"] and p is not None]
-        pack_avg = round(statistics.mean(others), 4) if others else None
+        # pack: VOLUME-WEIGHTED average of OTHER suppliers same cell (FINDINGS #2).
+        # A simple statistics.mean() let a 50 L outlier fill move the pack as much as a
+        # 40,000 L fill — wrong whenever volumes differ. The qty is already carried as
+        # the 3rd element of the pack tuples, so weight by it: Σother_net/Σother_qty,
+        # reconstructing each other's net = price×qty. None when there are no others.
+        others = [(p, q) for (s, p, q) in pack[(g["country"], g["city"], g["bucket"])]
+                  if s != g["supplier"] and p is not None and q]
+        other_qty = sum(q for (p, q) in others)
+        pack_avg = round(sum(p * q for (p, q) in others) / other_qty, 4) if other_qty else None
         # wholesale
         wh = con.execute("""SELECT AVG(net_price) p FROM wholesale_prices
             WHERE country=? AND product_group=? AND substr(date,1,7)=substr(?,1,7)""",

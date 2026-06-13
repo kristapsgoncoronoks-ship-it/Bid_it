@@ -65,3 +65,40 @@ def test_zero_wholesale_is_a_real_margin(pi):
     # wholesale 0.0 is a real index value: margin computed (1.40 - 0.0 = 1.40), not None
     assert be["wholesale"] == 0.0
     assert be["margin_vs_wholesale"] == 1.40
+
+
+def test_pack_avg_is_volume_weighted_not_simple_mean(tmp_path, monkeypatch):
+    """FINDINGS pricing #2: gap_vs_pack must compare against the VOLUME-WEIGHTED mean of
+    the OTHER suppliers in the cell, not statistics.mean(). A tiny 50 L outlier fill must
+    not move the pack as much as a 40,000 L fill. Seed one cell with three suppliers:
+    a target plus two competitors at very different volumes."""
+    import sqlite3, importlib
+    import pricing_intelligence
+    importlib.reload(pricing_intelligence)
+    fuel = str(tmp_path / "fuel_history.db")
+    monkeypatch.setattr(pricing_intelligence, "DB", fuel)
+    monkeypatch.setattr(pricing_intelligence, "BENCHMARK_DB", str(tmp_path / "benchmark.db"))
+    prod = sqlite3.connect(fuel)
+    prod.execute("""CREATE TABLE IF NOT EXISTS transactions (
+        period TEXT, country TEXT, supplier TEXT, station TEXT, date TEXT,
+        product_group TEXT, qty REAL, net_eur_eff REAL)""")
+    prod.executemany(
+        "INSERT INTO transactions (period,country,supplier,station,date,product_group,qty,net_eur_eff)"
+        " VALUES (?,?,?,?,?,?,?,?)", [
+            # target supplier we read gap_vs_pack for
+            ("2026-05", "France", "BP",  "Lille", "2026-05-10", "Diesel",  1000,  1500.0),  # 1.50
+            # two OTHER suppliers at wildly different volumes:
+            ("2026-05", "France", "TFC", "Lille", "2026-05-11", "Diesel",    50,   100.0),  # 2.00 (50 L outlier)
+            ("2026-05", "France", "Q8",  "Lille", "2026-05-12", "Diesel", 40000, 56000.0),  # 1.40 (40,000 L)
+        ])
+    prod.commit(); prod.close()
+
+    rows, _ = pricing_intelligence.margin_report("2026-05", "month", "Diesel")
+    bp = next(r for r in rows if r["supplier"] == "BP")
+    # volume-weighted pack of the OTHERS = (50*2.00 + 40000*1.40) / (50 + 40000)
+    #   = (100 + 56000) / 40050 = 56100/40050 = 1.40075 -> 1.4007 (4dp HALF_EVEN round)
+    # The simple mean would have been (2.00 + 1.40)/2 = 1.70 — and IS WRONG here.
+    assert bp["pack_avg"] == 1.4007
+    assert bp["pack_avg"] != 1.70
+    # gap_vs_pack reflects the weighted pack: 1.50 - 1.4007 = 0.0993
+    assert bp["gap_vs_pack"] == 0.0993
