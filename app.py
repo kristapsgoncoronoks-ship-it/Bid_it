@@ -667,6 +667,7 @@ def DB():
 _backup_lock = threading.Lock()           # in-process guard (fast path)
 _sched_started = False
 BACKUP_CHECK_SECONDS = 300  # how often the scheduler re-checks the schedule
+_CLOSE_LOCK = "close-run"   # must match engine_close.LOCK_NAME
 
 def backup_interval_hours():
     try:
@@ -684,6 +685,21 @@ def run_backup_now():
         if not process_lock.acquire("backup-run", ttl=900, holder=me):
             raise RuntimeError("a backup is already running in another process")
         try:
+            # Defer to an in-progress monthly close: engine_close holds _CLOSE_LOCK
+            # while it WRITES the product DBs (consolidate→build_master→history→…),
+            # and backup.snapshot() copies several DBs + the document store under ONE
+            # MANIFEST. Snapshotting mid-close could capture DB-A post-write and DB-B
+            # pre-write — a torn cross-DB snapshot. Check held_by() (a non-acquiring
+            # peek) in the narrowest window, immediately before snapshot(), and bail.
+            # The close's OWN final backup.snapshot() calls backup directly (not this
+            # helper), so this guard never deadlocks the close. RESIDUAL: the reverse
+            # window — a close STARTING during an already-in-flight backup — is NOT
+            # closed by this advisory check and is accepted: each per-DB sqlite
+            # .backup() is internally consistent and the NEXT scheduled backup is clean.
+            # Full two-phase exclusion (the close yielding to a backup) is out of scope.
+            if process_lock.held_by(_CLOSE_LOCK):
+                raise RuntimeError("a monthly close is in progress — backup deferred "
+                                   "to avoid a torn cross-DB snapshot")
             return backup.snapshot()
         finally:
             process_lock.release("backup-run", me)
@@ -691,8 +707,15 @@ def run_backup_now():
 def _backup_tick():
     """One scheduler iteration: snapshot if a scheduled backup is due. Returns the
     snapshot path if one was taken, else None. Never raises (logs instead)."""
-    import backup, traceback
+    import backup, process_lock, traceback
     try:
+        # A scheduled backup deferred because a monthly close is mid-write is NORMAL,
+        # not an error — skip silently (do NOT log_error) and let the next due tick
+        # snapshot once the close releases _CLOSE_LOCK. (run_backup_now() also guards
+        # this, but there it RAISES so the manual /admin path shows a clear banner;
+        # here we want a quiet no-op rather than a logged "auto-backup" failure.)
+        if process_lock.held_by(_CLOSE_LOCK):
+            return None
         hrs = backup_interval_hours()
         if hrs > 0 and backup.due(hrs):
             path, _ = run_backup_now()
