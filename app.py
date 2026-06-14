@@ -1690,6 +1690,11 @@ def transactions():
               'rebate invoice isn\'t present. Filter by client, supplier, country, location, date.</div></div>')
     return page(body, "txn")
 
+# Established FX deviation threshold: an applied/implied rate ≥2% off the official ECB
+# reference is flagged for review (the period-aggregate trend and the per-invoice
+# verification both use this one convention).
+FX_DEVIATION_PCT = 2.0
+
 @app.route("/fx", methods=["GET", "POST"])
 def fx():
     """Compare each invoice's effective exchange rate (net_local / net_eur) against
@@ -1773,7 +1778,7 @@ def fx():
             eur_at_ecb = money.f2((r["net_local"] or 0) / ecb_rate)
             eur_diff = money.f2((r["net_eur"] or 0) - eur_at_ecb)
             total_diff += eur_diff
-            bad = abs(dev) >= 2.0
+            bad = abs(dev) >= FX_DEVIATION_PCT
             flagged += 1 if bad else 0
             cls = "bad" if bad else "ok"
             ecb_cell = f"<td class=r>{ecb_rate:.5f}</td><td class=note>{esc(ecb_date or '')}</td>"
@@ -1849,6 +1854,59 @@ def fx():
                     'over the market is <span class="bad">increasing</span> (worse) or <span class="ok">'
                     'decreasing</span> (better) vs the previous period — an FX cost control. Filter above to '
                     'compare suppliers/currencies.</div></div>')
+    # ---- Per-invoice ECB verification (owner-directed: rates verified INDEPENDENTLY
+    # per invoice). Reads the OFFICIAL ECB reference frozen on each line at consolidation
+    # (history.ecb_reference -> fx_ecb_rate/date/source) and compares it to the APPLIED
+    # rate at the (supplier, currency, period, date) — invoice/fuelling-day — grain, NOT
+    # the period aggregate above. The 2% threshold is the same FX_DEVIATION_PCT convention.
+    try:
+        vrows = SFX.verify_invoices_fx(period=fper, tolerance=FX_DEVIATION_PCT / 100.0)
+    except Exception as e:
+        # never let the verification read take down /fx — degrade to the empty state
+        _log_exc("fx per-invoice verification", e)
+        vrows = []
+    if fsup: vrows = [v for v in vrows if v["supplier"] == fsup]
+    if fccy: vrows = [v for v in vrows if v["currency"] == fccy]
+    v_flagged = sum(1 for v in vrows if v["flagged"])
+    v_noref = sum(1 for v in vrows if v["no_ref"])
+    v_verified = len(vrows) - v_noref
+    vtrs = []
+    for v in vrows:
+        if v["no_ref"]:
+            ecb_cell = '<td class=r>—</td><td class=note>—</td>'
+            dev_cell = '<td class="note">no ECB reference — load ECB rates</td>'
+            diff_cell = '<td class=r>—</td>'
+        else:
+            cls = "bad" if v["flagged"] else "ok"
+            ecb_cell = (f'<td class=r>{v["ecb_rate"]:.5f}</td>'
+                        f'<td class=note>{esc(v["ecb_date"] or "")}</td>')
+            dev_cell = f'<td class="r {cls}">{v["deviation_pct"]:+.2f}%</td>'
+            diff_cell = f'<td class="r {cls}">{money.f2(v["eur_diff"]):+,.2f}</td>'
+        vtrs.append([
+            f"<td>{esc(v['supplier'])}</td><td>{esc(v['currency'])}</td>"
+            f"<td>{esc(v['period'])}</td><td class=note>{esc(v['date'] or '')}</td>"
+            f"<td class=r>{v['lines']}</td>",
+            f"<td class=r>{(v['net_local'] or 0):,.2f}</td>"
+            f"<td class=r>{(v['net_eur'] or 0):,.2f}</td>",
+            f"<td class=r><b>{v['applied_rate']:.5f}</b></td>" + ecb_cell + dev_cell + diff_cell])
+    verify_card = (
+        '<div class="card"><h2>Per-invoice ECB verification</h2>'
+        + f'<div class="kpis"><div class="kpi"><div class="v">{v_verified}</div>'
+          '<div class="l">invoices verified vs ECB</div></div>'
+        + f'<div class="kpi"><div class="v {"bad" if v_flagged else "ok"}">{v_flagged}</div>'
+          f'<div class="l">flagged ≥{FX_DEVIATION_PCT:g}% off ECB</div></div>'
+        + f'<div class="kpi"><div class="v {"bad" if v_noref else ""}">{v_noref}</div>'
+          '<div class="l">without an ECB reference</div></div></div>'
+        + (tbl(["Supplier", "Ccy", "Period", "Date", "Lines", "Net local", "Net EUR",
+                "Applied rate", "ECB rate", "ECB date", "Deviation", "EUR diff"], vtrs)
+           if vtrs else '<p class="note">No non-EUR invoices to verify for this selection.</p>')
+        + '<div class="note">INDEPENDENT verification: each invoice/fuelling-day is checked '
+          'against the <b>official ECB reference rate frozen on its own lines</b> at '
+          'consolidation (<code>fx_ecb_rate</code>/<code>fx_ecb_date</code>), not a single '
+          'period rate. <b>Applied rate</b> = net_local ÷ net_eur. Deviation ≥ '
+          f'{FX_DEVIATION_PCT:g}% is flagged. Lines with <b>no ECB reference</b> show '
+          '"load ECB rates" rather than a false pass — backfill ECB history above so a rate '
+          'exists for every transaction date. Amounts NET EUR, final.</div></div>')
     body = (banner
             + f'<div class="f" style="margin-bottom:12px;align-items:center;gap:8px">{refresh}{backfill}{upload}'
             + (('<span class="note" style="align-self:center">No rates cached yet — '
@@ -1858,6 +1916,7 @@ def fx():
             + head
             + filt
             + trend_card
+            + verify_card
             + ccy_card
             + '<div class="card"><h2>Invoice exchange rate vs ECB reference rate</h2>'
             + tbl(["Supplier", "Ccy", "Period", "Net local", "Net EUR", "Invoice rate",

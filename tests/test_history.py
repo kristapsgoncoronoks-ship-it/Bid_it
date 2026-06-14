@@ -21,6 +21,7 @@ WORKDIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, WORKDIR)
 
 import consolidate  # noqa: E402
+import ecb_rates  # noqa: E402
 import history  # noqa: E402
 
 PERIOD = "2099-07"
@@ -106,6 +107,96 @@ def test_fx_rate_helper_null_guards():
     assert history.fx_rate(100.0, None) is None        # NULL EUR basis
     assert abs(history.fx_rate(427.0, 100.0) - 4.27) < 1e-12
     assert history.fx_rate(450.0, 450.0) == 1.0        # EUR-native
+
+
+# ---------------------------------------------------------------------------
+# Official ECB reference per line (owner-directed independent verification):
+# fx_ecb_rate / fx_ecb_date / fx_source frozen on each line at consolidation.
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def loaded_with_ecb(tmp_path, monkeypatch):
+    """As `loaded`, but with a SEEDED ecb_rates.db so the non-EUR line gets a covered
+    'ecb' reference. Seeds PLN 4.27 on/before the BP line's date (2026-05-10)."""
+    ecb_db = str(tmp_path / "ecb_rates.db")
+    monkeypatch.setattr(ecb_rates, "DB", ecb_db, raising=True)
+    ecb_rates.store([("2026-05-09", "PLN", 4.27)], source="test seed")
+
+    pkl = str(tmp_path / "consolidated_rows.pkl")
+    consolidate._dump_pickle(_rows(), PERIOD, path=pkl)
+    real = consolidate.load_rows
+    monkeypatch.setattr(consolidate, "load_rows",
+                        lambda period, path=pkl: real(period, path=path))
+    hist_db = str(tmp_path / "fuel_history.db")
+    monkeypatch.setattr(history, "DB", hist_db, raising=True)
+    history.load(PERIOD)
+    return hist_db
+
+
+def _fetch_ecb(db, supplier):
+    con = sqlite3.connect(db)
+    try:
+        return con.execute(
+            "SELECT net_eur, fx_rate, fx_ecb_rate, fx_ecb_date, fx_source "
+            "FROM transactions WHERE period=? AND supplier=?", (PERIOD, supplier)).fetchone()
+    finally:
+        con.close()
+
+
+def test_ecb_reference_columns_exist(loaded_with_ecb):
+    con = sqlite3.connect(loaded_with_ecb)
+    try:
+        cols = {r[1] for r in con.execute("PRAGMA table_info(transactions)")}
+    finally:
+        con.close()
+    assert {"fx_ecb_rate", "fx_ecb_date", "fx_source"} <= cols, cols
+
+
+def test_covered_non_eur_line_stores_ecb_reference(loaded_with_ecb):
+    net_eur, fx, ecb_rate, ecb_date, src = _fetch_ecb(loaded_with_ecb, "BP")
+    assert src == "ecb"
+    assert abs(ecb_rate - 4.27) < 1e-12, ecb_rate
+    assert ecb_date == "2026-05-09"           # rate on/before the line's 2026-05-10 date
+    # figures are UNCHANGED — net_eur still produced by the APPLIED rate, not the ECB one
+    assert net_eur == 1000.0
+
+
+def test_eur_line_reference_is_one_eur_source(loaded_with_ecb):
+    net_eur, fx, ecb_rate, ecb_date, src = _fetch_ecb(loaded_with_ecb, "TFC")
+    assert src == "eur"
+    assert ecb_rate == 1.0
+    assert ecb_date == "2026-05-11"           # the line's own date, no lookup
+
+
+def test_uncovered_non_eur_line_stores_none_not_false_pass(loaded):
+    # `loaded` has NO seeded ecb_rates.db -> rate_for returns (None,None) for PLN.
+    net_eur, fx, ecb_rate, ecb_date, src = _fetch_ecb(loaded, "BP")
+    assert src == "none"
+    assert ecb_rate is None and ecb_date is None   # NULL, not a fabricated pass
+    # the applied rate still stands (figures unchanged)
+    assert fx is not None and net_eur == 1000.0
+
+
+def test_ecb_reference_helper_memoizes_and_never_raises(monkeypatch):
+    calls = []
+
+    def fake_rate_for(ccy, on):
+        calls.append((ccy, on))
+        return (4.30, "2026-05-30")
+
+    monkeypatch.setattr(history.ecb_rates, "rate_for", fake_rate_for)
+    cache = {}
+    a = history.ecb_reference("PLN", "2026-05-31", cache)
+    b = history.ecb_reference("PLN", "2026-05-31", cache)   # memoized -> no 2nd call
+    assert a == b == (4.30, "2026-05-30", "ecb")
+    assert len(calls) == 1, calls
+    # EUR short-circuits without a lookup
+    assert history.ecb_reference("EUR", "2026-05-31") == (1.0, "2026-05-31", "eur")
+
+    # a raising rate_for is swallowed -> treated as no coverage
+    def boom(ccy, on):
+        raise RuntimeError("db gone")
+    monkeypatch.setattr(history.ecb_rates, "rate_for", boom)
+    assert history.ecb_reference("SEK", "2026-05-31") == (None, None, "none")
 
 
 def test_figures_unchanged_and_migration_idempotent(loaded):

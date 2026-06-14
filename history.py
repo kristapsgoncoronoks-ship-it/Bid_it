@@ -20,6 +20,8 @@ import db_migrate
 import money
 import consolidate
 import month_config
+import ecb_rates
+import applog
 from openpyxl import Workbook
 from openpyxl.chart import LineChart, Reference
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -39,7 +41,49 @@ _MIGR = [
     # consolidation so a historical claim's EUR is traceable to a stored rate even if FX
     # sources change later. Convention = foreign units per 1 EUR (ECB, = net_local/net_eur).
     "ALTER TABLE transactions ADD COLUMN fx_rate REAL",
+    # owner-directed compliance: ECB rates must be VERIFIED INDEPENDENTLY per invoice.
+    # Freeze the OFFICIAL ECB reference rate (and its as-of date + provenance) alongside
+    # the APPLIED rate, so an auditor can compare each line against the market rate for
+    # that line's date even if the ECB cache changes later. Purely additive — net_*/vat_*
+    # and fx_rate are UNCHANGED. fx_source: 'eur' (EUR line, rate 1.0), 'ecb' (a covered
+    # reference was found), 'none' (no ECB coverage — applied rate stands, but no official
+    # reference exists to verify against, so we store NULL rather than a false pass).
+    "ALTER TABLE transactions ADD COLUMN fx_ecb_rate REAL",
+    "ALTER TABLE transactions ADD COLUMN fx_ecb_date TEXT",
+    "ALTER TABLE transactions ADD COLUMN fx_source TEXT",
 ]
+
+log = applog.get("history")
+
+
+def ecb_reference(currency, date, _cache=None):
+    """Official ECB reference for one line: return (ecb_rate, ecb_date, fx_source).
+
+    Convention (matches ecb_rates / the applied rate): foreign units per 1 EUR.
+      - EUR line             -> (1.0, date, "eur")    (trivially the base, no lookup).
+      - non-EUR, covered     -> (rate, asof, "ecb")   (the official rate on/before date).
+      - non-EUR, no coverage -> (None, None, "none")  (no ecb_rates.db / no rate for that
+        date — the APPLIED rate stands, but there is NO official reference to verify it
+        against, so we store NULL rather than fabricate a false pass).
+
+    This is a LOCAL read (ecb_rates.rate_for); it NEVER raises and NEVER hits the network
+    — a lookup error is logged and treated as no coverage so the engine close cannot break
+    on FX. Pass a dict as `_cache` to MEMOIZE per (currency, date) across many lines.
+    """
+    if not currency or currency == "EUR":
+        return (1.0, date, "eur")
+    key = (currency, date)
+    if _cache is not None and key in _cache:
+        return _cache[key]
+    try:
+        rate, asof = ecb_rates.rate_for(currency, date)
+    except Exception as e:  # noqa: BLE001 - a local read; on any failure treat as no coverage
+        log.warning("ECB reference lookup failed for %s/%s: %s", currency, date, e)
+        rate, asof = None, None
+    res = (rate, asof, "ecb") if rate else (None, None, "none")
+    if _cache is not None:
+        _cache[key] = res
+    return res
 
 
 def fx_rate(net_local, net_eur, currency=None):
@@ -120,12 +164,21 @@ CREATE VIEW IF NOT EXISTS v_station_month AS
     db_migrate.apply(con, "history", _MIGR)
 
     con.execute("DELETE FROM transactions WHERE period=?", (period,))
-    # Persist the APPLIED FX rate per line alongside the figures (additive — net_*/vat_*
-    # are written unchanged). net_local idx 11, net_eur idx 14, currency idx 10 in FIELDS.
+    # Persist the APPLIED FX rate AND the official ECB reference per line alongside the
+    # figures (additive — net_*/vat_* are written UNCHANGED). date idx 4, currency idx 10,
+    # net_local idx 11, net_eur idx 14 in FIELDS. The ECB reference is MEMOIZED per
+    # (currency, date) so ~690 lines don't do 690 local DB reads — most share a handful of
+    # (ccy, date) keys per period. ecb_reference is a local read that never raises.
+    _ecb_cache = {}
+    def _row(r):
+        ecb_rate, ecb_date, src = ecb_reference(r[10], r[4], _ecb_cache)
+        return ([period] + list(r)
+                + [fx_rate(r[11], r[14], r[10]), ecb_rate, ecb_date, src])
     con.executemany(
-        f"INSERT INTO transactions (period,{','.join(FIELDS)},fx_rate) "
-        f"VALUES ({','.join('?'*19)},?)",
-        [[period]+list(r)+[fx_rate(r[11], r[14], r[10])] for r in ROWS])
+        f"INSERT INTO transactions (period,{','.join(FIELDS)},"
+        f"fx_rate,fx_ecb_rate,fx_ecb_date,fx_source) "
+        f"VALUES ({','.join('?'*19)},?,?,?,?)",
+        [_row(r) for r in ROWS])
     con.commit()
     periods = [p[0] for p in con.execute("SELECT DISTINCT period FROM transactions ORDER BY period")]
     n = con.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]

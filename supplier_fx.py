@@ -62,6 +62,73 @@ def implied_vs_ecb(net_local, net_eur, currency, last_date):
     return implied, ecb_rate, ecb_date, dev, eur_diff
 
 
+def verify_invoices_fx(period=None, tolerance=0.02):
+    """INDEPENDENT per-invoice ECB verification (owner-directed compliance): for each
+    invoice/line segment compare the APPLIED rate (the stored fx_rate = net_local/net_eur)
+    against the OFFICIAL ECB reference frozen on that line (fx_ecb_rate, fx_ecb_date,
+    fx_source — written per line at consolidation by history.ecb_reference). Reads the
+    STORED reference columns (no per-render rate_for); falls back to a live lookup ONLY for
+    a line missing a stored reference (e.g. loaded before this column existed).
+
+    Granularity is per (supplier, currency, period, date) — invoice/fuelling-day level, NOT
+    the period aggregate the /fx page already shows. EUR lines (rate 1.0) are trivially OK
+    and excluded. Returns a list of dicts sorted worst-deviation first:
+      supplier, currency, period, date, lines, net_local, net_eur, applied_rate, ecb_rate,
+      ecb_date, fx_source, deviation_pct, eur_diff, flagged (|dev| >= tolerance), no_ref
+      (True when there is NO ECB reference to verify against — reported, never a false pass).
+
+    `tolerance` is a FRACTION (0.02 = the established 2% threshold); deviation_pct is in
+    percent. The deviation/eur_diff math mirrors implied_vs_ecb()'s convention (computed
+    inline here because this path reads the STORED per-line ECB reference rather than
+    looking it up per row)."""
+    con = connect()
+    has_cols = {r["name"] for r in con.execute("PRAGMA table_info(transactions)")}
+    if "fx_ecb_rate" not in has_cols:
+        con.close()
+        return []
+    where = "currency<>'EUR' AND currency IS NOT NULL"
+    args = []
+    if period:
+        where += " AND period=?"; args.append(period)
+    rows = con.execute(f"""SELECT supplier, currency, period, date,
+            COUNT(*) lines, SUM(net_local) net_local, SUM(net_eur) net_eur,
+            MAX(fx_ecb_rate) fx_ecb_rate, MAX(fx_ecb_date) fx_ecb_date,
+            MAX(fx_source) fx_source
+            FROM transactions WHERE {where}
+            GROUP BY supplier, currency, period, date""", args).fetchall()
+    con.close()
+    out = []
+    for r in rows:
+        nl, ne = r["net_local"], r["net_eur"]
+        if not ne:
+            continue
+        applied = nl / ne                              # full precision, = the stored fx_rate
+        ecb_rate = r["fx_ecb_rate"]
+        ecb_date = r["fx_ecb_date"]
+        src = r["fx_source"]
+        # Fall back to a live lookup for a line that predates the stored reference column.
+        if ecb_rate is None and src is None:
+            ecb_rate, ecb_date = ecb_rates.rate_for(r["currency"], r["date"])
+            src = "ecb" if ecb_rate else "none"
+        if ecb_rate:
+            dev = (applied - ecb_rate) / ecb_rate * 100
+            eur_diff = ne - nl / ecb_rate
+            flagged = abs(dev) >= tolerance * 100
+            no_ref = False
+        else:
+            dev = eur_diff = None
+            flagged = False
+            no_ref = True                              # no official reference -> NOT a pass
+        out.append({"supplier": r["supplier"], "currency": r["currency"],
+                    "period": r["period"], "date": r["date"], "lines": r["lines"],
+                    "net_local": nl, "net_eur": ne, "applied_rate": applied,
+                    "ecb_rate": ecb_rate, "ecb_date": ecb_date, "fx_source": src,
+                    "deviation_pct": dev, "eur_diff": eur_diff,
+                    "flagged": flagged, "no_ref": no_ref})
+    out.sort(key=lambda x: -abs(x["deviation_pct"]) if x["deviation_pct"] is not None else 1)
+    return out
+
+
 def analysis_from_rows(rows, fields=None):
     """Per (supplier, currency) FX analysis straight from canonical ROW tuples (the
     consolidate pickle / build_master), with NO DB dependency — so the master workbook

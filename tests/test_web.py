@@ -50,6 +50,17 @@ def test_export_history_200_when_file_absent(client, monkeypatch, tmp_path):
     assert "history.py" in body
 
 
+def test_fx_per_invoice_verification_section(client):
+    """The /fx page carries the per-invoice ECB verification section. With no
+    ecb_rates.db in this env, non-EUR invoices show the 'load ECB rates' no-reference
+    state rather than a false pass, and the page still renders 200."""
+    body = client.get("/fx").get_data(as_text=True)
+    assert "Per-invoice ECB verification" in body
+    assert "without an ECB reference" in body          # the summary KPI
+    # honest no-coverage state for the demo (no ecb_rates.db seeded here)
+    assert "no ECB reference" in body
+
+
 def test_csrf_rejects_tokenless_post(client):
     # The `client` fixture logs in via the CSRF-exempt /login, which does NOT seed
     # session["_csrf"]; this session has never rendered a form, so a state-changing
