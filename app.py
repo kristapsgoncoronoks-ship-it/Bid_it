@@ -1210,19 +1210,22 @@ def _worklist_card(year):
         sev = "bad" if c.get("code") != "1B" else ""     # 1B is just waiting for period end
         items.append((sev, f"Unblock {esc(c['entity'])} · {esc(c['country'])} "
                       f"{esc(c['period'])} — {esc(why)}", "/readiness"))
-        # filing deadline approaching while the claim is still not submitted
-        dd = c.get("deadline_days")
-        if isinstance(dd, int) and dd <= 90:
-            items.append(("bad", f"Deadline {esc(c.get('deadline',''))} ({dd}d) for "
-                          f"{esc(c['entity'])} · {esc(c['country'])} {esc(c['period'])} — "
+    # filing/response deadlines at risk — from the single source of truth, so PRIOR-YEAR
+    # periods (whose 30-Sep deadline lands THIS year) surface regardless of which year's
+    # period the dashboard is currently displaying. Distinct from the Submit/Unblock
+    # readiness lines above (those describe readiness, not the statutory clock).
+    for d in VR.approaching_deadlines(within_days=90):
+        when = (f"OVERDUE by {-d['days_left']}d" if d.get("overdue")
+                else f"{d['days_left']}d left")
+        if d.get("kind") == "filing":
+            items.append(("bad", f"Deadline {esc(d.get('deadline', ''))} ({esc(when)}) for "
+                          f"{esc(d['entity'])} · {esc(d['country'])} {esc(d['period'])} — "
                           "not submitted yet", "/readiness"))
-    # open document requests (2B) / appeals (3D) with their response deadlines
-    for c in ov.get("open", []):
-        if c.get("code") in ("2B", "3D") :
-            what = "document request" if c.get("code") == "2B" else "appeal"
-            dl = f" — respond by {esc(c['action_deadline'])}" if c.get("action_deadline") else ""
-            items.append(("bad", f"Answer {what} for {esc(c['entity'])} · {esc(c['country'])} "
-                          f"{esc(c['period'])}{dl}", "/vat"))
+        else:
+            what = "document request" if d.get("code") == "2B" else "appeal"
+            items.append(("bad", f"Answer {esc(what)} for {esc(d['entity'])} · "
+                          f"{esc(d['country'])} {esc(d['period'])} — deadline "
+                          f"{esc(d.get('deadline', ''))} ({esc(when)})", "/vat"))
     for r in recs:
         if r["status"] in ("submitted", "approved") and isinstance(r["age_days"], int) \
            and r["age_days"] >= _AGING_DAYS:

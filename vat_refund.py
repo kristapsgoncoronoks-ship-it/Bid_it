@@ -975,6 +975,77 @@ def filing_deadline(period):
     import datetime
     return datetime.date(int(str(period)[:4]) + 1, 9, 30)
 
+def approaching_deadlines(within_days=60, today=None):
+    """Single source of truth for "what VAT deadline is at risk", READ-ONLY.
+
+    The statutory 2008/9/EC filing deadline for a period in year Y is 30-Sep of Y+1
+    (`filing_deadline`); missing it forfeits the whole refund. To surface the genuinely
+    urgent claims we must scan BOTH the years whose deadline can be live or just-missed
+    relative to `today`: a period in year Y deadlines on 30-Sep Y+1, so
+    `{today.year, today.year - 1}` is a tight, exhaustive bound — year-1 covers THIS
+    year's 30-Sep deadlines (last year's periods, the easy-to-miss ones), year covers
+    next year's (this year's periods). Both are read via `claims_overview(year)`.
+
+    Returns a list of dicts, most urgent first (smallest/most-negative `days_left`):
+      filing item: {kind:"filing", entity, country, period, vat_eur, deadline,
+                    days_left, overdue, ready, issues}
+      action item: {kind:"action", entity, country, period, code, deadline,
+                    days_left, overdue}
+    NEVER raises — any error returns [] (logged). Callers format EUR (money.f2)."""
+    import datetime
+    try:
+        today = today or datetime.date.today()
+        seen = set()          # dedup on (kind, entity, country, period, code)
+        out = []
+        for yr in {today.year, today.year - 1}:
+            try:
+                ov = claims_overview(yr)
+            except Exception as e:
+                log.warning("approaching_deadlines: claims_overview(%s) failed: %s", yr, e)
+                continue
+            # FILING risk: a claimable, not-yet-submitted period with VAT to recover whose
+            # 30-Sep deadline is within the window (including already overdue, days < 0).
+            for c in ov.get("to_submit", []):
+                dd = c.get("deadline_days")
+                if (c.get("vat_eur") or 0) > 0 and isinstance(dd, int) and dd <= within_days:
+                    key = ("filing", c.get("entity"), c.get("country"), c.get("period"), None)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    out.append(dict(kind="filing", entity=c.get("entity"),
+                                    country=c.get("country"), period=c.get("period"),
+                                    vat_eur=c.get("vat_eur"), deadline=c.get("deadline"),
+                                    days_left=dd, overdue=(dd < 0),
+                                    ready=c.get("ready"), issues=c.get("issues") or []))
+            # ACTION risk: an open document request (2B) or appeal (3D) whose response
+            # deadline is within the window.
+            for c in ov.get("open", []):
+                if c.get("code") not in ("2B", "3D"):
+                    continue
+                ad = c.get("action_deadline")
+                if not ad:
+                    continue
+                try:
+                    days_left = (datetime.date.fromisoformat(str(ad)) - today).days
+                except ValueError as e:
+                    log.debug("approaching_deadlines: unparseable action_deadline %r: %s", ad, e)
+                    continue
+                if days_left > within_days:
+                    continue
+                key = ("action", c.get("entity"), c.get("country"), c.get("period"), c.get("code"))
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(dict(kind="action", entity=c.get("entity"),
+                                country=c.get("country"), period=c.get("period"),
+                                code=c.get("code"), deadline=ad, days_left=days_left,
+                                overdue=(days_left < 0)))
+        out.sort(key=lambda d: d["days_left"])
+        return out
+    except Exception as e:
+        log.warning("approaching_deadlines failed: %s", e)
+        return []
+
 def suggested_next(code, payout_to=None):
     """The recommended next manual step after `code` (None if terminal/no suggestion).
     After the money arrives (3A) the route decides: refund to customer → 4 invoice the

@@ -71,6 +71,29 @@ def _digest_sections(year=None):
     except Exception as e:
         log.warning("digest: claims section failed: %s", e)
 
+    # filing/response deadlines at risk — the highest-urgency signal (missing the
+    # statutory 30-Sep filing deadline forfeits the entire refund). Single source of
+    # truth = vat_refund.approaching_deadlines.
+    try:
+        import vat_refund as VR
+        lines = []
+        for d in VR.approaching_deadlines(within_days=60):
+            dl = d.get("deadline")
+            when = (f"OVERDUE by {-d['days_left']}d" if d.get("overdue")
+                    else f"{d['days_left']}d left")
+            if d.get("kind") == "filing":
+                lines.append(f"FILE {d['entity']} · {d['country']} {d['period']} — "
+                             f"€{money.f2(d.get('vat_eur') or 0):,.2f} VAT, deadline "
+                             f"{dl} ({when})")
+            else:
+                what = "document request" if d.get("code") == "2B" else "appeal"
+                lines.append(f"RESPOND ({what}) {d['entity']} · {d['country']} "
+                             f"{d['period']} — deadline {dl} ({when})")
+        if lines:
+            sections.append(("Filing deadlines approaching", lines))
+    except Exception as e:
+        log.warning("digest: filing-deadlines section failed: %s", e)
+
     # customer documents expired / expiring soon.
     try:
         import customer_master as CM
