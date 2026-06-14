@@ -319,8 +319,12 @@ def test_worklist_card_actions(monkeypatch):
 def test_worklist_card_empty(monkeypatch):
     import app as A
     import vat_refund as VR
+    import invoice_control as IC
     monkeypatch.setattr(VR, "claims_overview", lambda y: {"to_submit": [], "open": []})
     monkeypatch.setattr(VR, "recovery_report", lambda y: ([], {}))
+    # the register-failure reconcile reads the real demo vault — stub it empty so
+    # this "nothing outstanding" path is isolated to the claim sources under test.
+    monkeypatch.setattr(IC, "unregistered_vaulted_documents", lambda: [])
     assert "Nothing outstanding" in A._worklist_card(2026)
 
 

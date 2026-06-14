@@ -324,3 +324,64 @@ def reconcile_statements(period):
                             net=L["net"], vat=L["vat"], verdict=verdict, action=action))
     scon.close(); fcon.close()
     return out
+
+
+def unregistered_vaulted_documents():
+    """Register-failure reconcile (D4 split-brain): vaulted documents with NO
+    registered invoice.
+
+    On statement confirm the source PDFs are attached to the document vault
+    IN-REQUEST (invoice_documents in vat_claims.db), but the registry WRITE to
+    suppliers.db is ENQUEUED to the engine worker (kind='register'). If that
+    register job fails / is held / is discarded, the documents are vaulted but the
+    invoices are NEVER registered — an orphaned document nothing flags directly.
+    This is an ADDITIVE, read-only reconcile sweep that surfaces those orphans.
+
+    Basis: the orphan signal is checked against `statement_invoices` (the COMPLETE
+    registry written for EVERY statement line, incl. vat=0), NOT `supplier_invoices`
+    (only the vat>0 subset is auto-synced there) — otherwise every legitimately
+    vaulted vat=0 invoice would false-positive.
+
+    Key match: exact `(supplier, invoice_ref)` vs `(supplier, invoice_no)`, the
+    SAME comparison `reconcile_statements`/`run_control` use (no normalization
+    invented here).
+
+    Pure and never-raises: returns [] on any error (logged via the module logger).
+
+    Returns a list of dicts, one per orphaned (supplier, invoice_ref):
+        {"supplier": str, "invoice_ref": str, "entity": str | None,
+         "n_docs": int, "filename": str | None}
+    where entity/filename are taken from one representative vaulted row and n_docs
+    is the count of vaulted document rows for that (supplier, invoice_ref).
+    """
+    import supplier_master, vat_refund
+    scon = fcon = None
+    try:
+        fcon = vat_refund.connect()
+        # all vaulted docs, grouped to one row per (supplier, invoice_ref) with a
+        # doc count and one representative entity/filename to action it.
+        vaulted = {}
+        for d in fcon.execute("""SELECT supplier, invoice_ref, entity, filename
+                                 FROM invoice_documents"""):
+            key = (d["supplier"], d["invoice_ref"])
+            v = vaulted.get(key)
+            if v is None:
+                vaulted[key] = dict(supplier=d["supplier"], invoice_ref=d["invoice_ref"],
+                                    entity=d["entity"], filename=d["filename"], n_docs=1)
+            else:
+                v["n_docs"] += 1
+                # backfill a representative entity/filename if the first row lacked one
+                v["entity"] = v["entity"] or d["entity"]
+                v["filename"] = v["filename"] or d["filename"]
+        scon = supplier_master.connect()
+        registered = {(r["supplier"], r["invoice_no"]) for r in
+                      scon.execute("SELECT supplier, invoice_no FROM statement_invoices")}
+        return [v for key, v in vaulted.items() if key not in registered]
+    except Exception as e:
+        log.warning("unregistered_vaulted_documents reconcile failed: %s", e)
+        return []
+    finally:
+        if fcon is not None:
+            fcon.close()
+        if scon is not None:
+            scon.close()

@@ -1278,6 +1278,28 @@ def _worklist_card(year):
                           "/queue"))
     except Exception as e:
         _log_exc("worklist intake stuck", e)
+    # register-failure split-brain (D4): a statement's source PDFs are vaulted IN-REQUEST
+    # but the registry write is enqueued (kind='register'); if that job failed/was lost the
+    # documents sit vaulted with no registered invoice and nothing flags them. Surface both
+    # the doc-orphan reconcile AND the failed/held register JOB as distinct signals.
+    try:
+        import invoice_control as _ic
+        orphans = _ic.unregistered_vaulted_documents()
+        if orphans:
+            items.append(("bad", f"{len(orphans)} vaulted document(s) have no registered "
+                          f"invoice — registration may have failed", "/imports"))
+    except Exception as e:
+        _log_exc("worklist unregistered docs", e)
+    try:
+        import waiting_room as _wr
+        bad = {"failed", "held"}
+        reg_failed = sum(1 for j in _wr.jobs()
+                         if (j.get("kind") == _wr.KIND_REGISTER) and j.get("status") in bad)
+        if reg_failed:
+            items.append(("bad", f"{reg_failed} statement registration job(s) failed/held "
+                          f"— invoices not registered", "/queue"))
+    except Exception as e:
+        _log_exc("worklist register jobs", e)
     if not items:
         return ('<div class="card"><h2>What needs action</h2>'
                 '<p class="note">Nothing outstanding — all claims are submitted, '
@@ -3134,6 +3156,21 @@ def invoice_ctrl():
                   + '<div class="note">VAT &gt; 0 -> PROCESS (original required, feeds the refund claim). '
                     'VAT = 0 -> DISCARD (archive only). VAT-bearing lines auto-register so the VAT module '
                     'and receipt control see them.</div></div>') if stmts else "")
+    # register-failure reconcile (D4): documents vaulted in-request whose registry write
+    # (enqueued kind='register') never landed — surfaced here read-only so they can be
+    # re-registered. Basis = statement_invoices (the complete registry, incl. vat=0).
+    orphan_docs = invoice_control.unregistered_vaulted_documents()
+    od_trs = [[f"<td>{esc(o['supplier'])}</td><td>{esc(o['invoice_ref'])}</td>",
+               f"<td>{esc(o.get('entity') or '—')}</td><td class=r>{o['n_docs']}</td>"]
+              for o in orphan_docs]
+    orphan_html = (('<div class="card"><h2><span class="bad">Vaulted documents with no '
+                    'registered invoice</span></h2>'
+                    + tbl(["Supplier", "Invoice", "Entity", "#docs"], od_trs)
+                    + '<div class="note">These source PDFs are in the document vault but their '
+                      'invoices are NOT in the statement registry — the registration job likely '
+                      'failed or was lost (check the intake queue). Re-register the statement to '
+                      'link them. Read-only reconcile against statement_invoices.</div></div>')
+                   if orphan_docs else "")
     reg_form = ('<div class="card"><h2>Register a summary statement</h2>'
                 f'<form method="post" action="/invoices?period={esc(period)}">'
                 + _csrf_input() +
@@ -3147,7 +3184,7 @@ def invoice_ctrl():
                 '<textarea name="lines" rows="5" style="width:100%" '
                 'placeholder="BEOI00118939; 2026-05-31; Belgium; EUR; 37955.70; 7970.70"></textarea>'
                 '<div style="margin-top:8px"><button>Register statement</button></div></form></div>')
-    body = (banner + stmt_html + reg_form + f'<form class="f" method="get"><label>Period (YYYY-MM)'
+    body = (banner + stmt_html + orphan_html + reg_form + f'<form class="f" method="get"><label>Period (YYYY-MM)'
             f'<input name="period" value="{esc(period)}"></label><button>Run control</button></form>'
             f'<div class="card"><h2>Invoice receipt control — {esc(period)}: '
             + (f'<span class="bad">{miss} missing to chase</span>' if miss else '<span class="ok">complete</span>')
