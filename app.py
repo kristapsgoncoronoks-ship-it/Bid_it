@@ -3756,11 +3756,12 @@ def _portals_card():
             '</details>')
     note = ('<div class="note">Pulls each entity\'s own NET prices from its authorized supplier '
             'portal into <b>MY Prices</b> (source <code>portal:&lt;SUPPLIER&gt;</code>), so the '
-            'benchmark stays current without manual CSV uploads. Credentials are encrypted at rest; '
-            'use only portals you are authorized to access. Live portals need outbound network — on a '
-            'locked-down box, scrape from a connected machine or keep using CSV upload. '
-            'Run on a schedule with <kbd>python portal_scraper.py --scrape &lt;SUP&gt; &lt;ENT&gt;</kbd> '
-            'via cron/Task Scheduler.</div>')
+            'benchmark stays current without manual CSV uploads. <b>Scrape now</b> does not run in '
+            'the request — it <b>queues a fetch on the worker tier</b> (per-supplier rate-limited '
+            'with a circuit-breaker); watch the <b>Last run</b> column / the intake queue for the '
+            'result. Credentials are encrypted at rest; use only portals you are authorized to '
+            'access. Live portals need outbound network — on a locked-down box, run the worker on a '
+            'connected machine or keep using CSV upload.</div>')
     return ('<div class="card"><h2>Client portal price scraping</h2>' + table + admin_forms + note + '</div>')
 
 @app.route("/pricing/market", methods=["POST"])
@@ -3789,14 +3790,19 @@ def pricing_portal():
     banner = ""
     try:
         if act == "scrape":
-            res = PS.scrape(request.form["supplier"].strip(),
-                            request.form.get("entity", "").strip(),
-                            request.form.get("date_from") or None,
-                            request.form.get("date_to") or None)
-            banner = (f'<div class="card"><b class="ok">Scraped {esc(res["supplier"])}: '
-                      f'loaded {res["loaded"]} price row(s) into MY Prices '
-                      f'(from {res["fetched"]} fetched). The grid &amp; margin columns now '
-                      f'reflect them.</b></div>')
+            # NEVER fetch inline in the request — park a fileless FETCH job on the worker
+            # tier, where the per-supplier rate-limiter/breaker governs it. The request
+            # MUST NOT block on the fetch or call PS.scrape itself.
+            import waiting_room as IQ
+            supplier = request.form["supplier"].strip()
+            entity = request.form.get("entity", "").strip()
+            date_from = request.form.get("date_from") or None
+            date_to = request.form.get("date_to") or None
+            jid, st = IQ.enqueue_fetch(supplier, entity, date_from, date_to,
+                                       session.get("user", "system"))
+            banner = (f'<div class="card"><b class="ok">Fetch queued for {esc(supplier)} / '
+                      f'{esc(entity or "—")} — it runs on the worker tier (rate-limited); '
+                      f'watch the portal Last-run column / the intake queue.</b></div>')
         elif act == "save_config" and is_admin:
             cfg_raw = request.form.get("config", "").strip() or "{}"
             import json as _json

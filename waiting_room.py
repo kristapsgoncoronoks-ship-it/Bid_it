@@ -156,6 +156,12 @@ KIND_REGISTER = "register"
 # the request never runs the close inline nor holds a writable engine-owned product-DB
 # handle. engine_close's own "close-run" process_lock serialises actual execution.
 KIND_CLOSE = "close"
+# A supplier-portal FETCH job (automated-capture flagship): carries NO inbox bytes, just
+# the supplier/entity/date-window to pull. The web request ENQUEUES this; the worker calls
+# portal_scraper.scrape OFF the request so a fetch never runs inline in a web request. The
+# job's `backend` is the SUPPLIER, so the per-supplier rate-limiter/breaker governs CLAIM
+# eligibility and the worker records each outcome via record_outcome to drive the breaker.
+KIND_FETCH = "fetch"
 
 
 # ---------------------------------------------------------------- inbox files
@@ -300,6 +306,50 @@ def enqueue_close(period, user="system"):
         VALUES (?,?,?,?,?,?, 'queued', ?, ?)""",
         (sha, f"monthly close {period}", 0, None, period,
          user, KIND_CLOSE, body))
+    con.commit()
+    jid = cur.lastrowid
+    con.close()
+    return jid, "queued"
+
+
+def enqueue_fetch(supplier, entity, date_from=None, date_to=None, user="system"):
+    """Enqueue a supplier-portal FETCH job (automated-capture flagship). The web request
+    does NO fetching itself — it only parks this fileless job; the engine worker dispatches
+    on kind='fetch' and calls portal_scraper.scrape OFF the web request, so a fetch never
+    runs inline in a web request and the per-supplier rate-limiter/breaker governs it.
+
+    `backend` is set to the SUPPLIER (uppercased, matching portal_scraper.scrape) so the
+    limiter (which keys on `backend`) governs CLAIM eligibility. Carries NO inbox bytes —
+    the (supplier, entity, dates) ARE the job. Returns (job_id, status).
+
+    A fetch is RE-RUNNABLE, so we dedup on a deterministic sha over the request
+    (supplier+entity+window): an existing row is refreshed and re-queued (exactly like
+    enqueue_registration/enqueue_close's re-confirm branch) rather than duplicated."""
+    supplier = (supplier or "").strip()
+    if not supplier:
+        raise ValueError("portal fetch needs a supplier")
+    supplier_up = supplier.upper()
+    entity = (entity or "").strip()
+    sha = hashlib.sha256(
+        f"fetch:{supplier_up}:{entity}:{date_from}:{date_to}".encode()).hexdigest()
+    body = json.dumps({"supplier": supplier, "entity": entity,
+                       "date_from": date_from, "date_to": date_to})
+    con = connect()
+    existing = con.execute("SELECT id, status FROM intake_jobs WHERE sha256=?", (sha,)).fetchone()
+    if existing:
+        # a re-run of the same fetch: refresh the payload and re-queue it (idempotent).
+        con.execute("""UPDATE intake_jobs SET status='queued', attempts=0, defer_count=0,
+                       lease_until=NULL, next_attempt_at=NULL, error=NULL,
+                       started_at=NULL, finished_at=NULL, payload=?,
+                       uploaded_by=?, uploaded_at=? WHERE id=?""",
+                    (body, user, _now(), existing["id"]))
+        con.commit(); con.close()
+        return existing["id"], "queued"
+    cur = con.execute("""INSERT INTO intake_jobs
+        (sha256, filename, size, backend, period, uploaded_by, status, kind, payload)
+        VALUES (?,?,?,?,?,?, 'queued', ?, ?)""",
+        (sha, f"fetch {supplier}/{entity}", 0, supplier_up, None,
+         user, KIND_FETCH, body))
     con.commit()
     jid = cur.lastrowid
     con.close()
@@ -707,6 +757,47 @@ def _do_close(con, row):
     return "done"
 
 
+def _do_fetch(con, row):
+    """Engine-side handler for a supplier-portal FETCH job (automated-capture flagship):
+    run portal_scraper.scrape OFF the web request. Returns the outcome string.
+
+    portal_scraper pulls the adapter registry / pricing_intelligence load path, so it is
+    imported LAZILY here — never at module top — to keep the queue light for every other
+    job kind. The requesting user is propagated as the AUDIT ACTOR (as in _do_register/
+    _do_close) so the run is attributed to who pressed the button.
+
+    The supplier is the job's `backend`, so the per-supplier rate-limiter already governed
+    CLAIM eligibility; here we drive the BREAKER with record_outcome(ok). On SUCCESS we
+    reset the failure streak and mark the row done. On EXCEPTION we record the failure (so
+    the breaker can trip) and RE-RAISE — record_outcome must not mask the original error —
+    so the dispatch routes it to _fail_or_retry (channel='fetch') for retry/backoff."""
+    import portal_scraper, audit
+    jid = row["id"]
+    p = json.loads(row["payload"])
+    supplier = p["supplier"]
+    entity = p.get("entity")
+    # the breaker/limiter is keyed on the job's `backend` (= the UPPERCASED supplier set
+    # by enqueue_fetch), so record outcomes against THAT key, not the raw payload value.
+    governed = row["backend"]
+    user = row["uploaded_by"] or "system"
+    audit.set_actor(None, user)
+    try:
+        res = portal_scraper.scrape(supplier, entity,
+                                    p.get("date_from"), p.get("date_to"))
+    except Exception:
+        record_outcome(governed, ok=False)      # drive the breaker, then re-raise
+        raise
+    finally:
+        audit.reset_actor()
+    record_outcome(governed, ok=True)
+    con.execute("""UPDATE intake_jobs SET status='done', finished_at=?,
+                   error=NULL, lease_until=NULL WHERE id=?""", (_now(), jid))
+    con.commit()
+    _import_log(row, "fetch", "success", records=res.get("loaded", 0),
+                message=f"{res.get('loaded', 0)} loaded / {res.get('fetched', 0)} fetched")
+    return "done"
+
+
 def process_one():
     """Claim and process one job. Returns (job_id, outcome) or None if the queue
     is idle. Never raises — failures are recorded on the row."""
@@ -732,6 +823,14 @@ def process_one():
                 # RE-QUEUES with backoff (a generic exception is a retry, not an immediate
                 # DLQ), so the close simply runs once the other close finishes.
                 return (jid, _fail_or_retry(con, row, jid, attempts, e, channel="close"))
+        elif kind == KIND_FETCH:
+            try:
+                return (jid, _do_fetch(con, row))
+            except Exception as e:
+                # _do_fetch already recorded the failure outcome (breaker); _fail_or_retry
+                # RE-QUEUES with backoff (a generic exception is a retry, not an immediate
+                # DLQ) so the fetch runs again once the supplier is eligible.
+                return (jid, _fail_or_retry(con, row, jid, attempts, e, channel="fetch"))
         try:
             data = read_bytes(row["stored_path"])
             draft = EX.extract(data, row["filename"], backend=row["backend"] or None,
@@ -1256,7 +1355,7 @@ def requeue(job_id):
     # a fileless job (registration / monthly close) carries its payload, not inbox bytes
     # — it is retryable as long as the payload survives; an extraction job needs its
     # source file present.
-    is_fileless = (r["kind"] if "kind" in r.keys() else None) in (KIND_REGISTER, KIND_CLOSE)
+    is_fileless = (r["kind"] if "kind" in r.keys() else None) in (KIND_REGISTER, KIND_CLOSE, KIND_FETCH)
     if not is_fileless and (not r["stored_path"] or not os.path.exists(_safe_inbox(r["stored_path"]))):
         return False
     con = connect()
