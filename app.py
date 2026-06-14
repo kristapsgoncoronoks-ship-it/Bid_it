@@ -3845,7 +3845,7 @@ def export_intel():
 
 @app.route("/recovery", methods=["GET", "POST"])
 def recovery():
-    import vat_refund as VR, customer_master as CD
+    import vat_refund as VR, customer_master as CD, money
     year = request.args.get("year", "2026")
     banner = ""
     if request.method == "POST" and request.form.get("__act") == "issue_invoice":
@@ -3891,8 +3891,10 @@ def recovery():
             fee, basis = CD.compute_fee(vat, *CD.fee_for(r["entity"], r["country"]))
         else:
             fee = r["fee_eur"]
-            pct_fee = round((r.get("fee_pct") or 0) / 100 * vat, 2)
-            basis = "percent" if pct_fee >= (r.get("fee_min") or 0) else "minimum"
+            # EUR-threshold decision: quantize HALF_UP via money (mirrors
+            # customer_master.compute_fee), not bare round().
+            pct_fee = money.f2((r.get("fee_pct") or 0) / 100 * vat)
+            basis = "percent" if pct_fee >= money.f2(r.get("fee_min") or 0) else "minimum"
         billed = r.get("fee_billed_date")
         refund = r.get("paid_amount") or vat
         st = VR.settlement(r.get("payout_to"), refund, fee)
