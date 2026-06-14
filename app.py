@@ -5494,7 +5494,8 @@ def admin():
         for s, desc in api_keys.SCOPES.items())
     apikeyf = ('<div class="card"><h2>API keys (machine access — /api/v1)</h2>'
                '<div class="note" style="margin-top:0">Issue a bearer token for the '
-               'read-only versioned API (<code>/api/v1</code>). Tokens are stored only as a '
+               'versioned API (<code>/api/v1</code>: read analytics + the CRM read/write '
+               'surface). Tokens are stored only as a '
                'SHA-256 hash (never in plain text, same as passwords) and the plaintext is '
                'shown <b>once</b> at issue — copy it then. Each key carries the scopes you tick; '
                'a call is allowed only for an endpoint whose scope the key holds. Revoke to cut '
