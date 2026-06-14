@@ -641,10 +641,16 @@ def _reset_actor(resp):
 
 def _log_exc(context, e):
     """Record a handled exception to the admin error log (keeps the user-facing
-    banner unchanged)."""
+    banner unchanged). Safe to call OUTSIDE a request context (e.g. from the
+    leader-elected scheduler loop) — the actor falls back to "system" when there is
+    no active session rather than raising a 'working outside of request context'."""
     import traceback
+    try:
+        actor = session.get("user", "")
+    except RuntimeError:
+        actor = "system"
     _auth.log_error(context, type(e).__name__, str(e),
-                    traceback.format_exc(), session.get("user", ""))
+                    traceback.format_exc(), actor)
 
 @app.errorhandler(Exception)
 def _on_error(e):
@@ -791,6 +797,41 @@ def _notify_due(hrs):
     except (TypeError, ValueError):
         return True
 
+def scrape_scheduler_on():
+    """The GLOBAL kill-switch for off-by-default scheduled portal pulls. Returns True
+    ONLY when an admin has explicitly armed it (`scrape_scheduler_enabled` == "1").
+    Default install: "0" (OFF) -> the scheduler is inert no matter what intervals are
+    set. This is the master gate on an unattended outbound-network action."""
+    return (_auth.get_setting("scrape_scheduler_enabled", "0") or "0") == "1"
+
+def _scrape_tick():
+    """One scheduled-pull iteration: enqueue a fetch for every portal that is DUE.
+    Never raises (logs via _log_exc).
+
+    CARDINAL SAFETY GATE: if the global kill-switch is OFF this returns immediately and
+    enqueues NOTHING — nothing is ever auto-pulled unless an admin has (a) armed the
+    global switch AND (b) set a per-portal interval > 0 on an enabled portal with stored
+    credentials (the per-portal conditions are enforced by due_portal_fetches). The
+    enqueue is idempotent and the jobs are per-supplier rate-limited downstream, so
+    re-enqueuing a still-pending due portal is harmless."""
+    if not scrape_scheduler_on():
+        return                                   # master gate — inert by default
+    try:
+        import portal_scraper as PS, waiting_room as IQ
+        due = PS.due_portal_fetches()
+        n = 0
+        for supplier, entity in due:
+            try:
+                IQ.enqueue_fetch(supplier, entity, user="scheduler")
+                n += 1
+            except Exception as e:
+                _log_exc("scrape-scheduler enqueue", e)
+        if n:
+            applog.get("app").info(
+                "scrape-scheduler: enqueued %s scheduled portal fetch(es)", n)
+    except Exception as e:
+        _log_exc("scrape-scheduler tick", e)
+
 def _notify_tick():
     """One scheduler iteration: send the digest if it is due. Returns True if a send
     was attempted, else False. Never raises (logs instead)."""
@@ -845,6 +886,10 @@ def _notify_loop():
             except Exception as e:
                 _log_exc("intake health sample", e)
             _notify_tick()
+            # off-by-default scheduled portal pulls: enqueue DUE fetches onto the worker
+            # tier (rate-limited downstream). Inert unless the admin armed the global
+            # kill-switch AND a portal has interval>0 + creds. Never raises.
+            _scrape_tick()
         time.sleep(BACKUP_CHECK_SECONDS)
 
 def start_notify_scheduler():
@@ -3764,14 +3809,32 @@ def _portals_card():
                       + '<button name="__act" value="scrape">↻ Scrape now</button></form>'
                       if p["enabled"] and (p["has_creds"] or p["kind"] == "demo") else
                       '<span class="note">configure creds</span>')
+        try:
+            iv = float(p.get("interval_hours") or 0)
+        except (TypeError, ValueError):
+            iv = 0.0
+        sched = (f'every {esc(("%g" % iv))} h' if iv > 0
+                 else '<span class="note">manual</span>')
         rows.append([f"<td>{esc(p['supplier'])}</td><td>{esc(p['entity'] or '—')}</td>",
                      f"<td>{esc(p['kind'])}</td><td>{'on' if p['enabled'] else 'off'}</td>",
+                     f"<td>{sched}</td>",
                      f"<td>{creds}</td><td class=note>{last}</td><td>{scrape_btn}</td>"])
-    table = (tbl(["Supplier", "Entity", "Kind", "Enabled", "Credentials", "Last run", ""], rows)
+    table = (tbl(["Supplier", "Entity", "Kind", "Enabled", "Schedule", "Credentials", "Last run", ""], rows)
              if rows else '<p class="note">No portals configured yet.</p>')
+    sched_on = _auth.get_setting("scrape_scheduler_enabled", "0") == "1"
+    sched_state = ('<div class="note" style="margin-top:8px">Scheduled pulls (global): '
+                   + ('<b class="ok">ON</b>' if sched_on else '<b class="bad">OFF</b>')
+                   + ' — scheduled portal pulls run ONLY for enabled portals that have a '
+                     'non-zero schedule interval AND stored credentials, and ONLY for '
+                     'portals you are authorized to access.</div>')
     admin_forms = ""
     if is_admin:
         admin_forms = (
+            sched_state +
+            '<form method="post" action="/pricing/portal" class="f" style="margin-top:6px">' + _csrf_input()
+            + '<label><input type="checkbox" name="on"'
+            + (' checked' if sched_on else '') + '> enable scheduled pulls (global)</label>'
+            + '<button name="__act" value="set_scrape_scheduler">Save scheduler state</button></form>'
             '<details style="margin-top:10px"><summary><b>Add / update a portal (admin)</b></summary>'
             '<form method="post" action="/pricing/portal" class="f" style="margin-top:8px">' + _csrf_input()
             + '<label>supplier code<input name="supplier" required style="width:110px"></label>'
@@ -3780,6 +3843,8 @@ def _portals_card():
             + '</select></label>'
             + '<label>base URL<input name="base_url" style="width:220px" placeholder="https://portal.supplier.com"></label>'
             + '<label><input type="checkbox" name="enabled" checked> enabled</label>'
+            + '<label>schedule (hours, 0 = manual)<input name="interval_hours" type="number" '
+              'min="0" step="0.5" value="0" style="width:90px"></label>'
             + '<label style="flex-basis:100%">config JSON (endpoints / field map; see portal_scraper.py)'
               '<textarea name="config" rows="3" style="width:100%;font-family:monospace" '
               'placeholder=\'{"price_url":"/api/prices","rows_path":"data","map":{"country":"ctry","city":"station","date":"day","net_price":"net"}}\'></textarea></label>'
@@ -3840,13 +3905,26 @@ def pricing_portal():
             banner = (f'<div class="card"><b class="ok">Fetch queued for {esc(supplier)} / '
                       f'{esc(entity or "—")} — it runs on the worker tier (rate-limited); '
                       f'watch the portal Last-run column / the intake queue.</b></div>')
+        elif act == "set_scrape_scheduler" and is_admin:
+            on = bool(request.form.get("on"))
+            _auth.set_setting("scrape_scheduler_enabled", "1" if on else "0")
+            state = "ON" if on else "OFF"
+            banner = (f'<div class="card"><b class="ok">Scheduled portal pulls are now '
+                      f'{state}.</b> Scheduled pulls only run for <b>enabled</b> portals '
+                      f'with a <b>non-zero interval</b> and <b>stored credentials</b>, and '
+                      f'only for portals you are authorized to access.</div>')
         elif act == "save_config" and is_admin:
             cfg_raw = request.form.get("config", "").strip() or "{}"
             import json as _json
+            try:
+                iv = float(request.form.get("interval_hours") or 0)
+            except (TypeError, ValueError):
+                iv = 0.0
             PS.set_config(request.form["supplier"].strip(), request.form.get("kind", "demo"),
                           base_url=request.form.get("base_url", "").strip(),
                           config=_json.loads(cfg_raw),
-                          enabled=bool(request.form.get("enabled")))
+                          enabled=bool(request.form.get("enabled")),
+                          interval_hours=iv)
             banner = '<div class="card"><b class="ok">Portal configuration saved.</b></div>'
         elif act == "save_creds" and is_admin:
             PS.set_credentials(request.form["supplier"].strip(), request.form["entity"].strip(),

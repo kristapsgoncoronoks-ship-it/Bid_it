@@ -37,6 +37,7 @@ import os, sqlite3, json, csv, io, datetime
 
 import audit
 import db_tuning
+import db_migrate
 import applog
 import keyvault
 
@@ -110,6 +111,13 @@ def connect():
     if DB == ":memory:" or DB not in _SCHEMA_READY:
         con.executescript(SCHEMA)
         _upgrade_extra_to_blob(con)
+        # APPEND-ONLY migration list (positions are stable; never reorder/delete).
+        db_migrate.apply(con, "portal_scraper", [
+            # per-portal scheduled-pull interval; 0 = scheduling OFF (the default). The
+            # off-by-default scheduler (app._scrape_tick) only enqueues a fetch when this
+            # is > 0 for an enabled portal that has stored credentials.
+            "ALTER TABLE portal_configs ADD COLUMN interval_hours REAL DEFAULT 0",
+        ])
         audit.install_audit(con, ["portal_configs", "portal_credentials"])
         if DB != ":memory:":
             _SCHEMA_READY.add(DB)
@@ -146,14 +154,25 @@ def _decrypt(blob, aad=""):
 
 
 # ---------------------------------------------------------------- config & credentials
-def set_config(supplier, kind, base_url="", config=None, enabled=True):
+def set_config(supplier, kind, base_url="", config=None, enabled=True, interval_hours=0):
+    """Upsert a portal config. `interval_hours` is the SCHEDULED-PULL cadence — 0 (the
+    default) means scheduling is OFF for this portal; > 0 makes it eligible for the
+    off-by-default scheduler (only when ALSO enabled, with stored credentials, AND the
+    global kill-switch is armed). Parsed defensively to a float (unparseable -> 0)."""
+    try:
+        ih = float(interval_hours) if interval_hours is not None else 0.0
+    except (TypeError, ValueError):
+        ih = 0.0
     con = connect()
-    con.execute("""INSERT INTO portal_configs (supplier, kind, base_url, config, enabled, updated_at)
-                   VALUES (?,?,?,?,?, CURRENT_TIMESTAMP)
+    con.execute("""INSERT INTO portal_configs
+                     (supplier, kind, base_url, config, enabled, interval_hours, updated_at)
+                   VALUES (?,?,?,?,?,?, CURRENT_TIMESTAMP)
                    ON CONFLICT(supplier) DO UPDATE SET kind=excluded.kind,
                      base_url=excluded.base_url, config=excluded.config,
-                     enabled=excluded.enabled, updated_at=CURRENT_TIMESTAMP""",
-                (supplier.upper(), kind, base_url, json.dumps(config or {}), 1 if enabled else 0))
+                     enabled=excluded.enabled, interval_hours=excluded.interval_hours,
+                     updated_at=CURRENT_TIMESTAMP""",
+                (supplier.upper(), kind, base_url, json.dumps(config or {}),
+                 1 if enabled else 0, ih))
     con.commit(); con.close()
 
 def get_config(supplier):
@@ -268,9 +287,86 @@ def list_portals():
         ents = sorted({e for (s, e) in creds if s == c["supplier"]}) or [None]
         for ent in ents:
             out.append({"supplier": c["supplier"], "kind": c["kind"], "enabled": c["enabled"],
+                        "interval_hours": c.get("interval_hours") or 0,
                         "entity": ent, "has_creds": (c["supplier"], ent) in creds,
                         "last_run": runs.get((c["supplier"], ent))})
     return out
+
+
+# ----------------------------------------------------- scheduled-pull eligibility
+def _parse_finished(s):
+    """Parse a portal_runs.finished timestamp (SQLite CURRENT_TIMESTAMP writes
+    '%Y-%m-%d %H:%M:%S' in UTC) into a naive UTC datetime, tolerating a fractional
+    second / trailing 'Z'. Returns None if unparseable — the caller treats an
+    unparseable last-run as 'due' (fail-open toward pulling, never crash)."""
+    if not s:
+        return None
+    s = str(s).strip().rstrip("Z").strip()
+    if "." in s:
+        s = s.split(".", 1)[0]
+    try:
+        return datetime.datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
+def due_portal_fetches(now=None):
+    """READ-ONLY: the list of (supplier, entity) portals DUE for a scheduled pull.
+
+    A portal is due when ALL hold:
+      • the config is enabled (enabled=1), AND
+      • interval_hours > 0 (0 = scheduling OFF — the default), AND
+      • stored credentials exist for that (supplier, entity), AND
+      • either no SUCCESSFUL run exists yet, OR the latest successful run's `finished`
+        is older than interval_hours before `now`.
+
+    `now` (naive UTC datetime) is injectable for deterministic tests; defaults to
+    utcnow(). NEVER raises — any failure logs a warning and returns [] (a scheduler
+    fault must not crash the leader loop). This function makes NO outbound call and
+    enqueues nothing; the caller (app._scrape_tick) is the only thing that, gated on a
+    global kill-switch, enqueues a fetch per returned portal."""
+    try:
+        now = now or datetime.datetime.utcnow()
+        con = connect()
+        try:
+            cfgs = con.execute(
+                "SELECT supplier, enabled, interval_hours FROM portal_configs").fetchall()
+            creds = {(r["supplier"], r["entity"]) for r in
+                     con.execute("SELECT supplier, entity FROM portal_credentials")}
+            # latest SUCCESSFUL run's finished time per (supplier, entity)
+            last_ok = {}
+            for r in con.execute(
+                    "SELECT supplier, entity, finished FROM portal_runs "
+                    "WHERE status='ok' AND finished IS NOT NULL ORDER BY id"):
+                last_ok[(r["supplier"], r["entity"])] = r["finished"]
+        finally:
+            con.close()
+        out = []
+        for c in cfgs:
+            if not c["enabled"]:
+                continue
+            try:
+                iv = float(c["interval_hours"] or 0)
+            except (TypeError, ValueError):
+                iv = 0.0
+            if iv <= 0:
+                continue
+            sup = c["supplier"]
+            # one scheduled pull per entity that has stored credentials for this portal
+            for (s, ent) in creds:
+                if s != sup:
+                    continue
+                fin = _parse_finished(last_ok.get((sup, ent)))
+                if fin is None:
+                    out.append((sup, ent))      # never run (or unparseable) -> due
+                    continue
+                age_h = (now - fin).total_seconds() / 3600.0
+                if age_h >= iv:
+                    out.append((sup, ent))
+        return out
+    except Exception as e:
+        log.warning("due_portal_fetches failed (returning none): %s", e)
+        return []
 
 
 # ---------------------------------------------------------------- adapters
