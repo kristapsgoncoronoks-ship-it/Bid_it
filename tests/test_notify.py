@@ -71,6 +71,25 @@ def test_send_digest_uses_injected_transport(tmp_path, monkeypatch):
     assert "failed=1" in msg["text"]
 
 
+def test_digest_surfaces_pending_document_requests(tmp_path, monkeypatch):
+    """WO4: an open document request (e.g. a PoA out for signature) gets its own digest
+    section — informational chase only, mirroring the expiring-docs section."""
+    notify = _seed(tmp_path, monkeypatch)
+    import customer_master as CM
+    monkeypatch.setattr(CM, "pending_document_requests", lambda con, **k: [
+        {"customer": "ACME", "kind": "power_of_attorney", "refund_country": "Belgium",
+         "age_days": 21, "overdue": True}])
+    import vat_refund as VR
+    monkeypatch.setattr(VR, "claims_overview", lambda y: {"to_submit": [], "open": []})
+    monkeypatch.setattr(VR, "recovery_report", lambda y: ([], {}))
+
+    text, html = notify.render_digest()
+    assert "Pending document requests" in text and "Pending document requests" in html
+    # the kind is humanised, the country + age + overdue flag carried through
+    assert "power of attorney" in text and "ACME" in text and "Belgium" in text
+    assert "21d ago" in text and "OVERDUE" in text
+
+
 def test_no_recipients_is_a_logged_noop(tmp_path, monkeypatch):
     notify = _seed(tmp_path, monkeypatch)
     import auth

@@ -931,6 +931,14 @@ def country_doc_checklist(con, code, country):
     items = [(DOC_KINDS.get(k, k), _has_doc(con, code, k, country)) for k in kinds]
     return items, all(ok for _, ok in items)
 
+def country_ready_to_activate(con, code, country):
+    """True when every document a refund country requires is on file (and still valid),
+    so the UI can offer "country X now ready to activate" — e.g. after a received PoA.
+    This is INFORMATIONAL only: it does NOT activate the country (that stays the admin's
+    explicit `activate_country` click) and is NOT a gate."""
+    _items, ready = country_doc_checklist(con, code, country)
+    return ready
+
 def activate_country(con, code, country, active):
     if active:
         con.execute("""INSERT INTO customer_countries (customer, country, status, activated_at)

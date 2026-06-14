@@ -56,6 +56,29 @@ def test_worklist_surfaces_unmatched_and_stuck(monkeypatch):
     importlib.reload(WR)   # restore module to its default DB for other tests
 
 
+def test_worklist_surfaces_pending_document_requests(monkeypatch):
+    """WO4: open document requests (a PoA out for signature) surface in the worklist,
+    overdue ones flagged 'bad', linking to /customers — read-only, escaped, never a gate."""
+    import app as A
+    import vat_refund as VR
+    import customer_master as CM
+    monkeypatch.setattr(VR, "claims_overview", lambda y: {"to_submit": [], "open": []})
+    monkeypatch.setattr(VR, "recovery_report", lambda y: ([], {}))
+    # a synthetic pending request carrying an HTML-bearing customer name to prove
+    # escaping; connect() opens the (read-only) live customers.db as the route does.
+    monkeypatch.setattr(CM, "pending_document_requests", lambda con, **k: [
+        {"customer": "<b>Acme</b>", "kind": "power_of_attorney",
+         "refund_country": "Belgium", "age_days": 30, "overdue": True}])
+
+    html = A._worklist_card(2026)
+    assert "Awaiting signed power of attorney" in html
+    assert "Belgium" in html and "30d ago" in html
+    assert "/customers" in html
+    # DB value escaped, never raw
+    assert "<b>Acme</b>" not in html
+    assert "&lt;b&gt;Acme&lt;/b&gt;" in html
+
+
 def test_worklist_no_surfacing_when_clean(monkeypatch):
     import app as A
     import vat_refund as VR

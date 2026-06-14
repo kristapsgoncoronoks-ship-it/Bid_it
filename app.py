@@ -1250,6 +1250,21 @@ def _worklist_card(year):
         ccon.close()
     except Exception as e:
         _log_exc("worklist expiring docs", e)
+    # open document REQUESTS (e.g. a power of attorney sent out for signature) — surface
+    # the ones we're still waiting on, flagging overdue ones; this does NOT gate anything,
+    # it just chases the signed original needed to activate a refund country.
+    try:
+        import customer_master as _cm
+        ccon = _cm.connect()
+        for d in _cm.pending_document_requests(ccon)[:6]:
+            ctry = f" ({d['refund_country']})" if d.get("refund_country") else ""
+            items.append(("bad" if d.get("overdue") else "",
+                          f"Awaiting signed {esc((d.get('kind') or '').replace('_', ' '))} "
+                          f"— {esc(d['customer'])}{esc(ctry)}, sent {d.get('age_days', 0)}d ago",
+                          "/customers"))
+        ccon.close()
+    except Exception as e:
+        _log_exc("worklist document requests", e)
     # claims blocked specifically on UNMATCHED/unresolved invoice refs — these are
     # silent stalls (the transaction never matched a registered invoice), so surface
     # them with a direct link to where they're resolved.

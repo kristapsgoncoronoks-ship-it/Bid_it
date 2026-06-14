@@ -92,6 +92,26 @@ def _digest_sections(year=None):
     except Exception as e:
         log.warning("digest: expiring-docs section failed: %s", e)
 
+    # open document requests still awaiting their signed original (e.g. a PoA out for
+    # signature). Informational chase only — not a gate.
+    try:
+        import customer_master as CM
+        ccon = CM.connect()
+        try:
+            reqs = CM.pending_document_requests(ccon)
+        finally:
+            ccon.close()
+        lines = []
+        for d in reqs:
+            ctry = f" ({d['refund_country']})" if d.get("refund_country") else ""
+            flag = " — OVERDUE" if d.get("overdue") else ""
+            lines.append(f"Awaiting signed {(d.get('kind') or '').replace('_', ' ')} for "
+                         f"{d['customer']}{ctry} — sent {d.get('age_days', 0)}d ago{flag}")
+        if lines:
+            sections.append(("Pending document requests", lines))
+    except Exception as e:
+        log.warning("digest: document-requests section failed: %s", e)
+
     # documents stuck in the intake queue.
     try:
         import waiting_room as WR

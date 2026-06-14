@@ -791,6 +791,34 @@ ENGINE_OF = {
     "3A": "paid", "4": "paid", "4A": "paid", "5": "paid",
 }
 
+# Human-readable status of an OPEN power-of-attorney document request, used purely to
+# annotate (never gate) the PoA checklist item. Keys are customer_master request statuses.
+_POA_REQUEST_LABEL = {
+    "requested":          "request created",
+    "generated":          "draft generated",
+    "sent_for_signature": "sent for signature",
+    "signed":             "signed, awaiting receipt",
+}
+
+def _open_poa_request_note(cm, code, ctry):
+    """The status note of the open power-of-attorney document request for (code, country),
+    or None if there is none / on any read error. ANNOTATION ONLY — never gates. cm is a
+    customers.db connection (a DIFFERENT DB than the claims `con`)."""
+    try:
+        best = None
+        for r in customer_master.list_document_requests(cm, code):
+            if (r.get("kind") == "power_of_attorney"
+                    and (r.get("refund_country") or None) == (ctry or None)
+                    and r.get("status") in _POA_REQUEST_LABEL):
+                # Prefer the most-advanced (latest id) open request if several exist.
+                if best is None or r["id"] > best["id"]:
+                    best = r
+        return _POA_REQUEST_LABEL[best["status"]] if best else None
+    except Exception:
+        applog.get("vat_refund").exception("open PoA request lookup failed for %s/%s",
+                                           code, ctry)
+        return None
+
 def submission_checklist(con, ent, ctry, period, cache=None):
     """SYSTEM-CONTROLLED checklist for one claim stream: the adjustable customer/country
     requirements (customer_master.checklist_rules) PLUS the claim-level data checks.
@@ -805,7 +833,15 @@ def submission_checklist(con, ent, ctry, period, cache=None):
     code = codes[ent]
     items = []
     if code is not None:
-        for _k, label, _scope, ok in customer_master.evaluate_checklist(cm, code, ctry):
+        # If a power-of-attorney document REQUEST is open for this (entity, country),
+        # enrich the PoA checklist item's LABEL with the request's status so the user can
+        # see "sent for signature" etc. without leaving the claim. This is LABEL TEXT ONLY:
+        # the boolean `ok` is untouched — the gate truth stays exactly evaluate_checklist /
+        # country_active. A failure to read the request degrades to the plain label.
+        poa_note = _open_poa_request_note(cm, code, ctry)
+        for k, label, _scope, ok in customer_master.evaluate_checklist(cm, code, ctry):
+            if poa_note and k == "power_of_attorney" and _scope == "country" and not ok:
+                label = f"{label} — {poa_note}"
             items.append((label, ok))
     invs = stream_invoices(con, ent, ctry, period, cache)
     waived = list_waivers(con, ent, ctry, period)
