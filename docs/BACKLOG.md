@@ -37,9 +37,12 @@ priorities (`7db2d95`); import-reliability + audit-activity trends (`cc4df3d`); 
   `lease_epoch` + compare-and-set; measure lease validity with `time.monotonic()`. *(M, med)*
 - **Per-job extract deadline / lease sizing.** Cap members or set an aggregate extract
   deadline; bound the pypdf probe; ensure `LEASE_SECONDS` ≥ worst-case batch (or heartbeat). *(M, med)*
-- **Backup torn-file mid-close** — mtime-recheck/skip, or take the `backup-run` lock around
-  close file-writes. *(S, low)*
-- **M5a two-phase write** — wrap `record_payment`'s stamp + status transition atomically. *(S, low)*
+- ~~**Backup torn-file mid-close**~~ ✅ SHIPPED (`fd5ea10`) — the scheduled/manual backup
+  defers to an in-progress close (`process_lock.held_by("close-run")`); drift-tested lock name.
+- ~~**M5a two-phase write**~~ ✅ SHIPPED (`2bdab51`) — `record_payment`'s `paid_amount` stamp now
+  commits atomically with the paid-base fee recompute + `status='paid'` (intermediate commit
+  removed; `set_status`'s rollback discards the stamp on failure). Benign residual: only the
+  `3A` display code can lag after a crash; money state stays consistent.
 
 ### Data de-duplication (DATA_ARCHITECTURE.md Part 1)
 - ~~**Avoidable-overpay loop duplication**~~ ✅ SHIPPED (`908b7a7`) — `reports._savings`
