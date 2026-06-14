@@ -455,6 +455,114 @@ def savings_intel_workbook(s, path=None):
     return path
 
 
+def overpay_review_workbook(period=None, supplier=None, path=None):
+    """Supplier price-competitiveness review packet for `period` (optionally one
+    `supplier`). Turns queries.q_savings_lines (the per-fuelling-day overpay detail)
+    into an actionable Excel: a per-supplier SUMMARY sheet and a DETAIL sheet of the
+    individual fuelling days that drove the overpay.
+
+    Framing (printed on every sheet): this is a price-COMPETITIVENESS / negotiation
+    review — "supplier X charged €Y more than the cheapest same-day, same-country
+    rival across N fuellings" — NOT a contractual claim-back / debt. Evidence for
+    renegotiation or steering volume, not money the supplier owes. NET EUR/L basis,
+    final (VAT excluded, rebates applied). EUR totals HALF_UP (money.f2)."""
+    con = connect()
+    ps = _periods(con)
+    period = period or (ps[0] if ps else None)
+    if period is None:
+        con.close()
+        raise ValueError("no data loaded — nothing to report")
+    lines = queries.q_savings_lines(con, period, supplier)
+    con.close()
+
+    gen = datetime.date.today().isoformat()
+    caveat = ("Competitiveness review, NOT a contractual claim — supplier charged more "
+              "than the cheapest same-day, same-country diesel rival. NET EUR/L, final "
+              "(VAT excluded, rebates applied). "
+              + (f"Supplier: {supplier}. " if supplier else "")
+              + f"Generated {gen}.")
+    wb = Workbook()
+
+    # --- Summary sheet: per-supplier rollup ---------------------------------
+    ws = wb.active; ws.title = "Summary"
+    _title(ws, period, caveat, "A1:D1")
+    set_widths(ws, [24, 14, 16, 18])
+    # roll the detail lines up per supplier
+    roll = {}
+    for ln in lines:
+        a = roll.setdefault(ln["supplier"], {"fuellings": 0, "litres": 0.0, "overpay": 0.0})
+        a["fuellings"] += 1
+        a["litres"] += ln["litres"] or 0
+        a["overpay"] += ln["overpay_eur"] or 0
+    ordered = sorted(roll.items(), key=lambda x: -x[1]["overpay"])
+    r0 = 4
+    ws.cell(r0, 1, "Most-overpaid supplier first").font = Font(bold=True, size=11)
+    hdr = ["Supplier", "Fuellings", "Litres", "Total overpay EUR"]
+    for j, h in enumerate(hdr, 1):
+        ws.cell(r0 + 1, j, h)
+    style_header(ws, r0 + 1, len(hdr))
+    rr = r0 + 2
+    for sup, a in ordered:
+        ws.cell(rr, 1, sup)
+        ws.cell(rr, 2, a["fuellings"]).number_format = FMT_INT
+        ws.cell(rr, 3, a["litres"]).number_format = FMT_INT
+        ws.cell(rr, 4, money.f2(a["overpay"])).number_format = FMT_EUR
+        rr += 1
+    band_rows(ws, r0 + 2, rr - 1, len(hdr))
+    if rr > r0 + 2:
+        ws.cell(rr, 1, "TOTAL")
+        ws.cell(rr, 2, f"=SUM(B{r0+2}:B{rr-1})").number_format = FMT_INT
+        ws.cell(rr, 3, f"=SUM(C{r0+2}:C{rr-1})").number_format = FMT_INT
+        ws.cell(rr, 4, f"=SUM(D{r0+2}:D{rr-1})").number_format = FMT_EUR
+        totals_row(ws, rr, len(hdr))
+        ws.conditional_formatting.add(f"D{r0+2}:D{rr-1}",
+            DataBarRule(start_type="min", end_type="max", color="F4A6A6"))
+        ch = BarChart(); ch.type = "col"; ch.title = "Total overpay (EUR) by supplier"
+        ch.height = 7.5; ch.width = 15; ch.legend = None
+        data = Reference(ws, min_col=4, min_row=r0 + 1, max_row=rr - 1)
+        cats = Reference(ws, min_col=1, min_row=r0 + 2, max_row=rr - 1)
+        ch.add_data(data, titles_from_data=True); ch.set_categories(cats)
+        ws.add_chart(ch, "F4")
+    ws.freeze_panes = "A3"; ws.sheet_view.showGridLines = False
+
+    # --- Detail sheet: per fuelling-day -------------------------------------
+    wd = wb.create_sheet("Detail")
+    _title(wd, period, caveat, "A1:I1")
+    set_widths(wd, [22, 13, 14, 12, 12, 12, 22, 12, 16])
+    hdr = ["Supplier", "Date", "Country", "Litres", "This €/L", "Cheapest €/L",
+           "Cheapest supplier", "Delta €/L", "Overpay EUR"]
+    for j, h in enumerate(hdr, 1):
+        wd.cell(4, j, h)
+    style_header(wd, 4, len(hdr))
+    rr = 5
+    for ln in lines:
+        wd.cell(rr, 1, ln["supplier"])
+        wd.cell(rr, 2, ln["date"])
+        wd.cell(rr, 3, ln["country"])
+        wd.cell(rr, 4, ln["litres"] or 0).number_format = FMT_INT
+        wd.cell(rr, 5, ln["eur_l"] or 0).number_format = FMT_PRICE
+        wd.cell(rr, 6, ln["cheapest_eur_l"] or 0).number_format = FMT_PRICE
+        wd.cell(rr, 7, ln["cheapest_supplier"])
+        wd.cell(rr, 8, ln["delta_eur_l"] or 0).number_format = FMT_PRICE
+        wd.cell(rr, 9, ln["overpay_eur"] or 0).number_format = FMT_EUR
+        rr += 1
+    band_rows(wd, 5, rr - 1, len(hdr))
+    if rr > 5:
+        wd.cell(rr, 1, "TOTAL")
+        wd.cell(rr, 4, f"=SUM(D5:D{rr-1})").number_format = FMT_INT
+        wd.cell(rr, 9, f"=SUM(I5:I{rr-1})").number_format = FMT_EUR
+        totals_row(wd, rr, len(hdr))
+    wd.freeze_panes = "A5"; wd.sheet_view.showGridLines = False
+
+    if path is None:
+        suffix = f"_{supplier}" if supplier else ""
+        # mirror q_savings_lines: keep filename filesystem-safe
+        safe = "".join(ch if ch.isalnum() else "_" for ch in suffix)
+        path = os.path.join(WORKDIR, f"Overpay_Review_{period}{safe}.xlsx")
+    wb.save(path)
+    return path
+
+
 def fee_report_workbook(claim, path=None):
     """One-sheet service-fee invoice / calculation for a single VAT claim. `claim`
     is a vat_applications row (dict). Fee = % of the refunded amount, or the minimum

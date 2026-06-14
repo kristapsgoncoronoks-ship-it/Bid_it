@@ -465,6 +465,7 @@ PERM_BY_ENDPOINT = {
     "pricing_adopt_benchmark": "pricing", "export_benchmark": "exports",
     "export_peer":     "exports",
     "intel":           "pricing", "export_intel": "exports",
+    "export_overpay":  "exports",
     "documents":       "documents", "doc_download": "documents",
     "export_master":   "exports", "export_history": "exports",
     "export_pricing":  "exports", "export_vat": "exports", "export_compare": "exports",
@@ -491,7 +492,8 @@ MODULES = {
                    {"savings", "compare", "transactions", "h2h", "stations", "anomalies_page",
                     "pricing", "pricing_market", "pricing_portal", "pricing_adopt_benchmark",
                     "pricing_upload", "api_pricing", "export_compare", "export_stations",
-                    "export_pricing", "export_benchmark", "export_peer", "intel", "export_intel"}),
+                    "export_pricing", "export_benchmark", "export_peer", "intel", "export_intel",
+                    "export_overpay"}),
     "intake":     ("Intake — import, waiting room, files, document mining",
                    {"extract_batch", "extract_confirm", "extract_ai_review",
                     "intake_queue_page", "intake_review",
@@ -928,7 +930,7 @@ def _intake_uploads_blocked():
 # The read-only aggregations live in queries.py (small brick, easy to test).
 from queries import (q_periods, q_filters, where, q_compare, q_compare_totals,
                      q_benchmark, q_kpis, q_trend, q_headtohead, q_entities,
-                     q_stations, q_savings)
+                     q_stations, q_savings, q_savings_lines)
 
 def svg_hbars(pairs, unit="", width=520, color="#0e5fa8", fmt=",.0f"):
     """Dependency-free inline SVG horizontal bar chart from (label, value) pairs."""
@@ -1588,11 +1590,45 @@ def savings():
     con = DB(); periods = q_periods(con)
     period = request.args.get("period", periods[0] if periods else None)
     s = q_savings(con, period) if period else {"total": 0, "by_country": [], "by_supplier": []}
+    # Per-supplier price-review rollup from the detail lines — WHICH supplier to review,
+    # most-overpaid first. Wrapped so a failure here can't break the /savings page.
+    review = []
+    if period:
+        try:
+            roll = {}
+            for ln in q_savings_lines(con, period):
+                a = roll.setdefault(ln["supplier"], {"fuellings": 0, "litres": 0.0, "overpay": 0.0})
+                a["fuellings"] += 1
+                a["litres"] += ln["litres"] or 0
+                a["overpay"] += ln["overpay_eur"] or 0
+            review = sorted(roll.items(), key=lambda x: -x[1]["overpay"])
+        except Exception as e:
+            _log_exc("savings/per-supplier review", e)
+            review = []
     con.close()
     psw = "".join(f'<option {"selected" if p==period else ""}>{esc(p)}</option>' for p in periods)
+    review_rows = [[f'<td>{esc(sup)}</td>',
+                    f'<td class=r>{a["fuellings"]:,d}</td>',
+                    f'<td class=r>{a["litres"]:,.0f}</td>',
+                    f'<td class="r bad">€{a["overpay"]:,.2f}</td>']
+                   for sup, a in review]
+    if review_rows:
+        dl = (f'<a class="btn" href="/export/overpay?period={esc(period)}">Download price-review packet (Excel)</a>'
+              if period else "")
+        review_card = ('<div class="card"><h2>Supplier price-review — who to renegotiate '
+                       f'<span class="note">(most-overpaid first)</span></h2>{dl}'
+                       + tbl(["Supplier", "Fuellings", "Litres", "Total overpay €"], review_rows)
+                       + '<div class="note"><b>Competitiveness review, not a contractual claim.</b> '
+                         'Each figure is how much more a supplier charged than the cheapest same-day, '
+                         'same-country diesel rival — evidence for renegotiation or steering volume, '
+                         'not money the supplier owes. NET EUR/L, final. Download the per-fuelling-day '
+                         'detail packet above.</div></div>')
+    else:
+        review_card = ''
     body = (f'<form class="f" method="get"><label>Period<select name="period" onchange="this.form.submit()">{psw}</select></label></form>'
             f'<div class="kpis"><div class="kpi"><div class="v bad">€{s["total"]:,.0f}</div>'
             f'<div class="l">avoidable overpay vs cheapest same-day rival · {esc(period) if period else "no data"}</div></div></div>'
+            + review_card
             + '<div class="card"><h2>Overpay by country</h2>'
             + svg_hbars(s["by_country"], unit=" €") + '</div>'
             + '<div class="card"><h2>Overpay by supplier</h2>'
@@ -1602,6 +1638,18 @@ def savings():
               'is attributed to the dearer supplier. Drill into any slice on the '
               '<a href="/transactions">Transactions</a> page. Prices NET EUR/L, final.</div>')
     return page(body, "sav")
+
+@app.route("/export/overpay")
+def export_overpay():
+    """Supplier price-competitiveness review packet (Excel) for a period — the
+    per-fuelling-day overpay detail behind /savings, to act on (renegotiate / steer
+    volume). Competitiveness review, NOT a contractual claim."""
+    import reports
+    period = request.args.get("period") or None
+    supplier = request.args.get("supplier") or None
+    path = reports.overpay_review_workbook(period, supplier)
+    return send_file(path, as_attachment=True, download_name=os.path.basename(path),
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 @app.route("/transactions")
 def transactions():

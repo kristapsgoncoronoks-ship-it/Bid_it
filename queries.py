@@ -130,10 +130,15 @@ def q_stations(con, period):
         GROUP BY supplier, country, station HAVING SUM(qty)>=300 ORDER BY eurl""", (period,)).fetchall()
 
 
-def q_savings(con, period):
-    """Avoidable overpay = for each day+country where 2+ suppliers fueled diesel,
-    litres x (this supplier's eff €/L − the cheapest rival's). Attributed to the
-    country and the supplier that charged the premium. NET EUR/L basis."""
+def _savings_lines(con, period):
+    """Canonical avoidable-overpay loop, emitting ONE record per (supplier, date,
+    country) where that supplier charged a premium vs the cheapest same-day,
+    same-country diesel rival. Full precision (no rounding) — callers quantize at
+    the boundary. Shared source of truth for q_savings (the aggregate) and
+    q_savings_lines (the detail packet). NET EUR/L basis.
+
+    Each record: (supplier, date, country, litres, eur_l, cheapest_eur_l,
+    cheapest_supplier, delta_eur_l, overpay_eur) with overpay_eur at full precision."""
     rows = con.execute("""
         SELECT date, country, supplier, SUM(qty) q, SUM(net_eur_eff) e
         FROM transactions WHERE product_group='Diesel' AND period=?
@@ -142,20 +147,64 @@ def q_savings(con, period):
     for r in rows:
         if r["q"]:
             g.setdefault((r["date"], r["country"]), {})[r["supplier"]] = (r["q"], r["e"])
-    total, by_country, by_supplier = 0.0, {}, {}
-    for (_d, c), bysup in g.items():
+    for (d, c), bysup in g.items():
         if len(bysup) < 2: continue
         prices = {s: e / qy for s, (qy, e) in bysup.items()}
-        cheap = min(prices.values())
+        cheap_price = min(prices.values())
+        cheap_sup = min(prices, key=prices.get)
         for s, (qy, e) in bysup.items():
-            over = qy * (prices[s] - cheap)
+            delta = prices[s] - cheap_price
+            over = qy * delta
             if over <= 0: continue
-            total += over
-            by_country[c] = by_country.get(c, 0) + over
-            by_supplier[s] = by_supplier.get(s, 0) + over
+            yield {"supplier": s, "date": d, "country": c, "litres": qy,
+                   "eur_l": prices[s], "cheapest_eur_l": cheap_price,
+                   "cheapest_supplier": cheap_sup, "delta_eur_l": delta,
+                   "overpay_eur": over}
+
+
+def q_savings(con, period):
+    """Avoidable overpay = for each day+country where 2+ suppliers fueled diesel,
+    litres x (this supplier's eff €/L − the cheapest rival's). Attributed to the
+    country and the supplier that charged the premium. NET EUR/L basis."""
+    total, by_country, by_supplier = 0.0, {}, {}
+    for ln in _savings_lines(con, period):
+        over = ln["overpay_eur"]
+        total += over
+        by_country[ln["country"]] = by_country.get(ln["country"], 0) + over
+        by_supplier[ln["supplier"]] = by_supplier.get(ln["supplier"], 0) + over
     # `total` accumulated at full precision; quantize the final overpay figure
     # HALF_UP (money.f2), consistent with the VAT money basis. by_country/by_supplier
     # are charted at integer-EUR display, so left at full precision.
     return {"total": money.f2(total),
             "by_country": sorted(by_country.items(), key=lambda x: -x[1]),
             "by_supplier": sorted(by_supplier.items(), key=lambda x: -x[1])}
+
+
+def q_savings_lines(con, period, supplier=None):
+    """DETAIL version of q_savings: one row per (supplier, date, country) where that
+    supplier overpaid vs the cheapest same-day, same-country diesel rival — the
+    fuelling-day evidence behind the aggregate. Same algorithm/basis as q_savings
+    (shares _savings_lines). Read-only; never raises (returns [] on any error).
+
+    Rows: {supplier, date, country, litres, eur_l, cheapest_eur_l, cheapest_supplier,
+    delta_eur_l, overpay_eur}. overpay_eur is quantized HALF_UP (money.f2); the per-
+    supplier sum of overpay_eur reconciles with q_savings' by_supplier (modulo the
+    final HALF_UP rounding). Sorted by overpay_eur desc. `supplier` filters to one.
+
+    This is a price-COMPETITIVENESS / negotiation review (supplier X charged €Y more
+    than the cheapest same-day, same-country rival) — NOT a contractual claim-back."""
+    try:
+        out = []
+        for ln in _savings_lines(con, period):
+            if supplier is not None and ln["supplier"] != supplier:
+                continue
+            out.append({"supplier": ln["supplier"], "date": ln["date"],
+                        "country": ln["country"], "litres": ln["litres"],
+                        "eur_l": ln["eur_l"], "cheapest_eur_l": ln["cheapest_eur_l"],
+                        "cheapest_supplier": ln["cheapest_supplier"],
+                        "delta_eur_l": ln["delta_eur_l"],
+                        "overpay_eur": money.f2(ln["overpay_eur"])})
+        out.sort(key=lambda x: -x["overpay_eur"])
+        return out
+    except Exception:
+        return []
