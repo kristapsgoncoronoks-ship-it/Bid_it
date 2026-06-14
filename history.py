@@ -16,6 +16,8 @@ Ad-hoc queries (sqlite3 fuel_history.db or any SQL tool):
 """
 import sqlite3, collections
 import db_tuning
+import db_migrate
+import money
 import consolidate
 import month_config
 from openpyxl import Workbook
@@ -28,6 +30,33 @@ DB = f"{WORKDIR}/fuel_history.db"
 FIELDS = ["entity","supplier","country","vehicle","date","time","station","product",
           "product_group","qty","currency","net_local","vat_local","gross_local",
           "net_eur","vat_eur","net_eur_eff","note"]
+
+# Migrations for fuel_history.db, run once each via db_migrate's versioning. APPEND new
+# DDL at the END — positions are stable. The base `transactions` schema is created by the
+# CREATE TABLE IF NOT EXISTS in load(); these alter it forward for already-existing DBs.
+_MIGR = [
+    # finding #4 (FX provenance): freeze the APPLIED local->EUR rate per line at
+    # consolidation so a historical claim's EUR is traceable to a stored rate even if FX
+    # sources change later. Convention = foreign units per 1 EUR (ECB, = net_local/net_eur).
+    "ALTER TABLE transactions ADD COLUMN fx_rate REAL",
+]
+
+
+def fx_rate(net_local, net_eur, currency=None):
+    """APPLIED FX rate for a line, in ECB convention (foreign units per 1 EUR), i.e.
+    exactly the rate that produced net_eur: `net_local / net_eur`.
+
+    Returns None when there is no EUR basis to divide by (net_eur 0/None) or no local
+    amount (net_local None) — we store NULL rather than fabricate or divide by zero.
+    EUR-native lines fall out naturally at 1.0 (net_local == net_eur). The currency arg
+    is advisory only (not required for the math) so callers can pass it for clarity.
+
+    Decimal is used for the division so the stored REAL is exact-ish; net_local/net_eur
+    are NOT touched — this is a purely additional, derived value.
+    """
+    if net_local is None or not net_eur:
+        return None
+    return float(money.D(net_local) / money.D(net_eur))
 
 
 def load(period=None):
@@ -85,10 +114,18 @@ CREATE VIEW IF NOT EXISTS v_station_month AS
     FROM transactions WHERE product_group='Diesel'
     GROUP BY period, supplier, country, station;
 """)
+    # Add the derived fx_rate column (and any later additive columns) to the base
+    # transactions table. db_migrate is versioned, so each ALTER runs EXACTLY ONCE per DB
+    # (idempotent on re-run); a fresh DB gets it here too, just after the CREATE.
+    db_migrate.apply(con, "history", _MIGR)
+
     con.execute("DELETE FROM transactions WHERE period=?", (period,))
+    # Persist the APPLIED FX rate per line alongside the figures (additive — net_*/vat_*
+    # are written unchanged). net_local idx 11, net_eur idx 14, currency idx 10 in FIELDS.
     con.executemany(
-        f"INSERT INTO transactions (period,{','.join(FIELDS)}) VALUES ({','.join('?'*19)})",
-        [[period]+list(r) for r in ROWS])
+        f"INSERT INTO transactions (period,{','.join(FIELDS)},fx_rate) "
+        f"VALUES ({','.join('?'*19)},?)",
+        [[period]+list(r)+[fx_rate(r[11], r[14], r[10])] for r in ROWS])
     con.commit()
     periods = [p[0] for p in con.execute("SELECT DISTINCT period FROM transactions ORDER BY period")]
     n = con.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]

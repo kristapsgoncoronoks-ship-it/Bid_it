@@ -239,3 +239,86 @@ def test_transactions_registered_as_excel_table(workbook):
     assert "TransactionsTbl" in ws.tables, list(ws.tables)
     ref = ws.tables["TransactionsTbl"].ref
     assert ref.startswith("A1:S"), ref
+
+
+def test_build_reads_stored_fx_rate(monkeypatch):
+    """build SURFACES the PERSISTED transactions.fx_rate on the Transactions sheet: a
+    seeded stored rate that DIFFERS from the net_local/net_eur recompute shows up in
+    column S, proving the sheet reads storage rather than always re-deriving."""
+    import os
+    import sqlite3
+    import consolidate
+    import history
+    import dataproduct
+    import build_master
+
+    period = "2099-09"
+    import tempfile
+    tmp = tempfile.mkdtemp()
+    pkl = os.path.join(tmp, "consolidated_rows.pkl")
+    hist_db = os.path.join(tmp, "fuel_history.db")
+    out = os.path.join(tmp, f"Fleet_Fuel_Master_{period}.xlsx")
+
+    fixture = [
+        ["ENT", "BP", "PL", "CARP", "2026-05-10", "08:00", "Stat PL", "Diesel",
+         "Diesel", 500.0, "PLN", 4270.0, 982.10, 5252.10, 1000.0, 230.0, 1000.0, ""],
+    ]
+    consolidate._dump_pickle(fixture, period, path=pkl)
+
+    real = consolidate.load_rows
+    monkeypatch.setattr(consolidate, "load_rows",
+                        lambda p, path=pkl: real(p, path=path))
+    monkeypatch.setattr(history, "DB", hist_db, raising=True)
+    monkeypatch.setattr(build_master, "WORKDIR", tmp, raising=True)
+    # dataproduct.connect("fuel_history") must hit the temp DB build_master reads from
+    monkeypatch.setattr(dataproduct, "connect",
+                        lambda which="fuel_history", path=None: sqlite3.connect(hist_db),
+                        raising=True)
+
+    history.load(period)
+
+    # Overwrite the STORED rate with a sentinel that is NOT net_local/net_eur (4.27),
+    # so reading-vs-recompute is distinguishable on the sheet.
+    con = sqlite3.connect(hist_db)
+    con.execute("UPDATE transactions SET fx_rate=? WHERE period=?", (9.99, period))
+    con.commit(); con.close()
+
+    out_path = build_master.build(period)
+    try:
+        wb = openpyxl.load_workbook(out_path)
+        ws = wb["Transactions"]
+        assert ws.cell(row=2, column=19).value == 9.99, "build did not surface stored fx_rate"
+    finally:
+        try:
+            os.remove(out_path)
+        except OSError:
+            pass
+
+
+def test_build_fx_falls_back_when_unstored(monkeypatch):
+    """When NO stored fx_rate is available (empty / unloaded period), build falls back to
+    the canonical net_local/net_eur recompute — the figure is identical by construction."""
+    import build_master
+    monkeypatch.setattr(build_master, "_stored_fx_map", lambda period: {})
+    import consolidate
+    period = "2026-05"
+    rows = consolidate.load_rows(period)
+    out_path = build_master.build(period)
+    try:
+        wb = openpyxl.load_workbook(out_path)
+        ws = wb["Transactions"]
+        checked = 0
+        for rr in range(2, ws.max_row + 1):
+            ccy = ws.cell(row=rr, column=11).value
+            net_local = ws.cell(row=rr, column=12).value
+            net_eur = ws.cell(row=rr, column=15).value
+            fx = ws.cell(row=rr, column=19).value
+            if ccy and ccy != "EUR" and net_eur and fx:
+                assert abs(fx - net_local / net_eur) < 1e-9, (rr, fx, net_local, net_eur)
+                checked += 1
+        assert checked > 0
+    finally:
+        try:
+            os.remove(out_path)
+        except OSError:
+            pass

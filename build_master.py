@@ -1,6 +1,7 @@
 import collections
 import datetime
 import money
+import history
 import supplier_fx
 from supplier_specs import SPECS
 from month_config import PAYMENTS, OPEN_ITEMS
@@ -21,6 +22,39 @@ WORKDIR = os.path.dirname(os.path.abspath(__file__))
 #   - an FX-markup row is AMBER-filled when the absolute deviation exceeds FX_DEV_AMBER %
 #     (the supplier converted at a rate that drifted materially from the ECB market).
 FX_DEV_AMBER = 1.0   # percent deviation vs ECB above which an FX row is flagged amber
+
+
+def _stored_fx_map(period):
+    """Read the PERSISTED per-line fx_rate from the engine-owned fuel_history.db
+    (READ-ONLY via dataproduct), keyed on the line's identifying tuple, so the
+    Transactions sheet can SURFACE the stored applied rate rather than re-derive it.
+
+    Returns {} when the column/table/DB isn't there yet (fresh tree, or this period not
+    yet loaded — build_master runs BEFORE history.load in the close), in which case the
+    caller falls back to the canonical recompute. The stored value equals that recompute
+    by construction (both are history.fx_rate over the same pickle rows), so the surfaced
+    figure is identical either way; reading-when-present makes the sheet trace to storage.
+    """
+    import dataproduct
+    out = {}
+    try:
+        con = dataproduct.connect("fuel_history")
+    except Exception:
+        return out
+    try:
+        cols = {r[1] for r in con.execute("PRAGMA table_info(transactions)")}
+        if "fx_rate" not in cols:
+            return out
+        for row in con.execute(
+                "SELECT entity,supplier,country,vehicle,date,time,station,product,"
+                "net_local,net_eur,fx_rate FROM transactions WHERE period=? "
+                "AND fx_rate IS NOT NULL", (period,)):
+            out[tuple(row[:10])] = row[10]
+    except Exception:
+        return {}
+    finally:
+        con.close()
+    return out
 
 
 def build(period=None):
@@ -201,9 +235,12 @@ def build(period=None):
 
     # ============ 4. TRANSACTIONS ============
     # FX rate column (S) makes the local->EUR conversion EXPLICIT and auditable: rate is
-    # FOREIGN UNITS PER 1 EUR (ECB convention, = net_local / net_eur), so a reader can
-    # verify net_local / rate ~= net_eur per line. EUR lines carry rate 1.0. Net/VAT/Gross
-    # EUR are quantized via money.f2 (HALF_UP); the per-line rate keeps 6 dp.
+    # FOREIGN UNITS PER 1 EUR (ECB convention, = net_local / net_eur), persisted at
+    # consolidation as transactions.fx_rate so a claim's EUR is traceable to a stored rate.
+    # We SURFACE that stored value here (read-only), falling back to the canonical recompute
+    # only for legacy rows where fx_rate is NULL / the period isn't loaded yet. EUR lines
+    # carry rate 1.0. Net/VAT/Gross EUR are quantized via money.f2 (HALF_UP); rate keeps 6 dp.
+    stored_fx = _stored_fx_map(period)
     ws = wb.create_sheet("Transactions")
     hdr = ["Entity","Supplier","Country","Vehicle/Card","Date","Time","Station","Product (doc)",
            "Product group","Qty (L/pc)","Currency","Net local","VAT local","Gross local",
@@ -212,12 +249,15 @@ def build(period=None):
     r = 2
     for row in ROWS:
         ccy = row[10]; net_local = row[11]; net_eur = row[14]
-        if not ccy or ccy == "EUR":
-            fx = 1.0
-        elif net_eur:
-            fx = net_local / net_eur                       # foreign per 1 EUR
-        else:
-            fx = ""
+        key = (row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], net_local, net_eur)
+        fx = stored_fx.get(key)                            # persisted applied rate (foreign per 1 EUR)
+        if fx is None:                                     # legacy/unloaded period -> recompute
+            if not ccy or ccy == "EUR":
+                fx = 1.0
+            elif net_eur:
+                fx = net_local / net_eur                   # foreign per 1 EUR
+            else:
+                fx = ""
         ws.append(list(row) + [fx])
         r += 1
     last = r-1
