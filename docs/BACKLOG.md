@@ -30,13 +30,21 @@ priorities (`7db2d95`); import-reliability + audit-activity trends (`cc4df3d`); 
   `waiting_room.queue_health()` (DLQ size, oldest-pending age vs 6h SLO, `dlq_growth_24h`
   from a sampled history), surfaced on `/queue` + worklist + notify digest; redrive reuses
   the existing "Send / restart all".
-- **Register-failure reconcile.** A distinct "registration failed — statement X" worklist
-  item + a vaulted-doc-without-registered-invoice reconcile sweep (the D4 split-brain
-  hardening). *(M, low)*
-- **`process_lock` fencing token + monotonic-clock deadline.** Add a monotonic
-  `lease_epoch` + compare-and-set; measure lease validity with `time.monotonic()`. *(M, med)*
-- **Per-job extract deadline / lease sizing.** Cap members or set an aggregate extract
-  deadline; bound the pypdf probe; ensure `LEASE_SECONDS` ≥ worst-case batch (or heartbeat). *(M, med)*
+- ~~**Register-failure reconcile**~~ ✅ SHIPPED (`4fb0605`) —
+  `invoice_control.unregistered_vaulted_documents()` (vaulted docs with no `statement_invoices`
+  registration, the D4 split-brain) + two worklist signals (orphan docs → /imports, failed
+  register jobs → /queue). NB: it flags **5 genuine orphans in the demo vault** — real
+  vaulted-but-unregistered docs (a data observation, not a code defect).
+- **`process_lock` fencing token + monotonic-clock deadline.** *(M, med)*
+  — ⏸️ SCALE-GATED (assessed): fencing tokens prevent a stale lease holder's writes under
+  MULTI-process contention; the lease-expiry/double-write window only bites with several
+  worker processes. For the single-box default (one intake worker thread per process) it's
+  low-urgency. Do before/with the validated Postgres/horizontal-scale cutover (§D).
+- **Per-job extract deadline / lease sizing.** *(M, med)*
+  — ⏸️ SCALE-GATED (assessed): a lease expiring mid-extract only causes double-processing
+  with MULTIPLE worker processes (one worker is single-threaded, so it can't reclaim its own
+  in-flight job). Single-box risk is low. Lighter wins if pursued: cap ZIP members / bound the
+  pypdf probe / confirm the AI backend has a request timeout — but no fragile thread-kill timeout.
 - ~~**Backup torn-file mid-close**~~ ✅ SHIPPED (`fd5ea10`) — the scheduled/manual backup
   defers to an in-progress close (`process_lock.held_by("close-run")`); drift-tested lock name.
 - ~~**M5a two-phase write**~~ ✅ SHIPPED (`2bdab51`) — `record_payment`'s `paid_amount` stamp now
