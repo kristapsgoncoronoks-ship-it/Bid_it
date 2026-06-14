@@ -283,3 +283,52 @@ def q_savings_lines(con, period, supplier=None):
         return out
     except Exception:
         return []
+
+
+def q_ledger(con, period, entity=None):
+    """Transaction-level accounting ledger over the validated transactions for `period`
+    — the decision-free first cut of an ERP/SAF-T export: one row per transaction, clean
+    enough for finance to derive any journal or import into Xero/QuickBooks/DATEV/a
+    spreadsheet. Read-only; NEVER raises (returns [] on any error). When `entity` is
+    given, restricts to that entity.
+
+    BASIS: NET EUR, final (VAT excluded, rebates applied). `net_eur` is the NET amount,
+    `vat_eur` the VAT amount in EUR, and gross = net + VAT (no separate gross column is
+    stored, so it is derived). Local-currency figures mirror the same: gross_local =
+    net_local + vat_local. EUR figures are quantized HALF_UP (money.f2). vat_rate_pct is
+    the implied VAT rate (100*vat_eur/net_eur, 1 dp), or 0.0 when net_eur is 0.
+
+    Rows (one per transaction), sorted by (date, entity, supplier):
+      {date, period, entity, supplier, country, vehicle, station, product, product_group,
+       qty, currency, net_local, vat_local, gross_local, net_eur, vat_eur, gross_eur,
+       vat_rate_pct, note}."""
+    try:
+        w, p = ["period=?"], [period]
+        if entity:
+            w.append("entity=?"); p.append(entity)
+        where_sql = " AND ".join(w)
+        out = []
+        for r in con.execute(f"""
+                SELECT date, period, entity, supplier, country, vehicle, station,
+                       product, product_group, qty, currency, net_local, vat_local,
+                       net_eur, vat_eur, note
+                FROM transactions WHERE {where_sql}
+                ORDER BY date, entity, supplier""", p).fetchall():
+            net_local = r["net_local"] or 0.0
+            vat_local = r["vat_local"] or 0.0
+            net_eur = money.f2(r["net_eur"] or 0)
+            vat_eur = money.f2(r["vat_eur"] or 0)
+            vat_rate_pct = round(100.0 * vat_eur / net_eur, 1) if net_eur else 0.0
+            out.append({"date": r["date"], "period": r["period"], "entity": r["entity"],
+                        "supplier": r["supplier"], "country": r["country"],
+                        "vehicle": r["vehicle"], "station": r["station"],
+                        "product": r["product"], "product_group": r["product_group"],
+                        "qty": r["qty"] or 0.0, "currency": r["currency"],
+                        "net_local": net_local, "vat_local": vat_local,
+                        "gross_local": net_local + vat_local,
+                        "net_eur": net_eur, "vat_eur": vat_eur,
+                        "gross_eur": money.f2(net_eur + vat_eur),
+                        "vat_rate_pct": vat_rate_pct, "note": r["note"]})
+        return out
+    except Exception:
+        return []

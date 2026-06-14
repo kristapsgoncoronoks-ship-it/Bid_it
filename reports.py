@@ -682,6 +682,56 @@ def expense_report_workbook(period=None, entity=None, path=None):
     return path
 
 
+# ---- ledger columns: (q_ledger key, human header) in export order --------------
+_LEDGER_COLS = [
+    ("date", "Date"), ("period", "Period"), ("entity", "Entity"),
+    ("supplier", "Supplier"), ("country", "Country"), ("vehicle", "Vehicle"),
+    ("station", "Station"), ("product", "Product"), ("product_group", "Product group"),
+    ("qty", "Qty"), ("currency", "Currency"), ("net_local", "Net local"),
+    ("vat_local", "VAT local"), ("gross_local", "Gross local"), ("net_eur", "Net EUR"),
+    ("vat_eur", "VAT EUR"), ("gross_eur", "Gross EUR"), ("vat_rate_pct", "VAT rate %"),
+    ("note", "Note"),
+]
+
+
+def accounting_ledger_csv(period=None, entity=None):
+    """Accounting / ERP ledger export (CSV) — the decision-free first cut of the
+    SAF-T/ERP-export capability. A clean, universally-importable transaction-level CSV
+    (one row per transaction, no client chart-of-accounts, no country-specific SAF-T XML)
+    that finance can derive any journal from or import into Xero/QuickBooks/DATEV/a
+    spreadsheet. Read-only over the engine-owned product DB.
+
+    BASIS: NET EUR, final (rebates applied); VAT shown separately; gross = net + VAT.
+
+    The CSV is CLEAN — a single human-readable header row then one data row per
+    `queries.q_ledger` record, with NO comment/preamble lines (many ERP importers choke
+    on them) and numeric cells as plain numbers (no currency symbols/separators). Encoded
+    utf-8-sig so Excel opens it cleanly.
+
+    Returns (download_name, csv_bytes). Raises ValueError when no data/period."""
+    import csv, io
+    con = connect()
+    ps = _periods(con)
+    period = period or (ps[0] if ps else None)
+    if period is None:
+        con.close()
+        raise ValueError("no data loaded — nothing to export")
+    rows = queries.q_ledger(con, period, entity)
+    con.close()
+
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow([h for _, h in _LEDGER_COLS])
+    for r in rows:
+        w.writerow([r.get(k, "") for k, _ in _LEDGER_COLS])
+    data = buf.getvalue().encode("utf-8-sig")
+
+    suffix = f"_{entity}" if entity else ""
+    safe = "".join(ch if ch.isalnum() else "_" for ch in suffix)
+    download_name = f"Accounting_Ledger_{period}{safe}.csv"
+    return download_name, data
+
+
 def fee_report_workbook(claim, path=None):
     """One-sheet service-fee invoice / calculation for a single VAT claim. `claim`
     is a vat_applications row (dict). Fee = % of the refunded amount, or the minimum

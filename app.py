@@ -467,6 +467,7 @@ PERM_BY_ENDPOINT = {
     "intel":           "pricing", "export_intel": "exports",
     "export_overpay":  "exports",
     "export_expenses": "exports",
+    "export_accounting": "exports",
     "documents":       "documents", "doc_download": "documents",
     "export_master":   "exports", "export_history": "exports",
     "export_pricing":  "exports", "export_vat": "exports", "export_compare": "exports",
@@ -497,7 +498,7 @@ MODULES = {
                     "pricing", "pricing_market", "pricing_portal", "pricing_adopt_benchmark",
                     "pricing_upload", "api_pricing", "export_compare", "export_stations",
                     "export_pricing", "export_benchmark", "export_peer", "intel", "export_intel",
-                    "export_overpay", "expenses", "export_expenses"}),
+                    "export_overpay", "expenses", "export_expenses", "export_accounting"}),
     "intake":     ("Intake — import, waiting room, files, document mining",
                    {"extract_batch", "extract_confirm", "extract_ai_review",
                     "intake_queue_page", "intake_review",
@@ -943,7 +944,7 @@ def _intake_uploads_blocked():
 # The read-only aggregations live in queries.py (small brick, easy to test).
 from queries import (q_periods, q_filters, where, q_compare, q_compare_totals,
                      q_benchmark, q_kpis, q_trend, q_headtohead, q_entities,
-                     q_stations, q_savings, q_savings_lines, q_expense)
+                     q_stations, q_savings, q_savings_lines, q_expense, q_ledger)
 import metrics
 import money
 
@@ -1850,6 +1851,9 @@ def expenses():
 
     ent_qs = f"&entity={esc(entity)}" if entity else ""
     dl = (f'<a class="btn" href="/export/expenses?period={esc(period)}{ent_qs}">Download expense report (Excel)</a>'
+          f' <a class="btn" href="/export/accounting?period={esc(period)}{ent_qs}">Download accounting ledger (CSV)</a>'
+          f'<div class="note">Transaction-level ledger for import into your accounting/ERP system. '
+          f'NET EUR, final; VAT shown separately; gross = net + VAT.</div>'
           if period else "")
     body = (f'<form class="f" method="get"><label>Period<select name="period" onchange="this.form.submit()">{psw}</select></label></form>'
             f'<div class="kpis">'
@@ -1880,6 +1884,18 @@ def export_expenses():
     path = reports.expense_report_workbook(period, entity)
     return send_file(path, as_attachment=True, download_name=os.path.basename(path),
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+@app.route("/export/accounting")
+def export_accounting():
+    """Accounting / ERP ledger export (CSV) for a period — one row per transaction
+    (decision-free; no chart-of-accounts, no country-specific SAF-T XML). NET EUR basis,
+    final (rebates applied); VAT shown separately; gross = net + VAT. Read-only."""
+    import io, reports
+    period = request.args.get("period") or None
+    entity = request.args.get("entity") or None
+    name, data = reports.accounting_ledger_csv(period, entity)
+    return send_file(io.BytesIO(data), as_attachment=True, download_name=name,
+                     mimetype="text/csv")
 
 @app.route("/transactions")
 def transactions():
