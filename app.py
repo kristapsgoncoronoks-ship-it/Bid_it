@@ -459,7 +459,7 @@ PERM_BY_ENDPOINT = {
     "invoice_ctrl":    "invoice_control", "contracts": "invoice_control",
     "vat":             "vat_claims", "api_vat": "vat_claims", "readiness": "vat_claims",
     "receivables":     "vat_claims", "export_receivables": "exports",
-    "customers":       "customers",
+    "customers":       "customers", "cust_doc_download": "customers",
     "pricing":         "pricing", "pricing_upload": "pricing", "api_pricing": "pricing",
     "pricing_market":  "pricing", "pricing_portal": "pricing",
     "pricing_adopt_benchmark": "pricing", "export_benchmark": "exports",
@@ -481,7 +481,7 @@ ADMIN_ONLY = {"vat", "api_vat", "readiness", "recovery", "receivables",
               "export_receivables", "export_evidence",
               # customer/CRM data (checklist, templates, document generation) is part of
               # the VAT-refund module, so the same admin-only access applies.
-              "customers"}
+              "customers", "cust_doc_download"}
 
 # Switchable PARTS of the app. An admin turns these on/off in the Admin panel; a
 # disabled part is hidden from the menu and its pages return "turned off". Core pages
@@ -4585,6 +4585,57 @@ def customers():
                     # unavailable; we deliver the prefilled .docx as a graceful fallback.
                     resp.headers["X-FFS-Notice"] = "PDF conversion unavailable - delivered .docx"
                 return resp
+            elif act == "new_doc_request":
+                # open a new document request (contract / power of attorney) bound to a
+                # prepared form (template) — the lifecycle starts in 'requested'.
+                kind = request.form.get("kind", "").strip()
+                tid = request.form.get("template_id", "").strip()
+                if not tid:
+                    raise ValueError("choose a prepared form (template)")
+                if kind not in CD.DOC_REQUEST_KINDS:
+                    raise ValueError("choose a valid request kind")
+                con = CD.connect()
+                rid = CD.create_document_request(
+                    con, code, kind, int(tid),
+                    country=request.form.get("dr_country", "").strip() or None,
+                    requested_by=session.get("user"))
+                con.close()
+                msg = f"Document request #{esc(str(rid))} ({esc(kind)}) opened for {esc(code)}."
+            elif act == "gen_doc_request":
+                # generate (or re-generate) the draft for a request; this advances it to
+                # 'generated' and auto-vaults the bytes — we also offer them as a download.
+                con = CD.connect()
+                data, outname, ext = CD.generate_request_document(
+                    con, int(request.form.get("req_id", "0")))
+                con.close()
+                from flask import Response
+                mt = {"docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                      "html": "text/html", "md": "text/markdown",
+                      "pdf": "application/pdf"}.get(ext, "text/plain")
+                resp = Response(data, mimetype=mt)
+                resp.headers["Content-Disposition"] = f'attachment; filename="{outname}"'
+                if ext == "docx":
+                    # a PDF was requested but the .docx->PDF (LibreOffice) path was
+                    # unavailable; the prefilled .docx is the graceful fallback.
+                    resp.headers["X-FFS-Notice"] = "PDF conversion unavailable - delivered .docx"
+                return resp
+            elif act == "advance_doc_request":
+                # state-machine advance. advance_document_request enforces validity server
+                # side (returns (False, illegal transition) for an out-of-state POST), so a
+                # forged/stale button cannot crash or skip a step.
+                new_status = request.form.get("new_status", "").strip()
+                f = request.files.get("signed_file")
+                signed_bytes = f.read() if (f and f.filename) else None
+                signed_name = f.filename if (f and f.filename) else None
+                con = CD.connect()
+                ok, m = CD.advance_document_request(
+                    con, int(request.form.get("req_id", "0")), new_status,
+                    signed_file=signed_bytes, signed_filename=signed_name,
+                    by=session.get("user"))
+                con.close()
+                if not ok:
+                    raise ValueError(m)
+                msg = f"Document request #{esc(request.form.get('req_id',''))}: {esc(m)}."
             elif act in ("add_checklist_rule", "toggle_checklist_rule", "del_checklist_rule"):
                 if session.get("role") != "admin":
                     raise ValueError("only an admin can change the checklist rules")
@@ -4703,6 +4754,105 @@ def customers():
                      + '<label style="flex-direction:row;align-items:center;gap:5px">'
                        '<input type="checkbox" name="as_pdf" style="width:auto"> as PDF</label>'
                      + '<button>Generate document</button></form>')
+        # ---- document requests: the generate -> sign -> receive lifecycle register ----
+        # One row per request; each row shows ONLY the lifecycle actions valid from its
+        # current status (per CD.DOC_REQUEST_TRANSITIONS). advance_document_request enforces
+        # the same validity server-side, so a forged/stale button can't skip a step.
+        _DR_BADGE = {"requested": "var(--mut)", "generated": "var(--mut)",
+                     "sent_for_signature": "var(--mut)", "signed": "var(--mut)",
+                     "received": "var(--ok)", "cancelled": "var(--bad)"}
+
+        def _dr_badge(st):
+            return (f'<span style="display:inline-block;padding:1px 7px;border-radius:9px;'
+                    f'font-size:11px;background:{_DR_BADGE.get(st, "var(--mut)")};'
+                    f'color:#fff">{esc((st or "").replace("_", " "))}</span>')
+
+        def _dr_doc_link(doc_id, label):
+            if not doc_id:
+                return ""
+            return f'<a href="/customer-doc/{int(doc_id)}">{esc(label)}</a>'
+
+        def _dr_advance_form(rid, new_status, label, *, bg="var(--mut)", file_field=False):
+            enc = ' enctype="multipart/form-data"' if file_field else ""
+            file_in = ('<input type="file" name="signed_file" required style="width:150px">'
+                       if file_field else "")
+            return ('<form method="post"' + enc + ' style="display:inline">' + _csrf_input()
+                    + f'<input type="hidden" name="__act" value="advance_doc_request">'
+                    + f'<input type="hidden" name="req_id" value="{int(rid)}">'
+                    + f'<input type="hidden" name="new_status" value="{esc(new_status)}">'
+                    + file_in
+                    + f'<button style="background:{bg};font-size:11px;padding:3px 8px">'
+                    + f'{esc(label)}</button></form> ')
+
+        dr_rows = []
+        for dr in CD.list_document_requests(con, code):
+            st = dr["status"]
+            rid = dr["id"]
+            valid = CD.DOC_REQUEST_TRANSITIONS.get(st, set())
+            actions = ""
+            if st == "requested":
+                actions += ('<form method="post" style="display:inline">' + _csrf_input()
+                            + '<input type="hidden" name="__act" value="gen_doc_request">'
+                            + f'<input type="hidden" name="req_id" value="{int(rid)}">'
+                            + '<button style="background:var(--ok);font-size:11px;padding:3px 8px">'
+                              'Generate</button></form> ')
+            if st == "generated":
+                actions += ('<form method="post" style="display:inline">' + _csrf_input()
+                            + '<input type="hidden" name="__act" value="gen_doc_request">'
+                            + f'<input type="hidden" name="req_id" value="{int(rid)}">'
+                            + '<button style="background:var(--mut);font-size:11px;padding:3px 8px">'
+                              'Re-generate</button></form> ')
+                if "sent_for_signature" in valid:
+                    actions += _dr_advance_form(rid, "sent_for_signature",
+                                                "Mark sent for signature", bg="var(--ok)")
+            if st == "sent_for_signature" and "signed" in valid:
+                actions += _dr_advance_form(rid, "signed", "Mark signed", bg="var(--ok)")
+            if st == "signed" and "received" in valid:
+                actions += _dr_advance_form(rid, "received", "Upload signed original",
+                                            bg="var(--ok)", file_field=True)
+            if "cancelled" in valid:
+                actions += _dr_advance_form(rid, "cancelled", "Cancel", bg="var(--bad)")
+            # ready-to-activate hint: a received PoA whose country now has all docs on file.
+            ready_hint = ""
+            drc = dr["refund_country"]
+            if (st == "received" and dr["kind"] == "power_of_attorney" and drc
+                    and CD.country_ready_to_activate(con, code, drc)):
+                ready_hint = (f'<div class="note ok" style="font-size:11px">&#10003; {esc(drc)} '
+                              'now ready to activate (see Refund countries above)</div>')
+            links = " ".join(filter(None, [
+                _dr_doc_link(dr["generated_doc_id"], "generated"),
+                _dr_doc_link(dr["signed_doc_id"], "signed original")])) or '<span class="note">—</span>'
+            dr_rows.append([
+                f'<td>{esc(dr["kind"].replace("_", " "))}</td>',
+                f'<td>{esc(drc or "—")}</td>',
+                f'<td>{_dr_badge(st)}</td>',
+                f'<td class="note">{esc(dr["requested_at"] or "")}</td>',
+                f'<td>{links}{ready_hint}</td>',
+                f'<td>{actions or "<span class=note>—</span>"}</td>',
+            ])
+        dr_table = (tbl(["Kind", "Country", "Status", "Requested", "Documents", "Actions"], dr_rows)
+                    if dr_rows else '<p class="note">no document requests yet</p>')
+        # new-request form (prepared-form template + kind + optional refund country)
+        new_dr_f = ""
+        if templates:
+            kind_opts = "".join(f'<option value="{esc(k)}">{esc(k.replace("_", " "))}</option>'
+                                for k in CD.DOC_REQUEST_KINDS)
+            ctry_opts = '<option value="">(none — global)</option>' + "".join(
+                f'<option value="{esc(r["country"])}">{esc(r["country"])}</option>'
+                for r in CD.country_rows(con, code))
+            new_dr_f = ('<form method="post" class="f" style="margin-top:8px">' + _csrf_input() + hid
+                        + '<input type="hidden" name="__act" value="new_doc_request">'
+                        + f'<label>prepared form<select name="template_id" required>{tmpl_opts}</select></label>'
+                        + f'<label>kind<select name="kind">{kind_opts}</select></label>'
+                        + f'<label>refund country<select name="dr_country">{ctry_opts}</select></label>'
+                        + '<button>Open request</button></form>')
+        docreq_section = (
+            '<h2 style="margin-top:12px">Document requests</h2>'
+            '<div class="note" style="margin-top:0">A request tracks one contract / power-of-attorney '
+            'lifecycle: generate the draft from a prepared form, mark it sent for signature, mark it '
+            'signed, then upload the signed original. Generated drafts and signed originals are vaulted.</div>'
+            + dr_table
+            + (new_dr_f if new_dr_f else '<p class="note">upload a template first to open a request</p>'))
         fee_f = ('<form method="post" class="f" style="margin-top:6px">' + _csrf_input() + hid
                  + '<input type="hidden" name="__act" value="set_fee">'
                  + f'<label>default fee %<input name="fee_pct" type="number" step="0.1" value="{fee_pct:g}" style="width:80px"></label>'
@@ -4780,6 +4930,7 @@ def customers():
                 '<div class="note" style="margin-top:0">Fills the template with this '
                 'customer\'s data (mail-merge). Optionally file the draft as a document.</div>'
                 + gen_f) if gen_f else "")
+            + docreq_section
             + f'<h2 style="margin-top:12px">Our fee — default {fee_pct:g}% of refunded VAT, min €{fee_min:,.2f}/declaration</h2>'
             + '<div class="note" style="margin-top:0">Priority is the % fee; if it falls below the '
               'minimum, the minimum is charged. Adjustable per declaration and per country — but '
@@ -5388,6 +5539,20 @@ def doc_download(doc_id):
     if d is None:
         return page('<div class="card"><b class="bad">No such document.</b></div>', ""), 404
     data = document_vault.get_bytes(d["stored_path"], VR.DOCDIR)
+    return send_file(io.BytesIO(data), as_attachment=True, download_name=d["filename"])
+
+@app.route("/customer-doc/<int:doc_id>")
+def cust_doc_download(doc_id):
+    """Download a vaulted CUSTOMER document (customer_documents row) — used by the
+    document-request register to fetch a generated draft or a signed original. Admin
+    only (same gate as /customers); routes the stored locator through document_vault."""
+    import customer_master as CD, document_vault, io
+    con = CD.connect()
+    d = con.execute("SELECT * FROM customer_documents WHERE id=?", (doc_id,)).fetchone()
+    con.close()
+    if d is None:
+        return page('<div class="card"><b class="bad">No such document.</b></div>', ""), 404
+    data = document_vault.get_bytes(d["stored_path"], CD.DOCDIR)
     return send_file(io.BytesIO(data), as_attachment=True, download_name=d["filename"])
 
 @app.route("/export/vat")
