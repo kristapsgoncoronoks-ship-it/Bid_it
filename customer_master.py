@@ -190,6 +190,49 @@ def add_customer(code, company_name, country="", reg_number="", vat_number="",
          home_portal or "INPUT: home portal", None, None, notes))
     con.commit(); con.close()
 
+# Columns the CRM (and the external CRM-sync API) may write on `customers`. Anything
+# outside this allowlist is silently ignored — never let a caller set status/fee/route
+# or any audited workflow column through the generic editor.
+EDITABLE_FIELDS = ("company_name", "reg_number", "vat_number", "legal_address",
+                   "home_portal", "phone", "email", "nace_code")
+
+def update_customer(code, **fields):
+    """Update an allowlist of editable columns on a customer. Returns (ok, msg).
+
+    Shared writer for the in-app CRM and the external CRM-sync API (/api/v1). Only
+    EDITABLE_FIELDS are written; unknown keys are skipped (not an error). A value that
+    is empty/whitespace for a field being set is rejected. The customer must exist.
+    The bound audit triggers record `changed_by` from the current actor. Never raises —
+    returns (False, msg) on any error."""
+    try:
+        code = (code or "").strip().upper()
+        if not code:
+            return False, "customer code is required"
+        sets, vals = [], []
+        for k, v in fields.items():
+            if k not in EDITABLE_FIELDS:
+                continue  # ignore unknown / non-editable keys
+            if v is None or not str(v).strip():
+                return False, f"{k} cannot be empty"
+            sets.append(f"{k}=?")
+            vals.append(str(v).strip())
+        if not sets:
+            return False, "no editable fields supplied"
+        con = connect()
+        try:
+            if not con.execute("SELECT 1 FROM customers WHERE code=?", (code,)).fetchone():
+                return False, f"customer {code} not found"
+            vals.append(code)
+            con.execute(f"UPDATE customers SET {', '.join(sets)} WHERE code=?", vals)
+            con.commit()
+        finally:
+            con.close()
+        return True, "updated"
+    except Exception as e:
+        import applog
+        applog.get("customer_master").exception("update_customer failed")
+        return False, f"update failed: {e}"
+
 def add_document(con, code, kind, filename, file_bytes, country=None, valid_until=None):
     """Vault a customer document (hash-verified). country=None for customer-level
     docs (trade registry, contract); a country for country-specific docs (POA).

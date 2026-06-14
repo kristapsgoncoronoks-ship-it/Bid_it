@@ -520,6 +520,13 @@ API_V1_SCOPE = {
     "api_v1_benchmark": "api:benchmark",
     "api_v1_claim_status": "api:claims",
     "api_v1_savings": "api:savings",
+    # Basic CRM-sync surface (read + write to customer master). The write endpoints
+    # require the separate api:crm.write scope; a read-only api:crm key cannot reach
+    # them (the guard checks scope regardless of HTTP method).
+    "api_v1_customers_list": "api:crm",
+    "api_v1_customer_get": "api:crm",
+    "api_v1_customer_create": "api:crm.write",
+    "api_v1_customer_update": "api:crm.write",
 }
 
 def _bearer_token():
@@ -5396,6 +5403,144 @@ def api_v1_savings():
     import savings_intel
     s = savings_intel.summary(request.args.get("period") or None)
     return jsonify(s)
+
+# ---------------------------------------------------------------- /api/v1 CRM sync
+# A BASIC, token-scoped CRM-integration surface so an outsourced/external CRM (a
+# top-10 vendor's connector) can read and maintain the in-app customer master that
+# feeds VAT claims. Deliberately minimal — richer CRM duties are intended to be
+# delegated to that external CRM via this seam, NOT rebuilt in the app. WRITE is
+# audit-attributed to the calling API key (see _api_v1_actor below).
+
+# Core, non-secret customer fields exposed to the CRM. NO bank/payout/fee/PII.
+_V1_CUSTOMER_FIELDS = ("code", "company_name", "country", "status", "reg_number",
+                       "vat_number", "legal_address", "home_portal", "phone",
+                       "email", "nace_code")
+
+def _api_v1_actor_name():
+    """Resolve the authorized API key (stashed by the guard) to a stable actor string
+    'api:<label-or-id>' for audit attribution. Never raises (falls back to id/system)."""
+    kid = request.environ.get("ffs_api_key_id")
+    if kid is None:
+        return "api:unknown"
+    try:
+        import api_keys
+        row = next((k for k in api_keys.list_keys() if k["id"] == kid), None)
+        label = (row.get("label") if row else "") or ""
+        return f"api:{label.strip() or kid}"
+    except Exception as e:
+        _log_exc("api_v1 actor resolve", e)
+        return f"api:{kid}"
+
+def _v1_customer_detail(code):
+    """The GET-detail shape for one customer, or None if absent. Core fields +
+    activation summary (checklist + is_active) + per-country status."""
+    import customer_master as CD
+    con = CD.connect()
+    try:
+        c = con.execute("SELECT * FROM customers WHERE code=?", (code,)).fetchone()
+        if not c:
+            return None
+        out = {k: c[k] for k in _V1_CUSTOMER_FIELDS if k in c.keys()}
+        out["active"] = (c["status"] == "active")
+        items, ready = CD.activation_checklist(con, code)
+        out["activation_checklist"] = [{"label": lbl, "ok": bool(ok)} for lbl, ok in items]
+        out["is_active"] = out["active"]
+        out["countries"] = [{"country": r["country"], "status": r["status"]}
+                            for r in CD.country_rows(con, code)]
+        return out
+    finally:
+        con.close()
+
+@app.route("/api/v1/customers")
+def api_v1_customers_list():
+    """List customers (CRM read). Core, non-secret fields only. Scope api:crm."""
+    import customer_master as CD
+    con = CD.connect()
+    try:
+        rows = con.execute("""SELECT code, company_name, country, status
+                              FROM customers ORDER BY code""").fetchall()
+        out = []
+        for r in rows:
+            countries = [cr["country"] for cr in CD.country_rows(con, r["code"])
+                         if cr["status"] == "active"]
+            out.append({"code": r["code"], "company_name": r["company_name"],
+                        "country": r["country"], "status": r["status"],
+                        "active": (r["status"] == "active"),
+                        "countries_active": countries})
+    finally:
+        con.close()
+    return jsonify({"customers": out})
+
+@app.route("/api/v1/customers/<code>")
+def api_v1_customer_get(code):
+    """One customer's detail (CRM read). 404 if absent. Scope api:crm."""
+    detail = _v1_customer_detail((code or "").strip().upper())
+    if detail is None:
+        return _api_err(404, "customer not found")
+    return jsonify(detail)
+
+@app.route("/api/v1/customers", methods=["POST"])
+def api_v1_customer_create():
+    """Create a customer from an external CRM (write). Required: code, company_name,
+    country; optional real fields are written immediately so an API-onboarded customer
+    carries real values (not INPUT placeholders). Scope api:crm.write.
+
+    409 on duplicate code; 400 on missing required. The write is audit-attributed to
+    the calling API key; the actor is always reset (try/finally)."""
+    import customer_master as CD
+    body = request.get_json(silent=True) or {}
+    code = (body.get("code") or "").strip().upper()
+    company_name = (body.get("company_name") or "").strip()
+    country = (body.get("country") or "").strip()
+    if not code or not company_name or not country:
+        return _api_err(400, "code, company_name and country are required")
+    actor = _api_v1_actor_name()
+    try:
+        _audit_mod.set_actor(None, actor)
+        con = CD.connect()
+        exists = con.execute("SELECT 1 FROM customers WHERE code=?", (code,)).fetchone()
+        con.close()
+        if exists:
+            return _api_err(409, f"customer {code} already exists")
+        CD.add_customer(code, company_name, country)
+        # Replace the INPUT placeholders with the real optional fields the CRM supplied.
+        opt = {k: body[k] for k in ("reg_number", "vat_number", "legal_address",
+                                    "home_portal", "phone", "email")
+               if body.get(k) and str(body.get(k)).strip()}
+        if opt:
+            ok, msg = CD.update_customer(code, **opt)
+            if not ok:
+                return _api_err(400, msg)
+    except Exception as e:
+        _log_exc("api_v1 customer create", e)
+        return _api_err(500, "internal error")
+    finally:
+        _audit_mod.reset_actor()
+    return jsonify(_v1_customer_detail(code)), 201
+
+@app.route("/api/v1/customers/<code>", methods=["PATCH"])
+def api_v1_customer_update(code):
+    """Update a customer's editable fields from an external CRM (write). Body is any
+    subset of the editable allowlist. 404 if absent, 400 on validation. Scope
+    api:crm.write. Audit-attributed to the calling API key; actor always reset."""
+    import customer_master as CD
+    code = (code or "").strip().upper()
+    body = request.get_json(silent=True) or {}
+    fields = {k: v for k, v in body.items() if k in CD.EDITABLE_FIELDS}
+    if not fields:
+        return _api_err(400, "no editable fields supplied")
+    actor = _api_v1_actor_name()
+    try:
+        _audit_mod.set_actor(None, actor)
+        ok, msg = CD.update_customer(code, **fields)
+    except Exception as e:
+        _log_exc("api_v1 customer update", e)
+        return _api_err(500, "internal error")
+    finally:
+        _audit_mod.reset_actor()
+    if not ok:
+        return _api_err(404 if "not found" in msg else 400, msg)
+    return jsonify(_v1_customer_detail(code)), 200
 
 if __name__ == "__main__":
     import tls

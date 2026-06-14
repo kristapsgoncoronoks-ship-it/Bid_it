@@ -30,6 +30,8 @@ SCOPES = {
     "api:benchmark": "Read the internal price benchmark summary",
     "api:claims":    "Read VAT claim status / readiness (non-sensitive fields only)",
     "api:savings":   "Read the savings-intelligence summary",
+    "api:crm":       "Read customer master data (list + detail) for CRM sync",
+    "api:crm.write": "Create / update customer master data (CRM sync write)",
 }
 
 _SCHEMA_READY = set()
