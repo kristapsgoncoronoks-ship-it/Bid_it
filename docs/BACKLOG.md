@@ -42,12 +42,20 @@ priorities (`7db2d95`); import-reliability + audit-activity trends (`cc4df3d`); 
 - **M5a two-phase write** — wrap `record_payment`'s stamp + status transition atomically. *(S, low)*
 
 ### Data de-duplication (DATA_ARCHITECTURE.md Part 1)
+- ~~**Avoidable-overpay loop duplication**~~ ✅ SHIPPED (`908b7a7`) — `reports._savings`
+  now delegates to the canonical `queries.q_savings`; the loop exists once.
+- ~~**`supplier_invoices.gross_total`** re-sync on re-register~~ ✅ SHIPPED (`f207f67`) —
+  `register_statement` re-syncs auto-synced rows on a corrected statement; manual rows preserved.
 - **Derive `gross`/`gross_local`** instead of storing net+vat (or add a CHECK). *(S, low)*
+  — ⏸️ DEFERRED (assessed): the values don't drift (statement_invoices REPLACE-syncs;
+  transactions gross derived in views), and drop/CHECK both need a full SQLite table
+  REBUILD of engine-owned tables — net-negative ROI for harmless redundant storage.
 - **Persist only receipt-control overrides** (`waived`/`note`); derive `status`/`expected`. *(S, low)*
-- **`supplier_invoices.gross_total`** — reference the statement line or re-sync on
-  re-register (currently insert-once, drifts on correction). *(M, low)*
+  — ⏸️ DEFERRED (assessed): the stored `expected`/`status` double as a point-in-time
+  snapshot at `checked_at` (audit value); reworking the engine writer + read path is low ROI.
 - **Document path-migration completeness** — confirm a SharePoint/FTPS backend migration
   re-points `stored_path` in `intake_jobs`/`data_lake_files`, not just `invoice_documents`. *(S, med)*
+  — → folded into the reliability batch (storage-backend split-brain).
 
 ### Under-used-data leverage (DATA_ARCHITECTURE.md Part 2)
 - ~~**Supplier processing-reliability scorecard**~~ ✅ SHIPPED (`2bf5031`) —
