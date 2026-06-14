@@ -60,6 +60,33 @@ def test_backends_are_provider_neutral():
     assert set(EX._AI) >= {"claude", "openai", "azure"}
 
 
+# ---------------------------------------------------------------- _num amount parser
+@pytest.mark.parametrize("raw,expected", [
+    ("7 059,83", 7059.83),                  # ASCII thousands space
+    ("7 059,83", 7059.83),             # non-breaking thousands space
+    ("1.776,96", 1776.96),                  # dotted thousands (was silently 0.0 before)
+    ("1 776,96", 1776.96),                  # plain thousands space
+    ("1234.56", 1234.56),                   # plain dot-decimal e-invoice amount
+    ("0", 0.0),
+    ("", 0.0),
+    (None, 0.0),                            # None must not raise (callers rely on numeric)
+    ("abc", 0.0),
+])
+def test_num_parses_currency_amounts(raw, expected):
+    out = EX._num(raw)
+    assert out == expected
+    assert isinstance(out, float)           # storage stays REAL; callers expect a float
+
+
+def test_num_quantizes_half_up_not_bankers():
+    # .xx5 residues must round HALF_UP (money.f2), not banker's HALF_EVEN.
+    # banker's would give 2.66 / 0.12; HALF_UP gives 2.67 / 0.13. Comma decimals are
+    # used here because in the European basis a DOT before exactly 3 digits is a
+    # thousands separator (so "2.665" reads as 2665, not 2.665).
+    assert EX._num("2,665") == 2.67
+    assert EX._num("0,125") == 0.13
+
+
 # ---------------------------------------------------------------- ZIP bomb caps
 def _zip_of(entries):
     buf = io.BytesIO()

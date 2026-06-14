@@ -172,12 +172,15 @@ def pdf_text(pdf_bytes):
 
 # ---------------------------------------------------------------- deterministic parser
 def _num(s):
-    """European amount: '7 059,83' / '7\u00a0059,83' / '1 776,96' -> float."""
-    s = s.replace("\u00a0", " ").strip()
+    """Currency amount -> float, money.f2-quantized (HALF_UP). Handles European
+    PDF-text amounts ('7 059,83' / '7\u00a0059,83' / '1.776,96' / '1 776,96') and
+    plain dot-decimal e-invoice XML amounts ('1234.56'). Returns 0.0 on unparseable
+    or None input (callers rely on a numeric fallback, never None/raise)."""
+    s = str(s).replace("\u00a0", " ").strip()
     s = re.sub(r"(?<=\d)[ .](?=\d{3}\b)", "", s)   # strip thousands sep (space or dot)
     s = s.replace(",", ".")
     try: return money.f2(float(s))
-    except ValueError: return 0.0
+    except (TypeError, ValueError): return 0.0
 
 def parse_eurowag(texts):
     """Deterministic parser for Eurowag/W.A.G. coversheet + country invoices.
@@ -342,12 +345,6 @@ def _collect_xml(upload_bytes, filename):
     if _is_xml(filename, upload_bytes):
         return [(os.path.basename(filename), upload_bytes)]
     return []
-
-def _num(_s):
-    try:
-        return round(float(str(_s).replace(" ", "").replace(" ", "").replace(",", ".")), 2)
-    except (TypeError, ValueError):
-        return 0.0
 
 def _norm_date(s):
     s = (s or "").strip()
