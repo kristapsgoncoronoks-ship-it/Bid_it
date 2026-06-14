@@ -30,6 +30,44 @@ CANONICAL_FIELDS (what row_map must return):
 """
 
 import money
+import ecb_rates   # local DB read only (ecb_rates.rate_for SELECTs the cached ecb_rates.db; no network at import)
+
+# Per-date memo of the dated ECB PLN rate (foreign-units per 1 EUR) so a 46-line BP
+# invoice opens ONE connection per distinct date, not one per line.
+_PLN_RATE_CACHE = {}
+
+
+def _iso_date(d):
+    """Normalize a supplier date cell to ISO YYYY-MM-DD for the ECB lookup.
+    Mirrors consolidate.norm_date (BP cells are DD/MM/YY strings) WITHOUT importing
+    consolidate (which imports this module — that would be circular). Best-effort:
+    an unrecognized value is returned unchanged so the lookup simply misses."""
+    if hasattr(d, "strftime"):
+        return d.strftime("%Y-%m-%d")
+    s = str(d).strip()
+    if len(s) == 10 and s[4] == "-":
+        return s
+    for sep in ("/", "-"):
+        p = s.split(sep)
+        if len(p) == 3 and len(p[2]) == 2 and len(p[0]) <= 2:
+            return f"20{p[2]}-{p[1].zfill(2)}-{p[0].zfill(2)}"
+    return s
+
+
+def _pln_rate(date):
+    """Dated ECB PLN rate (PLN per 1 EUR) for `date`, memoized per date. Returns the
+    float rate or None when no PLN coverage exists for that date (so the caller falls
+    back to the config rate). NEVER raises — any ecb_rates error → None → config path."""
+    iso = _iso_date(date)
+    if iso in _PLN_RATE_CACHE:
+        return _PLN_RATE_CACHE[iso]
+    rate = None
+    try:
+        rate, _asof = ecb_rates.rate_for("PLN", iso)
+    except Exception:
+        rate = None
+    _PLN_RATE_CACHE[iso] = rate
+    return rate
 
 # Central product dictionary - extend when a new supplier uses new names
 PRODUCT_GROUPS = {
@@ -140,10 +178,21 @@ def _q8(r, ctx):
 
 def _bp(r, ctx):
     lp,card,date,reg,loc,prod,cat,qty,unit,gross,vatp,vat,net = r[:13]
-    rate = ctx["fx"]["EUR_PER_PLN"]   # EUR per 1 PLN (multiply PLN -> EUR)
+    # PLN->EUR rate source precedence: dated ECB rate (ecb_rates.rate_for, PLN per 1 EUR
+    # => DIVIDE), else month_config.FX config fallback (EUR per 1 PLN => MULTIPLY). The
+    # applied rate is recorded on transactions.fx_rate. No ECB PLN coverage => fallback
+    # runs and figures are byte-identical to the config path.
+    ecb_rate = _pln_rate(date)
+    if ecb_rate:
+        net_eur = net / ecb_rate
+        vat_eur = vat / ecb_rate
+    else:
+        rate = ctx["fx"]["EUR_PER_PLN"]   # EUR per 1 PLN (multiply PLN -> EUR)
+        net_eur = net * rate
+        vat_eur = vat * rate
     return dict(vehicle=f"{card}/{reg}", date=date, time="", station=loc, product=prod,
                 qty=qty, net_local=net, vat_local=vat, gross_local=gross,
-                net_eur=net*rate, vat_eur=vat*rate)
+                net_eur=net_eur, vat_eur=vat_eur)
 
 def _tfc(r, ctx):
     card,date,time,rec,plate,prod,loc,vol,locp,disc,netp,amt = r[:12]
