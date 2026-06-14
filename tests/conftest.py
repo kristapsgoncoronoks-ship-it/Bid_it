@@ -31,14 +31,19 @@ def admin_session():
     try:
         yield {"user": TEST_USER, "pw": TEST_PW}
     finally:
-        if had_db:
+        # Restore robustly: if the backup is present, move it back; if it has
+        # vanished (interrupted/partial run), DON'T raise FileNotFoundError out of
+        # teardown — that turns into a spurious, order-dependent suite casualty.
+        if os.path.exists(backup):
             shutil.move(backup, SECURITY_DB)
-        else:
+        elif not had_db:
             # there was no security.db before; remove the one we created
             try:
                 os.remove(SECURITY_DB)
             except OSError:
                 pass
+        # else: had a db but the backup is gone — leave the live security.db as-is
+        #       rather than failing teardown.
 
 
 @pytest.fixture()
