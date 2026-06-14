@@ -57,6 +57,21 @@ CREATE TABLE IF NOT EXISTS doc_templates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT, kind TEXT, ext TEXT, filename TEXT, body BLOB,
     uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS document_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer TEXT NOT NULL,                 -- customers.code
+    kind TEXT NOT NULL,                     -- 'contract' | 'power_of_attorney'
+    refund_country TEXT,                    -- NULL for a global contract
+    template_id INTEGER,                    -- doc_templates.id used
+    status TEXT NOT NULL DEFAULT 'requested',
+    requested_by TEXT, requested_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    generated_at TEXT, sent_at TEXT, signed_at TEXT, received_at TEXT,
+    generated_sha256 TEXT,
+    generated_doc_id INTEGER,               -- customer_documents.id of the generated file
+    signed_doc_id INTEGER,                  -- customer_documents.id of the uploaded signed original
+    note TEXT);
+CREATE INDEX IF NOT EXISTS ix_docreq_cust ON document_requests(customer, status);
+CREATE INDEX IF NOT EXISTS ix_docreq_status ON document_requests(status);
 """
 
 # The claim-submission checklist is ADJUSTABLE (rules change): each rule is a
@@ -167,7 +182,7 @@ def connect():
         audit.install_audit(con, ['customers', 'customer_bank_accounts',
                                   'customer_supplier_accounts', 'customer_documents',
                                   'customer_fees', 'customer_countries', 'country_requirements',
-                                  'checklist_rules'])
+                                  'checklist_rules', 'document_requests'])
         _SCHEMA_READY.add(DB)
     return con
 
@@ -644,6 +659,210 @@ def generate_document(con, tid, code, country=None, as_pdf=False):
     base = (t["name"] or "document").strip().replace(" ", "_")
     out_name = f"{base}_{code}" + (f"_{country}" if country else "") + f".{ext}"
     return filled, out_name, ext, leftover
+
+# ---------------------------------------------------------------- document requests
+# A document_request tracks ONE generate-sign-receive lifecycle for a contract or a
+# power of attorney (per refund country). The states form a strict linear pipeline with
+# a single escape hatch (cancel); each *_at column timestamps entering that state. The
+# generated draft AND the uploaded signed original both AUTO-VAULT into customer_documents
+# (stable id + backup-manifest scope) via add_document — the canonical vaulting path.
+DOC_REQUEST_KINDS = ("contract", "power_of_attorney")
+DOC_REQUEST_STATES = ("requested", "generated", "sent_for_signature",
+                      "signed", "received", "cancelled")
+DOC_REQUEST_TRANSITIONS = {
+    "requested": {"generated", "cancelled"},
+    "generated": {"sent_for_signature", "cancelled"},
+    "sent_for_signature": {"signed", "cancelled"},
+    "signed": {"received", "cancelled"},
+    "received": set(),
+    "cancelled": set(),
+}
+# state -> the *_at column stamped on entering it (requested_at is set at INSERT)
+_DOC_REQUEST_STAMP = {
+    "generated": "generated_at",
+    "sent_for_signature": "sent_at",
+    "signed": "signed_at",
+    "received": "received_at",
+}
+# How long a request may sit in a state before pending_document_requests flags it
+# overdue (days). sent_for_signature is the slow leg (waiting on the client to sign).
+DOC_REQUEST_OVERDUE_DAYS = 14
+
+
+def _docreq_log():
+    import applog
+    return applog.get("customer_master")
+
+
+def create_document_request(con, code, kind, template_id, country=None,
+                            requested_by=None, note=None):
+    """Open a NEW document request in status 'requested'. Validates `kind` and that the
+    customer exists. The bound INSERT trigger audits it. Self-commits (matches the other
+    customer_master writers). Returns the new request id."""
+    code = (code or "").strip().upper()
+    if kind not in DOC_REQUEST_KINDS:
+        raise ValueError(f"unknown document-request kind '{kind}' "
+                         f"(have: {', '.join(DOC_REQUEST_KINDS)})")
+    if not con.execute("SELECT 1 FROM customers WHERE code=?", (code,)).fetchone():
+        raise ValueError(f"customer {code} not found")
+    cur = con.execute("""INSERT INTO document_requests
+        (customer, kind, refund_country, template_id, status, requested_by, note)
+        VALUES (?,?,?,?, 'requested', ?, ?)""",
+        (code, kind, (country or None), template_id, requested_by, note))
+    con.commit()
+    return cur.lastrowid
+
+
+def get_document_request(con, req_id):
+    r = con.execute("SELECT * FROM document_requests WHERE id=?", (req_id,)).fetchone()
+    return dict(r) if r else None
+
+
+def list_document_requests(con, code=None, status=None):
+    q = "SELECT * FROM document_requests"
+    where, params = [], []
+    if code:
+        where.append("customer=?"); params.append((code or "").strip().upper())
+    if status:
+        where.append("status=?"); params.append(status)
+    if where:
+        q += " WHERE " + " AND ".join(where)
+    q += " ORDER BY id"
+    return [dict(r) for r in con.execute(q, params).fetchall()]
+
+
+def generate_request_document(con, req_id):
+    """Generate (or RE-generate) the draft for a document request and auto-vault it.
+
+    Allowed only while the request is still in 'requested' or 'generated' (re-generate);
+    a cancelled/sent/signed/received request is refused. Fills the request's template via
+    generate_document(..., as_pdf=True) — which may fall back to a .docx when soffice is
+    unavailable, so we store WHATEVER bytes/ext were produced (not necessarily a PDF).
+
+    The produced bytes are vaulted via add_document under the request's kind/country, the
+    new customer_documents.id + sha256 are recorded, generated_at is stamped and the status
+    set to 'generated'. On RE-generate the PRIOR generated document row is deleted from the
+    vault first so a stale draft is never left orphaned (the signed original is untouched).
+    Self-commits. Returns (bytes, out_name, ext)."""
+    r = get_document_request(con, req_id)
+    if not r:
+        raise ValueError(f"document request {req_id} not found")
+    if r["status"] not in ("requested", "generated"):
+        raise ValueError(f"cannot generate in status '{r['status']}' "
+                         f"(only 'requested' or 'generated')")
+    if not r["template_id"]:
+        raise ValueError("document request has no template_id to generate from")
+    code, country = r["customer"], r["refund_country"]
+    filled, out_name, ext, _leftover = generate_document(
+        con, r["template_id"], code, country, as_pdf=True)
+    if filled is None:
+        raise ValueError(f"template {r['template_id']} not found")
+    # RE-generate: drop the previous generated draft so we never orphan a stale file.
+    old_doc_id = r["generated_doc_id"]
+    if old_doc_id:
+        _delete_vault_document(con, old_doc_id)
+    import hashlib
+    sha = hashlib.sha256(filled).hexdigest()
+    add_document(con, code, r["kind"], out_name, filled, country=country)
+    doc_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+    con.execute("""UPDATE document_requests
+        SET status='generated', generated_at=CURRENT_TIMESTAMP,
+            generated_sha256=?, generated_doc_id=?
+        WHERE id=?""", (sha, doc_id, req_id))
+    con.commit()
+    return filled, out_name, ext
+
+
+def _delete_vault_document(con, doc_id):
+    """Best-effort removal of a customer_documents row + its stored bytes (used when a
+    re-generate supersedes an earlier draft). Never raises — a vault hiccup must not block
+    the regenerate; it is logged. The audited DELETE keeps an audit trail of the removal."""
+    try:
+        row = con.execute("SELECT stored_path, backend FROM customer_documents WHERE id=?",
+                          (doc_id,)).fetchone()
+        if not row:
+            return
+        try:
+            import document_vault
+            be = document_vault.backend(DOCDIR)
+            if hasattr(be, "delete") and row["stored_path"]:
+                be.delete(row["stored_path"])
+        except Exception:
+            _docreq_log().exception("vault delete failed for doc %s", doc_id)
+        con.execute("DELETE FROM customer_documents WHERE id=?", (doc_id,))
+    except Exception:
+        _docreq_log().exception("_delete_vault_document failed for doc %s", doc_id)
+
+
+def advance_document_request(con, req_id, new_status, *, signed_file=None,
+                             signed_filename=None, by=None, note=None):
+    """Move a request along its lifecycle. Returns (ok, msg).
+
+    Rejects (without changing anything) any transition not in
+    DOC_REQUEST_TRANSITIONS[current]. Advancing to the SAME status is treated as an
+    idempotent no-op (ok). On entering a state its matching *_at column is stamped.
+    On 'received' with a `signed_file`, the uploaded signed ORIGINAL is vaulted via
+    add_document and its customer_documents.id stored as signed_doc_id. `note`, when
+    given, is appended to the request note. The audited UPDATE records the actor.
+    Self-commits. Never raises — returns (False, msg) on any handled error."""
+    try:
+        r = get_document_request(con, req_id)
+        if not r:
+            return False, f"document request {req_id} not found"
+        cur = r["status"]
+        if new_status == cur:
+            return True, f"already in '{cur}'"
+        if new_status not in DOC_REQUEST_STATES:
+            return False, f"unknown status '{new_status}'"
+        if new_status not in DOC_REQUEST_TRANSITIONS.get(cur, set()):
+            return False, f"illegal transition {cur} -> {new_status}"
+        sets, vals = ["status=?"], [new_status]
+        stamp = _DOC_REQUEST_STAMP.get(new_status)
+        if stamp:
+            sets.append(f"{stamp}=CURRENT_TIMESTAMP")
+        if note:
+            sets.append("note=COALESCE(note || char(10), '') || ?")
+            vals.append(note)
+        if new_status == "received" and signed_file is not None:
+            add_document(con, r["customer"], r["kind"],
+                         signed_filename or f"{r['kind']}_signed",
+                         signed_file, country=r["refund_country"])
+            doc_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+            sets.append("signed_doc_id=?"); vals.append(doc_id)
+        vals.append(req_id)
+        con.execute(f"UPDATE document_requests SET {', '.join(sets)} WHERE id=?", vals)
+        con.commit()
+        return True, f"{cur} -> {new_status}"
+    except Exception as e:
+        _docreq_log().exception("advance_document_request failed")
+        return False, f"advance failed: {e}"
+
+
+# open states whose age the worklist tracks (everything pre-terminal)
+_DOC_REQUEST_OPEN = ("requested", "generated", "sent_for_signature", "signed")
+
+
+def pending_document_requests(con, overdue_days=DOC_REQUEST_OVERDUE_DAYS):
+    """Open document requests (not received/cancelled) for a worklist. Each row gets an
+    integer `age_days` (since requested_at) and an `overdue` flag — True when it has sat
+    in 'sent_for_signature' (the leg waiting on the client) longer than `overdue_days`."""
+    qmarks = ",".join("?" * len(_DOC_REQUEST_OPEN))
+    rows = con.execute(
+        f"""SELECT *,
+                  CAST(julianday('now') - julianday(requested_at) AS INTEGER) AS age_days,
+                  CAST(julianday('now') - julianday(sent_at)       AS INTEGER) AS sent_age_days
+           FROM document_requests
+           WHERE status IN ({qmarks})
+           ORDER BY requested_at""", _DOC_REQUEST_OPEN).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        sent_age = d.pop("sent_age_days", None)
+        d["overdue"] = (d["status"] == "sent_for_signature"
+                        and sent_age is not None and sent_age > overdue_days)
+        out.append(d)
+    return out
+
 
 def activation_checklist(con, code):
     """Returns ([(label, ok), ...], ready_bool) for the activation requirements."""
