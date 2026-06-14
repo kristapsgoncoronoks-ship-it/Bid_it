@@ -154,6 +154,20 @@ priorities (`7db2d95`); import-reliability + audit-activity trends (`cc4df3d`); 
 
 ## C. Strategic / larger bets
 
+### Strategy-derived (see `docs/STRATEGY.md` — the prioritised monetisation roadmap)
+- **SAF-T / e-invoice / ERP export** — the highest-value capability bet; rides the ViDA +
+  national e-invoicing mandates (2026–2030). Widens the buyer to the finance dept; future-proofs
+  ingestion. *(M–L)*
+- **Embedded-finance partner integration** — factor/advance the VAT-refund receivable via a
+  licensed factoring partner (Factris-style: platform UI + partner licence). The profit centre;
+  proven by FastVAT/Negométal/Vatecure/Eurowag. M3 built the data layer. *(L, partner-gated)*
+- **Open-banking reconciliation + pay-by-bank** — aggregator/agent partner (Tink/TrueLayer/
+  Yapily); reconcile fuel-card statements ↔ bank payments, initiate supplier/refund payouts. Do
+  NOT self-licence (agent of a regulated provider). *(M, partner-gated)*
+- **Company expense reports** — per-vehicle/driver expense + mileage/per-diem on the existing
+  line-item transaction data (no receipt-OCR step). *(M)*
+
+
 - **Monetization Opp. 3 — external pooled benchmark (SALE).** Only if/when selling
   externally; gated by the full legal stack in `FINDINGS.md` (EU competition-law
   hub-and-spoke, GDPR anonymization, min-cohort ≥5/no-single->25%, independent trustee,
