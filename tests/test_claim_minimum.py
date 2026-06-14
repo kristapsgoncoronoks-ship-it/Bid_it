@@ -140,6 +140,57 @@ def test_sweden_at_or_above_quarterly_min_submits(tmp_path, monkeypatch):
     con.close()
 
 
+def test_submit_freezes_vat_local_on_claim_row(tmp_path, monkeypatch):
+    """set_status freezes BOTH vat_eur AND vat_local onto vat_applications at first
+    submission, on the locked claim_set basis. Before this fix vat_local stayed 0/null,
+    so _stream_vat's FROZEN branch returned 0 for a locked SE/DK claim and below_minimum
+    (local-currency basis) would misread. Assert the row carries the SEK base and that
+    the frozen branch and below_minimum agree with the pre-lock aggregate."""
+    cm, vr = _build(tmp_path, monkeypatch, "Sweden", "SEK",
+                    [("2026-01", 4200, 400)])
+    con = vr.connect()
+    # pre-lock aggregate (what the verdict path reads before submission)
+    pre_ve, pre_vl, _ = vr._stream_vat(con, "Acme SIA", "Sweden", "2026-Q1")
+    assert pre_vl == 4200 and pre_ve == 400
+    ok, msg = vr.set_status_code(con, "Acme SIA", "Sweden", "2026-Q1", "2")
+    assert ok, msg
+    # the frozen row carries the national-currency VAT (NOT 0/null) on the claim_set basis
+    row = con.execute("""SELECT vat_eur, vat_local, status FROM vat_applications
+                         WHERE entity='Acme SIA' AND refund_country='Sweden'
+                         AND ref_period='2026-Q1'""").fetchone()
+    assert row["vat_local"] == 4200 and row["vat_eur"] == 400
+    # the now-LOCKED claim reads the frozen branch of _stream_vat -> same figures, not 0
+    fz_ve, fz_vl, _ = vr._stream_vat(con, "Acme SIA", "Sweden", "2026-Q1")
+    assert fz_vl == 4200 and fz_ve == 400
+    assert fz_vl == pre_vl and fz_ve == pre_ve
+    # below_minimum on the LOCKED claim reads the frozen vat_local: 4200 >= 4000 -> not below
+    below, _ = vr.below_minimum(con, "Acme SIA", "Sweden", "2026-Q1")
+    assert not below
+    con.close()
+
+
+def test_frozen_vat_local_below_min_reads_correctly(tmp_path, monkeypatch):
+    """A claim FROZEN below the SEK 4,000 quarterly minimum (submitted via admin override)
+    is correctly read as 'below' by below_minimum off the frozen vat_local — the frozen-
+    branch path agrees with the pre-lock aggregate path."""
+    cm, vr = _build(tmp_path, monkeypatch, "Sweden", "SEK",
+                    [("2026-01", 3120, 300)])
+    con = vr.connect()
+    # pre-lock: below the SEK 4,000 quarterly minimum
+    assert vr.below_minimum(con, "Acme SIA", "Sweden", "2026-Q1")[0]
+    # admin override submits it anyway, freezing SEK 3 120 onto the row
+    ok, msg = vr.set_status_code(con, "Acme SIA", "Sweden", "2026-Q1", "2",
+                                 override_threshold=True)
+    assert ok, msg
+    row = con.execute("""SELECT vat_local FROM vat_applications WHERE entity='Acme SIA'
+                         AND refund_country='Sweden' AND ref_period='2026-Q1'""").fetchone()
+    assert row["vat_local"] == 3120          # frozen, not 0/null
+    # the LOCKED claim still reads 'below' off the frozen vat_local (not 0)
+    below, why = vr.below_minimum(con, "Acme SIA", "Sweden", "2026-Q1")
+    assert below and "SEK" in why
+    con.close()
+
+
 def test_sweden_annual_uses_annual_min(tmp_path, monkeypatch):
     # A -YEAR period uses the SEK 500 annual minimum (NOT the SEK 4 000 quarterly one).
     # Use a PAST year (2025-YEAR has ended) so the minimum gate — not the period-end

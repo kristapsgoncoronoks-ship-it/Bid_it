@@ -621,13 +621,23 @@ def set_status(con, ent, ctry, period, new, gate_activation=True):
             # the invoices actually filed. `claim_set` is always populated here (it is
             # built in the same `new in LOCKING and cur not in LOCKING` branch above).
             keys = set(claim_set or ())
-            ve = money.f2(sum(L["vat_eur"] for L in invoice_lines(con, ent, ctry, period)
-                              if (L["supplier"], L["invoice"]) in keys))
+            # One pass over the locked claim_set lines: accumulate BOTH the EUR base
+            # (vat_eur) and the national-currency base (vat_local) so the frozen row
+            # carries them on the SAME claim_set basis. vat_local feeds the local-
+            # currency minimum-threshold gate for SE/DK locking claims; vat_eur/fee
+            # freezing is byte-identical to before (same builtin-sum-then-f2).
+            sve = svl = 0.0
+            for L in invoice_lines(con, ent, ctry, period):
+                if (L["supplier"], L["invoice"]) in keys:
+                    sve += L["vat_eur"]
+                    svl += L["vat_local"]
+            ve = money.f2(sve)
+            vl = money.f2(svl)
             fpct, fmin = customer_master.fee_for(ent, ctry)
             fee, _basis = customer_master.compute_fee(ve, fpct, fmin)
-            con.execute("""UPDATE vat_applications SET vat_eur=?, fee_eur=?, fee_pct=?, fee_min=?
+            con.execute("""UPDATE vat_applications SET vat_eur=?, vat_local=?, fee_eur=?, fee_pct=?, fee_min=?
                            WHERE entity=? AND refund_country=? AND ref_period=?""",
-                        (ve, fee, fpct, fmin, ent, ctry, period))
+                        (ve, vl, fee, fpct, fmin, ent, ctry, period))
         # CHARGE the fee for services only when the money is refunded (status=paid):
         # recompute on the refunded amount (paid_amount, else the claimed VAT) at the
         # frozen rate and stamp the billing date.
