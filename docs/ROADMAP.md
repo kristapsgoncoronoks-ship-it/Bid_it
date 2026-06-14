@@ -3,7 +3,9 @@
 **Purpose:** sequence the move from a solid internal back-office tool into a **self-feeding,
 revenue-generating, pan-EU platform** — recover more VAT faster, remove manual work, de-risk
 compliance, and monetise. Ties together `docs/STRATEGY.md` (the why + monetisation models) and
-`docs/BACKLOG.md` (the concrete items). Organised by **business outcome**, then phased into
+`docs/BACKLOG.md` (the concrete items). **`docs/EVOLUTION_PLAN.md` is the deep-dive companion** —
+each idea costed (build/effort/$/timeline), the 18-month quarter-by-quarter sequence, the 3 first
+decisions, and the "make-it-worth-it" milestone. Organised by **business outcome**, then phased into
 delivery horizons. Direction, not a contract — revisit each quarter against the KPIs.
 
 ## The outcomes everything ladders up to
