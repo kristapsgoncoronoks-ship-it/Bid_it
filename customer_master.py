@@ -444,9 +444,74 @@ def _fill_text(raw, fields):
         text = text.replace("{{" + k + "}}", v)
     return text.encode("utf-8")
 
+def _xml_esc(v):
+    """XML-escape a substituted value so it stays valid markup."""
+    return v.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+# Which parts of a .docx carry visible body/header/footer text we should fill.
+def _is_fillable_part(n):
+    return (n == "word/document.xml"
+            or (n.startswith("word/header") and n.endswith(".xml"))
+            or (n.startswith("word/footer") and n.endswith(".xml")))
+
+# Match a single <w:t ...>...</w:t> run-text element (capturing the inner text).
+_WT_RE = _re.compile(r"(<w:t\b[^>]*>)(.*?)(</w:t>)", _re.DOTALL)
+# Split a part into <w:p>...</w:p> paragraphs while keeping the delimiters in place so
+# the document can be reassembled byte-for-byte outside the paragraphs we rewrite.
+_WP_RE = _re.compile(r"(<w:p\b[^>]*>.*?</w:p>)", _re.DOTALL)
+
+def _sub_whole(text, fields):
+    """Per-<w:t> substitution: only fills placeholders already whole inside one run, so
+    every other run's formatting/markup is preserved untouched."""
+    def repl(m):
+        inner = m.group(2)
+        for k, v in fields.items():
+            inner = inner.replace("{{" + k + "}}", _xml_esc(v))
+        return m.group(1) + inner + m.group(3)
+    return _WT_RE.sub(repl, text)
+
+def _fill_paragraph(para, fields):
+    """Fill one <w:p> paragraph. Placeholders already whole inside a single <w:t> are
+    filled per-run (formatting preserved). If a {{...}} placeholder is SPLIT across runs,
+    that paragraph's run text is merged: the substitution runs on the concatenation, the
+    result is written into the FIRST <w:t>, and the remaining <w:t> runs are blanked.
+
+    FORMATTING TRADEOFF: merging collapses the split placeholder's runs onto the first
+    run's formatting — but ONLY for paragraphs that actually contain a split placeholder.
+    Paragraphs with whole placeholders (or none) keep every run's formatting intact."""
+    runs = list(_WT_RE.finditer(para))
+    if not runs:
+        return para
+    concat = "".join(m.group(2) for m in runs)
+    # Is there a placeholder that is NOT wholly contained in a single <w:t>? Compare the
+    # placeholders found across the whole-paragraph text vs. those found per individual run.
+    para_ph = set(_re.findall(r"\{\{(\w+)\}\}", concat))
+    whole_ph = set()
+    for m in runs:
+        whole_ph |= set(_re.findall(r"\{\{(\w+)\}\}", m.group(2)))
+    split_ph = para_ph - whole_ph
+    if not split_ph:
+        # nothing split here — safe per-run substitution keeps all formatting
+        return _sub_whole(para, fields)
+    # merge: substitute on the concatenation, then redistribute (all into run 0)
+    merged = concat
+    for k, v in fields.items():
+        merged = merged.replace("{{" + k + "}}", _xml_esc(v))
+    pieces = [merged] + [""] * (len(runs) - 1)
+    out, last = [], 0
+    for m, piece in zip(runs, pieces):
+        out.append(para[last:m.start()])
+        out.append(m.group(1) + piece + m.group(3))
+        last = m.end()
+    out.append(para[last:])
+    return "".join(out)
+
 def _fill_docx(raw, fields):
-    """Replace {{placeholders}} inside a .docx (a zip of XML). Best-effort: works when a
-    placeholder isn't split across formatting runs. Falls back to leaving it as-is."""
+    """Replace {{placeholders}} inside a .docx (a zip of XML), tolerant of placeholders
+    Word has SPLIT across formatting runs. We work per <w:p> paragraph: whole placeholders
+    are filled per-run (formatting preserved); only paragraphs with a split placeholder are
+    run-merged (see _fill_paragraph). xml:space="preserve" and run attributes are kept; the
+    output is a valid OOXML zip."""
     import io, zipfile
     src = io.BytesIO(raw); out = io.BytesIO()
     with zipfile.ZipFile(src) as zin:
@@ -454,26 +519,43 @@ def _fill_docx(raw, fields):
         with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout:
             for n in names:
                 data = zin.read(n)
-                if n.endswith(".xml") and (n.startswith("word/") or n == "word/document.xml"):
+                if _is_fillable_part(n):
                     text = data.decode("utf-8", "replace")
-                    for k, v in fields.items():
-                        # XML-escape the value so it stays valid markup
-                        sv = (v.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
-                        text = text.replace("{{" + k + "}}", sv)
+                    text = _WP_RE.sub(lambda m: _fill_paragraph(m.group(1), fields), text)
+                    # also catch any <w:t> text that lives OUTSIDE a <w:p> (rare, e.g.
+                    # some header/footer constructs) with the formatting-safe per-run pass
+                    text = _sub_whole(text, fields)
                     data = text.encode("utf-8")
                 zout.writestr(n, data)
     return out.getvalue()
+
+def _docx_leftovers(filled):
+    """Re-read the body/header/footer XML from a PRODUCED .docx, concatenate their decoded
+    <w:t> text, and report any {{field}} that survived (split or whole)."""
+    import io, zipfile
+    chunks = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(filled)) as zin:
+            for n in zin.namelist():
+                if _is_fillable_part(n):
+                    text = zin.read(n).decode("utf-8", "replace")
+                    chunks.append("".join(m.group(2) for m in _WT_RE.finditer(text)))
+    except (zipfile.BadZipFile, OSError):
+        return []
+    joined = "".join(chunks)
+    return sorted(set(_re.findall(r"\{\{(\w+)\}\}", joined)))
 
 def fill_template(raw, ext, fields):
     """Fill a template's bytes with `fields`. Returns (bytes, ext, leftover_placeholders)."""
     ext = (ext or "txt").lower().lstrip(".")
     if ext == "docx":
         filled = _fill_docx(raw, fields)
-        probe = filled.decode("latin-1", "ignore")
+        # re-read the produced docx's <w:t> text (concatenated, so SPLIT/unfilled
+        # placeholders are detected too) rather than scanning raw zip bytes.
+        leftover = _docx_leftovers(filled)
     else:
         filled = _fill_text(raw, fields)
-        probe = filled.decode("utf-8", "replace")
-    leftover = sorted(set(_re.findall(r"\{\{(\w+)\}\}", probe)))
+        leftover = sorted(set(_re.findall(r"\{\{(\w+)\}\}", filled.decode("utf-8", "replace"))))
     return filled, ext, leftover
 
 def text_to_pdf(text, title="document"):
@@ -536,14 +618,25 @@ def delete_template(con, tid):
 
 def generate_document(con, tid, code, country=None, as_pdf=False):
     """Fill template `tid` with customer `code`'s data. Returns (bytes, out_filename, ext,
-    leftover_placeholders) or (None, …) if the template is missing. `as_pdf=True`
-    converts a text-based template (.txt/.md/.html) to a simple PDF; .docx stays .docx."""
+    leftover_placeholders) or (None, …) if the template is missing.
+
+    `as_pdf=True` converts a text-based template (.txt/.md/.html) to a simple PDF, and a
+    .docx template to PDF via LibreOffice (doc_render.docx_to_pdf). If the .docx->PDF
+    conversion is unavailable (no soffice / failure), it falls back to delivering the
+    prefilled .docx (ext stays 'docx') — so a PDF was requested but a .docx is returned;
+    the caller can detect that (`as_pdf and ext=='docx'`) to message the user."""
     t = get_template(con, tid)
     if not t:
         return None, None, None, []
     fields = merge_fields(con, code, country)
     filled, ext, leftover = fill_template(t["body"], t["ext"], fields)
-    if as_pdf and ext != "docx":
+    if as_pdf and ext == "docx":
+        import doc_render
+        pdf = doc_render.docx_to_pdf(filled)
+        if pdf is not None:
+            filled, ext = pdf, "pdf"
+        # else: graceful fallback — keep the prefilled .docx (ext stays 'docx')
+    elif as_pdf and ext != "docx":
         text = filled.decode("utf-8", "replace")
         if ext == "html":
             text = _re.sub(r"<[^>]+>", "", text)        # strip tags for the PDF draft

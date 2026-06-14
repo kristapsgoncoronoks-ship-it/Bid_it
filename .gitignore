@@ -80,3 +80,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Pytest security.db backup (transient)
+*.pytest.bak

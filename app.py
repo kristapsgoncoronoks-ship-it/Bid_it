@@ -4565,6 +4565,10 @@ def customers():
                       "pdf": "application/pdf"}.get(ext, "text/plain")
                 resp = Response(data, mimetype=mt)
                 resp.headers["Content-Disposition"] = f'attachment; filename="{outname}"'
+                if request.form.get("as_pdf") == "on" and ext == "docx":
+                    # PDF was requested but the .docx->PDF (LibreOffice) path was
+                    # unavailable; we deliver the prefilled .docx as a graceful fallback.
+                    resp.headers["X-FFS-Notice"] = "PDF conversion unavailable - delivered .docx"
                 return resp
             elif act in ("add_checklist_rule", "toggle_checklist_rule", "del_checklist_rule"):
                 if session.get("role") != "admin":
