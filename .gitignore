@@ -20,6 +20,7 @@ Internal_Benchmark_*.xlsx
 Peer_Benchmark_*.xlsx
 Savings_Intelligence_*.xlsx
 Overpay_Review_*.xlsx
+Expense_Report_*.xlsx
 
 # ── Fetched/cached reference data (re-fetchable) ──────────────────
 ecb_rates.db

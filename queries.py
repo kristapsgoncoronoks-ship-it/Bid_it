@@ -180,6 +180,81 @@ def q_savings(con, period):
             "by_supplier": sorted(by_supplier.items(), key=lambda x: -x[1])}
 
 
+def q_expense(con, period, entity=None):
+    """Company expense / cost-allocation rollups over the validated transactions for
+    `period` — a finance-facing NET / VAT / gross spend breakdown, per ENTITY (cost
+    centre) and per VEHICLE, plus a per-product-group split. Read-only; NEVER raises
+    (returns an empty-but-shaped dict on any error). When `entity` is given, all three
+    rollups and the totals are restricted to that entity.
+
+    BASIS: NET EUR, final (rebates applied) — `net_eur` is the NET amount; `vat_eur`
+    is the VAT amount in EUR; gross_eur = net_eur + vat_eur. EUR figures are quantized
+    HALF_UP (money.f2) at the boundary. Litres stay numeric (display-rounded). The
+    effective NET €/L = SUM(net_eur_eff)/SUM(qty) (rebate-effective, divide-by-0 guarded).
+
+    Returns a dict:
+      by_entity:  [{entity, fuellings, n_vehicles, litres, net_eur, vat_eur, gross_eur}]
+                  one row per entity, sorted by net_eur desc.
+      by_vehicle: [{entity, vehicle, fuellings, litres, net_eur, vat_eur, gross_eur,
+                    net_eur_l, n_countries}] one row per (entity, vehicle), net_eur desc.
+      by_product: [{product_group, litres, net_eur, vat_eur, gross_eur}] sorted net_eur desc.
+      totals:     {net_eur, vat_eur, gross_eur, litres, fuellings} over the filtered set."""
+    empty = {"by_entity": [], "by_vehicle": [], "by_product": [], "totals":
+             {"net_eur": 0.0, "vat_eur": 0.0, "gross_eur": 0.0, "litres": 0.0, "fuellings": 0}}
+    try:
+        w, p = ["period=?"], [period]
+        if entity:
+            w.append("entity=?"); p.append(entity)
+        where_sql = " AND ".join(w)
+
+        by_entity = []
+        for r in con.execute(f"""
+                SELECT entity, COUNT(*) fuellings, COUNT(DISTINCT vehicle) n_vehicles,
+                       SUM(qty) litres, SUM(net_eur) net, SUM(vat_eur) vat
+                FROM transactions WHERE {where_sql}
+                GROUP BY entity ORDER BY net DESC""", p).fetchall():
+            net = money.f2(r["net"] or 0); vat = money.f2(r["vat"] or 0)
+            by_entity.append({"entity": r["entity"], "fuellings": r["fuellings"],
+                              "n_vehicles": r["n_vehicles"], "litres": r["litres"] or 0.0,
+                              "net_eur": net, "vat_eur": vat, "gross_eur": money.f2(net + vat)})
+
+        by_vehicle = []
+        for r in con.execute(f"""
+                SELECT entity, vehicle, COUNT(*) fuellings, SUM(qty) litres,
+                       SUM(net_eur) net, SUM(vat_eur) vat, SUM(net_eur_eff) net_eff,
+                       COUNT(DISTINCT country) n_countries
+                FROM transactions WHERE {where_sql}
+                GROUP BY entity, vehicle ORDER BY net DESC""", p).fetchall():
+            net = money.f2(r["net"] or 0); vat = money.f2(r["vat"] or 0)
+            litres = r["litres"] or 0.0
+            net_eur_l = (r["net_eff"] or 0.0) / litres if litres else 0.0
+            by_vehicle.append({"entity": r["entity"], "vehicle": r["vehicle"],
+                               "fuellings": r["fuellings"], "litres": litres,
+                               "net_eur": net, "vat_eur": vat, "gross_eur": money.f2(net + vat),
+                               "net_eur_l": net_eur_l, "n_countries": r["n_countries"]})
+
+        by_product = []
+        for r in con.execute(f"""
+                SELECT product_group, SUM(qty) litres, SUM(net_eur) net, SUM(vat_eur) vat
+                FROM transactions WHERE {where_sql}
+                GROUP BY product_group ORDER BY net DESC""", p).fetchall():
+            net = money.f2(r["net"] or 0); vat = money.f2(r["vat"] or 0)
+            by_product.append({"product_group": r["product_group"], "litres": r["litres"] or 0.0,
+                               "net_eur": net, "vat_eur": vat, "gross_eur": money.f2(net + vat)})
+
+        t = con.execute(f"""
+                SELECT COUNT(*) fuellings, SUM(qty) litres, SUM(net_eur) net, SUM(vat_eur) vat
+                FROM transactions WHERE {where_sql}""", p).fetchone()
+        tnet = money.f2(t["net"] or 0); tvat = money.f2(t["vat"] or 0)
+        totals = {"net_eur": tnet, "vat_eur": tvat, "gross_eur": money.f2(tnet + tvat),
+                  "litres": t["litres"] or 0.0, "fuellings": t["fuellings"] or 0}
+
+        return {"by_entity": by_entity, "by_vehicle": by_vehicle,
+                "by_product": by_product, "totals": totals}
+    except Exception:
+        return empty
+
+
 def q_savings_lines(con, period, supplier=None):
     """DETAIL version of q_savings: one row per (supplier, date, country) where that
     supplier overpaid vs the cheapest same-day, same-country diesel rival — the

@@ -563,6 +563,125 @@ def overpay_review_workbook(period=None, supplier=None, path=None):
     return path
 
 
+def expense_report_workbook(period=None, entity=None, path=None):
+    """Finance-facing company expense / cost-allocation report for `period` (optionally
+    one `entity`). Turns the validated transactions into a NET / VAT / gross spend
+    breakdown a finance team can export: a per-ENTITY summary (cost centre) with a
+    per-product-group split, and a per-VEHICLE detail sheet with the effective NET €/L.
+
+    BASIS (printed on the report): NET EUR, final (rebates applied); VAT shown
+    separately; gross = net + VAT. EUR totals HALF_UP (money.f2)."""
+    con = connect()
+    ps = _periods(con)
+    period = period or (ps[0] if ps else None)
+    if period is None:
+        con.close()
+        raise ValueError("no data loaded — nothing to report")
+    data = queries.q_expense(con, period, entity)
+    con.close()
+
+    gen = datetime.date.today().isoformat()
+    caveat = ("Company fuel & toll expense report. NET EUR, final (rebates applied); "
+              "VAT shown separately; gross = net + VAT. "
+              + (f"Entity: {entity}. " if entity else "")
+              + f"Generated {gen}.")
+    wb = Workbook()
+
+    # --- Summary sheet: per-entity table + per-product-group split -----------
+    ws = wb.active; ws.title = "Summary"
+    _title(ws, period, caveat, "A1:G1")
+    set_widths(ws, [26, 12, 11, 14, 16, 16, 16])
+    r0 = 4
+    ws.cell(r0, 1, "Expense by entity (cost centre)").font = Font(bold=True, size=11)
+    hdr = ["Entity", "Fuellings", "Vehicles", "Litres", "Net EUR", "VAT EUR", "Gross EUR"]
+    for j, h in enumerate(hdr, 1):
+        ws.cell(r0 + 1, j, h)
+    style_header(ws, r0 + 1, len(hdr))
+    rr = r0 + 2
+    for e in data["by_entity"]:
+        ws.cell(rr, 1, e["entity"])
+        ws.cell(rr, 2, e["fuellings"]).number_format = FMT_INT
+        ws.cell(rr, 3, e["n_vehicles"]).number_format = FMT_INT
+        ws.cell(rr, 4, e["litres"]).number_format = FMT_INT
+        ws.cell(rr, 5, e["net_eur"]).number_format = FMT_EUR
+        ws.cell(rr, 6, e["vat_eur"]).number_format = FMT_EUR
+        ws.cell(rr, 7, e["gross_eur"]).number_format = FMT_EUR
+        rr += 1
+    band_rows(ws, r0 + 2, rr - 1, len(hdr))
+    if rr > r0 + 2:
+        ws.cell(rr, 1, "TOTAL")
+        for col, L in ((2, "B"), (3, "C"), (4, "D"), (5, "E"), (6, "F"), (7, "G")):
+            ws.cell(rr, col, f"=SUM({L}{r0+2}:{L}{rr-1})").number_format = (
+                FMT_INT if col in (2, 3, 4) else FMT_EUR)
+        totals_row(ws, rr, len(hdr))
+        ws.conditional_formatting.add(f"E{r0+2}:E{rr-1}",
+            DataBarRule(start_type="min", end_type="max", color="9CC3E6"))
+
+    # per-product-group split below the entity table
+    p0 = rr + 3
+    ws.cell(p0, 1, "Expense by product group").font = Font(bold=True, size=11)
+    phdr = ["Product group", "Litres", "Net EUR", "VAT EUR", "Gross EUR"]
+    for j, h in enumerate(phdr, 1):
+        ws.cell(p0 + 1, j, h)
+    style_header(ws, p0 + 1, len(phdr))
+    pr = p0 + 2
+    for g in data["by_product"]:
+        ws.cell(pr, 1, g["product_group"])
+        ws.cell(pr, 2, g["litres"]).number_format = FMT_INT
+        ws.cell(pr, 3, g["net_eur"]).number_format = FMT_EUR
+        ws.cell(pr, 4, g["vat_eur"]).number_format = FMT_EUR
+        ws.cell(pr, 5, g["gross_eur"]).number_format = FMT_EUR
+        pr += 1
+    band_rows(ws, p0 + 2, pr - 1, len(phdr))
+    if pr > p0 + 2:
+        ws.cell(pr, 1, "TOTAL")
+        for col, L in ((2, "B"), (3, "C"), (4, "D"), (5, "E")):
+            ws.cell(pr, col, f"=SUM({L}{p0+2}:{L}{pr-1})").number_format = (
+                FMT_INT if col == 2 else FMT_EUR)
+        totals_row(ws, pr, len(phdr))
+    ws.freeze_panes = "A3"; ws.sheet_view.showGridLines = False
+
+    # --- Vehicles sheet: per-vehicle detail ---------------------------------
+    wv = wb.create_sheet("Vehicles")
+    _title(wv, period, caveat, "A1:I1")
+    set_widths(wv, [22, 18, 12, 14, 16, 16, 16, 12, 12])
+    hdr = ["Entity", "Vehicle", "Fuellings", "Litres", "Net EUR", "VAT EUR",
+           "Gross EUR", "NET €/L", "Countries"]
+    for j, h in enumerate(hdr, 1):
+        wv.cell(4, j, h)
+    style_header(wv, 4, len(hdr))
+    rr = 5
+    for v in data["by_vehicle"]:
+        wv.cell(rr, 1, v["entity"])
+        wv.cell(rr, 2, v["vehicle"])
+        wv.cell(rr, 3, v["fuellings"]).number_format = FMT_INT
+        wv.cell(rr, 4, v["litres"]).number_format = FMT_INT
+        wv.cell(rr, 5, v["net_eur"]).number_format = FMT_EUR
+        wv.cell(rr, 6, v["vat_eur"]).number_format = FMT_EUR
+        wv.cell(rr, 7, v["gross_eur"]).number_format = FMT_EUR
+        wv.cell(rr, 8, v["net_eur_l"]).number_format = FMT_PRICE
+        wv.cell(rr, 9, v["n_countries"]).number_format = FMT_INT
+        rr += 1
+    band_rows(wv, 5, rr - 1, len(hdr))
+    if rr > 5:
+        wv.cell(rr, 1, "TOTAL")
+        wv.cell(rr, 3, f"=SUM(C5:C{rr-1})").number_format = FMT_INT
+        wv.cell(rr, 4, f"=SUM(D5:D{rr-1})").number_format = FMT_INT
+        wv.cell(rr, 5, f"=SUM(E5:E{rr-1})").number_format = FMT_EUR
+        wv.cell(rr, 6, f"=SUM(F5:F{rr-1})").number_format = FMT_EUR
+        wv.cell(rr, 7, f"=SUM(G5:G{rr-1})").number_format = FMT_EUR
+        totals_row(wv, rr, len(hdr))
+    wv.freeze_panes = "A5"; wv.sheet_view.showGridLines = False
+
+    if path is None:
+        suffix = f"_{entity}" if entity else ""
+        # mirror overpay_review_workbook: keep the filename filesystem-safe
+        safe = "".join(ch if ch.isalnum() else "_" for ch in suffix)
+        path = os.path.join(WORKDIR, f"Expense_Report_{period}{safe}.xlsx")
+    wb.save(path)
+    return path
+
+
 def fee_report_workbook(claim, path=None):
     """One-sheet service-fee invoice / calculation for a single VAT claim. `claim`
     is a vat_applications row (dict). Fee = % of the refunded amount, or the minimum

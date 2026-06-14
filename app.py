@@ -466,6 +466,7 @@ PERM_BY_ENDPOINT = {
     "export_peer":     "exports",
     "intel":           "pricing", "export_intel": "exports",
     "export_overpay":  "exports",
+    "export_expenses": "exports",
     "documents":       "documents", "doc_download": "documents",
     "export_master":   "exports", "export_history": "exports",
     "export_pricing":  "exports", "export_vat": "exports", "export_compare": "exports",
@@ -493,7 +494,7 @@ MODULES = {
                     "pricing", "pricing_market", "pricing_portal", "pricing_adopt_benchmark",
                     "pricing_upload", "api_pricing", "export_compare", "export_stations",
                     "export_pricing", "export_benchmark", "export_peer", "intel", "export_intel",
-                    "export_overpay"}),
+                    "export_overpay", "expenses", "export_expenses"}),
     "intake":     ("Intake — import, waiting room, files, document mining",
                    {"extract_batch", "extract_confirm", "extract_ai_review",
                     "intake_queue_page", "intake_review",
@@ -930,7 +931,7 @@ def _intake_uploads_blocked():
 # The read-only aggregations live in queries.py (small brick, easy to test).
 from queries import (q_periods, q_filters, where, q_compare, q_compare_totals,
                      q_benchmark, q_kpis, q_trend, q_headtohead, q_entities,
-                     q_stations, q_savings, q_savings_lines)
+                     q_stations, q_savings, q_savings_lines, q_expense)
 
 def svg_hbars(pairs, unit="", width=520, color="#0e5fa8", fmt=",.0f"):
     """Dependency-free inline SVG horizontal bar chart from (label, value) pairs."""
@@ -1016,8 +1017,9 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
 </style></head><body>
 <header><b>⛽ Fleet Fuel</b>
 <a href="/" class="{{'on' if page=='dash'}}">Dashboard</a>
-{% if 'analytics' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['sav','int','cmp','txn','h2h','stn','ano','pri'] else ''}}">Analytics</span><div class="mdrop"><span>
+{% if 'analytics' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['sav','exp','int','cmp','txn','h2h','stn','ano','pri'] else ''}}">Analytics</span><div class="mdrop"><span>
   <a href="/savings" class="{{'on' if page=='sav'}}">Savings</a>
+  <a href="/expenses" class="{{'on' if page=='exp'}}">Expenses</a>
   {% if 'pricing' in perms %}<a href="/intel" class="{{'on' if page=='int'}}">Savings &amp; intel</a>{% endif %}
   <a href="/compare" class="{{'on' if page=='cmp'}}">Compare</a>
   <a href="/transactions" class="{{'on' if page=='txn'}}">Transactions</a>
@@ -1648,6 +1650,86 @@ def export_overpay():
     period = request.args.get("period") or None
     supplier = request.args.get("supplier") or None
     path = reports.overpay_review_workbook(period, supplier)
+    return send_file(path, as_attachment=True, download_name=os.path.basename(path),
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+@app.route("/expenses")
+def expenses():
+    """Finance-facing company expense / cost-allocation report — per-entity (cost
+    centre) and per-vehicle NET / VAT / gross spend over the validated transactions.
+    NET EUR basis, final (rebates applied); gross = net + VAT. Read-only."""
+    con = DB(); periods = q_periods(con)
+    period = request.args.get("period", periods[0] if periods else None)
+    entity = request.args.get("entity") or None
+    # Wrap the data fetch so a failure here can't 500 the page.
+    try:
+        data = q_expense(con, period, entity) if period else None
+    except Exception as e:
+        _log_exc("expenses/q_expense", e)
+        data = None
+    con.close()
+    if data is None:
+        data = {"by_entity": [], "by_vehicle": [], "by_product": [],
+                "totals": {"net_eur": 0.0, "vat_eur": 0.0, "gross_eur": 0.0,
+                           "litres": 0.0, "fuellings": 0}}
+    psw = "".join(f'<option {"selected" if p==period else ""}>{esc(p)}</option>' for p in periods)
+    t = data["totals"]
+
+    ent_rows = [[f'<td>{esc(e["entity"])}</td>',
+                 f'<td class=r>{e["fuellings"]:,d}</td>',
+                 f'<td class=r>{e["n_vehicles"]:,d}</td>',
+                 f'<td class=r>{e["litres"]:,.0f}</td>',
+                 f'<td class=r>€{e["net_eur"]:,.2f}</td>',
+                 f'<td class=r>€{e["vat_eur"]:,.2f}</td>',
+                 f'<td class=r>€{e["gross_eur"]:,.2f}</td>']
+                for e in data["by_entity"]]
+    prod_rows = [[f'<td>{esc(g["product_group"])}</td>',
+                  f'<td class=r>{g["litres"]:,.0f}</td>',
+                  f'<td class=r>€{g["net_eur"]:,.2f}</td>',
+                  f'<td class=r>€{g["vat_eur"]:,.2f}</td>',
+                  f'<td class=r>€{g["gross_eur"]:,.2f}</td>']
+                 for g in data["by_product"]]
+    veh_rows = [[f'<td>{esc(v["entity"])}</td>',
+                 f'<td>{esc(v["vehicle"])}</td>',
+                 f'<td class=r>{v["fuellings"]:,d}</td>',
+                 f'<td class=r>{v["litres"]:,.0f}</td>',
+                 f'<td class=r>€{v["net_eur"]:,.2f}</td>',
+                 f'<td class=r>€{v["vat_eur"]:,.2f}</td>',
+                 f'<td class=r>€{v["gross_eur"]:,.2f}</td>',
+                 f'<td class=r>{v["net_eur_l"]:,.4f}</td>',
+                 f'<td class=r>{v["n_countries"]:,d}</td>']
+                for v in data["by_vehicle"]]
+
+    ent_qs = f"&entity={esc(entity)}" if entity else ""
+    dl = (f'<a class="btn" href="/export/expenses?period={esc(period)}{ent_qs}">Download expense report (Excel)</a>'
+          if period else "")
+    body = (f'<form class="f" method="get"><label>Period<select name="period" onchange="this.form.submit()">{psw}</select></label></form>'
+            f'<div class="kpis">'
+            f'<div class="kpi"><div class="v">€{t["net_eur"]:,.0f}</div><div class="l">Net spend (EUR)</div></div>'
+            f'<div class="kpi"><div class="v">€{t["vat_eur"]:,.0f}</div><div class="l">VAT (EUR)</div></div>'
+            f'<div class="kpi"><div class="v">€{t["gross_eur"]:,.0f}</div><div class="l">Gross (EUR)</div></div>'
+            f'<div class="kpi"><div class="v">{t["litres"]:,.0f}</div><div class="l">Litres</div></div></div>'
+            f'<div class="card"><h2>Expense by entity (cost centre)</h2>{dl}'
+            + tbl(["Entity", "Fuellings", "Vehicles", "Litres", "Net €", "VAT €", "Gross €"], ent_rows)
+            + '</div>'
+            + '<div class="card"><h2>Expense by product group</h2>'
+            + tbl(["Product group", "Litres", "Net €", "VAT €", "Gross €"], prod_rows) + '</div>'
+            + '<div class="card"><h2>Expense by vehicle</h2>'
+            + tbl(["Entity", "Vehicle", "Fuellings", "Litres", "Net €", "VAT €", "Gross €", "NET €/L", "Countries"], veh_rows)
+            + '</div>'
+            + '<div class="note">Company fuel &amp; toll spend allocated per entity (cost centre) '
+              'and per vehicle. Prices NET EUR, final (rebates applied); VAT shown separately; '
+              'gross = net + VAT. NET €/L is the rebate-effective net price per litre.</div>')
+    return page(body, "exp")
+
+@app.route("/export/expenses")
+def export_expenses():
+    """Company expense / cost-allocation report (Excel) for a period — per-entity and
+    per-vehicle NET / VAT / gross spend. NET EUR basis, final (rebates applied)."""
+    import reports
+    period = request.args.get("period") or None
+    entity = request.args.get("entity") or None
+    path = reports.expense_report_workbook(period, entity)
     return send_file(path, as_attachment=True, download_name=os.path.basename(path),
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
