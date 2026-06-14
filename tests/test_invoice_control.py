@@ -193,3 +193,184 @@ def test_invoices_page_does_not_write(client):
     import subprocess, os
     WORKDIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     subprocess.run(["git", "restore", "fuel_history.db"], cwd=WORKDIR, check=False)
+
+
+# ====================================================================
+# CHARACTERIZATION: control_summary (MISSING vs received) and
+# reconcile_statements (registered vs "NOT REGISTERED") on a tiny,
+# fully hermetic period built in tmp DBs. These pin the row shape the
+# dashboard reads without touching the demo databases at all.
+# ====================================================================
+import sqlite3
+import pytest
+
+TEST_PERIOD = "2026-05"
+
+
+@pytest.fixture()
+def tinydb(tmp_path, monkeypatch):
+    """Stand up a self-contained period in throwaway DBs:
+      fuel_history.db -> transactions (engine product, read READ-ONLY)
+      suppliers.db    -> suppliers / supplier_invoices / supplier_statements / statement_invoices
+      vat_claims.db   -> invoice_documents (the vault)
+    No demo DB is opened; suppliers/invoices/statements are seeded by the caller.
+    Returns (supplier_master, vat_refund) so a test can write its own rows.
+    """
+    import supplier_master, vat_refund, dataproduct
+    import invoice_control as IC
+
+    fh = str(tmp_path / "fuel_history.db")
+    con = sqlite3.connect(fh)
+    con.execute("""CREATE TABLE transactions (
+        period TEXT, supplier TEXT, country TEXT, date TEXT, qty REAL)""")
+    con.commit(); con.close()
+
+    monkeypatch.setattr(supplier_master, "DB", str(tmp_path / "suppliers.db"))
+    supplier_master._SCHEMA_READY.clear()
+    monkeypatch.setattr(vat_refund, "DB", str(tmp_path / "vat_claims.db"))
+    # keep the legacy migration source pointed at a non-existent DB so a fresh
+    # vat_claims.db does NOT seed invoice_documents from the real demo product DB.
+    monkeypatch.setattr(vat_refund, "ANALYTICS_DB", str(tmp_path / "fh_legacy.db"))
+    vat_refund._SCHEMA_READY.clear()
+    monkeypatch.setitem(dataproduct._PATHS, "fuel_history", fh)
+    monkeypatch.setattr(IC, "FUEL_HISTORY_DB", fh)
+    # build the vault schema once so invoice_documents exists for reconcile/control.
+    vat_refund.connect().close()
+    return supplier_master, vat_refund, fh
+
+
+def _seed_supplier(sm, code="BP", cadence="monthly"):
+    con = sm.connect()
+    con.execute("INSERT INTO suppliers (code, invoice_cadence) VALUES (?,?)",
+                (code, cadence))
+    con.commit(); con.close()
+
+
+def _seed_txn(fh, supplier="BP", country="Germany", date="2026-05-10", qty=100.0):
+    con = sqlite3.connect(fh)
+    con.execute("INSERT INTO transactions (period, supplier, country, date, qty) "
+                "VALUES (?,?,?,?,?)", (TEST_PERIOD, supplier, country, date, qty))
+    con.commit(); con.close()
+
+
+def _seed_invoice(sm, supplier="BP", country="Germany", inv_no="INV-1",
+                  inv_date="2026-05-15"):
+    con = sm.connect()
+    con.execute("""INSERT INTO supplier_invoices
+        (supplier, country, invoice_no, invoice_date, period, currency, gross_total, notes)
+        VALUES (?,?,?,?,?,?,?,?)""",
+        (supplier, country, inv_no, inv_date, TEST_PERIOD, "EUR", 1200.0, ""))
+    con.commit(); con.close()
+
+
+# ------------------------------------------------------------ control_summary
+def test_control_summary_flags_missing_when_activity_unregistered(tinydb):
+    """Activity in transactions but no registered invoice -> the supplier's row is
+    flagged MISSING (the chase signal the dashboard renders)."""
+    sm, vr, fh = tinydb
+    _seed_supplier(sm, "BP", "monthly")
+    _seed_txn(fh, "BP", "Germany", qty=100.0)
+
+    rows, orphans = invoice_control.control_summary(TEST_PERIOD)
+    bp = [r for r in rows if r["supplier"] == "BP"]
+    assert len(bp) == 1
+    r = bp[0]
+    assert r["status"] == "MISSING"
+    # row shape the dashboard reads
+    assert set(r) == {"period", "supplier", "country", "slot",
+                      "expected", "invoice_no", "status", "note"}
+    assert r["invoice_no"] is None
+    assert orphans == []
+
+
+def test_control_summary_no_missing_when_invoice_registered(tinydb):
+    """Same activity WITH a registered invoice -> received (no MISSING)."""
+    sm, vr, fh = tinydb
+    _seed_supplier(sm, "BP", "monthly")
+    _seed_txn(fh, "BP", "Germany", qty=100.0)
+    _seed_invoice(sm, "BP", "Germany", "INV-1")
+
+    rows, _ = invoice_control.control_summary(TEST_PERIOD)
+    bp = [r for r in rows if r["supplier"] == "BP"]
+    assert len(bp) == 1
+    r = bp[0]
+    assert r["status"].startswith("RECEIVED")     # registered (no vaulted doc -> DOC MISSING)
+    assert r["invoice_no"] == "INV-1"
+    assert not any(x["status"] == "MISSING" for x in rows)
+
+
+# ------------------------------------------------------------ reconcile_statements
+def _seed_statement(sm, supplier="BP", ref="ST-1", customer="Nonexistent Co",
+                    lines=()):
+    """Seed a statement + its lines directly. `customer` is set to a name absent
+    from the customers DB so the domestic-discard branch resolves cust_country=None
+    (keeps the test independent of demo customer data)."""
+    con = sm.connect()
+    # ensure the customer column exists (register_statement adds it via db_migrate)
+    invoice_control.db_migrate.apply(
+        con, "invoice_control",
+        ["ALTER TABLE supplier_statements ADD COLUMN customer TEXT"])
+    con.execute("""INSERT INTO supplier_statements
+        (supplier, statement_ref, period, statement_date, notes, customer)
+        VALUES (?,?,?,?,?,?)""",
+        (supplier, ref, TEST_PERIOD, "2026-05-31", "", customer))
+    for inv_no, inv_date, country, ccy, net, vat in lines:
+        con.execute("INSERT INTO statement_invoices VALUES (?,?,?,?,?,?,?,?,?)",
+                    (supplier, ref, inv_no, inv_date, country, ccy,
+                     net, vat, net + vat))
+    con.commit(); con.close()
+
+
+def test_reconcile_unregistered_line_verdict_not_registered(tinydb):
+    """A VAT-bearing statement line with NO supplier_invoices row -> verdict is
+    'PROCESS - NOT REGISTERED' (the investigate signal)."""
+    sm, vr, fh = tinydb
+    _seed_supplier(sm, "BP", "monthly")
+    _seed_statement(sm, "BP", "ST-1", lines=[
+        ("INV-9", "2026-05-16", "France", "EUR", 500.0, 100.0)])
+
+    out = invoice_control.reconcile_statements(TEST_PERIOD)
+    assert len(out) == 1
+    line = out[0]
+    assert line["invoice"] == "INV-9"
+    assert line["verdict"] == "PROCESS - NOT REGISTERED"
+    assert "NOT REGISTERED" in line["verdict"]
+    # the dict shape the dashboard reads
+    assert set(line) == {"supplier", "statement", "invoice", "country",
+                         "currency", "net", "vat", "verdict", "action"}
+
+
+def test_reconcile_registered_line_verdict_reflects_registration(tinydb):
+    """A registered VAT-bearing line (supplier_invoices present) -> a PROCESS verdict
+    that is NOT 'NOT REGISTERED' (here DOC MISSING, since no vaulted original)."""
+    sm, vr, fh = tinydb
+    _seed_supplier(sm, "BP", "monthly")
+    _seed_invoice(sm, "BP", "France", "INV-9", "2026-05-16")
+    _seed_statement(sm, "BP", "ST-1", lines=[
+        ("INV-9", "2026-05-16", "France", "EUR", 500.0, 100.0)])
+
+    out = invoice_control.reconcile_statements(TEST_PERIOD)
+    assert len(out) == 1
+    line = out[0]
+    assert line["verdict"].startswith("PROCESS")
+    assert "NOT REGISTERED" not in line["verdict"]
+    assert line["verdict"] == "PROCESS - DOC MISSING"
+
+
+def test_reconcile_zero_vat_line_discarded(tinydb):
+    """A VAT=0 statement line -> verdict DISCARD (archive only, nothing reclaimable)."""
+    sm, vr, fh = tinydb
+    _seed_supplier(sm, "BP", "monthly")
+    _seed_statement(sm, "BP", "ST-1", lines=[
+        ("INV-0", "2026-05-16", "Italy", "EUR", 0.0, 0.0)])
+
+    out = invoice_control.reconcile_statements(TEST_PERIOD)
+    assert len(out) == 1
+    assert out[0]["verdict"] == "DISCARD"
+
+
+def test_reconcile_empty_period_returns_empty(tinydb):
+    """No statements for the period -> [] (never raises)."""
+    sm, vr, fh = tinydb
+    _seed_supplier(sm, "BP", "monthly")
+    assert invoice_control.reconcile_statements(TEST_PERIOD) == []
