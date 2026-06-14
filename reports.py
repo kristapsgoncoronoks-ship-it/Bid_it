@@ -18,6 +18,7 @@ from openpyxl.formatting.rule import ColorScaleRule, DataBarRule
 from openpyxl.utils import get_column_letter
 
 import money
+import queries
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 DB = f"{WORKDIR}/fuel_history.db"
@@ -117,31 +118,12 @@ def _trend(con):
         FROM transactions WHERE product_group='Diesel' GROUP BY period ORDER BY period""").fetchall()
 
 def _savings(con, period):
-    rows = con.execute("""
-        SELECT date, country, supplier, SUM(qty) q, SUM(net_eur_eff) e
-        FROM transactions WHERE product_group='Diesel' AND period=?
-        GROUP BY date, country, supplier""", (period,)).fetchall()
-    g = {}
-    for r in rows:
-        if r["q"]:
-            g.setdefault((r["date"], r["country"]), {})[r["supplier"]] = (r["q"], r["e"])
-    by_sup, by_ctry, total = {}, {}, 0.0
-    for (_d, c), bysup in g.items():
-        if len(bysup) < 2:
-            continue
-        prices = {s: e / qy for s, (qy, e) in bysup.items()}
-        cheap = min(prices.values())
-        for s, (qy, _e) in bysup.items():
-            over = qy * (prices[s] - cheap)
-            if over <= 0:
-                continue
-            total += over
-            by_sup[s] = by_sup.get(s, 0) + over
-            by_ctry[c] = by_ctry.get(c, 0) + over
-    # `total` accumulated at full precision; final overpay quantized HALF_UP (money.f2).
-    return {"total": money.f2(total),
-            "by_sup": sorted(by_sup.items(), key=lambda x: -x[1]),
-            "by_ctry": sorted(by_ctry.items(), key=lambda x: -x[1])}
+    # Single source of truth for the avoidable-overpay loop lives in
+    # queries.q_savings; here we only remap to this module's key names.
+    r = queries.q_savings(con, period)
+    return {"total": r["total"],
+            "by_sup": r["by_supplier"],
+            "by_ctry": r["by_country"]}
 
 
 # ---------------------------------------------------------------- summary report
