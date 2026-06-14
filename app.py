@@ -944,6 +944,8 @@ def _intake_uploads_blocked():
 from queries import (q_periods, q_filters, where, q_compare, q_compare_totals,
                      q_benchmark, q_kpis, q_trend, q_headtohead, q_entities,
                      q_stations, q_savings, q_savings_lines, q_expense)
+import metrics
+import money
 
 def svg_hbars(pairs, unit="", width=520, color="#0e5fa8", fmt=",.0f"):
     """Dependency-free inline SVG horizontal bar chart from (label, value) pairs."""
@@ -1115,20 +1117,39 @@ def dash():
         con.close()
         return page('<div class="card"><h2>No data loaded yet</h2><p>Import an invoice batch '
                     'or run the monthly close to populate transactions.</p></div>', "dash")
-    k = q_kpis(con, period); bm = q_benchmark(con, period); tr = q_trend(con)
-    sv = q_savings(con, period)
-    _litres = f"{k['litres']:,.0f}" if k['litres'] is not None else "—"
-    _eurl = f"€{k['eurl']:.4f}" if k['eurl'] is not None else "—"
-    _net = f"€{k['net']:,.0f}" if k['net'] is not None else "€0"
-    _vat = f"€{k['vat']:,.0f}" if k['vat'] is not None else "€0"
-    _gross = f"€{k['gross']:,.0f}" if k['gross'] is not None else "€0"
+    bm = q_benchmark(con, period); tr = q_trend(con)
+    # Prefer the SETTLED per-period aggregates (materialized at the monthly close) for
+    # the KPI cards + the avoidable-overpay figure — they save the expensive live scans
+    # (the overpay loop in particular). Any failure / un-rebuilt period silently falls
+    # back to the live queries.py path, which stays the source of truth for an open month.
+    litres = eurl = net = vat = gross = overpay = None
+    try:
+        settled = metrics.read(period, con)
+    except Exception as e:
+        _log_exc("dashboard settled metrics", e); settled = {}
+    if settled.get(metrics.M_NET) and settled.get(metrics.M_OVERPAY):
+        litres = settled[metrics.M_LITRES]["value"]
+        eurl = settled[metrics.M_EURL]["value"]
+        net = settled[metrics.M_NET]["value"]
+        vat = settled[metrics.M_VAT]["value"]
+        gross = money.f2((net or 0) + (vat or 0))   # gross is not stored: net + VAT
+        overpay = settled[metrics.M_OVERPAY]["value"]
+    else:                                           # un-rebuilt period -> live fallback
+        k = q_kpis(con, period); sv = q_savings(con, period)
+        litres, eurl, net, vat, gross = k["litres"], k["eurl"], k["net"], k["vat"], k["gross"]
+        overpay = sv["total"]
+    _litres = f"{litres:,.0f}" if litres is not None else "—"
+    _eurl = f"€{eurl:.4f}" if eurl is not None else "—"
+    _net = f"€{net:,.0f}" if net is not None else "€0"
+    _vat = f"€{vat:,.0f}" if vat is not None else "€0"
+    _gross = f"€{gross:,.0f}" if gross is not None else "€0"
     kpis = f"""<div class="kpis">
       <div class="kpi"><div class="v">{_litres} L</div><div class="l">Diesel litres · {esc(period)}</div></div>
       <div class="kpi"><div class="v">{_eurl}</div><div class="l">Fleet eff. net €/L</div></div>
       <div class="kpi"><div class="v">{_net}</div><div class="l">Net spend</div></div>
       <div class="kpi"><div class="v">{_vat}</div><div class="l">Reclaimable VAT</div></div>
       <a class="kpi" href="/savings" style="text-decoration:none;color:inherit">
-        <div class="v bad">€{sv['total']:,.0f}</div><div class="l">Avoidable overpay &rarr;</div></a></div>"""
+        <div class="v bad">€{(overpay or 0):,.0f}</div><div class="l">Avoidable overpay &rarr;</div></a></div>"""
     # benchmark as a chart (cheapest first) + the table
     bchart = svg_hbars([(f"{r['supplier']} {r['country']}", r['eff']) for r in bm],
                        unit=" €/L", fmt=".4f", color="#1b7340")
@@ -5624,6 +5645,34 @@ def admin():
                                      f"{dsum['missing']} missing — see error log")
                 banner = (f"All {dsum['total']} stored document(s) verified — "
                           f"PDF/ZIP files intact (SHA-256 match).")
+            elif act == "verify_metrics":
+                # DRIFT CHECK: recompute the settled per-period aggregates LIVE via the
+                # canonical queries and compare to the materialized settled_metrics. Runs
+                # on the latest loaded period (or an explicit ?period). Any drift is an
+                # error-log entry + a red banner; a clean match is a green banner.
+                _con = DB()
+                try:
+                    _pers = q_periods(_con)
+                finally:
+                    _con.close()
+                _period = request.form.get("period") or (_pers[0] if _pers else None)
+                if not _period:
+                    raise ValueError("no loaded period to check — run the monthly close first")
+                drifts = metrics.verify(_period)
+                if drifts:
+                    detail = "; ".join(
+                        "{m}: stored {s} vs live {l} (delta {d:+.4f})".format(
+                            m=d["metric"], s=d["stored"], l=d["live"], d=d["delta"])
+                        for d in drifts)
+                    _auth.log_error("metrics drift", "DriftDetected",
+                                    f"{len(drifts)} settled metric(s) drifted from a live "
+                                    f"recompute for {_period}", detail, session["user"])
+                    raise ValueError(
+                        f"settled metrics DRIFTED for {_period} ({len(drifts)} metric(s): "
+                        f"{', '.join(d['metric'] for d in drifts)}) — see error log; "
+                        f"re-run the monthly close to re-settle")
+                banner = (f"Settled metrics for <b>{esc(_period)}</b> match a live "
+                          f"recompute — no drift.")
             elif act == "set_smtp":
                 # SMTP relay config for the digest + per-event alerts. The password is
                 # WRITE-ONLY: a blank field leaves the stored secret untouched, so
@@ -5828,7 +5877,8 @@ def admin():
                   + f'<div style="margin:8px 0">{_bkbtn("run_backup","↓ Run backup now")}'
                   f'{_bkbtn("verify_backup","✓ Verify last backup")}'
                   f'{_bkbtn("sync_backup","☁ Sync latest off-site now")}'
-                  f'{_bkbtn("verify_docs","✓ Check document integrity")}</div>'
+                  f'{_bkbtn("verify_docs","✓ Check document integrity")}'
+                  f'{_bkbtn("verify_metrics","✓ Drift-check settled metrics")}</div>'
                   '<div class="note">Backups run <b>automatically</b> on the schedule above (a '
                   'background task snapshots when one is due) and can also be taken on demand. Each '
                   'snapshot bundles the databases (crash-consistent copies), the physical '

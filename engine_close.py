@@ -22,6 +22,7 @@ This module runs the stages IN ORDER as ONE guarded unit of work:
         consolidate.run(period)
         → build_master.build(period)
         → history.load(period)
+        → metrics.rebuild(period)
         → invoice_control.run_control(period, persist=True)
         → backup.snapshot()
 
@@ -43,6 +44,8 @@ after a failure (no manual cleanup):
   • build_master.build  — regenerates Fleet_Fuel_Master_<period>.xlsx (overwrite).
   • history.load        — DELETE-by-period + INSERT into fuel_history.db (replace,
                           never duplicate), then regenerates the history report.
+  • metrics.rebuild     — REPLACEs the period's rows in settled_metrics (the
+                          materialized dashboard aggregates), recomputed via queries.py.
   • run_control(persist)— recomputes and UPSERTs invoice_receipt_control (manual
                           waived/note overrides survive).
   • backup.snapshot     — writes a fresh, timestamped backup zip.
@@ -64,6 +67,7 @@ import process_lock
 import consolidate
 import build_master
 import history
+import metrics
 import invoice_control
 import backup
 
@@ -111,7 +115,7 @@ def _step(name, period, actor, fn):
 def close(period=None, actor="system"):
     """Run the monthly close for `period` (default month_config.PERIOD) as ONE guarded,
     audited, restartable unit of work. Returns a dict of stage results
-    {rows, master, history, control, backup}. Raises RuntimeError if the singleton lock
+    {rows, master, history, metrics, control, backup}. Raises RuntimeError if the singleton lock
     is already held, or naming the first stage that fails (the chain halts there).
 
     See the module docstring for the order, guard, audit and restart semantics.
@@ -130,6 +134,9 @@ def close(period=None, actor="system"):
         results["rows"]    = _step("consolidate", period, actor, lambda: consolidate.run(period))
         results["master"]  = _step("build_master", period, actor, lambda: build_master.build(period))
         results["history"] = _step("history", period, actor, lambda: history.load(period))
+        # Settle the per-period dashboard aggregates AFTER history (transactions must be
+        # loaded first). Idempotent (REPLACE), so a restart re-settles cleanly.
+        results["metrics"] = _step("metrics", period, actor, lambda: metrics.rebuild(period))
         results["control"] = _step("invoice_control", period, actor,
                                     lambda: invoice_control.run_control(period, persist=True))
         results["backup"]  = _step("backup", period, actor, lambda: backup.snapshot())
