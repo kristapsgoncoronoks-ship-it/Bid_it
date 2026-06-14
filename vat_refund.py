@@ -81,7 +81,16 @@ def connect():
         filename TEXT, stored_path TEXT, sha256 TEXT, size INTEGER,
         kind TEXT DEFAULT 'original_pdf', uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
         UNIQUE (entity, supplier, invoice_ref, sha256))""")
-    audit.install_audit(con, ["vat_applications", "vat_claimed_invoices", "invoice_documents"])
+    # Receipt-control WAIVER: an admin marks a supplier as "no invoice coming" for one
+    # (entity, refund_country, period) so its UNMATCHED transactions (no registered
+    # invoice exists for that country) do NOT block submission and are EXCLUDED from the
+    # claim. Only a genuinely-uninvoiced supplier is waivable (see add_waiver / R5).
+    con.execute("""CREATE TABLE IF NOT EXISTS vat_invoice_waivers (
+        entity TEXT, refund_country TEXT, ref_period TEXT, supplier TEXT,
+        reason TEXT, waived_by TEXT, waived_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (entity, refund_country, ref_period, supplier))""")
+    audit.install_audit(con, ["vat_applications", "vat_claimed_invoices", "invoice_documents",
+                              "vat_invoice_waivers"])
     # versioned migrations: each runs ONCE per database (see db_migrate). Append only.
     db_migrate.apply(con, "vat_refund", [
         "ALTER TABLE invoice_documents ADD COLUMN backend TEXT DEFAULT 'local'",
@@ -495,6 +504,66 @@ def docs_index(con):
             for r in con.execute(
                 "SELECT DISTINCT entity, supplier, invoice_ref FROM invoice_documents")}
 
+def _no_registered_invoices(sup, ctry, scon=None):
+    """True iff supplier `sup` has NO registered invoice for refund country `ctry`
+    (R5 case (a): a genuinely-uninvoiced supplier — its transactions are UNMATCHED
+    because the invoice simply isn't coming). supplier_master.get_invoices never
+    returns an empty list: with zero rows it yields a single 'INPUT: … invoice'
+    placeholder, so 'no real invoices' == every returned ref is an INPUT: stub."""
+    regs = supplier_master.get_invoices(sup, ctry, con=scon)
+    return all(str(no).startswith("INPUT:") for no, _date in regs)
+
+def _waivable_missing(ref, sup, ctry, scon=None):
+    """True iff (sup, ref) is the R5 case-(a) genuinely-uninvoiced situation: a
+    synthetic ref that is the INPUT-invoice stub AND the supplier has NO registered
+    invoice for `ctry`. This is the ONLY waivable case. It excludes by construction:
+      - a real (matched) ref            -> not _synthetic;
+      - case-(b) UNMATCHED (>=2 regs)   -> _no_registered_invoices False;
+      - an ALL:/vat-id placeholder      -> not the INPUT-invoice stub (startswith guard).
+    The lock gate, the checklist gate and the /vat waive UI all key on THIS predicate
+    so they never drift apart (mirror of _synthetic centralizing the block set)."""
+    ref = str(ref)
+    return (_synthetic(ref) and ref.startswith("INPUT")
+            and _no_registered_invoices(sup, ctry, scon))
+
+# --------------------------------------------------------------- receipt-control waivers
+def list_waivers(con, ent, ctry, period):
+    """The set of suppliers WAIVED ('invoice not coming') for one claim stream."""
+    return {r["supplier"] for r in con.execute(
+        """SELECT supplier FROM vat_invoice_waivers
+           WHERE entity=? AND refund_country=? AND ref_period=?""",
+        (ent, ctry, period))}
+
+def add_waiver(con, ent, ctry, period, supplier, reason=None):
+    """Waive a supplier's missing-invoice receipt-control item for one claim stream.
+    Returns (ok, msg). REFUSES (R5) a supplier that HAS registered invoices for `ctry`:
+    those transactions are UNMATCHED because of an ambiguous note-match (a matching fix),
+    NOT a genuinely-uninvoiced supplier — waiving them would drop claimable VAT. Upsert
+    so it is idempotent; the waive actor is stamped and the row is audited by its trigger."""
+    if not _no_registered_invoices(supplier, ctry):
+        return False, (f"can't waive '{supplier}' — it HAS registered invoice(s) for "
+                       f"{ctry}; an UNMATCHED transaction there is a note-matching fix, "
+                       "not a missing invoice (register/match the invoice instead)")
+    actor = audit._current_actor() or "admin"
+    con.execute("""INSERT INTO vat_invoice_waivers
+                   (entity, refund_country, ref_period, supplier, reason, waived_by)
+                   VALUES (?,?,?,?,?,?)
+                   ON CONFLICT(entity, refund_country, ref_period, supplier)
+                   DO UPDATE SET reason=excluded.reason, waived_by=excluded.waived_by,
+                                 waived_at=CURRENT_TIMESTAMP""",
+                (ent, ctry, period, supplier, (reason or None), actor))
+    con.commit()
+    return True, f"waived '{supplier}' — invoice not coming ({ctry} {period})"
+
+def remove_waiver(con, ent, ctry, period, supplier):
+    """Undo a receipt-control waiver. Returns (ok, msg)."""
+    cur = con.execute("""DELETE FROM vat_invoice_waivers WHERE entity=? AND refund_country=?
+                         AND ref_period=? AND supplier=?""", (ent, ctry, period, supplier))
+    con.commit()
+    if cur.rowcount:
+        return True, f"removed waiver for '{supplier}'"
+    return False, f"no waiver for '{supplier}'"
+
 def lock_state(con, ent, ctry, sup, ref):
     r = con.execute("""SELECT ref_period FROM vat_claimed_invoices WHERE entity=? AND
                        refund_country=? AND supplier=? AND invoice_ref=?""",
@@ -541,6 +610,22 @@ def set_status(con, ent, ctry, period, new, gate_activation=True):
         if new in LOCKING:
             if cur not in LOCKING:  # entering locked state -> validate & lock invoices
                 invs = stream_invoices(con, ent, ctry, period)
+                # Receipt-control WAIVERS: drop ONLY a waived, genuinely-uninvoiced
+                # supplier's synthetic ref (R5 case (a): NO registered invoice exists for
+                # this country, so its ref is the INPUT stub). A real (matched) ref
+                # survives (_synthetic False); a supplier that HAS invoices is never
+                # dropped (_no_registered_invoices False) so its UNMATCHED ref stays in
+                # `bad`. Everything downstream (the `bad` gate, claim_set, locks, nodoc,
+                # the frozen vat_eur/vat_local over claim_set keys) excludes the waived
+                # transactions by construction.
+                waived = list_waivers(con, ent, ctry, period)
+                if waived:
+                    scon = supplier_master.connect()
+                    try:
+                        invs = [(s, r) for s, r in invs
+                                if not (s in waived and _waivable_missing(r, s, ctry, scon))]
+                    finally:
+                        scon.close()
                 bad = [f"{s}:{r}" for s, r in invs if _synthetic(r)]
                 if bad:
                     con.rollback()
@@ -723,12 +808,43 @@ def submission_checklist(con, ent, ctry, period, cache=None):
         for _k, label, _scope, ok in customer_master.evaluate_checklist(cm, code, ctry):
             items.append((label, ok))
     invs = stream_invoices(con, ent, ctry, period, cache)
-    bad = [r for s, r in invs if _synthetic(r)]
-    items.append(("All invoices received & processed", len(invs) > 0 and not bad))
+    waived = list_waivers(con, ent, ctry, period)
+    scon = cache.get("_scon")
+    if scon is None:
+        scon = cache["_scon"] = supplier_master.connect()
+    # Receipt control names WHICH suppliers are blocking. A supplier is WAIVABLE-MISSING
+    # only when its ref is SYNTHETIC *and* it has NO registered invoice for this country
+    # (R5 case (a): the invoice isn't coming, so its ref is the INPUT stub). It drops out
+    # of the missing list once an admin waives it. A case-(b) UNMATCHED supplier (HAS
+    # invoices but no note match) is NOT waivable and falls into `other_bad` below so it
+    # stays blocked here — never silenced.
+    nri = cache.setdefault("_waivable", {})
+    def waivable(s, r):
+        if (s, r) not in nri:
+            nri[(s, r)] = _waivable_missing(r, s, ctry, scon)
+        return nri[(s, r)]
+    missing_sup = sorted({s for s, r in invs if waivable(s, r) and s not in waived})
+    items.append(("Receipt control: required invoices received"
+                  + (" — missing: " + ", ".join(missing_sup) if missing_sup else ""),
+                  len(invs) > 0 and not missing_sup))
+    # Non-waivable synthetic refs: ALL: aggregates, vat-id INPUT placeholders AND
+    # case-(b) UNMATCHED where the supplier HAS invoices (a note-matching fix, not a
+    # missing invoice). Every synthetic ref is covered by exactly one of the two items:
+    # a WAIVABLE (s, r) (no registered invoice) is named in `missing_sup` until waived;
+    # a NON-waivable synthetic blocks here unconditionally. Nothing slips through: a
+    # synthetic ref is in `missing_sup` (waivable, unwaived), excluded entirely
+    # (waivable, waived), or in `other_bad` (not waivable).
+    other_bad = sorted({r for s, r in invs if _synthetic(r) and not waivable(s, r)})
+    items.append(("All invoice refs resolved (no INPUT/aggregate placeholders)",
+                  len(invs) > 0 and not other_bad))
     docidx = cache.get("_docidx")
     if docidx is None:
         docidx = cache["_docidx"] = docs_index(con)
-    nodoc = [(s, r) for s, r in invs if (ent, s, r) not in docidx]
+    # A WAIVED, genuinely-uninvoiced supplier is excluded from the claim (set_status drops
+    # its synthetic ref), so it is NOT required to have a document — mirror that exclusion
+    # here, else the doc gate would re-block a claim the receipt-control item just cleared.
+    nodoc = [(s, r) for s, r in invs
+             if (ent, s, r) not in docidx and not (s in waived and waivable(s, r))]
     items.append(("All invoice documents attached", len(invs) > 0 and not nodoc))
     items.append(("Claim period ended", period_ended(period)))
     return items
@@ -881,6 +997,12 @@ def set_status_code(con, ent, ctry, period, code, note=None, deadline=None,
             actor = audit._current_actor() or "admin"
             ovr = f"minimum-threshold overridden by {actor}"
             note = (f"{note}; {ovr}" if note else ovr)
+        # Record the WAIVER use on submission (mirror the threshold-override note): the
+        # claim was filed excluding genuinely-uninvoiced suppliers (R5 case (a)).
+        waived = list_waivers(con, ent, ctry, period)
+        if waived:
+            wnote = "filed excluding waived suppliers: " + ", ".join(sorted(waived))
+            note = (f"{note}; {wnote}" if note else wnote)
     engine = ENGINE_OF.get(code)
     if engine:
         ok, msg = set_status(con, ent, ctry, period, engine, gate_activation=False)
@@ -1021,6 +1143,17 @@ def submission_readiness(con, ent, ctry, period, cache=None):
     if ca[(ent, ctry)] is False:
         issues.append(f"refund country '{ctry}' not activated")
     invs = stream_invoices(con, ent, ctry, period, cache)
+    # Receipt-control WAIVERS: a waived, genuinely-uninvoiced supplier is excluded from
+    # the claim by set_status; mirror that here so the readiness verdict the UI shows
+    # agrees with what set_status will actually do (else a waived stream reads "blocked"
+    # while submission would succeed). Only drops a (waivable AND waived) synthetic ref.
+    waived = list_waivers(con, ent, ctry, period)
+    if waived:
+        scon = cache.get("_scon")
+        if scon is None:
+            scon = cache["_scon"] = supplier_master.connect()
+        invs = [(s, r) for s, r in invs
+                if not (s in waived and _waivable_missing(r, s, ctry, scon))]
     bad = [r for s, r in invs if _synthetic(r)]
     if bad:
         issues.append(f"{len(bad)} unresolved invoice ref(s)")
@@ -1082,9 +1215,10 @@ def claims_overview(year):
                                         m["verdict"], cache)
             # surface the failed CUSTOMER-checklist rules (the invoice-level ones are
             # already covered by submission_readiness) and the period-end gate
-            overlap = {"All invoices received & processed", "All invoice documents attached",
-                       "Claim period ended"}
-            issues = issues + [l for l, ok in items if not ok and l not in overlap]
+            overlap = {"All invoice refs resolved (no INPUT/aggregate placeholders)",
+                       "All invoice documents attached", "Claim period ended"}
+            issues = issues + [l for l, ok in items if not ok and l not in overlap
+                               and not l.startswith("Receipt control:")]
             if stage == "1B":
                 issues = issues + [f"period not ended (ends {period_end_date(m['period'])})"]
             ready = (len(issues) == 0)

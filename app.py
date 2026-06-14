@@ -4079,7 +4079,50 @@ def _vat_status_cell(con, VR, m, cache):
               f'<input type="hidden" name="ref_period" value="{esc(period)}">'
               '<button name="__act" value="withdraw" style="background:var(--mut);'
               'font-size:11px;padding:3px 8px">Withdraw (release locks)</button></form>')
-    return badge + meta + hint + chk + frm + wd
+    # Receipt-control WAIVE (admin-only, not on the YEAR roll-up): a supplier whose ref
+    # is SYNTHETIC *and* has NO registered invoice for this country (R5 case (a): the
+    # invoice isn't coming, so its ref is the INPUT stub) can be waived so it neither
+    # blocks submission nor enters the claim. Existing waivers get an "undo". ALL:/vat-id
+    # placeholders and case-(b) UNMATCHED (invoices on file, no note match) are never
+    # waivable. The predicate MUST mirror submission_checklist's `missing_sup` exactly.
+    wv = ""
+    if session.get("role") == "admin" and not is_year:
+        import supplier_master
+        scon = cache.get("_scon")
+        if scon is None:
+            scon = cache["_scon"] = supplier_master.connect()
+        nri = cache.setdefault("_waivable", {})
+        def waivable(s, r):
+            if (s, r) not in nri:
+                nri[(s, r)] = VR._waivable_missing(r, s, ctry, scon)
+            return nri[(s, r)]
+        invs = VR.stream_invoices(con, ent, ctry, period, cache)
+        waived = VR.list_waivers(con, ent, ctry, period)
+        missing_sup = sorted({s for s, r in invs
+                              if waivable(s, r) and s not in waived})
+        rows_wv = []
+        for s in missing_sup:
+            rows_wv.append(
+                '<form method="post" style="margin:2px 0 0">' + _csrf_input() +
+                f'<input type="hidden" name="entity" value="{esc(ent)}">'
+                f'<input type="hidden" name="country" value="{esc(ctry)}">'
+                f'<input type="hidden" name="ref_period" value="{esc(period)}">'
+                f'<input type="hidden" name="supplier" value="{esc(s)}">'
+                '<input name="reason" placeholder="reason" style="width:90px;font-size:11px"> '
+                f'<button name="__act" value="waive" style="background:var(--mut);font-size:11px;'
+                f'padding:3px 8px">Waive {esc(s)} (invoice not coming)</button></form>')
+        for s in sorted(waived):
+            rows_wv.append(
+                '<form method="post" style="margin:2px 0 0">' + _csrf_input() +
+                f'<input type="hidden" name="entity" value="{esc(ent)}">'
+                f'<input type="hidden" name="country" value="{esc(ctry)}">'
+                f'<input type="hidden" name="ref_period" value="{esc(period)}">'
+                f'<input type="hidden" name="supplier" value="{esc(s)}">'
+                f'<span class="note">waived: {esc(s)} </span>'
+                '<button name="__act" value="unwaive" style="font-size:11px;'
+                'padding:3px 8px">undo</button></form>')
+        wv = "".join(rows_wv)
+    return badge + meta + hint + chk + frm + wd + wv
 
 @app.route("/vat", methods=["GET", "POST"])
 def vat():
@@ -4088,8 +4131,19 @@ def vat():
     banner = ""
     if request.method == "POST":
         ent, ctry, per = request.form["entity"], request.form["country"], request.form["ref_period"]
-        if request.form.get("__act") == "withdraw":
+        __act = request.form.get("__act")
+        if __act == "withdraw":
             ok, msg = VR.withdraw_claim(con, ent, ctry, per)
+        elif __act in ("waive", "unwaive"):
+            # Receipt-control WAIVE / UNDO is admin-only (the /vat route is already
+            # ADMIN_ONLY; this belt-and-suspenders refuses a non-admin defensively).
+            if session.get("role") != "admin":
+                ok, msg = False, "admin only"
+            elif __act == "waive":
+                ok, msg = VR.add_waiver(con, ent, ctry, per, request.form["supplier"],
+                                        reason=request.form.get("reason", "").strip() or None)
+            else:
+                ok, msg = VR.remove_waiver(con, ent, ctry, per, request.form["supplier"])
         else:
             # The minimum-threshold override (Dir. 2008/9/EC Art. 17 gate) is ADMIN-ONLY:
             # a processor's checkbox is ignored, so it can never trigger the override.
