@@ -14,6 +14,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 import supplier_master, customer_master, audit, money
 import db, db_tuning, db_migrate, applog
+import vat_config
 from vat_config import (GOODS_CODE,
                         MIN_QUARTER, MIN_ANNUAL, DEADLINE_FMT,
                         LOCAL_CCY_INPUT, COMPLIANCE_NOTES)
@@ -748,6 +749,64 @@ def current_code(con, ent, ctry, period, verdict=None, cache=None):
     code, _ = derive_stage(con, ent, ctry, period, verdict, cache)
     return code
 
+def _stream_vat(con, ent, ctry, period):
+    """The claim's applicable VAT as (vat_eur, vat_local, currency), Decimal-exact.
+
+    Prefers the FROZEN figures on the submitted application row; falls back to the
+    period aggregate the verdict path (claim_matrix) uses — SUM of the period's
+    transactions for this (entity, country) — so the threshold gate and the displayed
+    verdict agree. Returns Decimals (full precision); never raises (a missing/empty
+    stream reads as 0). `con` is the claims connection.
+    """
+    row = con.execute("""SELECT vat_eur, vat_local, currency, status FROM vat_applications
+                         WHERE entity=? AND refund_country=? AND ref_period=?""",
+                      (ent, ctry, period)).fetchone()
+    if row and (row["status"] or "draft") in LOCKING and row["vat_eur"] is not None:
+        # frozen at submission over exactly the locked claim_set — the canonical base
+        return (money.D(row["vat_eur"] or 0), money.D(row["vat_local"] or 0),
+                (row["currency"] or "EUR"))
+    months = q_months(period)
+    acon = analytics_connect()
+    try:
+        agg = acon.execute(
+            """SELECT ROUND(SUM(vat_eur),2) ve, ROUND(SUM(vat_local),2) vl,
+                      MAX(currency) ccy
+               FROM transactions WHERE entity=? AND country=? AND period IN (%s)"""
+            % ",".join("?" * len(months)), [ent, ctry] + months).fetchone()
+    finally:
+        acon.close()
+    ve = money.D(agg["ve"] or 0) if agg else money.D(0)
+    vl = money.D(agg["vl"] or 0) if agg else money.D(0)
+    ccy = (agg["ccy"] if agg and agg["ccy"] else (row["currency"] if row else None)) or "EUR"
+    return ve, vl, ccy
+
+def below_minimum(con, ent, ctry, period):
+    """Is this claim below the refund country's statutory minimum (Dir. 2008/9/EC
+    Art. 17), enforced in the country's currency? Returns (below: bool, detail: str).
+
+    A `-YEAR` period uses the ANNUAL minimum, else the QUARTERLY (sub-year) minimum.
+    The basis (national-currency vat_local vs EUR vat_eur) is chosen by
+    vat_config.min_for: countries with a fixed national amount (NATIONAL_MINIMUMS,
+    e.g. Sweden/Denmark) compare in local currency; euro countries and Poland fall
+    back to the EUR base on vat_eur. The Decimal threshold comparison uses money.q2
+    (the EUR/threshold quantizer). Never raises."""
+    try:
+        is_annual = str(period).endswith("-YEAR")
+        ccy, threshold, basis = vat_config.min_for(ctry, is_annual)
+        ve, vl, _stream_ccy = _stream_vat(con, ent, ctry, period)
+        amount = vl if basis == "local" else ve
+        thr = money.q2(money.D(threshold))
+        amt = money.q2(amount)
+        kind = "annual" if is_annual else "quarterly"
+        detail = (f"below the {ccy} {threshold:,.0f} {kind} minimum "
+                  f"(this claim: {ccy} {amt:,.2f}) — defer to the annual claim or override")
+        return (amt < thr), detail
+    except Exception as e:
+        # Never let the threshold check break the submit path; log and treat as not-below
+        # (the existing checklist/period gates still protect submission).
+        log.warning("vat_refund: below_minimum failed for %s/%s/%s: %s", ent, ctry, period, e)
+        return False, ""
+
 def filing_deadline(period):
     """Statutory 2008/9/EC filing deadline for a claim period: 30 September of the
     following year. Returns a datetime.date."""
@@ -767,14 +826,20 @@ def suggested_next(code, payout_to=None):
         "4": "5", "4A": "5", "5": None,
     }.get(code)
 
-def set_status_code(con, ent, ctry, period, code, note=None, deadline=None):
+def set_status_code(con, ent, ctry, period, code, note=None, deadline=None,
+                    override_threshold=False):
     """Advance a claim along the controllable workflow. Pre-submission codes are
     system-controlled (rejected here). Submitting (2) is HARD-GATED on the system
-    checklist + period end. 3B/3C/3D keep the invoice locks.
+    checklist + period end + the refund-country minimum (Dir. 2008/9/EC Art. 17,
+    enforced in national currency). 3B/3C/3D keep the invoice locks.
 
     `note` records WHY (rejection reason, what documents were requested, appeal
     grounds); `deadline` (ISO date) records the open action's deadline — the
-    document-request response date (2B) or the appeal deadline (3D)."""
+    document-request response date (2B) or the appeal deadline (3D).
+
+    `override_threshold` (admin-only at the route layer) lets a below-minimum claim be
+    submitted anyway; the override is recorded in the claim's status_note for an audit
+    trail. It has no effect on any other gate."""
     code = (code or "").strip()
     if code in AUTO_CODES:
         return False, f"'{code} {STATUS_LABELS.get(code,'')}' is system-controlled — it follows the checklist automatically"
@@ -795,6 +860,17 @@ def set_status_code(con, ent, ctry, period, code, note=None, deadline=None):
         if stage == "1B":
             return False, ("BLOCKED — the claim period has not ended yet (ends "
                            f"{period_end_date(period)})")
+        # Hard period-end + checklist gates passed: now the refund-country minimum
+        # (Art. 17, in national currency). Below the minimum a claim would be rejected
+        # and its invoices locked out of the annual mop-up — block it, unless an admin
+        # overrides (recorded in the status_note for traceability).
+        below, why = below_minimum(con, ent, ctry, period)
+        if below and not override_threshold:
+            return False, "BLOCKED — " + why
+        if below and override_threshold:
+            actor = audit._current_actor() or "admin"
+            ovr = f"minimum-threshold overridden by {actor}"
+            note = (f"{note}; {ovr}" if note else ovr)
     engine = ENGINE_OF.get(code)
     if engine:
         ok, msg = set_status(con, ent, ctry, period, engine, gate_activation=False)
@@ -1052,15 +1128,29 @@ def claim_matrix(con, year, with_portal=True):
         if ent not in portals:
             portals[ent] = customer_master.portal(ent)
         return portals[ent]
+    # The threshold verdict is computed on the SAME national-currency basis as the
+    # submission gate (vat_refund.below_minimum → vat_config.min_for): Sweden/Denmark
+    # compare in local currency (vat_local), euro countries and Poland on the EUR base
+    # (vat_eur). EUR figures are still shown; only the READY/DEFER/BELOW decision moves.
     for (ent, ctry), s in sorted(streams.items()):
         year_ve = money.q2(sum((v[0] for v in s["qs"].values()), money.D(0)))
         year_vl = money.q2(sum((v[1] for v in s["qs"].values()), money.D(0)))
+        q_ccy, q_thr, q_basis = vat_config.min_for(ctry, is_annual=False)
+        a_ccy, a_thr, a_basis = vat_config.min_for(ctry, is_annual=True)
+        year_amt = year_vl if a_basis == "local" else year_ve
+        year_ok = money.q2(year_amt) >= money.q2(money.D(a_thr))
         for q, (ve, vl, n) in sorted(s["qs"].items()):
             ve = money.q2(ve)            # quarterly VAT, exact cents
+            vl = money.q2(vl)
             missing = [m for m in q_months(q) if m not in loaded_periods]
-            if ve >= MIN_QUARTER: verdict = "READY (>= 400 EUR quarterly min)"
-            elif year_ve >= MIN_ANNUAL: verdict = "DEFER TO ANNUAL (below 400, year >= 50)"
-            else: verdict = "BELOW ANNUAL MIN - accumulate"
+            q_amt = vl if q_basis == "local" else ve
+            if money.q2(q_amt) >= money.q2(money.D(q_thr)):
+                verdict = f"READY (>= {q_ccy} {q_thr:,.0f} quarterly min)"
+            elif year_ok:
+                verdict = (f"DEFER TO ANNUAL (below {q_ccy} {q_thr:,.0f}, "
+                           f"year >= {a_ccy} {a_thr:,.0f})")
+            else:
+                verdict = "BELOW ANNUAL MIN - accumulate"
             out.append(dict(entity=ent, country=ctry, period=q, vat_eur=money.f2(ve),
                             vat_local=money.f2(vl), currency=s["ccy"], lines=n,
                             verdict=verdict, missing=missing,
@@ -1069,7 +1159,7 @@ def claim_matrix(con, year, with_portal=True):
         out.append(dict(entity=ent, country=ctry, period=f"{year}-YEAR",
                         vat_eur=money.f2(year_ve), vat_local=money.f2(year_vl),
                         currency=s["ccy"], lines=sum(v[2] for v in s["qs"].values()),
-                        verdict=("READY (annual >= 50 EUR)" if year_ve >= MIN_ANNUAL
+                        verdict=(f"READY (annual >= {a_ccy} {a_thr:,.0f})" if year_ok
                                  else "BELOW ANNUAL MIN"),
                         missing=[], home=home_of(ent),
                         deadline=DEADLINE_FMT.format(year_plus1=int(year)+1)))

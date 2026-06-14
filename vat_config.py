@@ -52,8 +52,41 @@ GOODS_CODE = {
     "Service/Other": ("10", "Other"),
 }
 
-# Minimum claim amounts (EUR or national equivalent set by refund state)
+# Minimum claim amounts (EUR base — Directive 2008/9/EC Art. 17: a sub-year period
+# must reach €400, a full-year period €50, "or the equivalent in national currency").
 MIN_QUARTER, MIN_ANNUAL = 400.00, 50.00
+
+# Per-refund-country national-currency minimums, where the law fixes a specific local
+# amount (NOT a live FX conversion of the EUR base). Keyed by the EXACT refund-country
+# string the system stores on a claim (vat_applications.refund_country / the `country`
+# dimension on transactions) — full English names, e.g. "Sweden".
+# Value = (currency, sub-year/quarterly minimum, full-year/annual minimum).
+# Cite: Directive 2008/9/EC Art. 17. VERIFY against current national law before relying
+# on these; an admin can override the gate per claim (see vat_refund.below_minimum).
+# Euro countries and Poland are INTENTIONALLY absent: they fall back to the EUR base
+# (€400/€50) compared on the claim's vat_eur.
+NATIONAL_MINIMUMS = {
+    "Sweden":  ("SEK", 4000, 500),   # SEK 4 000 / 500 fixed in Swedish law
+    "Denmark": ("DKK", 3000, 400),   # DKK 3 000 / 400
+}
+
+def min_for(country, is_annual):
+    """The applicable minimum-claim threshold for a refund country and period kind.
+
+    Returns (currency, threshold, basis) where:
+      * basis == "local" — the refund country fixes a national-currency minimum
+        (NATIONAL_MINIMUMS); compare against the claim's national-currency VAT
+        (vat_local). `currency` is the national currency, `threshold` the local amount.
+      * basis == "eur" — no distinct national amount applies (euro countries, Poland,
+        and any country not in the table); compare against the claim's EUR VAT
+        (vat_eur) using the EUR base. `currency` is "EUR".
+    `is_annual` selects the full-year (annual) minimum, else the sub-year (quarterly).
+    """
+    nm = NATIONAL_MINIMUMS.get(country)
+    if nm:
+        ccy, quarter_min, annual_min = nm
+        return ccy, (annual_min if is_annual else quarter_min), "local"
+    return "EUR", (MIN_ANNUAL if is_annual else MIN_QUARTER), "eur"
 # Final submission deadline: 30 September of the year following the refund year
 DEADLINE_FMT = "{year_plus1}-09-30"
 

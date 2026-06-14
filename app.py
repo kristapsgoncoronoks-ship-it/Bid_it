@@ -4053,6 +4053,14 @@ def _vat_status_cell(con, VR, m, cache):
     nxt = VR.suggested_next(cur_manual, row["payout_to"] if row else None) if cur_manual else None
     hint = (f'<div class="note" style="margin:2px 0 0">next: {nxt} — '
             f'{esc(VR.STATUS_LABELS[nxt])}</div>' if nxt else "")
+    # Admin-only override of the refund-country minimum gate (Dir. 2008/9/EC Art. 17):
+    # a below-minimum quarter is normally BLOCKED at submit; an admin may submit anyway
+    # (recorded in status_note). Hidden for processors and for the YEAR roll-up row.
+    ovr = ""
+    if session.get("role") == "admin" and not is_year:
+        ovr = ('<label style="font-size:11px;margin:0 4px" '
+               'title="Submit a below-minimum claim anyway (Art. 17). Recorded in the note.">'
+               '<input type="checkbox" name="override_threshold" value="1"> override min</label>')
     frm = ('<form method="post" style="margin:4px 0 0">' + _csrf_input() +
            f'<input type="hidden" name="entity" value="{esc(ent)}">'
            f'<input type="hidden" name="country" value="{esc(ctry)}">'
@@ -4061,6 +4069,7 @@ def _vat_status_cell(con, VR, m, cache):
            '<input name="note" placeholder="note / reason" style="width:110px;font-size:12px"> '
            '<input name="deadline" type="date" title="deadline (for 2B document request / 3D appeal)" '
            'style="font-size:12px"> '
+           + ovr +
            '<button style="font-size:12px;padding:4px 10px">Set</button></form>')
     wd = ""
     if row and row["status"] in VR.LOCKING and session.get("role") == "admin":
@@ -4082,9 +4091,14 @@ def vat():
         if request.form.get("__act") == "withdraw":
             ok, msg = VR.withdraw_claim(con, ent, ctry, per)
         else:
+            # The minimum-threshold override (Dir. 2008/9/EC Art. 17 gate) is ADMIN-ONLY:
+            # a processor's checkbox is ignored, so it can never trigger the override.
+            override = (request.form.get("override_threshold") == "1"
+                        and session.get("role") == "admin")
             ok, msg = VR.set_status_code(con, ent, ctry, per, request.form["status"],
                                          note=request.form.get("note", "").strip() or None,
-                                         deadline=request.form.get("deadline", "").strip() or None)
+                                         deadline=request.form.get("deadline", "").strip() or None,
+                                         override_threshold=override)
         cls = "ok" if ok else "bad"
         # A doc-missing block is actionable: link straight to the attach UI, prefilled
         # with this claim's entity (the /documents table then lists its invoices).
@@ -4136,8 +4150,11 @@ def vat():
             + '<div class="note">Status follows a system-controlled checklist: a claim climbs '
               '<b>1A→1E</b> automatically as documents/data are completed and the period ends, '
               'then you advance it manually (2 Submitted → 3A Money received → 5 Closed). '
-              'Submission is blocked until the checklist is complete and the period has ended. '
-              'Edit the checklist rules on the Customers page. Quarterly min €400, annual min €50.'
+              'Submission is blocked until the checklist is complete, the period has ended, and '
+              'the claim reaches the refund-country minimum (Art. 17: €400/€50 base, or the fixed '
+              'national-currency amount — e.g. SEK 4 000/500, DKK 3 000/400). An admin can submit a '
+              'below-minimum claim anyway via the per-claim "override min" box. '
+              'Edit the checklist rules on the Customers page.'
               '</div></div>')
     for k in ("_scon", "_acon", "_cmcon"):
         if inv_cache.get(k) is not None:

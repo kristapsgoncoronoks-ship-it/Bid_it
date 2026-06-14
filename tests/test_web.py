@@ -415,8 +415,9 @@ def test_vat_advance_and_withdraw_routes(client, monkeypatch):
     import vat_refund as VR
     calls = {}
     monkeypatch.setattr(VR, "set_status_code",
-                        lambda con, e, c, p, code, note=None, deadline=None:
-                        calls.update(adv=(e, c, p, code, note, deadline)) or (True, "status → 2 Submitted"))
+                        lambda con, e, c, p, code, note=None, deadline=None, override_threshold=False:
+                        calls.update(adv=(e, c, p, code, note, deadline),
+                                     override=override_threshold) or (True, "status → 2 Submitted"))
     monkeypatch.setattr(VR, "withdraw_claim",
                         lambda con, e, c, p: calls.update(wd=(e, c, p)) or (True, "status -> withdrawn"))
     import re
@@ -427,6 +428,12 @@ def test_vat_advance_and_withdraw_routes(client, monkeypatch):
                                   "note": "filed via portal", "deadline": ""})
     assert "status → 2 Submitted" in r.get_data(as_text=True)
     assert calls["adv"] == ("Acme", "DE", "2026-Q1", "2", "filed via portal", None)
+    assert calls["override"] is False                  # no override box ticked
+    # the admin "override min" checkbox flows through as override_threshold=True
+    r = client.post("/vat", data={"_csrf": tok, "entity": "Acme", "country": "DE",
+                                  "ref_period": "2026-Q1", "status": "2",
+                                  "override_threshold": "1"})
+    assert calls["override"] is True                   # admin override honoured
     r = client.post("/vat", data={"_csrf": tok, "__act": "withdraw", "entity": "Acme",
                                   "country": "DE", "ref_period": "2026-Q1", "status": ""})
     assert "withdrawn" in r.get_data(as_text=True) and calls["wd"] == ("Acme", "DE", "2026-Q1")
