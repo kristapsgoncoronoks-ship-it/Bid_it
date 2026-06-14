@@ -18,8 +18,11 @@ DYNAMIC & PLUGGABLE: portals differ, so adapters are pluggable.
   • kind="demo" is a built-in offline adapter (fixtures) for testing/trials.
 The same orchestrator, scrape(), runs any of them.
 
-SECURITY: portal credentials are encrypted at rest (Fernet; key derived from the app
-secret key) in portal.db (git-ignored). Only an admin sets them; every scrape run is
+SECURITY: portal credentials are encrypted at rest with ENVELOPE ENCRYPTION
+(`keyvault.py`: a random per-secret DEK, wrapped by a pluggable KEK — local master key
+now, KMS/BYOK later), AAD-bound to their (supplier, entity) row, in portal.db
+(git-ignored). Legacy single-key Fernet blobs still decrypt for backward compatibility;
+`reencrypt_legacy()` migrates them. Only an admin sets credentials; every scrape run is
 recorded in portal_runs and audited.
 
 OFFLINE-SAFE: live portals need outbound network; failures are caught, recorded on the
@@ -35,6 +38,7 @@ import os, sqlite3, json, csv, io, datetime
 import audit
 import db_tuning
 import applog
+import keyvault
 
 log = applog.get("portal_scraper")
 
@@ -54,8 +58,8 @@ CREATE TABLE IF NOT EXISTS portal_configs (
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS portal_credentials (
     supplier TEXT, entity TEXT,
-    username TEXT, secret_enc BLOB,    -- encrypted at rest
-    extra TEXT,                        -- optional JSON (e.g. account id), encrypted
+    username TEXT, secret_enc BLOB,    -- envelope ciphertext (BLOB: audit-excluded)
+    extra BLOB,                        -- optional JSON (e.g. account id), envelope ciphertext
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (supplier, entity));
 CREATE TABLE IF NOT EXISTS portal_runs (
@@ -67,6 +71,37 @@ CREATE TABLE IF NOT EXISTS portal_runs (
 """
 
 
+def _upgrade_extra_to_blob(con):
+    """Backward-compat: early portal.db files declared `extra` as TEXT. It now holds
+    BINARY envelope ciphertext (like `secret_enc`), and the audit layer excludes a
+    column from its JSON snapshot ONLY when it is declared BLOB — a binary value in a
+    TEXT-declared column breaks the audit `json_object()` trigger. Rebuild the table so
+    `extra` is BLOB (audit-excluded) before audit triggers are (re)installed. One-time,
+    idempotent: skipped once `extra` is already BLOB."""
+    info = con.execute("PRAGMA table_info(portal_credentials)").fetchall()
+    if not info:
+        return                                  # fresh DB: SCHEMA already made it BLOB
+    extra = next((r for r in info if r[1] == "extra"), None)
+    if extra is None or (extra[2] or "").upper() == "BLOB":
+        return
+    # Drop the stale audit triggers (they embed the old column set) so install_audit
+    # rebuilds them against the new BLOB column; then rebuild the table in place.
+    for sfx in ("i", "u", "d"):
+        con.execute(f"DROP TRIGGER IF EXISTS aud_portal_credentials_{sfx}")
+    con.executescript("""
+        CREATE TABLE portal_credentials_new (
+            supplier TEXT, entity TEXT,
+            username TEXT, secret_enc BLOB, extra BLOB,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (supplier, entity));
+        INSERT INTO portal_credentials_new (supplier, entity, username, secret_enc, extra, updated_at)
+            SELECT supplier, entity, username, secret_enc, extra, updated_at FROM portal_credentials;
+        DROP TABLE portal_credentials;
+        ALTER TABLE portal_credentials_new RENAME TO portal_credentials;""")
+    con.commit()
+    log.info("_upgrade_extra_to_blob: migrated portal_credentials.extra TEXT->BLOB on %s", DB)
+
+
 def connect():
     con = sqlite3.connect(DB, timeout=30)
     con.row_factory = sqlite3.Row
@@ -74,6 +109,7 @@ def connect():
     audit.bind(con)   # audit triggers call ffs_actor(); register it every connect
     if DB == ":memory:" or DB not in _SCHEMA_READY:
         con.executescript(SCHEMA)
+        _upgrade_extra_to_blob(con)
         audit.install_audit(con, ["portal_configs", "portal_credentials"])
         if DB != ":memory:":
             _SCHEMA_READY.add(DB)
@@ -84,20 +120,29 @@ def connect():
 
 
 # ---------------------------------------------------------------- credential crypto
+# Credentials are sealed with ENVELOPE encryption (keyvault.seal/open): a random
+# per-secret DEK wrapped by a pluggable KEK, AES-256-GCM, AAD-bound to the row. Blobs
+# stored before this upgrade are LEGACY single-key Fernet tokens — _decrypt() detects
+# them by the absence of the envelope magic and reads them via _fernet(), so no stored
+# credential is lost. reencrypt_legacy() migrates them to the envelope on demand.
 def _fernet():
-    """Symmetric key derived from the app secret key, so credentials are encrypted at
-    rest without managing a separate key. Requires `cryptography`."""
+    """LEGACY reader: the old symmetric key derived from the app secret key. Kept ONLY
+    to decrypt credentials stored before the envelope upgrade. Requires `cryptography`."""
     from cryptography.fernet import Fernet
     import base64, hashlib, auth
     return Fernet(base64.urlsafe_b64encode(hashlib.sha256(auth.secret_key()).digest()))
 
-def _encrypt(text):
-    return _fernet().encrypt((text or "").encode("utf-8"))
+def _encrypt(text, aad=""):
+    return keyvault.seal(text or "", aad)
 
-def _decrypt(blob):
+def _decrypt(blob, aad=""):
     if blob is None:
         return ""
-    return _fernet().decrypt(bytes(blob)).decode("utf-8")
+    blob = bytes(blob)
+    if keyvault.is_envelope(blob):
+        return keyvault.open(blob, aad)
+    # LEGACY: pre-envelope Fernet token (not AAD-bound — aad is ignored, as it must be).
+    return _fernet().decrypt(blob).decode("utf-8")
 
 
 # ---------------------------------------------------------------- config & credentials
@@ -130,19 +175,27 @@ def list_configs():
         d["enabled"] = bool(d["enabled"])
     return rows
 
+def _aad(supplier, entity):
+    """Associated data binding a sealed blob to its (supplier, entity) row, so a blob
+    cannot be replayed into a different row."""
+    return f"{supplier.upper()}:{entity}"
+
 def set_credentials(supplier, entity, username, secret, extra=None):
-    """Store (encrypted) the login for an entity's account on a supplier portal."""
+    """Store (envelope-encrypted, AAD-bound) the login for an entity's account on a
+    supplier portal."""
+    aad = _aad(supplier, entity)
     con = connect()
     con.execute("""INSERT INTO portal_credentials (supplier, entity, username, secret_enc, extra, updated_at)
                    VALUES (?,?,?,?,?, CURRENT_TIMESTAMP)
                    ON CONFLICT(supplier, entity) DO UPDATE SET username=excluded.username,
                      secret_enc=excluded.secret_enc, extra=excluded.extra,
                      updated_at=CURRENT_TIMESTAMP""",
-                (supplier.upper(), entity, username, _encrypt(secret),
-                 _encrypt(json.dumps(extra)) if extra is not None else None))
+                (supplier.upper(), entity, username, _encrypt(secret, aad),
+                 _encrypt(json.dumps(extra), aad) if extra is not None else None))
     con.commit(); con.close()
 
 def get_credentials(supplier, entity):
+    aad = _aad(supplier, entity)
     con = connect()
     r = con.execute("SELECT * FROM portal_credentials WHERE supplier=? AND entity=?",
                     (supplier.upper(), entity)).fetchone()
@@ -150,9 +203,10 @@ def get_credentials(supplier, entity):
     if not r:
         return None
     out = {"supplier": r["supplier"], "entity": r["entity"], "username": r["username"],
-           "secret": _decrypt(r["secret_enc"]), "base_url": (get_config(supplier) or {}).get("base_url", "")}
+           "secret": _decrypt(r["secret_enc"], aad),
+           "base_url": (get_config(supplier) or {}).get("base_url", "")}
     if r["extra"]:
-        try: out["extra"] = json.loads(_decrypt(r["extra"]))
+        try: out["extra"] = json.loads(_decrypt(r["extra"], aad))
         except Exception: out["extra"] = None
     return out
 
@@ -161,6 +215,41 @@ def delete_credentials(supplier, entity):
     con.execute("DELETE FROM portal_credentials WHERE supplier=? AND entity=?",
                 (supplier.upper(), entity))
     con.commit(); con.close()
+
+def reencrypt_legacy():
+    """Migrate any LEGACY single-key Fernet credential blobs to the envelope (AAD-bound)
+    scheme. Reads each row that has a non-envelope secret_enc/extra, decrypts via the
+    legacy path, and re-stores via the envelope path. Idempotent (envelope rows are
+    skipped) and per-row fault-tolerant (logs and continues — one bad row never aborts
+    the migration). Reads stay read-only; this is the explicit admin migration path.
+    Returns (upgraded, total)."""
+    con = connect()
+    rows = con.execute("SELECT supplier, entity, secret_enc, extra FROM portal_credentials").fetchall()
+    con.close()
+    upgraded = 0
+    for r in rows:
+        sec, ext = r["secret_enc"], r["extra"]
+        sec_legacy = sec is not None and not keyvault.is_envelope(bytes(sec))
+        ext_legacy = ext is not None and not keyvault.is_envelope(bytes(ext))
+        if not (sec_legacy or ext_legacy):
+            continue
+        try:
+            aad = _aad(r["supplier"], r["entity"])
+            # decrypt via the appropriate path (legacy or already-envelope), then re-seal
+            secret = _decrypt(sec, aad)
+            extra_blob = None
+            if ext is not None:
+                extra_blob = _encrypt(_decrypt(ext, aad), aad)
+            uc = connect()
+            uc.execute("""UPDATE portal_credentials SET secret_enc=?, extra=?,
+                          updated_at=CURRENT_TIMESTAMP WHERE supplier=? AND entity=?""",
+                       (_encrypt(secret, aad), extra_blob, r["supplier"], r["entity"]))
+            uc.commit(); uc.close()
+            upgraded += 1
+        except Exception as e:
+            log.warning("reencrypt_legacy: skipped %s/%s: %s: %s",
+                        r["supplier"], r["entity"], type(e).__name__, e)
+    return upgraded, len(rows)
 
 def list_portals():
     """For the UI: each configured portal + whether credentials exist (NO secrets) +
