@@ -255,12 +255,23 @@ def register_statement(supplier, statement_ref, period, statement_date, lines,
         net, vat = float(net or 0), float(vat or 0)
         con.execute("""INSERT OR REPLACE INTO statement_invoices VALUES (?,?,?,?,?,?,?,?,?)""",
                     (supplier, statement_ref, inv_no, inv_date, ctry, ccy, net, vat, net + vat))
-        if vat > 0 and not con.execute("""SELECT 1 FROM supplier_invoices WHERE supplier=?
-                AND invoice_no=?""", (supplier, inv_no)).fetchone():
-            con.execute("""INSERT INTO supplier_invoices VALUES (?,?,?,?,?,?,?,?)""",
-                        (supplier, ctry, inv_no, inv_date, period, ccy, net + vat,
-                         f"auto-synced from statement {statement_ref}"))
-            synced += 1
+        if vat > 0:
+            note = f"auto-synced from statement {statement_ref}"
+            existing = con.execute("""SELECT notes FROM supplier_invoices WHERE supplier=?
+                    AND invoice_no=?""", (supplier, inv_no)).fetchone()
+            if existing is None:
+                con.execute("""INSERT INTO supplier_invoices VALUES (?,?,?,?,?,?,?,?)""",
+                            (supplier, ctry, inv_no, inv_date, period, ccy, net + vat, note))
+                synced += 1
+            elif (existing["notes"] or "").startswith("auto-synced from statement"):
+                # Previously auto-synced row: re-sync it so a CORRECTED statement line
+                # is reflected (otherwise gross_total drifts from the statement). A
+                # manually-curated row (any other note) is left untouched.
+                con.execute("""UPDATE supplier_invoices SET country=?, invoice_date=?,
+                        period=?, currency=?, gross_total=?, notes=?
+                        WHERE supplier=? AND invoice_no=?""",
+                            (ctry, inv_date, period, ccy, net + vat, note, supplier, inv_no))
+                synced += 1
     con.commit(); con.close()
     return synced
 
