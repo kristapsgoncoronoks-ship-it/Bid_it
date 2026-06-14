@@ -4504,6 +4504,19 @@ def customers():
                 con.execute("UPDATE customers SET nace_code=? WHERE code=?",
                             (request.form.get("nace_code", "").strip(), code)); con.commit(); con.close()
                 msg = f"NACE business activity code saved for {esc(code)}."
+            elif act == "set_signatory":
+                # authorised signatory for generated contracts / POAs — written via the
+                # shared update_customer allowlist (rejects empties), so only pass fields
+                # the admin actually filled in.
+                sig = {k: request.form.get(k, "").strip()
+                       for k in ("signatory_name", "signatory_title")
+                       if request.form.get(k, "").strip()}
+                if not sig:
+                    raise ValueError("enter a signatory name and/or title")
+                ok, m = CD.update_customer(code, **sig)
+                if not ok:
+                    raise ValueError(m)
+                msg = f"Authorised signatory saved for {esc(code)}."
             elif act == "add_template":
                 f = request.files.get("file")
                 if not f or not f.filename:
@@ -4606,6 +4619,8 @@ def customers():
         subchk = "".join(f'<div class="row"><span class="{"ok" if ok else "bad"}">'
                          f'{"✓" if ok else "✗"}</span> {esc(lbl)}</div>' for _k, lbl, _sc, ok in sub_items)
         nace_val = (c["nace_code"] if "nace_code" in c.keys() else "") or ""
+        sig_name = (c["signatory_name"] if "signatory_name" in c.keys() else "") or ""
+        sig_title = (c["signatory_title"] if "signatory_title" in c.keys() else "") or ""
         def fld(v):
             v2 = esc(str(v)) if v is not None else ""
             return f'<span class="bad">{v2}</span>' if v and "INPUT" in str(v) else v2
@@ -4637,6 +4652,15 @@ def customers():
                   + f'<label>NACE business activity<input name="nace_code" value="{esc(nace_val)}" '
                     'style="width:140px" placeholder="e.g. 49.41"></label>'
                   + '<button>Save NACE</button></form>')
+        # authorised signatory for generated contracts / powers of attorney (merge-only
+        # CRM data; written through the shared update_customer allowlist)
+        sig_f = ('<form method="post" class="f" style="margin-top:6px">' + _csrf_input() + hid
+                 + '<input type="hidden" name="__act" value="set_signatory">'
+                 + f'<label>signatory name<input name="signatory_name" value="{esc(sig_name)}" '
+                   'style="width:180px" placeholder="e.g. Jonas Kazlauskas"></label>'
+                 + f'<label>signatory title<input name="signatory_title" value="{esc(sig_title)}" '
+                   'style="width:160px" placeholder="e.g. Managing Director"></label>'
+                 + '<button>Save signatory</button></form>')
         upload_f = ('<form method="post" enctype="multipart/form-data" class="f" style="margin-top:8px">'
                     + _csrf_input() + hid + '<input type="hidden" name="__act" value="upload_doc">'
                     + f'<label>document<select name="kind">{opt("trade_registry")}</select></label>'
@@ -4724,7 +4748,7 @@ def customers():
             + '<div class="note" style="margin-top:0">Customer-level requirements the system '
               'verifies before any claim can be submitted (power of attorney is checked per refund '
               'country below). Edit the rule set in the card at the top of this page.</div>'
-            + (subchk or '<p class="note">no active customer-level rules</p>') + nace_f
+            + (subchk or '<p class="note">no active customer-level rules</p>') + nace_f + sig_f
             + '<h2 style="margin-top:12px">Refund countries (activate separately)</h2>'
             + '<div class="note" style="margin-top:0">Request the country documents (power of '
               'attorney), receive them, then activate that country. Claims can only be submitted '

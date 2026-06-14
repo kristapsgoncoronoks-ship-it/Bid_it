@@ -153,6 +153,10 @@ def connect():
             # documents can expire (power of attorney, VAT certificate) — an
             # expired document no longer satisfies the checklist
             "ALTER TABLE customer_documents ADD COLUMN valid_until TEXT",
+            # authorised signatory for generated contracts / powers of attorney
+            # (no signatory ID stored by owner decision; merge-only CRM data)
+            "ALTER TABLE customers ADD COLUMN signatory_name TEXT",
+            "ALTER TABLE customers ADD COLUMN signatory_title TEXT",
         ])
         # seed the adjustable submission checklist once (empty table -> defaults)
         if not con.execute("SELECT 1 FROM checklist_rules LIMIT 1").fetchone():
@@ -194,7 +198,8 @@ def add_customer(code, company_name, country="", reg_number="", vat_number="",
 # outside this allowlist is silently ignored — never let a caller set status/fee/route
 # or any audited workflow column through the generic editor.
 EDITABLE_FIELDS = ("company_name", "reg_number", "vat_number", "legal_address",
-                   "home_portal", "phone", "email", "nace_code")
+                   "home_portal", "phone", "email", "nace_code",
+                   "signatory_name", "signatory_title")
 
 def update_customer(code, **fields):
     """Update an allowlist of editable columns on a customer. Returns (ok, msg).
@@ -376,6 +381,20 @@ def checklist_ready(con, code, country=None):
 # .docx (best-effort text replacement inside the Word XML).
 import re as _re
 
+# Refund-country -> national tax authority name, for {{tax_authority}} in generated
+# powers of attorney / cover letters. Covers the system's refund countries; an
+# unknown country yields "" (the merge never raw-substitutes a guess).
+TAX_AUTHORITY = {
+    "Belgium": "Federale Overheidsdienst Financiën",
+    "France":  "Direction générale des Finances publiques",
+    "Germany": "Bundeszentralamt für Steuern",
+    "Spain":   "Agencia Estatal de Administración Tributaria",
+    "Denmark": "Skattestyrelsen",
+    "Poland":  "Krajowa Administracja Skarbowa",
+    "Austria": "Bundesministerium für Finanzen",
+    "Sweden":  "Skatteverket",
+}
+
 def merge_fields(con, code, country=None):
     """The data available to a template for one customer (+ refund country). Returns a
     {placeholder: value} dict — every value a string. Use as {{company_name}} etc."""
@@ -385,20 +404,38 @@ def merge_fields(con, code, country=None):
     if c:
         for k in c.keys():
             f[k] = c[k]
+    # prefer the dedicated refund-payout account; fall back to any account on file
     bank = con.execute("""SELECT iban, swift, bank FROM customer_bank_accounts
-                          WHERE customer=? ORDER BY iban LIMIT 1""", (code,)).fetchone()
+                          WHERE customer=?
+                          ORDER BY (purpose='refund payout') DESC, iban LIMIT 1""",
+                       (code,)).fetchone()
     f["bank_iban"] = bank["iban"] if bank else ""
     f["bank_swift"] = bank["swift"] if bank else ""
     f["bank_name"] = bank["bank"] if bank else ""
     f["refund_country"] = country or ""
-    f["today"] = datetime.date.today().isoformat()
+    f["tax_authority"] = TAX_AUTHORITY.get(country or "", "")
+    # service fee for this (customer, refund country): per-country override else default
+    fee_pct, fee_min = fee_for(code, country)
+    f["fee_pct"] = fee_pct
+    f["fee_min"] = fee_min
+    f["fee_pct_fmt"] = f"{fee_pct:g}%"
+    # supplier account numbers held by this customer, one "<supplier>: <account_no>" / line
+    sa = con.execute("""SELECT supplier, account_no FROM customer_supplier_accounts
+                        WHERE customer=? ORDER BY supplier""", (code,)).fetchall()
+    f["supplier_accounts"] = "\n".join(f"{r['supplier']}: {r['account_no']}" for r in sa)
+    today = datetime.date.today()
+    f["today"] = today.isoformat()
+    f["today_fmt"] = today.strftime("%-d %B %Y") if os.name != "nt" else today.strftime("%#d %B %Y")
     return {k: ("" if v is None else str(v)) for k, v in f.items()}
 
 def template_fields():
-    """The placeholder names a template may use (for the on-screen hint)."""
+    """The placeholder names a template may use (for the on-screen hint). Must match the
+    keys merge_fields() actually emits (a test guards against drift)."""
     base = ["company_name", "code", "reg_number", "vat_number", "legal_address", "country",
-            "nace_code", "home_portal", "phone", "email", "status",
-            "bank_iban", "bank_swift", "bank_name", "refund_country", "today"]
+            "nace_code", "home_portal", "phone", "email", "status", "notes", "payout_route",
+            "signatory_name", "signatory_title",
+            "bank_iban", "bank_swift", "bank_name", "refund_country", "tax_authority",
+            "fee_pct", "fee_min", "fee_pct_fmt", "supplier_accounts", "today", "today_fmt"]
     return base
 
 def _fill_text(raw, fields):

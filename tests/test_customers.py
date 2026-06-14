@@ -321,6 +321,162 @@ def test_fee_report_route(client):
     assert r.status_code in (200, 404)
 
 
+# ---------------------------------------------------------------- merge_fields / template_fields
+
+def test_merge_fields_emits_new_prefill_keys(cd):
+    """merge_fields surfaces signatory, fee, tax-authority, formatted-date and supplier
+    accounts for a seeded customer; a per-country fee override beats the default."""
+    cd.add_customer("ACME", "Acme SIA", "LV")
+    con = cd.connect()
+    con.execute("UPDATE customers SET signatory_name=?, signatory_title=? WHERE code='ACME'",
+                ("Jonas Kazlauskas", "Managing Director"))
+    cd.set_fee(con, "ACME", 15, 50)                       # default fee
+    cd.set_country_fee(con, "ACME", "Germany", 12.5, 200) # Germany override
+    con.execute("INSERT INTO customer_supplier_accounts (customer, supplier, account_no) "
+                "VALUES ('ACME','BP','BP-001')")
+    con.execute("INSERT INTO customer_supplier_accounts (customer, supplier, account_no) "
+                "VALUES ('ACME','DKV','DKV-9')")
+    con.commit()
+
+    f = cd.merge_fields(con, "ACME", "Germany")
+    con.close()
+    assert f["signatory_name"] == "Jonas Kazlauskas"
+    assert f["signatory_title"] == "Managing Director"
+    # per-country override (12.5 / 200) beats the default (15 / 50)
+    assert f["fee_pct"] == "12.5" and f["fee_min"] == "200.0"
+    assert f["fee_pct_fmt"] == "12.5%"
+    assert f["tax_authority"] == "Bundeszentralamt für Steuern"
+    assert f["refund_country"] == "Germany"
+    # supplier accounts: one "<supplier>: <account_no>" per line, ordered by supplier
+    assert f["supplier_accounts"] == "BP: BP-001\nDKV: DKV-9"
+    # today_fmt is a human date alongside the ISO today (both present, distinct)
+    import datetime
+    assert f["today"] == datetime.date.today().isoformat()
+    assert f["today_fmt"] and f["today_fmt"] != f["today"]
+    # every value is a string (templates substitute text)
+    assert all(isinstance(v, str) for v in f.values())
+
+
+def test_merge_fields_unknown_country_and_no_data(cd):
+    """No fee, no signatory, no supplier accounts, unknown country -> empty strings,
+    never a None or a raw-substituted guess."""
+    cd.add_customer("BARE", "Bare OU", "EE")
+    con = cd.connect()
+    f = cd.merge_fields(con, "BARE", "Narnia")
+    con.close()
+    assert f["tax_authority"] == ""          # unknown country -> no guess
+    assert f["signatory_name"] == "" and f["signatory_title"] == ""
+    assert f["supplier_accounts"] == ""
+    assert f["fee_pct"] == "0.0" and f["fee_pct_fmt"] == "0%"
+    assert f["bank_iban"] == ""              # no account on file
+
+
+def test_merge_fields_prefers_refund_payout_account(cd):
+    """The refund-payout account wins over an alphabetically-earlier non-payout IBAN."""
+    cd.add_customer("ACME", "Acme SIA", "LV")
+    con = cd.connect()
+    # AAAA... sorts first but is an operating account; the payout account is BBBB...
+    con.execute("INSERT INTO customer_bank_accounts (customer,iban,bank,currency,purpose) "
+                "VALUES ('ACME','AAAA0000','OpsBank','EUR','operating')")
+    con.execute("INSERT INTO customer_bank_accounts (customer,iban,bank,currency,purpose) "
+                "VALUES ('ACME','BBBB1111','PayoutBank','EUR','refund payout')")
+    con.commit()
+    f = cd.merge_fields(con, "ACME", "Germany")
+    con.close()
+    assert f["bank_iban"] == "BBBB1111" and f["bank_name"] == "PayoutBank"
+
+
+def test_single_account_is_selected_regardless_of_purpose(cd):
+    """A customer with exactly one account gets it merged even if it is not tagged payout
+    (the corrected ORDER BY must not break single-account text merges)."""
+    cd.add_customer("ACME", "Acme SIA", "LV")
+    con = cd.connect()
+    con.execute("INSERT INTO customer_bank_accounts (customer,iban,bank,currency,purpose) "
+                "VALUES ('ACME','ONLY0001','SoleBank','EUR','operating')")
+    con.commit()
+    f = cd.merge_fields(con, "ACME", "Germany")
+    con.close()
+    assert f["bank_iban"] == "ONLY0001"
+
+
+def test_template_fields_matches_merge_fields_exactly(cd):
+    """template_fields() (the on-screen hint) must advertise exactly the keys
+    merge_fields() emits — guards against future drift."""
+    cd.add_customer("ACME", "Acme SIA", "LV")
+    con = cd.connect()
+    emitted = set(cd.merge_fields(con, "ACME", "Germany").keys())
+    con.close()
+    assert set(cd.template_fields()) == emitted
+
+
+# ---------------------------------------------------------------- signatory web edit
+
+def _customers_csrf(client):
+    import re
+    h = client.get("/customers").get_data(as_text=True)
+    return re.search(r'name="_csrf" value="([^"]+)"', h).group(1)
+
+
+def test_set_signatory_persists_and_is_audited(client):
+    """The admin-only /customers set_signatory action writes via update_customer and the
+    change is audit-logged. Uses a throwaway TEST-* customer in the real customers.db."""
+    import uuid
+    import customer_master as CD
+    import audit
+    code = "TEST" + uuid.uuid4().hex[:8].upper()
+    CD.add_customer(code, f"Sig OU {code}", "LT")
+    try:
+        tok = _customers_csrf(client)
+        r = client.post("/customers", data={
+            "_csrf": tok, "__act": "set_signatory", "code": code,
+            "signatory_name": "Rasa Petraitiene", "signatory_title": "Board Member"})
+        assert r.status_code in (200, 302)
+        con = CD.connect()
+        try:
+            row = con.execute("SELECT signatory_name, signatory_title FROM customers "
+                              "WHERE code=?", (code,)).fetchone()
+            assert row["signatory_name"] == "Rasa Petraitiene"
+            assert row["signatory_title"] == "Board Member"
+            hist = audit.history(con, table="customers", key_like=code)
+        finally:
+            con.close()
+        actors = {r["changed_by"] for r in hist if r["action"] == "UPDATE"}
+        assert actors and "system" not in actors
+    finally:
+        con = CD.connect()
+        try:
+            con.execute("DELETE FROM customers WHERE code=?", (code,))
+            con.execute("DELETE FROM audit_log WHERE tbl='customers' AND rowkey=?", (code,))
+            con.commit()
+        finally:
+            con.close()
+
+
+def test_set_signatory_is_admin_only(admin_session):
+    """A non-admin (processor) cannot reach /customers at all (ADMIN_ONLY), so cannot
+    set a signatory."""
+    import app as A
+    import auth
+    pw = "Proc!Pw123"
+    try:
+        auth.add_user("pytest_proc", pw, role="processor")
+    except Exception:
+        pass
+    c = A.app.test_client()
+    assert c.post("/login", data={"username": "pytest_proc", "password": pw}).status_code == 302
+    # establish a CSRF token in the session so the POST passes CSRF and lands squarely on
+    # the ADMIN_ONLY guard (proving auth, not CSRF, is what blocks it).
+    c.get("/")
+    with c.session_transaction() as sess:
+        tok = sess.get("_csrf") or "seed-token"
+        sess["_csrf"] = tok
+    r = c.post("/customers", data={"_csrf": tok, "__act": "set_signatory",
+                                   "code": "ANY", "signatory_name": "X"})
+    assert r.status_code == 403               # ADMIN_ONLY: never executed
+    # and the GET page is equally barred
+    assert c.get("/customers").status_code == 403
+
+
 def test_set_status_blocks_pending_customer(tmp_path, monkeypatch):
     import customer_master
     import vat_refund
