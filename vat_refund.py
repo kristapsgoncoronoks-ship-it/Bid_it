@@ -824,6 +824,16 @@ def record_payment(con, ent, ctry, period, amount, date=None):
     recompute (in set_status, the `new == "paid"` branch) recomputes
     fee_eur = compute_fee(paid_amount, frozen fee_pct, frozen fee_min). The frozen
     rate/minimum are NOT re-derived — only the fee BASE changes from claimed→paid.
+
+    ATOMICITY (M5a): the paid_amount stamp and the paid-transition (status='paid',
+    paid_date, fee recompute) commit as ONE transaction. The UPDATE below is left
+    UNcommitted; set_status reads it on the SAME connection and commits the stamp +
+    the recompute together (the deferred-transaction `connect()` is NOT autocommit, so
+    the pending UPDATE does not leak out). On ANY failure set_status rolls back and
+    discards the pending stamp, so a crash can never leave paid_amount stamped while the
+    status/fee lag. The benign residual: a crash between set_status's commit and the
+    status_code='3A' display write below leaves a CONSISTENT money state (paid + fee
+    recomputed) with only the 3A display code lagging — recoverable by re-running.
     Returns (ok, message)."""
     try:
         amt = money.f2(amount)
@@ -842,12 +852,18 @@ def record_payment(con, ent, ctry, period, amount, date=None):
     con.execute("""UPDATE vat_applications SET paid_amount=?, updated=CURRENT_TIMESTAMP
                    WHERE entity=? AND refund_country=? AND ref_period=?""",
                 (amt, ent, ctry, period))
-    con.commit()
+    # NO intermediate commit: the stamp stays pending so it commits ATOMICALLY with the
+    # paid-recompute inside set_status (its con.commit()), and set_status's rollback
+    # discards this UPDATE on any failure (M5a).
     # Drive to 3A 'Money received' — ENGINE_OF['3A']='paid', so set_status fires the
     # canonical paid recompute on the frozen rate. REUSE that path; never re-derive
     # the fee formula here.
     ok, msg = set_status_code(con, ent, ctry, period, "3A")
     if not ok:
+        # Belt-and-suspenders: discard any still-pending paid_amount stamp if an early
+        # return from set_status_code did not itself roll back (for code '3A' on a locked
+        # claim these guards don't trigger, but never leave a half-write).
+        con.rollback()
         return ok, msg
     # Stamp the explicit refund date AFTER the transition (set_status stamps paid_date
     # = CURRENT_DATE; an explicitly supplied date overrides it).

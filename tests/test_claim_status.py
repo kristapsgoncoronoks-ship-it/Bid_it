@@ -339,6 +339,59 @@ def test_record_payment_validates_and_gates(tmp_path, monkeypatch):
     con.close()
 
 
+def test_record_payment_atomic_rolls_back_paid_amount_on_failure(tmp_path, monkeypatch):
+    """M5a: if the paid-transition FAILS after the paid_amount stamp, the stamp must be
+    ROLLED BACK — never half-written. We monkeypatch set_status_code to raise after the
+    record_payment UPDATE has run (but is still uncommitted, pending in the same txn);
+    set_status's `except: con.rollback(); raise` would normally clear it, but here we
+    bypass set_status entirely, so record_payment must surface the error with NO
+    committed paid_amount."""
+    cm, vr, con = _submit_claim_pct8(tmp_path, monkeypatch)
+    pre = con.execute("""SELECT paid_amount, status, fee_eur FROM vat_applications
+                         WHERE ref_period='2026-Q1'""").fetchone()
+    assert pre["paid_amount"] is None and pre["status"] == "submitted"
+
+    def boom(*a, **k):
+        raise RuntimeError("transition blew up after the paid_amount stamp")
+    monkeypatch.setattr(vr, "set_status_code", boom)
+
+    with pytest.raises(RuntimeError):
+        vr.record_payment(con, "Acme SIA", "Belgium", "2026-Q1", 600, "2026-07-15")
+
+    # The pending UPDATE was discarded by the exception unwinding (rollback): read it on
+    # a FRESH connection so nothing is masked by the dirty in-transaction view.
+    con.rollback()
+    con.close()
+    con2 = vr.connect()
+    post = con2.execute("""SELECT paid_amount, status, fee_eur FROM vat_applications
+                          WHERE ref_period='2026-Q1'""").fetchone()
+    assert post["paid_amount"] is None          # NOT half-written
+    assert post["status"] == "submitted"        # still pre-payment
+    assert float(post["fee_eur"]) == 80.0       # fee untouched (claimed basis)
+    con2.close()
+
+
+def test_record_payment_happy_path_atomic_state(tmp_path, monkeypatch):
+    """M5a happy path unchanged: a recorded payment commits paid_amount + status='paid'
+    + status_code='3A' + the paid-base fee + fee_billed_date TOGETHER. Verified on a
+    FRESH connection so we observe only COMMITTED state (atomic, not a dirty read)."""
+    import customer_master as CM
+    cm, vr, con = _submit_claim_pct8(tmp_path, monkeypatch)
+    ok, msg = vr.record_payment(con, "Acme SIA", "Belgium", "2026-Q1", 600, "2026-07-15")
+    assert ok, msg
+    con.close()
+    con2 = vr.connect()
+    row = con2.execute("""SELECT paid_amount, paid_date, status, status_code, fee_eur,
+                          fee_billed_date, fee_pct, fee_min FROM vat_applications
+                          WHERE ref_period='2026-Q1'""").fetchone()
+    con2.close()
+    assert float(row["paid_amount"]) == 600.0
+    assert row["status"] == "paid" and row["status_code"] == "3A"
+    assert row["paid_date"] == "2026-07-15" and row["fee_billed_date"] is not None
+    expect, _ = CM.compute_fee(600, row["fee_pct"], row["fee_min"])
+    assert float(row["fee_eur"]) == float(expect) == 48.0     # paid-base fee, frozen rate
+
+
 def test_raw_rejected_keeps_locks_only_withdraw_releases(tmp_path, monkeypatch):
     """R4: the RAW engine status 'rejected' (set_status, not the 3B code path) must
     KEEP the invoice locks — exactly like 3B. Freeing them on rejection would let the
