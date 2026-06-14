@@ -61,6 +61,17 @@ RETRY_AFTER_TOKENS = int(os.environ.get("INTAKE_RETRY_AFTER_TOKENS", 4 * 3600))
 # manually. Default 6 (≈24h of trying); override with INTAKE_MAX_TOKEN_RETRIES.
 MAX_TOKEN_RETRIES = int(os.environ.get("INTAKE_MAX_TOKEN_RETRIES", 6))
 
+# ---- per-supplier rate-limit / concurrency / backoff / circuit-breaker --------
+# Phase-0 safety substrate for the automated-capture flagship. OPT-IN by design: a
+# supplier with NO row in supplier_rate_limits is UNGOVERNED and behaves exactly as
+# today (unlimited) — the existing extract/register/close paths are untouched unless
+# a limit is explicitly configured. When a limit row OMITS a field, these defaults
+# apply so a partial config is still sane.
+DEFAULT_MAX_CONCURRENT = 2          # in-flight (status='processing') jobs per supplier
+DEFAULT_MIN_INTERVAL_S = 5.0        # minimum spacing between two claims for a supplier
+DEFAULT_BREAKER_THRESHOLD = 5       # consecutive failures that trip the breaker
+DEFAULT_BREAKER_COOLDOWN_S = 300.0  # how long the breaker stays open once tripped
+
 _SCHEMA_READY = set()
 
 SCHEMA = """
@@ -114,6 +125,16 @@ def connect():
         # reliability telemetry: a sampled DLQ-size history for growth-rate alerting
         # (queue_health / dlq_growth). Self-contained in intake.db; pruned to ~7 days.
         "CREATE TABLE IF NOT EXISTS intake_health_samples (ts TEXT, dlq INTEGER)",
+        # per-supplier rate-limit / concurrency / breaker CONFIG (opt-in). A row here
+        # = this supplier (= a job's `backend`) is GOVERNED; absence = unlimited. The
+        # later scraper/fetch path consumes this; nothing today writes rows by default.
+        "CREATE TABLE IF NOT EXISTS supplier_rate_limits ("
+        " supplier TEXT PRIMARY KEY, max_concurrent INTEGER, min_interval_s REAL,"
+        " breaker_threshold INTEGER, breaker_cooldown_s REAL, enabled INTEGER DEFAULT 1)",
+        # per-supplier limiter STATE (live counters the eligibility math reads/writes).
+        "CREATE TABLE IF NOT EXISTS supplier_rate_state ("
+        " supplier TEXT PRIMARY KEY, last_start_at TEXT, consec_failures INTEGER DEFAULT 0,"
+        " breaker_open_until TEXT)",
     ]
     if DB != ":memory:" and DB not in _SCHEMA_READY:
         con.executescript(SCHEMA)
@@ -285,17 +306,196 @@ def enqueue_close(period, user="system"):
     return jid, "queued"
 
 
+# ---------------------------------------------------------- rate-limit config API
+def _as_int(v, default):
+    try:
+        return int(v) if v is not None else default
+    except (TypeError, ValueError):
+        return default
+
+def _as_float(v, default):
+    try:
+        return float(v) if v is not None else default
+    except (TypeError, ValueError):
+        return default
+
+def set_supplier_limit(supplier, max_concurrent=None, min_interval_s=None,
+                       breaker_threshold=None, breaker_cooldown_s=None, enabled=True):
+    """Upsert a per-supplier limit row (= GOVERN this supplier). A None field falls
+    back to its DEFAULT_* constant so a partial config is still sane. `supplier` is the
+    job's `backend` value the limiter keys on. Returns the resolved row as a dict."""
+    supplier = (supplier or "").strip()
+    if not supplier:
+        raise ValueError("supplier required")
+    mc = _as_int(max_concurrent, DEFAULT_MAX_CONCURRENT)
+    mi = _as_float(min_interval_s, DEFAULT_MIN_INTERVAL_S)
+    bt = _as_int(breaker_threshold, DEFAULT_BREAKER_THRESHOLD)
+    bc = _as_float(breaker_cooldown_s, DEFAULT_BREAKER_COOLDOWN_S)
+    en = 1 if enabled else 0
+    con = connect()
+    try:
+        con.execute(
+            """INSERT INTO supplier_rate_limits
+               (supplier, max_concurrent, min_interval_s, breaker_threshold,
+                breaker_cooldown_s, enabled) VALUES (?,?,?,?,?,?)
+               ON CONFLICT(supplier) DO UPDATE SET
+                 max_concurrent=excluded.max_concurrent,
+                 min_interval_s=excluded.min_interval_s,
+                 breaker_threshold=excluded.breaker_threshold,
+                 breaker_cooldown_s=excluded.breaker_cooldown_s,
+                 enabled=excluded.enabled""",
+            (supplier, mc, mi, bt, bc, en))
+        # ensure a state row exists so the eligibility join is straightforward
+        con.execute("INSERT OR IGNORE INTO supplier_rate_state (supplier) VALUES (?)",
+                    (supplier,))
+        con.commit()
+    finally:
+        con.close()
+    return {"supplier": supplier, "max_concurrent": mc, "min_interval_s": mi,
+            "breaker_threshold": bt, "breaker_cooldown_s": bc, "enabled": en}
+
+def get_supplier_limit(supplier):
+    """Return the limit row for `supplier` as a dict, or None if ungoverned."""
+    supplier = (supplier or "").strip()
+    if not supplier:
+        return None
+    con = connect()
+    try:
+        r = con.execute("SELECT * FROM supplier_rate_limits WHERE supplier=?",
+                        (supplier,)).fetchone()
+    finally:
+        con.close()
+    return dict(r) if r else None
+
+def clear_supplier_limit(supplier):
+    """Delete the limit row (back to UNLIMITED). The state row is also dropped so a
+    later re-govern starts clean. Returns True if a row was removed."""
+    supplier = (supplier or "").strip()
+    if not supplier:
+        return False
+    con = connect()
+    try:
+        cur = con.execute("DELETE FROM supplier_rate_limits WHERE supplier=?", (supplier,))
+        con.execute("DELETE FROM supplier_rate_state WHERE supplier=?", (supplier,))
+        con.commit()
+        return (cur.rowcount or 0) > 0
+    finally:
+        con.close()
+
+def list_supplier_limits():
+    """All governed suppliers joined with their live state (for a future admin UI).
+    Returns a list of dicts ordered by supplier."""
+    con = connect()
+    try:
+        rows = con.execute(
+            """SELECT l.supplier, l.max_concurrent, l.min_interval_s,
+                      l.breaker_threshold, l.breaker_cooldown_s, l.enabled,
+                      s.last_start_at, s.consec_failures, s.breaker_open_until
+                 FROM supplier_rate_limits l
+                 LEFT JOIN supplier_rate_state s ON s.supplier=l.supplier
+                 ORDER BY l.supplier""").fetchall()
+    finally:
+        con.close()
+    return [dict(r) for r in rows]
+
+
+# ------------------------------------------------- eligibility (blocked suppliers)
+def _blocked_suppliers(con, now):
+    """Return the set of GOVERNED suppliers currently BLOCKED from claiming a job.
+
+    A governed supplier (an ENABLED supplier_rate_limits row) is blocked if ANY of:
+      • breaker open:  breaker_open_until > now;
+      • concurrency:   in-flight (status='processing') count for that backend >= max_concurrent;
+      • min-interval:  last_start_at within min_interval_s of now.
+
+    Only governed suppliers can ever be in this set, so an ungoverned job is NEVER
+    affected. Computed inside the caller's BEGIN IMMEDIATE so it is consistent with the
+    claim SELECT. NEVER raises: any failure degrades to "no blocking" (treat all as
+    unlimited) rather than wedging the queue — a limiter fault must not stop intake."""
+    try:
+        limits = con.execute(
+            "SELECT * FROM supplier_rate_limits WHERE enabled=1").fetchall()
+        if not limits:
+            return set()
+        # in-flight processing count per backend (one scan, only governed keys matter)
+        inflight = {}
+        for r in con.execute(
+                "SELECT backend, COUNT(*) n FROM intake_jobs "
+                "WHERE status='processing' AND backend IS NOT NULL "
+                "GROUP BY backend").fetchall():
+            inflight[r["backend"]] = r["n"]
+        state = {}
+        for r in con.execute("SELECT * FROM supplier_rate_state").fetchall():
+            state[r["supplier"]] = r
+        now_epoch = time.time()
+        blocked = set()
+        for lim in limits:
+            sup = lim["supplier"]
+            st = state.get(sup)
+            # breaker open?
+            if st is not None and st["breaker_open_until"] and st["breaker_open_until"] > now:
+                blocked.add(sup); continue
+            # concurrency cap?
+            mc = _as_int(lim["max_concurrent"], DEFAULT_MAX_CONCURRENT)
+            if inflight.get(sup, 0) >= mc:
+                blocked.add(sup); continue
+            # min-interval spacing?
+            mi = _as_float(lim["min_interval_s"], DEFAULT_MIN_INTERVAL_S)
+            if st is not None and st["last_start_at"]:
+                last = _parse_ts(st["last_start_at"])
+                if last is not None:
+                    elapsed = now_epoch - last.replace(
+                        tzinfo=datetime.timezone.utc).timestamp()
+                    if elapsed < mi:
+                        blocked.add(sup); continue
+        return blocked
+    except Exception as e:
+        log.warning("_blocked_suppliers failed (degrading to no blocking): %s", e)
+        return set()
+
+
+def _is_governed(con, supplier):
+    """True if `supplier` has an ENABLED limit row (so its claim should stamp state)."""
+    if not supplier:
+        return False
+    try:
+        r = con.execute(
+            "SELECT 1 FROM supplier_rate_limits WHERE supplier=? AND enabled=1",
+            (supplier,)).fetchone()
+        return r is not None
+    except Exception as e:
+        log.warning("_is_governed(%s) failed: %s", supplier, e)
+        return False
+
+
 # ---------------------------------------------------------------- claim + process
 def _claim(con):
     """Atomically take the next eligible job (oldest ready-to-run, or a stale
     lease to reclaim). BEGIN IMMEDIATE serialises workers so a job is claimed
-    once. Returns the pre-update row or None."""
+    once. Returns the pre-update row or None.
+
+    Per-supplier rate limiting (OPT-IN): governed suppliers that are currently blocked
+    (breaker open / concurrency cap / min-interval) are EXCLUDED from the claim so the
+    next eligible UNblocked job surfaces — ungoverned suppliers are never in the blocked
+    set, so they are untouched. When a governed supplier's job is claimed its
+    last_start_at is stamped in the same transaction so the spacing math stays live."""
     now = _now()
     con.execute("BEGIN IMMEDIATE")
-    row = con.execute("""SELECT * FROM intake_jobs WHERE
+    # blocked-supplier set is read INSIDE the transaction so it is consistent with the
+    # claim SELECT; it can only ever contain GOVERNED suppliers (opt-in).
+    blocked = _blocked_suppliers(con, now)
+    if blocked:
+        ph = ",".join("?" * len(blocked))
+        extra = f" AND (backend IS NULL OR backend NOT IN ({ph}))"
+        params = (now, now, *blocked)
+    else:
+        extra = ""
+        params = (now, now)
+    row = con.execute(f"""SELECT * FROM intake_jobs WHERE (
           (status IN ('queued','waiting') AND (next_attempt_at IS NULL OR next_attempt_at<=?))
        OR (status='processing' AND lease_until IS NOT NULL AND lease_until<=?)
-        ORDER BY id LIMIT 1""", (now, now)).fetchone()
+        ){extra}
+        ORDER BY id LIMIT 1""", params).fetchone()
     if not row:
         con.execute("COMMIT")
         return None
@@ -303,8 +503,96 @@ def _claim(con):
                    lease_until=?, started_at=COALESCE(started_at,?), error=NULL
                    WHERE id=?""",
                 (_at(time.time() + LEASE_SECONDS), now, row["id"]))
+    # stamp the claim time for a governed supplier so min-interval/concurrency math is
+    # live; ungoverned suppliers carry no state row and are untouched.
+    if _is_governed(con, row["backend"]):
+        con.execute(
+            "INSERT INTO supplier_rate_state (supplier, last_start_at) VALUES (?, ?) "
+            "ON CONFLICT(supplier) DO UPDATE SET last_start_at=excluded.last_start_at",
+            (row["backend"], now))
     con.execute("COMMIT")
     return row
+
+
+# ----------------------------------------------------------- breaker outcome API
+def record_outcome(supplier, ok):
+    """Record a fetch/scrape OUTCOME for a GOVERNED supplier (the later fetch path
+    calls this). No-op for an ungoverned supplier. NEVER raises — a limiter fault must
+    not break the caller.
+
+    ok=True : reset consec_failures=0, clear breaker_open_until (recovery).
+    ok=False: increment consec_failures; if it reaches breaker_threshold, OPEN the
+              breaker (breaker_open_until = now + breaker_cooldown_s) and log a warning.
+    """
+    try:
+        supplier = (supplier or "").strip()
+        if not supplier:
+            return
+        con = connect()
+        try:
+            lim = con.execute(
+                "SELECT * FROM supplier_rate_limits WHERE supplier=? AND enabled=1",
+                (supplier,)).fetchone()
+            if lim is None:
+                return                      # ungoverned -> no-op
+            con.execute("INSERT OR IGNORE INTO supplier_rate_state (supplier) VALUES (?)",
+                        (supplier,))
+            if ok:
+                con.execute(
+                    "UPDATE supplier_rate_state SET consec_failures=0, "
+                    "breaker_open_until=NULL WHERE supplier=?", (supplier,))
+            else:
+                st = con.execute(
+                    "SELECT consec_failures FROM supplier_rate_state WHERE supplier=?",
+                    (supplier,)).fetchone()
+                fails = _as_int(st["consec_failures"], 0) + 1 if st else 1
+                thresh = _as_int(lim["breaker_threshold"], DEFAULT_BREAKER_THRESHOLD)
+                if fails >= thresh:
+                    cooldown = _as_float(lim["breaker_cooldown_s"],
+                                         DEFAULT_BREAKER_COOLDOWN_S)
+                    open_until = _at(time.time() + cooldown)
+                    con.execute(
+                        "UPDATE supplier_rate_state SET consec_failures=?, "
+                        "breaker_open_until=? WHERE supplier=?",
+                        (fails, open_until, supplier))
+                    log.warning("circuit-breaker OPEN for supplier %s after %s "
+                                "consecutive failures (cooldown %ss, until %s)",
+                                supplier, fails, cooldown, open_until)
+                else:
+                    con.execute(
+                        "UPDATE supplier_rate_state SET consec_failures=? "
+                        "WHERE supplier=?", (fails, supplier))
+            con.commit()
+        finally:
+            con.close()
+    except Exception as e:
+        log.warning("record_outcome(%s, ok=%s) failed: %s", supplier, ok, e)
+
+
+def breaker_state(supplier):
+    """Read helper for surfacing later: {open: bool, open_until, consec_failures}.
+    For an ungoverned supplier or missing state, returns a closed/zeroed view."""
+    safe = {"open": False, "open_until": None, "consec_failures": 0}
+    try:
+        supplier = (supplier or "").strip()
+        if not supplier:
+            return safe
+        con = connect()
+        try:
+            r = con.execute(
+                "SELECT consec_failures, breaker_open_until FROM supplier_rate_state "
+                "WHERE supplier=?", (supplier,)).fetchone()
+        finally:
+            con.close()
+        if r is None:
+            return safe
+        open_until = r["breaker_open_until"]
+        is_open = bool(open_until and open_until > _now())
+        return {"open": is_open, "open_until": open_until,
+                "consec_failures": _as_int(r["consec_failures"], 0)}
+    except Exception as e:
+        log.warning("breaker_state(%s) failed: %s", supplier, e)
+        return safe
 
 def reclaim_orphans(con=None):
     """Eagerly reclaim jobs orphaned by a crashed worker: reset 'processing' rows
