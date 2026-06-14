@@ -5578,6 +5578,25 @@ def admin():
                 _auth.set_setting("backup_interval_hours", str(hrs_i))
                 banner = ("Automatic backups turned OFF (manual only)." if hrs_i <= 0
                           else f"Automatic backups set to run every {hrs_i} hour(s).")
+            elif act == "set_backup_sync":
+                _dir = request.form.get("backup_sync_dir", "").strip()
+                _auth.set_setting("backup_sync_dir", _dir)
+                banner = (f"Off-site backup folder set to <b>{esc(_dir)}</b>." if _dir
+                          else "Off-site backup sync turned OFF.")
+            elif act == "sync_backup":
+                import backup as _bk
+                _dir = _bk.sync_dir()
+                if not _dir:
+                    banner = "Configure an off-site backup folder first."
+                else:
+                    dest = _bk.sync_snapshot()
+                    if dest is None:
+                        _auth.log_error("backup sync", "SyncFailed",
+                                        f"could not copy the latest snapshot to {esc(_dir)}",
+                                        "", session["user"])
+                        raise ValueError("off-site backup sync FAILED — see error log")
+                    banner = (f"Latest snapshot copied off-site to "
+                              f"<b>{esc(os.path.basename(dest))}</b>.")
             elif act == "verify_backup":
                 import backup as _bk, glob as _g
                 snaps = sorted(_g.glob(os.path.join(WORKDIR, "backups", "ffs_*.zip")))
@@ -5775,13 +5794,40 @@ def admin():
     schedule_form = ('<form method="post" class="f" style="margin:6px 0">' + _csrf_input()
                      + f'<label>Automatic backup<select name="interval">{_osel}</select></label>'
                      + '<button name="__act" value="set_backup_schedule">Save schedule</button></form>')
+    # off-site backup sync (mounted OneDrive/SharePoint/NAS folder)
+    import backup as _bksync
+    _sync_dir = _auth.get_setting("backup_sync_dir", "") or ""
+    _sync_form = ('<form method="post" class="f" style="margin:6px 0">' + _csrf_input()
+                  + f'<label>Off-site folder<input name="backup_sync_dir" value="{esc(_sync_dir)}" '
+                  'placeholder="e.g. /mnt/onedrive/ffs-backups" style="min-width:22em"></label>'
+                  + '<button name="__act" value="set_backup_sync">Save off-site folder</button></form>')
+    if _sync_dir.strip():
+        _ls_path, _ls_mtime = _bksync.last_synced()
+        if _ls_path:
+            _ls_when = _dt.datetime.fromtimestamp(_ls_mtime).strftime("%Y-%m-%d %H:%M")
+            _sync_state = (f'<span class="ok">{esc(_os.path.basename(_ls_path))}</span> ({esc(_ls_when)})')
+        else:
+            _sync_state = '<span class="bad">nothing copied off-site yet</span>'
+        # warn if the latest LOCAL snapshot is not (yet) off-site
+        _local_path, _local_mtime = _bksync.last_snapshot()
+        _stale = bool(_local_path) and (_ls_mtime is None or
+                                        (_local_mtime is not None and _ls_mtime < _local_mtime))
+        _sync_warn = ('<br><span class="bad">⚠ latest snapshot not yet copied off-site</span>'
+                      if _stale else "")
+        _sync_line = (f'<br>Off-site sync: <b>{esc(_sync_dir.strip())}</b> &nbsp;·&nbsp; '
+                      f'last copied: {_sync_state}{_sync_warn}')
+    else:
+        _sync_line = '<br>Off-site sync: <span class="bad">not configured</span>'
     backupcard = ('<div class="card"><h2>Backups &amp; data integrity</h2>'
                   f'<p>Last snapshot: {last_bk} &nbsp;·&nbsp; Schedule: <b>{esc(_sched_txt)}</b>'
                   f'<br>DB integrity (quick_check): {" &nbsp; ".join(dbstat) or "—"}'
+                  f'{_sync_line}'
                   f'<br>{ndocs} document file(s) tracked.</p>'
                   + schedule_form
+                  + _sync_form
                   + f'<div style="margin:8px 0">{_bkbtn("run_backup","↓ Run backup now")}'
                   f'{_bkbtn("verify_backup","✓ Verify last backup")}'
+                  f'{_bkbtn("sync_backup","☁ Sync latest off-site now")}'
                   f'{_bkbtn("verify_docs","✓ Check document integrity")}</div>'
                   '<div class="note">Backups run <b>automatically</b> on the schedule above (a '
                   'background task snapshots when one is due) and can also be taken on demand. Each '

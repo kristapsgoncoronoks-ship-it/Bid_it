@@ -9,6 +9,11 @@ audit history that lives inside the database files).
     python3 backup.py --restore <zip> --to <dir>   restore snapshot to a folder
     python3 backup.py --harden         restrictive permissions on data files
 
+Off-site copy: set FFS_BACKUP_SYNC_DIR (or the admin 'backup_sync_dir' setting)
+to a mounted OneDrive/SharePoint/NAS folder. Every snapshot is then best-effort
+copied off-machine (same 14-deep rotation), so the history survives disk loss.
+A sync failure is logged but NEVER fails or undoes the local snapshot.
+
 Policy: run after every monthly close and before any bulk change; sync the
 backups/ folder to versioned storage (OneDrive/SharePoint) so history survives
 machine loss. Audit CSVs inside each snapshot are the tamper-evidence copy of
@@ -111,7 +116,84 @@ def snapshot():
     snaps = sorted(glob.glob(os.path.join(BACKUPDIR, "ffs_*.zip")))
     for old in snaps[:-KEEP]:
         os.remove(old)
+    # Best-effort off-site copy. A sync fault must never break the snapshot, so
+    # sync_snapshot() already swallows + logs every error; the extra guard here is
+    # belt-and-braces so the local snapshot result is returned unchanged regardless.
+    try:
+        sync_snapshot(path)
+    except Exception as e:  # pragma: no cover - sync_snapshot is already non-raising
+        log.warning("snapshot: off-site sync raised unexpectedly: %s", e)
     return path, len(manifest)
+
+
+def sync_dir():
+    """The configured off-machine backup directory (a mounted OneDrive/SharePoint/
+    NAS folder), or "" when off-site sync is disabled. FFS_BACKUP_SYNC_DIR wins;
+    otherwise the admin 'backup_sync_dir' setting (auth imported lazily so the CLI
+    and plain imports stay light and work without security.db)."""
+    env = os.environ.get("FFS_BACKUP_SYNC_DIR")
+    if env is not None:
+        return env.strip()
+    try:
+        import auth
+        return (auth.get_setting("backup_sync_dir", "") or "").strip()
+    except Exception as e:
+        log.debug("sync_dir: could not read backup_sync_dir setting: %s", e)
+        return ""
+
+
+def sync_snapshot(path=None):
+    """Copy ONE snapshot zip to the off-site sync dir (best-effort, non-fatal).
+    Returns the destination path on success, or None when sync is disabled, there is
+    nothing to copy, or ANY failure occurs (logged, never raised). Copies atomically
+    (temp file + os.replace) then prunes the off-site dir to the newest KEEP zips."""
+    d = sync_dir()
+    if not d:
+        return None
+    path = path or last_snapshot()[0]
+    if not path:
+        return None
+    try:
+        os.makedirs(d, exist_ok=True)
+        dest = os.path.join(d, os.path.basename(path))
+        with open(path, "rb") as src:
+            raw = src.read()
+        tmpfd, tmppath = tempfile.mkstemp(prefix=".bk_sync_", dir=d)
+        try:
+            with os.fdopen(tmpfd, "wb") as f:
+                f.write(raw)
+            os.replace(tmppath, dest)
+        finally:
+            if os.path.exists(tmppath):
+                try: os.remove(tmppath)
+                except OSError as e:
+                    log.debug("sync_snapshot: temp cleanup failed for %s: %s", tmppath, e)
+        # off-site rotation: keep the newest KEEP (same depth as local)
+        synced = sorted(glob.glob(os.path.join(d, "ffs_*.zip")))
+        for old in synced[:-KEEP]:
+            try: os.remove(old)
+            except OSError as e:
+                log.debug("sync_snapshot: could not prune %s: %s", old, e)
+        return dest
+    except Exception as e:
+        log.warning("sync_snapshot: off-site copy to %s failed: %s", d, e)
+        return None
+
+
+def last_synced():
+    """(path, mtime_epoch) of the newest snapshot in the off-site sync dir, or
+    (None, None) if sync is disabled / none present. Never raises."""
+    d = sync_dir()
+    if not d:
+        return (None, None)
+    try:
+        synced = sorted(glob.glob(os.path.join(d, "ffs_*.zip")))
+        if not synced:
+            return (None, None)
+        return (synced[-1], os.path.getmtime(synced[-1]))
+    except Exception as e:
+        log.debug("last_synced: could not read sync dir %s: %s", d, e)
+        return (None, None)
 
 
 def last_snapshot():
