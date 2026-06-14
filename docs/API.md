@@ -1,5 +1,10 @@
 # External API — `/api/v1` (token contract)
 
+> The machine-readable contract is [`docs/openapi.yaml`](openapi.yaml) (OpenAPI 3.1)
+> and the full integrator guide (auth, key issuance, per-endpoint curl examples, the
+> CRM playbook) is [`docs/API_MANUAL.md`](API_MANUAL.md). This page is the short prose
+> overview; the code is the source of truth for all three.
+
 A small, **versioned** machine API over the platform's analytics capabilities and
 a **basic CRM-sync surface** (read + write to customer master). It is a clean
 external contract: **token-only** (never the session cookie), scoped per endpoint,

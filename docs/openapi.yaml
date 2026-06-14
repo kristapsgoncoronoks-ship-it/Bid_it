@@ -1,0 +1,680 @@
+openapi: 3.1.0
+info:
+  title: Fleet Fuel & VAT Refund System — External API
+  version: "1.0"
+  description: |
+    The versioned, token-only `/api/v1` contract over the platform's analytics
+    capabilities and a basic CRM-sync surface (read + write to the customer
+    master). This is a clean external contract — never the session cookie. Each
+    endpoint requires exactly one capability scope; every call is metered per key.
+
+    DEFAULT-OFF: no API keys exist on a fresh install, so the surface is inert —
+    every request returns 401 until an admin issues a scoped key
+    (Admin panel → API keys). Tokens are 256-bit, SHA-256-hashed at rest, shown
+    once at issue, and compared constant-time.
+
+    All prices are NET EUR/L, VAT excluded, rebates applied. EUR figures are
+    quantized HALF_UP (money.f2). No v1 payload carries IBAN / bank / payout /
+    fee / secret / PII. The human integrator manual is `docs/API_MANUAL.md`.
+
+servers:
+  - url: https://your-deployment.example.com/api/v1
+    description: |
+      Deployment-relative. Replace the host with your install's base URL; the
+      path prefix is always `/api/v1`. TLS is strongly recommended (tokens are
+      bearer credentials).
+
+security:
+  - bearerAuth: []
+  - apiKeyHeader: []
+
+tags:
+  - name: analytics
+    description: Read-only analytics reads (benchmark, claim status, savings).
+  - name: crm
+    description: Customer-master CRM-sync surface (read + write).
+
+paths:
+  /benchmark:
+    get:
+      tags: [analytics]
+      operationId: api_v1_benchmark
+      summary: Internal price benchmark summary (NET EUR/L)
+      description: |
+        Per supplier/country price benchmark for a period (NET EUR/L, VAT
+        excluded). Defaults to the latest available period when `period` is
+        omitted. Reads the product DB via the read-only boundary.
+
+        Required scope: `api:benchmark`. Metered per key.
+      security:
+        - bearerAuth: [api:benchmark]
+        - apiKeyHeader: [api:benchmark]
+      parameters:
+        - name: period
+          in: query
+          required: false
+          description: Period as `YYYY-MM`. Omit for the latest available period.
+          schema:
+            type: string
+            example: "2026-03"
+      responses:
+        "200":
+          description: Benchmark rows for the resolved period.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BenchmarkResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /claim-status:
+    get:
+      tags: [analytics]
+      operationId: api_v1_claim_status
+      summary: VAT claim status / readiness (non-sensitive fields only)
+      description: |
+        VAT claim workflow status and readiness per (entity, country, period) for
+        a calendar year — quarterly streams plus a `YYYY-YEAR` annual roll-up.
+        Non-sensitive fields only: workflow verdict, EUR/local VAT totals, line
+        count, deadline. Never returns IBAN / payout / fee / bank / PII.
+
+        Required scope: `api:claims`. Metered per key.
+      security:
+        - bearerAuth: [api:claims]
+        - apiKeyHeader: [api:claims]
+      parameters:
+        - name: year
+          in: query
+          required: false
+          description: Calendar year `YYYY`. Defaults to `2026`.
+          schema:
+            type: string
+            default: "2026"
+            example: "2026"
+      responses:
+        "200":
+          description: Claim-status rows for the requested year.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClaimStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /savings:
+    get:
+      tags: [analytics]
+      operationId: api_v1_savings
+      summary: Savings-intelligence summary
+      description: |
+        The savings-intelligence summary: avoidable overpay + recoverable
+        contract €, addressable total, a per-country breakdown, an anomaly count
+        and the top-€ actions. All € quantized HALF_UP (money.f2).
+
+        Required scope: `api:savings`. Metered per key.
+      security:
+        - bearerAuth: [api:savings]
+        - apiKeyHeader: [api:savings]
+      parameters:
+        - name: period
+          in: query
+          required: false
+          description: Period as `YYYY-MM`. Omit for the latest available period.
+          schema:
+            type: string
+            example: "2026-03"
+      responses:
+        "200":
+          description: The savings-intelligence summary for the resolved period.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavingsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /customers:
+    get:
+      tags: [crm]
+      operationId: api_v1_customers_list
+      summary: List customers (CRM read)
+      description: |
+        List the customer master, core non-secret fields only, ordered by `code`.
+
+        Required scope: `api:crm`. Metered per key.
+      security:
+        - bearerAuth: [api:crm]
+        - apiKeyHeader: [api:crm]
+      responses:
+        "200":
+          description: The customer list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [crm]
+      operationId: api_v1_customer_create
+      summary: Create a customer (CRM write)
+      description: |
+        Create a customer from an external CRM. Required: `code`, `company_name`,
+        `country`. Optional real fields are written immediately so an
+        API-onboarded customer carries real values rather than `INPUT:`
+        placeholders. The write is audit-attributed to the calling key
+        (`changed_by = api:<key-label>`).
+
+        Required scope: `api:crm.write` (a read-only `api:crm` key gets 403).
+        Metered per key.
+      security:
+        - bearerAuth: [api:crm.write]
+        - apiKeyHeader: [api:crm.write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerCreate"
+      responses:
+        "201":
+          description: Customer created. Returns the GET-detail shape.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Customer"
+        "400":
+          description: Missing/empty required field (`code`, `company_name`, `country`) or a write validation error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: A customer with this `code` already exists.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /customers/{code}:
+    parameters:
+      - name: code
+        in: path
+        required: true
+        description: Customer code (case-insensitive; normalised to upper-case).
+        schema:
+          type: string
+          example: ACME
+    get:
+      tags: [crm]
+      operationId: api_v1_customer_get
+      summary: Get one customer's detail (CRM read)
+      description: |
+        One customer's detail: core fields + activation checklist + per-country
+        status.
+
+        Required scope: `api:crm`. Metered per key.
+      security:
+        - bearerAuth: [api:crm]
+        - apiKeyHeader: [api:crm]
+      responses:
+        "200":
+          description: The customer detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Customer"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [crm]
+      operationId: api_v1_customer_update
+      summary: Update a customer's editable fields (CRM write)
+      description: |
+        Update any subset of the editable allowlist. Unknown keys are ignored; a
+        body with no editable fields is rejected (400). The write is
+        audit-attributed to the calling key (`changed_by = api:<key-label>`).
+
+        Required scope: `api:crm.write` (a read-only `api:crm` key gets 403).
+        Metered per key.
+      security:
+        - bearerAuth: [api:crm.write]
+        - apiKeyHeader: [api:crm.write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerPatch"
+      responses:
+        "200":
+          description: Customer updated. Returns the GET-detail shape.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Customer"
+        "400":
+          description: No editable fields supplied, or a write validation error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        `Authorization: Bearer <token>`. DEFAULT-OFF: with no keys issued every
+        call is 401. A token missing/invalid/revoked/unknown -> 401; a valid
+        token lacking the endpoint's scope -> 403. The listed scopes are
+        documentary (the server enforces the per-endpoint scope from
+        `app.API_V1_SCOPE`); a bearer token is opaque and carries no OAuth flow.
+    apiKeyHeader:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        `X-API-Key: <token>` — the same token, alternative header. Identical
+        posture to `bearerAuth` (default-off; 401 missing/invalid/revoked;
+        403 wrong scope).
+
+  responses:
+    Unauthorized:
+      description: |
+        Missing, malformed, unknown or revoked token (no oracle — a 401 never
+        reveals which). Also the default-off state when no keys are issued.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: invalid or missing API key
+    Forbidden:
+      description: Valid key, but it does not hold the endpoint's required scope.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: key not authorized for scope api:crm.write
+    NotFound:
+      description: No customer with the given `code`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: customer not found
+
+  schemas:
+    Error:
+      type: object
+      description: Uniform JSON error body for every non-2xx /api/v1 response.
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: invalid or missing API key
+
+    BenchmarkResponse:
+      type: object
+      required: [period, basis, rows]
+      properties:
+        period:
+          type: [string, "null"]
+          description: The resolved period (`YYYY-MM`), or null when no data exists.
+          example: "2026-03"
+        basis:
+          type: string
+          const: NET EUR/L (VAT excluded)
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/BenchmarkRow"
+    BenchmarkRow:
+      type: object
+      description: One supplier/country aggregate for the period (Diesel only).
+      properties:
+        supplier:
+          type: string
+          example: Neste
+        country:
+          type: string
+          example: LT
+        litres:
+          type: number
+          description: Total litres (rounded to whole litres).
+          example: 12345
+        doc:
+          type: [number, "null"]
+          description: Document NET EUR/L (SUM net_eur / SUM qty), 4 dp.
+          example: 1.2345
+        eff:
+          type: [number, "null"]
+          description: Effective NET EUR/L after rebates (SUM net_eur_eff / SUM qty), 4 dp.
+          example: 1.2300
+
+    ClaimStatusResponse:
+      type: object
+      required: [claims]
+      properties:
+        claims:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClaimStatusRow"
+    ClaimStatusRow:
+      type: object
+      description: |
+        One (entity, country, period) claim stream. `period` is a quarter (`Q1`..
+        `Q4`) or the `YYYY-YEAR` annual roll-up. Non-sensitive fields only.
+      properties:
+        entity:
+          type: string
+          example: BALTIC TRANSPORT OU
+        country:
+          type: string
+          example: PL
+        period:
+          type: string
+          description: Quarter (`Q1`..`Q4`) or annual roll-up (`YYYY-YEAR`).
+          example: Q1
+        vat_eur:
+          type: number
+          description: VAT total in EUR (money.f2, HALF_UP).
+          example: 1234.56
+        vat_local:
+          type: number
+          description: VAT total in national currency (money.f2, HALF_UP).
+          example: 1234.56
+        currency:
+          type: string
+          example: EUR
+        lines:
+          type: integer
+          description: Transaction line count in the stream.
+          example: 42
+        verdict:
+          type: string
+          description: Human-readable readiness verdict (READY / DEFER TO ANNUAL / BELOW ANNUAL MIN).
+          example: "READY (>= EUR 400 quarterly min)"
+        missing:
+          type: array
+          description: Months of the quarter with no loaded data (empty for an annual row).
+          items:
+            type: string
+          example: []
+        deadline:
+          type: string
+          description: Statutory submission deadline text.
+          example: "30 Sep 2027"
+
+    SavingsResponse:
+      type: object
+      required:
+        - period
+        - avoidable_overpay_eur
+        - recoverable_contract_eur
+        - anomaly_count
+        - total_addressable_eur
+        - by_country
+        - top_actions
+      properties:
+        period:
+          type: [string, "null"]
+          description: The resolved period, or null when no data exists.
+          example: "2026-03"
+        avoidable_overpay_eur:
+          type: number
+          description: Sum of avoidable overpay across benchmark cells (money.f2).
+          example: 4210.00
+        recoverable_contract_eur:
+          type: number
+          description: Total recoverable from contract-audit breaches (money.f2).
+          example: 1875.50
+        anomaly_count:
+          type: integer
+          description: Count of anomaly flags (anomalies carry no €).
+          example: 3
+        total_addressable_eur:
+          type: number
+          description: overpay + recoverable (money.f2).
+          example: 6085.50
+        by_country:
+          type: array
+          items:
+            $ref: "#/components/schemas/SavingsByCountry"
+        top_actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/SavingsAction"
+    SavingsByCountry:
+      type: object
+      description: Per-country addressable € breakdown, sorted by addressable desc.
+      properties:
+        country:
+          type: string
+          example: LT
+        overpay_eur:
+          type: number
+          example: 3000.00
+        recover_eur:
+          type: number
+          example: 500.00
+        addressable_eur:
+          type: number
+          example: 3500.00
+    SavingsAction:
+      type: object
+      description: One top-€ action, biggest € first.
+      properties:
+        kind:
+          type: string
+          example: Route volume to cheaper supplier
+        country:
+          type: string
+          example: LT
+        detail:
+          type: string
+          example: "LT Diesel: best Neste @ 1.2300 €/L vs your avg 1.2600 (10,000 L)"
+        eur:
+          type: number
+          example: 300.00
+
+    CustomerSummary:
+      type: object
+      description: One row of the customer LIST shape (GET /customers).
+      properties:
+        code:
+          type: string
+          example: ACME
+        company_name:
+          type: string
+          example: Acme OU
+        country:
+          type: string
+          description: The customer's home country.
+          example: LT
+        status:
+          type: string
+          description: Lifecycle status (e.g. `pending`, `active`).
+          example: active
+        active:
+          type: boolean
+          description: True when `status == "active"`.
+          example: true
+        countries_active:
+          type: array
+          description: Countries with an active per-country registration.
+          items:
+            type: string
+          example: ["LT", "PL"]
+    CustomerListResponse:
+      type: object
+      required: [customers]
+      properties:
+        customers:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomerSummary"
+
+    Customer:
+      type: object
+      description: |
+        The customer DETAIL shape (GET /customers/{code}, and the body returned by
+        POST 201 / PATCH 200). Core non-secret fields + activation summary + per-
+        country status. Never carries bank / payout / fee / PII.
+      properties:
+        code:
+          type: string
+          example: ACME
+        company_name:
+          type: string
+          example: Acme OU
+        country:
+          type: string
+          example: LT
+        status:
+          type: string
+          example: active
+        reg_number:
+          type: string
+          example: "123456"
+        vat_number:
+          type: string
+          example: LT123456789
+        legal_address:
+          type: string
+          example: "Gedimino pr. 1, Vilnius"
+        home_portal:
+          type: string
+          description: The entity's customer-portal URL.
+          example: "https://portal.example.lt"
+        phone:
+          type: [string, "null"]
+          example: "+370 5 555 1234"
+        email:
+          type: [string, "null"]
+          example: ops@acme.lt
+        nace_code:
+          type: string
+          example: "4941"
+        active:
+          type: boolean
+          description: True when `status == "active"`.
+          example: true
+        is_active:
+          type: boolean
+          description: Alias of `active`.
+          example: true
+        activation_checklist:
+          type: array
+          description: Activation checklist items with their satisfied flag.
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+                example: Trade registry extract
+              ok:
+                type: boolean
+                example: true
+        countries:
+          type: array
+          description: Per-country registration status.
+          items:
+            type: object
+            properties:
+              country:
+                type: string
+                example: LT
+              status:
+                type: string
+                example: active
+
+    CustomerCreate:
+      type: object
+      description: POST /customers body. Required core fields + optional real fields.
+      required: [code, company_name, country]
+      properties:
+        code:
+          type: string
+          description: Customer code (normalised to upper-case).
+          example: ACME
+        company_name:
+          type: string
+          example: Acme OU
+        country:
+          type: string
+          example: LT
+        reg_number:
+          type: string
+          example: "123456"
+        vat_number:
+          type: string
+          example: LT123456789
+        legal_address:
+          type: string
+          example: "Gedimino pr. 1, Vilnius"
+        home_portal:
+          type: string
+          example: "https://portal.example.lt"
+        phone:
+          type: string
+          example: "+370 5 555 1234"
+        email:
+          type: string
+          example: ops@acme.lt
+
+    CustomerPatch:
+      type: object
+      description: |
+        PATCH /customers/{code} body. Any subset of the editable allowlist
+        (`customer_master.EDITABLE_FIELDS`). Keys outside the allowlist are
+        ignored; an empty body (no editable fields) is rejected (400). Never
+        accepts `status` / fee / route or any audited workflow column.
+      minProperties: 1
+      properties:
+        company_name:
+          type: string
+        reg_number:
+          type: string
+        vat_number:
+          type: string
+        legal_address:
+          type: string
+        home_portal:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        nace_code:
+          type: string
+        signatory_name:
+          type: string
+        signatory_title:
+          type: string
