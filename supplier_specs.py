@@ -29,6 +29,8 @@ CANONICAL_FIELDS (what row_map must return):
   country (optional - else spec default)
 """
 
+import money
+
 # Central product dictionary - extend when a new supplier uses new names
 PRODUCT_GROUPS = {
     "Diesel":  ("DIESEL", "ON ACT", "GASOLEO", "GASOIL", "GAZOLE", "ON "),
@@ -129,7 +131,7 @@ SPECS = {
 # ---------------------------------------------------------------------
 def _q8(r, ctx):
     card,date,time,prod,stn,ctry,vatp,cur,lp,fx,npeur,qty,net,_,_,_,reb,adjp,adjnet,_ = r[:20]
-    vat = round(net*vatp/100, 2)
+    vat = money.f2(net*vatp/100)
     return dict(vehicle=card, date=date, time=time, station=stn, product=prod, qty=qty,
                 country=ctry, currency=cur,
                 net_local=net, vat_local=vat, gross_local=net+vat,   # doc nets already EUR
@@ -145,7 +147,7 @@ def _bp(r, ctx):
 
 def _tfc(r, ctx):
     card,date,time,rec,plate,prod,loc,vol,locp,disc,netp,amt = r[:12]
-    vat = round(amt*0.21, 2)
+    vat = money.f2(amt*0.21)
     return dict(vehicle=f"{card}/{plate}", date=date, time=time, station=loc, product=prod,
                 qty=vol, net_local=amt, vat_local=vat, gross_local=amt+vat,
                 net_eur=amt, vat_eur=vat)
