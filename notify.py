@@ -284,6 +284,134 @@ def send_digest(transport=None, year=None):
     return SENT
 
 
+# ---------------------------------------------------------------- per-event alerts
+# A digest is BATCHED on a cadence; some conditions warrant an IMMEDIATE "wake someone
+# up" alert the moment they appear (DLQ growth, the intake worker stalling, a VAT
+# filing deadline going overdue). send_alert is the one-shot equivalent of send_digest
+# (same SENT/NOOP/FAILED contract); critical_alert is the per-EVENT engine that fires
+# only when the critical set CHANGES (fingerprint dedup) so it never spams every tick.
+
+def send_alert(subject, lines, transport=None):
+    """Send ONE immediate alert built from `subject` + `lines` (a list of strings),
+    as a plain-text + escaped-HTML body. `transport` (with .send(to, subject, html,
+    text)) is injected by tests; in production it is built from admin SMTP settings.
+
+    Returns one of SENT (truthy), NOOP, or FAILED — mirrors send_digest so the caller
+    can tell a real SMTP failure (retry + alert) apart from a legitimate no-op (no
+    transport / no recipients / nothing to say). Never raises."""
+    if not lines:
+        log.info("notify: empty alert — nothing to send")
+        return NOOP
+    recipients = _recipients()
+    if not recipients:
+        log.info("notify: no recipients configured (notify_recipients) — skipping alert")
+        return NOOP
+    if transport is None:
+        transport = _settings_transport()
+    if transport is None:
+        log.info("notify: no SMTP host configured (smtp_host) — skipping alert")
+        return NOOP
+    today = datetime.date.today().isoformat()
+    text = "\n".join([subject, f"({today})", ""] + [f"  - {ln}" for ln in lines])
+    html = (f"<h2>{esc(subject)}</h2><p>({esc(today)})</p><ul>"
+            + "".join(f"<li>{esc(ln)}</li>" for ln in lines) + "</ul>")
+    try:
+        transport.send(recipients, subject, html, text)
+    except Exception as e:
+        log.warning("notify: alert send failed: %s", e)
+        return FAILED
+    log.info("notify: alert sent to %d recipient(s): %s", len(recipients), subject)
+    return SENT
+
+
+def send_test(transport=None):
+    """Send a one-off test e-mail to verify the SMTP relay configuration. Returns the
+    same SENT/NOOP/FAILED tri-state as send_alert. Never raises."""
+    return send_alert("Fleet Fuel & VAT — test email",
+                      ["This is a test of the SMTP relay configuration.",
+                       f"Sent {datetime.date.today().isoformat()}."],
+                      transport)
+
+
+def critical_events():
+    """READ-ONLY snapshot of the CURRENT critical conditions worth an immediate alert.
+    Returns a list of (severity, line) tuples — genuine "wake someone up" events only.
+    Never raises: each source is independently guarded so a failing source contributes
+    nothing rather than sinking the whole check."""
+    events = []
+
+    # intake queue: a non-empty dead-letter queue (terminal failed/held jobs needing a
+    # human redrive) and/or the oldest pending job breaching the worker-progress SLO.
+    try:
+        import waiting_room as WR
+        h = WR.queue_health()
+        dlq = h.get("dlq") or 0
+        if dlq > 0:
+            events.append(("critical", f"{dlq} document(s) in the dead-letter queue"))
+        if h.get("age_breach"):
+            events.append(("critical", "oldest pending document exceeds the SLO"))
+    except Exception as e:
+        log.warning("critical_events: intake source failed: %s", e)
+
+    # overdue filing deadlines: a statutory 30-Sep filing deadline already missed forfeits
+    # the whole refund — the single most urgent thing in the system.
+    try:
+        import vat_refund as VR
+        for d in VR.approaching_deadlines(within_days=0):
+            if d.get("kind") == "filing" and d.get("overdue"):
+                events.append(("critical",
+                               f"OVERDUE: FILE {d.get('entity')} · {d.get('country')} "
+                               f"{d.get('period')} — deadline {d.get('deadline')}"))
+    except Exception as e:
+        log.warning("critical_events: filing-deadline source failed: %s", e)
+
+    return events
+
+
+def _fingerprint(lines):
+    """A deterministic fingerprint of the current critical SET (order-independent), so
+    an unchanged set dedups and any change re-alerts. Empty set → '' (re-arm sentinel)."""
+    import hashlib
+    if not lines:
+        return ""
+    joined = "\n".join(sorted(lines))
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
+
+
+def critical_alert(transport=None):
+    """Per-EVENT alert engine: e-mail the moment a NEW critical condition appears, but
+    NOT every tick while it persists. Computes critical_events(), fingerprints the set
+    and compares it to the stored fingerprint (`notify_last_alert_fp`):
+
+      * new/changed critical set → send_alert(...); on SENT store the new fingerprint,
+        on FAILED do NOT store (so it retries next tick) and return FAILED;
+      * no critical events → store '' (re-arm, so a later re-breach re-alerts) → NOOP;
+      * unchanged set already alerted → NOOP (dedup, no re-spam).
+
+    Returns SENT / NOOP / FAILED. Never raises."""
+    try:
+        import auth
+        events = critical_events()
+        lines = [ln for _sev, ln in events]
+        fp = _fingerprint(lines)
+        stored = auth.get_setting("notify_last_alert_fp", "") or ""
+        if not lines:
+            # quiet now — re-arm so a later re-breach fires again.
+            if stored != "":
+                auth.set_setting("notify_last_alert_fp", "")
+            return NOOP
+        if fp == stored:
+            return NOOP            # same critical set already alerted — dedup
+        res = send_alert("Fleet Fuel & VAT — CRITICAL", lines, transport)
+        if res == SENT:
+            auth.set_setting("notify_last_alert_fp", fp)
+        # on FAILED/NOOP leave the stored fingerprint untouched so it retries next tick.
+        return res
+    except Exception as e:
+        log.warning("critical_alert failed: %s", e)
+        return FAILED
+
+
 if __name__ == "__main__":
     # offline smoke: render only (no send), so nothing leaves the machine.
     t, h = render_digest()

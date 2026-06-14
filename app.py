@@ -795,9 +795,18 @@ def _notify_tick():
     was attempted, else False. Never raises (logs instead)."""
     import traceback
     try:
+        import notify as _notify, datetime as _dt
+        # PER-EVENT critical alert — checked EVERY tick (not gated on the digest cadence)
+        # so a NEW critical condition (DLQ growth, a stalled worker, an overdue filing
+        # deadline) is e-mailed near-real-time. critical_alert dedups internally (only
+        # fires when the critical SET changes), so it never spams. Never raises.
+        crit = _notify.critical_alert()
+        if crit == _notify.FAILED:
+            _auth.log_error("notify-scheduler", "AlertSendFailed",
+                            "critical_alert reported a transport failure; alert NOT "
+                            "sent and will retry next tick", "", "system")
         hrs = notify_interval_hours()
         if _notify_due(hrs):
-            import notify as _notify, datetime as _dt
             result = _notify.send_digest()
             if result == _notify.FAILED:
                 # transport (SMTP) error: do NOT advance last_sent so the digest is
@@ -5590,6 +5599,41 @@ def admin():
                                      f"{dsum['missing']} missing — see error log")
                 banner = (f"All {dsum['total']} stored document(s) verified — "
                           f"PDF/ZIP files intact (SHA-256 match).")
+            elif act == "set_smtp":
+                # SMTP relay config for the digest + per-event alerts. The password is
+                # WRITE-ONLY: a blank field leaves the stored secret untouched, so
+                # re-saving the form does not wipe it (it is never echoed back either).
+                _auth.set_setting("smtp_host", request.form.get("smtp_host", "").strip())
+                try:
+                    _port = int(float(request.form.get("smtp_port", "0") or 0))
+                except ValueError:
+                    _port = 0
+                _auth.set_setting("smtp_port", str(_port))
+                _auth.set_setting("smtp_user", request.form.get("smtp_user", "").strip())
+                _auth.set_setting("smtp_from", request.form.get("smtp_from", "").strip())
+                _auth.set_setting("notify_recipients", request.form.get("notify_recipients", "").strip())
+                try:
+                    _iv = int(float(request.form.get("notify_interval_hours", "0") or 0))
+                except ValueError:
+                    _iv = 0
+                _auth.set_setting("notify_interval_hours", str(_iv))
+                _pw = request.form.get("smtp_pass", "")
+                if _pw:
+                    _auth.set_setting("smtp_pass", _pw)
+                banner = "Email settings saved."
+            elif act == "send_test_email":
+                import notify as _notify
+                res = _notify.send_test()
+                if res == _notify.SENT:
+                    banner = f"Test email sent to {len(_notify._recipients())} recipient(s)."
+                elif res == _notify.NOOP:
+                    banner = ("Nothing sent — configure an SMTP host and at least one "
+                              "recipient first.")
+                else:
+                    _auth.log_error("smtp test", "SendFailed",
+                                    "send_test reported a transport failure — check the "
+                                    "SMTP host/port/credentials", "", session["user"])
+                    raise ValueError("test email FAILED to send — see error log")
             elif act == "issue_api_key":
                 import api_keys
                 label = request.form.get("api_label", "").strip()
@@ -5742,6 +5786,46 @@ def admin():
                   'disk loss. "Check document integrity" re-hashes every stored PDF/ZIP against the hash '
                   'recorded at upload — any mismatch or missing file is written to the error log '
                   'above.</div></div>')
+    # Email notifications (SMTP relay) — the digest cadence + per-event critical alerts
+    # both send through these settings. The stored password is NEVER rendered (write-only).
+    _smtp_host = _auth.get_setting("smtp_host", "") or ""
+    _smtp_port = _auth.get_setting("smtp_port", "") or ""
+    _smtp_user = _auth.get_setting("smtp_user", "") or ""
+    _smtp_from = _auth.get_setting("smtp_from", "") or ""
+    _smtp_rcpt = _auth.get_setting("notify_recipients", "") or ""
+    _smtp_iv = _auth.get_setting("notify_interval_hours", "0") or "0"
+    _smtp_has_pw = bool(_auth.get_setting("smtp_pass", ""))
+    _n_rcpt = len([a for a in _smtp_rcpt.replace(";", ",").split(",") if a.strip()])
+    _smtp_state = (f'<span class="ok">configured</span> (host <b>{esc(_smtp_host)}</b>, '
+                   f'{_n_rcpt} recipient(s){", password set" if _smtp_has_pw else ""})'
+                   if _smtp_host.strip()
+                   else '<span class="bad">not configured — no email is sent</span>')
+    smtpcard = ('<div class="card"><h2>Email notifications (SMTP)</h2>'
+                f'<p>Status: {_smtp_state}</p>'
+                '<form method="post" class="f" style="margin:6px 0">' + _csrf_input()
+                + f'<label>SMTP host<input name="smtp_host" value="{esc(_smtp_host)}" '
+                  'placeholder="smtp.example.com"></label>'
+                + f'<label>Port<input name="smtp_port" value="{esc(_smtp_port)}" '
+                  'placeholder="587" style="width:80px"></label>'
+                + f'<label>Username<input name="smtp_user" value="{esc(_smtp_user)}" '
+                  'placeholder="optional"></label>'
+                + '<label>Password<input type="password" name="smtp_pass" '
+                  'placeholder="leave blank to keep current" autocomplete="new-password"></label>'
+                + f'<label>From<input name="smtp_from" value="{esc(_smtp_from)}" '
+                  'placeholder="noreply@example.com"></label>'
+                + f'<label>Recipients<input name="notify_recipients" value="{esc(_smtp_rcpt)}" '
+                  'placeholder="a@x.com, b@y.com"></label>'
+                + f'<label>Digest every (hours)<input name="notify_interval_hours" '
+                  f'value="{esc(_smtp_iv)}" placeholder="0 = off" style="width:90px"></label>'
+                + '<button name="__act" value="set_smtp">Save email settings</button></form>'
+                + '<form method="post" style="display:inline">' + _csrf_input()
+                + '<button name="__act" value="send_test_email">Send test email</button></form>'
+                + '<div class="note">The action <b>digest</b> e-mails on the cadence above '
+                  '(0 = off); <b>critical alerts</b> (dead-letter queue, a stalled intake '
+                  'worker, an overdue VAT filing deadline) e-mail immediately when they first '
+                  'appear, independent of the digest cadence. The password is stored '
+                  'write-only and never shown here — leave it blank to keep the current '
+                  'one. Recipients are comma/semicolon-separated.</div></div>')
     modchecks = "".join(
         f'<label class="chk" style="display:flex;gap:7px;align-items:center;font-size:13px;'
         f'flex-direction:row;color:var(--ink);margin:3px 0">'
@@ -5835,6 +5919,7 @@ def admin():
               f' &nbsp;|&nbsp; Session cookies: HttpOnly, SameSite'
               f'{", Secure (HTTPS)" if tls else ""}</p></div>'
             + backupcard
+            + smtpcard
             + '<div class="card"><h2>Recent logins</h2>'
             + tbl(["Timestamp (UTC)", "Username", "Result", "From"], ltr) + "</div>"
             + errcard)
