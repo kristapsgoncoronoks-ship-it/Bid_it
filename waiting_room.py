@@ -130,6 +130,11 @@ def connect():
 # that the engine writes into suppliers.db off the web request (decoupling D4).
 KIND_EXTRACT = "extract"
 KIND_REGISTER = "register"
+# A one-click MONTHLY CLOSE job (decoupling D5's web surface): carries NO inbox bytes,
+# just a period. The web request ENQUEUES this; the worker calls engine_close.close so
+# the request never runs the close inline nor holds a writable engine-owned product-DB
+# handle. engine_close's own "close-run" process_lock serialises actual execution.
+KIND_CLOSE = "close"
 
 
 # ---------------------------------------------------------------- inbox files
@@ -240,6 +245,46 @@ def enqueue_registration(payload, user="system"):
     return jid, "queued"
 
 
+def enqueue_close(period, user="system"):
+    """Enqueue a one-click MONTHLY CLOSE job (decoupling D5's web surface). The web
+    request does NO close work itself — it only parks this fileless job; the engine
+    worker dispatches on kind='close' and calls engine_close.close(period) OFF the web
+    request, so the request holds no writable engine-owned product-DB handle. Carries
+    NO inbox bytes — the period IS the job. Returns (job_id, status).
+
+    A close is RE-RUNNABLE (every stage is idempotent), so we dedup on a deterministic
+    sha over the period: an existing row for the same period is refreshed and re-queued
+    (exactly like enqueue_registration's re-confirm branch) rather than duplicated.
+    Two queued close jobs are still safe — engine_close's 'close-run' process_lock
+    serialises the actual execution and a contending second run re-queues to retry."""
+    period = (period or "").strip()
+    if not period:
+        raise ValueError("monthly close needs a period")
+    sha = hashlib.sha256(f"close:{period}".encode()).hexdigest()
+    body = json.dumps({"period": period})
+    con = connect()
+    existing = con.execute("SELECT id, status FROM intake_jobs WHERE sha256=?", (sha,)).fetchone()
+    if existing:
+        # re-running a close for the same period: refresh the payload and re-queue it
+        # (idempotent, so re-running is safe).
+        con.execute("""UPDATE intake_jobs SET status='queued', attempts=0, defer_count=0,
+                       lease_until=NULL, next_attempt_at=NULL, error=NULL,
+                       started_at=NULL, finished_at=NULL, payload=?,
+                       uploaded_by=?, uploaded_at=? WHERE id=?""",
+                    (body, user, _now(), existing["id"]))
+        con.commit(); con.close()
+        return existing["id"], "queued"
+    cur = con.execute("""INSERT INTO intake_jobs
+        (sha256, filename, size, backend, period, uploaded_by, status, kind, payload)
+        VALUES (?,?,?,?,?,?, 'queued', ?, ?)""",
+        (sha, f"monthly close {period}", 0, None, period,
+         user, KIND_CLOSE, body))
+    con.commit()
+    jid = cur.lastrowid
+    con.close()
+    return jid, "queued"
+
+
 # ---------------------------------------------------------------- claim + process
 def _claim(con):
     """Atomically take the next eligible job (oldest ready-to-run, or a stale
@@ -342,6 +387,38 @@ def _do_register(con, row):
     return "done"
 
 
+def _do_close(con, row):
+    """Engine-side handler for a MONTHLY CLOSE job (decoupling D5's web surface): run
+    engine_close.close(period) OFF the web request. Returns the outcome string.
+
+    engine_close pulls the heavy stage modules (consolidate/build_master/history/...),
+    so it is imported LAZILY here — never at module top — to keep the queue light for
+    every other job kind. The requesting user is propagated as the AUDIT ACTOR (as in
+    _do_register) so the close's audit trail is attributed to who pressed the button.
+
+    The close is itself guarded by engine_close's 'close-run' process_lock: if another
+    close is already running, close() raises a RuntimeError. We let that propagate to
+    the dispatch except -> _fail_or_retry (channel='close'), which RE-QUEUES it with
+    backoff (a generic exception is a retry, not an immediate DLQ) so this job simply
+    runs once the other close finishes. Idempotent: every stage is safe to re-run."""
+    import engine_close, audit
+    jid = row["id"]
+    p = json.loads(row["payload"])
+    period = p.get("period")
+    user = row["uploaded_by"] or "system"
+    audit.set_actor(None, user)
+    try:
+        engine_close.close(period, actor=user)
+    finally:
+        audit.reset_actor()
+    con.execute("""UPDATE intake_jobs SET status='done', finished_at=?,
+                   error=NULL, lease_until=NULL WHERE id=?""", (_now(), jid))
+    con.commit()
+    _import_log(row, "close", "success",
+                message=f"monthly close {period} complete")
+    return "done"
+
+
 def process_one():
     """Claim and process one job. Returns (job_id, outcome) or None if the queue
     is idle. Never raises — failures are recorded on the row."""
@@ -359,6 +436,14 @@ def process_one():
                 return (jid, _do_register(con, row))
             except Exception as e:
                 return (jid, _fail_or_retry(con, row, jid, attempts, e, channel="register"))
+        elif kind == KIND_CLOSE:
+            try:
+                return (jid, _do_close(con, row))
+            except Exception as e:
+                # A 'close-run' lock-contention RuntimeError lands here too: _fail_or_retry
+                # RE-QUEUES with backoff (a generic exception is a retry, not an immediate
+                # DLQ), so the close simply runs once the other close finishes.
+                return (jid, _fail_or_retry(con, row, jid, attempts, e, channel="close"))
         try:
             data = read_bytes(row["stored_path"])
             draft = EX.extract(data, row["filename"], backend=row["backend"] or None,
@@ -880,10 +965,11 @@ def requeue(job_id):
     r = get_job(job_id)
     if not r:
         return False
-    # a registration job carries its payload (no inbox bytes) — it is retryable as
-    # long as the payload survives; an extraction job needs its source file present.
-    is_register = (r["kind"] if "kind" in r.keys() else None) == KIND_REGISTER
-    if not is_register and (not r["stored_path"] or not os.path.exists(_safe_inbox(r["stored_path"]))):
+    # a fileless job (registration / monthly close) carries its payload, not inbox bytes
+    # — it is retryable as long as the payload survives; an extraction job needs its
+    # source file present.
+    is_fileless = (r["kind"] if "kind" in r.keys() else None) in (KIND_REGISTER, KIND_CLOSE)
+    if not is_fileless and (not r["stored_path"] or not os.path.exists(_safe_inbox(r["stored_path"]))):
         return False
     con = connect()
     con.execute("""UPDATE intake_jobs SET status='queued', attempts=0, defer_count=0,

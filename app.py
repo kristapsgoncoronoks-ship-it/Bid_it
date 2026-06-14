@@ -481,6 +481,9 @@ PERM_BY_ENDPOINT = {
 ADMIN_ONLY = {"vat", "api_vat", "readiness", "recovery", "receivables",
               "export_vat", "export_readiness", "export_fees", "export_fee",
               "export_receivables", "export_evidence",
+              # the one-click monthly close is an engine-orchestration action (it
+              # ENQUEUES engine_close.close onto the worker), so it is admin-only.
+              "monthly_close",
               # customer/CRM data (checklist, templates, document generation) is part of
               # the VAT-refund module, so the same admin-only access applies.
               "customers", "cust_doc_download"}
@@ -1058,7 +1061,8 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
 {% if 'exports' in perms %}<div class="menu" tabindex="0"><span class="mlabel">⬇ Export</span><div class="mdrop"><span>
   <a href="/export/summary">Summary report</a><a href="/export/master">Master workbook</a><a href="/export/history">History report</a>
 </span></div></div>{% endif %}
-{% if role == 'admin' %}<a href="/admin" class="{{'on' if page=='adm'}}">Admin</a>{% endif %}
+{% if role == 'admin' %}<a href="/close" class="{{'on' if page=='close'}}">Monthly close</a>
+<a href="/admin" class="{{'on' if page=='adm'}}">Admin</a>{% endif %}
 <span class="note" style="color:#9fb3c4">{{ user }} ({{ role }})</span>
 <a href="/logout">Sign out</a></span>
 </header><main>{{ body|safe }}</main><script src="/app.js" defer></script></body></html>"""
@@ -1343,6 +1347,117 @@ def _worklist_card(year):
     return ('<div class="card"><h2>What needs action '
             f'<span class="note">({len(items)})</span></h2>'
             f'<ul style="margin:0;padding-left:18px;line-height:1.9">{lis}{more}</ul></div>')
+
+# the five stages engine_close.close runs, in order — the progress panel shows one
+# line per stage (the import_log "close" channel records each under these names).
+_CLOSE_STAGES = ("consolidate", "build_master", "history", "invoice_control", "backup")
+
+def _close_progress(period):
+    """READ-ONLY per-stage progress panel for the monthly close, built from the
+    import_log 'close' channel for `period`. One line per stage showing its latest
+    status (received/success/failed), message and time, plus an overall state badge:
+    IN PROGRESS while the engine 'close-run' lock is held (or a stage is 'received'
+    with no terminal event yet), COMPLETE once backup succeeded, FAILED if any stage
+    failed. Degrades to an empty panel on a read error (logged, never a 500) — the app
+    is READ-ONLY here; the close itself runs on the worker."""
+    import import_log
+    latest = {}            # stage -> the newest import_log row for it
+    try:
+        # newest-first; keep the FIRST (latest) row seen for each stage.
+        for r in import_log.recent(channel="close", limit=300):
+            if r.get("period") != period:
+                continue
+            stage = r.get("source_name")
+            if stage in _CLOSE_STAGES and stage not in latest:
+                latest[stage] = r
+    except Exception as e:
+        _log_exc("close progress read", e)
+        latest = {}
+    in_progress = False
+    try:
+        import process_lock
+        in_progress = process_lock.held_by(_CLOSE_LOCK) is not None
+    except Exception as e:
+        _log_exc("close progress lock", e)
+    any_failed = any((latest.get(s) or {}).get("status") == "failed" for s in _CLOSE_STAGES)
+    any_received = any((latest.get(s) or {}).get("status") == "received" for s in _CLOSE_STAGES)
+    backup_ok = (latest.get("backup") or {}).get("status") == "success"
+    if any_failed:
+        badge = '<span class="bad">FAILED</span>'
+    elif in_progress or (any_received and not backup_ok):
+        badge = '<span>IN PROGRESS</span>'
+    elif backup_ok:
+        badge = '<span class="ok">COMPLETE</span>'
+    elif latest:
+        badge = '<span>IN PROGRESS</span>'
+    else:
+        badge = '<span class="note">not started</span>'
+    _STCLS = {"success": "ok", "failed": "bad", "received": ""}
+    rows = []
+    for s in _CLOSE_STAGES:
+        r = latest.get(s)
+        if r:
+            st = r.get("status") or ""
+            cell = f'<td class="{_STCLS.get(st, "")}">{esc(st)}</td>'
+            msg = esc((r.get("message") or "")[:120])
+            ts = esc(r.get("ts") or "")
+        else:
+            cell = '<td class="note">—</td>'
+            msg = '<span class="note">no event yet</span>'
+            ts = ""
+        rows.append([f'<td>{esc(s)}</td>', cell, f'<td>{msg}</td>',
+                     f'<td class="note">{ts}</td>'])
+    table = tbl(["Stage", "Status", "Message", "Time (UTC)"], rows)
+    return (f'<div class="card"><h2>Close progress — {esc(period)} &nbsp;{badge}</h2>'
+            f'{table}<div class="note">Read-only view of the worker\'s progress '
+            '(import log, channel “close”). Reload to refresh.</div></div>')
+
+@app.route("/close", methods=["GET", "POST"])
+def monthly_close():
+    """One-click MONTHLY CLOSE (admin-only; enforced via ADMIN_ONLY in _guard). The
+    web request NEVER runs the close inline and holds NO writable engine-owned
+    product-DB handle — it only ENQUEUES a fileless job (waiting_room.enqueue_close);
+    the worker tier dispatches kind='close' and calls engine_close.close OFF the
+    request. The GET view shows a period selector, the guarded run button, and a
+    READ-ONLY per-stage progress panel from the import_log 'close' channel."""
+    import waiting_room as IQ
+    con = DB(); periods = q_periods(con); con.close()
+    banner = ""
+    if request.method == "POST":
+        # default to the latest loaded period (same source the dashboard uses).
+        period = (request.form.get("period") or (periods[0] if periods else "")).strip()
+        if not period:
+            banner = ('<div class="card"><b class="bad">No period to close — load a '
+                      'period first (import a batch or run history).</b></div>')
+        else:
+            try:
+                # ENQUEUE ONLY — the close runs on the worker; the request returns now.
+                IQ.enqueue_close(period, session["user"])
+                banner = (f'<div class="card"><b class="ok">Monthly close queued for '
+                          f'{esc(period)} — it runs on the worker; progress below.</b></div>')
+            except Exception as e:
+                _log_exc("enqueue monthly close", e)
+                banner = (f'<div class="card"><b class="bad">Could not queue the close: '
+                          f'{esc(str(e))}</b></div>')
+    else:
+        period = (request.args.get("period") or (periods[0] if periods else "")).strip()
+    if not period:
+        return page(banner + '<div class="card"><h2>Monthly close</h2><p>No data '
+                    'loaded yet — import an invoice batch first.</p></div>', "close")
+    psw = "".join(f'<option {"selected" if p == period else ""}>{esc(p)}</option>'
+                  for p in periods)
+    run_form = (
+        '<form method="post" class="f" data-confirm="Run the monthly close for this '
+        'period? It runs on the worker (consolidate → build_master → history → '
+        'invoice_control → backup).">' + _csrf_input()
+        + f'<label>Period<select name="period">{psw}</select></label>'
+        + '<button name="__act" value="run">Run monthly close</button></form>')
+    card = ('<div class="card"><h2>Monthly close</h2>'
+            '<p class="note">Runs the full engine close as ONE guarded, restartable '
+            'unit on the worker tier — consolidate → build_master → history → '
+            'invoice_control → backup. The web request only queues it; it never runs '
+            'inline.</p>' + run_form + '</div>')
+    return page(banner + card + _close_progress(period), "close")
 
 @app.route("/compare")
 def compare():
