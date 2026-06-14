@@ -146,7 +146,56 @@ stay independent of.
 
 ---
 
-## 7. Strategy → backlog
+## 7. Data-acquisition architecture (automated document capture)
+
+The platform should feed itself — automatically capturing fuel/toll invoices & statements so the
+recovery + analysis runs without manual upload. This is the flagship near-term build and the moat
+engine (it's how the multi-network dataset accumulates).
+
+**Capture both ways; lead with the structured path.** The industry (and EU law) is moving from
+portal-pull to structured push: PSD2 deprecated bank screen-scraping in favour of APIs+tokens, and
+ViDA + national mandates (Poland KSeF, Belgium, France, Germany — 2026-2028) make EN-16931
+e-invoicing mandatory, so invoices arrive machine-readable. **But most fuel/toll suppliers in road
+transport have low IT maturity** — no API, no e-invoicing — so credential-based portal scraping is a
+**required first-class capability, not just a fallback.** Precedence (per capture source):
+1. **Supplier API / EDI** where it exists.
+2. **E-invoicing inbound** (PEPPOL/EN-16931, email/invoice-inbox) — grows automatically as ViDA lands.
+3. **Credential-based portal scraping** (`portal_scraper.py` adapters) for the low-IT long tail.
+4. **Manual upload** (the existing `/queue` waiting room) — always available.
+
+**Run it out-of-band (don't overload the system).** All fetching/scraping is slow, bursty,
+externally-dependent and failure-prone (MFA/CAPTCHA/timeouts/layout drift) — so it runs on the
+existing durable intake queue (`waiting_room.py`: lease/retry/backoff/DLQ) on a **dedicated worker
+tier** (`FFS_ROLE`, `python waiting_room.py --work` — the D6 item), never inline in a web request.
+Add **per-supplier rate-limit + concurrency caps + exponential backoff + a circuit-breaker** so one
+flaky/overloaded portal pauses only its own jobs (protects both your system AND keeps you under the
+supplier's anti-bot radar / out of a ban). Keep orchestration in-house (the data is the moat); buy
+only anti-bot infra (rotating proxies / CAPTCHA) externally if you hit walls.
+
+**Credential custody (the "we hold client logins" security concern).** Best-practice, per OWASP/NIST:
+- **Envelope encryption** (KEK wraps a per-secret DEK) backed by **KMS/HSM** (AWS KMS / Azure Key
+  Vault / HashiCorp Vault) — never plaintext; the at-rest store is useless without the KMS call.
+- **Per-tenant / customer-supplied keys (BYOK)** so the platform cannot bulk-decrypt one client's
+  credentials — directly limits insider and bulk-breach exposure.
+- **Prefer OAuth / scoped, revocable, expiring tokens over stored passwords** wherever a supplier
+  supports it (the RPA "credential vault" pattern — CyberArk/UiPath — is the exact analogue).
+- **Least-privilege + full audit** on every credential access; automated rotation.
+- GDPR Art. 33/34 (72-hour breach notice) is the liability backdrop; target **SOC 2 Type II + ISO
+  27001/27017/27018** as the platform handles credentials + financial data.
+
+**Multi-tenant isolation (one client must never see another's data — the legal imperative).** Today
+the system serves several entities within ONE deployment (per-entity model + `ADMIN_ONLY`/perms). If
+it goes multi-CLIENT SaaS, tenant-isolation becomes first-class: a tenant context enforced at EVERY
+query (row-level security / tenant-scoped keys), automated cross-tenant access tests, and ideally
+per-tenant encryption. A cross-tenant leak is a personal-data breach (GDPR Art. 33/34, fines up to
+€20m / 4% turnover) and a contract/trust failure — so isolation must be *provable*, not assumed.
+
+## 8. Roadmap
+
+See **`docs/ROADMAP.md`** — the phased, sequenced plan tying this strategy, the data-acquisition
+build, and the open backlog into delivery horizons.
+
+## 9. Strategy → backlog
 
 New buildable items derived from this strategy (added to `docs/BACKLOG.md` §C-Strategic):
 - **SAF-T / e-invoice / ERP export** (expense + ViDA tailwind) — *the highest-value capability bet.*

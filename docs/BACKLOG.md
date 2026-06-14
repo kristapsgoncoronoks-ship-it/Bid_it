@@ -21,6 +21,34 @@ priorities (`7db2d95`); import-reliability + audit-activity trends (`cc4df3d`); 
 `except: pass` → `applog` migration across the whole codebase (`4af7cf7`/`ce5ac8b`/`e51ef52`/`e116b43`).
 **→ Section A's under-used-data analytics runway AND the code-quality except-pass item are now cleared.**
 
+**Strategic direction:** see `docs/STRATEGY.md` (monetisation models + data-acquisition
+architecture) and `docs/ROADMAP.md` (phased plan). The flagship near-term programme is **automated
+document capture** (below) — it makes the platform self-feeding and builds the dataset moat.
+
+---
+
+## Flagship — Automated document capture (Roadmap Phase 1; the moat engine)
+Build BOTH capture paths and run them OUT-OF-BAND on a dedicated worker tier (never inline). Lead
+with structured (API/e-invoicing); credential-scraping is first-class for the low-IT supplier tail.
+- **Dedicated worker tier (D6)** — `FFS_ROLE=web` + `python waiting_room.py --work`; the execution
+  substrate for fetching/scraping. *(M, low — prereq for the rest.)*
+- **Per-supplier rate-limit / concurrency cap / backoff / circuit-breaker** on the intake queue —
+  so fetching can't overload our system or trip a supplier's anti-bot/ban. *(M)*
+- **Supplier API / EDI ingestion** — advance `ingest.py` / `/api/*` to pull where a supplier offers
+  an API. *(M–L)*
+- **E-invoicing inbound** — PEPPOL/EN-16931 + email/invoice-inbox capture (grows as ViDA lands). *(L)*
+- **Credential-based portal scraping** — advance `portal_scraper.py` adapters for low-IT suppliers
+  (login → fetch invoices/statements → enqueue). Handle MFA/CAPTCHA fragility; fall back to manual. *(L)*
+- **Credential-custody hardening** — envelope encryption (KEK→DEK) + KMS/HSM, **per-tenant/BYOK keys**
+  (no bulk-decrypt), OAuth/scoped tokens over passwords where supported, least-privilege + audit,
+  rotation. *(M, security-critical.)* **Decision:** KMS/secrets backend (cloud KMS vs Vault).
+- **Self-service supplier onboarding** — client connects API / stores portal logins; system
+  auto-fetches + analyses. *(M)*
+- **Multi-tenant isolation (if multi-CLIENT SaaS)** — tenant context enforced at every query (RLS /
+  tenant-scoped keys), automated cross-tenant access tests, per-tenant encryption; a cross-tenant
+  leak is a GDPR Art. 33/34 breach. *(L)* **Decision:** tenancy model (RLS vs schema vs DB-per-tenant)
+  + whether to go multi-client SaaS now or stay per-deployment.
+
 ---
 
 ## A. Ready now — no decision needed (ordered by value)

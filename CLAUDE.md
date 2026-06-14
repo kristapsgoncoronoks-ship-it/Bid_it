@@ -116,25 +116,41 @@ PASS all suppliers. After test runs, restore demo-DB churn before committing:
   [period]` (consolidate→build_master→history→run_control→backup, one audit trail, restartable).
   The individual CLIs still run standalone for debugging.
 
-## Known next steps (backlog)
-- Money sweep (full precision / `money.f2`) for the stored-master and analytics paths
-  still on bare `round()`: `build_master.py`, `queries.py`/`reports.py` overpay+total
-  (consolidate the duplicated overpay loop into one canonical impl), and the
-  `_num` fallback in `extract.py`'s e-invoice branch.
-- Test coverage for `invoice_control.py`, `ingest.py`, `build_master.py`, `history.py`.
-- Migrate the remaining ad-hoc `except: pass` blocks to `applog`/`_log_exc` logging.
-- PDF generation for .docx templates (text templates already export PDF).
-- Notifications: `notify.py` digest mailer (worklist + expiring docs + stuck queue jobs) on
-  a leader-elected scheduler is DONE; remaining = per-event alerts + an SMTP relay config UI.
-- Reliability hardening (`docs/RELIABILITY.md`): dead-letter/DLQ growth alerting, an
-  oldest-pending-job age SLO metric, `process_lock` fencing token + monotonic-clock deadline,
-  a per-job extract deadline, and the register-failure vaulted-doc reconcile.
-- Off-machine backup sync (OneDrive/SharePoint) so `backups/` survives disk loss —
-  currently an OS/cron concern, documented in the Admin "Backups" card.
-- Horizontal scale (see `docs/SCALING.md`). Done & testable: node roles (`FFS_ROLE`),
-  shared sessions (`FFS_SECRET_KEY`), pluggable storage, lease queue + leader scheduler,
-  and the `db.qmark_to_pyformat` paramstyle shim. Remaining for a validated Postgres
-  cutover (needs a LIVE Postgres): exercise `_PgShim` on real psycopg; port dialect-isms
-  (`datetime('now')`→`now()`, `INSERT OR IGNORE`→`ON CONFLICT`, `json_object` audit
-  triggers → a PG trigger fn); migrate the `intake` queue + `process_lock` leases to the
-  shared DB; Postgres-native backups (`pg_dump`).
+## Strategic direction (see `docs/STRATEGY.md`)
+The product thesis: **turn a transport company's messy, multi-supplier fuel/toll spend into
+recovered cash and an audit-ready financial record — across every fuel card, automatically —
+and own the cash-timing of the refund by financing it.** Monetisation roadmap (priority order):
+direct-to-fleet recovery (multi-card wedge) → embedded finance (factor the VAT receivable via a
+licensed partner) → expense reports + SAF-T/e-invoice/ERP export (ViDA tailwind 2026-2030) →
+open-banking reconciliation/pay-by-bank (aggregator/agent partner) → pooled benchmark
+(internal-first, counsel-gated to externalise). The moat is the proprietary, multi-network,
+line-item invoice dataset. Full analysis + the four monetisation models in `docs/STRATEGY.md`.
+
+**Data-acquisition direction (automated document capture).** Build BOTH paths — supplier APIs /
+e-invoicing inbound (PEPPOL/EN-16931, mandatory under ViDA) where a supplier supports it, AND
+credential-based portal scraping (`portal_scraper.py` adapters) for the majority of low-IT
+suppliers that offer neither. Run all fetching OUT-OF-BAND on the intake queue + a dedicated
+worker tier (`FFS_ROLE`, `python waiting_room.py --work`) with per-supplier rate-limit /
+concurrency caps / backoff / circuit-breaker — never inline in a web request. Stored portal
+credentials MUST use envelope encryption (KEK→DEK) backed by KMS/HSM, per-tenant/BYOK keys (so
+the platform can't bulk-decrypt one tenant's secrets), prefer OAuth/scoped tokens over passwords
+where available, least-privilege + full audit. If the product goes multi-CLIENT SaaS,
+tenant-isolation becomes first-class (tenant-scoped enforcement at every query; a cross-tenant
+leak is a GDPR Art. 33/34 breach). Target SOC 2 Type II + ISO 27001/27017/27018.
+
+## Known next steps (backlog) — canonical live list in `docs/BACKLOG.md`
+`docs/BACKLOG.md` is the authoritative, current backlog (ready-now / decision-gated / strategic /
+platform). Recently SHIPPED (no longer open): the money-precision sweep, the whole
+`except: pass`→`applog` migration, `.docx`→PDF generation (document module), DLQ alerting +
+oldest-pending SLO, the register-failure reconcile, the §B VAT-correctness work (national-currency
+threshold hard-gate, receipt-control gate+waive, FX provenance + per-invoice ECB verification),
+the CRM integration API, and the full document-management module. Still open highlights:
+- **Automated document capture** — advance API ingestion + supplier-portal scraping (both), on the
+  worker tier with per-supplier rate-limiting; credential-custody hardening (envelope/KMS/per-tenant
+  keys, OAuth-where-available, audit). The flagship near-term build.
+- **D6** — intake worker as a dedicated worker-process by default (the scraper/fetch tier).
+- **Strategy-derived bets** — SAF-T/e-invoice/ERP export, expense reports, embedded-finance partner
+  integration, open-banking reconciliation (see `docs/STRATEGY.md` §7 / `docs/BACKLOG.md` §C).
+- Test coverage for `invoice_control.py`/`ingest.py`/`build_master.py`/`history.py`; per-event
+  notification alerts + SMTP relay UI; off-machine backup sync; validated Postgres cutover
+  (`docs/SCALING.md`); `process_lock` fencing + per-job extract deadline (scale-gated).
