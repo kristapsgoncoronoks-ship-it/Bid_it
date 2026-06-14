@@ -76,8 +76,10 @@ priorities (`7db2d95`); import-reliability + audit-activity trends (`cc4df3d`); 
   circular log-the-logging-failure fallbacks (`app.py`/`auth.py`/`applog.py`), the
   `O_EXCL` secret-key create-race, the `BEGIN IMMEDIATE` nested-txn guard, the
   `rejected`-keeps-locks no-op branch, and the two bootstrap scripts (`make_cert`/`start`).
-- **Money-precision sweep remnants** — `extract.py` `_num` e-invoice fallback; any
-  remaining bare `round()` on currency. *(S, low)*
+- ~~**Money-precision sweep remnants**~~ ✅ SHIPPED (`05c5c24`, `aab11bf`) — unified the
+  shadowed `extract._num` to one `money.f2` parser (also fixed a dotted-thousands→0.0
+  bug); converted the last currency `round()` (Q8/TFC VAT row_maps) to `money.f2`. The
+  remaining `round()` calls are on litres/€-per-L/FX-rates/percentages (correct per CLAUDE.md).
 - **Test coverage** for `invoice_control`/`ingest`/`build_master`/`history` (some added). *(M)*
 
 ---
