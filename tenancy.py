@@ -341,11 +341,15 @@ def scope_clause(column="tenant_id"):
             return (" AND 1=0", [])
         return (f" AND {column} = ?", [t])
     except Exception as e:
-        # A failure here must never widen a scope: degrade to the OFF no-op only
-        # when multitenant is provably OFF; if we can't even tell, prefer raising
-        # nothing here and let require_tenant() at the call site gate the write.
-        log.warning("scope_clause(%r) failed, returning no-op: %s", column, e)
-        return ("", [])
+        # A failure here must never WIDEN a scope. Fail CLOSED (match nothing) unless
+        # multitenant is provably OFF (then the inert no-op is the correct behavior).
+        # If we cannot even determine the switch state, assume ON and fail closed.
+        log.warning("scope_clause(%r) failed: %s", column, e)
+        try:
+            off = not multitenant_enabled()
+        except Exception:
+            off = False
+        return ("", []) if off else (" AND 1=0", [])
 
 
 if __name__ == "__main__":

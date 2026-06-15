@@ -260,6 +260,24 @@ def test_on_owner_scope_sees_all(multitenant_on):
     assert tenancy.scope_clause("customer_id") == ("", [])
 
 
+def test_scope_clause_fails_closed_on_internal_error_when_on(multitenant_on, monkeypatch):
+    """If scope_clause's body raises while multitenant is ON, it must fail CLOSED
+    (matches nothing), never widen to the no-op."""
+    def boom():
+        raise RuntimeError("boom")
+    monkeypatch.setattr(tenancy, "is_owner_scope", boom)
+    frag, params = tenancy.scope_clause()
+    assert frag == " AND 1=0" and params == []
+
+
+def test_scope_clause_internal_error_when_off_is_inert(monkeypatch):
+    """The same class of failure while multitenant is OFF degrades to the inert
+    no-op (single-tenant correctness)."""
+    monkeypatch.setattr(tenancy, "multitenant_enabled", lambda: False)
+    frag, params = tenancy.scope_clause()
+    assert frag == "" and params == []
+
+
 def test_on_neither_set_fails_closed(multitenant_on):
     """Switch ON but NEITHER owner nor tenant resolved -> fail CLOSED: a
     matches-nothing clause so a missing context can never leak cross-tenant."""
