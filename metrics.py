@@ -31,6 +31,7 @@ import db_migrate
 import db_tuning
 import money
 import queries
+import tenancy
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 # Same on-disk file history.py owns; a module-level attr so tests can repoint it the
@@ -46,6 +47,11 @@ _MIGR = [
     "CREATE TABLE IF NOT EXISTS settled_metrics ("
     "period TEXT NOT NULL, metric TEXT NOT NULL, value REAL, detail TEXT, "
     "computed_at TEXT, PRIMARY KEY(period, metric))",
+    # Multi-tenant P1 (schema plumbing only): add tenant_id on this WRITABLE engine
+    # handle. The rebuild() INSERT names its columns explicitly, so tenant_id takes
+    # its column DEFAULT ('default'); nothing SELECTs/filters it yet (P2 wires
+    # scope_clause). OFF-inert — read()/verify() read named columns, never migrate.
+    *tenancy.tenant_column_ddls(["settled_metrics"]),
 ]
 
 # The metric keys this module settles. Kept as a constant so read()/verify() and the

@@ -24,6 +24,7 @@ import db_migrate
 
 import db_tuning
 import applog
+import tenancy
 
 import os
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
@@ -82,6 +83,16 @@ def run_control(period, persist=True):
             expected TEXT, invoice_no TEXT, status TEXT, note TEXT,
             waived INTEGER DEFAULT 0, checked_at TEXT,
             PRIMARY KEY (period, supplier, country, slot))""")
+        # Multi-tenant P1 (schema plumbing only): add tenant_id on this WRITABLE engine
+        # handle, right after the inline CREATE. A DISTINCT migration key
+        # ("invoice_control_fuel") keeps it independent of the "invoice_control"
+        # migration used on the suppliers.db register path. The run_control INSERT
+        # below names its columns explicitly, so tenant_id takes its column DEFAULT
+        # ('default'); nothing SELECTs/filters it yet (scope_clause is wired in P2).
+        # Run BEFORE install_audit so tenant_id is part of the audited row snapshot
+        # (TEXT is audit-safe). OFF-inert.
+        db_migrate.apply(fcon, "invoice_control_fuel",
+                         tenancy.tenant_column_ddls(["invoice_receipt_control"]))
         audit.install_audit(fcon, ["invoice_receipt_control"])
 
     cadence = {r["code"]: (r["invoice_cadence"] or "monthly")

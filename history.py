@@ -22,6 +22,7 @@ import consolidate
 import month_config
 import ecb_rates
 import applog
+import tenancy
 from openpyxl import Workbook
 from openpyxl.chart import LineChart, Reference
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -51,6 +52,11 @@ _MIGR = [
     "ALTER TABLE transactions ADD COLUMN fx_ecb_rate REAL",
     "ALTER TABLE transactions ADD COLUMN fx_ecb_date TEXT",
     "ALTER TABLE transactions ADD COLUMN fx_source TEXT",
+    # Multi-tenant P1 (schema plumbing only): add tenant_id to the engine-owned
+    # transactions table on this WRITABLE engine handle. The load() INSERT names
+    # period+FIELDS explicitly, so tenant_id takes its column DEFAULT ('default')
+    # — nothing SELECTs/filters it (scope_clause is wired in P2). OFF-inert.
+    *tenancy.tenant_column_ddls(["transactions"]),
 ]
 
 log = applog.get("history")
