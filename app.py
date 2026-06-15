@@ -469,6 +469,7 @@ PERM_BY_ENDPOINT = {
     "pricing_market":  "pricing", "pricing_portal": "pricing",
     "pricing_adopt_benchmark": "pricing", "export_benchmark": "exports",
     "export_peer":     "exports",
+    "reliability_page": "pricing",
     "intel":           "pricing", "export_intel": "exports",
     "export_overpay":  "exports",
     "export_expenses": "exports",
@@ -512,7 +513,7 @@ MODULES = {
                     "pricing_upload", "api_pricing", "export_compare", "export_stations",
                     "export_pricing", "export_benchmark", "export_peer", "intel", "export_intel",
                     "export_overpay", "expenses", "export_expenses", "export_accounting",
-                    "export_saft", "reports_page"}),
+                    "export_saft", "reports_page", "reliability_page"}),
     "intake":     ("Intake — import, waiting room, files, document mining",
                    {"extract_batch", "extract_confirm", "extract_ai_review",
                     "intake_queue_page", "intake_review",
@@ -1235,7 +1236,7 @@ h2.section:first-of-type{margin-top:4px}
 </style></head><body>
 <header><b>⛽ Fleet Fuel</b>
 <a href="/" class="{{'on' if page=='dash'}}">Dashboard</a>
-{% if 'analytics' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['rep','sav','exp','int','cmp','txn','h2h','stn','ano','pri'] else ''}}">Analytics</span><div class="mdrop"><span>
+{% if 'analytics' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['rep','sav','exp','int','cmp','txn','h2h','stn','ano','pri','rel'] else ''}}">Analytics</span><div class="mdrop"><span>
   <a href="/reports" class="{{'on' if page=='rep'}}">Reports (charts)</a>
   <a href="/savings" class="{{'on' if page=='sav'}}">Savings</a>
   <a href="/expenses" class="{{'on' if page=='exp'}}">Expenses</a>
@@ -1245,7 +1246,8 @@ h2.section:first-of-type{margin-top:4px}
   <a href="/headtohead" class="{{'on' if page=='h2h'}}">Head-to-head</a>
   <a href="/stations" class="{{'on' if page=='stn'}}">Stations</a>
   <a href="/anomalies" class="{{'on' if page=='ano'}}">Anomalies</a>
-  {% if 'pricing' in perms %}<a href="/pricing" class="{{'on' if page=='pri'}}">Pricing intel</a>{% endif %}
+  {% if 'pricing' in perms %}<a href="/pricing" class="{{'on' if page=='pri'}}">Pricing intel</a>
+  <a href="/reliability" class="{{'on' if page=='rel'}}">Reliability</a>{% endif %}
 </span></div></div>{% endif %}
 <div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ent','vat','rdy','rec','rcv','fx'] else ''}}">VAT &amp; fees</span><div class="mdrop"><span>
   <a href="/entities" class="{{'on' if page=='ent'}}">Entities &amp; VAT</a>
@@ -4325,6 +4327,329 @@ def pricing_upload():
                     f'Found columns: {esc(", ".join(fields))}</b></div>', "pri")
     return page(f'<div class="card"><b class="ok">{esc(msg)}</b> '
                 '<a href="/pricing">→ back to pricing intel</a></div>', "pri")
+
+
+# ---------------------------------------------------------------- supplier reliability
+def _reliability_parse_upload(f, form_supplier, form_country, form_pg):
+    """Parse an uploaded advertised-price file (xlsx/csv/xml/pdf) into a list of dicts
+    {supplier, country, city, date, product_group, net_price}. Rows that omit a
+    supplier/country inherit the form's defaults. Returns (rows, note); `note` is a
+    non-empty advisory string when a best-effort path (PDF) parsed little/nothing.
+    Raises on a hard parse error (the caller logs + shows a red banner)."""
+    name = (f.filename or "").lower()
+    raw = f.read()
+    rows, note = [], ""
+
+    def _mk(d):
+        """Build a normalized row from a case-insensitive header->value mapping,
+        inheriting the form defaults. Returns None when no usable price/place."""
+        g = {(k or "").strip().lower(): v for k, v in d.items()}
+        def pick(*keys):
+            for k in keys:
+                v = g.get(k)
+                if v not in (None, ""):
+                    return v
+            return None
+        price = pick("net_price", "price", "eur_per_l", "net", "advertised")
+        if price in (None, ""):
+            return None
+        city = pick("city", "location", "station", "town", "place") or ""
+        date = pick("date", "day") or _dt.date.today().isoformat()
+        return {
+            "supplier": (pick("supplier") or form_supplier or "").strip(),
+            "country": (pick("country") or form_country or "").strip(),
+            "city": str(city).strip(),
+            "date": str(date).strip()[:10],
+            "product_group": (pick("product_group", "product", "fuel") or form_pg
+                              or "Diesel"),
+            "net_price": price}
+
+    if name.endswith((".xlsx", ".xlsm")):
+        import io
+        from openpyxl import load_workbook
+        wb = load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
+        ws = wb.active
+        it = ws.iter_rows(values_only=True)
+        header = None
+        for r in it:
+            if r is None or all(c is None for c in r):
+                continue
+            header = [(str(c).strip() if c is not None else "") for c in r]
+            break
+        for r in it:
+            if r is None or all(c is None for c in r):
+                continue
+            d = {header[i]: (r[i] if i < len(r) else None) for i in range(len(header))}
+            row = _mk(d)
+            if row:
+                rows.append(row)
+        wb.close()
+    elif name.endswith(".csv") or name.endswith(".txt"):
+        import csv as _csv, io
+        text = raw.decode("utf-8-sig", errors="replace")
+        for d in _csv.DictReader(io.StringIO(text)):
+            row = _mk(d)
+            if row:
+                rows.append(row)
+    elif name.endswith(".xml"):
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(raw.decode("utf-8-sig", errors="replace"))
+        # Generic element-per-row: any element carrying a price (child or attribute).
+        for rec in root.iter():
+            fields = dict(rec.attrib)
+            for ch in list(rec):
+                tag = ch.tag.split("}")[-1]
+                if ch.text and ch.text.strip():
+                    fields[tag] = ch.text.strip()
+            row = _mk(fields)
+            if row:
+                rows.append(row)
+    elif name.endswith(".pdf"):
+        # BEST-EFFORT only — a simple line regex (location ... price [+ date]). An
+        # unstructured PDF that yields nothing tells the user to use xlsx/csv/xml.
+        import re as _re, extract
+        try:
+            text = extract.pdf_text(raw)
+        except Exception as e:
+            _log_exc("reliability pdf text", e)
+            text = ""
+        date_re = _re.compile(r"(\d{4}-\d{2}-\d{2})")
+        price_re = _re.compile(r"(\d+[.,]\d{2,4})\s*$")
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            pm = price_re.search(line)
+            if not pm:
+                continue
+            price = pm.group(1).replace(",", ".")
+            try:
+                if float(price) <= 0 or float(price) > 100:
+                    continue       # a €/L line, not a total/quantity
+            except ValueError:
+                continue
+            dm = date_re.search(line)
+            loc = line[:pm.start()].strip()
+            if dm:
+                loc = loc.replace(dm.group(1), "").strip()
+            rows.append(_mk({"city": loc, "date": dm.group(1) if dm else "",
+                             "net_price": price}))
+        rows = [r for r in rows if r]
+        if not rows:
+            note = ("Could not read advertised prices from that PDF — PDF capture is "
+                    "best-effort. Use a structured file (xlsx/csv/xml) or the manual "
+                    "form below.")
+    else:
+        raise ValueError("Unsupported file type — use xlsx, csv, xml or pdf.")
+
+    # Drop rows still missing a supplier (nothing to attribute them to).
+    rows = [r for r in rows if r.get("supplier")]
+    return rows, note
+
+
+def _reliability_supplier_options(cur=""):
+    """<option> list of supplier codes from supplier_master, plus the current value as a
+    free-text fallback. Never raises — a missing master just yields a bare blank."""
+    codes = []
+    try:
+        import supplier_master
+        con = supplier_master.connect()
+        codes = [r[0] for r in con.execute("SELECT code FROM suppliers ORDER BY code")]
+        con.close()
+    except Exception as e:
+        _log_exc("reliability supplier list", e)
+    opts = ['<option value="">— choose / type below —</option>']
+    for c in codes:
+        opts.append(f'<option {"selected" if c == cur else ""}>{esc(c)}</option>')
+    return "".join(opts)
+
+
+@app.route("/reliability", methods=["GET", "POST"])
+def reliability_page():
+    """Supplier reliability — capture advertised portal prices and surface where each
+    supplier INVOICED above what it ADVERTISED (NET EUR/L). Capability: pricing
+    (gated centrally in _guard); writes ONLY to the app-owned benchmark.db via the R1
+    pricing_intelligence functions; reads transactions READ-ONLY via the engine."""
+    import pricing_intelligence as PI
+    banner = ""
+    if request.method == "POST":
+        act = request.form.get("__act", "upload")
+        try:
+            if act == "manual":
+                supplier = (request.form.get("supplier_pick") or "").strip() or \
+                           (request.form.get("supplier") or "").strip()
+                country = (request.form.get("country") or "").strip()
+                city = (request.form.get("city") or "").strip()
+                date = (request.form.get("date") or "").strip() or \
+                    _dt.date.today().isoformat()
+                pg = (request.form.get("product_group") or "Diesel").strip() or "Diesel"
+                raw_price = (request.form.get("net_price") or "").strip()
+                if not supplier or not country:
+                    raise ValueError("Supplier and country are required.")
+                price = money.q2(raw_price.replace(",", "."))
+                if price <= 0:
+                    raise ValueError(f"Net price must be a positive number "
+                                     f"(got {raw_price!r}).")
+                PI.add_advertised_price(supplier, country, city, date,
+                                        float(price), product_group=pg, source="manual")
+                banner = ('<div class="card"><b class="ok">Added advertised price for '
+                          f'{esc(supplier.upper())} — {esc(country.upper())} '
+                          f'{esc(city)} {esc(date)} at {float(price):.4f} €/L.</b></div>')
+            else:  # upload
+                f = request.files.get("file")
+                if not f or not f.filename:
+                    raise ValueError("Choose a file to upload.")
+                rows, note = _reliability_parse_upload(
+                    f, request.form.get("supplier", ""),
+                    request.form.get("country", ""),
+                    request.form.get("product_group", "Diesel"))
+                if rows:
+                    n = PI.load_advertised_prices(rows, source="upload")
+                    banner = (f'<div class="card"><b class="ok">Loaded {n} advertised '
+                              f'price(s).</b>'
+                              + (f' <span class="note">{esc(note)}</span>' if note else '')
+                              + '</div>')
+                else:
+                    msg = note or ("No advertised prices found in that file — check the "
+                                   "columns (supplier, country, city, date, net_price).")
+                    banner = (f'<div class="card"><b class="bad">{esc(msg)}</b></div>')
+        except Exception as e:
+            _log_exc("reliability capture", e)
+            banner = (f'<div class="card"><b class="bad">Could not add advertised '
+                      f'prices: {esc(str(e))}</b></div>')
+
+    period = (request.args.get("period") or "").strip() or None
+    try:
+        rep = PI.reliability_report(period)
+    except Exception as e:
+        _log_exc("reliability report", e)
+        rep = {"suppliers": [], "detail": [], "summary": {
+            "matched_fills": 0, "overcharged_fills": 0, "unmatched_fills": 0,
+            "total_overcharge_eur": 0.0}}
+    suppliers, detail, summ = rep["suppliers"], rep["detail"], rep["summary"]
+
+    # overcharge € by supplier (only suppliers actually overcharging)
+    bars = svg_hbars([(s["supplier"], s["total_overcharge_eur"]) for s in suppliers
+                      if s["total_overcharge_eur"] > 0], unit=" €", fmt=",.0f",
+                     color="#c8102e")
+    srows = []
+    for s in suppliers:
+        sc = s["reliability_score"]
+        scls = "" if sc is None else ("ok" if sc >= 0.99 else ("bad" if sc < 0.9 else ""))
+        srows.append([
+            f"<td>{esc(s['supplier'])}</td>",
+            (f"<td class='r {scls}'>{sc*100:.1f}%</td>" if sc is not None
+             else "<td class='r'>—</td>"),
+            f"<td class=r>{s['matched_fills']}</td>",
+            f"<td class='r {'bad' if s['overcharged_fills'] else ''}'>{s['overcharged_fills']}</td>",
+            f"<td class='r {'bad' if s['total_overcharge_eur'] else ''}'>{s['total_overcharge_eur']:,.0f}</td>",
+            (f"<td class=r>{s['avg_delta_eur_per_l']:+.4f}</td>"
+             if s['avg_delta_eur_per_l'] is not None else "<td class=r>—</td>")])
+    drows = []
+    for d in detail:
+        drows.append([
+            f"<td>{esc(d['supplier'])}</td>",
+            f"<td>{esc(d['country'])} {esc(d['city'] or '')}</td>",
+            f"<td>{esc(d['date'])}</td><td>{esc(d['product'])}</td>",
+            f"<td class=r>{d['qty']:,.1f}</td>",
+            f"<td class=r>{d['advertised']:.4f}</td>",
+            f"<td class=r>{d['invoiced']:.4f}</td>",
+            f"<td class='r bad'>{d['delta']:+.4f}</td>",
+            f"<td class='r bad'>{d['overcharge_eur']:,.0f}</td>"])
+
+    pform = (f'<form method="get" style="display:inline;margin-left:6px">'
+             f'<label>Period (YYYY-MM) '
+             f'<input name="period" value="{esc(period or "")}" placeholder="all history" '
+             f'size="9"></label> <button>Apply</button></form>')
+
+    rec = PI.list_advertised_prices(limit=50)
+    rrows = [[f"<td>{esc(r['supplier'])}</td>",
+              f"<td>{esc(r['country'])} {esc(r['city'] or '')}</td>",
+              f"<td>{esc(r['date'])}</td><td>{esc(r['product_group'])}</td>",
+              f"<td class=r>{(r['net_price'] or 0):.4f}</td>",
+              f"<td>{esc(r['source'] or '')}</td>"] for r in rec]
+
+    body = (
+        '<div class="card"><h2>Supplier reliability — advertised vs invoiced</h2>'
+        '<div class="note">Customers see a fuel price advertised on a supplier portal '
+        'and believe it is final; the invoice can charge more. This compares each '
+        'invoiced fill\'s effective NET price (net_eur_eff / qty) against the advertised '
+        'price that applied on the fill\'s date, per supplier / country / location. All '
+        'prices NET EUR/L, final (VAT excluded, rebates applied). The reliability score '
+        'is the share of matched fills charged at or below the advertised price, within '
+        '€0.01/L.</div>'
+        f'<div style="margin:10px 0">Period: <b>{esc(period or "all history")}</b>{pform}</div>'
+        '<div class="kpis">'
+        f'<div class="kpi"><div class="v bad">EUR {summ["total_overcharge_eur"]:,.0f}</div>'
+        '<div class="l">total overcharge</div></div>'
+        f'<div class="kpi"><div class="v">{summ["overcharged_fills"]}</div>'
+        '<div class="l">overcharged fills</div></div>'
+        f'<div class="kpi"><div class="v">{summ["matched_fills"]}</div>'
+        '<div class="l">matched fills</div></div>'
+        f'<div class="kpi"><div class="v">{summ["unmatched_fills"]}</div>'
+        '<div class="l">no advertised reference</div></div></div>')
+    body += '<div class="card"><h2>Overcharge € by supplier</h2>' + bars + '</div>'
+    body += ('<div class="card"><h2>Per-supplier reliability</h2>'
+             + (tbl(["Supplier", "Reliability", "Matched", "Overcharged",
+                     "Overcharge €", "Avg Δ €/L"], srows)
+                if srows else '<p class="note">No invoiced fills matched to an '
+                'advertised price yet — add advertised prices below.</p>')
+             + '</div>')
+    body += ('<div class="card"><h2>Where you were overcharged</h2>'
+             + (tbl(["Supplier", "Location", "Date", "Product", "Qty",
+                     "Advertised €/L", "Invoiced €/L", "Δ €/L", "Overcharge €"], drows)
+                if drows else '<p class="note">No overcharges detected for this '
+                'period.</p>')
+             + '</div>')
+
+    # capture — upload
+    body += (
+        '<div class="card"><h2>Add advertised prices — upload</h2>'
+        '<form method="post" action="/reliability" enctype="multipart/form-data" class="f">'
+        + _csrf_input()
+        + '<input type="hidden" name="__act" value="upload">'
+        '<label>File (xlsx / csv / xml / pdf)<input type="file" name="file" '
+        'accept=".xlsx,.xlsm,.csv,.txt,.xml,.pdf" required></label>'
+        '<label>Supplier (for files without a supplier column)'
+        '<input name="supplier" placeholder="e.g. Q8"></label>'
+        '<label>Default country<input name="country" placeholder="e.g. LV"></label>'
+        '<label>Default product<input name="product_group" value="Diesel"></label>'
+        '<button>Upload advertised prices</button></form>'
+        '<div class="note">Columns are matched case-insensitively by name: '
+        '<b>supplier, country, city/location/station, date, net_price/price/eur_per_l</b> '
+        '(product optional, default Diesel). Rows without a supplier/country inherit the '
+        'fields above. Uploading is <b>additive</b> — every dated row is kept so a past '
+        'invoice can be checked against the price that applied on its fill date. PDF '
+        'capture is <b>best-effort</b> (a simple location + price line scan); for reliable '
+        'loading use xlsx/csv/xml or the manual form.</div></div>')
+
+    # capture — manual
+    body += (
+        '<div class="card"><h2>Add advertised price — manual</h2>'
+        '<form method="post" action="/reliability" class="f">'
+        + _csrf_input()
+        + '<input type="hidden" name="__act" value="manual">'
+        f'<label>Supplier<select name="supplier_pick">'
+        f'{_reliability_supplier_options()}</select></label>'
+        '<label>…or type<input name="supplier" placeholder="free text"></label>'
+        '<label>Country<input name="country" placeholder="e.g. LV" required></label>'
+        '<label>Location<input name="city" placeholder="e.g. Riga"></label>'
+        f'<label>Date<input type="date" name="date" '
+        f'value="{_dt.date.today().isoformat()}"></label>'
+        '<label>Product<input name="product_group" value="Diesel"></label>'
+        '<label>Net price €/L<input name="net_price" placeholder="1.4200" required></label>'
+        '<button>Add advertised price</button></form>'
+        '<div class="note">NET EUR/L, final (VAT excluded). Pick a supplier from the '
+        'master list or type a free-text code.</div></div>')
+
+    # recent
+    body += ('<div class="card"><h2>Recent advertised prices</h2>'
+             + (tbl(["Supplier", "Location", "Date", "Product", "Advertised €/L", "Source"],
+                    rrows)
+                if rrows else '<p class="note">No advertised prices stored yet.</p>')
+             + '</div>')
+
+    return page(banner + body, "rel")
 
 @app.route("/export/pricing")
 def export_pricing():
