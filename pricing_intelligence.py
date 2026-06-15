@@ -54,10 +54,9 @@ _BENCHMARK_DDL = [
     # one row per dated quote): a past invoice can always be checked against the price
     # that applied on its fill date (carry-forward in reliability_report). NET EUR/L,
     # final (VAT excluded). city = the location/station dimension (== transactions.station).
-    # PK FLAG: (supplier, country, city, date, product_group) is NOT tenant-qualified —
-    # before multi-CLIENT go-live this PK must become tenant-qualified (and the OR REPLACE
-    # in load_advertised_prices/add_advertised_price rekeyed accordingly), same family as
-    # the my_prices/portal_configs flagged items; a separate, higher-risk PK-rebuild work.
+    # PK NOTE: the natural PK below is SUPERSEDED by the tenant-qualified PK rebuilt in
+    # the PK-rekey migrations appended at the END of this list (see below) — it is now
+    # (tenant_id, supplier, country, city, date, product_group).
     """CREATE TABLE IF NOT EXISTS advertised_prices (
         supplier TEXT, country TEXT, city TEXT, date TEXT,
         product_group TEXT DEFAULT 'Diesel', net_price REAL,
@@ -72,7 +71,72 @@ _BENCHMARK_DDL = [
     # also exactly what P2 will use to keep the antitrust-sensitive benchmark
     # intra-tenant (docs/SECURITY_COMPLIANCE_PLAN.md §7). APPEND-ONLY — keep at END.
     "my_prices", "wholesale_prices", "advertised_prices",
-])
+]) + [
+    # ── PK RE-KEY (multi-tenant): tenant-qualified PRIMARY KEYs ──────────────────
+    # The benchmark tables already carry a tenant_id column (P1, the tenant_column_ddls
+    # spread above) and tenant-scoped reads/stamped writes (P2). But their PRIMARY KEYs
+    # did NOT include tenant_id, so the INSERT OR REPLACE in the load functions resolves
+    # conflicts on the NATURAL key only — under the `multitenant` switch ON two tenants
+    # writing the SAME logical key would REPLACE each other (cross-tenant data loss).
+    #
+    # SQLite cannot ALTER a PRIMARY KEY in place, so each table is REBUILT: create a
+    # __rekey twin with tenant_id FIRST in the PK (every other column, type, DEFAULT and
+    # the rest of the key order preserved), copy all rows (explicit column list — never
+    # rely on column order), drop the old, rename the twin, then recreate the indexes the
+    # DROP destroyed. This runs as a LATER one-time db_migrate migration (versioned, runs
+    # exactly once per DB) that supersedes the PK on both fresh and existing benchmark.db
+    # files. Benchmark tables are NOT audited (pricing_intelligence.connect installs no
+    # audit triggers), so there are no triggers to drop/reinstate. APPEND-ONLY — these
+    # must stay at the END (positions are stable); do NOT reorder the entries above.
+    # OFF-by-default is byte-identical: with a single 'default' tenant the qualified PK
+    # behaves exactly as the natural PK did.
+
+    # my_prices: PK (country, city, date, product_group) -> (tenant_id, country, city,
+    # date, product_group).
+    """CREATE TABLE IF NOT EXISTS my_prices__rekey (
+        country TEXT, city TEXT, date TEXT, product_group TEXT DEFAULT 'Diesel',
+        net_price REAL, source TEXT DEFAULT 'upload',
+        tenant_id TEXT NOT NULL DEFAULT 'default',
+        PRIMARY KEY (tenant_id, country, city, date, product_group))""",
+    """INSERT INTO my_prices__rekey
+        (country, city, date, product_group, net_price, source, tenant_id)
+        SELECT country, city, date, product_group, net_price, source, tenant_id
+        FROM my_prices""",
+    "DROP TABLE my_prices",
+    "ALTER TABLE my_prices__rekey RENAME TO my_prices",
+    "CREATE INDEX IF NOT EXISTS ix_myp ON my_prices(country, city, date)",
+
+    # wholesale_prices: PK (country, date, product_group) -> (tenant_id, country, date,
+    # product_group).
+    """CREATE TABLE IF NOT EXISTS wholesale_prices__rekey (
+        country TEXT, date TEXT, product_group TEXT DEFAULT 'Diesel',
+        net_price REAL, source TEXT,
+        tenant_id TEXT NOT NULL DEFAULT 'default',
+        PRIMARY KEY (tenant_id, country, date, product_group))""",
+    """INSERT INTO wholesale_prices__rekey
+        (country, date, product_group, net_price, source, tenant_id)
+        SELECT country, date, product_group, net_price, source, tenant_id
+        FROM wholesale_prices""",
+    "DROP TABLE wholesale_prices",
+    "ALTER TABLE wholesale_prices__rekey RENAME TO wholesale_prices",
+    "CREATE INDEX IF NOT EXISTS ix_whp ON wholesale_prices(country, date)",
+
+    # advertised_prices: PK (supplier, country, city, date, product_group) ->
+    # (tenant_id, supplier, country, city, date, product_group).
+    """CREATE TABLE IF NOT EXISTS advertised_prices__rekey (
+        supplier TEXT, country TEXT, city TEXT, date TEXT,
+        product_group TEXT DEFAULT 'Diesel', net_price REAL,
+        source TEXT DEFAULT 'upload',
+        tenant_id TEXT NOT NULL DEFAULT 'default',
+        PRIMARY KEY (tenant_id, supplier, country, city, date, product_group))""",
+    """INSERT INTO advertised_prices__rekey
+        (supplier, country, city, date, product_group, net_price, source, tenant_id)
+        SELECT supplier, country, city, date, product_group, net_price, source, tenant_id
+        FROM advertised_prices""",
+    "DROP TABLE advertised_prices",
+    "ALTER TABLE advertised_prices__rekey RENAME TO advertised_prices",
+    "CREATE INDEX IF NOT EXISTS ix_advp ON advertised_prices(supplier, country, city, date)",
+]
 
 # Reliability: per-litre overcharge tolerance — a fill whose invoiced effective NET
 # price exceeds the advertised price by no more than this (EUR/L) is treated as
