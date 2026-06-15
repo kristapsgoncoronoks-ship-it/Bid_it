@@ -475,6 +475,7 @@ PERM_BY_ENDPOINT = {
     "export_readiness": "exports", "export_fees": "exports",
     "export_evidence": "exports",
     "admin":           "user_admin",   # server setup / overall software changes
+    "admin_confidence": "user_admin",  # confidence-learning scoreboard (read-only)
 }
 
 # The VAT-refund module (claims, readiness, recovery/fees + their exports/API) is
@@ -487,7 +488,9 @@ ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "recei
               "monthly_close",
               # customer/CRM data (checklist, templates, document generation) is part of
               # the VAT-refund module, so the same admin-only access applies.
-              "customers", "cust_doc_download"}
+              "customers", "cust_doc_download",
+              # the confidence-learning scoreboard is a read-only admin surface.
+              "admin_confidence"}
 
 # Switchable PARTS of the app. An admin turns these on/off in the Admin panel; a
 # disabled part is hidden from the menu and its pages return "turned off". Core pages
@@ -2894,6 +2897,36 @@ def extract_ai_review():
     if backend == "none":
         # belt-and-braces: never call out when off
         return page(_review_form(draft, token, intake_job=intake_job, period=period), "ext")
+    # CONFIDENCE-LEARNING (advisory-only consumer). If this (supplier, country) pair has
+    # earned enough trust, SKIP computing the AI panel entirely — a cost saving. This is
+    # the ONLY place trust is consulted; it never touches a deterministic gate (the
+    # /extract/confirm commit path, checklist, thresholds, locks, period-end are all
+    # unchanged) and the human still confirms the draft.
+    import confidence
+    c_sup, c_ctry = _confidence_key(draft)
+    try:
+        skip = confidence.should_skip_ai(c_sup, c_ctry)
+    except Exception as e:                          # should_skip_ai already fails safe
+        _log_exc("confidence skip check", e)
+        skip = False
+    if skip:
+        sc = confidence.trust(c_sup, c_ctry)
+        n_clean = 0
+        try:
+            n_clean = next((r["n_clean"] for r in confidence.scoreboard()
+                            if r["supplier"] == (c_sup or "").strip()
+                            and r["country"] == (c_ctry or "").strip()), 0)
+        except Exception as e:
+            _log_exc("confidence skip counts", e)
+        panel = ('<div class="card"><h2>AI review (advisory)</h2>'
+                 '<div class="note" style="margin-top:0">AI review skipped — '
+                 f'<b>{esc(c_sup or "?")}</b>/<b>{esc(c_ctry or "?")}</b> is trusted '
+                 f'(score {esc(f"{sc:.2f}")} after {esc(str(n_clean))} clean validations). '
+                 'Advisory only; the deterministic checks and your confirmation are '
+                 'unchanged.</div></div>')
+        # NB: no validation event recorded on a skip — we didn't validate anything here.
+        return page(_review_form(draft, token, intake_job=intake_job, period=period,
+                                 ai_panel=panel), "ext")
     try:
         ctx = _ai_review_context(draft)
         result = ai_review.review(draft, ctx)
@@ -2904,9 +2937,36 @@ def extract_ai_review():
                  'still confirm the draft.</b></div>')
         return page(_review_form(draft, token, intake_job=intake_job, period=period,
                                  ai_panel=panel), "ext")
+    # Best-effort confidence telemetry: a no-flag review is a clean validation (trust
+    # rises); a review that surfaced flags is a discrepancy (trust falls). A failure
+    # here must never break the advisory review.
+    try:
+        clean = not (result.get("flags") or [])
+        confidence.record_validation(c_sup, c_ctry, clean=clean, source="ai_review")
+    except Exception as e:
+        _log_exc("confidence record_validation", e)
     panel = _ai_review_panel(result)
     return page(_review_form(draft, token, intake_job=intake_job, period=period,
                              ai_panel=panel), "ext")
+
+
+def _confidence_key(draft):
+    """Resolve the (supplier, country) key the confidence model attributes trust to.
+    Supplier is the draft's single supplier (`draft['supplier']`). Country is the
+    PREDOMINANT line country (the most common non-empty `country` across the draft
+    lines) — a draft is one supplier statement, so attributing to its dominant country
+    avoids mis-crediting trust to an incidental line. Empty -> '' (a stable bucket)."""
+    supplier = (draft.get("supplier") or "").strip()
+    counts = {}
+    for ln in draft.get("lines", []) or []:
+        c = (ln.get("country") or "").strip()
+        if c:
+            counts[c] = counts.get(c, 0) + 1
+    # most frequent country; ties broken alphabetically for determinism
+    country = ""
+    if counts:
+        country = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+    return supplier, country
 
 
 def _ai_review_panel(result):
@@ -6178,7 +6238,12 @@ def admin():
                  + _csrf_input()
                  + f'<label>Review backend<select name="ai_review_backend">{_air_opts}</select></label>'
                  + '<button name="__act" value="set_ai_review">Save AI review setting</button>'
-                 + '</form></div>')
+                 + '</form>'
+                 '<div class="note" style="margin-top:8px">A per-(supplier &times; country) '
+                 '<b>trust</b> score lets the advisory AI review be skipped for pairs it has '
+                 'learned to trust — a cost saving that <b>never</b> touches a legal gate. '
+                 '<a href="/admin/confidence">View the confidence scoreboard &rarr;</a></div>'
+                 + '</div>')
     # API keys (machine access to the versioned /api/v1 contract). Default-OFF: no keys
     # exist until issued here. Tokens are SHA-256 hashed at rest and shown once at issue.
     import api_keys
@@ -6243,6 +6308,56 @@ def admin():
             + '<div class="card"><h2>Recent logins</h2>'
             + tbl(["Timestamp (UTC)", "Username", "Result", "From"], ltr) + "</div>"
             + errcard)
+    return page(body, "adm")
+
+@app.route("/admin/confidence")
+def admin_confidence():
+    """READ-ONLY confidence-learning scoreboard (admin-only; ADMIN_ONLY + user_admin).
+    Shows the per-(supplier x country) TRUST score, clean/flagged counts, and the recent
+    append-only validation-event ledger. EXPLAINER (hard invariant): trust only governs
+    whether the ADVISORY AI review runs — it NEVER skips or alters a legal gate (checklist,
+    thresholds, locks, period-end, document presence, synthetic-line refusal). Every value
+    escaped via esc()."""
+    import confidence
+    board = confidence.scoreboard()
+    events = confidence.recent_events(100)
+    btr = []
+    for r in board:
+        sc = r["trust"]
+        tcls = "ok" if sc >= confidence.SKIP_AI_TRUST else ("bad" if sc < confidence.HUMAN_REVIEW_TRUST else "")
+        btr.append([f'<td>{esc(r["supplier"] or "—")}</td>',
+                    f'<td>{esc(r["country"] or "—")}</td>',
+                    f'<td class="{tcls}">{esc(f"{sc:.2f}")}</td>',
+                    f'<td>{esc(str(r["n_clean"]))}</td>',
+                    f'<td>{esc(str(r["n_flagged"]))}</td>',
+                    f'<td class="note">{esc(r["updated_at"] or "")}</td>'])
+    etr = []
+    for e in events:
+        etr.append([f'<td class="note">{esc(e["created_at"] or "")}</td>',
+                    f'<td>{esc(e["supplier"] or "—")}</td>',
+                    f'<td>{esc(e["country"] or "—")}</td>',
+                    f'<td class="{"ok" if e["clean"] else "bad"}">'
+                    f'{"clean" if e["clean"] else "flagged"}</td>',
+                    f'<td class="note">{esc(e["source"] or "")}</td>',
+                    f'<td class="note">{esc(e["detail"] or "")}</td>'])
+    body = (
+        '<div class="card"><h2>Confidence-learning scoreboard</h2>'
+        '<div class="note" style="margin-top:0">A per-(supplier &times; country) <b>trust</b> '
+        'score that grows with each clean validation and decays on a discrepancy. '
+        f'Trust starts at {confidence.INIT:.2f}; a pair at or above '
+        f'<b>{confidence.SKIP_AI_TRUST:.2f}</b> lets the advisory AI review be SKIPPED (a '
+        f'cost saving), and below <b>{confidence.HUMAN_REVIEW_TRUST:.2f}</b> a human look is '
+        'recommended. <b>Trust governs ONLY whether the advisory AI review runs — it never '
+        'skips or alters any legal gate</b> (checklist, thresholds, locks, period-end, '
+        'document presence, synthetic-line refusal). Prices/figures are unaffected.</div>'
+        + (tbl(["Supplier", "Country", "Trust", "Clean", "Flagged", "Updated"], btr)
+           if btr else '<p class="note">No validations recorded yet — every (supplier, '
+                       f'country) pair defaults to {confidence.INIT:.2f}.</p>')
+        + '</div>'
+        + '<div class="card"><h2>Recent validation events (append-only ledger)</h2>'
+        + (tbl(["When", "Supplier", "Country", "Outcome", "Source", "Detail"], etr)
+           if etr else '<p class="note">No validation events recorded yet.</p>')
+        + '</div>')
     return page(body, "adm")
 
 @app.route("/doc/<int:doc_id>")

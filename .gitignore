@@ -47,6 +47,10 @@ vat_claims.db
 #    of fuel_history.db in D3; rebuilt by migration on first run, then LIVE data ──
 benchmark.db
 
+# ── Confidence-learning trust scores + validation-event ledger — app-owned runtime
+#    DB (advisory-AI-review consumer only; never gates a legal check) ──
+confidence.db
+
 # ── Cross-process lock store + SQLite WAL sidecars (transient, machine-specific) ──
 locks.db
 *.db-wal
