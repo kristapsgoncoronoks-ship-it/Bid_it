@@ -289,6 +289,32 @@ def test_backend_selection(monkeypatch, tmp_path):
     assert DS.backend(str(tmp_path)).name == "local"
 
 
+def test_migrate_cli_dispatches_to_the_right_function(monkeypatch, tmp_path):
+    """The `--migrate sharepoint|ftp` CLI entry point must route to the matching migrate
+    function (over the live vat_refund DB/docstore) — the migrate helpers otherwise have
+    no caller. We stub the migrate fns + the DB so no real backend is touched."""
+    import document_vault as DS
+    import vat_refund
+
+    called = {}
+    monkeypatch.setattr(DS, "migrate_local_to_sharepoint",
+                        lambda con, docdir: called.setdefault("target", "sharepoint") or 3)
+    monkeypatch.setattr(DS, "migrate_local_to_ftp",
+                        lambda con, docdir: called.setdefault("target", "ftp") or 5)
+
+    class _Con:
+        def close(self): pass
+    monkeypatch.setattr(vat_refund, "connect", lambda: _Con())
+    monkeypatch.setattr(vat_refund, "DOCDIR", str(tmp_path))
+
+    assert DS._migrate_cli("sharepoint") == 0 and called["target"] == "sharepoint"
+    called.clear()
+    assert DS._migrate_cli("ftp") == 0 and called["target"] == "ftp"
+    # a bad/missing target is reported with a non-zero exit code, not a crash
+    assert DS._migrate_cli("nope") == 2
+    assert DS._migrate_cli(None) == 2
+
+
 def test_ftp_uses_tls_by_default(monkeypatch):
     # FTPS (encrypted) must be the default; plain FTP only when explicitly disabled.
     import document_vault as DS

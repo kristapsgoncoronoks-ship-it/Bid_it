@@ -324,7 +324,8 @@ def copy_to(new_name, data, docdir):
 
 def migrate_local_to_sharepoint(con, docdir):
     """One-time migration of existing local documents into SharePoint.
-    Run on a machine with network + SP_* env vars set."""
+    Run on a machine with network + SP_* env vars set, via the CLI:
+        python document_vault.py --migrate sharepoint"""
     sp = SharePointBackend()
     moved = 0
     for r in con.execute("SELECT id, stored_path, filename FROM invoice_documents").fetchall():
@@ -341,7 +342,8 @@ def migrate_local_to_sharepoint(con, docdir):
 
 def migrate_local_to_ftp(con, docdir, table="invoice_documents"):
     """One-time migration of existing local documents into the FTP archive.
-    Run on a machine with the FTP_* env vars set."""
+    Run on a machine with the FTP_* env vars set, via the CLI:
+        python document_vault.py --migrate ftp"""
     ftp = FtpBackend()
     moved = 0
     for r in con.execute(f"SELECT id, stored_path FROM {table}").fetchall():
@@ -357,8 +359,37 @@ def migrate_local_to_ftp(con, docdir, table="invoice_documents"):
     return moved
 
 
+# ---------------- migration CLI -------------------------------------------------------
+def _migrate_cli(target):
+    """Dispatch `--migrate sharepoint|ftp` to the matching migrate function over the live
+    vat_refund DB/docstore, printing the moved-document count. Returns an exit code (0 ok,
+    2 bad arg / unconfigured backend). Thin wrapper — no migration logic here."""
+    import vat_refund
+    fns = {"sharepoint": migrate_local_to_sharepoint, "ftp": migrate_local_to_ftp}
+    fn = fns.get((target or "").strip().lower())
+    if fn is None:
+        print("usage: python document_vault.py --migrate sharepoint|ftp")
+        return 2
+    con = vat_refund.connect()
+    try:
+        moved = fn(con, vat_refund.DOCDIR)
+    except Exception as e:
+        print(f"migration to {target} failed (backend configured? env vars set?): {e}")
+        return 2
+    finally:
+        con.close()
+    print(f"migrated {moved} document(s) to {target}.")
+    return 0
+
+
 # ---------------- self-test with stubbed transport (no network needed) ----------------
 if __name__ == "__main__":
+    import sys
+    if "--migrate" in sys.argv:
+        i = sys.argv.index("--migrate")
+        target = sys.argv[i + 1] if i + 1 < len(sys.argv) else None
+        sys.exit(_migrate_cli(target))
+
     print("=== LocalBackend live test ===")
     lb = LocalBackend("/tmp/docstore_test")
     loc, url = lb.put("test.pdf", b"%PDF-1.4 demo")

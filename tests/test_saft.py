@@ -216,6 +216,16 @@ def test_export_saft_route(client):
     assert root.tag.endswith("AuditFile")
 
 
+def test_export_saft_no_data_returns_friendly_200(client):
+    # A period with no ledger rows must degrade gracefully (200 + friendly message),
+    # NOT raise ValueError("no data loaded") into the global 500 handler.
+    r = client.get("/export/saft?period=1999-01")
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    assert "Nothing to export" in html
+    assert "No ledger data for this period/entity" in html
+
+
 def test_export_saft_is_gated():
     import app
     assert app.PERM_BY_ENDPOINT.get("export_saft") == "exports"

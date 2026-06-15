@@ -1983,7 +1983,12 @@ def export_saft():
     period = request.args.get("period") or None
     entity = request.args.get("entity") or None
     profile = saft.get_profile(request.args.get("profile", "OECD"))
-    name, data = saft.build_saft(period, entity, profile)
+    try:
+        name, data = saft.build_saft(period, entity, profile)
+    except ValueError:
+        return page('<div class="card"><h2>Nothing to export</h2>'
+                    '<p class="note">No ledger data for this period/entity. '
+                    'Load a period or pick another.</p></div>', "exp")
     return send_file(io.BytesIO(data), as_attachment=True, download_name=name,
                      mimetype="application/xml")
 
@@ -4588,6 +4593,32 @@ def receivables():
         + '<button>Save terms</button>'
         + '<span class="note">Advance fraction (0&lt;x&le;1) and fee fraction (0&le;x&lt;0.5).</span>'
         + '</form></div>')
+
+    # ----- Recorded advance requests (read-only ledger) --------------------
+    # finance.list_advances() never raises (→ [] on a broken/missing DB), but guard the
+    # render so a malformed row can't break the page.
+    try:
+        adv_rows = []
+        for a in finance.list_advances():
+            adv_rows.append([
+                f"<td>{esc(a.get('created_at') or '')}</td>",
+                f"<td>{esc(a.get('claim_key') or '')}</td>",
+                f"<td class=r>{money.f2(a.get('amount_eur') or 0):,.2f}</td>",
+                f"<td class=r>{money.f2(a.get('fee_eur') or 0):,.2f}</td>",
+                f"<td>{esc(a.get('provider') or '')}</td>",
+                f"<td>{esc(a.get('status') or '')}</td>"])
+        adv_body = (tbl(["Recorded", "Claim", "Advance EUR", "Fee EUR", "Provider", "Status"],
+                        adv_rows) if adv_rows
+                    else '<p class="note">No advance requests recorded yet.</p>')
+    except Exception as e:
+        _log_exc("receivables/list_advances", e)
+        adv_body = '<p class="note">Advance ledger temporarily unavailable.</p>'
+    fin_section += (
+        '<div class="card"><h2>Recorded advance requests</h2>'
+        + adv_body
+        + '<div class="note">Read-only intent ledger (finance.db). With the NULL provider '
+          'these rows record advance INTENT only — no money moves. EUR figures are advance '
+          'amount / factoring fee at the recorded terms.</div></div>')
     body = fin_banner + body + fin_section
     return page(body, "rcv")
 
@@ -6684,9 +6715,10 @@ def api_vat():
 # ---------------------------------------------------------------- /api/v1 (token API)
 # The versioned, TOKEN-ONLY external contract (see docs/API.md). Auth + scope are
 # enforced upstream by _api_v1_guard before any of these views run; a view that runs
-# has already proved its key carries the endpoint's scope. v1 is READ-ONLY: no write
-# or extract surface. Each producer is REUSED from the internal app, but every payload
-# is whitelisted to NON-SENSITIVE fields — never IBAN/payout/fee/secret/PII.
+# has already proved its key carries the endpoint's scope. v1 is mostly READ-ONLY with a
+# SCOPED WRITE surface: CRM create/update (POST/PATCH /customers) under the `api:crm.write`
+# scope; there is no extract surface. Each producer is REUSED from the internal app, but
+# every payload is whitelisted to NON-SENSITIVE fields — never IBAN/payout/fee/secret/PII.
 
 @app.route("/api/v1/benchmark")
 def api_v1_benchmark():

@@ -213,6 +213,33 @@ def test_receivables_financing_section_renders_for_admin(client):
     assert "net now" in html                            # the quote KPI is present
 
 
+def test_receivables_shows_recorded_advances(client, tmp_path, monkeypatch):
+    # /receivables imports finance lazily and reads the default finance.db, so point
+    # finance.DB at a tmp file, record an advance, and assert the read-only ledger table
+    # renders the row (escaped) on the page.
+    import finance
+    monkeypatch.setattr(finance, "DB", str(tmp_path / "finance.db"))
+    finance._READY.clear()
+    finance.request_advance("ACME|Germany|2026-Q1", 900.0, 20.0, actor="pytest")
+
+    r = client.get("/receivables")
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    assert "Recorded advance requests" in html
+    assert "ACME|Germany|2026-Q1" in html               # claim_key visible
+    assert "900.00" in html                              # advance amount (money.f2)
+    assert "no_provider" in html                         # status visible
+
+
+def test_receivables_advances_empty_state(client, tmp_path, monkeypatch):
+    import finance
+    monkeypatch.setattr(finance, "DB", str(tmp_path / "empty_finance.db"))
+    finance._READY.clear()
+    r = client.get("/receivables")
+    assert r.status_code == 200
+    assert "No advance requests recorded yet." in r.get_data(as_text=True)
+
+
 def test_receivables_financing_is_admin_only(admin_session):
     import app as A, auth
     auth.add_user("finproc", "Pw!23456", role="processor")

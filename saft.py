@@ -342,8 +342,7 @@ def build_saft(period=None, entity=None, profile=None):
         _sub(journal, "JournalID", "FUEL")
         _sub(journal, "Description", "Fuel & toll transactions (NET EUR; gross = net + VAT)")
 
-        sum_net = 0.0
-        sum_vat = 0.0
+        nets, vats = [], []
         for i, e in enumerate(entries, 1):
             net, vat, gross = e["net_eur"], e["vat_eur"], e["gross_eur"]
             tx = _sub(journal, "Transaction")
@@ -363,12 +362,12 @@ def build_saft(period=None, entity=None, profile=None):
             _sub(tx, "NetAmount", _money(net))
             _sub(tx, "TaxAmount", _money(vat))
             _sub(tx, "GrossAmount", _money(gross))
-            sum_net += net
-            sum_vat += vat
+            nets.append(net)
+            vats.append(vat)
 
         n_el.text = str(len(entries))
-        tot_net_el.text = _money(sum_net)
-        tot_vat_el.text = _money(sum_vat)
+        tot_net_el.text = _money(money.fsum(nets))
+        tot_vat_el.text = _money(money.fsum(vats))
 
     xml_bytes = ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
