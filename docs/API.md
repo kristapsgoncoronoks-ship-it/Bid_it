@@ -11,6 +11,25 @@ external contract: **token-only** (never the session cookie), scoped per endpoin
 metered per key. The internal session-authed `/api/*` routes (used by the app's
 own UI) are unchanged and are **not** part of this contract.
 
+### Not in the API: session-auth UI exports
+
+Several useful exports are reached with the **browser session cookie** (the
+logged-in UI), **not** a `/api/v1` token, and are therefore **outside** this
+contract — do not call them with a bearer key. They are documented in
+`docs/USER_MANUAL.md`, not here:
+
+| Route | What it is |
+|---|---|
+| `/expenses`, `/export/expenses` | Company expense / cost-allocation report (page + Excel) |
+| `/export/accounting` | Accounting / ERP ledger (CSV, one row per transaction) |
+| `/export/saft` | SAF-T export (OECD core structure XML — not a validated per-country filing) |
+| `/savings`, `/export/overpay` | Supplier price-review packet (page + Excel) |
+| `/close`, `/recon`, `/vat/unmatched`, `/receivables` | Monthly close, bank reconciliation, UNMATCHED-resolution, receivables/financing (admin-only UI) |
+| `/admin/confidence`, `/admin/tenants` | Confidence scoreboard, multi-tenancy registry (admin-only UI) |
+
+These were added as UI pages/downloads — the `/api/v1` token surface itself did
+**not** change (still the seven endpoints below).
+
 The analytics endpoints are read-only. The CRM endpoints are deliberately
 **minimal** — just enough for an outsourced/external CRM (e.g. a top-10 vendor's
 connector) to read and maintain the in-app customer master that feeds VAT claims.

@@ -29,6 +29,11 @@ Run **`install.bat`** (Windows) or **`./install.sh`** (macOS/Linux) instead — 
 result via a step-by-step console wizard (checks Python, installs packages, creates
 the certificate and admin account, hardens files, self-checks).
 
+The one-click launchers are thin wrappers around **`python start.py`** — run that
+directly if you prefer (it installs missing deps, opens the browser and starts the dev
+server). The browser opens at **`https://127.0.0.1:8050`** (or `http://…` if no
+certificate is configured yet), where the first-run **setup wizard** creates the admin.
+
 ---
 
 The rest of this document is the **production path** for IT: dedicated server,
@@ -169,6 +174,16 @@ WorkingDirectory=/opt/fleetfuel/app
 # Background intake worker (waiting room) — on by default; set 0 to disable on this
 # process (e.g. when a separate `python waiting_room.py --work` process drains it):
 #Environment=INTAKE_WORKER=1
+# Worker tier (Part 5b): web|worker|all. Set web on web nodes when a separate worker
+# process drains the queue (FFS_ROLE=web == INTAKE_WORKER=0 for the in-process worker):
+#Environment=FFS_ROLE=all
+# Credential custody for automated capture (Part 8b) — envelope encryption via KMS/BYOK:
+#Environment=FFS_KEK_KEY=<base64 32-byte master key>     # with keyvault_provider=env
+# Off-site backup copy (Part 8):
+#Environment=FFS_BACKUP_SYNC_DIR=/mnt/backup-nas/ffs
+# PostgreSQL cutover (Part 7c) — validate in staging first (db.py HONEST STATUS):
+#Environment=DB_ENGINE=postgres
+#Environment=DB_DSN=postgresql://user:pass@host/dbname
 # Supplier APIs (optional):
 #Environment=DKV_API_TOKEN=...
 ExecStart=/opt/fleetfuel/venv/bin/python serve.py
@@ -188,7 +203,59 @@ journalctl -u fleetfuel -n 20            # shows "waitress on ..." (+ certificat
 `serve.py` runs the production server (waitress) and starts the background workers
 (auto‑backup scheduler + intake‑queue drainer). Single user on the server itself: you
 are DONE — browse to `https://127.0.0.1:8050`. For team access continue with Part 6;
-for several worker processes see Part 6b.
+for several worker processes see Part 6b; for a **dedicated worker tier** (recommended
+once you add automated document capture) see Part 5b.
+
+## PART 5b — Dedicated worker tier (recommended for scale / automated capture)
+
+By default `serve.py` drains the intake queue **in‑process**. As you grow — and
+especially once you turn on automated document capture (Part 7b) — move that work to a
+**separate worker process** so a burst of heavy extraction / portal fetches never
+competes with web requests.
+
+The mechanism is one queue (`intake.db`) plus the `FFS_ROLE` env var:
+
+- **`FFS_ROLE=web`** on each web node → it serves pages but does **not** drain the queue.
+  (Legacy equivalent: `INTAKE_WORKER=0`, which still forces the in‑process worker off.)
+- **`FFS_ROLE=worker`** (or `all`, the default) on the worker node → it drains the queue.
+- Run the dedicated drainer as its own service: **`python waiting_room.py --work`**
+  (drains forever; `--once` processes the backlog once, `--status` prints queue counts).
+
+The worker dispatches the job **kinds** `extract` (PDF/AI extraction), `register`
+(statement registration), `close` (the one‑click monthly close — `engine_close.close`),
+and `fetch` (portal/API document pulls). Fetches go through a **per‑supplier
+rate‑limiter** (concurrency caps / backoff) so no portal is hammered. The auto‑backup
+and e‑mail‑digest schedulers are **leader‑elected** across processes, so they run once
+no matter how many web/worker nodes you run.
+
+```bash
+# Web node(s): serve pages only, do NOT drain the queue.
+#   add to the fleetfuel.service [Service] block:  Environment=FFS_ROLE=web
+
+# Worker node: a second systemd unit that only drains the queue.
+sudo tee /etc/systemd/system/fleetfuel-worker.service > /dev/null << 'EOF'
+[Unit]
+Description=Fleet Fuel intake worker
+After=network.target
+
+[Service]
+User=fleetfuel
+Group=fleetfuel
+WorkingDirectory=/opt/fleetfuel/app
+Environment=FFS_ROLE=worker
+# (mirror the same TLS/DOC_BACKEND/credential env as the web unit if the worker needs it)
+ExecStart=/opt/fleetfuel/venv/bin/python waiting_room.py --work
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now fleetfuel-worker
+```
+
+Single‑box installs need none of this — the default in‑process worker is fine.
 
 ## PART 6 — Team access: nginx reverse proxy + firewall
 
@@ -265,6 +332,49 @@ backend.
 private LAN. No extra dependency (stdlib `ftplib`). Migrate existing local files:
 `... -c "import vat_refund, document_vault; con=vat_refund.connect(); print(document_vault.migrate_local_to_ftp(con, vat_refund.DOCDIR), 'documents migrated')"`
 
+## PART 7b — Automated portal capture (optional)
+
+To pull supplier prices/documents automatically from a customer portal:
+
+1. In the web UI (**Pricing → Client portal price scraping**, on `/pricing/portal`), add
+   a portal (a no‑code JSON/CSV config, or a custom adapter) and **store the entity's
+   login** — credentials are encrypted at rest (harden the key with Part 8b).
+2. **Arm scheduled pulls** by enabling the **`scrape_scheduler_enabled`** admin setting
+   (`1` to arm, `0` off — the default) plus the per‑portal interval. Pulls then run on the
+   worker tier (Part 5b), through the per‑supplier rate‑limiter; **Scrape now** triggers an
+   immediate pull. By default no scheduled pulls run.
+3. Use **only portals you are authorised to access**. On a locked‑down box, run the
+   scraper from a connected machine.
+
+(API‑based ingestion where a supplier offers it, e.g. `DKV_API_TOKEN`, is configured in
+the service env — Part 5.) See the strategy/backlog docs for the capture roadmap.
+
+## PART 7c — PostgreSQL (optional, scale-out)
+
+SQLite (the default) is fine from a laptop to a busy single server. For very high
+concurrent **write** volume, move to PostgreSQL via the `db.py` dialect shim:
+
+1. Provision Postgres and create the database.
+2. Set the engine + DSN in the service env (read the **HONEST STATUS** note in the
+   `db.py` header first — validate in staging before flipping it in production):
+   ```bash
+   Environment=DB_ENGINE=postgres
+   Environment=DB_DSN=postgresql://user:pass@host/dbname
+   # (DB_ENGINE selects the dialect: sqlite [default] | postgres; DB_DSN is the DSN)
+   ```
+3. Back up with **`pg_dump`** instead of the file‑snapshot path for the migrated DBs.
+
+Full migration steps and the maturity caveats are in **[SCALING.md](SCALING.md)**.
+
+## PART 7d — Multi-tenant (optional, do NOT flip casually)
+
+The platform ships **single‑tenant** — the `multitenant` admin setting is **OFF** and
+nothing is tenant‑scoped. Turning it on is a **P1+ rollout** (tenant‑scoped enforcement at
+every query, per‑tenant credential keys via `FFS_KEK_KEY_<TENANT>`, isolation tests) and a
+cross‑tenant leak is a GDPR breach — **do not enable it before completing that work**. The
+read‑only `/admin/tenants` page shows the current (single‑tenant) state. See
+**[MULTI_TENANCY.md](MULTI_TENANCY.md)** before changing it.
+
 ## PART 8 — Automatic backups
 
 Snapshots include every database — `customers.db`, `suppliers.db`, `fuel_history.db`,
@@ -279,10 +389,16 @@ sudo tee /etc/cron.d/fleetfuel-backup > /dev/null << 'EOF'
 30 2 * * * fleetfuel /opt/fleetfuel/venv/bin/python /opt/fleetfuel/app/backup.py >> /opt/fleetfuel/backup.log 2>&1
 EOF
 
-# Off-machine copy: sync backups/ to versioned storage. Examples:
-#   rclone (OneDrive/SharePoint):  rclone sync /opt/fleetfuel/app/backups remote:FleetFuelBackups
-#   or rsync to another server:    rsync -a /opt/fleetfuel/app/backups/ backup-host:/srv/ffs/
-# Add the sync command as a second cron line 15 minutes later.
+# Off-machine copy — two ways (use either):
+#  (a) Built-in off-site sync: point the app at a mounted NAS / synced cloud folder and
+#      every snapshot is ALSO copied there automatically. Set it either way:
+#        - env var (systemd):   Environment=FFS_BACKUP_SYNC_DIR=/mnt/backup-nas/ffs
+#        - or Admin panel:      set "backup sync folder" (the backup_sync_dir setting)
+#      (FFS_BACKUP_SYNC_DIR takes precedence over the admin setting.)
+#  (b) Your own sync of backups/ to versioned storage. Examples:
+#        rclone (OneDrive/SharePoint):  rclone sync /opt/fleetfuel/app/backups remote:FleetFuelBackups
+#        rsync to another server:       rsync -a /opt/fleetfuel/app/backups/ backup-host:/srv/ffs/
+#      Add the sync command as a second cron line 15 minutes later.
 
 # Quarterly restore drill (two commands):
 LATEST=$(ls /opt/fleetfuel/app/backups/ffs_*.zip | tail -1)
@@ -292,6 +408,54 @@ sudo -u fleetfuel /opt/fleetfuel/venv/bin/python /opt/fleetfuel/app/backup.py --
 
 Also enable **disk encryption** on the volume (LUKS at install time, or BitLocker /
 FileVault if hosting on Windows/macOS) — see SECURITY.md.
+
+## PART 8a — Post-install configuration checklist (in the Admin panel)
+
+Sign in as the admin and work down this list once. All of these are configured in the
+**web Admin panel** (no files to edit):
+
+1. **Users & roles** — create each colleague as **processor**; untick any capabilities
+   they shouldn't have (data import, invoice control, pricing, documents, exports). The
+   whole VAT‑refund module (claims, readiness, recovery, customers/CRM) is **admin‑only**
+   regardless.
+2. **Modules** — switch whole parts of the app on/off (analytics, intake, compliance,
+   VAT refunds, FX). A part that's off disappears from the menu.
+3. **E‑mail alerts (SMTP relay)** — set `smtp_host` / `smtp_port` / `smtp_user` /
+   `smtp_pass`, a *From* address (`smtp_from`), the **recipients** (`notify_recipients`)
+   and the **digest cadence** (`notify_interval_hours`). The system then e‑mails the
+   action digest on that cadence and sends per‑event critical alerts (VAT deadlines,
+   stuck/dead‑letter intake jobs). Until SMTP is set, alerts surface in‑app only.
+4. **Backups** — set the snapshot interval (`backup_interval_hours`) and the **off‑site
+   sync folder** (`backup_sync_dir`, or the `FFS_BACKUP_SYNC_DIR` env var — Part 8).
+5. **AI review backend** — the advisory AI review assistant is **OFF by default**; only
+   turn it on deliberately. It sends derived data only (never the PDF/IBAN/secret) and
+   never mutates or gates a figure (see [AI_REVIEW.md](AI_REVIEW.md)).
+6. **API keys** (optional) — issue scoped machine keys only if an external system needs
+   the `/api/v1` API; it is default‑off (see [API.md](API.md)).
+
+## PART 8b — Credential custody for automated capture (KMS / BYOK)
+
+If you store **portal credentials** for automated document capture (Part 7b), protect
+them with **envelope encryption** instead of the default local key:
+
+1. Set the **`keyvault_provider`** admin setting to **`env`** (the default is `local`,
+   which derives the key from the server's secret file).
+2. Inject a **base64‑encoded 32‑byte master key** as **`FFS_KEK_KEY`** from your secret
+   manager / KMS into the service environment (never commit it). Generate one with:
+   ```bash
+   python3 -c "import os,base64; print(base64.b64encode(os.urandom(32)).decode())"
+   ```
+   then in the systemd unit: `Environment=FFS_KEK_KEY=<that base64 value>`.
+3. **BYOK / per‑tenant keys (optional):** set a per‑tenant key as
+   **`FFS_KEK_KEY_<TENANT>`** (upper‑cased tenant id). The provider picks the per‑tenant
+   key first and falls back to the global `FFS_KEK_KEY` — so one tenant's key cannot
+   decrypt another's secrets.
+4. **Rotation caveat:** switching `keyvault_provider` (or rotating the KEK) on an
+   **already‑populated** credential store is a **migration** — the stored secrets must be
+   **re‑wrapped** under the new key, not just re‑pointed. Do this deliberately; see the
+   `keyvault.py` header and [SCALING.md](SCALING.md).
+
+The master key is never written to disk by the app — your KMS/secret manager owns it.
 
 ## PART 9 — Verification checklist
 
@@ -419,3 +583,19 @@ Get-Service FleetFuel                            # Running
 | `MISSING` invoices every month for one supplier | Check its `invoice_cadence` in suppliers.db (Data manager) |
 | API source fails | `pip install requests`; token env var set in the systemd unit, then restart |
 | Forgot admin password | `sudo -u fleetfuel .../python auth.py add <admin-user>` resets it from the shell |
+
+## Related documentation
+
+- **[SCALING.md](SCALING.md)** — the single-box → web/worker fleet → PostgreSQL ladder
+  (Parts 5b / 7c) and the credential-custody rotation detail (Part 8b).
+- **[MULTI_TENANCY.md](MULTI_TENANCY.md)** — the P1+ rollout before turning `multitenant`
+  on (Part 7d).
+- **[SAFT.md](SAFT.md)** — what the SAF-T export is and how to specialise it per
+  jurisdiction (the `/export/saft` core structure).
+- **[SECURITY.md](../SECURITY.md)** — disk encryption, password storage, hardening,
+  backup integrity.
+- **[GIT_SETUP.md](GIT_SETUP.md)** — source control / what must never be committed
+  (secrets, `security.db`, runtime DBs).
+- **[API.md](API.md)** / **[API_MANUAL.md](API_MANUAL.md)** — the `/api/v1` external API
+  (default-off; issue keys in the Admin panel).
+- **[AI_REVIEW.md](AI_REVIEW.md)** — the advisory AI review assistant (default-off).

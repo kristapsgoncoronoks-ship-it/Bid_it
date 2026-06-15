@@ -18,6 +18,16 @@ It is a clean machine contract: **token-only** (never the session cookie), **sco
 endpoint**, **metered per key**. The internal session-authed `/api/*` routes used by the
 app's own UI are NOT part of this contract.
 
+> **Not in the API — session-auth UI exports.** The platform also offers browser
+> (session-cookie) exports that are **outside** `/api/v1` and must not be called with a
+> bearer token: `/export/expenses` (Excel expense report), `/export/accounting` (CSV
+> accounting/ERP ledger), `/export/saft` (SAF-T XML — OECD core structure, not a
+> validated per-country filing), `/export/overpay` (price-review packet), and the
+> session-auth pages `/expenses`, `/savings`, `/close`, `/recon`, `/vat/unmatched`,
+> `/receivables`, `/admin/confidence`, `/admin/tenants`. These are end-user UI features
+> (see `docs/USER_MANUAL.md`), not machine endpoints. The `/api/v1` token surface itself
+> is unchanged — still the seven endpoints in §2.
+
 ---
 
 ## 1. Authentication & key issuance

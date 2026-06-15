@@ -106,7 +106,26 @@ row here = one potential refund stream.
 green **PREFER** (≤1.40), red **AVOID** (≥1.62). Share with dispatchers.
 
 **Savings** — the avoidable‑overpay view as a chart: how much was spent above the
-cheapest available option, the headline figure dispatch and procurement act on.
+cheapest available option, the headline figure dispatch and procurement act on. A
+**Supplier price‑review** card ranks who to renegotiate (most‑overpaid first) and offers
+**Download price‑review packet (Excel)** (`/export/overpay`) — the per‑fuelling‑day detail
+behind each supplier's overpay. This is a **competitiveness review, not a contractual
+claim**: each figure is how much more a supplier charged than the cheapest same‑day,
+same‑country diesel rival — evidence for renegotiation or steering volume, not money owed.
+NET EUR/L, final.
+
+**Expenses** — the finance‑facing company expense / cost‑allocation report: net, VAT and
+gross spend per **entity (cost centre)**, per **product group** and per **vehicle** over the
+validated transactions (gross = net + VAT; NET EUR, rebates applied, VAT shown separately).
+Three downloads for your accounting/ERP:
+- **Download expense report (Excel)** (`/export/expenses`) — the per‑entity / per‑vehicle
+  workbook.
+- **Download accounting ledger (CSV)** (`/export/accounting`) — one row per transaction,
+  decision‑free (no chart‑of‑accounts mapping), for import into your accounting/ERP system.
+- **Download SAF‑T (XML, core structure)** (`/export/saft`) — the OECD SAF‑T core structure
+  for a period. **Note:** this is a generic core structure, **not** a validated submission
+  for any tax authority — specialise the namespace/version/required fields per jurisdiction
+  before any real filing (see [SAFT.md](SAFT.md)).
 
 **FX vs ECB** — the exchange rates used versus the official ECB reference, so any
 currency conversion in the claims is transparent and auditable.
@@ -167,10 +186,37 @@ claw back. Add rules per supplier/country/station (SQL‑LIKE) with an expected 
 exact blocking reasons (activation, missing docs, unresolved refs, threshold), plus the
 list of open (submitted, awaiting refund) claims with aging. Export to Excel.
 
-**Recovery** — tracks submitted → approved → paid refund amounts with aging (unpaid
-over 120 days flagged red), **and the service‑fee settlement**: the fee charged per
-claim, whether we invoice the customer or deduct and remit the net, and a one‑click
-**fees statement** (Excel). Issue the fee invoice once a refund is paid (see §5a).
+**Monthly close** (`/close`, admin only) — the **one‑click monthly close**. Pick the
+period and run it; the close is **enqueued onto the background worker** (it never blocks the
+web request) and runs the engine end‑to‑end — consolidate → build master → history → receipt
+control → backup — as a single audited, restartable job. Watch progress on the Waiting room
+/ Dashboard. (The same close can also be run from the server CLI, `python engine_close.py
+[period]` — see §3.)
+
+**Bank reconciliation** (`/recon`, admin only) — **advisory only**. Upload a bank‑statement
+**CSV** and the page reconciles its lines against the **expected incoming VAT refunds**
+(claims filed but not yet paid), by amount and date, so you can see which refunds have
+landed and which are still outstanding. It **never** marks a claim paid or changes any VAT
+figure/gate/lock — it shows suggestions only. (An automated read‑only bank feed via a
+licensed open‑banking aggregator is a configurable seam; none is enabled by default.)
+
+**UNMATCHED resolution** (`/vat/unmatched`, admin only) — where you clear a claim's
+**UNMATCHED** lines. A claim line is tagged UNMATCHED when a transaction's note matches no
+registered invoice (and there isn't exactly one obvious invoice for that supplier/country) —
+a **hard block on filing**. Here you map that note to an **existing registered invoice**:
+this is an **association only** — it never changes a net/VAT amount, and the target is
+re‑checked as still‑registered and non‑synthetic at read time. Set/Clear are audited.
+
+**Recovery / Receivables** (admin only) — tracks submitted → approved → paid refund
+amounts with aging (unpaid over 120 days flagged red), **and the service‑fee settlement**:
+the fee charged per claim, whether we invoice the customer or deduct and remit the net, and
+a one‑click **fees statement** (Excel). Issue the fee invoice once a refund is paid (see
+§5a). The page also hosts an **embedded‑finance** section (advisory, origination‑only): it
+shows the financeable receivable base (the same submitted/approved outstanding total) and
+the advance economics at the configured terms (advance %, fee %, provider). The default
+provider is **none** — **no money moves**, the figures are informational, and **nothing
+here touches a VAT figure, gate, lock or lifecycle**. Terms are set on the page; the
+provider seam is admin‑configured (see §5a).
 
 **Pricing intel** — the competitiveness engine. Toggle daily / weekly / monthly;
 each supplier's effective NET price per city is compared against three baselines:
@@ -244,7 +290,34 @@ parts of the app on/off** (analytics, intake, compliance, VAT refunds, FX): a pa
 that's off disappears from the menu and its pages answer "turned off" until re‑enabled;
 the login log and the **error log**; security status (TLS, password storage); the
 backup schedule with one‑click **Run backup**, **Verify last backup** and **Check
-document integrity**.
+document integrity**. The Admin panel also holds:
+- **E‑mail alerts (SMTP relay)** — set the SMTP host/port/user/password, a *From*
+  address and the **recipients** for the action digest, and the **digest cadence**
+  (hours). With a relay configured the system e‑mails the "what needs action" digest on
+  that cadence and sends **per‑event critical alerts** (e.g. a VAT submission deadline
+  approaching, a stuck/dead‑letter intake job). Until SMTP is set the alerts surface
+  in‑app only.
+- **Off‑site backup sync** — point a **backup sync folder** (a mounted NAS / synced
+  cloud drive) and each snapshot is also copied there, so a backup survives loss of the
+  machine. (Can also be set by the `FFS_BACKUP_SYNC_DIR` environment variable — see
+  [INSTALL.md](INSTALL.md).)
+- **AI review backend** — the **advisory** AI review assistant is **off by default**;
+  an admin selects a backend here. It sends derived data only (never the PDF/IBAN/secret)
+  and never mutates or gates a figure (see [AI_REVIEW.md](AI_REVIEW.md)).
+- **API keys** — issue/revoke scoped machine keys for the `/api/v1` external API
+  (default‑off; see [API.md](API.md)).
+
+**Confidence scoreboard** (`/admin/confidence`, admin only) — a **read‑only** learning
+scoreboard: a per‑(supplier × country) **trust** score that grows with each clean
+validation and decays on a discrepancy, plus the recent append‑only validation‑event
+ledger. Trust governs **only** whether the advisory AI review runs (a cost saving) — it
+**never** skips or alters any legal gate (checklist, thresholds, locks, period‑end,
+document presence) and never changes a figure.
+
+**Tenants** (`/admin/tenants`, admin only) — a **read‑only** multi‑tenancy registry. The
+install is **single‑tenant by default** (the master `multitenant` switch is OFF); this page
+makes that explicit and lists no tenant scoping until multi‑tenancy is rolled out. Nothing
+here gates or alters any query or figure (see [MULTI_TENANCY.md](MULTI_TENANCY.md)).
 
 ## 3. Monthly routine (processor)
 
@@ -253,7 +326,10 @@ Day 1–3 of the new month, when supplier invoices arrive:
 1. **Load the data** (server CLI or ask your admin): drop the supplier files, edit
    `month_config.py`, run `consolidate.py` (every supplier must PASS validation
    against its own invoice totals — the system refuses to build on a mismatch),
-   then `build_master.py` and `history.py`.
+   then `build_master.py` and `history.py`. *(An admin can instead run the whole
+   close in one click from the **Monthly close** page (`/close`) — it enqueues the
+   same engine run to the background worker — or from the CLI `python engine_close.py
+   [period]`.)*
 2. **Invoice control** page → enter the period → Run control. Work the colors:
    - red **MISSING** = activity happened but no invoice registered → chase the supplier
    - red **RECEIVED – DOC MISSING** = invoice registered, PDF not attached → get it,
@@ -462,6 +538,10 @@ detect corruption or a missing original.
 | **VAT_Claim_Readiness_<year>.xlsx** | The Claims page export: "Ready to submit" (with blocking reasons) + "Open claims" (aging) sheets |
 | **VAT_Fees_Statement_<year>.xlsx** | The Recovery page export: charged fees and net remittances aggregated per customer, plus a per-claim detail sheet |
 | **Pricing grid (daily/weekly/monthly)** | The Pricing intel export for building pricing models — effective NET price per supplier/city vs your baselines |
+| **Expense report (Excel)** | The Expenses page export — net / VAT / gross spend per entity (cost centre) and per vehicle (`/export/expenses`) |
+| **Accounting ledger (CSV)** | One row per transaction for accounting/ERP import — decision‑free, no chart‑of‑accounts (`/export/accounting`) |
+| **SAF‑T (XML)** | The OECD SAF‑T **core structure** for a period (`/export/saft`) — specialise per jurisdiction before any real filing; not a validated submission |
+| **Price‑review packet (Excel)** | The Savings page export — per‑fuelling‑day overpay detail behind each supplier's renegotiation case (`/export/overpay`) |
 
 Convention everywhere: **blue cells** are interactive inputs you may change;
 **yellow cells** are missing data you must supply; nothing else should be edited by

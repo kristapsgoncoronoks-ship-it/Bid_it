@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Fleet Fuel & VAT Refund System — External API
-  version: "1.0"
+  version: "1.1"
   description: |
     The versioned, token-only `/api/v1` contract over the platform's analytics
     capabilities and a basic CRM-sync surface (read + write to the customer
@@ -16,6 +16,14 @@ info:
     All prices are NET EUR/L, VAT excluded, rebates applied. EUR figures are
     quantized HALF_UP (money.f2). No v1 payload carries IBAN / bank / payout /
     fee / secret / PII. The human integrator manual is `docs/API_MANUAL.md`.
+
+    NOT in this contract: the platform also serves a number of SESSION-AUTH UI
+    exports and download routes — `/export/expenses` (Excel), `/export/accounting`
+    (CSV ledger), `/export/saft` (SAF-T XML core structure), `/export/overpay`
+    (price-review packet) and the analytics/VAT pages — which are reached with the
+    browser session cookie, NOT a `/api/v1` token. They are deliberately OUTSIDE
+    `/api/v1` and are not described here. This `info.version` 1.1 bump is metadata
+    only — the seven token endpoints below are unchanged since 1.0.
 
 servers:
   - url: https://your-deployment.example.com/api/v1
