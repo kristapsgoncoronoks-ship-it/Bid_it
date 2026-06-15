@@ -139,3 +139,90 @@ given each tenant its own encryption key (G3), kept the benchmark intra-tenant t
 hub-and-spoke trap (G4), and built GDPR data-subject rights + retention + the Art. 28/30 governance
 (G7, §2). Do that in the P1→P5 order, gate activation on a green cross-tenant test per table, and you
 become a defensible processor rather than a breach waiting to happen.
+
+---
+
+## 7. Legal grounding (deep-research, 2025) — confirmations & corrections
+
+A multi-source review (GDPR text, EDPB Guidelines 07/2020 & 01/2025, CNIL, ICO, EU 2023
+Horizontal Guidelines, CJEU case-law, PostgreSQL docs, OWASP/CWE) **confirms the audit's
+positions**, with these precision corrections to apply:
+
+**GDPR — isolation, breach, rights, retention**
+- ✅ A cross-tenant leak is a personal-data breach (Art. 4(12), confidentiality) → **72-hour**
+  supervisory-authority notification (Art. 33). EDPB 01/2021 treats wrong-recipient disclosure as a
+  notifiable breach.
+- 🔧 **Art. 34** (notify the *individuals*) only triggers on **HIGH** risk and is **exempted where the
+  data was encrypted** (Art. 34(3)(a)) — not automatic on any leak.
+- 🔧 **Art. 32** is risk/outcome-based: it does not literally enumerate "tenant isolation," but
+  isolation is *the* measure that delivers the required confidentiality/anti-unauthorised-access
+  outcome in a shared store; encryption and **regular testing** (pen-test) are named.
+- 🔧 **Data-subject rights:** in B2B SaaS the **client-tenant is the controller**; you (platform) are
+  the **processor that *assists*** (Art. 28(3)(e)) — build per-tenant access/export/erasure
+  *capability*; the one-month deadline (Art. 12(3)) is the client's duty.
+- 🔧 **Retention:** GDPR mandates **defined retention + deletion at end-of-purpose** (Art. 5(1)(e)) and
+  a documented policy — auto-purge is *recommended*, not black-letter. EU **VAT/tax law** lawfully
+  requires multi-year retention of the *invoice/transaction records* (Art. 17(3)(b) overrides
+  erasure) — but only those records; minimise/purge the rest.
+- 🔧 **An IBAN is ordinary personal data, NOT Art. 9 "special category."** Its sensitivity is
+  risk-based (fraud) and feeds the Art. 34 high-risk test. Vehicle/driver IDs **are** personal data in
+  your hands (CJEU *Scania* C-319/22).
+
+**GDPR — the owner-analytics crux (your "I must have all analytics" requirement)**
+- Using clients' personal data for your **own** cross-tenant analytics/benchmark makes you a
+  **CONTROLLER** for that use (**Art. 28(10)**) — needing your **own Art. 6 lawful basis** (legitimate
+  interest + an LIA, or consent) **and transparency** to data subjects. Processor status doesn't cover it.
+- **CNIL (2022):** a vague "product-improvement" DPA clause is **insufficient** — you need **specific,
+  written client authorisation** + a case-by-case **Art. 6(4) compatibility assessment**.
+- **The clean alternative:** **anonymise to the WP29/EDPB standard** (defeat singling-out + linkability
+  + inference) → outside GDPR (Recital 26). **Caveat:** with only ~5 entities at station/route
+  granularity, true anonymisation is hard; **pseudonymisation does NOT clear the bar** (EDPB 01/2025).
+- **Decision tree for the owner view:** (a) build it on **aggregated/de-identified** data and keep PII
+  (IBANs, driver/vehicle, contacts) out → lowest risk; **else** (b) be the **controller** for it with a
+  documented LIA + specific DPA authorisation + transparency. Avoid the middle (vague clause over
+  identifiable data).
+- **Sub-processors** (SharePoint/FTPS, AI, KMS, AISP, factor): Art. 28(2)/(4) — prior authorisation,
+  flow-down of terms, **you stay fully liable**; classify each (an AI vendor that sets its own purposes
+  is a *controller*, not a sub-processor). Maintain **dual Art. 30 records** (processor + own-controller).
+- **Non-EEA backups** = a Chapter-V transfer → SCCs + a transfer-impact assessment + **exporter-held
+  encryption** (your keyvault/BYOK design is the Schrems-II supplementary measure).
+
+**Antitrust — the platform-as-hub trap (why the benchmark stays intra-tenant)**
+- A **platform can be the "hub"** of an unlawful information exchange (CJEU **Eturas** C-74/14; the 2023
+  Guidelines name online platforms as hubs), and a **facilitator that isn't even a competitor is liable**
+  (CJEU **AC-Treuhand**) — "we don't sell fuel" is **no defence**.
+- A client who merely **sees** the shared output is **presumed party** to a concerted practice unless it
+  **publicly distances** itself (Eturas) — so feeding competitor-derived insight back to clients is the
+  danger.
+- Exchanging individualised **future** prices/quantities is a restriction **by object**; the 2023
+  Guidelines **widened** this to *anything that removes strategic uncertainty* (CJEU **Dole** — even
+  "trend" data). **There is NO safe harbour**; the old US "≥5 contributors / ≤25% share" rule was
+  **withdrawn in 2023** (heuristic only).
+- ✅ **Therefore: keep `benchmark.db` strictly intra-tenant** (a client benchmarks only its own
+  entities). A *pooled* product is lawful only if: **aggregate-only, non-attributable** output; each
+  client sees **only its own data + the aggregate**; an **independent trustee**; a **cohort minimum +
+  dominance cap + cell-suppression** against re-identification; **time-lagged historic** data; and
+  **counsel sign-off** — never individualised current/future prices.
+- Your internal **owner analytics** (holding/processing for your own business) is permissible; the line
+  is **never relaying** one client's current/identifiable pricing to another (directly or via a
+  reverse-engineerable aggregate).
+
+**Technical — refinements**
+- 🔧 **RLS leak vectors (corrected):** an RLS-*enabled* table with no policy fails **closed**
+  (default-deny). The real leaks are: RLS **never enabled**; the app connects as the **table owner
+  without `FORCE ROW LEVEL SECURITY`**; the app role has **BYPASSRLS**; or **views owned by a privileged
+  role** bypass RLS (use `security_invoker` views, PG15+). The "non-owner role + FORCE RLS +
+  transaction-local `set_config`" rule stands.
+- ✅ **One KEK bulk-decrypts all tenants** — per-tenant keys/BYOK fix it; bonus: **crypto-shredding**
+  (destroy a tenant's key) satisfies **Art. 17 erasure** without hunting every copy.
+- ✅ **CSV formula injection (CWE-1236)** — the apostrophe-prefix (shipped) is the OWASP **baseline** but
+  is **Excel-save/reopen-fragile**, and you must also escape separators/quotes (Python's `csv.writer`
+  already does the latter). Sound as the standard mitigation; note the Excel limitation.
+
+**Key sources:** GDPR Arts. 4(12), 5, 6(4), 12, 15/17/20, 28, 30, 32–34, 44–46, Recital 26; EDPB
+Guidelines 07/2020 (controller/processor), 01/2021 (breach examples), 09/2022 (breach notification),
+01/2025 (pseudonymisation); CNIL 2022 processor-reuse guidance; EU Horizontal Guidelines 2023/C 259/01
+(Ch. 6 information exchange); CJEU *Eturas* C-74/14, *AC-Treuhand* C-194/14 P, *Dole* C-286/13 P,
+*Scania* C-319/22; PostgreSQL Row-Security docs; OWASP CSV Injection / MITRE CWE-1236.
+*(Grounded research guidance, not a legal opinion — get counsel sign-off before going multi-client
+and before any pooled-benchmark product.)*
