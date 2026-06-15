@@ -95,10 +95,17 @@ def run_control(period, persist=True):
                          tenancy.tenant_column_ddls(["invoice_receipt_control"]))
         audit.install_audit(fcon, ["invoice_receipt_control"])
 
+    # Multi-tenant P2: scope every suppliers.db read via the supplier-master handle.
+    # run_control runs on the engine/worker (the worker binds the job's tenant), so ON
+    # these see only the bound tenant's master/invoices; OFF the fragment is ("",[]) and
+    # behavior is byte-identical. No-base-WHERE reads lead with WHERE 1=1.
+    sfrag, sparams = tenancy.scope_clause()
     cadence = {r["code"]: (r["invoice_cadence"] or "monthly")
-               for r in scon.execute("SELECT code, invoice_cadence FROM suppliers")}
+               for r in scon.execute(
+                   "SELECT code, invoice_cadence FROM suppliers WHERE 1=1" + sfrag, sparams)}
     scopes = {r["code"]: (r["scope"] or "") for r in
-              scon.execute("SELECT code, '' AS scope FROM suppliers")}  # scope text lives in specs
+              scon.execute("SELECT code, '' AS scope FROM suppliers WHERE 1=1" + sfrag,
+                           sparams)}  # scope text lives in specs
     # activity from transactions: (supplier, country) -> litres per half / per month
     act = collections.defaultdict(lambda: {"H1": 0.0, "H2": 0.0, "M": 0.0, "n": 0})
     for r in fcon.execute("""SELECT supplier, country, date, qty FROM transactions
@@ -113,7 +120,8 @@ def run_control(period, persist=True):
     for d in ccon.execute("SELECT supplier, invoice_ref FROM invoice_documents"):
         docs_by_inv.setdefault((d["supplier"], d["invoice_ref"]), True)
     invs = scon.execute("""SELECT supplier, country, invoice_no, invoice_date
-                           FROM supplier_invoices WHERE period=?""", (period,)).fetchall()
+                           FROM supplier_invoices WHERE period=?""" + sfrag,
+                        [period, *sparams]).fetchall()
 
     rows = []
     def add(sup, ctry, slot, expected, inv_no, status, note):
@@ -257,26 +265,33 @@ def register_statement(supplier, statement_ref, period, statement_date, lines,
                      ["ALTER TABLE supplier_statements ADD COLUMN customer TEXT"])
     if not customer:
         customer, _ = _statement_customer(con, supplier)
+    # Multi-tenant P2: register_statement runs on the worker (kind='register', which
+    # binds the job's tenant), so stamp the bound tenant on every suppliers.db write and
+    # scope the in-method reads/UPDATE. queue_tenant() is the soft (never-raising)
+    # primitive; OFF -> DEFAULT_TENANT_ID (== the column DEFAULT) and scope_clause ->
+    # ("",[]), so OFF is byte-identical.
+    tid = tenancy.queue_tenant()
+    sfrag, sparams = tenancy.scope_clause()
     con.execute("""INSERT OR REPLACE INTO supplier_statements
-                   (supplier, statement_ref, period, statement_date, notes, customer)
-                   VALUES (?,?,?,?,?,?)""",
-                (supplier, statement_ref, period, statement_date, notes, customer))
+                   (supplier, statement_ref, period, statement_date, notes, customer, tenant_id)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (supplier, statement_ref, period, statement_date, notes, customer, tid))
     synced = 0
     for inv_no, inv_date, ctry, ccy, net, vat in lines:
         net, vat = float(net or 0), float(vat or 0)
         con.execute("""INSERT OR REPLACE INTO statement_invoices
                     (supplier, statement_ref, invoice_no, invoice_date, country,
-                     currency, net, vat, gross) VALUES (?,?,?,?,?,?,?,?,?)""",
-                    (supplier, statement_ref, inv_no, inv_date, ctry, ccy, net, vat, net + vat))
+                     currency, net, vat, gross, tenant_id) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                    (supplier, statement_ref, inv_no, inv_date, ctry, ccy, net, vat, net + vat, tid))
         if vat > 0:
             note = f"auto-synced from statement {statement_ref}"
             existing = con.execute("""SELECT notes FROM supplier_invoices WHERE supplier=?
-                    AND invoice_no=?""", (supplier, inv_no)).fetchone()
+                    AND invoice_no=?""" + sfrag, [supplier, inv_no, *sparams]).fetchone()
             if existing is None:
                 con.execute("""INSERT INTO supplier_invoices
                             (supplier, country, invoice_no, invoice_date, period,
-                             currency, gross_total, notes) VALUES (?,?,?,?,?,?,?,?)""",
-                            (supplier, ctry, inv_no, inv_date, period, ccy, net + vat, note))
+                             currency, gross_total, notes, tenant_id) VALUES (?,?,?,?,?,?,?,?,?)""",
+                            (supplier, ctry, inv_no, inv_date, period, ccy, net + vat, note, tid))
                 synced += 1
             elif (existing["notes"] or "").startswith("auto-synced from statement"):
                 # Previously auto-synced row: re-sync it so a CORRECTED statement line
@@ -284,8 +299,8 @@ def register_statement(supplier, statement_ref, period, statement_date, lines,
                 # manually-curated row (any other note) is left untouched.
                 con.execute("""UPDATE supplier_invoices SET country=?, invoice_date=?,
                         period=?, currency=?, gross_total=?, notes=?
-                        WHERE supplier=? AND invoice_no=?""",
-                            (ctry, inv_date, period, ccy, net + vat, note, supplier, inv_no))
+                        WHERE supplier=? AND invoice_no=?""" + sfrag,
+                            [ctry, inv_date, period, ccy, net + vat, note, supplier, inv_no, *sparams])
                 synced += 1
     con.commit(); con.close()
     return synced
@@ -296,8 +311,14 @@ def reconcile_statements(period):
     scon = supplier_master.connect(); fcon = vat_refund.connect()
     docs = {(d["supplier"], d["invoice_ref"]) for d in
             fcon.execute("SELECT supplier, invoice_ref FROM invoice_documents")}
+    # Multi-tenant P2: scope every suppliers.db read in the reconcile (runs on the
+    # engine/render path; the worker binds the tenant). OFF the fragment is ("",[]) so
+    # behavior is byte-identical. invoice_documents lives in vat_claims.db (a separate
+    # P2 slice), not suppliers.db, so it is not scoped here.
+    sfrag, sparams = tenancy.scope_clause()
     out = []
-    for st in scon.execute("SELECT * FROM supplier_statements WHERE period=?", (period,)):
+    for st in scon.execute("SELECT * FROM supplier_statements WHERE period=?" + sfrag,
+                           [period, *sparams]):
         cust_name, cust_country = (None, None)
         try:
             cust_name = st["customer"]
@@ -312,8 +333,8 @@ def reconcile_statements(period):
         else:
             cust_name, cust_country = _statement_customer(scon, st["supplier"])
         for L in scon.execute("""SELECT * FROM statement_invoices WHERE supplier=?
-                                 AND statement_ref=? ORDER BY country""",
-                              (st["supplier"], st["statement_ref"])):
+                                 AND statement_ref=?""" + sfrag + " ORDER BY country",
+                              [st["supplier"], st["statement_ref"], *sparams]):
             line_code = COUNTRY_CODES.get(L["country"], L["country"])
             if cust_country and line_code == cust_country:
                 verdict = "DISCARD - DOMESTIC"
@@ -323,7 +344,8 @@ def reconcile_statements(period):
                 verdict, action = "DISCARD", "no VAT in this invoice - archive only, nothing to reclaim"
             else:
                 registered = scon.execute("""SELECT 1 FROM supplier_invoices WHERE supplier=?
-                        AND invoice_no=?""", (L["supplier"], L["invoice_no"])).fetchone()
+                        AND invoice_no=?""" + sfrag,
+                        [L["supplier"], L["invoice_no"], *sparams]).fetchone()
                 has_doc = (L["supplier"], L["invoice_no"]) in docs
                 unidentified = "INPUT" in (L["invoice_no"] or "")
                 if unidentified:
@@ -389,8 +411,13 @@ def unregistered_vaulted_documents():
                 v["entity"] = v["entity"] or d["entity"]
                 v["filename"] = v["filename"] or d["filename"]
         scon = supplier_master.connect()
+        # Multi-tenant P2: scope the suppliers.db registry read (no base WHERE -> lead
+        # with WHERE 1=1). OFF the fragment is ("",[]) so behavior is byte-identical.
+        # invoice_documents (vaulted, above) is in vat_claims.db — a separate slice.
+        sfrag, sparams = tenancy.scope_clause()
         registered = {(r["supplier"], r["invoice_no"]) for r in
-                      scon.execute("SELECT supplier, invoice_no FROM statement_invoices")}
+                      scon.execute("SELECT supplier, invoice_no FROM statement_invoices "
+                                   "WHERE 1=1" + sfrag, sparams)}
         return [v for key, v in vaulted.items() if key not in registered]
     except Exception as e:
         log.warning("unregistered_vaulted_documents reconcile failed: %s", e)

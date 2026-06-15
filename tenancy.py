@@ -389,9 +389,11 @@ def owner_access_audit(resource):
 def scope_clause(column="tenant_id"):
     """Return an (sql_fragment, params) pair to AND into a tenant-scoped query.
 
-    *** NOT YET APPLIED TO ANY EXISTING QUERY. *** This is the helper the phased
-    per-table work (P2, docs/MULTI_TENANCY.md) will splice into each tenant-scoped
+    P2 (docs/MULTI_TENANCY.md) splices this into each tenant-scoped
     SELECT/UPDATE/DELETE, table-by-table, EACH with a cross-tenant access test.
+    Applied so far: customer_master (CRM), pricing_intelligence (benchmark),
+    supplier_master + invoice_control (suppliers.db), and the worker tenant
+    context. Remaining modules follow the same pattern.
 
     Contract:
       - multitenant OFF            -> ("", [])    a literal no-op: existing SQL is

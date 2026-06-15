@@ -200,72 +200,103 @@ def set_discount_rule(supplier, country="%", station_like="%", product_group="Di
     should be applied (EUR/L) and/or a NET price ceiling (EUR/L) for matching lines.
     `country`/`station_like` are SQL LIKE patterns ('%' = any)."""
     con = connect()
+    # Multi-tenant P2: stamp the bound tenant on this engine/seed write. queue_tenant()
+    # is the soft (never-raising) primitive — supplier writes run on the worker/engine/
+    # seed where a missing tenant is normal and defaults to DEFAULT_TENANT_ID (== the
+    # column DEFAULT), so OFF is byte-identical.
     con.execute("""INSERT INTO supplier_discounts
-        (supplier, country, station_like, product_group, expected_discount_eur_l, max_net_eur_l, note, active)
-        VALUES (?,?,?,?,?,?,?,1)""",
+        (supplier, country, station_like, product_group, expected_discount_eur_l, max_net_eur_l, note, active, tenant_id)
+        VALUES (?,?,?,?,?,?,?,1,?)""",
         (supplier.upper(), country, station_like, product_group,
-         expected_discount_eur_l, max_net_eur_l, note))
+         expected_discount_eur_l, max_net_eur_l, note, tenancy.queue_tenant()))
     con.commit(); rid = con.execute("SELECT last_insert_rowid()").fetchone()[0]; con.close()
     return rid
 
 def set_vat_registration(supplier, country, vat_number, source="document mining"):
     """Upsert a supplier's VAT registration for a country (used to fill INPUT gaps)."""
     con = connect()
-    con.execute("""INSERT INTO supplier_vat_registrations (supplier, country, vat_number, source)
-                   VALUES (?,?,?,?)
+    # Multi-tenant P2: stamp the tenant on the registration row (soft queue_tenant —
+    # OFF -> DEFAULT_TENANT_ID == the column DEFAULT, byte-identical).
+    con.execute("""INSERT INTO supplier_vat_registrations (supplier, country, vat_number, source, tenant_id)
+                   VALUES (?,?,?,?,?)
                    ON CONFLICT(supplier, country) DO UPDATE SET vat_number=excluded.vat_number,
                      source=excluded.source""",
-                (supplier, country, vat_number, source))
+                (supplier, country, vat_number, source, tenancy.queue_tenant()))
     con.commit(); con.close()
 
 def vat_registrations():
     con = connect()
+    # Multi-tenant P2: no base WHERE -> lead with WHERE 1=1 so the scope fragment ANDs on.
+    frag, params = tenancy.scope_clause()
     rows = [dict(r) for r in con.execute(
-        "SELECT supplier, country, vat_number, source FROM supplier_vat_registrations")]
+        "SELECT supplier, country, vat_number, source FROM supplier_vat_registrations "
+        "WHERE 1=1" + frag, params)]
     con.close()
     return rows
 
 def discount_rules(active_only=True):
     con = connect()
-    q = "SELECT * FROM supplier_discounts" + (" WHERE active=1" if active_only else "") + " ORDER BY supplier, id"
-    rows = [dict(r) for r in con.execute(q)]
+    # Multi-tenant P2: scope before ORDER BY; WHERE 1=1 carries both the optional
+    # active filter and the tenant fragment.
+    frag, params = tenancy.scope_clause()
+    q = ("SELECT * FROM supplier_discounts WHERE 1=1"
+         + (" AND active=1" if active_only else "") + frag + " ORDER BY supplier, id")
+    rows = [dict(r) for r in con.execute(q, params)]
     con.close()
     return rows
 
 def delete_discount_rule(rule_id):
     con = connect()
-    con.execute("DELETE FROM supplier_discounts WHERE id=?", (rule_id,))
+    # Multi-tenant P2: scope the DELETE so a tenant cannot delete another tenant's rule.
+    frag, params = tenancy.scope_clause()
+    con.execute("DELETE FROM supplier_discounts WHERE id=?" + frag, [rule_id, *params])
     con.commit(); con.close()
 
 def seed(con):
+    # Multi-tenant P2: stamp the tenant explicitly on every seeded row. queue_tenant()
+    # is the soft primitive — seed runs as a system write with no tenant bound, so it
+    # defaults to DEFAULT_TENANT_ID (== the column DEFAULT). Stamping it explicitly (vs.
+    # relying on the DEFAULT) is byte-identical OFF and lets an ON tenant-bound re-seed
+    # land its tenant.
+    tid = tenancy.queue_tenant()
     con.executemany("""INSERT OR REPLACE INTO suppliers
         (code, legal_name, group_name, address, home_country, company_reg, phone, email,
-         portal, payment_terms, payment_notes, status, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""", SUPPLIERS)
+         portal, payment_terms, payment_notes, status, notes, tenant_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", [(*r, tid) for r in SUPPLIERS])
     # Explicit column lists (NOT positional VALUES) so the trailing P1 tenant_id
-    # column takes its DEFAULT rather than throwing a column-count mismatch.
+    # column takes a value rather than throwing a column-count mismatch.
     con.executemany("""INSERT OR REPLACE INTO supplier_vat_registrations
-        (supplier, country, vat_number, source) VALUES (?,?,?,?)""", VAT_REGS)
+        (supplier, country, vat_number, source, tenant_id) VALUES (?,?,?,?,?)""",
+        [(*r, tid) for r in VAT_REGS])
     con.executemany("""INSERT OR REPLACE INTO supplier_bank_accounts
-        (supplier, beneficiary, iban, swift, bank, currency, notes)
-        VALUES (?,?,?,?,?,?,?)""", BANKS)
+        (supplier, beneficiary, iban, swift, bank, currency, notes, tenant_id)
+        VALUES (?,?,?,?,?,?,?,?)""", [(*r, tid) for r in BANKS])
     con.executemany("""INSERT OR REPLACE INTO supplier_products
-        (supplier, product_code, product_name, product_group, unit, vat_rate, discount_terms)
-        VALUES (?,?,?,?,?,?,?)""", PRODUCTS)
+        (supplier, product_code, product_name, product_group, unit, vat_rate, discount_terms, tenant_id)
+        VALUES (?,?,?,?,?,?,?,?)""", [(*r, tid) for r in PRODUCTS])
     con.executemany("""INSERT OR REPLACE INTO supplier_invoices
-        (supplier, country, invoice_no, invoice_date, period, currency, gross_total, notes)
-        VALUES (?,?,?,?,?,?,?,?)""", INVOICE_REG)
+        (supplier, country, invoice_no, invoice_date, period, currency, gross_total, notes, tenant_id)
+        VALUES (?,?,?,?,?,?,?,?,?)""", [(*r, tid) for r in INVOICE_REG])
+    frag, params = tenancy.scope_clause()
     for code, cad in (("E100","semi-monthly"),("DKV","semi-monthly"),("Q8","monthly-per-country"),
                       ("MOEVE","monthly"),("BP","monthly"),("TFC","monthly"),("PORTONE","monthly")):
-        con.execute("UPDATE suppliers SET invoice_cadence=? WHERE code=?", (cad, code))
+        con.execute("UPDATE suppliers SET invoice_cadence=? WHERE code=?" + frag,
+                    [cad, code, *params])
     con.commit()
 
 # ---- API used by the VAT refund module (replaces vat_config ISSUERS/INVOICES) ----
 def get_issuer(code, country=None, con=None):
     own = con is None
     if own: con = connect()
-    s = con.execute("SELECT legal_name FROM suppliers WHERE code=?", (code,)).fetchone()
+    # Multi-tenant P2: scope both single-table reads. Called by the vat_refund claim
+    # build and by the engine — the worker binds the job's tenant, so these scope ON;
+    # OFF the fragment is ("",[]) and they are byte-identical.
+    frag, params = tenancy.scope_clause()
+    s = con.execute("SELECT legal_name FROM suppliers WHERE code=?" + frag,
+                    [code, *params]).fetchone()
     v = con.execute("""SELECT vat_number, source FROM supplier_vat_registrations
-                       WHERE supplier=? AND country=?""", (code, country)).fetchone()
+                       WHERE supplier=? AND country=?""" + frag,
+                    [code, country, *params]).fetchone()
     if own: con.close()
     name = s["legal_name"] if s else code
     if v and v["vat_number"]:
@@ -275,15 +306,20 @@ def get_issuer(code, country=None, con=None):
 def get_invoices(code, country, con=None):
     own = con is None
     if own: con = connect()
+    # Multi-tenant P2: scope before ORDER BY (claim build + engine read; OFF inert).
+    frag, params = tenancy.scope_clause()
     rows = con.execute("""SELECT invoice_no, invoice_date FROM supplier_invoices
-                          WHERE supplier=? AND country=? ORDER BY invoice_date""",
-                       (code, country)).fetchall()
+                          WHERE supplier=? AND country=?""" + frag
+                       + " ORDER BY invoice_date", [code, country, *params]).fetchall()
     if own: con.close()
     return [(r["invoice_no"], r["invoice_date"]) for r in rows] or \
            [(f"INPUT: {country} invoice", "")]
 
 def card(con, code):
-    s = con.execute("SELECT * FROM suppliers WHERE code=?", (code,)).fetchone()
+    # Multi-tenant P2: scope every single-table read in the card; OFF inert.
+    frag, params = tenancy.scope_clause()
+    s = con.execute("SELECT * FROM suppliers WHERE code=?" + frag,
+                    [code, *params]).fetchone()
     print(f"\n=== {s['code']}: {s['legal_name']} ({s['group_name']}) [{s['status']}] ===")
     for k in ("address","home_country","company_reg","phone","email","portal",
               "payment_terms","payment_notes","notes"):
@@ -292,14 +328,16 @@ def card(con, code):
                      ("Banks","SELECT beneficiary, iban, COALESCE(swift,''), bank FROM supplier_bank_accounts WHERE supplier=?"),
                      ("Products","SELECT COALESCE(product_code,''), product_name, product_group, vat_rate, discount_terms FROM supplier_products WHERE supplier=?"),
                      ("Invoices","SELECT country, invoice_no, invoice_date, currency, gross_total FROM supplier_invoices WHERE supplier=?")):
-        rows = con.execute(q, (code,)).fetchall()
+        rows = con.execute(q + frag, [code, *params]).fetchall()
         if rows:
             print(f"  {label}:")
             for r in rows: print("    -", " | ".join(str(x) for x in r))
 
 if __name__ == "__main__":
     con = connect(); seed(con)
+    frag, params = tenancy.scope_clause()
     codes = [sys.argv[1]] if len(sys.argv) > 1 else \
-            [r[0] for r in con.execute("SELECT code FROM suppliers ORDER BY code")]
+            [r[0] for r in con.execute(
+                "SELECT code FROM suppliers WHERE 1=1" + frag + " ORDER BY code", params)]
     for c in codes: card(con, c)
     con.close()
