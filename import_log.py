@@ -14,6 +14,8 @@ failure must not itself fail an import.
 import os, sqlite3
 
 import db_tuning
+import db_migrate
+import tenancy
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 DB = os.environ.get("IMPORT_LOG_DB", f"{WORKDIR}/import_log.db")
@@ -41,6 +43,14 @@ def connect():
     db_tuning.tune(con)
     if DB == ":memory:" or DB not in _READY:
         con.executescript(SCHEMA)
+        # P1 multi-tenancy (schema plumbing only): stamp the app-owned import_log
+        # event table with a tenant_id; existing rows backfill to DEFAULT_TENANT_ID
+        # via the column DEFAULT, new rows default too. NO query reads this column yet
+        # (the `multitenant` switch is OFF and scope_clause is unwired until P2), so
+        # this is a pure no-behavior-change addition. TEXT is audit-safe. Run via
+        # db_migrate so the ALTER applies exactly once per DB (APPEND-ONLY at END).
+        db_migrate.apply(con, "import_log", tenancy.tenant_column_ddls(["import_log"]))
+        con.commit()
         if DB != ":memory:":
             _READY.add(DB)
     return con
@@ -78,6 +88,11 @@ def recent(channel=None, status=None, client=None, supplier=None,
         f"SELECT * FROM import_log WHERE {' AND '.join(w)} ORDER BY id DESC LIMIT ?",
         p + [limit])]
     con.close()
+    # Exclude the P1 tenant_id plumbing from the surfaced row contract (the /imports
+    # template and the close/extract monitoring cards consume these dicts by key) —
+    # adding a multi-tenancy column must not change the exposed shape.
+    for r in rows:
+        r.pop(tenancy.TENANT_COLUMN, None)
     return rows
 
 

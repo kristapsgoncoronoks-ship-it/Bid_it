@@ -39,6 +39,7 @@ CLI:
 """
 import os, sqlite3, hashlib, json, time, datetime
 import applog
+import tenancy
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 log = applog.get("waiting_room")
@@ -107,6 +108,15 @@ def _at(epoch):
     return datetime.datetime.utcfromtimestamp(epoch).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _drop_tenant(d):
+    """Strip the P1 multi-tenancy plumbing column from a row dict before it is
+    surfaced as a caller contract (job rows, supplier-limit rows). The tenant_id
+    column is pure schema plumbing (no query reads it yet); excluding it here keeps
+    the exposed dict shape byte-identical to before the column was added."""
+    d.pop(tenancy.TENANT_COLUMN, None)
+    return d
+
+
 def connect():
     import db_tuning, db_migrate
     con = sqlite3.connect(DB, timeout=30)
@@ -135,6 +145,20 @@ def connect():
         "CREATE TABLE IF NOT EXISTS supplier_rate_state ("
         " supplier TEXT PRIMARY KEY, last_start_at TEXT, consec_failures INTEGER DEFAULT 0,"
         " breaker_open_until TEXT)",
+        # P1 multi-tenancy (schema plumbing only): stamp the intake queue + the per-
+        # supplier rate-limit config/state tables with a tenant_id; existing rows
+        # backfill to DEFAULT_TENANT_ID via the column DEFAULT, new rows default too.
+        # A per-supplier rate-limit IS tenant-scoped once multi-client, so the two
+        # limiter tables get the column alongside intake_jobs. The DLQ-size health
+        # samples (intake_health_samples) are GLOBAL queue telemetry, not tenant rows,
+        # so they are deliberately left unstamped. NO query reads this column yet (the
+        # `multitenant` switch is OFF and scope_clause is unwired until P2): _claim, the
+        # rate-limiter eligibility math and the worker dispatch all select/filter named
+        # columns, never tenant_id, so this is a pure no-behavior-change addition. TEXT
+        # is audit-safe. APPEND-ONLY — keep at END (positions are stable).
+        *tenancy.tenant_column_ddls([
+            "intake_jobs", "supplier_rate_limits", "supplier_rate_state",
+        ]),
     ]
     if DB != ":memory:" and DB not in _SCHEMA_READY:
         con.executescript(SCHEMA)
@@ -415,7 +439,10 @@ def get_supplier_limit(supplier):
                         (supplier,)).fetchone()
     finally:
         con.close()
-    return dict(r) if r else None
+    # Exclude the P1 tenant_id plumbing from the surfaced limit-row contract (callers
+    # consume this dict by key) — adding a multi-tenancy column must not change the
+    # exposed shape.
+    return _drop_tenant(dict(r)) if r else None
 
 def clear_supplier_limit(supplier):
     """Delete the limit row (back to UNLIMITED). The state row is also dropped so a
@@ -1276,7 +1303,10 @@ def jobs(status=None, limit=100):
         rows = con.execute("SELECT * FROM intake_jobs ORDER BY id DESC LIMIT ?",
                            (limit,)).fetchall()
     con.close()
-    return [dict(r) for r in rows]
+    # Exclude the P1 tenant_id plumbing from the surfaced job-row contract (the
+    # monitoring panel / monitor_rows consume these dicts by key) — adding a
+    # multi-tenancy column must not change the exposed shape.
+    return [_drop_tenant(dict(r)) for r in rows]
 
 # ordering for the monitoring panel: the STUCK states (failed/held need a human,
 # waiting is auto-retrying) float to the top, then in-flight, then the rest — newest
@@ -1312,7 +1342,10 @@ def get_job(job_id):
     con = connect()
     r = con.execute("SELECT * FROM intake_jobs WHERE id=?", (job_id,)).fetchone()
     con.close()
-    return dict(r) if r else None
+    # Exclude the P1 tenant_id plumbing from the surfaced job-row contract (callers
+    # consume this dict by key) — adding a multi-tenancy column must not change the
+    # exposed shape.
+    return _drop_tenant(dict(r)) if r else None
 
 def get_draft(job_id):
     """Return (draft_dict, pdf_bytes_list) for a `ready` job, re-deriving the

@@ -29,6 +29,7 @@ import datetime
 
 import applog
 import db_migrate
+import tenancy
 
 log = applog.get("confidence")
 
@@ -56,6 +57,12 @@ _DDL = [
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         supplier TEXT, country TEXT, clean INTEGER,
         source TEXT, detail TEXT, created_at TEXT)""",
+    # P1 multi-tenancy (schema plumbing only): stamp the app-owned confidence tables
+    # with a tenant_id; existing rows backfill to DEFAULT_TENANT_ID via the column
+    # DEFAULT, new rows default too. NO query reads this column yet (the `multitenant`
+    # switch is OFF and scope_clause is unwired until P2), so this is a pure
+    # no-behavior-change addition. TEXT is audit-safe. APPEND-ONLY — keep at END.
+    *tenancy.tenant_column_ddls(["supplier_trust", "validation_events"]),
 ]
 
 

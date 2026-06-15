@@ -42,6 +42,7 @@ ADVANCE_PCT_DEFAULT = 0.90       # fraction of the receivable advanced now
 FEE_PCT_DEFAULT = 0.02           # factoring fee as a fraction of the receivable
 
 import db_migrate
+import tenancy
 
 # advances ledger — captures every advance request and its provider outcome. With the
 # NULL provider these rows record INTENT (status 'no_provider'); a real provider records
@@ -58,6 +59,12 @@ _MIGRATIONS = [
         message TEXT,
         created_by TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP)""",
+    # P1 multi-tenancy (schema plumbing only): stamp the finance-owned advances ledger
+    # with a tenant_id; existing rows backfill to DEFAULT_TENANT_ID via the column
+    # DEFAULT, new rows default too. NO query reads this column yet (the `multitenant`
+    # switch is OFF and scope_clause is unwired until P2), so this is a pure
+    # no-behavior-change addition. TEXT is audit-safe. APPEND-ONLY — keep at END.
+    *tenancy.tenant_column_ddls(["advances"]),
 ]
 _READY = set()
 
