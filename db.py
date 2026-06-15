@@ -22,12 +22,16 @@ HONEST STATUS — read before flipping DB_ENGINE in production:
   Postgres types on migration, returns dict-style rows so `row["col"]` keeps
   working, AND now wraps the connection in a paramstyle shim (_PgShim) that
   translates the modules' SQLite qmark SQL ("... VALUES (?)") to psycopg's pyformat
-  ("%s") on every statement — see qmark_to_pyformat() (unit-tested). The psycopg
-  wiring itself still needs exercising against a LIVE Postgres before a production
-  cutover. What remains: dialect functions the modules spell the SQLite way —
-  datetime('now'), INSERT OR IGNORE, and the json_object audit triggers — need
-  Postgres equivalents (now(), ON CONFLICT, a PG trigger function). Treat this file
-  as the migration scaffold + paramstyle layer, not yet a drop-in switch. It ships
+  ("%s") on every statement — see qmark_to_pyformat() (unit-tested). The shim ALSO
+  auto-translates two mechanical dialect-isms — translate_dialect() (unit-tested):
+  datetime('now') [no-modifier form] -> now(), and INSERT OR IGNORE -> INSERT … ON
+  CONFLICT DO NOTHING. The psycopg wiring itself still needs exercising against a LIVE
+  Postgres before a production cutover. What REMAINS as per-site ports (no mechanical
+  rewrite — must be done + validated against a live Postgres): datetime('now', <mods>)
+  (interval math, e.g. now() - interval '1 day'), INSERT OR REPLACE (needs ON
+  CONFLICT(<target>) DO UPDATE SET), and the json_object audit triggers (a PG trigger
+  function). Treat this file as the migration scaffold + paramstyle/dialect layer, not
+  yet a drop-in switch. It ships
   SQLite-active and import-guarded so nothing breaks until you opt in. See
   docs/SCALING.md for the full horizontal-scaling plan and remaining blockers.
 """
@@ -91,13 +95,105 @@ def qmark_to_pyformat(sql):
     return "".join(out)
 
 
+def translate_dialect(sql):
+    """Mechanically translate the two SQLite dialect-isms that map to Postgres with a
+    SAFE, lossless string rewrite, so the modules' SQLite-style SQL runs on Postgres
+    without editing each call site. String-literal-aware (mirrors qmark_to_pyformat):
+    a match INSIDE a single-quoted literal is data and is left untouched, honoring ''
+    escapes. Applied ONLY on the Postgres path (the shim), so SQLite is never affected.
+
+    Translations (and DELIBERATE non-translations):
+      * datetime('now')  -> now()   — ONLY the exact no-modifier form. The modifier
+        form datetime('now', '-1 day') needs PG interval math (now() - interval
+        '1 day'), which is NOT a mechanical rewrite, so it is LEFT UNCHANGED to be
+        caught/ported at live-PG validation.
+      * INSERT OR IGNORE INTO -> INSERT INTO ... ON CONFLICT DO NOTHING (appended).
+        Case-insensitive on the keywords. The ON CONFLICT clause is inserted before a
+        trailing RETURNING / ';' if present (the codebase's forms are simple
+        INSERT OR IGNORE INTO ... VALUES (...), all verified by grep).
+      * INSERT OR REPLACE is LEFT UNCHANGED — it needs an explicit conflict target +
+        DO UPDATE SET, not a mechanical rewrite. CURRENT_TIMESTAMP is also untouched
+        (valid standard SQL on Postgres).
+
+    Pure function — fully unit-tested independent of any live database."""
+    # Pass 1: datetime('now') -> now(), literal-aware, no-modifier form only.
+    out, in_str, i, n = [], False, 0, len(sql)
+    low = sql.lower()
+    NOW = "datetime('now')"
+    while i < n:
+        c = sql[i]
+        if in_str:
+            out.append(c)
+            if c == "'":
+                if i + 1 < n and sql[i + 1] == "'":   # '' = escaped quote, stay inside
+                    out.append("'"); i += 2; continue
+                in_str = False
+            i += 1; continue
+        if c == "'":
+            in_str = True; out.append(c); i += 1; continue
+        if low.startswith(NOW, i):
+            # Only rewrite the bare no-modifier form. Peek past the literal for a comma
+            # BEFORE the closing ')': datetime('now', ...) is the modifier form and must
+            # be left for a per-site interval port, so don't match it here.
+            out.append("now()"); i += len(NOW); continue
+        out.append(c); i += 1
+    sql = "".join(out)
+
+    # Pass 2: INSERT OR IGNORE INTO -> INSERT INTO + ON CONFLICT DO NOTHING, literal-aware.
+    low = sql.lower()
+    kw = "insert or ignore into"
+    in_str, i, n = False, 0, len(sql)
+    while i < n:
+        c = sql[i]
+        if in_str:
+            if c == "'":
+                if i + 1 < n and sql[i + 1] == "'":
+                    i += 2; continue
+                in_str = False
+            i += 1; continue
+        if c == "'":
+            in_str = True; i += 1; continue
+        if low.startswith(kw, i):
+            head = sql[:i] + "INSERT INTO" + sql[i + len(kw):]
+            return _append_on_conflict(head)
+        i += 1
+    return sql
+
+
+def _append_on_conflict(sql):
+    """Append ' ON CONFLICT DO NOTHING' to an INSERT, placing it BEFORE a trailing
+    RETURNING clause or ';' if one is present (literal-aware split). The codebase's
+    INSERT OR IGNORE forms have neither, but this keeps the rewrite correct if one is
+    added later."""
+    clause = " ON CONFLICT DO NOTHING"
+    low, in_str, i, n = sql.lower(), False, 0, len(sql)
+    while i < n:
+        c = sql[i]
+        if in_str:
+            if c == "'":
+                if i + 1 < n and sql[i + 1] == "'":
+                    i += 2; continue
+                in_str = False
+            i += 1; continue
+        if c == "'":
+            in_str = True; i += 1; continue
+        if c == ";":
+            return sql[:i] + clause + sql[i:]
+        if low.startswith("returning", i) and (i == 0 or not sql[i - 1].isalnum()):
+            return sql[:i].rstrip() + clause + " " + sql[i:]
+        i += 1
+    return sql.rstrip() + clause
+
+
 class _PgCursor:
-    """psycopg cursor wrapper that rewrites qmark SQL (?) to pyformat (%s)."""
+    """psycopg cursor wrapper that translates SQLite-dialect SQL to Postgres: first the
+    mechanical dialect-isms (translate_dialect), then qmark -> pyformat. Order matters:
+    translate_dialect introduces no '?' or '%', so running it first is safe."""
     def __init__(self, cur): object.__setattr__(self, "_cur", cur)
     def execute(self, sql, params=()):
-        self._cur.execute(qmark_to_pyformat(sql), params); return self._cur
+        self._cur.execute(qmark_to_pyformat(translate_dialect(sql)), params); return self._cur
     def executemany(self, sql, params):
-        self._cur.executemany(qmark_to_pyformat(sql), params); return self._cur
+        self._cur.executemany(qmark_to_pyformat(translate_dialect(sql)), params); return self._cur
     def __iter__(self): return iter(self._cur)
     def __getattr__(self, name): return getattr(self._cur, name)
 
@@ -108,10 +204,12 @@ class _PgShim:
     connection and the cursors it hands out. Active ONLY when DB_ENGINE=postgres — the
     SQLite default path never sees this class.
 
-    NOTE: the ?->%s translation is unit-tested; the psycopg wiring here is verified by
-    construction and must be exercised against a live Postgres before a production
-    cutover (see docs/SCALING.md). Dialect functions (datetime('now'), INSERT OR IGNORE,
-    json_object triggers) are a separate, still-open item."""
+    NOTE: the ?->%s translation AND the mechanical dialect translation (translate_dialect:
+    datetime('now')->now(), INSERT OR IGNORE->ON CONFLICT DO NOTHING) are unit-tested; the
+    psycopg wiring here is verified by construction and must be exercised against a live
+    Postgres before a production cutover (see docs/SCALING.md). Non-mechanical dialect-isms
+    (datetime('now', <mods>), INSERT OR REPLACE, json_object triggers) remain per-site
+    ports, still open."""
     def __init__(self, con): object.__setattr__(self, "_con", con)
     def execute(self, sql, params=()):
         return _PgCursor(self._con.cursor()).execute(sql, params)

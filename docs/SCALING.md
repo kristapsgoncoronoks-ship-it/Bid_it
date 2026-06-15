@@ -140,15 +140,20 @@ What already works and is tested on SQLite:
 - ✅ Pluggable file storage (local / SharePoint) with stable historical locators.
 - ✅ Lease-based queue + leader-elected scheduler (multi-process safe today).
 - ✅ Paramstyle shim `db.qmark_to_pyformat()` (`?` → `%s`) — unit-tested.
+- ✅ Mechanical dialect shim `db.translate_dialect()` — `datetime('now')` (no-modifier)
+  → `now()` and `INSERT OR IGNORE` → `INSERT … ON CONFLICT DO NOTHING`, unit-tested.
 
 What still needs doing **before** a production Postgres cutover (needs a live Postgres
 to validate — not available in CI):
 1. **Exercise `_PgShim` against a real psycopg** — the translator is unit-tested, but
    the connection/cursor wiring needs an integration pass on a live DB.
-2. **Dialect functions.** Modules use SQLite spellings that Postgres writes differently:
-   `datetime('now')` → `now()`, `INSERT OR IGNORE` → `INSERT … ON CONFLICT DO NOTHING`,
-   and the `json_object` **audit triggers** (`audit.py`) need a Postgres trigger
-   function. These are the substantive remaining code changes.
+2. **Dialect functions.** The two MECHANICAL dialect-isms are now auto-translated at the
+   shim (`db.translate_dialect()`, unit-tested): `datetime('now')` [no-modifier] → `now()`
+   and `INSERT OR IGNORE` → `INSERT … ON CONFLICT DO NOTHING`. What REMAINS as per-site
+   ports (no mechanical rewrite — must be validated on a live Postgres):
+   `datetime('now', <modifiers>)` → interval math (e.g. `now() - interval '1 day'`),
+   `INSERT OR REPLACE` → `ON CONFLICT(<target>) DO UPDATE SET`, and the `json_object`
+   **audit triggers** (`audit.py`) → a Postgres trigger function.
 3. **Migrate the operational DBs too.** `db.py --migrate` copies the four master DBs;
    for a shared fleet the **queue** (`intake`) and the **cross-node leases**
    (`process_lock`) must also live on the shared Postgres, or workers/leaders won't
