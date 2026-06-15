@@ -184,6 +184,150 @@ def connect():
                 "country_requirements", "checklist_rules", "doc_templates",
                 "document_requests",
             ]),
+            # ── PK RE-KEY (multi-tenant): tenant-qualified PRIMARY KEYs ──────────
+            # The CRM natural-key tables carry a tenant_id column (P1, the spread
+            # above) and tenant-scoped reads / stamped writes (P2), but their PRIMARY
+            # KEYs did NOT include tenant_id — so the seeders' INSERT OR REPLACE and
+            # the setters' INSERT … ON CONFLICT(<natural key>) resolve on the NATURAL
+            # key only. Under the `multitenant` switch ON, two tenants writing the
+            # same code / iban / (customer, …) / key would COLLIDE and overwrite each
+            # other's CRM rows — cross-tenant data loss. customers' inline
+            # `company_name UNIQUE` is likewise GLOBAL: two tenants could not have a
+            # customer with the same company name.
+            #
+            # SQLite cannot ALTER a PRIMARY KEY (or drop an inline UNIQUE) in place,
+            # so each of the SEVEN natural-key tables is REBUILT: create a __rekey
+            # twin, copy all rows (explicit column list, verbatim), drop the old,
+            # rename the twin. Runs once per DB (versioned), supersedes the PK on both
+            # fresh and existing customers.db files. APPEND-ONLY — keep at END.
+            #
+            # AUDITED-DB SPECIFICS (these tables ARE audited — see install_audit just
+            # after this apply()):
+            #   • AUDIT ROWKEY PRESERVED. audit._cols_pk returns pks[0] = the FIRST
+            #     pk-flagged column in COLUMN-DEFINITION order (not PK-clause order),
+            #     and the trigger logs NEW.{pk}. We define tenant_id as the LAST column
+            #     but FIRST in the PRIMARY KEY clause, so pks[0] stays the original
+            #     natural rowkey (code / iban / customer / country / key) and the audit
+            #     rowkey is UNCHANGED — never tenant_id/'default'.
+            #   • TRIGGERS REINSTATED. DROP TABLE drops aud_<t>_i/u/d. We do NOT
+            #     hand-write CREATE TRIGGER here — connect() calls install_audit RIGHT
+            #     AFTER db_migrate.apply (below), which recreates the triggers on the
+            #     first connect that runs this migration.
+            #   • INDEXES. None of these 7 tables has a separate CREATE INDEX (only
+            #     document_requests does, and it is NOT rebuilt). The only implicit
+            #     secondary index is customers' `company_name UNIQUE` autoindex, which
+            #     we RECREATE as a TABLE-level composite UNIQUE (tenant_id, company_name)
+            #     in the __rekey CREATE (so the same name can repeat across tenants but
+            #     stays unique within a tenant). FKs are off (PRAGMA foreign_keys=0;
+            #     the schema uses comment-only references), so no FK guard is needed.
+            #
+            # OFF-by-default is byte-identical: a single 'default' tenant behaves
+            # exactly as the natural PK / global UNIQUE did.
+
+            # customers: PK (code) -> (tenant_id, code). The inline `company_name TEXT
+            # UNIQUE` becomes a TABLE-level UNIQUE (tenant_id, company_name).
+            """CREATE TABLE IF NOT EXISTS customers__rekey (
+                code TEXT, company_name TEXT,
+                reg_number TEXT, vat_number TEXT, legal_address TEXT, country TEXT,
+                home_portal TEXT, phone TEXT, email TEXT,
+                status TEXT DEFAULT 'active', notes TEXT,
+                fee_pct REAL DEFAULT 0, fee_min REAL DEFAULT 0,
+                payout_route TEXT DEFAULT 'customer',
+                nace_code TEXT, signatory_name TEXT, signatory_title TEXT,
+                tenant_id TEXT NOT NULL DEFAULT 'default',
+                PRIMARY KEY (tenant_id, code),
+                UNIQUE (tenant_id, company_name))""",
+            """INSERT INTO customers__rekey
+                (code, company_name, reg_number, vat_number, legal_address, country,
+                 home_portal, phone, email, status, notes, fee_pct, fee_min,
+                 payout_route, nace_code, signatory_name, signatory_title, tenant_id)
+                SELECT code, company_name, reg_number, vat_number, legal_address,
+                 country, home_portal, phone, email, status, notes, fee_pct, fee_min,
+                 payout_route, nace_code, signatory_name, signatory_title, tenant_id
+                FROM customers""",
+            "DROP TABLE customers",
+            "ALTER TABLE customers__rekey RENAME TO customers",
+
+            # customer_bank_accounts: PK (iban) -> (tenant_id, iban). `customer` stays
+            # a non-PK column; rowkey stays NEW.iban.
+            """CREATE TABLE IF NOT EXISTS customer_bank_accounts__rekey (
+                customer TEXT, iban TEXT, swift TEXT, bank TEXT,
+                currency TEXT, purpose TEXT DEFAULT 'refund payout', notes TEXT,
+                tenant_id TEXT NOT NULL DEFAULT 'default',
+                PRIMARY KEY (tenant_id, iban))""",
+            """INSERT INTO customer_bank_accounts__rekey
+                (customer, iban, swift, bank, currency, purpose, notes, tenant_id)
+                SELECT customer, iban, swift, bank, currency, purpose, notes, tenant_id
+                FROM customer_bank_accounts""",
+            "DROP TABLE customer_bank_accounts",
+            "ALTER TABLE customer_bank_accounts__rekey RENAME TO customer_bank_accounts",
+
+            # customer_supplier_accounts: PK (customer, supplier) -> (tenant_id,
+            # customer, supplier). rowkey stays NEW.customer.
+            """CREATE TABLE IF NOT EXISTS customer_supplier_accounts__rekey (
+                customer TEXT, supplier TEXT, account_no TEXT, notes TEXT,
+                tenant_id TEXT NOT NULL DEFAULT 'default',
+                PRIMARY KEY (tenant_id, customer, supplier))""",
+            """INSERT INTO customer_supplier_accounts__rekey
+                (customer, supplier, account_no, notes, tenant_id)
+                SELECT customer, supplier, account_no, notes, tenant_id
+                FROM customer_supplier_accounts""",
+            "DROP TABLE customer_supplier_accounts",
+            "ALTER TABLE customer_supplier_accounts__rekey RENAME TO customer_supplier_accounts",
+
+            # customer_fees: PK (customer, country) -> (tenant_id, customer, country).
+            # rowkey stays NEW.customer.
+            """CREATE TABLE IF NOT EXISTS customer_fees__rekey (
+                customer TEXT, country TEXT, fee_pct REAL DEFAULT 0, fee_min REAL DEFAULT 0,
+                tenant_id TEXT NOT NULL DEFAULT 'default',
+                PRIMARY KEY (tenant_id, customer, country))""",
+            """INSERT INTO customer_fees__rekey
+                (customer, country, fee_pct, fee_min, tenant_id)
+                SELECT customer, country, fee_pct, fee_min, tenant_id
+                FROM customer_fees""",
+            "DROP TABLE customer_fees",
+            "ALTER TABLE customer_fees__rekey RENAME TO customer_fees",
+
+            # customer_countries: PK (customer, country) -> (tenant_id, customer,
+            # country). rowkey stays NEW.customer.
+            """CREATE TABLE IF NOT EXISTS customer_countries__rekey (
+                customer TEXT, country TEXT, status TEXT DEFAULT 'pending',
+                requested_at TEXT, activated_at TEXT,
+                tenant_id TEXT NOT NULL DEFAULT 'default',
+                PRIMARY KEY (tenant_id, customer, country))""",
+            """INSERT INTO customer_countries__rekey
+                (customer, country, status, requested_at, activated_at, tenant_id)
+                SELECT customer, country, status, requested_at, activated_at, tenant_id
+                FROM customer_countries""",
+            "DROP TABLE customer_countries",
+            "ALTER TABLE customer_countries__rekey RENAME TO customer_countries",
+
+            # country_requirements: PK (country, kind) -> (tenant_id, country, kind).
+            # rowkey stays NEW.country.
+            """CREATE TABLE IF NOT EXISTS country_requirements__rekey (
+                country TEXT, kind TEXT,
+                tenant_id TEXT NOT NULL DEFAULT 'default',
+                PRIMARY KEY (tenant_id, country, kind))""",
+            """INSERT INTO country_requirements__rekey
+                (country, kind, tenant_id)
+                SELECT country, kind, tenant_id
+                FROM country_requirements""",
+            "DROP TABLE country_requirements",
+            "ALTER TABLE country_requirements__rekey RENAME TO country_requirements",
+
+            # checklist_rules: PK (key) -> (tenant_id, key). rowkey stays NEW.key.
+            """CREATE TABLE IF NOT EXISTS checklist_rules__rekey (
+                key TEXT, label TEXT, scope TEXT DEFAULT 'customer',
+                check_type TEXT DEFAULT 'document', ref TEXT,
+                active INTEGER DEFAULT 1, sort INTEGER DEFAULT 0,
+                tenant_id TEXT NOT NULL DEFAULT 'default',
+                PRIMARY KEY (tenant_id, key))""",
+            """INSERT INTO checklist_rules__rekey
+                (key, label, scope, check_type, ref, active, sort, tenant_id)
+                SELECT key, label, scope, check_type, ref, active, sort, tenant_id
+                FROM checklist_rules""",
+            "DROP TABLE checklist_rules",
+            "ALTER TABLE checklist_rules__rekey RENAME TO checklist_rules",
         ])
         # seed the adjustable submission checklist once (empty table -> defaults)
         if not con.execute("SELECT 1 FROM checklist_rules LIMIT 1").fetchone():
@@ -396,7 +540,7 @@ def set_checklist_rule(con, key, label, scope="customer", check_type="document",
     con.execute("""INSERT INTO checklist_rules
                      (key, label, scope, check_type, ref, active, sort, tenant_id)
                    VALUES (?,?,?,?,?,?,?,?)
-                   ON CONFLICT(key) DO UPDATE SET label=excluded.label, scope=excluded.scope,
+                   ON CONFLICT(tenant_id, key) DO UPDATE SET label=excluded.label, scope=excluded.scope,
                      check_type=excluded.check_type, ref=excluded.ref, active=excluded.active,
                      sort=excluded.sort""",
                 (key, (label or key).strip(), scope, check_type, (ref or key).strip(),
@@ -961,7 +1105,7 @@ def request_country(con, code, country):
     """Start activation for a refund country: mark its documents as requested."""
     con.execute("""INSERT INTO customer_countries (customer, country, status, requested_at, tenant_id)
                    VALUES (?,?, 'requested', CURRENT_TIMESTAMP, ?)
-                   ON CONFLICT(customer, country) DO UPDATE SET
+                   ON CONFLICT(tenant_id, customer, country) DO UPDATE SET
                      status=CASE WHEN customer_countries.status='active' THEN 'active' ELSE 'requested' END,
                      requested_at=COALESCE(customer_countries.requested_at, CURRENT_TIMESTAMP)""",
                 (code, country.strip(), tenancy.write_tenant()))
@@ -1017,7 +1161,7 @@ def activate_country(con, code, country, active):
     if active:
         con.execute("""INSERT INTO customer_countries (customer, country, status, activated_at, tenant_id)
                        VALUES (?,?, 'active', CURRENT_TIMESTAMP, ?)
-                       ON CONFLICT(customer, country) DO UPDATE SET
+                       ON CONFLICT(tenant_id, customer, country) DO UPDATE SET
                          status='active', activated_at=CURRENT_TIMESTAMP""",
                     (code, country.strip(), tenancy.write_tenant()))
     else:
@@ -1071,7 +1215,7 @@ def payout_route(name_or_code):
 def set_country_fee(con, code, country, fee_pct, fee_min):
     """Per-country override of the % / minimum fee for one customer."""
     con.execute("""INSERT INTO customer_fees (customer, country, fee_pct, fee_min, tenant_id)
-                   VALUES (?,?,?,?,?) ON CONFLICT(customer, country)
+                   VALUES (?,?,?,?,?) ON CONFLICT(tenant_id, customer, country)
                    DO UPDATE SET fee_pct=excluded.fee_pct, fee_min=excluded.fee_min""",
                 (code, country.strip(), float(fee_pct or 0), float(fee_min or 0),
                  tenancy.write_tenant()))
