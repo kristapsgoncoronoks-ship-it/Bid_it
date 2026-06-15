@@ -37,6 +37,19 @@ FMT_EUR = "#,##0.00"
 FMT_PRICE = "#,##0.0000"
 FMT_PCT = "0.0%"
 
+# CSV/Excel formula-injection (CWE-1236) neutralizer: prefix a leading-dangerous
+# free-text value with a single apostrophe so the spreadsheet treats it as text.
+_FORMULA_LEAD = ("=", "+", "-", "@", "\t", "\r", "\n")
+
+
+def _formula_safe(v):
+    """Neutralize CSV/spreadsheet formula injection: if `v` is a str starting with a
+    formula-trigger char (= + - @ TAB CR LF), prefix a single apostrophe (OWASP
+    mitigation). Non-str (int/float/Decimal/None/date) pass through unchanged."""
+    if isinstance(v, str) and v[:1] in _FORMULA_LEAD:
+        return "'" + v
+    return v
+
 
 def connect():
     import db_tuning
@@ -210,7 +223,7 @@ def _sheet_summary(wb, period, k, sv, by_sup, by_ctry):
     tot_net = sum((r["net"] or 0) for r in by_sup) or 1
     rr = r0 + 2
     for r in by_sup:
-        ws.cell(rr, 1, r["k"])
+        ws.cell(rr, 1, _formula_safe(r["k"]))
         ws.cell(rr, 2, r["litres"] or 0).number_format = FMT_INT
         ws.cell(rr, 3, r["net"] or 0).number_format = FMT_EUR
         ws.cell(rr, 4, r["vat"] or 0).number_format = FMT_EUR
@@ -252,7 +265,7 @@ def _sheet_table(wb, title, rows, period, chart=False):
     style_header(ws, 1, len(hdr))
     rr = 2
     for r in rows:
-        ws.cell(rr, 1, r["k"])
+        ws.cell(rr, 1, _formula_safe(r["k"]))
         ws.cell(rr, 2, r["litres"] or 0).number_format = FMT_INT
         ws.cell(rr, 3, r["net"] or 0).number_format = FMT_EUR
         ws.cell(rr, 4, r["vat"] or 0).number_format = FMT_EUR
@@ -294,7 +307,7 @@ def _sheet_entity(wb, rows, period):
     style_header(ws, 1, len(hdr))
     rr = 2
     for r in rows:
-        ws.cell(rr, 1, r["k"]); ws.cell(rr, 2, r["country"])
+        ws.cell(rr, 1, _formula_safe(r["k"])); ws.cell(rr, 2, _formula_safe(r["country"]))
         ws.cell(rr, 3, r["net"] or 0).number_format = FMT_EUR
         ws.cell(rr, 4, r["vat"] or 0).number_format = FMT_EUR
         ws.cell(rr, 5, r["gross"] or 0).number_format = FMT_EUR
@@ -354,7 +367,7 @@ def _sheet_savings(wb, sv, period):
         style_header(ws, start_row + 1, 2)
         r = start_row + 2
         for name, val in items:
-            ws.cell(r, 1, name)
+            ws.cell(r, 1, _formula_safe(name))
             ws.cell(r, 2, money.f2(val)).number_format = FMT_EUR
             r += 1
         band_rows(ws, start_row + 2, r - 1, 2)
@@ -408,7 +421,7 @@ def savings_intel_workbook(s, path=None):
     style_header(ws, r0 + 1, len(hdr))
     rr = r0 + 2
     for c in s["by_country"]:
-        ws.cell(rr, 1, c["country"])
+        ws.cell(rr, 1, _formula_safe(c["country"]))
         ws.cell(rr, 2, c["overpay_eur"]).number_format = FMT_EUR
         ws.cell(rr, 3, c["recover_eur"]).number_format = FMT_EUR
         ws.cell(rr, 4, c["addressable_eur"]).number_format = FMT_EUR
@@ -438,8 +451,8 @@ def savings_intel_workbook(s, path=None):
     style_header(wa, 1, len(hdr))
     rr = 2
     for a in s["top_actions"]:
-        wa.cell(rr, 1, a["kind"]); wa.cell(rr, 2, a["country"])
-        wa.cell(rr, 3, a["detail"])
+        wa.cell(rr, 1, _formula_safe(a["kind"])); wa.cell(rr, 2, _formula_safe(a["country"]))
+        wa.cell(rr, 3, _formula_safe(a["detail"]))
         wa.cell(rr, 4, a["eur"]).number_format = FMT_EUR
         rr += 1
     band_rows(wa, 2, rr - 1, len(hdr))
@@ -503,7 +516,7 @@ def overpay_review_workbook(period=None, supplier=None, path=None):
     style_header(ws, r0 + 1, len(hdr))
     rr = r0 + 2
     for sup, a in ordered:
-        ws.cell(rr, 1, sup)
+        ws.cell(rr, 1, _formula_safe(sup))
         ws.cell(rr, 2, a["fuellings"]).number_format = FMT_INT
         ws.cell(rr, 3, a["litres"]).number_format = FMT_INT
         ws.cell(rr, 4, money.f2(a["overpay"])).number_format = FMT_EUR
@@ -536,13 +549,13 @@ def overpay_review_workbook(period=None, supplier=None, path=None):
     style_header(wd, 4, len(hdr))
     rr = 5
     for ln in lines:
-        wd.cell(rr, 1, ln["supplier"])
+        wd.cell(rr, 1, _formula_safe(ln["supplier"]))
         wd.cell(rr, 2, ln["date"])
-        wd.cell(rr, 3, ln["country"])
+        wd.cell(rr, 3, _formula_safe(ln["country"]))
         wd.cell(rr, 4, ln["litres"] or 0).number_format = FMT_INT
         wd.cell(rr, 5, ln["eur_l"] or 0).number_format = FMT_PRICE
         wd.cell(rr, 6, ln["cheapest_eur_l"] or 0).number_format = FMT_PRICE
-        wd.cell(rr, 7, ln["cheapest_supplier"])
+        wd.cell(rr, 7, _formula_safe(ln["cheapest_supplier"]))
         wd.cell(rr, 8, ln["delta_eur_l"] or 0).number_format = FMT_PRICE
         wd.cell(rr, 9, ln["overpay_eur"] or 0).number_format = FMT_EUR
         rr += 1
@@ -599,7 +612,7 @@ def expense_report_workbook(period=None, entity=None, path=None):
     style_header(ws, r0 + 1, len(hdr))
     rr = r0 + 2
     for e in data["by_entity"]:
-        ws.cell(rr, 1, e["entity"])
+        ws.cell(rr, 1, _formula_safe(e["entity"]))
         ws.cell(rr, 2, e["fuellings"]).number_format = FMT_INT
         ws.cell(rr, 3, e["n_vehicles"]).number_format = FMT_INT
         ws.cell(rr, 4, e["litres"]).number_format = FMT_INT
@@ -626,7 +639,7 @@ def expense_report_workbook(period=None, entity=None, path=None):
     style_header(ws, p0 + 1, len(phdr))
     pr = p0 + 2
     for g in data["by_product"]:
-        ws.cell(pr, 1, g["product_group"])
+        ws.cell(pr, 1, _formula_safe(g["product_group"]))
         ws.cell(pr, 2, g["litres"]).number_format = FMT_INT
         ws.cell(pr, 3, g["net_eur"]).number_format = FMT_EUR
         ws.cell(pr, 4, g["vat_eur"]).number_format = FMT_EUR
@@ -652,8 +665,8 @@ def expense_report_workbook(period=None, entity=None, path=None):
     style_header(wv, 4, len(hdr))
     rr = 5
     for v in data["by_vehicle"]:
-        wv.cell(rr, 1, v["entity"])
-        wv.cell(rr, 2, v["vehicle"])
+        wv.cell(rr, 1, _formula_safe(v["entity"]))
+        wv.cell(rr, 2, _formula_safe(v["vehicle"]))
         wv.cell(rr, 3, v["fuellings"]).number_format = FMT_INT
         wv.cell(rr, 4, v["litres"]).number_format = FMT_INT
         wv.cell(rr, 5, v["net_eur"]).number_format = FMT_EUR
@@ -723,7 +736,8 @@ def accounting_ledger_csv(period=None, entity=None):
     w = csv.writer(buf)
     w.writerow([h for _, h in _LEDGER_COLS])
     for r in rows:
-        w.writerow([r.get(k, "") for k, _ in _LEDGER_COLS])
+        # Neutralize formula injection (CWE-1236) in free-text cells; numbers pass through.
+        w.writerow([_formula_safe(r.get(k, "")) for k, _ in _LEDGER_COLS])
     data = buf.getvalue().encode("utf-8-sig")
 
     suffix = f"_{entity}" if entity else ""
@@ -788,7 +802,7 @@ def fee_report_workbook(claim, path=None):
     for i, (lbl, val, fmt) in enumerate(lines):
         rr = r0 + i
         c1 = ws.cell(rr, 1, lbl)
-        c2 = ws.cell(rr, 2, val if val is not None else "")
+        c2 = ws.cell(rr, 2, _formula_safe(val) if val is not None else "")
         if fmt:
             c2.number_format = fmt
         if str(lbl).startswith(("FEE CHARGED", "NET REMITTED", "FEE PAYABLE")):
@@ -813,11 +827,11 @@ def claims_overview_workbook(overview, year, path=None):
     style_header(ws, 1, len(hdr))
     rr = 2
     for c in overview["to_submit"]:
-        ws.cell(rr, 1, c["entity"]); ws.cell(rr, 2, c["country"]); ws.cell(rr, 3, c["period"])
+        ws.cell(rr, 1, _formula_safe(c["entity"])); ws.cell(rr, 2, _formula_safe(c["country"])); ws.cell(rr, 3, c["period"])
         ws.cell(rr, 4, c["vat_eur"] or 0).number_format = FMT_EUR
         cell = ws.cell(rr, 5, "READY" if c["ready"] else "BLOCKED")
         cell.font = Font(bold=True, color=OKG if c["ready"] else BADR)
-        ws.cell(rr, 6, "; ".join(c["issues"]))
+        ws.cell(rr, 6, _formula_safe("; ".join(c["issues"])))
         rr += 1
     band_rows(ws, 2, rr - 1, len(hdr))
     set_widths(ws, [24, 14, 12, 14, 12, 50]); ws.freeze_panes = "A2"; ws.sheet_view.showGridLines = False
@@ -829,7 +843,7 @@ def claims_overview_workbook(overview, year, path=None):
     style_header(ws2, 1, len(hdr2))
     rr = 2
     for c in overview["open"]:
-        ws2.cell(rr, 1, c["entity"]); ws2.cell(rr, 2, c["country"]); ws2.cell(rr, 3, c["period"])
+        ws2.cell(rr, 1, _formula_safe(c["entity"])); ws2.cell(rr, 2, _formula_safe(c["country"])); ws2.cell(rr, 3, c["period"])
         ws2.cell(rr, 4, c["vat_eur"] or 0).number_format = FMT_EUR
         ws2.cell(rr, 5, c["status"]); ws2.cell(rr, 6, c["submitted"] or "")
         ws2.cell(rr, 7, c["age_days"] if c["age_days"] != "" else "")
@@ -879,7 +893,7 @@ def fees_statement_workbook(rows, year, path=None):
     rr = 4
     for ent in sorted(agg):
         a = agg[ent]
-        ws.cell(rr, 1, ent)
+        ws.cell(rr, 1, _formula_safe(ent))
         ws.cell(rr, 2, a["n"]).number_format = FMT_INT
         ws.cell(rr, 3, money.f2(a["vat"])).number_format = FMT_EUR
         ws.cell(rr, 4, money.f2(a["fee"])).number_format = FMT_EUR
@@ -906,7 +920,7 @@ def fees_statement_workbook(rows, year, path=None):
     rr = 2
     for d in detail:
         ent, ctry, per, vat, fee, basis, payout, recv, net, inv, billed_dt = d
-        ws2.cell(rr, 1, ent); ws2.cell(rr, 2, ctry); ws2.cell(rr, 3, per)
+        ws2.cell(rr, 1, _formula_safe(ent)); ws2.cell(rr, 2, _formula_safe(ctry)); ws2.cell(rr, 3, per)
         ws2.cell(rr, 4, money.f2(vat)).number_format = FMT_EUR
         ws2.cell(rr, 5, money.f2(fee)).number_format = FMT_EUR
         ws2.cell(rr, 6, basis)
@@ -948,8 +962,8 @@ def receivables_forecast_workbook(fc, year, path=None):
     rr = 4
     for r in rows:
         route = r.get("route") or "customer"
-        ws.cell(rr, 1, r.get("entity") or "")
-        ws.cell(rr, 2, r.get("country") or "")
+        ws.cell(rr, 1, _formula_safe(r.get("entity") or ""))
+        ws.cell(rr, 2, _formula_safe(r.get("country") or ""))
         ws.cell(rr, 3, r.get("period") or "")
         ws.cell(rr, 4, f"{r.get('status_code') or ''} {r.get('status_label') or ''}".strip())
         ws.cell(rr, 5, "deduct (to us)" if route == "us" else "direct (to customer)")
@@ -1011,7 +1025,7 @@ def receivables_forecast_workbook(fc, year, path=None):
     rr = 4
     for c in countries:
         rz = realization.get(c, {})
-        ws3.cell(rr, 1, c)
+        ws3.cell(rr, 1, _formula_safe(c))
         med = by_ctry.get(c)
         ws3.cell(rr, 2, med if med is not None else "")
         ws3.cell(rr, 3, money.f2(rz.get("claimed") or 0)).number_format = FMT_EUR
