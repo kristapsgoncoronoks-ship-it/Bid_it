@@ -508,31 +508,12 @@ def _facturx_draft(files, xmls):
     return draft
 
 
-# ---------------------------------------------------------------- orchestration
-def extract(upload_bytes, filename, backend=None, strict=False):
-    """Turn an upload into a draft. `strict=True` (used by the deferred intake
-    queue) RAISES TransientExtractionError when the AI backend is out of
-    tokens/quota or rate-limited, so the job can be retried later rather than
-    silently producing an empty draft. The interactive path leaves strict=False
-    and degrades to manual entry on any AI failure."""
-    backend = backend or EXTRACT_BACKEND
-    # Structured e-invoices (UBL/CII/XML) parse deterministically at high confidence —
-    # no AI, regardless of the configured backend.
-    xmls = _collect_xml(upload_bytes, filename)
-    if xmls:
-        return _einvoice_draft(xmls)
-    files = unpack(upload_bytes, filename)
-    if not files:
-        return {"error": "no PDF found in upload", "lines": [], "files": []}
-    # Hybrid PDFs (Factur-X/ZUGFeRD/Order-X/XRechnung) carry the EN 16931 invoice as an
-    # embedded XML — extract it and parse deterministically (no AI). Only when EVERY PDF
-    # in the batch yields an embedded invoice XML do we take this path; a mixed batch
-    # (some hybrid, some not) falls through to the normal text/parser/AI path unchanged.
-    embedded = [(n, _pdf_embedded_xml(b)) for n, b in files]
-    if all(x is not None for _, x in embedded):
-        return _facturx_draft(files, [(n, x) for n, x in embedded])
-    texts = [(n, pdf_text(b)) for n, b in files]
-
+def _plain_draft(texts, files, backend, filename, strict):
+    """Build the review draft for the PLAIN (non-hybrid) PDFs via the parser→AI→empty
+    path, then attach the original PDF bytes for vaulting. This is the historical
+    text/parser/AI logic, moved verbatim out of extract() so the same code serves both
+    the ALL-plain batch and the plain subset of a MIXED batch. Under strict=True the AI
+    path RAISES TransientExtractionError on transient failures so the queue can retry."""
     def empty(note, be):
         return {"supplier": None, "statement_ref": None, "statement_date": None,
                 "currency": "EUR", "customer": None, "lines": [], "notes": note,
@@ -566,6 +547,71 @@ def extract(upload_bytes, filename, backend=None, strict=False):
     draft["files"] = [{"name": n, "size": len(b)} for n, b in files]
     draft["_pdf_bytes"] = files                    # kept for vault attach on confirm
     return draft
+
+
+def _merge_mixed(h_draft, p_draft, all_files):
+    """Merge the deterministic hybrid draft with the parser/AI plain draft for a MIXED
+    batch. A human confirms every draft before it becomes a figure, so a best-effort
+    merge is strictly better than degrading the whole batch — but it must NEVER lose a
+    line or drop a PDF from the vault. The structured e-invoice values are authoritative
+    for header fields; confidence is lowered because parser/AI-derived lines are mixed in."""
+    merged = dict(h_draft)
+    # Lines: union of both, never drop any.
+    merged["lines"] = list(h_draft.get("lines", [])) + list(p_draft.get("lines", []))
+    # Header fields: prefer the STRUCTURED hybrid value when truthy, else the plain value.
+    for k in ("supplier", "statement_ref", "statement_date", "currency", "customer"):
+        hv = h_draft.get(k)
+        merged[k] = hv if hv else p_draft.get(k)
+    # Vault EVERY original PDF (both subsets).
+    merged["files"] = [{"name": n, "size": len(b)} for n, b in all_files]
+    merged["_pdf_bytes"] = list(all_files)
+    assert len(merged["_pdf_bytes"]) == len(all_files)
+    merged["backend"] = "mixed"
+    merged["confidence"] = "medium"               # contains parser/AI-derived lines
+    n_h = len(h_draft.get("_pdf_bytes", []) or [])
+    n_p = len(p_draft.get("_pdf_bytes", []) or [])
+    note = (f"Mixed batch: {n_h} embedded e-invoice PDF(s) parsed deterministically + "
+            f"{n_p} parsed/AI PDF(s) — verify before submitting.")
+    prior = "; ".join(s for s in (h_draft.get("notes"), p_draft.get("notes")) if s)
+    merged["notes"] = f"{note} ({prior})" if prior else note
+    return merged
+
+
+# ---------------------------------------------------------------- orchestration
+def extract(upload_bytes, filename, backend=None, strict=False):
+    """Turn an upload into a draft. `strict=True` (used by the deferred intake
+    queue) RAISES TransientExtractionError when the AI backend is out of
+    tokens/quota or rate-limited, so the job can be retried later rather than
+    silently producing an empty draft. The interactive path leaves strict=False
+    and degrades to manual entry on any AI failure."""
+    backend = backend or EXTRACT_BACKEND
+    # Structured e-invoices (UBL/CII/XML) parse deterministically at high confidence —
+    # no AI, regardless of the configured backend.
+    xmls = _collect_xml(upload_bytes, filename)
+    if xmls:
+        return _einvoice_draft(xmls)
+    files = unpack(upload_bytes, filename)
+    if not files:
+        return {"error": "no PDF found in upload", "lines": [], "files": []}
+    # Hybrid PDFs (Factur-X/ZUGFeRD/Order-X/XRechnung) carry the EN 16931 invoice as an
+    # embedded XML — extract it and parse deterministically (no AI). We split the batch
+    # per-file: hybrid PDFs go the deterministic embedded-XML path, plain PDFs go the
+    # text/parser/AI path. An ALL-hybrid or ALL-plain batch is handled exactly as before;
+    # only a MIXED batch is merged (best-effort, human-confirmed, never losing a line/PDF).
+    embedded = [(n, _pdf_embedded_xml(b)) for n, b in files]
+    hybrids = [(n, b, x) for (n, b), (_, x) in zip(files, embedded) if x is not None]
+    plains = [(n, b) for (n, b), (_, x) in zip(files, embedded) if x is None]
+    if not plains:                                 # ALL hybrid — unchanged
+        return _facturx_draft(files, [(n, x) for n, x in embedded])
+    if not hybrids:                                # ALL plain — unchanged behavior
+        texts = [(n, pdf_text(b)) for n, b in plains]
+        return _plain_draft(texts, plains, backend, filename, strict)
+    # MIXED: parse the hybrids deterministically, the plains via parser/AI, then merge.
+    h_draft = _facturx_draft([(n, b) for n, b, _ in hybrids],
+                             [(n, x) for n, b, x in hybrids])
+    p_texts = [(n, pdf_text(b)) for n, b in plains]
+    p_draft = _plain_draft(p_texts, plains, backend, filename, strict)
+    return _merge_mixed(h_draft, p_draft, files)
 
 
 if __name__ == "__main__":
