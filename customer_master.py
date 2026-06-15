@@ -187,9 +187,14 @@ def connect():
         ])
         # seed the adjustable submission checklist once (empty table -> defaults)
         if not con.execute("SELECT 1 FROM checklist_rules LIMIT 1").fetchone():
+            # Stamp the write-tenant on the seeded defaults (OFF -> 'default',
+            # identical to the column DEFAULT). Runs inside connect(), before any
+            # request binds a tenant, so this is the default-tenant baseline.
+            tid = tenancy.write_tenant()
             con.executemany("""INSERT OR IGNORE INTO checklist_rules
-                (key, label, scope, check_type, ref, active, sort)
-                VALUES (?,?,?,?,?,1,?)""", DEFAULT_CHECKLIST)
+                (key, label, scope, check_type, ref, active, sort, tenant_id)
+                VALUES (?,?,?,?,?,1,?,?)""",
+                [r + (tid,) for r in DEFAULT_CHECKLIST])
             con.commit()
         audit.install_audit(con, ['customers', 'customer_bank_accounts',
                                   'customer_supplier_accounts', 'customer_documents',
@@ -199,16 +204,21 @@ def connect():
     return con
 
 def seed(con):
+    # Stamp the write-tenant on every seeded row (OFF -> 'default', identical to the
+    # column DEFAULT these positional seeds previously relied on).
+    tid = tenancy.write_tenant()
     con.executemany("""INSERT OR REPLACE INTO customers
         (code, company_name, reg_number, vat_number, legal_address, country,
-         home_portal, phone, email, status, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?)""", CUSTOMERS)
-    # Name columns explicitly so a trailing schema column (e.g. the P1 tenant_id,
-    # which takes its DEFAULT) never breaks these positional seeds.
+         home_portal, phone, email, status, notes, tenant_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", [c + (tid,) for c in CUSTOMERS])
+    # Name columns explicitly so a trailing schema column (the P1 tenant_id) never
+    # breaks these positional seeds.
     con.executemany("""INSERT OR REPLACE INTO customer_bank_accounts
-        (customer, iban, swift, bank, currency, purpose, notes)
-        VALUES (?,?,?,?,?,?,?)""", BANKS)
+        (customer, iban, swift, bank, currency, purpose, notes, tenant_id)
+        VALUES (?,?,?,?,?,?,?,?)""", [b + (tid,) for b in BANKS])
     con.executemany("""INSERT OR REPLACE INTO customer_supplier_accounts
-        (customer, supplier, account_no, notes) VALUES (?,?,?,?)""", SUPPLIER_ACCOUNTS)
+        (customer, supplier, account_no, notes, tenant_id) VALUES (?,?,?,?,?)""",
+        [s + (tid,) for s in SUPPLIER_ACCOUNTS])
     con.commit()
 
 # ---------------------------------------------------------------- onboarding
@@ -219,11 +229,11 @@ def add_customer(code, company_name, country="", reg_number="", vat_number="",
     con = connect()
     con.execute("""INSERT INTO customers
         (code, company_name, reg_number, vat_number, legal_address, country,
-         home_portal, phone, email, status, notes)
-        VALUES (?,?,?,?,?,?,?,?,?, 'pending', ?)""",
+         home_portal, phone, email, status, notes, tenant_id)
+        VALUES (?,?,?,?,?,?,?,?,?, 'pending', ?, ?)""",
         (code.strip().upper(), company_name.strip(), reg_number or "INPUT: reg number",
          vat_number or "INPUT: VAT number", "INPUT: legal address", country.strip(),
-         home_portal or "INPUT: home portal", None, None, notes))
+         home_portal or "INPUT: home portal", None, None, notes, tenancy.write_tenant()))
     con.commit(); con.close()
 
 # Columns the CRM (and the external CRM-sync API) may write on `customers`. Anything
@@ -257,10 +267,13 @@ def update_customer(code, **fields):
             return False, "no editable fields supplied"
         con = connect()
         try:
-            if not con.execute("SELECT 1 FROM customers WHERE code=?", (code,)).fetchone():
+            frag, tp = tenancy.scope_clause()
+            if not con.execute("SELECT 1 FROM customers WHERE code=?" + frag,
+                               [code, *tp]).fetchone():
                 return False, f"customer {code} not found"
             vals.append(code)
-            con.execute(f"UPDATE customers SET {', '.join(sets)} WHERE code=?", vals)
+            con.execute(f"UPDATE customers SET {', '.join(sets)} WHERE code=?" + frag,
+                        vals + list(tp))
             con.commit()
         finally:
             con.close()
@@ -288,50 +301,59 @@ def add_document(con, code, kind, filename, file_bytes, country=None, valid_unti
     be = document_vault.backend(DOCDIR)
     stored, web_url = be.put(safe, file_bytes)
     con.execute("""INSERT INTO customer_documents
-        (customer, kind, filename, stored_path, sha256, size, backend, web_url, country, valid_until)
-        VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (customer, kind, filename, stored_path, sha256, size, backend, web_url, country,
+         valid_until, tenant_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
         (code, kind, filename, stored, sha, len(file_bytes), be.name, web_url, country,
-         valid_until or None))
+         valid_until or None, tenancy.write_tenant()))
     con.commit()
     return sha
 
 def documents(con, code, country=None):
+    frag, tp = tenancy.scope_clause()
     if country is None:
         return con.execute("SELECT * FROM customer_documents WHERE customer=? AND "
-                           "(country IS NULL OR country='') ORDER BY id", (code,)).fetchall()
-    return con.execute("SELECT * FROM customer_documents WHERE customer=? AND country=? ORDER BY id",
-                       (code, country)).fetchall()
+                           "(country IS NULL OR country='')" + frag + " ORDER BY id",
+                           [code, *tp]).fetchall()
+    return con.execute("SELECT * FROM customer_documents WHERE customer=? AND country=?"
+                       + frag + " ORDER BY id", [code, country, *tp]).fetchall()
 
 def _has_doc(con, code, kind, country=None):
     """A document of `kind` is on file AND still valid — a document past its
     `valid_until` (e.g. an expired power of attorney) no longer satisfies the
     checklist, exactly like a missing one."""
     valid = "(valid_until IS NULL OR valid_until='' OR valid_until >= CURRENT_DATE)"
+    frag, tp = tenancy.scope_clause()
     if country is None:
         return con.execute(f"SELECT 1 FROM customer_documents WHERE customer=? AND kind=? AND "
-                           f"(country IS NULL OR country='') AND {valid} LIMIT 1",
-                           (code, kind)).fetchone() is not None
+                           f"(country IS NULL OR country='') AND {valid}" + frag + " LIMIT 1",
+                           [code, kind, *tp]).fetchone() is not None
     return con.execute(f"SELECT 1 FROM customer_documents WHERE customer=? AND kind=? AND country=? "
-                       f"AND {valid} LIMIT 1", (code, kind, country)).fetchone() is not None
+                       f"AND {valid}" + frag + " LIMIT 1",
+                       [code, kind, country, *tp]).fetchone() is not None
 
 def expiring_documents(con, within_days=60):
     """Documents that are expired or expiring within `within_days` — for alerts."""
+    frag, tp = tenancy.scope_clause()
     return [dict(r) for r in con.execute(
         """SELECT customer, kind, filename, country, valid_until,
                   CAST(julianday(valid_until) - julianday('now') AS INTEGER) days_left
            FROM customer_documents
            WHERE valid_until IS NOT NULL AND valid_until != ''
-             AND julianday(valid_until) - julianday('now') <= ?
-           ORDER BY valid_until""", (within_days,))]
+             AND julianday(valid_until) - julianday('now') <= ?"""
+        + frag + " ORDER BY valid_until", [within_days, *tp])]
 
 def _bank_ok(con, code):
+    frag, tp = tenancy.scope_clause()
     return con.execute("""SELECT 1 FROM customer_bank_accounts
-        WHERE customer=? AND iban IS NOT NULL AND iban NOT LIKE '%INPUT%' LIMIT 1""",
-        (code,)).fetchone() is not None
+        WHERE customer=? AND iban IS NOT NULL AND iban NOT LIKE '%INPUT%'"""
+        + frag + " LIMIT 1", [code, *tp]).fetchone() is not None
 
 def _field_ok(con, code, field):
     """A customer column is present (non-empty, not a placeholder 'INPUT:' stub)."""
-    r = con.execute(f"SELECT {field} AS v FROM customers WHERE code=?", (code,)).fetchone()
+    frag, tp = tenancy.scope_clause()
+    r = con.execute(f"SELECT {field} AS v FROM customers WHERE code=?" + frag,
+                    [code, *tp]).fetchone()
     v = (r["v"] if r else None) or ""
     return bool(str(v).strip()) and "INPUT" not in str(v).upper()
 
@@ -349,10 +371,11 @@ DATA_VERIFIERS = {
 # ---------------------------------------------------------------- adjustable checklist
 def list_checklist_rules(con, active_only=False):
     """The submission checklist rules, in display order. Adjustable by admins."""
-    q = "SELECT * FROM checklist_rules"
+    frag, tp = tenancy.scope_clause()
+    q = "SELECT * FROM checklist_rules WHERE 1=1"
     if active_only:
-        q += " WHERE active=1"
-    return con.execute(q + " ORDER BY sort, key").fetchall()
+        q += " AND active=1"
+    return con.execute(q + frag + " ORDER BY sort, key", tp).fetchall()
 
 def set_checklist_rule(con, key, label, scope="customer", check_type="document",
                        ref=None, active=1, sort=None):
@@ -367,23 +390,29 @@ def set_checklist_rule(con, key, label, scope="customer", check_type="document",
     if check_type == "data" and (ref not in DATA_VERIFIERS):
         return False, f"unknown data verifier '{ref}' (have: {', '.join(DATA_VERIFIERS)})"
     if sort is None:
-        sort = (con.execute("SELECT COALESCE(MAX(sort),0)+1 FROM checklist_rules").fetchone()[0])
-    con.execute("""INSERT INTO checklist_rules (key, label, scope, check_type, ref, active, sort)
-                   VALUES (?,?,?,?,?,?,?)
+        frag, tp = tenancy.scope_clause()
+        sort = (con.execute("SELECT COALESCE(MAX(sort),0)+1 FROM checklist_rules WHERE 1=1"
+                            + frag, tp).fetchone()[0])
+    con.execute("""INSERT INTO checklist_rules
+                     (key, label, scope, check_type, ref, active, sort, tenant_id)
+                   VALUES (?,?,?,?,?,?,?,?)
                    ON CONFLICT(key) DO UPDATE SET label=excluded.label, scope=excluded.scope,
                      check_type=excluded.check_type, ref=excluded.ref, active=excluded.active,
                      sort=excluded.sort""",
                 (key, (label or key).strip(), scope, check_type, (ref or key).strip(),
-                 1 if active else 0, int(sort)))
+                 1 if active else 0, int(sort), tenancy.write_tenant()))
     con.commit()
     return True, f"checklist rule '{key}' saved"
 
 def toggle_checklist_rule(con, key, active):
-    con.execute("UPDATE checklist_rules SET active=? WHERE key=?", (1 if active else 0, key))
+    frag, tp = tenancy.scope_clause()
+    con.execute("UPDATE checklist_rules SET active=? WHERE key=?" + frag,
+                [1 if active else 0, key, *tp])
     con.commit()
 
 def delete_checklist_rule(con, key):
-    con.execute("DELETE FROM checklist_rules WHERE key=?", (key,))
+    frag, tp = tenancy.scope_clause()
+    con.execute("DELETE FROM checklist_rules WHERE key=?" + frag, [key, *tp])
     con.commit()
 
 def evaluate_checklist(con, code, country=None):
@@ -431,7 +460,8 @@ def merge_fields(con, code, country=None):
     """The data available to a template for one customer (+ refund country). Returns a
     {placeholder: value} dict — every value a string. Use as {{company_name}} etc."""
     import datetime
-    c = con.execute("SELECT * FROM customers WHERE code=?", (code,)).fetchone()
+    frag, tp = tenancy.scope_clause()
+    c = con.execute("SELECT * FROM customers WHERE code=?" + frag, [code, *tp]).fetchone()
     f = {}
     if c:
         for k in c.keys():
@@ -442,9 +472,9 @@ def merge_fields(con, code, country=None):
             f[k] = c[k]
     # prefer the dedicated refund-payout account; fall back to any account on file
     bank = con.execute("""SELECT iban, swift, bank FROM customer_bank_accounts
-                          WHERE customer=?
+                          WHERE customer=?""" + frag + """
                           ORDER BY (purpose='refund payout') DESC, iban LIMIT 1""",
-                       (code,)).fetchone()
+                       [code, *tp]).fetchone()
     f["bank_iban"] = bank["iban"] if bank else ""
     f["bank_swift"] = bank["swift"] if bank else ""
     f["bank_name"] = bank["bank"] if bank else ""
@@ -457,7 +487,8 @@ def merge_fields(con, code, country=None):
     f["fee_pct_fmt"] = f"{fee_pct:g}%"
     # supplier account numbers held by this customer, one "<supplier>: <account_no>" / line
     sa = con.execute("""SELECT supplier, account_no FROM customer_supplier_accounts
-                        WHERE customer=? ORDER BY supplier""", (code,)).fetchall()
+                        WHERE customer=?""" + frag + " ORDER BY supplier",
+                     [code, *tp]).fetchall()
     f["supplier_accounts"] = "\n".join(f"{r['supplier']}: {r['account_no']}" for r in sa)
     today = datetime.date.today()
     f["today"] = today.isoformat()
@@ -634,22 +665,29 @@ def text_to_pdf(text, title="document"):
 
 def add_template(con, name, kind, filename, body):
     ext = (filename.rsplit(".", 1)[-1] if "." in (filename or "") else "txt").lower()
-    cur = con.execute("""INSERT INTO doc_templates (name, kind, ext, filename, body)
-                         VALUES (?,?,?,?,?)""",
+    cur = con.execute("""INSERT INTO doc_templates (name, kind, ext, filename, body, tenant_id)
+                         VALUES (?,?,?,?,?,?)""",
                       ((name or "template").strip(), (kind or "other").strip(), ext,
-                       filename, sqlite3.Binary(body)))
+                       filename, sqlite3.Binary(body), tenancy.write_tenant()))
     con.commit()
     return cur.lastrowid
 
 def list_templates(con):
+    frag, tp = tenancy.scope_clause()
     return con.execute("""SELECT id, name, kind, ext, filename, uploaded_at
-                          FROM doc_templates ORDER BY name""").fetchall()
+                          FROM doc_templates WHERE 1=1""" + frag + " ORDER BY name",
+                       tp).fetchall()
 
 def get_template(con, tid):
-    return con.execute("SELECT * FROM doc_templates WHERE id=?", (tid,)).fetchone()
+    frag, tp = tenancy.scope_clause()
+    return con.execute("SELECT * FROM doc_templates WHERE id=?" + frag,
+                       [tid, *tp]).fetchone()
 
 def delete_template(con, tid):
-    con.execute("DELETE FROM doc_templates WHERE id=?", (tid,))
+    # tenant-scope the delete so one tenant can't remove another's template by id
+    # (mirrors delete_checklist_rule); inert when multitenant is OFF.
+    frag, params = tenancy.scope_clause()
+    con.execute("DELETE FROM doc_templates WHERE id=?" + frag, [tid, *params])
     con.commit()
 
 def generate_document(con, tid, code, country=None, as_pdf=False):
@@ -724,32 +762,35 @@ def create_document_request(con, code, kind, template_id, country=None,
     if kind not in DOC_REQUEST_KINDS:
         raise ValueError(f"unknown document-request kind '{kind}' "
                          f"(have: {', '.join(DOC_REQUEST_KINDS)})")
-    if not con.execute("SELECT 1 FROM customers WHERE code=?", (code,)).fetchone():
+    frag, tp = tenancy.scope_clause()
+    if not con.execute("SELECT 1 FROM customers WHERE code=?" + frag,
+                       [code, *tp]).fetchone():
         raise ValueError(f"customer {code} not found")
     cur = con.execute("""INSERT INTO document_requests
-        (customer, kind, refund_country, template_id, status, requested_by, note)
-        VALUES (?,?,?,?, 'requested', ?, ?)""",
-        (code, kind, (country or None), template_id, requested_by, note))
+        (customer, kind, refund_country, template_id, status, requested_by, note, tenant_id)
+        VALUES (?,?,?,?, 'requested', ?, ?, ?)""",
+        (code, kind, (country or None), template_id, requested_by, note, tenancy.write_tenant()))
     con.commit()
     return cur.lastrowid
 
 
 def get_document_request(con, req_id):
-    r = con.execute("SELECT * FROM document_requests WHERE id=?", (req_id,)).fetchone()
+    frag, tp = tenancy.scope_clause()
+    r = con.execute("SELECT * FROM document_requests WHERE id=?" + frag,
+                    [req_id, *tp]).fetchone()
     return dict(r) if r else None
 
 
 def list_document_requests(con, code=None, status=None):
-    q = "SELECT * FROM document_requests"
-    where, params = [], []
+    frag, tp = tenancy.scope_clause()
+    q = "SELECT * FROM document_requests WHERE 1=1"
+    params = []
     if code:
-        where.append("customer=?"); params.append((code or "").strip().upper())
+        q += " AND customer=?"; params.append((code or "").strip().upper())
     if status:
-        where.append("status=?"); params.append(status)
-    if where:
-        q += " WHERE " + " AND ".join(where)
-    q += " ORDER BY id"
-    return [dict(r) for r in con.execute(q, params).fetchall()]
+        q += " AND status=?"; params.append(status)
+    q += frag + " ORDER BY id"
+    return [dict(r) for r in con.execute(q, params + list(tp)).fetchall()]
 
 
 def generate_request_document(con, req_id):
@@ -799,8 +840,9 @@ def _delete_vault_document(con, doc_id):
     re-generate supersedes an earlier draft). Never raises — a vault hiccup must not block
     the regenerate; it is logged. The audited DELETE keeps an audit trail of the removal."""
     try:
-        row = con.execute("SELECT stored_path, backend FROM customer_documents WHERE id=?",
-                          (doc_id,)).fetchone()
+        frag, tp = tenancy.scope_clause()
+        row = con.execute("SELECT stored_path, backend FROM customer_documents WHERE id=?"
+                          + frag, [doc_id, *tp]).fetchone()
         if not row:
             return
         try:
@@ -868,13 +910,14 @@ def pending_document_requests(con, overdue_days=DOC_REQUEST_OVERDUE_DAYS):
     integer `age_days` (since requested_at) and an `overdue` flag — True when it has sat
     in 'sent_for_signature' (the leg waiting on the client) longer than `overdue_days`."""
     qmarks = ",".join("?" * len(_DOC_REQUEST_OPEN))
+    frag, tp = tenancy.scope_clause()
     rows = con.execute(
         f"""SELECT *,
                   CAST(julianday('now') - julianday(requested_at) AS INTEGER) AS age_days,
                   CAST(julianday('now') - julianday(sent_at)       AS INTEGER) AS sent_age_days
            FROM document_requests
-           WHERE status IN ({qmarks})
-           ORDER BY requested_at""", _DOC_REQUEST_OPEN).fetchall()
+           WHERE status IN ({qmarks})""" + frag + """
+           ORDER BY requested_at""", [*_DOC_REQUEST_OPEN, *tp]).fetchall()
     out = []
     for r in rows:
         d = dict(r)
@@ -893,32 +936,35 @@ def activation_checklist(con, code):
     return items, all(ok for _, ok in items)
 
 def set_activation(con, code, active):
-    con.execute("UPDATE customers SET status=? WHERE code=?",
-                ("active" if active else "pending", code))
+    frag, tp = tenancy.scope_clause()
+    con.execute("UPDATE customers SET status=? WHERE code=?" + frag,
+                ["active" if active else "pending", code, *tp])
     con.commit()
 
 def is_active(name_or_code):
     """True/False if the (tracked) customer is activated; None if not tracked."""
     con = connect()
-    r = con.execute("SELECT status FROM customers WHERE company_name=? OR code=?",
-                    (name_or_code, name_or_code)).fetchone()
+    frag, tp = tenancy.scope_clause()
+    r = con.execute("SELECT status FROM customers WHERE (company_name=? OR code=?)" + frag,
+                    [name_or_code, name_or_code, *tp]).fetchone()
     con.close()
     return None if r is None else (r["status"] == "active")
 
 # ---------------------------------------------------------------- per refund country
 def _code_of(con, name_or_code):
-    r = con.execute("SELECT code FROM customers WHERE company_name=? OR code=?",
-                    (name_or_code, name_or_code)).fetchone()
+    frag, tp = tenancy.scope_clause()
+    r = con.execute("SELECT code FROM customers WHERE (company_name=? OR code=?)" + frag,
+                    [name_or_code, name_or_code, *tp]).fetchone()
     return r["code"] if r else None
 
 def request_country(con, code, country):
     """Start activation for a refund country: mark its documents as requested."""
-    con.execute("""INSERT INTO customer_countries (customer, country, status, requested_at)
-                   VALUES (?,?, 'requested', CURRENT_TIMESTAMP)
+    con.execute("""INSERT INTO customer_countries (customer, country, status, requested_at, tenant_id)
+                   VALUES (?,?, 'requested', CURRENT_TIMESTAMP, ?)
                    ON CONFLICT(customer, country) DO UPDATE SET
                      status=CASE WHEN customer_countries.status='active' THEN 'active' ELSE 'requested' END,
                      requested_at=COALESCE(customer_countries.requested_at, CURRENT_TIMESTAMP)""",
-                (code, country.strip()))
+                (code, country.strip(), tenancy.write_tenant()))
     con.commit()
 
 def add_country_document(con, code, country, kind, filename, file_bytes):
@@ -927,22 +973,29 @@ def add_country_document(con, code, country, kind, filename, file_bytes):
 def set_country_requirements(con, country, kinds):
     """Replace the set of documents a refund country requires for activation."""
     country = country.strip()
-    con.execute("DELETE FROM country_requirements WHERE country=?", (country,))
+    tid = tenancy.write_tenant()
+    frag, tp = tenancy.scope_clause()
+    con.execute("DELETE FROM country_requirements WHERE country=?" + frag,
+                [country, *tp])
     for k in kinds:
         if k in DOC_KINDS:
-            con.execute("INSERT OR IGNORE INTO country_requirements (country, kind) VALUES (?,?)",
-                        (country, k))
+            con.execute("INSERT OR IGNORE INTO country_requirements (country, kind, tenant_id) "
+                        "VALUES (?,?,?)", (country, k, tid))
     con.commit()
 
 def required_docs_for_country(con, country):
     """List of required document kinds for a country (default: power of attorney)."""
+    frag, tp = tenancy.scope_clause()
     rows = [r["kind"] for r in con.execute(
-        "SELECT kind FROM country_requirements WHERE country=?", (country.strip(),))]
+        "SELECT kind FROM country_requirements WHERE country=?" + frag,
+        [country.strip(), *tp])]
     return rows or list(DEFAULT_COUNTRY_DOCS)
 
 def all_country_requirements(con):
+    frag, tp = tenancy.scope_clause()
     out = {}
-    for r in con.execute("SELECT country, kind FROM country_requirements ORDER BY country, kind"):
+    for r in con.execute("SELECT country, kind FROM country_requirements WHERE 1=1"
+                         + frag + " ORDER BY country, kind", tp):
         out.setdefault(r["country"], []).append(r["kind"])
     return out
 
@@ -962,18 +1015,21 @@ def country_ready_to_activate(con, code, country):
 
 def activate_country(con, code, country, active):
     if active:
-        con.execute("""INSERT INTO customer_countries (customer, country, status, activated_at)
-                       VALUES (?,?, 'active', CURRENT_TIMESTAMP)
+        con.execute("""INSERT INTO customer_countries (customer, country, status, activated_at, tenant_id)
+                       VALUES (?,?, 'active', CURRENT_TIMESTAMP, ?)
                        ON CONFLICT(customer, country) DO UPDATE SET
-                         status='active', activated_at=CURRENT_TIMESTAMP""", (code, country.strip()))
+                         status='active', activated_at=CURRENT_TIMESTAMP""",
+                    (code, country.strip(), tenancy.write_tenant()))
     else:
-        con.execute("UPDATE customer_countries SET status='pending' WHERE customer=? AND country=?",
-                    (code, country.strip()))
+        frag, tp = tenancy.scope_clause()
+        con.execute("UPDATE customer_countries SET status='pending' WHERE customer=? AND country=?"
+                    + frag, [code, country.strip(), *tp])
     con.commit()
 
 def country_rows(con, code):
-    return con.execute("SELECT * FROM customer_countries WHERE customer=? ORDER BY country",
-                       (code,)).fetchall()
+    frag, tp = tenancy.scope_clause()
+    return con.execute("SELECT * FROM customer_countries WHERE customer=?" + frag
+                       + " ORDER BY country", [code, *tp]).fetchall()
 
 def country_active(name_or_code, country):
     """True/False if a (customer, country) activation row exists; None if no row
@@ -982,57 +1038,65 @@ def country_active(name_or_code, country):
     code = _code_of(con, name_or_code)
     if code is None:
         con.close(); return None
-    r = con.execute("SELECT status FROM customer_countries WHERE customer=? AND country=?",
-                    (code, country)).fetchone()
+    frag, tp = tenancy.scope_clause()
+    r = con.execute("SELECT status FROM customer_countries WHERE customer=? AND country=?"
+                    + frag, [code, country, *tp]).fetchone()
     con.close()
     return None if r is None else (r["status"] == "active")
 
 # ---------------------------------------------------------------- fees
 def set_fee(con, code, fee_pct, fee_min):
     """Set the customer's DEFAULT fee (applied to refund countries with no override)."""
-    con.execute("UPDATE customers SET fee_pct=?, fee_min=? WHERE code=?",
-                (float(fee_pct or 0), float(fee_min or 0), code))
+    frag, tp = tenancy.scope_clause()
+    con.execute("UPDATE customers SET fee_pct=?, fee_min=? WHERE code=?" + frag,
+                [float(fee_pct or 0), float(fee_min or 0), code, *tp])
     con.commit()
 
 def set_payout_route(con, code, route):
-    con.execute("UPDATE customers SET payout_route=? WHERE code=?",
-                ("us" if route == "us" else "customer", code))
+    frag, tp = tenancy.scope_clause()
+    con.execute("UPDATE customers SET payout_route=? WHERE code=?" + frag,
+                ["us" if route == "us" else "customer", code, *tp])
     con.commit()
 
 def payout_route(name_or_code):
     """'customer' (refund to client, we invoice the fee) or 'us' (refund to us, we
     deduct the fee and remit the net)."""
     con = connect()
-    r = con.execute("SELECT payout_route FROM customers WHERE company_name=? OR code=?",
-                    (name_or_code, name_or_code)).fetchone()
+    frag, tp = tenancy.scope_clause()
+    r = con.execute("SELECT payout_route FROM customers WHERE (company_name=? OR code=?)"
+                    + frag, [name_or_code, name_or_code, *tp]).fetchone()
     con.close()
     return (r["payout_route"] or "customer") if r else "customer"
 
 def set_country_fee(con, code, country, fee_pct, fee_min):
     """Per-country override of the % / minimum fee for one customer."""
-    con.execute("""INSERT INTO customer_fees (customer, country, fee_pct, fee_min)
-                   VALUES (?,?,?,?) ON CONFLICT(customer, country)
+    con.execute("""INSERT INTO customer_fees (customer, country, fee_pct, fee_min, tenant_id)
+                   VALUES (?,?,?,?,?) ON CONFLICT(customer, country)
                    DO UPDATE SET fee_pct=excluded.fee_pct, fee_min=excluded.fee_min""",
-                (code, country.strip(), float(fee_pct or 0), float(fee_min or 0)))
+                (code, country.strip(), float(fee_pct or 0), float(fee_min or 0),
+                 tenancy.write_tenant()))
     con.commit()
 
 def country_fees(con, code):
+    frag, tp = tenancy.scope_clause()
     return con.execute("SELECT country, fee_pct, fee_min FROM customer_fees "
-                       "WHERE customer=? ORDER BY country", (code,)).fetchall()
+                       "WHERE customer=?" + frag + " ORDER BY country",
+                       [code, *tp]).fetchall()
 
 def fee_for(name_or_code, country=None):
     """(fee_pct, fee_min) for a customer + refund country: the per-country override
     if one exists, otherwise the customer's default fee, else (0, 0)."""
     con = connect()
-    c = con.execute("SELECT code, fee_pct, fee_min FROM customers WHERE company_name=? OR code=?",
-                    (name_or_code, name_or_code)).fetchone()
+    frag, tp = tenancy.scope_clause()
+    c = con.execute("SELECT code, fee_pct, fee_min FROM customers WHERE (company_name=? OR code=?)"
+                    + frag, [name_or_code, name_or_code, *tp]).fetchone()
     if not c:
         con.close()
         return (0.0, 0.0)
     pct, mn = float(c["fee_pct"] or 0), float(c["fee_min"] or 0)
     if country:
-        o = con.execute("SELECT fee_pct, fee_min FROM customer_fees WHERE customer=? AND country=?",
-                        (c["code"], country)).fetchone()
+        o = con.execute("SELECT fee_pct, fee_min FROM customer_fees WHERE customer=? AND country=?"
+                        + frag, [c["code"], country, *tp]).fetchone()
         if o:
             pct, mn = float(o["fee_pct"] or 0), float(o["fee_min"] or 0)
     con.close()
@@ -1050,31 +1114,44 @@ def compute_fee(refund_eur, fee_pct, fee_min):
 
 def get_customer(name_or_code):
     con = connect()
-    c = con.execute("SELECT * FROM customers WHERE company_name=? OR code=?",
-                    (name_or_code, name_or_code)).fetchone()
+    frag, tp = tenancy.scope_clause()
+    c = con.execute("SELECT * FROM customers WHERE (company_name=? OR code=?)" + frag,
+                    [name_or_code, name_or_code, *tp]).fetchone()
     if not c:
         con.close()
         return dict(company_name=name_or_code, reg_number="INPUT", vat_number="INPUT",
                     legal_address="INPUT", country="", home_portal="INPUT", payout="INPUT")
     b = con.execute("""SELECT iban, COALESCE(swift,''), bank, currency FROM customer_bank_accounts
-                       WHERE customer=? AND purpose='refund payout'""", (c["code"],)).fetchone()
+                       WHERE customer=? AND purpose='refund payout'""" + frag,
+                    [c["code"], *tp]).fetchone()
     payout = (f"{b['iban']} ({b['bank']}, {b['currency']})" if b else "INPUT: payout IBAN")
     out = dict(c)
     out["payout"] = payout
     con.close()
     return out
 
+def list_customers(con):
+    """All customers visible to the current tenant scope, in the app's display order.
+    Tenant-scoped: OFF → every row (no-op clause); ON+tenant → only that tenant's
+    rows; ON+owner → all rows (the audited cross-tenant analytics exception)."""
+    frag, tp = tenancy.scope_clause()
+    return con.execute("SELECT * FROM customers WHERE 1=1" + frag
+                       + " ORDER BY status DESC, code", tp).fetchall()
+
 def portal(name_or_code):
     return get_customer(name_or_code)["home_portal"]
 
 def card(con, code):
-    c = con.execute("SELECT * FROM customers WHERE code=?", (code,)).fetchone()
+    frag, tp = tenancy.scope_clause()
+    c = con.execute("SELECT * FROM customers WHERE code=?" + frag, [code, *tp]).fetchone()
     print(f"\n=== {c['code']}: {c['company_name']} [{c['status']}] ===")
     for k in ("reg_number","vat_number","legal_address","country","home_portal","notes"):
         if c[k]: print(f"  {k:13}: {c[k]}")
-    for r in con.execute("SELECT iban, bank, currency, purpose FROM customer_bank_accounts WHERE customer=?", (code,)):
+    for r in con.execute("SELECT iban, bank, currency, purpose FROM customer_bank_accounts "
+                         "WHERE customer=?" + frag, [code, *tp]):
         print(f"  bank         : {r['iban']} | {r['bank']} | {r['currency']} | {r['purpose']}")
-    for r in con.execute("SELECT supplier, account_no, notes FROM customer_supplier_accounts WHERE customer=?", (code,)):
+    for r in con.execute("SELECT supplier, account_no, notes FROM customer_supplier_accounts "
+                         "WHERE customer=?" + frag, [code, *tp]):
         print(f"  supplier acct: {r['supplier']} -> {r['account_no']} ({r['notes']})")
 
 if __name__ == "__main__":

@@ -298,6 +298,32 @@ def require_tenant():
     return t
 
 
+def write_tenant():
+    """Return the tenant_id to STAMP on an INSERT — the WRITE-side mirror of
+    scope_clause() (the read side). NEVER returns None.
+
+    This is the reusable P2 write primitive: every INSERT/UPSERT that creates a
+    tenant-owned row binds `tenant_id = tenancy.write_tenant()` in its explicit
+    column list. Contract:
+
+      - multitenant OFF -> DEFAULT_TENANT_ID ("default"). This is EXACTLY the
+        column DEFAULT every tenant-scoped table was given in P1, so an OFF write
+        that stamps it is byte-identical to one that omits the column entirely —
+        OFF behavior is unchanged from today.
+      - multitenant ON  -> require_tenant() (the concrete tenant bound to this
+        request/thread). require_tenant() RAISES when ON and no concrete tenant is
+        set — INCLUDING under owner scope, which is READ-ONLY (no tenant bound). So
+        a write attempted with neither a tenant nor (intentionally) a writable
+        owner context FAILS LOUD here rather than creating an unscoped/mis-scoped
+        row. A write must always name whose data it is.
+
+    Because require_tenant() is itself switch-gated (returns None while OFF), we
+    only fall back to DEFAULT_TENANT_ID on the OFF path; ON always resolves to a
+    non-empty concrete tenant (or raises). Never returns None either way."""
+    t = require_tenant()
+    return t if t is not None else DEFAULT_TENANT_ID
+
+
 def owner_access_audit(resource):
     """Record that an OWNER cross-tenant access happened, so the deliberate
     exception is ACCOUNTABLE (actor + resource). Best-effort and NEVER raises —
