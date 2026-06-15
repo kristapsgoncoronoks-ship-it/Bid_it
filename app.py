@@ -1097,7 +1097,19 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{ou
 main{max-width:1180px;margin:22px auto;padding:0 18px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
 .kpi{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 16px}
-.kpi .v{font-size:22px;font-weight:700}.kpi .l{color:var(--mut);font-size:12px;margin-top:2px}
+.kpi .v{font-size:22px;font-weight:700;line-height:1.1}.kpi .l{color:var(--mut);font-size:12px;margin-top:2px}
+/* dashboard: metric KPI row reads as the focal "at a glance" header */
+.kpis.metrics{margin-bottom:14px}
+.kpis.metrics .kpi{display:flex;flex-direction:column;justify-content:space-between;min-height:78px;padding:13px 16px 12px}
+.kpis.metrics .kpi .v{font-size:25px;letter-spacing:-.01em}
+.kpis.metrics .kpi.link{transition:border-color .12s,box-shadow .12s;display:flex}
+.kpis.metrics .kpi.link:hover{border-color:#f0b5bd;box-shadow:0 1px 3px rgba(200,16,46,.12)}
+.kpis.metrics .kpi.link .l{color:var(--bad)}
+/* dashboard: close-status strip is a checklist, lighter than the metric row */
+.kpis.status{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px;margin-bottom:0}
+.kpis.status .kpi{display:flex;align-items:center;gap:10px;padding:10px 13px;background:#fafbfc}
+.kpis.status .kpi .v{font-size:18px}.kpis.status .kpi .l{margin-top:0}
+.dashlabel{font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);margin:0 0 8px 2px;font-weight:600}
 .card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:20px}
 h2{font-size:15px;margin:0 0 10px}
 table{width:100%;border-collapse:collapse;font-size:13.5px}
@@ -1246,12 +1258,12 @@ def dash():
     _net = f"€{net:,.0f}" if net is not None else "€0"
     _vat = f"€{vat:,.0f}" if vat is not None else "€0"
     _gross = f"€{gross:,.0f}" if gross is not None else "€0"
-    kpis = f"""<div class="kpis">
+    kpis = f"""<div class="dashlabel">This period · {esc(period)}</div><div class="kpis metrics">
       <div class="kpi"><div class="v">{_litres} L</div><div class="l">Diesel litres · {esc(period)}</div></div>
       <div class="kpi"><div class="v">{_eurl}</div><div class="l">Fleet eff. net €/L</div></div>
       <div class="kpi"><div class="v">{_net}</div><div class="l">Net spend</div></div>
       <div class="kpi"><div class="v">{_vat}</div><div class="l">Reclaimable VAT</div></div>
-      <a class="kpi" href="/savings" style="text-decoration:none;color:inherit">
+      <a class="kpi link" href="/savings" style="text-decoration:none;color:inherit">
         <div class="v bad">€{(overpay or 0):,.0f}</div><div class="l">Avoidable overpay &rarr;</div></a></div>"""
     # benchmark as a chart (cheapest first) + the table
     bchart = svg_hbars([(f"{r['supplier']} {r['country']}", r['eff']) for r in bm],
@@ -1268,7 +1280,8 @@ def dash():
     if session.get("role") == "admin":          # VAT-refund worklist is admin-only
         worklist = _worklist_card(int(period[:4]) if period[:4].isdigit() else 2026)
     body = (f'<form class="f" method="get"><label>Period<select name="period" onchange="this.form.submit()">{psw}</select></label></form>'
-            + close + worklist + kpis + f'<div class="card"><h2>Diesel benchmark — effective net €/L (cheapest first)</h2>{bench}'
+            + kpis + close + worklist
+            + f'<div class="card"><h2>Diesel benchmark — effective net €/L (cheapest first)</h2>{bench}'
             f'<div class="note">Effective includes rebate layers (Q8/Port One).</div></div>'
             f'<div class="card"><h2>Monthly trend</h2>{trend}<div class="note">Populates as periods are loaded via history.py.</div></div>')
     con.close(); return page(body, "dash")
@@ -1318,7 +1331,7 @@ def _close_status(period):
         mark = "\u2713" if ok_ else "\u2717"
         cells += (f'<div class="kpi"><div class="v {ic}">{mark}</div>'
                   f'<div class="l">{esc(label)}<br><span class="note">{esc(detail)}</span></div></div>')
-    html = f'<div class="card"><h2>Month-close status — {esc(period)}</h2><div class="kpis">{cells}</div></div>'
+    html = f'<div class="card"><h2>Month-close status — {esc(period)}</h2><div class="kpis status">{cells}</div></div>'
     _close_cache[period] = (time.time() + _CLOSE_TTL, html)
     return html
 
