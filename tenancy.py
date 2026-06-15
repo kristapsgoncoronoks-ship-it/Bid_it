@@ -32,6 +32,17 @@ WSGI server each request is served on its own worker thread, so each thread sees
 its own tenant with zero cross-request interleave. The app's before/after hooks
 set/reset it per request exactly as they do the audit actor.
 
+OWNER/OPERATOR SCOPE — the deliberate, audited cross-tenant exception. Client
+tenants are isolated from each other, but the platform OPERATOR (the business
+owner) gets a READ-ONLY cross-tenant analytics scope (the "I must have all
+analytics data" requirement). `set_owner_scope()` marks the thread as the owner;
+`scope_clause()` then returns NO filter — the one place it deliberately does so
+while the switch is ON. Owner and tenant are MUTUALLY EXCLUSIVE; writes ALWAYS
+need a concrete tenant (`require_tenant()` raises under owner scope too). Owner
+analytics MUST run on de-identified/aggregated data (PII excluded) and must never
+relay one client's identifiable pricing to another — see
+docs/SECURITY_COMPLIANCE_PLAN.md §7 (GDPR controller/anonymise + antitrust).
+
 Never `except: pass`; the read path (current_tenant / scope_clause / get_tenant /
 list_tenants) never raises — a broken or missing registry degrades to "no tenant"
 / empty, logged, rather than taking down a request.
@@ -156,10 +167,34 @@ _local = threading.local()
 
 
 def set_tenant(tenant_id):
-    """Bind subsequent work on the CURRENT thread to `tenant_id`. The app's
-    before-request hook calls this (only when multitenant is ON); call
-    reset_tenant() when the unit of work finishes. A falsy value clears it."""
+    """Bind subsequent work on the CURRENT thread to `tenant_id` (a CLIENT-tenant
+    user). The app's before-request hook calls this (only when multitenant is ON);
+    call reset_tenant() when the unit of work finishes. A falsy value clears it.
+
+    Setting a tenant CLEARS any owner scope on this thread — owner and tenant are
+    mutually exclusive (a request is served as exactly one principal: a client
+    tenant XOR the platform operator)."""
     _local.tenant = tenant_id or None
+    _local.owner = False
+
+
+def set_owner_scope():
+    """Mark the CURRENT thread as the platform OPERATOR/owner (the business owner).
+
+    This is the deliberate, audited cross-tenant exception: under owner scope the
+    READ-path `scope_clause()` returns no filter, so owner analytics span EVERY
+    tenant (the operator's "I must have all analytics" requirement). It is a
+    READ-ONLY scope — see require_tenant(): a write still needs a concrete tenant.
+
+    Owner and tenant are mutually exclusive: marking owner scope CLEARS any bound
+    tenant on this thread."""
+    _local.owner = True
+    _local.tenant = None
+
+
+def is_owner_scope():
+    """True iff the current thread is in operator/owner scope. Never raises."""
+    return bool(getattr(_local, "owner", False))
 
 
 def current_tenant():
@@ -169,13 +204,16 @@ def current_tenant():
     switch — but because the app's request hook only set_tenant()s while
     multitenant is ON, and the enforcement helpers below (`scope_clause`,
     `require_tenant`) are themselves switch-gated, an OFF install never has a
-    tenant bound and is fully inert."""
+    tenant bound and is fully inert. Owner scope binds NO tenant, so this stays
+    None under owner scope."""
     return getattr(_local, "tenant", None)
 
 
 def reset_tenant():
-    """Clear the current thread's tenant (after-request hook)."""
+    """Clear the current thread's context — both the bound tenant AND owner scope
+    (after-request hook). Restores a fully unscoped thread."""
     _local.tenant = None
+    _local.owner = False
 
 
 # ── The master switch ──────────────────────────────────────────────────────────
@@ -202,15 +240,53 @@ def require_tenant():
     tenant-scoped write/read that genuinely needs a tenant calls this to fail
     LOUD rather than silently touch the wrong (or every) tenant's data. When
     multitenant is OFF it is inert and returns None. NOT yet wired into any
-    existing query in this slice."""
+    existing query in this slice.
+
+    OWNER SCOPE IS READ-ONLY: this guard STILL raises when multitenant is ON and
+    no concrete TENANT is set, EVEN under owner scope. The operator's cross-tenant
+    privilege is for READ analytics only (see scope_clause); a write/mutation must
+    always name a concrete tenant — the owner must not write tenant data without
+    choosing whose data it is. So a write path under owner scope (no tenant bound)
+    fails LOUD here, exactly as an unscoped client request would."""
     if not multitenant_enabled():
         return None
     t = current_tenant()
     if t is None:
         raise RuntimeError(
             "require_tenant(): multitenant is ON but no tenant is set on this "
-            "request/thread — refusing to run a tenant-scoped operation unscoped.")
+            "request/thread — refusing to run a tenant-scoped operation unscoped. "
+            "(Owner scope is read-only; a write must name a concrete tenant.)")
     return t
+
+
+def owner_access_audit(resource):
+    """Record that an OWNER cross-tenant access happened, so the deliberate
+    exception is ACCOUNTABLE (actor + resource). Best-effort and NEVER raises —
+    it is on the read path. Exposed for the P2 per-table work to call at each
+    place owner scope widens a query beyond a single tenant.
+
+    The access is logged to applog (logs/app.log) and, best-effort, to the audit
+    trail attributed to the current thread's actor."""
+    try:
+        actor = "system"
+        try:
+            import audit
+            actor = audit._current_actor()
+        except Exception:
+            actor = "system"
+        log.info("OWNER cross-tenant access: actor=%s resource=%s", actor, resource)
+        try:
+            import audit
+            con = connect()
+            try:
+                audit.record_event(con, "tenancy", "owner_scope", "owner_access",
+                                   {"resource": str(resource), "actor": actor})
+            finally:
+                con.close()
+        except Exception as e:
+            log.debug("owner_access_audit: audit trail write skipped: %s", e)
+    except Exception as e:
+        log.warning("owner_access_audit(%r) failed, ignoring: %s", resource, e)
 
 
 def scope_clause(column="tenant_id"):
@@ -221,10 +297,32 @@ def scope_clause(column="tenant_id"):
     SELECT/UPDATE/DELETE, table-by-table, EACH with a cross-tenant access test.
 
     Contract:
-      - multitenant OFF  -> ("", [])            a literal no-op: existing SQL is
-                                                 unchanged, so OFF installs behave
-                                                 byte-identically to today.
-      - multitenant ON   -> (" AND {col} = ?", [current_tenant()])
+      - multitenant OFF            -> ("", [])    a literal no-op: existing SQL is
+                                                  unchanged, so OFF installs behave
+                                                  byte-identically to today.
+      - ON + OWNER scope           -> ("", [])    the deliberate, AUDITED owner
+                                                  cross-tenant exception (see below).
+      - ON + a tenant set          -> (" AND {col} = ?", [current_tenant()])
+      - ON + NEITHER owner nor tenant -> (" AND 1=0", [])  FAIL CLOSED: matches
+                                                  nothing, so a missing context can
+                                                  never leak another tenant's rows.
+
+    THE OWNER EXCEPTION. When multitenant is ON and the request is in operator/
+    owner scope (`is_owner_scope()`), scope_clause returns the SAME no-op as OFF —
+    no tenant filter — so the platform OPERATOR sees ALL tenants. This is the ONE
+    place scope_clause deliberately returns no filter while the switch is ON; it
+    encodes the owner's "I must have all analytics data" requirement. Per
+    docs/SECURITY_COMPLIANCE_PLAN.md §7, owner cross-tenant analytics MUST run on
+    DE-IDENTIFIED / AGGREGATED data with PII excluded (IBANs, driver/vehicle,
+    contacts) — never relay one client's identifiable current pricing to another
+    (antitrust). The widening is accountable via owner_access_audit().
+
+    FAIL CLOSED on a missing context. When the switch is ON but NEITHER an owner
+    scope NOR a tenant is bound, we return a matches-NOTHING clause (" AND 1=0")
+    rather than the no-op — a request that forgot to resolve its principal must
+    NOT accidentally read across tenants. This is the safe default for the
+    enforcement primitive; OFF-by-default keeps it fully inert (this branch is
+    only reachable with the switch ON).
 
     The fragment leads with " AND " so it appends after an existing WHERE; the
     column name is interpolated (caller-controlled identifier, never user input)
@@ -232,7 +330,16 @@ def scope_clause(column="tenant_id"):
     try:
         if not multitenant_enabled():
             return ("", [])
-        return (f" AND {column} = ?", [current_tenant()])
+        # The deliberate, audited owner cross-tenant exception: operator sees all.
+        if is_owner_scope():
+            return ("", [])
+        t = current_tenant()
+        if t is None:
+            # Fail CLOSED: a missing tenant context must match nothing, never leak.
+            log.warning("scope_clause(%r): multitenant ON but neither owner nor "
+                        "tenant set — failing closed (matches nothing).", column)
+            return (" AND 1=0", [])
+        return (f" AND {column} = ?", [t])
     except Exception as e:
         # A failure here must never widen a scope: degrade to the OFF no-op only
         # when multitenant is provably OFF; if we can't even tell, prefer raising

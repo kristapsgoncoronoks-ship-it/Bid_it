@@ -123,6 +123,54 @@ def test_context_is_thread_local(_clean_context):
     assert tenancy.current_tenant() == "main-thread"   # no bleed BACK
 
 
+# ── owner/operator scope: mutual exclusivity & reset (switch-independent) ────────
+
+def test_owner_and_tenant_are_mutually_exclusive(_clean_context):
+    """Setting owner scope clears any bound tenant, and binding a tenant clears
+    owner scope — a thread is exactly one principal at a time."""
+    assert tenancy.is_owner_scope() is False
+    assert tenancy.current_tenant() is None
+
+    tenancy.set_owner_scope()
+    assert tenancy.is_owner_scope() is True
+    assert tenancy.current_tenant() is None      # owner binds NO tenant
+
+    tenancy.set_tenant("acme")                   # binding a tenant clears owner
+    assert tenancy.is_owner_scope() is False
+    assert tenancy.current_tenant() == "acme"
+
+    tenancy.set_owner_scope()                     # and back: clears the tenant
+    assert tenancy.is_owner_scope() is True
+    assert tenancy.current_tenant() is None
+
+
+def test_reset_clears_owner_scope(_clean_context):
+    tenancy.set_owner_scope()
+    assert tenancy.is_owner_scope() is True
+    tenancy.reset_tenant()
+    assert tenancy.is_owner_scope() is False
+    assert tenancy.current_tenant() is None
+
+
+def test_owner_scope_is_thread_local(_clean_context):
+    """Owner scope set on this thread must NOT bleed into another thread."""
+    tenancy.set_owner_scope()
+    seen = {}
+
+    def worker():
+        seen["before"] = tenancy.is_owner_scope()    # fresh thread => not owner
+        tenancy.set_owner_scope()
+        seen["after"] = tenancy.is_owner_scope()
+
+    th = threading.Thread(target=worker)
+    th.start()
+    th.join()
+
+    assert seen["before"] is False               # no bleed INTO the worker
+    assert seen["after"] is True
+    assert tenancy.is_owner_scope() is True       # no bleed BACK
+
+
 # ── OFF-by-default inertness (the load-bearing proof of zero behavior change) ────
 
 def test_off_by_default(admin_session, _clean_context):
@@ -136,6 +184,25 @@ def test_off_by_default(admin_session, _clean_context):
         assert tenancy.scope_clause() == ("", [])
         assert tenancy.scope_clause("customer_id") == ("", [])
         # require_tenant does NOT raise while OFF, even with no tenant bound.
+        assert tenancy.require_tenant() is None
+    finally:
+        if prev is not None:
+            auth.set_setting(tenancy.SETTING, prev)
+
+
+def test_off_owner_scope_is_inert(admin_session, _clean_context):
+    """Even in owner scope, while the switch is OFF scope_clause stays the no-op —
+    the switch, not the context, gates enforcement. ZERO behavior change."""
+    prev = auth.get_setting(tenancy.SETTING, None)
+    if prev is not None:
+        auth.set_setting(tenancy.SETTING, "0")
+    try:
+        tenancy.set_owner_scope()
+        assert tenancy.is_owner_scope() is True
+        assert tenancy.multitenant_enabled() is False
+        assert tenancy.scope_clause() == ("", [])
+        assert tenancy.scope_clause("customer_id") == ("", [])
+        # require_tenant does NOT raise while OFF, even under owner scope.
         assert tenancy.require_tenant() is None
     finally:
         if prev is not None:
@@ -180,6 +247,65 @@ def test_on_require_tenant_raises_when_unset(multitenant_on):
 def test_on_require_tenant_returns_bound(multitenant_on):
     tenancy.set_tenant("baltic")
     assert tenancy.require_tenant() == "baltic"
+
+
+# ── ON behavior: owner scope (the audited cross-tenant exception) ────────────────
+
+def test_on_owner_scope_sees_all(multitenant_on):
+    """Under owner scope with the switch ON, scope_clause returns NO filter — the
+    deliberate cross-tenant analytics exception (operator sees all tenants)."""
+    tenancy.set_owner_scope()
+    assert tenancy.is_owner_scope() is True
+    assert tenancy.scope_clause() == ("", [])
+    assert tenancy.scope_clause("customer_id") == ("", [])
+
+
+def test_on_neither_set_fails_closed(multitenant_on):
+    """Switch ON but NEITHER owner nor tenant resolved -> fail CLOSED: a
+    matches-nothing clause so a missing context can never leak cross-tenant."""
+    tenancy.reset_tenant()
+    assert tenancy.is_owner_scope() is False
+    assert tenancy.current_tenant() is None
+    frag, params = tenancy.scope_clause()
+    assert frag == " AND 1=0"
+    assert params == []
+
+    # Prove it matches nothing against a real table.
+    import sqlite3
+    con = sqlite3.connect(":memory:")
+    con.execute("CREATE TABLE thing (id INTEGER, tenant_id TEXT)")
+    con.executemany("INSERT INTO thing VALUES (?,?)", [(1, "alpha"), (2, "beta")])
+    con.commit()
+    rows = con.execute(f"SELECT id FROM thing WHERE 1=1{frag}", params).fetchall()
+    assert rows == []
+    con.close()
+
+
+def test_on_require_tenant_raises_under_owner_scope(multitenant_on):
+    """Owner scope is READ-only: require_tenant() still raises with no concrete
+    tenant bound, so the owner can't WRITE tenant data without naming a tenant."""
+    tenancy.set_owner_scope()
+    assert tenancy.is_owner_scope() is True
+    with pytest.raises(RuntimeError):
+        tenancy.require_tenant()
+
+
+def test_owner_access_audit_never_raises(admin_session, _clean_context):
+    """owner_access_audit is on the read path — best-effort, never raises."""
+    # Normal call.
+    tenancy.owner_access_audit("recovery_report")
+    # Even with a broken audit/connect underneath, it must swallow and log.
+    import audit
+    orig = tenancy.connect
+
+    def boom():
+        raise RuntimeError("registry down")
+
+    try:
+        tenancy.connect = boom
+        tenancy.owner_access_audit("anything")   # must not raise
+    finally:
+        tenancy.connect = orig
 
 
 # ── never-raise on a broken/missing registry ────────────────────────────────────

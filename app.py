@@ -650,7 +650,31 @@ def _guard():
     # is never set and every tenancy enforcement helper stays inert: ZERO change
     # to any existing query/route/figure. See docs/MULTI_TENANCY.md.
     if _tenancy.multitenant_enabled():
-        _tenancy.set_tenant(_resolve_tenant())
+        # Resolve the principal: the platform OPERATOR (owner) gets the audited
+        # cross-tenant READ scope; a client-tenant user is bound to its tenant.
+        # Mutually exclusive — owner XOR tenant. OFF path (above) never runs this.
+        if _is_owner_principal():
+            _tenancy.set_owner_scope()
+        else:
+            _tenancy.set_tenant(_resolve_tenant())
+
+def _is_owner_principal():
+    """Is the logged-in principal the platform OPERATOR/owner (vs a client-tenant
+    user)? This is the documented OWNER-resolution seam (the real onboarding/role
+    model is P4); for now it is minimal: a user is the owner iff their username is
+    listed in the `owner_users` app setting (comma/space separated). Empty/unset =
+    no owner principal, so every user is treated as a client-tenant user (safe
+    default). Only ever CALLED when multitenant is ON; never raises."""
+    try:
+        user = (session.get("user") or "").strip()
+        if not user:
+            return False
+        raw = (_auth.get_setting("owner_users", "") or "")
+        owners = {p.strip() for p in raw.replace(",", " ").split() if p.strip()}
+        return user in owners
+    except Exception as e:
+        _log.debug("_is_owner_principal failed, treating as non-owner: %s", e)
+        return False
 
 def _resolve_tenant():
     """Resolve the tenant for the current request. This is the documented

@@ -72,6 +72,61 @@ Why NOT the alternatives as the primary:
 
 ---
 
+## Owner/operator scope (the audited cross-tenant exception)
+
+Client tenants are isolated from each OTHER — that is the whole point of the
+program. But the platform OPERATOR (the business owner) has a deliberate,
+single, audited exception: a **READ-ONLY cross-tenant analytics scope**, encoding
+the operator's "I as owner must have all analytics data" requirement.
+
+How it is encoded in the foundation (`tenancy.py`):
+
+- The thread-local context holds EITHER a bound client tenant (`set_tenant(tid)`)
+  OR the owner marker (`set_owner_scope()`) — **mutually exclusive** (setting one
+  clears the other; `reset_tenant()` clears both; `is_owner_scope()` reports it).
+- `scope_clause()` returns **no filter** (`("", [])`) under owner scope while the
+  switch is ON. This is the **one and only** place `scope_clause` deliberately
+  returns no filter with `multitenant` ON — so the operator's analytics span every
+  tenant. (When the switch is OFF, `scope_clause` is the no-op for a different
+  reason: a single-tenant install correctly sees "everything" because there is only
+  one tenant.)
+- The request hook in `app.py` resolves the principal **only when the switch is
+  ON**: `_is_owner_principal()` (the `owner_users` app setting seam; the real role
+  model is P4) → `set_owner_scope()`, otherwise `set_tenant(_resolve_tenant())`.
+  On the OFF path the hook does nothing, so this is fully inert by default.
+
+The two guardrails (non-negotiable; see `docs/SECURITY_COMPLIANCE_PLAN.md` §7):
+
+1. **PII excluded from owner views.** Owner cross-tenant analytics MUST run on
+   **de-identified / aggregated** data. Per §7's controller-vs-anonymise decision,
+   the lowest-risk path is to keep personal/identifying data (IBANs, driver/vehicle
+   identifiers, contacts) OUT of any owner-scope view; the alternative is to be the
+   *controller* for that data with its own lawful basis + dual Art. 30 records. P2
+   must build owner-scope surfaces on aggregated/anonymised projections, never on
+   the raw tenant rows.
+2. **Never relay one client's identifiable pricing to another (antitrust).** The
+   owner scope is for the OPERATOR's own analytics; it must not become a channel
+   that surfaces one client's identifiable current pricing to another client (see
+   §3, the benchmark trap). Pooled/benchmark externalisation stays counsel-gated.
+
+Two hard limits keep the exception safe:
+
+- **Writes are ALWAYS tenant-scoped.** Owner scope is READ-only. `require_tenant()`
+  STILL raises when the switch is ON and no concrete tenant is bound — even under
+  owner scope — so the operator cannot write/mutate tenant data without naming
+  whose data it is.
+- **Accountability.** `owner_access_audit(resource)` logs (actor + resource) that
+  an owner cross-tenant access happened; P2 calls it wherever owner scope widens a
+  query beyond a single tenant. It is best-effort and never raises.
+
+Fail-CLOSED corollary: when the switch is ON but the request resolved NEITHER an
+owner scope NOR a tenant (a hook that forgot to resolve its principal),
+`scope_clause()` returns a matches-NOTHING clause (`" AND 1=0"`) rather than the
+no-op — a missing context can never accidentally read across tenants. The owner
+scope is the ONLY fail-OPEN path, and only when it is explicitly set.
+
+---
+
 ## The RLS footguns (Postgres phase — reused from EVOLUTION_PLAN §4.1)
 
 When we enable RLS on Postgres, two footguns silently re-open the leak if missed:
@@ -103,7 +158,9 @@ the gate in Activation/rollback is met.
   (mirrors `audit.py`'s actor), the `multitenant` master switch (OFF by default),
   and the inert enforcement primitives `require_tenant()` / `scope_clause()`. The
   request hook in `app.py` binds/resets the context ONLY when the switch is ON.
-  A read-only `/admin/tenants` surface. **No existing product query is touched.**
+  A read-only `/admin/tenants` surface. Includes the **owner/operator scope** (the
+  audited cross-tenant read exception — see above). **No existing product query is
+  touched.**
 
 - **P1 — Add `tenant_id` + backfill.** Add a `tenant_id` column to each
   tenant-scoped product table via `db_migrate.apply(...)` (append at the END of
