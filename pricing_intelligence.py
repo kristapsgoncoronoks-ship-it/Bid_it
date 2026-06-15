@@ -685,15 +685,22 @@ def reliability_report(period=None, detail_limit=200):
         "SELECT supplier, country, city, date, product_group, net_price"
         " FROM advertised_prices WHERE 1=1" + afrag + " ORDER BY date", atp).fetchall()
     bcon.close()
+    # Match keys CASE/WHITESPACE-INSENSITIVELY on BOTH sides. The store upper-cases
+    # supplier+country but leaves city/product_group as-entered, while the fills carry
+    # the transactions' own casing (e.g. country "Poland", station "SUWALKI"); without
+    # a shared normaliser an advertised "POLAND" would never match a "Poland" fill and
+    # every fill would fall through as UNMATCHED. _k() normalises every key component.
+    def _k(v):
+        return (v or "").strip().upper()
     adv_index = {}
     for a in adv_rows:
-        key = (a["supplier"], a["country"], a["city"], a["product_group"])
+        key = (_k(a["supplier"]), _k(a["country"]), _k(a["city"]), _k(a["product_group"]))
         adv_index.setdefault(key, []).append((a["date"], a["net_price"]))
 
     def _advertised_for(supplier, country, city, pg, fdate):
         """Exact-date advertised price, else the latest dated ON-OR-BEFORE fdate
         (carry-forward). None if nothing applies on-or-before the fill date."""
-        series = adv_index.get((supplier, country, city, pg))
+        series = adv_index.get((_k(supplier), _k(country), _k(city), _k(pg)))
         if not series:
             return None
         chosen = None

@@ -159,6 +159,27 @@ def test_overcharge_and_reliability_score(pi):
     assert rep["suppliers"][0]["supplier"] == "Q8"
 
 
+def test_matching_is_case_insensitive(pi):
+    """REGRESSION: the store upper-cases supplier+country but the fills carry the
+    transactions' own casing (country "Poland", station "SUWALKI"). Matching must be
+    case/whitespace-insensitive on BOTH sides — otherwise a real "Poland" fill never
+    finds its advertised "POLAND" row and silently reports zero overcharges."""
+    _seed_transactions(pi.DB, [
+        # invoiced 1.50 (300/200); advertised 1.44 -> delta +0.06 > tol -> overcharge.
+        ("BP", "Poland", "SUWALKI", "2026-05-31", "2026-05", "Diesel", 200.0, 300.0, "default"),
+    ])
+    # add_advertised_price upper-cases supplier+country at write ("POLAND"); the fill
+    # carries "Poland". A pre-fix engine keyed on raw casing would NOT match this.
+    pi.add_advertised_price("BP", "Poland", "SUWALKI", "2026-05-31", 1.44)
+
+    rep = pi.reliability_report()
+    by_sup = {s["supplier"]: s for s in rep["suppliers"]}
+    assert by_sup["BP"]["matched_fills"] == 1            # matched despite case skew
+    assert by_sup["BP"]["overcharged_fills"] == 1
+    assert by_sup["BP"]["total_overcharge_eur"] == 12.00  # 0.06 * 200 L
+    assert rep["summary"]["unmatched_fills"] == 0
+
+
 def test_tolerance_not_flagged(pi):
     """A fill invoiced just within the per-litre tolerance is NOT an overcharge."""
     _seed_transactions(pi.DB, [
