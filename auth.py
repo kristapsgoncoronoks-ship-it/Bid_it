@@ -80,9 +80,15 @@ def connect():
         """)
         # versioned migrations: run once per database (db_migrate). Append only.
         # (kdf_n: per-user scrypt cost; existing hashes keep their legacy parameters.)
+        # tenancy is imported LAZILY here: tenancy.connect() reuses auth.connect(),
+        # so a top-level `import tenancy` in auth would be a circular import. The
+        # tenant_id columns on the per-tenant platform tables (error_log/login_log)
+        # are PURE schema plumbing (P1) — nothing reads/filters them yet.
+        import tenancy
         db_migrate.apply(con, "auth", [
             "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'editor'",
             f"ALTER TABLE users ADD COLUMN kdf_n INTEGER DEFAULT {LEGACY_N}",
+            *tenancy.tenant_column_ddls(["error_log", "login_log"]),
         ])
         _seed_permissions(con)
         audit.install_audit(con, ["users", "role_permissions"])  # both change-logged
@@ -165,6 +171,12 @@ def recent_errors(limit=200):
     rows = [dict(r) for r in con.execute(
         "SELECT * FROM error_log ORDER BY id DESC LIMIT ?", (int(limit),))]
     con.close()
+    # SELECT * surfaces a column-set contract to the admin view; drop the inert
+    # P1 tenant_id plumbing column so it isn't part of the surfaced dict (P2 will
+    # scope this read, never expose the raw column).
+    import tenancy
+    for r in rows:
+        r.pop(tenancy.TENANT_COLUMN, None)
     return rows
 
 def clear_errors():
@@ -257,8 +269,11 @@ def list_users():
         last = con.execute("""SELECT ts FROM login_log WHERE username=? AND success=1
                               ORDER BY ts DESC LIMIT 1""", (u["username"],)).fetchone()
         u["last_login"] = last["ts"] if last else "-"
+    import tenancy
     logins = [dict(l) for l in con.execute(
         "SELECT * FROM login_log ORDER BY ts DESC LIMIT 25")]
+    for l in logins:                       # keep the inert tenant_id out of the
+        l.pop(tenancy.TENANT_COLUMN, None)  # surfaced contract (symmetry w/ recent_errors)
     con.close()
     return users, logins
 

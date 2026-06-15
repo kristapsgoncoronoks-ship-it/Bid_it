@@ -62,7 +62,13 @@ def connect():
             status INTEGER);
         CREATE INDEX IF NOT EXISTS ix_api_usage_key ON api_usage(key_id, ts);
         """)
-        db_migrate.apply(con, "api_keys", [])  # reserve the migration channel (append-only)
+        # Append-only migration channel. The tenant_id columns on api_keys/api_usage
+        # are PURE schema plumbing (P1) — nothing reads/filters them yet (P2 scopes
+        # the admin key/usage views). tenancy is imported lazily (it reuses
+        # auth.connect(), so a top-level import here would risk an import cycle).
+        import tenancy
+        db_migrate.apply(con, "api_keys",
+                         tenancy.tenant_column_ddls(["api_keys", "api_usage"]))
         # api_keys is change-logged (issuance/revocation); api_usage is high-volume
         # metering, not audited. The BLOB token hash is excluded from snapshots.
         audit.install_audit(con, ["api_keys"])
