@@ -102,8 +102,6 @@ def connect():
         supplier TEXT, country TEXT, note TEXT, invoice_ref TEXT,
         changed_by TEXT, updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (supplier, country, note))""")
-    audit.install_audit(con, ["vat_applications", "vat_claimed_invoices", "invoice_documents",
-                              "vat_invoice_waivers", "note_invoice_overrides"])
     # versioned migrations: each runs ONCE per database (see db_migrate). Append only.
     db_migrate.apply(con, "vat_refund", [
         "ALTER TABLE invoice_documents ADD COLUMN backend TEXT DEFAULT 'local'",
@@ -135,7 +133,151 @@ def connect():
             "vat_applications", "vat_claimed_invoices", "invoice_documents",
             "vat_invoice_waivers", "note_invoice_overrides",
         ]),
+        # ── PK / UNIQUE RE-KEY (multi-tenant): tenant-qualified PKs & UNIQUEs ─────
+        # The LEGAL-CRITICAL vat_claims.db claim tables carry a tenant_id column (P1,
+        # the tenant_column_ddls spread above) and tenant-scoped reads / stamped writes
+        # (P2), but their PRIMARY KEYs / UNIQUE constraints did NOT include tenant_id —
+        # so the upserts (ON CONFLICT) and the lock/dedup constraints resolved on the
+        # NATURAL key only. Under the `multitenant` switch ON, two tenants writing the
+        # same natural key would COLLIDE and overwrite / block each other's claim rows —
+        # cross-tenant data loss on the legally binding refund record. This rebuild does
+        # NOT touch any VAT figure, status code, lock behavior, fee, synthetic-line gate,
+        # or readiness/checklist gate — only the PK/UNIQUE shape (and the matching
+        # ON CONFLICT targets are updated at the call sites). OFF-by-default is byte-
+        # identical: a single 'default' tenant behaves exactly as the natural key did.
+        #
+        # SQLite cannot ALTER a PK/UNIQUE in place, so each of the FIVE natural-key
+        # tables is REBUILT: create a __rekey twin with tenant_id LAST in the column
+        # list (every other column, type and DEFAULT preserved) but FIRST in the
+        # PRIMARY KEY / UNIQUE clause, copy all rows (explicit column list — never rely
+        # on column order), drop the old, rename the twin. Runs once per DB (versioned).
+        # APPEND-ONLY — keep at END. There are NO secondary CREATE INDEX statements and
+        # NO FOREIGN KEY constraints declared on these tables, so no index recreate /
+        # FK guard is needed.
+        #
+        # AUDITED-DB SPECIFICS — ORDERING FIX. install_audit was historically called
+        # BEFORE this db_migrate.apply (the opposite of customer_master / supplier_master
+        # / portal). A rebuild that DROPs a table here would drop its aud_<t>_i/u/d
+        # triggers, and a pre-migration install_audit would NOT recreate them (and its
+        # _AUDIT_INSTALLED cache would short-circuit a re-call). So install_audit is now
+        # called AFTER this apply() (see below) — consistent with the other rekeyed
+        # modules — building the triggers on the FINAL post-migration schema (incl.
+        # tenant_id), recreating aud_<t>_i/u/d on the first connect that runs the rebuild.
+        #   • AUDIT ROWKEY PRESERVED on the PK tables. audit._cols_pk returns pks[0] =
+        #     the FIRST pk-flagged column in COLUMN-DEFINITION order; defining tenant_id
+        #     LAST in the column list but FIRST in the PK clause keeps pks[0] == the
+        #     natural rowkey (vat_applications->entity, vat_invoice_waivers->entity,
+        #     note_invoice_overrides->supplier) — the audit rowkey is UNCHANGED.
+        #   • vat_claimed_invoices is a rowid table (no declared PK, only a UNIQUE), so
+        #     its audit rowkey is `rowid` (pre-existing). The rebuild reassigns rowids;
+        #     rowid is not referenced/stable, so this is acceptable. We KEEP it a rowid
+        #     table (no surrogate id) so the audit rowkey semantics are unchanged.
+        #   • invoice_documents keeps its surrogate `id INTEGER PRIMARY KEY` (audit rowkey
+        #     stays `id`). The `id` values are referenced elsewhere (doc-download links
+        #     /doc/<id>), so they are PRESERVED VERBATIM — `id` is listed FIRST in the
+        #     explicit INSERT…SELECT column list, copied as-is rather than reassigned.
+
+        # vat_applications: PK (entity, refund_country, ref_period) ->
+        # (tenant_id, entity, refund_country, ref_period). rowkey stays NEW.entity.
+        # (every fee/settlement/status_code/decision ALTER column preserved.)
+        """CREATE TABLE IF NOT EXISTS vat_applications__rekey (
+            entity TEXT, refund_country TEXT, ref_period TEXT,
+            vat_eur REAL, vat_local REAL, currency TEXT,
+            status TEXT DEFAULT 'draft', updated TEXT DEFAULT CURRENT_TIMESTAMP,
+            submitted_date TEXT, approved_date TEXT, paid_date TEXT, paid_amount REAL,
+            fee_eur REAL, fee_pct REAL, fee_min REAL, fee_billed_date TEXT,
+            payout_to TEXT, fee_invoice_no TEXT, fee_invoice_date TEXT,
+            status_code TEXT, decision_date TEXT, status_note TEXT, action_deadline TEXT,
+            tenant_id TEXT NOT NULL DEFAULT 'default',
+            PRIMARY KEY (tenant_id, entity, refund_country, ref_period))""",
+        """INSERT INTO vat_applications__rekey
+            (entity, refund_country, ref_period, vat_eur, vat_local, currency,
+             status, updated, submitted_date, approved_date, paid_date, paid_amount,
+             fee_eur, fee_pct, fee_min, fee_billed_date, payout_to, fee_invoice_no,
+             fee_invoice_date, status_code, decision_date, status_note, action_deadline,
+             tenant_id)
+            SELECT entity, refund_country, ref_period, vat_eur, vat_local, currency,
+             status, updated, submitted_date, approved_date, paid_date, paid_amount,
+             fee_eur, fee_pct, fee_min, fee_billed_date, payout_to, fee_invoice_no,
+             fee_invoice_date, status_code, decision_date, status_note, action_deadline,
+             tenant_id
+            FROM vat_applications""",
+        "DROP TABLE vat_applications",
+        "ALTER TABLE vat_applications__rekey RENAME TO vat_applications",
+
+        # vat_claimed_invoices: rowid table, no PK. UNIQUE (entity, refund_country,
+        # supplier, invoice_ref) -> UNIQUE (tenant_id, entity, refund_country, supplier,
+        # invoice_ref). Stays a rowid table (audit rowkey == rowid, pre-existing).
+        """CREATE TABLE IF NOT EXISTS vat_claimed_invoices__rekey (
+            entity TEXT, refund_country TEXT, supplier TEXT, invoice_ref TEXT,
+            ref_period TEXT, locked_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            tenant_id TEXT NOT NULL DEFAULT 'default',
+            UNIQUE (tenant_id, entity, refund_country, supplier, invoice_ref))""",
+        """INSERT INTO vat_claimed_invoices__rekey
+            (entity, refund_country, supplier, invoice_ref, ref_period, locked_at, tenant_id)
+            SELECT entity, refund_country, supplier, invoice_ref, ref_period, locked_at, tenant_id
+            FROM vat_claimed_invoices""",
+        "DROP TABLE vat_claimed_invoices",
+        "ALTER TABLE vat_claimed_invoices__rekey RENAME TO vat_claimed_invoices",
+
+        # invoice_documents: KEEP id INTEGER PRIMARY KEY (audit rowkey == id; ids are
+        # referenced by /doc/<id> download links so they are PRESERVED VERBATIM — id is
+        # listed FIRST in the INSERT…SELECT so it is copied, not reassigned). UNIQUE
+        # (entity, supplier, invoice_ref, sha256) -> UNIQUE (tenant_id, entity, supplier,
+        # invoice_ref, sha256). backend/web_url ALTER columns preserved.
+        """CREATE TABLE IF NOT EXISTS invoice_documents__rekey (
+            id INTEGER PRIMARY KEY,
+            entity TEXT, supplier TEXT, invoice_ref TEXT,
+            filename TEXT, stored_path TEXT, sha256 TEXT, size INTEGER,
+            kind TEXT DEFAULT 'original_pdf', uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            backend TEXT DEFAULT 'local', web_url TEXT,
+            tenant_id TEXT NOT NULL DEFAULT 'default',
+            UNIQUE (tenant_id, entity, supplier, invoice_ref, sha256))""",
+        """INSERT INTO invoice_documents__rekey
+            (id, entity, supplier, invoice_ref, filename, stored_path, sha256, size,
+             kind, uploaded_at, backend, web_url, tenant_id)
+            SELECT id, entity, supplier, invoice_ref, filename, stored_path, sha256, size,
+             kind, uploaded_at, backend, web_url, tenant_id
+            FROM invoice_documents""",
+        "DROP TABLE invoice_documents",
+        "ALTER TABLE invoice_documents__rekey RENAME TO invoice_documents",
+
+        # vat_invoice_waivers: PK (entity, refund_country, ref_period, supplier) ->
+        # (tenant_id, entity, refund_country, ref_period, supplier). rowkey stays NEW.entity.
+        """CREATE TABLE IF NOT EXISTS vat_invoice_waivers__rekey (
+            entity TEXT, refund_country TEXT, ref_period TEXT, supplier TEXT,
+            reason TEXT, waived_by TEXT, waived_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            tenant_id TEXT NOT NULL DEFAULT 'default',
+            PRIMARY KEY (tenant_id, entity, refund_country, ref_period, supplier))""",
+        """INSERT INTO vat_invoice_waivers__rekey
+            (entity, refund_country, ref_period, supplier, reason, waived_by, waived_at, tenant_id)
+            SELECT entity, refund_country, ref_period, supplier, reason, waived_by, waived_at, tenant_id
+            FROM vat_invoice_waivers""",
+        "DROP TABLE vat_invoice_waivers",
+        "ALTER TABLE vat_invoice_waivers__rekey RENAME TO vat_invoice_waivers",
+
+        # note_invoice_overrides: PK (supplier, country, note) ->
+        # (tenant_id, supplier, country, note). rowkey stays NEW.supplier.
+        """CREATE TABLE IF NOT EXISTS note_invoice_overrides__rekey (
+            supplier TEXT, country TEXT, note TEXT, invoice_ref TEXT,
+            changed_by TEXT, updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            tenant_id TEXT NOT NULL DEFAULT 'default',
+            PRIMARY KEY (tenant_id, supplier, country, note))""",
+        """INSERT INTO note_invoice_overrides__rekey
+            (supplier, country, note, invoice_ref, changed_by, updated_at, tenant_id)
+            SELECT supplier, country, note, invoice_ref, changed_by, updated_at, tenant_id
+            FROM note_invoice_overrides""",
+        "DROP TABLE note_invoice_overrides",
+        "ALTER TABLE note_invoice_overrides__rekey RENAME TO note_invoice_overrides",
     ])
+    # AUDIT install runs AFTER db_migrate.apply (the PK/UNIQUE rekey above DROPs+renames
+    # these tables, dropping their triggers). Building triggers on the FINAL schema
+    # recreates aud_<t>_i/u/d and keeps the rowkey == the preserved natural key (PK
+    # tables) / id (invoice_documents) / rowid (vat_claimed_invoices). This is the
+    # ordering fix described in the rekey block above — consistent with the other
+    # rekeyed audited modules.
+    audit.install_audit(con, ["vat_applications", "vat_claimed_invoices", "invoice_documents",
+                              "vat_invoice_waivers", "note_invoice_overrides"])
     _migrate_from_analytics(con)
     if DB != ":memory:":
         _SCHEMA_READY.add(DB)
@@ -598,7 +740,7 @@ def add_waiver(con, ent, ctry, period, supplier, reason=None):
     con.execute("""INSERT INTO vat_invoice_waivers
                    (entity, refund_country, ref_period, supplier, reason, waived_by, tenant_id)
                    VALUES (?,?,?,?,?,?,?)
-                   ON CONFLICT(entity, refund_country, ref_period, supplier)
+                   ON CONFLICT(tenant_id, entity, refund_country, ref_period, supplier)
                    DO UPDATE SET reason=excluded.reason, waived_by=excluded.waived_by,
                                  waived_at=CURRENT_TIMESTAMP""",
                 (ent, ctry, period, supplier, (reason or None), actor, tenancy.queue_tenant()))
@@ -652,7 +794,7 @@ def set_note_override(supplier, country, note, invoice_ref, actor):
         con.execute("""INSERT INTO note_invoice_overrides
                        (supplier, country, note, invoice_ref, changed_by, updated_at, tenant_id)
                        VALUES (?,?,?,?,?,CURRENT_TIMESTAMP,?)
-                       ON CONFLICT(supplier, country, note) DO UPDATE SET
+                       ON CONFLICT(tenant_id, supplier, country, note) DO UPDATE SET
                          invoice_ref=excluded.invoice_ref, changed_by=excluded.changed_by,
                          updated_at=CURRENT_TIMESTAMP""",
                     (supplier, country, note, invoice_ref, actor or "admin",
@@ -905,7 +1047,7 @@ def set_status(con, ent, ctry, period, new, gate_activation=True):
         stamp = {"submitted": "submitted_date", "approved": "approved_date", "paid": "paid_date"}.get(new)
         con.execute("""INSERT INTO vat_applications (entity, refund_country, ref_period, status,
                        tenant_id)
-                       VALUES (?,?,?,?,?) ON CONFLICT(entity, refund_country, ref_period)
+                       VALUES (?,?,?,?,?) ON CONFLICT(tenant_id, entity, refund_country, ref_period)
                        DO UPDATE SET status=excluded.status, updated=CURRENT_TIMESTAMP""",
                     (ent, ctry, period, new, tenancy.queue_tenant()))
         if stamp:
@@ -1803,7 +1945,7 @@ def build_workbook(con, year):
         # untouched (a not-yet-existing claim still gets its draft row created).
         con.execute("""INSERT INTO vat_applications (entity, refund_country, ref_period,
                        vat_eur, vat_local, currency, status, tenant_id) VALUES (?,?,?,?,?,?,?,?)
-                       ON CONFLICT(entity, refund_country, ref_period) DO UPDATE SET
+                       ON CONFLICT(tenant_id, entity, refund_country, ref_period) DO UPDATE SET
                        vat_eur=excluded.vat_eur, vat_local=excluded.vat_local
                        WHERE vat_applications.status NOT IN ('submitted','approved','paid')"""
                     + wfrag,
