@@ -206,13 +206,17 @@ def attach_document(con, ent, sup, ref, src_path=None, file_bytes=None,
         file_bytes = open(src_path, "rb").read()
         filename = filename or os.path.basename(src_path)
     sha = hashlib.sha256(file_bytes).hexdigest()
+    # Multi-tenant P2: scope the dedup/cross-invoice reads so a tenant only sees its
+    # own attachments; OFF the fragment is ("",[]) and these are byte-identical.
+    frag, params = tenancy.scope_clause()
     dup_same = con.execute("""SELECT id FROM invoice_documents WHERE entity=? AND supplier=?
-                              AND invoice_ref=? AND sha256=?""", (ent, sup, ref, sha)).fetchone()
+                              AND invoice_ref=? AND sha256=?""" + frag,
+                           [ent, sup, ref, sha, *params]).fetchone()
     if dup_same:
         return True, f"already attached (identical file, sha {sha[:8]}) - skipped"
     elsewhere = con.execute("""SELECT invoice_ref FROM invoice_documents WHERE sha256=?
-                               AND NOT (entity=? AND supplier=? AND invoice_ref=?)""",
-                            (sha, ent, sup, ref)).fetchone()
+                               AND NOT (entity=? AND supplier=? AND invoice_ref=?)""" + frag,
+                            [sha, ent, sup, ref, *params]).fetchone()
     warn = (f" | WARNING: identical file already attached to invoice "
             f"{elsewhere['invoice_ref']} - verify correct document" if elsewhere else "")
     # resolve the metadata that organises the archive (country/period of the
@@ -238,10 +242,13 @@ def attach_document(con, ent, sup, ref, src_path=None, file_bytes=None,
     safe = document_vault.invoice_vault_path(cust_name, reg, country, period, filename)
     be = document_vault.backend(DOCDIR)
     stored, web_url = be.put(safe, file_bytes)
+    # Multi-tenant P2: stamp the bound tenant (soft queue_tenant — works for the admin
+    # web write and the worker; OFF -> DEFAULT_TENANT_ID == the column DEFAULT).
     con.execute("""INSERT INTO invoice_documents (entity, supplier, invoice_ref, filename,
-                   stored_path, sha256, size, kind, backend, web_url)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                (ent, sup, ref, filename, stored, sha, len(file_bytes), kind, be.name, web_url))
+                   stored_path, sha256, size, kind, backend, web_url, tenant_id)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (ent, sup, ref, filename, stored, sha, len(file_bytes), kind, be.name,
+                 web_url, tenancy.queue_tenant()))
     con.commit()
     return True, (f"attached {filename} ({len(file_bytes):,} B, sha {sha[:8]}, {kind}, "
                   f"storage: {be.name}" + (f", {web_url}" if web_url else "")) + warn
@@ -260,9 +267,11 @@ def attach_existing(con, ent, sup, ref, *, source, source_id, kind="scan"):
                                filename=meta["filename"], kind=kind)
     if source == "vault":
         # source_id is a stored_path of an invoice_documents row for THIS customer.
+        # Multi-tenant P2: scope so a tenant can only re-attach from its own vault row.
+        frag, params = tenancy.scope_clause()
         row = con.execute("""SELECT filename, stored_path FROM invoice_documents
-                             WHERE entity=? AND stored_path=?""",
-                          (ent, source_id)).fetchone()
+                             WHERE entity=? AND stored_path=?""" + frag,
+                          [ent, source_id, *params]).fetchone()
         if not row:
             return False, "source file not found"
         try:
@@ -275,8 +284,11 @@ def attach_existing(con, ent, sup, ref, *, source, source_id, kind="scan"):
     return False, f"unknown source '{source}'"
 
 def docs_for(con, ent, sup, ref):
+    # Multi-tenant P2: scope before ORDER BY; OFF inert.
+    frag, params = tenancy.scope_clause()
     return con.execute("""SELECT * FROM invoice_documents WHERE entity=? AND supplier=?
-                          AND invoice_ref=? ORDER BY uploaded_at""", (ent, sup, ref)).fetchall()
+                          AND invoice_ref=?""" + frag + " ORDER BY uploaded_at",
+                       [ent, sup, ref, *params]).fetchall()
 
 def file_documents_for_claim(con, ent, ctry, period):
     """Re-file the documents of the invoices ACTUALLY locked into this claim
@@ -300,9 +312,11 @@ def file_documents_for_claim(con, ent, ctry, period):
         reg = c.get("reg_number")
     except Exception:
         cust_name, reg = ent, None
+    # Multi-tenant P2: scope to the bound tenant's locked invoices; OFF inert.
+    frag, params = tenancy.scope_clause()
     locked = con.execute("""SELECT supplier, invoice_ref FROM vat_claimed_invoices
-                            WHERE entity=? AND refund_country=? AND ref_period=?""",
-                         (ent, ctry, period)).fetchall()
+                            WHERE entity=? AND refund_country=? AND ref_period=?""" + frag,
+                         [ent, ctry, period, *params]).fetchall()
     moved = 0
     for lk in locked:
         for d in docs_for(con, ent, lk["supplier"], lk["invoice_ref"]):
@@ -352,8 +366,11 @@ def verify_documents(con=None):
     if con is None:
         con = connect(); close = True
     rows, ok, corrupt, missing = [], 0, 0, 0
+    # Multi-tenant P2: a tenant verifies only its own documents; the owner sweeps all.
+    frag, params = tenancy.scope_clause()
     for r in con.execute("""SELECT entity, supplier, invoice_ref, filename, stored_path,
-                            sha256, size, backend FROM invoice_documents ORDER BY id"""):
+                            sha256, size, backend FROM invoice_documents WHERE 1=1""" + frag
+                         + " ORDER BY id", params):
         status, detail, _data = _verify_one(r["stored_path"], r["sha256"])
         if status == "OK":
             ok += 1
@@ -393,15 +410,19 @@ def evidence_pack(entity, refund_country, period, con=None):
     if con is None:
         con = connect(); close = True
     try:
+        # Multi-tenant P2: scope the claim header + its locked invoices to the bound
+        # tenant (the owner sees all); OFF the fragment is ("",[]) and both are
+        # byte-identical.
+        frag, params = tenancy.scope_clause()
         app = con.execute("""SELECT vat_eur, vat_local, currency, status, status_code
                              FROM vat_applications
-                             WHERE entity=? AND refund_country=? AND ref_period=?""",
-                          (entity, refund_country, period)).fetchone()
+                             WHERE entity=? AND refund_country=? AND ref_period=?""" + frag,
+                          [entity, refund_country, period, *params]).fetchone()
         # the invoices LOCKED into this exact claim (period-stamped registration)
         invoices = con.execute("""SELECT supplier, invoice_ref FROM vat_claimed_invoices
-                                  WHERE entity=? AND refund_country=? AND ref_period=?
-                                  ORDER BY supplier, invoice_ref""",
-                               (entity, refund_country, period)).fetchall()
+                                  WHERE entity=? AND refund_country=? AND ref_period=?""" + frag
+                               + " ORDER BY supplier, invoice_ref",
+                               [entity, refund_country, period, *params]).fetchall()
         manifest_rows = []          # (invoice_ref, supplier, filename, sha256, status, detail)
         failures = []               # human-readable integrity failures
         n_docs = ok = mismatch = missing = 0
@@ -523,9 +544,12 @@ def stream_invoices(con, ent, ctry, period, cache=None):
 def docs_index(con):
     """One-query set of (entity, supplier, invoice_ref) that have >=1 document.
     Lets callers check document coverage without an N+1 of docs_for()."""
+    # Multi-tenant P2: scope the doc-coverage index to the bound tenant; OFF inert.
+    frag, params = tenancy.scope_clause()
     return {(r["entity"], r["supplier"], r["invoice_ref"])
             for r in con.execute(
-                "SELECT DISTINCT entity, supplier, invoice_ref FROM invoice_documents")}
+                "SELECT DISTINCT entity, supplier, invoice_ref FROM invoice_documents "
+                "WHERE 1=1" + frag, params)}
 
 def _no_registered_invoices(sup, ctry, scon=None):
     """True iff supplier `sup` has NO registered invoice for refund country `ctry`
@@ -552,10 +576,12 @@ def _waivable_missing(ref, sup, ctry, scon=None):
 # --------------------------------------------------------------- receipt-control waivers
 def list_waivers(con, ent, ctry, period):
     """The set of suppliers WAIVED ('invoice not coming') for one claim stream."""
+    # Multi-tenant P2: scope to the bound tenant's waivers; OFF inert.
+    frag, params = tenancy.scope_clause()
     return {r["supplier"] for r in con.execute(
         """SELECT supplier FROM vat_invoice_waivers
-           WHERE entity=? AND refund_country=? AND ref_period=?""",
-        (ent, ctry, period))}
+           WHERE entity=? AND refund_country=? AND ref_period=?""" + frag,
+        [ent, ctry, period, *params])}
 
 def add_waiver(con, ent, ctry, period, supplier, reason=None):
     """Waive a supplier's missing-invoice receipt-control item for one claim stream.
@@ -568,20 +594,24 @@ def add_waiver(con, ent, ctry, period, supplier, reason=None):
                        f"{ctry}; an UNMATCHED transaction there is a note-matching fix, "
                        "not a missing invoice (register/match the invoice instead)")
     actor = audit._current_actor() or "admin"
+    # Multi-tenant P2: stamp the bound tenant (soft queue_tenant); OFF -> "default".
     con.execute("""INSERT INTO vat_invoice_waivers
-                   (entity, refund_country, ref_period, supplier, reason, waived_by)
-                   VALUES (?,?,?,?,?,?)
+                   (entity, refund_country, ref_period, supplier, reason, waived_by, tenant_id)
+                   VALUES (?,?,?,?,?,?,?)
                    ON CONFLICT(entity, refund_country, ref_period, supplier)
                    DO UPDATE SET reason=excluded.reason, waived_by=excluded.waived_by,
                                  waived_at=CURRENT_TIMESTAMP""",
-                (ent, ctry, period, supplier, (reason or None), actor))
+                (ent, ctry, period, supplier, (reason or None), actor, tenancy.queue_tenant()))
     con.commit()
     return True, f"waived '{supplier}' — invoice not coming ({ctry} {period})"
 
 def remove_waiver(con, ent, ctry, period, supplier):
     """Undo a receipt-control waiver. Returns (ok, msg)."""
+    # Multi-tenant P2: scope so a tenant only removes its own waiver; OFF inert.
+    frag, params = tenancy.scope_clause()
     cur = con.execute("""DELETE FROM vat_invoice_waivers WHERE entity=? AND refund_country=?
-                         AND ref_period=? AND supplier=?""", (ent, ctry, period, supplier))
+                         AND ref_period=? AND supplier=?""" + frag,
+                      [ent, ctry, period, supplier, *params])
     con.commit()
     if cur.rowcount:
         return True, f"removed waiver for '{supplier}'"
@@ -618,13 +648,15 @@ def set_note_override(supplier, country, note, invoice_ref, actor):
     con = connect()
     try:
         audit.set_actor(con, actor or "admin")
+        # Multi-tenant P2: stamp the bound tenant (soft queue_tenant); OFF -> "default".
         con.execute("""INSERT INTO note_invoice_overrides
-                       (supplier, country, note, invoice_ref, changed_by, updated_at)
-                       VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)
+                       (supplier, country, note, invoice_ref, changed_by, updated_at, tenant_id)
+                       VALUES (?,?,?,?,?,CURRENT_TIMESTAMP,?)
                        ON CONFLICT(supplier, country, note) DO UPDATE SET
                          invoice_ref=excluded.invoice_ref, changed_by=excluded.changed_by,
                          updated_at=CURRENT_TIMESTAMP""",
-                    (supplier, country, note, invoice_ref, actor or "admin"))
+                    (supplier, country, note, invoice_ref, actor or "admin",
+                     tenancy.queue_tenant()))
         con.commit()
     finally:
         audit.reset_actor(con)
@@ -637,9 +669,11 @@ def clear_note_override(supplier, country, note, actor):
     con = connect()
     try:
         audit.set_actor(con, actor or "admin")
+        # Multi-tenant P2: scope so a tenant only clears its own override; OFF inert.
+        frag, params = tenancy.scope_clause()
         cur = con.execute("""DELETE FROM note_invoice_overrides
-                             WHERE supplier=? AND country=? AND note=?""",
-                          (supplier, country, str(note or "").strip()))
+                             WHERE supplier=? AND country=? AND note=?""" + frag,
+                          [supplier, country, str(note or "").strip(), *params])
         con.commit()
     finally:
         audit.reset_actor(con)
@@ -659,9 +693,11 @@ def get_note_overrides(supplier, country, con=None):
         if own:
             con = connect()
         try:
+            # Multi-tenant P2: scope to the bound tenant's overrides; OFF inert.
+            frag, params = tenancy.scope_clause()
             rows = con.execute("""SELECT note, invoice_ref FROM note_invoice_overrides
-                                  WHERE supplier=? AND country=?""",
-                               (supplier, country)).fetchall()
+                                  WHERE supplier=? AND country=?""" + frag,
+                               [supplier, country, *params]).fetchall()
         finally:
             if own:
                 con.close()
@@ -692,9 +728,14 @@ def unmatched_lines(ent, ctry, qtr, cache=None):
         if acon is None:
             acon = analytics_connect(); cache["_acon"] = acon
         months = q_months(qtr)
+        # Multi-tenant P2: scope the analytics (transactions) reads to the bound tenant so
+        # a claim is computed over its OWN data only; the fragment goes before GROUP BY.
+        # OFF the fragment is ("",[]) and these are byte-identical.
+        tfrag, tparams = tenancy.scope_clause()
         sups = [r[0] for r in acon.execute(
             """SELECT DISTINCT supplier FROM transactions WHERE entity=? AND country=?
-               AND period IN (%s)""" % ",".join("?"*len(months)), [ent, ctry]+months)]
+               AND period IN (%s)""" % ",".join("?"*len(months)) + tfrag,
+            [ent, ctry]+months+tparams)]
         out = []
         try:
             for sup in sups:
@@ -711,8 +752,9 @@ def unmatched_lines(ent, ctry, qtr, cache=None):
                     """SELECT note, product_group, ROUND(SUM(net_eur),2) net,
                               ROUND(SUM(vat_eur),2) vat FROM transactions
                        WHERE entity=? AND country=? AND supplier=?
-                       AND period IN (%s) GROUP BY note, product_group"""
-                    % ",".join("?"*len(months)), [ent, ctry, sup]+months).fetchall()
+                       AND period IN (%s)""" % ",".join("?"*len(months)) + tfrag
+                    + " GROUP BY note, product_group",
+                    [ent, ctry, sup]+months+tparams).fetchall()
                 for r in rows:
                     if _resolve_inv(r["note"], refs, overrides) == "UNMATCHED":
                         out.append(dict(supplier=sup, country=ctry, note=r["note"] or "",
@@ -730,9 +772,12 @@ def unmatched_lines(ent, ctry, qtr, cache=None):
         return []
 
 def lock_state(con, ent, ctry, sup, ref):
+    # Multi-tenant P2: scope the invoice-lock lookup to the bound tenant so a tenant's
+    # conflict/lock check only sees its OWN locks; OFF the fragment is ("",[]).
+    frag, params = tenancy.scope_clause()
     r = con.execute("""SELECT ref_period FROM vat_claimed_invoices WHERE entity=? AND
-                       refund_country=? AND supplier=? AND invoice_ref=?""",
-                    (ent, ctry, sup, ref)).fetchone()
+                       refund_country=? AND supplier=? AND invoice_ref=?""" + frag,
+                    [ent, ctry, sup, ref, *params]).fetchone()
     return r["ref_period"] if r else None
 
 def set_status(con, ent, ctry, period, new, gate_activation=True):
@@ -767,8 +812,14 @@ def set_status(con, ent, ctry, period, new, gate_activation=True):
         # Already inside a transaction (e.g. autocommit off / nested caller) - fine.
         pass
     try:
+        # Multi-tenant P2: scope every vat_applications/vat_claimed_invoices read and append
+        # the fragment to UPDATEs/DELETEs so a tenant only reads/mutates its OWN claim rows;
+        # INSERTs stamp tenant_id via queue_tenant(). OFF the fragment is ("",[]) and
+        # queue_tenant() is "default" (== the column DEFAULT), so OFF is byte-identical.
+        frag, params = tenancy.scope_clause()
         cur = con.execute("""SELECT status FROM vat_applications WHERE entity=? AND
-                             refund_country=? AND ref_period=?""", (ent, ctry, period)).fetchone()
+                             refund_country=? AND ref_period=?""" + frag,
+                          [ent, ctry, period, *params]).fetchone()
         cur = cur["status"] if cur else "draft"
         is_annual = str(period).endswith("-YEAR")
         claim_set = None
@@ -823,8 +874,10 @@ def set_status(con, ent, ctry, period, new, gate_activation=True):
                 for s, r in claim_set:
                     try:
                         con.execute("""INSERT INTO vat_claimed_invoices
-                                       (entity, refund_country, supplier, invoice_ref, ref_period)
-                                       VALUES (?,?,?,?,?)""", (ent, ctry, s, r, period))
+                                       (entity, refund_country, supplier, invoice_ref, ref_period,
+                                        tenant_id)
+                                       VALUES (?,?,?,?,?,?)""",
+                                    (ent, ctry, s, r, period, tenancy.queue_tenant()))
                     except db.IntegrityError:
                         # Another claim acquired this invoice lock between our check
                         # and our insert. Abort the entire transition.
@@ -838,7 +891,7 @@ def set_status(con, ent, ctry, period, new, gate_activation=True):
             # appeal / confiscation deliberately KEEP the locks so the invoices can't
             # be re-claimed elsewhere while the claim is contested.
             con.execute("""DELETE FROM vat_claimed_invoices WHERE entity=? AND refund_country=?
-                           AND ref_period=?""", (ent, ctry, period))
+                           AND ref_period=?""" + frag, [ent, ctry, period, *params])
         elif new == "rejected":
             # A rejected claim KEEPS its invoice locks (mirrors 3B's 'approved' engine
             # state, whose lock-acquisition branch above is a no-op once cur is already
@@ -850,13 +903,15 @@ def set_status(con, ent, ctry, period, new, gate_activation=True):
             return False, (f"BLOCKED - application is '{cur}' and holds invoice locks; "
                            "use 'withdrawn' to release the locks before reverting.")
         stamp = {"submitted": "submitted_date", "approved": "approved_date", "paid": "paid_date"}.get(new)
-        con.execute("""INSERT INTO vat_applications (entity, refund_country, ref_period, status)
-                       VALUES (?,?,?,?) ON CONFLICT(entity, refund_country, ref_period)
+        con.execute("""INSERT INTO vat_applications (entity, refund_country, ref_period, status,
+                       tenant_id)
+                       VALUES (?,?,?,?,?) ON CONFLICT(entity, refund_country, ref_period)
                        DO UPDATE SET status=excluded.status, updated=CURRENT_TIMESTAMP""",
-                    (ent, ctry, period, new))
+                    (ent, ctry, period, new, tenancy.queue_tenant()))
         if stamp:
             con.execute(f"UPDATE vat_applications SET {stamp}=CURRENT_DATE WHERE entity=? "
-                        "AND refund_country=? AND ref_period=?", (ent, ctry, period))
+                        "AND refund_country=? AND ref_period=?" + frag,
+                        [ent, ctry, period, *params])
         # Freeze the fee RATE onto the claim the moment it is first submitted; once
         # locked the rate can no longer be adjusted (% / minimum changes only affect
         # un-submitted declarations).
@@ -886,22 +941,22 @@ def set_status(con, ent, ctry, period, new, gate_activation=True):
             fpct, fmin = customer_master.fee_for(ent, ctry)
             fee, _basis = customer_master.compute_fee(ve, fpct, fmin)
             con.execute("""UPDATE vat_applications SET vat_eur=?, vat_local=?, fee_eur=?, fee_pct=?, fee_min=?
-                           WHERE entity=? AND refund_country=? AND ref_period=?""",
-                        (ve, vl, fee, fpct, fmin, ent, ctry, period))
+                           WHERE entity=? AND refund_country=? AND ref_period=?""" + frag,
+                        [ve, vl, fee, fpct, fmin, ent, ctry, period, *params])
         # CHARGE the fee for services only when the money is refunded (status=paid):
         # recompute on the refunded amount (paid_amount, else the claimed VAT) at the
         # frozen rate and stamp the billing date.
         if new == "paid":
             r = con.execute("""SELECT vat_eur, paid_amount, fee_pct, fee_min FROM vat_applications
-                               WHERE entity=? AND refund_country=? AND ref_period=?""",
-                            (ent, ctry, period)).fetchone()
+                               WHERE entity=? AND refund_country=? AND ref_period=?""" + frag,
+                            [ent, ctry, period, *params]).fetchone()
             base = (r["paid_amount"] if r and r["paid_amount"] else (r["vat_eur"] if r else 0)) or 0
             fee, _b = customer_master.compute_fee(base, (r["fee_pct"] if r else 0) or 0,
                                               (r["fee_min"] if r else 0) or 0)
             con.execute("""UPDATE vat_applications SET fee_eur=?, fee_billed_date=CURRENT_DATE,
                            payout_to=COALESCE(payout_to, ?)
-                           WHERE entity=? AND refund_country=? AND ref_period=?""",
-                        (fee, customer_master.payout_route(ent), ent, ctry, period))
+                           WHERE entity=? AND refund_country=? AND ref_period=?""" + frag,
+                        [fee, customer_master.payout_route(ent), ent, ctry, period, *params])
         con.commit()
     except Exception:
         con.rollback()
@@ -1066,9 +1121,11 @@ def derive_stage(con, ent, ctry, period, verdict=None, cache=None):
 def current_code(con, ent, ctry, period, verdict=None, cache=None):
     """The claim's effective workflow code: the stored manual code once one exists,
     otherwise the live system-derived pre-submission stage."""
+    # Multi-tenant P2: scope the claim-row read to the bound tenant; OFF inert.
+    frag, params = tenancy.scope_clause()
     r = con.execute("""SELECT status, status_code FROM vat_applications
-                       WHERE entity=? AND refund_country=? AND ref_period=?""",
-                    (ent, ctry, period)).fetchone()
+                       WHERE entity=? AND refund_country=? AND ref_period=?""" + frag,
+                    [ent, ctry, period, *params]).fetchone()
     if r and r["status_code"]:
         return r["status_code"]
     if r and r["status"] in ("submitted", "approved", "paid"):   # legacy rows, no code
@@ -1085,9 +1142,11 @@ def _stream_vat(con, ent, ctry, period):
     verdict agree. Returns Decimals (full precision); never raises (a missing/empty
     stream reads as 0). `con` is the claims connection.
     """
+    # Multi-tenant P2: scope the frozen-figure read to the bound tenant; OFF inert.
+    frag, params = tenancy.scope_clause()
     row = con.execute("""SELECT vat_eur, vat_local, currency, status FROM vat_applications
-                         WHERE entity=? AND refund_country=? AND ref_period=?""",
-                      (ent, ctry, period)).fetchone()
+                         WHERE entity=? AND refund_country=? AND ref_period=?""" + frag,
+                      [ent, ctry, period, *params]).fetchone()
     if row and (row["status"] or "draft") in LOCKING and row["vat_eur"] is not None:
         # frozen at submission over exactly the locked claim_set — the canonical base
         return (money.D(row["vat_eur"] or 0), money.D(row["vat_local"] or 0),
@@ -1095,11 +1154,13 @@ def _stream_vat(con, ent, ctry, period):
     months = q_months(period)
     acon = analytics_connect()
     try:
+        # Multi-tenant P2: scope the threshold-base aggregate to the bound tenant; OFF inert.
+        tfrag, tparams = tenancy.scope_clause()
         agg = acon.execute(
             """SELECT ROUND(SUM(vat_eur),2) ve, ROUND(SUM(vat_local),2) vl,
                       MAX(currency) ccy
                FROM transactions WHERE entity=? AND country=? AND period IN (%s)"""
-            % ",".join("?" * len(months)), [ent, ctry] + months).fetchone()
+            % ",".join("?" * len(months)) + tfrag, [ent, ctry] + months + tparams).fetchone()
     finally:
         acon.close()
     ve = money.D(agg["ve"] or 0) if agg else money.D(0)
@@ -1243,8 +1304,12 @@ def set_status_code(con, ent, ctry, period, code, note=None, deadline=None,
         return False, f"'{code} {STATUS_LABELS.get(code,'')}' is system-controlled — it follows the checklist automatically"
     if code not in MANUAL_CODES:
         return False, f"unknown status '{code}'"
+    # Multi-tenant P2: scope every vat_applications read here and append the fragment to
+    # the workflow UPDATEs so a tenant only reads/advances its OWN claim row. OFF inert.
+    frag, params = tenancy.scope_clause()
     row = con.execute("""SELECT status FROM vat_applications WHERE entity=? AND
-                         refund_country=? AND ref_period=?""", (ent, ctry, period)).fetchone()
+                         refund_country=? AND ref_period=?""" + frag,
+                      [ent, ctry, period, *params]).fetchone()
     eng_now = row["status"] if row else "draft"
     if eng_now not in LOCKING:
         # not yet locked: the only legal first manual step is Submit (2), and only when
@@ -1281,19 +1346,22 @@ def set_status_code(con, ent, ctry, period, code, note=None, deadline=None,
         if not ok:
             return ok, msg
     con.execute("""UPDATE vat_applications SET status_code=?, updated=CURRENT_TIMESTAMP
-                   WHERE entity=? AND refund_country=? AND ref_period=?""",
-                (code, ent, ctry, period))
+                   WHERE entity=? AND refund_country=? AND ref_period=?""" + frag,
+                [code, ent, ctry, period, *params])
     # per-status data: decision date on first decision code; the note; the open-action
     # deadline lives only while a 2B/3D is open (cleared when the claim moves on).
     if code in ("3", "3A", "3B", "3C"):
         con.execute("""UPDATE vat_applications SET decision_date=COALESCE(decision_date, CURRENT_DATE)
-                       WHERE entity=? AND refund_country=? AND ref_period=?""", (ent, ctry, period))
+                       WHERE entity=? AND refund_country=? AND ref_period=?""" + frag,
+                    [ent, ctry, period, *params])
     if note:
         con.execute("""UPDATE vat_applications SET status_note=? WHERE entity=? AND
-                       refund_country=? AND ref_period=?""", (str(note)[:500], ent, ctry, period))
+                       refund_country=? AND ref_period=?""" + frag,
+                    [str(note)[:500], ent, ctry, period, *params])
     con.execute("""UPDATE vat_applications SET action_deadline=? WHERE entity=? AND
-                   refund_country=? AND ref_period=?""",
-                ((deadline or None) if code in ("2B", "3D") else None, ent, ctry, period))
+                   refund_country=? AND ref_period=?""" + frag,
+                [((deadline or None) if code in ("2B", "3D") else None),
+                 ent, ctry, period, *params])
     con.commit()
     return True, f"status → {code} {STATUS_LABELS[code]}" + (f" (note recorded)" if note else "")
 
@@ -1321,8 +1389,11 @@ def record_payment(con, ent, ctry, period, amount, date=None):
         return False, "invalid amount"
     if amt < 0:
         return False, "amount must be >= 0"
+    # Multi-tenant P2: scope the claim reads/writes here to the bound tenant; OFF inert.
+    frag, params = tenancy.scope_clause()
     row = con.execute("""SELECT status FROM vat_applications WHERE entity=? AND
-                         refund_country=? AND ref_period=?""", (ent, ctry, period)).fetchone()
+                         refund_country=? AND ref_period=?""" + frag,
+                      [ent, ctry, period, *params]).fetchone()
     if not row:
         return False, "no such claim"
     if (row["status"] or "draft") not in LOCKING:
@@ -1330,8 +1401,8 @@ def record_payment(con, ent, ctry, period, amount, date=None):
     # Stamp the refunded amount FIRST so the paid-transition recompute reads it (the
     # recompute falls back to the full claimed vat_eur when paid_amount is null).
     con.execute("""UPDATE vat_applications SET paid_amount=?, updated=CURRENT_TIMESTAMP
-                   WHERE entity=? AND refund_country=? AND ref_period=?""",
-                (amt, ent, ctry, period))
+                   WHERE entity=? AND refund_country=? AND ref_period=?""" + frag,
+                [amt, ent, ctry, period, *params])
     # NO intermediate commit: the stamp stays pending so it commits ATOMICALLY with the
     # paid-recompute inside set_status (its con.commit()), and set_status's rollback
     # discards this UPDATE on any failure (M5a).
@@ -1349,10 +1420,12 @@ def record_payment(con, ent, ctry, period, amount, date=None):
     # = CURRENT_DATE; an explicitly supplied date overrides it).
     if date:
         con.execute("""UPDATE vat_applications SET paid_date=? WHERE entity=? AND
-                       refund_country=? AND ref_period=?""", (date, ent, ctry, period))
+                       refund_country=? AND ref_period=?""" + frag,
+                    [date, ent, ctry, period, *params])
         con.commit()
     r = con.execute("""SELECT fee_eur FROM vat_applications WHERE entity=? AND
-                       refund_country=? AND ref_period=?""", (ent, ctry, period)).fetchone()
+                       refund_country=? AND ref_period=?""" + frag,
+                    [ent, ctry, period, *params]).fetchone()
     fee = money.f2(r["fee_eur"]) if r and r["fee_eur"] is not None else 0.0
     return True, f"payment €{amt:,.2f} recorded — fee €{fee:,.2f}"
 
@@ -1361,8 +1434,11 @@ def withdraw_claim(con, ent, ctry, period):
     that frees invoices — rejection/confiscation/appeal keep them)."""
     ok, msg = set_status(con, ent, ctry, period, "withdrawn", gate_activation=False)
     if ok:
+        # Multi-tenant P2: scope the status-code clear to the bound tenant; OFF inert.
+        frag, params = tenancy.scope_clause()
         con.execute("""UPDATE vat_applications SET status_code=NULL, updated=CURRENT_TIMESTAMP
-                       WHERE entity=? AND refund_country=? AND ref_period=?""", (ent, ctry, period))
+                       WHERE entity=? AND refund_country=? AND ref_period=?""" + frag,
+                    [ent, ctry, period, *params])
         con.commit()
     return ok, msg
 
@@ -1378,9 +1454,12 @@ def settlement(payout_to, refund_eur, fee_eur):
 
 def issue_fee_invoice(con, ent, ctry, period):
     """Assign a fee-invoice number/date to a paid claim. Returns (ok, number_or_msg)."""
+    # Multi-tenant P2: scope the claim reads/write AND the fee-invoice-number sequence to
+    # the bound tenant so each tenant numbers its own fee invoices; OFF inert.
+    frag, params = tenancy.scope_clause()
     r = con.execute("""SELECT fee_billed_date, fee_invoice_no FROM vat_applications
-                       WHERE entity=? AND refund_country=? AND ref_period=?""",
-                    (ent, ctry, period)).fetchone()
+                       WHERE entity=? AND refund_country=? AND ref_period=?""" + frag,
+                    [ent, ctry, period, *params]).fetchone()
     if not r:
         return (False, "no such claim")
     if not r["fee_billed_date"]:
@@ -1389,11 +1468,11 @@ def issue_fee_invoice(con, ent, ctry, period):
         return (True, r["fee_invoice_no"])               # already issued (idempotent)
     yr = str(period).split("-")[0]
     n = con.execute("SELECT COUNT(*) FROM vat_applications WHERE fee_invoice_no IS NOT NULL"
-                    ).fetchone()[0] + 1
+                    + frag, params).fetchone()[0] + 1
     inv_no = f"F{yr}-{n:04d}"
     con.execute("""UPDATE vat_applications SET fee_invoice_no=?, fee_invoice_date=CURRENT_DATE
-                   WHERE entity=? AND refund_country=? AND ref_period=?""",
-                (inv_no, ent, ctry, period))
+                   WHERE entity=? AND refund_country=? AND ref_period=?""" + frag,
+                [inv_no, ent, ctry, period, *params])
     con.commit()
     return (True, inv_no)
 
@@ -1437,10 +1516,13 @@ def submission_readiness(con, ent, ctry, period, cache=None):
         issues.append(f"{len(nodoc)} invoice(s) missing documents")
     locks = cache.get("_locks")
     if locks is None:
+        # Multi-tenant P2: scope the all-locks index to the bound tenant so the conflict
+        # check only sees this tenant's locks; OFF the fragment is ("",[]).
+        lfrag, lparams = tenancy.scope_clause()
         locks = cache["_locks"] = {
             (r["entity"], r["refund_country"], r["supplier"], r["invoice_ref"]): r["ref_period"]
             for r in con.execute("""SELECT entity, refund_country, supplier, invoice_ref, ref_period
-                                    FROM vat_claimed_invoices""")}
+                                    FROM vat_claimed_invoices WHERE 1=1""" + lfrag, lparams)}
     conflicts = [(s, r) for s, r in invs if locks.get((ent, ctry, s, r), period) != period]
     if conflicts:
         issues.append(f"{len(conflicts)} invoice(s) locked by another claim")
@@ -1452,10 +1534,13 @@ def claims_overview(year):
     import datetime
     con = connect()
     matrix = claim_matrix(con, year, with_portal=False)   # /, /readiness never read m["home"]
+    # Multi-tenant P2: scope the all-applications index to the bound tenant so the overview
+    # only surfaces this tenant's claims; OFF the fragment is ("",[]).
+    afrag, aparams = tenancy.scope_clause()
     apps = {(r["entity"], r["refund_country"], r["ref_period"]): r
             for r in con.execute("""SELECT entity, refund_country, ref_period, status,
                                     submitted_date, status_code, action_deadline, status_note
-                                    FROM vat_applications""")}
+                                    FROM vat_applications WHERE 1=1""" + afrag, aparams)}
     today = datetime.date.today()
     to_submit, open_claims = [], []
     cache = {}   # shared across all streams: one supplier + one analytics connection,
@@ -1518,12 +1603,17 @@ def claim_matrix(con, year, with_portal=True):
     with_portal=False to skip the per-entity customer_master.portal() lookups (each is
     a fresh connection + 2 queries). When True the lookup is memoised per entity."""
     acon = analytics_connect()
+    # Multi-tenant P2: scope the whole-year matrix aggregate to the bound tenant so the
+    # per-stream VAT totals (and the verdict/threshold derived from them) cover only this
+    # tenant's transactions; fragment goes before GROUP BY. OFF inert / byte-identical.
+    tfrag, tparams = tenancy.scope_clause()
     rows = acon.execute("""
         SELECT entity, country, currency, period,
                ROUND(SUM(vat_eur),2) ve, ROUND(SUM(vat_local),2) vl,
                COUNT(*) n
-        FROM transactions WHERE period LIKE ? GROUP BY entity, country, period""",
-        (f"{year}-%",)).fetchall()
+        FROM transactions WHERE period LIKE ?""" + tfrag
+        + " GROUP BY entity, country, period",
+        [f"{year}-%"] + tparams).fetchall()
     acon.close()
     streams = collections.defaultdict(lambda: {"qs": collections.defaultdict(
                                                    lambda: [money.D(0), money.D(0), 0]),
@@ -1616,9 +1706,14 @@ def invoice_lines(con, ent, ctry, qtr, cache=None):
     if acon is None:
         acon = analytics_connect(); cache["_acon"] = acon
     months = q_months(qtr)
+    # Multi-tenant P2: scope the analytics (transactions) reads to the bound tenant so the
+    # claim's line-level VAT/net sums (the legal figure) cover ONLY this tenant's data;
+    # the fragment precedes any GROUP BY. OFF the fragment is ("",[]) and byte-identical.
+    tfrag, tparams = tenancy.scope_clause()
     sups = [r[0] for r in acon.execute(
         """SELECT DISTINCT supplier FROM transactions WHERE entity=? AND country=?
-           AND period IN (%s)""" % ",".join("?"*len(months)), [ent, ctry]+months)]
+           AND period IN (%s)""" % ",".join("?"*len(months)) + tfrag,
+        [ent, ctry]+months+tparams)]
     lines = []
     for sup in sups:
         ck = (sup, ctry)
@@ -1638,8 +1733,9 @@ def invoice_lines(con, ent, ctry, qtr, cache=None):
             """SELECT note, product_group, ROUND(SUM(net_eur),2) net, ROUND(SUM(vat_eur),2) vat,
                       ROUND(SUM(net_local),2) netl, ROUND(SUM(vat_local),2) vatl, currency
                FROM transactions WHERE entity=? AND country=? AND supplier=?
-               AND period IN (%s) GROUP BY note, product_group""" % ",".join("?"*len(months)),
-            [ent, ctry, sup]+months).fetchall()
+               AND period IN (%s)""" % ",".join("?"*len(months)) + tfrag
+            + " GROUP BY note, product_group",
+            [ent, ctry, sup]+months+tparams).fetchall()
         by_inv = collections.defaultdict(lambda: collections.defaultdict(lambda: [0,0,0,0,""]))
         for r in rows:
             inv = _resolve_inv(r["note"], refs, overrides)
@@ -1687,10 +1783,16 @@ def build_workbook(con, year):
                "Threshold verdict","Months not yet loaded","Home portal","Status"])
     head(ws, 3)
     r = 4
+    # Multi-tenant P2: scope the per-stream status read AND the DO UPDATE half of the
+    # draft-refresh upsert to the bound tenant (qualified column, since the UPDATE half
+    # already carries a WHERE on vat_applications.status); the INSERT half stamps
+    # tenant_id via queue_tenant(). OFF the fragment is ("",[]) and queue_tenant() is
+    # "default" (== the column DEFAULT), so OFF is byte-identical.
+    wfrag, wparams = tenancy.scope_clause("vat_applications.tenant_id")
     for m in matrix:
         st = con.execute("""SELECT status FROM vat_applications WHERE entity=? AND
-                            refund_country=? AND ref_period=?""",
-                         (m["entity"], m["country"], m["period"])).fetchone()
+                            refund_country=? AND ref_period=?""" + wfrag,
+                         [m["entity"], m["country"], m["period"], *wparams]).fetchone()
         status = st["status"] if st else "draft"
         # Refresh the all-period recompute into the DRAFT row (or INSERT a new draft),
         # but NEVER overwrite a SUBMITTED/approved/paid stream: its vat_eur/vat_local was
@@ -1700,12 +1802,13 @@ def build_workbook(con, year):
         # locked to another claim. Guard the UPDATE half on status; the INSERT half is
         # untouched (a not-yet-existing claim still gets its draft row created).
         con.execute("""INSERT INTO vat_applications (entity, refund_country, ref_period,
-                       vat_eur, vat_local, currency, status) VALUES (?,?,?,?,?,?,?)
+                       vat_eur, vat_local, currency, status, tenant_id) VALUES (?,?,?,?,?,?,?,?)
                        ON CONFLICT(entity, refund_country, ref_period) DO UPDATE SET
                        vat_eur=excluded.vat_eur, vat_local=excluded.vat_local
-                       WHERE vat_applications.status NOT IN ('submitted','approved','paid')""",
-                    (m["entity"], m["country"], m["period"], m["vat_eur"], m["vat_local"],
-                     m["currency"], status))
+                       WHERE vat_applications.status NOT IN ('submitted','approved','paid')"""
+                    + wfrag,
+                    [m["entity"], m["country"], m["period"], m["vat_eur"], m["vat_local"],
+                     m["currency"], status, tenancy.queue_tenant(), *wparams])
         ws.append([m["entity"], m["country"], m["period"], m["vat_eur"], m["vat_local"],
                    m["currency"], m["lines"], m["verdict"],
                    ", ".join(m["missing"]) if m["missing"] else "", m["home"], status])
@@ -1831,13 +1934,18 @@ if __name__ == "__main__":
 def recovery_report(year=None):
     """Submitted vs approved vs paid, with aging of unpaid submitted claims."""
     con = connect()
+    # Multi-tenant P2: scope the recovery report to the bound tenant so the receivable
+    # (submitted/approved/paid claims, the financed base) covers ONLY this tenant; the
+    # existing OR-predicate is already parenthesized, so the fragment AND-appends after
+    # it. OFF the fragment is ("",[]) and this is byte-identical.
+    frag, params = tenancy.scope_clause()
     rows = con.execute("""SELECT entity, refund_country, ref_period, vat_eur, status,
         submitted_date, approved_date, paid_date, paid_amount,
         fee_eur, fee_pct, fee_min, fee_billed_date, payout_to, fee_invoice_no, fee_invoice_date,
         status_code, decision_date, status_note, action_deadline
         FROM vat_applications WHERE status IN ('submitted','approved','paid')
-        AND (? IS NULL OR ref_period LIKE ?) ORDER BY submitted_date""",
-        (year, f"{year}-%" if year else None)).fetchall()
+        AND (? IS NULL OR ref_period LIKE ?)""" + frag + " ORDER BY submitted_date",
+        [year, f"{year}-%" if year else None, *params]).fetchall()
     import datetime
     today = datetime.date.today()
     out = []
@@ -1936,12 +2044,17 @@ def receivables_forecast(year=None):
     """
     import datetime
     con = connect()
+    # Multi-tenant P2: scope the receivables/aging report to the bound tenant so the cash
+    # forecast covers ONLY this tenant; the OR-predicate is already parenthesized so the
+    # fragment AND-appends after it. OFF the fragment is ("",[]) and byte-identical.
+    frag, params = tenancy.scope_clause()
     rows = con.execute("""SELECT entity, refund_country, ref_period, vat_eur, status,
         status_code, submitted_date, approved_date, paid_date, paid_amount,
         fee_eur, fee_pct, fee_min, payout_to
         FROM vat_applications WHERE status IN ('submitted','approved','paid')
-        AND (? IS NULL OR ref_period LIKE ?) ORDER BY refund_country, submitted_date""",
-        (year, f"{year}-%" if year else None)).fetchall()
+        AND (? IS NULL OR ref_period LIKE ?)""" + frag
+        + " ORDER BY refund_country, submitted_date",
+        [year, f"{year}-%" if year else None, *params]).fetchall()
     today = datetime.date.today()
     out = []
     # cycle-time + realization accumulators, keyed by refund country
