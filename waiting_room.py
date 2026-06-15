@@ -245,10 +245,13 @@ def enqueue(data, filename, backend=None, period=None, user="system"):
         con.close()
         return existing["id"], "queued" if existing["status"] in ("failed", "done") else existing["status"]
     stored = _write_inbox(sha, data)        # bytes are durably on disk FIRST
+    # tenant_id: tenancy.queue_tenant() captures the enqueuing tenant (or DEFAULT when
+    # OFF / no tenant bound) so the worker can re-bind it when it processes the job.
     cur = con.execute("""INSERT INTO intake_jobs
-        (sha256, filename, size, backend, period, uploaded_by, stored_path, status, kind)
-        VALUES (?,?,?,?,?,?,?, 'queued', ?)""",
-        (sha, filename, len(data), backend, period, user, stored, KIND_EXTRACT))
+        (sha256, filename, size, backend, period, uploaded_by, stored_path, status, kind, tenant_id)
+        VALUES (?,?,?,?,?,?,?, 'queued', ?, ?)""",
+        (sha, filename, len(data), backend, period, user, stored, KIND_EXTRACT,
+         tenancy.queue_tenant()))
     con.commit()                            # only now is the job visible/durable
     jid = cur.lastrowid
     con.close()
@@ -286,10 +289,10 @@ def enqueue_registration(payload, user="system"):
         con.commit(); con.close()
         return existing["id"], "queued"
     cur = con.execute("""INSERT INTO intake_jobs
-        (sha256, filename, size, backend, period, uploaded_by, status, kind, payload)
-        VALUES (?,?,?,?,?,?, 'queued', ?, ?)""",
+        (sha256, filename, size, backend, period, uploaded_by, status, kind, payload, tenant_id)
+        VALUES (?,?,?,?,?,?, 'queued', ?, ?, ?)""",
         (sha, f"{supplier} {statement_ref}", 0, supplier, payload.get("period"),
-         user, KIND_REGISTER, body))
+         user, KIND_REGISTER, body, tenancy.queue_tenant()))
     con.commit()
     jid = cur.lastrowid
     con.close()
@@ -326,10 +329,10 @@ def enqueue_close(period, user="system"):
         con.commit(); con.close()
         return existing["id"], "queued"
     cur = con.execute("""INSERT INTO intake_jobs
-        (sha256, filename, size, backend, period, uploaded_by, status, kind, payload)
-        VALUES (?,?,?,?,?,?, 'queued', ?, ?)""",
+        (sha256, filename, size, backend, period, uploaded_by, status, kind, payload, tenant_id)
+        VALUES (?,?,?,?,?,?, 'queued', ?, ?, ?)""",
         (sha, f"monthly close {period}", 0, None, period,
-         user, KIND_CLOSE, body))
+         user, KIND_CLOSE, body, tenancy.queue_tenant()))
     con.commit()
     jid = cur.lastrowid
     con.close()
@@ -370,10 +373,10 @@ def enqueue_fetch(supplier, entity, date_from=None, date_to=None, user="system")
         con.commit(); con.close()
         return existing["id"], "queued"
     cur = con.execute("""INSERT INTO intake_jobs
-        (sha256, filename, size, backend, period, uploaded_by, status, kind, payload)
-        VALUES (?,?,?,?,?,?, 'queued', ?, ?)""",
+        (sha256, filename, size, backend, period, uploaded_by, status, kind, payload, tenant_id)
+        VALUES (?,?,?,?,?,?, 'queued', ?, ?, ?)""",
         (sha, f"fetch {supplier}/{entity}", 0, supplier_up, None,
-         user, KIND_FETCH, body))
+         user, KIND_FETCH, body, tenancy.queue_tenant()))
     con.commit()
     jid = cur.lastrowid
     con.close()
@@ -719,6 +722,20 @@ def _import_log(row, channel, status, records=0, message=""):
             job_id = "?"
         log.warning("_import_log: failed to record import event for job %s: %s", job_id, e)
 
+def _row_tenant(row):
+    """The tenant_id stamped on a job row, defensively defaulting to
+    DEFAULT_TENANT_ID for an OLD row written before the tenant_id column existed
+    (the key would be missing). The worker binds this per job so the engine reads
+    its handlers trigger scope correctly once those modules are P2-wired; OFF /
+    'default' it is inert (scope_clause returns no filter)."""
+    try:
+        if tenancy.TENANT_COLUMN in row.keys():
+            return row[tenancy.TENANT_COLUMN] or tenancy.DEFAULT_TENANT_ID
+    except Exception as e:
+        log.debug("_row_tenant: could not read tenant, defaulting: %s", e)
+    return tenancy.DEFAULT_TENANT_ID
+
+
 def _do_register(con, row):
     """Engine-side handler for a REGISTRATION job (decoupling D4): write the
     validated statement into suppliers.db OFF the web request. Returns the outcome
@@ -735,13 +752,18 @@ def _do_register(con, row):
     jid = row["id"]
     p = json.loads(row["payload"])
     user = row["uploaded_by"] or "system"
+    # Bind the job's tenant alongside the audit actor so the engine writes this
+    # handler triggers (register_statement -> suppliers.db) scope to the enqueuing
+    # tenant once those modules are P2-wired; OFF / 'default' this is inert.
     audit.set_actor(None, user)
+    tenancy.set_tenant(_row_tenant(row))
     try:
         synced = IC.register_statement(
             p["supplier"], p["statement_ref"], p.get("period"),
             p.get("statement_date"), p.get("lines") or [],
             notes=p.get("notes"), customer=p.get("customer"))
     finally:
+        tenancy.reset_tenant()
         audit.reset_actor()
     con.execute("""UPDATE intake_jobs SET status='done', finished_at=?,
                    error=NULL, lease_until=NULL WHERE id=?""", (_now(), jid))
@@ -771,10 +793,15 @@ def _do_close(con, row):
     p = json.loads(row["payload"])
     period = p.get("period")
     user = row["uploaded_by"] or "system"
+    # Bind the job's tenant alongside the audit actor so the full close runs under
+    # that tenant (a per-tenant close); for the single-tenant 'default' this is inert
+    # (scope_clause OFF), so engine_close's stages run byte-identically.
     audit.set_actor(None, user)
+    tenancy.set_tenant(_row_tenant(row))
     try:
         engine_close.close(period, actor=user)
     finally:
+        tenancy.reset_tenant()
         audit.reset_actor()
     con.execute("""UPDATE intake_jobs SET status='done', finished_at=?,
                    error=NULL, lease_until=NULL WHERE id=?""", (_now(), jid))
@@ -807,7 +834,11 @@ def _do_fetch(con, row):
     # by enqueue_fetch), so record outcomes against THAT key, not the raw payload value.
     governed = row["backend"]
     user = row["uploaded_by"] or "system"
+    # Bind the job's tenant alongside the audit actor so the scrape (and any engine
+    # write it triggers) scopes to the enqueuing tenant once those modules are
+    # P2-wired; OFF / 'default' this is inert.
     audit.set_actor(None, user)
+    tenancy.set_tenant(_row_tenant(row))
     try:
         res = portal_scraper.scrape(supplier, entity,
                                     p.get("date_from"), p.get("date_to"))
@@ -815,6 +846,7 @@ def _do_fetch(con, row):
         record_outcome(governed, ok=False)      # drive the breaker, then re-raise
         raise
     finally:
+        tenancy.reset_tenant()
         audit.reset_actor()
     record_outcome(governed, ok=True)
     con.execute("""UPDATE intake_jobs SET status='done', finished_at=?,

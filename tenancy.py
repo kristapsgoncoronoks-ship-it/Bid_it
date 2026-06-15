@@ -324,6 +324,38 @@ def write_tenant():
     return t if t is not None else DEFAULT_TENANT_ID
 
 
+def queue_tenant():
+    """Return the tenant_id to STAMP on a QUEUE / infrastructure write (an enqueued
+    intake job) — the WRITE-side primitive for tenant-agnostic background work.
+    NEVER raises (the distinction from write_tenant()).
+
+    Contract:
+      - multitenant OFF                 -> DEFAULT_TENANT_ID ("default"). Exactly the
+        column DEFAULT every queue table got in P1, so an OFF enqueue that stamps it
+        is byte-identical to one that omits the column — OFF behavior is unchanged.
+      - multitenant ON + a tenant bound -> that tenant (a job parked by a tenant's web
+        request captures that tenant, so the worker can later re-bind it).
+      - multitenant ON + NO tenant bound -> DEFAULT_TENANT_ID. A job enqueued by the
+        SCHEDULER/system (e.g. _scrape_tick, user='scheduler') has no tenant bound and
+        correctly defaults to the implicit tenant.
+
+    DISTINCTION FROM write_tenant(). write_tenant() is for user-facing CRM/product
+    writes, where a tenant-less write under the switch is a BUG and must fail LOUD
+    (it raises via require_tenant()). queue_tenant() is for infrastructure/queue
+    writes that legitimately originate WITHOUT a bound tenant (the scheduler, system
+    jobs); a missing tenant there is normal and defaults to DEFAULT_TENANT_ID rather
+    than raising. Never returns None either way."""
+    try:
+        if multitenant_enabled():
+            t = current_tenant()
+            if t:
+                return t
+    except Exception as e:
+        log.warning("queue_tenant read failed, defaulting to %s: %s",
+                    DEFAULT_TENANT_ID, e)
+    return DEFAULT_TENANT_ID
+
+
 def owner_access_audit(resource):
     """Record that an OWNER cross-tenant access happened, so the deliberate
     exception is ACCOUNTABLE (actor + resource). Best-effort and NEVER raises —
