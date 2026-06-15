@@ -279,13 +279,16 @@ def _csrf_input():
     return f'<input type="hidden" name="_csrf" value="{esc(_csrf_token())}">'
 
 LOGIN_HTML = """<!doctype html><html><head><meta charset='utf-8'><title>Fleet Fuel - login</title>
-<style>body{font:14px -apple-system,Segoe UI,Arial;background:#f4f6f8;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
-.box{background:#fff;border:1px solid #dde4ea;border-radius:10px;padding:28px 30px;width:300px}
-h1{font-size:16px;margin:0 0 14px}input{width:100%;box-sizing:border-box;padding:8px;margin:5px 0 12px;border:1px solid #dde4ea;border-radius:6px}
-button{width:100%;background:#0e5fa8;color:#fff;border:0;border-radius:6px;padding:9px;cursor:pointer}
+<style>body{font:14px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial;background:#eef2f5;color:#1a2733;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;-webkit-font-smoothing:antialiased}
+.box{background:#fff;border:1px solid #dde4ea;border-radius:12px;padding:28px 30px;width:300px;box-shadow:0 1px 3px rgba(26,39,51,.06),0 6px 24px rgba(26,39,51,.08)}
+h1{font-size:17px;margin:0 0 16px;letter-spacing:-.01em}
+input{width:100%;box-sizing:border-box;padding:9px 11px;margin:5px 0 12px;border:1px solid #dde4ea;border-radius:7px;font-size:14px;transition:border-color .12s,box-shadow .12s}
+input:focus{outline:none;border-color:#0e5fa8;box-shadow:0 0 0 3px rgba(14,95,168,.12)}
+button{width:100%;background:#0e5fa8;color:#fff;border:0;border-radius:7px;padding:10px;font-size:14px;font-weight:600;cursor:pointer;transition:background .12s}
+button:hover{background:#0b4d89}
 .err{color:#c8102e;font-size:13px;margin-bottom:8px}
 .pwwrap{position:relative}.pwwrap input{padding-right:54px}
-.pwtoggle{position:absolute;right:10px;top:14px;font-size:12px;color:#0e5fa8;cursor:pointer;user-select:none}</style></head><body>
+.pwtoggle{position:absolute;right:11px;top:15px;font-size:12px;color:#0e5fa8;cursor:pointer;user-select:none;font-weight:500}</style></head><body>
 <div class="box"><h1>Fleet Fuel Analytics</h1>{ERR}
 <form method="post" data-setup><input name="username" placeholder="username" autofocus required>
 <div class="pwwrap"><input type="password" name="password" id="pw" placeholder="password" required>
@@ -1066,29 +1069,29 @@ def svg_hbars(pairs, unit="", width=520, color="#0e5fa8", fmt=",.0f"):
 BASE = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fleet Fuel Analytics</title><style>
-:root{--ink:#1a2733;--mut:#5b6b7a;--line:#dde4ea;--bg:#f4f6f8;--acc:#0e5fa8;--ok:#1b7340;--bad:#c8102e}
-*{box-sizing:border-box}body{margin:0;font:14px/1.45 -apple-system,Segoe UI,Roboto,Arial;color:var(--ink);background:var(--bg)}
-header{background:linear-gradient(180deg,#22313e,#1a2733);color:#fff;padding:11px 22px;display:flex;gap:6px 16px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:20;box-shadow:0 1px 0 rgba(255,255,255,.04)}
-header b{font-size:16px;margin-right:4px;letter-spacing:.2px}
-header a{color:#cfe0f0;text-decoration:none;font-size:13.5px}
-header>a.on,.mlabel.on{color:#fff;border-bottom:2px solid #6db1e8;padding-bottom:2px}
+:root{--ink:#1a2733;--mut:#5b6b7a;--line:#dde4ea;--line2:#e7ecf1;--bg:#f4f6f8;--acc:#0e5fa8;--acc2:#0b4d89;--ok:#1b7340;--bad:#c8102e;--card-sh:0 1px 2px rgba(26,39,51,.05),0 1px 3px rgba(26,39,51,.04);--radius:11px}
+*{box-sizing:border-box}body{margin:0;font:14px/1.55 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+header{background:linear-gradient(180deg,#2a3c4f,#1a2733);color:#fff;padding:11px 22px;display:flex;gap:6px 18px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:20;box-shadow:0 2px 10px rgba(10,20,30,.20),inset 0 -1px 0 rgba(255,255,255,.06)}
+header b{font-size:16px;margin-right:6px;letter-spacing:.2px}
+header a{color:#cfe0f0;text-decoration:none;font-size:13.5px;transition:color .12s}
+header>a:hover,.menu:hover .mlabel,.menu:focus-within .mlabel{color:#fff}
+header>a.on,.mlabel.on{color:#fff;border-bottom:2px solid #6db1e8;padding-bottom:2px;text-shadow:0 0 1px rgba(109,177,232,.4)}
 .menu{position:relative}
 .mlabel{color:#cfe0f0;font-size:13.5px;cursor:pointer;user-select:none;padding:2px 0;white-space:nowrap}
 .mlabel::after{content:"▾";color:#6db1e8;font-size:10px;margin-left:4px}
-.menu:hover .mlabel,.menu:focus-within .mlabel{color:#fff}
 .mdrop{position:absolute;top:100%;left:0;padding-top:8px;display:none;flex-direction:column;gap:1px;z-index:30}
 .menu:hover .mdrop,.menu:focus-within .mdrop{display:flex}
-.mdrop>span{background:#223240;border:1px solid #34485a;border-radius:9px;padding:6px;min-width:185px;display:flex;flex-direction:column;gap:1px;box-shadow:0 12px 30px rgba(0,0,0,.45)}
-.mdrop a{color:#cfe0f0;padding:7px 11px;border-radius:6px;white-space:nowrap;font-size:13px}
+.mdrop>span{background:#223240;border:1px solid #34485a;border-radius:10px;padding:6px;min-width:185px;display:flex;flex-direction:column;gap:1px;box-shadow:0 14px 34px rgba(0,0,0,.45)}
+.mdrop a{color:#cfe0f0;padding:7px 11px;border-radius:6px;white-space:nowrap;font-size:13px;transition:background .1s,color .1s}
 .mdrop a:hover{background:#31485a;color:#fff}
-.mdrop a.on{background:#31485a;color:#fff}
+.mdrop a.on{background:var(--acc);color:#fff}
 .rightnav{margin-left:auto;display:flex;align-items:center;gap:14px}
 th[data-sort]::after{content:" " attr(data-sort);color:#6db1e8;font-weight:400}
-.rowfilter{margin:0 0 8px;padding:6px 9px;border:1px solid var(--line);border-radius:6px;width:240px;font-size:13px;background:#fff}
+.rowfilter{margin:0 0 8px;padding:7px 10px;border:1px solid var(--line);border-radius:7px;width:240px;font-size:13px;background:#fff;transition:border-color .12s,box-shadow .12s}
+.rowfilter:focus{border-color:var(--acc);box-shadow:0 0 0 3px rgba(14,95,168,.12);outline:none}
 .tablewrap{overflow-x:auto;margin:0 0 2px}
 kbd{background:#eef2f6;border:1px solid var(--line);border-radius:4px;padding:0 5px;font:12px ui-monospace,monospace}
-button:hover{filter:brightness(1.08)}
-a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #6db1e8;outline-offset:1px}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #6db1e8;outline-offset:2px}
 #kh{position:fixed;inset:0;background:rgba(10,20,30,.55);display:flex;align-items:flex-start;justify-content:center;z-index:50;padding-top:8vh}
 .khbox{background:#fff;border-radius:12px;padding:18px 22px;max-width:600px;box-shadow:0 10px 40px rgba(0,0,0,.3)}
 .khgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:3px 18px;font-size:13px;margin-top:6px}
@@ -1096,8 +1099,8 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{ou
 @media print{header,form,.exp,button,.rowfilter,#kh{display:none!important}main{max-width:none;margin:0}.card{break-inside:avoid;border:0;box-shadow:none}body{background:#fff}}
 main{max-width:1180px;margin:22px auto;padding:0 18px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
-.kpi{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 16px}
-.kpi .v{font-size:22px;font-weight:700;line-height:1.1}.kpi .l{color:var(--mut);font-size:12px;margin-top:2px}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 16px;box-shadow:var(--card-sh)}
+.kpi .v{font-size:22px;font-weight:700;line-height:1.1;letter-spacing:-.01em}.kpi .l{color:var(--mut);font-size:12px;margin-top:3px}
 /* dashboard: metric KPI row reads as the focal "at a glance" header */
 .kpis.metrics{margin-bottom:14px}
 .kpis.metrics .kpi{display:flex;flex-direction:column;justify-content:space-between;min-height:78px;padding:13px 16px 12px}
@@ -1110,25 +1113,41 @@ main{max-width:1180px;margin:22px auto;padding:0 18px}
 .kpis.status .kpi{display:flex;align-items:center;gap:10px;padding:10px 13px;background:#fafbfc}
 .kpis.status .kpi .v{font-size:18px}.kpis.status .kpi .l{margin-top:0}
 .dashlabel{font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);margin:0 0 8px 2px;font-weight:600}
-.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:20px}
-h2{font-size:15px;margin:0 0 10px}
+.card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;margin-bottom:20px;box-shadow:var(--card-sh)}
+.card>h2:first-child{margin-top:0}
+.card>:last-child{margin-bottom:0}
+h2{font-size:15px;font-weight:700;line-height:1.3;margin:0 0 12px;letter-spacing:-.01em}
 table{width:100%;border-collapse:collapse;font-size:13.5px}
-th{background:#eef2f6;text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{background:#eaeff4;text-align:left;padding:9px 11px;border-bottom:2px solid #cdd8e2;white-space:nowrap;font-weight:600;font-size:12px;letter-spacing:.03em;text-transform:uppercase;color:#475766}
 table.sticky thead th{position:sticky;top:var(--navh,56px);z-index:10}
-td{padding:6px 9px;border-bottom:1px solid #eef1f4}tr:hover td{background:#f7fafc}
+td{padding:7px 11px;border-bottom:1px solid var(--line2)}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:nth-child(even) td{background:#fafbfc}
+tbody tr:hover td{background:#eef5fc}
 tr.anom td{background:#fff3cd}tr.anom:hover td{background:#ffe9a8}
 tr.disc td{background:#e7f0ff}tr.disc:hover td{background:#d7e6ff}
-.r{text-align:right}.ok{color:var(--ok);font-weight:600}.bad{color:var(--bad);font-weight:600}
+.r{text-align:right;font-variant-numeric:tabular-nums}.ok{color:var(--ok);font-weight:600}.bad{color:var(--bad);font-weight:600}
 .warn{color:#9a6700;font-weight:600}
 form.f{display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:14px}
 form.f label{display:flex;flex-direction:column;font-size:12px;color:var(--mut);gap:3px}
-select,input{padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:13.5px;background:#fff}
-button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 16px;cursor:pointer}
-.note{color:var(--mut);font-size:12px;margin-top:8px}
+select,input{padding:7px 9px;border:1px solid var(--line);border-radius:7px;font-size:13.5px;background:#fff;color:var(--ink);transition:border-color .12s,box-shadow .12s}
+select:hover,input:hover{border-color:#c4cfda}
+select:focus,input:focus{border-color:var(--acc);box-shadow:0 0 0 3px rgba(14,95,168,.12)}
+button{background:var(--acc);color:#fff;border:0;border-radius:7px;padding:8px 16px;font-size:13.5px;font-weight:600;cursor:pointer;transition:background .12s,box-shadow .12s,transform .04s}
+button:hover{background:var(--acc2);box-shadow:0 1px 3px rgba(14,95,168,.3)}
+button:active{transform:translateY(1px)}
+a.btn{display:inline-block;background:var(--acc);color:#fff;text-decoration:none;border:0;border-radius:7px;padding:8px 16px;font-size:13.5px;font-weight:600;cursor:pointer;transition:background .12s,box-shadow .12s,transform .04s}
+a.btn:hover{background:var(--acc2);box-shadow:0 1px 3px rgba(14,95,168,.3)}
+a.btn:active{transform:translateY(1px)}
+.note{color:var(--mut);font-size:12px;margin-top:8px;line-height:1.5}
+main a:not(.btn):not(.kpi){color:var(--acc);text-decoration:none}
+main a:not(.btn):not(.kpi):hover{text-decoration:underline}
+.subnav a:hover{text-decoration:none}
 .exp a{margin-right:14px}
-.subnav{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 20px;padding:10px 12px;background:#fff;border:1px solid var(--line);border-radius:10px;position:sticky;top:var(--navh,56px);z-index:9}
-.subnav a{color:var(--acc);text-decoration:none;font-size:13px;font-weight:600;padding:4px 11px;border-radius:999px;background:#eef5fc;white-space:nowrap}
+.subnav{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 20px;padding:10px 12px;background:#fff;border:1px solid var(--line);border-radius:var(--radius);position:sticky;top:var(--navh,56px);z-index:9;box-shadow:var(--card-sh)}
+.subnav a{color:var(--acc);text-decoration:none;font-size:13px;font-weight:600;padding:5px 12px;border-radius:999px;background:#eef5fc;white-space:nowrap;transition:background .1s,color .1s}
 .subnav a:hover{background:#dceafa}
+.subnav a.on{background:var(--acc);color:#fff}
 h2.section{font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);margin:30px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line)}
 h2.section:first-of-type{margin-top:4px}
 .dropzone{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
