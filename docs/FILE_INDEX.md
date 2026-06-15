@@ -27,6 +27,9 @@ siblings directly), so this index is how you navigate them. See
 | `process_lock.py` | Cross‑process advisory lease lock (SQLite) — makes the scheduled backup a singleton and guards “one at a time” operations. |
 | `tls.py` | Builds the TLS context from a cert/key/chain or a PKCS#12 `.pfx` (env‑configurable). |
 | `make_cert.py` | Generates a self‑signed certificate for internal use. |
+| `keyvault.py` | Envelope‑encryption credential custody: a fresh AES‑256‑GCM data key per secret, wrapped by a pluggable Key‑Encryption Key (`LocalKEK` from the app secret, or `EnvKEK`/`"env"` from `FFS_KEK_KEY` / per‑tenant `FFS_KEK_KEY_<TENANT>` for KMS/BYOK), AAD‑bound so a blob can't be replayed into another row. Used by `portal_scraper` for portal credentials. |
+| `tenancy.py` | Multi‑tenant **foundation**: a tenant registry (in `security.db`) + a request‑scoped thread‑local tenant context + the `multitenant` master switch (OFF by default = byte‑identical single‑tenant) and inert `scope_clause()`/`require_tenant()` helpers for the deferred per‑table phase. See [MULTI_TENANCY.md](MULTI_TENANCY.md). |
+| `metrics.py` | Materialized per‑period dashboard aggregates (`settled_metrics` in `fuel_history.db`, rebuilt at the monthly close so the dashboard reads them cheaply instead of re‑scanning `transactions`) + a recompute‑and‑compare **drift check**; the math is the canonical `queries.py` functions, not a fork. |
 
 ## Intake (getting invoices in)
 | File | What it does |
@@ -42,7 +45,7 @@ siblings directly), so this index is how you navigate them. See
 | `consolidate.py` | Map raw supplier rows to the canonical schema and **tie them out to invoice totals**; refuses to build on a mismatch. Also the pipeline smoke test. |
 | `validate.py` | Line‑level cross‑checks (VAT rate, signs, ranges, batch tie‑out) + a regression baseline; blocks commit on errors. |
 | `build_master.py` | Builds the monthly master workbook (benchmark, comparison, stations, VAT view). |
-| `history.py` | Loads a period into `fuel_history.db` (idempotent) and produces the trend report. Defines the `transactions` table. |
+| `history.py` | Loads a period into `fuel_history.db` (idempotent) and produces the trend report. Defines the `transactions` table (the `settled_metrics` materialized aggregates are written alongside by `metrics.py` at the close). |
 | `supplier_specs.py` | The trainable per‑supplier registry: row maps and validation targets. |
 | `month_config.py` | The one file edited each month: period, input files, FX. |
 | `vat_config.py` | Regulatory constants: goods codes, the 400/50 EUR minimums, deadline rule. |
@@ -68,6 +71,10 @@ siblings directly), so this index is how you navigate them. See
 | `anomaly.py` | Relative anomaly scan (station price vs country average, MoM jumps, volume spikes, off‑period dates). |
 | `ecb_rates.py` / `market_prices.py` | Reference FX (ECB) and market fuel‑price pulls. |
 | `money.py` | Decimal money helpers (ROUND_HALF_UP): `f2/fsum/q2`. Use these, never bare `round()` on currency. |
+| `confidence.py` / `confidence.db` | Per‑(supplier × country) **trust score** (grows on clean validations, decays on flags) + an append‑only validation‑event ledger. App‑owned runtime DB. Governs **only** whether the advisory AI review runs — never a legal gate; fails toward doing the review. |
+| `finance.py` / `finance.db` | Embedded‑finance seam — the financeable VAT receivable (reuses `recovery_report`) + advance‑offer economics + a `NullProvider` (default; a licensed factoring partner plugs in). Origination only, additive analytics; never lends, never touches a VAT figure/gate/lock. |
+| `bank_recon.py` | Open‑banking **reconciliation** — advisory matching of bank credits (CSV upload today; AISP‑agent provider seam, NullProvider default) against expected VAT refunds by amount/date. Stateless; mutates nothing (never marks a claim paid). |
+| `saft.py` | Programmable OECD‑SAF‑T‑**core** XML generator, parameterized by a `CountryProfile` (namespace/version/file‑naming); reuses `queries.q_ledger` so totals reconcile with the accounting CSV. A core structure, not a validated per‑country submission. See [SAFT.md](SAFT.md). |
 
 ## Install, launch & utilities
 | File | What it does |

@@ -15,22 +15,23 @@ competitor price-competitiveness intelligence, for five Baltic transport entitie
 2. Master data `customers.db`, `suppliers.db`, `fuel_history.db` (+ `benchmark.db`, `vat_claims.db`)
                via `customer_master.py`, `supplier_master.py`, `vat_refund.py`
 3. Engine     `consolidate.py`→`validate.py`→`build_master.py`→`history.py`, orchestrated by `engine_close.py`
-4. Compliance `vat_refund.py` (claims, locks), `invoice_control.py` (receipt/triage)
-5. Presentation `app.py` (Flask, ~25 pages + JSON API + Excel), `pricing_intelligence.py`
+4. Compliance `vat_refund.py` (claims, locks), `invoice_control.py` (receipt/triage), `bank_recon.py` (advisory recon)
+5. Presentation `app.py` (Flask, ~25 pages + JSON API + Excel), `pricing_intelligence.py`, `saft.py`, `finance.py`
 6. Platform   `auth.py`, `audit.py`, `backup.py`, `tls.py`, `document_vault.py`, `db.py`, `dataproduct.py`,
-               `db_migrate.py`, `applog.py`, `data_lake.py`, `doc_storage.py`, `notify.py`, `process_lock.py`
+               `db_migrate.py`, `applog.py`, `data_lake.py`, `doc_storage.py`, `notify.py`, `process_lock.py`,
+               `keyvault.py` (envelope-encrypted secrets), `tenancy.py` (multi-tenant foundation), `metrics.py` (close-time aggregates)
 
 ## Platform capabilities — seven delegated works (the product lens)
 The six blocks are the *technical* decomposition; read the product as an **accounting
 platform of seven delegated works**, each owned by a module (and mostly its own DB):
-1. **Data processing** — `ingest.py`/`extract.py`/`waiting_room.py` → `consolidate→validate→build_master→history` (raw files → validated, reconciled transactions).
-2. **Invoice analytics & report export** — `pricing_intelligence.py`, `anomaly.py`, `contract_audit.py`, `reports.py` + the Excel exports.
-3. **Digital document storage** — `document_vault.py` (local/SharePoint/FTPS), `data_lake.py`, `doc_storage.py`; SHA-256 dedup + `verify_documents`.
+1. **Data processing** — `ingest.py`/`extract.py`/`waiting_room.py` (incl. automated portal capture, KIND_FETCH) → `consolidate→validate→build_master→history` (raw files → validated, reconciled transactions); `metrics.py` settles per-period dashboard aggregates at the close.
+2. **Invoice analytics & report export** — `pricing_intelligence.py`, `anomaly.py`, `contract_audit.py`, `confidence.py` (advisory-AI trust), `reports.py` + the Excel/CSV/SAF-T exports (`saft.py`).
+3. **Digital document storage** — `document_vault.py` (local/SharePoint/FTPS), `data_lake.py`, `doc_storage.py`; SHA-256 dedup + `verify_documents`; portal credentials sealed via `keyvault.py`.
 4. **Light CRM (API-plugin scalable)** — `customer_master.py` (entities, activation, checklist rules, templates, fees, expiry); extensibility seam = the `extract.py` parser registry / `portal_scraper.py` adapters / `/api/*`.
-5. **VAT processing** — `vat_refund.py` claim lifecycle (1A→5), `vat_config.py`, claim workbook.
-6. **VAT control** — `invoice_control.py` (receipt control / reconciliation) + the submission gates (checklist, doc-presence, locks, period-end).
+5. **VAT processing** — `vat_refund.py` claim lifecycle (1A→5), `vat_config.py`, claim workbook; `finance.py` (advisory embedded-finance seam over the receivable, origination-only).
+6. **VAT control** — `invoice_control.py` (receipt control / reconciliation), `bank_recon.py` (advisory bank↔refund recon) + the submission gates (checklist, doc-presence, locks, period-end).
 7. **Invoicing for work** — the service-fee engine in `vat_refund.py` + `reports.fee_report_workbook` (Recovery page).
-Platform floor under all seven: `auth`/`audit`/`backup`/`db`/`db_migrate`/`applog`/`tls`/`process_lock`. See `docs/PLATFORM.md`.
+Platform floor under all seven: `auth`/`audit`/`backup`/`db`/`db_migrate`/`applog`/`tls`/`process_lock`/`keyvault`/`tenancy`. See `docs/PLATFORM.md`.
 
 ## Key conventions (follow these)
 - Every module is location-independent: `WORKDIR = os.path.dirname(os.path.abspath(__file__))`.
@@ -76,6 +77,30 @@ Platform floor under all seven: `auth`/`audit`/`backup`/`db`/`db_migrate`/`applo
   validation/analytics, not capture (the **advisory AI review assistant** `ai_review.py`
   is default-OFF, sends DERIVED DATA ONLY — never the PDF/IBAN/secret — and never mutates
   or gates a figure; see `docs/AI_REVIEW.md`).
+- Automated document capture runs OUT-OF-BAND on the worker tier, never in a web request.
+  Portal fetch is enqueued as `waiting_room` kind=`fetch` (`KIND_FETCH`); a per-supplier
+  rate-limiter / concurrency cap / backoff / circuit-breaker gates it (`supplier_rate_limits`
+  /`supplier_rate_state`, OPT-IN — an ungoverned supplier behaves exactly as before), and an
+  OFF-by-default scheduler (`scrape_scheduler_enabled`) auto-enqueues pulls. The one-click
+  monthly close is likewise enqueued as kind=`close` (`KIND_CLOSE`).
+- Stored secrets (portal credentials) use ENVELOPE encryption via `keyvault.py`: a fresh
+  AES-256-GCM DEK per secret, wrapped by a KEK and AAD-bound to its context. KEK provider is
+  pluggable via `keyvault_provider` (default `local` = derived from the app secret; `env` =
+  `EnvKEK`, BYOK 32-byte key from `FFS_KEK_KEY` / per-tenant `FFS_KEK_KEY_<TENANT>`, fails
+  LOUD if missing). Switching the provider on a populated store needs a re-wrap migration.
+  Never log a plaintext secret; GCM auth failures RAISE — never silently return "".
+- `confidence.py` (per-supplier×country trust) governs ONLY whether the advisory AI review
+  RUNS — it never skips or alters a deterministic legal gate; it fails toward doing the review.
+- `finance.py` (embedded finance) and `bank_recon.py` (open-banking recon) are ADVISORY/
+  origination-only seams: additive analytics over `recovery_report()` with a NullProvider
+  default; they NEVER mutate a VAT figure, status, lock, fee, or payment.
+- Multi-tenancy (`tenancy.py`) is OFF by default (`multitenant` setting) = byte-identical
+  single-tenant; `scope_clause()`/`require_tenant()` are inert no-ops until the per-table
+  phase. Registry lives in `security.db`. See `docs/MULTI_TENANCY.md`.
+- `metrics.py` materializes dashboard aggregates (`settled_metrics` in the ENGINE-owned
+  `fuel_history.db`) at the close — ENGINE writes, app READS via `dataproduct.connect`; the
+  figures come from canonical `queries.py` (not forked) and `verify()` recompute-compares
+  (drift check). An un-rebuilt period still renders via the live fallback.
 - Money is quantized via `money.py` (Decimal, ROUND_HALF_UP) — use `money.f2/fsum`
   when rounding/summing amounts and `money.q2` for EUR-threshold decisions; don't
   use bare `round()` on currency. Storage columns stay SQLite REAL.
@@ -144,13 +169,22 @@ platform). Recently SHIPPED (no longer open): the money-precision sweep, the who
 `except: pass`→`applog` migration, `.docx`→PDF generation (document module), DLQ alerting +
 oldest-pending SLO, the register-failure reconcile, the §B VAT-correctness work (national-currency
 threshold hard-gate, receipt-control gate+waive, FX provenance + per-invoice ECB verification),
-the CRM integration API, and the full document-management module. Still open highlights:
-- **Automated document capture** — advance API ingestion + supplier-portal scraping (both), on the
-  worker tier with per-supplier rate-limiting; credential-custody hardening (envelope/KMS/per-tenant
-  keys, OAuth-where-available, audit). The flagship near-term build.
+the CRM integration API, the full document-management module; and this session: the automated-
+capture worker tier (`KIND_FETCH` + per-supplier rate-limiter/circuit-breaker + off-by-default
+scheduler) with envelope-encrypted credential custody (`keyvault.py`); one-click monthly close
+(`KIND_CLOSE`, `/close`); per-event + deadline alerts + SMTP relay UI; off-machine backup sync;
+metrics-at-close materialization + drift check (`metrics.py`); the strategy-derived seams —
+expense/cost reports + accounting-ledger CSV + SAF-T export (`saft.py`), advisory embedded finance
+(`finance.py`) and open-banking reconciliation (`bank_recon.py`); confidence-learning
+(`confidence.py`); and the multi-tenancy foundation (`tenancy.py`, OFF by default). Still open:
+- **Automated document capture (go-live)** — the scaffolding (worker fetch, rate-limiter,
+  credential custody, scheduler) has landed; remaining = REAL per-supplier `portal_scraper`
+  adapters + live API/e-invoicing inbound, and KMS/OAuth/per-tenant-BYOK custody beyond the
+  `env`/local KEK seam. The flagship near-term build.
 - **D6** — intake worker as a dedicated worker-process by default (the scraper/fetch tier).
-- **Strategy-derived bets** — SAF-T/e-invoice/ERP export, expense reports, embedded-finance partner
-  integration, open-banking reconciliation (see `docs/STRATEGY.md` §7 / `docs/BACKLOG.md` §C).
-- Test coverage for `invoice_control.py`/`ingest.py`/`build_master.py`/`history.py`; per-event
-  notification alerts + SMTP relay UI; off-machine backup sync; validated Postgres cutover
-  (`docs/SCALING.md`); `process_lock` fencing + per-job extract deadline (scale-gated).
+- **Strategy-derived bets (deepen the seams)** — turn the NullProvider seams into real partner
+  integrations (embedded finance, AISP bank feed), validated per-country SAF-T profiles + e-invoice/
+  ERP export, expense-report depth (see `docs/STRATEGY.md` §7 / `docs/BACKLOG.md` §C).
+- **Multi-tenancy phase 2** — the per-table `scope_clause()` wiring behind the `multitenant` switch.
+- Test coverage for `invoice_control.py`/`ingest.py`/`build_master.py`/`history.py`; validated
+  Postgres cutover (`docs/SCALING.md`); `process_lock` fencing + per-job extract deadline (scale-gated).

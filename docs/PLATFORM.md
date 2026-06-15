@@ -15,9 +15,13 @@ later (see `SCALING.md`).
 ## 1 · Data processing
 **Turn raw supplier files into validated, reconciled transactions.**
 - Owns it: `ingest.py` (xlsx/csv/xml/api), `extract.py` (PDF/ZIP→draft, parser registry),
-  `waiting_room.py` (durable intake queue + background worker), then the engine
-  `consolidate.py → validate.py → build_master.py → history.py`.
-- Stores in: `fuel_history.db`; raw uploads archived in the data lake on arrival.
+  `waiting_room.py` (durable intake queue + background worker; job kinds
+  `extract`/`register`/`close`/`fetch` + a per-supplier rate-limiter/circuit-breaker),
+  `portal_scraper.py` (worker-tier portal capture, credentials sealed by `keyvault.py`),
+  then the engine `consolidate.py → validate.py → build_master.py → history.py`, with
+  `metrics.py` materializing per-period dashboard aggregates at the close.
+- Stores in: `fuel_history.db` (incl. `settled_metrics`); raw uploads archived in the
+  data lake on arrival.
 - Maturity: **high**. Gap: test coverage on `ingest`/`build_master`/`history`; finish the
   stored-master money sweep (`money.f2`).
 
@@ -25,10 +29,15 @@ later (see `SCALING.md`).
 **Turn transactions into intelligence and Excel deliverables.**
 - Owns it: `pricing_intelligence.py` (competitiveness, self-sourced benchmark, overpay),
   `anomaly.py`, `contract_audit.py` (recoverable € per contract breach), `reports.py` and
-  the master / history / summary / fees / pricing-grid exports. Plus `ai_review.py` — the
-  **advisory** AI layer over already-extracted data (validation flags + a short analytics
-  note), default-OFF, sends derived data only (never the document), never mutates or gates
-  a figure; deterministic hard-checks stay in `validate.py`. See `docs/AI_REVIEW.md`.
+  the master / history / summary / fees / pricing-grid exports, plus the **expense/cost
+  report**, the **accounting-ledger CSV**, and `saft.py` (programmable OECD-SAF-T-**core**
+  XML, parameterized by a `CountryProfile`; reuses `queries.q_ledger` so totals reconcile —
+  see `docs/SAFT.md`). Plus `ai_review.py` — the **advisory** AI layer over already-extracted
+  data (validation flags + a short analytics note), default-OFF, sends derived data only
+  (never the document), never mutates or gates a figure; deterministic hard-checks stay in
+  `validate.py`. See `docs/AI_REVIEW.md`. `confidence.py` (per-supplier×country trust) governs
+  **only** whether that advisory AI review runs — never a legal gate; it fails toward doing
+  the review.
 - Maturity: **high**. Gap: detection dead-ends at read-only tables — no "act on it"
   (overcharge → recovery packet → supplier credit).
 
@@ -36,7 +45,11 @@ later (see `SCALING.md`).
 **Store originals immutably, verifiably, backend-agnostic.**
 - Owns it: `document_vault.py` (local / SharePoint / FTPS, one logical tree), `data_lake.py`
   (extraction artifacts), `doc_storage.py`. SHA-256 dedup; `vat_refund.verify_documents()`
-  re-hashes the live store against `invoice_documents.sha256`.
+  re-hashes the live store against `invoice_documents.sha256`. Secret-at-rest custody is
+  `keyvault.py` — envelope encryption (a per-secret AES-256-GCM data key wrapped by a
+  pluggable KEK: `local` from the app secret, or BYOK/KMS `env` from `FFS_KEK_KEY`),
+  AAD-bound so a sealed blob can't be replayed into another row; used today for portal
+  credentials.
 - Maturity: **high**. In progress: searching the vault to *attach* an existing file to a
   claim invoice (resolve a doc-missing block from the claim screen).
 
@@ -62,12 +75,18 @@ later (see `SCALING.md`).
   Art. 9 / Reg. 79/2012 (see `VAT_REFUND_RULES.md`).
 - Maturity: **high**. In progress: rows stay editable (no freeze) with an accidental-edit
   guard.
+- Adjacent seam: `finance.py` — the **advisory** embedded-finance view (financeable
+  receivable reusing `recovery_report()` + advance-offer economics, NullProvider default,
+  origination-only). It never touches a VAT figure, gate, lock, or the lifecycle.
 
 ## 6 · VAT control
 **Guarantee every claim is complete, documented, one-invoice-one-submission.**
 - Owns it: `invoice_control.py` (receipt control = cadence × activity, reconciliation
   triage, orphan check) + the submission gates in `vat_refund.py` (checklist, doc-presence,
-  invoice locks, hard period-end) and `verify_documents`.
+  invoice locks, hard period-end) and `verify_documents`. `bank_recon.py` adds an
+  **advisory** open-banking reconciliation — matching uploaded bank credits against expected
+  VAT refunds by amount/date (stateless, NullProvider feed default); it never marks a claim
+  paid or mutates a figure.
 - Maturity: **medium-high**. Gap: wire the receipt-control required-set into the submission
   gate so a MISSING/orphan invoice is surfaced (and resolvable) at submit time.
 
@@ -83,10 +102,14 @@ later (see `SCALING.md`).
 
 ## Platform floor (under all seven)
 `auth.py` (identity/roles), `audit.py` (immutable change history — *who* changed *what*),
-`backup.py` (snapshots + SHA-256 integrity), `db.py`/`db_migrate.py`/`db_tuning.py`
+`backup.py` (snapshots + SHA-256 integrity + off-machine sync), `db.py`/`db_migrate.py`/`db_tuning.py`
 (connections, versioned migrations, SQLite→Postgres path), `applog.py` + the admin error
 log (errors self-control to the Admin panel), `tls.py`, `process_lock.py` (cross-process
-leases + leader election). In accounting terms this is the **ledger-integrity, security and
+leases + leader election), `keyvault.py` (envelope-encrypted secret custody), and `tenancy.py`
+(the multi-tenant **foundation** — a tenant registry in `security.db` + a request-scoped
+context behind the `multitenant` master switch, OFF by default = byte-identical single-tenant;
+`scope_clause()`/`require_tenant()` are inert no-ops until the deferred per-table phase, see
+`docs/MULTI_TENANCY.md`). In accounting terms this is the **ledger-integrity, security and
 infrastructure** layer that makes every one of the seven works auditable and trustworthy.
 
 ## Why this framing matters

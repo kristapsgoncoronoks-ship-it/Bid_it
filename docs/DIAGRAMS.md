@@ -26,6 +26,7 @@ flowchart TB
         VAL["validate.py<br/>tie-out to invoice totals"]
         BM["build_master.py"]
         HIS["history.py"]
+        MET["metrics.py<br/>per-period aggregates"]
     end
 
     subgraph B2["2 · Master data"]
@@ -39,14 +40,18 @@ flowchart TB
         IC["invoice_control.py<br/>receipt / triage"]
         CA["contract_audit.py"]
         DM["doc_mining.py"]
+        BR["bank_recon.py<br/>advisory bank↔refund recon"]
         VCDB[("vat_claims.db<br/>ISOLATED")]
     end
 
     subgraph B5["5 · Presentation"]
-        APP["app.py — Flask<br/>~25 pages · JSON API · Excel"]
+        APP["app.py — Flask<br/>~25 pages · JSON API · Excel/CSV/SAF-T"]
         PI["pricing_intelligence.py"]
         AN["anomaly.py"]
         RP["reports.py"]
+        SF["saft.py<br/>SAF-T export"]
+        FIN["finance.py<br/>advisory finance"]
+        CF["confidence.py<br/>advisory-AI trust"]
     end
 
     subgraph B6["6 · Platform (cross-cutting)"]
@@ -55,6 +60,8 @@ flowchart TB
         BK["backup.py"]
         DV["document_vault.py"]
         TLS["tls.py"]
+        KV["keyvault.py<br/>envelope-encrypted secrets"]
+        TEN["tenancy.py<br/>multi-tenant foundation (OFF)"]
         DB["db.py / db_tuning.py / process_lock.py"]
     end
 
@@ -102,8 +109,10 @@ flowchart TD
 
 ## 3. Monthly close pipeline
 
-The linear routine that turns a month of supplier files into the master workbook,
-loaded history, receipt control, and a backup.
+The routine that turns a month of supplier files into the master workbook, loaded
+history, materialized metrics, receipt control, and a backup. The whole chain is
+orchestrated by `engine_close.py` (restartable, one audit trail) and can be launched
+one‑click from the admin UI (`/close`), which enqueues a `close` job to the worker.
 
 ```mermaid
 flowchart LR
@@ -111,9 +120,13 @@ flowchart LR
     MC --> C["consolidate.py<br/>must PASS every supplier<br/>vs invoice totals"]
     C --> B["build_master.py<br/>monthly workbook"]
     B --> H["history.py<br/>load + trend"]
-    H --> IC["invoice_control.py (period)"]
+    H --> MET["metrics.py<br/>rebuild settled_metrics"]
+    MET --> IC["invoice_control.py (period)"]
     IC --> BK["backup.py<br/>snapshot + integrity"]
 ```
+
+> The one‑click path: admin **`/close`** → waiting‑room kind `close` (`KIND_CLOSE`) →
+> worker runs `engine_close.close(period)` over the same stages above.
 
 ---
 
@@ -194,8 +207,10 @@ flowchart TB
     APP --> V[("vat_claims.db<br/>ISOLATED legal/financial")]
     APP --> SEC[("security.db<br/>users · roles · logs")]
     APP --> DL[("data_lake.db + data_lake/<br/>extraction artifacts")]
-    APP --> IN[("intake.db<br/>waiting room")]
-    APP --> P[("portal.db<br/>encrypted credentials")]
+    APP --> IN[("intake.db<br/>waiting room + rate-limiter")]
+    APP --> P[("portal.db<br/>envelope-encrypted credentials")]
+    APP --> CF[("confidence.db<br/>supplier×country trust")]
+    APP --> FN[("finance.db<br/>advance-intent ledger")]
     APP --> E[("ecb_rates.db<br/>FX cache")]
     V -. reads transactions on demand .-> F
 ```
@@ -237,10 +252,32 @@ flowchart TB
 
     subgraph BG["Background — serve.py / gunicorn_conf.py"]
         SCH["backup scheduler<br/>leader-elected via process_lock"]
-        IW["intake worker<br/>drains the waiting room"]
+        IW["intake worker<br/>drains the waiting room<br/>kinds: extract · register · close · fetch"]
     end
     SCH --> SNAP[("backups/ffs_*.zip")]
     IW --> Q[("intake.db")]
+```
+
+---
+
+## 7b. Automated document capture (worker tier)
+
+Portal fetching never runs inline in a web request. A pull is enqueued as a `fetch`
+job, gated by a **per-supplier rate-limiter / circuit-breaker** (opt-in), and an
+off-by-default **scheduler** auto-enqueues pulls. The worker calls `portal_scraper`,
+which reads the supplier's **envelope-encrypted** credentials via `keyvault.py`.
+
+```mermaid
+flowchart LR
+    SCHED["scheduler (off by default)<br/>scrape_scheduler_enabled"] -->|enqueue| Q[("intake.db<br/>kind = fetch")]
+    UI["admin action"] -->|enqueue| Q
+    Q --> RL{"per-supplier rate-limiter<br/>concurrency · backoff · breaker<br/>(supplier_rate_limits / _state)"}
+    RL -- "blocked" --> WAIT["defer / retry later"]
+    RL -- "allowed" --> WORK["fetch worker<br/>waiting_room.py --work"]
+    WORK --> PS["portal_scraper.scrape"]
+    PS --> KV["keyvault.open()<br/>AES-256-GCM DEK · KEK-wrapped · AAD-bound"]
+    KV --> CRED[("portal.db<br/>sealed credentials")]
+    PS --> DRAFT["NET prices / invoices → draft"]
 ```
 
 ---

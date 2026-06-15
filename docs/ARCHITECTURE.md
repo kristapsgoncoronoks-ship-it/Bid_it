@@ -33,18 +33,22 @@ for setup see **[INSTALL.md](INSTALL.md)**; for day‑to‑day use see
 2. MASTER DATA     customers.db (customer_master.py)   suppliers.db (supplier_master.py)
                    fuel_history.db (vat_refund.py / history.py)
         │
-3. ENGINE          consolidate.py → validate.py → build_master.py → history.py
+3. ENGINE          consolidate.py → validate.py → build_master.py → history.py →
+                   metrics.py (per-period aggregates), orchestrated by engine_close.py
         │
 4. COMPLIANCE      vat_refund.py (claims, locks, fees, vault index),
                    invoice_control.py (receipt control / statement triage),
                    contract_audit.py (discount-terms compliance),
-                   doc_mining.py (fill INPUT gaps from the vault)
+                   doc_mining.py (fill INPUT gaps from the vault),
+                   bank_recon.py (advisory bank↔refund reconciliation)
         │
-5. PRESENTATION    app.py (Flask: ~25 pages + JSON API + Excel), pricing_intelligence.py,
-                   reports.py, anomaly.py
+5. PRESENTATION    app.py (Flask: ~25 pages + JSON API + Excel/CSV/SAF-T), pricing_intelligence.py,
+                   reports.py, anomaly.py, saft.py (SAF-T export), finance.py (advisory finance),
+                   confidence.py (advisory-AI trust)
         │
 6. PLATFORM        auth.py, audit.py, backup.py, tls.py, document_vault.py, db.py,
-                   db_tuning.py, process_lock.py
+                   db_tuning.py, process_lock.py, keyvault.py (envelope-encrypted secrets),
+                   tenancy.py (multi-tenant foundation, OFF by default)
 ```
 
 ---
@@ -55,12 +59,14 @@ for setup see **[INSTALL.md](INSTALL.md)**; for day‑to‑day use see
 |----------|--------------|------------|
 | `customers.db` | `customer_master.py` | `customers` (reg/VAT/payout/fee), `customer_bank_accounts`, `customer_documents`, `customer_countries` (per‑country activation), `customer_fees`, `country_requirements` |
 | `suppliers.db` | `supplier_master.py` | `suppliers` (+ cadence), `supplier_vat_registrations`, `supplier_bank_accounts`, `supplier_products`, `supplier_invoices`, `supplier_statements` |
-| `fuel_history.db` | `history.py`, `invoice_control.py` | `transactions` (canonical fuel lines, **rebuilt monthly**), `invoice_receipt_control` |
+| `fuel_history.db` | `history.py`, `invoice_control.py`, `metrics.py` | `transactions` (canonical fuel lines, **rebuilt monthly**), `invoice_receipt_control`, `settled_metrics` (per‑period dashboard aggregates, materialized at the close) |
 | `vat_claims.db` *(isolated)* | `vat_refund.py` | `vat_applications` (claim lifecycle + fees), `vat_claimed_invoices` (one‑invoice‑one‑submission locks), `invoice_documents` (vault index, SHA‑256). **Kept in its own file so the monthly transaction rebuild can never corrupt the legal/financial claim records;** transactions are read from `fuel_history.db` on demand (`analytics_connect()`). |
 | `data_lake.db` + `data_lake/` *(not committed)* | `data_lake.py` | index of AI‑processed extraction artifacts; the files themselves go through the same storage backends as the document vault |
-| `security.db` *(not committed)* | `auth.py` | `users` (scrypt hashes), `role_permissions`, `login_log`, `error_log`, `app_settings` |
-| `intake.db` *(operational)* | `waiting_room.py` | `intake_jobs` (the waiting‑room queue) |
-| `portal.db` *(secrets, not committed)* | `portal_scraper.py` | `portal_configs`, `portal_credentials` (encrypted), `portal_runs` |
+| `security.db` *(not committed)* | `auth.py`, `tenancy.py` | `users` (scrypt hashes), `role_permissions`, `login_log`, `error_log`, `app_settings`, the **tenant registry** (app‑owned platform metadata, kept inside the security‑DB backup/permission envelope) |
+| `intake.db` *(operational)* | `waiting_room.py` | `intake_jobs` (the waiting‑room queue — kinds `extract`/`register`/`close`/`fetch`), `supplier_rate_limits` / `supplier_rate_state` (the per‑supplier rate‑limiter / circuit‑breaker) |
+| `portal.db` *(secrets, not committed)* | `portal_scraper.py` | `portal_configs`, `portal_credentials` (envelope‑encrypted via `keyvault.py`), `portal_runs` |
+| `confidence.db` *(runtime, app‑owned)* | `confidence.py` | per‑(supplier × country) trust score + the validation‑event ledger (governs only whether the advisory AI review runs) |
+| `finance.db` *(runtime, finance‑owned)* | `finance.py` | the advances ledger for the embedded‑finance seam (NullProvider default → records advance *intent* only) |
 | `ecb_rates.db` *(cache)* | `ecb_rates.py` | `ecb_fx` (reference FX) |
 
 Separation keeps *who we are* (customers), *who they are* (suppliers), and *what
@@ -78,7 +84,25 @@ data only by code.
 - **Background workers** (started by `serve.py` / `gunicorn_conf.py`, never on import):
   the **backup scheduler** (leader‑elected via `process_lock` so only one process snapshots)
   and the **intake worker** (drains the waiting room; the queue claim hands each job to
-  exactly one process, so every process can drain concurrently).
+  exactly one process, so every process can drain concurrently). The waiting room carries
+  four job **kinds** — `extract` (parse an upload), `register` (statement registration on
+  the engine), `close` (the one‑click monthly close), and `fetch` (a portal pull).
+- **Automated document capture** runs entirely on the worker tier — *never inline in a web
+  request*. A portal pull is enqueued as a `fetch` job; before it runs, the **per‑supplier
+  rate‑limiter / concurrency cap / backoff / circuit‑breaker** (`supplier_rate_limits` /
+  `supplier_rate_state`, opt‑in — an ungoverned supplier behaves exactly as before) decides
+  whether to start it. An **off‑by‑default scheduler** (`scrape_scheduler_enabled`)
+  auto‑enqueues pulls. The worker calls `portal_scraper.scrape`, which reads the supplier's
+  credentials sealed by `keyvault.py` (envelope encryption — a per‑secret AES‑256‑GCM data
+  key wrapped by a pluggable KEK; `keyvault_provider` selects `local` or a BYOK/KMS `env`
+  key from `FFS_KEK_KEY`). The capture flow is therefore:
+  *enqueue → rate‑limiter gate → `fetch` worker → `portal_scraper` → `keyvault` creds → draft.*
+- **Metrics at the close**: the dashboard KPIs and the avoidable‑overpay figure are
+  otherwise recomputed live on every load. `metrics.rebuild(period)` settles them once at
+  the close into `settled_metrics` (ENGINE‑owned `fuel_history.db`, written exactly as
+  `history.py` writes; the app only *reads* it via the read‑only `dataproduct` window). The
+  figures come from the canonical `queries.py` functions — not a fork — and `verify()`
+  recompute‑compares (a drift check). An un‑rebuilt period still renders via the live fallback.
 
 ---
 
@@ -131,8 +155,10 @@ write new → repoint row → delete old).
   any new report surface.
 - **HTML** is escaped with `markupsafe.escape` (aliased `esc`) — never f‑string raw DB
   values into a page. The served JS is vanilla and CSP‑safe (`script-src 'self'`).
-- **Schema migrations** are `try: ALTER TABLE … except sqlite3.OperationalError: pass`
-  (column‑exists guard), guarded once per process by a `_SCHEMA_READY` set.
+- **Schema migrations** go through `db_migrate.apply(con, "<module>", [DDL, …])` — a
+  versioned migration table (`_ffs_migrations`) records what has run, so each `ALTER`
+  executes **once per database** instead of being retried on every connect. Append new
+  statements at the END of a module's list (positions are stable).
 - **Audit**: every change is logged with `changed_by`; web requests set the actor via
   `audit.set_actor` / `reset_actor` in the request hooks.
 
