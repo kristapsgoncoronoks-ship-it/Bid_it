@@ -22,6 +22,7 @@ from markupsafe import escape as esc
 from werkzeug.middleware.proxy_fix import ProxyFix
 import auth as _auth
 import audit as _audit_mod
+import tenancy as _tenancy
 import dataproduct
 import applog
 _log = applog.get("app")
@@ -477,6 +478,7 @@ PERM_BY_ENDPOINT = {
     "export_evidence": "exports",
     "admin":           "user_admin",   # server setup / overall software changes
     "admin_confidence": "user_admin",  # confidence-learning scoreboard (read-only)
+    "admin_tenants":   "user_admin",   # multi-tenancy registry (read-only, P0)
 }
 
 # The VAT-refund module (claims, readiness, recovery/fees + their exports/API) is
@@ -492,7 +494,9 @@ ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "recei
               # the VAT-refund module, so the same admin-only access applies.
               "customers", "cust_doc_download",
               # the confidence-learning scoreboard is a read-only admin surface.
-              "admin_confidence"}
+              "admin_confidence",
+              # the multi-tenancy registry is a read-only admin surface (P0).
+              "admin_tenants"}
 
 # Switchable PARTS of the app. An admin turns these on/off in the Admin panel; a
 # disabled part is hidden from the menu and its pages return "turned off". Core pages
@@ -638,10 +642,26 @@ def _guard():
         # Actor is thread-local (audit triggers read it via ffs_actor()), so a
         # single set covers every connection this request opens — no per-DB churn.
         _audit_mod.set_actor(None, session["user"])
+    # Multi-tenancy (P0 foundation) — bind the tenant context for this request,
+    # but ONLY when the `multitenant` switch is ON. While OFF (the default
+    # single-tenant install) this branch is never entered, so the tenant context
+    # is never set and every tenancy enforcement helper stays inert: ZERO change
+    # to any existing query/route/figure. See docs/MULTI_TENANCY.md.
+    if _tenancy.multitenant_enabled():
+        _tenancy.set_tenant(_resolve_tenant())
+
+def _resolve_tenant():
+    """Resolve the tenant for the current request. This is the documented
+    resolver seam for P4 (subdomain/session tenant resolution); for P0 it reads
+    an explicit session tenant if present and otherwise falls back to the single
+    bootstrap tenant. Only ever CALLED when multitenant is ON, so it has no effect
+    on the default single-tenant deployment."""
+    return session.get("tenant_id") or "default"
 
 @app.after_request
 def _reset_actor(resp):
     _audit_mod.reset_actor()
+    _tenancy.reset_tenant()   # inert no-op when nothing was bound (multitenant OFF)
     return resp
 
 def _log_exc(context, e):
@@ -6566,6 +6586,40 @@ def admin_confidence():
         + '<div class="card"><h2>Recent validation events (append-only ledger)</h2>'
         + (tbl(["When", "Supplier", "Country", "Outcome", "Source", "Detail"], etr)
            if etr else '<p class="note">No validation events recorded yet.</p>')
+        + '</div>')
+    return page(body, "adm")
+
+@app.route("/admin/tenants")
+def admin_tenants():
+    """READ-ONLY multi-tenancy registry (admin-only; ADMIN_ONLY + user_admin).
+
+    This is the P0 foundation surface only: it shows the master switch state and
+    the registered tenants. When multitenant is OFF (the default single-tenant
+    install) it makes that explicit and lists no tenant scoping — NOTHING here
+    gates or alters any existing query/figure. Tenant onboarding/admin (create,
+    activate, subdomain mapping) is the P4 surface, deliberately deferred. See
+    docs/MULTI_TENANCY.md. Every value escaped via esc()."""
+    on = _tenancy.multitenant_enabled()
+    rows = []
+    for t in _tenancy.list_tenants():
+        rows.append([f'<td>{esc(t["tenant_id"])}</td>',
+                     f'<td>{esc(t.get("name") or "—")}</td>',
+                     f'<td class="{"ok" if t["active"] else "bad"}">'
+                     f'{"active" if t["active"] else "inactive"}</td>',
+                     f'<td class="note">{esc(t.get("created_at") or "")}</td>'])
+    mode = ('<b class="ok">ON</b>' if on
+            else '<b>OFF</b> — single-tenant mode (default)')
+    body = (
+        '<div class="card"><h2>Multi-tenancy registry</h2>'
+        f'<div class="note" style="margin-top:0">Master switch (<code>multitenant</code>): '
+        f'{mode}. This is the <b>P0 foundation</b>: while OFF, the app behaves exactly as a '
+        'single-tenant install — the tenant context is never bound and every scoping helper '
+        'is a no-op, so no existing query or figure is changed. Per-table query scoping '
+        '(P1/P2) and tenant onboarding (P4) are deferred; see '
+        '<code>docs/MULTI_TENANCY.md</code>.</div>'
+        + (tbl(["Tenant ID", "Name", "Status", "Created"], rows)
+           if rows else '<p class="note">No tenants registered. The registry exists but is '
+                        'empty; a default single-tenant install needs none.</p>')
         + '</div>')
     return page(body, "adm")
 
