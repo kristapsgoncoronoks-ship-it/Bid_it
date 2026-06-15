@@ -51,6 +51,10 @@ benchmark.db
 #    DB (advisory-AI-review consumer only; never gates a legal check) ──
 confidence.db
 
+# ── Embedded-finance advances ledger — finance-owned runtime DB (origination seam
+#    over the recovery data; NULL provider by default, never gates a VAT figure) ──
+finance.db
+
 # ── Cross-process lock store + SQLite WAL sidecars (transient, machine-specific) ──
 locks.db
 *.db-wal

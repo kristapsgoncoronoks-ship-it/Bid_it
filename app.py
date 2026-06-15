@@ -4361,7 +4361,7 @@ def export_fees():
     return send_file(path, as_attachment=True, download_name=os.path.basename(path),
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-@app.route("/receivables")
+@app.route("/receivables", methods=["GET", "POST"])
 def receivables():
     """ADMIN-ONLY VAT receivables & payout forecast — an INTERNAL, data-only view
     (no lending, no outward send). Surfaces the under-used VAT-lifecycle data
@@ -4370,9 +4370,38 @@ def receivables():
     what's aged), frozen agency fee, and customer net (0 on the customer-payout route,
     VAT−fee on the deduct route) — open-receivable aging, median submitted→paid days per
     refund country, the realization rate (paid/claimed) per jurisdiction, and a two-flow
-    open-receivable cash forecast (refund vs fee, never summed). NET (VAT-excluded) EUR."""
+    open-receivable cash forecast (refund vs fee, never summed). NET (VAT-excluded) EUR.
+
+    Also hosts the ADDITIVE embedded-finance section (finance.py): the financeable
+    receivable base (= the same submitted/approved outstanding total) and the advance
+    economics at the configured terms. The default provider is NULL — no money moves,
+    figures are informational, and NOTHING here touches a VAT figure/gate/lock/lifecycle."""
     import vat_refund as VR
+    import finance
     year = request.args.get("year", "2026")
+    fin_banner = ""
+    if request.method == "POST" and request.form.get("__act") == "set_finance_terms":
+        try:
+            _auth.set_setting("finance_advance_pct", request.form.get("advance_pct", "").strip())
+            _auth.set_setting("finance_fee_pct", request.form.get("fee_pct", "").strip())
+            _auth.set_setting("finance_provider", (request.form.get("provider", "none") or "none").strip())
+            fin_banner = '<div class="card"><b class="ok">Financing terms saved.</b></div>'
+        except Exception as e:
+            _log_exc("receivables/set_finance_terms", e)
+            fin_banner = '<div class="card"><b class="bad">Could not save financing terms.</b></div>'
+    elif request.method == "POST" and request.form.get("__act") == "record_advance":
+        try:
+            ent = request.form.get("entity", ""); cty = request.form.get("country", "")
+            per = request.form.get("period", ""); vat = float(request.form.get("vat_eur", "0") or 0)
+            t = finance.terms()
+            q = finance.quote(vat, t)
+            res = finance.request_advance(f"{ent}|{cty}|{per}", q["advance_eur"], q["fee_eur"],
+                                          actor=session.get("user", "admin"))
+            fin_banner = (f'<div class="card"><b class="{"ok" if res.get("ok") else "bad"}">'
+                          + esc(res.get("message") or "") + '</b></div>')
+        except Exception as e:
+            _log_exc("receivables/record_advance", e)
+            fin_banner = '<div class="card"><b class="bad">Could not record advance intent.</b></div>'
     fc = VR.receivables_forecast(year)
     rows = fc["rows"]; forecast = fc["forecast"]; aging = fc["aging"]
     ct = fc["cycle_time"]; realization = fc["realization"]
@@ -4461,6 +4490,63 @@ def receivables():
           'VAT − fee on the deduct route where we remit the net). Aging band colours an open claim '
           'by days since submission: 0-30 green, 30-60 neutral, 60-90/90+ red. This is an internal '
           'financing-ready view — no external send.</div></div>')
+
+    # ----- Embedded-finance section (additive, finance.py) -----------------
+    # The financeable base reuses finance.financeable() which itself reuses
+    # vat_refund.recovery_report() — so this total reconciles exactly with the
+    # submitted/approved outstanding figure shown above. NULL provider by default.
+    fin = finance.financeable(year)
+    fterms = finance.terms()
+    fq = finance.quote(fin["total"], fterms)
+    prov = finance.provider()
+    fin_rows = []
+    for fr in fin["rows"]:
+        age = fr.get("age_days")
+        fin_rows.append([
+            f"<td>{esc(fr.get('entity') or '')}</td><td>{esc(fr.get('country') or '')}</td>"
+            f"<td>{esc(fr.get('period') or '')}</td>",
+            f"<td>{esc(fr.get('status') or '')}</td>",
+            f"<td class=r>{money.f2(fr.get('vat_eur') or 0):,.2f}</td>",
+            f"<td class=r>{age if isinstance(age, int) else ''}</td>"])
+    fin_section = (
+        '<div class="card"><h2>Financing (embedded — origination only)</h2>'
+        + '<div class="note" style="border-left:3px solid #b06b00;padding-left:8px">'
+          'Financing originates via a <b>LICENSED factoring partner</b>; the platform '
+          'never lends. <b>' + esc("Provider: " + prov.name)
+        + ('</b> — No provider configured — figures below are <b>informational only</b>.'
+           if prov.name == "none" else '</b>')
+        + '</div>'
+        + '<div class="kpis">'
+        + f'<div class="kpi"><div class="v">EUR {fq["receivable_eur"]:,.0f}</div>'
+          '<div class="l">financeable (submitted/approved, unpaid)</div></div>'
+        + f'<div class="kpi"><div class="v">EUR {fq["advance_eur"]:,.0f}</div>'
+          f'<div class="l">advance ({fterms["advance_pct"]*100:.0f}%)</div></div>'
+        + f'<div class="kpi"><div class="v">EUR {fq["fee_eur"]:,.0f}</div>'
+          f'<div class="l">factoring fee ({fterms["fee_pct"]*100:.2f}%)</div></div>'
+        + f'<div class="kpi"><div class="v">EUR {fq["net_now_eur"]:,.0f}</div>'
+          '<div class="l">net now (advance − fee)</div></div>'
+        + f'<div class="kpi"><div class="v">EUR {fq["remainder_on_settlement_eur"]:,.0f}</div>'
+          '<div class="l">remainder on settlement</div></div></div>'
+        + '<div class="note">The financeable base is the SAME submitted/approved '
+          'outstanding receivable shown above — a tax-authority refund is high-certainty, '
+          'which is what makes it financeable. The advance economics are computed at the '
+          'configured terms; no VAT figure, gate, lock, or claim is touched.</div>'
+        + '<h3>Financeable claims ' + esc(year) + '</h3>'
+        + tbl(["Entity", "Country", "Period", "Status", "VAT receivable EUR", "Age (days)"],
+              fin_rows)
+        + '<form method="post" class="f" style="margin-top:10px">' + _csrf_input()
+        + '<input type="hidden" name="__act" value="set_finance_terms">'
+        + f'<label>Advance %<input name="advance_pct" value="{esc(str(fterms["advance_pct"]))}" '
+          'style="width:80px"></label>'
+        + f'<label>Fee %<input name="fee_pct" value="{esc(str(fterms["fee_pct"]))}" '
+          'style="width:80px"></label>'
+        + '<label>Provider<select name="provider"><option value="none"'
+        + (' selected' if prov.name == "none" else '')
+        + '>none (informational)</option></select></label>'
+        + '<button>Save terms</button>'
+        + '<span class="note">Advance fraction (0&lt;x&le;1) and fee fraction (0&le;x&lt;0.5).</span>'
+        + '</form></div>')
+    body = fin_banner + body + fin_section
     return page(body, "rcv")
 
 @app.route("/export/receivables")
