@@ -19,12 +19,26 @@ cannot be lifted from one row and replayed into another.
 
 PLUGGABLE KEK: `get_kek(provider, tenant)` selects a KEK provider from the
 `keyvault_provider` app setting (default "local"). `LocalKEK` derives the KEK from the
-app secret key. The `tenant` argument is a forward seam for per-tenant/BYOK keys; the
-local provider ignores it. A real `KmsKEK` plugs in at the marked seam below.
+app secret key. `EnvKEK` ("env" provider) takes the raw 32-byte master key from the
+ENVIRONMENT — `FFS_KEK_KEY` (or per-tenant `FFS_KEK_KEY_<TENANT>`), base64 of exactly
+32 bytes — so the platform's secret manager / KMS (AWS Secrets Manager, HashiCorp Vault,
+Azure Key Vault, KMS-decrypt-at-boot, …) can inject the KEK without keyvault carrying any
+SDK. EnvKEK fails LOUD if the env key is missing/malformed — it never silently downgrades
+to the on-disk local key. The `tenant` argument is a forward seam for per-tenant/BYOK
+keys; the local provider ignores it, EnvKEK uses it to pick `FFS_KEK_KEY_<TENANT>` first.
+A real `KmsKEK` plugs in at the marked seam below.
+
+ROTATION CAVEAT: stored DEKs are wrapped under whatever KEK was active at `seal`-time.
+Switching `keyvault_provider` on an EXISTING, populated credential store is a MIGRATION
+that requires re-wrapping every blob (the old wrapped-DEKs are unreadable under the new
+KEK). Selecting "env" is for deployments that choose it FROM THE START; do not toggle the
+provider on a populated store without a re-wrap pass.
 
 SECURITY: never log or echo a plaintext secret or the secret key. GCM authentication
 means tamper/auth failures RAISE — we never silently return "".
 """
+import base64
+import binascii
 import hashlib
 import os
 import struct
@@ -78,7 +92,60 @@ class LocalKEK(KEK):
         return AESGCM(self._key()).decrypt(nonce, ct, b"ffs-kek-wrap")
 
 
+def _decode_b64_key(raw: str) -> bytes:
+    """Decode a base64 (std OR urlsafe) string to EXACTLY 32 raw bytes, or raise.
+    Never logs the key bytes."""
+    s = (raw or "").strip()
+    for decoder in (base64.b64decode, base64.urlsafe_b64decode):
+        try:
+            key = decoder(s)
+        except (binascii.Error, ValueError):
+            continue
+        if len(key) == _KEK_BYTES:
+            return key
+    raise ValueError(
+        "EnvKEK: env key is not base64 of exactly %d bytes" % _KEK_BYTES)
+
+
+class EnvKEK(KEK):
+    """Production provider: take the raw 32-byte master KEK from the ENVIRONMENT, where
+    the deployment's secret manager / KMS injected it (vendor-neutral, SDK-free). Per
+    `tenant` first (`FFS_KEK_KEY_<TENANT>`), else the global `FFS_KEK_KEY`; the value is
+    base64 (std or urlsafe) of EXACTLY 32 bytes. AES-256-GCM wrap/unwrap, same mechanism
+    as LocalKEK (random 12-byte nonce; nonce||ct; GCM auth on unwrap).
+
+    Fails LOUD: if no env key is set or it does not decode to 32 bytes, construction
+    raises — an admin who selected the env provider must NOT silently fall back to the
+    weaker on-disk local key."""
+    def __init__(self, tenant=None):
+        self.tenant = tenant
+        raw = None
+        if tenant:
+            safe = "".join(c if c.isalnum() else "_" for c in str(tenant)).upper()
+            raw = os.environ.get("FFS_KEK_KEY_" + safe)
+        if raw is None:
+            raw = os.environ.get("FFS_KEK_KEY")
+        if not raw:
+            raise RuntimeError(
+                "EnvKEK: FFS_KEK_KEY not set or not a base64 32-byte key "
+                "(env provider selected but no key injected into the environment)")
+        self._k = _decode_b64_key(raw)
+
+    def wrap(self, dek: bytes) -> bytes:
+        nonce = os.urandom(_NONCE)
+        ct = AESGCM(self._k).encrypt(nonce, dek, b"ffs-kek-wrap")
+        return nonce + ct
+
+    def unwrap(self, wrapped: bytes) -> bytes:
+        nonce, ct = wrapped[:_NONCE], wrapped[_NONCE:]
+        return AESGCM(self._k).decrypt(nonce, ct, b"ffs-kek-wrap")
+
+
 # ---- SEAM: a future cloud-KMS / BYOK provider plugs in HERE -------------------
+# EnvKEK above already covers the common KMS pattern (the platform decrypts the key
+# via its KMS/secret-manager and injects it as FFS_KEK_KEY into the environment). The
+# seam below is for an SDK-native provider that calls the KMS Encrypt/Decrypt of the
+# DEK directly (the data key wrapped REMOTELY; the KEK never leaves the KMS/HSM).
 # class KmsKEK(KEK):
 #     """Endpoint + key-id driven (env/app-setting), per-tenant key for BYOK. wrap()/
 #     unwrap() would call the KMS Encrypt/Decrypt of the DEK (the data key is wrapped
@@ -92,12 +159,17 @@ class LocalKEK(KEK):
 #     def unwrap(self, wrapped): ...   # kms.decrypt(wrapped)
 # ------------------------------------------------------------------------------
 
-_PROVIDERS = {"local": LocalKEK}   # + "kms": KmsKEK once implemented
+_PROVIDERS = {"local": LocalKEK, "env": EnvKEK}   # + "kms": KmsKEK once implemented
 
 
 def get_kek(provider=None, tenant=None) -> KEK:
     """Select the KEK provider. Defaults to the `keyvault_provider` app setting
-    ("local"). `tenant` is forwarded for future per-tenant/BYOK keys."""
+    ("local"). `tenant` is forwarded for per-tenant/BYOK keys.
+
+    An UNKNOWN provider NAME falls back to LocalKEK (with a warning). But once a KNOWN
+    provider class is resolved, its construction error PROPAGATES — e.g. EnvKEK with no
+    injected env key raises, and we deliberately do NOT swallow it into a local fallback:
+    that would be a silent security downgrade for an admin who chose the env provider."""
     if provider is None:
         try:
             import auth
