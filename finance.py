@@ -237,15 +237,22 @@ def request_advance(claim_key, amount_eur, fee_eur, actor="system"):
         log.warning("finance: provider %s.submit_advance failed: %s", p.name, e)
         result = {"ok": False, "ref": None, "status": "error",
                   "message": f"Provider error: {e}"}
+    # USER-FACING origination write (Receivables financing page): resolve the bound
+    # tenant via write_tenant() BEFORE the degrade-safely try/except — it fails LOUD
+    # (require_tenant) if the switch is ON and no concrete tenant is bound, and that
+    # loud failure MUST propagate (a tenant-less/owner-scope write is a bug, not an
+    # incidental ledger glitch). OFF -> DEFAULT_TENANT_ID (byte-identical to omitting it).
+    tid = tenancy.write_tenant()
     try:
         con = connect()
         con.execute(
             """INSERT INTO advances
-               (claim_key, amount_eur, fee_eur, provider, status, ref, message, created_by)
-               VALUES (?,?,?,?,?,?,?,?)""",
+               (claim_key, amount_eur, fee_eur, provider, status, ref, message, created_by,
+                tenant_id)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
             (claim_key, money.f2(amount_eur), money.f2(fee_eur), p.name,
              result.get("status"), result.get("ref"),
-             (result.get("message") or "")[:500], actor))
+             (result.get("message") or "")[:500], actor, tid))
         con.commit()
         con.close()
     except Exception as e:
@@ -258,9 +265,11 @@ def list_advances():
     broken DB)."""
     try:
         con = connect()
+        frag, tp = tenancy.scope_clause()
         rows = con.execute(
             "SELECT id, claim_key, amount_eur, fee_eur, provider, status, ref, message, "
-            "created_by, created_at FROM advances ORDER BY id DESC").fetchall()
+            "created_by, created_at FROM advances WHERE 1=1" + frag
+            + " ORDER BY id DESC", tp).fetchall()
         con.close()
         return [dict(r) for r in rows]
     except Exception as e:

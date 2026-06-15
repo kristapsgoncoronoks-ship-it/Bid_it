@@ -96,9 +96,10 @@ def trust(supplier, country):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause()
             row = con.execute(
-                "SELECT trust FROM supplier_trust WHERE supplier=? AND country=?",
-                (sup, ctry)).fetchone()
+                "SELECT trust FROM supplier_trust WHERE supplier=? AND country=?" + frag,
+                [sup, ctry, *tp]).fetchone()
         finally:
             con.close()
         if row is None or row["trust"] is None:
@@ -143,14 +144,18 @@ def record_validation(supplier, country, clean, source="", detail=""):
     try:
         con = connect()
         try:
+            # Validation/worker-path writes: stamp the tenant via queue_tenant() (system
+            # context, never raises — a tenant-less validation defaults to DEFAULT_TENANT_ID).
+            qt = tenancy.queue_tenant()
             con.execute(
                 "INSERT INTO validation_events "
-                "(supplier, country, clean, source, detail, created_at) "
-                "VALUES (?,?,?,?,?,?)",
-                (sup, ctry, 1 if clean else 0, source or "", detail or "", now))
+                "(supplier, country, clean, source, detail, created_at, tenant_id) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (sup, ctry, 1 if clean else 0, source or "", detail or "", now, qt))
+            frag, tp = tenancy.scope_clause()
             row = con.execute(
                 "SELECT trust, n_clean, n_flagged FROM supplier_trust "
-                "WHERE supplier=? AND country=?", (sup, ctry)).fetchone()
+                "WHERE supplier=? AND country=?" + frag, [sup, ctry, *tp]).fetchone()
             t = INIT if (row is None or row["trust"] is None) else float(row["trust"])
             n_clean = 0 if row is None else int(row["n_clean"] or 0)
             n_flagged = 0 if row is None else int(row["n_flagged"] or 0)
@@ -162,12 +167,19 @@ def record_validation(supplier, country, clean, source="", detail=""):
                 n_flagged += 1
             con.execute(
                 "INSERT INTO supplier_trust "
-                "(supplier, country, trust, n_clean, n_flagged, updated_at) "
-                "VALUES (?,?,?,?,?,?) "
+                "(supplier, country, trust, n_clean, n_flagged, updated_at, tenant_id) "
+                "VALUES (?,?,?,?,?,?,?) "
+                # KNOWN LIMITATION (multi-tenant go-live blocker): this UNIQUE/ON CONFLICT
+                # target is (supplier, country) — NOT tenant-qualified. Under the switch ON,
+                # two tenants' trust rows for the SAME (supplier, country) would COLLIDE on
+                # that unique constraint. Before multi-client go-live the table must be
+                # rebuilt with UNIQUE(tenant_id, supplier, country) and this conflict target
+                # updated to match. Out of scope for this P2 slice (a separate PK-re-keying
+                # work order); under OFF (default) the single 'default' tenant never collides.
                 "ON CONFLICT(supplier, country) DO UPDATE SET "
                 "trust=excluded.trust, n_clean=excluded.n_clean, "
                 "n_flagged=excluded.n_flagged, updated_at=excluded.updated_at",
-                (sup, ctry, t, n_clean, n_flagged, now))
+                (sup, ctry, t, n_clean, n_flagged, now, qt))
             con.commit()
             return t
         finally:
@@ -184,9 +196,11 @@ def scoreboard():
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause()
             rows = con.execute(
                 "SELECT supplier, country, trust, n_clean, n_flagged, updated_at "
-                "FROM supplier_trust ORDER BY trust DESC, supplier, country").fetchall()
+                "FROM supplier_trust WHERE 1=1" + frag
+                + " ORDER BY trust DESC, supplier, country", tp).fetchall()
         finally:
             con.close()
         return [{"supplier": r["supplier"], "country": r["country"],
@@ -208,9 +222,11 @@ def recent_events(limit=100):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause()
             rows = con.execute(
                 "SELECT supplier, country, clean, source, detail, created_at "
-                "FROM validation_events ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+                "FROM validation_events WHERE 1=1" + frag
+                + " ORDER BY id DESC LIMIT ?", [*tp, limit]).fetchall()
         finally:
             con.close()
         return [{"supplier": r["supplier"], "country": r["country"],
