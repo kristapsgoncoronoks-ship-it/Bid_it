@@ -14,6 +14,18 @@ to a mounted OneDrive/SharePoint/NAS folder. Every snapshot is then best-effort
 copied off-machine (same 14-deep rotation), so the history survives disk loss.
 A sync failure is logged but NEVER fails or undoes the local snapshot.
 
+Encryption-at-rest (OPT-IN, default OFF — exporter-held key, Art. 32 / Schrems-II
+supplementary measure): set FFS_BACKUP_KEY (or the admin 'backup_key' setting) to a
+base64 (std OR urlsafe) string of EXACTLY 32 bytes. When set, every snapshot is
+AES-256-GCM encrypted at rest and written as backups/ffs_<ts>.zip.enc (the off-site
+copy is therefore ciphertext too); with NO key set, snapshots are byte-identical to
+before (plaintext ffs_<ts>.zip). This key is SEPARATE from FFS_KEK_KEY (portal-credential
+custody) so it can be rotated/escrowed independently. CARDINAL RULE: hold the backup key
+OFF the backup target — a key stored alongside the ciphertext defeats the entire control.
+A set-but-malformed key FAILS LOUD (never silently downgrades to plaintext). Caveat: the
+zip is encrypted whole-in-memory (chunked/streaming GCM is out of scope), so a snapshot
+much larger than available RAM is not supported by the encrypted path.
+
 Policy: run after every monthly close and before any bulk change; sync the
 backups/ folder to versioned storage (OneDrive/SharePoint) so history survives
 machine loss. Audit CSVs inside each snapshot are the tamper-evidence copy of
@@ -24,10 +36,16 @@ import os, sys, csv, json, hashlib, sqlite3, zipfile, glob, io, tempfile, time
 
 import db
 import applog
+import keyvault
 from datetime import datetime
 from datetime import timezone as _tz
 
 log = applog.get("backup")
+
+# Encryption-at-rest blob header (distinct from keyvault's "FFSv1" envelope magic).
+_ENC_MAGIC = b"FFSBK1"      # versioned backup-blob marker (1 = this format)
+_ENC_NONCE = 12             # AES-GCM standard nonce length
+_ENC_AAD = b"ffs-backup"    # GCM additional-authenticated-data binding the blob to backups
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 BACKUPDIR = os.path.join(WORKDIR, "backups")
@@ -40,6 +58,60 @@ EXCLUDE_PREFIX = ("backups", "__pycache__", ".secret_key")
 
 def _sha(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def backup_key():
+    """Resolve the 32-byte backup encryption key, or None when encryption is disabled.
+
+    FFS_BACKUP_KEY (environment) wins; otherwise the admin 'backup_key' setting (auth
+    imported lazily so the CLI / plain imports stay light). The value is base64 (std or
+    urlsafe) of EXACTLY 32 bytes, decoded via keyvault._decode_b64_key. Returns None when
+    unset (= encryption off, plaintext snapshots as before). A SET-but-malformed key
+    RAISES (fail loud) — a misconfigured backup key must NEVER silently fall back to
+    plaintext. Never logs the key."""
+    raw = os.environ.get("FFS_BACKUP_KEY")
+    if raw is None:
+        try:
+            import auth
+            raw = auth.get_setting("backup_key", "") or ""
+        except Exception as e:
+            log.debug("backup_key: could not read backup_key setting: %s", e)
+            raw = ""
+    if not (raw or "").strip():
+        return None
+    # Set-but-malformed -> ValueError from _decode_b64_key (fail loud, do not log the key).
+    return keyvault._decode_b64_key(raw)
+
+
+def _encrypt_blob(data: bytes, key: bytes) -> bytes:
+    """AES-256-GCM encrypt the whole backup zip in memory. Layout:
+        _ENC_MAGIC | nonce(12) | AES-256-GCM(key, nonce, data, aad=_ENC_AAD)."""
+    nonce = os.urandom(_ENC_NONCE)
+    ct = keyvault.AESGCM(key).encrypt(nonce, data, _ENC_AAD)
+    return _ENC_MAGIC + nonce + ct
+
+
+def _decrypt_blob(blob: bytes, key: bytes) -> bytes:
+    """Reverse _encrypt_blob. Raises on a bad/short magic, truncation, or any tamper /
+    wrong key (GCM tag check)."""
+    blob = bytes(blob)
+    if not blob.startswith(_ENC_MAGIC):
+        raise ValueError("backup._decrypt_blob: not a FFSBK1 encrypted backup")
+    off = len(_ENC_MAGIC)
+    nonce = blob[off:off + _ENC_NONCE]; off += _ENC_NONCE
+    if len(nonce) != _ENC_NONCE:
+        raise ValueError("backup._decrypt_blob: truncated nonce")
+    ct = blob[off:]
+    return keyvault.AESGCM(key).decrypt(nonce, ct, _ENC_AAD)
+
+
+def _is_encrypted(path) -> bool:
+    """True iff the file at `path` begins with the encrypted-backup magic header."""
+    try:
+        with open(path, "rb") as f:
+            return f.read(len(_ENC_MAGIC)) == _ENC_MAGIC
+    except OSError:
+        return False
 
 
 def _audit_csv(dbfile):
@@ -62,7 +134,17 @@ def _audit_csv(dbfile):
 def snapshot():
     os.makedirs(BACKUPDIR, exist_ok=True)
     ts = datetime.now(_tz.utc).strftime("%Y%m%d_%H%M%S")
-    path = os.path.join(BACKUPDIR, f"ffs_{ts}.zip")
+    # Resolve the key BEFORE building so a malformed key fails loud (and leaves no
+    # half-written artifact). None => encryption disabled => plaintext as before.
+    key = backup_key()
+    plain_path = os.path.join(BACKUPDIR, f"ffs_{ts}.zip")
+    # Build into a temp zip; if encrypting we then wrap it into <ts>.zip.enc and remove
+    # the plaintext temp. With no key the temp path == the final plaintext path.
+    if key is None:
+        path = plain_path
+    else:
+        tmpfd, path = tempfile.mkstemp(prefix=f"ffs_{ts}_", suffix=".zip.tmp", dir=BACKUPDIR)
+        os.close(tmpfd)
     manifest = {}
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         # consistent DB copies via sqlite backup API (safe while app is running)
@@ -112,8 +194,30 @@ def snapshot():
             raw = open(f, "rb").read()
             z.writestr(arc, raw); manifest[arc] = _sha(raw)
         z.writestr("MANIFEST.sha256.json", json.dumps(manifest, indent=1))
-    # rotation
-    snaps = sorted(glob.glob(os.path.join(BACKUPDIR, "ffs_*.zip")))
+    # Encryption-at-rest (opt-in): wrap the finished zip into <ts>.zip.enc and drop the
+    # plaintext temp. The whole zip is encrypted in memory (see docstring size caveat).
+    if key is not None:
+        with open(path, "rb") as f:
+            raw = f.read()
+        try:
+            os.remove(path)
+        except OSError as e:
+            log.debug("snapshot: temp zip cleanup failed for %s: %s", path, e)
+        path = plain_path + ".enc"
+        blob = _encrypt_blob(raw, key)
+        # atomic write: temp file + os.replace so a partial .enc never appears
+        tmpfd, tmppath = tempfile.mkstemp(prefix=f"ffs_{ts}_", suffix=".enc.tmp", dir=BACKUPDIR)
+        try:
+            with os.fdopen(tmpfd, "wb") as f:
+                f.write(blob)
+            os.replace(tmppath, path)
+        finally:
+            if os.path.exists(tmppath):
+                try: os.remove(tmppath)
+                except OSError as e:
+                    log.debug("snapshot: enc temp cleanup failed for %s: %s", tmppath, e)
+    # rotation (match BOTH plaintext .zip and encrypted .zip.enc; name-sort = ts-sort)
+    snaps = sorted(glob.glob(os.path.join(BACKUPDIR, "ffs_*.zip*")))
     for old in snaps[:-KEEP]:
         os.remove(old)
     # Best-effort off-site copy. A sync fault must never break the snapshot, so
@@ -168,8 +272,9 @@ def sync_snapshot(path=None):
                 try: os.remove(tmppath)
                 except OSError as e:
                     log.debug("sync_snapshot: temp cleanup failed for %s: %s", tmppath, e)
-        # off-site rotation: keep the newest KEEP (same depth as local)
-        synced = sorted(glob.glob(os.path.join(d, "ffs_*.zip")))
+        # off-site rotation: keep the newest KEEP (same depth as local). Match both the
+        # plaintext .zip and encrypted .zip.enc forms (encrypted stays encrypted off-site).
+        synced = sorted(glob.glob(os.path.join(d, "ffs_*.zip*")))
         for old in synced[:-KEEP]:
             try: os.remove(old)
             except OSError as e:
@@ -187,7 +292,7 @@ def last_synced():
     if not d:
         return (None, None)
     try:
-        synced = sorted(glob.glob(os.path.join(d, "ffs_*.zip")))
+        synced = sorted(glob.glob(os.path.join(d, "ffs_*.zip*")))
         if not synced:
             return (None, None)
         return (synced[-1], os.path.getmtime(synced[-1]))
@@ -198,7 +303,7 @@ def last_synced():
 
 def last_snapshot():
     """(path, mtime_epoch) of the newest snapshot, or (None, None)."""
-    snaps = sorted(glob.glob(os.path.join(BACKUPDIR, "ffs_*.zip")))
+    snaps = sorted(glob.glob(os.path.join(BACKUPDIR, "ffs_*.zip*")))
     if not snaps:
         return (None, None)
     return (snaps[-1], os.path.getmtime(snaps[-1]))
@@ -215,8 +320,32 @@ def due(interval_hours):
     return (time.time() - mtime) >= interval_hours * 3600
 
 
+def _open_zip(path):
+    """Return a zipfile.ZipFile for `path`, transparently decrypting an encrypted
+    (.zip.enc / FFSBK1) snapshot in memory first. For a plaintext snapshot this opens
+    the file directly (byte-identical to before). Raises a CLEAR error when the file is
+    encrypted but no backup key is configured, or when decryption fails (tamper / wrong
+    key) — never a bare GCM stacktrace bubbling to the caller."""
+    if not _is_encrypted(path):
+        return zipfile.ZipFile(path)
+    key = backup_key()
+    if key is None:
+        raise ValueError(
+            "backup: %s is encrypted but no backup key is configured "
+            "(set FFS_BACKUP_KEY / 'backup_key') — cannot decrypt" % os.path.basename(path))
+    with open(path, "rb") as f:
+        blob = f.read()
+    try:
+        plain = _decrypt_blob(blob, key)
+    except Exception as e:
+        raise ValueError(
+            "backup: cannot decrypt %s (wrong key or tampered file)"
+            % os.path.basename(path)) from e
+    return zipfile.ZipFile(io.BytesIO(plain))
+
+
 def verify(path):
-    with zipfile.ZipFile(path) as z:
+    with _open_zip(path) as z:
         manifest = json.loads(z.read("MANIFEST.sha256.json"))
         bad = [a for a, h in manifest.items() if _sha(z.read(a)) != h]
     return bad
@@ -225,7 +354,7 @@ def verify(path):
 def restore(path, target):
     os.makedirs(target, exist_ok=True)
     target_real = os.path.realpath(target)
-    with zipfile.ZipFile(path) as z:
+    with _open_zip(path) as z:
         for info in z.infolist():
             if info.filename == "MANIFEST.sha256.json":
                 continue
@@ -276,8 +405,11 @@ def harden():
 
 if __name__ == "__main__":
     if "--verify" in sys.argv:
-        bad = verify(sys.argv[sys.argv.index("--verify") + 1])
-        print("VERIFY:", "OK - all hashes match" if not bad else f"FAILED: {bad}")
+        try:
+            bad = verify(sys.argv[sys.argv.index("--verify") + 1])
+            print("VERIFY:", "OK - all hashes match" if not bad else f"FAILED: {bad}")
+        except ValueError as e:
+            print("VERIFY: FAILED -", e)
     elif "--restore" in sys.argv:
         src = sys.argv[sys.argv.index("--restore") + 1]
         to = sys.argv[sys.argv.index("--to") + 1]
@@ -287,4 +419,5 @@ if __name__ == "__main__":
             print(f"  chmod {m}  {f}")
     else:
         path, n = snapshot()
-        print(f"snapshot: {path} ({n} files in manifest, keeping last {KEEP})")
+        enc = " [encrypted-at-rest]" if _is_encrypted(path) else ""
+        print(f"snapshot: {path}{enc} ({n} files in manifest, keeping last {KEEP})")

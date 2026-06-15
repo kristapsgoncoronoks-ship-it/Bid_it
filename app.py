@@ -6424,10 +6424,21 @@ def admin():
                       f'last copied: {_sync_state}{_sync_warn}')
     else:
         _sync_line = '<br>Off-site sync: <span class="bad">not configured</span>'
+    # Encryption-at-rest status (read-only; the key is env/secret-manager only, like
+    # FFS_KEK_KEY — no UI to set it). A malformed key must surface, not crash the page.
+    try:
+        _bk_enc_on = _bksync.backup_key() is not None
+        _enc_state = ('<span class="ok">ON (AES-256-GCM)</span>' if _bk_enc_on
+                      else '<span>off — snapshots stored in cleartext</span>')
+    except Exception as _enc_e:
+        _enc_state = ('<span class="bad">misconfigured backup key — '
+                      f'{esc(str(_enc_e))}</span>')
+    _enc_line = f'<br>Encryption at rest: {_enc_state}'
     backupcard = ('<div class="card"><h2>Backups &amp; data integrity</h2>'
                   f'<p>Last snapshot: {last_bk} &nbsp;·&nbsp; Schedule: <b>{esc(_sched_txt)}</b>'
                   f'<br>DB integrity (quick_check): {" &nbsp; ".join(dbstat) or "—"}'
                   f'{_sync_line}'
+                  f'{_enc_line}'
                   f'<br>{ndocs} document file(s) tracked.</p>'
                   + schedule_form
                   + _sync_form
