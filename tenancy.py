@@ -62,6 +62,45 @@ WORKDIR = os.path.dirname(os.path.abspath(__file__))
 # like every other module switch; "0"/absent = OFF (single-tenant, inert).
 SETTING = "multitenant"
 
+# ── Per-table tenant column (P1: schema plumbing, no query wired yet) ───────────
+
+# The implicit single tenant. Every EXISTING row in a single-tenant install
+# backfills to this id (via the column DEFAULT below), and every NEW row stamps
+# to it too while multitenant is OFF. When the operator later goes multi-CLIENT,
+# they rename/migrate this default tenant's data to a named tenant (or register
+# `default` in the tenant registry and add real tenants alongside); until then it
+# is the one implicit tenant and no query reads the column. Keep this value
+# stable — it is baked into the column DEFAULT of every tenant-scoped table.
+DEFAULT_TENANT_ID = "default"
+
+# The tenant column name, kept here so the schema DDL and scope_clause(column=...)
+# stay in lockstep across every P1 slice.
+TENANT_COLUMN = "tenant_id"
+
+
+def tenant_column_ddls(tables):
+    """Return one ALTER-ADD-COLUMN statement per table that adds the tenant_id
+    column with the DEFAULT-TENANT backfill.
+
+    This is the REUSABLE P1 mechanism: every per-DB schema slice (customers,
+    suppliers, vat_claims, benchmark, …) APPENDS the result to the END of that
+    module's `db_migrate.apply(con, "<module>", [...])` statement list, so each
+    ALTER runs exactly ONCE per database (db_migrate is versioned). Using one
+    helper guarantees an IDENTICAL column definition everywhere.
+
+    The column is `TEXT NOT NULL DEFAULT '<DEFAULT_TENANT_ID>'`:
+      - TEXT is audit-safe (the json_object audit triggers reject BLOB, not TEXT).
+      - the DEFAULT backfills EXISTING rows when the ALTER runs and stamps NEW
+        rows that don't name the column — so nothing has to know about it yet.
+    NOTHING SELECTs/filters this column in P1, so adding it changes no behavior;
+    P2 wires `scope_clause()` into queries table-by-table behind the switch.
+    """
+    return [
+        f"ALTER TABLE {t} ADD COLUMN {TENANT_COLUMN} TEXT NOT NULL "
+        f"DEFAULT '{DEFAULT_TENANT_ID}'"
+        for t in tables
+    ]
+
 # ── Registry (app-owned, in security.db via auth.connect) ──────────────────────
 
 _SCHEMA_READY = set()   # security.db paths whose tenancy schema is set up this process

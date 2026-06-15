@@ -18,6 +18,7 @@ API: get_customer(name_or_code) -> dict incl. payout account; portal(name)
 import sqlite3, sys
 import audit
 import db_tuning, db_migrate
+import tenancy
 
 import os
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
@@ -172,6 +173,17 @@ def connect():
             # (no signatory ID stored by owner decision; merge-only CRM data)
             "ALTER TABLE customers ADD COLUMN signatory_name TEXT",
             "ALTER TABLE customers ADD COLUMN signatory_title TEXT",
+            # P1 multi-tenancy (schema plumbing only): stamp every CRM table with a
+            # tenant_id; existing rows backfill to DEFAULT_TENANT_ID via the column
+            # DEFAULT, new rows default too. NO query reads this column yet (the
+            # `multitenant` switch is OFF and scope_clause is unwired until P2), so
+            # this is a pure no-behavior-change addition. APPEND-ONLY — keep at END.
+            *tenancy.tenant_column_ddls([
+                "customers", "customer_bank_accounts", "customer_supplier_accounts",
+                "customer_documents", "customer_fees", "customer_countries",
+                "country_requirements", "checklist_rules", "doc_templates",
+                "document_requests",
+            ]),
         ])
         # seed the adjustable submission checklist once (empty table -> defaults)
         if not con.execute("SELECT 1 FROM checklist_rules LIMIT 1").fetchone():
@@ -190,8 +202,13 @@ def seed(con):
     con.executemany("""INSERT OR REPLACE INTO customers
         (code, company_name, reg_number, vat_number, legal_address, country,
          home_portal, phone, email, status, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?)""", CUSTOMERS)
-    con.executemany("INSERT OR REPLACE INTO customer_bank_accounts VALUES (?,?,?,?,?,?,?)", BANKS)
-    con.executemany("INSERT OR REPLACE INTO customer_supplier_accounts VALUES (?,?,?,?)", SUPPLIER_ACCOUNTS)
+    # Name columns explicitly so a trailing schema column (e.g. the P1 tenant_id,
+    # which takes its DEFAULT) never breaks these positional seeds.
+    con.executemany("""INSERT OR REPLACE INTO customer_bank_accounts
+        (customer, iban, swift, bank, currency, purpose, notes)
+        VALUES (?,?,?,?,?,?,?)""", BANKS)
+    con.executemany("""INSERT OR REPLACE INTO customer_supplier_accounts
+        (customer, supplier, account_no, notes) VALUES (?,?,?,?)""", SUPPLIER_ACCOUNTS)
     con.commit()
 
 # ---------------------------------------------------------------- onboarding
@@ -418,6 +435,10 @@ def merge_fields(con, code, country=None):
     f = {}
     if c:
         for k in c.keys():
+            # tenant_id is internal multi-tenancy plumbing, not a template
+            # placeholder — keep it out of the merge fields (and template_fields()).
+            if k == tenancy.TENANT_COLUMN:
+                continue
             f[k] = c[k]
     # prefer the dedicated refund-payout account; fall back to any account on file
     bank = con.execute("""SELECT iban, swift, bank FROM customer_bank_accounts
