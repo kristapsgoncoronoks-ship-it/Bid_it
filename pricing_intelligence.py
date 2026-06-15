@@ -49,6 +49,21 @@ _BENCHMARK_DDL = [
         PRIMARY KEY (country, date, product_group))""",
     "CREATE INDEX IF NOT EXISTS ix_myp ON my_prices(country, city, date)",
     "CREATE INDEX IF NOT EXISTS ix_whp ON wholesale_prices(country, date)",
+    # ADVERTISED prices — the HISTORICAL store of what a supplier advertised on its
+    # portal per (supplier, country, city, date, product). Kept FOREVER (append-only,
+    # one row per dated quote): a past invoice can always be checked against the price
+    # that applied on its fill date (carry-forward in reliability_report). NET EUR/L,
+    # final (VAT excluded). city = the location/station dimension (== transactions.station).
+    # PK FLAG: (supplier, country, city, date, product_group) is NOT tenant-qualified —
+    # before multi-CLIENT go-live this PK must become tenant-qualified (and the OR REPLACE
+    # in load_advertised_prices/add_advertised_price rekeyed accordingly), same family as
+    # the my_prices/portal_configs flagged items; a separate, higher-risk PK-rebuild work.
+    """CREATE TABLE IF NOT EXISTS advertised_prices (
+        supplier TEXT, country TEXT, city TEXT, date TEXT,
+        product_group TEXT DEFAULT 'Diesel', net_price REAL,
+        source TEXT DEFAULT 'upload',
+        PRIMARY KEY (supplier, country, city, date, product_group))""",
+    "CREATE INDEX IF NOT EXISTS ix_advp ON advertised_prices(supplier, country, city, date)",
 ] + tenancy.tenant_column_ddls([
     # P1 multi-tenancy (schema plumbing only): stamp the app-owned benchmark price
     # tables with a tenant_id; existing rows backfill to DEFAULT_TENANT_ID via the
@@ -56,8 +71,13 @@ _BENCHMARK_DDL = [
     # `multitenant` switch is OFF and scope_clause is unwired until P2). This is
     # also exactly what P2 will use to keep the antitrust-sensitive benchmark
     # intra-tenant (docs/SECURITY_COMPLIANCE_PLAN.md §7). APPEND-ONLY — keep at END.
-    "my_prices", "wholesale_prices",
+    "my_prices", "wholesale_prices", "advertised_prices",
 ])
+
+# Reliability: per-litre overcharge tolerance — a fill whose invoiced effective NET
+# price exceeds the advertised price by no more than this (EUR/L) is treated as
+# within tolerance (trivial rounding noise), NOT an overcharge.
+OVERCHARGE_TOL_EUR_PER_L = 0.01
 
 
 def connect():
@@ -211,6 +231,76 @@ def load_my_prices(rows, replace_period=None, source="upload"):
         n += 1
     con.commit(); con.close()
     return n
+
+
+# ---------------------------------------------------------------- advertised prices
+def load_advertised_prices(rows, source="upload"):
+    """rows: list of dicts/tuples (supplier, country, city, date, product_group,
+    net_price) — the price a supplier ADVERTISED for that location/date. Prices are
+    NET EUR/L, final (VAT excluded).
+
+    HISTORICAL/APPEND-ONLY: unlike load_my_prices this NEVER wipes prior dates/periods.
+    Re-uploading the same (supplier, country, city, date, product_group) corrects just
+    THAT row via INSERT OR REPLACE; every other dated row is retained so a past invoice
+    can always be checked against the advertised price that applied on its fill date.
+
+    supplier/country normalize to upper-case (the module's convention). Returns count
+    loaded."""
+    con = connect()
+    # Stamp by the bound tenant (P2). OFF -> write_tenant()='default' (the column
+    # DEFAULT) so this is byte-identical to today; ON keeps the store intra-tenant and
+    # a tenant-less/owner write fails LOUD here before any row is touched.
+    tid = tenancy.write_tenant()
+    n = 0
+    for r in rows:
+        if isinstance(r, dict):
+            sup, c, city, d = r["supplier"], r["country"], r["city"], r["date"]
+            pg = r.get("product_group") or "Diesel"
+            p = r["net_price"]
+        else:
+            sup, c, city, d, pg, p = (r[0], r[1], r[2], r[3],
+                                      (r[4] if len(r) > 4 and r[4] else "Diesel"),
+                                      r[5] if len(r) > 5 else r[4])
+        con.execute(
+            "INSERT OR REPLACE INTO advertised_prices"
+            " (supplier,country,city,date,product_group,net_price,source,tenant_id)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (sup.strip().upper(), c.strip().upper(), city.strip(), d, pg,
+             money.f2(p), source, tid))
+        n += 1
+    con.commit(); con.close()
+    return n
+
+
+def add_advertised_price(supplier, country, city, date, net_price,
+                         product_group="Diesel", source="manual"):
+    """Single-row convenience wrapper over load_advertised_prices (for the R2 manual-
+    entry form). NET EUR/L. Returns 1 on insert/replace."""
+    return load_advertised_prices(
+        [{"supplier": supplier, "country": country, "city": city, "date": date,
+          "product_group": product_group, "net_price": net_price}], source=source)
+
+
+def list_advertised_prices(supplier=None, country=None, limit=200):
+    """Recent advertised-price rows for display (newest date first), optionally filtered
+    by supplier/country. Scoped to the bound tenant via scope_clause() (owner sees all;
+    inert OFF). The internal tenant_id plumbing is hidden from the returned dicts."""
+    con = connect()
+    where = "1=1"
+    args = []
+    if supplier:
+        where += " AND supplier=?"; args.append(supplier.strip().upper())
+    if country:
+        where += " AND country=?"; args.append(country.strip().upper())
+    frag, tp = tenancy.scope_clause()
+    rows = [dict(r) for r in con.execute(
+        f"SELECT * FROM advertised_prices WHERE {where}{frag}"
+        " ORDER BY date DESC, supplier, city LIMIT ?", args + list(tp) + [int(limit)])]
+    con.close()
+    for d in rows:
+        # tenant_id is internal P1 plumbing, not part of the exposed contract.
+        d.pop(tenancy.TENANT_COLUMN, None)
+    return rows
 
 
 def load_wholesale(rows):
@@ -525,6 +615,153 @@ def peer_benchmark_workbook(period=None, grain="month", product_group="Diesel", 
     ws.freeze_panes = "A3"; ws.sheet_view.showGridLines = False
     wb.save(path)
     return path
+
+
+# ---------------------------------------------------------------- supplier reliability
+def reliability_report(period=None, detail_limit=200):
+    """SUPPLIER RELIABILITY — does a supplier INVOICE what it ADVERTISED?
+
+    Customers see a price advertised on a supplier's portal and believe it's final; the
+    invoice may charge MORE. We compare each invoiced fill's effective NET price against
+    the advertised price that applied on that fill's date, per (supplier, country, city,
+    product_group), and surface where a supplier overcharged.
+
+    Prices everywhere are NET EUR/L, final (VAT excluded, rebates applied).
+    Effective/INVOICED price = net_eur_eff / qty (the canonical definition).
+
+    `period` ('YYYY-MM', optional) filters on the fill MONTH; None = all history.
+
+    MATCHING / CARRY-FORWARD. Each fill is matched to the advertised price for the SAME
+    (supplier, country, city, product_group): an exact-date row if present, else the most
+    recent advertised row dated ON-OR-BEFORE the fill date (advertised prices aren't
+    necessarily daily, so we carry the latest prior quote forward). A fill with no
+    advertised reference on-or-before its date is UNMATCHED — excluded from the score and
+    counted separately.
+
+    Per matched fill: advertised, invoiced (= net_eur_eff/qty),
+    delta = invoiced - advertised, overcharge_eur = max(0, delta) * qty. A small
+    per-litre tolerance (OVERCHARGE_TOL_EUR_PER_L) keeps trivial rounding noise from
+    being flagged as an overcharge.
+
+    reliability_score = matched_fills_within_tolerance / matched_fills — a 0..1 ratio
+    (1.0 = the supplier never invoiced materially above what it advertised; lower = more
+    fills overcharged). Suppliers with no matched fills get a None score.
+
+    Returns a dict:
+      suppliers: [{supplier, matched_fills, overcharged_fills, unmatched_fills,
+                   total_overcharge_eur, avg_delta_eur_per_l, reliability_score}]
+                 sorted by total_overcharge_eur desc;
+      detail:    overcharged fills (delta > tol) {supplier, country, city, date, product,
+                 qty, advertised, invoiced, delta, overcharge_eur}, biggest first, capped
+                 to detail_limit;
+      summary:   {matched_fills, overcharged_fills, unmatched_fills, total_overcharge_eur}.
+    """
+    tol = OVERCHARGE_TOL_EUR_PER_L
+    # --- invoiced fills: read transactions READ-ONLY via the product boundary. Same grain
+    # the rest of the module uses (per supplier/country/station/date/product_group). The
+    # app holds no writable handle to fuel_history.db (a stray write raises by design).
+    con = product_connect()
+    where = "1=1"
+    args = []
+    if period:
+        where += " AND substr(date,1,7)=?"; args.append(period)
+    # Respect the module's transactions tenant-scoping convention (clause in WHERE before
+    # GROUP BY). OFF/owner -> ("",[]) unchanged; single-table read so tenant_id is
+    # unambiguous.
+    frag, tp = tenancy.scope_clause()
+    fills = con.execute(
+        f"""SELECT supplier, country, station AS city, date, product_group,
+            SUM(qty) qty, SUM(net_eur_eff) net FROM transactions
+            WHERE {where}{frag}
+            GROUP BY supplier, country, station, date, product_group""",
+        args + list(tp)).fetchall()
+    con.close()
+
+    # --- advertised prices (scoped) into an in-memory carry-forward index:
+    #     (supplier, country, city, product_group) -> [(date, net_price)] sorted by date.
+    bcon = connect()
+    afrag, atp = tenancy.scope_clause()
+    adv_rows = bcon.execute(
+        "SELECT supplier, country, city, date, product_group, net_price"
+        " FROM advertised_prices WHERE 1=1" + afrag + " ORDER BY date", atp).fetchall()
+    bcon.close()
+    adv_index = {}
+    for a in adv_rows:
+        key = (a["supplier"], a["country"], a["city"], a["product_group"])
+        adv_index.setdefault(key, []).append((a["date"], a["net_price"]))
+
+    def _advertised_for(supplier, country, city, pg, fdate):
+        """Exact-date advertised price, else the latest dated ON-OR-BEFORE fdate
+        (carry-forward). None if nothing applies on-or-before the fill date."""
+        series = adv_index.get((supplier, country, city, pg))
+        if not series:
+            return None
+        chosen = None
+        for adate, price in series:           # ascending by date
+            if adate == fdate:
+                return price                   # exact match wins
+            if adate <= fdate:
+                chosen = price                 # most recent prior so far
+            else:
+                break                          # series sorted; no later row qualifies
+        return chosen
+
+    # --- per-fill comparison + per-supplier aggregation
+    agg = {}   # supplier -> stats
+    detail = []
+    for f in fills:
+        sup = f["supplier"]
+        s = agg.setdefault(sup, {"matched": 0, "within_tol": 0, "overcharged": 0,
+                                 "unmatched": 0, "overcharge_eur": 0.0,
+                                 "delta_sum": 0.0})
+        qty = f["qty"] or 0.0
+        if qty <= 0:
+            continue
+        advertised = _advertised_for(sup, f["country"], f["city"],
+                                     f["product_group"], f["date"])
+        if advertised is None:
+            s["unmatched"] += 1
+            continue
+        invoiced = f["net"] / qty               # effective NET EUR/L (full precision)
+        delta = invoiced - advertised
+        s["matched"] += 1
+        s["delta_sum"] += delta
+        if delta > tol:
+            s["overcharged"] += 1
+            oc = money.f2(delta * qty)          # EUR HALF_UP
+            s["overcharge_eur"] += oc
+            detail.append({
+                "supplier": sup, "country": f["country"], "city": f["city"],
+                "date": f["date"], "product": f["product_group"],
+                "qty": round(qty, 1), "advertised": round(advertised, 4),
+                "invoiced": round(invoiced, 4), "delta": round(delta, 4),
+                "overcharge_eur": oc})
+        else:
+            s["within_tol"] += 1
+
+    suppliers = []
+    for sup, s in agg.items():
+        matched = s["matched"]
+        suppliers.append({
+            "supplier": sup,
+            "matched_fills": matched,
+            "overcharged_fills": s["overcharged"],
+            "unmatched_fills": s["unmatched"],
+            "total_overcharge_eur": money.f2(s["overcharge_eur"]),
+            "avg_delta_eur_per_l": round(s["delta_sum"] / matched, 4) if matched else None,
+            # within-tolerance share of matched fills; None when nothing matched.
+            "reliability_score": round(s["within_tol"] / matched, 4) if matched else None})
+    suppliers.sort(key=lambda r: r["total_overcharge_eur"], reverse=True)
+
+    detail.sort(key=lambda r: r["overcharge_eur"], reverse=True)
+    detail = detail[:detail_limit]
+
+    summary = {
+        "matched_fills": sum(s["matched_fills"] for s in suppliers),
+        "overcharged_fills": sum(s["overcharged_fills"] for s in suppliers),
+        "unmatched_fills": sum(s["unmatched_fills"] for s in suppliers),
+        "total_overcharge_eur": money.f2(sum(s["total_overcharge_eur"] for s in suppliers))}
+    return {"suppliers": suppliers, "detail": detail, "summary": summary}
 
 
 def adopt_internal_benchmark(period=None, grain="month", product_group="Diesel"):
