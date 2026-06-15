@@ -177,20 +177,32 @@ def set_config(supplier, kind, base_url="", config=None, enabled=True, interval_
     except (TypeError, ValueError):
         ih = 0.0
     con = connect()
+    # P2: stamp the bound tenant on this user-facing admin write (DEFAULT_TENANT_ID OFF;
+    # raises under ON with no concrete tenant).
+    # KNOWN LIMITATION (flag, do NOT fix here): the ON CONFLICT target is `supplier`
+    # only — NOT tenant-qualified. Under the switch ON, two tenants configuring the
+    # same supplier would COLLIDE/UPSERT into each other's row. Before multi-client
+    # go-live this must become ON CONFLICT(tenant_id, supplier) with a matching UNIQUE
+    # (tenant_id, supplier) — a separate, higher-risk PK-rekeying/table-rebuild work
+    # order. Under OFF (single 'default' tenant) there is no collision, so not a
+    # regression.
     con.execute("""INSERT INTO portal_configs
-                     (supplier, kind, base_url, config, enabled, interval_hours, updated_at)
-                   VALUES (?,?,?,?,?,?, CURRENT_TIMESTAMP)
+                     (supplier, kind, base_url, config, enabled, interval_hours, tenant_id, updated_at)
+                   VALUES (?,?,?,?,?,?,?, CURRENT_TIMESTAMP)
                    ON CONFLICT(supplier) DO UPDATE SET kind=excluded.kind,
                      base_url=excluded.base_url, config=excluded.config,
                      enabled=excluded.enabled, interval_hours=excluded.interval_hours,
                      updated_at=CURRENT_TIMESTAMP""",
                 (supplier.upper(), kind, base_url, json.dumps(config or {}),
-                 1 if enabled else 0, ih))
+                 1 if enabled else 0, ih, tenancy.write_tenant()))
     con.commit(); con.close()
 
 def get_config(supplier):
     con = connect()
-    r = con.execute("SELECT * FROM portal_configs WHERE supplier=?", (supplier.upper(),)).fetchone()
+    # P2 tenant isolation: a bound tenant sees only its own portal config (inert OFF).
+    frag, params = tenancy.scope_clause()
+    r = con.execute("SELECT * FROM portal_configs WHERE supplier=?" + frag,
+                    [supplier.upper(), *params]).fetchone()
     con.close()
     if not r:
         return None
@@ -204,7 +216,11 @@ def get_config(supplier):
 
 def list_configs():
     con = connect()
-    rows = [dict(r) for r in con.execute("SELECT * FROM portal_configs ORDER BY supplier")]
+    # P2 tenant isolation: scope to the bound tenant (owner sees all; inert OFF). No
+    # base WHERE here, so anchor on WHERE 1=1 before appending the AND-led fragment.
+    frag, params = tenancy.scope_clause()
+    rows = [dict(r) for r in con.execute(
+        "SELECT * FROM portal_configs WHERE 1=1" + frag + " ORDER BY supplier", params)]
     con.close()
     for d in rows:
         # exclude the P1 tenant_id plumbing from the exposed config contract.
@@ -222,20 +238,33 @@ def set_credentials(supplier, entity, username, secret, extra=None):
     supplier portal."""
     aad = _aad(supplier, entity)
     con = connect()
-    con.execute("""INSERT INTO portal_credentials (supplier, entity, username, secret_enc, extra, updated_at)
-                   VALUES (?,?,?,?,?, CURRENT_TIMESTAMP)
+    # P2: stamp the bound tenant on this user-facing admin write (DEFAULT_TENANT_ID OFF;
+    # raises under ON with no concrete tenant).
+    # KNOWN LIMITATION (flag, do NOT fix here): the ON CONFLICT target is
+    # (supplier, entity) only — NOT tenant-qualified. Under the switch ON, two tenants
+    # storing a credential for the same (supplier, entity) would COLLIDE/UPSERT into
+    # each other's row. Before multi-client go-live this must become
+    # ON CONFLICT(tenant_id, supplier, entity) with a matching UNIQUE — a separate,
+    # higher-risk PK-rekeying/table-rebuild work order. Under OFF (single 'default'
+    # tenant) there is no collision, so not a regression.
+    con.execute("""INSERT INTO portal_credentials (supplier, entity, username, secret_enc, extra, tenant_id, updated_at)
+                   VALUES (?,?,?,?,?,?, CURRENT_TIMESTAMP)
                    ON CONFLICT(supplier, entity) DO UPDATE SET username=excluded.username,
                      secret_enc=excluded.secret_enc, extra=excluded.extra,
                      updated_at=CURRENT_TIMESTAMP""",
                 (supplier.upper(), entity, username, _encrypt(secret, aad),
-                 _encrypt(json.dumps(extra), aad) if extra is not None else None))
+                 _encrypt(json.dumps(extra), aad) if extra is not None else None,
+                 tenancy.write_tenant()))
     con.commit(); con.close()
 
 def get_credentials(supplier, entity):
     aad = _aad(supplier, entity)
     con = connect()
-    r = con.execute("SELECT * FROM portal_credentials WHERE supplier=? AND entity=?",
-                    (supplier.upper(), entity)).fetchone()
+    # P2 tenant isolation: a bound tenant reads only its own stored credentials —
+    # the core custody-isolation guarantee (owner sees all; inert OFF).
+    frag, params = tenancy.scope_clause()
+    r = con.execute("SELECT * FROM portal_credentials WHERE supplier=? AND entity=?" + frag,
+                    [supplier.upper(), entity, *params]).fetchone()
     con.close()
     if not r:
         return None
@@ -249,8 +278,11 @@ def get_credentials(supplier, entity):
 
 def delete_credentials(supplier, entity):
     con = connect()
-    con.execute("DELETE FROM portal_credentials WHERE supplier=? AND entity=?",
-                (supplier.upper(), entity))
+    # P2 tenant isolation: scope the delete so one tenant cannot remove another tenant's
+    # stored credential (mirrors customer_master.delete_template); inert when OFF.
+    frag, params = tenancy.scope_clause()
+    con.execute("DELETE FROM portal_credentials WHERE supplier=? AND entity=?" + frag,
+                [supplier.upper(), entity, *params])
     con.commit(); con.close()
 
 def reencrypt_legacy():
@@ -260,6 +292,9 @@ def reencrypt_legacy():
     skipped) and per-row fault-tolerant (logs and continues — one bad row never aborts
     the migration). Reads stay read-only; this is the explicit admin migration path.
     Returns (upgraded, total)."""
+    # P2 tenant isolation DEFERRED here: this is operator/owner KEK-migration maintenance
+    # that must re-wrap EVERY row regardless of tenant (it re-encrypts in place, so there
+    # is no cross-tenant READ leak). Scoping it would WRONGLY skip other tenants' rows.
     con = connect()
     rows = con.execute("SELECT supplier, entity, secret_enc, extra FROM portal_credentials").fetchall()
     con.close()
@@ -292,11 +327,16 @@ def list_portals():
     """For the UI: each configured portal + whether credentials exist (NO secrets) +
     the last run."""
     con = connect()
+    # P2 tenant isolation: scope BOTH the credential listing and the run history to
+    # the bound tenant (owner sees all; inert OFF). No base WHERE on either, so anchor
+    # each on WHERE 1=1 before the AND-led fragment.
+    frag, params = tenancy.scope_clause()
     creds = {(r["supplier"], r["entity"]) for r in
-             con.execute("SELECT supplier, entity FROM portal_credentials")}
+             con.execute("SELECT supplier, entity FROM portal_credentials WHERE 1=1" + frag,
+                         params)}
     runs = {}
     for r in con.execute("SELECT supplier, entity, status, finished, rows, message FROM portal_runs "
-                         "ORDER BY id"):
+                         "WHERE 1=1" + frag + " ORDER BY id", params):
         runs[(r["supplier"], r["entity"])] = dict(r)
     cfgs = list_configs()
     con.close()
@@ -343,6 +383,10 @@ def due_portal_fetches(now=None):
     fault must not crash the leader loop). This function makes NO outbound call and
     enqueues nothing; the caller (app._scrape_tick) is the only thing that, gated on a
     global kill-switch, enqueues a fetch per returned portal."""
+    # P2 tenant isolation DEFERRED here: this runs on the SYSTEM scheduler tier, which
+    # must enumerate EVERY tenant's due fetches and stamp each ENQUEUED job with that
+    # row's tenant — that needs the worker-context pattern + caller (enqueuer) changes,
+    # out of scope for this user-facing-CRUD slice. Left unscoped deliberately.
     try:
         now = now or datetime.datetime.utcnow()
         con = connect()
