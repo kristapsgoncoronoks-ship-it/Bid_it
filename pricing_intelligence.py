@@ -187,8 +187,17 @@ def load_my_prices(rows, replace_period=None, source="upload"):
     `source` tags where the prices came from (e.g. 'upload', 'portal:Q8').
     Returns count loaded."""
     con = connect()
+    # Stamp/scope by the bound tenant (P2). OFF -> write_tenant()='default' (the column
+    # DEFAULT) and scope_clause()=("",[]) so this is byte-identical to today; ON keeps
+    # the antitrust-sensitive benchmark intra-tenant (docs/SECURITY_COMPLIANCE_PLAN.md §7).
+    # write_tenant() resolves FIRST so an ON tenant-less/owner write fails LOUD before
+    # the DELETE replaces any rows.
+    tid = tenancy.write_tenant()
     if replace_period:
-        con.execute("DELETE FROM my_prices WHERE substr(date,1,7)=?", (replace_period,))
+        frag, tp = tenancy.scope_clause()
+        # only this tenant replaces its OWN period's rows, never another tenant's.
+        con.execute("DELETE FROM my_prices WHERE substr(date,1,7)=?" + frag,
+                    [replace_period, *tp])
     n = 0
     for r in rows:
         if isinstance(r, dict):
@@ -197,8 +206,8 @@ def load_my_prices(rows, replace_period=None, source="upload"):
         else:
             c, city, d, p = r[0], r[1], r[2], r[3]
             pg = r[4] if len(r) > 4 else "Diesel"
-        con.execute("INSERT OR REPLACE INTO my_prices (country,city,date,product_group,net_price,source)"
-                    " VALUES (?,?,?,?,?,?)", (c, city.strip(), d, pg, float(p), source))
+        con.execute("INSERT OR REPLACE INTO my_prices (country,city,date,product_group,net_price,source,tenant_id)"
+                    " VALUES (?,?,?,?,?,?,?)", (c, city.strip(), d, pg, float(p), source, tid))
         n += 1
     con.commit(); con.close()
     return n
@@ -206,11 +215,13 @@ def load_my_prices(rows, replace_period=None, source="upload"):
 
 def load_wholesale(rows):
     con = connect(); n = 0
+    # Stamp the bound tenant (P2). OFF -> 'default' (the column DEFAULT) = unchanged.
+    tid = tenancy.write_tenant()
     for r in rows:
         c, d, p = (r["country"], r["date"], r["net_price"]) if isinstance(r, dict) else (r[0], r[1], r[2])
         src = r.get("source", "index") if isinstance(r, dict) else "index"
-        con.execute("INSERT OR REPLACE INTO wholesale_prices (country,date,product_group,net_price,source)"
-                    " VALUES (?,?,'Diesel',?,?)", (c, d, float(p), src))
+        con.execute("INSERT OR REPLACE INTO wholesale_prices (country,date,product_group,net_price,source,tenant_id)"
+                    " VALUES (?,?,'Diesel',?,?,?)", (c, d, float(p), src, tid))
         n += 1
     con.commit(); con.close()
     return n
@@ -228,9 +239,14 @@ def supplier_grid(period=None, grain="month", product_group="Diesel"):
     args = [product_group]
     if period:
         where += " AND period=?"; args.append(period)
+    # P2: tenant-scope the aggregate — the clause goes in WHERE (before GROUP BY) so the
+    # volume-weighted aggregate is computed over the current tenant's rows ONLY. OFF/owner
+    # -> ("",[]) (unchanged); single-table read so tenant_id is unambiguous.
+    frag, tp = tenancy.scope_clause()
     rows = con.execute(f"""SELECT country, station AS city, period, date, supplier,
         SUM(qty) qty, SUM(net_eur_eff) net FROM transactions
-        WHERE {where} GROUP BY country, station, period, date, supplier""", args).fetchall()
+        WHERE {where}{frag} GROUP BY country, station, period, date, supplier""",
+        args + list(tp)).fetchall()
     con.close()
     # rebucket by grain and re-aggregate (volume-weighted). Bucket on the PERIOD
     # dimension we filtered (bucket_period), not the raw date (FINDINGS pricing #1).
@@ -250,22 +266,26 @@ def supplier_grid(period=None, grain="month", product_group="Diesel"):
 # ---------------------------------------------------------------- margin baselines
 def _my_price_lookup(con, country, city, date, pg="Diesel", tolerance=3):
     """Match cascade: exact -> +/-tol days same city -> city month avg -> country avg."""
+    # P2: every my_prices read is tenant-scoped — the benchmark a tenant matches against
+    # is its OWN prices only. OFF/owner -> ("",[]) (unchanged). The AVG aggregates take
+    # the clause in WHERE so they average over the tenant's rows only.
+    frag, tp = tenancy.scope_clause()
     row = con.execute("""SELECT net_price FROM my_prices
-        WHERE country=? AND city=? AND date=? AND product_group=?""",
-        (country, city, date, pg)).fetchone()
+        WHERE country=? AND city=? AND date=? AND product_group=?""" + frag,
+        [country, city, date, pg, *tp]).fetchone()
     if row: return row["net_price"], "exact"
     near = con.execute("""SELECT net_price, ABS(julianday(date)-julianday(?)) d
-        FROM my_prices WHERE country=? AND city=? AND product_group=?
-        ORDER BY d LIMIT 1""", (date, country, city, pg)).fetchone()
+        FROM my_prices WHERE country=? AND city=? AND product_group=?""" + frag +
+        " ORDER BY d LIMIT 1", [date, country, city, pg, *tp]).fetchone()
     if near and near["d"] is not None and near["d"] <= tolerance:
         return near["net_price"], "near-date"
     mavg = con.execute("""SELECT AVG(net_price) p FROM my_prices
-        WHERE country=? AND city=? AND product_group=? AND substr(date,1,7)=substr(?,1,7)""",
-        (country, city, pg, date)).fetchone()
+        WHERE country=? AND city=? AND product_group=? AND substr(date,1,7)=substr(?,1,7)"""
+        + frag, [country, city, pg, date, *tp]).fetchone()
     if mavg and mavg["p"] is not None: return mavg["p"], "city-avg"
     cavg = con.execute("""SELECT AVG(net_price) p FROM my_prices
-        WHERE country=? AND product_group=? AND substr(date,1,7)=substr(?,1,7)""",
-        (country, pg, date)).fetchone()
+        WHERE country=? AND product_group=? AND substr(date,1,7)=substr(?,1,7)""" + frag,
+        [country, pg, date, *tp]).fetchone()
     if cavg and cavg["p"] is not None: return cavg["p"], "country-avg"
     return None, "no-benchmark"
 
@@ -295,10 +315,12 @@ def margin_report(period=None, grain="month", product_group="Diesel"):
                   if s != g["supplier"] and p is not None and q]
         other_qty = sum(q for (p, q) in others)
         pack_avg = round(sum(p * q for (p, q) in others) / other_qty, 4) if other_qty else None
-        # wholesale
+        # wholesale (P2: tenant-scoped — averages the tenant's own index rows only;
+        # OFF/owner -> ("",[]) unchanged). Clause in WHERE so the AVG is per-tenant.
+        wfrag, wtp = tenancy.scope_clause()
         wh = con.execute("""SELECT AVG(net_price) p FROM wholesale_prices
-            WHERE country=? AND product_group=? AND substr(date,1,7)=substr(?,1,7)""",
-            (g["country"], product_group, sample_date)).fetchone()
+            WHERE country=? AND product_group=? AND substr(date,1,7)=substr(?,1,7)""" + wfrag,
+            [g["country"], product_group, sample_date, *wtp]).fetchone()
         # `is not None` (not a truthiness test): a legitimate benchmark price of
         # exactly 0.0 is a real price, NOT "no benchmark" — a falsy-zero guard would
         # drop the row from matched volume and suppress the gap. None == no benchmark.
@@ -340,9 +362,13 @@ def internal_benchmark(period=None, grain="month", product_group="Diesel"):
     where = "product_group=?"; args = [product_group]
     if period:
         where += " AND period=?"; args.append(period)
+    # P2: tenant-scope the aggregate (clause in WHERE before GROUP BY) — the self-sourced
+    # benchmark is built from the tenant's OWN purchases only. OFF/owner -> ("",[]).
+    frag, tp = tenancy.scope_clause()
     raw = con.execute(f"""SELECT country, period, date, supplier,
         SUM(qty) qty, SUM(net_eur_eff) net FROM transactions
-        WHERE {where} GROUP BY country, period, date, supplier""", args).fetchall()
+        WHERE {where}{frag} GROUP BY country, period, date, supplier""",
+        args + list(tp)).fetchall()
     con.close()
     agg = {}   # (country, bucket, supplier) -> [qty, net]
     # bucket on the PERIOD dimension we filtered (FINDINGS pricing #1) so an off-period
@@ -410,9 +436,19 @@ def peer_benchmark(period=None, grain="month", product_group="Diesel", min_contr
     where = "product_group=?"; args = [product_group]
     if period:
         where += " AND period=?"; args.append(period)
+    # ANTITRUST GATE (P2, docs/SECURITY_COMPLIANCE_PLAN.md §7). The peer cohort MUST stay
+    # intra-tenant: with the switch ON this clause (in WHERE, before GROUP BY) restricts the
+    # aggregate to the CURRENT tenant's own entities, so a client benchmarks only against
+    # ITSELF and can NEVER see another client's prices/entities. The min-contributor
+    # suppression below still applies WITHIN the tenant. OFF/owner -> ("",[]): a single-
+    # tenant install is byte-identical to today, and the audited owner analytics scope spans
+    # all tenants (de-identified/aggregated only, per §7). Single-table read => tenant_id
+    # unambiguous.
+    frag, tp = tenancy.scope_clause()
     raw = con.execute(f"""SELECT entity, country, period, date,
         SUM(qty) qty, SUM(net_eur_eff) net FROM transactions
-        WHERE {where} GROUP BY entity, country, period, date""", args).fetchall()
+        WHERE {where}{frag} GROUP BY entity, country, period, date""",
+        args + list(tp)).fetchall()
     con.close()
     # rebucket on the PERIOD dimension we filtered (FINDINGS pricing #1) — bucket_period,
     # NOT the raw date — so an off-period straggler groups into the period's cell.
