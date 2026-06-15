@@ -22,6 +22,7 @@ Savings_Intelligence_*.xlsx
 Overpay_Review_*.xlsx
 Expense_Report_*.xlsx
 Accounting_Ledger_*.csv
+SAFT_*.xml
 
 # ── Fetched/cached reference data (re-fetchable) ──────────────────
 ecb_rates.db

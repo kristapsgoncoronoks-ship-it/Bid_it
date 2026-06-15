@@ -470,6 +470,7 @@ PERM_BY_ENDPOINT = {
     "export_overpay":  "exports",
     "export_expenses": "exports",
     "export_accounting": "exports",
+    "export_saft": "exports",
     "documents":       "documents", "doc_download": "documents",
     "export_master":   "exports", "export_history": "exports",
     "export_pricing":  "exports", "export_vat": "exports", "export_compare": "exports",
@@ -507,7 +508,8 @@ MODULES = {
                     "pricing", "pricing_market", "pricing_portal", "pricing_adopt_benchmark",
                     "pricing_upload", "api_pricing", "export_compare", "export_stations",
                     "export_pricing", "export_benchmark", "export_peer", "intel", "export_intel",
-                    "export_overpay", "expenses", "export_expenses", "export_accounting"}),
+                    "export_overpay", "expenses", "export_expenses", "export_accounting",
+                    "export_saft"}),
     "intake":     ("Intake — import, waiting room, files, document mining",
                    {"extract_batch", "extract_confirm", "extract_ai_review",
                     "intake_queue_page", "intake_review",
@@ -1923,8 +1925,11 @@ def expenses():
     ent_qs = f"&entity={esc(entity)}" if entity else ""
     dl = (f'<a class="btn" href="/export/expenses?period={esc(period)}{ent_qs}">Download expense report (Excel)</a>'
           f' <a class="btn" href="/export/accounting?period={esc(period)}{ent_qs}">Download accounting ledger (CSV)</a>'
+          f' <a class="btn" href="/export/saft?period={esc(period)}{ent_qs}">Download SAF-T (XML, core structure)</a>'
           f'<div class="note">Transaction-level ledger for import into your accounting/ERP system. '
-          f'NET EUR, final; VAT shown separately; gross = net + VAT.</div>'
+          f'NET EUR, final; VAT shown separately; gross = net + VAT. '
+          f'The SAF-T export is the OECD core structure — specialize per jurisdiction '
+          f'(namespace/version/required fields) before any real tax-authority submission.</div>'
           if period else "")
     body = (f'<form class="f" method="get"><label>Period<select name="period" onchange="this.form.submit()">{psw}</select></label></form>'
             f'<div class="kpis">'
@@ -1967,6 +1972,20 @@ def export_accounting():
     name, data = reports.accounting_ledger_csv(period, entity)
     return send_file(io.BytesIO(data), as_attachment=True, download_name=name,
                      mimetype="text/csv")
+
+@app.route("/export/saft")
+def export_saft():
+    """SAF-T (Standard Audit File for Tax) export — OECD-SAF-T CORE STRUCTURE for a
+    period. Parameterised by a CountryProfile (namespace/version/sections) so a real
+    jurisdiction can be specialised later; the generic profile is NOT a validated
+    submission for any tax authority. NET EUR basis; gross = net + VAT. Read-only."""
+    import io, saft
+    period = request.args.get("period") or None
+    entity = request.args.get("entity") or None
+    profile = saft.get_profile(request.args.get("profile", "OECD"))
+    name, data = saft.build_saft(period, entity, profile)
+    return send_file(io.BytesIO(data), as_attachment=True, download_name=name,
+                     mimetype="application/xml")
 
 @app.route("/transactions")
 def transactions():
