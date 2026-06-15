@@ -512,7 +512,7 @@ MODULES = {
                     "pricing_upload", "api_pricing", "export_compare", "export_stations",
                     "export_pricing", "export_benchmark", "export_peer", "intel", "export_intel",
                     "export_overpay", "expenses", "export_expenses", "export_accounting",
-                    "export_saft"}),
+                    "export_saft", "reports_page"}),
     "intake":     ("Intake — import, waiting room, files, document mining",
                    {"extract_batch", "extract_confirm", "extract_ai_review",
                     "intake_queue_page", "intake_review",
@@ -1043,7 +1043,8 @@ def _intake_uploads_blocked():
 # The read-only aggregations live in queries.py (small brick, easy to test).
 from queries import (q_periods, q_filters, where, q_compare, q_compare_totals,
                      q_benchmark, q_kpis, q_trend, q_headtohead, q_entities,
-                     q_stations, q_savings, q_savings_lines, q_expense, q_ledger)
+                     q_stations, q_savings, q_savings_lines, q_expense, q_ledger,
+                     q_spend_trend, q_price_trend_by_country)
 import metrics
 import money
 
@@ -1064,6 +1065,76 @@ def svg_hbars(pairs, unit="", width=520, color="#0e5fa8", fmt=",.0f"):
             f'<rect x="{lblw}" y="{y}" width="{bw:.1f}" height="{rh}" rx="3" fill="{color}"/>'
             f'<text x="{lblw+bw+6:.1f}" y="{y+14}" font-size="12" fill="#5b6b7a">{format(v, fmt)}{esc(unit)}</text>')
     return f'<svg width="{width}" height="{h}" role="img" aria-label="bar chart">{"".join(parts)}</svg>'
+
+# Distinct, color-blind-aware palette for multi-series line charts (reused in order).
+SVG_PALETTE = ("#0e5fa8", "#c8102e", "#1b7340", "#b8860b", "#6a3d9a", "#0e8a8a",
+               "#d2691e", "#5b6b7a")
+
+def svg_line(series, labels, unit="", width=720, height=260, fmt=",.0f", title="line chart"):
+    """Dependency-free inline-SVG multi-series LINE/trend chart, same house style as
+    svg_hbars. `labels` is the shared, ordered x-axis (periods/dates). `series` is a
+    list of (name, values) where values is a list aligned to `labels` (None = gap).
+    Draws axes, horizontal gridlines + y-tick labels, one polyline per series in a
+    distinct color, a small legend and thinned x-axis labels. Numeric only; currency
+    callers format via `fmt`/`unit` (no bare round on currency — values come pre-
+    quantized from the query layer). Returns an `<svg ...>...</svg>` string."""
+    labels = [str(x) for x in (labels or [])]
+    series = [(str(n), [None if v is None else float(v) for v in vals]) for n, vals in (series or [])]
+    n = len(labels)
+    # Collect every finite y across all series to scale the axis.
+    ys = [v for _, vals in series for v in vals if v is not None]
+    if n == 0 or not ys:
+        return '<p class="note">No data for this selection.</p>'
+    pad_l, pad_r, pad_t, pad_b = 64, 14, 14, 34
+    legend_h = 22 if len(series) > 1 or (series and series[0][0]) else 0
+    plot_w = max(1, width - pad_l - pad_r)
+    plot_h = max(1, height - pad_t - pad_b - legend_h)
+    ymin = min(0.0, min(ys)); ymax = max(ys)
+    if ymax == ymin: ymax = ymin + 1.0          # flat series -> avoid /0
+    def xpos(i):
+        return pad_l + (plot_w * i / (n - 1) if n > 1 else plot_w / 2)
+    def ypos(v):
+        return pad_t + plot_h - plot_h * (v - ymin) / (ymax - ymin)
+    parts = []
+    # horizontal gridlines + y-axis tick labels (5 bands)
+    ticks = 4
+    for t in range(ticks + 1):
+        v = ymin + (ymax - ymin) * t / ticks
+        y = ypos(v)
+        parts.append(f'<line x1="{pad_l}" y1="{y:.1f}" x2="{pad_l+plot_w}" y2="{y:.1f}" '
+                     f'stroke="#e7ecf1" stroke-width="1"/>')
+        parts.append(f'<text x="{pad_l-6}" y="{y+4:.1f}" font-size="11" fill="#5b6b7a" '
+                     f'text-anchor="end">{format(v, fmt)}</text>')
+    # axes
+    parts.append(f'<line x1="{pad_l}" y1="{pad_t}" x2="{pad_l}" y2="{pad_t+plot_h}" stroke="#aab6c2"/>')
+    parts.append(f'<line x1="{pad_l}" y1="{pad_t+plot_h}" x2="{pad_l+plot_w}" y2="{pad_t+plot_h}" stroke="#aab6c2"/>')
+    # x-axis labels, thinned so they don't collide
+    step = max(1, (n + 9) // 10)
+    for i, lab in enumerate(labels):
+        if i % step and i != n - 1:
+            continue
+        parts.append(f'<text x="{xpos(i):.1f}" y="{pad_t+plot_h+16:.1f}" font-size="11" '
+                     f'fill="#5b6b7a" text-anchor="middle">{esc(lab[:10])}</text>')
+    # one polyline per series (plus a dot at single points so they're visible)
+    for si, (name, vals) in enumerate(series):
+        color = SVG_PALETTE[si % len(SVG_PALETTE)]
+        pts = [(xpos(i), ypos(v)) for i, v in enumerate(vals) if v is not None]
+        if len(pts) >= 2:
+            poly = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+            parts.append(f'<polyline fill="none" stroke="{color}" stroke-width="2" '
+                         f'stroke-linejoin="round" stroke-linecap="round" points="{poly}"/>')
+        for x, y in pts:
+            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.2" fill="{color}"/>')
+    # legend (only when it carries information)
+    if legend_h:
+        lx, ly = pad_l, height - 6
+        for si, (name, _vals) in enumerate(series):
+            color = SVG_PALETTE[si % len(SVG_PALETTE)]
+            parts.append(f'<rect x="{lx}" y="{ly-9}" width="11" height="11" rx="2" fill="{color}"/>')
+            parts.append(f'<text x="{lx+15}" y="{ly}" font-size="11.5" fill="#1a2733">{esc(name[:18])}</text>')
+            lx += 26 + min(len(name[:18]), 18) * 7
+    return (f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
+            f'role="img" aria-label="{esc(title)}">{"".join(parts)}</svg>')
 
 # ---------------------------------------------------------------- layout
 BASE = """<!doctype html><html><head><meta charset="utf-8">
@@ -1164,7 +1235,8 @@ h2.section:first-of-type{margin-top:4px}
 </style></head><body>
 <header><b>⛽ Fleet Fuel</b>
 <a href="/" class="{{'on' if page=='dash'}}">Dashboard</a>
-{% if 'analytics' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['sav','exp','int','cmp','txn','h2h','stn','ano','pri'] else ''}}">Analytics</span><div class="mdrop"><span>
+{% if 'analytics' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['rep','sav','exp','int','cmp','txn','h2h','stn','ano','pri'] else ''}}">Analytics</span><div class="mdrop"><span>
+  <a href="/reports" class="{{'on' if page=='rep'}}">Reports (charts)</a>
   <a href="/savings" class="{{'on' if page=='sav'}}">Savings</a>
   <a href="/expenses" class="{{'on' if page=='exp'}}">Expenses</a>
   {% if 'pricing' in perms %}<a href="/intel" class="{{'on' if page=='int'}}">Savings &amp; intel</a>{% endif %}
@@ -1869,6 +1941,91 @@ def export_stations():
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return send_file(buf, as_attachment=True, download_name=f"Fleet_Fuel_Routing_{period or 'all'}.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+@app.route("/reports")
+def reports_page():
+    """Visual analytics — the charts companion to the table-heavy analytics pages.
+    Read-only over the engine-owned product DB (dataproduct.connect via DB()); every
+    aggregate comes from the canonical queries.py layer. All prices NET EUR/L, final
+    (VAT excluded, rebates applied)."""
+    con = DB(); periods = q_periods(con)
+    period = request.args.get("period", periods[0] if periods else None)
+    NET_NOTE = ('<div class="note">Prices/amounts are <b>NET EUR</b>, final '
+                '(VAT excluded, rebates applied). Effective NET €/L = net_eur_eff / litres.</div>')
+
+    # --- per-period trends (canonical: q_spend_trend / q_price_trend_by_country) ---
+    spend = q_spend_trend(con)                 # one row per period, all products
+    p_labels = [r["period"] for r in spend]
+    net_series = [r["net_eur"] for r in spend]
+    litre_series = [r["litres"] for r in spend]
+
+    price = q_price_trend_by_country(con)      # (period, country) diesel eff €/L
+    pc_periods = sorted({r["period"] for r in price})
+    by_country = {}
+    for r in price:
+        by_country.setdefault(r["country"], {})[r["period"]] = r["eff"]
+    price_series = [(c, [by_country[c].get(p) for p in pc_periods])
+                    for c in sorted(by_country)]
+
+    # --- selected-period spend splits (canonical: q_compare, rolled up) ---
+    comp = q_compare(con, request.args, period) if period else []
+    sup_spend, ctry_spend = {}, {}
+    for r in comp:
+        sup_spend[r["supplier"]] = sup_spend.get(r["supplier"], 0.0) + (r["net_eur"] or 0.0)
+        ctry_spend[r["country"]] = ctry_spend.get(r["country"], 0.0) + (r["net_eur"] or 0.0)
+    sup_pairs = sorted(sup_spend.items(), key=lambda x: -x[1])
+    ctry_pairs = sorted(ctry_spend.items(), key=lambda x: -x[1])
+
+    # --- avoidable-overpay-by-month trend (canonical q_savings per period) ---
+    # q_savings is per-period; iterate the (typically few) periods. Guarded so a slow
+    # / failing scan can't break the page — the chart is simply omitted on failure.
+    overpay_card = ""
+    try:
+        ov = [(p, q_savings(con, p)["total"]) for p in p_labels]
+        if any(v for _, v in ov):
+            overpay_chart = svg_line([("Avoidable overpay", [v for _, v in ov])],
+                                     [p for p, _ in ov], unit=" €", fmt=",.0f",
+                                     title="avoidable overpay by month")
+            overpay_card = (
+                '<div class="card"><h2>Avoidable overpay by month (EUR)</h2>'
+                + overpay_chart
+                + '<div class="note"><b>Diesel-focused competitiveness review</b> — litres × '
+                  '(this supplier\'s eff. €/L − the cheapest same-day, same-country rival\'s). '
+                  'Not a contractual claim. Prices NET EUR/L, final.</div></div>')
+    except Exception as e:
+        _log_exc("reports avoidable-overpay trend", e)
+        overpay_card = ""
+    con.close()
+
+    psw = "".join(f'<option {"selected" if p==period else ""}>{esc(p)}</option>' for p in periods)
+    pform = ('<form class="f" method="get"><label>Period (spend splits)'
+             f'<select name="period" onchange="this.form.submit()">{psw}</select></label></form>')
+
+    net_chart = svg_line([("Net spend", net_series)], p_labels, unit=" €", fmt=",.0f",
+                         title="monthly net spend")
+    litre_chart = svg_line([("Litres", litre_series)], p_labels, unit=" L", fmt=",.0f",
+                           title="monthly volume")
+    price_chart = svg_line(price_series, pc_periods, unit=" €/L", fmt=".3f",
+                           title="effective net price per country")
+    sup_bars = svg_hbars(sup_pairs, unit=" €", fmt=",.0f")
+    ctry_bars = svg_hbars(ctry_pairs, unit=" €", fmt=",.0f", color="#1b7340")
+    psel_lbl = esc(period) if period else "no data"
+
+    body = (
+        '<div class="card"><h2>Visual analytics</h2>'
+        '<div class="note">The charts companion to the analytics tables — fleet spend, '
+        'volume and price trends over loaded periods, plus the spend split for one period. '
+        'All figures come from the same canonical queries the dashboard and savings pages use. '
+        'Prices/amounts are NET EUR, final (VAT excluded, rebates applied).</div></div>'
+        + f'<div class="card"><h2>Monthly net spend (EUR)</h2>{net_chart}{NET_NOTE}</div>'
+        + f'<div class="card"><h2>Monthly volume (litres)</h2>{litre_chart}'
+          '<div class="note">All product groups. Litres = SUM(qty) per period.</div></div>'
+        + f'<div class="card"><h2>Effective net price by country (diesel, EUR/L)</h2>{price_chart}{NET_NOTE}</div>'
+        + overpay_card
+        + pform
+        + f'<div class="card"><h2>Spend by supplier &middot; {psel_lbl}</h2>{sup_bars}{NET_NOTE}</div>'
+        + f'<div class="card"><h2>Spend by country &middot; {psel_lbl}</h2>{ctry_bars}{NET_NOTE}</div>')
+    return page(body, "rep")
 
 @app.route("/savings")
 def savings():

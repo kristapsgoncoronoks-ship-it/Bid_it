@@ -95,6 +95,29 @@ def q_trend(con):
         FROM transactions WHERE product_group='Diesel' GROUP BY period ORDER BY period""").fetchall()
 
 
+def q_spend_trend(con):
+    """Per-period fleet totals for the visual reports trends — one row per period,
+    ALL product groups (not diesel-only). NET EUR basis: net_eur is the NET amount,
+    vat_eur the VAT amount, litres = SUM(qty). Ordered oldest→newest so the line
+    charts read left-to-right. Full precision (display-rounded at the boundary)."""
+    return con.execute("""
+        SELECT period, ROUND(SUM(qty),0) litres,
+               ROUND(SUM(net_eur),2) net_eur, ROUND(SUM(vat_eur),2) vat_eur
+        FROM transactions GROUP BY period ORDER BY period""").fetchall()
+
+
+def q_price_trend_by_country(con):
+    """Per-period × country effective NET €/L for the multi-series price trend — diesel
+    only (apples-to-apples, matching the benchmark/savings basis). One row per
+    (period, country); eff = SUM(net_eur_eff)/SUM(qty). Ordered by period then country.
+    NET EUR/L basis."""
+    return con.execute("""
+        SELECT period, country, ROUND(SUM(qty),0) litres,
+               ROUND(SUM(net_eur_eff)/NULLIF(SUM(qty),0),4) eff
+        FROM transactions WHERE product_group='Diesel'
+        GROUP BY period, country ORDER BY period, country""").fetchall()
+
+
 def q_headtohead(con, period):
     rows = con.execute("""
         SELECT date, country, supplier, SUM(qty) q, SUM(net_eur_eff) e
