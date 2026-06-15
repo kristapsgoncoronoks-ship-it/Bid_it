@@ -63,6 +63,36 @@ _DDL = [
     # switch is OFF and scope_clause is unwired until P2), so this is a pure
     # no-behavior-change addition. TEXT is audit-safe. APPEND-ONLY — keep at END.
     *tenancy.tenant_column_ddls(["supplier_trust", "validation_events"]),
+
+    # ── PK RE-KEY (multi-tenant): tenant-qualified PRIMARY KEY for supplier_trust ──
+    # supplier_trust already carries a tenant_id column (the P1 tenant_column_ddls spread
+    # above) and tenant-scoped reads / stamped writes (P2). But its PRIMARY KEY did NOT
+    # include tenant_id, so record_validation()'s INSERT … ON CONFLICT(supplier, country)
+    # resolved on the NATURAL key only — under the `multitenant` switch ON two tenants'
+    # trust rows for the SAME (supplier, country) would COLLIDE/merge (cross-tenant data
+    # corruption). SQLite cannot ALTER a PRIMARY KEY in place, so the table is REBUILT:
+    # create a __rekey twin with tenant_id FIRST in the PK (every other column, type and
+    # DEFAULT preserved), copy all rows (explicit column list — never rely on column
+    # order), drop the old, rename the twin. This runs as a LATER one-time db_migrate
+    # migration (versioned, runs exactly once per DB) that supersedes the PK on both fresh
+    # and existing confidence.db files. confidence.db is UNAUDITED (connect() installs NO
+    # audit triggers) and supplier_trust carries NO secondary indexes, so there are no
+    # triggers or indexes to drop/reinstate. APPEND-ONLY — keep at the END (positions are
+    # stable); do NOT reorder the entries above. OFF-by-default is byte-identical: with a
+    # single 'default' tenant the qualified PK behaves exactly as the natural PK did.
+    # validation_events has a surrogate id PRIMARY KEY (no collision risk) and is left as is.
+    """CREATE TABLE IF NOT EXISTS supplier_trust__rekey (
+        supplier TEXT, country TEXT, trust REAL,
+        n_clean INTEGER DEFAULT 0, n_flagged INTEGER DEFAULT 0,
+        updated_at TEXT,
+        tenant_id TEXT NOT NULL DEFAULT 'default',
+        PRIMARY KEY (tenant_id, supplier, country))""",
+    """INSERT INTO supplier_trust__rekey
+        (supplier, country, trust, n_clean, n_flagged, updated_at, tenant_id)
+        SELECT supplier, country, trust, n_clean, n_flagged, updated_at, tenant_id
+        FROM supplier_trust""",
+    "DROP TABLE supplier_trust",
+    "ALTER TABLE supplier_trust__rekey RENAME TO supplier_trust",
 ]
 
 
@@ -169,14 +199,9 @@ def record_validation(supplier, country, clean, source="", detail=""):
                 "INSERT INTO supplier_trust "
                 "(supplier, country, trust, n_clean, n_flagged, updated_at, tenant_id) "
                 "VALUES (?,?,?,?,?,?,?) "
-                # KNOWN LIMITATION (multi-tenant go-live blocker): this UNIQUE/ON CONFLICT
-                # target is (supplier, country) — NOT tenant-qualified. Under the switch ON,
-                # two tenants' trust rows for the SAME (supplier, country) would COLLIDE on
-                # that unique constraint. Before multi-client go-live the table must be
-                # rebuilt with UNIQUE(tenant_id, supplier, country) and this conflict target
-                # updated to match. Out of scope for this P2 slice (a separate PK-re-keying
-                # work order); under OFF (default) the single 'default' tenant never collides.
-                "ON CONFLICT(supplier, country) DO UPDATE SET "
+                # PK now tenant-qualified — conflict target matches PRIMARY KEY
+                # (tenant_id, supplier, country) rebuilt in the rekey migration above.
+                "ON CONFLICT(tenant_id, supplier, country) DO UPDATE SET "
                 "trust=excluded.trust, n_clean=excluded.n_clean, "
                 "n_flagged=excluded.n_flagged, updated_at=excluded.updated_at",
                 (sup, ctry, t, n_clean, n_flagged, now, qt))
