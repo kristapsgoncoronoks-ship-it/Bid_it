@@ -479,7 +479,7 @@ PERM_BY_ENDPOINT = {
 
 # The VAT-refund module (claims, readiness, recovery/fees + their exports/API) is
 # restricted to admins regardless of any processor capability.
-ADMIN_ONLY = {"vat", "api_vat", "readiness", "recovery", "receivables",
+ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "receivables",
               "export_vat", "export_readiness", "export_fees", "export_fee",
               "export_receivables", "export_evidence",
               # the one-click monthly close is an engine-orchestration action (it
@@ -1365,7 +1365,7 @@ def _worklist_card(year):
                     n_unres += int(m.group(1)) if m else 1
         if n_unres:
             items.append(("bad", f"Resolve UNMATCHED — {n_unres} unresolved "
-                          f"invoice ref(s)", "/readiness"))
+                          f"invoice ref(s)", "/vat/unmatched"))
     except Exception as e:
         _log_exc("worklist unmatched refs", e)
     # documents stuck in the intake queue (failed extraction or held for manual retry)
@@ -4677,6 +4677,130 @@ def vat():
             except Exception as e:
                 _log.debug("inv_cache close failed for %s: %s", k, e)
     con.close(); return page(body, "vat")
+
+
+@app.route("/vat/unmatched", methods=["GET", "POST"])
+def vat_unmatched():
+    """ADMIN-ONLY UNMATCHED-resolution surface. A claim line tags UNMATCHED when a
+    transaction's note matches no registered invoice and there isn't exactly one
+    registered invoice for that supplier/country — a HARD block on filing. Here an
+    admin maps that note to an EXISTING registered invoice (an ASSOCIATION only — it
+    never changes a net/VAT amount; the target is re-validated as still-registered &
+    non-synthetic at READ time). Set/Clear are CSRF-protected (the /vat module is
+    ADMIN_ONLY) and audited with the actor."""
+    import vat_refund as VR, supplier_master
+    banner = ""
+    if request.method == "POST":
+        # belt-and-suspenders: ADMIN_ONLY already gates this endpoint in _guard().
+        if session.get("role") != "admin":
+            return page(FORBIDDEN, ""), 403
+        sup = (request.form.get("supplier") or "").strip()
+        ctry = (request.form.get("country") or "").strip()
+        note = (request.form.get("note") or "").strip()
+        act = request.form.get("__act", "set")
+        actor = session.get("user", "admin")
+        try:
+            if act == "clear":
+                ok, msg = VR.clear_note_override(sup, ctry, note, actor)
+            else:
+                ref = (request.form.get("invoice_ref") or "").strip()
+                VR.set_note_override(sup, ctry, note, ref, actor)
+                ok, msg = True, (f"resolved note '{note}' → invoice {ref} "
+                                 f"({sup} / {ctry})")
+        except ValueError as e:
+            # a stale/unregistered/synthetic ref is a user error, not a 500.
+            ok, msg = False, str(e)
+        except Exception as e:
+            _log_exc("set note override", e)
+            ok, msg = False, f"could not save override: {e}"
+        banner = (f'<div class="card"><b class="{"ok" if ok else "bad"}">'
+                  f'{esc(msg)}</b></div>')
+    year = request.args.get("year", "2026")
+    con = VR.connect()
+    matrix = VR.claim_matrix(con, year, with_portal=False)
+    con.close()
+    scon = supplier_master.connect()
+    cache = {}
+    rows = []
+    n_unres = 0
+    try:
+        for m in matrix:
+            if m["period"].endswith("YEAR"):
+                continue
+            uls = VR.unmatched_lines(m["entity"], m["country"], m["period"])
+            if not uls:
+                continue
+            # one resolution form per distinct (supplier, country, note) for this claim;
+            # collapse the per-product rows (amounts shown summed for context only).
+            by_note = {}
+            for u in uls:
+                k = (u["supplier"], u["note"])
+                agg = by_note.setdefault(k, {"net": 0.0, "vat": 0.0})
+                agg["net"] += u["net_eur"]; agg["vat"] += u["vat_eur"]
+            for (sup, note), agg in sorted(by_note.items()):
+                n_unres += 1
+                regs = supplier_master.get_invoices(sup, m["country"], con=scon)
+                # only OFFER a registered, non-synthetic ref as a target (matches what
+                # set_note_override will accept).
+                opts = [no for no, _d in regs if not VR._synthetic(no)]
+                if opts:
+                    osel = "".join(f'<option>{esc(o)}</option>' for o in opts)
+                    setf = (
+                        '<form method="post" style="margin:0">' + _csrf_input()
+                        + f'<input type="hidden" name="entity" value="{esc(m["entity"])}">'
+                        + f'<input type="hidden" name="country" value="{esc(m["country"])}">'
+                        + f'<input type="hidden" name="supplier" value="{esc(sup)}">'
+                        + f'<input type="hidden" name="note" value="{esc(note)}">'
+                        + f'<select name="invoice_ref" style="font-size:12px">{osel}</select> '
+                        + '<button name="__act" value="set" style="font-size:12px;'
+                          'padding:4px 10px">Resolve</button></form>')
+                else:
+                    setf = ('<span class="note">no registered invoice for this '
+                            'supplier/country — register one first</span>')
+                clearf = (
+                    '<form method="post" style="margin:2px 0 0">' + _csrf_input()
+                    + f'<input type="hidden" name="country" value="{esc(m["country"])}">'
+                    + f'<input type="hidden" name="supplier" value="{esc(sup)}">'
+                    + f'<input type="hidden" name="note" value="{esc(note)}">'
+                    + '<button name="__act" value="clear" style="background:var(--mut);'
+                      'font-size:11px;padding:3px 8px">Clear any override</button></form>')
+                rows.append([
+                    f"<td>{esc(m['entity'])}</td><td>{esc(m['country'])}</td>"
+                    f"<td>{esc(m['period'])}</td>",
+                    f"<td>{esc(sup)}</td>",
+                    f"<td><code>{esc(note) or '<i>(blank)</i>'}</code></td>",
+                    f"<td class=r>{money.f2(agg['net']):,.2f}</td>"
+                    f"<td class=r>{money.f2(agg['vat']):,.2f}</td>",
+                    f"<td>{setf}{clearf}</td>"])
+    except Exception as e:
+        _log_exc("vat unmatched listing", e)
+        banner += ('<div class="card"><b class="bad">could not build the unmatched '
+                   f'list: {esc(str(e))}</b></div>')
+    finally:
+        scon.close()
+        for k in ("_scon", "_acon", "_cmcon"):
+            if cache.get(k) is not None:
+                try: cache[k].close()
+                except Exception as e:
+                    _log.debug("unmatched cache close failed for %s: %s", k, e)
+    body = (banner
+            + f'<form class="f" method="get"><label>Year<input name="year" '
+              f'value="{esc(year)}" style="width:80px"></label></form>'
+            + '<div class="card"><h2>Resolve UNMATCHED invoice references</h2>'
+            + (f'<div class="note">{n_unres} unmatched note(s). Each maps a '
+               'transaction <b>note</b> to an existing registered invoice for that '
+               'supplier/country. This is an <b>association only</b> — it never changes '
+               'a net/VAT amount; the claim total is the sum of transaction VAT '
+               'regardless of bucketing. A target ref must be currently registered and '
+               'non-synthetic, re-validated at read time (a stale override is ignored '
+               'and the line falls back to UNMATCHED).</div>'
+               + tbl(["Entity", "Country", "Period", "Supplier", "Transaction note",
+                      "Net EUR", "VAT EUR", "Resolve"], rows)
+               if rows else
+               '<div class="note ok">No UNMATCHED lines — every claim line resolves '
+               'to a registered invoice.</div>')
+            + '</div>')
+    return page(body, "vat")
 
 
 @app.route("/documents", methods=["GET", "POST"])

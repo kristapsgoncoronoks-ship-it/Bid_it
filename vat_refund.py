@@ -89,8 +89,20 @@ def connect():
         entity TEXT, refund_country TEXT, ref_period TEXT, supplier TEXT,
         reason TEXT, waived_by TEXT, waived_at TEXT DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (entity, refund_country, ref_period, supplier))""")
+    # admin-curated note->invoice override: maps a transaction `note` (for a
+    # supplier+country whose note matches no registered invoice and where there isn't
+    # exactly one registered invoice) to an EXISTING registered invoice so the line
+    # resolves instead of tagging UNMATCHED (a hard block). It changes ONLY the invoice
+    # ASSOCIATION (bucketing) of a transaction line, never an amount; the target ref is
+    # re-validated (still registered, not synthetic) at READ time so a stale override
+    # can never inject a non-existent/synthetic ref. Created before install_audit so its
+    # audit triggers/BASELINE attach (same pattern as the tables above).
+    con.execute("""CREATE TABLE IF NOT EXISTS note_invoice_overrides (
+        supplier TEXT, country TEXT, note TEXT, invoice_ref TEXT,
+        changed_by TEXT, updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (supplier, country, note))""")
     audit.install_audit(con, ["vat_applications", "vat_claimed_invoices", "invoice_documents",
-                              "vat_invoice_waivers"])
+                              "vat_invoice_waivers", "note_invoice_overrides"])
     # versioned migrations: each runs ONCE per database (see db_migrate). Append only.
     db_migrate.apply(con, "vat_refund", [
         "ALTER TABLE invoice_documents ADD COLUMN backend TEXT DEFAULT 'local'",
@@ -563,6 +575,148 @@ def remove_waiver(con, ent, ctry, period, supplier):
     if cur.rowcount:
         return True, f"removed waiver for '{supplier}'"
     return False, f"no waiver for '{supplier}'"
+
+# --------------------------------------------------- admin note->invoice overrides
+def _registered_refs(supplier, country, scon=None):
+    """The set of CURRENTLY-registered, non-synthetic invoice refs for (supplier,
+    country). supplier_master.get_invoices never returns empty — with zero rows it
+    yields a single 'INPUT: …' stub — so the synthetic filter also drops the stub."""
+    return {no for no, _date in supplier_master.get_invoices(supplier, country, con=scon)
+            if not _synthetic(no)}
+
+def set_note_override(supplier, country, note, invoice_ref, actor):
+    """Admin-curate a mapping: transaction `note` -> an EXISTING registered invoice
+    for (supplier, country), so a line that would tag UNMATCHED resolves to that
+    invoice instead of hard-blocking the claim. It changes ONLY the invoice
+    ASSOCIATION (bucketing); it never touches a net/VAT amount.
+
+    VALIDATES at SET time: `invoice_ref` MUST be a currently-registered invoice for
+    (supplier, country) and MUST NOT be synthetic (INPUT/ALL:/UNMATCHED). Raises
+    ValueError otherwise (no row written). The mapping is re-validated again at READ
+    time (get_note_overrides) so a later de-registration can't inject a stale ref.
+    Upsert is idempotent; the write is audited and attributed to `actor`."""
+    invoice_ref = str(invoice_ref or "").strip()
+    note = str(note or "").strip()
+    if not note:
+        raise ValueError("note is required")
+    if not invoice_ref or _synthetic(invoice_ref):
+        raise ValueError(f"'{invoice_ref}' is not a valid invoice reference")
+    if invoice_ref not in _registered_refs(supplier, country):
+        raise ValueError(f"'{invoice_ref}' is not a registered invoice for "
+                         f"{supplier} / {country}")
+    con = connect()
+    try:
+        audit.set_actor(con, actor or "admin")
+        con.execute("""INSERT INTO note_invoice_overrides
+                       (supplier, country, note, invoice_ref, changed_by, updated_at)
+                       VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)
+                       ON CONFLICT(supplier, country, note) DO UPDATE SET
+                         invoice_ref=excluded.invoice_ref, changed_by=excluded.changed_by,
+                         updated_at=CURRENT_TIMESTAMP""",
+                    (supplier, country, note, invoice_ref, actor or "admin"))
+        con.commit()
+    finally:
+        audit.reset_actor(con)
+        con.close()
+    return True
+
+def clear_note_override(supplier, country, note, actor):
+    """Remove an admin note->invoice override. Audited as `actor`. Returns
+    (ok, msg)."""
+    con = connect()
+    try:
+        audit.set_actor(con, actor or "admin")
+        cur = con.execute("""DELETE FROM note_invoice_overrides
+                             WHERE supplier=? AND country=? AND note=?""",
+                          (supplier, country, str(note or "").strip()))
+        con.commit()
+    finally:
+        audit.reset_actor(con)
+        con.close()
+    if cur.rowcount:
+        return True, f"cleared override for note '{note}'"
+    return False, f"no override for note '{note}'"
+
+def get_note_overrides(supplier, country, con=None):
+    """{note: invoice_ref} of admin note->invoice overrides for (supplier, country),
+    RE-VALIDATED against the live registered set: an override whose target is no
+    longer a registered (non-synthetic) invoice is silently dropped, so a stale
+    override can never inject a non-existent/synthetic ref into a claim. Never
+    raises — any failure logs and yields {}."""
+    try:
+        own = con is None
+        if own:
+            con = connect()
+        try:
+            rows = con.execute("""SELECT note, invoice_ref FROM note_invoice_overrides
+                                  WHERE supplier=? AND country=?""",
+                               (supplier, country)).fetchall()
+        finally:
+            if own:
+                con.close()
+        if not rows:
+            return {}
+        valid = _registered_refs(supplier, country)
+        return {r["note"]: r["invoice_ref"] for r in rows
+                if not _synthetic(r["invoice_ref"]) and r["invoice_ref"] in valid}
+    except Exception as e:
+        log.warning("get_note_overrides(%s,%s) failed: %s", supplier, country, e)
+        return {}
+
+def unmatched_lines(ent, ctry, qtr, cache=None):
+    """READ-ONLY diagnostic: the per-NOTE rows that currently resolve to UNMATCHED
+    (after the note-match heuristics AND any admin override), so the UI can list
+    exactly which notes still need resolving. One row per (supplier, country, note,
+    product_group) with its EUR net/VAT — PRESERVING the note (which invoice_lines
+    collapses into the UNMATCHED bucket) because the override is keyed on note.
+    Reuses the SAME resolver as invoice_lines (_resolve_inv) so the two can't drift.
+    Never raises (-> [])."""
+    try:
+        own_cache = cache is None
+        cache = cache if cache is not None else {}
+        scon = cache.get("_scon")
+        if scon is None:
+            scon = supplier_master.connect(); cache["_scon"] = scon
+        acon = cache.get("_acon")
+        if acon is None:
+            acon = analytics_connect(); cache["_acon"] = acon
+        months = q_months(qtr)
+        sups = [r[0] for r in acon.execute(
+            """SELECT DISTINCT supplier FROM transactions WHERE entity=? AND country=?
+               AND period IN (%s)""" % ",".join("?"*len(months)), [ent, ctry]+months)]
+        out = []
+        try:
+            for sup in sups:
+                ck = (sup, ctry)
+                if ck in cache:
+                    _i, _v, _vn, regs, overrides = cache[ck]
+                else:
+                    issuer, vatid, vnote = supplier_master.get_issuer(sup, ctry, con=scon)
+                    regs = supplier_master.get_invoices(sup, ctry, con=scon)
+                    overrides = get_note_overrides(sup, ctry)
+                    cache[ck] = (issuer, vatid, vnote, regs, overrides)
+                refs = [r[0] for r in regs]
+                rows = acon.execute(
+                    """SELECT note, product_group, ROUND(SUM(net_eur),2) net,
+                              ROUND(SUM(vat_eur),2) vat FROM transactions
+                       WHERE entity=? AND country=? AND supplier=?
+                       AND period IN (%s) GROUP BY note, product_group"""
+                    % ",".join("?"*len(months)), [ent, ctry, sup]+months).fetchall()
+                for r in rows:
+                    if _resolve_inv(r["note"], refs, overrides) == "UNMATCHED":
+                        out.append(dict(supplier=sup, country=ctry, note=r["note"] or "",
+                                        product_group=r["product_group"],
+                                        net_eur=money.f2(r["net"]),
+                                        vat_eur=money.f2(r["vat"])))
+        finally:
+            if own_cache:
+                for k in ("_scon", "_acon", "_cmcon"):
+                    if cache.get(k) is not None:
+                        cache[k].close()
+        return out
+    except Exception as e:
+        log.warning("unmatched_lines(%s,%s,%s) failed: %s", ent, ctry, qtr, e)
+        return []
 
 def lock_state(con, ent, ctry, sup, ref):
     r = con.execute("""SELECT ref_period FROM vat_claimed_invoices WHERE entity=? AND
@@ -1416,6 +1570,25 @@ def claim_matrix(con, year, with_portal=True):
                         deadline=DEADLINE_FMT.format(year_plus1=int(year)+1)))
     return out
 
+def _resolve_inv(note, refs, overrides):
+    """Resolve one transaction `note` to a registered invoice ref (or 'UNMATCHED').
+    Single source of truth shared by invoice_lines and unmatched_lines so they can
+    never drift. Order: two note-match heuristics, THEN an admin override (already
+    re-validated to a registered ref by get_note_overrides), THEN the sole-registered
+    fallback, else UNMATCHED. The override is consulted with `inv or` — it strictly
+    REDUCES UNMATCHED and never displaces a successful note-match, and changes nothing
+    when there is no override for the note."""
+    inv = next((ref for ref in refs if note and note.split("/")[0] in note
+                and ref.startswith(note.split(" ")[0])), None)
+    inv = inv or next((ref for ref in refs if note and ref.split("/")[0] in note), None)
+    # No note match: an admin-curated override (note -> registered invoice) resolves
+    # the line before the UNMATCHED fallback; otherwise resolve to the sole registered
+    # invoice if there is exactly one (legitimate), else tag UNMATCHED so the gates
+    # treat it as a hard block instead of inventing an ALL: aggregate.
+    inv = inv or (overrides or {}).get(note)
+    inv = inv or (refs[0] if len(refs) == 1 else "UNMATCHED")
+    return inv
+
 def invoice_lines(con, ent, ctry, qtr, cache=None):
     """Invoice-level detail for one claim: prefer per-invoice split via the note column,
     fall back to registry invoice(s) carrying the country aggregate.
@@ -1439,11 +1612,16 @@ def invoice_lines(con, ent, ctry, qtr, cache=None):
     for sup in sups:
         ck = (sup, ctry)
         if ck in cache:
-            issuer, vatid, vnote, regs = cache[ck]
+            issuer, vatid, vnote, regs, overrides = cache[ck]
         else:
             issuer, vatid, vnote = supplier_master.get_issuer(sup, ctry, con=scon)
             regs = supplier_master.get_invoices(sup, ctry, con=scon)
-            cache[ck] = (issuer, vatid, vnote, regs)
+            # admin note->invoice overrides (re-validated against the live registered
+            # set inside get_note_overrides), memoized per (supplier, country) like the
+            # issuer/invoice lookups so many-claim renders share one read. Reads the
+            # claims DB (its own connection) — `scon` here is the supplier-master handle.
+            overrides = get_note_overrides(sup, ctry)
+            cache[ck] = (issuer, vatid, vnote, regs, overrides)
         refs = [r[0] for r in regs]
         rows = acon.execute(
             """SELECT note, product_group, ROUND(SUM(net_eur),2) net, ROUND(SUM(vat_eur),2) vat,
@@ -1453,14 +1631,7 @@ def invoice_lines(con, ent, ctry, qtr, cache=None):
             [ent, ctry, sup]+months).fetchall()
         by_inv = collections.defaultdict(lambda: collections.defaultdict(lambda: [0,0,0,0,""]))
         for r in rows:
-            inv = next((ref for ref in refs if r["note"] and r["note"].split("/")[0] in r["note"]
-                        and ref.startswith(r["note"].split(" ")[0])), None)
-            inv = inv or next((ref for ref in refs if r["note"] and ref.split("/")[0] in r["note"]), None)
-            # No note match: resolve to the sole registered invoice if there is
-            # exactly one (legitimate); otherwise (zero or several) tag the row
-            # UNMATCHED so the gates treat it as a hard block instead of inventing
-            # an ALL: aggregate. UNMATCHED carries its VAT into the row.
-            inv = inv or (refs[0] if len(refs) == 1 else "UNMATCHED")
+            inv = _resolve_inv(r["note"], refs, overrides)
             a = by_inv[inv][r["product_group"]]
             a[0] += r["net"]; a[1] += r["vat"]; a[2] += r["netl"]; a[3] += r["vatl"]; a[4] = r["currency"]
         dates = dict(regs)
