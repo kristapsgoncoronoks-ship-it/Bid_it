@@ -4574,7 +4574,7 @@ def receivables():
           '<div class="l">realization-weighted refund</div></div>'
         + f'<div class="kpi"><div class="v">EUR {forecast["open_fee_receivable_eur"]:,.0f}</div>'
           '<div class="l">agency fee receivable</div></div></div>'
-        + '<h3>Open refund receivable by aging band</h3>' + bars
+        + '<div class="dashlabel">Open refund receivable by aging band</div>' + bars
         + '<div class="note">Open = submitted/approved, not yet paid. Two SEPARATE cash flows, '
           'never summed across routes: the <b>refund receivable</b> is the VAT owed by the state '
           '(route-independent — aged below until the state pays), and the <b>agency fee receivable</b> '
@@ -4639,7 +4639,7 @@ def receivables():
           'outstanding receivable shown above — a tax-authority refund is high-certainty, '
           'which is what makes it financeable. The advance economics are computed at the '
           'configured terms; no VAT figure, gate, lock, or claim is touched.</div>'
-        + '<h3>Financeable claims ' + esc(year) + '</h3>'
+        + '<div class="dashlabel">Financeable claims ' + esc(year) + '</div>'
         + tbl(["Entity", "Country", "Period", "Status", "VAT receivable EUR", "Age (days)"],
               fin_rows)
         + '<form method="post" class="f" style="margin-top:10px">' + _csrf_input()
