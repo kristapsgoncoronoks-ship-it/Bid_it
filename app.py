@@ -1114,6 +1114,11 @@ select,input{padding:6px 8px;border:1px solid var(--line);border-radius:6px;font
 button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 16px;cursor:pointer}
 .note{color:var(--mut);font-size:12px;margin-top:8px}
 .exp a{margin-right:14px}
+.subnav{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 20px;padding:10px 12px;background:#fff;border:1px solid var(--line);border-radius:10px;position:sticky;top:var(--navh,56px);z-index:9}
+.subnav a{color:var(--acc);text-decoration:none;font-size:13px;font-weight:600;padding:4px 11px;border-radius:999px;background:#eef5fc;white-space:nowrap}
+.subnav a:hover{background:#dceafa}
+h2.section{font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);margin:30px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+h2.section:first-of-type{margin-top:4px}
 .dropzone{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
  border:1.5px dashed var(--line);border-radius:8px;padding:13px 16px;background:#fafbfc;cursor:pointer;
  color:var(--mut);font-size:12.5px;text-align:center;transition:border-color .12s,background .12s}
@@ -6603,25 +6608,51 @@ def admin():
                + '<button name="__act" value="issue_api_key">+ Issue API key</button>'
                + '<span class="note" style="margin-left:8px">tick at least one scope</span>'
                + '</form></div>')
+    users_card = ('<div class="card"><h2>Users &amp; permissions</h2>'
+                  + tbl(["Username", "Role", "Status", "Last login", "Actions"], utr)
+                  + addf + "</div>")
+    security_card = (f'<div class="card"><h2>Security status</h2>'
+                     f'<p>TLS certificate: '
+                     f'{"<span class=ok>cert.pem present - app serves HTTPS</span>" if tls else "<span class=bad>none - run python3 make_cert.py (self-signed) or install a CA cert</span>"}'
+                     f' &nbsp;|&nbsp; Password storage: <span class="ok">scrypt (salted)</span>'
+                     f' &nbsp;|&nbsp; Session cookies: HttpOnly, SameSite'
+                     f'{", Secure (HTTPS)" if tls else ""}</p></div>')
+    logins_card = ('<div class="card"><h2>Recent logins</h2>'
+                   + tbl(["Timestamp (UTC)", "Username", "Result", "From"], ltr) + "</div>")
+    # Platform surfaces live on their own read-only admin routes; link to them so the
+    # panel is a single jumping-off point (pure navigation — no behaviour here).
+    platform_card = ('<div class="card"><h2>Platform surfaces</h2>'
+                     '<div class="note" style="margin-top:0">Read-only platform views, each on '
+                     'its own page.</div>'
+                     '<p style="margin:10px 0 0"><a href="/admin/tenants">Multi-tenancy registry &rarr;</a>'
+                     ' &nbsp;·&nbsp; <a href="/admin/confidence">Confidence-learning scoreboard '
+                     '&amp; recent validation events &rarr;</a></p></div>')
+    # Section jump-nav (works without JS; anchors below). Keeps every existing card,
+    # only regrouped under labelled section headers.
+    subnav = ('<div class="subnav">'
+              '<a href="#access">Access &amp; Security</a>'
+              '<a href="#data">Data &amp; Backups</a>'
+              '<a href="#notifications">Notifications</a>'
+              '<a href="#modules">Modules &amp; AI</a>'
+              '<a href="#platform">Platform</a></div>')
     body = (banner
-            + '<div class="card"><h2>Users &amp; permissions</h2>'
-            + tbl(["Username", "Role", "Status", "Last login", "Actions"], utr)
-            + addf + "</div>"
+            + subnav
+            + '<h2 class="section" id="access">Access &amp; Security</h2>'
+            + users_card
+            + permf
+            + security_card
+            + logins_card
+            + errcard
+            + apikeyf
+            + '<h2 class="section" id="data">Data &amp; Backups</h2>'
+            + backupcard
+            + '<h2 class="section" id="notifications">Notifications</h2>'
+            + smtpcard
+            + '<h2 class="section" id="modules">Modules &amp; AI</h2>'
             + modf
             + aireviewf
-            + permf
-            + apikeyf
-            + f'<div class="card"><h2>Security status</h2>'
-              f'<p>TLS certificate: '
-              f'{"<span class=ok>cert.pem present - app serves HTTPS</span>" if tls else "<span class=bad>none - run python3 make_cert.py (self-signed) or install a CA cert</span>"}'
-              f' &nbsp;|&nbsp; Password storage: <span class="ok">scrypt (salted)</span>'
-              f' &nbsp;|&nbsp; Session cookies: HttpOnly, SameSite'
-              f'{", Secure (HTTPS)" if tls else ""}</p></div>'
-            + backupcard
-            + smtpcard
-            + '<div class="card"><h2>Recent logins</h2>'
-            + tbl(["Timestamp (UTC)", "Username", "Result", "From"], ltr) + "</div>"
-            + errcard)
+            + '<h2 class="section" id="platform">Platform</h2>'
+            + platform_card)
     return page(body, "adm")
 
 @app.route("/admin/confidence")
