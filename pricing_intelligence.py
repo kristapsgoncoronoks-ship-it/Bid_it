@@ -19,6 +19,7 @@ VAT excluded). City = the station town on the invoice.
 """
 import os, sqlite3, datetime
 import money
+import tenancy
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 # transactions live in the engine-owned product DB (read-only from the app side,
@@ -48,7 +49,15 @@ _BENCHMARK_DDL = [
         PRIMARY KEY (country, date, product_group))""",
     "CREATE INDEX IF NOT EXISTS ix_myp ON my_prices(country, city, date)",
     "CREATE INDEX IF NOT EXISTS ix_whp ON wholesale_prices(country, date)",
-]
+] + tenancy.tenant_column_ddls([
+    # P1 multi-tenancy (schema plumbing only): stamp the app-owned benchmark price
+    # tables with a tenant_id; existing rows backfill to DEFAULT_TENANT_ID via the
+    # column DEFAULT, new rows default too. NO query reads this column yet (the
+    # `multitenant` switch is OFF and scope_clause is unwired until P2). This is
+    # also exactly what P2 will use to keep the antitrust-sensitive benchmark
+    # intra-tenant (docs/SECURITY_COMPLIANCE_PLAN.md §7). APPEND-ONLY — keep at END.
+    "my_prices", "wholesale_prices",
+])
 
 
 def connect():

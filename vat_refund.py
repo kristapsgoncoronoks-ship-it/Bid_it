@@ -14,6 +14,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 import supplier_master, customer_master, audit, money
 import db, db_tuning, db_migrate, applog
+import tenancy
 import vat_config
 from vat_config import (GOODS_CODE,
                         MIN_QUARTER, MIN_ANNUAL, DEADLINE_FMT,
@@ -124,6 +125,16 @@ def connect():
         "ALTER TABLE vat_applications ADD COLUMN decision_date TEXT",
         "ALTER TABLE vat_applications ADD COLUMN status_note TEXT",
         "ALTER TABLE vat_applications ADD COLUMN action_deadline TEXT",
+        # P1 multi-tenancy (schema plumbing only): stamp every claim/data table with
+        # a tenant_id; existing rows backfill to DEFAULT_TENANT_ID via the column
+        # DEFAULT, new rows default too. NO query reads this column yet (the
+        # `multitenant` switch is OFF and scope_clause is unwired until P2), so this
+        # is a pure no-behavior-change addition. TEXT is audit-safe (the audited
+        # tables here keep their triggers). APPEND-ONLY — keep at END.
+        *tenancy.tenant_column_ddls([
+            "vat_applications", "vat_claimed_invoices", "invoice_documents",
+            "vat_invoice_waivers", "note_invoice_overrides",
+        ]),
     ])
     _migrate_from_analytics(con)
     if DB != ":memory:":

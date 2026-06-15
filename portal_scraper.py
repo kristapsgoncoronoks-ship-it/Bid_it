@@ -40,6 +40,7 @@ import db_tuning
 import db_migrate
 import applog
 import keyvault
+import tenancy
 
 log = applog.get("portal_scraper")
 
@@ -117,6 +118,18 @@ def connect():
             # off-by-default scheduler (app._scrape_tick) only enqueues a fetch when this
             # is > 0 for an enabled portal that has stored credentials.
             "ALTER TABLE portal_configs ADD COLUMN interval_hours REAL DEFAULT 0",
+            # P1 multi-tenancy (schema plumbing only): stamp the portal tables with a
+            # tenant_id; existing rows backfill to DEFAULT_TENANT_ID via the column
+            # DEFAULT, new rows default too. NO query reads this column yet (the
+            # `multitenant` switch is OFF and scope_clause is unwired until P2), so
+            # this is a pure no-behavior-change addition. tenant_id is a plain TEXT
+            # column ALONGSIDE the envelope-encrypted secret_enc/extra BLOBs — it does
+            # not touch the credential crypto. TEXT is audit-safe (the audited
+            # portal_configs/portal_credentials keep their triggers; BLOB cols stay
+            # excluded). APPEND-ONLY — keep at END (runs after _upgrade_extra_to_blob).
+            *tenancy.tenant_column_ddls([
+                "portal_configs", "portal_credentials", "portal_runs",
+            ]),
         ])
         audit.install_audit(con, ["portal_configs", "portal_credentials"])
         if DB != ":memory:":
@@ -182,6 +195,9 @@ def get_config(supplier):
     if not r:
         return None
     d = dict(r)
+    # tenant_id is internal multi-tenancy plumbing (P1), not part of the config
+    # contract returned to callers/UI — keep it out of the exposed dict.
+    d.pop(tenancy.TENANT_COLUMN, None)
     d["config"] = json.loads(d["config"] or "{}")
     d["enabled"] = bool(d["enabled"])
     return d
@@ -191,6 +207,8 @@ def list_configs():
     rows = [dict(r) for r in con.execute("SELECT * FROM portal_configs ORDER BY supplier")]
     con.close()
     for d in rows:
+        # exclude the P1 tenant_id plumbing from the exposed config contract.
+        d.pop(tenancy.TENANT_COLUMN, None)
         d["enabled"] = bool(d["enabled"])
     return rows
 
