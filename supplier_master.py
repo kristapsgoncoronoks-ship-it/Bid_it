@@ -188,6 +188,166 @@ def connect():
                 "supplier_discounts", "supplier_invoices", "supplier_products",
                 "supplier_statements", "statement_invoices",
             ]),
+            # ── PK RE-KEY (multi-tenant): tenant-qualified PRIMARY KEYs ──────────
+            # The engine-owned suppliers.db natural-key tables carry a tenant_id
+            # column (P1, the tenant_column_ddls spread above) and tenant-scoped reads /
+            # stamped writes (P2), but their PRIMARY KEYs did NOT include tenant_id — so
+            # the seeders' INSERT OR REPLACE, set_vat_registration's
+            # ON CONFLICT(supplier, country), and register_statement's INSERT OR REPLACE
+            # resolve on the NATURAL key only. Under the `multitenant` switch ON, two
+            # tenants writing the same code / iban / (supplier, country) / (supplier,
+            # invoice_no) / (supplier, statement_ref) would COLLIDE and overwrite each
+            # other's supplier-master rows — cross-tenant data loss.
+            #
+            # SQLite cannot ALTER a PRIMARY KEY in place, so each of the SEVEN natural-key
+            # tables is REBUILT: create a __rekey twin with tenant_id LAST in the column
+            # list but FIRST in the PRIMARY KEY clause (every other column, type and
+            # DEFAULT and the rest of the key order preserved), copy all rows (explicit
+            # column list — never rely on column order), drop the old, rename the twin.
+            # This runs once per DB (versioned), supersedes the PK on both fresh and
+            # existing suppliers.db files. This is the WRITABLE engine path
+            # (supplier_master.connect()); the app reads suppliers.db READ-ONLY via
+            # dataproduct and gets no writable handle. APPEND-ONLY — keep at END.
+            #
+            # AUDITED-DB SPECIFICS (suppliers / supplier_vat_registrations /
+            # supplier_bank_accounts / supplier_products / supplier_invoices ARE audited
+            # — see install_audit just after this apply()):
+            #   • AUDIT ROWKEY PRESERVED. audit._cols_pk returns pks[0] = the FIRST
+            #     pk-flagged column in COLUMN-DEFINITION order (not PK-clause order), and
+            #     the trigger logs NEW.{pk}. We define tenant_id as the LAST column but
+            #     FIRST in the PRIMARY KEY clause, so pks[0] stays the original natural
+            #     rowkey (suppliers->code, supplier_bank_accounts->iban, and supplier for
+            #     supplier_vat_registrations / supplier_products / supplier_invoices) and
+            #     the audit rowkey is UNCHANGED — never tenant_id/'default'.
+            #   • TRIGGERS REINSTATED. DROP TABLE drops aud_<t>_i/u/d. We do NOT
+            #     hand-write CREATE TRIGGER here — connect() calls install_audit RIGHT
+            #     AFTER db_migrate.apply (below), which recreates the triggers on the
+            #     first connect that runs this migration.
+            #   • INDEXES / FKs. The current schema declares NO CREATE INDEX on these 7
+            #     tables (the only indexes in the schema are audit_log's, on a table we
+            #     don't touch); supplier_discounts is NOT rebuilt (surrogate id PK, no
+            #     collision risk) so its triggers stay. The schema uses NO FOREIGN KEY
+            #     constraints (references are comment-only), so no FK guard is needed.
+            #   • The 2 statement tables (supplier_statements / statement_invoices) are
+            #     UNAUDITED (benchmark-style rebuild, no trigger concern).
+            #
+            # OFF-by-default is byte-identical: a single 'default' tenant behaves exactly
+            # as the natural PK did.
+
+            # suppliers: PK (code) -> (tenant_id, code). rowkey stays NEW.code.
+            """CREATE TABLE IF NOT EXISTS suppliers__rekey (
+                code TEXT, legal_name TEXT, group_name TEXT,
+                address TEXT, home_country TEXT, company_reg TEXT,
+                phone TEXT, email TEXT, portal TEXT,
+                payment_terms TEXT, payment_notes TEXT, status TEXT DEFAULT 'active', notes TEXT,
+                invoice_cadence TEXT DEFAULT 'monthly',
+                tenant_id TEXT NOT NULL DEFAULT 'default',
+                PRIMARY KEY (tenant_id, code))""",
+            """INSERT INTO suppliers__rekey
+                (code, legal_name, group_name, address, home_country, company_reg,
+                 phone, email, portal, payment_terms, payment_notes, status, notes,
+                 invoice_cadence, tenant_id)
+                SELECT code, legal_name, group_name, address, home_country, company_reg,
+                 phone, email, portal, payment_terms, payment_notes, status, notes,
+                 invoice_cadence, tenant_id
+                FROM suppliers""",
+            "DROP TABLE suppliers",
+            "ALTER TABLE suppliers__rekey RENAME TO suppliers",
+
+            # supplier_vat_registrations: PK (supplier, country) -> (tenant_id, supplier,
+            # country). rowkey stays NEW.supplier.
+            """CREATE TABLE IF NOT EXISTS supplier_vat_registrations__rekey (
+                supplier TEXT, country TEXT, vat_number TEXT, source TEXT,
+                tenant_id TEXT NOT NULL DEFAULT 'default',
+                PRIMARY KEY (tenant_id, supplier, country))""",
+            """INSERT INTO supplier_vat_registrations__rekey
+                (supplier, country, vat_number, source, tenant_id)
+                SELECT supplier, country, vat_number, source, tenant_id
+                FROM supplier_vat_registrations""",
+            "DROP TABLE supplier_vat_registrations",
+            "ALTER TABLE supplier_vat_registrations__rekey RENAME TO supplier_vat_registrations",
+
+            # supplier_bank_accounts: PK (iban) -> (tenant_id, iban). `supplier`/
+            # `beneficiary` stay non-PK columns; rowkey stays NEW.iban (pks[0]).
+            """CREATE TABLE IF NOT EXISTS supplier_bank_accounts__rekey (
+                supplier TEXT, beneficiary TEXT, iban TEXT, swift TEXT,
+                bank TEXT, currency TEXT, notes TEXT,
+                tenant_id TEXT NOT NULL DEFAULT 'default',
+                PRIMARY KEY (tenant_id, iban))""",
+            """INSERT INTO supplier_bank_accounts__rekey
+                (supplier, beneficiary, iban, swift, bank, currency, notes, tenant_id)
+                SELECT supplier, beneficiary, iban, swift, bank, currency, notes, tenant_id
+                FROM supplier_bank_accounts""",
+            "DROP TABLE supplier_bank_accounts",
+            "ALTER TABLE supplier_bank_accounts__rekey RENAME TO supplier_bank_accounts",
+
+            # supplier_products: PK (supplier, product_code, product_name) -> (tenant_id,
+            # supplier, product_code, product_name). rowkey stays NEW.supplier.
+            """CREATE TABLE IF NOT EXISTS supplier_products__rekey (
+                supplier TEXT, product_code TEXT, product_name TEXT, product_group TEXT,
+                unit TEXT, vat_rate TEXT, discount_terms TEXT,
+                tenant_id TEXT NOT NULL DEFAULT 'default',
+                PRIMARY KEY (tenant_id, supplier, product_code, product_name))""",
+            """INSERT INTO supplier_products__rekey
+                (supplier, product_code, product_name, product_group, unit, vat_rate,
+                 discount_terms, tenant_id)
+                SELECT supplier, product_code, product_name, product_group, unit, vat_rate,
+                 discount_terms, tenant_id
+                FROM supplier_products""",
+            "DROP TABLE supplier_products",
+            "ALTER TABLE supplier_products__rekey RENAME TO supplier_products",
+
+            # supplier_invoices: PK (supplier, invoice_no) -> (tenant_id, supplier,
+            # invoice_no). rowkey stays NEW.supplier.
+            """CREATE TABLE IF NOT EXISTS supplier_invoices__rekey (
+                supplier TEXT, country TEXT, invoice_no TEXT, invoice_date TEXT,
+                period TEXT, currency TEXT, gross_total REAL, notes TEXT,
+                tenant_id TEXT NOT NULL DEFAULT 'default',
+                PRIMARY KEY (tenant_id, supplier, invoice_no))""",
+            """INSERT INTO supplier_invoices__rekey
+                (supplier, country, invoice_no, invoice_date, period, currency,
+                 gross_total, notes, tenant_id)
+                SELECT supplier, country, invoice_no, invoice_date, period, currency,
+                 gross_total, notes, tenant_id
+                FROM supplier_invoices""",
+            "DROP TABLE supplier_invoices",
+            "ALTER TABLE supplier_invoices__rekey RENAME TO supplier_invoices",
+
+            # supplier_statements (UNAUDITED): PK (supplier, statement_ref) ->
+            # (tenant_id, supplier, statement_ref). register_statement adds a `customer`
+            # column to this table via a SEPARATE module's (invoice_control) idempotent
+            # ALTER. To preserve that column verbatim on an existing DB where it was
+            # already added (e.g. the demo blob), we ADD it HERE (just before the rekey)
+            # so it exists before the rebuild and is carried over by the INSERT…SELECT;
+            # the later invoice_control ALTER then finds it present (tolerated duplicate).
+            "ALTER TABLE supplier_statements ADD COLUMN customer TEXT",
+            """CREATE TABLE IF NOT EXISTS supplier_statements__rekey (
+                supplier TEXT, statement_ref TEXT, period TEXT, statement_date TEXT,
+                notes TEXT, customer TEXT,
+                tenant_id TEXT NOT NULL DEFAULT 'default',
+                PRIMARY KEY (tenant_id, supplier, statement_ref))""",
+            """INSERT INTO supplier_statements__rekey
+                (supplier, statement_ref, period, statement_date, notes, customer, tenant_id)
+                SELECT supplier, statement_ref, period, statement_date, notes, customer, tenant_id
+                FROM supplier_statements""",
+            "DROP TABLE supplier_statements",
+            "ALTER TABLE supplier_statements__rekey RENAME TO supplier_statements",
+
+            # statement_invoices (UNAUDITED): PK (supplier, statement_ref, invoice_no) ->
+            # (tenant_id, supplier, statement_ref, invoice_no).
+            """CREATE TABLE IF NOT EXISTS statement_invoices__rekey (
+                supplier TEXT, statement_ref TEXT, invoice_no TEXT, invoice_date TEXT,
+                country TEXT, currency TEXT, net REAL, vat REAL, gross REAL,
+                tenant_id TEXT NOT NULL DEFAULT 'default',
+                PRIMARY KEY (tenant_id, supplier, statement_ref, invoice_no))""",
+            """INSERT INTO statement_invoices__rekey
+                (supplier, statement_ref, invoice_no, invoice_date, country, currency,
+                 net, vat, gross, tenant_id)
+                SELECT supplier, statement_ref, invoice_no, invoice_date, country, currency,
+                 net, vat, gross, tenant_id
+                FROM statement_invoices""",
+            "DROP TABLE statement_invoices",
+            "ALTER TABLE statement_invoices__rekey RENAME TO statement_invoices",
         ])
         audit.install_audit(con, ['suppliers', 'supplier_vat_registrations', 'supplier_bank_accounts',
                                   'supplier_products', 'supplier_invoices', 'supplier_discounts'])
@@ -219,7 +379,7 @@ def set_vat_registration(supplier, country, vat_number, source="document mining"
     # OFF -> DEFAULT_TENANT_ID == the column DEFAULT, byte-identical).
     con.execute("""INSERT INTO supplier_vat_registrations (supplier, country, vat_number, source, tenant_id)
                    VALUES (?,?,?,?,?)
-                   ON CONFLICT(supplier, country) DO UPDATE SET vat_number=excluded.vat_number,
+                   ON CONFLICT(tenant_id, supplier, country) DO UPDATE SET vat_number=excluded.vat_number,
                      source=excluded.source""",
                 (supplier, country, vat_number, source, tenancy.queue_tenant()))
     con.commit(); con.close()
