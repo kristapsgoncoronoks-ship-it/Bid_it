@@ -459,6 +459,7 @@ PERM_BY_ENDPOINT = {
     "invoice_ctrl":    "invoice_control", "contracts": "invoice_control",
     "vat":             "vat_claims", "api_vat": "vat_claims", "readiness": "vat_claims",
     "receivables":     "vat_claims", "export_receivables": "exports",
+    "recon":           "vat_claims",
     "customers":       "customers", "cust_doc_download": "customers",
     "pricing":         "pricing", "pricing_upload": "pricing", "api_pricing": "pricing",
     "pricing_market":  "pricing", "pricing_portal": "pricing",
@@ -481,6 +482,7 @@ PERM_BY_ENDPOINT = {
 # The VAT-refund module (claims, readiness, recovery/fees + their exports/API) is
 # restricted to admins regardless of any processor capability.
 ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "receivables",
+              "recon",
               "export_vat", "export_readiness", "export_fees", "export_fee",
               "export_receivables", "export_evidence",
               # the one-click monthly close is an engine-orchestration action (it
@@ -509,9 +511,9 @@ MODULES = {
     "compliance": ("Compliance — invoice control, contract audit, documents",
                    {"invoice_ctrl", "contracts", "documents", "doc_download"}),
     "vat":        ("VAT refunds — claims, readiness, recovery & fees (admin only)",
-                   {"vat", "api_vat", "readiness", "recovery", "receivables", "export_vat",
-                    "export_readiness", "export_fees", "export_fee", "export_receivables",
-                    "export_evidence"}),
+                   {"vat", "api_vat", "readiness", "recovery", "receivables", "recon",
+                    "export_vat", "export_readiness", "export_fees", "export_fee",
+                    "export_receivables", "export_evidence"}),
     "fx":         ("FX vs ECB exchange rates", {"fx"}),
 }
 _ENDPOINT_MODULE = {ep: k for k, (_lbl, eps) in MODULES.items() for ep in eps}
@@ -1096,7 +1098,8 @@ button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 1
   {% if is_admin and 'vat' in modules %}<a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
   <a href="/readiness" class="{{'on' if page=='rdy'}}">Claims readiness</a>
   <a href="/recovery" class="{{'on' if page=='rec'}}">Recovery &amp; fees</a>
-  <a href="/receivables" class="{{'on' if page=='rcv'}}">Receivables &amp; forecast</a>{% endif %}
+  <a href="/receivables" class="{{'on' if page=='rcv'}}">Receivables &amp; forecast</a>
+  <a href="/recon" class="{{'on' if page=='rcn'}}">Bank reconciliation</a>{% endif %}
   {% if 'fx' in modules %}<a href="/fx" class="{{'on' if page=='fx'}}">FX vs ECB</a>{% endif %}
 </span></div></div>
 {% if 'compliance' in modules and ('invoice_control' in perms or 'documents' in perms) %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['inv','con','doc'] else ''}}">Compliance</span><div class="mdrop"><span>
@@ -4556,6 +4559,126 @@ def export_receivables():
     path = reports.receivables_forecast_workbook(VR.receivables_forecast(year), year)
     return send_file(path, as_attachment=True, download_name=os.path.basename(path),
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+@app.route("/recon", methods=["GET", "POST"])
+def recon():
+    """ADMIN-ONLY open-banking reconciliation — ADVISORY ONLY. Reconciles bank
+    transactions against EXPECTED incoming VAT refunds (claims FILED but not yet PAID:
+    bank_recon.expected_refunds() reuses vat_refund.recovery_report()) by amount + date,
+    so you can see which refunds have landed and which are still outstanding.
+
+    Bank lines arrive TODAY via a bank-statement CSV upload (parse_bank_csv); an AISP
+    (account-information) provider seam allows an automated, read-only bank feed later via
+    a licensed-aggregator AGENT (none configured by default). This surface NEVER marks a
+    claim paid or changes any VAT figure/gate/lock/lifecycle — it shows suggestions only.
+    """
+    import bank_recon as BR
+    year = request.args.get("year", "2026")
+    banner = ""
+    bank_lines = []
+    did_recon = False
+    if request.method == "POST" and request.form.get("__act") == "upload":
+        f = request.files.get("file")
+        try:
+            if not f or not f.filename:
+                raise ValueError("no file selected")
+            data = f.read()
+            bank_lines = BR.parse_bank_csv(data)
+            did_recon = True
+            if not bank_lines:
+                banner = (f'<div class="card"><b class="bad">No usable rows parsed from '
+                          f'{esc(f.filename)}.</b><div class="note">CSV columns: '
+                          '<b>date</b> (date | booking date | value date), <b>amount</b> '
+                          '(signed; + credit, − debit — or a separate credit/debit pair), '
+                          'and optional <b>description</b> / <b>counterparty</b>.</div></div>')
+            else:
+                banner = (f'<div class="card"><b class="ok">Parsed {len(bank_lines)} '
+                          f'bank line(s) from {esc(f.filename)} — advisory reconciliation '
+                          f'below (nothing was changed).</b></div>')
+        except Exception as e:
+            _log_exc("recon/upload", e)
+            banner = f'<div class="card"><b class="bad">Upload failed: {esc(str(e))}</b></div>'
+
+    prov = BR.provider()
+    # With a configured (non-null) provider the same reconcile would run over a fetched
+    # feed; with NullProvider (the default) it returns [] and we use the CSV-upload path.
+    if not bank_lines and prov.name != "none":
+        try:
+            bank_lines = prov.fetch_transactions(_auth.get_setting("bank_account", ""),
+                                                 since=None) or []
+            did_recon = bool(bank_lines)
+        except Exception as e:
+            _log_exc("recon/fetch", e)
+
+    expected = BR.expected_refunds(year)
+    result = BR.reconcile(bank_lines, expected) if did_recon else None
+
+    advisory = ('<div class="note" style="border-left:3px solid #b06b00;padding-left:8px">'
+                '<b>Advisory reconciliation — suggestions only; nothing is marked paid or '
+                'changed.</b> Automated bank feeds connect via a licensed AISP partner '
+                '(read-only account information, no payment initiation) — '
+                f'<b>Provider: {esc(prov.name)}</b>'
+                + (' (none configured).' if prov.name == "none" else '.') + '</div>')
+
+    upload_form = (
+        '<div class="card"><h2>Bank statement</h2>' + advisory
+        + '<form method="post" enctype="multipart/form-data" class="f" style="margin-top:10px">'
+        + _csrf_input()
+        + '<input type="hidden" name="__act" value="upload">'
+        + '<label>CSV file<input type="file" name="file" accept=".csv,text/csv" required></label>'
+        + '<button>Upload &amp; reconcile</button></form>'
+        + '<div class="note">Columns (header matched case-insensitively, BOM tolerated): '
+          '<b>date</b> (date | booking date | value date), <b>amount</b> (signed; + credit, '
+          '− debit — or a separate credit/debit pair), optional <b>description</b> '
+          '(reference | details) and <b>counterparty</b> (name). Expected refunds = '
+          'submitted/approved claims, NET (VAT-excluded) EUR.</div></div>')
+
+    body = upload_form
+    if result is not None:
+        m_rows = []
+        for m in result["matched"]:
+            e = m["expected"]; b = m["bank"]
+            m_rows.append([
+                f"<td>{esc(e.get('entity') or '')}</td><td>{esc(e.get('country') or '')}</td>"
+                f"<td>{esc(e.get('period') or '')}</td>",
+                f"<td class=r>{money.f2(e.get('expected_eur') or 0):,.2f}</td>",
+                f"<td>{esc(b.get('date') or '')}</td>",
+                f"<td class=r>{money.f2(b.get('amount') or 0):,.2f}</td>",
+                f"<td>{esc(b.get('counterparty') or '')}</td>",
+                f"<td>{esc((b.get('description') or '')[:60])}</td>",
+                f"<td class=r>{money.f2(m['amount_delta']):,.2f}</td>",
+                f"<td class=r>{esc(str(m['day_gap']))}</td>"])
+        ue_rows = []
+        for e in result["unmatched_expected"]:
+            ue_rows.append([
+                f"<td>{esc(e.get('entity') or '')}</td><td>{esc(e.get('country') or '')}</td>"
+                f"<td>{esc(e.get('period') or '')}</td>",
+                f"<td class=r>{money.f2(e.get('expected_eur') or 0):,.2f}</td>",
+                f"<td>{esc(e.get('since') or '')}</td>"])
+        ub_rows = []
+        for b in result["unmatched_bank"]:
+            ub_rows.append([
+                f"<td>{esc(b.get('date') or '')}</td>",
+                f"<td class=r>{money.f2(b.get('amount') or 0):,.2f}</td>",
+                f"<td>{esc(b.get('counterparty') or '')}</td>",
+                f"<td>{esc((b.get('description') or '')[:80])}</td>"])
+        body += (
+            '<div class="card"><h2>Matched refunds &harr; bank credits</h2>'
+            + tbl(["Entity", "Country", "Period", "Expected EUR", "Bank date",
+                   "Bank amount", "Counterparty", "Description", "Δ amount", "Day gap"],
+                  m_rows)
+            + '<div class="note">A match means a bank credit landed within EUR and date '
+              'tolerance of an expected refund. This is a SUGGESTION — the claim is not '
+              'marked paid.</div></div>'
+            + '<div class="card"><h2>Outstanding — expected refunds not yet seen</h2>'
+            + tbl(["Entity", "Country", "Period", "Expected EUR", "Submitted"], ue_rows)
+            + '<div class="note">Submitted/approved claims with no matching bank credit '
+              'yet — still outstanding from the tax authority.</div></div>'
+            + '<div class="card"><h2>Unmatched incoming credits</h2>'
+            + tbl(["Bank date", "Amount EUR", "Counterparty", "Description"], ub_rows)
+            + '<div class="note">Incoming bank credits not tied to any known expected '
+              'refund — review whether they relate to something else.</div></div>')
+    return page(banner + body, "rcn")
 
 @app.route("/anomalies")
 def anomalies_page():
