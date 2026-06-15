@@ -318,7 +318,9 @@ def _seed_statement(sm, supplier="BP", ref="ST-1", customer="Nonexistent Co",
         VALUES (?,?,?,?,?,?)""",
         (supplier, ref, TEST_PERIOD, "2026-05-31", "", customer))
     for inv_no, inv_date, country, ccy, net, vat in lines:
-        con.execute("INSERT INTO statement_invoices VALUES (?,?,?,?,?,?,?,?,?)",
+        con.execute("""INSERT INTO statement_invoices
+                       (supplier, statement_ref, invoice_no, invoice_date, country,
+                        currency, net, vat, gross) VALUES (?,?,?,?,?,?,?,?,?)""",
                     (supplier, ref, inv_no, inv_date, country, ccy,
                      net, vat, net + vat))
     con.commit(); con.close()

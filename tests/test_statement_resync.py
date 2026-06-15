@@ -74,7 +74,9 @@ def test_manual_row_is_preserved(suppliers_db):
     """A human-curated supplier_invoices row is NOT overwritten by a re-register."""
     sm = suppliers_db
     con = sm.connect()
-    con.execute("""INSERT INTO supplier_invoices VALUES (?,?,?,?,?,?,?,?)""",
+    con.execute("""INSERT INTO supplier_invoices
+                   (supplier, country, invoice_no, invoice_date, period,
+                    currency, gross_total, notes) VALUES (?,?,?,?,?,?,?,?)""",
                 ("DKV", "Germany", "Y", "2026-05-31", "2026-05", "EUR", 500.0,
                  "manual entry"))
     con.commit(); con.close()

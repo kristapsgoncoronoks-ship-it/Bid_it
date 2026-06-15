@@ -18,6 +18,7 @@ import sqlite3, sys
 import audit
 import db_tuning
 import db_migrate
+import tenancy
 
 import os
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
@@ -164,17 +165,30 @@ def connect():
     # process per DB (this connect() is called many times per request).
     if DB == ":memory:" or DB not in _SCHEMA_READY:
         con.executescript(SCHEMA)
-        db_migrate.apply(con, "supplier_master", [
-            "ALTER TABLE suppliers ADD COLUMN invoice_cadence TEXT DEFAULT 'monthly'",
-        ])
         # Structured contract terms for the compliance auditor: the rebate that SHOULD
         # be applied (EUR/L) and/or a NET price ceiling (EUR/L) for matching lines.
+        # Created BEFORE db_migrate.apply so the P1 tenant_id ALTER below can target it.
         con.execute("""CREATE TABLE IF NOT EXISTS supplier_discounts (
             id INTEGER PRIMARY KEY,
             supplier TEXT, country TEXT DEFAULT '%', station_like TEXT DEFAULT '%',
             product_group TEXT DEFAULT 'Diesel',
             expected_discount_eur_l REAL, max_net_eur_l REAL,
             note TEXT, active INTEGER DEFAULT 1)""")
+        db_migrate.apply(con, "supplier_master", [
+            "ALTER TABLE suppliers ADD COLUMN invoice_cadence TEXT DEFAULT 'monthly'",
+            # P1 multi-tenancy (schema plumbing only): stamp every tenant-owned table
+            # in suppliers.db with a tenant_id; existing rows backfill to
+            # DEFAULT_TENANT_ID via the column DEFAULT, new rows default too. NO query
+            # reads this column yet (the `multitenant` switch is OFF and scope_clause is
+            # unwired until P2), so this is a pure no-behavior-change addition. This runs
+            # on the WRITABLE engine path (suppliers.db is engine-owned; the app reads it
+            # READ-ONLY via dataproduct). APPEND-ONLY — keep at END.
+            *tenancy.tenant_column_ddls([
+                "suppliers", "supplier_bank_accounts", "supplier_vat_registrations",
+                "supplier_discounts", "supplier_invoices", "supplier_products",
+                "supplier_statements", "statement_invoices",
+            ]),
+        ])
         audit.install_audit(con, ['suppliers', 'supplier_vat_registrations', 'supplier_bank_accounts',
                                   'supplier_products', 'supplier_invoices', 'supplier_discounts'])
         _SCHEMA_READY.add(DB)
@@ -227,10 +241,19 @@ def seed(con):
     con.executemany("""INSERT OR REPLACE INTO suppliers
         (code, legal_name, group_name, address, home_country, company_reg, phone, email,
          portal, payment_terms, payment_notes, status, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""", SUPPLIERS)
-    con.executemany("INSERT OR REPLACE INTO supplier_vat_registrations VALUES (?,?,?,?)", VAT_REGS)
-    con.executemany("INSERT OR REPLACE INTO supplier_bank_accounts VALUES (?,?,?,?,?,?,?)", BANKS)
-    con.executemany("INSERT OR REPLACE INTO supplier_products VALUES (?,?,?,?,?,?,?)", PRODUCTS)
-    con.executemany("INSERT OR REPLACE INTO supplier_invoices VALUES (?,?,?,?,?,?,?,?)", INVOICE_REG)
+    # Explicit column lists (NOT positional VALUES) so the trailing P1 tenant_id
+    # column takes its DEFAULT rather than throwing a column-count mismatch.
+    con.executemany("""INSERT OR REPLACE INTO supplier_vat_registrations
+        (supplier, country, vat_number, source) VALUES (?,?,?,?)""", VAT_REGS)
+    con.executemany("""INSERT OR REPLACE INTO supplier_bank_accounts
+        (supplier, beneficiary, iban, swift, bank, currency, notes)
+        VALUES (?,?,?,?,?,?,?)""", BANKS)
+    con.executemany("""INSERT OR REPLACE INTO supplier_products
+        (supplier, product_code, product_name, product_group, unit, vat_rate, discount_terms)
+        VALUES (?,?,?,?,?,?,?)""", PRODUCTS)
+    con.executemany("""INSERT OR REPLACE INTO supplier_invoices
+        (supplier, country, invoice_no, invoice_date, period, currency, gross_total, notes)
+        VALUES (?,?,?,?,?,?,?,?)""", INVOICE_REG)
     for code, cad in (("E100","semi-monthly"),("DKV","semi-monthly"),("Q8","monthly-per-country"),
                       ("MOEVE","monthly"),("BP","monthly"),("TFC","monthly"),("PORTONE","monthly")):
         con.execute("UPDATE suppliers SET invoice_cadence=? WHERE code=?", (cad, code))

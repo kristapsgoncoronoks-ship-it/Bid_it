@@ -253,14 +253,18 @@ def register_statement(supplier, statement_ref, period, statement_date, lines,
     synced = 0
     for inv_no, inv_date, ctry, ccy, net, vat in lines:
         net, vat = float(net or 0), float(vat or 0)
-        con.execute("""INSERT OR REPLACE INTO statement_invoices VALUES (?,?,?,?,?,?,?,?,?)""",
+        con.execute("""INSERT OR REPLACE INTO statement_invoices
+                    (supplier, statement_ref, invoice_no, invoice_date, country,
+                     currency, net, vat, gross) VALUES (?,?,?,?,?,?,?,?,?)""",
                     (supplier, statement_ref, inv_no, inv_date, ctry, ccy, net, vat, net + vat))
         if vat > 0:
             note = f"auto-synced from statement {statement_ref}"
             existing = con.execute("""SELECT notes FROM supplier_invoices WHERE supplier=?
                     AND invoice_no=?""", (supplier, inv_no)).fetchone()
             if existing is None:
-                con.execute("""INSERT INTO supplier_invoices VALUES (?,?,?,?,?,?,?,?)""",
+                con.execute("""INSERT INTO supplier_invoices
+                            (supplier, country, invoice_no, invoice_date, period,
+                             currency, gross_total, notes) VALUES (?,?,?,?,?,?,?,?)""",
                             (supplier, ctry, inv_no, inv_date, period, ccy, net + vat, note))
                 synced += 1
             elif (existing["notes"] or "").startswith("auto-synced from statement"):

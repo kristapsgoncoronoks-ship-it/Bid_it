@@ -35,7 +35,9 @@ def stores(tmp_path, monkeypatch):
 def _register_line(sm, supplier, invoice_no, vat):
     """Write ONE statement_invoices row directly (the complete registry)."""
     con = sm.connect()
-    con.execute("INSERT OR REPLACE INTO statement_invoices VALUES (?,?,?,?,?,?,?,?,?)",
+    con.execute("""INSERT OR REPLACE INTO statement_invoices
+                   (supplier, statement_ref, invoice_no, invoice_date, country,
+                    currency, net, vat, gross) VALUES (?,?,?,?,?,?,?,?,?)""",
                 (supplier, "S-1", invoice_no, "2026-05-31", "Belgium", "EUR",
                  100.0, vat, 100.0 + vat))
     con.commit(); con.close()
