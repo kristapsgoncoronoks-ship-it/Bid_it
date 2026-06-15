@@ -130,6 +130,77 @@ def connect():
             *tenancy.tenant_column_ddls([
                 "portal_configs", "portal_credentials", "portal_runs",
             ]),
+            # ── PK RE-KEY (multi-tenant): tenant-qualified PRIMARY KEYs ──────────
+            # portal_configs (PK supplier) and portal_credentials (PK (supplier,
+            # entity)) carry a tenant_id column (P1, the spread above) and tenant-
+            # scoped reads / stamped writes (P2), but their PRIMARY KEYs did NOT
+            # include tenant_id — so set_config/set_credentials' INSERT … ON CONFLICT
+            # resolves on the NATURAL key only. Under the `multitenant` switch ON two
+            # tenants writing the SAME supplier/(supplier, entity) would COLLIDE and
+            # overwrite each other's stored portal SECRETS — cross-tenant data loss.
+            #
+            # SQLite cannot ALTER a PRIMARY KEY in place, so each table is REBUILT:
+            # create a __rekey twin, copy all rows (explicit column list — incl. the
+            # envelope-encrypted secret_enc/extra BLOBs, copied verbatim), drop the
+            # old, rename the twin. Runs once per DB (versioned), supersedes the PK on
+            # both fresh and existing portal.db files. APPEND-ONLY — keep at END.
+            #
+            # AUDITED-DB SPECIFICS (these tables ARE audited; benchmark.db was not):
+            #   • AUDIT ROWKEY PRESERVED. audit._cols_pk returns pks[0] = the FIRST
+            #     pk-flagged column in COLUMN-DEFINITION order (not PK-clause order),
+            #     and the trigger logs NEW.{pk}. We define tenant_id as the LAST column
+            #     but FIRST in the PRIMARY KEY clause, so pks[0] stays `supplier` and
+            #     the audit rowkey is UNCHANGED (NEW.supplier), not the tenant_id.
+            #   • TRIGGERS REINSTATED. DROP TABLE drops aud_<t>_i/u/d. We do NOT
+            #     hand-write CREATE TRIGGER here — connect() calls install_audit RIGHT
+            #     AFTER db_migrate.apply, which recreates the triggers on the first
+            #     connect that runs this migration (cache miss at process start). The
+            #     pairing (apply → install_audit) is what keeps the audit coverage.
+            #
+            # OFF-by-default is byte-identical: a single 'default' tenant behaves
+            # exactly as the natural PK did.
+
+            # portal_configs: PK (supplier) -> (tenant_id, supplier). tenant_id LAST in
+            # the column list (rowkey-preserving) but FIRST in the PK clause.
+            """CREATE TABLE IF NOT EXISTS portal_configs__rekey (
+                supplier TEXT,
+                kind TEXT,
+                base_url TEXT,
+                config TEXT,
+                enabled INTEGER DEFAULT 1,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                interval_hours REAL DEFAULT 0,
+                tenant_id TEXT NOT NULL DEFAULT 'default',
+                PRIMARY KEY (tenant_id, supplier))""",
+            """INSERT INTO portal_configs__rekey
+                (supplier, kind, base_url, config, enabled, updated_at,
+                 interval_hours, tenant_id)
+                SELECT supplier, kind, base_url, config, enabled, updated_at,
+                 interval_hours, tenant_id
+                FROM portal_configs""",
+            "DROP TABLE portal_configs",
+            "ALTER TABLE portal_configs__rekey RENAME TO portal_configs",
+            # (no secondary indexes existed on portal_configs — the natural PK was the
+            # only one, now superseded by the tenant-qualified PK; nothing to recreate.)
+
+            # portal_credentials: PK (supplier, entity) -> (tenant_id, supplier, entity).
+            # secret_enc/extra are BLOB (audit-excluded) — copied verbatim, crypto
+            # untouched. tenant_id LAST in the column list (rowkey stays NEW.supplier).
+            """CREATE TABLE IF NOT EXISTS portal_credentials__rekey (
+                supplier TEXT, entity TEXT,
+                username TEXT, secret_enc BLOB,
+                extra BLOB,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                tenant_id TEXT NOT NULL DEFAULT 'default',
+                PRIMARY KEY (tenant_id, supplier, entity))""",
+            """INSERT INTO portal_credentials__rekey
+                (supplier, entity, username, secret_enc, extra, updated_at, tenant_id)
+                SELECT supplier, entity, username, secret_enc, extra, updated_at,
+                 tenant_id
+                FROM portal_credentials""",
+            "DROP TABLE portal_credentials",
+            "ALTER TABLE portal_credentials__rekey RENAME TO portal_credentials",
+            # (no secondary indexes existed on portal_credentials either.)
         ])
         audit.install_audit(con, ["portal_configs", "portal_credentials"])
         if DB != ":memory:":
@@ -178,18 +249,13 @@ def set_config(supplier, kind, base_url="", config=None, enabled=True, interval_
         ih = 0.0
     con = connect()
     # P2: stamp the bound tenant on this user-facing admin write (DEFAULT_TENANT_ID OFF;
-    # raises under ON with no concrete tenant).
-    # KNOWN LIMITATION (flag, do NOT fix here): the ON CONFLICT target is `supplier`
-    # only — NOT tenant-qualified. Under the switch ON, two tenants configuring the
-    # same supplier would COLLIDE/UPSERT into each other's row. Before multi-client
-    # go-live this must become ON CONFLICT(tenant_id, supplier) with a matching UNIQUE
-    # (tenant_id, supplier) — a separate, higher-risk PK-rekeying/table-rebuild work
-    # order. Under OFF (single 'default' tenant) there is no collision, so not a
-    # regression.
+    # raises under ON with no concrete tenant). PK now tenant-qualified — the ON CONFLICT
+    # target is (tenant_id, supplier), matching the rekeyed PRIMARY KEY (see migrations),
+    # so two tenants configuring the same supplier no longer collide.
     con.execute("""INSERT INTO portal_configs
                      (supplier, kind, base_url, config, enabled, interval_hours, tenant_id, updated_at)
                    VALUES (?,?,?,?,?,?,?, CURRENT_TIMESTAMP)
-                   ON CONFLICT(supplier) DO UPDATE SET kind=excluded.kind,
+                   ON CONFLICT(tenant_id, supplier) DO UPDATE SET kind=excluded.kind,
                      base_url=excluded.base_url, config=excluded.config,
                      enabled=excluded.enabled, interval_hours=excluded.interval_hours,
                      updated_at=CURRENT_TIMESTAMP""",
@@ -239,17 +305,13 @@ def set_credentials(supplier, entity, username, secret, extra=None):
     aad = _aad(supplier, entity)
     con = connect()
     # P2: stamp the bound tenant on this user-facing admin write (DEFAULT_TENANT_ID OFF;
-    # raises under ON with no concrete tenant).
-    # KNOWN LIMITATION (flag, do NOT fix here): the ON CONFLICT target is
-    # (supplier, entity) only — NOT tenant-qualified. Under the switch ON, two tenants
-    # storing a credential for the same (supplier, entity) would COLLIDE/UPSERT into
-    # each other's row. Before multi-client go-live this must become
-    # ON CONFLICT(tenant_id, supplier, entity) with a matching UNIQUE — a separate,
-    # higher-risk PK-rekeying/table-rebuild work order. Under OFF (single 'default'
-    # tenant) there is no collision, so not a regression.
+    # raises under ON with no concrete tenant). PK now tenant-qualified — the ON CONFLICT
+    # target is (tenant_id, supplier, entity), matching the rekeyed PRIMARY KEY (see
+    # migrations), so two tenants storing a credential for the same (supplier, entity) no
+    # longer collide/overwrite each other's secret.
     con.execute("""INSERT INTO portal_credentials (supplier, entity, username, secret_enc, extra, tenant_id, updated_at)
                    VALUES (?,?,?,?,?,?, CURRENT_TIMESTAMP)
-                   ON CONFLICT(supplier, entity) DO UPDATE SET username=excluded.username,
+                   ON CONFLICT(tenant_id, supplier, entity) DO UPDATE SET username=excluded.username,
                      secret_enc=excluded.secret_enc, extra=excluded.extra,
                      updated_at=CURRENT_TIMESTAMP""",
                 (supplier.upper(), entity, username, _encrypt(secret, aad),
