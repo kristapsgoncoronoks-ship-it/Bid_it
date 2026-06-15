@@ -63,7 +63,10 @@ def test_summary_honors_stored_waiver():
     period, the read-only entry returns EXACTLY the same rows as the writing entry
     (and the writing path does not clobber the waived row's stored status)."""
     import invoice_control as IC
+    import audit
     fcon = IC._control_writer()
+    audit.bind(fcon)        # the writer's UPDATE below is audited; register ffs_actor
+                            # on this connection just like run_control's writer does
     # establish the baseline rows for the real period, then pick one to waive.
     IC.run_control(PERIOD)
     target = fcon.execute("""SELECT supplier, country, slot, status FROM
