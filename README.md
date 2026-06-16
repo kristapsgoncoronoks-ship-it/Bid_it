@@ -156,7 +156,7 @@ fleet_fuel_system/
 ├── gunicorn_conf.py                   # multi-process worker config (Linux)
 ├── documents/                  # the document vault (local backend; git-ignored content)
 ├── tests/                      # pytest suite (1,150+ tests)
-└── docs/                       # INSTALL · USER_MANUAL · ARCHITECTURE · DIAGRAMS · PLATFORM · SCALING · ROADMAP · VAT_REFUND_RULES · FILE_INDEX · GIT_SETUP
+└── docs/                       # MANUAL.md (install · hosting · scaling · user manual · API · SAF-T · AI review · VAT rules) · STRATEGY.md (strategy · roadmap · backlog · multi-tenancy · security) · openapi.yaml
 ```
 
 See **[#architecture](#architecture)** for the full module map and data model.
@@ -204,13 +204,11 @@ More detail for AI/codebase contributors is in `CLAUDE.md`.
 
 ## Consolidated documentation — contents
 
-The front-door content above is unchanged. The sections below consolidate the former architecture/platform docs (architecture, data architecture, platform lens, diagrams, file index) into this README.
-
-- [Architecture](#architecture)
-- [Data architecture — duplication & under-used data](#data-architecture-duplication-under-used-data)
-- [The platform — seven delegated works](#the-platform-seven-delegated-works)
-- [System schematics](#system-schematics)
-- [File index — what every file does](#file-index-what-every-file-does)
+The architecture/platform reference (linked from the **Documentation** table above) lives in the
+sections below: [Architecture](#architecture) · [The platform — seven delegated
+works](#the-platform-seven-delegated-works) · [System schematics](#system-schematics) · [File
+index](#file-index-what-every-file-does), plus the data-architecture audit — [Data architecture —
+duplication & under-used data](#data-architecture-duplication-under-used-data).
 
 ---
 
