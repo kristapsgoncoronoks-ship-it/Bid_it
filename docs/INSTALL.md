@@ -611,6 +611,8 @@ Get-Service FleetFuel                            # Running
 
 - **[DEPLOYMENT_SIZING.md](DEPLOYMENT_SIZING.md)** — what server to buy for a single-box
   install (CPU/RAM/disk, reference workload ~100 invoices/day, local-OCR sizing).
+- **[HOSTING_HOSTINGER.md](HOSTING_HOSTINGER.md)** — step-by-step deploy on a Hostinger
+  VPS (plan/OS choice, domain + Let's Encrypt, systemd + nginx, firewall, go-live).
 - **[SCALING.md](SCALING.md)** — the single-box → web/worker fleet → PostgreSQL ladder
   (Parts 5b / 7c) and the credential-custody rotation detail (Part 8b).
 - **[MULTI_TENANCY.md](MULTI_TENANCY.md)** — the P1+ rollout before turning `multitenant`

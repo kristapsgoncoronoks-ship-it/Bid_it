@@ -93,6 +93,7 @@ for unattended IT setup.
 | **[docs/DIAGRAMS.md](docs/DIAGRAMS.md)** | Visual schematics — system overview, upload OK/Bad flow, monthly close, VAT claim lifecycle, **claim composition & document resolution**, databases, storage, request/worker flow, multi‑server topology, and the backup & integrity self‑control loop. |
 | **[docs/SCALING.md](docs/SCALING.md)** | Horizontal scaling — the ladder (tune → Postgres → offload storage → worker fleet → load‑balance), target topology, env‑var reference, and the honest remaining blockers to a validated Postgres cutover. |
 | **[docs/DEPLOYMENT_SIZING.md](docs/DEPLOYMENT_SIZING.md)** | Single‑box server sizing — "what do I buy to run this smoothly?" CPU/RAM/disk for a normal install (reference workload ~100 invoices/day), why disk is the real growth driver, and concrete cloud/on‑prem host options. |
+| **[docs/HOSTING_HOSTINGER.md](docs/HOSTING_HOSTINGER.md)** | Step‑by‑step deploy on a **Hostinger VPS** — which plan/OS to pick, domain + DNS, Let's Encrypt TLS, systemd + nginx, firewall, optional OCR, and the go‑live checklist. |
 | **[docs/MULTI_TENANCY.md](docs/MULTI_TENANCY.md)** | The multi‑tenant SaaS program — the phased plan behind the OFF‑by‑default `multitenant` switch (`tenancy.py`). |
 | **[docs/SAFT.md](docs/SAFT.md)** | The SAF‑T (OECD core) export — the `CountryProfile` model and what makes a real per‑country submission. |
 | **[docs/ROADMAP.md](docs/ROADMAP.md)** | How the system should evolve to support the business — outcome‑driven plan across three horizons, with KPIs. |
