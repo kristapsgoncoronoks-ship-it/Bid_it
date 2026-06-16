@@ -8,7 +8,8 @@ Run locally:        python3 app.py            -> http://localhost:8050
 Team deployment:    gunicorn -w 2 app:app     behind nginx; add auth at the proxy
 Scale-up path:      swap DB() for PostgreSQL (one function), keep everything else.
 
-Pages:  /            dashboard (KPIs, diesel benchmark, monthly trend)
+Pages:  /            welcome landing (intro + section cards)
+        /analytics   dashboard (KPIs, diesel benchmark, monthly trend)
         /compare     filterable comparison (period, supplier, country, product, dates)
         /headtohead  same-day same-country supplier overlaps + overpay
         /entities    per-entity totals & reclaimable VAT
@@ -513,7 +514,7 @@ MODULES = {
                     "pricing_upload", "api_pricing", "export_compare", "export_stations",
                     "export_pricing", "export_benchmark", "export_peer", "intel", "export_intel",
                     "export_overpay", "expenses", "export_expenses", "export_accounting",
-                    "export_saft", "reports_page", "reliability_page"}),
+                    "export_saft", "reports_page", "reliability_page", "analytics"}),
     "intake":     ("Intake — import, waiting room, files, document mining",
                    {"extract_batch", "extract_confirm", "extract_ai_review",
                     "intake_queue_page", "intake_review",
@@ -1235,8 +1236,9 @@ h2.section:first-of-type{margin-top:4px}
 .dropzone input[type=file]{position:absolute;width:1px;height:1px;opacity:0;clip:rect(0 0 0 0)}
 </style></head><body>
 <header><b>⛽ Fleet Fuel</b>
-<a href="/" class="{{'on' if page=='dash'}}">Dashboard</a>
-{% if 'analytics' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['rep','sav','exp','int','cmp','txn','h2h','stn','ano','pri','rel'] else ''}}">Analytics</span><div class="mdrop"><span>
+<a href="/" class="{{'on' if page=='home'}}">Home</a>
+{% if 'analytics' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ana','rep','sav','exp','int','cmp','txn','h2h','stn','ano','pri','rel'] else ''}}">Analytics</span><div class="mdrop"><span>
+  <a href="/analytics" class="{{'on' if page=='ana'}}">Dashboard</a>
   <a href="/reports" class="{{'on' if page=='rep'}}">Reports (charts)</a>
   <a href="/savings" class="{{'on' if page=='sav'}}">Savings</a>
   <a href="/expenses" class="{{'on' if page=='exp'}}">Expenses</a>
@@ -1318,13 +1320,59 @@ def multisel(name, label, options, selected, size=4):
 
 # ---------------------------------------------------------------- pages
 @app.route("/")
+def home():
+    """Clean WELCOME landing page: a short intro to what the system does plus a row
+    of cards linking to the main sections the user has permission for. No data tables
+    or VAT worklist — those live on /analytics and /vat respectively."""
+    role = session.get("role", "processor")
+    is_admin = (role == "admin")
+    mods = enabled_modules()
+    perms = _auth.permissions_for(role)
+    # (title, blurb, href, show?) — only sections the user can actually reach are shown.
+    cards = [
+        ("Analytics", "Diesel benchmark, savings and price intelligence across every fuel card.",
+         "/analytics", "analytics" in mods),
+        ("Intake", "Import invoice batches, run the waiting room and mine documents.",
+         "/extract", "intake" in mods and "data_import" in perms),
+        ("Documents", "Vaulted invoices and supporting evidence, deduplicated and hash-verified.",
+         "/documents", "compliance" in mods and "documents" in perms),
+        ("Invoice control", "Receipt control, statement reconciliation and contract audit.",
+         "/invoices", "compliance" in mods and "invoice_control" in perms),
+        ("Customers", "The light CRM: entities, activation, checklist rules, fees and expiry.",
+         "/customers", is_admin),
+        ("Suppliers", "Supplier master, cadences and registered statements.",
+         "/suppliers", True),
+        ("VAT &amp; recovery", "EU VAT refund claims (2008/9/EC), readiness, recovery and fees.",
+         "/vat", is_admin and "vat" in mods),
+        ("History", "The validated, reconciled transaction record across periods.",
+         "/history", True),
+        ("Admin", "Users, capabilities, modules, backups and server setup.",
+         "/admin", is_admin),
+    ]
+    tiles = "".join(
+        f'<a class="kpi link" href="{esc(href)}" style="text-decoration:none;color:inherit">'
+        f'<div class="v" style="font-size:16px">{title} &rarr;</div>'
+        f'<div class="l" style="margin-top:6px">{blurb}</div></a>'
+        for title, blurb, href, show in cards if show)
+    body = (
+        '<div class="card"><h2>Welcome to Fleet Fuel</h2>'
+        '<p class="note" style="font-size:13.5px;color:var(--ink)">This system turns your '
+        'multi-supplier fuel and toll spend into recovered cash and an audit-ready financial '
+        'record. It processes fuel invoices from every card, recovers EU VAT under Directive '
+        '2008/9/EC, and benchmarks prices so you can see where you are overpaying.</p>'
+        '<p class="note">Pick a section below to get started — only the areas you have access '
+        'to are shown.</p></div>'
+        f'<div class="kpis metrics">{tiles}</div>')
+    return page(body, "home")
+
+@app.route("/analytics")
 def dash():
     con = DB(); periods = q_periods(con)
     period = request.args.get("period", periods[0] if periods else None)
     if not period:
         con.close()
         return page('<div class="card"><h2>No data loaded yet</h2><p>Import an invoice batch '
-                    'or run the monthly close to populate transactions.</p></div>', "dash")
+                    'or run the monthly close to populate transactions.</p></div>', "ana")
     bm = q_benchmark(con, period); tr = q_trend(con)
     # Prefer the SETTLED per-period aggregates (materialized at the monthly close) for
     # the KPI cards + the avoidable-overpay figure — they save the expensive live scans
@@ -1369,15 +1417,12 @@ def dash():
     trend = tbl(["Period","Diesel litres","Fleet eff. €/L"], trows)
     psw = "".join(f'<option {"selected" if p==period else ""}>{esc(p)}</option>' for p in periods)
     close = _close_status(period)
-    worklist = ""
-    if session.get("role") == "admin":          # VAT-refund worklist is admin-only
-        worklist = _worklist_card(int(period[:4]) if period[:4].isdigit() else 2026)
     body = (f'<form class="f" method="get"><label>Period<select name="period" onchange="this.form.submit()">{psw}</select></label></form>'
-            + kpis + close + worklist
+            + kpis + close
             + f'<div class="card"><h2>Diesel benchmark — effective net €/L (cheapest first)</h2>{bench}'
             f'<div class="note">Effective includes rebate layers (Q8/Port One).</div></div>'
             f'<div class="card"><h2>Monthly trend</h2>{trend}<div class="note">Populates as periods are loaded via history.py.</div></div>')
-    con.close(); return page(body, "dash")
+    con.close(); return page(body, "ana")
 
 _close_cache = {}   # period -> (expires_epoch, html); the controls below are heavy
 _CLOSE_TTL = 30     # seconds
@@ -2550,7 +2595,7 @@ def export_master():
         return page('<div class="card"><b class="bad">No master workbook yet.</b>'
                     '<p>Run the monthly pipeline to generate it: '
                     '<kbd>python consolidate.py</kbd> then <kbd>python build_master.py</kbd>.</p></div>',
-                    "dash"), 404
+                    ""), 404
     return send_file(fs[-1], as_attachment=True)
 
 @app.route("/export/history")
@@ -2562,7 +2607,7 @@ def export_history():
         return page('<div class="card"><b class="bad">No history report yet.</b>'
                     '<p>It is produced by the monthly close: run '
                     '<kbd>python history.py</kbd> (after consolidate / build_master).</p></div>',
-                    "dash")
+                    "")
     return send_file(path, as_attachment=True)
 
 @app.route("/export/fee")
@@ -5603,7 +5648,9 @@ def vat():
                      f"<td>{_vat_status_cell(con, VR, m, inv_cache)}</td>"])
     total_ready = sum(m["vat_eur"] for m in matrix
                       if m["verdict"].startswith("READY") and not m["period"].endswith("YEAR"))
-    body = (banner + f'<div class="card"><h2>VAT refund applications {esc(year)} (2008/9/EC) — '
+    # "What needs action" worklist (admin-only; the /vat route is already ADMIN_ONLY).
+    worklist = _worklist_card(int(year[:4]) if year[:4].isdigit() else 2026)
+    body = (banner + worklist + f'<div class="card"><h2>VAT refund applications {esc(year)} (2008/9/EC) — '
             f'quarterly READY total: <span class="ok">€{total_ready:,.0f}</span> &nbsp; '
             f'<a href="/export/vat?year={esc(year)}">⬇ Generate claim workbook</a></h2>'
             + tbl(["Entity","Refund country","Period","VAT EUR","VAT local","Threshold verdict",

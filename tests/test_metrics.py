@@ -194,7 +194,7 @@ def test_app_handle_cannot_write_settled_metrics(fh_db):
 # ---------------------------------------------------------------------------
 def test_dashboard_renders_with_settled_metrics(fh_db, client):
     metrics.rebuild(PERIOD)
-    r = client.get(f"/?period={PERIOD}")
+    r = client.get(f"/analytics?period={PERIOD}")
     assert r.status_code == 200, r.status_code
     body = r.get_data(as_text=True)
     assert "Diesel litres" in body
@@ -203,7 +203,7 @@ def test_dashboard_renders_with_settled_metrics(fh_db, client):
 
 def test_dashboard_renders_live_fallback_without_settled(fh_db, client):
     # no rebuild: settled_metrics table absent -> dashboard must fall back to live
-    r = client.get(f"/?period={PERIOD}")
+    r = client.get(f"/analytics?period={PERIOD}")
     assert r.status_code == 200, r.status_code
     body = r.get_data(as_text=True)
     assert "Diesel litres" in body

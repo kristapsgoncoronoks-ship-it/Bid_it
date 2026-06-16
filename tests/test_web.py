@@ -398,7 +398,31 @@ def test_admin_can_revoke_processor_capability(admin_session):
 def test_savings_page_renders_chart(client):
     html = client.get("/savings").get_data(as_text=True)
     assert "<svg" in html
-    assert "Avoidable overpay" in client.get("/").get_data(as_text=True)
+    assert "Avoidable overpay" in client.get("/analytics").get_data(as_text=True)
+
+
+def test_home_landing_page(client):
+    # The landing page is a clean welcome with section cards — no analytics tables
+    # and no VAT worklist (those live on /analytics and /vat respectively).
+    html = client.get("/").get_data(as_text=True)
+    assert "Welcome to Fleet Fuel" in html
+    assert 'href="/analytics"' in html          # links to the analytics dashboard
+    assert "Avoidable overpay" not in html      # analytics KPI moved off the landing page
+    assert "What needs action" not in html      # VAT worklist not on landing
+
+
+def test_analytics_dashboard_no_worklist(client):
+    # The admin VAT worklist must NOT appear on the analytics dashboard anymore.
+    html = client.get("/analytics").get_data(as_text=True)
+    assert "Diesel benchmark" in html           # the dashboard content relocated here
+    assert "What needs action" not in html
+
+
+def test_vat_page_shows_worklist(client):
+    # The VAT worklist now lives under the VAT/Recovery section (the /vat page),
+    # admin-only (the `client` fixture is an admin).
+    html = client.get("/vat").get_data(as_text=True)
+    assert "What needs action" in html
 
 
 def test_transactions_drilldown(client):

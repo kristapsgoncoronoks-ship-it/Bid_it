@@ -57,13 +57,13 @@ def test_global_handler_logs_unhandled(client, monkeypatch):
     import app as A
     import auth
     auth.clear_errors()
-    # force an unhandled error inside the dashboard view
+    # force an unhandled error inside the analytics dashboard view
     monkeypatch.setattr(A, "q_periods",
                         lambda con: (_ for _ in ()).throw(RuntimeError("boom-test-xyz")))
     old = A.app.config.get("PROPAGATE_EXCEPTIONS")
     A.app.config["PROPAGATE_EXCEPTIONS"] = False
     try:
-        r = client.get("/")
+        r = client.get("/analytics")
         assert r.status_code == 500
         assert "logged" in r.get_data(as_text=True)
     finally:
