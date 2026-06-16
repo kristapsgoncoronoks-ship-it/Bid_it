@@ -92,13 +92,13 @@ def test_nda_gate_blocks_until_agreed(client, isolated):
     body = r.get_data(as_text=True)
     assert r.status_code == 200 and "accept to continue" in body
     assert "&lt;do not share&gt;" in body  # agreement text is escaped
-    assert "<iframe" not in body
+    assert 'id="pdf-root"' not in body   # the document viewer is not yet served
     assert pub.get(f"/s/{link['token']}/file").status_code == 410
     assert sharing.view_count(link["id"]) == 0
     assert sharing.agreements_for(link["id"]) == []
-    # POST "I agree" -> viewer renders, an acceptance row is written, file streams
+    # POST "I agree" -> viewer renders (B3 pdf.js), an acceptance row is written, file streams
     ok = pub.post(f"/s/{link['token']}", data={"share_agree": "1"})
-    assert "<iframe" in ok.get_data(as_text=True)
+    assert 'id="pdf-root"' in ok.get_data(as_text=True)
     agreed = sharing.agreements_for(link["id"])
     assert len(agreed) == 1
     f = pub.get(f"/s/{link['token']}/file")

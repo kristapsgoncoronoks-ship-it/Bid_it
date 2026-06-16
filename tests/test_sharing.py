@@ -164,7 +164,9 @@ def test_public_viewer_and_file_happy_path(client, isolated):
     r = pub.get(f"/s/{link['token']}")
     assert r.status_code == 200
     html = r.get_data(as_text=True)
-    assert f"/s/{link['token']}/file" in html and "<iframe" in html
+    # B3: the pdf.js page-by-page viewer replaced the iframe — assert its markers.
+    assert f"/s/{link['token']}/file" in html and 'id="pdf-root"' in html
+    assert "/static/share_viewer.js" in html
     # the view was recorded
     assert sharing.view_count(link["id"]) == 1
     # the file stream serves the PDF same-origin
@@ -207,7 +209,7 @@ def test_public_password_gate(client, isolated):
     assert "Incorrect password" in bad.get_data(as_text=True)
     # right password -> viewer renders, and the file now streams in the same session
     ok = pub.post(f"/s/{link['token']}", data={"share_password": "open-sesame"})
-    assert "<iframe" in ok.get_data(as_text=True)
+    assert 'id="pdf-root"' in ok.get_data(as_text=True)
     f = pub.get(f"/s/{link['token']}/file")
     assert f.status_code == 200 and f.data == pdf
 
@@ -224,7 +226,7 @@ def test_public_require_email_gate(client, isolated):
     assert sharing.view_count(link["id"]) == 0
     # supply an email -> viewer renders and the view is recorded with the email
     ok = pub.post(f"/s/{link['token']}", data={"share_email": "lead@corp.com"})
-    assert "<iframe" in ok.get_data(as_text=True)
+    assert 'id="pdf-root"' in ok.get_data(as_text=True)
     f = pub.get(f"/s/{link['token']}/file")
     assert f.status_code == 200 and f.data == pdf
     views = sharing.views_for(link["id"])

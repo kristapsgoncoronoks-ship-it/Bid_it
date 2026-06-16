@@ -93,7 +93,26 @@ _MIGRATIONS = [
     "ALTER TABLE share_links ADD COLUMN nda_required INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE share_links ADD COLUMN agreement_text TEXT",
     "ALTER TABLE share_links ADD COLUMN watermark INTEGER NOT NULL DEFAULT 0",
+    # B3 — per-page ("page-by-page") view analytics for the pdf.js viewer. One row per
+    # flushed (link, view-session, page) engagement beacon; dwell accumulates across
+    # beacons. tenant_id stamped on INSERT (tenancy seam, inert today), audit-installed.
+    """CREATE TABLE IF NOT EXISTS share_page_views (
+        id           INTEGER PRIMARY KEY,
+        link_id      INTEGER NOT NULL,
+        view_session TEXT,
+        page_number  INTEGER NOT NULL,
+        dwell_ms     INTEGER NOT NULL DEFAULT 0,
+        viewed_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+        tenant_id    TEXT NOT NULL DEFAULT 'default'
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_share_page_views_link "
+    "ON share_page_views(link_id, page_number)",
 ]
+
+# Beacon sanity bounds (defence-in-depth; the client also clamps). A single flushed
+# span over this is capped, and absurd page numbers are dropped.
+MAX_DWELL_MS = 30 * 60 * 1000     # 30 minutes per flushed span
+MAX_PAGE_NUMBER = 10000           # no real shared invoice has more pages than this
 
 _SCHEMA_READY = set()   # DB files whose schema is set up this process
 
@@ -107,7 +126,8 @@ def connect():
         con.executescript(SCHEMA)
         # versioned migrations: each runs ONCE per database (db_migrate). Append only.
         db_migrate.apply(con, "sharing", _MIGRATIONS)
-        audit.install_audit(con, ["share_links", "share_views", "share_agreements"])
+        audit.install_audit(con, ["share_links", "share_views", "share_agreements",
+                                  "share_page_views"])
         con.commit()
         _SCHEMA_READY.add(DB)
     return con
@@ -309,6 +329,131 @@ def view_count(link_id):
     except Exception as e:
         log.warning("view_count failed for link %s: %s", link_id, e)
         return 0
+
+
+# ---------------------------------------------------------------- per-page (B3) analytics
+def record_page_view(link, view_session, page, dwell_ms):
+    """Record ONE page-engagement beacon for `link`: the viewer dwelled `dwell_ms` on
+    `page` during the visit identified by `view_session`. Returns True iff a row was
+    written. Best-effort and never raises — the caller has ALREADY re-run the per-token
+    gate; this just persists a validated, clamped data point.
+
+    Validation/clamping (defence-in-depth — the client clamps too): a non-positive or
+    non-integer page, or a page beyond MAX_PAGE_NUMBER, is rejected (-> False); dwell is
+    coerced to int, floored at 0 and capped at MAX_DWELL_MS."""
+    if not link:
+        return False
+    try:
+        page = int(page)
+    except (TypeError, ValueError):
+        return False
+    if page < 1 or page > MAX_PAGE_NUMBER:
+        return False
+    try:
+        dwell_ms = int(dwell_ms)
+    except (TypeError, ValueError):
+        dwell_ms = 0
+    if dwell_ms < 0:
+        dwell_ms = 0
+    if dwell_ms > MAX_DWELL_MS:
+        dwell_ms = MAX_DWELL_MS
+    try:
+        con = connect()
+        try:
+            con.execute(
+                """INSERT INTO share_page_views
+                   (link_id, view_session, page_number, dwell_ms, tenant_id)
+                   VALUES (?,?,?,?,?)""",
+                (link["id"], (view_session or "")[:120], page, dwell_ms,
+                 tenancy.write_tenant()))
+            con.commit()
+            return True
+        finally:
+            con.close()
+    except Exception as e:
+        log.warning("record_page_view failed for link %s: %s",
+                    (link or {}).get("id"), e)
+        return False
+
+
+def page_engagement(link_id, total_pages=None):
+    """Aggregate per-page engagement for a link. Returns a dict:
+        {"pages": [{"page": n, "dwell_ms": ms, "sessions": k}, ...],   # by page asc
+         "pages_viewed": <distinct pages with dwell>,
+         "total_ms": <sum of dwell across all pages>,
+         "visitors": <distinct view_session count>,
+         "total_pages": <total_pages or None>,
+         "completion_pct": <pages_viewed/total_pages*100 or None>}
+    `total_pages` (the document's real page count, if known) lets us compute a
+    completion %. Never raises -> a zeroed dict."""
+    empty = {"pages": [], "pages_viewed": 0, "total_ms": 0, "visitors": 0,
+             "total_pages": total_pages, "completion_pct": None}
+    try:
+        con = connect()
+        try:
+            rows = con.execute(
+                """SELECT page_number AS page, SUM(dwell_ms) AS dwell_ms,
+                          COUNT(DISTINCT COALESCE(view_session,'')) AS sessions
+                   FROM share_page_views WHERE link_id=?
+                   GROUP BY page_number ORDER BY page_number ASC""",
+                (link_id,)).fetchall()
+            visitors = con.execute(
+                """SELECT COUNT(DISTINCT COALESCE(view_session,''))
+                   FROM share_page_views WHERE link_id=?""", (link_id,)).fetchone()[0]
+        finally:
+            con.close()
+        pages = [{"page": r["page"], "dwell_ms": int(r["dwell_ms"] or 0),
+                  "sessions": int(r["sessions"] or 0)} for r in rows]
+        pages_viewed = sum(1 for p in pages if p["dwell_ms"] > 0)
+        total_ms = sum(p["dwell_ms"] for p in pages)
+        completion = None
+        if total_pages and total_pages > 0:
+            completion = round(min(pages_viewed, total_pages) / total_pages * 100, 1)
+        return {"pages": pages, "pages_viewed": pages_viewed, "total_ms": total_ms,
+                "visitors": int(visitors or 0), "total_pages": total_pages,
+                "completion_pct": completion}
+    except Exception as e:
+        log.warning("page_engagement failed for link %s: %s", link_id, e)
+        return empty
+
+
+def visitor_timeline(link_id):
+    """Per-visitor (view_session) page breakdown for a link, newest visit first. Returns
+    a list of dicts:
+        {"view_session": s, "pages_viewed": k, "total_ms": ms,
+         "last_at": <max viewed_at>, "pages": [{"page": n, "dwell_ms": ms}, ...]}
+    Never raises -> []."""
+    try:
+        con = connect()
+        try:
+            rows = con.execute(
+                """SELECT COALESCE(view_session,'') AS view_session, page_number AS page,
+                          SUM(dwell_ms) AS dwell_ms, MAX(viewed_at) AS last_at
+                   FROM share_page_views WHERE link_id=?
+                   GROUP BY COALESCE(view_session,''), page_number""",
+                (link_id,)).fetchall()
+        finally:
+            con.close()
+        sessions = {}
+        for r in rows:
+            s = r["view_session"]
+            d = sessions.setdefault(
+                s, {"view_session": s, "pages": [], "total_ms": 0, "last_at": ""})
+            ms = int(r["dwell_ms"] or 0)
+            d["pages"].append({"page": r["page"], "dwell_ms": ms})
+            d["total_ms"] += ms
+            if (r["last_at"] or "") > d["last_at"]:
+                d["last_at"] = r["last_at"] or ""
+        out = []
+        for d in sessions.values():
+            d["pages"].sort(key=lambda p: p["page"])
+            d["pages_viewed"] = sum(1 for p in d["pages"] if p["dwell_ms"] > 0)
+            out.append(d)
+        out.sort(key=lambda d: d["last_at"], reverse=True)
+        return out
+    except Exception as e:
+        log.warning("visitor_timeline failed for link %s: %s", link_id, e)
+        return []
 
 
 # ---------------------------------------------------------------- NDA / agreement gate

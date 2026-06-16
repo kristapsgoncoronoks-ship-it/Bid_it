@@ -618,12 +618,15 @@ def _guard():
         return  # /api/v1 is fully owned by _api_v1_guard (token-only)
     if request.endpoint in ("setup", "static", "app_js") or request.endpoint is None:
         return
-    # Secure share links: the public viewer + file stream are PUBLIC by design (no
-    # session). They run their OWN per-token gate (revoked/expired/password/email) in
-    # the view; do NOT require login here. The authenticated management pages
-    # (share_links_page / share_create / share_views_page / share_revoke) are NOT
-    # exempted and fall through to the normal session + capability + CSRF checks below.
-    if request.endpoint in ("share_public", "share_file"):
+    # Secure share links: the public viewer + file stream + the per-page engagement
+    # beacon (B3) are PUBLIC by design (no session). They run their OWN per-token gate
+    # (revoked/expired/password/email) in the view; do NOT require login here. The beacon
+    # (share_event) is exempt from the session-CSRF check by the same token — it is a
+    # cross-origin-safe, no-cookie-authority POST that records NOTHING unless the SAME
+    # gates pass. The authenticated management pages (share_links_page / share_create /
+    # share_views_page / share_revoke) are NOT exempted and fall through to the normal
+    # session + capability + CSRF checks below.
+    if request.endpoint in ("share_public", "share_file", "share_event"):
         return
     if _needs_setup():
         return redirect("/setup")
@@ -7552,6 +7555,31 @@ def share_create():
                 '<p><a href="/share">Back to share links</a></p>', "shr")
 
 
+def _share_doc_page_count(link):
+    """Best-effort total page count of the vaulted PDF behind a link, for the B3
+    completion %. Returns an int or None (unknown). Never raises — a failure just means
+    completion % is shown relative to the deepest page actually viewed instead."""
+    try:
+        import document_vault, vat_refund as VR, io
+        data = document_vault.get_bytes(link["doc_ref"], VR.DOCDIR)
+        from pypdf import PdfReader
+        return len(PdfReader(io.BytesIO(data)).pages)
+    except Exception as e:
+        _log_exc("share: page count", e)
+        return None
+
+
+def _fmt_dwell(ms):
+    """Human-readable dwell from milliseconds (e.g. '1m 05s', '12.3s')."""
+    try:
+        s = (int(ms) or 0) / 1000.0
+    except (TypeError, ValueError):
+        return "—"
+    if s >= 60:
+        return f"{int(s // 60)}m {int(s % 60):02d}s"
+    return f"{s:.1f}s"
+
+
 @app.route("/share/<int:link_id>/views")
 def share_views_page(link_id):
     import sharing
@@ -7559,15 +7587,63 @@ def share_views_page(link_id):
     link = sharing.get_by_id(link_id)
     if not link or link.get("created_by") != actor:
         return page('<div class="card"><b class="bad">No such link.</b></div>', "shr"), 404
-    views = sharing.views_for(link_id)
-    rows = [[esc(v.get("viewed_at") or ""), esc(v.get("viewer_email") or "—"),
-             esc(v.get("ip") or "—"), esc((v.get("user_agent") or "")[:120])]
-            for v in views]
-    table = (tbl(["When (UTC)", "Email", "IP", "User agent"], rows) if rows
-             else '<p class="note">No views recorded yet.</p>')
+    try:
+        views = sharing.views_for(link_id)
+        rows = [[esc(v.get("viewed_at") or ""), esc(v.get("viewer_email") or "—"),
+                 esc(v.get("ip") or "—"), esc((v.get("user_agent") or "")[:120])]
+                for v in views]
+        table = (tbl(["When (UTC)", "Email", "IP", "User agent"], rows) if rows
+                 else '<p class="note">No views recorded yet.</p>')
+
+        # ---- B3: page-by-page engagement ----
+        total_pages = _share_doc_page_count(link)
+        eng = sharing.page_engagement(link_id, total_pages)
+        timeline = sharing.visitor_timeline(link_id)
+        # If the real page count is unknown, fall back to the deepest page seen so the
+        # completion % stays meaningful.
+        denom = total_pages or (max((p["page"] for p in eng["pages"]), default=0) or None)
+        comp = eng.get("completion_pct")
+        if comp is None and denom:
+            comp = round(min(eng["pages_viewed"], denom) / denom * 100, 1)
+
+        summary = (
+            '<div class="card"><h3>Engagement</h3>'
+            f'<p class="note">Net EUR/L basis n/a — this is viewer engagement.</p>'
+            f'<p>Pages viewed: <b>{esc(eng["pages_viewed"])}</b>'
+            + (f' of {esc(denom)}' if denom else '')
+            + (f' &nbsp;·&nbsp; Completion: <b>{esc(comp)}%</b>' if comp is not None else '')
+            + f' &nbsp;·&nbsp; Total time: <b>{esc(_fmt_dwell(eng["total_ms"]))}</b>'
+              f' &nbsp;·&nbsp; Distinct visitors: <b>{esc(eng["visitors"])}</b></p></div>')
+
+        if eng["pages"]:
+            prows = [[esc(p["page"]), esc(_fmt_dwell(p["dwell_ms"])), esc(p["sessions"])]
+                     for p in eng["pages"]]
+            per_page = ('<div class="card"><h3>Time per page</h3>'
+                        + tbl(["Page", "Total time", "Visitors"], prows) + '</div>')
+        else:
+            per_page = ('<div class="card"><h3>Time per page</h3>'
+                        '<p class="note">No page-by-page engagement recorded yet.</p></div>')
+
+        vis_blocks = []
+        for v in timeline:
+            pr = [[esc(p["page"]), esc(_fmt_dwell(p["dwell_ms"]))] for p in v["pages"]]
+            vis_blocks.append(
+                f'<div style="margin:0 0 14px"><b>Visitor {esc(v["view_session"][:10] or "—")}</b> '
+                f'<span class="note">— {esc(v["pages_viewed"])} page(s), '
+                f'{esc(_fmt_dwell(v["total_ms"]))}, last {esc(v["last_at"] or "—")}</span>'
+                + tbl(["Page", "Time"], pr) + '</div>')
+        visitors = ('<div class="card"><h3>Per-visitor breakdown</h3>'
+                    + ("".join(vis_blocks) if vis_blocks
+                       else '<p class="note">No per-visitor engagement yet.</p>') + '</div>')
+    except Exception as e:
+        _log_exc("share: views page", e)
+        table = '<p class="bad">Could not load engagement.</p>'
+        summary = per_page = visitors = ""
+
     return page(f'<div class="card"><h2>Views — {esc(link.get("title") or "(untitled)")}</h2>'
                 f'<p class="note">Public link: /s/{esc(link["token"])}</p>{table}</div>'
-                '<p><a href="/share">Back to share links</a></p>', "shr")
+                + summary + per_page + visitors
+                + '<p><a href="/share">Back to share links</a></p>', "shr")
 
 
 # ---- PUBLIC viewer + file stream (NO auth by design; per-token gate runs in-view) ----
@@ -7637,15 +7713,44 @@ _SHARE_CSS = (
     "button{padding:9px 16px;border:0;border-radius:6px;background:#2d6cdf;color:#fff;"
     "cursor:pointer}.err{color:#ff8a8a;margin:0 0 8px}h2{margin-top:0}"
     "iframe{width:100%;height:90vh;border:0;background:#fff}"
-    ".bar{padding:10px 16px;background:#16213a;border-bottom:1px solid #25304a}</style>")
+    ".bar{padding:10px 16px;background:#16213a;border-bottom:1px solid #25304a}"
+    # B3 pdf.js page-by-page viewer surface
+    "#pdf-root{padding:18px 0;display:flex;flex-direction:column;align-items:center;gap:18px}"
+    ".pdf-page-wrap{box-shadow:0 2px 14px rgba(0,0,0,.4);background:#fff}"
+    ".pdf-page-label{font:12px system-ui;color:#9fb0c8;text-align:center;padding:4px 0;"
+    "background:transparent}.pdf-page{display:block}"
+    ".pdf-error{color:#ff8a8a;text-align:center;padding:40px}</style>")
 
 
-def _share_shell(title, inner):
+def _share_shell(title, inner, head_extra=""):
     """A minimal standalone HTML page for the PUBLIC surface (it does NOT use the
-    authenticated BASE template / nav). Title is escaped by the caller as needed."""
+    authenticated BASE template / nav). Title is escaped by the caller as needed.
+    `head_extra` lets the pdf.js viewer add its <script type=module> tag (served from
+    /static — script-src 'self')."""
     return ("<!doctype html><html lang=en><head><meta charset=utf-8>"
             "<meta name=viewport content='width=device-width,initial-scale=1'>"
-            f"<title>{esc(title)}</title>{_SHARE_CSS}</head><body>{inner}</body></html>")
+            f"<title>{esc(title)}</title>{_SHARE_CSS}{head_extra}</head>"
+            f"<body>{inner}</body></html>")
+
+
+# SCOPED CSP for the PUBLIC pdf.js viewer page ONLY. pdf.js needs a Web Worker
+# ('worker-src 'self'') and may use wasm ('wasm-unsafe-eval'); it renders into <canvas>
+# from blob:/data: image sources. This is set ON THE VIEWER RESPONSE ONLY — every other
+# page (and the global _security_headers hook) keeps the strict global _CSP unchanged.
+_SHARE_VIEWER_CSP = (
+    "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; "
+    "img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; object-src 'none'; "
+    "connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+
+
+def _share_viewer_response(html):
+    """Wrap the viewer HTML in a Response carrying the SCOPED viewer CSP. Because
+    _security_headers uses setdefault, our explicit header wins and the relaxed policy
+    applies to THIS response only."""
+    resp = Response(html)
+    resp.headers["Content-Security-Policy"] = _SHARE_VIEWER_CSP
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 def _share_password_form(token, error=False):
@@ -7695,10 +7800,29 @@ def _share_not_found():
             '</div></div>'), 410)
 
 
+def _share_view_session(token):
+    """A stable, per-browser-session id used to attribute B3 page-engagement beacons to a
+    single visit. We REUSE the existing share session dict the gates already keep, so it
+    persists across the viewer page + its beacons without a new cookie. Never raises."""
+    try:
+        vs = session.get("_share_vs", {})
+        sid = vs.get(token)
+        if not sid:
+            sid = secrets.token_urlsafe(12)
+            vs[token] = sid
+            session["_share_vs"] = vs
+        return sid
+    except Exception as e:
+        _log_exc("share: view session", e)
+        return ""
+
+
 @app.route("/s/<token>", methods=["GET", "POST"])
 def share_public(token):
-    """PUBLIC viewer for a share link. Runs the per-token gate, then embeds the PDF in a
-    same-origin iframe (pointing at /s/<token>/file) and records ONE view. No auth."""
+    """PUBLIC viewer for a share link. Runs the per-token gate, then renders the PDF with
+    the self-hosted pdf.js viewer (page-by-page, /static/share_viewer.js fetching
+    /s/<token>/file) and records ONE view. The viewer page carries a SCOPED CSP (pdf.js
+    worker/wasm) — every other page keeps the strict global policy. No auth."""
     import sharing
     try:
         link = sharing.get_by_token(token)
@@ -7716,14 +7840,59 @@ def share_public(token):
                 _notify_share_owner(link, email)
         except Exception as e:
             _log_exc("share: record view", e)
+        _share_view_session(token)   # establish the per-visit id for beacons
         file_url = f"/s/{esc(token)}/file"
         title = link.get("title") or link.get("doc_ref") or "Shared document"
+        # No inline JS: the viewer logic lives entirely in the static module, satisfying
+        # script-src 'self'. The placeholder carries the token + file URL as data-attrs.
         inner = (f'<div class="bar"><b>{esc(title)}</b></div>'
-                 f'<iframe src="{file_url}" title="{esc(title)}"></iframe>')
-        return _share_shell(title, inner)
+                 f'<div id="pdf-root" data-token="{esc(token)}" '
+                 f'data-file="{file_url}"></div>'
+                 '<noscript><p style="color:#9fb0c8;text-align:center;padding:20px">'
+                 'This viewer needs JavaScript. '
+                 f'<a href="{file_url}" style="color:#7fb0ff">Download the document</a>.'
+                 '</p></noscript>')
+        head_extra = ('<script type="module" src="/static/share_viewer.js"></script>')
+        return _share_viewer_response(_share_shell(title, inner, head_extra))
     except Exception as e:
         _log_exc("share: public viewer", e)
         return _share_not_found()
+
+
+@app.route("/s/<token>/event", methods=["POST"])
+def share_event(token):
+    """PUBLIC per-page engagement beacon for the pdf.js viewer (B3). It MUST re-run the
+    SAME per-token gates as the file route — it records NOTHING unless the viewer has
+    passed every gate (revoked/expired/password/NDA/email). The body is a compact JSON
+    {"pages": [{"page": n, "dwell_ms": ms}, ...]}; page/dwell are validated + clamped in
+    sharing.record_page_view. Always returns 204 (enumeration-safe: a gated/blocked link
+    looks identical to a successful no-op), and never raises to the caller."""
+    import sharing
+    try:
+        link = sharing.get_by_token(token)
+        # SAME gate as the file route — but with NO side effects: a GET-style re-check.
+        # _share_gate_or_form on a POST would try to consume password/email fields, so we
+        # only treat it as "ok" when the session already satisfies the gates (state==ok
+        # without a form being returned). A pre-gate beacon records nothing.
+        state, _payload = _share_gate_or_form(token, link)
+        if state != "ok":
+            return Response(status=204)
+        data = request.get_json(silent=True) or {}
+        pages = data.get("pages")
+        if not isinstance(pages, list):
+            return Response(status=204)
+        sid = (session.get("_share_vs", {}) or {}).get(token) or ""
+        recorded = 0
+        for item in pages[:200]:    # cap the batch size — ignore absurd payloads
+            if not isinstance(item, dict):
+                continue
+            if sharing.record_page_view(link, sid, item.get("page"),
+                                        item.get("dwell_ms")):
+                recorded += 1
+        return Response(status=204)
+    except Exception as e:
+        _log_exc("share: page event beacon", e)
+        return Response(status=204)
 
 
 @app.route("/s/<token>/file")
