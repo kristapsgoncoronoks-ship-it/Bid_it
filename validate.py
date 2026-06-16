@@ -80,8 +80,14 @@ def check_line(ln):
     return level, msgs
 
 
-def validate_batch(lines, coversheet_total=None):
-    """lines: list of dicts. Returns per-line results + batch summary."""
+def validate_batch(lines, coversheet_total=None, capture=None):
+    """lines: list of dicts. Returns per-line results + batch summary.
+
+    `capture` (optional) enables the advisory deterministic capture checks
+    (IBAN MOD-97, VAT-ID structure, cross-entity duplicates): pass a dict
+    {supplier, supplier_vat, iban, seen}. Its findings are ADVISORY — surfaced to the
+    reviewer under result['capture'] but never flipping can_commit (the legal gate stays
+    the checklist). Omitted -> byte-identical to before."""
     results = []
     for ln in lines:
         v, m = check_line(ln)
@@ -97,8 +103,15 @@ def validate_batch(lines, coversheet_total=None):
     errors = sum(1 for r in results if r["verdict"] == "error")
     warns = sum(1 for r in results if r["verdict"] == "warn")
     can_commit = errors == 0 and (tie is None or tie["ok"])
-    return {"lines": results, "gross": gross, "tie": tie,
-            "errors": errors, "warnings": warns, "can_commit": can_commit}
+    out = {"lines": results, "gross": gross, "tie": tie,
+           "errors": errors, "warnings": warns, "can_commit": can_commit}
+    if capture is not None:
+        import capture_checks
+        out["capture"] = capture_checks.run(
+            lines, supplier=capture.get("supplier"),
+            supplier_vat=capture.get("supplier_vat"), iban=capture.get("iban"),
+            seen=capture.get("seen", ()))
+    return out
 
 
 # ---------------------------------------------------------------- regression store
