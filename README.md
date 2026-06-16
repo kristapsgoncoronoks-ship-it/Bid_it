@@ -1073,13 +1073,6 @@ siblings directly), so this index is how you navigate them. See
 | `install.sh` / `install.bat` / `install_service_windows.ps1` | Guided installers / Windows service registration. |
 | `cleanup.py` | Safely stops a running `app.py` (without matching itself, unlike `pkill`). |
 
-### Sample / demo data generators (not part of the running app)
-| File | What it does |
-|------|--------------|
-| `sample_build_q8.py`, `sample_build_bp.py`, `sample_build_dkv.py`, `sample_build_e100.py`, `sample_build_moeve.py`, `sample_build_tfc.py`, `sample_build_q8_full.py` | Generate the example supplier transaction workbooks used by the demo dataset (one per supplier). |
-| `sample_dkv_data.py`, `sample_e100_data.py`, `sample_moeve_data.py` | The raw sample rows those builders use. |
-| `sample_q8_adjust.py` | Produces the Q8 adjusted‑pricing sample workbook. |
-
 ### Tests
 `tests/` — the pytest suite (web, security, auth, customers, claims, vault, intake
 queue, multi‑process, reports, money, …) plus `conftest.py` fixtures. Run with
