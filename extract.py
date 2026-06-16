@@ -179,6 +179,10 @@ def pdf_text(pdf_bytes):
 # fully ON-PREM — no bytes leave the host — and feeds the SAME parser/AI/validation path, so
 # OCR never produces an authoritative figure; the draft is flagged for careful review.
 OCR_BACKEND = os.environ.get("EXTRACT_OCR_BACKEND", "auto")   # auto | tesseract | none
+# Languages Tesseract reads, as a '+'-joined list (default covers the fleet's footprint:
+# English + the Baltic/EU supplier-invoice scripts). Adjustable without a code change via
+# EXTRACT_OCR_LANGS; a requested language with no installed pack is dropped gracefully.
+OCR_LANGS = os.environ.get("EXTRACT_OCR_LANGS", "eng+deu+pol+swe+lit+lav+est")
 _MIN_TEXT_CHARS = 24            # below this, treat the PDF as image-only / scanned
 
 def _looks_scanned(text):
@@ -194,10 +198,33 @@ def _tesseract_ready():
     except Exception:
         return False
 
+def _pick_langs(requested, have):
+    """Intersect the requested '+'-joined languages with the packs actually installed,
+    preserving request order; fall back to 'eng' if present, else None (let Tesseract
+    use its built-in default). Pure/​testable — no Tesseract needed."""
+    use = [l for l in (requested or "").split("+") if l and l in have]
+    if not use:
+        use = ["eng"] if "eng" in have else []
+    return "+".join(use) or None
+
+def _ocr_langs_available(requested):
+    """Resolve EXTRACT_OCR_LANGS against the locally installed Tesseract language packs,
+    so a missing pack degrades gracefully instead of erroring. Returns a tesseract lang
+    string (e.g. 'eng+deu') or None. Never raises."""
+    try:
+        import pytesseract
+        have = set(pytesseract.get_languages(config=""))
+    except Exception:
+        return None
+    return _pick_langs(requested, have)
+
 def _ocr_tesseract(pdf_bytes):
     import pytesseract
     from pdf2image import convert_from_bytes
     pages = convert_from_bytes(pdf_bytes)
+    lang = _ocr_langs_available(OCR_LANGS)          # multilingual, install-aware
+    if lang:
+        return "\n".join(pytesseract.image_to_string(p, lang=lang) for p in pages)
     return "\n".join(pytesseract.image_to_string(p) for p in pages)
 
 _OCR = {"tesseract": _ocr_tesseract}
