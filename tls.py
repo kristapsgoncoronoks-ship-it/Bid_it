@@ -109,6 +109,8 @@ def cert_info(certfile):
     if end:
         try:
             exp = datetime.datetime.strptime(end, "%b %d %H:%M:%S %Y %Z")
+            if exp.tzinfo is None:           # %Z may not attach tzinfo (e.g. "GMT")
+                exp = exp.replace(tzinfo=_tz.utc)
             days = (exp - datetime.datetime.now(_tz.utc)).days
         except ValueError as e:
             log.debug("cert_info: unparseable notAfter %r: %s", end, e)
