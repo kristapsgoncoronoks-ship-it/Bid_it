@@ -320,6 +320,53 @@ def _xml_local(tag):
 # older `CrossIndustryDocument`.
 _INVOICE_ROOTS = ("Invoice", "CrossIndustryInvoice", "CrossIndustryDocument")
 
+# Factur-X / ZUGFeRD / EN-16931 PROFILE (a.k.a. conformance level), declared in the
+# document context — CII `GuidelineSpecifiedDocumentContextParameter/ID` or UBL
+# `CustomizationID`. This matters for capture trust: only the EN 16931 ("comfort") and
+# EXTENDED profiles are guaranteed to carry per-LINE detail. MINIMUM and BASIC-WL
+# ("without lines") legally OMIT invoice lines — they ship header/VAT totals only and
+# are NOT stand-alone EN 16931 invoices — so a draft built from them must NOT be trusted
+# as a complete high-confidence capture (the per-product fuel/VAT line detail this system
+# needs simply is not in the XML; it lives only in the human-readable PDF). We detect the
+# profile, record it on the draft, and downgrade confidence when line detail is absent.
+# (substring on the lower-cased, separator-stripped guideline URN, first match wins —
+# order matters: 'basic' must be tested before 'en16931' because a BASIC URN contains both.)
+_PROFILE_URNS = (
+    ("minimum", "minimum"),
+    ("basicwl", "basicwl"),
+    ("extended", "extended"),
+    ("basic", "basic"),
+    ("xrechnung", "xrechnung"),
+    ("en16931", "en16931"),
+    ("comfort", "en16931"),
+)
+_PROFILE_NO_LINES = {"minimum", "basicwl"}     # profiles that omit invoice-line detail
+
+def _einvoice_profile(root):
+    """Normalized Factur-X/ZUGFeRD/EN-16931 profile id from the document context
+    (CII GuidelineSpecifiedDocumentContextParameter/ID or UBL CustomizationID), or
+    None if not declared. Matched case-insensitively on the guideline URN."""
+    ln = _xml_local
+    urn = ""
+    for e in root.iter():
+        if ln(e.tag) == "CustomizationID" and (e.text or "").strip():
+            urn = e.text.strip(); break
+    if not urn:
+        for e in root.iter():
+            if ln(e.tag) == "GuidelineSpecifiedDocumentContextParameter":
+                for c in e.iter():
+                    if ln(c.tag) == "ID" and (c.text or "").strip():
+                        urn = c.text.strip(); break
+            if urn:
+                break
+    if not urn:
+        return None
+    key = re.sub(r"[-_ ]", "", urn.lower())
+    for sub, norm in _PROFILE_URNS:
+        if sub in key:
+            return norm
+    return "other"
+
 def _is_xml(filename, data):
     if filename.lower().endswith(".xml"):
         return True
@@ -396,32 +443,65 @@ def parse_einvoice(xml_bytes):
         lines.append({"invoice_no": doc_id, "date": issue, "country": ctry,
                       "currency": currency, "net": money.f2(net), "vat": money.f2(vat),
                       "_source": "e-invoice"})
-    if not lines:                              # totals-only invoice: fall back to header totals
+    # No structured invoice lines: a MINIMUM/BASIC-WL profile (lines omitted by design) or
+    # a totals-only document. Fall back to the header totals so the figure isn't lost, but
+    # remember the line detail was NOT in the structured data.
+    from_totals = not lines
+    if from_totals:
         net = _num(first(root, "TaxExclusiveAmount", "LineExtensionAmount"))
         vat = _num(first(root, "TaxAmount"))
         if net or vat:
             lines = [{"invoice_no": doc_id, "date": issue, "country": "", "currency": currency,
                       "net": net, "vat": vat, "_source": "e-invoice"}]
+
+    # Capture trust: high ONLY when real per-line detail was present AND the declared
+    # profile (if any) is one that carries lines. A line-less profile, or a totals-only
+    # fall-back, downgrades to 'medium' and tells the reviewer to confirm lines against
+    # the PDF — header totals alone are not a fileable per-product capture.
+    profile = _einvoice_profile(root)
+    low_detail = from_totals or (profile in _PROFILE_NO_LINES)
+    note = "structured e-invoice (UBL/CII/XML)"
+    if profile:
+        note += f" [profile: {profile}]"
+    if low_detail:
+        note += (" — line-item detail not present in the structured data (header/VAT "
+                 "totals only); confirm lines against the PDF before submitting")
+    else:
+        note += " — verify on review"
     return {"supplier": sup_name, "supplier_vat": sup_vat, "statement_ref": doc_id,
             "statement_date": issue, "currency": currency, "customer": cust_name,
-            "lines": lines, "notes": "structured e-invoice (UBL/CII/XML) — verify on review",
-            "backend": "e-invoice", "confidence": "high"}
+            "lines": lines, "notes": note, "profile": profile,
+            "backend": "e-invoice", "confidence": "medium" if low_detail else "high"}
 
 def _einvoice_draft(xmls):
-    """Merge one or more parsed e-invoice XMLs into a single review draft."""
+    """Merge one or more parsed e-invoice XMLs into a single review draft. Confidence is
+    the WEAKEST of the merged invoices: a parse error or any line-less/low-detail profile
+    drags the whole draft to 'medium' so a reviewer doesn't trust an incomplete capture."""
     merged, hdr = [], None
+    confidence, profile = "high", None
     for name, data in xmls:
         try:
             d = parse_einvoice(data)
         except Exception as e:
             merged.append({"invoice_no": name, "date": "", "country": "", "currency": "EUR",
                            "net": 0, "vat": 0, "_source": f"parse error: {e}"})
+            confidence = "medium"
             continue
         hdr = hdr or d
+        profile = profile or d.get("profile")
+        if d.get("confidence") == "medium":
+            confidence = "medium"
         merged.extend(d.get("lines", []))
     draft = dict(hdr or {"supplier": None, "currency": "EUR", "backend": "e-invoice",
-                         "confidence": "high"})
+                         "notes": "structured e-invoice (UBL/CII/XML) — verify on review"})
     draft["lines"] = merged
+    draft["confidence"] = confidence
+    if profile:
+        draft["profile"] = profile
+    if confidence == "medium" and "line-item detail" not in (draft.get("notes") or ""):
+        draft["notes"] = (draft.get("notes") or "") + (
+            " — some lines lack structured line-item detail; verify against the source "
+            "before submitting")
     draft["files"] = [{"name": n, "size": len(b)} for n, b in xmls]
     draft["_pdf_bytes"] = list(xmls)           # vault the XML source(s) on confirm
     return draft
@@ -503,8 +583,11 @@ def _facturx_draft(files, xmls):
     draft["files"] = [{"name": n, "size": len(b)} for n, b in files]
     draft["_pdf_bytes"] = files                # vault the original hybrid PDF, not the XML
     draft["backend"] = "e-invoice"
-    draft["confidence"] = "high"
-    draft["notes"] = "Factur-X/ZUGFeRD embedded e-invoice (CII/UBL) — verify on review"
+    # Confidence/profile come from _einvoice_draft (profile-aware): a MINIMUM/BASIC-WL
+    # hybrid stays 'medium' because its line detail lives only in the PDF, not the XML.
+    # Keep the Factur-X context on the note.
+    draft["notes"] = "Factur-X/ZUGFeRD embedded e-invoice (CII/UBL) — " + (
+        draft.get("notes") or "verify on review")
     return draft
 
 
