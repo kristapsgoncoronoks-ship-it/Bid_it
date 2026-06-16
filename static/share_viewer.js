@@ -23,7 +23,10 @@ import * as pdfjsLib from "./vendor/pdfjs/build/pdf.min.mjs";
   if (!root) { return; }
   var TOKEN = root.getAttribute("data-token") || "";
   var FILE_URL = root.getAttribute("data-file") || "";
-  var EVENT_URL = "/s/" + encodeURIComponent(TOKEN) + "/event";
+  // B4 data rooms supply an explicit per-document beacon URL via data-event; B1-B3
+  // share links omit it and keep the original /s/<token>/event default unchanged.
+  var EVENT_URL = root.getAttribute("data-event")
+    || ("/s/" + encodeURIComponent(TOKEN) + "/event");
   if (!TOKEN || !FILE_URL) { return; }
 
   // Self-hosted worker — same origin, satisfies worker-src 'self'.

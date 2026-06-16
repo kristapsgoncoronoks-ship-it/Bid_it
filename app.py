@@ -479,6 +479,9 @@ PERM_BY_ENDPOINT = {
     "documents":       "documents", "doc_download": "documents",
     "share_links_page": "share", "share_create": "share", "share_views_page": "share",
     "share_revoke":    "share",
+    # Data rooms (B4) — same capability as the share-link management surface.
+    "rooms_page": "share", "room_page": "share", "room_qa_page": "share",
+    "room_engagement_page": "share",
     "export_master":   "exports", "export_history": "exports",
     "export_pricing":  "exports", "export_vat": "exports", "export_compare": "exports",
     "export_stations": "exports", "export_summary": "exports", "export_fee": "exports",
@@ -524,7 +527,8 @@ MODULES = {
     "compliance": ("Compliance — invoice control, contract audit, documents",
                    {"invoice_ctrl", "contracts", "documents", "doc_download"}),
     "sharing":    ("Secure share links — trackable public links to vaulted documents",
-                   {"share_links_page", "share_create", "share_views_page", "share_revoke"}),
+                   {"share_links_page", "share_create", "share_views_page", "share_revoke",
+                    "rooms_page", "room_page", "room_qa_page", "room_engagement_page"}),
     "vat":        ("VAT refunds — claims, readiness, recovery & fees (admin only)",
                    {"vat", "api_vat", "readiness", "recovery", "receivables", "recon",
                     "export_vat", "export_readiness", "export_fees", "export_fee",
@@ -627,6 +631,15 @@ def _guard():
     # share_views_page / share_revoke) are NOT exempted and fall through to the normal
     # session + capability + CSRF checks below.
     if request.endpoint in ("share_public", "share_file", "share_event"):
+        return
+    # Data rooms (B4): the PUBLIC room index, in-room pdf.js viewer, file stream, the
+    # per-page engagement beacon and the Q&A 'ask' POST are PUBLIC by design (no session)
+    # and run their OWN per-token room-link gate in-view. Like the B1-B3 public surface
+    # they fall through here (no login / no session-CSRF); the authed management pages
+    # (rooms_page / room_page / room_qa_page / room_engagement_page) are NOT exempt and
+    # go through the normal session + capability + CSRF checks below.
+    if request.endpoint in ("room_public", "room_doc_viewer", "room_doc_file",
+                            "room_doc_event", "room_ask"):
         return
     if _needs_setup():
         return redirect("/setup")
@@ -1280,6 +1293,7 @@ h2.section:first-of-type{margin-top:4px}
   {% if 'documents' in perms %}<a href="/documents" class="{{'on' if page=='doc'}}">Documents</a>{% endif %}
 </span></div></div>{% endif %}
 {% if 'sharing' in modules and 'share' in perms %}<a href="/share" class="{{'on' if page=='shr'}}">Share links</a>{% endif %}
+{% if 'sharing' in modules and 'share' in perms %}<a href="/rooms" class="{{'on' if page=='rooms'}}">Data rooms</a>{% endif %}
 {% if 'intake' in modules and 'data_import' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ext','queue','imp','fil','min'] else ''}}">Intake</span><div class="mdrop"><span>
   <a href="/extract" class="{{'on' if page=='ext'}}">Import batch</a>
   <a href="/queue" class="{{'on' if page=='queue'}}">Waiting room</a>
@@ -7647,8 +7661,8 @@ def share_views_page(link_id):
 
 
 # ---- PUBLIC viewer + file stream (NO auth by design; per-token gate runs in-view) ----
-def _share_gate_or_form(token, link):
-    """Run the per-token public gates. Returns:
+def _share_gate_or_form(token, link, action=None, record_agreement=None):
+    """Run the per-token public gates over a LINK-LIKE row. Returns:
       ("ok",   email)      -> gates passed, `email` is the captured email (or None)
       ("deny", None)       -> missing/revoked/expired (caller renders a 404/410)
       ("form", html)       -> a password / NDA / email-capture form to render (200)
@@ -7656,13 +7670,27 @@ def _share_gate_or_form(token, link):
     session keyed by token, so a refresh / the iframe file fetch don't re-prompt within
     the same session. Gate ORDER: revoked/expired -> password -> NDA -> email-capture
     -> view (NDA is shown BEFORE the document, but AFTER the password so a stranger can't
-    read the agreement text of a protected link)."""
+    read the agreement text of a protected link).
+
+    The gate is link-TYPE agnostic — `link` is any dict carrying the share_links gate
+    columns (a B1/B2 document link OR a B4 data-room link); the gate only reads those
+    columns and the per-token session markers. Two seams keep the two cases distinct:
+      * `action` — where the gate forms POST (defaults to /s/<token>; rooms pass /r/...);
+      * `record_agreement(link, email, ip, ua)` — how an NDA acceptance is logged
+        (defaults to sharing.record_agreement for document links; rooms inject
+        sharing.record_room_agreement so the two id namespaces never cross-count).
+    This is a thin generalization of the B1/B2 helper, NOT a rewrite: with both kwargs
+    omitted the behaviour is byte-identical to before."""
     if not link or not sharing_is_active(link):
         return "deny", None
+    if action is None:
+        action = f"/s/{token}"
+    import sharing
+    if record_agreement is None:
+        record_agreement = sharing.record_agreement
     sess_pw = session.get("_share_pw", {})
     sess_nda = session.get("_share_nda", {})
     sess_em = session.get("_share_em", {})
-    import sharing
     # password gate
     if link.get("password_hash") and not sess_pw.get(token):
         if request.method == "POST" and request.form.get("share_password") is not None:
@@ -7671,22 +7699,22 @@ def _share_gate_or_form(token, link):
                 sess_pw[token] = True
                 session["_share_pw"] = sess_pw
             else:
-                return "form", _share_password_form(token, error=True)
+                return "form", _share_password_form(token, error=True, action=action)
         else:
-            return "form", _share_password_form(token, error=False)
+            return "form", _share_password_form(token, error=False, action=action)
     # NDA / agreement gate — no document bytes until the viewer has accepted (logged).
     if link.get("nda_required") and not sharing.has_accepted(link, sess_nda.get(token)):
         if request.method == "POST" and request.form.get("share_agree"):
             email = (session.get("_share_em", {}) or {}).get(token)
             try:
-                sharing.record_agreement(link, email, request.remote_addr or "",
-                                         request.headers.get("User-Agent", ""))
+                record_agreement(link, email, request.remote_addr or "",
+                                 request.headers.get("User-Agent", ""))
             except Exception as e:
                 _log_exc("share: record agreement", e)
             sess_nda[token] = True
             session["_share_nda"] = sess_nda
         else:
-            return "form", _share_agreement_form(token, link)
+            return "form", _share_agreement_form(token, link, action=action)
     # email-capture gate
     email = sess_em.get(token)
     if link.get("require_email") and not email:
@@ -7695,7 +7723,7 @@ def _share_gate_or_form(token, link):
             sess_em[token] = email
             session["_share_em"] = sess_em
         else:
-            return "form", _share_email_form(token)
+            return "form", _share_email_form(token, action=action)
     return "ok", email
 
 
@@ -7753,30 +7781,33 @@ def _share_viewer_response(html):
     return resp
 
 
-def _share_password_form(token, error=False):
+def _share_password_form(token, error=False, action=None):
     err = '<p class="err">Incorrect password.</p>' if error else ""
+    action = action or f"/s/{token}"
     return _share_shell(
         "Protected document",
         '<div class="wrap"><div class="box"><h2>This document is password-protected</h2>'
         + err
-        + f'<form method="post" action="/s/{esc(token)}">'
+        + f'<form method="post" action="{esc(action)}">'
           '<label>Password<input type="password" name="share_password" '
           'autocomplete="off" autofocus></label>'
           '<button>View document</button></form></div></div>')
 
 
-def _share_email_form(token):
+def _share_email_form(token, action=None):
+    action = action or f"/s/{token}"
     return _share_shell(
         "Enter your email",
         '<div class="wrap"><div class="box"><h2>Please enter your email to continue</h2>'
-        f'<form method="post" action="/s/{esc(token)}">'
+        f'<form method="post" action="{esc(action)}">'
         '<label>Email<input type="email" name="share_email" autofocus required></label>'
         '<button>View document</button></form></div></div>')
 
 
-def _share_agreement_form(token, link):
+def _share_agreement_form(token, link, action=None):
     """The NDA / agreement gate page: renders the (escaped) agreement_text and an
     "I agree" form. POSTing share_agree records a logged acceptance and proceeds."""
+    action = action or f"/s/{token}"
     text = (link.get("agreement_text")
             or "By continuing you agree that the contents of this document are "
                "confidential and may not be redistributed.")
@@ -7788,7 +7819,7 @@ def _share_agreement_form(token, link):
         f'<div style="max-height:50vh;overflow:auto;white-space:pre-wrap;'
         f'background:#0e1726;border:1px solid #34405c;border-radius:6px;padding:12px;'
         f'margin:0 0 14px;line-height:1.5">{body}</div>'
-        f'<form method="post" action="/s/{esc(token)}">'
+        f'<form method="post" action="{esc(action)}">'
         '<button name="share_agree" value="1">I agree</button></form></div></div>')
 
 
@@ -7958,6 +7989,527 @@ def _notify_share_owner(link, email):
              f"Link: /s/{link.get('token')}"])
     except Exception as e:
         _log_exc("share: owner notify", e)
+
+
+# ---------------------------------------------------------------- data rooms (B4)
+# A data room groups several vaulted documents into one branded, access-controlled
+# space behind a SINGLE gated link. It builds ON the B1-B3 sharing infrastructure: the
+# AUTHED management surface is capability-gated ('share', MODULES key 'sharing'); the
+# PUBLIC room (/r/<token>...) reuses the SAME per-token gate (_share_gate_or_form), the
+# SAME scoped-CSP pdf.js viewer (_share_viewer_response + static/share_viewer.js) and
+# the SAME page-engagement beacon machinery as a B3 share link. See sharing.py.
+
+def _room_doc_page_count(doc_ref):
+    """Best-effort total page count of a vaulted PDF (for the room completion %).
+    Returns an int or None. Never raises."""
+    try:
+        import document_vault, vat_refund as VR, io
+        data = document_vault.get_bytes(doc_ref, VR.DOCDIR)
+        from pypdf import PdfReader
+        return len(PdfReader(io.BytesIO(data)).pages)
+    except Exception as e:
+        _log_exc("dataroom: page count", e)
+        return None
+
+
+@app.route("/rooms", methods=["GET", "POST"])
+def rooms_page():
+    """List the current user's data rooms and create a new one."""
+    import sharing
+    actor = session.get("user", "")
+    banner = ""
+    if request.method == "POST":
+        room, err = sharing.create_room(request.form.get("name", ""),
+                                        request.form.get("title", ""), actor)
+        banner = (f'<div class="card" style="border-left:4px solid var(--ok)">'
+                  f'<b class="ok">Data room created.</b> '
+                  f'<a href="/rooms/{room["id"]}">Open it</a> to add documents.</div>'
+                  if room else
+                  f'<div class="card" style="border-left:4px solid var(--bad)">'
+                  f'<b class="bad">Could not create the room.</b> {esc(err)}</div>')
+    try:
+        rooms = sharing.list_rooms(actor)
+    except Exception as e:
+        _log_exc("dataroom: list rooms", e)
+        rooms = []
+    rows = []
+    for r in rooms:
+        rows.append([
+            f'<a href="/rooms/{r["id"]}">{esc(r.get("name") or "(unnamed)")}</a>',
+            esc(r.get("title") or "—"),
+            esc(r.get("documents", 0)),
+            esc(r.get("created_at") or ""),
+        ])
+    table = (tbl(["Name", "Title / branding", "Documents", "Created"], rows) if rows
+             else '<p class="note">No data rooms yet.</p>')
+    create_form = (
+        '<div class="card"><h2>Create a data room</h2>'
+        '<p class="note">Group several vaulted documents into one branded, '
+        'access-controlled space behind a single shareable link.</p>'
+        '<form method="post" action="/rooms" class="f">' + _csrf_input()
+        + '<label>Room name<input name="name" required '
+          'placeholder="e.g. Q2 due-diligence pack"></label>'
+          '<label>Title / branding (shown on the public room; optional)'
+          '<input name="title" placeholder="optional"></label>'
+          '<div style="margin-top:8px"><button>Create room</button></div>'
+          '</form></div>')
+    return page(banner + create_form
+                + f'<div class="card"><h2>Your data rooms</h2>{table}</div>', "rooms")
+
+
+@app.route("/rooms/<int:room_id>", methods=["GET", "POST"])
+def room_page(room_id):
+    """Manage a single room: add vaulted documents (folder + order), mint a gated room
+    link. Q&A and engagement live on their own sub-pages."""
+    import sharing
+    actor = session.get("user", "")
+    room = sharing.get_room(room_id)
+    if not room or room.get("created_by") != actor:
+        return page('<div class="card"><b class="bad">No such room.</b></div>',
+                    "rooms"), 404
+    banner = ""
+    if request.method == "POST":
+        act = request.form.get("__act")
+        if act == "add_doc":
+            doc_ref = (request.form.get("doc_ref_manual")
+                       or request.form.get("doc_ref") or "").strip()
+            so = request.form.get("sort_order")
+            try:
+                so = int(so) if (so or "").strip() else None
+            except (TypeError, ValueError):
+                so = None
+            _doc, err = sharing.add_document(
+                room_id, doc_ref, title=request.form.get("title", ""),
+                folder=request.form.get("folder", ""), sort_order=so)
+            banner = ('<div class="card" style="border-left:4px solid var(--ok)">'
+                      '<b class="ok">Document added.</b></div>' if not err else
+                      f'<div class="card" style="border-left:4px solid var(--bad)">'
+                      f'<b class="bad">Could not add document.</b> {esc(err)}</div>')
+        elif act == "create_link":
+            link, err = sharing.create_room_link(
+                room_id, actor,
+                expires_at=(request.form.get("expires_at") or "").strip() or None,
+                password=(request.form.get("password") or "") or None,
+                require_email=bool(request.form.get("require_email")),
+                nda_required=bool(request.form.get("nda_required")),
+                agreement_text=(request.form.get("agreement_text") or "") or None,
+                watermark=bool(request.form.get("watermark")))
+            if link:
+                url = f"/r/{link['token']}"
+                banner = ('<div class="card" style="border-left:4px solid var(--ok)">'
+                          '<b class="ok">Room link created.</b>'
+                          f'<p>Public link: <a href="{esc(url)}">{esc(url)}</a></p></div>')
+            else:
+                banner = ('<div class="card" style="border-left:4px solid var(--bad)">'
+                          f'<b class="bad">Could not create the link.</b> {esc(err)}</div>')
+        elif act == "revoke_link":
+            try:
+                rlid = int(request.form.get("room_link_id", "0"))
+            except (TypeError, ValueError):
+                rlid = 0
+            rl = next((x for x in sharing.list_room_links(room_id) if x["id"] == rlid),
+                      None)
+            if rl:
+                sharing.revoke_room_link(rlid)
+                banner = ('<div class="card" style="border-left:4px solid var(--ok)">'
+                          '<b class="ok">Link revoked.</b></div>')
+
+    docs = sharing.list_documents(room_id)
+    drows = []
+    for d in docs:
+        drows.append([esc(d.get("folder") or "—"), esc(d.get("sort_order")),
+                      esc(d.get("title") or d.get("doc_ref")), esc(d.get("doc_ref"))])
+    doc_table = (tbl(["Folder", "Order", "Title", "Vault ref"], drows) if drows
+                 else '<p class="note">No documents in this room yet.</p>')
+
+    links = sharing.list_room_links(room_id)
+    lrows = []
+    for l in links:
+        url = f"/r/{l['token']}"
+        gates = []
+        if l.get("password_hash"):
+            gates.append("password")
+        if l.get("require_email"):
+            gates.append("email")
+        if l.get("nda_required"):
+            gates.append("NDA")
+        if l.get("watermark"):
+            gates.append("watermark")
+        if l.get("expires_at"):
+            gates.append(f"expires {esc(l['expires_at'])}")
+        state = ('<b class="bad">revoked</b>' if l.get("revoked")
+                 else '<b class="bad">expired</b>' if sharing.is_expired(l)
+                 else '<b class="ok">active</b>')
+        revoke_btn = ""
+        if not l.get("revoked"):
+            revoke_btn = ('<form method="post" style="display:inline">' + _csrf_input()
+                          + f'<input type="hidden" name="room_link_id" value="{l["id"]}">'
+                          + '<button name="__act" value="revoke_link" '
+                          'onclick="return confirm(\'Revoke this link?\')">Revoke</button>'
+                          '</form>')
+        lrows.append([f'<a href="{esc(url)}">{esc(url)}</a>',
+                      (", ".join(gates) or "—"), state,
+                      esc(l.get("created_at") or ""), revoke_btn])
+    link_table = (tbl(["Public link", "Gates", "State", "Created", ""], lrows) if lrows
+                  else '<p class="note">No room links yet.</p>')
+
+    add_form = (
+        '<div class="card"><h2>Add a vaulted document</h2>'
+        '<form method="post" class="f">' + _csrf_input()
+        + '<label>Document<select name="doc_ref">'
+        + "".join(f'<option value="{esc(dr)}">{esc(lbl)}</option>'
+                  for dr, lbl in _vault_doc_choices())
+        + '</select></label>'
+          '<label>…or paste a vault reference<input name="doc_ref_manual" '
+          'placeholder="leave blank to use the pick-list above"></label>'
+          '<label>Title (shown in the room; optional)<input name="title"></label>'
+          '<label>Folder (optional grouping)<input name="folder" '
+          'placeholder="e.g. Contracts"></label>'
+          '<label>Order within folder (optional)<input name="sort_order" '
+          'type="number"></label>'
+          '<div style="margin-top:8px">'
+          '<button name="__act" value="add_doc">Add document</button></div>'
+          '</form></div>')
+    link_form = (
+        '<div class="card"><h2>Create a gated room link</h2>'
+        '<p class="note">One shareable PUBLIC link to the whole room. The same gate '
+        'options as a share link apply to every document in the room.</p>'
+        '<form method="post" class="f">' + _csrf_input()
+        + '<label>Expires (UTC, optional)<input name="expires_at" '
+          'placeholder="YYYY-MM-DD or YYYY-MM-DD HH:MM"></label>'
+          '<label>Password (optional)<input name="password" type="password" '
+          'autocomplete="new-password"></label>'
+          '<label class="ck"><input type="checkbox" name="require_email" value="1"> '
+          'Require the viewer to enter an email first</label>'
+          '<label class="ck"><input type="checkbox" name="nda_required" value="1"> '
+          'Require the viewer to accept an agreement (NDA) first — logged</label>'
+          '<label>Agreement text (shown on the NDA gate; optional)'
+          '<textarea name="agreement_text" rows="3"></textarea></label>'
+          '<label class="ck"><input type="checkbox" name="watermark" value="1"> '
+          'Watermark every page with the viewer + timestamp</label>'
+          '<div style="margin-top:8px">'
+          '<button name="__act" value="create_link">Create room link</button></div>'
+          '</form></div>')
+
+    nav = (f'<p><a href="/rooms/{room_id}/qa">Q&amp;A</a> · '
+           f'<a href="/rooms/{room_id}/engagement">Engagement</a> · '
+           f'<a href="/rooms">All rooms</a></p>')
+    head = (f'<div class="card"><h2>{esc(room.get("name") or "(unnamed)")}</h2>'
+            f'<p class="note">{esc(room.get("title") or "")}</p>{nav}</div>')
+    return page(banner + head
+                + f'<div class="card"><h2>Documents</h2>{doc_table}</div>' + add_form
+                + f'<div class="card"><h2>Room links</h2>{link_table}</div>' + link_form,
+                "rooms")
+
+
+@app.route("/rooms/<int:room_id>/qa", methods=["GET", "POST"])
+def room_qa_page(room_id):
+    """Q&A management: review viewer questions and answer them (status flips to
+    'answered')."""
+    import sharing
+    actor = session.get("user", "")
+    room = sharing.get_room(room_id)
+    if not room or room.get("created_by") != actor:
+        return page('<div class="card"><b class="bad">No such room.</b></div>',
+                    "rooms"), 404
+    banner = ""
+    if request.method == "POST":
+        try:
+            qid = int(request.form.get("question_id", "0"))
+        except (TypeError, ValueError):
+            qid = 0
+        q = sharing.get_question(qid)
+        if q and q.get("room_id") == room_id:
+            ok, err = sharing.answer_question(qid, request.form.get("answer", ""))
+            banner = ('<div class="card" style="border-left:4px solid var(--ok)">'
+                      '<b class="ok">Answer saved.</b></div>' if ok else
+                      f'<div class="card" style="border-left:4px solid var(--bad)">'
+                      f'<b class="bad">Could not save.</b> {esc(err)}</div>')
+        else:
+            banner = ('<div class="card" style="border-left:4px solid var(--bad)">'
+                      '<b class="bad">No such question.</b></div>')
+    blocks = []
+    for q in sharing.questions_for(room_id):
+        ans = (f'<p><b>Answer:</b> {esc(q.get("answer"))}</p>'
+               if q.get("status") == "answered" else
+               '<form method="post" class="f">' + _csrf_input()
+               + f'<input type="hidden" name="question_id" value="{q["id"]}">'
+               + '<label>Answer<textarea name="answer" rows="2" required></textarea></label>'
+               + '<div><button>Answer</button></div></form>')
+        blocks.append(
+            f'<div style="margin:0 0 16px;padding:0 0 12px;border-bottom:1px solid #eee">'
+            f'<p class="note">{esc(q.get("created_at") or "")} · '
+            f'{esc(q.get("viewer_email") or "anonymous")} · '
+            f'<b>{esc(q.get("status"))}</b></p>'
+            f'<p><b>Q:</b> {esc(q.get("question"))}</p>{ans}</div>')
+    body = ("".join(blocks) if blocks
+            else '<p class="note">No questions asked yet.</p>')
+    nav = f'<p><a href="/rooms/{room_id}">Back to room</a></p>'
+    return page(banner + f'<div class="card"><h2>Q&amp;A — '
+                f'{esc(room.get("name") or "")}</h2>{body}</div>' + nav, "rooms")
+
+
+@app.route("/rooms/<int:room_id>/engagement")
+def room_engagement_page(room_id):
+    """Per-document page-by-page engagement for a room (reuses the B3 analytics shape)."""
+    import sharing
+    actor = session.get("user", "")
+    room = sharing.get_room(room_id)
+    if not room or room.get("created_by") != actor:
+        return page('<div class="card"><b class="bad">No such room.</b></div>',
+                    "rooms"), 404
+    blocks = []
+    try:
+        docs = sharing.list_documents(room_id)
+        pages_by_doc = {d["id"]: _room_doc_page_count(d["doc_ref"]) for d in docs}
+        for e in sharing.room_engagement(room_id, pages_by_doc):
+            comp = e.get("completion_pct")
+            denom = e.get("total_pages") or (max((p["page"] for p in e["pages"]),
+                                                 default=0) or None)
+            if comp is None and denom:
+                comp = round(min(e["pages_viewed"], denom) / denom * 100, 1)
+            summary = (f'<p>Pages viewed: <b>{esc(e["pages_viewed"])}</b>'
+                       + (f' of {esc(denom)}' if denom else '')
+                       + (f' &nbsp;·&nbsp; Completion: <b>{esc(comp)}%</b>'
+                          if comp is not None else '')
+                       + f' &nbsp;·&nbsp; Total time: '
+                         f'<b>{esc(_fmt_dwell(e["total_ms"]))}</b>'
+                         f' &nbsp;·&nbsp; Visitors: <b>{esc(e["visitors"])}</b></p>')
+            if e["pages"]:
+                prows = [[esc(p["page"]), esc(_fmt_dwell(p["dwell_ms"])),
+                          esc(p["sessions"])] for p in e["pages"]]
+                ptab = tbl(["Page", "Total time", "Visitors"], prows)
+            else:
+                ptab = '<p class="note">No page-by-page engagement recorded yet.</p>'
+            blocks.append(
+                f'<div class="card"><h3>{esc(e.get("title") or e.get("doc_ref"))}</h3>'
+                + (f'<p class="note">Folder: {esc(e["folder"])}</p>'
+                   if e.get("folder") else '')
+                + summary + ptab + '</div>')
+    except Exception as ex:
+        _log_exc("dataroom: engagement page", ex)
+        blocks = ['<p class="bad">Could not load engagement.</p>']
+    nav = f'<p><a href="/rooms/{room_id}">Back to room</a></p>'
+    return page(f'<div class="card"><h2>Engagement — {esc(room.get("name") or "")}</h2>'
+                '<p class="note">Per-document viewer engagement (not pricing).</p></div>'
+                + "".join(blocks) + nav, "rooms")
+
+
+# ---- PUBLIC room (NO auth by design; the room link's gate runs in-view, per-token) ----
+def _room_gate(token, room_link, action):
+    """Run the per-token room-link gate, injecting the room-scoped agreement logger so an
+    NDA acceptance lands in dataroom_agreements (never share_agreements). Returns the same
+    (state, payload) tri-state as _share_gate_or_form."""
+    import sharing
+    return _share_gate_or_form(token, room_link, action=action,
+                               record_agreement=sharing.record_room_agreement)
+
+
+@app.route("/r/<token>", methods=["GET", "POST"])
+def room_public(token):
+    """PUBLIC branded index of a data room — gated EXACTLY like a share link. Lists the
+    room's documents grouped by folder (each linking to the in-room viewer) and offers a
+    Q&A 'ask a question' form. No auth."""
+    import sharing
+    try:
+        room_link = sharing.get_room_link_by_token(token)
+        action = f"/r/{token}"
+        state, payload = _room_gate(token, room_link, action)
+        if state == "deny":
+            return _share_not_found()
+        if state == "form":
+            return payload
+        room = sharing.get_room(room_link["room_id"])
+        if not room or room.get("archived"):
+            return _share_not_found()
+        _share_view_session(token)   # establish the per-visit id for beacons
+        docs = sharing.list_documents(room["id"])
+        # group by folder, preserving list_documents' folder/sort order.
+        groups = {}
+        for d in docs:
+            groups.setdefault(d.get("folder") or "", []).append(d)
+        sections = []
+        for folder, items in groups.items():
+            lis = []
+            for d in items:
+                url = f"/r/{esc(token)}/doc/{d['id']}"
+                lis.append(f'<li><a href="{url}" style="color:#7fb0ff">'
+                           f'{esc(d.get("title") or d.get("doc_ref"))}</a></li>')
+            head = (f'<h3 style="color:#9fb0c8">{esc(folder)}</h3>' if folder else "")
+            sections.append(head + '<ul>' + "".join(lis) + '</ul>')
+        docs_html = ("".join(sections) if sections
+                     else '<p class="note">This room has no documents yet.</p>')
+        ask = (f'<form method="post" action="/r/{esc(token)}/ask" '
+               'style="margin-top:24px">'
+               '<h3 style="color:#9fb0c8">Ask a question</h3>'
+               '<input type="email" name="email" placeholder="Your email (optional)">'
+               '<textarea name="question" placeholder="Your question" '
+               'style="width:100%;box-sizing:border-box;min-height:70px;padding:9px;'
+               'border-radius:6px;border:1px solid #34405c;background:#0e1726;'
+               'color:#e6edf3" required></textarea>'
+               '<button>Send question</button></form>')
+        title = room.get("title") or room.get("name") or "Data room"
+        inner = (f'<div class="wrap"><div class="box"><h2>{esc(title)}</h2>'
+                 + docs_html + ask + '</div></div>')
+        resp = Response(_share_shell(title, inner))
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+    except Exception as e:
+        _log_exc("dataroom: public index", e)
+        return _share_not_found()
+
+
+@app.route("/r/<token>/doc/<int:doc_id>", methods=["GET", "POST"])
+def room_doc_viewer(token, doc_id):
+    """PUBLIC pdf.js viewer for ONE room document — gated by the room link, scoped-CSP,
+    reusing static/share_viewer.js. The doc MUST belong to the room (else 404)."""
+    import sharing
+    try:
+        room_link = sharing.get_room_link_by_token(token)
+        action = f"/r/{token}/doc/{doc_id}"
+        state, _payload = _room_gate(token, room_link, action)
+        if state == "deny":
+            return _share_not_found()
+        if state == "form":
+            return _payload
+        doc = sharing.get_document(room_link["room_id"], doc_id)
+        if not doc:
+            return _share_not_found()   # not in this room
+        _share_view_session(token)
+        file_url = f"/r/{esc(token)}/doc/{doc_id}/file"
+        event_url = f"/r/{esc(token)}/doc/{doc_id}/event"
+        title = doc.get("title") or doc.get("doc_ref") or "Document"
+        inner = (f'<div class="bar"><b>{esc(title)}</b> '
+                 f'<a href="/r/{esc(token)}" style="color:#7fb0ff;float:right">'
+                 '← Room index</a></div>'
+                 f'<div id="pdf-root" data-token="{esc(token)}" '
+                 f'data-file="{file_url}" data-event="{event_url}"></div>'
+                 '<noscript><p style="color:#9fb0c8;text-align:center;padding:20px">'
+                 'This viewer needs JavaScript. '
+                 f'<a href="{file_url}" style="color:#7fb0ff">Download the document</a>.'
+                 '</p></noscript>')
+        head_extra = '<script type="module" src="/static/share_viewer.js"></script>'
+        return _share_viewer_response(_share_shell(title, inner, head_extra))
+    except Exception as e:
+        _log_exc("dataroom: doc viewer", e)
+        return _share_not_found()
+
+
+@app.route("/r/<token>/doc/<int:doc_id>/file")
+def room_doc_file(token, doc_id):
+    """Stream a room document's vaulted bytes — ONLY after the room-link gates pass and
+    ONLY if the doc belongs to the room. 404/410 otherwise. Watermark applied if the room
+    link sets it."""
+    import sharing, document_vault, vat_refund as VR
+    try:
+        room_link = sharing.get_room_link_by_token(token)
+        action = f"/r/{token}/doc/{doc_id}/file"
+        state, email = _room_gate(token, room_link, action)
+        if state != "ok":
+            return _share_not_found()
+        doc = sharing.get_document(room_link["room_id"], doc_id)
+        if not doc:
+            return _share_not_found()
+        try:
+            data = document_vault.get_bytes(doc["doc_ref"], VR.DOCDIR)
+        except Exception as e:
+            _log_exc("dataroom: vault read", e)
+            return _share_not_found()
+        if room_link.get("watermark"):
+            try:
+                import share_watermark
+                who = (email or session.get("_share_em", {}).get(token)
+                       or request.remote_addr or "viewer")
+                stamp = _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+                marked = share_watermark.apply_watermark(
+                    data, f"CONFIDENTIAL   {who}   {stamp}")
+                if marked:
+                    data = marked
+            except Exception as e:
+                _log_exc("dataroom: watermark", e)
+        resp = Response(data, mimetype="application/pdf")
+        resp.headers["Content-Disposition"] = "inline"
+        resp.headers["X-Frame-Options"] = "SAMEORIGIN"
+        resp.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+    except Exception as e:
+        _log_exc("dataroom: file stream", e)
+        return _share_not_found()
+
+
+@app.route("/r/<token>/doc/<int:doc_id>/event", methods=["POST"])
+def room_doc_event(token, doc_id):
+    """PUBLIC per-page engagement beacon for a room document — re-runs the SAME room-link
+    gate as the file route and records NOTHING unless every gate passes and the doc is in
+    the room. Always 204 (enumeration-safe). Never raises."""
+    import sharing
+    try:
+        room_link = sharing.get_room_link_by_token(token)
+        state, _payload = _room_gate(token, room_link, f"/r/{token}/doc/{doc_id}/event")
+        if state != "ok":
+            return Response(status=204)
+        doc = sharing.get_document(room_link["room_id"], doc_id)
+        if not doc:
+            return Response(status=204)
+        data = request.get_json(silent=True) or {}
+        pages = data.get("pages")
+        if not isinstance(pages, list):
+            return Response(status=204)
+        sid = (session.get("_share_vs", {}) or {}).get(token) or ""
+        for item in pages[:200]:
+            if not isinstance(item, dict):
+                continue
+            sharing.record_room_page_view(room_link, doc_id, sid,
+                                          item.get("page"), item.get("dwell_ms"))
+        return Response(status=204)
+    except Exception as e:
+        _log_exc("dataroom: page event beacon", e)
+        return Response(status=204)
+
+
+@app.route("/r/<token>/ask", methods=["POST"])
+def room_ask(token):
+    """PUBLIC Q&A: store a viewer question against the room and notify the owner. Gated
+    by the room link exactly like the file/event routes; records NOTHING pre-gate. Always
+    204 (enumeration-safe). Never raises."""
+    import sharing
+    try:
+        room_link = sharing.get_room_link_by_token(token)
+        state, payload = _room_gate(token, room_link, f"/r/{token}/ask")
+        if state != "ok":
+            return Response(status=204)
+        room = sharing.get_room(room_link["room_id"])
+        if not room:
+            return Response(status=204)
+        question = (request.form.get("question") or "").strip()
+        if not question:
+            return Response(status=204)
+        email = ((request.form.get("email") or "").strip()
+                 or session.get("_share_em", {}).get(token) or "")
+        q, _err = sharing.ask_question(room["id"], email, question)
+        if q:
+            _notify_room_question(room, q)
+        return redirect(f"/r/{token}")
+    except Exception as e:
+        _log_exc("dataroom: ask", e)
+        return Response(status=204)
+
+
+def _notify_room_question(room, question):
+    """Best-effort: alert the team that a data-room question was asked, via the notify
+    SMTP relay. A no-op when no recipients/SMTP are configured. Never raises."""
+    try:
+        import notify
+        who = question.get("viewer_email") or "an anonymous visitor"
+        notify.send_alert(
+            "Fleet Fuel & VAT — a data-room question was asked",
+            [f"Room '{room.get('name')}' (owner {room.get('created_by') or 'unknown'}) "
+             f"received a question from {who}.",
+             f"Q: {question.get('question')}",
+             f"Answer it on: /rooms/{room.get('id')}/qa"])
+    except Exception as e:
+        _log_exc("dataroom: question notify", e)
 
 
 @app.route("/export/vat")
