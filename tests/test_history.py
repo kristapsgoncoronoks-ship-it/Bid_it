@@ -1,5 +1,5 @@
 """
-FX provenance (DATA_ARCHITECTURE.md finding #4): the engine persists the APPLIED
+FX provenance (../README.md#data-architecture-duplication-under-used-data finding #4): the engine persists the APPLIED
 local->EUR rate per transaction line in transactions.fx_rate at consolidation time,
 so a historical claim's EUR is traceable to a stored rate even if FX sources change.
 

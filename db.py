@@ -33,7 +33,7 @@ HONEST STATUS — read before flipping DB_ENGINE in production:
   function). Treat this file as the migration scaffold + paramstyle/dialect layer, not
   yet a drop-in switch. It ships
   SQLite-active and import-guarded so nothing breaks until you opt in. See
-  docs/SCALING.md for the full horizontal-scaling plan and remaining blockers.
+  docs/MANUAL.md#scaling-the-fleet-fuel-vat-refund-system for the full horizontal-scaling plan and remaining blockers.
 """
 import os, sqlite3
 
@@ -207,7 +207,7 @@ class _PgShim:
     NOTE: the ?->%s translation AND the mechanical dialect translation (translate_dialect:
     datetime('now')->now(), INSERT OR IGNORE->ON CONFLICT DO NOTHING) are unit-tested; the
     psycopg wiring here is verified by construction and must be exercised against a live
-    Postgres before a production cutover (see docs/SCALING.md). Non-mechanical dialect-isms
+    Postgres before a production cutover (see docs/MANUAL.md#scaling-the-fleet-fuel-vat-refund-system). Non-mechanical dialect-isms
     (datetime('now', <mods>), INSERT OR REPLACE, json_object triggers) remain per-site
     ports, still open."""
     def __init__(self, con): object.__setattr__(self, "_con", con)

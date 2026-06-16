@@ -1,6 +1,6 @@
 """Multi-tenancy P2 — CROSS-TENANT ISOLATION harness for pricing_intelligence.py.
 
-The ANTITRUST-critical slice (docs/SECURITY_COMPLIANCE_PLAN.md §7): the benchmark
+The ANTITRUST-critical slice (../docs/STRATEGY.md#security-compliance-evolution-plan-operating-as-a-multi-client-saas §7): the benchmark
 MUST stay intra-tenant. A client may only ever benchmark its OWN entities; the peer
 cohort must NEVER pool across clients. This file mirrors the proven CRM template
 (test_tenant_isolation_crm.py) on the price-intelligence module, behind the

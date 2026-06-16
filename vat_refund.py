@@ -2154,7 +2154,7 @@ def receivables_forecast(year=None):
 
     Builds on the same submitted/approved/paid claim base + frozen fee fields as
     recovery_report (so the fee math is never recomputed differently) and adds the
-    under-used VAT-lifecycle analytics flagged in docs/DATA_ARCHITECTURE.md:
+    under-used VAT-lifecycle analytics flagged in README.md#data-architecture-duplication-under-used-data:
       * #2 cycle-time + payout forecasting — median submitted->paid days per country
         and overall; aging of open receivables by EUR and count;
       * #9 realization rate — paid_amount / vat_eur per refund country (which

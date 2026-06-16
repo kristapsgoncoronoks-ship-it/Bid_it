@@ -9,7 +9,7 @@ ships the two primitives every later phase composes on:
 
 plus the enforcement HELPERS (`require_tenant`, `scope_clause`) that the phased
 per-table work (P2) will apply — but that NOTHING in this slice wires into an
-existing product query. See docs/MULTI_TENANCY.md for the full program plan.
+existing product query. See docs/STRATEGY.md#multi-tenancy-program-plan for the full program plan.
 
 CARDINAL INVARIANT — OFF BY DEFAULT = BYTE-IDENTICAL EXISTING BEHAVIOR.
 The `multitenant` app setting defaults to "0" (OFF). While OFF:
@@ -41,7 +41,7 @@ while the switch is ON. Owner and tenant are MUTUALLY EXCLUSIVE; writes ALWAYS
 need a concrete tenant (`require_tenant()` raises under owner scope too). Owner
 analytics MUST run on de-identified/aggregated data (PII excluded) and must never
 relay one client's identifiable pricing to another — see
-docs/SECURITY_COMPLIANCE_PLAN.md §7 (GDPR controller/anonymise + antitrust).
+docs/STRATEGY.md#security-compliance-evolution-plan-operating-as-a-multi-client-saas §7 (GDPR controller/anonymise + antitrust).
 
 Never `except: pass`; the read path (current_tenant / scope_clause / get_tenant /
 list_tenants) never raises — a broken or missing registry degrades to "no tenant"
@@ -389,7 +389,7 @@ def owner_access_audit(resource):
 def scope_clause(column="tenant_id"):
     """Return an (sql_fragment, params) pair to AND into a tenant-scoped query.
 
-    P2 (docs/MULTI_TENANCY.md) splices this into each tenant-scoped
+    P2 (docs/STRATEGY.md#multi-tenancy-program-plan) splices this into each tenant-scoped
     SELECT/UPDATE/DELETE, table-by-table, EACH with a cross-tenant access test.
     Applied so far: customer_master (CRM), pricing_intelligence (benchmark),
     supplier_master + invoice_control (suppliers.db), and the worker tenant
@@ -411,7 +411,7 @@ def scope_clause(column="tenant_id"):
     no tenant filter — so the platform OPERATOR sees ALL tenants. This is the ONE
     place scope_clause deliberately returns no filter while the switch is ON; it
     encodes the owner's "I must have all analytics data" requirement. Per
-    docs/SECURITY_COMPLIANCE_PLAN.md §7, owner cross-tenant analytics MUST run on
+    docs/STRATEGY.md#security-compliance-evolution-plan-operating-as-a-multi-client-saas §7, owner cross-tenant analytics MUST run on
     DE-IDENTIFIED / AGGREGATED data with PII excluded (IBANs, driver/vehicle,
     contacts) — never relay one client's identifiable current pricing to another
     (antitrust). The widening is accountable via owner_access_audit().

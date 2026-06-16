@@ -1,6 +1,6 @@
 """VAT receivables / payout-forecast view (vat_refund.receivables_forecast) — the
 INTERNAL, data-only financing-ready surface combining the under-used VAT-lifecycle
-data (DATA_ARCHITECTURE.md #2 cycle-time/forecast, #9 realization rate).
+data (../README.md#data-architecture-duplication-under-used-data #2 cycle-time/forecast, #9 realization rate).
 
 Claims live in the app-owned vat_claims.db (vat_refund.connect()); we isolate it to a
 tmp DB and seed claims at several statuses (both the default 'customer' route and the

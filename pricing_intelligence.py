@@ -69,7 +69,7 @@ _BENCHMARK_DDL = [
     # column DEFAULT, new rows default too. NO query reads this column yet (the
     # `multitenant` switch is OFF and scope_clause is unwired until P2). This is
     # also exactly what P2 will use to keep the antitrust-sensitive benchmark
-    # intra-tenant (docs/SECURITY_COMPLIANCE_PLAN.md §7). APPEND-ONLY — keep at END.
+    # intra-tenant (docs/STRATEGY.md#security-compliance-evolution-plan-operating-as-a-multi-client-saas §7). APPEND-ONLY — keep at END.
     "my_prices", "wholesale_prices", "advertised_prices",
 ]) + [
     # ── PK RE-KEY (multi-tenant): tenant-qualified PRIMARY KEYs ──────────────────
@@ -273,7 +273,7 @@ def load_my_prices(rows, replace_period=None, source="upload"):
     con = connect()
     # Stamp/scope by the bound tenant (P2). OFF -> write_tenant()='default' (the column
     # DEFAULT) and scope_clause()=("",[]) so this is byte-identical to today; ON keeps
-    # the antitrust-sensitive benchmark intra-tenant (docs/SECURITY_COMPLIANCE_PLAN.md §7).
+    # the antitrust-sensitive benchmark intra-tenant (docs/STRATEGY.md#security-compliance-evolution-plan-operating-as-a-multi-client-saas §7).
     # write_tenant() resolves FIRST so an ON tenant-less/owner write fails LOUD before
     # the DELETE replaces any rows.
     tid = tenancy.write_tenant()
@@ -590,7 +590,7 @@ def peer_benchmark(period=None, grain="month", product_group="Diesel", min_contr
     where = "product_group=?"; args = [product_group]
     if period:
         where += " AND period=?"; args.append(period)
-    # ANTITRUST GATE (P2, docs/SECURITY_COMPLIANCE_PLAN.md §7). The peer cohort MUST stay
+    # ANTITRUST GATE (P2, docs/STRATEGY.md#security-compliance-evolution-plan-operating-as-a-multi-client-saas §7). The peer cohort MUST stay
     # intra-tenant: with the switch ON this clause (in WHERE, before GROUP BY) restricts the
     # aggregate to the CURRENT tenant's own entities, so a client benchmarks only against
     # ITSELF and can NEVER see another client's prices/entities. The min-contributor

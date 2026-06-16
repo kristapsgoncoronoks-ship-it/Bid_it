@@ -15,7 +15,7 @@ info:
 
     All prices are NET EUR/L, VAT excluded, rebates applied. EUR figures are
     quantized HALF_UP (money.f2). No v1 payload carries IBAN / bank / payout /
-    fee / secret / PII. The human integrator manual is `docs/API_MANUAL.md`.
+    fee / secret / PII. The human integrator manual is `MANUAL.md#integrator-manual-apiv1-external-token-api`.
 
     NOT in this contract: the platform also serves a number of SESSION-AUTH UI
     exports and download routes — `/export/expenses` (Excel), `/export/accounting`

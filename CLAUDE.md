@@ -31,7 +31,7 @@ platform of seven delegated works**, each owned by a module (and mostly its own 
 5. **VAT processing** — `vat_refund.py` claim lifecycle (1A→5), `vat_config.py`, claim workbook; `finance.py` (advisory embedded-finance seam over the receivable, origination-only).
 6. **VAT control** — `invoice_control.py` (receipt control / reconciliation), `bank_recon.py` (advisory bank↔refund recon) + the submission gates (checklist, doc-presence, locks, period-end).
 7. **Invoicing for work** — the service-fee engine in `vat_refund.py` + `reports.fee_report_workbook` (Recovery page).
-Platform floor under all seven: `auth`/`audit`/`backup`/`db`/`db_migrate`/`applog`/`tls`/`process_lock`/`keyvault`/`tenancy`. See `docs/PLATFORM.md`.
+Platform floor under all seven: `auth`/`audit`/`backup`/`db`/`db_migrate`/`applog`/`tls`/`process_lock`/`keyvault`/`tenancy`. See `README.md#the-platform-seven-delegated-works`.
 
 ## Key conventions (follow these)
 - Every module is location-independent: `WORKDIR = os.path.dirname(os.path.abspath(__file__))`.
@@ -45,7 +45,7 @@ Platform floor under all seven: `auth`/`audit`/`backup`/`db`/`db_migrate`/`applo
   stage modules import side-effect-free (`history.load`/`build_master.build` are functions).
   Statement registration is ENQUEUED to the engine worker (`waiting_room` kind=`register`,
   actor propagated), not written in-request. Benchmark tables (`my_prices`/`wholesale_prices`)
-  live in `benchmark.db` (app/portal-owned). See `docs/PLATFORM.md`.
+  live in `benchmark.db` (app/portal-owned). See `README.md#the-platform-seven-delegated-works`.
 - Schema migrations go through `db_migrate.apply(con, "<module>", [DDL, ...])` — a
   versioned migration table (`_ffs_migrations`) so each ALTER runs once per DB.
   APPEND new statements at the END of a module's list (positions are stable).
@@ -76,7 +76,7 @@ Platform floor under all seven: `auth`/`audit`/`backup`/`db`/`db_migrate`/`applo
   extracts a figure a structured/parser path can; it belongs to post-extraction
   validation/analytics, not capture (the **advisory AI review assistant** `ai_review.py`
   is default-OFF, sends DERIVED DATA ONLY — never the PDF/IBAN/secret — and never mutates
-  or gates a figure; see `docs/AI_REVIEW.md`).
+  or gates a figure; see `docs/MANUAL.md#ai-review-assistant-advisory-validation-analytics`).
 - Automated document capture runs OUT-OF-BAND on the worker tier, never in a web request.
   Portal fetch is enqueued as `waiting_room` kind=`fetch` (`KIND_FETCH`); a per-supplier
   rate-limiter / concurrency cap / backoff / circuit-breaker gates it (`supplier_rate_limits`
@@ -96,7 +96,7 @@ Platform floor under all seven: `auth`/`audit`/`backup`/`db`/`db_migrate`/`applo
   default; they NEVER mutate a VAT figure, status, lock, fee, or payment.
 - Multi-tenancy (`tenancy.py`) is OFF by default (`multitenant` setting) = byte-identical
   single-tenant; `scope_clause()`/`require_tenant()` are inert no-ops until the per-table
-  phase. Registry lives in `security.db`. See `docs/MULTI_TENANCY.md`.
+  phase. Registry lives in `security.db`. See `docs/STRATEGY.md#multi-tenancy-program-plan`.
 - `metrics.py` materializes dashboard aggregates (`settled_metrics` in the ENGINE-owned
   `fuel_history.db`) at the close — ENGINE writes, app READS via `dataproduct.connect`; the
   figures come from canonical `queries.py` (not forked) and `verify()` recompute-compares
@@ -121,7 +121,7 @@ Platform floor under all seven: `auth`/`audit`/`backup`/`db`/`db_migrate`/`applo
   and the lock gate, readiness/checklist gates and `build_workbook` all REFUSE a synthetic
   line — a pack with any such line cannot be filed. Goods codes (`vat_config.GOODS_CODE`)
   follow 2008/9/EC Art. 9 / Reg. 1174/2009 & 79/2012 Annex III (1 fuel, 4 road tolls,
-  10 other — NEVER 9 = luxuries/entertainment). See `docs/VAT_REFUND_RULES.md`.
+  10 other — NEVER 9 = luxuries/entertainment). See `docs/MANUAL.md#eu-cross-border-vat-refund-rules-reference-directive-20089ec`.
 - NET/effective price = `net_eur_eff / qty`. City dimension = the `station` column.
 
 ## Do NOT commit
@@ -163,8 +163,8 @@ where available, least-privilege + full audit. If the product goes multi-CLIENT 
 tenant-isolation becomes first-class (tenant-scoped enforcement at every query; a cross-tenant
 leak is a GDPR Art. 33/34 breach). Target SOC 2 Type II + ISO 27001/27017/27018.
 
-## Known next steps (backlog) — canonical live list in `docs/BACKLOG.md`
-`docs/BACKLOG.md` is the authoritative, current backlog (ready-now / decision-gated / strategic /
+## Known next steps (backlog) — canonical live list in `docs/STRATEGY.md#backlog`
+`docs/STRATEGY.md#backlog` is the authoritative, current backlog (ready-now / decision-gated / strategic /
 platform). Recently SHIPPED (no longer open): the money-precision sweep, the whole
 `except: pass`→`applog` migration, `.docx`→PDF generation (document module), DLQ alerting +
 oldest-pending SLO, the register-failure reconcile, the §B VAT-correctness work (national-currency
@@ -184,7 +184,7 @@ expense/cost reports + accounting-ledger CSV + SAF-T export (`saft.py`), advisor
 - **D6** — intake worker as a dedicated worker-process by default (the scraper/fetch tier).
 - **Strategy-derived bets (deepen the seams)** — turn the NullProvider seams into real partner
   integrations (embedded finance, AISP bank feed), validated per-country SAF-T profiles + e-invoice/
-  ERP export, expense-report depth (see `docs/STRATEGY.md` §7 / `docs/BACKLOG.md` §C).
+  ERP export, expense-report depth (see `docs/STRATEGY.md` §7 / `docs/STRATEGY.md#backlog` §C).
 - **Multi-tenancy phase 2** — the per-table `scope_clause()` wiring behind the `multitenant` switch.
 - Test coverage for `invoice_control.py`/`ingest.py`/`build_master.py`/`history.py`; validated
-  Postgres cutover (`docs/SCALING.md`); `process_lock` fencing + per-job extract deadline (scale-gated).
+  Postgres cutover (`docs/MANUAL.md#scaling-the-fleet-fuel-vat-refund-system`); `process_lock` fencing + per-job extract deadline (scale-gated).

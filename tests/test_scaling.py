@@ -1,6 +1,6 @@
 """
 Horizontal-scaling readiness — the pieces that make a multi-server deployment
-config-only (see docs/SCALING.md):
+config-only (see ../docs/MANUAL.md#scaling-the-fleet-fuel-vat-refund-system):
 
   * db.qmark_to_pyformat  — the SQLite-qmark -> psycopg-pyformat paramstyle shim
                             (the documented #1 blocker to the Postgres cutover).

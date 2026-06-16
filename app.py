@@ -374,7 +374,7 @@ def setup():
             rows = [("Administrator account created", esc(u)),
                     ("Password stored securely", "salted scrypt hash")]
             rows.append(("HTTPS certificate",
-                         "self-signed, ready" if cert_made else "add later (see docs/INSTALL.md)"))
+                         "self-signed, ready" if cert_made else "add later (see docs/MANUAL.md#install-setup-installation)"))
             rows.append(("First backup taken", "yes"))
             inner = ('<div class="done"><div class="big">&#10003;</div>'
                      '<h1 style="text-align:center">You\'re all set</h1>'
@@ -387,7 +387,7 @@ def setup():
                      '<p class="hint" style="text-align:center;margin-top:16px">'
                      'Next: sign in, then add your colleagues under Admin (start them as '
                      '&ldquo;processor&rdquo; and tune their permissions). Daily guide: '
-                     'docs/USER_MANUAL.md</p></div>')
+                     'docs/MANUAL.md#user-manual-fleet-fuel-vat-refund-system</p></div>')
             return SETUP_HTML.replace("{BODY}", inner)
     # GET or error: the create-admin form
     form = (
@@ -653,7 +653,7 @@ def _guard():
     # but ONLY when the `multitenant` switch is ON. While OFF (the default
     # single-tenant install) this branch is never entered, so the tenant context
     # is never set and every tenancy enforcement helper stays inert: ZERO change
-    # to any existing query/route/figure. See docs/MULTI_TENANCY.md.
+    # to any existing query/route/figure. See docs/STRATEGY.md#multi-tenancy-program-plan.
     if _tenancy.multitenant_enabled():
         # Resolve the principal: the platform OPERATOR (owner) gets the audited
         # cross-tenant READ scope; a client-tenant user is bound to its tenant.
@@ -5064,7 +5064,7 @@ def export_fees():
 def receivables():
     """ADMIN-ONLY VAT receivables & payout forecast — an INTERNAL, data-only view
     (no lending, no outward send). Surfaces the under-used VAT-lifecycle data
-    (DATA_ARCHITECTURE.md #2 cycle-time/forecast, #9 realization): per-claim
+    (README.md#data-architecture-duplication-under-used-data #2 cycle-time/forecast, #9 realization): per-claim
     route-aware figures via settlement() — refund receivable (VAT owed by the state,
     what's aged), frozen agency fee, and customer net (0 on the customer-payout route,
     VAT−fee on the deduct route) — open-receivable aging, median submitted→paid days per
@@ -7223,7 +7223,7 @@ def admin():
                'a call is allowed only for an endpoint whose scope the key holds. Revoke to cut '
                'access immediately. <b>Default off:</b> with no keys, the API returns 401. Send '
                'the token as <code>Authorization: Bearer &lt;token&gt;</code> or '
-               '<code>X-API-Key</code>. See docs/API.md.</div>'
+               '<code>X-API-Key</code>. See docs/MANUAL.md#external-api-apiv1-token-contract.</div>'
                + (tbl(["ID", "Label", "Scopes", "Owner", "Status", "Last used", "Calls", ""], aktr)
                   if _akeys else '<p class="note">No API keys issued — the /api/v1 API is inert.</p>')
                + '<form method="post" style="margin-top:10px">' + _csrf_input()
@@ -7339,7 +7339,7 @@ def admin_tenants():
     install) it makes that explicit and lists no tenant scoping — NOTHING here
     gates or alters any existing query/figure. Tenant onboarding/admin (create,
     activate, subdomain mapping) is the P4 surface, deliberately deferred. See
-    docs/MULTI_TENANCY.md. Every value escaped via esc()."""
+    docs/STRATEGY.md#multi-tenancy-program-plan. Every value escaped via esc()."""
     on = _tenancy.multitenant_enabled()
     rows = []
     for t in _tenancy.list_tenants():
@@ -7357,7 +7357,7 @@ def admin_tenants():
         'single-tenant install — the tenant context is never bound and every scoping helper '
         'is a no-op, so no existing query or figure is changed. Per-table query scoping '
         '(P1/P2) and tenant onboarding (P4) are deferred; see '
-        '<code>docs/MULTI_TENANCY.md</code>.</div>'
+        '<code>docs/STRATEGY.md#multi-tenancy-program-plan</code>.</div>'
         + (tbl(["Tenant ID", "Name", "Status", "Created"], rows)
            if rows else '<p class="note">No tenants registered. The registry exists but is '
                         'empty; a default single-tenant install needs none.</p>')
@@ -7404,7 +7404,7 @@ def api_vat():
     con.close(); return jsonify(out)
 
 # ---------------------------------------------------------------- /api/v1 (token API)
-# The versioned, TOKEN-ONLY external contract (see docs/API.md). Auth + scope are
+# The versioned, TOKEN-ONLY external contract (see docs/MANUAL.md#external-api-apiv1-token-contract). Auth + scope are
 # enforced upstream by _api_v1_guard before any of these views run; a view that runs
 # has already proved its key carries the endpoint's scope. v1 is mostly READ-ONLY with a
 # SCOPED WRITE surface: CRM create/update (POST/PATCH /customers) under the `api:crm.write`

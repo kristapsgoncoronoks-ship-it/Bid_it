@@ -124,7 +124,7 @@ def main():
     try:
         import backup
         p, n = backup.snapshot()
-        ok(f"{os.path.basename(p)} ({n} files; nightly automation: see docs/INSTALL.md Part 8)")
+        ok(f"{os.path.basename(p)} ({n} files; nightly automation: see docs/MANUAL.md#install-setup-installation Part 8)")
     except Exception as e:
         fail(f"backup failed: {e}")
 
@@ -154,8 +154,8 @@ def main():
   3. Sign in with the admin account you just created.
   4. Create your colleagues in the Admin panel (role 'viewer' by default).
 
-  Daily usage guide:  docs/USER_MANUAL.md
-  Team/server setup:  docs/INSTALL.md (Parts 5-8: permanent service, proxy, backups)
+  Daily usage guide:  docs/MANUAL.md#user-manual-fleet-fuel-vat-refund-system
+  Team/server setup:  docs/MANUAL.md#install-setup-installation (Parts 5-8: permanent service, proxy, backups)
 """)
 
 

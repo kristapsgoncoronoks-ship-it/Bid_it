@@ -192,12 +192,12 @@ per-tenant encryption. A cross-tenant leak is a personal-data breach (GDPR Art. 
 
 ## 8. Roadmap
 
-See **`docs/ROADMAP.md`** — the phased, sequenced plan tying this strategy, the data-acquisition
+See **`#product-roadmap`** — the phased, sequenced plan tying this strategy, the data-acquisition
 build, and the open backlog into delivery horizons.
 
 ## 9. Strategy → backlog
 
-New buildable items derived from this strategy (added to `docs/BACKLOG.md` §C-Strategic):
+New buildable items derived from this strategy (added to `#backlog` §C-Strategic):
 - **SAF-T / e-invoice / ERP export** (expense + ViDA tailwind) — *the highest-value capability bet.*
 - **Embedded-finance partner integration** (factor the VAT receivable; Factris-style) — *the profit centre.*
 - **Open-banking reconciliation + pay-by-bank** (aggregator/agent partner).
@@ -209,3 +209,1404 @@ Sources: EUR-Lex / EU Commission, Tax Foundation, Eurostat, IRU; EU competition-
 embedded finance (Precedence, eCapital, Factris, Hokodo); provider/competitor pages (DKV, UTA
 Edenred, Eurowag, FastVAT, Negométal, Vatecure, Pleo, Spendesk, Tink, TrueLayer, Yapily, Webfleet,
 Geotab, Samsara). Full inline citations in the originating research report.
+
+---
+
+## Consolidated documentation — contents
+
+The strategy content above is unchanged. The sections below consolidate the former forward-looking docs (roadmap, future/evolution plans, backlog, findings, multi-tenancy program, security/compliance plan) into this file.
+
+- [Product Roadmap](#product-roadmap)
+- [Future Plan — How the Software Evolves to Help & Support the Business](#future-plan-how-the-software-evolves-to-help-support-the-business)
+- [Evolution Plan — how the app must evolve to be worth it](#evolution-plan-how-the-app-must-evolve-to-be-worth-it)
+- [Backlog](#backlog)
+- [Deep-research findings — logic flaws + monetization](#deep-research-findings-logic-flaws-monetization)
+- [Multi-tenancy program plan](#multi-tenancy-program-plan)
+- [Security & Compliance Evolution Plan — operating as a multi-client SaaS](#security-compliance-evolution-plan-operating-as-a-multi-client-saas)
+
+---
+
+## Product Roadmap
+
+**Purpose:** sequence the move from a solid internal back-office tool into a **self-feeding,
+revenue-generating, pan-EU platform** — recover more VAT faster, remove manual work, de-risk
+compliance, and monetise. Ties together `docs/STRATEGY.md` (the why + monetisation models) and
+`#backlog` (the concrete items). **`#evolution-plan-how-the-app-must-evolve-to-be-worth-it` is the deep-dive companion** —
+each idea costed (build/effort/$/timeline), the 18-month quarter-by-quarter sequence, the 3 first
+decisions, and the "make-it-worth-it" milestone. Organised by **business outcome**, then phased into
+delivery horizons. Direction, not a contract — revisit each quarter against the KPIs.
+
+### The outcomes everything ladders up to
+
+| Goal | Money question | KPI |
+|---|---|---|
+| **Recover more VAT, faster** | Are we owed VAT, and is every claim airtight before the deadline? | € recovered / € claimable · days-to-refund · % rejected · deadline misses (target 0) |
+| **Remove manual work** | How many hours per close; how much re-keying / invoice chasing? | hours/close · % invoices auto-captured · exceptions only |
+| **Cut fuel spend** | Are we paying a competitive net price; where are we overcharged? | € overcharges identified → recovered |
+| **De-risk compliance** | If audited tomorrow, can we prove every number? | audit-ready in minutes; evidence reproducible |
+| **Monetise** | Where's the recurring revenue and the financing margin? | ARR · contingency € · financing origination € |
+
+### What's already shipped (no longer roadmap)
+Monthly-close orchestrator (`engine_close.py`); notify digest + scheduler; the full
+`except: pass`→`applog` migration; money-precision sweep; reliability (DLQ alerting + oldest-pending
+SLO, register-failure reconcile, backup-close guard, atomic `record_payment`); the **§B
+VAT-correctness suite** (national-currency threshold hard-gate + override, receipt-control
+gate + waive, FX provenance + **independent per-invoice ECB verification**); the **CRM integration
+API** (`/api/v1` read+write, scoped, audited); and the **full document-management module**
+(prefill contracts/PoAs from CRM, `.docx`→PDF, request lifecycle, cross-module wiring); under-used
+-data analytics (time-of-day, per-vehicle €/L, parser-priority, import/audit trends, reliability
+scorecard).
+
+---
+
+### Phase 0 — Foundation for the self-feeding platform (now, in-repo, no partner)
+*Prerequisites for everything else; highest ROI is removing manual babysitting.*
+- **D6 — dedicated worker tier** (`FFS_ROLE=web` + `python waiting_room.py --work`). The execution
+  substrate for automated fetching/scraping; isolates heavy out-of-band work from the web app.
+- **Per-supplier rate-limit / concurrency / backoff / circuit-breaker** primitive on the intake
+  queue — so fetching never overloads our system *or* trips a supplier's anti-bot/ban.
+- **Test coverage** for `invoice_control`/`ingest`/`build_master`/`history`.
+- **One-click monthly close** behind a guarded button with a live progress log.
+- **Per-event notification alerts + SMTP relay UI** (digest already done).
+
+### Phase 1 — Automated document capture (the flagship; builds the moat)
+*Make the platform feed itself across every supplier — this is what accumulates the proprietary
+multi-network dataset and removes the manual upload burden.* (See `docs/STRATEGY.md` §7.)
+- **Build BOTH capture paths, lead with structured:** (1) supplier **API/EDI** where it exists; (2)
+  **e-invoicing inbound** (PEPPOL/EN-16931, email/invoice-inbox) — grows as ViDA lands; (3)
+  **credential-based portal scraping** (`portal_scraper.py`) for the low-IT supplier long tail (the
+  majority); (4) manual upload (existing). All on the Phase-0 worker tier.
+- **Credential custody hardening:** envelope encryption (KEK→DEK) + KMS/HSM, **per-tenant/BYOK keys**
+  (no bulk-decrypt), **OAuth/scoped tokens over passwords** where supported, least-privilege + full
+  audit, rotation.
+- **Self-service supplier onboarding:** client stores portal logins / connects APIs; the system
+  auto-fetches and analyses.
+- **Outcome:** invoices arrive automatically; manual collection disappears; the dataset compounds.
+- **Gates:** scraping ToS/consent (scrape a client's OWN account with explicit authorisation);
+  security posture toward SOC 2 Type II + ISO 27001/27017/27018.
+
+### Phase 2 — Revenue: direct-to-fleet recovery + expense/export
+*Turn the captured data into recovered cash and a finance-department product.*
+- **Direct-to-fleet recovery wedge** — automated 2008/9/EC VAT + diesel-excise + toll-VAT recovery
+  across ALL the fleet's fuel cards (the multi-card edge captive schemes can't match). Pricing:
+  **contingency % of recovered VAT + thin per-vehicle SaaS fee.**
+- **Company expense reports** — per-vehicle/driver expense, mileage/per-diem on the existing
+  line-item data (no receipt-OCR step).
+- **SAF-T / e-invoice / ERP export** (Xero/QuickBooks/DATEV/Sage) — rides the mandatory ViDA +
+  national e-invoicing tailwind (2026-2030); widens the buyer to the finance team; future-proofs
+  ingestion.
+- **Overcharge → recovery workflow** — group flagged overcharges into a "claim-back" packet → supplier credit.
+- **Refund forecasting & cash-flow view** (M3 data layer exists).
+
+### Phase 3 — Profit centre: embedded finance + open banking (partner-gated)
+*Monetise the cash-timing of the refund — the highest-margin layer; proven by FastVAT/Eurowag.*
+- **Embedded finance** — advance/factor the VAT-refund receivable via a **licensed factoring
+  partner** (Factris-style: our UI + partner licence; ~90% advance, ~1-3% fee, funds in days). We
+  monetise origination/margin with NO licence. A tax-authority receivable is a high-certainty asset,
+  and we can underwrite it because we see it line-by-line.
+- **Open-banking reconciliation + pay-by-bank** via an aggregator/agent (Tink/TrueLayer/Yapily) —
+  reconcile fuel-card statements ↔ bank payments; initiate supplier/refund payouts at <1%. **Agent
+  of a licensed provider — do NOT self-licence.**
+- **Gates:** factoring/credit licensing is per-Member-State (counsel); CJEU treats factoring fees as
+  VAT-taxable; PSD2/PSD3 + partner due-diligence.
+
+### Phase 4 — Intelligence, scale & the SaaS surface
+*Compound the data advantage; make it a sellable platform.*
+- **Multi-tenant SaaS hardening** — tenant context enforced at every query (RLS / tenant-scoped
+  keys), automated cross-tenant access tests, per-tenant encryption. *A cross-tenant leak is a GDPR
+  Art. 33/34 breach — isolation must be provable.* + SOC 2 / ISO certification.
+- **Validated Postgres cutover** (`MANUAL.md#scaling-the-fleet-fuel-vat-refund-system`) — for multi-client volume.
+- **External pooled benchmark (SALE)** — anonymised cross-fleet fuel-price/markup intelligence, via
+  an **independent-trustee / aggregation** model (2023 Horizontal Guidelines; hub-and-spoke risk) +
+  counsel. Internal benchmark already shipped.
+- **SaaS-to-agencies (white-label)** the recovery engine; **API v2** (rate-limits/quotas, key-expiry,
+  write/extract scopes).
+- **AI copilot** over the audited data (grounded, no hallucinated figures); e-filing integrations
+  with tax-authority portals; driver/ops mobile surface (nearest cheap station).
+
+---
+
+### Sequencing principles
+1. **Capture before monetise** — Phase 1 (self-feeding data) unlocks every revenue phase and the moat.
+2. **Don't run fetching inline** — always the worker tier + per-supplier rate-limiting (don't
+   overload our system or the supplier's portal).
+3. **Money & risk beat polish** — recover VAT / catch overcharges / prevent a deadline miss first.
+4. **Partner, don't self-licence** — embedded finance (factoring partner) and open banking (AISP/PISP
+   agent) are partner-gated; build the in-repo seam, let the regulated partner carry the licence.
+5. **Keep the guardrails** — every surface honours NET-EUR final prices, `money.py` quantisation,
+   escaped output, audited changes, admin-only VAT module, and (new) credential envelope-encryption +
+   provable tenant isolation. Evolution must not erode the compliance backbone.
+6. **Measure the outcome** — judge each item against the KPIs (€ recovered, days-to-refund,
+   % auto-captured, hours/close, ARR, financing €).
+
+### Near-term concrete steps (from `#backlog`)
+- Phase 0: D6 worker tier · per-supplier rate-limiter · test coverage · one-click close.
+- Phase 1: API ingestion + portal-scraping (both) on the worker tier · credential-custody hardening.
+- Phase 2: SAF-T/e-invoice/ERP export · expense reports · direct-to-fleet recovery packaging.
+
+---
+
+## Future Plan — How the Software Evolves to Help & Support the Business
+
+**Purpose.** A forward-looking, business-outcome-first plan: where the platform is now,
+the value it creates, and the concrete path to turn the foundation we have built into a
+growing, defensible business. This is the *business* companion to the technical docs —
+`STRATEGY.md` (monetisation models), `#product-roadmap` (phased delivery), `#evolution-plan-how-the-app-must-evolve-to-be-worth-it`
+(costed deep-dive), `#multi-tenancy-program-plan`, `MANUAL.md#scaling-the-fleet-fuel-vat-refund-system`, `MANUAL.md#saf-t-export-programmable-oecd-core-generator-prework`. Read those for the *how*;
+read this for the *why, the value, and the sequence*.
+
+---
+
+### 1. Where we are now — a working foundation, not a prototype
+
+The product is already a **working, audit-ready accounting platform** for multi-supplier
+fuel & toll spend: it ingests messy multi-format supplier data, validates and reconciles it,
+recovers EU cross-border VAT (Dir. 2008/9/EC) with hard compliance gates, and turns the
+line-item dataset into price intelligence, expense reports, and standards-based exports.
+
+Crucially, the **seams for the next three business models are now built** — each deliberately
+inert until a partner/credential/decision activates it, so we can switch them on without a
+rewrite:
+
+| Capability built | Business lever it unlocks | State today |
+|---|---|---|
+| Automated document capture (worker tier, per-supplier rate-limiter, envelope-encrypted credential custody, off-by-default scheduler, portal-fetch jobs) | The **data moat** — invoices arrive automatically across every fuel card | Seam live; needs real portal adapters + authorised credentials |
+| Embedded-finance seam (`finance.py`) | **Cash-timing margin** — advance the VAT receivable | Computation live; needs a licensed factoring partner |
+| Open-banking reconciliation (`bank_recon.py`) | **Reconciliation + pay-by-bank** trust layer | Advisory live (CSV today); needs an AISP aggregator for auto-feeds |
+| Multi-tenant foundation (`tenancy.py` + plan) | **SaaS scale** — many clients on one platform | OFF by default; per-table enforcement is the documented next phase |
+| Standards export (accounting-ledger CSV, programmable SAF-T core) | **Finance-dept buyer + ViDA tailwind** | CSV live; SAF-T core live, per-jurisdiction profile pending |
+| Confidence-learning (`confidence.py`) | **Lower cost-to-serve** — skip redundant AI on trusted suppliers | Live (governs advisory AI only) |
+
+**What this means for the business:** we are past the "can it work" risk. The remaining work
+is *activation and scale*, not invention — which is a far cheaper and more predictable place
+to be.
+
+---
+
+### 2. The business thesis — five outcomes the software exists to deliver
+
+Everything ladders up to five measurable outcomes. Each new build is judged by whether it
+moves one of these.
+
+| Outcome | The customer's question | How the software answers it | KPI |
+|---|---|---|---|
+| **Recover more cash, faster** | Are we owed VAT/excise, and is every claim airtight before the deadline? | Multi-card recovery engine + hard compliance gates + deadline alerts (miss = 0) | € recovered / € claimable · days-to-refund |
+| **Remove manual work** | How many hours per close; how much re-keying & invoice chasing? | Automated capture + one-click close + exception-only review | hours/close · % auto-captured |
+| **Cut spend** | Are we paying a competitive net price; where are we overcharged? | Price intelligence + supplier price-review packet | € overcharges identified → recovered |
+| **De-risk compliance** | If audited tomorrow, can we prove every number? | Audit trail + evidence packs + SAF-T/ledger export + provable reconciliation | audit-ready in minutes |
+| **Finance the timing** | Can we get the refund cash now, not in 6–18 months? | Embedded finance over a known, line-item-underwritten receivable | financing origination € · margin |
+
+The **moat** under all five is the proprietary, multi-network, line-item invoice dataset —
+which the automated-capture build is designed to compound.
+
+---
+
+### 3. The evolution path — three horizons, business-outcome driven
+
+#### Horizon 1 — Activate what's built (next 1–2 quarters): turn seams into revenue
+
+*The cheapest growth available: switch on capabilities already paid for.*
+
+1. **Light up automated capture for the first real suppliers.** Pick the 2–3 highest-volume
+   supplier portals/APIs the client is authorised to access; write their adapters; store
+   credentials under the envelope-encrypted custody (KMS/BYOK); run scheduled pulls on the
+   worker tier with the rate-limiter. **Business value:** manual collection disappears, the
+   dataset compounds, and every later model gets richer inputs. *Gate: which portals + the
+   production KMS backend.*
+2. **Sign one embedded-finance partner** (Factris-style: our UI, their licence). The receivable
+   is a high-certainty, line-item-underwritten asset — we monetise origination/margin with no
+   licence. **Business value:** the highest-margin layer, and a hard differentiator vs. anyone
+   who only files claims. *Gate: partner selection + per-Member-State counsel.*
+3. **Connect one open-banking aggregator** (Tink/TrueLayer/Yapily, as agent) to auto-feed the
+   reconciliation already shipped. **Business value:** "did the refund land / did we pay the
+   supplier" answered automatically; sets up pay-by-bank later. *Gate: aggregator + PSD2 agent
+   onboarding.*
+4. **Package & price the recovery wedge.** Contingency % of recovered VAT + a thin per-vehicle
+   SaaS fee — the multi-card edge captive card schemes can't match.
+
+**Milestone for Horizon 1 ("make it worth it"): first external client live on automated
+capture + one financing deal originated.** That is the proof the business model works end-to-end.
+
+#### Horizon 2 — Scale & widen the buyer (quarters 3–6): from tool to platform
+
+*Grow accounts, widen who buys, and turn the single deployment into a SaaS.*
+
+5. **Multi-client SaaS go-live.** Execute `#multi-tenancy-program-plan` phases P1→P3: add `tenant_id` to
+   each product table, wire tenant-scoped enforcement (app-level + Postgres RLS) with a
+   cross-tenant access test per table, per-tenant encryption keys (the EnvKEK BYOK seam is
+   ready). **Business value:** one platform serves many fleets/agencies — the economics that
+   make this a *company*, not a service. *A cross-tenant leak is a GDPR breach — isolation must
+   be provable, hence the test-per-table discipline.*
+6. **Finance-department product: expense reports + ERP/SAF-T export.** The accounting-ledger
+   CSV ships today; specialise the SAF-T core per jurisdiction (LT, PL/JPK, PT…) and add
+   Xero/QuickBooks/DATEV connectors. **Business value:** widens the buyer from "VAT recovery"
+   to the whole finance team, and rides the mandatory ViDA + national e-invoicing tailwind
+   (2026–2030) — a regulatory wind at our back, not a headwind.
+7. **Validated Postgres cutover** for multi-client volume (the dialect shim and `MANUAL.md#scaling-the-fleet-fuel-vat-refund-system`
+   are staged). **Business value:** removes the scaling ceiling before it bites.
+8. **Overcharge → recovery workflow.** Turn the price-review packet into a supplier-credit
+   recovery flow. **Business value:** a second, recurring € line beyond VAT.
+
+#### Horizon 3 — Compound the advantage (quarters 7+): intelligence & expansion
+
+9. **Pooled benchmark (externalised, counsel-gated).** Anonymised cross-fleet price/markup
+   intelligence via an independent-trustee model. **Business value:** a data product only we can
+   sell, because only we have the multi-network dataset. *Gate: competition-law counsel.*
+10. **AI copilot over the audited data** (grounded, never hallucinating a figure) + predictive
+    refund/cash-flow forecasting + driver/ops mobile surface (nearest cheap station). **Business
+    value:** moves the product from record-keeping to decision support — stickier, higher ARPU.
+11. **Geographic & vertical expansion.** The same engine serves any cross-border fleet spend
+    (logistics, bus, construction) and any EU member state once the per-jurisdiction profiles
+    exist. **Business value:** TAM expansion on a built engine.
+12. **Security posture as a sales asset.** SOC 2 Type II + ISO 27001/27017/27018. **Business
+    value:** unlocks enterprise & agency white-label deals that won't buy without it.
+
+---
+
+### 4. How it supports the business, by stakeholder
+
+- **Fleet finance / controller** — recovered cash, audit-ready evidence, one-click close,
+  expense & ERP export, financed cash-timing. *The economic buyer.*
+- **Fleet operations** — automated capture removes invoice chasing; price intelligence steers
+  fuelling to cheaper suppliers/stations. *The daily user and overcharge-saver.*
+- **The platform operator (us / an agency)** — multi-tenant SaaS, contingency + SaaS + financing
+  margin, a compounding data moat, and a regulatory tailwind. *The growth engine.*
+- **The regulated partners** (factor, AISP) — we bring the underwritable receivable and the
+  reconciled bank view; they bring the licence. *Symbiosis without us carrying a licence.*
+
+**Monetisation stack (priority order):** direct-to-fleet recovery (contingency + thin SaaS) →
+embedded finance (origination margin) → expense/ERP/SAF-T export (seat expansion) →
+open-banking pay-by-bank (transaction margin) → pooled benchmark (data product). Each layer
+sells to the *same* installed base, raising ARPU without new acquisition cost.
+
+---
+
+### 5. Sequencing principles (so evolution stays disciplined)
+
+1. **Capture before monetise** — the self-feeding dataset unlocks every revenue layer and the moat.
+2. **Activate before invent** — switch on built seams (finance, banking, capture, tenancy) before
+   building anything new.
+3. **Partner, don't self-licence** — finance and open banking ride a regulated partner; we build
+   the seam, they carry the licence.
+4. **Money & risk beat polish** — recover cash, catch overcharges, prevent a deadline miss first.
+5. **Provable isolation & compliance** — multi-tenant enforcement is gated on a cross-tenant test
+   per table; every surface keeps NET-EUR final prices, `money.py` quantisation, escaped output,
+   audited changes, envelope-encrypted credentials. Evolution must not erode the compliance backbone.
+6. **Measure the outcome** — judge each step against the five KPIs in §2, revisited each quarter.
+
+---
+
+### 6. The decisions that gate the next moves (what we need from the business)
+
+These are the *only* things standing between the built seams and live revenue:
+
+1. **Automated capture:** which supplier portals/APIs are authorised first, who holds the
+   credentials, and the production KMS/secrets backend (cloud KMS vs. Vault vs. the local key).
+2. **Embedded finance:** which licensed factoring partner, and per-Member-State legal sign-off.
+3. **Open banking:** which AISP aggregator, and PSD2 agent onboarding.
+4. **Multi-tenant:** commit to multi-client SaaS now (triggering P1–P3) vs. stay per-deployment.
+5. **SAF-T:** the first target jurisdiction (drives the country profile).
+6. **Security investment:** timing of the SOC 2 / ISO programme (gates enterprise/white-label).
+
+Each is a *business decision*, not an engineering unknown — the engineering is staged and waiting.
+
+---
+
+### 7. The one-paragraph version
+
+We have built an audit-ready VAT-recovery and fuel-intelligence engine **and** the seams for
+the three businesses that grow on top of it — automated multi-network capture (the moat),
+embedded finance (the margin), and multi-tenant SaaS (the scale) — each ready to switch on.
+The plan is therefore not "what to build" but "what to activate, in what order, with which
+partner": light up capture and one financing deal to prove the model (Horizon 1), turn the
+single deployment into a multi-client, finance-department SaaS riding the ViDA tailwind
+(Horizon 2), then compound the data advantage with a benchmark product, an AI copilot, and new
+markets (Horizon 3). The moat is the proprietary line-item dataset; the discipline is
+capture-before-monetise, partner-don't-self-licence, and provable compliance at every step.
+
+---
+
+## Evolution Plan — how the app must evolve to be worth it
+
+A concrete, costed, sequenced plan that deep-dives **each idea** in `#product-roadmap` /
+`docs/STRATEGY.md` / `#backlog`. Each item: **what + why it's worth it · how to build it
+(the in-repo seam) · effort/cost · dependencies · #1 risk · success metric.** Grounded in the
+codebase + three deep-research passes (figures are indicative ranges with confidence; provider
+prices are quote-based — model, don't quote). Currency mixes EUR/USD as sourced.
+
+### The "make-it-worth-it" milestone (north star)
+The platform crosses from **cost-centre → sellable product** when it is **self-feeding and
+multi-tenant with at least one paying external customer on a repeatable contract.** Concretely:
+(1) invoices flow in **automatically** for most suppliers (API/e-invoicing + scraping) with no
+manual upload; (2) a **second, unrelated company** is onboarded behind **provable tenant
+isolation**; (3) at least one **revenue line is live** (recovery contingency, a per-vehicle
+subscription, or financing origination). Everything below ladders to that.
+
+---
+
+### Phase 0 — Foundation (Q1; in-repo, no partner) — *unblocks everything*
+
+**0.1 Dedicated worker tier (D6).** *Why:* fetching/scraping is slow/bursty/external; it must run
+off the web path or it overloads the app. *Build:* `FFS_ROLE=web` for web nodes; run scrapers as a
+separate `python waiting_room.py --work` process/host — the durable queue (`waiting_room.py`) +
+`process_lock` leader election already exist. *Effort:* S–M (days). *Dep:* none. *Risk:* low.
+*Metric:* web p95 latency unaffected by a fetch burst.
+
+**0.2 Per-supplier rate-limit / concurrency / backoff / circuit-breaker.** *Why:* protects your
+system AND keeps you under each portal's anti-bot/ban threshold. *Build:* a token-bucket + max
+in-flight per `(supplier)` on the queue claim path; exponential backoff (Celery-style 1/2/4s); a
+circuit-breaker that parks a supplier's jobs on repeated failure. *Effort:* M. *Dep:* 0.1.
+*Risk:* med (get the per-supplier keying right). *Metric:* zero portal bans; no thundering herd.
+
+**0.3 One-click monthly close.** *Why:* removes a half-day of CLI babysitting. *Build:* one guarded
+button chaining `engine_close.py` with a live progress log (the upload-receipt pattern exists).
+*Effort:* S. *Metric:* close time minutes, not a half-day.
+
+**0.4 Test coverage** for `invoice_control`/`ingest`/`build_master`/`history`. *Why:* ship velocity
++ no money drift. *Effort:* M. *Metric:* coverage on the engine path; green before each phase.
+
+---
+
+### Phase 1 — Automated document capture (Q1–Q3; the moat engine)
+*The most important build: makes the platform self-feeding and accumulates the proprietary
+multi-network line-item dataset. Build BOTH paths; lead with structured.*
+
+**1.1 Supplier API / EDI ingestion.** *Why:* cleanest, most reliable capture where a supplier has
+an API. *Build:* extend `ingest.py` / `/api/*` with per-supplier connectors enqueued to the worker
+tier. *Effort:* M–L (per connector). *Risk:* few fuel suppliers expose APIs (low coverage).
+*Metric:* % of volume via API.
+
+**1.2 E-invoicing inbound (PEPPOL / EN-16931).** *Why:* mandatory e-invoicing (ViDA 2030; national
+2026–2028) makes invoices arrive machine-readable — capture for free as it lands. *Build/Buy:*
+**BUY a PEPPOL Access-Point-as-a-Service** (Storecove/EDICOM/Pagero/Unifiedpost) — self-certifying
+needs OpenPeppol membership + ISO 27001 + BIS impl, not worth it; **parse EN-16931 in-house.** The
+**`factur-x` Python lib (akretion, BSD)** is **directly reusable for the existing Factur-X/ZUGFeRD
+`parse_einvoice` branch** (`get_xml_from_pdf`, EN-16931 XSD/Schematron validation, profile
+detection). Country clearance (Poland **KSeF** — REST API + `ksef2` Python SDK; France
+Factur-X/Chorus-Pro/PDP; Italy SdI/FatturaPA; Germany XRechnung/ZUGFeRD) is reached *through* the
+AP. *Cost:* AP-as-a-service ~€0.18/invoice floor (mostly quote-based). *Effort:* M (AP integration)
++ S (reuse factur-x). *Risk:* per-country CIUS variance. *Metric:* % via e-invoice, rising over time.
+
+**1.3 Credential-based portal scraping (the low-IT long tail).** *Why:* most fuel/toll suppliers
+have no API/e-invoicing — scraping is a **required first-class capability**, not just a fallback.
+*Build:* **Playwright (Python)** over Selenium (auto-wait kills selector flakiness) on the worker
+tier; per-adapter logic in the existing `portal_scraper.py` seam; **containerised browser workers**
+(headless costs 10–50× plain HTTP); handle MFA/CAPTCHA; session/cookie reuse. *Running cost:*
+residential proxies ~$3–9/GB, CAPTCHA-solving ~$0.5–3/1000. *Effort:* L + **continuous
+maintenance** (portals change markup — the real cost). *Risk:* fragility + ToS/anti-bot — scrape
+only a client's OWN account with explicit written authorisation (the PSD2 precedent moved bank data
+*off* scraping to APIs; treat scraping as transitional, retire per supplier as APIs/e-invoicing
+arrive). *Metric:* fetch success rate per supplier; maintenance hours/portal/month.
+
+**1.4 Credential-custody hardening (the security concern).** *Why:* you're holding clients' portal
+logins — custody is a liability (GDPR Art. 33/34, 72-hour breach notice). *Build:* **envelope
+encryption** (KEK in KMS wraps a per-secret DEK) backed by **cloud KMS** (AWS/GCP/Azure ~per-key +
+per-call) **or HashiCorp Vault**; **per-tenant/BYOK keys** so the platform can't bulk-decrypt one
+client's secrets; **prefer OAuth/scoped tokens over stored passwords** where a supplier supports it
+(the CyberArk/UiPath "credential vault" pattern is the analogue); least-privilege + full audit +
+rotation. *Cost/effort:* cloud KMS **~$1/key/mo + ~$0.03/10k ops** (AWS/GCP/Azure converge) or
+**Vault OSS free (Transit engine)** — HCP Vault Dedicated ~$450–1150+/mo (HCP Vault Secrets was
+sunsetted mid-2025, don't design around it); implementation **~1–3 eng-weeks** single-KEK, **+1–3
+weeks** for per-tenant/BYOK keys (~$1/tenant/mo + data-key caching to stay under the KMS quota).
+Targets: the `portal_scraper.py` credentials + IBANs (aligns with the existing "AI never sees
+IBAN/secret" rule). **Decision:** KMS vs Vault. *Risk:* a credential-store breach is existential —
+this gates self-service onboarding. *Metric:* no plaintext at rest; every access audited; pen-test.
+
+**1.5 Self-service supplier onboarding.** *Build:* client connects an API / stores portal logins;
+system auto-fetches + analyses. *Effort:* M. *Dep:* 1.2–1.4. *Metric:* onboarding without engineering.
+
+---
+
+### Phase 2 — Revenue (Q3–Q4; turn data into cash + a finance-dept product)
+
+**2.1 Direct-to-fleet recovery — packaging + pricing.** *Why:* the multi-card wedge captive
+schemes can't match. *Pricing (hybrid):* **success fee ~15–30% of recovered VAT** (no-win-no-fee,
+the sector norm) **+ a per-vehicle subscription (~$20–60/veh/mo equivalent)** for the analytics/
+expense side. Size the contingency against realistic per-claim recoveries (Dir. 2008/9/EC minimums
+€400 quarterly / €50 annual cap small claims). *Build:* mostly packaging on the existing recovery
+engine + billing. *Metric:* € recovered, days-to-refund, contingency € booked.
+
+**2.2 Company expense reports.** *Why:* the line-item fuel/toll/AdBlue data already exists → expense
++ mileage/per-diem with **no receipt-OCR step** (the edge over Pleo/Spendesk/Concur). *Build:* new
+report surfaces + per-vehicle/driver rollups on `transactions`. *Effort:* M. *Metric:* expense
+reports generated; attach rate.
+
+**2.3 SAF-T / e-invoice / ERP export.** *Why:* rides the mandatory ViDA tailwind; widens the buyer
+to the finance team; future-proofs ingestion. *Build (effort low→high):* **QuickBooks Online**
+(free sandbox, clean REST) < **Xero** (8+ certification checkpoints, 3-customer gate, new tiered
+API pricing Mar-2026) < **DATEV** (batch/file-job, consultant + validation-heavy — the big German
+lift; mitigate via a certified unified-API partner e.g. Maesn/Chift). **SAF-T is a separate
+per-country mapping workstream** (OECD schema → Poland JPK_V7M, Romania D406, Portugal, Norway…),
+not one file. *Effort:* L (multi-quarter). *Metric:* # accounting integrations live; SAF-T files
+accepted.
+
+**2.4 GTM / first paying fleets.** *Motion:* narrow **EU-transport vertical wedge**; lean on
+**fuel-card/telematics channel partnerships + referrals** over pure outbound (cold-email booking
+rates ~halved 2024→2026). *Targets:* SMB CAC ~$200–500, **<12-mo payback, ≥2.5:1 LTV:CAC.** *First
+beachhead:* fleets using **2+ card networks** (the fragmentation you uniquely solve).
+
+---
+
+### Phase 3 — Profit centre (Q4–Q6; embedded finance + open banking — partner-gated)
+
+**3.1 Embedded finance — advance/factor the VAT receivable.** *Why:* highest margin; monetises the
+4–8-month refund wait; proven (FastVAT/Eurowag). *Build/Buy:* **BUY — originate-and-refer to a
+licensed factoring partner**; do NOT take balance-sheet risk or a licence. **Factris** (NL/Lithuania
+— Baltic fit; "up to 3%" *time-based* fee; €100M facility; an explicit partner program) is the lead
+candidate. *In-repo seam:* M3 already built the receivable data layer + the route-aware settlement;
+add the partner-API hand-off + status sync. *Unit economics:* a VAT refund is owed by a **tax
+authority → near-zero default**, timing 4–8 months with **statutory late interest (Art. 26–27)**
+capping downside; expected loss = **partial-approval haircut, not insolvency** → a **recourse
+structure keyed to the approval haircut**, advance **80–95%** below the *expected approved* amount,
+time-based discount. *Platform take:* origination/rev-share **1–5%/deal** (negotiated). *Vertical
+SaaS embedding finance reportedly lifts revenue/customer 3–4×.* *Effort:* M (integration) + L
+(partner contracting/legal). **Risk/gate:** factoring is regulated lending (CRD Annex I), per-Member
+-State; CJEU treats factoring fees as VAT-taxable; **partner does diligence — confirm a live VAT-
+receivable product with Factris** (no clean public precedent found). *Metric:* financing origination
+€; advance turnaround (target ~24h).
+
+**3.2 Open banking — reconciliation + pay-by-bank.** *Why:* close the statement↔payment↔refund↔
+financing loop; pay at **<1% vs 1.5–3.5% cards.** *Build/Buy:* **BUY — operate as an AISP/PISP
+AGENT under a provider's licence** (Tink/TrueLayer/Yapily all hold both; agent route compresses the
+regulatory timeline to weeks). Usage-based, quote-only pricing. *In-repo seam:* the reconciliation
+engine already exists; add the aggregator API + the open-banking ingest as another `waiting_room`
+job kind. *Effort:* M. *Risk:* PSD2/PSD3 + partner diligence. *Metric:* statements auto-reconciled
+%; pay-by-bank volume.
+
+---
+
+### Phase 4 — SaaS & scale (Q5–Q8; make it a sellable platform)
+
+**4.1 Multi-tenant isolation.** *Why:* one client must NEVER see another's data — a cross-tenant
+leak is a GDPR Art. 33/34 breach (fines to €20m/4%) and a trust/contract failure. *Build (recommend
+**PostgreSQL Row-Level Security**):* `tenant_id` on every table; an RLS policy per table keyed on a
+session `app.tenant_id` SET per connection → the DB enforces isolation so a forgotten `WHERE
+tenant_id` (the OWASP-API-#1 IDOR/BOLA class) can't leak; tenant context in every request; automated
+cross-tenant access tests; per-tenant encryption keys (ties to 1.4). **TWO critical footguns that,
+if missed, silently re-open the leak:** (1) RLS is bypassed by the table OWNER, superusers, and
+`BYPASSRLS` roles — so run app traffic as a **non-owner, non-superuser role** AND set `ALTER TABLE …
+FORCE ROW LEVEL SECURITY`; (2) under a transaction-pooling pooler (PgBouncer), a session `SET` leaks
+into the next request — use **`set_config('app.tenant_id', …, true)` (transaction-local)**, not a
+session `SET`. RLS is defense-in-depth UNDER app-layer scoping (still need per-object authZ within a
+tenant). DB-per-tenant is the max-isolation alternative for large/regulated tenants (hybrid common:
+RLS for the long tail). *Migration path* from today's per-deployment model: add `tenant_id` to every
+table, thread a tenant context through `db.connect()`, enable RLS+FORCE, load each per-customer
+SQLite DB into shared Postgres under its `tenant_id`, move sessions/queue to the shared DB. *Effort:*
+L. **Decision:** RLS vs DB-per-tenant + go-multi-client-now-or-stay-per-deploy.
+*Risk:* the highest-stakes correctness work — isolation must be *provable*, not assumed. *Metric:*
+automated cross-tenant tests pass; a pen-test finds no leak.
+
+**4.2 Security certification (SOC 2 Type II + ISO 27001).** *Why:* the diligence gate to sell to
+larger/EU-regulated buyers, mandatory once you hold credentials + financial data. *Cost/timeline:*
+SOC 2 Type II ~**$20–40k** first year (~6–15 mo, gated by the 3–12-mo observation window); ISO 27001
+~**$15–30k** (~3–8 mo); **both together ~$40–80k all-in, ~6–12 mo, ~$25–60k/yr ongoing, ~0.25–0.5
+FTE** during the push (65–75% control overlap → do them together). Use an automation platform
+(Vanta/Drata/Secureframe/Sprinto ~$7.5–25k/yr). *Trigger:* start ~3–6 mo before the first
+enterprise deal, not after losing one. *Metric:* SOC 2 Type II report + ISO cert issued.
+
+**4.3 Validated Postgres cutover** (`MANUAL.md#scaling-the-fleet-fuel-vat-refund-system`) — exercise `_PgShim` on real psycopg, port
+dialect-isms (`datetime('now')`→`now()`, `INSERT OR IGNORE`→`ON CONFLICT`, audit triggers →
+PG trigger fn), move queue + leases to the shared DB, `pg_dump` backups. *Why:* the substrate for
+multi-tenant volume. *Effort:* L (needs a live Postgres). *Metric:* full suite green on PG.
+
+**4.4 External pooled benchmark (SALE).** *Why:* a premium data product on the accumulated dataset.
+*Build/Gate:* anonymised cross-fleet fuel-price/markup intelligence via an **independent-trustee /
+aggregation** model (2023 Horizontal Guidelines; **hub-and-spoke** risk; no firm-level/forward data)
++ counsel + the Data-Act unfair-terms regime. Internal benchmark already shipped. *Effort:* M + legal.
+*Metric:* benchmark subscribers; counsel sign-off.
+
+---
+
+### Cross-cutting
+
+**Build vs buy.**
+| Capability | Decision | Why |
+|---|---|---|
+| Portal scraping (Playwright + queue) | **BUILD** | core data acquisition + the moat; extends existing seam |
+| EN-16931 / Factur-X parsing | **BUILD** (`factur-x` lib) | reuses the existing branch |
+| PEPPOL Access Point | **BUY** | certifying needs ISO 27001 + membership; not the product |
+| KMS / secrets vault | **BUY** (cloud KMS or Vault) | don't roll your own crypto |
+| Anti-bot infra (proxies/CAPTCHA) | **BUY** (if needed) | commodity; keep orchestration + data in-house |
+| Factoring of the receivable | **BUY/partner** (Factris-style) | needs a lending licence + balance sheet |
+| Open banking (AIS/PIS) | **BUY/partner** (agent of Tink/TrueLayer/Yapily) | months of authorisation for no differentiation |
+| Accounting connectors | **BUILD** (QB/Xero) / **partner** (DATEV unified-API) | DATEV is consultant-heavy |
+| SOC 2 / ISO | **BUY tooling** (Vanta/Drata) + auditor | standard path for small teams |
+
+**Team/skills.** Beyond current eng: a **compliance/tax-domain owner** (gating for fintech credibility
+and the cert push), **partnerships** (factoring/open-banking/channel), and **sales** for the
+direct-to-fleet motion. The cert push needs ~0.25–0.5 FTE of a security-minded engineer for a few
+months.
+
+**Capital/runway.** This is fundable as an EU vertical fintech — **seed median ~€1.5–2M (2025)** —
+but investors want demonstrated compliance/tax-domain credibility before writing. The plan is
+sequenced so revenue (Phase 2) can start before the heavy cost (Phase 4 certs, Postgres, partner
+legal), reducing the capital needed to reach the milestone.
+
+---
+
+### The recommended 18-month sequence (quarter by quarter)
+- **Q1** — Phase 0 (worker tier, per-supplier rate-limiter, one-click close, test coverage) + start
+  Phase 1.4 (KMS/credential custody design). *Foundation; unblocks capture.*
+- **Q2** — Phase 1.2 (PEPPOL AP + reuse `factur-x`) + 1.3 (Playwright scraping for the top low-IT
+  suppliers) + 1.4 (credential custody live). *Self-feeding begins.*
+- **Q3** — Finish Phase 1 (1.1 API connectors, 1.5 self-service onboarding) + start Phase 2.1
+  (recovery packaging + pricing) and 2.2 (expense reports). *First revenue motion.*
+- **Q4** — Phase 2.3 (QuickBooks/Xero + first SAF-T country) + 2.4 (land first paying fleets via
+  channel) + scope Phase 3.1 (Factris partner contracting). *Revenue + finance partner signed.*
+- **Q5** — Phase 3.1 (embedded-finance origination live) + start Phase 4.1 (multi-tenant RLS) and
+  4.2 (begin SOC 2 observation window + ISO ISMS). *Profit centre + isolation.*
+- **Q6** — Phase 3.2 (open-banking agent) + finish 4.1 (provable tenant isolation) + 4.3 (Postgres
+  cutover). *Second external tenant onboarded = the milestone.*
+- **Q7–Q8** — SOC 2 Type II + ISO certs issued; Phase 4.4 (benchmark sale, counsel-gated); API v2;
+  scale the direct-to-fleet + financing engine. *Enterprise-sellable.*
+
+### The 3 decisions the owner must make FIRST
+1. **Go multi-client SaaS now, or stay per-deployment for the Baltic entities first?** — gates the
+   multi-tenant RLS work (4.1) and how early Phase 4 starts. (Recommend: build capture + revenue
+   single-tenant first; add multi-tenancy when the first external customer is real.)
+2. **KMS backend: cloud KMS (AWS/GCP/Azure) vs HashiCorp Vault?** — gates credential custody (1.4),
+   the prerequisite for self-service onboarding and the whole scraping programme.
+3. **Embedded-finance partner: pursue Factris (or another licensed factor) for a VAT-receivable
+   advance product?** — the highest-margin lever; needs early outreach (no public precedent — confirm
+   a live product), and it shapes whether Phase 3 is real.
+
+### Make-it-worth-it milestone (restated, measurable)
+Reached at **~Q6** when: (a) the **majority of invoices arrive automatically** (API/e-invoice +
+scraping, no manual upload); (b) a **second, unrelated company runs on the platform behind
+provably-isolated multi-tenancy**; (c) **≥1 revenue line is live** (recovery contingency, per-vehicle
+subscription, and/or financing origination). At that point it has crossed from internal cost-centre
+to a **sellable, revenue-generating product** — and the proprietary multi-network dataset (the moat)
+is compounding. Certifications (Q7–Q8) then unlock the larger/enterprise + EU-regulated buyers.
+
+*Sources: three deep-research passes (EU VAT-refund market; expense/e-invoicing; open banking +
+embedded finance; fleet/mobility landscape; data/competition-law gates; transport-SME pain;
+automated-fetching patterns; credential-custody security; multi-tenant isolation; scraping legality;
++ this pass — scraping/e-invoicing build, KMS/multi-tenant, SOC2/ISO cost, factoring/open-banking
+integration, GTM/pricing/accounting). Inline figures are indicative ranges with the confidence flags
+recorded in those passes; provider prices are quote-based — model, don't quote.*
+
+---
+
+## Backlog
+
+Consolidated outstanding work, synthesized from this project's audits/research
+(`#deep-research-findings-logic-flaws-monetization`, `MANUAL.md#process-reliability-stuckstall-risks-hardening`, `../README.md#data-architecture-duplication-under-used-data`, `../README.md#the-platform-seven-delegated-works`, `MANUAL.md#ai-review-assistant-advisory-validation-analytics`,
+`#product-roadmap`, `MANUAL.md#scaling-the-fleet-fuel-vat-refund-system`) and the in-flight programs. Grouped by **readiness**:
+ready-now (no decision needed) → decision-gated → strategic. Each item notes its source,
+rough effort (S/M/L), risk, and any product decision that gates it.
+
+DONE this cycle (not repeated below): decoupling D1–D5; reliability sprint
+(orphan-watcher, stuck-job surfacing, notify digest, scheduler, monitoring panel,
+upload-gate, startup orphan-sweep, notify-on-success, `rejected` keeps locks); Part-1
+logic fixes (goods-code, falsy-zero, quarterly fee-base, money sweep) + the frozen-VAT
+clobber fix; pricing-correctness fixes (period bucketing, volume-weighted pack mean);
+FX/pivots + report enhancements; monetization M5a/M2/M1/M3/M4/M6; CSRF hardening.
+
+**This sprint (section A, shipped):** intake DLQ alerting + oldest-pending-job age SLO
+(`2dd8bdd`); time-of-day fuelling analytics + off-hours anomaly flag (`31df60b`);
+supplier/channel processing-reliability scorecard (`2bf5031`); per-vehicle NET €/L
+outlier flag + cost summary (`a6e0944`); data-lake confidence mining → parser-build
+priorities (`7db2d95`); import-reliability + audit-activity trends (`cc4df3d`); the full
+`except: pass` → `applog` migration across the whole codebase (`4af7cf7`/`ce5ac8b`/`e51ef52`/`e116b43`).
+**→ Section A's under-used-data analytics runway AND the code-quality except-pass item are now cleared.**
+
+**Strategic direction:** see `docs/STRATEGY.md` (monetisation models + data-acquisition
+architecture) and `#product-roadmap` (phased plan). The flagship near-term programme is **automated
+document capture** (below) — it makes the platform self-feeding and builds the dataset moat.
+
+---
+
+### Flagship — Automated document capture (Roadmap Phase 1; the moat engine)
+Build BOTH capture paths and run them OUT-OF-BAND on a dedicated worker tier (never inline). Lead
+with structured (API/e-invoicing); credential-scraping is first-class for the low-IT supplier tail.
+- **Dedicated worker tier (D6)** — `FFS_ROLE=web` + `python waiting_room.py --work`; the execution
+  substrate for fetching/scraping. *(M, low — prereq for the rest.)*
+- **Per-supplier rate-limit / concurrency cap / backoff / circuit-breaker** on the intake queue —
+  so fetching can't overload our system or trip a supplier's anti-bot/ban. *(M)*
+- **Supplier API / EDI ingestion** — advance `ingest.py` / `/api/*` to pull where a supplier offers
+  an API. *(M–L)*
+- **E-invoicing inbound** — PEPPOL/EN-16931 + email/invoice-inbox capture (grows as ViDA lands). *(L)*
+- **Credential-based portal scraping** — advance `portal_scraper.py` adapters for low-IT suppliers
+  (login → fetch invoices/statements → enqueue). Handle MFA/CAPTCHA fragility; fall back to manual. *(L)*
+- **Credential-custody hardening** — envelope encryption (KEK→DEK) + KMS/HSM, **per-tenant/BYOK keys**
+  (no bulk-decrypt), OAuth/scoped tokens over passwords where supported, least-privilege + audit,
+  rotation. *(M, security-critical.)* **Decision:** KMS/secrets backend (cloud KMS vs Vault).
+- **Self-service supplier onboarding** — client connects API / stores portal logins; system
+  auto-fetches + analyses. *(M)*
+- **Multi-tenant isolation (if multi-CLIENT SaaS)** — tenant context enforced at every query (RLS /
+  tenant-scoped keys), automated cross-tenant access tests, per-tenant encryption; a cross-tenant
+  leak is a GDPR Art. 33/34 breach. *(L)* **Decision:** tenancy model (RLS vs schema vs DB-per-tenant)
+  + whether to go multi-client SaaS now or stay per-deployment.
+
+---
+
+### A. Ready now — no decision needed (ordered by value)
+
+#### Reliability (MANUAL.md#process-reliability-stuckstall-risks-hardening)
+- ~~**DLQ alerting + oldest-pending-job age SLO metric.**~~ ✅ SHIPPED (`2dd8bdd`) —
+  `waiting_room.queue_health()` (DLQ size, oldest-pending age vs 6h SLO, `dlq_growth_24h`
+  from a sampled history), surfaced on `/queue` + worklist + notify digest; redrive reuses
+  the existing "Send / restart all".
+- ~~**Register-failure reconcile**~~ ✅ SHIPPED (`4fb0605`) —
+  `invoice_control.unregistered_vaulted_documents()` (vaulted docs with no `statement_invoices`
+  registration, the D4 split-brain) + two worklist signals (orphan docs → /imports, failed
+  register jobs → /queue). NB: it flags **5 genuine orphans in the demo vault** — real
+  vaulted-but-unregistered docs (a data observation, not a code defect).
+- **`process_lock` fencing token + monotonic-clock deadline.** *(M, med)*
+  — ⏸️ SCALE-GATED (assessed): fencing tokens prevent a stale lease holder's writes under
+  MULTI-process contention; the lease-expiry/double-write window only bites with several
+  worker processes. For the single-box default (one intake worker thread per process) it's
+  low-urgency. Do before/with the validated Postgres/horizontal-scale cutover (§D).
+- **Per-job extract deadline / lease sizing.** *(M, med)*
+  — ⏸️ SCALE-GATED (assessed): a lease expiring mid-extract only causes double-processing
+  with MULTIPLE worker processes (one worker is single-threaded, so it can't reclaim its own
+  in-flight job). Single-box risk is low. Lighter wins if pursued: cap ZIP members / bound the
+  pypdf probe / confirm the AI backend has a request timeout — but no fragile thread-kill timeout.
+- ~~**Backup torn-file mid-close**~~ ✅ SHIPPED (`fd5ea10`) — the scheduled/manual backup
+  defers to an in-progress close (`process_lock.held_by("close-run")`); drift-tested lock name.
+- ~~**M5a two-phase write**~~ ✅ SHIPPED (`2bdab51`) — `record_payment`'s `paid_amount` stamp now
+  commits atomically with the paid-base fee recompute + `status='paid'` (intermediate commit
+  removed; `set_status`'s rollback discards the stamp on failure). Benign residual: only the
+  `3A` display code can lag after a crash; money state stays consistent.
+
+#### Data de-duplication (../README.md#data-architecture-duplication-under-used-data Part 1)
+- ~~**Avoidable-overpay loop duplication**~~ ✅ SHIPPED (`908b7a7`) — `reports._savings`
+  now delegates to the canonical `queries.q_savings`; the loop exists once.
+- ~~**`supplier_invoices.gross_total`** re-sync on re-register~~ ✅ SHIPPED (`f207f67`) —
+  `register_statement` re-syncs auto-synced rows on a corrected statement; manual rows preserved.
+- **Derive `gross`/`gross_local`** instead of storing net+vat (or add a CHECK). *(S, low)*
+  — ⏸️ DEFERRED (assessed): the values don't drift (statement_invoices REPLACE-syncs;
+  transactions gross derived in views), and drop/CHECK both need a full SQLite table
+  REBUILD of engine-owned tables — net-negative ROI for harmless redundant storage.
+- **Persist only receipt-control overrides** (`waived`/`note`); derive `status`/`expected`. *(S, low)*
+  — ⏸️ DEFERRED (assessed): the stored `expected`/`status` double as a point-in-time
+  snapshot at `checked_at` (audit value); reworking the engine writer + read path is low ROI.
+- **Document path-migration completeness** — confirm a SharePoint/FTPS backend migration
+  re-points `stored_path` in `intake_jobs`/`data_lake_files`, not just `invoice_documents`. *(S, med)*
+  — → folded into the reliability batch (storage-backend split-brain).
+
+#### Under-used-data leverage (../README.md#data-architecture-duplication-under-used-data Part 2)
+- ~~**Supplier processing-reliability scorecard**~~ ✅ SHIPPED (`2bf5031`) —
+  `waiting_room.reliability_scorecard()` (per-channel success/retry/median-duration +
+  failure-reason histogram + per-supplier from draft), rendered on `/queue`.
+- ~~**Time-of-day analytics + off-hours anomaly flag**~~ ✅ SHIPPED (`31df60b`) —
+  `anomaly` `off_hours` flag (22:00–04:59 diesel) + `time_of_day_summary()`, on `/anomalies`.
+- ~~**Per-vehicle €/L & consumption outliers.**~~ ✅ SHIPPED (`a6e0944`) — `anomaly`
+  `vehicle_price` flag (fleet per-vehicle NET €/L distribution, high outliers) +
+  `vehicle_cost_summary()`, on `/anomalies`. (L/100km deferred — no odometer data.)
+- ~~**Data-lake `meta.confidence` mining**~~ ✅ SHIPPED (`7db2d95`) —
+  `data_lake.parser_priority()` ranks suppliers by AI-extraction volume × low-confidence
+  (best `parse_<x>()` ROI), on `/files`.
+- ~~**Import-reliability / audit-activity trends**~~ ✅ SHIPPED (`cc4df3d`) —
+  `import_log.reliability()` (success rate by channel & supplier) on `/imports`;
+  `audit.activity_summary()` (per-user/per-table activity + churn hotspots) on `/history`.
+
+#### Decoupling completion
+- **D6 — intake worker as a dedicated worker-process by default** (web nodes set
+  `FFS_ROLE=web`, a separate `python waiting_room.py --work`); docs + sample unit. *(M, low)*
+
+#### Code-quality
+- ~~**Finish `except: pass` → `applog`/`_log_exc` migration**~~ ✅ SHIPPED
+  (`4af7cf7`, `ce5ac8b`, `e51ef52`, `e116b43`) — every silent swallow in real code now
+  logs (incl. the two named blind spots). Only documented-deliberate guards remain:
+  circular log-the-logging-failure fallbacks (`app.py`/`auth.py`/`applog.py`), the
+  `O_EXCL` secret-key create-race, the `BEGIN IMMEDIATE` nested-txn guard, the
+  `rejected`-keeps-locks no-op branch, and the two bootstrap scripts (`make_cert`/`start`).
+- ~~**Money-precision sweep remnants**~~ ✅ SHIPPED (`05c5c24`, `aab11bf`) — unified the
+  shadowed `extract._num` to one `money.f2` parser (also fixed a dotted-thousands→0.0
+  bug); converted the last currency `round()` (Q8/TFC VAT row_maps) to `money.f2`. The
+  remaining `round()` calls are on litres/€-per-L/FX-rates/percentages (correct per CLAUDE.md).
+- **Test coverage** for `invoice_control`/`ingest`/`build_master`/`history` (some added). *(M)*
+
+---
+
+### B. Decision-gated — needs a product call first
+
+#### Logic correctness (#deep-research-findings-logic-flaws-monetization Part 1)
+- **VAT thresholds in national currency** for non-EUR refund countries (SE/DK/PL) — €400/€50
+  is currently compared in EUR. **Decision:** confirm the per-currency minimums (SEK 4 000/500,
+  PLN/DKK equivalents). *(M, high value)*
+- **Threshold actually gates submission** (below-min blocks or requires override) — today
+  it's verdict-text only, so a sub-threshold quarter can be filed and rejected, locking
+  invoices out of the annual mop-up. **Decision:** hard gate vs warn. *(M, high)*
+- **Deferral coverage** — assert every VAT-bearing quarter is filed-or-mopped before Sept-30.
+  **Decision:** force-pull deferred quarters into the annual claim, or allow intentional gaps. *(M)*
+- **Country diesel recoverability / pro-rata** — no logic exists. **Decision:** in scope, or
+  handled upstream? *(? )*
+
+#### Data architecture (../README.md#data-architecture-duplication-under-used-data)
+- **FX provenance + single source of truth** — store the applied rate (or its `ecb_fx` key)
+  per line/period so a claim's EUR is traceable. **Decision:** is `month_config.FX`
+  (hard-coded `1/4.27`) authoritative, or should it derive from `ecb_fx`? *(M, med)*
+- **Promote `card` to the transaction grain?** (enables per-card analytics; needs a schema
+  change). **Decision:** card vs vehicle as the unit.
+- **`wholesale_prices` default source** so `margin_vs_wholesale` isn't silently inert.
+  **Decision:** ship a default market source (EU Oil Bulletin) or keep opt-in.
+
+#### Automation program — Phase 2 (../README.md#the-platform-seven-delegated-works / the automation plan)
+- **Scheduled portal scrape** — **Decision:** which portals are authorized for unattended
+  scheduled pulls. *(M, med)*
+- **Scheduled API ingest** (DKV/E100) — **Decision:** which APIs authorized + tokens exist. *(M, med)*
+- **Receipt-control required-set into the submission gate** — **Decision:** does a MISSING
+  required invoice **block** submission or **warn**? *(M, high)*
+
+#### Automation program — Phase 3
+- **`parse_dkv()` / `parse_e100()` deterministic parsers** — **Prereq:** 2–3 redacted DKV
+  and E100 sample invoices. *(M each)*
+- **Auto-attach a document to its invoice by parsed invoice_no.** *(S–M)*
+
+#### Automation program — Phase 4
+- **Structured invoice↔transaction matching** (invoice_no/supplier/amount/period) replacing
+  the fragile `note`-substring match, + an **UNMATCHED resolution UI**. Touches legal figures
+  — audited, admin-gated. **Decision:** UNMATCHED-resolution authority (processor vs admin). *(L, high)*
+
+#### Automation program — Phase 5 (the confidence-learning model)
+- **Per-invoice confidence + validation-event ledger; AI validation returns a score;
+  settled→skip-AI; per-supplier-×-country trust that grows with each clean validation.**
+  Confidence reduces redundant WORK, never bypasses the legal gates. **Decision:** the
+  growth/decay constants (proposed init 0.50, growth `+0.25·(0.95−trust)`, decay −0.30,
+  floor 0.10) and the skip-AI / human-review thresholds. *(L, the centerpiece)*
+
+---
+
+### C. Strategic / larger bets
+
+#### Strategy-derived (see `docs/STRATEGY.md` — the prioritised monetisation roadmap)
+- **SAF-T / e-invoice / ERP export** — the highest-value capability bet; rides the ViDA +
+  national e-invoicing mandates (2026–2030). Widens the buyer to the finance dept; future-proofs
+  ingestion. *(M–L)*
+- **Embedded-finance partner integration** — factor/advance the VAT-refund receivable via a
+  licensed factoring partner (Factris-style: platform UI + partner licence). The profit centre;
+  proven by FastVAT/Negométal/Vatecure/Eurowag. M3 built the data layer. *(L, partner-gated)*
+- **Open-banking reconciliation + pay-by-bank** — aggregator/agent partner (Tink/TrueLayer/
+  Yapily); reconcile fuel-card statements ↔ bank payments, initiate supplier/refund payouts. Do
+  NOT self-licence (agent of a regulated provider). *(M, partner-gated)*
+- **Company expense reports** — per-vehicle/driver expense + mileage/per-diem on the existing
+  line-item transaction data (no receipt-OCR step). *(M)*
+
+
+- **Monetization Opp. 3 — external pooled benchmark (SALE).** Only if/when selling
+  externally; gated by the full legal stack in `#deep-research-findings-logic-flaws-monetization` (EU competition-law
+  hub-and-spoke, GDPR anonymization, min-cohort ≥5/no-single->25%, independent trustee,
+  Data Act unfair-terms, data-use license) + counsel. **Internal peer benchmark (M1) is
+  already shipped.**
+- **Monetization Opp. 5 — embedded finance** (finance the VAT-refund receivable). M3 built
+  the data layer; this is the partner-integration / lending layer. *(L)*
+- **M4 API follow-ups** — per-key rate-limiting/quotas, key-expiry policy, and a scoped v2
+  for any write/extract surface. *(M)*
+- **AI review assistant v2** — extend the advisory panel to invoice/claim review surfaces (A6). *(L)*
+- **Overcharge → recovery workflow** — turn contract-audit/overpay detection into an
+  actionable recovery packet → supplier credit (the analytics "act on it" gap). *(L)*
+- **Factur-X follow-ups** — per-file handling of mixed hybrid/plain batches; catalog
+  name-tree fallback test. *(S)*
+- **Materialize expensive aggregates** (overpay/benchmark/fleet/cycle-time totals) into a
+  settled metrics table rebuilt at the close, with a recompute-and-compare drift check
+  (../README.md#data-architecture-duplication-under-used-data "in increments"). *(M, med)*
+
+### D. Platform / scaling (CLAUDE.md / MANUAL.md#scaling-the-fleet-fuel-vat-refund-system)
+- **Validated Postgres cutover** — exercise `_PgShim` on real psycopg; port dialect-isms
+  (`datetime('now')`→`now()`, `INSERT OR IGNORE`→`ON CONFLICT`, audit triggers → a PG
+  trigger fn); migrate the intake queue + `process_lock` leases to the shared DB;
+  Postgres-native backups (`pg_dump`). *(L, needs a live Postgres)*
+- **Off-machine backup sync** (OneDrive/SharePoint) so `backups/` survives disk loss. *(M)*
+- **Notifications** — per-event alerts + an SMTP relay config UI (the digest mailer is done). *(M)*
+- **PDF generation for `.docx` templates** (text templates already export PDF). *(M)*
+
+---
+
+### Consolidated open product decisions (gate the B items)
+1. Per-country VAT minimums (SEK/DKK/PLN values) + does the threshold **hard-gate** filing?
+2. FX authority: `month_config.FX` vs `ecb_fx`?
+3. Receipt-control gate: **block** vs **warn** on a missing required invoice?
+4. Which portals/APIs are authorized for unattended scheduled pulls?
+5. Redacted DKV/E100 sample invoices (for Phase-3 parsers)?
+6. Confidence-learning α/β/thresholds (defaults proposed)?
+7. UNMATCHED-resolution authority: processor or admin?
+8. Promote `card` to the transaction grain?
+9. Diesel recoverability/pro-rata in scope?
+10. External SALE of the pooled benchmark — pursue (counsel-gated) or keep internal-only?
+
+---
+
+## Deep-research findings — logic flaws + monetization
+
+Two-part analysis: (1) **software-logic correctness flaws** with fixes (cited to code), and
+(2) a **monetization analysis** of the data-processing assets, grounded in business-model and
+EU-legal research. Reliability/stall issues are covered separately in `MANUAL.md#process-reliability-stuckstall-risks-hardening`.
+
+> Headline link between the two parts: the **analytics correctness bugs degrade the very data
+> product you'd monetize** — fix the math (Part 1) before selling any benchmark (Part 2).
+
+---
+
+### PART 1 — Software logic flaws (prioritized)
+
+#### Immediate, low-risk fixes (wrong number, tiny diff)
+| Flaw | Where | Why wrong | Fix |
+|---|---|---|---|
+| Unknown product → goods code `9` (luxuries, never-recoverable) | `vat_refund.py:920` | Any product not in `GOODS_CODE` silently files under the one non-refundable code | Default `"10"` (Other), or tag UNMATCHED so the gate blocks |
+| Falsy-zero guards drop legit `0.0` prices | `pricing_intelligence.py:247,253,255,259` | `if my`/`if pack_avg` treat a real `0.00` benchmark as "no data" → row dropped | Use `is not None` (as line 251 already does) |
+
+#### High — wrong VAT figure or wrong fee
+- **Thresholds tested in EUR for non-EUR countries** (`vat_refund.py:853-864`). €400/€50 floor is legally in *national currency* for SE/DK/PL (`vat_config` documents this); EUR comparison wrongly defers valid claims. → per-currency minimum table; compare `vat_local`.
+- **Threshold never gates submission** (`vat_refund.py:578-650`). A €120 quarter can be locked+filed, rejected by the refund state, and **permanently lock those invoices out of the annual mop-up.** → real block/override below-minimum.
+- **`paid_amount` written nowhere** (`vat_refund.py:485-497`). Fee always falls back to *full claimed* VAT → **over-charges customers on partial refunds** (routine under 2008/9). → add a "record payment (amount,date)" action; recompute already exists.
+- **Quarterly fee-freeze base wrong** (`vat_refund.py:472-477`). Sums *all* period VAT, not the actual `claim_set` (annual path is correct). → sum `invoice_lines(claim_set)` like the annual branch.
+
+#### Medium — wrong analytics / report numbers
+- **Benchmark filters by `period` but buckets by `date`** (`pricing_intelligence.py:281-296`). Off-period stragglers land in the wrong bucket → corrupts the headline "best price"/"avoidable overpay"; also `supplier_grid`/`margin_report`. → bucket on the same dimension you filter.
+- **"vs pack" gap un-weighted** (`pricing_intelligence.py:241`). Volume-weighted price vs *simple mean* of competitors → a 50 L outlier moves it like a 40,000 L fill. → volume-weight (`Σother_net/Σother_qty`; qty already stored).
+- **MoM compares the previous *loop row*, not the prior calendar month** (`history.py:120-130`) — gap-blind.
+- **Money `f2` sweep** — bare `round()` on currency in `build_master.py`, `queries.py`, `reports.py`, `contract_audit.py`, `pricing_intelligence.py` → cent drift / threshold flips vs the HALF_UP VAT basis.
+- **Coversheet tie is a flat ±0.02** regardless of line count (`validate.py:96`) — a 20-line statement can tie-fail or hide a ~€0.10 error. → scale by line count or tie on un-rounded Decimal sum.
+
+#### Verified CORRECT (don't chase)
+Lock lifecycle (3B/3C/3D keep; only `withdraw_claim` releases), `_synthetic` refusal, fee-freeze
+is actually frozen, `internal_benchmark` overpay math, div-by-zero guards, rebate handling,
+`money.py`, `contract_audit`, anomaly modified-z, ECB nearest-prior FX, and the duplicated overpay
+loops (they **agree** — pure tech-debt, safe to consolidate). **Test gaps:** no coverage for
+`margin_report`/`pack_avg`/`history` MoM — add tests *before* fixing the period-bucketing/pack-mean.
+
+#### Open product questions (gate the High fixes)
+- Is the €400/€50 minimum a hard **gate** or only advisory? (Today: advisory.)
+- Is the service fee charged on **claimed** VAT or **actually-paid** refund? (Code intends paid; never captures it.)
+- Is country diesel **recoverability/pro-rata** in scope? (No logic exists anywhere.)
+
+---
+
+### PART 2 — Monetization analysis
+
+**Data assets:** validated fuel transactions (5 entities × suppliers × countries), the self-sourced
+NET-EUR/L price benchmark + wholesale index, VAT-recovery throughput + the service-fee engine,
+contract-compliance/overpay detection, the SHA-256 document vault, the light CRM, the API-plugin seam.
+These score well on the monetizability tests (uniqueness, granularity, provenance/trust) — the data is
+self-sourced, NET-basis, validated, hashed, audit-logged.
+
+#### The decisive strategy: indirect first
+MIT CISR's I-W-S framework + its finding that **~82% of data-monetization returns come from *improving*
+operations vs ~18% from *selling* information** → **lead with indirect monetization** (use the pooled
+intelligence to lift your own recovery rates and win better fuel deals, priced as savings-share/
+contingency). It captures value **without selling data**, avoiding the competition-law/GDPR minefield.
+The external benchmark product is a higher-risk Phase 2.
+
+#### Opportunities (prioritized)
+| # | Opportunity | What's sold / to whom | Model (evidence) | Effort | Legal risk |
+|---|---|---|---|---|---|
+| 1 | **Plug the fee leaks** (Part 1 #3/#4) — stop losing revenue today | n/a | Contingency already your model (VAT recovery ~15–30%, PRGX 10-K) | Tiny | None |
+| 2 | **Premium analytics tier** | overpay/benchmark/anomaly intelligence to your own clients | Freemium→premium (~2–8% convert); per-seat/usage | Low | Low (their own data) |
+| 3 | **Pooled fuel-price benchmark** ⭐ | anonymized "you vs peer median" to fleets | Give-to-get reciprocity (SCOR) + subscription | Medium | **High — gating** |
+| 4 | **API / data-plugin** | metered access to extraction/validation/benchmark via `/api` seam | Usage-based (NRR ~120%); B2B take rates low (AWS 3% vs 15% app-stores); partner rev-share | Medium | Med |
+| 5 | **Embedded finance** | **finance the VAT-refund receivable** + fuel-spend; you already track claim amount+status | Transaction take-rate; top of the ladder (2–5× revenue/customer) | Large | Med (lending/licensing) |
+| 6 | **VAT-recovery SaaS, productized** | the 7 delegated works as multi-tenant SaaS | Hybrid subscription + contingency; differentiator = automation + **audit-readiness (your SHA-256 doc integrity)** | Large | Med |
+
+The natural **upsell ladder:** onboarding (subscription) → recovery (contingency) → analytics (upsell)
+→ benchmarking (subscription/API) → embedded finance (take-rate) → API/plugin (usage + rev-share).
+Fuel-card incumbents (DKV, UTA/Edenred) already monetize VAT/fuel-tax refund as a commission service —
+this product's fee engine sits in the same space.
+
+#### Legal guardrails — what's actually sellable (Opportunity 3 is the gated one)
+**The #1 risk is EU competition law, not GDPR.** A platform pooling competitors' fuel prices is a
+textbook **hub-and-spoke** (the platform is the "hub"); current/granular price exchange is an Art. 101
+**by-object** risk; fines up to **10% of global turnover**, the **platform operator itself liable**
+(T-Mobile C-8/08; Dole C-286/13 P; Asnef-Equifax C-238/05; 2023 Horizontal Guidelines).
+
+A defensible benchmark must therefore be:
+- **historic only** (no current/forward prices — fuel moves daily, so interpret "historic" conservatively);
+- **aggregated so it cannot be disaggregated** back to a contributor (Asnef-Equifax);
+- **minimum cohort** ≥5 contributors, **no single >25%** of any cell, small-cell suppression, large-k
+  (k=5 SDC / k=11 public-release); ⚠️ the US 5/25/3-month "safe harbor" was **withdrawn Feb 2023** —
+  now best-practice, not immunity; the EU never offered a numeric safe harbor;
+- run by an **independent trustee / clean team — NOT the platform feeding intelligence back** (this is
+  what defuses hub-and-spoke);
+- **only own-data + final aggregate returned** to each participant, never individualized competitor data.
+
+**GDPR (parallel):** B2B is not exempt — **sole traders / drivers / cardholders make the data personal**
+(common in Baltic transport). **Resale is a new purpose** (Art. 5(1)(b)/6(4)) — consent-at-pool-scale and
+legitimate-interest-for-resale are both weak. The only clean route is **irreversible anonymization +
+aggregation** surviving WP216's singling-out/linkability/inference tests (delete event-level source);
+**pseudonymization is NOT anonymization** (EDPB 01/2025 — you hold the key → still personal data for you).
+
+**EU Data Act (from 12 Sep 2025):** Art. 13 voids **unilaterally-imposed unfair B2B data-use clauses**
+(exactly the "we may aggregate+resell your data" T&C against SME carriers); Art. 4 bars using in-scope
+data to a contributor's competitive detriment (threatens the price-intelligence product if built on their
+data); FRAND + portability rights. Fuel-card *transaction* data is likely **out of** the Chapter II IoT
+regime, but **telematics data would be in scope.**
+
+**Contract/ownership:** there is **no property in data** in the EU — your right to pool/resell is built
+**entirely from contract** (explicit license + permitted-secondary-use + resale clause + customer
+right-to-contribute warranties + a DPA where you are the **controller** for the resale purpose, since a
+processor reusing data for its own purpose is reclassified as a controller, Art. 28(10)).
+
+#### Bottom line
+1. **Fix Part 1 first** — the fee bugs leak money *today*; the benchmark bugs make Opportunity 3 unsellable.
+2. **Opportunity 2** (premium analytics to existing clients) — lowest risk, fastest.
+3. **Indirect benchmark → savings-share** (highest expected yield, avoids the legal minefield).
+4. **Opportunity 3 external benchmark** only as Phase 2, behind the full guardrail stack **and EU
+   competition + data-protection counsel.** Embedded finance (Opp. 5) is the highest-LTV layer.
+
+*This is research synthesis, not legal advice. The price-pooling design in particular requires EU
+competition-law and Baltic-jurisdiction counsel before launch.*
+
+---
+
+## Multi-tenancy program plan
+
+This is the program plan for turning the Fleet Fuel & VAT Refund System from a
+per-deployment, single-tenant product into a multi-tenant SaaS where several
+unrelated client companies share one installation behind **provable tenant
+isolation**.
+
+A cross-tenant data leak is a GDPR Art. 33/34 reportable breach. This program is
+therefore engineered to **de-risk before it retrofits**: P0 (this slice) ships
+the foundation mechanism with **zero behavior change**, and every later phase
+moves one table at a time, each gated on an automated cross-tenant test. Nothing
+filters or alters an existing query until its table has been migrated AND tested.
+
+> Read this together with `#evolution-plan-how-the-app-must-evolve-to-be-worth-it` §4.1 (the RLS decision + the
+> two footguns) and `docs/STRATEGY.md` (when multi-client is worth doing). This
+> doc does not contradict that analysis; it operationalizes it.
+
+---
+
+### CARDINAL INVARIANT — OFF by default = byte-identical existing behavior
+
+The whole program is armed by a single app setting, `multitenant`, stored in
+`app_settings` (security.db) like every other module switch. It defaults to
+`"0"` (OFF). While OFF:
+
+- the request hook never binds a tenant context,
+- `tenancy.scope_clause()` returns `("", [])` — a literal no-op spliced into no
+  SQL, so existing queries are unchanged,
+- `tenancy.require_tenant()` does not raise,
+- the EnvKEK/key paths and connection roles are untouched.
+
+So a default install behaves EXACTLY as a single-tenant deployment does today.
+The full existing test suite must pass unchanged; the OFF-by-default inertness
+tests in `tests/test_tenancy.py` are the standing proof of that property.
+
+**Turning the switch ON is gated** on P1+P2 being complete for every
+tenant-scoped table (see Activation/rollback below). Flipping it on before then
+is a configuration error, not a supported state.
+
+---
+
+### Recommended isolation model
+
+**Application-level `tenant_id` scoping is the foundation**, with PostgreSQL
+Row-Level Security (RLS) layered on top as defense-in-depth once we are on
+Postgres.
+
+Why this model:
+
+- **Model-agnostic + works now.** SQLite has no RLS. App-level `tenant_id`
+  scoping is the only isolation layer available on the default SQLite engine, and
+  it is exactly the same mechanism we want on Postgres. Building it first means we
+  are not blocked on the Postgres cutover (`MANUAL.md#scaling-the-fleet-fuel-vat-refund-system`), and the same code
+  path composes cleanly with RLS later.
+- **Defense in depth.** On Postgres we keep the app-level scoping AND add RLS, so
+  a single forgotten `WHERE tenant_id = ?` (the OWASP API-#1 IDOR/BOLA class)
+  cannot leak — the database refuses the row even if the application query is
+  wrong. App scoping is still required (RLS does not give you per-object authZ
+  *within* a tenant).
+
+Why NOT the alternatives as the primary:
+
+- **Schema-per-tenant / DB-per-tenant.** Maximum isolation, but operationally
+  expensive at scale: every migration must fan out across N schemas/DBs, backups
+  and connection pools multiply, and cross-tenant platform queries (billing,
+  ops dashboards) get awkward. We do NOT use it as the default.
+- **When DB-per-tenant IS warranted:** a single high-value or regulated tenant
+  that contractually demands hard physical isolation. The architecture supports
+  this as a per-tenant exception (route that tenant's `db.connect()` to its own
+  database) while the long tail stays on shared-DB + RLS. This hybrid (RLS for the
+  many, dedicated DB for the few) is the common end state.
+
+---
+
+### Owner/operator scope (the audited cross-tenant exception)
+
+Client tenants are isolated from each OTHER — that is the whole point of the
+program. But the platform OPERATOR (the business owner) has a deliberate,
+single, audited exception: a **READ-ONLY cross-tenant analytics scope**, encoding
+the operator's "I as owner must have all analytics data" requirement.
+
+How it is encoded in the foundation (`tenancy.py`):
+
+- The thread-local context holds EITHER a bound client tenant (`set_tenant(tid)`)
+  OR the owner marker (`set_owner_scope()`) — **mutually exclusive** (setting one
+  clears the other; `reset_tenant()` clears both; `is_owner_scope()` reports it).
+- `scope_clause()` returns **no filter** (`("", [])`) under owner scope while the
+  switch is ON. This is the **one and only** place `scope_clause` deliberately
+  returns no filter with `multitenant` ON — so the operator's analytics span every
+  tenant. (When the switch is OFF, `scope_clause` is the no-op for a different
+  reason: a single-tenant install correctly sees "everything" because there is only
+  one tenant.)
+- The request hook in `app.py` resolves the principal **only when the switch is
+  ON**: `_is_owner_principal()` (the `owner_users` app setting seam; the real role
+  model is P4) → `set_owner_scope()`, otherwise `set_tenant(_resolve_tenant())`.
+  On the OFF path the hook does nothing, so this is fully inert by default.
+
+The two guardrails (non-negotiable; see `#security-compliance-evolution-plan-operating-as-a-multi-client-saas` §7):
+
+1. **PII excluded from owner views.** Owner cross-tenant analytics MUST run on
+   **de-identified / aggregated** data. Per §7's controller-vs-anonymise decision,
+   the lowest-risk path is to keep personal/identifying data (IBANs, driver/vehicle
+   identifiers, contacts) OUT of any owner-scope view; the alternative is to be the
+   *controller* for that data with its own lawful basis + dual Art. 30 records. P2
+   must build owner-scope surfaces on aggregated/anonymised projections, never on
+   the raw tenant rows.
+2. **Never relay one client's identifiable pricing to another (antitrust).** The
+   owner scope is for the OPERATOR's own analytics; it must not become a channel
+   that surfaces one client's identifiable current pricing to another client (see
+   §3, the benchmark trap). Pooled/benchmark externalisation stays counsel-gated.
+
+Two hard limits keep the exception safe:
+
+- **Writes are ALWAYS tenant-scoped.** Owner scope is READ-only. `require_tenant()`
+  STILL raises when the switch is ON and no concrete tenant is bound — even under
+  owner scope — so the operator cannot write/mutate tenant data without naming
+  whose data it is.
+- **Accountability.** `owner_access_audit(resource)` logs (actor + resource) that
+  an owner cross-tenant access happened; P2 calls it wherever owner scope widens a
+  query beyond a single tenant. It is best-effort and never raises.
+
+Fail-CLOSED corollary: when the switch is ON but the request resolved NEITHER an
+owner scope NOR a tenant (a hook that forgot to resolve its principal),
+`scope_clause()` returns a matches-NOTHING clause (`" AND 1=0"`) rather than the
+no-op — a missing context can never accidentally read across tenants. The owner
+scope is the ONLY fail-OPEN path, and only when it is explicitly set.
+
+---
+
+### The RLS footguns (Postgres phase — reused from EVOLUTION_PLAN §4.1)
+
+When we enable RLS on Postgres, two footguns silently re-open the leak if missed:
+
+1. **RLS is bypassed by the table OWNER, superusers, and `BYPASSRLS` roles.**
+   The app must connect as a **non-owner, non-superuser** role, AND every
+   tenant-scoped table must be set `ALTER TABLE … FORCE ROW LEVEL SECURITY` (so
+   the policy applies even to the owner). Owning-the-table is the default for the
+   role that ran the migrations; the app role must be distinct.
+
+2. **Session `SET` leaks across requests under a transaction-pooling pooler**
+   (PgBouncer transaction mode). Set the tenant **per transaction** with
+   `set_config('app.tenant_id', <id>, true)` (the `true` = transaction-local),
+   never a session `SET`. The RLS policy reads `current_setting('app.tenant_id')`.
+
+SQLite has no RLS, so on SQLite the **app-level `scope_clause`/`require_tenant`
+scoping is the only isolation layer** — which is precisely why P2 makes the app
+scoping mandatory and test-gated on every table, independent of the engine.
+
+---
+
+### Phased rollout
+
+Each phase is independently shippable. The `multitenant` switch stays OFF until
+the gate in Activation/rollback is met.
+
+- **P0 — Foundation (THIS SLICE).** `tenancy.py`: tenant registry (in security.db,
+  app-owned platform metadata), request-scoped thread-local tenant context
+  (mirrors `audit.py`'s actor), the `multitenant` master switch (OFF by default),
+  and the inert enforcement primitives `require_tenant()` / `scope_clause()`. The
+  request hook in `app.py` binds/resets the context ONLY when the switch is ON.
+  A read-only `/admin/tenants` surface. Includes the **owner/operator scope** (the
+  audited cross-tenant read exception — see above). **No existing product query is
+  touched.**
+
+- **P1 — Add `tenant_id` + backfill.** Add a `tenant_id` column to each
+  tenant-scoped product table via `db_migrate.apply(...)` (append at the END of
+  each module's list). Backfill the existing single tenant's rows to a bootstrap
+  `tenant_id` (e.g. `"default"`) so the current installation becomes "tenant
+  default" with no data movement. Index `(tenant_id, …)` on hot paths. Still no
+  query scoping — the column exists but is not yet read.
+
+- **P2 — Wire scoping into every tenant-scoped query, table-by-table.** For each
+  table, splice `scope_clause()` into its SELECT/UPDATE/DELETE (and stamp
+  `current_tenant()` / `require_tenant()` on INSERT), and add a **cross-tenant
+  access test** that seeds two tenants and asserts no bleed (see strategy below).
+  On Postgres, also create the RLS policy + `FORCE ROW LEVEL SECURITY` for that
+  table. One table = one reviewable change = one test. A table is "done" only when
+  its cross-tenant test is green.
+
+- **P3 — Connection + key enforcement.** Run app traffic as the non-owner DB role
+  and enforce `set_config('app.tenant_id', …, true)` per transaction in
+  `db.connect()`. Wire per-tenant EnvKEK/BYOK keys (`keyvault.py` already takes a
+  `tenant` arg) so the platform cannot bulk-decrypt one tenant's stored secrets.
+
+- **P4 — Onboarding + tenant resolution.** Tenant onboarding/admin UI (create,
+  activate, deactivate) on `/admin/tenants` (P0 ships it read-only). Resolve the
+  request's tenant from subdomain and/or session — the `_resolve_tenant()` seam in
+  `app.py` is the single place this lands; today it returns the session tenant or
+  the `"default"` bootstrap and is only called when the switch is ON.
+
+- **P5 — Posture.** SOC 2 Type II + ISO 27001/27017/27018, pen-test proving no
+  cross-tenant leak, audit/DPA/breach-runbook for Art. 33/34, per-tenant data
+  export/erasure (GDPR Art. 15/17). Gate go-multi-client on this.
+
+---
+
+### Cross-tenant test strategy
+
+The non-negotiable acceptance bar for P2 (and the gate to flip the switch):
+
+- **Every tenant-scoped read must be proven to return ONLY the current tenant's
+  rows.** The harness seeds (at least) two tenants — A and B — with overlapping
+  data, binds the context to A, runs the real query path, and asserts the result
+  contains A's rows and **none** of B's. Then it flips to B and asserts the
+  mirror. A bleed in either direction fails the test.
+- `tests/test_tenancy.py::test_cross_tenant_scope_demo` is the **template** for
+  this shape (it demonstrates the assertion against a throwaway table without
+  touching any product query). Each P2 table change copies this shape against the
+  real query.
+- On Postgres, add a second harness layer that runs as the **non-owner app role**
+  and asserts RLS blocks a deliberately unscoped query — proving the DB layer
+  catches a forgotten `WHERE` (defense in depth).
+- A cross-tenant leak found in CI is treated as a release blocker; a leak found in
+  production is a GDPR Art. 33/34 reportable breach.
+
+---
+
+### Activation / rollback
+
+- **Default:** `multitenant = "0"` (OFF). Single-tenant, inert, byte-identical to
+  today. This is the only supported state until the gate below is met.
+- **Gate to turn ON:** P1 (column + backfill) AND P2 (query scoping + a green
+  cross-tenant test) complete for **every** tenant-scoped table touched by any
+  reachable route, plus P3 connection/key enforcement on Postgres. Turning the
+  switch on before then is unsupported and unsafe.
+- **Rollback:** flip `multitenant` back to `"0"`. Because P1 only ADDS a column
+  (the bootstrap tenant owns all existing rows) and P2's `scope_clause` is a
+  no-op while OFF, turning the switch off restores single-tenant behavior without
+  data migration. (Per-tenant encrypted secrets from P3 remain per-tenant; that is
+  forward-compatible and needs no rollback.)
+
+---
+
+## Security & Compliance Evolution Plan — operating as a multi-client SaaS
+
+**Purpose.** A concrete, ordered plan to evolve the platform into a multi-client SaaS **without
+creating GDPR, antitrust, or security problems for the operator.** Grounded in the read-only
+security audit (single-tenant baseline is strong; the product is *not* multi-client-ready yet).
+Companion to `#multi-tenancy-program-plan` (the technical phasing) and `#deep-research-findings-logic-flaws-monetization` (which already
+flags competition law as the #1 risk). This doc is the *operator's* compliance roadmap and the
+**go-live gate**.
+
+> **The one rule that prevents 90% of the legal risk:** do **not** turn the `multitenant` switch ON
+> for real clients until every item in §1 ("Hard go-live gates") is done and proven. A single
+> cross-tenant leak is a GDPR Art. 33/34 personal-data breach — reportable within 72 hours, with
+> fines and trust damage. Until then the system is single-tenant and safe.
+
+---
+
+### 0. Current posture (where the line is today)
+
+- **Safe now (single-tenant):** scrypt password hashing + per-user/per-IP lockout + timing-equalized
+  verify; API tokens stored SHA-256 only, constant-time compare, default-off; envelope-encrypted
+  portal credentials; central CSRF (fail-closed) + `_guard` on every route; CSP/HSTS/X-Frame;
+  XML via ElementTree, zip-bomb + path-traversal guards; parameterized SQL throughout; setup wizard
+  gated on zero-active-users.
+- **Not safe for multi-client:** tenant isolation is a *foundation only* (nothing scoped), the worker
+  carries no tenant, one KEK decrypts all tenants, no GDPR data-subject rights, the benchmark pools
+  across clients, and one export has CSV formula injection.
+
+**Implication:** the work ahead is *isolation + governance*, sequenced so you never onboard a second
+client into a shared store that isn't yet partitioned.
+
+---
+
+### 1. Hard go-live gates — MUST be done before the 2nd client shares an installation
+
+Each maps to an audit finding. None is optional; each is a breach or a real vulnerability if skipped.
+
+| Gate | What | Why (risk if skipped) |
+|---|---|---|
+| **G1 — Scope every table** | Add `tenant_id` to every product + platform store (full list in the audit's inventory); wire `tenancy.scope_clause()` / Postgres RLS into **every** query reachable by any route; a green cross-tenant test per table. | Cross-tenant read/write = GDPR Art. 33/34 breach. |
+| **G2 — Tenant-context the worker** | `tenant_id` on `intake_jobs`, stamped at enqueue from `current_tenant()`, `set_tenant()` in the worker before each register/close/fetch job. | Async jobs would write the wrong tenant's data even after the web path is scoped. |
+| **G3 — Per-tenant credential custody** | Move off the `local` KEK to `env`/KMS with per-tenant `FFS_KEK_KEY_<TENANT>` (BYOK); run the re-wrap migration. | One key bulk-decrypts every tenant's supplier portal logins. |
+| **G4 — Benchmark isolation** | Tenant-scope `benchmark.db` (`my_prices`/`wholesale_prices`) and the peer cohort; a client sees only its own entities. Keep any *pooled* benchmark OFF (see §3). | Antitrust hub-and-spoke information exchange between competitors. |
+| **G5 — API tokens tenant-scoped** | `tenant_id` on `api_keys`; bind on `verify()`; scope every `/api/v1` query. | One client's token reads every client's customer master/IBANs. |
+| **G6 — Platform stores scoped** | error_log, login_log, import_log, api_usage, audit CSVs get `tenant_id`; admin/log views never show another tenant's rows (PII in stack traces). | An admin "recent errors" view leaking another tenant's data is itself a breach. |
+| **G7 — GDPR data-subject rights** | Per-tenant **export** (Art. 15/20) and **erasure/rectification** (Art. 17/16); a retention + auto-purge policy per data class. | Legally required of a controller/processor; no mechanism exists today. |
+| **G8 — CSV/cell injection** *(do now — not multi-tenant-gated)* | Neutralize leading `= + - @ \t \r` in free-text cells of the accounting-ledger CSV and the xlsx exports. | Formula injection executes on the client's machine from an ingested supplier name/note. **Exploitable today.** |
+
+G8 is being fixed immediately (it's a current vulnerability). G1–G7 are the multi-client gate.
+
+---
+
+### 2. GDPR framework (what you sign up to as operator)
+
+- **Roles.** When you host clients' data you are typically a **processor** (Art. 28) acting on each
+  client's instructions; the client is the **controller**. Each client needs a **DPA** with you, and
+  you need a **sub-processor register** (Art. 28(2)/(4)) for: SharePoint/FTP backup target, AISP
+  aggregator, factoring partner, AI backend (if enabled), and the KMS provider. List them, get the
+  client's consent to each, and flow down the same obligations.
+- **Records of processing (Art. 30).** Maintain a register: categories of data subjects (client staff,
+  drivers via vehicle IDs), data categories (identity, IBAN, location-of-fuelling, credentials),
+  purposes, recipients, retention, and transfers.
+- **Data-subject rights (Art. 15–22).** Build per-tenant **access/export**, **erasure**,
+  **rectification**. (G7.) Have a runbook to action a controller's forwarded request within a month.
+- **Data minimisation & retention (Art. 5).** Define retention per class (transactions/VAT have legal
+  tax minimums — keep; audit CSVs, error logs, data-lake AI artifacts — set a purge). Nothing
+  auto-deletes today; add it.
+- **Breach (Art. 33/34).** A 72-hour breach runbook; tenant-stamped logs so you can scope an incident
+  to one tenant instead of declaring a breach for all. (G6.)
+- **Residency / transfers (Ch. V).** Confirm the off-site backup and SharePoint/FTP target are in the
+  EU/EEA (or covered by SCCs/adequacy). Encrypt snapshots at rest (they currently bundle `security.db`
+  = password + API-key hashes + PII in error traces).
+- **Security of processing (Art. 32).** Per-tenant encryption keys (G3), provable isolation (G1), audit
+  on every write (G6) — the technical measures that make Art. 32 defensible.
+
+### 3. Antitrust / competition framework (the benchmark is the trap)
+
+- **The rule:** never let one client see another client's current/identifiable pricing — directly or via
+  an aggregate small enough to reverse-engineer. That is the **hub-and-spoke information exchange** the
+  EU 2023 Horizontal Guidelines treat as a competition-law violation.
+- **Default posture (safe):** keep all benchmark/price intelligence **strictly intra-tenant** — a client
+  benchmarks only its own entities/fuel cards. This is G4 and removes the risk entirely.
+- **If you ever want a *pooled* cross-client benchmark as a product** (a real revenue idea, but
+  counsel-gated): only via an **independent trustee/aggregation** model — minimum cohort of **distinct
+  clients** (not entities), aggregation + **time-lag** so no current price is exposed, suppression when a
+  cell could single out a contributor, and explicit legal sign-off + participant agreements. Do **not**
+  build this on the live shared `benchmark.db`. Treat it as a separate, gated product (see
+  `docs/STRATEGY.md` Opp. 3 / `#deep-research-findings-logic-flaws-monetization`).
+
+### 4. The phased sequence (maps to #multi-tenancy-program-plan P0–P5)
+
+- **P0 — Foundation** *(done)*: tenant registry + context + OFF-by-default switch + the plan. No client data
+  touched.
+- **P1 — Schema**: add `tenant_id` + backfill the existing single tenant on every store in the inventory
+  (incl. platform stores G6 and `intake_jobs` G2). No behaviour change while OFF.
+- **P2 — Enforce**: wire `scope_clause`/RLS into every query, table-by-table, **each landing with a green
+  cross-tenant access test**; tenant-scope API keys (G5) and the benchmark/peer cohort (G4). This is the
+  bulk of the work and the real isolation guarantee.
+- **P3 — Custody**: per-tenant KEK/BYOK (G3) + re-wrap migration; encrypt backups, document residency (G9
+  audit item); tenant-scoped backup isolation decision.
+- **P4 — Rights & governance**: GDPR data-subject export/erasure + retention/auto-purge (G7); Art. 30/28
+  registers, DPA template, 72-hour breach runbook; egress allow-list before tenant-admins configure
+  portal/market URLs.
+- **P5 — Assurance**: SOC 2 Type II + ISO 27001/27017/27018; pen-test of the tenant boundary; only then
+  market multi-client / white-label.
+
+**Activation rule:** the `multitenant` switch flips ON for a real second client only after **P1+P2 are
+complete for every reachable table** (G1, G2, G4, G5, G6) and **P3 custody** (G3) is in place. P4 (rights)
+must be live before or at the same time — it's a legal precondition, not a follow-up.
+
+### 5. The operator decisions that shape the build (make these first)
+
+1. **Isolation model:** shared-DB + Postgres RLS (app-level + DB-level defence in depth) for most clients,
+   vs **DB-per-tenant** for a high-value client demanding hard isolation? (RLS footguns — non-owner role +
+   FORCE RLS, transaction-local `set_config` — are documented in #multi-tenancy-program-plan.)
+2. **Pooled benchmark:** intra-tenant only (safe default), or pursue the counsel-gated pooled product (§3)?
+3. **Backup residency & isolation:** where do off-site backups physically live (EU?), and per-tenant or
+   shared snapshots?
+4. **Retention periods** per data class (tax/legal minimums vs GDPR minimisation).
+5. **AI review in SaaS:** if offered, the AI backend becomes a named sub-processor and the
+   "derived-data-only, never PDF/IBAN" guarantee needs contractual + test enforcement.
+6. **KMS provider** for G3 (cloud KMS vs Vault) — also the credential-custody go-live decision.
+
+### 6. Minimum compliant multi-client launch checklist
+
+Single-client today is fine. To launch the *first shared multi-client install*, all of:
+☐ G1 every table scoped + cross-tenant test green · ☐ G2 worker tenant-context · ☐ G3 per-tenant KEK ·
+☐ G4 benchmark intra-tenant · ☐ G5 API tokens scoped · ☐ G6 platform stores + logs scoped ·
+☐ G7 data-subject export/erasure + retention live · ☐ G8 CSV/cell injection fixed *(done)* ·
+☐ encrypted backups + documented EU residency · ☐ DPA + Art. 30/28 registers + 72h breach runbook ·
+☐ tenant-boundary pen-test.
+
+---
+
+#### One-paragraph version
+The single-tenant product is secure; the multi-client version is not yet, because isolation is a
+foundation only. Fix the one current-day vulnerability now (CSV injection, G8). Then treat the
+`multitenant` switch as locked until you have scoped every table and the worker (G1–G2, G5–G6),
+given each tenant its own encryption key (G3), kept the benchmark intra-tenant to avoid the antitrust
+hub-and-spoke trap (G4), and built GDPR data-subject rights + retention + the Art. 28/30 governance
+(G7, §2). Do that in the P1→P5 order, gate activation on a green cross-tenant test per table, and you
+become a defensible processor rather than a breach waiting to happen.
+
+---
+
+### 7. Legal grounding (deep-research, 2025) — confirmations & corrections
+
+A multi-source review (GDPR text, EDPB Guidelines 07/2020 & 01/2025, CNIL, ICO, EU 2023
+Horizontal Guidelines, CJEU case-law, PostgreSQL docs, OWASP/CWE) **confirms the audit's
+positions**, with these precision corrections to apply:
+
+**GDPR — isolation, breach, rights, retention**
+- ✅ A cross-tenant leak is a personal-data breach (Art. 4(12), confidentiality) → **72-hour**
+  supervisory-authority notification (Art. 33). EDPB 01/2021 treats wrong-recipient disclosure as a
+  notifiable breach.
+- 🔧 **Art. 34** (notify the *individuals*) only triggers on **HIGH** risk and is **exempted where the
+  data was encrypted** (Art. 34(3)(a)) — not automatic on any leak.
+- 🔧 **Art. 32** is risk/outcome-based: it does not literally enumerate "tenant isolation," but
+  isolation is *the* measure that delivers the required confidentiality/anti-unauthorised-access
+  outcome in a shared store; encryption and **regular testing** (pen-test) are named.
+- 🔧 **Data-subject rights:** in B2B SaaS the **client-tenant is the controller**; you (platform) are
+  the **processor that *assists*** (Art. 28(3)(e)) — build per-tenant access/export/erasure
+  *capability*; the one-month deadline (Art. 12(3)) is the client's duty.
+- 🔧 **Retention:** GDPR mandates **defined retention + deletion at end-of-purpose** (Art. 5(1)(e)) and
+  a documented policy — auto-purge is *recommended*, not black-letter. EU **VAT/tax law** lawfully
+  requires multi-year retention of the *invoice/transaction records* (Art. 17(3)(b) overrides
+  erasure) — but only those records; minimise/purge the rest.
+- 🔧 **An IBAN is ordinary personal data, NOT Art. 9 "special category."** Its sensitivity is
+  risk-based (fraud) and feeds the Art. 34 high-risk test. Vehicle/driver IDs **are** personal data in
+  your hands (CJEU *Scania* C-319/22).
+
+**GDPR — the owner-analytics crux (your "I must have all analytics" requirement)**
+- Using clients' personal data for your **own** cross-tenant analytics/benchmark makes you a
+  **CONTROLLER** for that use (**Art. 28(10)**) — needing your **own Art. 6 lawful basis** (legitimate
+  interest + an LIA, or consent) **and transparency** to data subjects. Processor status doesn't cover it.
+- **CNIL (2022):** a vague "product-improvement" DPA clause is **insufficient** — you need **specific,
+  written client authorisation** + a case-by-case **Art. 6(4) compatibility assessment**.
+- **The clean alternative:** **anonymise to the WP29/EDPB standard** (defeat singling-out + linkability
+  + inference) → outside GDPR (Recital 26). **Caveat:** with only ~5 entities at station/route
+  granularity, true anonymisation is hard; **pseudonymisation does NOT clear the bar** (EDPB 01/2025).
+- **Decision tree for the owner view:** (a) build it on **aggregated/de-identified** data and keep PII
+  (IBANs, driver/vehicle, contacts) out → lowest risk; **else** (b) be the **controller** for it with a
+  documented LIA + specific DPA authorisation + transparency. Avoid the middle (vague clause over
+  identifiable data).
+- **Sub-processors** (SharePoint/FTPS, AI, KMS, AISP, factor): Art. 28(2)/(4) — prior authorisation,
+  flow-down of terms, **you stay fully liable**; classify each (an AI vendor that sets its own purposes
+  is a *controller*, not a sub-processor). Maintain **dual Art. 30 records** (processor + own-controller).
+- **Non-EEA backups** = a Chapter-V transfer → SCCs + a transfer-impact assessment + **exporter-held
+  encryption** (your keyvault/BYOK design is the Schrems-II supplementary measure).
+
+**Antitrust — the platform-as-hub trap (why the benchmark stays intra-tenant)**
+- A **platform can be the "hub"** of an unlawful information exchange (CJEU **Eturas** C-74/14; the 2023
+  Guidelines name online platforms as hubs), and a **facilitator that isn't even a competitor is liable**
+  (CJEU **AC-Treuhand**) — "we don't sell fuel" is **no defence**.
+- A client who merely **sees** the shared output is **presumed party** to a concerted practice unless it
+  **publicly distances** itself (Eturas) — so feeding competitor-derived insight back to clients is the
+  danger.
+- Exchanging individualised **future** prices/quantities is a restriction **by object**; the 2023
+  Guidelines **widened** this to *anything that removes strategic uncertainty* (CJEU **Dole** — even
+  "trend" data). **There is NO safe harbour**; the old US "≥5 contributors / ≤25% share" rule was
+  **withdrawn in 2023** (heuristic only).
+- ✅ **Therefore: keep `benchmark.db` strictly intra-tenant** (a client benchmarks only its own
+  entities). A *pooled* product is lawful only if: **aggregate-only, non-attributable** output; each
+  client sees **only its own data + the aggregate**; an **independent trustee**; a **cohort minimum +
+  dominance cap + cell-suppression** against re-identification; **time-lagged historic** data; and
+  **counsel sign-off** — never individualised current/future prices.
+- Your internal **owner analytics** (holding/processing for your own business) is permissible; the line
+  is **never relaying** one client's current/identifiable pricing to another (directly or via a
+  reverse-engineerable aggregate).
+
+**Technical — refinements**
+- 🔧 **RLS leak vectors (corrected):** an RLS-*enabled* table with no policy fails **closed**
+  (default-deny). The real leaks are: RLS **never enabled**; the app connects as the **table owner
+  without `FORCE ROW LEVEL SECURITY`**; the app role has **BYPASSRLS**; or **views owned by a privileged
+  role** bypass RLS (use `security_invoker` views, PG15+). The "non-owner role + FORCE RLS +
+  transaction-local `set_config`" rule stands.
+- ✅ **One KEK bulk-decrypts all tenants** — per-tenant keys/BYOK fix it; bonus: **crypto-shredding**
+  (destroy a tenant's key) satisfies **Art. 17 erasure** without hunting every copy.
+- ✅ **CSV formula injection (CWE-1236)** — the apostrophe-prefix (shipped) is the OWASP **baseline** but
+  is **Excel-save/reopen-fragile**, and you must also escape separators/quotes (Python's `csv.writer`
+  already does the latter). Sound as the standard mitigation; note the Excel limitation.
+
+**Key sources:** GDPR Arts. 4(12), 5, 6(4), 12, 15/17/20, 28, 30, 32–34, 44–46, Recital 26; EDPB
+Guidelines 07/2020 (controller/processor), 01/2021 (breach examples), 09/2022 (breach notification),
+01/2025 (pseudonymisation); CNIL 2022 processor-reuse guidance; EU Horizontal Guidelines 2023/C 259/01
+(Ch. 6 information exchange); CJEU *Eturas* C-74/14, *AC-Treuhand* C-194/14 P, *Dole* C-286/13 P,
+*Scania* C-319/22; PostgreSQL Row-Security docs; OWASP CSV Injection / MITRE CWE-1236.
+*(Grounded research guidance, not a legal opinion — get counsel sign-off before going multi-client
+and before any pooled-benchmark product.)*
