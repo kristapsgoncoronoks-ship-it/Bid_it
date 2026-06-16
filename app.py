@@ -478,6 +478,7 @@ PERM_BY_ENDPOINT = {
     "export_saft": "exports",
     "documents":       "documents", "doc_download": "documents",
     "doc_assistant":   "documents",
+    "search_page":     "documents",   # full-text search over the document/invoice corpus
     "share_links_page": "share", "share_create": "share", "share_views_page": "share",
     "share_revoke":    "share",
     # Data rooms (B4) — same capability as the share-link management surface.
@@ -526,7 +527,8 @@ MODULES = {
                     "intake_queue_page", "intake_review",
                     "imports", "files_archive", "doc_mining_page", "data_manager"}),
     "compliance": ("Compliance — invoice control, contract audit, documents",
-                   {"invoice_ctrl", "contracts", "documents", "doc_download", "doc_assistant"}),
+                   {"invoice_ctrl", "contracts", "documents", "doc_download", "doc_assistant",
+                    "search_page"}),
     "sharing":    ("Secure share links — trackable public links to vaulted documents",
                    {"share_links_page", "share_create", "share_views_page", "share_revoke",
                     "rooms_page", "room_page", "room_qa_page", "room_engagement_page"}),
@@ -1077,6 +1079,7 @@ from queries import (q_periods, q_filters, where, q_compare, q_compare_totals,
                      q_spend_trend, q_price_trend_by_country)
 import metrics
 import money
+import search as _search
 
 def svg_hbars(pairs, unit="", width=520, color="#0e5fa8", fmt=",.0f"):
     """Dependency-free inline SVG horizontal bar chart from (label, value) pairs."""
@@ -1288,10 +1291,11 @@ h2.section:first-of-type{margin-top:4px}
   <a href="/recon" class="{{'on' if page=='rcn'}}">Bank reconciliation</a>{% endif %}
   {% if 'fx' in modules %}<a href="/fx" class="{{'on' if page=='fx'}}">FX vs ECB</a>{% endif %}
 </span></div></div>
-{% if 'compliance' in modules and ('invoice_control' in perms or 'documents' in perms) %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['inv','con','doc'] else ''}}">Compliance</span><div class="mdrop"><span>
+{% if 'compliance' in modules and ('invoice_control' in perms or 'documents' in perms) %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['inv','con','doc','srch'] else ''}}">Compliance</span><div class="mdrop"><span>
   {% if 'invoice_control' in perms %}<a href="/invoices" class="{{'on' if page=='inv'}}">Invoice control</a>
   <a href="/contracts" class="{{'on' if page=='con'}}">Contract audit</a>{% endif %}
-  {% if 'documents' in perms %}<a href="/documents" class="{{'on' if page=='doc'}}">Documents</a>{% endif %}
+  {% if 'documents' in perms %}<a href="/documents" class="{{'on' if page=='doc'}}">Documents</a>
+  <a href="/search" class="{{'on' if page=='srch'}}">Search</a>{% endif %}
 </span></div></div>{% endif %}
 {% if 'sharing' in modules and 'share' in perms %}<a href="/share" class="{{'on' if page=='shr'}}">Share links</a>{% endif %}
 {% if 'sharing' in modules and 'share' in perms %}<a href="/rooms" class="{{'on' if page=='rooms'}}">Data rooms</a>{% endif %}
@@ -5932,6 +5936,65 @@ def documents():
                        'attach a file already in the data lake or this customer’s vault.</div></div>')
     con.close(); return page(body, "doc")
 
+
+@app.route("/search")
+def search_page():
+    """Full-text search over the document/invoice corpus (FTS5 index in the app-owned
+    search.db). A search box + ranked results with snippets, each deep-linking to the
+    document (/doc/<id>) or the invoice drill-down (/transactions?...). Read-only on the
+    product DBs (the index was built by the admin 'Rebuild search index' action / the
+    close). Best-effort: search.search() never raises, so a garbage query just shows no
+    results; any unexpected failure is logged and shown as an empty result set."""
+    q = (request.args.get("q") or "").strip()
+    results = []
+    err = ""
+    if q:
+        try:
+            results = _search.search(q, limit=50)
+        except Exception as e:   # defensive — search() already never raises
+            _log_exc("search page", e)
+            err = "Search is temporarily unavailable — the error has been logged."
+    form = ('<form class="f" method="get">'
+            f'<label style="flex:1 1 320px">search<input type="text" name="q" '
+            f'value="{esc(q)}" placeholder="supplier, invoice ref, VAT number, product…" '
+            f'autofocus></label>'
+            '<button>Search</button>'
+            '<a href="/search" style="align-self:end;padding:8px 12px;font-size:13px">Reset</a>'
+            '</form>')
+    _kind_label = {_search.KIND_DOC: "document", _search.KIND_INVOICE: "invoice"}
+    rows = []
+    for r in results:
+        kind = esc(_kind_label.get(r.get("kind"), r.get("kind") or ""))
+        # snippet() emits our literal <mark>/</mark> delimiters around matched terms; the
+        # surrounding text is FTS-stored DB content. Escape the WHOLE snippet, then
+        # un-escape only our two known marker tags so the highlight renders but every DB
+        # value stays escaped (a planted <script> in the data cannot break out).
+        snip = esc(r.get("snip") or "")
+        snip = (snip.replace("&lt;mark&gt;", "<mark>")
+                    .replace("&lt;/mark&gt;", "</mark>"))
+        rows.append(
+            f'<td><span class="note">{kind}</span></td>'
+            f'<td><a href="{esc(r.get("link") or "#")}">{esc(r.get("title") or r.get("link") or "")}</a>'
+            f'<div class="note" style="margin-top:2px">{snip}</div></td>')
+    if err:
+        body = form + f'<div class="card"><b class="bad">{esc(err)}</b></div>'
+    elif not q:
+        body = (form + '<div class="card"><div class="note">Search every registered '
+                'document and supplier invoice — by supplier name, invoice/statement '
+                'reference, VAT number, country, product term or amount. Results link '
+                'straight to the document or its transactions. The index is refreshed by '
+                'the monthly close and the Admin → "Rebuild search index" action.</div></div>')
+    else:
+        body = (form + f'<div class="card"><h2>{len(rows)} result(s) for '
+                f'"{esc(q)}"</h2>'
+                + (tbl(["Type", "Result"], [[c] for c in rows]) if rows else
+                   '<div class="note">No matches. Try a supplier name, an invoice '
+                   'reference, a VAT number or a product term. If you just imported '
+                   'data, an admin may need to rebuild the search index.</div>')
+                + '</div>')
+    return page(body, "srch")
+
+
 def _documents_find_block(VR, form):
     """Render the search-results card for the 'find a stored file' action: data-lake
     artifacts plus THIS customer's existing invoice_documents (same-customer tree only).
@@ -6894,6 +6957,12 @@ def admin():
                                      f"{dsum['missing']} missing — see error log")
                 banner = (f"All {dsum['total']} stored document(s) verified — "
                           f"PDF/ZIP files intact (SHA-256 match).")
+            elif act == "rebuild_search":
+                # Full reindex of the document/invoice corpus into the app-owned search.db
+                # (reads the product DBs READ-ONLY). Idempotent; safe to re-run on demand.
+                res = _search.rebuild()
+                banner = (f"Search index rebuilt — <b>{res['rows']}</b> document/invoice "
+                          f"row(s) indexed in {res['seconds']}s.")
             elif act == "verify_metrics":
                 # DRIFT CHECK: recompute the settled per-period aggregates LIVE via the
                 # canonical queries and compare to the materialized settled_metrics. Runs
@@ -7138,7 +7207,8 @@ def admin():
                   f'{_bkbtn("verify_backup","✓ Verify last backup")}'
                   f'{_bkbtn("sync_backup","☁ Sync latest off-site now")}'
                   f'{_bkbtn("verify_docs","✓ Check document integrity")}'
-                  f'{_bkbtn("verify_metrics","✓ Drift-check settled metrics")}</div>'
+                  f'{_bkbtn("verify_metrics","✓ Drift-check settled metrics")}'
+                  f'{_bkbtn("rebuild_search","🔎 Rebuild search index")}</div>'
                   '<div class="note">Backups run <b>automatically</b> on the schedule above (a '
                   'background task snapshots when one is due) and can also be taken on demand. Each '
                   'snapshot bundles the databases (crash-consistent copies), the physical '

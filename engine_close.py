@@ -23,6 +23,7 @@ This module runs the stages IN ORDER as ONE guarded unit of work:
         → build_master.build(period)
         → history.load(period)
         → metrics.rebuild(period)
+        → search.rebuild()           (non-fatal — refreshes the FTS index, never gates)
         → invoice_control.run_control(period, persist=True)
         → backup.snapshot()
 
@@ -70,6 +71,7 @@ import history
 import metrics
 import invoice_control
 import backup
+import search as _search
 
 _log = applog.get("close")
 
@@ -137,6 +139,16 @@ def close(period=None, actor="system"):
         # Settle the per-period dashboard aggregates AFTER history (transactions must be
         # loaded first). Idempotent (REPLACE), so a restart re-settles cleanly.
         results["metrics"] = _step("metrics", period, actor, lambda: metrics.rebuild(period))
+        # Refresh the full-text search index (app-owned search.db; reads the product DBs
+        # READ-ONLY). NON-FATAL by design — the index is a convenience, never a gate, so a
+        # hiccup here must not halt or invalidate an otherwise-good close; it is logged and
+        # an admin can rebuild it on demand.
+        try:
+            results["search"] = _search.rebuild()
+        except Exception as e:  # noqa: BLE001 - the search index never gates the close
+            _log.warning("close: search index rebuild failed (non-fatal) for %s: %s",
+                         period, e)
+            results["search"] = {"error": str(e)}
         results["control"] = _step("invoice_control", period, actor,
                                     lambda: invoice_control.run_control(period, persist=True))
         results["backup"]  = _step("backup", period, actor, lambda: backup.snapshot())
