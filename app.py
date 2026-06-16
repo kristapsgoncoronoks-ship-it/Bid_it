@@ -2870,6 +2870,30 @@ def _load_draft(token):
         return None
 
 
+def _capture_findings_html(draft):
+    """Render the advisory capture checks (VAT-ID structure, in-batch duplicates) on the
+    review screen from the draft alone, so a reviewer sees data-quality problems BEFORE
+    confirming. IBAN and cross-entity duplicate scope need data not present in the redacted
+    draft (and run at confirm time); these never block — the checklist remains the gate."""
+    try:
+        import capture_checks
+        findings = capture_checks.run(draft.get("lines", []),
+                                      supplier=draft.get("supplier"),
+                                      supplier_vat=draft.get("supplier_vat"))
+    except Exception as e:
+        _log_exc("capture findings", e)
+        return ""
+    if not findings:
+        return ""
+    items = "".join(
+        f'<li class="{"bad" if f.get("severity") == "error" else ""}">'
+        f'{esc(f.get("severity", "").upper())}: {esc(f.get("message", ""))}</li>'
+        for f in findings)
+    return ('<div class="card"><b>Capture checks</b> '
+            '<span class="note">(advisory — does not block; verify before confirming)</span>'
+            f'<ul style="margin:6px 0 0 18px">{items}</ul></div>')
+
+
 def _provenance_badge(src):
     """Render a line's data provenance (`_source`) as a labelled badge so a reviewer can
     SEE which lines came from a hallucination-prone AI extraction versus a deterministic
@@ -2905,6 +2929,7 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel=""):
             f'<div class="note">Source: <b>{esc(draft.get("backend",""))}</b> · '
             f'confidence <span class="{ccls}">{esc(conf)}</span> · '
             f'{len(draft.get("files",[]))} PDF(s). {esc(draft.get("notes",""))}</div>'
+            + _capture_findings_html(draft) +
             '<form method="post" action="/extract/confirm" class="f" style="margin-top:10px">'
             + _csrf_input() +
             f'<input type="hidden" name="token" value="{esc(token)}">'

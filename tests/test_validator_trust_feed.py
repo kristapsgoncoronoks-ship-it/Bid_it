@@ -64,3 +64,22 @@ def test_provenance_badge_flags_ai_and_structured():
     assert "—" in app._provenance_badge("")
     # a filename/parser source passes through, escaped
     assert "BE-cover.pdf" in app._provenance_badge("BE-cover.pdf")
+
+
+# ---------------------------------------------------------------- capture findings on review
+def test_capture_findings_html_surfaces_problems():
+    import app
+    draft = {"supplier": "DKV", "supplier_vat": "DE12345",      # malformed for DE
+             "lines": [{"invoice_no": "A1", "net": 100, "vat": 19},
+                       {"invoice_no": "A1", "net": 100, "vat": 19}]}   # in-batch dup
+    html = app._capture_findings_html(draft)
+    assert "Capture checks" in html
+    assert "VAT-ID" in html or "vat" in html.lower()
+    assert "duplicate" in html.lower() or "more than once" in html.lower()
+
+
+def test_capture_findings_html_empty_when_clean():
+    import app
+    draft = {"supplier": "DKV", "supplier_vat": "DE811569869",
+             "lines": [{"invoice_no": "A1", "net": 100, "vat": 19}]}
+    assert app._capture_findings_html(draft) == ""
