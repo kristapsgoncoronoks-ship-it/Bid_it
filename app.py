@@ -485,6 +485,10 @@ PERM_BY_ENDPOINT = {
     # A4 — the ordered VERSION chain of a vaulted document (upload / revert / view).
     "doc_versions":        "documents",  # the per-document versions panel
     "doc_version_download": "documents", # download/view a specific version's bytes
+    # A5 — document RETENTION policies + LEGAL HOLD (advisory records-management). The
+    # legal-hold place/release control lives on the doc_meta page (same `documents` cap).
+    "retention_admin":   "documents",   # manage retention policies (records schedule)
+    "retention_review":  "documents",   # the advisory disposition-review worklist
     "share_links_page": "share", "share_create": "share", "share_views_page": "share",
     "share_revoke":    "share",
     # Data rooms (B4) — same capability as the share-link management surface.
@@ -535,7 +539,8 @@ MODULES = {
     "compliance": ("Compliance — invoice control, contract audit, documents",
                    {"invoice_ctrl", "contracts", "documents", "doc_download", "doc_assistant",
                     "doc_meta", "metadata_admin", "search_page",
-                    "doc_versions", "doc_version_download"}),
+                    "doc_versions", "doc_version_download",
+                    "retention_admin", "retention_review"}),
     "sharing":    ("Secure share links — trackable public links to vaulted documents",
                    {"share_links_page", "share_create", "share_views_page", "share_revoke",
                     "rooms_page", "room_page", "room_qa_page", "room_engagement_page"}),
@@ -6027,6 +6032,15 @@ def doc_meta(doc_id):
                 ok, msg = MD.set_value(fid, subject_ref, raw)
             elif act == "clear_field":
                 ok, msg = MD.clear_value(request.form.get("field_id"), subject_ref)
+            elif act == "place_hold":
+                import retention as RET
+                obj, msg = RET.place_hold(subject_ref, request.form.get("reason", ""),
+                                          session.get("user", ""))
+                ok = obj is not None
+            elif act == "release_hold":
+                import retention as RET
+                ok, msg = RET.release_hold(request.form.get("hold_id"),
+                                           session.get("user", ""))
         except Exception as e:
             _log_exc("doc metadata edit", e)
             ok, msg = False, "could not apply that change (logged)."
@@ -6103,6 +6117,8 @@ def doc_meta(doc_id):
                     else '<div class="note">No custom fields defined yet — '
                     '<a href="/metadata">create some</a>.</div>')
 
+    retention_card = _retention_card(doc_id, subject_ref)
+
     body = (banner
             + f'<div class="card"><h2>Document metadata — {esc(label)}</h2>'
             '<div class="note">Tags and typed custom fields attached to this document '
@@ -6110,11 +6126,116 @@ def doc_meta(doc_id):
             'values are quantized for display.</div>'
             f'<h3 style="margin-top:14px">Tags</h3><div>{tag_chips}</div>{add_tag_form}'
             f'<h3 style="margin-top:14px">Custom fields</h3>{fields_block}</div>'
-            f'<p><a href="/doc/{doc_id}">&larr; download this document</a> · '
+            + retention_card
+            + f'<p><a href="/doc/{doc_id}">&larr; download this document</a> · '
             f'<a href="/doc/{doc_id}/versions">version history</a> · '
             '<a href="/documents">back to the document vault</a> · '
-            '<a href="/metadata">manage fields &amp; tags</a></p>')
+            '<a href="/metadata">manage fields &amp; tags</a> · '
+            '<a href="/retention">retention policies</a></p>')
     return page(body, "doc")
+
+
+def _doc_dates(doc_id):
+    """(doc_date, registered_date) for a vaulted document, READ-ONLY. doc_date is the
+    invoice date (supplier_invoices.invoice_date when resolvable), registered_date is
+    invoice_documents.uploaded_at. Best-effort -> (None, None) on any failure. Used by the
+    per-document retention status panel."""
+    orig = _doc_original(doc_id)
+    if orig is None:
+        return None, None
+    registered = None
+    doc_date = None
+    try:
+        import vat_refund as VR
+        con = VR.connect()
+        try:
+            r = con.execute("SELECT uploaded_at FROM invoice_documents WHERE id=?",
+                            (doc_id,)).fetchone()
+            registered = r["uploaded_at"] if r else None
+        finally:
+            con.close()
+    except Exception as e:
+        _log_exc("retention doc registered-date", e)
+    try:
+        import supplier_master as SM
+        scon = SM.connect()
+        try:
+            inv = scon.execute(
+                "SELECT invoice_date FROM supplier_invoices WHERE supplier=? AND invoice_no=?",
+                (orig.get("supplier"), orig.get("invoice_ref"))).fetchone()
+            doc_date = inv["invoice_date"] if inv else None
+        finally:
+            scon.close()
+    except Exception as e:
+        _log_exc("retention doc invoice-date", e)
+    return (doc_date or registered), registered
+
+
+def _retention_card(doc_id, subject_ref):
+    """The per-document RETENTION STATUS + LEGAL HOLD control. Advisory only: it shows the
+    retention picture and lets a user PLACE/RELEASE a legal hold (audited). A held document
+    is clearly badged and is excluded from the disposition-review worklist. Every value is
+    escaped; retention.py never raises."""
+    import retention as RET
+    doc_date, registered = _doc_dates(doc_id)
+    st = RET.retention_status(subject_ref, doc_date, registered)
+    pol = st.get("policy")
+    if st["on_hold"]:
+        badge = ('<span class="bad" style="border:1px solid var(--bad);border-radius:4px;'
+                 'padding:1px 7px">&#9211; LEGAL HOLD — disposition blocked</span>')
+    elif st["past_due"]:
+        badge = ('<span class="bad" style="border:1px solid var(--bad);border-radius:4px;'
+                 'padding:1px 7px">Past retention — flagged for review</span>')
+    elif pol:
+        badge = ('<span class="ok" style="border:1px solid var(--ok);border-radius:4px;'
+                 'padding:1px 7px">Within retention</span>')
+    else:
+        badge = '<span class="note">No retention policy applies</span>'
+    if pol:
+        dr = st.get("days_remaining")
+        dr_txt = (f"{dr} day(s) remaining" if dr is not None and dr >= 0
+                  else (f"{-dr} day(s) overdue" if dr is not None else "—"))
+        detail = (f'<div class="note" style="margin-top:6px">Policy '
+                  f'<b>{esc(pol.get("name") or "")}</b> — retain '
+                  f'{esc(str(pol.get("retain_years")))} year(s) from '
+                  f'{esc(pol.get("basis") or "doc_date")}. Retain until '
+                  f'<b>{esc(st.get("retain_until") or "—")}</b> ({esc(dr_txt)}).</div>')
+    else:
+        detail = ('<div class="note" style="margin-top:6px">No retention policy matches '
+                  'this document (define one under <a href="/retention">retention '
+                  'policies</a>). Retention is <b>advisory</b> — nothing is ever '
+                  'auto-deleted.</div>')
+
+    # active hold (if any) + place/release control
+    active = next((h for h in RET.holds_for(subject_ref) if h.get("released_at") is None),
+                  None)
+    if active:
+        hold_block = (
+            f'<div style="margin-top:8px">Held since '
+            f'<b>{esc(active.get("placed_at") or "")}</b> by '
+            f'{esc(active.get("placed_by") or "")}'
+            + (f' — <i>{esc(active.get("reason") or "")}</i>' if active.get("reason") else "")
+            + '</div>'
+            '<form method="post" class="f" style="margin-top:8px" '
+            'onsubmit="return confirm(\'Release the legal hold on this document?\')">'
+            + _csrf_input()
+            + '<input type="hidden" name="__act" value="release_hold">'
+            f'<input type="hidden" name="hold_id" value="{esc(str(active.get("id")))}">'
+            '<button>Release legal hold</button></form>')
+    else:
+        hold_block = (
+            '<form method="post" class="f" style="margin-top:8px">'
+            + _csrf_input()
+            + '<input type="hidden" name="__act" value="place_hold">'
+            '<label>Reason <input name="reason" placeholder="e.g. litigation / audit hold">'
+            '</label><button>Place legal hold</button></form>')
+
+    return (f'<div class="card"><h2>Retention &amp; legal hold</h2>'
+            f'<div>{badge}</div>{detail}'
+            '<div class="note" style="margin-top:6px">A legal hold <b>overrides</b> '
+            'retention everywhere — a held document is never flagged for disposition, and '
+            'nothing is ever auto-deleted (the review queue is a human worklist).</div>'
+            f'<h3 style="margin-top:12px">Legal hold</h3>{hold_block}</div>')
 
 
 def _doc_original(doc_id):
@@ -6387,7 +6508,146 @@ def metadata_admin():
                  + create_tag_form + rename_tag_form + '</div>')
 
     body = (banner + fields_card + tags_card
-            + '<p><a href="/documents">&larr; back to the document vault</a></p>')
+            + '<p><a href="/documents">&larr; back to the document vault</a> · '
+            '<a href="/retention">retention policies</a></p>')
+    return page(body, "doc")
+
+
+@app.route("/retention", methods=["GET", "POST"])
+def retention_admin():
+    """The A5 RETENTION-POLICY management page (records schedule): define policies
+    (name, applies-to all/tag, retain years, basis date, action) and delete them. Gated
+    by the `documents` capability (compliance module). ADVISORY only — a policy never
+    deletes anything; it drives the disposition-review WORKLIST. retention.py is
+    best-effort and never raises; every value is escaped. Every define/delete is audited
+    (changed_by) by the retention.db audit triggers."""
+    import retention as RET
+    import metadata as MD
+    banner = ""
+    if request.method == "POST":
+        act = request.form.get("__act", "")
+        ok, msg = True, ""
+        try:
+            if act == "define_policy":
+                _, msg = RET.define_policy(
+                    request.form.get("name", ""),
+                    request.form.get("applies_to", "all"),
+                    tag_id=request.form.get("tag_id") or None,
+                    retain_years=request.form.get("retain_years", RET.DEFAULT_RETAIN_YEARS),
+                    action=request.form.get("action", "review"),
+                    basis=request.form.get("basis", "doc_date"))
+                ok = not msg
+            elif act == "delete_policy":
+                ok, msg = RET.delete_policy(request.form.get("policy_id"))
+        except Exception as e:
+            _log_exc("retention admin", e)
+            ok, msg = False, "could not apply that change (logged)."
+        border = "var(--ok)" if ok else "var(--bad)"
+        head = "&#10003; Saved" if ok else "&#10007; Not saved"
+        banner = (f'<div class="card" style="border-left:4px solid {border}">'
+                  f'<b class="{"ok" if ok else "bad"}">{head}</b>'
+                  + (f' — {esc(msg)}' if msg else '') + '</div>')
+
+    tags = {t["id"]: t for t in MD.flat_tags()}
+    prows = []
+    for p in RET.list_policies():
+        if p.get("applies_to") == "tag":
+            tg = tags.get(p.get("tag_id"))
+            scope = f'tag: {tg["path"]}' if tg else f'tag #{p.get("tag_id")} (missing)'
+        else:
+            scope = "all documents"
+        delp = ('<form method="post" style="margin:0" '
+                'onsubmit="return confirm(\'Delete this retention policy? (deletes the '
+                'schedule entry only — never a document)\')">'
+                + _csrf_input()
+                + '<input type="hidden" name="__act" value="delete_policy">'
+                f'<input type="hidden" name="policy_id" value="{esc(str(p["id"]))}">'
+                '<button class="bad" style="padding:2px 8px;font-size:12px">Delete</button>'
+                '</form>')
+        prows.append([
+            f'<td>{esc(p["name"])}</td>', f'<td>{esc(scope)}</td>',
+            f'<td>{esc(str(p["retain_years"]))} yr</td>',
+            f'<td>{esc(p["basis"])}</td>', f'<td>{esc(p["action"])}</td>',
+            f'<td>{delp}</td>'])
+    policies_tbl = (tbl(["Name", "Applies to", "Retain", "Basis", "Action", ""], prows)
+                    if prows else
+                    '<div class="note" style="margin:8px 0">No retention policies yet.</div>')
+
+    tag_opts = "".join(f'<option value="{esc(str(t["id"]))}">{esc(t["path"])}</option>'
+                       for t in MD.flat_tags())
+    applies_opts = "".join(f'<option>{esc(a)}</option>' for a in RET.APPLIES_TO)
+    action_opts = "".join(f'<option>{esc(a)}</option>' for a in RET.ACTIONS)
+    basis_opts = "".join(f'<option>{esc(b)}</option>' for b in RET.BASES)
+    define_form = (
+        '<form method="post" class="f" style="flex-wrap:wrap">'
+        + _csrf_input()
+        + '<input type="hidden" name="__act" value="define_policy">'
+        '<label>Name <input name="name" required></label>'
+        f'<label>Applies to <select name="applies_to">{applies_opts}</select></label>'
+        f'<label>Tag (if tag-scoped) <select name="tag_id">'
+        f'<option value="">— none —</option>{tag_opts}</select></label>'
+        f'<label>Retain years <input type="number" name="retain_years" min="0" '
+        f'value="{RET.DEFAULT_RETAIN_YEARS}"></label>'
+        f'<label>Basis <select name="basis">{basis_opts}</select></label>'
+        f'<label>Action <select name="action">{action_opts}</select></label>'
+        '<button>Define policy</button></form>')
+    policies_card = (
+        '<div class="card"><h2>Retention policies</h2>'
+        '<div class="note">A retention <b>schedule</b> over vaulted documents. Each policy '
+        'sets how long to retain (years) over a basis date (the invoice date or the date the '
+        'document was registered). A <b>tag</b>-scoped policy applies to documents carrying '
+        'that A3 tag; when several policies apply the <b>longest</b> retention always wins '
+        '(never under-retain), with a tag-scoped policy winning ties over an '
+        '&ldquo;all&rdquo; policy. EU VAT records are typically kept '
+        f'~{RET.DEFAULT_RETAIN_YEARS} years. <b>Advisory only</b> — a policy never deletes '
+        'anything; it flags elapsed documents on the '
+        '<a href="/retention/review">disposition-review worklist</a>. '
+        '<code>dispose_review</code> still only FLAGS for a human.</div>'
+        + policies_tbl + define_form + '</div>')
+
+    body = (banner + policies_card
+            + '<p><a href="/retention/review">Retention review worklist &rarr;</a> · '
+            '<a href="/documents">back to the document vault</a> · '
+            '<a href="/metadata">manage fields &amp; tags</a></p>')
+    return page(body, "doc")
+
+
+@app.route("/retention/review")
+def retention_review():
+    """The A5 RETENTION-REVIEW worklist: documents PAST their retention and NOT on legal
+    hold — purely an advisory human worklist. NO delete/disposition action lives here:
+    nothing is auto-deleted and a held document never appears (legal hold OVERRIDES
+    retention). Gated by the `documents` capability. retention.py never raises; every
+    value is escaped. Each row links to the document for a human to review."""
+    import retention as RET
+    due = RET.due_for_review()
+    rows = []
+    for d in due:
+        pol = d.get("policy") or {}
+        rows.append([
+            f'<td><a href="/doc/{esc(str(d.get("doc_id")))}">'
+            f'{esc(d.get("filename") or d.get("invoice_ref") or d.get("subject_ref"))}</a>'
+            f'<div class="note">{esc(d.get("subject_ref") or "")}</div></td>',
+            f'<td>{esc(d.get("supplier") or "")}<div class="note">'
+            f'{esc(d.get("entity") or "")}</div></td>',
+            f'<td>{esc(d.get("invoice_ref") or "")}</td>',
+            f'<td>{esc(pol.get("name") or "")}<div class="note">'
+            f'{esc(pol.get("action") or "review")}</div></td>',
+            f'<td>{esc(d.get("retain_until") or "")}</td>',
+            f'<td><a href="/doc/{esc(str(d.get("doc_id")))}/meta">review &amp; hold</a></td>'])
+    worklist = (tbl(["Document", "Supplier", "Invoice ref", "Policy", "Retain until",
+                     "Review"], rows) if rows else
+                '<div class="note" style="margin:8px 0">Nothing is past retention and off '
+                'hold — the review queue is empty.</div>')
+    body = (f'<div class="card"><h2>Retention review — disposition worklist</h2>'
+            '<div class="note">Documents whose retention period has <b>elapsed</b> and that '
+            'are <b>not</b> under a legal hold. This is an <b>advisory human worklist only</b>: '
+            'there is no delete/disposition action here. Nothing is ever auto-deleted, and a '
+            'document under a legal hold is excluded (a legal hold overrides retention). Open a '
+            'document to review it and, if needed, place or release a legal hold.</div>'
+            + worklist + '</div>'
+            + '<p><a href="/retention">&larr; retention policies</a> · '
+            '<a href="/documents">document vault</a></p>')
     return page(body, "doc")
 
 

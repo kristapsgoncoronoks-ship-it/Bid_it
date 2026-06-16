@@ -76,6 +76,10 @@ metadata.db
 #    vaulted document, keyed by reference (no product columns; pointers only; no demo data) ──
 versions.db
 
+# ── Document retention + legal hold (A5) — app-owned runtime DB: retention policies +
+#    legal holds keyed by reference (advisory; no product columns; no demo data) ──
+retention.db
+
 # ── Cross-process lock store + SQLite WAL sidecars (transient, machine-specific) ──
 locks.db
 *.db-wal
