@@ -14,7 +14,7 @@ several worker processes behind a proxy for a team, with no change of code.
 
 | Area | Capabilities |
 |------|--------------|
-| **Intake** | Upload PDF/ZIP/XML invoice batches; deterministic PDF parser (offline), **UBL/CII e‑invoice parsing** (EN 16931, 100% confidence), or AI extraction (Claude/OpenAI/Azure). A durable **“waiting room” queue** parks uploads and processes them in the background so bursts never overload the server. |
+| **Intake** | Upload PDF/ZIP/XML invoice batches. **Structured‑first** extraction: UBL/CII e‑invoices and **Factur‑X/ZUGFeRD hybrid PDFs** parse deterministically (EN 16931, no AI), with a **profile gate** so a line‑less MINIMUM/BASIC‑WL invoice is never trusted as a complete capture; a deterministic per‑supplier PDF parser; an **on‑prem OCR fallback** for scanned/image PDFs; or AI extraction (Claude/OpenAI/Azure) only as a last resort — long statements **chunked** so no invoice line is silently dropped. Post‑capture **deterministic checks** (IBAN MOD‑97, VAT‑ID structure, cross‑entity duplicates) and **per‑line provenance** badges surface problems before you confirm. A durable **“waiting room” queue** parks uploads and processes them in the background so bursts never overload the server. |
 | **Master data** | Separate SQLite databases — our entities (`customers.db`), suppliers (`suppliers.db`), transactions (`fuel_history.db`), and the **VAT‑refund claim records isolated in their own `vat_claims.db`** so the monthly rebuild can't corrupt them. AI‑processed extraction output is archived in a **data lake** (same storage backends as the PDF vault). |
 | **Engine** | Consolidate → validate (tie‑out to invoice totals) → build monthly master workbook → load history/trend → materialize per‑period dashboard metrics. A **one‑click monthly close** runs the whole chain on the background worker (admin → `/close`); the orchestrator (`engine_close.py`) is restartable and writes one audit trail. |
 | **VAT refunds** *(admin‑only module)* | Claims per **entity × country × period** (Q1–Q4 or annual), 400/50 EUR thresholds, one‑invoice‑one‑submission locks, claim packs. A **controlled status workflow 1A→5**: the pre‑submission stages (1A missing docs · 1B period not ended · 1C/1E ready) are **derived by the system from an adjustable checklist** (contract, customer data, bank account, NACE, trade register, power of attorney) with a **hard period‑end gate**; then 2 submitted → 2B document request → 3 decision → 3A money → 3B rejection / 3D appeal / 3C confiscation (locks kept) → 4/4A invoice fee/credit → 5 closed. Low‑VAT quarters **merge dynamically** into the annual claim. Claims are built **from registered invoices** — every line ties to one invoice, **one row per product code** (Art. 9 codes), nothing synthetic filed; figures stay editable but guarded against accidental change. |
@@ -24,7 +24,7 @@ several worker processes behind a proxy for a team, with no change of code.
 | **Reports & export** | **Expense / cost reports** (`/expenses` + Excel), a supplier **price‑review packet** (avoidable‑overpay), an **accounting‑ledger CSV**, and a programmable **SAF‑T (OECD core) XML** export — all NET EUR basis, totals reconciled to the same ledger math. |
 | **Automated document capture** | Fetch invoices/prices straight from supplier portals on the **worker tier**, never inline in a request: a portal fetch is enqueued (queue kind `fetch`) and gated by a **per‑supplier rate‑limiter / concurrency cap / backoff / circuit‑breaker** (opt‑in), with an **off‑by‑default scheduler** that auto‑enqueues pulls. Portal credentials are held under **envelope encryption** (AES‑256‑GCM data key wrapped by a pluggable Key‑Encryption Key — local, or BYOK/KMS via `FFS_KEK_KEY`). |
 | **Embedded finance & bank recon** *(advisory)* | A financeable‑receivable view + advance‑offer economics on the Receivables page (origination‑only seam; a licensed factoring partner plugs in), and **open‑banking reconciliation** matching uploaded bank credits against expected VAT refunds (`/recon`). Both are advisory — they never move money or mutate a VAT figure/lock. |
-| **Confidence learning** | A per‑(supplier × country) **trust score** that grows on clean validations and decays on flags; it governs **only** whether the optional advisory AI review runs — never a legal gate. |
+| **Confidence learning** | A per‑(supplier × country) **trust score** that grows on clean validations and decays on flags — fed by the **deterministic batch validator** (ground truth) and the advisory AI review; it governs **only** whether the optional advisory AI review runs — never a legal gate. |
 | **Multi‑tenant ready** | A tenant registry + request‑scoped context behind a master switch that is **OFF by default** (byte‑identical single‑tenant); the per‑table scoping phase is deferred. See **[docs/MULTI_TENANCY.md](docs/MULTI_TENANCY.md)**. |
 | **Compliance** | Receipt control (cadence × activity), statement reconciliation with VAT triage, a **contract‑compliance auditor** (catches short discounts / over‑ceiling prices to claw back), **document mining** (auto‑fills INPUT gaps from the vault), anomaly scan, full audit trail. |
 | **Document vault** | Originals stored under a logical, human‑navigable tree — `Customer (reg no) / Year / Country / Claim period / file` — identical across **local / SharePoint / FTP(S)** backends; SHA‑256 dedup + integrity verification. A doc‑missing claim is resolved in place: **upload**, or **search the store and attach an already‑stored file** (same dedup + wrong‑attachment check). |
@@ -62,6 +62,8 @@ That's it. Leave the small console window open while you work; close it (or pres
 
 ```bash
 pip install -r requirements.txt          # flask, openpyxl, waitress, cryptography, pypdf (+ requests)
+# optional: scanned-PDF OCR fallback (on-prem) needs the system 'tesseract' binary + 'poppler', plus:
+#   pip install pytesseract pdf2image     # only if you enable EXTRACT_OCR_BACKEND (default 'auto' = off when absent)
 python start.py                          # installs deps if needed, opens the browser, runs setup
 # or run the pieces directly:
 python app.py                            # dev server  → http://localhost:8050
@@ -90,6 +92,7 @@ for unattended IT setup.
 | **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | The six building blocks, the data model, the module map, and the key conventions. |
 | **[docs/DIAGRAMS.md](docs/DIAGRAMS.md)** | Visual schematics — system overview, upload OK/Bad flow, monthly close, VAT claim lifecycle, **claim composition & document resolution**, databases, storage, request/worker flow, multi‑server topology, and the backup & integrity self‑control loop. |
 | **[docs/SCALING.md](docs/SCALING.md)** | Horizontal scaling — the ladder (tune → Postgres → offload storage → worker fleet → load‑balance), target topology, env‑var reference, and the honest remaining blockers to a validated Postgres cutover. |
+| **[docs/DEPLOYMENT_SIZING.md](docs/DEPLOYMENT_SIZING.md)** | Single‑box server sizing — "what do I buy to run this smoothly?" CPU/RAM/disk for a normal install (reference workload ~100 invoices/day), why disk is the real growth driver, and concrete cloud/on‑prem host options. |
 | **[docs/MULTI_TENANCY.md](docs/MULTI_TENANCY.md)** | The multi‑tenant SaaS program — the phased plan behind the OFF‑by‑default `multitenant` switch (`tenancy.py`). |
 | **[docs/SAFT.md](docs/SAFT.md)** | The SAF‑T (OECD core) export — the `CountryProfile` model and what makes a real per‑country submission. |
 | **[docs/ROADMAP.md](docs/ROADMAP.md)** | How the system should evolve to support the business — outcome‑driven plan across three horizons, with KPIs. |
@@ -133,7 +136,7 @@ fleet_fuel_system/
 ├── ingest.py extract.py       # source adapters (xlsx/csv/xml/api); PDF/ZIP → draft
 ├── waiting_room.py            # durable "waiting room" queue + worker (extract / register / close / fetch + rate-limiter)
 ├── portal_scraper.py          # client-portal fetch adapters (worker-tier; encrypted credentials)
-├── consolidate.py validate.py # map to canonical schema + tie-out; blocks on errors
+├── consolidate.py validate.py capture_checks.py # canonical schema + tie-out (blocks on errors); IBAN/VAT-ID/duplicate capture checks
 ├── build_master.py history.py engine_close.py  # monthly master workbook; load + trend; close orchestrator
 ├── metrics.py                 # per-period dashboard aggregates, materialized at the close
 ├── supplier_specs.py month_config.py vat_config.py  # registries / monthly + regulatory config
@@ -151,7 +154,7 @@ fleet_fuel_system/
 ├── setup_wizard.py start.* install.*  # first-run wizard + one-click launchers
 ├── gunicorn_conf.py                   # multi-process worker config (Linux)
 ├── documents/                  # the document vault (local backend; git-ignored content)
-├── tests/                      # pytest suite (240+ tests)
+├── tests/                      # pytest suite (1,150+ tests)
 └── docs/                       # INSTALL · USER_MANUAL · ARCHITECTURE · DIAGRAMS · PLATFORM · SCALING · ROADMAP · VAT_REFUND_RULES · FILE_INDEX · GIT_SETUP
 ```
 

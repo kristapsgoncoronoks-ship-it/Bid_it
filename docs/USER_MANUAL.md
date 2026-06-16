@@ -144,7 +144,12 @@ a discount line's value, or — when the separate rebate invoice isn't present �
 **hybrid PDF that carries the e‑invoice inside it (Factur‑X / ZUGFeRD / XRechnung)** is
 detected automatically and parsed the same deterministic, no‑AI way — you upload the
 ordinary‑looking PDF and the system reads its embedded data, keeping the original PDF on
-file. Every
+file. **One safeguard to know:** a hybrid PDF can ship a *cut‑down profile* (MINIMUM /
+BASIC‑WL) that legally carries only header totals and **no per‑invoice lines** — when the
+system sees one it does **not** pretend the capture is complete: confidence drops to
+**medium** and a note asks you to confirm the lines against the PDF. A **scanned /
+image‑only** PDF (no text inside) is recovered by **on‑prem OCR** if your server has it
+enabled (the draft is then marked as OCR‑sourced — read every figure). Every
 upload box is also a **drag‑and‑drop zone**: drag a file from your file manager straight
 onto it, or click to browse. The box turns green and shows the file name once it's
 attached. Two ways to process: **Extract draft now** (process immediately and review),
@@ -310,9 +315,11 @@ document integrity**. The Admin panel also holds:
 **Confidence scoreboard** (`/admin/confidence`, admin only) — a **read‑only** learning
 scoreboard: a per‑(supplier × country) **trust** score that grows with each clean
 validation and decays on a discrepancy, plus the recent append‑only validation‑event
-ledger. Trust governs **only** whether the advisory AI review runs (a cost saving) — it
-**never** skips or alters any legal gate (checklist, thresholds, locks, period‑end,
-document presence) and never changes a figure.
+ledger. The score is fed by the **deterministic batch validator** at confirm time (the
+`validator` source — ground truth) as well as the advisory AI review, so the ledger shows
+where the data actually came in clean. Trust governs **only** whether the advisory AI
+review runs (a cost saving) — it **never** skips or alters any legal gate (checklist,
+thresholds, locks, period‑end, document presence) and never changes a figure.
 
 **Tenants** (`/admin/tenants`, admin only) — a **read‑only** multi‑tenancy registry. The
 install is **single‑tenant by default** (the master `multitenant` switch is OFF); this page
@@ -353,7 +360,14 @@ Day 1–3 of the new month, when supplier invoices arrive:
 3a. **Or import the whole batch at once** — Import batch page: drop the supplier ZIP
    (coversheet + invoices). The system reads it and shows a **review screen** — parsed
    invoice lines beside the source, every field editable, with a draft gross total to
-   check against the coversheet. Fix anything, then **Confirm**: it registers the
+   check against the coversheet. The screen also gives you two at‑a‑glance trust cues:
+   - a **Provenance** badge per line — **structured** (EN‑16931 e‑invoice, trustworthy),
+     a parser/file name, or **AI · verify** (an AI‑extracted figure — read it carefully);
+   - a **Capture checks** panel (advisory, never blocks) flagging things like a
+     **malformed VAT‑ID** or a **duplicate invoice within the batch**, so you catch them
+     before committing.
+
+   Fix anything, then **Confirm**: it registers the
    statement, syncs VAT-bearing invoices, and files the PDFs in the vault in one step.
    For recognised suppliers this is offline and instant; for new layouts it uses the
    configured AI extractor (still a draft you confirm). Nothing is saved until you confirm.

@@ -43,9 +43,11 @@ permanent service, team access, commercial certificates and automated backups.
 
 # PRODUCTION SETUP (server / team)
 
-Primary path: **Ubuntu Server 22.04/24.04 LTS** (a small VM is plenty:
-2 vCPU, 2–4 GB RAM, 20 GB disk). Windows alternative at the end. Estimated time:
-30–45 minutes, +30 minutes for team access.
+Primary path: **Ubuntu Server 22.04/24.04 LTS**. A small VM runs the baseline
+(2 vCPU, 2–4 GB RAM, 20 GB disk); for a real install **4 vCPU / 8 GB / 150 GB NVMe**
+is the comfortable sweet spot — full sizing (and when local OCR needs more) is in
+**[DEPLOYMENT_SIZING.md](DEPLOYMENT_SIZING.md)**. Windows alternative at the end.
+Estimated time: 30–45 minutes, +30 minutes for team access.
 
 ---
 
@@ -349,6 +351,27 @@ To pull supplier prices/documents automatically from a customer portal:
 (API‑based ingestion where a supplier offers it, e.g. `DKV_API_TOKEN`, is configured in
 the service env — Part 5.) See the strategy/backlog docs for the capture roadmap.
 
+## PART 7e — Scanned-PDF OCR fallback (optional, on-prem)
+
+Extraction is **structured‑first** and needs no extra software: UBL/CII e‑invoices and
+Factur‑X/ZUGFeRD hybrid PDFs parse deterministically, the per‑supplier parser handles
+known layouts, and only an unstructured PDF falls to the configured AI backend. A
+**scanned / image‑only** PDF, however, carries no text — to recover those **on‑prem**
+(no bytes leave the host), enable the OCR fallback:
+
+```bash
+# system packages: the Tesseract engine + Poppler (PDF→image rasteriser)
+sudo apt install -y tesseract-ocr poppler-utils
+# python bindings
+sudo -u fleetfuel /opt/fleetfuel/venv/bin/pip install pytesseract pdf2image
+```
+
+The backend is selected by **`EXTRACT_OCR_BACKEND`** (`auto` = use Tesseract if installed,
+else silently skip — the default; `tesseract` = force; `none` = disable). When OCR is used,
+the draft is flagged (`ocr=True`, noted, capped below “high” confidence) so the reviewer
+scrutinises it. OCR is CPU/RAM‑spiky per page — see
+**[DEPLOYMENT_SIZING.md](DEPLOYMENT_SIZING.md)** for the larger box it wants.
+
 ## PART 7c — PostgreSQL (optional, scale-out)
 
 SQLite (the default) is fine from a laptop to a busy single server. For very high
@@ -586,6 +609,8 @@ Get-Service FleetFuel                            # Running
 
 ## Related documentation
 
+- **[DEPLOYMENT_SIZING.md](DEPLOYMENT_SIZING.md)** — what server to buy for a single-box
+  install (CPU/RAM/disk, reference workload ~100 invoices/day, local-OCR sizing).
 - **[SCALING.md](SCALING.md)** — the single-box → web/worker fleet → PostgreSQL ladder
   (Parts 5b / 7c) and the credential-custody rotation detail (Part 8b).
 - **[MULTI_TENANCY.md](MULTI_TENANCY.md)** — the P1+ rollout before turning `multitenant`
