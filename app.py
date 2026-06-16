@@ -18,7 +18,7 @@ Exports: /export/master  /export/history   (download the Excel deliverables)
 API:    /api/benchmark /api/compare /api/headtohead /api/entities /api/periods
 """
 import sqlite3, os, secrets, threading, time
-from flask import Flask, request, jsonify, render_template_string, send_file, session, redirect
+from flask import Flask, request, jsonify, render_template_string, send_file, session, redirect, Response
 from markupsafe import escape as esc
 from werkzeug.middleware.proxy_fix import ProxyFix
 import auth as _auth
@@ -477,6 +477,8 @@ PERM_BY_ENDPOINT = {
     "export_accounting": "exports",
     "export_saft": "exports",
     "documents":       "documents", "doc_download": "documents",
+    "share_links_page": "share", "share_create": "share", "share_views_page": "share",
+    "share_revoke":    "share",
     "export_master":   "exports", "export_history": "exports",
     "export_pricing":  "exports", "export_vat": "exports", "export_compare": "exports",
     "export_stations": "exports", "export_summary": "exports", "export_fee": "exports",
@@ -521,6 +523,8 @@ MODULES = {
                     "imports", "files_archive", "doc_mining_page", "data_manager"}),
     "compliance": ("Compliance — invoice control, contract audit, documents",
                    {"invoice_ctrl", "contracts", "documents", "doc_download"}),
+    "sharing":    ("Secure share links — trackable public links to vaulted documents",
+                   {"share_links_page", "share_create", "share_views_page", "share_revoke"}),
     "vat":        ("VAT refunds — claims, readiness, recovery & fees (admin only)",
                    {"vat", "api_vat", "readiness", "recovery", "receivables", "recon",
                     "export_vat", "export_readiness", "export_fees", "export_fee",
@@ -613,6 +617,13 @@ def _guard():
     if request.endpoint in API_V1_SCOPE:
         return  # /api/v1 is fully owned by _api_v1_guard (token-only)
     if request.endpoint in ("setup", "static", "app_js") or request.endpoint is None:
+        return
+    # Secure share links: the public viewer + file stream are PUBLIC by design (no
+    # session). They run their OWN per-token gate (revoked/expired/password/email) in
+    # the view; do NOT require login here. The authenticated management pages
+    # (share_links_page / share_create / share_views_page / share_revoke) are NOT
+    # exempted and fall through to the normal session + capability + CSRF checks below.
+    if request.endpoint in ("share_public", "share_file"):
         return
     if _needs_setup():
         return redirect("/setup")
@@ -1265,6 +1276,7 @@ h2.section:first-of-type{margin-top:4px}
   <a href="/contracts" class="{{'on' if page=='con'}}">Contract audit</a>{% endif %}
   {% if 'documents' in perms %}<a href="/documents" class="{{'on' if page=='doc'}}">Documents</a>{% endif %}
 </span></div></div>{% endif %}
+{% if 'sharing' in modules and 'share' in perms %}<a href="/share" class="{{'on' if page=='shr'}}">Share links</a>{% endif %}
 {% if 'intake' in modules and 'data_import' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ext','queue','imp','fil','min'] else ''}}">Intake</span><div class="mdrop"><span>
   <a href="/extract" class="{{'on' if page=='ext'}}">Import batch</a>
   <a href="/queue" class="{{'on' if page=='queue'}}">Waiting room</a>
@@ -7388,6 +7400,332 @@ def cust_doc_download(doc_id):
         return page('<div class="card"><b class="bad">No such document.</b></div>', ""), 404
     data = document_vault.get_bytes(d["stored_path"], CD.DOCDIR)
     return send_file(io.BytesIO(data), as_attachment=True, download_name=d["filename"])
+
+# ---------------------------------------------------------------- secure share links (B1)
+# A Papermark/DocSend-style trackable PUBLIC link over a vaulted PDF. The management
+# surface (create / list / per-link views / revoke) is authenticated + capability-gated
+# ('share'); the public viewer (/s/<token>) and file stream (/s/<token>/file) are PUBLIC
+# by design and run their OWN per-token gate (revoked/expired/password/email). Vault
+# bytes are fetched strictly via document_vault by the stored doc_ref — no path the
+# caller controls. See sharing.py.
+
+def _vault_doc_choices():
+    """(doc_ref, label) pairs of vaulted invoice documents, so the create form offers a
+    pick-list instead of forcing a hand-typed locator. Read-only; never raises -> []."""
+    try:
+        import vat_refund as VR
+        con = VR.connect()
+        try:
+            rows = con.execute(
+                """SELECT stored_path, filename, entity, supplier, invoice_ref
+                   FROM invoice_documents ORDER BY uploaded_at DESC LIMIT 500""").fetchall()
+        finally:
+            con.close()
+        out = []
+        for r in rows:
+            label = " · ".join(x for x in (r["filename"], r["entity"], r["supplier"],
+                                           r["invoice_ref"]) if x)
+            out.append((r["stored_path"], label or r["stored_path"]))
+        return out
+    except Exception as e:
+        _log_exc("share: list vault documents", e)
+        return []
+
+
+@app.route("/share", methods=["GET", "POST"])
+def share_links_page():
+    """List the current user's share links (with view counts) and revoke them."""
+    import sharing
+    actor = session.get("user", "")
+    banner = ""
+    if request.method == "POST" and request.form.get("__act") == "revoke":
+        try:
+            lid = int(request.form.get("link_id", "0"))
+        except (TypeError, ValueError):
+            lid = 0
+        link = sharing.get_by_id(lid)
+        if link and link.get("created_by") == actor:
+            ok, msg = sharing.revoke(lid, actor)
+            banner = ('<div class="card" style="border-left:4px solid var(--ok)">'
+                      '<b class="ok">Link revoked.</b> It no longer serves the document.</div>'
+                      if ok else
+                      f'<div class="card" style="border-left:4px solid var(--bad)">'
+                      f'<b class="bad">Could not revoke.</b> {esc(msg)}</div>')
+        else:
+            banner = ('<div class="card" style="border-left:4px solid var(--bad)">'
+                      '<b class="bad">No such link.</b></div>')
+    try:
+        links = sharing.list_links(actor)
+    except Exception as e:
+        _log_exc("share: list links", e)
+        links = []
+    rows = []
+    for l in links:
+        url = f"/s/{l['token']}"
+        gates = []
+        if l.get("password_hash"):
+            gates.append("password")
+        if l.get("require_email"):
+            gates.append("email")
+        if l.get("expires_at"):
+            gates.append(f"expires {esc(l['expires_at'])}")
+        state = ('<b class="bad">revoked</b>' if l.get("revoked")
+                 else '<b class="bad">expired</b>' if sharing.is_expired(l)
+                 else '<b class="ok">active</b>')
+        revoke_btn = ""
+        if not l.get("revoked"):
+            revoke_btn = ('<form method="post" style="display:inline">' + _csrf_input()
+                          + f'<input type="hidden" name="link_id" value="{l["id"]}">'
+                          + '<button name="__act" value="revoke" '
+                          'onclick="return confirm(\'Revoke this link?\')">Revoke</button></form>')
+        rows.append([
+            esc(l.get("title") or "(untitled)"),
+            f'<a href="{esc(url)}">{esc(url)}</a>',
+            (", ".join(gates) or "—"),
+            state,
+            f'<a href="/share/{l["id"]}/views">{l.get("views", 0)}</a>',
+            esc(l.get("created_at") or ""),
+            revoke_btn,
+        ])
+    table = (tbl(["Title", "Public link", "Gates", "State", "Views", "Created", ""], rows)
+             if rows else '<p class="note">No share links yet.</p>')
+    create_form = (
+        '<div class="card"><h2>Create a share link</h2>'
+        '<p class="note">A secure, trackable PUBLIC link to a vaulted document. '
+        'Bytes are served same-origin in an iframe; every first view is logged.</p>'
+        '<form method="post" action="/share/create" class="f">' + _csrf_input()
+        + '<label>Document'
+          '<select name="doc_ref">'
+        + "".join(f'<option value="{esc(dr)}">{esc(lbl)}</option>'
+                  for dr, lbl in _vault_doc_choices())
+        + '</select></label>'
+          '<label>…or paste a vault reference<input name="doc_ref_manual" '
+          'placeholder="leave blank to use the pick-list above"></label>'
+          '<label>Title<input name="title" placeholder="optional"></label>'
+          '<label>Expires (UTC, optional)<input name="expires_at" '
+          'placeholder="YYYY-MM-DD or YYYY-MM-DD HH:MM"></label>'
+          '<label>Password (optional)<input name="password" type="password" '
+          'autocomplete="new-password"></label>'
+          '<label class="ck"><input type="checkbox" name="require_email" value="1"> '
+          'Require the viewer to enter an email first</label>'
+          '<div style="margin-top:8px"><button>Create link</button></div>'
+          '</form></div>')
+    return page(banner + create_form
+                + f'<div class="card"><h2>Your share links</h2>{table}</div>', "shr")
+
+
+@app.route("/share/create", methods=["POST"])
+def share_create():
+    import sharing
+    actor = session.get("user", "")
+    doc_ref = (request.form.get("doc_ref_manual") or request.form.get("doc_ref") or "").strip()
+    link, err = sharing.create_link(
+        doc_ref, request.form.get("title", ""), actor,
+        expires_at=(request.form.get("expires_at") or "").strip() or None,
+        password=(request.form.get("password") or "") or None,
+        require_email=bool(request.form.get("require_email")))
+    if err or not link:
+        return page('<div class="card" style="border-left:4px solid var(--bad)">'
+                    f'<b class="bad">Could not create the link.</b> {esc(err or "unknown error")}'
+                    '</div><p><a href="/share">Back to share links</a></p>', "shr")
+    url = f"/s/{link['token']}"
+    return page('<div class="card" style="border-left:4px solid var(--ok)">'
+                '<b class="ok">Share link created.</b>'
+                f'<p>Public link: <a href="{esc(url)}">{esc(url)}</a></p>'
+                '<p class="note">Anyone with this link can view the document '
+                '(subject to any password / email / expiry you set). Revoke it any time '
+                'on the share-links page.</p></div>'
+                '<p><a href="/share">Back to share links</a></p>', "shr")
+
+
+@app.route("/share/<int:link_id>/views")
+def share_views_page(link_id):
+    import sharing
+    actor = session.get("user", "")
+    link = sharing.get_by_id(link_id)
+    if not link or link.get("created_by") != actor:
+        return page('<div class="card"><b class="bad">No such link.</b></div>', "shr"), 404
+    views = sharing.views_for(link_id)
+    rows = [[esc(v.get("viewed_at") or ""), esc(v.get("viewer_email") or "—"),
+             esc(v.get("ip") or "—"), esc((v.get("user_agent") or "")[:120])]
+            for v in views]
+    table = (tbl(["When (UTC)", "Email", "IP", "User agent"], rows) if rows
+             else '<p class="note">No views recorded yet.</p>')
+    return page(f'<div class="card"><h2>Views — {esc(link.get("title") or "(untitled)")}</h2>'
+                f'<p class="note">Public link: /s/{esc(link["token"])}</p>{table}</div>'
+                '<p><a href="/share">Back to share links</a></p>', "shr")
+
+
+# ---- PUBLIC viewer + file stream (NO auth by design; per-token gate runs in-view) ----
+def _share_gate_or_form(token, link):
+    """Run the per-token public gates. Returns:
+      ("ok",   email)      -> gates passed, `email` is the captured email (or None)
+      ("deny", None)       -> missing/revoked/expired (caller renders a 404/410)
+      ("form", html)       -> a password and/or email-capture form to render (200)
+    The verified-password marker + captured email live in the session keyed by token,
+    so a refresh / the iframe file fetch don't re-prompt within the same session."""
+    if not link or not sharing_is_active(link):
+        return "deny", None
+    sess_pw = session.get("_share_pw", {})
+    sess_em = session.get("_share_em", {})
+    import sharing
+    # password gate
+    if link.get("password_hash") and not sess_pw.get(token):
+        if request.method == "POST" and request.form.get("share_password") is not None:
+            if sharing.check_password(link.get("password_hash"),
+                                      request.form.get("share_password", "")):
+                sess_pw[token] = True
+                session["_share_pw"] = sess_pw
+            else:
+                return "form", _share_password_form(token, error=True)
+        else:
+            return "form", _share_password_form(token, error=False)
+    # email-capture gate
+    email = sess_em.get(token)
+    if link.get("require_email") and not email:
+        if request.method == "POST" and request.form.get("share_email"):
+            email = (request.form.get("share_email") or "").strip()[:200]
+            sess_em[token] = email
+            session["_share_em"] = sess_em
+        else:
+            return "form", _share_email_form(token)
+    return "ok", email
+
+
+def sharing_is_active(link):
+    import sharing
+    return sharing.is_active(link)
+
+
+_SHARE_CSS = (
+    "<style>body{font-family:system-ui,Arial,sans-serif;margin:0;background:#0e1726;"
+    "color:#e6edf3}.wrap{max-width:760px;margin:0 auto;padding:24px}"
+    ".box{background:#16213a;border:1px solid #25304a;border-radius:10px;padding:20px;"
+    "margin-top:40px}input{width:100%;box-sizing:border-box;padding:9px;margin:6px 0 12px;"
+    "border-radius:6px;border:1px solid #34405c;background:#0e1726;color:#e6edf3}"
+    "button{padding:9px 16px;border:0;border-radius:6px;background:#2d6cdf;color:#fff;"
+    "cursor:pointer}.err{color:#ff8a8a;margin:0 0 8px}h2{margin-top:0}"
+    "iframe{width:100%;height:90vh;border:0;background:#fff}"
+    ".bar{padding:10px 16px;background:#16213a;border-bottom:1px solid #25304a}</style>")
+
+
+def _share_shell(title, inner):
+    """A minimal standalone HTML page for the PUBLIC surface (it does NOT use the
+    authenticated BASE template / nav). Title is escaped by the caller as needed."""
+    return ("<!doctype html><html lang=en><head><meta charset=utf-8>"
+            "<meta name=viewport content='width=device-width,initial-scale=1'>"
+            f"<title>{esc(title)}</title>{_SHARE_CSS}</head><body>{inner}</body></html>")
+
+
+def _share_password_form(token, error=False):
+    err = '<p class="err">Incorrect password.</p>' if error else ""
+    return _share_shell(
+        "Protected document",
+        '<div class="wrap"><div class="box"><h2>This document is password-protected</h2>'
+        + err
+        + f'<form method="post" action="/s/{esc(token)}">'
+          '<label>Password<input type="password" name="share_password" '
+          'autocomplete="off" autofocus></label>'
+          '<button>View document</button></form></div></div>')
+
+
+def _share_email_form(token):
+    return _share_shell(
+        "Enter your email",
+        '<div class="wrap"><div class="box"><h2>Please enter your email to continue</h2>'
+        f'<form method="post" action="/s/{esc(token)}">'
+        '<label>Email<input type="email" name="share_email" autofocus required></label>'
+        '<button>View document</button></form></div></div>')
+
+
+def _share_not_found():
+    """Enumeration-safe response for missing/revoked/expired (all look identical)."""
+    return (_share_shell("Not available",
+            '<div class="wrap"><div class="box"><h2>This link is not available</h2>'
+            '<p class="note">The link may have been revoked, expired, or never existed.</p>'
+            '</div></div>'), 410)
+
+
+@app.route("/s/<token>", methods=["GET", "POST"])
+def share_public(token):
+    """PUBLIC viewer for a share link. Runs the per-token gate, then embeds the PDF in a
+    same-origin iframe (pointing at /s/<token>/file) and records ONE view. No auth."""
+    import sharing
+    try:
+        link = sharing.get_by_token(token)
+        state, payload = _share_gate_or_form(token, link)
+        if state == "deny":
+            return _share_not_found()
+        if state == "form":
+            return payload
+        email = payload
+        # gates passed — record ONE view (dedup window guards refreshes); notify owner
+        # on the FIRST genuine view only.
+        try:
+            if sharing.record_view(link, email, request.remote_addr or "",
+                                   request.headers.get("User-Agent", "")):
+                _notify_share_owner(link, email)
+        except Exception as e:
+            _log_exc("share: record view", e)
+        file_url = f"/s/{esc(token)}/file"
+        title = link.get("title") or link.get("doc_ref") or "Shared document"
+        inner = (f'<div class="bar"><b>{esc(title)}</b></div>'
+                 f'<iframe src="{file_url}" title="{esc(title)}"></iframe>')
+        return _share_shell(title, inner)
+    except Exception as e:
+        _log_exc("share: public viewer", e)
+        return _share_not_found()
+
+
+@app.route("/s/<token>/file")
+def share_file(token):
+    """Stream the vaulted PDF for a share link — ONLY after the SAME per-token gates pass
+    (revoked/expired/password/email). 404/410 otherwise. Fetched strictly via
+    document_vault by the stored doc_ref (no caller-controlled path). The response is
+    served with SAMEORIGIN framing so the viewer iframe can embed it WITHOUT weakening
+    the global DENY default for any other page."""
+    import sharing, document_vault, vat_refund as VR
+    try:
+        link = sharing.get_by_token(token)
+        state, _payload = _share_gate_or_form(token, link)
+        if state != "ok":
+            # missing/revoked/expired OR gates not yet satisfied -> do not serve bytes.
+            return _share_not_found()
+        try:
+            data = document_vault.get_bytes(link["doc_ref"], VR.DOCDIR)
+        except Exception as e:
+            _log_exc("share: vault read", e)
+            return _share_not_found()
+        resp = Response(data, mimetype="application/pdf")
+        resp.headers["Content-Disposition"] = "inline"
+        # Per-RESPONSE relaxation to SAME-ORIGIN framing (not weaker) so the viewer
+        # iframe embeds it; every OTHER page keeps the global DENY / frame-ancestors
+        # 'none'. object-src 'none' is irrelevant here (we use <iframe>, not <embed>).
+        resp.headers["X-Frame-Options"] = "SAMEORIGIN"
+        resp.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+    except Exception as e:
+        _log_exc("share: file stream", e)
+        return _share_not_found()
+
+
+def _notify_share_owner(link, email):
+    """Best-effort: alert that a shared document was viewed, via the notify SMTP relay
+    (the configured notify_recipients — there is no per-user email store in B1, so this
+    is the team alert channel, attributed to the link's creator). A no-op when no
+    recipients/SMTP are configured. Never raises."""
+    try:
+        import notify
+        who = email or "an anonymous visitor"
+        notify.send_alert(
+            "Fleet Fuel & VAT — a shared document was viewed",
+            [f"'{link.get('title') or link.get('doc_ref')}' (shared by "
+             f"{link.get('created_by') or 'unknown'}) was viewed by {who}.",
+             f"Link: /s/{link.get('token')}"])
+    except Exception as e:
+        _log_exc("share: owner notify", e)
+
 
 @app.route("/export/vat")
 def export_vat():

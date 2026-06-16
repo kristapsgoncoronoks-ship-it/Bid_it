@@ -37,6 +37,7 @@ PERMISSIONS = {
     "customers":       "Onboard & manage VAT-refund customers (docs, fees, activation)",
     "pricing":         "Upload pricing & wholesale data",
     "documents":       "Attach & manage invoice documents",
+    "share":           "Create & manage secure public share links",
     "exports":         "Download Excel / data exports",
 }
 # Admin-only capabilities — the "server setup & overall software changes"
