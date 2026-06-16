@@ -170,6 +170,70 @@ def pdf_text(pdf_bytes):
     return "\n".join((p.extract_text() or "") for p in reader.pages)
 
 
+# ---------------------------------------------------------------- OCR (scanned PDFs)
+# A scanned / image-only PDF carries NO embedded text, so pdf_text() returns ~nothing and
+# the parser/AI path either produces an empty draft or hallucinates off garbage. OCR is the
+# only way to recover such a document. It is a PLUGGABLE, default-'auto' seam (like the AI
+# backends): 'auto' uses a local Tesseract install if present, else degrades to no-OCR
+# (behaviour byte-identical to before); 'tesseract' forces it; 'none' disables it. OCR runs
+# fully ON-PREM — no bytes leave the host — and feeds the SAME parser/AI/validation path, so
+# OCR never produces an authoritative figure; the draft is flagged for careful review.
+OCR_BACKEND = os.environ.get("EXTRACT_OCR_BACKEND", "auto")   # auto | tesseract | none
+_MIN_TEXT_CHARS = 24            # below this, treat the PDF as image-only / scanned
+
+def _looks_scanned(text):
+    return len((text or "").strip()) < _MIN_TEXT_CHARS
+
+def _tesseract_ready():
+    """True if the local Tesseract OCR stack (pytesseract + pdf2image + the tesseract
+    binary) is importable/usable. Never raises."""
+    try:
+        import pytesseract, pdf2image      # noqa: F401
+        import shutil
+        return shutil.which("tesseract") is not None
+    except Exception:
+        return False
+
+def _ocr_tesseract(pdf_bytes):
+    import pytesseract
+    from pdf2image import convert_from_bytes
+    pages = convert_from_bytes(pdf_bytes)
+    return "\n".join(pytesseract.image_to_string(p) for p in pages)
+
+_OCR = {"tesseract": _ocr_tesseract}
+
+def ocr_text(pdf_bytes, backend=None):
+    """OCR a scanned/image PDF to text on-prem. Returns '' (NEVER raises) when no OCR
+    backend is available or configured, so the caller degrades exactly as before."""
+    backend = backend or OCR_BACKEND
+    if backend == "none":
+        return ""
+    fn = _OCR.get(backend)
+    if backend == "auto":
+        fn = _OCR["tesseract"] if _tesseract_ready() else None
+    if fn is None:
+        return ""
+    try:
+        return fn(pdf_bytes) or ""
+    except Exception as e:
+        log.warning("OCR (%s) failed — treating as no text: %s", backend, e)
+        return ""
+
+def pdf_text_or_ocr(pdf_bytes, backend=None):
+    """Text for a PDF, falling back to OCR when the PDF appears scanned/image-only.
+    Returns (text, used_ocr). Never raises."""
+    txt = ""
+    try:
+        txt = pdf_text(pdf_bytes) or ""
+    except Exception as e:
+        log.warning("pdf_text failed (%s) — attempting OCR", e)
+    if _looks_scanned(txt):
+        otext = ocr_text(pdf_bytes, backend)
+        if otext.strip():
+            return otext, True
+    return txt, False
+
+
 # ---------------------------------------------------------------- deterministic parser
 def _num(s):
     """Currency amount -> float, money.f2-quantized (HALF_UP). Handles European
@@ -622,12 +686,14 @@ def _facturx_draft(files, xmls):
     return draft
 
 
-def _plain_draft(texts, files, backend, filename, strict):
+def _plain_draft(texts, files, backend, filename, strict, ocr_used=False):
     """Build the review draft for the PLAIN (non-hybrid) PDFs via the parser→AI→empty
     path, then attach the original PDF bytes for vaulting. This is the historical
     text/parser/AI logic, moved verbatim out of extract() so the same code serves both
     the ALL-plain batch and the plain subset of a MIXED batch. Under strict=True the AI
-    path RAISES TransientExtractionError on transient failures so the queue can retry."""
+    path RAISES TransientExtractionError on transient failures so the queue can retry.
+    `ocr_used` marks that some text was recovered by OCR (scanned PDF) — the draft is then
+    flagged for careful review (OCR text is noisier than embedded text)."""
     def empty(note, be):
         return {"supplier": None, "statement_ref": None, "statement_date": None,
                 "currency": "EUR", "customer": None, "lines": [], "notes": note,
@@ -658,6 +724,12 @@ def _plain_draft(texts, files, backend, filename, strict):
     if draft is None:
         draft = empty("no parser matched and no AI backend configured - enter manually", "none")
 
+    if ocr_used:
+        draft["ocr"] = True
+        draft["notes"] = (draft.get("notes") or "") + (
+            " | text recovered via on-prem OCR (scanned PDF) — verify every figure")
+        if draft.get("confidence") == "high":
+            draft["confidence"] = "medium"
     draft["files"] = [{"name": n, "size": len(b)} for n, b in files]
     draft["_pdf_bytes"] = files                    # kept for vault attach on confirm
     return draft
@@ -717,14 +789,18 @@ def extract(upload_bytes, filename, backend=None, strict=False):
     plains = [(n, b) for (n, b), (_, x) in zip(files, embedded) if x is None]
     if not plains:                                 # ALL hybrid — unchanged
         return _facturx_draft(files, [(n, x) for n, x in embedded])
-    if not hybrids:                                # ALL plain — unchanged behavior
-        texts = [(n, pdf_text(b)) for n, b in plains]
-        return _plain_draft(texts, plains, backend, filename, strict)
+    if not hybrids:                                # ALL plain — OCR fallback for scans
+        pairs = [(n, pdf_text_or_ocr(b)) for n, b in plains]
+        texts = [(n, t) for n, (t, _o) in pairs]
+        ocr_used = any(o for _n, (_t, o) in pairs)
+        return _plain_draft(texts, plains, backend, filename, strict, ocr_used=ocr_used)
     # MIXED: parse the hybrids deterministically, the plains via parser/AI, then merge.
     h_draft = _facturx_draft([(n, b) for n, b, _ in hybrids],
                              [(n, x) for n, b, x in hybrids])
-    p_texts = [(n, pdf_text(b)) for n, b in plains]
-    p_draft = _plain_draft(p_texts, plains, backend, filename, strict)
+    pairs = [(n, pdf_text_or_ocr(b)) for n, b in plains]
+    p_texts = [(n, t) for n, (t, _o) in pairs]
+    ocr_used = any(o for _n, (_t, o) in pairs)
+    p_draft = _plain_draft(p_texts, plains, backend, filename, strict, ocr_used=ocr_used)
     return _merge_mixed(h_draft, p_draft, files)
 
 
