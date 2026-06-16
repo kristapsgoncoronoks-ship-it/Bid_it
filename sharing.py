@@ -73,7 +73,27 @@ CREATE TABLE IF NOT EXISTS share_views (
     tenant_id   TEXT NOT NULL DEFAULT 'default'
 );
 CREATE INDEX IF NOT EXISTS ix_share_views_link ON share_views(link_id, viewed_at);
+CREATE TABLE IF NOT EXISTS share_agreements (
+    id           INTEGER PRIMARY KEY,
+    link_id      INTEGER NOT NULL,
+    viewer_email TEXT,
+    accepted_at  TEXT DEFAULT CURRENT_TIMESTAMP,
+    ip           TEXT,
+    user_agent   TEXT,
+    tenant_id    TEXT NOT NULL DEFAULT 'default'
+);
+CREATE INDEX IF NOT EXISTS ix_share_agreements_link ON share_agreements(link_id, accepted_at);
 """
+
+# B2 migrations (NDA gate + dynamic watermark): APPEND only — positions are stable. The
+# CREATE TABLE for share_agreements lives in SCHEMA (idempotent CREATE IF NOT EXISTS); the
+# new COLUMNS on the existing share_links table go through db_migrate so each ALTER runs
+# ONCE per database.
+_MIGRATIONS = [
+    "ALTER TABLE share_links ADD COLUMN nda_required INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE share_links ADD COLUMN agreement_text TEXT",
+    "ALTER TABLE share_links ADD COLUMN watermark INTEGER NOT NULL DEFAULT 0",
+]
 
 _SCHEMA_READY = set()   # DB files whose schema is set up this process
 
@@ -86,8 +106,8 @@ def connect():
     if DB == ":memory:" or DB not in _SCHEMA_READY:
         con.executescript(SCHEMA)
         # versioned migrations: each runs ONCE per database (db_migrate). Append only.
-        db_migrate.apply(con, "sharing", [])
-        audit.install_audit(con, ["share_links", "share_views"])
+        db_migrate.apply(con, "sharing", _MIGRATIONS)
+        audit.install_audit(con, ["share_links", "share_views", "share_agreements"])
         con.commit()
         _SCHEMA_READY.add(DB)
     return con
@@ -122,10 +142,15 @@ def check_password(stored, password):
 
 
 # ---------------------------------------------------------------- create / read
-def create_link(doc_ref, title, actor, expires_at=None, password=None, require_email=False):
+def create_link(doc_ref, title, actor, expires_at=None, password=None, require_email=False,
+                nda_required=False, agreement_text=None, watermark=False):
     """Mint a share link for the vault locator `doc_ref`. Returns (link_dict, "") on
     success or (None, error_message). Never raises to the caller — failures are logged
-    and returned as a value."""
+    and returned as a value.
+
+    B2 opt-ins: `nda_required` (+ `agreement_text` rendered on the agreement page) gates
+    the document behind a logged "I agree"; `watermark` overlays a per-viewer diagonal
+    watermark on every page of the streamed PDF."""
     doc_ref = (doc_ref or "").strip()
     if not doc_ref:
         return None, "a document reference is required"
@@ -136,11 +161,15 @@ def create_link(doc_ref, title, actor, expires_at=None, password=None, require_e
             con.execute(
                 """INSERT INTO share_links
                    (token, doc_ref, title, created_by, tenant_id, expires_at,
-                    password_hash, require_email, revoked)
-                   VALUES (?,?,?,?,?,?,?,?,0)""",
+                    password_hash, require_email, revoked, nda_required,
+                    agreement_text, watermark)
+                   VALUES (?,?,?,?,?,?,?,?,0,?,?,?)""",
                 (token, doc_ref, (title or "").strip() or None, actor or "",
                  tenancy.write_tenant(), (expires_at or None),
-                 _hash_password(password), 1 if require_email else 0))
+                 _hash_password(password), 1 if require_email else 0,
+                 1 if nda_required else 0,
+                 ((agreement_text or "").strip() or None) if nda_required else None,
+                 1 if watermark else 0))
             con.commit()
             row = con.execute("SELECT * FROM share_links WHERE token=?", (token,)).fetchone()
         finally:
@@ -280,6 +309,61 @@ def view_count(link_id):
     except Exception as e:
         log.warning("view_count failed for link %s: %s", link_id, e)
         return 0
+
+
+# ---------------------------------------------------------------- NDA / agreement gate
+def record_agreement(link, email, ip, ua):
+    """Log ONE NDA/agreement acceptance for `link` into share_agreements. Returns True iff
+    a row was written. Best-effort: failures are logged and return False — this never
+    raises to the caller (mirrors record_view)."""
+    if not link:
+        return False
+    try:
+        con = connect()
+        try:
+            con.execute(
+                """INSERT INTO share_agreements
+                   (link_id, viewer_email, ip, user_agent, tenant_id)
+                   VALUES (?,?,?,?,?)""",
+                (link["id"], (email or None), (ip or "")[:64], (ua or "")[:400],
+                 tenancy.write_tenant()))
+            con.commit()
+            return True
+        finally:
+            con.close()
+    except Exception as e:
+        log.warning("record_agreement failed for link %s: %s",
+                    (link or {}).get("id"), e)
+        return False
+
+
+def has_accepted(link, marker):
+    """True iff the agreement gate is satisfied for this link given the caller's session
+    `marker` (the per-token truthy flag the web layer keeps, exactly like the password /
+    email markers). A link that does NOT require an NDA is always satisfied. Never
+    raises (a falsy/missing link is treated as not accepted)."""
+    if not link:
+        return False
+    if not link.get("nda_required"):
+        return True
+    return bool(marker)
+
+
+def agreements_for(link_id):
+    """All logged acceptances of a link, newest first, as dicts. Never raises -> []."""
+    try:
+        con = connect()
+        try:
+            rows = con.execute(
+                """SELECT id, link_id, viewer_email, ip, user_agent, accepted_at
+                   FROM share_agreements WHERE link_id=? ORDER BY accepted_at DESC, id DESC""",
+                (link_id,)).fetchall()
+        finally:
+            con.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        log.warning("agreements_for failed for link %s: %s", link_id, e)
+        return []
 
 
 # ---------------------------------------------------------------- list / revoke

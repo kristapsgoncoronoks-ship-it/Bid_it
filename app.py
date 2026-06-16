@@ -7467,6 +7467,10 @@ def share_links_page():
             gates.append("password")
         if l.get("require_email"):
             gates.append("email")
+        if l.get("nda_required"):
+            gates.append("NDA")
+        if l.get("watermark"):
+            gates.append("watermark")
         if l.get("expires_at"):
             gates.append(f"expires {esc(l['expires_at'])}")
         state = ('<b class="bad">revoked</b>' if l.get("revoked")
@@ -7508,6 +7512,13 @@ def share_links_page():
           'autocomplete="new-password"></label>'
           '<label class="ck"><input type="checkbox" name="require_email" value="1"> '
           'Require the viewer to enter an email first</label>'
+          '<label class="ck"><input type="checkbox" name="nda_required" value="1"> '
+          'Require the viewer to accept an agreement (NDA) first — logged</label>'
+          '<label>Agreement text (shown on the NDA gate; optional)'
+          '<textarea name="agreement_text" rows="3" '
+          'placeholder="leave blank for a default confidentiality notice"></textarea></label>'
+          '<label class="ck"><input type="checkbox" name="watermark" value="1"> '
+          'Watermark every page with the viewer + timestamp</label>'
           '<div style="margin-top:8px"><button>Create link</button></div>'
           '</form></div>')
     return page(banner + create_form
@@ -7523,7 +7534,10 @@ def share_create():
         doc_ref, request.form.get("title", ""), actor,
         expires_at=(request.form.get("expires_at") or "").strip() or None,
         password=(request.form.get("password") or "") or None,
-        require_email=bool(request.form.get("require_email")))
+        require_email=bool(request.form.get("require_email")),
+        nda_required=bool(request.form.get("nda_required")),
+        agreement_text=(request.form.get("agreement_text") or "") or None,
+        watermark=bool(request.form.get("watermark")))
     if err or not link:
         return page('<div class="card" style="border-left:4px solid var(--bad)">'
                     f'<b class="bad">Could not create the link.</b> {esc(err or "unknown error")}'
@@ -7561,12 +7575,16 @@ def _share_gate_or_form(token, link):
     """Run the per-token public gates. Returns:
       ("ok",   email)      -> gates passed, `email` is the captured email (or None)
       ("deny", None)       -> missing/revoked/expired (caller renders a 404/410)
-      ("form", html)       -> a password and/or email-capture form to render (200)
-    The verified-password marker + captured email live in the session keyed by token,
-    so a refresh / the iframe file fetch don't re-prompt within the same session."""
+      ("form", html)       -> a password / NDA / email-capture form to render (200)
+    The verified-password marker, NDA-accepted marker + captured email all live in the
+    session keyed by token, so a refresh / the iframe file fetch don't re-prompt within
+    the same session. Gate ORDER: revoked/expired -> password -> NDA -> email-capture
+    -> view (NDA is shown BEFORE the document, but AFTER the password so a stranger can't
+    read the agreement text of a protected link)."""
     if not link or not sharing_is_active(link):
         return "deny", None
     sess_pw = session.get("_share_pw", {})
+    sess_nda = session.get("_share_nda", {})
     sess_em = session.get("_share_em", {})
     import sharing
     # password gate
@@ -7580,6 +7598,19 @@ def _share_gate_or_form(token, link):
                 return "form", _share_password_form(token, error=True)
         else:
             return "form", _share_password_form(token, error=False)
+    # NDA / agreement gate — no document bytes until the viewer has accepted (logged).
+    if link.get("nda_required") and not sharing.has_accepted(link, sess_nda.get(token)):
+        if request.method == "POST" and request.form.get("share_agree"):
+            email = (session.get("_share_em", {}) or {}).get(token)
+            try:
+                sharing.record_agreement(link, email, request.remote_addr or "",
+                                         request.headers.get("User-Agent", ""))
+            except Exception as e:
+                _log_exc("share: record agreement", e)
+            sess_nda[token] = True
+            session["_share_nda"] = sess_nda
+        else:
+            return "form", _share_agreement_form(token, link)
     # email-capture gate
     email = sess_em.get(token)
     if link.get("require_email") and not email:
@@ -7638,6 +7669,24 @@ def _share_email_form(token):
         '<button>View document</button></form></div></div>')
 
 
+def _share_agreement_form(token, link):
+    """The NDA / agreement gate page: renders the (escaped) agreement_text and an
+    "I agree" form. POSTing share_agree records a logged acceptance and proceeds."""
+    text = (link.get("agreement_text")
+            or "By continuing you agree that the contents of this document are "
+               "confidential and may not be redistributed.")
+    # preserve the author's line breaks but keep every byte escaped.
+    body = esc(text).replace("\n", "<br>")
+    return _share_shell(
+        "Confidentiality agreement",
+        '<div class="wrap"><div class="box"><h2>Please review and accept to continue</h2>'
+        f'<div style="max-height:50vh;overflow:auto;white-space:pre-wrap;'
+        f'background:#0e1726;border:1px solid #34405c;border-radius:6px;padding:12px;'
+        f'margin:0 0 14px;line-height:1.5">{body}</div>'
+        f'<form method="post" action="/s/{esc(token)}">'
+        '<button name="share_agree" value="1">I agree</button></form></div></div>')
+
+
 def _share_not_found():
     """Enumeration-safe response for missing/revoked/expired (all look identical)."""
     return (_share_shell("Not available",
@@ -7687,7 +7736,7 @@ def share_file(token):
     import sharing, document_vault, vat_refund as VR
     try:
         link = sharing.get_by_token(token)
-        state, _payload = _share_gate_or_form(token, link)
+        state, email = _share_gate_or_form(token, link)
         if state != "ok":
             # missing/revoked/expired OR gates not yet satisfied -> do not serve bytes.
             return _share_not_found()
@@ -7696,6 +7745,21 @@ def share_file(token):
         except Exception as e:
             _log_exc("share: vault read", e)
             return _share_not_found()
+        if link.get("watermark"):
+            # Opt-in: overlay a faint, tiled, per-viewer watermark on every page. On ANY
+            # failure fall back to the original bytes (never break the viewer) — the helper
+            # returns None and logs via applog.
+            try:
+                import share_watermark
+                who = (email or session.get("_share_em", {}).get(token)
+                       or request.remote_addr or "viewer")
+                stamp = _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+                marked = share_watermark.apply_watermark(
+                    data, f"CONFIDENTIAL   {who}   {stamp}")
+                if marked:
+                    data = marked
+            except Exception as e:
+                _log_exc("share: watermark", e)
         resp = Response(data, mimetype="application/pdf")
         resp.headers["Content-Disposition"] = "inline"
         # Per-RESPONSE relaxation to SAME-ORIGIN framing (not weaker) so the viewer
