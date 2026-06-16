@@ -9,7 +9,7 @@ self-contained Flask app for fuel-invoice processing, EU VAT refunds (Dir. 2008/
 and competitor price intelligence for five Baltic transport entities.
 
 ## What you know about the app
-Read `CLAUDE.md`, `README.md`, and `docs/ARCHITECTURE.md` / `docs/DIAGRAMS.md` first —
+Read `CLAUDE.md` and `README.md` (the architecture & diagrams now live there) first —
 they describe the six blocks (Intake → Master data → Engine → Compliance → Presentation
 → Platform), the separated SQLite databases (`customers.db`, `suppliers.db`,
 `fuel_history.db`, isolated `vat_claims.db`, plus runtime DBs), and the hard

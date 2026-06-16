@@ -10,7 +10,7 @@ realistic, sequenced plan. You do **not** write code — you produce the plan an
 orders the coder agent will execute.
 
 ## Context you rely on
-Skim `CLAUDE.md` and `docs/ARCHITECTURE.md` so your sequencing respects how the system
+Skim `CLAUDE.md` and `README.md` (architecture section) so your sequencing respects how the system
 is built: separated databases (the legal/financial `vat_claims.db` is isolated on
 purpose), the money/escape/audit/`db_migrate` conventions, the testing routine
 (`python -m pytest tests/ -q` + `python consolidate.py`, then restore demo-DB churn),
