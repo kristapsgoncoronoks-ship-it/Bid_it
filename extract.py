@@ -686,6 +686,127 @@ def _facturx_draft(files, xmls):
     return draft
 
 
+# ---------------------------------------------------------------- generic last-resort
+# A plain PDF with NO matching per-supplier parser and NO AI backend used to yield a
+# fully EMPTY draft (a blank manual-entry form) even after OCR. This GENERIC, on-prem,
+# DETERMINISTIC header heuristic runs as a LAST RESORT (after the parser registry and the
+# AI path, before the empty() fallback) and best-effort PREFILLS the draft HEADER from the
+# pdf/OCR text. It keeps every byte on the server (no AI, no network) and NEVER fabricates
+# authoritative figures: it produces NO invoice lines (a VAT claim needs per-product-code
+# lines) — any total/VAT it spots is recorded only as a TEXT HINT in `notes` for the
+# reviewer. Confidence is always 'low'; a real per-supplier parser still WINS over this.
+
+# Invoice / document number labels (case-insensitive, multilingual-ish). The captured
+# group is the adjacent token: an alphanumeric ref with optional separators.
+_REF_LABELS = (
+    r"invoice\s*(?:no\.?|number|#|nr\.?)", r"inv\.?\s*(?:no\.?|#)",
+    r"faktura\s*(?:nr\.?|nr|no\.?)?", r"rechnung(?:s)?\s*(?:nr\.?|nummer)?",
+    r"facture\s*(?:n[o°]\.?|nr\.?)?", r"fattura\s*(?:n[o°]\.?|nr\.?)?",
+    r"document\s*(?:no\.?|number|#|nr\.?)", r"dokument(?:a)?\s*(?:nr\.?|numurs|numer)?",
+    r"s[ąa]skaitos\s*(?:nr\.?|numeris)?", r"nr\.?",
+)
+_REF_RE = re.compile(
+    r"(?:" + "|".join(_REF_LABELS) + r")\s*[:#.\-]?\s*([A-Z0-9][A-Z0-9/\-]{2,})",
+    re.IGNORECASE)
+
+# A plausible date in common printed forms: 2026-05-15, 15.05.2026, 15/05/2026, etc.
+_DATE_RE = re.compile(
+    r"\b(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})\b")
+
+# EU VAT id, e.g. LV40003012345 / PL5270200000. Best-effort hint only.
+_VATID_RE = re.compile(r"\b([A-Z]{2}\d{8,12})\b")
+
+# Currency detection: symbol or ISO code -> ISO code. EUR is the default.
+_CCY_SIGNS = (("€", "EUR"), ("$", "USD"), ("£", "GBP"))
+_CCY_CODES = ("EUR", "USD", "GBP", "PLN", "SEK", "NOK", "DKK", "CHF", "CZK", "HUF")
+
+# Amount labels for the TOTAL / VAT hints. Captures a printed amount token.
+_AMT_TOKEN = r"([\d][\d  .,]*\d|\d)"
+_TOTAL_RE = re.compile(
+    r"(?:total(?:\s*amount)?|grand\s*total|amount\s*due|kopsumma|gesamt(?:betrag)?|"
+    r"summe|totale|montant\s*total|razem|viso|att\s*betala)\s*[:=]?\s*"
+    + _AMT_TOKEN, re.IGNORECASE)
+_VAT_RE = re.compile(
+    r"(?:vat(?:\s*amount)?|tax\s*amount|pvn|mwst\.?|tva|iva|btw|moms)\s*[:=]?\s*"
+    + _AMT_TOKEN, re.IGNORECASE)
+
+
+def _detect_currency(text):
+    """Best-effort currency from a symbol or ISO code; defaults to EUR."""
+    for sign, code in _CCY_SIGNS:
+        if sign in text:
+            return code
+    up = text.upper()
+    for code in _CCY_CODES:
+        if re.search(r"\b" + code + r"\b", up):
+            return code
+    return "EUR"
+
+
+def _generic_text_draft(texts):
+    """LAST-RESORT, on-prem, deterministic best-effort header extractor for a plain PDF
+    that no per-supplier parser recognised and that no AI backend processed. Best-effort
+    parses the concatenated pdf/OCR text for a document number, a date, a currency and a
+    supplier VAT-id hint, and records any detected TOTAL/VAT amount as a TEXT HINT in the
+    notes (never as an invoice line — VAT claims need per-product-code lines, which this
+    heuristic must not fabricate). Returns a draft dict in the same schema empty() uses
+    with backend='generic'/confidence='low', or None when essentially nothing was found
+    (so behaviour is byte-identical to before on an unusable/garbage document). NEVER
+    raises — any error is logged and returns None."""
+    try:
+        joined = "\n".join(t or "" for _n, t in texts)
+        if len(joined.strip()) < _MIN_TEXT_CHARS:
+            return None
+
+        m = _REF_RE.search(joined)
+        ref = m.group(1).strip() if m else None
+
+        date = None
+        for m in _DATE_RE.finditer(joined):
+            nd = _norm_date(m.group(1))
+            if re.match(r"\d{4}-\d{1,2}-\d{1,2}", nd) or re.match(
+                    r"\d{1,2}[./]\d{1,2}[./]\d{2,4}", nd):
+                date = nd
+                break
+
+        currency = _detect_currency(joined)
+
+        mv = _VATID_RE.search(joined)
+        supplier = mv.group(1) if mv else None      # VAT-id is a best-effort name hint
+
+        # Amounts are recorded as TEXT HINTS only: we show BOTH the raw printed token and
+        # the `_num()` (European-basis) reading, because the printed grouping is ambiguous
+        # on-prem (a US-format '1,234.56' reads differently than EU '1.234,56'). The reviewer
+        # confirms the real figure — this is never an authoritative line.
+        hints = []
+        mt = _TOTAL_RE.search(joined)
+        if mt:
+            raw = mt.group(1).strip()
+            hints.append(f"detected total '{raw}' (~{money.f2(_num(raw))}) {currency}")
+        mvat = _VAT_RE.search(joined)
+        if mvat:
+            raw = mvat.group(1).strip()
+            hints.append(f"detected VAT '{raw}' (~{money.f2(_num(raw))}) {currency}")
+
+        # Nothing usable at all -> behave exactly as before (empty fallback / manual).
+        if not (ref or date or supplier or hints):
+            return None
+
+        note = ("auto-prefilled by on-prem heuristics (no recognised layout) — verify "
+                "and complete every figure")
+        if supplier and not ref:
+            note += " | supplier shown is a VAT-id hint, not a confirmed name"
+        if hints:
+            note += " | " + "; ".join(hints) + " (HINT only — not a claim line)"
+
+        return {"supplier": supplier, "statement_ref": ref, "statement_date": date,
+                "currency": currency, "customer": None, "lines": [], "notes": note,
+                "backend": "generic", "confidence": "low"}
+    except Exception as e:
+        log.warning("generic text draft failed — falling back to empty draft: %s", e)
+        return None
+
+
 def _plain_draft(texts, files, backend, filename, strict, ocr_used=False):
     """Build the review draft for the PLAIN (non-hybrid) PDFs via the parser→AI→empty
     path, then attach the original PDF bytes for vaulting. This is the historical
@@ -700,6 +821,7 @@ def _plain_draft(texts, files, backend, filename, strict, ocr_used=False):
                 "backend": be, "confidence": "low"}
 
     draft = None
+    fallback_note = "no parser matched and no AI backend configured - enter manually"
     if backend in ("auto", "parser"):
         for p in PARSERS:
             draft = p(texts)
@@ -720,9 +842,17 @@ def _plain_draft(texts, files, backend, filename, strict, ocr_used=False):
                 # out-of-tokens / rate-limit / overload: let the queue retry later
                 if strict and is_transient_error(e):
                     raise TransientExtractionError(f"{be}: {e}")
-                draft = empty(f"AI extraction failed ({be}: {e}) - enter manually", "none")
+                # AI failed: fall through to the generic heuristic (it keeps every byte
+                # on-prem) rather than going straight to a blank form. Remember the reason
+                # so the empty() fallback still surfaces it if the heuristic finds nothing.
+                fallback_note = f"AI extraction failed ({be}: {e}) - enter manually"
+    if draft is None and backend != "none":
+        # LAST RESORT (deterministic tiers + the AI-empty fallback, never explicit manual
+        # mode): best-effort on-prem header heuristics so an unrecognised invoice is a
+        # prefilled draft, not a blank form. Returns None when nothing usable was found.
+        draft = _generic_text_draft(texts)
     if draft is None:
-        draft = empty("no parser matched and no AI backend configured - enter manually", "none")
+        draft = empty(fallback_note, "none")
 
     if ocr_used:
         draft["ocr"] = True
