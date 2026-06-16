@@ -68,6 +68,10 @@ ai_chat.db
 #    product DBs by the close / the Admin 'Rebuild search index' action (no source data) ──
 search.db
 
+# ── Document metadata (A3) — app-owned runtime DB: typed custom fields + hierarchical
+#    tags attached to vaulted documents by their reference (no product columns; no demo data) ──
+metadata.db
+
 # ── Cross-process lock store + SQLite WAL sidecars (transient, machine-specific) ──
 locks.db
 *.db-wal

@@ -478,6 +478,9 @@ PERM_BY_ENDPOINT = {
     "export_saft": "exports",
     "documents":       "documents", "doc_download": "documents",
     "doc_assistant":   "documents",
+    # A3 — typed custom fields + hierarchical tags over vaulted documents.
+    "doc_meta":        "documents",   # the per-document metadata panel (tags + fields)
+    "metadata_admin":  "documents",   # the "manage fields & tags" settings page
     "search_page":     "documents",   # full-text search over the document/invoice corpus
     "share_links_page": "share", "share_create": "share", "share_views_page": "share",
     "share_revoke":    "share",
@@ -528,7 +531,7 @@ MODULES = {
                     "imports", "files_archive", "doc_mining_page", "data_manager"}),
     "compliance": ("Compliance — invoice control, contract audit, documents",
                    {"invoice_ctrl", "contracts", "documents", "doc_download", "doc_assistant",
-                    "search_page"}),
+                    "doc_meta", "metadata_admin", "search_page"}),
     "sharing":    ("Secure share links — trackable public links to vaulted documents",
                    {"share_links_page", "share_create", "share_views_page", "share_revoke",
                     "rooms_page", "room_page", "room_qa_page", "room_engagement_page"}),
@@ -5899,13 +5902,34 @@ def documents():
                          '<div class="note">Nothing was stored. Check the file and try again.</div>')
                       + '</div>')
     focus_ref = request.args.get("ref", "")
+    # A3 — optional filter-by-tag: /documents?tag=<id> shows only invoices that have at
+    # least one document tagged with that tag (or any of its descendants). Best-effort:
+    # an unknown/blank tag simply means "no filter". The metadata subject_ref is the same
+    # `doc:<id>` rowkey the search index + metadata panel use.
+    import metadata as _MD
+    filter_tag = (request.args.get("tag") or "").strip()
+    filter_subjects = None
+    filter_banner = ""
+    if filter_tag:
+        _tag = _MD.get_tag(filter_tag)
+        if _tag:
+            filter_subjects = set(_MD.subjects_for_tag(_tag["id"], include_descendants=True))
+            filter_banner = (
+                f'<div class="card" style="border-left:4px solid var(--mut)">'
+                f'Filtered to documents tagged <b>{esc(_tag["name"])}</b> '
+                f'(and any sub-tags) — {len(filter_subjects)} document(s). '
+                f'<a href="/documents">clear filter</a></div>')
     rows = []
     for (sup, ctry), invs in sorted(INVOICES.items()):
         ent = SPECS[sup]["entity"][0] if sup in SPECS else ENTITY_OVERRIDE.get(sup, sup)
         for ref, dt in invs:
             docs = VR.docs_for(con, ent, sup, ref)
+            if filter_subjects is not None and not any(
+                    f"doc:{d['id']}" in filter_subjects for d in docs):
+                continue
             dl = " ".join(f'<a href="/doc/{d["id"]}">{esc(d["filename"])}</a> <span class="note">[{esc(d["sha256"][:8])}, {esc(d["kind"])}]</span> '
-                          f'<a href="/doc-assistant/{d["id"]}" class="note">ask&nbsp;AI</a>'
+                          f'<a href="/doc-assistant/{d["id"]}" class="note">ask&nbsp;AI</a> '
+                          f'<a href="/doc/{d["id"]}/meta" class="note">tags&nbsp;&amp;&nbsp;fields</a>'
                           for d in docs) or '<span class="bad">MISSING</span>'
             up = (f'<form method="post" enctype="multipart/form-data" style="margin:0;display:flex;gap:6px">'
                   + _csrf_input() +
@@ -5927,14 +5951,293 @@ def documents():
             rows.append([f"<td{data_ref}>{esc(ent)}</td><td>{esc(sup)}</td><td>{esc(ctry)}</td><td>{esc(ref)}</td><td>{esc(dt)}</td>",
                          f"<td>{dl}</td><td>{up}</td>"])
     auto = (f'<div data-doc-focus="{esc(focus_ref)}"></div>' if focus_ref else "")
-    body = banner + find_block + auto + ('<div class="card"><h2>Invoice document vault — every invoice needs its '
+    # A3 — a small "filter by tag" picker + a link to manage the metadata schema.
+    _tag_opts = "".join(
+        f'<option value="{esc(str(t["id"]))}" '
+        f'{"selected" if str(t["id"])==filter_tag else ""}>{esc(t["path"])}</option>'
+        for t in _MD.flat_tags())
+    meta_bar = (
+        '<div class="card"><form class="f" method="get" style="margin:0">'
+        '<label>Filter by tag '
+        f'<select name="tag"><option value="">— all documents —</option>{_tag_opts}</select>'
+        '</label><button>Apply</button>'
+        '<a href="/documents" style="align-self:end;padding:8px 12px;font-size:13px">Reset</a>'
+        '<span style="flex:1"></span>'
+        '<a href="/metadata" style="align-self:end;padding:8px 12px;font-size:13px">'
+        'Manage fields &amp; tags &rarr;</a></form></div>')
+    body = banner + find_block + meta_bar + filter_banner + auto + ('<div class="card"><h2>Invoice document vault — every invoice needs its '
                      'original PDF or scan before submission</h2>'
                      + tbl(["Entity","Supplier","Country","Invoice ref","Date","Attached document(s)","Upload"], rows)
                      + '<div class="note">Files are SHA-256 hashed; identical files on different '
                        'invoices trigger a wrong-attachment warning; submission is blocked while '
                        'any invoice in the application has no document. Use <b>Find stored</b> to '
-                       'attach a file already in the data lake or this customer’s vault.</div></div>')
+                       'attach a file already in the data lake or this customer’s vault. '
+                       '<b>tags &amp; fields</b> opens a document’s metadata panel.</div></div>')
     con.close(); return page(body, "doc")
+
+
+def _doc_meta_label(doc_id):
+    """(label, exists) for a vaulted document — used by the metadata panel header. Reads
+    invoice_documents READ-ONLY through vat_refund.connect(); returns ("", False) if gone."""
+    import vat_refund as VR
+    con = VR.connect()
+    try:
+        d = con.execute("SELECT entity, supplier, invoice_ref, filename FROM "
+                        "invoice_documents WHERE id=?", (doc_id,)).fetchone()
+    finally:
+        con.close()
+    if d is None:
+        return "", False
+    ref = d["invoice_ref"] or d["filename"]
+    return f"{d['supplier']} · {ref} ({d['entity']})", True
+
+
+@app.route("/doc/<int:doc_id>/meta", methods=["GET", "POST"])
+def doc_meta(doc_id):
+    """The A3 metadata PANEL for one vaulted document: view/edit its TAGS (add/remove from
+    the tag tree) and its typed CUSTOM-FIELD values. Keyed by the stable `doc:<id>`
+    reference (the same subject_ref the search index uses). Gated by the `documents`
+    capability (compliance module). Every DB value is escaped; metadata.py never raises."""
+    import metadata as MD
+    subject_ref = f"doc:{doc_id}"
+    label, exists = _doc_meta_label(doc_id)
+    if not exists:
+        return page('<div class="card"><b class="bad">No such document.</b></div>', "doc"), 404
+    banner = ""
+    if request.method == "POST":
+        act = request.form.get("__act", "")
+        ok, msg = True, ""
+        try:
+            if act == "add_tag":
+                ok, msg = MD.assign_tag(request.form.get("tag_id"), subject_ref)
+            elif act == "remove_tag":
+                ok, msg = MD.unassign_tag(request.form.get("tag_id"), subject_ref)
+            elif act == "set_field":
+                fid = request.form.get("field_id")
+                fld = MD.get_field(fid)
+                if fld and fld["type"] == "boolean":
+                    raw = "1" if request.form.get("value") else "0"
+                else:
+                    raw = request.form.get("value", "")
+                ok, msg = MD.set_value(fid, subject_ref, raw)
+            elif act == "clear_field":
+                ok, msg = MD.clear_value(request.form.get("field_id"), subject_ref)
+        except Exception as e:
+            _log_exc("doc metadata edit", e)
+            ok, msg = False, "could not apply that change (logged)."
+        border = "var(--ok)" if ok else "var(--bad)"
+        head = "&#10003; Saved" if ok else "&#10007; Not saved"
+        banner = (f'<div class="card" style="border-left:4px solid {border}">'
+                  f'<b class="{"ok" if ok else "bad"}">{head}</b>'
+                  + (f' — {esc(msg)}' if msg else '') + '</div>')
+
+    # ---- current tags + the tree picker
+    cur_tags = MD.tags_for(subject_ref)
+    cur_ids = {t["id"] for t in cur_tags}
+    tag_chips = "".join(
+        '<form method="post" style="display:inline-block;margin:2px 4px 2px 0">'
+        + _csrf_input()
+        + f'<input type="hidden" name="__act" value="remove_tag">'
+        f'<input type="hidden" name="tag_id" value="{esc(str(t["id"]))}">'
+        f'<button title="remove" style="font-size:12px;padding:2px 8px">'
+        f'{esc(t["name"])} &times;</button></form>'
+        for t in cur_tags) or '<span class="note">No tags yet.</span>'
+    avail = [t for t in MD.flat_tags() if t["id"] not in cur_ids]
+    tag_opts = "".join(f'<option value="{esc(str(t["id"]))}">{esc(t["path"])}</option>'
+                       for t in avail)
+    add_tag_form = ('<form method="post" class="f" style="margin-top:8px">'
+                    + _csrf_input()
+                    + '<input type="hidden" name="__act" value="add_tag">'
+                    f'<label>Add tag <select name="tag_id">{tag_opts}</select></label>'
+                    '<button>Add</button></form>') if tag_opts else (
+        '<div class="note" style="margin-top:8px">No more tags to add — '
+        '<a href="/metadata">create some</a>.</div>')
+
+    # ---- custom-field values (typed inputs)
+    values = {v["field_id"]: v for v in MD.get_values(subject_ref)}
+    field_rows = []
+    for f in MD.list_fields():
+        cur = values.get(f["id"])
+        cur_val = cur["value"] if cur else ""
+        disp = cur["display"] if cur else ""
+        ftype = f["type"]
+        if ftype == "select":
+            opts = "".join(
+                f'<option {"selected" if o==cur_val else ""}>{esc(o)}</option>'
+                for o in ([""] + list(f["options"])))
+            inp = f'<select name="value">{opts}</select>'
+        elif ftype == "boolean":
+            inp = ('<input type="checkbox" name="value" value="1" '
+                   + ("checked" if cur_val == "1" else "") + '>')
+        elif ftype == "date":
+            inp = f'<input type="date" name="value" value="{esc(cur_val)}">'
+        elif ftype in ("number", "monetary"):
+            inp = (f'<input type="number" step="any" name="value" '
+                   f'value="{esc(cur_val)}">')
+        elif ftype == "documentlink":
+            inp = (f'<input type="text" name="value" value="{esc(cur_val)}" '
+                   f'placeholder="doc:&lt;id&gt;">')
+        else:
+            inp = f'<input type="text" name="value" value="{esc(cur_val)}">'
+        form = ('<form method="post" class="f" style="margin:0;gap:6px">'
+                + _csrf_input()
+                + '<input type="hidden" name="__act" value="set_field">'
+                f'<input type="hidden" name="field_id" value="{esc(str(f["id"]))}">'
+                f'{inp}<button>Save</button></form>')
+        clear = ('<form method="post" style="margin:0;display:inline">'
+                 + _csrf_input()
+                 + '<input type="hidden" name="__act" value="clear_field">'
+                 f'<input type="hidden" name="field_id" value="{esc(str(f["id"]))}">'
+                 '<button class="note" style="padding:2px 8px;font-size:12px">clear</button>'
+                 '</form>') if cur else ""
+        field_rows.append([
+            f'<td>{esc(f["name"])}<div class="note">{esc(ftype)}</div></td>',
+            f'<td>{form}</td>',
+            f'<td>{esc(disp)} {clear}</td>'])
+    fields_block = (tbl(["Field", "Set value", "Current"], field_rows) if field_rows
+                    else '<div class="note">No custom fields defined yet — '
+                    '<a href="/metadata">create some</a>.</div>')
+
+    body = (banner
+            + f'<div class="card"><h2>Document metadata — {esc(label)}</h2>'
+            '<div class="note">Tags and typed custom fields attached to this document '
+            '(stored in the app-owned metadata DB, not the engine product DBs). Monetary '
+            'values are quantized for display.</div>'
+            f'<h3 style="margin-top:14px">Tags</h3><div>{tag_chips}</div>{add_tag_form}'
+            f'<h3 style="margin-top:14px">Custom fields</h3>{fields_block}</div>'
+            f'<p><a href="/doc/{doc_id}">&larr; download this document</a> · '
+            '<a href="/documents">back to the document vault</a> · '
+            '<a href="/metadata">manage fields &amp; tags</a></p>')
+    return page(body, "doc")
+
+
+@app.route("/metadata", methods=["GET", "POST"])
+def metadata_admin():
+    """The A3 "Manage fields & tags" settings page: DEFINE typed custom fields
+    (name+type+options) and manage the hierarchical TAG TREE (create nested, rename,
+    recolor, re-parent with a cycle guard, delete). Gated by the `documents` capability
+    (compliance module). metadata.py is best-effort and never raises; every value is
+    escaped on output."""
+    import metadata as MD
+    banner = ""
+    if request.method == "POST":
+        act = request.form.get("__act", "")
+        ok, msg = True, ""
+        try:
+            if act == "define_field":
+                _, msg = MD.define_field(
+                    request.form.get("name", ""), request.form.get("type", "text"),
+                    request.form.get("options", ""))
+                ok = not msg
+            elif act == "delete_field":
+                ok, msg = MD.delete_field(request.form.get("field_id"))
+            elif act == "create_tag":
+                _, msg = MD.create_tag(
+                    request.form.get("name", ""),
+                    request.form.get("parent_id") or None,
+                    request.form.get("color", ""))
+                ok = not msg
+            elif act == "rename_tag":
+                ok, msg = MD.rename_tag(
+                    request.form.get("tag_id"),
+                    name=request.form.get("name", ""),
+                    color=request.form.get("color", ""),
+                    parent_id=request.form.get("parent_id") or None)
+            elif act == "delete_tag":
+                ok, msg = MD.delete_tag(request.form.get("tag_id"))
+        except Exception as e:
+            _log_exc("metadata admin", e)
+            ok, msg = False, "could not apply that change (logged)."
+        border = "var(--ok)" if ok else "var(--bad)"
+        head = "&#10003; Saved" if ok else "&#10007; Not saved"
+        banner = (f'<div class="card" style="border-left:4px solid {border}">'
+                  f'<b class="{"ok" if ok else "bad"}">{head}</b>'
+                  + (f' — {esc(msg)}' if msg else '') + '</div>')
+
+    # ---- custom fields
+    type_opts = "".join(f'<option>{esc(t)}</option>' for t in MD.FIELD_TYPES)
+    fields = MD.list_fields()
+    frows = []
+    for f in fields:
+        opts = ", ".join(f["options"]) if f["options"] else ""
+        delf = ('<form method="post" style="margin:0" '
+                'onsubmit="return confirm(\'Delete this field and all its values?\')">'
+                + _csrf_input()
+                + '<input type="hidden" name="__act" value="delete_field">'
+                f'<input type="hidden" name="field_id" value="{esc(str(f["id"]))}">'
+                '<button class="bad" style="padding:2px 8px;font-size:12px">Delete</button>'
+                '</form>')
+        frows.append([f'<td>{esc(f["name"])}</td>', f'<td>{esc(f["type"])}</td>',
+                      f'<td>{esc(opts)}</td>', f'<td>{delf}</td>'])
+    define_form = (
+        '<form method="post" class="f">'
+        + _csrf_input()
+        + '<input type="hidden" name="__act" value="define_field">'
+        '<label>Name <input name="name" required></label>'
+        f'<label>Type <select name="type">{type_opts}</select></label>'
+        '<label>Options <input name="options" placeholder="select: a, b, c"></label>'
+        '<button>Define field</button></form>')
+    fields_card = (f'<div class="card"><h2>Custom fields</h2>'
+                   '<div class="note">Typed fields (text, number, monetary, date, '
+                   'boolean, select, documentlink). Options (comma/newline) are only used '
+                   'by a <b>select</b> field.</div>'
+                   + (tbl(["Name", "Type", "Options", ""], frows) if frows else
+                      '<div class="note" style="margin:8px 0">No fields yet.</div>')
+                   + define_form + '</div>')
+
+    # ---- tag tree
+    tree = MD.list_tags()
+    def _render(nodes, depth):
+        out = ""
+        for n in nodes:
+            pad = depth * 22
+            sw = (f'<span style="display:inline-block;width:11px;height:11px;border-radius:2px;'
+                  f'background:{esc(n["color"])};vertical-align:middle;margin-right:6px"></span>'
+                  if n.get("color") else "")
+            out += (f'<div style="padding:3px 0 3px {pad}px;border-bottom:1px solid var(--line)">'
+                    f'{sw}<b>{esc(n["name"])}</b> <span class="note">#{esc(str(n["id"]))}</span>'
+                    '<form method="post" style="display:inline-block;margin:0 0 0 10px">'
+                    + _csrf_input()
+                    + '<input type="hidden" name="__act" value="delete_tag">'
+                    f'<input type="hidden" name="tag_id" value="{esc(str(n["id"]))}">'
+                    '<button class="note" style="padding:1px 7px;font-size:12px">delete</button>'
+                    '</form></div>')
+            out += _render(n["children"], depth + 1)
+        return out
+    tree_html = _render(tree, 0) or '<div class="note">No tags yet.</div>'
+    parent_opts = ('<option value="">— top level —</option>'
+                   + "".join(f'<option value="{esc(str(t["id"]))}">{esc(t["path"])}</option>'
+                             for t in MD.flat_tags()))
+    create_tag_form = (
+        '<form method="post" class="f" style="margin-top:10px">'
+        + _csrf_input()
+        + '<input type="hidden" name="__act" value="create_tag">'
+        '<label>Tag name <input name="name" required></label>'
+        f'<label>Parent <select name="parent_id">{parent_opts}</select></label>'
+        '<label>Color <input type="color" name="color" value="#1b7340"></label>'
+        '<button>Create tag</button></form>')
+    rename_tag_form = (
+        '<form method="post" class="f" style="margin-top:8px">'
+        + _csrf_input()
+        + '<input type="hidden" name="__act" value="rename_tag">'
+        f'<label>Tag <select name="tag_id">'
+        + "".join(f'<option value="{esc(str(t["id"]))}">{esc(t["path"])}</option>'
+                  for t in MD.flat_tags())
+        + '</select></label>'
+        '<label>New name <input name="name"></label>'
+        f'<label>New parent <select name="parent_id">{parent_opts}</select></label>'
+        '<label>Color <input type="color" name="color" value="#1b7340"></label>'
+        '<button>Rename / move</button></form>') if MD.flat_tags() else ""
+    tags_card = (f'<div class="card"><h2>Tag tree</h2>'
+                 '<div class="note">Nested tags — moving a tag under one of its own '
+                 'descendants is refused (cycle guard); deleting a tag re-parents its '
+                 'children up.</div>'
+                 f'<div style="margin:8px 0">{tree_html}</div>'
+                 + create_tag_form + rename_tag_form + '</div>')
+
+    body = (banner + fields_card + tags_card
+            + '<p><a href="/documents">&larr; back to the document vault</a></p>')
+    return page(body, "doc")
 
 
 @app.route("/search")

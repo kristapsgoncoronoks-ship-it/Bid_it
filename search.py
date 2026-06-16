@@ -138,6 +138,18 @@ def _doc_invoice_index(scon):
     return out
 
 
+def _metadata_text(rowkey):
+    """The A3 metadata blob (tag names + custom-field values) for a document `rowkey`
+    (`doc:<id>`), or "" if there is none / metadata is unavailable. Best-effort and NEVER
+    raises — search must keep working even if the app-owned metadata.db is absent/empty."""
+    try:
+        import metadata
+        return metadata.index_text(rowkey)
+    except Exception as e:
+        log.debug("metadata enrichment skipped for %s: %s", rowkey, e)
+        return ""
+
+
 def _scan(fcon, scon):
     """Scan the product DBs READ-ONLY and yield index rows (dicts matching the FTS5
     columns). `fcon` = read-only fuel_history handle (documents + transactions),
@@ -167,6 +179,12 @@ def _scan(fcon, scon):
         rowkey = f"doc:{d['id']}"
         title = (f"{_txt(sup)} — invoice {_txt(d['invoice_ref'])}"
                  if d["invoice_ref"] else f"{_txt(sup)} — {_txt(d['filename'])}")
+        # A3 — fold this document's metadata (tag names + custom-field values) into the
+        # searchable body, keyed by the SAME `doc:<id>` rowkey metadata.py stores against,
+        # so a document becomes findable by its tag/field text. Best-effort: empty/broken
+        # metadata contributes "" and never breaks the rebuild (search must not depend on
+        # the app-owned metadata DB existing).
+        meta = _metadata_text(rowkey)
         yield {
             "rowkey": rowkey, "kind": KIND_DOC, "link": f"/doc/{d['id']}",
             "title": title,
@@ -179,7 +197,7 @@ def _scan(fcon, scon):
             "products": products.get(sup, ""),
             "amounts": " ".join(x for x in (gross, currency) if x),
             "filename": _txt(d["filename"]),
-            "body": " ".join(x for x in (_txt(d["kind"]), _txt(d["filename"])) if x),
+            "body": " ".join(x for x in (_txt(d["kind"]), _txt(d["filename"]), meta) if x),
         }
 
     # ---- SUPPLIER INVOICES (supplier_invoices, suppliers.db) -> /transactions?...
