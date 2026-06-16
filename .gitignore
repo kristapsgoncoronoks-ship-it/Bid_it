@@ -56,6 +56,10 @@ confidence.db
 #    over the recovery data; NULL provider by default, never gates a VAT figure) ──
 finance.db
 
+# ── AI document-assistant chat history — app-owned runtime DB (advisory chat over a
+#    document's DERIVED data only; never mutates a figure) ──
+ai_chat.db
+
 # ── Cross-process lock store + SQLite WAL sidecars (transient, machine-specific) ──
 locks.db
 *.db-wal

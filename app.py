@@ -477,6 +477,7 @@ PERM_BY_ENDPOINT = {
     "export_accounting": "exports",
     "export_saft": "exports",
     "documents":       "documents", "doc_download": "documents",
+    "doc_assistant":   "documents",
     "share_links_page": "share", "share_create": "share", "share_views_page": "share",
     "share_revoke":    "share",
     # Data rooms (B4) — same capability as the share-link management surface.
@@ -525,7 +526,7 @@ MODULES = {
                     "intake_queue_page", "intake_review",
                     "imports", "files_archive", "doc_mining_page", "data_manager"}),
     "compliance": ("Compliance — invoice control, contract audit, documents",
-                   {"invoice_ctrl", "contracts", "documents", "doc_download"}),
+                   {"invoice_ctrl", "contracts", "documents", "doc_download", "doc_assistant"}),
     "sharing":    ("Secure share links — trackable public links to vaulted documents",
                    {"share_links_page", "share_create", "share_views_page", "share_revoke",
                     "rooms_page", "room_page", "room_qa_page", "room_engagement_page"}),
@@ -5899,7 +5900,8 @@ def documents():
         ent = SPECS[sup]["entity"][0] if sup in SPECS else ENTITY_OVERRIDE.get(sup, sup)
         for ref, dt in invs:
             docs = VR.docs_for(con, ent, sup, ref)
-            dl = " ".join(f'<a href="/doc/{d["id"]}">{esc(d["filename"])}</a> <span class="note">[{esc(d["sha256"][:8])}, {esc(d["kind"])}]</span>'
+            dl = " ".join(f'<a href="/doc/{d["id"]}">{esc(d["filename"])}</a> <span class="note">[{esc(d["sha256"][:8])}, {esc(d["kind"])}]</span> '
+                          f'<a href="/doc-assistant/{d["id"]}" class="note">ask&nbsp;AI</a>'
                           for d in docs) or '<span class="bad">MISSING</span>'
             up = (f'<form method="post" enctype="multipart/form-data" style="margin:0;display:flex;gap:6px">'
                   + _csrf_input() +
@@ -6814,6 +6816,13 @@ def admin():
                 _auth.set_setting("ai_review_backend", be)
                 banner = ("AI review assistant turned OFF." if be == "none"
                           else f"AI review assistant set to <b>{esc(be)}</b> (advisory only).")
+            elif act == "set_ai_doc_chat":
+                # advisory AI document assistant (chat-with-document). Default OFF; reuses the
+                # ai_review backend selection (same key). Opt-in flag only — no backend here.
+                on = request.form.get("ai_doc_chat_enabled") == "on"
+                _auth.set_setting("ai_doc_chat_enabled", "on" if on else "off")
+                banner = ("AI document assistant turned ON (advisory; derived-data-only)."
+                          if on else "AI document assistant turned OFF.")
             elif act == "toggle":
                 if tgt == session["user"]:
                     raise ValueError("you cannot disable your own account")
@@ -7217,6 +7226,29 @@ def admin():
                  'learned to trust — a cost saving that <b>never</b> touches a legal gate. '
                  '<a href="/admin/confidence">View the confidence scoreboard &rarr;</a></div>'
                  + '</div>')
+    # AI document assistant (advisory chat-with-document) — default OFF; reuses the same
+    # backend selection (and keys) as the AI review above. Sends DERIVED DATA ONLY.
+    _doc_chat_on = str(_auth.get_setting("ai_doc_chat_enabled", "off") or "off").lower() in ("on", "1", "true", "yes")
+    aidocchatf = ('<div class="card"><h2>AI document assistant (advisory chat)</h2>'
+                  '<div class="note" style="margin-top:0">An <b>opt-in, advisory</b> '
+                  'chat-with-document on a document view: ask free-form questions about an '
+                  'invoice\'s ALREADY-extracted data. It sends <b>DERIVED DATA ONLY</b> '
+                  '(header fields + line items) — <b>never the PDF, never an IBAN/bank '
+                  'account, never a secret</b> — and is <b>read-only commentary</b> that '
+                  'NEVER changes a figure, status, lock, fee, or payment. <b>Default OFF.</b> '
+                  'It reuses the AI review backend above (same key); with no backend '
+                  'configured it stays disabled and sends nothing.</div>'
+                  '<form method="post" class="f" style="margin-top:8px">'
+                  + _csrf_input()
+                  + f'<label class="chk" style="display:flex;gap:7px;align-items:center">'
+                    f'<input type="checkbox" name="ai_doc_chat_enabled" {"checked" if _doc_chat_on else ""}> '
+                    f'Enable the AI document assistant</label>'
+                  + '<button name="__act" value="set_ai_doc_chat">Save assistant setting</button>'
+                  + '</form>'
+                  '<div class="note" style="margin-top:8px">Requires an AI review backend '
+                  '(above) to be configured; otherwise the panel shows a disabled notice and '
+                  'makes no network call.</div>'
+                  + '</div>')
     # API keys (machine access to the versioned /api/v1 contract). Default-OFF: no keys
     # exist until issued here. Tokens are SHA-256 hashed at rest and shown once at issue.
     import api_keys
@@ -7305,6 +7337,7 @@ def admin():
             + '<h2 class="section" id="modules">Modules &amp; AI</h2>'
             + modf
             + aireviewf
+            + aidocchatf
             + '<h2 class="section" id="platform">Platform</h2>'
             + platform_card)
     return page(body, "adm")
@@ -7403,6 +7436,115 @@ def doc_download(doc_id):
         return page('<div class="card"><b class="bad">No such document.</b></div>', ""), 404
     data = document_vault.get_bytes(d["stored_path"], VR.DOCDIR)
     return send_file(io.BytesIO(data), as_attachment=True, download_name=d["filename"])
+
+
+def _doc_subject(doc_id):
+    """Assemble the DERIVED descriptor for the AI document assistant from a vaulted invoice
+    document: the (entity, supplier, invoice_ref) of the document plus the matching
+    supplier_invoices line (date / country / currency). NET-EUR basis. NO bank/secret field
+    is ever read here — only header + line metadata; ai_assistant.build_context redacts again
+    as a final guard. Returns (descriptor_dict, doc_row) or (None, None) if the doc is gone."""
+    import vat_refund as VR
+    con = VR.connect()
+    try:
+        d = con.execute("SELECT * FROM invoice_documents WHERE id=?", (doc_id,)).fetchone()
+    finally:
+        con.close()
+    if d is None:
+        return None, None
+    sup = d["supplier"]; ref = d["invoice_ref"]; ent = d["entity"]
+    line = {"invoice_no": ref}
+    try:
+        import supplier_master as SM
+        scon = SM.connect()
+        try:
+            inv = scon.execute(
+                "SELECT country, invoice_date, currency FROM supplier_invoices "
+                "WHERE supplier=? AND invoice_no=?", (sup, ref)).fetchone()
+        finally:
+            scon.close()
+        if inv is not None:
+            line.update({"country": inv["country"], "date": inv["invoice_date"],
+                         "currency": inv["currency"]})
+    except Exception as e:
+        _log_exc("doc-assistant supplier line", e)
+    subject = {"kind": "invoice", "supplier": sup, "statement_ref": ref,
+               "customer": ent, "lines": [line]}
+    return subject, d
+
+
+@app.route("/doc-assistant/<int:doc_id>", methods=["GET", "POST"])
+def doc_assistant(doc_id):
+    """ADVISORY AI document assistant (chat-with-document) over a vaulted invoice's DERIVED
+    data. OPT-IN + default-OFF: only active when `ai_doc_chat_enabled` is ON AND a backend is
+    configured (ai_assistant.enabled()); otherwise renders a disabled notice and makes NO
+    network call. Access: `documents` capability (enforced in _guard). NEVER mutates a figure,
+    status, lock, fee, or payment — it reads derived data and returns text; the only writes are
+    chat-history rows in ai_assistant's own app-owned DB. The payload sent to the model is
+    DERIVED DATA ONLY (header + line items) — never the PDF, never an IBAN/account/secret."""
+    import ai_assistant
+    subject, d = _doc_subject(doc_id)
+    if subject is None:
+        return page('<div class="card"><b class="bad">No such document.</b></div>', "doc"), 404
+    subject_ref = f"doc:{doc_id}"
+    label = f"{d['supplier']} · invoice {d['invoice_ref']} ({d['entity']})"
+
+    disclaimer = ('<div class="note" style="margin-top:0">Answers are <b>advisory only</b>, '
+                  'generated from this document\'s <b>derived/extracted data only</b> (header '
+                  'fields + line items — never the PDF, never any bank account or secret). The '
+                  'assistant is read-only commentary: it <b>never changes any figure, status, '
+                  'lock, fee, or payment</b>.</div>')
+
+    if not ai_assistant.enabled():
+        body = (f'<div class="card"><h2>Ask the AI assistant — {esc(label)}</h2>'
+                + disclaimer
+                + '<div class="note" style="margin-top:8px"><b>Disabled</b> — configure an AI '
+                  'backend and enable the AI document assistant in '
+                  '<a href="/admin">Admin</a>. No request is sent while it is off.</div></div>'
+                f'<p><a href="/doc/{doc_id}">&larr; download this document</a> · '
+                '<a href="/documents">back to the document vault</a></p>')
+        return page(body, "doc")
+
+    banner = ""
+    if request.method == "POST":
+        question = (request.form.get("question", "") or "").strip()
+        if question:
+            chat_id = ai_assistant.start_chat(subject_ref, created_by=session.get("user", ""))
+            ai_assistant.record_message(chat_id, "user", question)
+            history = ai_assistant.messages_for(subject_ref)
+            try:
+                ctx = ai_assistant.build_context(subject)
+                answer = ai_assistant.ask(ctx, question, history=history)
+            except Exception as e:                 # ask() already never raises; belt-and-braces
+                _log_exc("doc-assistant ask", e)
+                answer = ("The AI assistant is unavailable right now — advisory only, nothing "
+                          "was changed.")
+            ai_assistant.record_message(chat_id, "assistant", answer)
+
+    transcript = ai_assistant.messages_for(subject_ref)
+    bubbles = ""
+    for m in transcript:
+        who = "You" if m["role"] == "user" else "AI assistant"
+        side = "var(--mut)" if m["role"] == "user" else "var(--ok)"
+        bubbles += (f'<div style="margin:6px 0;padding:8px;border-left:3px solid {side}">'
+                    f'<b>{esc(who)}</b> <span class="note">{esc(m["created_at"])}</span>'
+                    f'<div style="white-space:pre-wrap;margin-top:3px">{esc(m["content"])}</div>'
+                    '</div>')
+    if not bubbles:
+        bubbles = '<div class="note">No questions asked yet.</div>'
+
+    body = (f'<div class="card"><h2>Ask the AI assistant — {esc(label)}</h2>'
+            + disclaimer
+            + '<form method="post" style="margin-top:10px">'
+            + _csrf_input()
+            + '<textarea name="question" rows="3" style="width:100%" '
+              'placeholder="Ask about this invoice\'s extracted data…"></textarea>'
+            + '<div style="margin-top:8px"><button>Ask the assistant</button></div></form>'
+            + f'<div style="margin-top:12px">{bubbles}</div></div>'
+            f'<p><a href="/doc/{doc_id}">&larr; download this document</a> · '
+            '<a href="/documents">back to the document vault</a></p>')
+    return page(body, "doc")
+
 
 @app.route("/customer-doc/<int:doc_id>")
 def cust_doc_download(doc_id):
