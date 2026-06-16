@@ -2870,6 +2870,23 @@ def _load_draft(token):
         return None
 
 
+def _provenance_badge(src):
+    """Render a line's data provenance (`_source`) as a labelled badge so a reviewer can
+    SEE which lines came from a hallucination-prone AI extraction versus a deterministic
+    structured/parser path. AI lines are flagged for extra scrutiny."""
+    s = (src or "").strip()
+    low = s.lower()
+    if low == "ai":
+        return '<span class="bad" title="AI-extracted — verify every figure">AI · verify</span>'
+    if low == "e-invoice":
+        return '<span class="ok" title="structured EN-16931 e-invoice">structured</span>'
+    if low.startswith("parse error"):
+        return f'<span class="bad" title="{esc(s)}">parse error</span>'
+    if not s:
+        return '<span class="note">—</span>'
+    return f'<span class="note" title="deterministic parser / source PDF">{esc(s)}</span>'
+
+
 def _review_form(draft, token, intake_job=None, period=None, ai_panel=""):
     rows = ""
     for i, ln in enumerate(draft.get("lines", [])):
@@ -2880,7 +2897,7 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel=""):
                  f'<td><input name="ccy_{i}" value="{esc(ln.get("currency") or "EUR")}" style="width:55px"></td>'
                  f'<td><input name="net_{i}" value="{ln.get("net",0)}" style="width:90px" class="r"></td>'
                  f'<td><input name="vat_{i}" value="{ln.get("vat",0)}" style="width:90px" class="r"></td>'
-                 f'<td class="note">{esc(ln.get("_source",""))}</td></tr>')
+                 f'<td class="note">{_provenance_badge(ln.get("_source"))}</td></tr>')
     gross = sum((ln.get("net",0) or 0) + (ln.get("vat",0) or 0) for ln in draft.get("lines", []))
     conf = draft.get("confidence","low")
     ccls = {"high":"ok","medium":"","low":"bad"}.get(conf,"")
@@ -2899,7 +2916,7 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel=""):
             f'<label>period (YYYY-MM)<input name="period" value="{esc(period or request.values.get("period", _default_period()))}" required></label>'
             '</label></div>'
             + '<table style="margin-top:10px"><thead><tr>'
-            + "".join(f"<th>{h}</th>" for h in ["Invoice no","Date","Country","Ccy","Net","VAT","Source PDF"])
+            + "".join(f"<th>{h}</th>" for h in ["Invoice no","Date","Country","Ccy","Net","VAT","Provenance"])
             + f'</tr></thead><tbody>{rows}</tbody></table>'
             f'<div class="note" style="margin-top:8px">Draft gross total: <b>{gross:,.2f}</b> — '
             'check this equals the coversheet total before confirming.</div>'
@@ -2936,6 +2953,27 @@ def _ai_review_button(token, intake_job=None, period=None):
             + '</form>')
 
 
+def _feed_validator_trust(supplier, vr):
+    """Feed the confidence model from the DETERMINISTIC validator outcome, per country:
+    a country whose lines all passed (no error verdict) is a CLEAN signal; a country with
+    any error line is a FLAGGED signal. This is the ground-truth learning signal the trust
+    model was missing — previously trust learned ONLY from the advisory AI review. It still
+    governs nothing but whether that advisory review may be skipped; no legal gate moves.
+    Best-effort: confidence.record_validation never raises."""
+    try:
+        import confidence
+        order = {"ok": 0, "warn": 1, "error": 2}
+        worst = {}
+        for res in vr.get("lines", []):
+            c = (res["line"].get("country") or "").strip()
+            worst[c] = max(worst.get(c, 0), order.get(res["verdict"], 0))
+        for c, w in worst.items():
+            confidence.record_validation(supplier, c, clean=(w < 2), source="validator",
+                                         detail="deterministic batch validation")
+    except Exception as e:
+        _log_exc("confidence validator-feed", e)
+
+
 @app.route("/extract/confirm", methods=["POST"])
 def extract_confirm():
     import extract as EX, vat_refund as VR
@@ -2970,6 +3008,7 @@ def extract_confirm():
     vlines = [{"invoice_no": l[0], "date": l[1], "country": l[2], "currency": l[3],
                "net": l[4], "vat": l[5]} for l in lines]
     vr = VAL.validate_batch(vlines)
+    _feed_validator_trust(supplier, vr)        # ground-truth signal into the trust model
     if not vr["can_commit"]:
         rows_html = ""
         for res in vr["lines"]:
