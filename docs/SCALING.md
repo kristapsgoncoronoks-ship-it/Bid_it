@@ -11,6 +11,9 @@ This document is the ladder — each rung is more capacity for more operational 
 plus an **honest list of what still needs doing** for a fully validated multi-server
 deployment.
 
+> Just sizing one box for a normal install (e.g. ~100 invoices/day)? See
+> **`DEPLOYMENT_SIZING.md`** — you almost certainly stay at Stage 0 below.
+
 ---
 
 ## What gets slow first (bottleneck order)
