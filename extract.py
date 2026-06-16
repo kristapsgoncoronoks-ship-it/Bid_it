@@ -246,11 +246,44 @@ PARSERS = [parse_eurowag]
 
 
 # ---------------------------------------------------------------- AI backends
+# Per-document character budget sent to the AI backend. A statement longer than this is
+# CHUNKED into labelled parts (not silently truncated) so no invoice line is ever dropped
+# from the prompt — the old fixed `[:6000]` cut quietly lost every line past ~6 KB on long
+# multi-country statements. A document longer than budget*max-chunks is hard-capped at the
+# last chunk with a VISIBLE marker and a logged warning, so truncation is never silent.
+AI_DOC_CHAR_BUDGET = int(os.environ.get("EXTRACT_AI_DOC_CHARS", "60000"))
+AI_DOC_MAX_CHUNKS = int(os.environ.get("EXTRACT_AI_DOC_MAX_CHUNKS", "8"))
+
+def _doc_blocks(texts):
+    """Build the labelled per-document blocks for the AI prompt, chunking any document
+    that exceeds AI_DOC_CHAR_BUDGET rather than truncating it. Returns list[str]."""
+    blocks = []
+    for n, t in texts:
+        t = t or ""
+        if len(t) <= AI_DOC_CHAR_BUDGET:
+            blocks.append(f"[{n}]\n{t}")
+            continue
+        chunks = [t[i:i + AI_DOC_CHAR_BUDGET]
+                  for i in range(0, len(t), AI_DOC_CHAR_BUDGET)]
+        total = len(chunks)
+        if total > AI_DOC_MAX_CHUNKS:
+            log.warning("AI extract: '%s' is %d chars (%d chunks) — sending the first %d; "
+                        "raise EXTRACT_AI_DOC_MAX_CHUNKS to include all", n, len(t), total,
+                        AI_DOC_MAX_CHUNKS)
+            chunks = chunks[:AI_DOC_MAX_CHUNKS]
+            chunks[-1] += "\n[TRUNCATED — document exceeds the AI character budget]"
+        for i, c in enumerate(chunks, 1):
+            blocks.append(f"[{n} — part {i}/{total}]\n{c}")
+    return blocks
+
+def _ai_content(texts):
+    """The full prompt + DOCUMENTS payload (shared by every backend, with chunking)."""
+    return PROMPT + "\n\nDOCUMENTS:\n" + "\n\n---\n\n".join(_doc_blocks(texts))
+
 def _ai_claude(texts):
     import requests
     key = os.environ["ANTHROPIC_API_KEY"]
-    content = PROMPT + "\n\nDOCUMENTS:\n" + "\n\n---\n\n".join(
-        f"[{n}]\n{t[:6000]}" for n, t in texts)
+    content = _ai_content(texts)
     r = requests.post("https://api.anthropic.com/v1/messages",
         headers={"x-api-key": key, "anthropic-version": "2023-06-01",
                  "content-type": "application/json"},
@@ -263,8 +296,7 @@ def _ai_claude(texts):
 def _ai_openai(texts):
     import requests
     key = os.environ["OPENAI_API_KEY"]
-    content = PROMPT + "\n\nDOCUMENTS:\n" + "\n\n---\n\n".join(
-        f"[{n}]\n{t[:6000]}" for n, t in texts)
+    content = _ai_content(texts)
     r = requests.post("https://api.openai.com/v1/chat/completions",
         headers={"Authorization": f"Bearer {key}", "content-type": "application/json"},
         json={"model": os.environ.get("OPENAI_MODEL", "gpt-4o"),
@@ -278,8 +310,7 @@ def _ai_azure(texts):
     ep = os.environ["AZURE_OPENAI_ENDPOINT"].rstrip("/")
     dep = os.environ["AZURE_OPENAI_DEPLOYMENT"]
     ver = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-01")
-    content = PROMPT + "\n\nDOCUMENTS:\n" + "\n\n---\n\n".join(
-        f"[{n}]\n{t[:6000]}" for n, t in texts)
+    content = _ai_content(texts)
     r = requests.post(f"{ep}/openai/deployments/{dep}/chat/completions?api-version={ver}",
         headers={"api-key": os.environ["AZURE_OPENAI_KEY"], "content-type": "application/json"},
         json={"response_format": {"type": "json_object"},
