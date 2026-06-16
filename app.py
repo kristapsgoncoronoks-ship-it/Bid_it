@@ -482,6 +482,9 @@ PERM_BY_ENDPOINT = {
     "doc_meta":        "documents",   # the per-document metadata panel (tags + fields)
     "metadata_admin":  "documents",   # the "manage fields & tags" settings page
     "search_page":     "documents",   # full-text search over the document/invoice corpus
+    # A4 — the ordered VERSION chain of a vaulted document (upload / revert / view).
+    "doc_versions":        "documents",  # the per-document versions panel
+    "doc_version_download": "documents", # download/view a specific version's bytes
     "share_links_page": "share", "share_create": "share", "share_views_page": "share",
     "share_revoke":    "share",
     # Data rooms (B4) — same capability as the share-link management surface.
@@ -531,7 +534,8 @@ MODULES = {
                     "imports", "files_archive", "doc_mining_page", "data_manager"}),
     "compliance": ("Compliance — invoice control, contract audit, documents",
                    {"invoice_ctrl", "contracts", "documents", "doc_download", "doc_assistant",
-                    "doc_meta", "metadata_admin", "search_page"}),
+                    "doc_meta", "metadata_admin", "search_page",
+                    "doc_versions", "doc_version_download"}),
     "sharing":    ("Secure share links — trackable public links to vaulted documents",
                    {"share_links_page", "share_create", "share_views_page", "share_revoke",
                     "rooms_page", "room_page", "room_qa_page", "room_engagement_page"}),
@@ -5929,7 +5933,8 @@ def documents():
                 continue
             dl = " ".join(f'<a href="/doc/{d["id"]}">{esc(d["filename"])}</a> <span class="note">[{esc(d["sha256"][:8])}, {esc(d["kind"])}]</span> '
                           f'<a href="/doc-assistant/{d["id"]}" class="note">ask&nbsp;AI</a> '
-                          f'<a href="/doc/{d["id"]}/meta" class="note">tags&nbsp;&amp;&nbsp;fields</a>'
+                          f'<a href="/doc/{d["id"]}/meta" class="note">tags&nbsp;&amp;&nbsp;fields</a> '
+                          f'<a href="/doc/{d["id"]}/versions" class="note">versions</a>'
                           for d in docs) or '<span class="bad">MISSING</span>'
             up = (f'<form method="post" enctype="multipart/form-data" style="margin:0;display:flex;gap:6px">'
                   + _csrf_input() +
@@ -6106,9 +6111,155 @@ def doc_meta(doc_id):
             f'<h3 style="margin-top:14px">Tags</h3><div>{tag_chips}</div>{add_tag_form}'
             f'<h3 style="margin-top:14px">Custom fields</h3>{fields_block}</div>'
             f'<p><a href="/doc/{doc_id}">&larr; download this document</a> · '
+            f'<a href="/doc/{doc_id}/versions">version history</a> · '
             '<a href="/documents">back to the document vault</a> · '
             '<a href="/metadata">manage fields &amp; tags</a></p>')
     return page(body, "doc")
+
+
+def _doc_original(doc_id):
+    """The invoice_documents row for `doc_id` (entity/supplier/ref/filename/stored_path/
+    sha256/size), READ-ONLY via vat_refund.connect(). Returns a dict or None. Used to
+    lazily SEED version 1 of a document's chain from the original vaulted bytes — this
+    module never WRITES invoice_documents."""
+    import vat_refund as VR
+    con = VR.connect()
+    try:
+        d = con.execute(
+            "SELECT id, entity, supplier, invoice_ref, filename, stored_path, sha256, "
+            "size FROM invoice_documents WHERE id=?", (doc_id,)).fetchone()
+    finally:
+        con.close()
+    return dict(d) if d else None
+
+
+@app.route("/doc/<int:doc_id>/versions", methods=["GET", "POST"])
+def doc_versions(doc_id):
+    """The A4 VERSION-HISTORY panel for one vaulted document: the ordered chain (newest
+    first) with each version's number / date / who / note / size and current vs
+    superseded state; download/view of ANY version; an "Upload new version" control; and
+    a "Make current" (revert) action that records the chosen old version as a NEW current
+    version (history is never destroyed). Keyed by the stable `doc:<id>` reference (the
+    same subject_ref A2 search and A3 metadata use). Gated by the `documents` capability
+    (compliance module). Every DB value is escaped; versioning.py never raises.
+
+    BYTE INGESTION: an uploaded new version is vaulted through document_vault's
+    app-callable store API (versioning.add_version -> document_vault.copy_to ->
+    backend.put, SHA-256 + the vault's own dedup) — NO product DB is opened writable and
+    no engine write happens in-request."""
+    import versioning as VER
+    subject_ref = f"doc:{doc_id}"
+    orig = _doc_original(doc_id)
+    if orig is None:
+        return page('<div class="card"><b class="bad">No such document.</b></div>', "doc"), 404
+    # Lazily SEED version 1 from the original vaulted bytes (idempotent — a no-op once a
+    # chain exists). The original lives in the invoice vault; we record a POINTER to it.
+    if orig.get("stored_path"):
+        VER.record_initial(subject_ref, orig["stored_path"], sha256=orig.get("sha256"),
+                           size=orig.get("size"), actor=session.get("user", ""),
+                           note=f"original — {orig.get('filename') or ''}".strip(" —"))
+    label = f"{orig['supplier']} · {orig['invoice_ref'] or orig.get('filename')} ({orig['entity']})"
+
+    banner = ""
+    if request.method == "POST":
+        act = request.form.get("__act", "")
+        obj, msg = None, ""
+        try:
+            if act == "upload_version":
+                up = request.files.get("file")
+                data = up.read() if up else b""
+                if not data:
+                    obj, msg = None, "choose a file to upload as a new version"
+                else:
+                    obj, msg = VER.add_version(
+                        subject_ref, new_bytes=data,
+                        filename=(getattr(up, "filename", "") or None),
+                        note=request.form.get("note", ""),
+                        actor=session.get("user", ""))
+            elif act == "revert":
+                obj, msg = VER.revert_to(request.form.get("version_id"),
+                                         actor=session.get("user", ""))
+        except Exception as e:
+            _log_exc("doc version edit", e)
+            obj, msg = None, "could not apply that change (logged)."
+        ok = obj is not None
+        border = "var(--ok)" if ok else "var(--bad)"
+        head = "&#10003; Saved" if ok else "&#10007; Not saved"
+        banner = (f'<div class="card" style="border-left:4px solid {border}">'
+                  f'<b class="{"ok" if ok else "bad"}">{head}</b>'
+                  + (f' — {esc(msg)}' if msg else '') + '</div>')
+
+    chain = VER.versions_for(subject_ref)
+    rows = []
+    for v in chain:
+        state = ('<b class="ok">current</b>' if v.get("is_current")
+                 else '<span class="note">superseded</span>')
+        size = v.get("size")
+        size_txt = f"{int(size):,} B" if size not in (None, "") else "—"
+        sha = (v.get("sha256") or "")[:8]
+        view = (f'<a href="/doc/{doc_id}/version/{v["id"]}">view</a> · '
+                f'<a href="/doc/{doc_id}/version/{v["id"]}?dl=1">download</a>')
+        revert = ""
+        if not v.get("is_current"):
+            revert = ('<form method="post" style="display:inline;margin:0">'
+                      + _csrf_input()
+                      + '<input type="hidden" name="__act" value="revert">'
+                      f'<input type="hidden" name="version_id" value="{esc(str(v["id"]))}">'
+                      '<button style="font-size:12px;padding:2px 8px">Make current</button>'
+                      '</form>')
+        rows.append([
+            f'<td>v{esc(str(v["version_no"]))} {state}</td>',
+            f'<td>{esc(v.get("created_at") or "")}</td>',
+            f'<td>{esc(v.get("created_by") or "")}</td>',
+            f'<td>{esc(v.get("note") or "")}</td>',
+            f'<td>{esc(size_txt)}<div class="note">{esc(sha)}</div></td>',
+            f'<td>{view} {revert}</td>'])
+    chain_block = (tbl(["Version", "When", "By", "Note", "Size", ""], rows) if rows
+                   else '<div class="note">No versions recorded yet.</div>')
+
+    upload_form = ('<form method="post" enctype="multipart/form-data" class="f" '
+                   'style="margin-top:8px;gap:8px;flex-wrap:wrap">'
+                   + _csrf_input()
+                   + '<input type="hidden" name="__act" value="upload_version">'
+                   '<label>New version file <input type="file" name="file" required></label>'
+                   '<label>Note <input type="text" name="note" '
+                   'placeholder="what changed (optional)"></label>'
+                   '<button>Upload new version</button></form>')
+
+    body = (banner
+            + f'<div class="card"><h2>Document versions — {esc(label)}</h2>'
+            '<div class="note">An ordered, append-only chain of this document’s versions '
+            '(stored in the app-owned versions DB, not the engine product DBs). Uploading a '
+            'new version supersedes the current one; <b>Make current</b> reverts to an older '
+            'version by recording it as a new version — history is never deleted. New-version '
+            'bytes are stored in the document vault (SHA-256, deduplicated).</div>'
+            f'<h3 style="margin-top:14px">Version chain</h3>{chain_block}'
+            f'<h3 style="margin-top:14px">Upload a new version</h3>{upload_form}</div>'
+            f'<p><a href="/doc/{doc_id}">&larr; download current original</a> · '
+            f'<a href="/doc/{doc_id}/meta">tags &amp; fields</a> · '
+            '<a href="/documents">back to the document vault</a></p>')
+    return page(body, "doc")
+
+
+@app.route("/doc/<int:doc_id>/version/<int:version_id>")
+def doc_version_download(doc_id, version_id):
+    """View (inline) or download (?dl=1) a SPECIFIC version's vaulted bytes. The version
+    must belong to this document's `doc:<id>` chain (so the URL can't read another
+    document's version). Routes through versioning.get_version_bytes ->
+    document_vault.get_bytes, so any storage backend resolves."""
+    import versioning as VER, io
+    subject_ref = f"doc:{doc_id}"
+    v = VER.get_version(version_id)
+    if v is None or v.get("subject_ref") != subject_ref:
+        return page('<div class="card"><b class="bad">No such version.</b></div>', "doc"), 404
+    data, err = VER.get_version_bytes(version_id)
+    if data is None:
+        _log_exc("doc version download", RuntimeError(err or "read failed"))
+        return page('<div class="card"><b class="bad">Could not read that version '
+                    '(logged).</b></div>', "doc"), 404
+    name = f"v{v['version_no']}_{_doc_original(doc_id) and _doc_original(doc_id).get('filename') or 'document'}"
+    as_attach = request.args.get("dl") == "1"
+    return send_file(io.BytesIO(data), as_attachment=as_attach, download_name=name)
 
 
 @app.route("/metadata", methods=["GET", "POST"])

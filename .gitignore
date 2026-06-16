@@ -72,6 +72,10 @@ search.db
 #    tags attached to vaulted documents by their reference (no product columns; no demo data) ──
 metadata.db
 
+# ── Document versioning (A4) — app-owned runtime DB: the ordered version chain of each
+#    vaulted document, keyed by reference (no product columns; pointers only; no demo data) ──
+versions.db
+
 # ── Cross-process lock store + SQLite WAL sidecars (transient, machine-specific) ──
 locks.db
 *.db-wal
