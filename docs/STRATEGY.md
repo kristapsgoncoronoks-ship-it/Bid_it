@@ -1362,3 +1362,88 @@ Guidelines 07/2020 (controller/processor), 01/2021 (breach examples), 09/2022 (b
 *Scania* C-319/22; PostgreSQL Row-Security docs; OWASP CSV Injection / MITRE CWE-1236.
 *(Grounded research guidance, not a legal opinion — get counsel sign-off before going multi-client
 and before any pooled-benchmark product.)*
+
+---
+
+## 10. Document-Management Core + Secure-Sharing platform (program record, June 2026)
+
+Records the document-platform program: the decision to build a **document-management core with
+switchable modules**, the competitor analysis that shaped it, the architecture guardrails, and
+what shipped.
+
+### 10.1 Product framing — core + modules; single-tenant now / multi-client later
+Read the product as a **financial-data + document-management CORE with delegated modules switched
+on per deployment** (and, later, per client). Decision: **build single-tenant now, keep every new
+module multi-tenant-ready** so flipping to multi-client SaaS is incremental, not a rewrite.
+
+Guardrails that keep "single now, multi later" cheap (every new module follows them):
+1. Route client-data access through the `tenancy.py` seam (`scope_clause()`/`require_tenant()` —
+   inert today, wired in now); every new table carries `tenant_id` (stamped via `tenancy.write_tenant()`).
+2. Module on/off stored so it can gain a per-tenant dimension later.
+3. Secrets per-tenant-capable (`keyvault` BYOK).
+4. The **data-product boundary** holds: the ENGINE writes the product DBs; the app reads them
+   READ-ONLY; every new feature keeps its own state in an **app-owned overlay DB** keyed by the
+   `doc:<id>` reference — never a column on a product DB.
+
+### 10.2 Competitor analysis (the field, June 2026)
+Researched against the open-source DMS field + Papermark (cloned + Prisma-schema-scanned).
+
+- **Papermark** (AGPL-3.0 core; `ee/` features commercially licensed) — a DocSend alternative:
+  secure *sharing* + page-by-page analytics + data rooms. Stack: Next.js/Postgres/Prisma/Tinybird/
+  pdf.js. It is an **outbound** layer, not a storage repository; its data model
+  (Document/DocumentPage/Link/View/Viewer/Dataroom/Agreement/Conversation/Chat) was the blueprint
+  for our sharing module.
+- **DMS field** — Mayan EDMS & Paperless-ngx (Python/Django; **Mayan Apache-2.0 = the only one safe
+  to borrow CODE from**; Paperless GPL-3.0 = design-only), OpenKM/LogicalDOC (Java; e-sign/zonal-OCR/
+  watermark/retention paywalled), Alfresco/Nuxeo (heavy ECM), Teedy/SeedDMS (lightweight).
+- **Table-stakes taxonomy** a serious DMS is judged on: OCR, full-text search, metadata/tagging,
+  versioning, granular access control, workflow, audit, REST API, retention/compliance, and — new
+  for 2026 — AI. (Corroborated by EDMSNext + every 2026 roundup.)
+- **Licensing guardrail:** borrow CODE only from Mayan (Apache-2.0); design-only from Papermark/
+  Paperless/OpenKM. We built native — did NOT adopt the Next.js/Postgres stack.
+
+### 10.3 Architecture decisions
+- **Backend stays Python/Flask** (Mayan & Paperless prove a full DMS in Python; OCR/search/AI are
+  Python-native; rewriting a deployed finance engine = pure risk for no gain).
+- **Frontend = a light JS layer** (vanilla JS + self-hosted pdf.js as `static/` assets under the
+  existing `script-src 'self'` CSP; no inline scripts, no framework, no second stack). The
+  page-by-page viewer is browser-side pdf.js emitting beacons — the one genuinely client-side piece.
+- Each module is an **app-owned overlay** (own SQLite DB, `db_migrate`-versioned, `audit`-installed,
+  tenancy-stamped), keyed by `doc:<id>`.
+
+### 10.4 What shipped (all reviewed + tested — suite at 1301 passing, `consolidate.py` green)
+
+Document-management core:
+- **A1 — Capture/OCR:** generic on-prem heuristic extractor (an unrecognised invoice auto-prefills
+  its header instead of showing an empty form — deterministic, no AI, no bytes leave the box) +
+  multilingual Tesseract OCR (`EXTRACT_OCR_LANGS`).
+- **A2 — Full-text search:** SQLite FTS5 over the document/invoice corpus (read-only from the
+  product DBs into an app-owned index); search page + admin rebuild + monthly-close hook.
+- **A3 — Metadata:** typed custom fields (text/number/monetary/date/boolean/select/documentlink) +
+  hierarchical tags (cycle-guarded); folded into search.
+- **A4 — Versioning:** append-only version chains per document; bytes via the vault's own store API;
+  revert records a new version and never destroys history.
+- **A5 — Retention + legal hold:** advisory records-management (GDPR/ISO-27001) — flags records past
+  retention for human review, legal hold overrides retention, longest-retention-wins, fully audited;
+  **never auto-deletes.**
+
+Secure-sharing module (Papermark-style, native):
+- **B1 — Secure share links:** trackable public `/s/<token>` link over a vaulted document;
+  expiry/password/require-email gates; view log + owner alert; enumeration-safe.
+- **B2 — Access controls:** NDA/agreement gate (acceptance logged) + dynamic watermark (pypdf overlay).
+- **B3 — Page-by-page analytics:** self-hosted pdf.js viewer (the `static/` JS layer) + per-page
+  dwell beacons; engagement dashboard; CSP scoped to the viewer response only (global stays strict).
+- **B4 — Data rooms:** branded multi-document rooms with folders, per-room gates, and a Q&A module.
+- **B5 — AI document assistant:** opt-in, default-OFF, advisory-only chat over **derived data only**
+  (the `ai_review` redactor strips IBAN/secrets; never the PDF), never mutates a figure.
+
+### 10.5 Backlog (deepen the platform)
+- Granular **per-recipient document permissions** in data rooms (room-level gating today).
+- **Custom domains / per-tenant branding** for the public viewer (Papermark parity).
+- Real **e-signature** (vs. the current NDA-accept log).
+- Multilingual OCR **per-language tuning** + scanned-only language autodetect (the code passes
+  `EXTRACT_OCR_LANGS`; today defaults to the Baltic/EU set).
+- **Per-owner email** for share-view alerts (B1 uses the team notify relay).
+- Wire the module activations to the **per-tenant** dimension when multi-tenancy phase 2 lands
+  (see "Multi-tenancy program plan").
+- Optional **CMIS/WebDAV** interop surface if a client needs ERP/DMS integration (defer behind `/api`).
