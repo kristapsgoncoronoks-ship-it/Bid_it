@@ -23,6 +23,8 @@ Overpay_Review_*.xlsx
 Expense_Report_*.xlsx
 Accounting_Ledger_*.csv
 SAFT_*.xml
+Invoice_*.xml
+UBL_einvoices*.zip
 
 # ── Fetched/cached reference data (re-fetchable) ──────────────────
 ecb_rates.db

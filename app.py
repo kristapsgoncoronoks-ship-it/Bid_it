@@ -482,6 +482,8 @@ PERM_BY_ENDPOINT = {
     "export_expenses": "exports",
     "export_accounting": "exports",
     "export_saft": "exports",
+    "export_einvoice": "exports", "export_einvoice_batch": "exports",
+    "exports_hub": "exports",
     "documents":       "documents", "doc_download": "documents",
     "doc_assistant":   "documents",
     # A3 — typed custom fields + hierarchical tags over vaulted documents.
@@ -552,7 +554,8 @@ MODULES = {
                     "pricing_upload", "api_pricing", "export_compare", "export_stations",
                     "export_pricing", "export_benchmark", "export_peer", "intel", "export_intel",
                     "export_overpay", "expenses", "export_expenses", "export_accounting",
-                    "export_saft", "reports_page", "reliability_page", "analytics"}),
+                    "export_saft", "export_einvoice", "export_einvoice_batch",
+                    "exports_hub", "reports_page", "reliability_page", "analytics"}),
     "intake":     ("Intake — import, waiting room, files, document mining",
                    {"extract_batch", "extract_confirm", "extract_ai_review",
                     "extract_ai_verify", "extract_ai_correct", "extract_capture_download",
@@ -1391,6 +1394,7 @@ h2.section:first-of-type{margin-top:4px}
 <span class="rightnav">
 {% if 'exports' in perms %}<div class="menu" tabindex="0"><span class="mlabel">⬇ Export</span><div class="mdrop"><span>
   <a href="/export/summary">Summary report</a><a href="/export/master">Master workbook</a><a href="/export/history">History report</a>
+  {% if 'analytics' in modules %}<a href="/exports">Accounting &amp; ERP exports</a>{% endif %}
 </span></div></div>{% endif %}
 {% if role == 'admin' %}<a href="/close" class="{{'on' if page=='close'}}">Monthly close</a>
 <a href="/admin" class="{{'on' if page=='adm'}}">Admin</a>{% endif %}
@@ -2301,10 +2305,13 @@ def expenses():
     dl = (f'<a class="btn" href="/export/expenses?period={esc(period)}{ent_qs}">Download expense report (Excel)</a>'
           f' <a class="btn" href="/export/accounting?period={esc(period)}{ent_qs}">Download accounting ledger (CSV)</a>'
           f' <a class="btn" href="/export/saft?period={esc(period)}{ent_qs}">Download SAF-T (XML, core structure)</a>'
+          f' <a class="btn" href="/export/einvoice/batch?period={esc(period)}">Download e-invoices (UBL, ZIP)</a>'
+          f' <a class="btn" href="/exports?period={esc(period)}">All accounting &amp; ERP exports</a>'
           f'<div class="note">Transaction-level ledger for import into your accounting/ERP system. '
           f'NET EUR, final; VAT shown separately; gross = net + VAT. '
           f'The SAF-T export is the OECD core structure — specialize per jurisdiction '
-          f'(namespace/version/required fields) before any real tax-authority submission.</div>'
+          f'(namespace/version/required fields) before any real tax-authority submission. '
+          f'The e-invoice batch is EN-16931 / UBL 2.1 Invoice XML (one file per registered invoice).</div>'
           if period else "")
     body = (f'<form class="f" method="get"><label>Period<select name="period" onchange="this.form.submit()">{psw}</select></label></form>'
             f'<div class="kpis">'
@@ -2366,6 +2373,108 @@ def export_saft():
                     'Load a period or pick another.</p></div>', "exp")
     return send_file(io.BytesIO(data), as_attachment=True, download_name=name,
                      mimetype="application/xml")
+
+@app.route("/export/einvoice")
+def export_einvoice():
+    """EN-16931 / UBL 2.1 Invoice XML export of a SINGLE registered invoice
+    (?ref=<invoice>). Read-only over the product data; NET EUR basis, final (rebates
+    applied). Amounts are the registered capture (no figure invented)."""
+    import io, einvoice_export
+    ref = request.args.get("ref") or ""
+    # Locate the (entity, country, claim-period) the registered invoice belongs to,
+    # then build its UBL document. Read-only enumeration; degrade to a friendly page.
+    invoice = None
+    try:
+        for ent, ctry, qtr, r in einvoice_export._enumerate_invoices():
+            if str(r) == str(ref):
+                invoice = einvoice_export.build_invoice_for(ent, ctry, qtr, r)
+                break
+    except Exception as e:
+        _log_exc("export_einvoice", e)
+    if not invoice:
+        return page('<div class="card"><h2>Nothing to export</h2>'
+                    '<p class="note">No registered invoice matches that reference. '
+                    'Pick another, or export a whole supplier/period as a ZIP.</p></div>', "exp")
+    name, data = einvoice_export.ubl_invoice_xml(invoice)
+    return send_file(io.BytesIO(data), as_attachment=True, download_name=name,
+                     mimetype="application/xml")
+
+@app.route("/export/einvoice/batch")
+def export_einvoice_batch():
+    """EN-16931 / UBL 2.1 Invoice XML export of a SET of registered invoices
+    (?supplier=&period=) as a ZIP of XML files. Read-only; NET EUR basis. A single
+    bad invoice is skipped, not fatal."""
+    import io, einvoice_export
+    supplier = request.args.get("supplier") or None
+    period = request.args.get("period") or None
+    try:
+        name, data = einvoice_export.ubl_invoices_zip(
+            {"supplier": supplier, "period": period})
+    except ValueError:
+        return page('<div class="card"><h2>Nothing to export</h2>'
+                    '<p class="note">No registered invoices match that supplier/period. '
+                    'Pick another filter.</p></div>', "exp")
+    return send_file(io.BytesIO(data), as_attachment=True, download_name=name,
+                     mimetype="application/zip")
+
+@app.route("/exports")
+def exports_hub():
+    """Accounting & ERP exports HUB — one place gathering the structured exports an
+    accounting/ERP team consumes: the SAF-T (OECD core) XML, the accounting-ledger
+    CSV, and the EN-16931 / UBL 2.1 e-invoice XML (single + batch). Read-only over the
+    product data; NET EUR basis, final (rebates applied); VAT shown separately."""
+    import reports
+    con = reports.connect()
+    try:
+        periods = reports._periods(con)
+    except Exception as e:
+        _log_exc("exports_hub", e); periods = []
+    finally:
+        con.close()
+    period = request.args.get("period") or (periods[0] if periods else "")
+    psw = "".join(f'<option {"selected" if p==period else ""}>{esc(p)}</option>'
+                  for p in periods) or '<option></option>'
+    pq = f"?period={esc(period)}" if period else ""
+
+    cards = [
+        ("SAF-T (XML, OECD core structure)",
+         "Standard Audit File for Tax — the OECD core AuditFile for the period "
+         "(Header, MasterFiles, GeneralLedgerEntries). Specialize per jurisdiction "
+         "(namespace/version/required fields) before any real tax-authority submission.",
+         f"/export/saft{pq}", "Download SAF-T (XML)"),
+        ("Accounting ledger (CSV)",
+         "One clean row per transaction — decision-free, no chart-of-accounts, no "
+         "country-specific XML. Import into Xero/QuickBooks/DATEV/a spreadsheet, or "
+         "derive any journal from it.",
+         f"/export/accounting{pq}", "Download ledger (CSV)"),
+        ("E-invoice batch (EN-16931 / UBL 2.1, ZIP)",
+         "Every registered invoice for a supplier/period as well-formed UBL 2.1 "
+         "Invoice XML (one file per invoice), the outbound counterpart to the "
+         "structured e-invoices the system already ingests.",
+         f"/export/einvoice/batch{pq}", "Download e-invoices (ZIP)"),
+    ]
+    card_html = "".join(
+        f'<div class="card"><h2>{esc(title)}</h2>'
+        f'<p class="note">{esc(blurb)}</p>'
+        f'<p style="margin-top:8px"><a class="btn" href="{href}">{esc(label)}</a></p></div>'
+        for title, blurb, href, label in cards)
+
+    body = (
+        '<div class="card"><h2>Accounting &amp; ERP exports</h2>'
+        '<p class="note">Structured, read-only exports of the validated transaction '
+        'record for your accounting / ERP / tax tooling. Basis: <b>NET EUR</b>, final '
+        '(rebates applied); VAT shown separately; gross = net + VAT. These are clean '
+        'structured files, not country-validated e-reporting submissions — validate '
+        'against the destination schema (SAF-T / EN-16931 BIS / national CIUS) before '
+        'any legal filing.</p>'
+        '<form class="f" method="get" style="margin-top:8px">'
+        f'<label>Period<select name="period" onchange="this.form.submit()">{psw}</select></label>'
+        '</form></div>'
+        + card_html
+        + '<div class="note">Single e-invoice export: from a claim, use the per-invoice '
+          'UBL link, or call <code>/export/einvoice?ref=&lt;invoice&gt;</code>. The '
+          'amounts are the registered capture — no VAT figure is invented.</div>')
+    return page(body, "exp")
 
 @app.route("/transactions")
 def transactions():
