@@ -1,0 +1,14 @@
+# OPTIONAL extra: the Model Context Protocol server (mcp_server.py).
+#
+# Deliberately kept OUT of the main requirements.txt so the web app / waitress server
+# is not burdened with the MCP SDK. Install ONLY on a host that runs the MCP server:
+#     pip install -r requirements-mcp.txt
+#
+# The rest of the codebase (and the test-suite) does NOT import `mcp` — mcp_server.py
+# guards the import so `import mcp_tools` works without these packages.
+
+# The official Model Context Protocol Python SDK (provides FastMCP + transports).
+mcp>=1.2.0
+
+# ASGI server for the streamable-HTTP transport (prod, behind nginx + TLS).
+uvicorn>=0.27.0
