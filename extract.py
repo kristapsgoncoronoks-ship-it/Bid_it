@@ -855,6 +855,7 @@ def _plain_draft(texts, files, backend, filename, strict, ocr_used=False):
     # for structured e-invoice / hybrid Factur-X PDFs (those stay deterministic, AI-free) —
     # `_plain_draft` is only reached for plain PDFs. On None (off / render / backend error /
     # unparseable) we fall straight through to the existing OCR→parser→AI→generic chain.
+    capture_failed_reason = None
     try:
         import vision_capture
         if vision_capture.enabled():
@@ -862,8 +863,13 @@ def _plain_draft(texts, files, backend, filename, strict, ocr_used=False):
             vd = vision_capture.capture(pdf0, files=files)
             if vd is not None:
                 return vd
+            # capture() returned None. It was ENABLED, so distinguish a BACKEND error (loud:
+            # note + admin error-log entry) from the OFF/not-configured path (which never
+            # sets a reason). _surface_capture_failure() handles the visibility.
+            capture_failed_reason = vision_capture.take_last_error()
     except Exception as e:
         log.warning("vision capture path failed (%s) — falling back to the existing path", e)
+        capture_failed_reason = f"vision capture path failed: {e}"
 
     draft = None
     fallback_note = "no parser matched and no AI backend configured - enter manually"
@@ -907,7 +913,29 @@ def _plain_draft(texts, files, backend, filename, strict, ocr_used=False):
             draft["confidence"] = "medium"
     draft["files"] = [{"name": n, "size": len(b)} for n, b in files]
     draft["_pdf_bytes"] = files                    # kept for vault attach on confirm
+    _surface_capture_failure(draft, capture_failed_reason)
     return draft
+
+
+def _surface_capture_failure(draft, reason):
+    """When AI vision capture was ENABLED but failed for a BACKEND reason (not simply OFF),
+    make that loud and visible: (a) attach a ⚠️ note to the (OCR-fallback) draft, and (b)
+    write it to the admin error log via auth.log_error so it appears where the admin looks.
+    A None reason (OFF / not-configured / capture succeeded) does NOTHING — OFF stays
+    silent and byte-identical. Best-effort: never raises."""
+    if not reason:
+        return
+    note = (f"⚠️ AI vision capture was ON but failed: {reason} — used OCR fallback; the "
+            f"captured data may be lower quality.")
+    draft["notes"] = (draft.get("notes") or "") + (" | " if draft.get("notes") else "") + note
+    draft["capture_failed"] = reason
+    if draft.get("confidence") == "high":
+        draft["confidence"] = "medium"
+    try:
+        import auth
+        auth.log_error("vision capture", "CaptureFailed", reason, "")
+    except Exception as e:
+        log.warning("could not write vision-capture failure to the admin error log: %s", e)
 
 
 def _merge_mixed(h_draft, p_draft, all_files):

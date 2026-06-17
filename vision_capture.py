@@ -31,6 +31,7 @@ document schema/parser, and the capture→draft mapping.
 """
 import os
 import json
+import threading
 
 import applog
 import money
@@ -45,6 +46,25 @@ log = applog.get("vision_capture")
 
 # The admin opt-in setting that turns vision capture ON (default OFF).
 SETTING = "ai_vision_capture_enabled"
+
+# Thread-local "last reason capture() returned None". It is set ONLY when capture was
+# ENABLED and a BACKEND error (render/transport/unparseable) caused the fallback — NEVER
+# for the OFF / not-configured path (that stays silent + byte-identical). The caller
+# (extract.py) reads it via take_last_error() right after a capture() that returned None.
+_LAST = threading.local()
+
+
+def _set_last_error(reason):
+    _LAST.reason = reason
+
+
+def take_last_error():
+    """Return and CLEAR the reason the most recent capture() on THIS thread fell back due
+    to a backend error, or None when it was OFF / not-configured / succeeded. One-shot so a
+    later OFF capture cannot resurface a stale reason."""
+    reason = getattr(_LAST, "reason", None)
+    _LAST.reason = None
+    return reason
 
 # Page cap — render at most this many leading PDF pages to images. Fuel invoices carry
 # many transaction pages, so the default is higher than the verifier's; still bounded to
@@ -301,6 +321,9 @@ def capture(pdf_bytes, backend=None, max_pages=None, files=None):
 
     `files` (a list of (name, bytes)) is the original PDF batch to vault on confirm; when
     given, the draft carries `files` + `_pdf_bytes` exactly like the other extract paths."""
+    # Clear any stale reason FIRST. The OFF / not-configured branch below returns without
+    # ever setting one (so OFF stays silent — no note, no error-log entry, byte-identical).
+    _set_last_error(None)
     be = backend or _provider()
     if be is None or not pdf_bytes:
         return None
@@ -310,25 +333,31 @@ def capture(pdf_bytes, backend=None, max_pages=None, files=None):
         images = ai_verify._render_pages(pdf_bytes, cap)
     except Exception as e:
         log.warning("vision capture could not render the PDF (%s) — falling back: %s", be, e)
+        _set_last_error(f"could not render the PDF to images ({e})")
         return None
     if not images:
+        _set_last_error("the PDF produced no page images to read")
         return None
 
     try:
         raw = ai_verify._VISION_CALL[be](CAPTURE_PROMPT, "", images)
     except TransientExtractionError as e:
         log.warning("vision capture transient error (%s) — falling back: %s", be, e)
+        _set_last_error(f"the {provider_label(be)} backend is busy / transient error ({e})")
         return None
     except Exception as e:
         if is_transient_error(e):
             log.warning("vision capture transient error (%s) — falling back: %s", be, e)
+            _set_last_error(f"the {provider_label(be)} backend is busy / transient error ({e})")
         else:
             log.warning("vision capture failed (%s: %s) — falling back to the existing path", be, e)
+            _set_last_error(f"the {provider_label(be)} backend call failed: {ai_verify._map_provider_error(e)}")
         return None
 
     cap_doc = parse_capture(raw)
     if cap_doc is None:
         log.warning("vision capture (%s) returned an unparseable document — falling back", be)
+        _set_last_error(f"the {provider_label(be)} backend returned an unreadable response")
         return None
 
     draft = to_draft(cap_doc, files=files, backend="vision")

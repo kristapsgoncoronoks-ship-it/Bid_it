@@ -3363,6 +3363,30 @@ def _ai_review_button(token, intake_job=None, period=None):
             + '</form>')
 
 
+def _ai_status_line(label, st):
+    """Render the precise live AI-pipeline status (from ai_verify.status()) for the AI
+    settings cards. ACTIVE => green 'ACTIVE (Provider, model …)'; INACTIVE => red
+    'INACTIVE — reason: …'. The reason text is esc()'d (it can carry a provider/setting
+    name). `st` is the dict from ai_verify.status()."""
+    if st.get("active"):
+        return (f'<b class="ok">{esc(label)}: ACTIVE</b> — {esc(st.get("provider_label") or "")}, '
+                f'model <b>{esc(st.get("model") or "")}</b>.')
+    return (f'<b class="bad">{esc(label)}: INACTIVE</b> — reason: '
+            f'{esc(st.get("reason") or "not configured")}.')
+
+
+def _ai_test_connection_form():
+    """The 'Test AI connection' control on the AI settings card. Posts back to /admin; the
+    result banner is rendered server-side after a MINIMAL real call (text-only, no PDF)."""
+    return ('<form method="post" class="f" style="margin-top:8px">'
+            + _csrf_input()
+            + '<button name="__act" value="test_ai_connection">Test AI connection</button>'
+            + '<span class="note" style="margin-left:8px">Sends a tiny text-only prompt to '
+              'the configured vision backend to verify the key/model — no PDF, negligible '
+              'cost.</span>'
+            + '</form>')
+
+
 def _ai_verify_button(token, intake_job=None, period=None):
     """The 'Verify against PDF with AI' control under the draft. Shown ONLY when AI
     verification is enabled (opt-in setting ON AND a vision backend configured). This is the
@@ -8440,6 +8464,7 @@ def history_page():
 def admin():
     banner = ""
     if request.method == "POST":
+        _banner_klass = "ok"          # green by default; an in-band failure sets "bad"
         try:
             act = request.form["__act"]
             tgt = request.form.get("username", "").strip()
@@ -8499,6 +8524,21 @@ def admin():
                           "ORIGINAL PDF page images to the configured AI provider for "
                           "unknown-layout/scanned invoices." if on
                           else "AI vision capture turned OFF.")
+            elif act == "test_ai_connection":
+                # MINIMAL real round-trip to the configured vision backend (text-only, no
+                # PDF) so the admin can verify the key/model in one click. Never logs/echoes
+                # the API key; maps the provider error to a clear message.
+                import ai_verify as _aiv
+                res = _aiv.test_connection()
+                if res["ok"]:
+                    banner = (f"✅ OK — {esc(res['provider'])} responded "
+                              f"(model <b>{esc(res['model'])}</b>).")
+                else:
+                    # A failed self-test is shown RED inline with the EXACT mapped reason
+                    # (esc'd) — an explicit interactive probe, not a background app error,
+                    # so it is NOT written to the error log. Pre-wrap as a 'bad' banner.
+                    _banner_klass = "bad"
+                    banner = f'❌ AI connection test failed: {esc(res["message"])}'
             elif act == "toggle":
                 if tgt == session["user"]:
                     raise ValueError("you cannot disable your own account")
@@ -8686,7 +8726,7 @@ def admin():
                 api_keys.revoke(int(request.form.get("key_id", "0")))
                 banner = f'API key <b>#{esc(request.form.get("key_id",""))}</b> revoked — it now fails on its next call.'
             scon = _auth.connect(); _audit_mod.reset_actor(scon); scon.close()
-            banner = f'<div class="card"><b class="ok">{banner}</b></div>'
+            banner = f'<div class="card"><b class="{_banner_klass}">{banner}</b></div>'
         except Exception as e:
             _log_exc("admin action", e)
             banner = f'<div class="card"><b class="bad">Error: {esc(str(e))}</b></div>'
@@ -9004,14 +9044,9 @@ def admin():
     # backend selection (Claude/OpenAI only — vision-capable).
     import ai_verify as _aiv
     _verify_on = str(_auth.get_setting("ai_verify_enabled", "off") or "off").lower() in ("on", "1", "true", "yes")
-    _verify_prov = _aiv._provider()
-    _verify_prov_label = _aiv.provider_label(_verify_prov) if _verify_prov else ""
-    _verify_active = (f'Active vision provider: <b>{esc(_verify_prov_label)}</b> '
-                      f'(model <b>{esc(_aiv.model_name(_verify_prov))}</b>).'
-                      if _verify_prov else
-                      '<b class="bad">No vision-capable backend is configured</b> — set the '
-                      'AI review backend above to <b>claude</b> or <b>openai</b> (with its '
-                      'API key present); verification stays OFF and sends nothing until then.')
+    _verify_st = _aiv.status(_aiv.SETTING)
+    _verify_active = _ai_status_line("AI vision verify", _verify_st)
+    _testconn = _ai_test_connection_form()
     aiverifyf = ('<div class="card" style="border-color:var(--bad)">'
                  '<h2>AI verification against the original PDF (advisory)</h2>'
                  '<div class="note bad" style="margin-top:0">⚠️ Enabling this sends the '
@@ -9031,6 +9066,7 @@ def admin():
                    f'Enable AI verification against the original PDF</label>'
                  + '<button name="__act" value="set_ai_verify">Save verification setting</button>'
                  + '</form>'
+                 + _testconn
                  + '</div>')
     # OPT-IN AI VISION CAPTURE — default OFF. THE DELIBERATE "AI for capture" exception:
     # for an unknown-layout / scanned PLAIN PDF, it SENDS the original PDF page images to
@@ -9039,15 +9075,10 @@ def admin():
     # selection (Claude/OpenAI). Structured e-invoice / hybrid PDFs stay deterministic.
     _vcap_on = str(_auth.get_setting("ai_vision_capture_enabled", "off") or "off").lower() in ("on", "1", "true", "yes")
     import vision_capture as _vc
-    _vcap_prov = _vc._provider()
-    _vcap_prov_label = _vc.provider_label(_vcap_prov) if _vcap_prov else ""
-    _vcap_active = (f'Active vision provider: <b>{esc(_vcap_prov_label)}</b> '
-                    f'(model <b>{esc(_vc.model_name(_vcap_prov))}</b>); page cap '
-                    f'<b>{_vc.VISION_CAPTURE_MAX_PAGES}</b>.'
-                    if _vcap_prov else
-                    '<b class="bad">No vision-capable backend is configured</b> — set the '
-                    'AI review backend above to <b>claude</b> or <b>openai</b> (with its '
-                    'API key present); capture stays OFF and sends nothing until then.')
+    _vcap_st = _aiv.status(_vc.SETTING)
+    _vcap_active = _ai_status_line("AI vision capture", _vcap_st)
+    if _vcap_st["active"]:
+        _vcap_active += (f' <span class="note">Page cap <b>{_vc.VISION_CAPTURE_MAX_PAGES}</b>.</span>')
     aicapf = ('<div class="card" style="border-color:var(--bad)">'
               '<h2>AI vision capture of scanned / unknown-layout invoices (advisory)</h2>'
               '<div class="note bad" style="margin-top:0">⚠️ Enabling this sends the '

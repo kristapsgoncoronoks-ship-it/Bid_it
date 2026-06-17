@@ -109,16 +109,59 @@ def _provider(backend=None):
     return None
 
 
+def _setting_on(setting):
+    """True if the named admin opt-in setting is ON. Never raises -> False (fail to OFF)."""
+    try:
+        import auth
+        return str(auth.get_setting(setting, "off") or "off").lower() in ("on", "1", "true", "yes")
+    except Exception as e:
+        log.warning("setting %s check failed — treating as OFF: %s", setting, e)
+        return False
+
+
 def enabled():
     """True only when BOTH the admin opt-in setting is ON and a VISION-capable backend is
     configured (key present). Never raises -> False (fail toward OFF / no network call)."""
     try:
-        import auth
-        on = str(auth.get_setting(SETTING, "off") or "off").lower() in ("on", "1", "true", "yes")
-        return bool(on) and _provider() is not None
+        return _setting_on(SETTING) and _provider() is not None
     except Exception as e:
         log.warning("enabled() check failed — defaulting to OFF: %s", e)
         return False
+
+
+def status(setting=SETTING):
+    """The PRECISE live state of a vision pipeline (verify or capture), computed from the
+    gating conditions, for DISPLAY on the AI settings page. Returns a dict:
+        {"active": bool, "provider": <backend|None>, "provider_label": str,
+         "model": str, "reason": str}
+    `reason` is "" when ACTIVE, else the FIRST failing condition in gate order:
+    setting off -> no vision backend selected (review backend not claude/openai)
+    -> no API key loaded. Never raises (any failure -> INACTIVE with the reason)."""
+    try:
+        if not _setting_on(setting):
+            return {"active": False, "provider": None, "provider_label": "", "model": "",
+                    "reason": f"the admin setting '{setting}' is off"}
+        # The review backend drives provider selection; surface WHICH condition fails.
+        try:
+            be = ai_review.resolve_backend()
+        except Exception as e:
+            log.warning("status: backend resolution failed: %s", e)
+            be = None
+        if be not in VISION_BACKENDS:
+            cur = be or "none"
+            return {"active": False, "provider": None, "provider_label": "", "model": "",
+                    "reason": f"the AI review backend is '{cur}' — set it to 'claude' or "
+                              f"'openai' (the only vision-capable backends)"}
+        if not _have_key(be):
+            envkey = "ANTHROPIC_API_KEY" if be == "claude" else "OPENAI_API_KEY"
+            return {"active": False, "provider": None, "provider_label": "", "model": "",
+                    "reason": f"no API key is loaded for '{be}' (set {envkey})"}
+        return {"active": True, "provider": be, "provider_label": provider_label(be),
+                "model": model_name(be), "reason": ""}
+    except Exception as e:
+        log.warning("status() check failed — reporting INACTIVE: %s", e)
+        return {"active": False, "provider": None, "provider_label": "", "model": "",
+                "reason": "the AI pipeline status could not be determined"}
 
 
 def model_name(backend):
@@ -248,6 +291,78 @@ def _call_openai(prompt, data_str, images):
 
 # Provider dispatch in ONE place — add a self-hosted vision endpoint here later.
 _VISION_CALL = {"claude": _call_claude, "openai": _call_openai}
+
+
+# ---------------------------------------------------------------- connection self-test
+def _map_provider_error(e):
+    """Map a raw provider/transport error to a SHORT, human message for the admin — never
+    leaks the API key (the key is in a header, not the message). Recognises the common
+    auth / billing / model / network failures; falls back to the exception text."""
+    code = None
+    body = ""
+    resp = getattr(e, "response", None)
+    if resp is not None:
+        code = getattr(resp, "status_code", None)
+        try:
+            body = (resp.text or "")[:300]
+        except Exception:
+            body = ""
+    blob = (body + " " + str(e)).lower()
+    if code == 401 or "invalid api key" in blob or "invalid_api_key" in blob or \
+       "incorrect api key" in blob or "authentication" in blob or "unauthorized" in blob:
+        return "401 invalid API key"
+    if code == 403 or "permission" in blob or "forbidden" in blob:
+        return "403 forbidden — the key lacks access to this model/endpoint"
+    if "insufficient_quota" in blob or "insufficient credit" in blob or \
+       "exceeded your current quota" in blob or "billing" in blob or "out of credit" in blob:
+        return "insufficient credit / quota — top up the account"
+    if code == 404 or "model_not_found" in blob or "model not found" in blob or \
+       "does not exist" in blob or "unknown model" in blob:
+        return f"model not found ({model_name_safe(e)})"
+    if code == 429 or "rate limit" in blob or "rate_limit" in blob or "too many requests" in blob:
+        return "rate limited — too many requests; try again shortly"
+    if "timeout" in blob or "timed out" in blob or "connection" in blob or \
+       "network" in blob or "name resolution" in blob or "getaddrinfo" in blob:
+        return "network/timeout — could not reach the provider"
+    if code:
+        return f"HTTP {code} from the provider"
+    msg = str(e).strip() or type(e).__name__
+    return msg[:200]
+
+
+def model_name_safe(e):
+    """Best-effort model name for an error message (never a secret)."""
+    try:
+        return model_name(ai_review.resolve_backend())
+    except Exception:
+        return ""
+
+
+def test_connection(backend=None):
+    """Make a MINIMAL real call to the configured vision backend (a tiny TEXT prompt — no
+    PDF, no image, negligible cost) and report the result for the admin 'Test AI connection'
+    button. Returns {"ok": bool, "provider": str, "model": str, "message": str}.
+
+    Never raises and NEVER logs/returns the API key. When no vision backend is configured it
+    returns ok=False with a clear reason and makes ZERO network call (gate-identical to the
+    other paths)."""
+    be = _provider(backend)
+    if be is None:
+        st = status()
+        return {"ok": False, "provider": "", "model": "",
+                "message": st["reason"] or "no vision backend configured (no request was sent)"}
+    prompt = ('Reply with ONLY this JSON and nothing else: {"ok": true}. '
+              'This is a connection self-test.')
+    try:
+        # No images — a tiny text-only round-trip through the SAME provider call path.
+        _VISION_CALL[be](prompt, "", [])
+    except Exception as e:
+        msg = _map_provider_error(e)
+        log.warning("AI test connection failed (%s): %s", be, msg)
+        return {"ok": False, "provider": provider_label(be), "model": model_name(be),
+                "message": msg}
+    return {"ok": True, "provider": provider_label(be), "model": model_name(be),
+            "message": f"{provider_label(be)} responded (model {model_name(be)})"}
 
 
 # ---------------------------------------------------------------- parsing
