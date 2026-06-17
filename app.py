@@ -3010,8 +3010,8 @@ def extract_batch():
                             'paused.</b>'
                             f'<p>Your file is safely archived, but {pend} document(s) in the '
                             'waiting room still need to be processed first. Clear them — open '
-                            'the waiting room and press <b>Send / restart all</b>. ' + esc(hint)
-                            + '</p><p><a href="/queue">→ Go to the waiting room</a></p></div>'
+                            f'the waiting room and press <b>Send / restart all</b>. {esc(hint)}'
+                            '</p><p><a href="/queue">→ Go to the waiting room</a></p></div>'
                             + _upload_form(backend_env), "ext")
             try:
                 jid, st = IQ.enqueue(data, f.filename, backend=request.form.get("backend") or None,
@@ -4625,8 +4625,8 @@ def intake_queue_page():
         supplier = j.get("draft_supplier")
         if supplier:
             conf = j.get("draft_confidence")
-            sup_cell = esc(supplier) + (
-                f'<br><span class="note">conf: {esc(conf)}</span>' if conf else "")
+            sup_cell = (f'{esc(supplier)}<br><span class="note">conf: {esc(conf)}</span>'
+                        if conf else esc(supplier))
         else:
             sup_cell = '<span class="note">—</span>'
         rows.append([
@@ -6170,7 +6170,7 @@ def receivables():
             res = finance.request_advance(f"{ent}|{cty}|{per}", q["advance_eur"], q["fee_eur"],
                                           actor=session.get("user", "admin"))
             fin_banner = (f'<div class="card"><b class="{"ok" if res.get("ok") else "bad"}">'
-                          + esc(res.get("message") or "") + '</b></div>')
+                          f'{esc(res.get("message") or "")}</b></div>')
         except Exception as e:
             _log_exc("receivables/record_advance", e)
             fin_banner = '<div class="card"><b class="bad">Could not record advance intent.</b></div>'
@@ -6251,7 +6251,7 @@ def receivables():
         + '<div class="note">Median days and realization are computed on <b>paid</b> claims only. '
           'Realization = paid / claimed (which jurisdictions haircut a claim); under 95% flagged '
           'red. NET basis, VAT-excluded.</div></div>'
-        + '<div class="card"><h2>VAT receivables ' + esc(year) + '</h2>'
+        + f'<div class="card"><h2>VAT receivables {esc(year)}</h2>'
         + tbl(["Entity", "Country", "Period", "Status", "Payout route",
                "Refund receivable (from state)", "Agency fee", "Customer net",
                "Paid amount", "Submitted", "Paid", "Age / band"], trs)
@@ -6284,7 +6284,7 @@ def receivables():
         '<div class="card"><h2>Financing (embedded — origination only)</h2>'
         + '<div class="note" style="border-left:3px solid #b06b00;padding-left:8px">'
           'Financing originates via a <b>LICENSED factoring partner</b>; the platform '
-          'never lends. <b>' + esc("Provider: " + prov.name)
+          f'never lends. <b>{esc("Provider: " + prov.name)}'
         + ('</b> — No provider configured — figures below are <b>informational only</b>.'
            if prov.name == "none" else '</b>')
         + '</div>'
@@ -6303,7 +6303,7 @@ def receivables():
           'outstanding receivable shown above — a tax-authority refund is high-certainty, '
           'which is what makes it financeable. The advance economics are computed at the '
           'configured terms; no VAT figure, gate, lock, or claim is touched.</div>'
-        + '<div class="dashlabel">Financeable claims ' + esc(year) + '</div>'
+        + f'<div class="dashlabel">Financeable claims {esc(year)}</div>'
         + tbl(["Entity", "Country", "Period", "Status", "VAT receivable EUR", "Age (days)"],
               fin_rows)
         + '<form method="post" class="f" style="margin-top:10px">' + _csrf_input()
@@ -10573,7 +10573,7 @@ def esign_verify_page(request_id):
             _log_exc("esign: verify", e)
             v = {"ok": False, "detail": "verify failed", "signed_ok": None}
         badge = ('<b class="ok">PASS — binding intact</b>' if v.get("ok")
-                 else '<b class="bad">FAIL — ' + esc(v.get("detail") or "altered") + '</b>')
+                 else f'<b class="bad">FAIL — {esc(v.get("detail") or "altered")}</b>')
         signed_link = "—"
         if s.get("signed_locator"):
             signed_link = (f'<a href="/esign/{request_id}/signed/{s["id"]}">'
