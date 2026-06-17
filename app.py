@@ -470,6 +470,7 @@ PERM_BY_ENDPOINT = {
     "extract_ai_correct": "data_import",
     "extract_capture_download": "data_import",
     "extract_capture_file_download": "data_import",
+    "extract_folder": "data_import", "extract_folder_file": "data_import",
     "capture_file_download": "documents",
     "data_manager":    "data_import",
     "intake_queue_page": "data_import", "intake_review": "data_import",
@@ -568,7 +569,7 @@ MODULES = {
     "intake":     ("Intake — import, waiting room, files, document mining",
                    {"extract_batch", "extract_confirm", "extract_ai_review",
                     "extract_ai_verify", "extract_ai_correct", "extract_capture_download",
-                    "extract_capture_file_download",
+                    "extract_capture_file_download", "extract_folder", "extract_folder_file",
                     "intake_queue_page", "intake_review",
                     "imports", "files_archive", "doc_mining_page", "data_manager"}),
     "compliance": ("Compliance — invoice control, contract audit, documents",
@@ -3063,12 +3064,30 @@ def extract_batch():
                 import capture_file
                 capture_file.persist(draft, _sha, source_name=f.filename, backend="vision",
                                      actor=session.get("user", "system"))
-                # stash the upload sha on the (already-stashed) draft so the review screen
-                # can surface the saved-file links (a `_`-prefixed key, never registered).
-                draft["_upload_sha256"] = _sha
-                _stash_draft(token, draft)
             except Exception as e:
                 _log_exc("persist capture file", e)
+        # stash the upload sha on the (already-stashed) draft so the review screen can
+        # surface the saved-file links (a `_`-prefixed key, never registered).
+        draft["_upload_sha256"] = _sha
+        _stash_draft(token, draft)
+        # CO-LOCATE the original document(s) AND the captured text in ONE folder
+        # (captures/<sha>/) so an operator can open one place and see both the source PDF
+        # and exactly what was read. Best-effort; never blocks the review.
+        try:
+            import capture_folder
+            _cap = draft.get("capture") if isinstance(draft, dict) else None
+            _cap_txt = None
+            if _cap:
+                try:
+                    _cap_txt = _capture_text(_cap)
+                except Exception:
+                    _cap_txt = None
+            capture_folder.save(_sha, draft.get("_pdf_bytes") or [],
+                                draft.get("_source_text") or "",
+                                source_name=f.filename, capture_json=_cap,
+                                capture_text=_cap_txt)
+        except Exception as e:
+            _log_exc("capture folder save", e)
         # READ-FIRST: derive the period from the invoice/statement date (the manual field
         # is an optional override) and surface what was auto-detected — auto-onboarding an
         # unknown-but-VAT-identified supplier as provisional, or flagging it UNMATCHED.
@@ -3467,6 +3486,33 @@ def _capture_accuracy_hints(draft):
         return "", {}
 
 
+def _source_text_html(draft, upload_sha=None):
+    """A collapsible 'Full text read from this PDF' panel: shows, line by line, EXACTLY
+    what the system read out of the document so the operator can verify nothing was missed.
+    Plus links to the co-located folder (original PDF + captured text together). Read-only;
+    the text is HTML-escaped (served as content, never executed)."""
+    txt = (draft.get("_source_text") if isinstance(draft, dict) else "") or ""
+    sha = upload_sha or (draft.get("_upload_sha256") if isinstance(draft, dict) else "") or ""
+    if not txt and not sha:
+        return ""
+    nlines = txt.count("\n") + 1 if txt else 0
+    links = ""
+    if sha:
+        links = (f'<div class="note" style="margin:6px 0">'
+                 f'<a href="/extract/folder/{esc(sha)}">📁 Open the saved folder</a> '
+                 f'(original document + captured text together) · '
+                 f'<a href="/extract/folder/{esc(sha)}/captured.txt">⬇ Download captured text</a></div>')
+    body = (f'<pre style="white-space:pre-wrap;max-height:340px;overflow:auto;'
+            f'background:#fafbfc;border:1px solid #e2e8f0;border-radius:6px;padding:10px;'
+            f'font-size:12px;margin:6px 0">{esc(txt) if txt else "(no text could be read from this document)"}</pre>')
+    return ('<div class="card"><h2>Full text read from this PDF '
+            f'<span class="note" style="font-weight:400">({nlines} line(s))</span></h2>'
+            '<div class="note" style="margin-top:0">This is EXACTLY what the system read '
+            'from the document, verbatim. Check every figure here matches the original '
+            'before confirming — the structured fields below are derived from this text.</div>'
+            + links + body + '</div>')
+
+
 def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload_sha=None):
     acc_line, weak = _capture_accuracy_hints(draft)
     def _wh(field):  # a weak-field hint cell fragment, or empty
@@ -3489,6 +3535,7 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload
             f'confidence <span class="{ccls}">{esc(conf)}</span> · '
             f'{len(draft.get("files",[]))} PDF(s). {esc(draft.get("notes",""))}</div>'
             + acc_line
+            + _source_text_html(draft, upload_sha=upload_sha)
             + _capture_document_html(draft, token, intake_job, upload_sha=upload_sha)
             + _persisted_corrections_html(draft)
             + _capture_findings_html(draft) +
@@ -4101,6 +4148,50 @@ def extract_capture_file_download(sha, fmt):
     artifact surfaced in the document vault), keyed by the upload's sha256. Access:
     data_import (enforced in _guard) so a reviewer can open the saved file from review."""
     return _serve_capture_file(sha, fmt)
+
+
+@app.route("/extract/folder/<sha>")
+def extract_folder(sha):
+    """List the co-located CAPTURE FOLDER for an upload (original document(s) + the
+    captured text together), with a download link per file. Access: data_import (enforced
+    in _guard). Read-only; serves only the files the app itself wrote to captures/<sha>/."""
+    import capture_folder
+    files = capture_folder.listing(sha)
+    if not files:
+        return page('<div class="card"><b class="bad">No saved folder for this document.</b>'
+                    '<div class="note">A folder is written when a document is uploaded and '
+                    'read. Older uploads (before this feature) have none.</div></div>'
+                    '<p><a href="/extract">← back to import</a></p>', "ext")
+    rows = "".join(
+        f'<tr><td><a href="/extract/folder/{esc(sha)}/{esc(fr["name"])}">{esc(fr["name"])}</a></td>'
+        f'<td class="r note">{fr.get("size", 0):,} bytes</td></tr>' for fr in files)
+    return page('<div class="card"><h2>Saved folder — original document + captured text</h2>'
+                f'<div class="note">Folder key: <code>{esc(sha)}</code>. Both the source '
+                'document and the text read from it are stored together here.</div>'
+                f'<table style="margin-top:8px"><thead><tr><th>File</th><th>Size</th></tr>'
+                f'</thead><tbody>{rows}</tbody></table></div>'
+                '<p><a href="/extract">← back to import</a></p>', "ext")
+
+
+@app.route("/extract/folder/<sha>/<path:name>")
+def extract_folder_file(sha, name):
+    """Download a single file from an upload's capture folder. Path-traversal safe (the
+    name is reduced to a basename inside the folder). Access: data_import (in _guard)."""
+    import capture_folder
+    data = capture_folder.file_bytes(sha, name)
+    if data is None:
+        return page('<div class="card"><b class="bad">File not found in the saved folder.</b>'
+                    '</div>', "ext")
+    from flask import Response
+    safe = capture_folder._safe_name(name)
+    low = safe.lower()
+    mime = ("application/pdf" if low.endswith(".pdf") else
+            "application/json" if low.endswith(".json") else
+            "application/xml" if low.endswith(".xml") else
+            "text/plain; charset=utf-8")
+    return Response(data, mimetype=mime,
+                    headers={"Content-Disposition": f'attachment; filename="{safe}"',
+                             "X-Content-Type-Options": "nosniff"})
 
 
 @app.route("/extract/ai-verify", methods=["POST"])

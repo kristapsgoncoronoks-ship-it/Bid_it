@@ -345,6 +345,21 @@ PARSERS = [parse_eurowag]
 AI_DOC_CHAR_BUDGET = int(os.environ.get("EXTRACT_AI_DOC_CHARS", "60000"))
 AI_DOC_MAX_CHUNKS = int(os.environ.get("EXTRACT_AI_DOC_MAX_CHUNKS", "8"))
 
+def _join_source_text(texts):
+    """The FULL text READ from the upload, verbatim, for the human "verify what was read"
+    view on the review screen (and a .txt download). `texts` is the list of
+    (filename, extracted_text) pairs produced by pdf_text/OCR. We join them with a per-file
+    header so a multi-file batch stays legible, and we NEVER truncate — the whole point is
+    that the operator can see every line that was read. Returns "" when nothing was read
+    (e.g. an image-only PDF with OCR off)."""
+    parts = []
+    for n, t in (texts or []):
+        t = (t or "").strip()
+        header = f"===== {n} =====" if n else "====="
+        parts.append(header + "\n" + (t if t else "(no text could be read from this file)"))
+    return "\n\n".join(parts).strip()
+
+
 def _doc_blocks(texts):
     """Build the labelled per-document blocks for the AI prompt, chunking any document
     that exceeds AI_DOC_CHAR_BUDGET rather than truncating it. Returns list[str]."""
@@ -626,6 +641,9 @@ def _einvoice_draft(xmls):
             "before submitting")
     draft["files"] = [{"name": n, "size": len(b)} for n, b in xmls]
     draft["_pdf_bytes"] = list(xmls)           # vault the XML source(s) on confirm
+    draft["_source_text"] = _join_source_text(   # the structured XML IS the source read
+        [(n, b.decode("utf-8", "replace") if isinstance(b, (bytes, bytearray)) else str(b))
+         for n, b in xmls])
     return draft
 
 
@@ -952,6 +970,7 @@ def _plain_draft(texts, files, backend, filename, strict, ocr_used=False):
     draft["_pdf_bytes"] = files                    # kept for vault attach on confirm
     if classify_result is not None:
         draft["classification"] = classify_result   # advisory DLP label for the review screen
+    draft["_source_text"] = _join_source_text(texts)   # full text READ from the PDF (verify view)
     _surface_capture_failure(draft, capture_failed_reason)
     return draft
 
