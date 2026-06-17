@@ -186,6 +186,18 @@ KIND_CLOSE = "close"
 # job's `backend` is the SUPPLIER, so the per-supplier rate-limiter/breaker governs CLAIM
 # eligibility and the worker records each outcome via record_outcome to drive the breaker.
 KIND_FETCH = "fetch"
+# An AUTO-ONBOARD job for an UNKNOWN supplier read off an extracted invoice (read-first
+# intake): carries NO inbox bytes, just the derived supplier code / legal name / country
+# / VAT id / source invoice ref. The web request ENQUEUES this; the engine worker
+# dispatches on kind='onboard' and calls supplier_master.create_provisional_supplier OFF
+# the request, so the request never holds a writable suppliers.db handle. The supplier is
+# created status='provisional' (NOT active) — a mis-read can't silently pollute the master.
+KIND_ONBOARD = "onboard"
+# An ACTIVATE job confirming a provisional supplier (admin 'Activate' action): carries NO
+# inbox bytes, just the supplier code. The web request ENQUEUES this; the engine worker
+# dispatches on kind='activate' and calls supplier_master.activate_supplier OFF the request
+# (provisional -> active), so the request never holds a writable suppliers.db handle.
+KIND_ACTIVATE = "activate"
 
 
 # ---------------------------------------------------------------- inbox files
@@ -377,6 +389,84 @@ def enqueue_fetch(supplier, entity, date_from=None, date_to=None, user="system")
         VALUES (?,?,?,?,?,?, 'queued', ?, ?, ?)""",
         (sha, f"fetch {supplier}/{entity}", 0, supplier_up, None,
          user, KIND_FETCH, body, tenancy.queue_tenant()))
+    con.commit()
+    jid = cur.lastrowid
+    con.close()
+    return jid, "queued"
+
+
+def enqueue_onboard(supplier, home_country, legal_name=None, vat_number=None,
+                    invoice_ref=None, user="system"):
+    """Enqueue an AUTO-ONBOARD job for an UNKNOWN supplier read off an invoice (read-first
+    intake). The web request does NO suppliers.db write itself — it only parks this fileless
+    job; the engine worker dispatches on kind='onboard' and calls
+    supplier_master.create_provisional_supplier OFF the web request, so the request holds no
+    writable engine-owned product-DB handle. The supplier lands status='provisional'.
+
+    A `home_country` is REQUIRED (the caller derives it from the VAT prefix; we never onboard
+    a country-less supplier). Carries NO inbox bytes — the (supplier, country, …) ARE the job.
+    Idempotent/re-runnable: we dedup on a deterministic sha over the supplier code so a second
+    invoice from the same unknown supplier refreshes rather than duplicating the job (and
+    create_provisional_supplier itself no-ops on an existing supplier). Returns (job_id, status)."""
+    supplier = (supplier or "").strip().upper()
+    home_country = (home_country or "").strip().upper()
+    if not supplier:
+        raise ValueError("onboarding needs a supplier code")
+    if not home_country:
+        raise ValueError("onboarding needs a home_country")
+    sha = hashlib.sha256(f"onboard:{supplier}".encode()).hexdigest()
+    body = json.dumps({"supplier": supplier, "home_country": home_country,
+                       "legal_name": legal_name, "vat_number": vat_number,
+                       "invoice_ref": invoice_ref})
+    con = connect()
+    existing = con.execute("SELECT id, status FROM intake_jobs WHERE sha256=?", (sha,)).fetchone()
+    if existing:
+        con.execute("""UPDATE intake_jobs SET status='queued', attempts=0, defer_count=0,
+                       lease_until=NULL, next_attempt_at=NULL, error=NULL,
+                       started_at=NULL, finished_at=NULL, payload=?,
+                       uploaded_by=?, uploaded_at=? WHERE id=?""",
+                    (body, user, _now(), existing["id"]))
+        con.commit(); con.close()
+        return existing["id"], "queued"
+    cur = con.execute("""INSERT INTO intake_jobs
+        (sha256, filename, size, backend, period, uploaded_by, status, kind, payload, tenant_id)
+        VALUES (?,?,?,?,?,?, 'queued', ?, ?, ?)""",
+        (sha, f"onboard {supplier}", 0, supplier, None,
+         user, KIND_ONBOARD, body, tenancy.queue_tenant()))
+    con.commit()
+    jid = cur.lastrowid
+    con.close()
+    return jid, "queued"
+
+
+def enqueue_activate(supplier, user="system"):
+    """Enqueue an ACTIVATE job confirming a provisional supplier (admin 'Activate'). The
+    web request does NO suppliers.db write itself — it only parks this fileless job; the
+    engine worker dispatches on kind='activate' and calls supplier_master.activate_supplier
+    OFF the web request, so the request holds no writable engine-owned product-DB handle.
+
+    Idempotent/re-runnable (activate_supplier only flips a provisional row): we dedup on a
+    deterministic sha over the supplier code. Returns (job_id, status)."""
+    supplier = (supplier or "").strip().upper()
+    if not supplier:
+        raise ValueError("activation needs a supplier code")
+    sha = hashlib.sha256(f"activate:{supplier}".encode()).hexdigest()
+    body = json.dumps({"supplier": supplier})
+    con = connect()
+    existing = con.execute("SELECT id, status FROM intake_jobs WHERE sha256=?", (sha,)).fetchone()
+    if existing:
+        con.execute("""UPDATE intake_jobs SET status='queued', attempts=0, defer_count=0,
+                       lease_until=NULL, next_attempt_at=NULL, error=NULL,
+                       started_at=NULL, finished_at=NULL, payload=?,
+                       uploaded_by=?, uploaded_at=? WHERE id=?""",
+                    (body, user, _now(), existing["id"]))
+        con.commit(); con.close()
+        return existing["id"], "queued"
+    cur = con.execute("""INSERT INTO intake_jobs
+        (sha256, filename, size, backend, period, uploaded_by, status, kind, payload, tenant_id)
+        VALUES (?,?,?,?,?,?, 'queued', ?, ?, ?)""",
+        (sha, f"activate {supplier}", 0, supplier, None,
+         user, KIND_ACTIVATE, body, tenancy.queue_tenant()))
     con.commit()
     jid = cur.lastrowid
     con.close()
@@ -857,6 +947,64 @@ def _do_fetch(con, row):
     return "done"
 
 
+def _do_onboard(con, row):
+    """Engine-side handler for an AUTO-ONBOARD job (read-first intake): create an UNKNOWN
+    supplier read off an invoice as status='provisional' OFF the web request. Returns the
+    outcome string. Idempotent — create_provisional_supplier no-ops on an existing supplier,
+    so the queue's at-least-once retry can re-run this safely.
+
+    The requesting user is propagated as the AUDIT ACTOR (as in _do_register) so the
+    suppliers.db audit triggers record changed_by=<user>, not 'system'; the job's tenant is
+    bound so the engine write scopes to the enqueuing tenant once P2-wired (OFF inert)."""
+    import supplier_master, audit
+    jid = row["id"]
+    p = json.loads(row["payload"])
+    user = row["uploaded_by"] or "system"
+    audit.set_actor(None, user)
+    tenancy.set_tenant(_row_tenant(row))
+    try:
+        created = supplier_master.create_provisional_supplier(
+            p["supplier"], legal_name=p.get("legal_name"),
+            home_country=p.get("home_country"), vat_number=p.get("vat_number"),
+            invoice_ref=p.get("invoice_ref"))
+    finally:
+        tenancy.reset_tenant()
+        audit.reset_actor()
+    con.execute("""UPDATE intake_jobs SET status='done', finished_at=?,
+                   error=NULL, lease_until=NULL WHERE id=?""", (_now(), jid))
+    con.commit()
+    _import_log(row, "onboard", "success",
+                message=(f"provisional supplier {p['supplier']} ({p.get('home_country')}) "
+                         "created" if created
+                         else f"supplier {p['supplier']} already exists — left unchanged"))
+    return "done"
+
+
+def _do_activate(con, row):
+    """Engine-side handler for an ACTIVATE job: confirm a provisional supplier
+    (provisional -> active) OFF the web request. Returns the outcome string. Idempotent —
+    activate_supplier only flips a row that is currently 'provisional', so a re-run is safe.
+    The requesting (admin) user is propagated as the AUDIT ACTOR; the job's tenant is bound."""
+    import supplier_master, audit
+    jid = row["id"]
+    p = json.loads(row["payload"])
+    user = row["uploaded_by"] or "system"
+    audit.set_actor(None, user)
+    tenancy.set_tenant(_row_tenant(row))
+    try:
+        activated = supplier_master.activate_supplier(p["supplier"])
+    finally:
+        tenancy.reset_tenant()
+        audit.reset_actor()
+    con.execute("""UPDATE intake_jobs SET status='done', finished_at=?,
+                   error=NULL, lease_until=NULL WHERE id=?""", (_now(), jid))
+    con.commit()
+    _import_log(row, "activate", "success",
+                message=(f"supplier {p['supplier']} activated" if activated
+                         else f"supplier {p['supplier']} not provisional — left unchanged"))
+    return "done"
+
+
 def process_one():
     """Claim and process one job. Returns (job_id, outcome) or None if the queue
     is idle. Never raises — failures are recorded on the row."""
@@ -890,6 +1038,16 @@ def process_one():
                 # RE-QUEUES with backoff (a generic exception is a retry, not an immediate
                 # DLQ) so the fetch runs again once the supplier is eligible.
                 return (jid, _fail_or_retry(con, row, jid, attempts, e, channel="fetch"))
+        elif kind == KIND_ONBOARD:
+            try:
+                return (jid, _do_onboard(con, row))
+            except Exception as e:
+                return (jid, _fail_or_retry(con, row, jid, attempts, e, channel="onboard"))
+        elif kind == KIND_ACTIVATE:
+            try:
+                return (jid, _do_activate(con, row))
+            except Exception as e:
+                return (jid, _fail_or_retry(con, row, jid, attempts, e, channel="activate"))
         try:
             data = read_bytes(row["stored_path"])
             draft = EX.extract(data, row["filename"], backend=row["backend"] or None,
@@ -1391,6 +1549,22 @@ def get_draft(job_id):
     pdfs = EX.unpack(read_bytes(r["stored_path"]), r["filename"])
     return draft, [b for _name, b in pdfs]
 
+def get_stored_draft(job_id):
+    """Return the persisted draft dict for ANY job that produced one (ready OR done),
+    WITHOUT touching the inbox bytes — so a read-only 'what was read' view works even
+    after the job is marked done and its source bytes freed. Returns None when the job
+    has no stored draft. Distinct from get_draft(), which additionally re-derives the
+    source PDF bytes for the editable review/confirm flow (ready jobs only)."""
+    r = get_job(job_id)
+    if not r or not r["draft"]:
+        return None
+    try:
+        return json.loads(r["draft"])
+    except (ValueError, TypeError) as e:
+        log.warning("get_stored_draft: malformed draft for job %s: %s", job_id, e)
+        return None
+
+
 def complete(job_id):
     """Mark a job done after a human has reviewed+committed its draft, and remove
     the now-redundant inbox bytes (they have been attached to the document vault
@@ -1420,7 +1594,7 @@ def requeue(job_id):
     # a fileless job (registration / monthly close) carries its payload, not inbox bytes
     # — it is retryable as long as the payload survives; an extraction job needs its
     # source file present.
-    is_fileless = (r["kind"] if "kind" in r.keys() else None) in (KIND_REGISTER, KIND_CLOSE, KIND_FETCH)
+    is_fileless = (r["kind"] if "kind" in r.keys() else None) in (KIND_REGISTER, KIND_CLOSE, KIND_FETCH, KIND_ONBOARD, KIND_ACTIVATE)
     if not is_fileless and (not r["stored_path"] or not os.path.exists(_safe_inbox(r["stored_path"]))):
         return False
     con = connect()

@@ -475,6 +475,138 @@ def get_invoices(code, country, con=None):
     return [(r["invoice_no"], r["invoice_date"]) for r in rows] or \
            [(f"INPUT: {country} invoice", "")]
 
+# ---- AUTO-ONBOARD an unknown supplier from an extracted invoice (engine path) ----
+# EU VAT-number prefix -> ISO 3166-1 alpha-2 country. A VAT id always starts with the
+# member-state code (Directive 2008/9/EC issuers are EU), so the prefix is the most
+# reliable signal for a provisional supplier's home_country. EL is Greece's VAT prefix
+# (ISO is GR); XI is Northern Ireland under the NI Protocol. Anything not here -> None
+# (we never GUESS a country from a non-EU/garbage prefix).
+VAT_PREFIX_COUNTRY = {
+    "AT": "AT", "BE": "BE", "BG": "BG", "CY": "CY", "CZ": "CZ", "DE": "DE",
+    "DK": "DK", "EE": "EE", "EL": "GR", "ES": "ES", "FI": "FI", "FR": "FR",
+    "GR": "GR", "HR": "HR", "HU": "HU", "IE": "IE", "IT": "IT", "LT": "LT",
+    "LU": "LU", "LV": "LV", "MT": "MT", "NL": "NL", "PL": "PL", "PT": "PT",
+    "RO": "RO", "SE": "SE", "SI": "SI", "SK": "SK", "XI": "XI",
+}
+
+
+def country_from_vat(vat_number):
+    """Derive an ISO country code from a EU VAT number's two-letter prefix, or None
+    when the prefix is absent/unrecognised (so a garbage id never invents a country).
+    The lookup is case-insensitive and tolerates spaces/punctuation before the code."""
+    if not vat_number:
+        return None
+    v = "".join(str(vat_number).split()).upper()
+    if len(v) < 2:
+        return None
+    return VAT_PREFIX_COUNTRY.get(v[:2])
+
+
+def supplier_exists(code, con=None):
+    """True if a `suppliers` row exists for `code` (tenant-scoped, OFF inert). Used by
+    the engine onboarding handler to avoid clobbering a known supplier; the WEB request
+    checks existence READ-ONLY via dataproduct, never this writable handle."""
+    code = (code or "").strip().upper()
+    if not code:
+        return False
+    own = con is None
+    if own:
+        con = connect()
+    frag, params = tenancy.scope_clause()
+    r = con.execute("SELECT 1 FROM suppliers WHERE code=?" + frag,
+                    [code, *params]).fetchone()
+    if own:
+        con.close()
+    return r is not None
+
+
+def create_provisional_supplier(code, legal_name=None, home_country=None,
+                                vat_number=None, invoice_ref=None, con=None):
+    """Engine-side handler for AUTO-ONBOARDING an unknown supplier read off an invoice.
+
+    Inserts a `suppliers` row with status='provisional' (NOT 'active') and a note that
+    records the source invoice, so a mis-read can never silently pollute the active
+    master — an admin confirms it before it goes live. Idempotent: an existing supplier
+    (any status) is LEFT UNTOUCHED (returns False) so re-running can't overwrite a
+    confirmed supplier or downgrade it back to provisional. When a VAT number is given
+    its registration is recorded for home_country too. Tenant-stamped + audited (the
+    suppliers table carries audit triggers); the caller binds the audit actor/tenant.
+
+    Returns True if a new provisional supplier was created, False if it already existed.
+    Raises ValueError on a blank code or a missing home_country (we never onboard a
+    supplier with no country — the caller derives one from the VAT prefix first)."""
+    code = (code or "").strip().upper()
+    if not code:
+        raise ValueError("supplier code required")
+    home_country = (home_country or "").strip().upper() or None
+    if not home_country:
+        raise ValueError("home_country required to onboard a provisional supplier")
+    own = con is None
+    if own:
+        con = connect()
+    try:
+        if supplier_exists(code, con=con):
+            return False
+        tid = tenancy.queue_tenant()
+        note = (f"auto-onboarded from invoice {invoice_ref} — confirm details"
+                if invoice_ref else "auto-onboarded from invoice — confirm details")
+        con.execute("""INSERT INTO suppliers
+            (code, legal_name, group_name, address, home_country, company_reg, phone,
+             email, portal, payment_terms, payment_notes, status, notes, tenant_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (code, (legal_name or "").strip() or code, None, None, home_country, None,
+             None, None, None, None, None, "provisional", note, tid))
+        if vat_number:
+            con.execute("""INSERT OR REPLACE INTO supplier_vat_registrations
+                (supplier, country, vat_number, source, tenant_id) VALUES (?,?,?,?,?)""",
+                (code, home_country, str(vat_number).strip(),
+                 f"auto-onboarded from invoice {invoice_ref}" if invoice_ref
+                 else "auto-onboarded from invoice", tid))
+        con.commit()
+        return True
+    finally:
+        if own:
+            con.close()
+
+
+def list_provisional(con=None):
+    """Every supplier still awaiting admin confirmation (status='provisional'), oldest
+    code first. Tenant-scoped (OFF inert). Returns a list of dicts."""
+    own = con is None
+    if own:
+        con = connect()
+    frag, params = tenancy.scope_clause()
+    rows = con.execute(
+        "SELECT code, legal_name, home_country, notes FROM suppliers "
+        "WHERE status='provisional'" + frag + " ORDER BY code", params).fetchall()
+    if own:
+        con.close()
+    return [dict(r) for r in rows]
+
+
+def activate_supplier(code, con=None):
+    """Confirm a provisional supplier -> status='active' (the engine write behind the
+    admin 'Activate' action). Only flips a row that is currently 'provisional', so it
+    can never resurrect a deactivated supplier. Audited + tenant-scoped. Returns True
+    if a row was activated."""
+    code = (code or "").strip().upper()
+    if not code:
+        return False
+    own = con is None
+    if own:
+        con = connect()
+    try:
+        frag, params = tenancy.scope_clause()
+        cur = con.execute(
+            "UPDATE suppliers SET status='active' WHERE code=? AND status='provisional'"
+            + frag, [code, *params])
+        con.commit()
+        return (cur.rowcount or 0) > 0
+    finally:
+        if own:
+            con.close()
+
+
 def card(con, code):
     # Multi-tenant P2: scope every single-table read in the card; OFF inert.
     frag, params = tenancy.scope_clause()

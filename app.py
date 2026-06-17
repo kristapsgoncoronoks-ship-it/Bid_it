@@ -2906,8 +2906,110 @@ def extract_batch():
         with open(_os.path.join(tmp, token + ".pkl"), "wb") as pf:
             pickle.dump(draft.get("_pdf_bytes", []), pf)
         _stash_draft(token, draft)
-        return page(receipt + _review_form(draft, token), "ext")
+        # READ-FIRST: derive the period from the invoice/statement date (the manual field
+        # is an optional override) and surface what was auto-detected — auto-onboarding an
+        # unknown-but-VAT-identified supplier as provisional, or flagging it UNMATCHED.
+        period = _derive_period(draft, request.form.get("period") or None)
+        notice = _read_first_notice(draft, period)
+        return page(receipt + notice + _review_form(draft, token, period=period), "ext")
     return page(_upload_form(backend_env), "ext")
+
+
+def _period_from_date(d):
+    """Derive a YYYY-MM period from a 'YYYY-MM-DD' (or 'YYYY-MM…') date string, or None.
+    Read-first intake keys the period off the invoice/statement date so the operator
+    needn't pre-pick it."""
+    s = (d or "").strip()
+    if len(s) >= 7 and s[4] == "-" and s[:4].isdigit() and s[5:7].isdigit():
+        return s[:7]
+    return None
+
+
+def _derive_period(draft, override=None):
+    """The period for a read-first draft: an explicit override wins; else the invoice/
+    statement date drives it (first the statement_date, then the earliest line date);
+    else the active close period from month_config."""
+    if override:
+        return override
+    p = _period_from_date(draft.get("statement_date"))
+    if p:
+        return p
+    for ln in draft.get("lines", []):
+        p = _period_from_date(ln.get("date"))
+        if p:
+            return p
+    return _default_period()
+
+
+def _supplier_known(code):
+    """READ-ONLY existence check for a supplier code against the ENGINE-owned suppliers.db
+    via dataproduct (mode=ro) — the web request never opens a writable handle to it. A
+    missing DB file (fresh install) or any read error degrades to 'unknown' so onboarding
+    can proceed. Returns True only when a row is positively found."""
+    code = (code or "").strip().upper()
+    if not code:
+        return False
+    try:
+        import dataproduct
+        con = dataproduct.connect("suppliers")
+        try:
+            r = con.execute("SELECT 1 FROM suppliers WHERE code=?", (code,)).fetchone()
+        finally:
+            con.close()
+        return r is not None
+    except Exception as e:
+        _log_exc("supplier existence check", e)
+        return False
+
+
+def _read_first_notice(draft, period):
+    """Surface what read-first extraction AUTO-DETECTED (supplier, statement ref/date,
+    derived period) and, for an UNKNOWN supplier, either enqueue an auto-onboard job (when
+    a VAT id resolves to a country) or flag it UNMATCHED for manual handling (never invent a
+    supplier from a low-confidence / VAT-less draft). Returns an HTML banner string. Best-
+    effort: any failure here never blocks the review screen."""
+    try:
+        import supplier_master as SM
+        supplier = (draft.get("supplier") or "").strip()
+        vat = (draft.get("supplier_vat") or "").strip()
+        detected = ('<div class="card"><b class="ok">Auto-detected from the document</b>'
+                    '<div class="note">These were read for you; the fields below are '
+                    'editable overrides.</div><ul style="margin:6px 0 0 18px">'
+                    f'<li>supplier: <b>{esc(supplier or "—")}</b>'
+                    + (f' (VAT {esc(vat)})' if vat else "") + '</li>'
+                    f'<li>statement ref: <b>{esc(draft.get("statement_ref") or "—")}</b></li>'
+                    f'<li>statement date: <b>{esc(draft.get("statement_date") or "—")}</b></li>'
+                    f'<li>period (derived): <b>{esc(period or "—")}</b></li></ul></div>')
+        if not supplier or _supplier_known(supplier):
+            return detected
+        # UNKNOWN supplier — onboard only when a VAT id yields a country (never guess).
+        country = SM.country_from_vat(vat) if vat else None
+        if not country:
+            return (detected + '<div class="card"><b class="bad">Unknown supplier — left '
+                    'UNMATCHED</b><div class="note">No usable VAT number was read, so the '
+                    'supplier was NOT auto-created (a mis-read must never invent master '
+                    'data). Set the correct supplier code below, or create the supplier on '
+                    'the <a href="/suppliers">Suppliers</a> page, then confirm.</div></div>')
+        try:
+            import waiting_room as IQ
+            jid, _st = IQ.enqueue_onboard(
+                supplier, country, legal_name=supplier, vat_number=vat,
+                invoice_ref=draft.get("statement_ref"),
+                user=session.get("user", "system"))
+            return (detected + '<div class="card"><b class="ok">New supplier auto-onboarded '
+                    f'(provisional)</b><div class="note">Supplier <b>{esc(supplier)}</b> '
+                    f'was not in the master, so a <b>provisional</b> {esc(country)} supplier '
+                    f'is being created from VAT <b>{esc(vat)}</b> (job {jid}). It needs admin '
+                    'confirmation before it goes active — see <a href="/suppliers">Suppliers '
+                    '→ provisional</a>. You can confirm this statement against it now.</div>'
+                    '</div>')
+        except Exception as e:
+            _log_exc("auto-onboard enqueue", e)
+            return (detected + '<div class="card"><b class="bad">Could not queue supplier '
+                    f'onboarding: {esc(str(e))}</b></div>')
+    except Exception as e:
+        _log_exc("read-first notice", e)
+        return ""
 
 
 def _default_period():
@@ -2950,11 +3052,17 @@ def _upload_form(backend_env):
             '<form method="post" enctype="multipart/form-data" class="f">'
             + _csrf_input() +
             '<label>file (.pdf, .zip or .xml)<input type="file" name="file" accept=".pdf,.zip,.xml" required></label>'
-            f'<label>extractor<select name="backend">{opts}</select></label>'
-            f'<label>period (YYYY-MM)<input name="period" value="{esc(request.values.get("period", _default_period()))}" style="width:100px"></label>'
-            '<button name="__mode" value="now">Extract draft now</button>'
+            f'<label>extractor (optional)<select name="backend">{opts}</select></label>'
+            f'<label>period override (optional)<input name="period" value="{esc(request.values.get("period", ""))}" placeholder="auto (YYYY-MM)" style="width:120px"></label>'
+            '<button name="__mode" value="now">Read &amp; review now</button>'
             '<button name="__mode" value="queue" style="background:var(--mut)">Queue for later</button>'
             '</form>'
+            '<div class="note"><b>Read-first:</b> just upload — the supplier, statement '
+            'reference/date and period are read off the document for you; the fields above '
+            'are optional overrides. An unknown supplier identified by its VAT number is '
+            'auto-onboarded as a <b>provisional</b> supplier (admin-confirmed before it goes '
+            'live); a supplier that can\'t be identified is left UNMATCHED for manual '
+            'handling. Nothing is saved until you review and confirm.</div>'
             f'<div class="note">{privacy} <b>Structured e-invoices (UBL/CII/XML, EN 16931)</b> '
             'parse deterministically at high confidence — no AI. '
             'Deterministic PDF parser is free and offline; '
@@ -3671,10 +3779,15 @@ def intake_queue_page():
         retry_btn = ('<form method="post" style="display:inline">' + _csrf_input()
                      + f'<input type="hidden" name="job" value="{j["id"]}">'
                      + f'<button name="__act" value="requeue">{label}</button></form>')
+        has_draft = bool(j.get("draft_supplier")) or bool(j.get("draft"))
         if st == "ready":
-            act_cell = f'<a href="/queue/review/{j["id"]}">Review &amp; commit →</a>'
+            act_cell = (f'<a href="/queue/review/{j["id"]}" '
+                        'style="font-weight:600">Review extracted data →</a>')
         elif st in ("failed", "waiting", "held"):
             act_cell = retry_btn
+        elif st == "done" and has_draft:
+            # the extracted data stays discoverable after commit (read-only view)
+            act_cell = f'<a href="/queue/review/{j["id"]}">View extracted data</a>'
         else:
             act_cell = '<span class="note">—</span>'
         disc = ('<form method="post" style="display:inline">' + _csrf_input()
@@ -3759,17 +3872,72 @@ def intake_queue_page():
             + _intake_extract_outcomes())
     return page(body, "queue")
 
+def _read_only_draft_view(job, draft):
+    """A read-only 'what was read' view of a draft for a job that is no longer editable
+    (e.g. already committed/done) — so the extracted data stays discoverable after the
+    fact. Every DB value is escaped. Shows supplier, invoice no/statement ref, date,
+    currency, line items, detected totals and confidence, plus any provisional-supplier
+    notice; there is no Confirm action (the editable flow is the `ready` path)."""
+    lines = draft.get("lines", []) or []
+    rows = ""
+    for ln in lines:
+        rows += ('<tr>'
+                 f'<td>{esc(ln.get("invoice_no") or "")}</td>'
+                 f'<td>{esc(ln.get("date") or draft.get("statement_date") or "")}</td>'
+                 f'<td>{esc(ln.get("country") or "")}</td>'
+                 f'<td>{esc(ln.get("currency") or "EUR")}</td>'
+                 f'<td class="r">{esc(str(ln.get("net", 0)))}</td>'
+                 f'<td class="r">{esc(str(ln.get("vat", 0)))}</td>'
+                 f'<td class="note">{_provenance_badge(ln.get("_source"))}</td></tr>')
+    gross = sum((ln.get("net", 0) or 0) + (ln.get("vat", 0) or 0) for ln in lines)
+    conf = draft.get("confidence", "low")
+    ccls = {"high": "ok", "medium": "", "low": "bad"}.get(conf, "")
+    vat = (draft.get("supplier_vat") or "").strip()
+    head = (f'<div class="card"><h2>Extracted data — job {job["id"]} '
+            f'<span class="note">({esc(job["status"])})</span></h2>'
+            '<div class="note">Read-only view of what was read from the document. This job '
+            'has already been processed; nothing here can be edited or re-committed.</div>'
+            '<table style="margin-top:8px"><tbody>'
+            f'<tr><td style="color:var(--mut);width:160px">supplier</td><td><b>{esc(draft.get("supplier") or "—")}</b>'
+            + (f' (VAT {esc(vat)})' if vat else "") + '</td></tr>'
+            f'<tr><td style="color:var(--mut)">statement ref</td><td>{esc(draft.get("statement_ref") or "—")}</td></tr>'
+            f'<tr><td style="color:var(--mut)">statement date</td><td>{esc(draft.get("statement_date") or "—")}</td></tr>'
+            f'<tr><td style="color:var(--mut)">currency</td><td>{esc(draft.get("currency") or "EUR")}</td></tr>'
+            f'<tr><td style="color:var(--mut)">confidence</td><td class="{ccls}">{esc(conf)}</td></tr>'
+            f'<tr><td style="color:var(--mut)">source</td><td>{esc(draft.get("backend") or "")}</td></tr>'
+            '</tbody></table>'
+            + _capture_findings_html(draft)
+            + '<table style="margin-top:10px"><thead><tr>'
+            + "".join(f"<th>{h}</th>" for h in ["Invoice no", "Date", "Country", "Ccy", "Net", "VAT", "Provenance"])
+            + f'</tr></thead><tbody>{rows}</tbody></table>'
+            f'<div class="note" style="margin-top:8px">Detected gross total: <b>{gross:,.2f}</b> '
+            f'over {len(lines)} line(s).</div>'
+            '<p style="margin-top:10px"><a href="/queue">← back to the waiting room</a></p>'
+            '</div>')
+    return head
+
+
 @app.route("/queue/review/<int:job_id>")
 def intake_review(job_id):
-    """Open a ready queue job in the standard review/confirm screen. The source
-    PDF bytes are re-derived from the kept inbox file and stashed for the existing
-    confirm path; on commit the job is marked done."""
+    """Review a queue job's extracted data. A `ready` job opens the standard editable
+    review/confirm screen (source PDF bytes re-derived from the kept inbox file and
+    stashed for the existing confirm path; on commit the job is marked done). A job that
+    already produced a draft but is no longer editable (e.g. `done`) renders a READ-ONLY
+    'what was read' view so the extracted data stays discoverable after the fact."""
     import waiting_room as IQ, extract as EX
     import os as _os, pickle
     job = IQ.get_job(job_id)
-    if not job or job["status"] != "ready":
-        return page('<div class="card"><b class="bad">Job is not ready to review (it may '
-                    'still be queued, processing, or failed).</b></div>'
+    if not job:
+        return page('<div class="card"><b class="bad">No such job.</b></div>'
+                    '<p><a href="/queue">← back to the waiting room</a></p>', "queue")
+    if job["status"] != "ready":
+        # not editable — but if a draft was produced (ready->done committed, etc.) show it
+        # read-only rather than a dead-end "not ready" message.
+        stored = IQ.get_stored_draft(job_id)
+        if stored is not None:
+            return page(_read_only_draft_view(job, stored), "queue")
+        return page('<div class="card"><b class="bad">This job has no extracted draft yet '
+                    '(it may still be queued, processing, waiting, or failed).</b></div>'
                     '<p><a href="/queue">← back to the waiting room</a></p>', "queue")
     draft, _ = IQ.get_draft(job_id)
     # re-derive (name, bytes) pairs from the kept inbox file so confirm can attach
@@ -3780,7 +3948,11 @@ def intake_review(job_id):
     with open(_os.path.join(tmp, token + ".pkl"), "wb") as pf:
         pickle.dump(pairs, pf)
     _stash_draft(token, draft)
-    return page(_review_form(draft, token, intake_job=job_id, period=job.get("period")), "queue")
+    # READ-FIRST for the queued path too: derive the period from the document and surface
+    # what was auto-detected (auto-onboarding an unknown-but-VAT-identified supplier).
+    period = _derive_period(draft, job.get("period"))
+    notice = _read_first_notice(draft, period)
+    return page(notice + _review_form(draft, token, intake_job=job_id, period=period), "queue")
 
 @app.route("/mining", methods=["GET", "POST"])
 def doc_mining_page():
@@ -6798,9 +6970,60 @@ def _documents_find_block(VR, form):
             '<div class="note">Attaching re-uses the stored bytes — same SHA-256 dedup and '
             'cross-invoice warning as a fresh upload.</div></div>')
 
-@app.route("/suppliers")
+def _provisional_suppliers_card():
+    """Admin-confirmation surface for AUTO-ONBOARDED provisional suppliers: a small list
+    with an 'Activate' action. Reads the list READ-ONLY (the app holds no writable
+    suppliers.db handle); the Activate write is ENQUEUED to the engine worker
+    (kind='activate'). Admin-only action (the button is shown only to admins). Every value
+    is escaped. Returns '' when there are no provisional suppliers."""
+    is_admin = session.get("role") == "admin"
+    try:
+        import supplier_master as SM
+        provs = SM.list_provisional()
+    except Exception as e:
+        _log_exc("provisional suppliers list", e)
+        return ""
+    if not provs:
+        return ""
+    rows = []
+    for p in provs:
+        act = ""
+        if is_admin:
+            act = ('<form method="post" style="display:inline">' + _csrf_input()
+                   + f'<input type="hidden" name="__act" value="activate">'
+                   + f'<input type="hidden" name="code" value="{esc(p["code"])}">'
+                   + '<button>Activate</button></form>')
+        else:
+            act = '<span class="note">admin only</span>'
+        rows.append([f'<td><b>{esc(p["code"])}</b></td><td>{esc(p.get("legal_name") or "")}</td>',
+                     f'<td>{esc(p.get("home_country") or "")}</td>',
+                     f'<td class="note">{esc(p.get("notes") or "")}</td><td>{act}</td>'])
+    return ('<div class="card" style="border-left:4px solid var(--bad)">'
+            '<h2>Provisional suppliers — awaiting confirmation</h2>'
+            '<div class="note">Auto-onboarded from an invoice (identified by VAT number). '
+            'Confirm the details, then <b>Activate</b> to make the supplier live. The '
+            'activation runs through the engine worker (the app never writes suppliers.db '
+            'in-request).</div>'
+            + tbl(["Code", "Legal name", "Country", "Note", ""], rows) + '</div>')
+
+
+@app.route("/suppliers", methods=["GET", "POST"])
 def suppliers():
     import supplier_master
+    banner = ""
+    if request.method == "POST" and request.form.get("__act") == "activate":
+        if session.get("role") != "admin":
+            banner = '<div class="card"><b class="bad">Activating a supplier is admin-only.</b></div>'
+        else:
+            try:
+                import waiting_room as IQ
+                code = (request.form.get("code") or "").strip().upper()
+                jid, _st = IQ.enqueue_activate(code, user=session.get("user", "system"))
+                banner = (f'<div class="card"><b class="ok">Activation queued for {esc(code)} '
+                          f'(job {jid}) — the engine worker will flip it to active.</b></div>')
+            except Exception as e:
+                _log_exc("supplier activate enqueue", e)
+                banner = f'<div class="card"><b class="bad">Could not queue activation: {esc(str(e))}</b></div>'
     con = supplier_master.connect()
     cards = []
     for s in con.execute("SELECT * FROM suppliers ORDER BY code"):
@@ -6821,9 +7044,11 @@ def suppliers():
                      f'<span class="{"ok" if s["status"]=="active" else "bad"}">[{esc(s["status"])}]</span></h2>'
                      f"<table><tbody>{meta}</tbody></table>{sect}</div>")
     con.close()
-    body = ('<div class="note" style="margin-bottom:10px">Supplier master data lives in '
+    body = (banner
+            + '<div class="note" style="margin-bottom:10px">Supplier master data lives in '
             '<b>suppliers.db</b> — a separate database from the VAT refund claim database '
             '(fuel_history.db). Transactions and claims reference suppliers by code only.</div>'
+            + _provisional_suppliers_card()
             + "".join(cards))
     return page(body, "sup")
 
