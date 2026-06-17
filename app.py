@@ -3298,16 +3298,51 @@ def _persisted_corrections_html(draft):
             'you Confirm below.</div></div>')
 
 
+def _capture_accuracy_hints(draft):
+    """Advisory capture-accuracy context for the draft's supplier from the capture-confidence
+    learning loop: an overall 'capture accuracy: X% (n=…)' line and the set of WEAK field
+    names to flag with a ⚠️ hint. Returns (accuracy_line_html, {weak_field_name: hint_html}).
+    ADVISORY ONLY — purely a hint; it never blocks/gates anything. Best-effort -> ("", {})."""
+    try:
+        supplier = (draft.get("supplier") or "").strip()
+        if not supplier:
+            return "", {}
+        import capture_confidence as CC
+        acc = CC.supplier_accuracy(supplier)
+        weak = {}
+        for w in CC.weak_fields(supplier):
+            pct = f"{w['rate'] * 100:.0f}"
+            weak[w["field"]] = (
+                f'<span class="bad" title="this supplier&#39;s {esc(w["field"])} is often '
+                f'mis-read — double-check">⚠️ often mis-read ({esc(pct)}% ok, n={esc(str(w["n"]))})</span>')
+        line = ""
+        if acc.get("rate") is not None:
+            pct = f"{acc['rate'] * 100:.0f}"
+            cls = "ok" if acc["rate"] >= 0.9 else ("bad" if acc["rate"] < 0.8 else "")
+            line = (f'<div class="note" style="margin-top:4px">Capture accuracy for '
+                    f'<b>{esc(supplier)}</b>: <b class="{cls}">{esc(pct)}%</b> '
+                    f'(n={esc(str(acc["n"]))}). '
+                    'Advisory only — fields this supplier tends to get mis-read are flagged '
+                    '⚠️ below; nothing is changed or gated.</div>')
+        return line, weak
+    except Exception as e:
+        _log_exc("capture-confidence review hints", e)
+        return "", {}
+
+
 def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload_sha=None):
+    acc_line, weak = _capture_accuracy_hints(draft)
+    def _wh(field):  # a weak-field hint cell fragment, or empty
+        return (" " + weak[field]) if field in weak else ""
     rows = ""
     for i, ln in enumerate(draft.get("lines", [])):
         rows += ('<tr>'
-                 f'<td><input name="inv_{i}" value="{esc(ln.get("invoice_no") or "")}" style="width:160px"></td>'
-                 f'<td><input name="date_{i}" value="{esc(ln.get("date") or draft.get("statement_date") or "")}" style="width:100px" placeholder="YYYY-MM-DD"></td>'
-                 f'<td><input name="ctry_{i}" value="{esc(ln.get("country") or "")}" style="width:100px"></td>'
-                 f'<td><input name="ccy_{i}" value="{esc(ln.get("currency") or "EUR")}" style="width:55px"></td>'
-                 f'<td><input name="net_{i}" value="{ln.get("net",0)}" style="width:90px" class="r"></td>'
-                 f'<td><input name="vat_{i}" value="{ln.get("vat",0)}" style="width:90px" class="r"></td>'
+                 f'<td><input name="inv_{i}" value="{esc(ln.get("invoice_no") or "")}" style="width:160px">{_wh("line.invoice_no")}</td>'
+                 f'<td><input name="date_{i}" value="{esc(ln.get("date") or draft.get("statement_date") or "")}" style="width:100px" placeholder="YYYY-MM-DD">{_wh("line.date")}</td>'
+                 f'<td><input name="ctry_{i}" value="{esc(ln.get("country") or "")}" style="width:100px">{_wh("line.country")}</td>'
+                 f'<td><input name="ccy_{i}" value="{esc(ln.get("currency") or "EUR")}" style="width:55px">{_wh("line.currency")}</td>'
+                 f'<td><input name="net_{i}" value="{ln.get("net",0)}" style="width:90px" class="r">{_wh("line.net")}</td>'
+                 f'<td><input name="vat_{i}" value="{ln.get("vat",0)}" style="width:90px" class="r">{_wh("line.vat")}</td>'
                  f'<td class="note">{_provenance_badge(ln.get("_source"))}</td></tr>')
     gross = sum((ln.get("net",0) or 0) + (ln.get("vat",0) or 0) for ln in draft.get("lines", []))
     conf = draft.get("confidence","low")
@@ -3316,6 +3351,7 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload
             f'<div class="note">Source: <b>{esc(draft.get("backend",""))}</b> · '
             f'confidence <span class="{ccls}">{esc(conf)}</span> · '
             f'{len(draft.get("files",[]))} PDF(s). {esc(draft.get("notes",""))}</div>'
+            + acc_line
             + _capture_document_html(draft, token, intake_job, upload_sha=upload_sha)
             + _persisted_corrections_html(draft)
             + _capture_findings_html(draft) +
@@ -3323,10 +3359,10 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload
             + _csrf_input() +
             f'<input type="hidden" name="token" value="{esc(token)}">'
             + (f'<input type="hidden" name="intake_job" value="{esc(str(intake_job))}">' if intake_job else "")
-            + f'<label>supplier code<input name="supplier" value="{esc(draft.get("supplier") or "")}" required></label>'
-            f'<label>statement ref<input name="stmt_ref" value="{esc(draft.get("statement_ref") or "")}" required></label>'
-            f'<label>statement date<input type="date" name="stmt_date" value="{esc(draft.get("statement_date") or "")}"></label>'
-            f'<label>customer<input name="customer" value="{esc((draft.get("customer") or "").strip())}"></label>'
+            + f'<label>supplier code<input name="supplier" value="{esc(draft.get("supplier") or "")}" required>{_wh("supplier.name")}</label>'
+            f'<label>statement ref<input name="stmt_ref" value="{esc(draft.get("statement_ref") or "")}" required>{_wh("invoice.statement_ref")}</label>'
+            f'<label>statement date<input type="date" name="stmt_date" value="{esc(draft.get("statement_date") or "")}">{_wh("invoice.statement_date")}</label>'
+            f'<label>customer<input name="customer" value="{esc((draft.get("customer") or "").strip())}">{_wh("customer.name")}</label>'
             f'<label>period (YYYY-MM)<input name="period" value="{esc(period or request.values.get("period", _default_period()))}" required></label>'
             '</label></div>'
             + '<table style="margin-top:10px"><thead><tr>'
@@ -3435,6 +3471,63 @@ def _feed_validator_trust(supplier, vr):
         _log_exc("confidence validator-feed", e)
 
 
+def _norm_capture_val(v):
+    """Normalise a value for the captured-vs-confirmed diff: trimmed string, with numeric
+    amounts compared on VALUE (so '12.5' == '12.50' == 12.5 — a reformat is NOT an edit).
+    Pure; never raises."""
+    s = "" if v is None else str(v).strip()
+    try:
+        return ("num", float(s))
+    except (TypeError, ValueError):
+        return ("str", s)
+
+
+def _feed_capture_confidence_confirm(supplier, captured_draft):
+    """HUMAN-EDIT-AT-CONFIRM training signal for the capture-confidence learning loop.
+
+    Diff each CAPTURED field (from the draft the human reviewed) against the value the human
+    just CONFIRMED in the form: a field left UNCHANGED is was_correct=True; a field the human
+    EDITED is was_correct=False. Header fields map to 'invoice.statement_ref'/'statement_date'/
+    'supplier.name'/'customer.name'; per-line fields map to a normalized 'line.<field>' name
+    (one outcome per captured line). ADVISORY telemetry only — best-effort, NEVER raises
+    (a failure must never break the confirm/registration path)."""
+    try:
+        import capture_confidence as CC
+        supplier = (supplier or "").strip()
+        if not supplier or not isinstance(captured_draft, dict):
+            return
+
+        def _emit(field, captured, confirmed):
+            if _norm_capture_val(captured) == _norm_capture_val(""):
+                return  # nothing was captured for this field -> not a capture signal
+            ok = _norm_capture_val(captured) == _norm_capture_val(confirmed)
+            CC.record_outcome(supplier, field, was_correct=ok, source="confirm-edit",
+                              detail="human confirm vs captured")
+
+        # header fields the confirm form exposes (captured value -> confirmed form value)
+        _emit("supplier.name", captured_draft.get("supplier"),
+              request.form.get("supplier", ""))
+        _emit("invoice.statement_ref", captured_draft.get("statement_ref"),
+              request.form.get("stmt_ref", ""))
+        _emit("invoice.statement_date", captured_draft.get("statement_date"),
+              request.form.get("stmt_date", ""))
+        _emit("customer.name", captured_draft.get("customer"),
+              request.form.get("customer", ""))
+
+        # per-line fields: same positional index the review form rendered (inv_/date_/…)
+        for i, ln in enumerate(captured_draft.get("lines", []) or []):
+            if not isinstance(ln, dict):
+                continue
+            _emit("line.invoice_no", ln.get("invoice_no"), request.form.get(f"inv_{i}", ""))
+            _emit("line.date", ln.get("date"), request.form.get(f"date_{i}", ""))
+            _emit("line.country", ln.get("country"), request.form.get(f"ctry_{i}", ""))
+            _emit("line.currency", ln.get("currency"), request.form.get(f"ccy_{i}", ""))
+            _emit("line.net", ln.get("net"), request.form.get(f"net_{i}", ""))
+            _emit("line.vat", ln.get("vat"), request.form.get(f"vat_{i}", ""))
+    except Exception as e:
+        _log_exc("capture-confidence confirm-feed", e)
+
+
 @app.route("/extract/confirm", methods=["POST"])
 def extract_confirm():
     import extract as EX, vat_refund as VR
@@ -3470,6 +3563,10 @@ def extract_confirm():
                "net": l[4], "vat": l[5]} for l in lines]
     vr = VAL.validate_batch(vlines)
     _feed_validator_trust(supplier, vr)        # ground-truth signal into the trust model
+    # CAPTURE-CONFIDENCE (advisory learning loop): diff the CAPTURED draft against what the
+    # human just confirmed — an unchanged field is a correct capture, an edited one a miss.
+    # Best-effort, before the draft file is dropped below; never gates the commit.
+    _feed_capture_confidence_confirm(supplier, _load_draft(token))
     if not vr["can_commit"]:
         rows_html = ""
         for res in vr["lines"]:

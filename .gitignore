@@ -52,6 +52,11 @@ benchmark.db
 #    DB (advisory-AI-review consumer only; never gates a legal check) ──
 confidence.db
 
+# ── Capture-confidence / learning loop — app-owned runtime DB: per-(supplier × field)
+#    capture-accuracy counts (advisory hints on the review screen; never gates a legal
+#    check; never mutates a figure; no demo data) ──
+capture_confidence.db
+
 # ── Embedded-finance advances ledger — finance-owned runtime DB (origination seam
 #    over the recovery data; NULL provider by default, never gates a VAT figure) ──
 finance.db

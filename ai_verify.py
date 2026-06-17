@@ -611,7 +611,36 @@ def apply_corrections(draft, verdict):
         was, now = applied
         corrections.append({"field": str(name), "was": was, "now": now,
                             "source": "ai-verify(PDF)", "at": at})
+
+    # CAPTURE-CONFIDENCE (advisory learning loop). Each AI correction is GROUND-TRUTH that
+    # the capture was WRONG for that (supplier, field): record was_correct=False so the
+    # review screen can warn next time. Best-effort — NEVER raises, NEVER mutates the draft
+    # or a figure; a telemetry failure must not affect the correction result.
+    _record_capture_misses(corrected, corrections)
     return corrected, corrections
+
+
+def _record_capture_misses(draft, corrections):
+    """Feed the capture-confidence learning loop from a batch of AI corrections: every
+    corrected field was captured WRONG (was_correct=False) for the draft's supplier. The
+    verdict field NAME is normalized to a stable per-field key (line index dropped). Pure
+    w.r.t. the draft; best-effort — never raises."""
+    try:
+        if not corrections:
+            return
+        import capture_confidence as CC
+        CC = globals().get("capture_confidence", CC)  # test-patchable seam
+        supplier = ((draft or {}).get("supplier") or "").strip()
+        if not supplier:
+            return
+        for c in corrections:
+            field = CC.normalize_verify_field(c.get("field"))
+            if not field:
+                continue
+            CC.record_outcome(supplier, field, was_correct=False,
+                              source="ai-verify", detail="PDF-authoritative correction")
+    except Exception as e:
+        log.warning("capture-confidence record (ai-verify) skipped — telemetry only: %s", e)
 
 
 def _apply_one(draft, cap, target, document):
