@@ -193,6 +193,12 @@ _MIGRATIONS = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_dataroom_page_views_doc "
     "ON dataroom_page_views(room_link_id, doc_id, page_number)",
+    # ② E-SIGNATURE (SES). Opt-in `require_signature` adds a SIGNING step to the share-link
+    # gate AFTER the NDA/email gates (esign.py): the viewer reviews the document, gives
+    # consent and types/draws their name. `signature_request_id` ties the link to the
+    # esign.signature_requests row the signing records into. APPEND only — positions stable.
+    "ALTER TABLE share_links ADD COLUMN require_signature INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE share_links ADD COLUMN signature_request_id INTEGER",
 ]
 
 # Beacon sanity bounds (defence-in-depth; the client also clamps). A single flushed
@@ -251,14 +257,19 @@ def check_password(stored, password):
 
 # ---------------------------------------------------------------- create / read
 def create_link(doc_ref, title, actor, expires_at=None, password=None, require_email=False,
-                nda_required=False, agreement_text=None, watermark=False):
+                nda_required=False, agreement_text=None, watermark=False,
+                require_signature=False, signature_request_id=None):
     """Mint a share link for the vault locator `doc_ref`. Returns (link_dict, "") on
     success or (None, error_message). Never raises to the caller — failures are logged
     and returned as a value.
 
     B2 opt-ins: `nda_required` (+ `agreement_text` rendered on the agreement page) gates
     the document behind a logged "I agree"; `watermark` overlays a per-viewer diagonal
-    watermark on every page of the streamed PDF."""
+    watermark on every page of the streamed PDF.
+
+    ② opt-in: `require_signature` adds an SES SIGNING step to the gate (AFTER NDA/email);
+    `signature_request_id` ties the link to the esign.signature_requests row the signing
+    records into (the app creates that request and passes its id here)."""
     doc_ref = (doc_ref or "").strip()
     if not doc_ref:
         return None, "a document reference is required"
@@ -270,14 +281,15 @@ def create_link(doc_ref, title, actor, expires_at=None, password=None, require_e
                 """INSERT INTO share_links
                    (token, doc_ref, title, created_by, tenant_id, expires_at,
                     password_hash, require_email, revoked, nda_required,
-                    agreement_text, watermark)
-                   VALUES (?,?,?,?,?,?,?,?,0,?,?,?)""",
+                    agreement_text, watermark, require_signature, signature_request_id)
+                   VALUES (?,?,?,?,?,?,?,?,0,?,?,?,?,?)""",
                 (token, doc_ref, (title or "").strip() or None, actor or "",
                  tenancy.write_tenant(), (expires_at or None),
                  _hash_password(password), 1 if require_email else 0,
                  1 if nda_required else 0,
                  ((agreement_text or "").strip() or None) if nda_required else None,
-                 1 if watermark else 0))
+                 1 if watermark else 0, 1 if require_signature else 0,
+                 signature_request_id))
             con.commit()
             row = con.execute("SELECT * FROM share_links WHERE token=?", (token,)).fetchone()
         finally:

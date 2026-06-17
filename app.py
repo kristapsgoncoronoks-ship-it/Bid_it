@@ -492,6 +492,10 @@ PERM_BY_ENDPOINT = {
     "retention_review":  "documents",   # the advisory disposition-review worklist
     "share_links_page": "share", "share_create": "share", "share_views_page": "share",
     "share_revoke":    "share",
+    # ② E-SIGNATURE (SES) — the authed dashboard / send-for-signature / verify surface lives
+    # alongside the document module (capability `documents`).
+    "esign_page": "documents", "esign_send": "documents", "esign_verify_page": "documents",
+    "esign_void": "documents", "esign_signed_download": "documents",
     # Data rooms (B4) — same capability as the share-link management surface.
     "rooms_page": "share", "room_page": "share", "room_qa_page": "share",
     "room_engagement_page": "share",
@@ -541,7 +545,9 @@ MODULES = {
                    {"invoice_ctrl", "contracts", "documents", "doc_download", "doc_assistant",
                     "doc_meta", "metadata_admin", "search_page",
                     "doc_versions", "doc_version_download",
-                    "retention_admin", "retention_review"}),
+                    "retention_admin", "retention_review",
+                    "esign_page", "esign_send", "esign_verify_page", "esign_void",
+                    "esign_signed_download"}),
     "sharing":    ("Secure share links — trackable public links to vaulted documents",
                    {"share_links_page", "share_create", "share_views_page", "share_revoke",
                     "rooms_page", "room_page", "room_qa_page", "room_engagement_page"}),
@@ -646,7 +652,10 @@ def _guard():
     # gates pass. The authenticated management pages (share_links_page / share_create /
     # share_views_page / share_revoke) are NOT exempted and fall through to the normal
     # session + capability + CSRF checks below.
-    if request.endpoint in ("share_public", "share_file", "share_event"):
+    # share_sign is the ② SES public signing POST: like share_event it is a no-cookie-
+    # authority public POST that records NOTHING unless the SAME per-token gates pass, so it
+    # is exempt from login + the session-CSRF check (re-run by the view itself).
+    if request.endpoint in ("share_public", "share_file", "share_event", "share_sign"):
         return
     # Data rooms (B4): the PUBLIC room index, in-room pdf.js viewer, file stream, the
     # per-page engagement beacon and the Q&A 'ask' POST are PUBLIC by design (no session)
@@ -1308,7 +1317,8 @@ h2.section:first-of-type{margin-top:4px}
   {% if 'invoice_control' in perms %}<a href="/invoices" class="{{'on' if page=='inv'}}">Invoice control</a>
   <a href="/contracts" class="{{'on' if page=='con'}}">Contract audit</a>{% endif %}
   {% if 'documents' in perms %}<a href="/documents" class="{{'on' if page=='doc'}}">Documents</a>
-  <a href="/search" class="{{'on' if page=='srch'}}">Search</a>{% endif %}
+  <a href="/search" class="{{'on' if page=='srch'}}">Search</a>
+  <a href="/esign" class="{{'on' if page=='esign'}}">E-signatures</a>{% endif %}
 </span></div></div>{% endif %}
 {% if 'sharing' in modules and 'share' in perms %}<a href="/share" class="{{'on' if page=='shr'}}">Share links</a>{% endif %}
 {% if 'sharing' in modules and 'share' in perms %}<a href="/rooms" class="{{'on' if page=='rooms'}}">Data rooms</a>{% endif %}
@@ -8704,6 +8714,254 @@ def _fmt_dwell(ms):
     return f"{s:.1f}s"
 
 
+# ================================================================ ② E-SIGNATURE (SES)
+# The AUTHED surface (capability `documents`, module `compliance`): a dashboard that
+# (a) sends a vaulted document OR a generated CRM contract (item ①) FOR SIGNATURE by minting
+# a signature_request + a share link with require_signature; and (b) lists every signature
+# with its audit fields + a "verify hash" result + the produced signed PDF. SES only — every
+# surface is labelled "not a qualified electronic signature". esc() everything; _log_exc.
+
+def _esign_doc_choices():
+    """(subject_ref, label) pairs the send-for-signature picker offers: vaulted invoice
+    documents + the generated CRM contract drafts (item ①, by their vault locator). Read-only;
+    never raises -> []."""
+    out = list(_vault_doc_choices())
+    try:
+        import customer_master as CM
+        con = CM.connect()
+        try:
+            board = CM.document_request_board(con)
+        finally:
+            con.close()
+        for r in board:
+            ref = r.get("vault_ref")
+            if ref and r.get("kind") == "contract":
+                lbl = (f"[contract] {r.get('company_name') or r.get('customer')} "
+                       f"({r.get('status')})")
+                # tie back to the document request so a signature attaches to the board.
+                out.append((f"docreq:{r['id']}", lbl))
+    except Exception as e:
+        _log_exc("esign: contract choices", e)
+    return out
+
+
+def _esign_resolve_ref(subject_ref):
+    """Resolve a send-for-signature subject_ref to the underlying VAULT locator (doc_ref) for
+    the share link. A `docreq:<id>` reference resolves to the request's generated vault ref;
+    a plain locator is returned as-is. Returns (doc_ref or None, subject_ref). Never raises."""
+    sref = (subject_ref or "").strip()
+    if not sref.startswith("docreq:"):
+        return sref or None, sref
+    try:
+        import customer_master as CM
+        req_id = int(sref.split(":", 1)[1])
+        con = CM.connect()
+        try:
+            ref = CM.generated_vault_ref(con, req_id)
+        finally:
+            con.close()
+        return (ref or None), sref
+    except Exception as e:
+        _log_exc("esign: resolve docreq ref", e)
+        return None, sref
+
+
+@app.route("/esign", methods=["GET"])
+def esign_page():
+    """The e-signature dashboard: a send-for-signature form + a table of every request and
+    its signatures (audit fields + signed-PDF link + verify hint)."""
+    import esign
+    actor = session.get("user", "")
+    try:
+        requests_ = esign.list_requests()
+    except Exception as e:
+        _log_exc("esign: list requests", e)
+        requests_ = []
+    rows = []
+    for r in requests_:
+        try:
+            sigs = esign.signatures_for(r["id"])
+        except Exception as e:
+            _log_exc("esign: signatures for", e)
+            sigs = []
+        link_html = "—"
+        if sigs:
+            who = "; ".join(esc(s.get("signer_name") or "") for s in sigs)
+            link_html = f'<a href="/esign/{r["id"]}/verify">{who}</a>'
+        status = esc(r.get("status") or "")
+        void_btn = ""
+        if r.get("status") == "pending":
+            void_btn = ('<form method="post" action="/esign/void" style="display:inline">'
+                        + _csrf_input()
+                        + f'<input type="hidden" name="request_id" value="{r["id"]}">'
+                        + '<button onclick="return confirm(\'Void this signature request?\')"'
+                        '>Void</button></form>')
+        rows.append([
+            esc(r.get("title") or "(untitled)"),
+            esc((r.get("subject_ref") or "")[:60]),
+            status,
+            esc(len(sigs)),
+            link_html,
+            esc(r.get("created_at") or ""),
+            void_btn,
+        ])
+    table = (tbl(["Title", "Document", "Status", "Signatures", "Signers", "Created", ""], rows)
+             if rows else '<p class="note">No signature requests yet.</p>')
+    send_form = (
+        '<div class="card"><h2>Send a document for signature</h2>'
+        '<p class="note">Mints a Simple Electronic Signature (SES) request + a public '
+        'share link that asks the recipient to review the document, consent and sign '
+        '(typed/drawn name). <b>SES — not a qualified electronic signature.</b></p>'
+        '<form method="post" action="/esign/send" class="f">' + _csrf_input()
+        + '<label>Document or generated contract'
+          '<select name="subject_ref">'
+        + "".join(f'<option value="{esc(dr)}">{esc(lbl)}</option>'
+                  for dr, lbl in _esign_doc_choices())
+        + '</select></label>'
+          '<label>…or paste a vault reference<input name="subject_ref_manual" '
+          'placeholder="leave blank to use the pick-list above"></label>'
+          '<label>Title<input name="title" placeholder="optional"></label>'
+          '<label>Expires (UTC, optional)<input name="expires_at" '
+          'placeholder="YYYY-MM-DD or YYYY-MM-DD HH:MM"></label>'
+          '<label class="ck"><input type="checkbox" name="require_email" value="1"> '
+          'Ask the signer for an email first</label>'
+          '<div style="margin-top:8px"><button>Create signing link</button></div>'
+          '</form></div>')
+    return page(send_form
+                + f'<div class="card"><h2>Signature requests</h2>{table}</div>', "esign")
+
+
+@app.route("/esign/send", methods=["POST"])
+def esign_send():
+    """Create a signature_request over the chosen document/contract + a share link with
+    require_signature, and surface the public signing URL."""
+    import esign, sharing
+    actor = session.get("user", "")
+    subject_ref = (request.form.get("subject_ref_manual")
+                   or request.form.get("subject_ref") or "").strip()
+    doc_ref, subject_ref = _esign_resolve_ref(subject_ref)
+    title = (request.form.get("title") or "").strip() or None
+    if not doc_ref:
+        return page('<div class="card" style="border-left:4px solid var(--bad)">'
+                    '<b class="bad">Could not send for signature.</b> The selected document '
+                    'has no resolvable vault reference.</div>'
+                    '<p><a href="/esign">Back to e-signatures</a></p>', "esign")
+    req, err = esign.create_request(subject_ref, title, actor)
+    if err or not req:
+        return page('<div class="card" style="border-left:4px solid var(--bad)">'
+                    f'<b class="bad">Could not create the request.</b> {esc(err or "error")}'
+                    '</div><p><a href="/esign">Back to e-signatures</a></p>', "esign")
+    link, lerr = sharing.create_link(
+        doc_ref, title or (req.get("title") or "Document to sign"), actor,
+        expires_at=(request.form.get("expires_at") or "").strip() or None,
+        require_email=bool(request.form.get("require_email")),
+        require_signature=True, signature_request_id=req["id"])
+    if lerr or not link:
+        return page('<div class="card" style="border-left:4px solid var(--bad)">'
+                    f'<b class="bad">Could not create the signing link.</b> {esc(lerr or "")}'
+                    '</div><p><a href="/esign">Back to e-signatures</a></p>', "esign")
+    url = f"/s/{link['token']}"
+    return page('<div class="card" style="border-left:4px solid var(--ok)">'
+                '<b class="ok">Signing link created.</b>'
+                f'<p>Send this to the signer: <a href="{esc(url)}">{esc(url)}</a></p>'
+                '<p class="note">They review the document, accept the consent statement '
+                'and sign (typed/drawn name). The signed PDF is produced and vaulted, and '
+                'you can verify the SHA-256 binding on the e-signatures page. '
+                '<b>SES — not a qualified electronic signature.</b></p></div>'
+                '<p><a href="/esign">Back to e-signatures</a></p>', "esign")
+
+
+@app.route("/esign/void", methods=["POST"])
+def esign_void():
+    """Void a pending signature request (it can no longer be signed)."""
+    import esign
+    try:
+        rid = int(request.form.get("request_id", "0"))
+    except (TypeError, ValueError):
+        rid = 0
+    ok, msg = esign.void_request(rid, session.get("user", ""))
+    banner = ('<div class="card" style="border-left:4px solid var(--ok)">'
+              '<b class="ok">Request voided.</b></div>' if ok else
+              '<div class="card" style="border-left:4px solid var(--bad)">'
+              f'<b class="bad">Could not void.</b> {esc(msg)}</div>')
+    return page(banner + '<p><a href="/esign">Back to e-signatures</a></p>', "esign")
+
+
+@app.route("/esign/<int:request_id>/verify", methods=["GET"])
+def esign_verify_page(request_id):
+    """Per-request signature detail + a live "verify hash" result for each signature (re-hash
+    the produced signed PDF against the recorded binding)."""
+    import esign, document_vault, vat_refund as VR
+    req = esign.get_request(request_id)
+    if not req:
+        return page('<div class="card"><b class="bad">No such signature request.</b></div>'
+                    '<p><a href="/esign">Back to e-signatures</a></p>', "esign"), 404
+    sigs = esign.signatures_for(request_id)
+    blocks = []
+    for s in sigs:
+        try:
+            v = esign.verify(s["id"], docdir=VR.DOCDIR)
+        except Exception as e:
+            _log_exc("esign: verify", e)
+            v = {"ok": False, "detail": "verify failed", "signed_ok": None}
+        badge = ('<b class="ok">PASS — binding intact</b>' if v.get("ok")
+                 else '<b class="bad">FAIL — ' + esc(v.get("detail") or "altered") + '</b>')
+        signed_link = "—"
+        if s.get("signed_locator"):
+            signed_link = (f'<a href="/esign/{request_id}/signed/{s["id"]}">'
+                           'Download signed PDF</a>')
+        img = ""
+        if s.get("signature_image"):
+            img = ('<p class="note">Drawn signature: <i>captured</i> '
+                   f'({esc(len(s["signature_image"]))} bytes)</p>')
+        detail_rows = [
+            ["Signer name", esc(s.get("signer_name") or "")],
+            ["Signer email", esc(s.get("signer_email") or "—")],
+            ["Signed at (UTC)", esc(s.get("signed_at") or "")],
+            ["IP", esc(s.get("ip") or "—")],
+            ["User agent", esc((s.get("user_agent") or "")[:160])],
+            ["Document SHA-256", esc(s.get("signed_doc_sha256") or "—")],
+            ["Signed-PDF SHA-256", esc(s.get("signed_sha256") or "—")],
+            ["Consent", esc(s.get("consent_text") or "")],
+            ["Verify result", badge],
+            ["Signed PDF", signed_link],
+        ]
+        blocks.append('<div class="card"><h3>Signature</h3>'
+                      + tbl(["Field", "Value"], detail_rows) + img + '</div>')
+    head = (f'<div class="card"><h2>Signature request — '
+            f'{esc(req.get("title") or "(untitled)")}</h2>'
+            f'<p class="note">Document: {esc((req.get("subject_ref") or "")[:80])} '
+            f'&nbsp;·&nbsp; Status: <b>{esc(req.get("status") or "")}</b></p>'
+            '<p class="note"><b>SES — not a qualified electronic signature.</b> '
+            'The SHA-256 binding is the integrity anchor: any later byte change fails '
+            'verification.</p></div>')
+    body = head + ("".join(blocks) if blocks
+                   else '<div class="card"><p class="note">No signatures recorded yet.</p>'
+                        '</div>')
+    return page(body + '<p><a href="/esign">Back to e-signatures</a></p>', "esign")
+
+
+@app.route("/esign/<int:request_id>/signed/<int:signature_id>")
+def esign_signed_download(request_id, signature_id):
+    """Stream the produced signed PDF for a signature (authed; the e-sign dashboard surface)."""
+    import esign, document_vault, vat_refund as VR
+    sig = esign.get_signature(signature_id)
+    if not sig or sig.get("request_id") != request_id or not sig.get("signed_locator"):
+        return page('<div class="card"><b class="bad">No signed PDF available.</b></div>'
+                    f'<p><a href="/esign/{request_id}/verify">Back</a></p>', "esign"), 404
+    try:
+        data = document_vault.get_bytes(sig["signed_locator"], VR.DOCDIR)
+    except Exception as e:
+        _log_exc("esign: signed download", e)
+        return page('<div class="card"><b class="bad">Could not read the signed PDF.</b>'
+                    f'</div><p><a href="/esign/{request_id}/verify">Back</a></p>',
+                    "esign"), 404
+    resp = Response(data, mimetype="application/pdf")
+    resp.headers["Content-Disposition"] = "inline; filename=signed.pdf"
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 @app.route("/share/<int:link_id>/views")
 def share_views_page(link_id):
     import sharing
@@ -8958,6 +9216,170 @@ def _share_view_session(token):
         return ""
 
 
+# ---------------------------------------------------------------- ② SES signing step
+def _share_signed_marker(token):
+    """True iff THIS session has already signed the `require_signature` link `token`.
+    Mirrors the password / NDA / email per-token session markers. Never raises."""
+    try:
+        return bool((session.get("_share_sign", {}) or {}).get(token))
+    except Exception as e:
+        _log_exc("share: signed marker", e)
+        return False
+
+
+def _set_share_signed(token):
+    try:
+        sess = session.get("_share_sign", {})
+        sess[token] = True
+        session["_share_sign"] = sess
+    except Exception as e:
+        _log_exc("share: set signed marker", e)
+
+
+def _share_sign_page(token, link, error=""):
+    """The SES signing page: embeds the document (same-origin iframe over /s/<token>/file,
+    which the NDA/email gates already protect), shows the consent + a typed name field, an
+    OPTIONAL drawn-signature <canvas> (vanilla JS in /static/esign_sign.js, posted as a data
+    URL) and a Sign button. Clearly labelled SES — not a qualified electronic signature."""
+    import esign
+    file_url = f"/s/{esc(token)}/file"
+    title = link.get("title") or link.get("doc_ref") or "Document to sign"
+    err = (f'<p class="err">{esc(error)}</p>' if error else "")
+    consent = esign.DEFAULT_CONSENT
+    notice = esign.SES_NOTICE
+    inner = (
+        f'<div class="bar"><b>{esc(title)}</b> '
+        '<span class="note" style="color:#9fb0c8">— please review and sign</span></div>'
+        f'<iframe src="{file_url}" title="document"></iframe>'
+        '<div class="wrap"><div class="box"><h2>Sign this document</h2>'
+        + err
+        + f'<p class="note" style="color:#9fb0c8">{esc(notice)}</p>'
+        f'<form method="post" action="/s/{esc(token)}/sign" id="esign-form">'
+        '<label>Your full name (typed signature)'
+        '<input name="signer_name" autocomplete="name" required maxlength="200"></label>'
+        '<label>Your email (optional)'
+        '<input name="signer_email" type="email" autocomplete="email" maxlength="200"></label>'
+        '<p class="note" style="color:#9fb0c8;margin:10px 0 4px">Draw your signature '
+        '(optional):</p>'
+        '<canvas id="esign-canvas" width="360" height="120" '
+        'style="background:#fff;border:1px solid #34405c;border-radius:6px;'
+        'touch-action:none;max-width:100%"></canvas>'
+        '<div style="margin:4px 0 12px">'
+        '<button type="button" id="esign-clear" '
+        'style="background:#33415c">Clear drawing</button></div>'
+        '<input type="hidden" name="signature_image" id="esign-image">'
+        f'<label class="ck" style="display:flex;gap:8px;align-items:flex-start">'
+        f'<input type="checkbox" name="consent" value="1" required '
+        'style="width:auto;margin-top:3px">'
+        f'<span>{esc(consent)}</span></label>'
+        '<div style="margin-top:10px"><button>Sign</button></div>'
+        '</form></div></div>')
+    head_extra = '<script type="module" src="/static/esign_sign.js"></script>'
+    return _share_shell(f"Sign — {title}", inner, head_extra)
+
+
+@app.route("/s/<token>/sign", methods=["POST"])
+def share_sign(token):
+    """PUBLIC: record an SES signature for a `require_signature` share link. Re-runs the SAME
+    per-token gates (revoked/expired/password/NDA/email) — NOTHING is signed before they pass.
+    Reads the EXACT vault bytes presented for signing, binds their SHA-256, produces+vaults a
+    signed PDF, attaches it back to the document request (item ①) when applicable, and notifies
+    the owner. Enumeration-safe; never raises a 500 to the public."""
+    import sharing, esign, document_vault, vat_refund as VR
+    try:
+        link = sharing.get_by_token(token)
+        state, payload = _share_gate_or_form(token, link)
+        if state == "deny":
+            return _share_not_found()
+        if state == "form":
+            return payload   # a gate (password/NDA/email) is not yet satisfied
+        email = payload
+        if not link.get("require_signature"):
+            return redirect(f"/s/{token}")
+        if not link.get("signature_request_id"):
+            return _share_viewer_response(_share_sign_page(
+                token, link, "This link is not configured for signing."))
+        req = esign.get_request(link["signature_request_id"])
+        if not req or req.get("status") == "void":
+            return _share_viewer_response(_share_sign_page(
+                token, link, "This signing request is no longer available."))
+        signer_name = (request.form.get("signer_name") or "").strip()
+        if not request.form.get("consent"):
+            return _share_viewer_response(_share_sign_page(
+                token, link, "You must accept the consent statement to sign."))
+        if not signer_name:
+            return _share_viewer_response(_share_sign_page(
+                token, link, "Please type your full name to sign."))
+        try:
+            data = document_vault.get_bytes(link["doc_ref"], VR.DOCDIR)
+        except Exception as e:
+            _log_exc("share: sign vault read", e)
+            return _share_viewer_response(_share_sign_page(
+                token, link, "The document could not be read for signing."))
+        sig, err = esign.record_signature(
+            link["signature_request_id"], signer_name, data,
+            signer_email=(request.form.get("signer_email") or email or "").strip() or None,
+            signature_image=(request.form.get("signature_image") or "").strip() or None,
+            ip=request.remote_addr or "", user_agent=request.headers.get("User-Agent", ""),
+            docdir=VR.DOCDIR, filename=(link.get("title") or None))
+        if err or not sig:
+            return _share_viewer_response(_share_sign_page(
+                token, link, f"Could not record the signature: {err or 'unknown error'}"))
+        _set_share_signed(token)
+        _attach_signed_to_request(link.get("signature_request_id"), sig)
+        _notify_sign_owner(link, signer_name)
+        return redirect(f"/s/{token}")
+    except Exception as e:
+        _log_exc("share: public sign", e)
+        return _share_not_found()
+
+
+def _attach_signed_to_request(signature_request_id, sig):
+    """If the signed share link's signature_request was created from a CRM document request
+    (item ①), advance that request to 'signed' so the signed copy is reflected on the board.
+    Best-effort; never raises."""
+    try:
+        import esign
+        req = esign.get_request(signature_request_id)
+        if not req:
+            return
+        sref = str(req.get("subject_ref") or "")
+        if not sref.startswith("docreq:"):
+            return
+        try:
+            doc_req_id = int(sref.split(":", 1)[1])
+        except (TypeError, ValueError):
+            return
+        import customer_master as CM
+        con = CM.connect()
+        try:
+            ok, msg = CM.advance_document_request(
+                con, doc_req_id, "signed",
+                note=f"E-signed (SES) by {sig.get('signer_name')}; "
+                     f"signed copy: {sig.get('signed_locator') or '(stamping fell back)'}")
+            if not ok:
+                _log_exc("share: attach signed to docreq",
+                         RuntimeError(f"advance failed: {msg}"))
+        finally:
+            con.close()
+    except Exception as e:
+        _log_exc("share: attach signed to request", e)
+
+
+def _notify_sign_owner(link, signer_name):
+    """Best-effort owner alert that a shared document was e-signed. Never raises."""
+    try:
+        import notify
+        notify.send_alert(
+            "Fleet Fuel & VAT — a shared document was e-signed (SES)",
+            [f"'{link.get('title') or link.get('doc_ref')}' (shared by "
+             f"{link.get('created_by') or 'unknown'}) was electronically signed by "
+             f"{signer_name}.",
+             f"Link: /s/{link.get('token')}"])
+    except Exception as e:
+        _log_exc("share: sign owner notify", e)
+
+
 @app.route("/s/<token>", methods=["GET", "POST"])
 def share_public(token):
     """PUBLIC viewer for a share link. Runs the per-token gate, then renders the PDF with
@@ -8973,6 +9395,11 @@ def share_public(token):
         if state == "form":
             return payload
         email = payload
+        # ② SES signing step — AFTER the NDA/email gates passed, BEFORE the document
+        # viewer. An opt-in `require_signature` link shows a signing page (document +
+        # consent + typed/drawn name) until the viewer has signed in THIS session.
+        if link.get("require_signature") and not _share_signed_marker(token):
+            return _share_viewer_response(_share_sign_page(token, link))
         # gates passed — record ONE view (dedup window guards refreshes); notify owner
         # on the FIRST genuine view only.
         try:

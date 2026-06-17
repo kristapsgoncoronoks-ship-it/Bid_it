@@ -60,6 +60,10 @@ finance.db
 #    analytics, NDA acceptances, Q&A; no demo data) ──
 sharing.db
 
+# ── E-signature (②) — app-owned runtime DB: SES signature requests + signatures
+#    (consent, audit fields, signed-doc SHA-256 binding, signed-PDF locator); no demo data ──
+esign.db
+
 # ── AI document-assistant chat history — app-owned runtime DB (advisory chat over a
 #    document's DERIVED data only; never mutates a figure) ──
 ai_chat.db
