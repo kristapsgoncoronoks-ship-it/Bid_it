@@ -1320,6 +1320,24 @@ h2.section:first-of-type{margin-top:4px}
 </style></head><body>
 <header><b>⛽ Fleet Fuel</b>
 <a href="/" class="{{'on' if page=='home'}}">Home</a>
+{% if 'intake' in modules and 'data_import' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ext','queue','imp','fil','min'] else ''}}">Intake</span><div class="mdrop"><span>
+  <a href="/extract" class="{{'on' if page=='ext'}}">Import batch</a>
+  <a href="/queue" class="{{'on' if page=='queue'}}">Waiting room</a>
+  <a href="/imports" class="{{'on' if page=='imp'}}">Import log</a>
+  <a href="/files" class="{{'on' if page=='fil'}}">File archive</a>
+  <a href="/mining" class="{{'on' if page=='min'}}">Doc mining</a>
+</span></div></div>{% endif %}
+{% if 'compliance' in modules and ('invoice_control' in perms or 'documents' in perms) %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['doc','srch','esign','inv','con'] else ''}}">Documents</span><div class="mdrop"><span>
+  {% if 'documents' in perms %}<a href="/documents" class="{{'on' if page=='doc'}}">Documents</a>
+  <a href="/search" class="{{'on' if page=='srch'}}">Search</a>
+  <a href="/esign" class="{{'on' if page=='esign'}}">E-signatures</a>{% endif %}
+  {% if 'invoice_control' in perms %}<a href="/invoices" class="{{'on' if page=='inv'}}">Invoice control</a>
+  <a href="/contracts" class="{{'on' if page=='con'}}">Contract audit</a>{% endif %}
+</span></div></div>{% endif %}
+{% if 'sharing' in modules and 'share' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['shr','rooms'] else ''}}">Sharing</span><div class="mdrop"><span>
+  <a href="/share" class="{{'on' if page=='shr'}}">Share links</a>
+  <a href="/rooms" class="{{'on' if page=='rooms'}}">Data rooms</a>
+</span></div></div>{% endif %}
 {% if 'analytics' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ana','rep','sav','exp','int','cmp','txn','h2h','stn','ano','pri','rel'] else ''}}">Analytics</span><div class="mdrop"><span>
   <a href="/analytics" class="{{'on' if page=='ana'}}">Dashboard</a>
   <a href="/reports" class="{{'on' if page=='rep'}}">Reports (charts)</a>
@@ -1334,7 +1352,7 @@ h2.section:first-of-type{margin-top:4px}
   {% if 'pricing' in perms %}<a href="/pricing" class="{{'on' if page=='pri'}}">Pricing intel</a>
   <a href="/reliability" class="{{'on' if page=='rel'}}">Reliability</a>{% endif %}
 </span></div></div>{% endif %}
-<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ent','vat','rdy','rec','rcv','fin','fx'] else ''}}">VAT &amp; fees</span><div class="mdrop"><span>
+<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ent','vat','rdy','rec','rcv','fin','rcn','fx'] else ''}}">VAT &amp; Recovery</span><div class="mdrop"><span>
   <a href="/entities" class="{{'on' if page=='ent'}}">Entities &amp; VAT</a>
   {% if is_admin and 'vat' in modules %}<a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
   <a href="/readiness" class="{{'on' if page=='rdy'}}">Claims readiness</a>
@@ -1344,23 +1362,7 @@ h2.section:first-of-type{margin-top:4px}
   <a href="/recon" class="{{'on' if page=='rcn'}}">Bank reconciliation</a>{% endif %}
   {% if 'fx' in modules %}<a href="/fx" class="{{'on' if page=='fx'}}">FX vs ECB</a>{% endif %}
 </span></div></div>
-{% if 'compliance' in modules and ('invoice_control' in perms or 'documents' in perms) %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['inv','con','doc','srch'] else ''}}">Compliance</span><div class="mdrop"><span>
-  {% if 'invoice_control' in perms %}<a href="/invoices" class="{{'on' if page=='inv'}}">Invoice control</a>
-  <a href="/contracts" class="{{'on' if page=='con'}}">Contract audit</a>{% endif %}
-  {% if 'documents' in perms %}<a href="/documents" class="{{'on' if page=='doc'}}">Documents</a>
-  <a href="/search" class="{{'on' if page=='srch'}}">Search</a>
-  <a href="/esign" class="{{'on' if page=='esign'}}">E-signatures</a>{% endif %}
-</span></div></div>{% endif %}
-{% if 'sharing' in modules and 'share' in perms %}<a href="/share" class="{{'on' if page=='shr'}}">Share links</a>{% endif %}
-{% if 'sharing' in modules and 'share' in perms %}<a href="/rooms" class="{{'on' if page=='rooms'}}">Data rooms</a>{% endif %}
-{% if 'intake' in modules and 'data_import' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ext','queue','imp','fil','min'] else ''}}">Intake</span><div class="mdrop"><span>
-  <a href="/extract" class="{{'on' if page=='ext'}}">Import batch</a>
-  <a href="/queue" class="{{'on' if page=='queue'}}">Waiting room</a>
-  <a href="/imports" class="{{'on' if page=='imp'}}">Import log</a>
-  <a href="/files" class="{{'on' if page=='fil'}}">File archive</a>
-  <a href="/mining" class="{{'on' if page=='min'}}">Doc mining</a>
-</span></div></div>{% endif %}
-<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['sup','cus','dat'] else ''}}">Master data</span><div class="mdrop"><span>
+<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['sup','cus','dreq','dat'] else ''}}">Master data</span><div class="mdrop"><span>
   <a href="/suppliers" class="{{'on' if page=='sup'}}">Suppliers</a>
   {% if is_admin %}<a href="/customers" class="{{'on' if page=='cus'}}">Customers (CRM)</a>{% endif %}
   {% if is_admin %}<a href="/doc-requests" class="{{'on' if page=='dreq'}}">Document requests</a>{% endif %}
