@@ -14,9 +14,18 @@ competitor price-competitiveness intelligence, for five Baltic transport entitie
 1. Intake     `ingest.py` (xlsx/csv/xml/api), `extract.py` (PDF/ZIP→draft), `waiting_room.py` (durable queue + worker)
 2. Master data `customers.db`, `suppliers.db`, `fuel_history.db` (+ `benchmark.db`, `vat_claims.db`)
                via `customer_master.py`, `supplier_master.py`, `vat_refund.py`
+   AI capture pipeline (OPT-IN, default-OFF, advisory, sends PDF page-images to the configured AI):
+   `vision_capture.py` (vision→structured capture doc), `ai_verify.py` (verify capture vs PDF + apply
+   corrections; INDEPENDENT verify model/provider), `capture_file.py` (persist capture as a JSON+text
+   second file), `capture_confidence.py` (per-supplier×field accuracy learning loop), `classify.py`
+   (data-classification/DLP gate over external AI)
 3. Engine     `consolidate.py`→`validate.py`→`build_master.py`→`history.py`, orchestrated by `engine_close.py`
 4. Compliance `vat_refund.py` (claims, locks), `invoice_control.py` (receipt/triage), `bank_recon.py` (advisory recon)
 5. Presentation `app.py` (Flask, ~25 pages + JSON API + Excel), `pricing_intelligence.py`, `saft.py`, `finance.py`
+               (deepened embedded-finance origination), `einvoice_export.py` (EN-16931/UBL 2.1 export hub),
+               `workflow.py` (advisory approval/routing engine), `ai_assistant.py` (advisory chat over derived data);
+               document-management + sharing suite `search.py`/`metadata.py`/`versioning.py`/`retention.py`,
+               `sharing.py`/`share_watermark.py`/`esign.py`; `mcp_tools.py`+`mcp_server.py` (read-only MCP server)
 6. Platform   `auth.py`, `audit.py`, `backup.py`, `tls.py`, `document_vault.py`, `db.py`, `dataproduct.py`,
                `db_migrate.py`, `applog.py`, `data_lake.py`, `doc_storage.py`, `notify.py`, `process_lock.py`,
                `keyvault.py` (envelope-encrypted secrets), `tenancy.py` (multi-tenant foundation), `metrics.py` (close-time aggregates)
@@ -24,11 +33,11 @@ competitor price-competitiveness intelligence, for five Baltic transport entitie
 ## Platform capabilities — seven delegated works (the product lens)
 The six blocks are the *technical* decomposition; read the product as an **accounting
 platform of seven delegated works**, each owned by a module (and mostly its own DB):
-1. **Data processing** — `ingest.py`/`extract.py`/`waiting_room.py` (incl. automated portal capture, KIND_FETCH) → `consolidate→validate→build_master→history` (raw files → validated, reconciled transactions); `metrics.py` settles per-period dashboard aggregates at the close.
-2. **Invoice analytics & report export** — `pricing_intelligence.py`, `anomaly.py`, `contract_audit.py`, `confidence.py` (advisory-AI trust), `reports.py` + the Excel/CSV/SAF-T exports (`saft.py`).
-3. **Digital document storage** — `document_vault.py` (local/SharePoint/FTPS), `data_lake.py`, `doc_storage.py`; SHA-256 dedup + `verify_documents`; portal credentials sealed via `keyvault.py`.
+1. **Data processing** — `ingest.py`/`extract.py`/`waiting_room.py` (incl. automated portal capture, KIND_FETCH) → `consolidate→validate→build_master→history` (raw files → validated, reconciled transactions); `metrics.py` settles per-period dashboard aggregates at the close. Optional advisory **AI capture pipeline** (`vision_capture.py`→`ai_verify.py`→`capture_file.py`, learning via `capture_confidence.py`, DLP-gated by `classify.py`) — all default-OFF; a human still confirms.
+2. **Invoice analytics & report export** — `pricing_intelligence.py`, `anomaly.py`, `contract_audit.py`, `confidence.py` (advisory-AI trust), `reports.py` + the Excel/CSV/SAF-T exports (`saft.py`) + `einvoice_export.py` (EN-16931/UBL 2.1 outbound XML + the Accounting & ERP exports hub); `ai_assistant.py` (advisory chat over derived data); `mcp_tools.py`/`mcp_server.py` expose read-only data to AI agents.
+3. **Digital document storage** — `document_vault.py` (local/SharePoint/FTPS), `data_lake.py`, `doc_storage.py`; SHA-256 dedup + `verify_documents`; portal credentials sealed via `keyvault.py`. DMS overlays (app-owned, keyed by `doc:<id>`): `search.py` (FTS5), `metadata.py` (typed fields+tags), `versioning.py`, `retention.py` (+ legal hold), `classify.py` (sensitivity labels/DLP); secure sharing `sharing.py`/`share_watermark.py`/`esign.py` (links, NDA/watermark, page analytics, data rooms, SES e-sign); `workflow.py` (advisory approval/routing).
 4. **Light CRM (API-plugin scalable)** — `customer_master.py` (entities, activation, checklist rules, templates, fees, expiry); extensibility seam = the `extract.py` parser registry / `portal_scraper.py` adapters / `/api/*`.
-5. **VAT processing** — `vat_refund.py` claim lifecycle (1A→5), `vat_config.py`, claim workbook; `finance.py` (advisory embedded-finance seam over the receivable, origination-only).
+5. **VAT processing** — `vat_refund.py` claim lifecycle (1A→5), `vat_config.py`, claim workbook; `finance.py` (advisory embedded-finance ORIGINATION/modeling over the receivable — financeable receivables, per-claim advance/fee offers, advances ledger; NullProvider default, never moves money).
 6. **VAT control** — `invoice_control.py` (receipt control / reconciliation), `bank_recon.py` (advisory bank↔refund recon) + the submission gates (checklist, doc-presence, locks, period-end).
 7. **Invoicing for work** — the service-fee engine in `vat_refund.py` + `reports.fee_report_workbook` (Recovery page).
 Platform floor under all seven: `auth`/`audit`/`backup`/`db`/`db_migrate`/`applog`/`tls`/`process_lock`/`keyvault`/`tenancy`. See `README.md#the-platform-seven-delegated-works`.
@@ -77,6 +86,36 @@ Platform floor under all seven: `auth`/`audit`/`backup`/`db`/`db_migrate`/`applo
   validation/analytics, not capture (the **advisory AI review assistant** `ai_review.py`
   is default-OFF, sends DERIVED DATA ONLY — never the PDF/IBAN/secret — and never mutates
   or gates a figure; see `docs/MANUAL.md#ai-review-assistant-advisory-validation-analytics`).
+- AI CAPTURE pipeline is the deliberate, LOUDLY-GATED EXCEPTION to deterministic-first capture:
+  `vision_capture.py` renders the ORIGINAL PDF to page-images and sends them to a VISION model
+  (Claude/OpenAI) → a structured "capture document" mapped into the SAME review-draft shape. It is
+  OPT-IN/default-OFF (`ai_vision_capture_enabled` AND a vision backend), ADVISORY (a draft a human
+  still confirms — mutates no figure/DB), STRICT (never invents a field), and best-effort (falls
+  back to the OCR→parser→text-AI chain). `ai_verify.py` is the INDEPENDENT verify model/provider:
+  it verifies the captured draft field-by-field against the PDF (PDF = source of truth), can APPLY
+  PDF-authoritative corrections then re-verify — but NEVER auto-changes/gates a figure without the
+  human confirm gate (default-OFF `ai_verify_enabled`). `capture_file.py` persists the capture as a
+  permanent JSON+text SECOND FILE in the data lake (kind `capture_document`), linked to the upload
+  SHA-256, newest-wins, never the PDF/secret bytes. `capture_confidence.py` is the per-(supplier×
+  field) ACCURACY LEARNING LOOP (own `capture_confidence.db`) — advisory hints from correction/edit
+  signals, NEVER gates. `classify.py` is the data-classification/DLP overlay (own `classify.db`):
+  per-document sensitivity label + `{type,count}` findings (NEVER raw values); an OPT-IN policy
+  (`ai_external_max_sensitivity`, default `restricted` = PERMISSIVE) blocks over-sensitive docs from
+  external AI, fails OPEN on a scan error / CLOSED when a policy is set and exceeded.
+- MCP server (`mcp_server.py` over `mcp_tools.py`) exposes platform data to AI agents: READ-ONLY
+  (v1, no write/action tools), reads product DBs strictly via `dataproduct.connect` (ro), NEVER
+  raises (returns `{"error":...}`), tenant-aware, NO bank/secret data (safe-column selects +
+  defense-in-depth key filter). The `mcp` SDK is an OPTIONAL extra (`requirements-mcp.txt`) imported
+  ONLY inside `mcp_server` — the app/tests never need it. stdio transport is trusted; streamable-HTTP
+  REQUIRES a bearer token (`FFS_MCP_TOKEN` or an `api_keys` token). See `docs/MCP.md`.
+- `workflow.py` (own `workflow.db`) is an ADVISORY, configurable approval/routing engine — ordered
+  steps (approve/sign/notify/tag), a Tasks/Approvals inbox. It is structurally separate from the
+  refund engine and NEVER overrides a VAT legal gate (checklist/locks/period-end/claim status); a run
+  reaching `approved` changes nothing about a claim. Side-effect steps reuse existing advisory seams
+  (`esign`/`notify`/`metadata`), best-effort.
+- `einvoice_export.py` is the OUTBOUND counterpart to `extract.parse_einvoice`: EN-16931/UBL 2.1
+  Invoice XML EXPORT (+ batch ZIP) of REGISTERED invoices, READ-ONLY over `vat_refund.invoice_lines`,
+  NET-EUR via `money.f2` — invents no figure, writes no product DB.
 - Automated document capture runs OUT-OF-BAND on the worker tier, never in a web request.
   Portal fetch is enqueued as `waiting_room` kind=`fetch` (`KIND_FETCH`); a per-supplier
   rate-limiter / concurrency cap / backoff / circuit-breaker gates it (`supplier_rate_limits`
@@ -93,7 +132,11 @@ Platform floor under all seven: `auth`/`audit`/`backup`/`db`/`db_migrate`/`applo
   RUNS — it never skips or alters a deterministic legal gate; it fails toward doing the review.
 - `finance.py` (embedded finance) and `bank_recon.py` (open-banking recon) are ADVISORY/
   origination-only seams: additive analytics over `recovery_report()` with a NullProvider
-  default; they NEVER mutate a VAT figure, status, lock, fee, or payment.
+  default; they NEVER mutate a VAT figure, status, lock, fee, or payment. `finance.py` is
+  deepened into an ORIGINATION/modeling feature — `financeable()` reuses the recovery
+  `outstanding` total, `financeable_offers()`/`offer_for` model per-claim advance/fee/net-now/
+  net-later economics, and an advances ledger (own `finance.db`) TRACKS an advance through
+  {offered,accepted,funded,repaid,declined}; with the NULL provider nothing funds, no money moves.
 - Multi-tenancy (`tenancy.py`) is OFF by default (`multitenant` setting) = byte-identical
   single-tenant; `scope_clause()`/`require_tenant()` are inert no-ops until the per-table
   phase. Registry lives in `security.db`. See `docs/STRATEGY.md#multi-tenancy-program-plan`.
@@ -126,7 +169,10 @@ Platform floor under all seven: `auth`/`audit`/`backup`/`db`/`db_migrate`/`applo
 
 ## Do NOT commit
 Secrets (.secret_key, certs), `security.db` (password hashes), generated Excel,
-runtime dirs (backups/, inbox/). See `.gitignore`.
+runtime dirs (backups/, inbox/), and every app-owned runtime DB — including this session's
+new ones (already in `.gitignore`): `capture_confidence.db`, `classify.db`, `workflow.db`,
+`sharing.db`, `esign.db`, `ai_chat.db`, `search.db`, `metadata.db`, `versions.db`,
+`retention.db`, `finance.db` (vision/verify add no DB beyond `capture_confidence.db`). See `.gitignore`.
 
 ## Testing
 `python -m pytest tests/ -q` — the full suite (claims workflow, checklist, CRM
@@ -176,7 +222,17 @@ scheduler) with envelope-encrypted credential custody (`keyvault.py`); one-click
 metrics-at-close materialization + drift check (`metrics.py`); the strategy-derived seams —
 expense/cost reports + accounting-ledger CSV + SAF-T export (`saft.py`), advisory embedded finance
 (`finance.py`) and open-banking reconciliation (`bank_recon.py`); confidence-learning
-(`confidence.py`); and the multi-tenancy foundation (`tenancy.py`, OFF by default). Still open:
+(`confidence.py`); and the multi-tenancy foundation (`tenancy.py`, OFF by default); the full
+document-management + secure-sharing platform (search/metadata/versioning/retention; sharing/
+watermark/page-analytics/data-rooms/e-sign — see `docs/STRATEGY.md` §10); and THIS session: the
+advisory AI capture→verify→correct pipeline (`vision_capture.py`/`ai_verify.py`/`capture_file.py`/
+`capture_confidence.py`, all default-OFF) with a data-classification/DLP gate (`classify.py`); the
+read-only token-gated MCP server (`mcp_server.py`/`mcp_tools.py`, optional SDK, `docs/MCP.md`); the
+advisory workflow/approval engine (`workflow.py`); EN-16931/UBL 2.1 e-invoice + ERP export
+(`einvoice_export.py`); the deepened embedded-finance origination model (`finance.py`); the advisory
+document chat (`ai_assistant.py`); the nav-IA cleanup (Home · Intake · Documents · Sharing ·
+Analytics · VAT & Recovery · Master data · History · Export · Admin); and a deterministically-green
+test suite (a conftest fixture isolates `app_settings` + `role_permissions` per test). Still open:
 - **Automated document capture (go-live)** — the scaffolding (worker fetch, rate-limiter,
   credential custody, scheduler) has landed; remaining = REAL per-supplier `portal_scraper`
   adapters + live API/e-invoicing inbound, and KMS/OAuth/per-tenant-BYOK custody beyond the

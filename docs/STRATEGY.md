@@ -1449,7 +1449,67 @@ Follow-on (shipped same session):
 - **④ Multi-tenancy phase 2 (new modules):** `scope_clause` read-isolation wired into sharing/esign/
   metadata/versioning/retention/search; public links bind their own tenant; OFF stays byte-identical.
 
+### 10.4a What shipped — the AI, MCP, workflow & export round (same program, later session)
+Builds on 10.4 and keeps every guardrail (10.1/10.3): each new feature is an app-owned overlay
+(own gitignored DB, `db_migrate`-versioned, `audit`-installed, tenancy-stamped), advisory, and
+default-OFF where it touches an external AI. The AI-capture path is the deliberate, loudly-gated
+exception to the deterministic-first capture rule (it sends PDF page-images to the configured
+provider) — a human still confirms every figure.
+
+- **AI capture pipeline (opt-in, default-OFF, advisory):**
+  - **Vision capture** (`vision_capture.py`) — reads a scanned/messy/unknown-layout PDF's page
+    images with a vision model (Claude/OpenAI) into a structured "capture document" mapped into the
+    SAME review-draft + confirm gate; strict (never invents a field), best-effort (falls back to the
+    OCR→parser→text-AI chain). Inert unless `ai_vision_capture_enabled` AND a vision backend.
+  - **AI verify + correct** (`ai_verify.py`) — an INDEPENDENT verify model/provider verifies the
+    captured draft field-by-field against the PDF (the PDF is authoritative), can APPLY
+    PDF-authoritative corrections and re-verify, with status/test-connection visibility. Advisory:
+    it flags/corrects for the human, never auto-gates a figure. Inert unless `ai_verify_enabled` AND
+    a vision backend.
+  - **Capture as a second file** (`capture_file.py`) — persists the capture document as a permanent
+    JSON + human-readable text file in the data lake (kind `capture_document`), linked to the upload
+    SHA-256, re-saved after corrections (newest-wins); never the PDF/secret bytes.
+  - **Capture-confidence learning loop** (`capture_confidence.py`, own `capture_confidence.db`) — a
+    per-(supplier × field) accuracy ledger fed by the AI-correction + human-edit-at-confirm signals;
+    advisory hints that flag a supplier's weak fields on the review screen. NEVER gates.
+- **Classification / DLP** (`classify.py`, own `classify.db`) — a Box-Shield-style overlay that scans
+  document text for sensitive types (IBAN/account/SWIFT/card/email/phone/VAT-id/name-ish), stores
+  ONLY `{type, count}` + an ordered sensitivity label (never raw values), and (OPT-IN) gates what
+  may be sent to external AI by sensitivity. Default `ai_external_max_sensitivity=restricted` =
+  permissive (byte-identical); fails OPEN on a scan error, CLOSED when a policy is set and exceeded.
+- **MCP server** (`mcp_tools.py` + `mcp_server.py`, `docs/MCP.md`) — a READ-ONLY, token-gated,
+  tenant-aware Model-Context-Protocol server (modeled on Box's) exposing platform data (search,
+  reclaimable VAT, claim status, benchmark, KPIs, document metadata, overdue requests) to AI agents.
+  v1 has no write/action tools; it reads product DBs strictly via `dataproduct` (ro), never returns
+  bank/secret fields, and never raises. The `mcp` SDK is an OPTIONAL extra (`requirements-mcp.txt`)
+  imported only inside the server — the app/tests never need it. stdio is trusted; streamable-HTTP
+  requires a bearer token (`FFS_MCP_TOKEN` or an `api_keys` token).
+- **Workflow engine** (`workflow.py`, own `workflow.db`) — a Box-Relay-style configurable, ordered
+  approval/routing engine (steps: approve/sign/notify/tag) with a Tasks/Approvals inbox. Advisory:
+  structurally separate from the refund engine, it NEVER overrides a VAT legal gate; a run reaching
+  `approved` changes nothing about a claim. Side-effect steps reuse `esign`/`notify`/`metadata`.
+- **E-invoice / ERP export** (`einvoice_export.py`) — the outbound counterpart to
+  `extract.parse_einvoice`: EN-16931 / UBL 2.1 Invoice XML export of registered invoices (single +
+  batch ZIP), gathered with the existing CSV/SAF-T exports into an "Accounting & ERP exports" hub.
+  Read-only over `vat_refund.invoice_lines`, NET-EUR via `money.f2`; invents no figure.
+- **Embedded-finance origination, deepened** (`finance.py`) — beyond the financeable-total view, a
+  per-claim advance/fee model (`financeable_offers`/`offer_for`: advance, fee, net-now, net-later,
+  expected payout) and an advances ledger (own `finance.db`) tracking {offered, accepted, funded,
+  repaid, declined}. NullProvider default — nothing funds, no money moves, no VAT figure mutates.
+- **Advisory document chat** (`ai_assistant.py`, own `ai_chat.db`) — the conversational sibling of
+  `ai_review.py`: opt-in/default-OFF Q&A over a document's DERIVED data only (the `ai_review`
+  redactor strips IBAN/secrets; never the PDF), never mutates a figure.
+- **Navigation IA tidied** — top-level nav consolidated to Home · Intake · Documents · Sharing ·
+  Analytics · VAT & Recovery · Master data · History · Export · Admin.
+- **Test-suite reliability** — a conftest fixture isolates `app_settings` + `role_permissions` per
+  test, making the suite deterministically green regardless of order.
+
 ### 10.5 Backlog (still open — deepen further)
+- **Real per-supplier capture/scraper adapters + live API/e-invoicing inbound** — the AI-capture and
+  fetch scaffolding has landed; the flagship remaining work is the concrete adapters and KMS/OAuth/
+  per-tenant-BYOK credential custody beyond the `env`/local KEK seam.
+- **MCP write/action tools** (v2) — v1 is read-only by design; any action surface needs a fresh
+  authz/audit review before it can mutate.
 - **Custom domains** for the public viewer (needs nginx/per-tenant cert work — server-side).
 - Multilingual OCR **per-language tuning** + scanned-only language autodetect (the code passes
   `EXTRACT_OCR_LANGS`; today defaults to the Baltic/EU set).
@@ -1458,3 +1518,5 @@ Follow-on (shipped same session):
   version_no)`, metadata `(field_id, subject_ref)`) — the same follow-on the legacy harnesses note;
   and running `search.rebuild` under owner-scope so metadata text is indexed under multitenant.
 - Optional **CMIS/WebDAV** interop surface if a client needs ERP/DMS integration (defer behind `/api`).
+- **Validated per-country SAF-T / e-invoice profiles** — the EN-16931/UBL export and SAF-T core are
+  in; per-country submission profiles still need validation against each authority's schematron.
