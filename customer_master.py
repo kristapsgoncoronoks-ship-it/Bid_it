@@ -328,6 +328,31 @@ def connect():
                 FROM checklist_rules""",
             "DROP TABLE checklist_rules",
             "ALTER TABLE checklist_rules__rekey RENAME TO checklist_rules",
+
+            # ── Generated-document → platform-vault link (app-owned overlay) ────
+            # When a templated document (contract / POA) is generated it is vaulted
+            # into customer_documents (above). This overlay records the link between
+            # the document_request (and its generated customer_documents row) and the
+            # VAULT LOCATOR so the generated PDF becomes a FIRST-CLASS platform
+            # document — addressable by the same `doc_ref`/`subject_ref` that
+            # metadata.py (A3 tags), versioning.py (A4) and sharing.py (B1) key off
+            # (the locator = customer_documents.stored_path, exactly like an
+            # invoice_documents.stored_path). This is an APP/CRM-owned table in the
+            # app/CRM-owned customers.db — it adds NO column to an engine product DB.
+            # tenant_id stamped on INSERT (tenancy seam, inert today). APPEND-ONLY.
+            """CREATE TABLE IF NOT EXISTS document_request_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_id INTEGER NOT NULL,           -- document_requests.id
+                doc_id INTEGER,                        -- customer_documents.id vaulted
+                subject_ref TEXT NOT NULL,             -- the platform doc_ref (vault locator)
+                sha256 TEXT,
+                linked_by TEXT,
+                linked_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                tenant_id TEXT NOT NULL DEFAULT 'default')""",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_docreq_links_req "
+            "ON document_request_links(request_id)",
+            "CREATE INDEX IF NOT EXISTS ix_docreq_links_subject "
+            "ON document_request_links(subject_ref)",
         ])
         # seed the adjustable submission checklist once (empty table -> defaults)
         if not con.execute("SELECT 1 FROM checklist_rules LIMIT 1").fetchone():
@@ -343,7 +368,8 @@ def connect():
         audit.install_audit(con, ['customers', 'customer_bank_accounts',
                                   'customer_supplier_accounts', 'customer_documents',
                                   'customer_fees', 'customer_countries', 'country_requirements',
-                                  'checklist_rules', 'document_requests'])
+                                  'checklist_rules', 'document_requests',
+                                  'document_request_links'])
         _SCHEMA_READY.add(DB)
     return con
 
@@ -976,6 +1002,11 @@ def generate_request_document(con, req_id):
             generated_sha256=?, generated_doc_id=?
         WHERE id=?""", (sha, doc_id, req_id))
     con.commit()
+    # Promote the generated draft to a FIRST-CLASS platform document (record the
+    # subject↔vault-locator link + seed its version chain) so it can be tagged (A3),
+    # versioned (A4), shared (B1) and later e-signed. Best-effort, idempotent, never
+    # blocks the generate — on a re-generate it refreshes the locator to the new file.
+    vault_generated_document(con, req_id)
     return filled, out_name, ext
 
 
@@ -1043,6 +1074,132 @@ def advance_document_request(con, req_id, new_status, *, signed_file=None,
     except Exception as e:
         _docreq_log().exception("advance_document_request failed")
         return False, f"advance failed: {e}"
+
+
+# ---------------------------------------------------------------- generated → platform vault
+# A generated draft is ALREADY vaulted into customer_documents (by generate_request_document
+# via add_document) — its bytes live in the document store with a stored_path LOCATOR. This
+# overlay promotes that generated document to a FIRST-CLASS PLATFORM document: it records the
+# (request → vault locator) link and seeds the versioning chain, so the generated PDF is
+# addressable by the SAME `doc_ref`/`subject_ref` that metadata.py (A3 tags), versioning.py
+# (A4) and sharing.py (B1) operate on (and can later be e-signed). App/CRM-owned overlay only;
+# it NEVER opens an engine product DB.
+def vault_generated_document(con, req_id, by=None):
+    """Promote a request's GENERATED draft to a first-class platform document. Idempotent and
+    best-effort (never raises): records the (request_id → generated customer_documents row's
+    vault locator) link in document_request_links and seeds the version chain so the document
+    can be tagged / versioned / shared. Returns (subject_ref, "") on success, (None, msg) if
+    there is no generated draft to promote or on a handled failure.
+
+    The subject_ref is the VAULT LOCATOR (customer_documents.stored_path) — the same kind of
+    `doc_ref` the rest of the platform uses; resolving its bytes always routes through
+    document_vault.get_bytes()."""
+    try:
+        r = get_document_request(con, req_id)
+        if not r:
+            return None, f"document request {req_id} not found"
+        doc_id = r.get("generated_doc_id")
+        if not doc_id:
+            return None, "no generated draft to save to the vault yet"
+        frag, tp = tenancy.scope_clause()
+        row = con.execute(
+            "SELECT stored_path, sha256 FROM customer_documents WHERE id=?" + frag,
+            [doc_id, *tp]).fetchone()
+        if not row or not row["stored_path"]:
+            return None, "the generated draft is missing from the vault"
+        subject_ref = str(row["stored_path"])
+        existing = con.execute(
+            "SELECT doc_id, subject_ref FROM document_request_links WHERE request_id=?" + frag,
+            [req_id, *tp]).fetchone()
+        if existing:
+            # idempotent: refresh the link if a re-generate produced a new draft (the vault
+            # locator may be byte-stable while the customer_documents row id/sha changed).
+            if existing["doc_id"] != doc_id or existing["subject_ref"] != subject_ref:
+                con.execute(
+                    "UPDATE document_request_links SET doc_id=?, subject_ref=?, sha256=? "
+                    "WHERE request_id=?" + frag,
+                    [doc_id, subject_ref, row["sha256"], req_id, *tp])
+                con.commit()
+        else:
+            con.execute(
+                """INSERT INTO document_request_links
+                   (request_id, doc_id, subject_ref, sha256, linked_by, tenant_id)
+                   VALUES (?,?,?,?,?,?)""",
+                (req_id, doc_id, subject_ref, row["sha256"], by, tenancy.write_tenant()))
+            con.commit()
+        # seed the version chain (best-effort; idempotent — record_initial no-ops if seeded)
+        try:
+            import versioning
+            versioning.record_initial(subject_ref, subject_ref, sha256=row["sha256"],
+                                      actor=by or "system", note="generated draft")
+        except Exception:
+            _docreq_log().exception("versioning seed failed for request %s", req_id)
+        return subject_ref, ""
+    except Exception as e:
+        _docreq_log().exception("vault_generated_document failed for request %s", req_id)
+        return None, f"could not save to vault: {e}"
+
+
+def generated_vault_ref(con, req_id):
+    """The platform `doc_ref` (vault locator) saved for a request's generated draft, or None.
+    Never raises."""
+    try:
+        frag, tp = tenancy.scope_clause()
+        row = con.execute(
+            "SELECT subject_ref FROM document_request_links WHERE request_id=?" + frag,
+            [req_id, *tp]).fetchone()
+        return row["subject_ref"] if row else None
+    except Exception:
+        _docreq_log().exception("generated_vault_ref failed for request %s", req_id)
+        return None
+
+
+# ---------------------------------------------------------------- control dashboard
+# A cross-customer view of every document request with a DERIVED display status:
+#   requested / generated / sent_for_signature / signed / received / cancelled, plus an
+#   `overdue` flag (a request sitting in 'sent_for_signature' longer than `overdue_days`).
+# Each row also carries the customer's company name, the generated/signed customer_documents
+# ids and the platform vault ref (if the generated draft has been saved to the vault) so the
+# board can offer open / tag / share quick actions.
+def document_request_board(con, customer=None, status=None, kind=None,
+                           overdue_days=DOC_REQUEST_OVERDUE_DAYS):
+    """All document requests across customers for the control board, newest first. Optional
+    filters: `customer` (code), `status`, `kind`. Each row is a dict with the request columns
+    plus: `company_name`, `age_days`, `overdue`, `vault_ref` (the saved platform doc_ref or
+    None). Never raises -> []."""
+    try:
+        # tenant-scope the DRIVING table by its qualified column (so the join is
+        # unambiguous); the LEFT-joined tables share the same tenant.
+        frag, tp = tenancy.scope_clause("dr.tenant_id")
+        q = """SELECT dr.*, c.company_name AS company_name,
+                      CAST(julianday('now') - julianday(dr.requested_at) AS INTEGER) AS age_days,
+                      CAST(julianday('now') - julianday(dr.sent_at) AS INTEGER) AS sent_age_days,
+                      lk.subject_ref AS vault_ref
+               FROM document_requests dr
+               LEFT JOIN customers c ON c.code = dr.customer
+               LEFT JOIN document_request_links lk ON lk.request_id = dr.id
+               WHERE 1=1"""
+        params = []
+        if customer:
+            q += " AND dr.customer=?"; params.append((customer or "").strip().upper())
+        if status:
+            q += " AND dr.status=?"; params.append(status)
+        if kind:
+            q += " AND dr.kind=?"; params.append(kind)
+        q += frag
+        q += " ORDER BY dr.requested_at DESC, dr.id DESC"
+        rows = con.execute(q, params + list(tp)).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            sent_age = d.pop("sent_age_days", None)
+            d["overdue"] = (d["status"] == "sent_for_signature"
+                            and sent_age is not None and sent_age > overdue_days)
+            out.append(d)
+        return out
+    except Exception:
+        _docreq_log().exception("document_request_board failed")
+        return []
 
 
 # open states whose age the worklist tracks (everything pre-terminal)

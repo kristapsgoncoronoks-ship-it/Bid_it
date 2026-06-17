@@ -466,6 +466,7 @@ PERM_BY_ENDPOINT = {
     "receivables":     "vat_claims", "export_receivables": "exports",
     "recon":           "vat_claims",
     "customers":       "customers", "cust_doc_download": "customers",
+    "doc_requests":    "customers",   # the cross-customer document-requests control board
     "pricing":         "pricing", "pricing_upload": "pricing", "api_pricing": "pricing",
     "pricing_market":  "pricing", "pricing_portal": "pricing",
     "pricing_adopt_benchmark": "pricing", "export_benchmark": "exports",
@@ -515,7 +516,7 @@ ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "recei
               "monthly_close",
               # customer/CRM data (checklist, templates, document generation) is part of
               # the VAT-refund module, so the same admin-only access applies.
-              "customers", "cust_doc_download",
+              "customers", "cust_doc_download", "doc_requests",
               # the confidence-learning scoreboard is a read-only admin surface.
               "admin_confidence",
               # the multi-tenancy registry is a read-only admin surface (P0).
@@ -1321,6 +1322,7 @@ h2.section:first-of-type{margin-top:4px}
 <div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['sup','cus','dat'] else ''}}">Master data</span><div class="mdrop"><span>
   <a href="/suppliers" class="{{'on' if page=='sup'}}">Suppliers</a>
   {% if is_admin %}<a href="/customers" class="{{'on' if page=='cus'}}">Customers (CRM)</a>{% endif %}
+  {% if is_admin %}<a href="/doc-requests" class="{{'on' if page=='dreq'}}">Document requests</a>{% endif %}
   {% if 'data_import' in perms %}<a href="/data" class="{{'on' if page=='dat'}}">Data manager</a>{% endif %}
 </span></div></div>
 <a href="/history" class="{{'on' if page=='his'}}">History</a>
@@ -6983,6 +6985,18 @@ def customers():
                     # unavailable; the prefilled .docx is the graceful fallback.
                     resp.headers["X-FFS-Notice"] = "PDF conversion unavailable - delivered .docx"
                 return resp
+            elif act == "vault_doc_request":
+                # promote a generated draft to a first-class PLATFORM document (record the
+                # subject↔vault-locator link + seed its version chain) so it can be tagged,
+                # versioned, shared and later e-signed. Idempotent / best-effort.
+                con = CD.connect()
+                ref, m = CD.vault_generated_document(
+                    con, int(request.form.get("req_id", "0")), by=session.get("user"))
+                con.close()
+                if ref is None:
+                    raise ValueError(m or "could not save to vault")
+                msg = (f"Document request #{esc(request.form.get('req_id',''))} saved to the "
+                       "vault as a platform document (taggable / versionable / shareable).")
             elif act == "advance_doc_request":
                 # state-machine advance. advance_document_request enforces validity server
                 # side (returns (False, illegal transition) for an out-of-state POST), so a
@@ -7169,6 +7183,16 @@ def customers():
                 if "sent_for_signature" in valid:
                     actions += _dr_advance_form(rid, "sent_for_signature",
                                                 "Mark sent for signature", bg="var(--ok)")
+            # Save-to-vault: promote a generated draft to a first-class platform document
+            # (taggable / versionable / shareable). Offered whenever a draft exists and is
+            # not yet saved; idempotent server-side so a double-click is harmless.
+            if dr["generated_doc_id"] and not CD.generated_vault_ref(con, rid):
+                actions += ('<form method="post" style="display:inline">' + _csrf_input()
+                            + '<input type="hidden" name="__act" value="vault_doc_request">'
+                            + f'<input type="hidden" name="req_id" value="{int(rid)}">'
+                            + '<button style="background:var(--ok);font-size:11px;padding:3px 8px" '
+                              'title="make the generated PDF a first-class vaulted document">'
+                              'Save to vault</button></form> ')
             if st == "sent_for_signature" and "signed" in valid:
                 actions += _dr_advance_form(rid, "signed", "Mark signed", bg="var(--ok)")
             if st == "signed" and "received" in valid:
@@ -7183,8 +7207,14 @@ def customers():
                     and CD.country_ready_to_activate(con, code, drc)):
                 ready_hint = (f'<div class="note ok" style="font-size:11px">&#10003; {esc(drc)} '
                               'now ready to activate (see Refund countries above)</div>')
+            from urllib.parse import quote
+            vault_ref = CD.generated_vault_ref(con, rid)
+            vault_link = ('<a href="/share?doc_ref=' + quote(vault_ref or "", safe="")
+                          + '" title="vaulted as a platform document — tag / version / share">'
+                          '&#128274; vaulted</a>') if vault_ref else ""
             links = " ".join(filter(None, [
                 _dr_doc_link(dr["generated_doc_id"], "generated"),
+                vault_link,
                 _dr_doc_link(dr["signed_doc_id"], "signed original")])) or '<span class="note">—</span>'
             dr_rows.append([
                 f'<td>{esc(dr["kind"].replace("_", " "))}</td>',
@@ -8344,6 +8374,159 @@ def cust_doc_download(doc_id):
     data = document_vault.get_bytes(d["stored_path"], CD.DOCDIR)
     return send_file(io.BytesIO(data), as_attachment=True, download_name=d["filename"])
 
+
+@app.route("/doc-requests", methods=["GET", "POST"])
+def doc_requests():
+    """The document-requests CONTROL BOARD — a cross-customer view of every contract /
+    power-of-attorney request with its derived status (requested / generated / sent for
+    signature / signed / received / cancelled / overdue), filters (status / customer /
+    kind) and quick actions (generate, save-to-vault, mark received, open the vaulted
+    file). CRM data, so same gating as /customers (admin-only, `customers` capability).
+    Every DB value is esc-escaped; handled failures go through _log_exc."""
+    import customer_master as CD
+    from urllib.parse import quote
+    banner = ""
+    if request.method == "POST":
+        act = request.form.get("__act", "")
+        try:
+            req_id = int(request.form.get("req_id", "0") or 0)
+            if act == "gen_doc_request":
+                con = CD.connect()
+                CD.generate_request_document(con, req_id)
+                con.close()
+                banner = (f'<div class="card"><b class="ok">Request #{esc(str(req_id))} '
+                          'generated and vaulted.</b></div>')
+            elif act == "vault_doc_request":
+                con = CD.connect()
+                ref, m = CD.vault_generated_document(con, req_id, by=session.get("user"))
+                con.close()
+                if ref is None:
+                    raise ValueError(m or "could not save to vault")
+                banner = (f'<div class="card"><b class="ok">Request #{esc(str(req_id))} saved '
+                          'to the vault as a platform document.</b></div>')
+            elif act == "mark_received":
+                # mark a request received WITHOUT a wet-signed upload (the board's quick
+                # action); the per-customer register handles the file-upload path.
+                f = request.files.get("signed_file")
+                signed_bytes = f.read() if (f and f.filename) else None
+                signed_name = f.filename if (f and f.filename) else None
+                con = CD.connect()
+                ok, m = CD.advance_document_request(
+                    con, req_id, "received", signed_file=signed_bytes,
+                    signed_filename=signed_name, by=session.get("user"))
+                con.close()
+                if not ok:
+                    raise ValueError(m)
+                banner = (f'<div class="card"><b class="ok">Request #{esc(str(req_id))}: '
+                          f'{esc(m)}.</b></div>')
+            else:
+                raise ValueError("unknown action")
+        except Exception as e:
+            _log_exc("document-requests board", e)
+            banner = f'<div class="card"><b class="bad">Error: {esc(str(e))}</b></div>'
+
+    f_status = (request.args.get("status") or "").strip()
+    f_customer = (request.args.get("customer") or "").strip().upper()
+    f_kind = (request.args.get("kind") or "").strip()
+
+    con = CD.connect()
+    rows_data = CD.document_request_board(
+        con, customer=f_customer or None,
+        status=f_status or None, kind=f_kind or None)
+    cust_codes = [r["code"] for r in con.execute(
+        "SELECT code FROM customers ORDER BY code")]
+    con.close()
+
+    _BADGE = {"requested": "var(--mut)", "generated": "var(--mut)",
+              "sent_for_signature": "var(--mut)", "signed": "var(--mut)",
+              "received": "var(--ok)", "cancelled": "var(--bad)"}
+
+    def _badge(st, overdue):
+        bg = "var(--bad)" if overdue else _BADGE.get(st, "var(--mut)")
+        label = "overdue" if overdue else (st or "").replace("_", " ")
+        return (f'<span style="display:inline-block;padding:1px 7px;border-radius:9px;'
+                f'font-size:11px;background:{bg};color:#fff">{esc(label)}</span>')
+
+    def _qform(rid, act, label, bg, *, file_field=False, confirm=None):
+        enc = ' enctype="multipart/form-data"' if file_field else ""
+        file_in = ('<input type="file" name="signed_file" style="width:130px">'
+                   if file_field else "")
+        oc = f' onclick="return confirm(\'{esc(confirm)}\')"' if confirm else ""
+        return ('<form method="post"' + enc + ' style="display:inline">' + _csrf_input()
+                + f'<input type="hidden" name="__act" value="{esc(act)}">'
+                + f'<input type="hidden" name="req_id" value="{int(rid)}">' + file_in
+                + f'<button{oc} style="background:{bg};font-size:11px;padding:3px 8px">'
+                + f'{esc(label)}</button></form> ')
+
+    body_rows = []
+    counts = {}
+    for r in rows_data:
+        st = r["status"]
+        counts[st] = counts.get(st, 0) + 1
+        rid = r["id"]
+        valid = CD.DOC_REQUEST_TRANSITIONS.get(st, set())
+        actions = ""
+        if st in ("requested", "generated"):
+            actions += _qform(rid, "gen_doc_request",
+                              "Re-generate" if st == "generated" else "Generate", "var(--ok)")
+        if r["generated_doc_id"] and not r["vault_ref"]:
+            actions += _qform(rid, "vault_doc_request", "Save to vault", "var(--ok)")
+        if st in ("signed", "sent_for_signature") and "received" in valid:
+            actions += _qform(rid, "mark_received", "Mark received", "var(--ok)",
+                             file_field=True)
+        # document links: the generated draft, the vaulted platform ref (share), signed
+        doc_links = []
+        if r["generated_doc_id"]:
+            doc_links.append(f'<a href="/customer-doc/{int(r["generated_doc_id"])}">generated</a>')
+        if r["vault_ref"]:
+            doc_links.append('<a href="/share?doc_ref=' + quote(r["vault_ref"] or "", safe="")
+                             + '" title="vaulted platform document — tag / version / share">'
+                             '&#128274; vaulted</a>')
+        if r["signed_doc_id"]:
+            doc_links.append(f'<a href="/customer-doc/{int(r["signed_doc_id"])}">signed</a>')
+        body_rows.append([
+            f'<td>{esc(r["customer"])}<div class="note">{esc(r.get("company_name") or "")}</div></td>',
+            f'<td>{esc((r["kind"] or "").replace("_", " "))}</td>',
+            f'<td>{esc(r["refund_country"] or "—")}</td>',
+            f'<td>{_badge(st, r["overdue"])}</td>',
+            f'<td class="note">{esc(r["requested_at"] or "")}<br>{esc(str(r.get("age_days") or 0))} d</td>',
+            f'<td>{" ".join(doc_links) or "<span class=note>—</span>"}</td>',
+            f'<td>{actions or "<span class=note>—</span>"}</td>',
+        ])
+    table = (tbl(["Customer", "Kind", "Country", "Status", "Requested", "Documents", "Actions"],
+                 body_rows) if body_rows else '<p class="note">No document requests match.</p>')
+
+    # filter form
+    def _sel(name, options, cur, blank="(all)"):
+        opts = f'<option value="">{esc(blank)}</option>' + "".join(
+            f'<option value="{esc(v)}"{" selected" if v == cur else ""}>{esc(lbl)}</option>'
+            for v, lbl in options)
+        return f'<label>{esc(name)}<select name="{esc(name.lower())}">{opts}</select></label>'
+
+    status_opts = [(s, s.replace("_", " ")) for s in CD.DOC_REQUEST_STATES]
+    kind_opts = [(k, k.replace("_", " ")) for k in CD.DOC_REQUEST_KINDS]
+    cust_opts = [(c, c) for c in cust_codes]
+    filt = ('<form method="get" class="f" style="margin-bottom:10px">'
+            + _sel("Status", status_opts, f_status)
+            + _sel("Customer", cust_opts, f_customer)
+            + _sel("Kind", kind_opts, f_kind)
+            + '<button>Filter</button> '
+            + ('<a href="/doc-requests" class="note" style="align-self:flex-end">clear</a>'
+               if (f_status or f_customer or f_kind) else "")
+            + '</form>')
+    summary = " · ".join(f"{esc(k.replace('_',' '))}: {v}"
+                         for k, v in sorted(counts.items())) or "no requests"
+    body = (banner
+            + '<div class="card"><h1>Document requests — control board</h1>'
+            + '<p class="note">Every contract / power-of-attorney request across customers. '
+              'Generate a draft, save it to the vault (so it can be tagged, versioned and '
+              'shared as a platform document), then track it through to received. '
+              'Generated drafts are vaulted automatically.</p>'
+            + filt
+            + f'<div class="note" style="margin-bottom:6px">{summary}</div>'
+            + table + '</div>')
+    return page(body, "dreq")
+
 # ---------------------------------------------------------------- secure share links (B1)
 # A Papermark/DocSend-style trackable PUBLIC link over a vaulted PDF. The management
 # surface (create / list / per-link views / revoke) is authenticated + capability-gated
@@ -8447,6 +8630,7 @@ def share_links_page():
                   for dr, lbl in _vault_doc_choices())
         + '</select></label>'
           '<label>…or paste a vault reference<input name="doc_ref_manual" '
+          'value="' + str(esc(request.args.get("doc_ref", ""))) + '" '
           'placeholder="leave blank to use the pick-list above"></label>'
           '<label>Title<input name="title" placeholder="optional"></label>'
           '<label>Expires (UTC, optional)<input name="expires_at" '
