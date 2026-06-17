@@ -1437,13 +1437,24 @@ Secure-sharing module (Papermark-style, native):
 - **B5 — AI document assistant:** opt-in, default-OFF, advisory-only chat over **derived data only**
   (the `ai_review` redactor strips IBAN/secrets; never the PDF), never mutates a figure.
 
-### 10.5 Backlog (deepen the platform)
-- Granular **per-recipient document permissions** in data rooms (room-level gating today).
-- **Custom domains / per-tenant branding** for the public viewer (Papermark parity).
-- Real **e-signature** (vs. the current NDA-accept log).
+Follow-on (shipped same session):
+- **① Document automation hub:** generate-and-vault for the existing template/contract generator
+  (generated contracts/POAs become first-class vaulted docs → tags/versions/sharing/e-sign) + a
+  cross-customer document-requests **control board**.
+- **② E-signature (SES):** public signing flow on the share-link gate (consent + typed/drawn
+  signature) → signed PDF + certificate page + **SHA-256 integrity binding + verify**; internal
+  "send for signature"; attaches a signed contract back to its request. Labelled SES (not eIDAS QES).
+- **③ Deepen sharing:** per-recipient document permissions in data rooms (fail-closed), per-owner
+  email alerts (relay fallback), and custom **branding** for the public viewer (same-origin logo only).
+- **④ Multi-tenancy phase 2 (new modules):** `scope_clause` read-isolation wired into sharing/esign/
+  metadata/versioning/retention/search; public links bind their own tenant; OFF stays byte-identical.
+
+### 10.5 Backlog (still open — deepen further)
+- **Custom domains** for the public viewer (needs nginx/per-tenant cert work — server-side).
 - Multilingual OCR **per-language tuning** + scanned-only language autodetect (the code passes
   `EXTRACT_OCR_LANGS`; today defaults to the Baltic/EU set).
-- **Per-owner email** for share-view alerts (B1 uses the team notify relay).
-- Wire the module activations to the **per-tenant** dimension when multi-tenancy phase 2 lands
-  (see "Multi-tenancy program plan").
+- **eIDAS-qualified** e-signature (the shipped SES is simple-electronic; QES needs a TSP/certificates).
+- **PK-rekey slice** for cross-tenant natural-key UNIQUE indexes (e.g. `doc_versions(subject_ref,
+  version_no)`, metadata `(field_id, subject_ref)`) — the same follow-on the legacy harnesses note;
+  and running `search.rebuild` under owner-scope so metadata text is indexed under multitenant.
 - Optional **CMIS/WebDAV** interop surface if a client needs ERP/DMS integration (defer behind `/api`).
