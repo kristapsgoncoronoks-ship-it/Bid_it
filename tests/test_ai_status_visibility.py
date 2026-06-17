@@ -88,9 +88,10 @@ def test_test_connection_ok(monkeypatch):
     monkeypatch.setattr(ai_verify, "model_name", lambda *a, **k: "claude-opus-4-8")
     sent = {}
 
-    def _call(prompt, data_str, images):
+    def _call(prompt, data_str, images, model=None):
         sent["prompt"] = prompt
         sent["images"] = images
+        sent["model"] = model
         return {"ok": True}
 
     monkeypatch.setitem(ai_verify._VISION_CALL, "claude", _call)

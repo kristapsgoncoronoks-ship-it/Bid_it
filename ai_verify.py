@@ -52,6 +52,13 @@ log = applog.get("ai_verify")
 # The admin opt-in setting that turns verification ON (default OFF).
 SETTING = "ai_verify_enabled"
 
+# OPTIONAL overrides that make the VERIFY step an INDEPENDENT second opinion: a different
+# backend and/or model than CAPTURE uses. Both default to UNSET — when unset, verify falls
+# back to exactly what it does today (the shared ai_review/capture backend + that backend's
+# default model), so default behaviour is byte-identical. See _verify_provider/_verify_model.
+BACKEND_SETTING = "ai_verify_backend"   # unset -> shared ai_review_backend (= capture's)
+MODEL_SETTING = "ai_verify_model"       # unset -> model_name(backend) (the backend default)
+
 # Only these backends are VISION-capable here (Claude messages + OpenAI chat completions
 # image inputs). Azure is intentionally excluded — its deployment/model is site-specific
 # and not assumed vision-capable; the gate fails toward OFF for anything unlisted.
@@ -109,6 +116,45 @@ def _provider(backend=None):
     return None
 
 
+def _setting_str(setting):
+    """The raw trimmed value of a setting, or "" when unset / unreadable. Never raises."""
+    try:
+        import auth
+        return str(auth.get_setting(setting, "") or "").strip()
+    except Exception as e:
+        log.warning("setting %s read failed — treating as unset: %s", setting, e)
+        return ""
+
+
+def _verify_provider():
+    """Resolve the VERIFY-step provider — the SINGLE place the verify-backend override logic
+    lives. When the admin set `ai_verify_backend` to a vision-capable backend WITH its key
+    present, verify uses THAT (independent of capture). Otherwise it falls back to the shared
+    capture/review provider (`_provider()`), so default behaviour is byte-identical. Returns
+    the backend name or None (no provider configured). Never raises -> shared fallback."""
+    override = _setting_str(BACKEND_SETTING).lower()
+    if override:
+        be = _provider(override)
+        if be is not None:
+            return be
+        # The override was set but isn't usable (not vision-capable / no key): fall back to
+        # the shared provider rather than disabling verify (fail toward doing the review).
+        log.warning("ai_verify_backend=%r is not a usable vision backend — falling back to "
+                    "the shared capture/review backend", override)
+    return _provider()
+
+
+def _verify_model(backend=None):
+    """The model the VERIFY step sends — the SINGLE place the verify-model override lives.
+    When the admin set `ai_verify_model`, that wins (an independent second-opinion model);
+    otherwise it falls back to the backend's default model `model_name(backend)`, so default
+    behaviour is byte-identical. `backend` defaults to the resolved verify provider."""
+    override = _setting_str(MODEL_SETTING)
+    if override:
+        return override
+    return model_name(backend or _verify_provider())
+
+
 def _setting_on(setting):
     """True if the named admin opt-in setting is ON. Never raises -> False (fail to OFF)."""
     try:
@@ -121,9 +167,10 @@ def _setting_on(setting):
 
 def enabled():
     """True only when BOTH the admin opt-in setting is ON and a VISION-capable backend is
-    configured (key present). Never raises -> False (fail toward OFF / no network call)."""
+    configured (key present). Reflects the VERIFY backend (which may be overridden away from
+    capture via `ai_verify_backend`). Never raises -> False (fail toward OFF / no call)."""
     try:
-        return _setting_on(SETTING) and _provider() is not None
+        return _setting_on(SETTING) and _verify_provider() is not None
     except Exception as e:
         log.warning("enabled() check failed — defaulting to OFF: %s", e)
         return False
@@ -136,12 +183,37 @@ def status(setting=SETTING):
          "model": str, "reason": str}
     `reason` is "" when ACTIVE, else the FIRST failing condition in gate order:
     setting off -> no vision backend selected (review backend not claude/openai)
-    -> no API key loaded. Never raises (any failure -> INACTIVE with the reason)."""
+    -> no API key loaded. Never raises (any failure -> INACTIVE with the reason).
+
+    For the VERIFY card (`setting == SETTING`) the backend honours the OPTIONAL
+    `ai_verify_backend` override and the model the OPTIONAL `ai_verify_model` override, so the
+    card can read e.g. "ACTIVE (Claude, claude-sonnet-4-6)" — a model that may DIFFER from
+    capture's. With both overrides unset it is byte-identical to before. Every OTHER caller
+    (e.g. the capture card) keeps the shared backend + that backend's default model."""
     try:
+        # Verify may run on an overridden backend; an explicit override that isn't usable
+        # falls back to the shared backend INSIDE _verify_provider, so surface the override
+        # FIRST when it is set and unusable, otherwise diagnose the shared backend below.
+        is_verify = (setting == SETTING)
+        override_be = _setting_str(BACKEND_SETTING).lower() if is_verify else ""
         if not _setting_on(setting):
             return {"active": False, "provider": None, "provider_label": "", "model": "",
                     "reason": f"the admin setting '{setting}' is off"}
-        # The review backend drives provider selection; surface WHICH condition fails.
+        if override_be and override_be not in VISION_BACKENDS:
+            return {"active": False, "provider": None, "provider_label": "", "model": "",
+                    "reason": f"the verify backend override 'ai_verify_backend' is "
+                              f"'{override_be}' — set it to 'claude' or 'openai' (the only "
+                              f"vision-capable backends), or leave it blank to use capture's"}
+        if override_be in VISION_BACKENDS:
+            if not _have_key(override_be):
+                envkey = "ANTHROPIC_API_KEY" if override_be == "claude" else "OPENAI_API_KEY"
+                return {"active": False, "provider": None, "provider_label": "", "model": "",
+                        "reason": f"no API key is loaded for the verify backend "
+                                  f"'{override_be}' (set {envkey})"}
+            model = _verify_model(override_be)
+            return {"active": True, "provider": override_be,
+                    "provider_label": provider_label(override_be), "model": model, "reason": ""}
+        # No usable verify-backend override -> diagnose the SHARED review/capture backend.
         try:
             be = ai_review.resolve_backend()
         except Exception as e:
@@ -156,8 +228,11 @@ def status(setting=SETTING):
             envkey = "ANTHROPIC_API_KEY" if be == "claude" else "OPENAI_API_KEY"
             return {"active": False, "provider": None, "provider_label": "", "model": "",
                     "reason": f"no API key is loaded for '{be}' (set {envkey})"}
+        # The verify card shows the (possibly-overridden) verify MODEL; other cards show the
+        # backend default. Both are byte-identical when ai_verify_model is unset.
+        model = _verify_model(be) if is_verify else model_name(be)
         return {"active": True, "provider": be, "provider_label": provider_label(be),
-                "model": model_name(be), "reason": ""}
+                "model": model, "reason": ""}
     except Exception as e:
         log.warning("status() check failed — reporting INACTIVE: %s", e)
         return {"active": False, "provider": None, "provider_label": "", "model": "",
@@ -248,9 +323,11 @@ def _unfence(raw):
     return json.loads(raw)
 
 
-def _call_claude(prompt, data_str, images):
+def _call_claude(prompt, data_str, images, model=None):
     """Claude messages API — text prompt + base64 PNG image content blocks. Returns the
-    parsed JSON dict. Raises on transport/HTTP errors."""
+    parsed JSON dict. Raises on transport/HTTP errors. `model` defaults to the Claude default
+    (capture's model); verify() passes the VERIFY model (`ai_verify_model`) for an independent
+    second opinion. The default keeps the capture path byte-identical."""
     import requests
     key = os.environ["ANTHROPIC_API_KEY"]
     content = [{"type": "text", "text": prompt + "\n\nCAPTURE DOCUMENT TO VERIFY:\n" + data_str}]
@@ -261,7 +338,7 @@ def _call_claude(prompt, data_str, images):
     r = requests.post("https://api.anthropic.com/v1/messages",
         headers={"x-api-key": key, "anthropic-version": "2023-06-01",
                  "content-type": "application/json"},
-        json={"model": model_name("claude"), "max_tokens": 1500,
+        json={"model": model or model_name("claude"), "max_tokens": 1500,
               "messages": [{"role": "user", "content": content}]},
         timeout=180)
     r.raise_for_status()
@@ -269,9 +346,11 @@ def _call_claude(prompt, data_str, images):
     return _unfence(raw)
 
 
-def _call_openai(prompt, data_str, images):
+def _call_openai(prompt, data_str, images, model=None):
     """OpenAI chat completions — text + base64 data-URL image_url content parts. Returns
-    the parsed JSON dict. Raises on transport/HTTP errors."""
+    the parsed JSON dict. Raises on transport/HTTP errors. `model` defaults to the OpenAI
+    default (capture's model); verify() passes the VERIFY model (`ai_verify_model`). The
+    default keeps the capture path byte-identical."""
     import requests
     key = os.environ["OPENAI_API_KEY"]
     content = [{"type": "text", "text": prompt + "\n\nCAPTURE DOCUMENT TO VERIFY:\n" + data_str}]
@@ -281,7 +360,7 @@ def _call_openai(prompt, data_str, images):
                         "image_url": {"url": f"data:image/png;base64,{b64}"}})
     r = requests.post("https://api.openai.com/v1/chat/completions",
         headers={"Authorization": f"Bearer {key}", "content-type": "application/json"},
-        json={"model": model_name("openai"),
+        json={"model": model or model_name("openai"),
               "response_format": {"type": "json_object"},
               "messages": [{"role": "user", "content": content}]}, timeout=180)
     r.raise_for_status()
@@ -339,30 +418,36 @@ def model_name_safe(e):
 
 
 def test_connection(backend=None):
-    """Make a MINIMAL real call to the configured vision backend (a tiny TEXT prompt — no
-    PDF, no image, negligible cost) and report the result for the admin 'Test AI connection'
-    button. Returns {"ok": bool, "provider": str, "model": str, "message": str}.
+    """Make a MINIMAL real call to the VERIFY vision backend (a tiny TEXT prompt — no PDF, no
+    image, negligible cost) and report the result for the admin 'Test AI connection' button.
+    Returns {"ok": bool, "provider": str, "model": str, "message": str}.
 
-    Never raises and NEVER logs/returns the API key. When no vision backend is configured it
-    returns ok=False with a clear reason and makes ZERO network call (gate-identical to the
-    other paths)."""
-    be = _provider(backend)
+    The backend AND model are the VERIFY ones — i.e. they honour `ai_verify_backend` /
+    `ai_verify_model` — so the test probes EXACTLY the model verify() will use (which may
+    differ from capture's). An explicit `backend` arg still wins (used by the capture-side
+    probe). Never raises and NEVER logs/returns the API key. When no vision backend is
+    configured it returns ok=False with a clear reason and makes ZERO network call."""
+    be = _provider(backend) if backend else _verify_provider()
     if be is None:
         st = status()
         return {"ok": False, "provider": "", "model": "",
                 "message": st["reason"] or "no vision backend configured (no request was sent)"}
+    # The verify model is what we actually probe (unless an explicit backend forced a plain
+    # provider, in which case use that backend's default model).
+    model = _verify_model(be) if not backend else model_name(be)
     prompt = ('Reply with ONLY this JSON and nothing else: {"ok": true}. '
               'This is a connection self-test.')
     try:
-        # No images — a tiny text-only round-trip through the SAME provider call path.
-        _VISION_CALL[be](prompt, "", [])
+        # No images — a tiny text-only round-trip through the SAME provider call path, on the
+        # SAME (verify) model verify() will send.
+        _VISION_CALL[be](prompt, "", [], model)
     except Exception as e:
         msg = _map_provider_error(e)
         log.warning("AI test connection failed (%s): %s", be, msg)
-        return {"ok": False, "provider": provider_label(be), "model": model_name(be),
+        return {"ok": False, "provider": provider_label(be), "model": model,
                 "message": msg}
-    return {"ok": True, "provider": provider_label(be), "model": model_name(be),
-            "message": f"{provider_label(be)} responded (model {model_name(be)})"}
+    return {"ok": True, "provider": provider_label(be), "model": model,
+            "message": f"{provider_label(be)} responded (model {model})"}
 
 
 # ---------------------------------------------------------------- parsing
@@ -754,21 +839,30 @@ def verify(pdf_bytes, draft, backend=None, max_pages=None, subject_ref=None):
     DLP GATE (OPT-IN): when `subject_ref` is given AND the document's classified sensitivity
     EXCEEDS the admin `ai_external_max_sensitivity` policy, this REFUSES to send the PDF to
     the provider (ZERO network call) and returns a clear 'blocked by DLP policy' verdict. The
-    default policy is permissive, so by default behaviour is byte-identical."""
+    default policy is permissive, so by default behaviour is byte-identical.
+
+    INDEPENDENT SECOND OPINION (OPT-IN): the backend is resolved via `_verify_provider`
+    (honouring `ai_verify_backend`) and the request model via `_verify_model` (honouring
+    `ai_verify_model`), so verify can use a DIFFERENT provider/model than capture. With both
+    overrides unset it resolves to exactly today's shared backend + default model (byte-
+    identical). An explicit `backend` arg still wins (and pins that backend's default model)."""
     blocked = _dlp_blocked(subject_ref)
     if blocked:
         return {"verdict": "blocked", "fields": [], "notes": blocked,
                 "provider": "", "model": "", "pages": 0, "dlp_blocked": True}
-    be = _provider(backend)
+    # An explicit backend arg pins a plain provider+default model; otherwise resolve the
+    # (possibly-overridden) verify provider + verify model — ONE place each (the helpers).
+    be = _provider(backend) if backend else _verify_provider()
     if be is None:
         return {"verdict": "unavailable", "fields": [],
                 "notes": "AI verification is disabled — enable it in Admin and configure a "
                          "vision backend. (No request was sent.)",
                 "provider": "", "model": "", "pages": 0}
+    model = model_name(be) if backend else _verify_model(be)
     if not pdf_bytes:
         return {"verdict": "unavailable", "fields": [],
                 "notes": "No original PDF was available to verify against.",
-                "provider": be, "model": model_name(be), "pages": 0}
+                "provider": be, "model": model, "pages": 0}
 
     cap = MAX_PAGES if max_pages is None else max_pages
     try:
@@ -777,30 +871,31 @@ def verify(pdf_bytes, draft, backend=None, max_pages=None, subject_ref=None):
         log.warning("AI verify could not render the PDF (%s) — advisory only: %s", be, e)
         return {"verdict": "unavailable", "fields": [],
                 "notes": "Could not render the PDF to images for verification.",
-                "provider": be, "model": model_name(be), "pages": 0}
+                "provider": be, "model": model, "pages": 0}
 
     data_str = json.dumps(_verify_payload(draft), ensure_ascii=False, default=str)
     try:
-        raw = _VISION_CALL[be](VERIFY_PROMPT, data_str, images)
+        raw = _VISION_CALL[be](VERIFY_PROMPT, data_str, images, model)
     except TransientExtractionError as e:
         log.warning("AI verify transient error (%s) — advisory only: %s", be, e)
-        return _unavailable(be, len(images), "busy")
+        return _unavailable(be, len(images), "busy", model)
     except Exception as e:
         if is_transient_error(e):
             log.warning("AI verify transient error (%s) — advisory only: %s", be, e)
-            return _unavailable(be, len(images), "busy")
+            return _unavailable(be, len(images), "busy", model)
         log.warning("AI verify failed (%s: %s) — advisory only, returning unavailable", be, e)
-        return _unavailable(be, len(images), "error")
+        return _unavailable(be, len(images), "error", model)
 
     out = parse_verdict(raw)
-    out.update(provider=be, model=model_name(be), pages=len(images))
+    out.update(provider=be, model=model, pages=len(images))
     return out
 
 
-def _unavailable(be, pages, why):
+def _unavailable(be, pages, why, model=None):
     notes = ("The AI verifier is busy right now — please try again in a moment. "
              "(Advisory only; nothing was changed.)" if why == "busy"
              else "The AI verifier is unavailable right now. It is advisory only — nothing "
                   "was changed; you can keep working.")
     return {"verdict": "unavailable", "fields": [], "notes": notes,
-            "provider": be, "model": model_name(be), "pages": pages}
+            "provider": be, "model": model if model is not None else model_name(be),
+            "pages": pages}

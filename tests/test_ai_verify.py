@@ -128,9 +128,10 @@ def test_verify_confirmed(monkeypatch):
     _patch_render(monkeypatch, 1)
     sent = {}
 
-    def _call(prompt, data_str, images):
+    def _call(prompt, data_str, images, model=None):
         sent["images"] = images
         sent["data"] = data_str
+        sent["model"] = model
         return {"verdict": "confirmed",
                 "fields": [{"name": "supplier", "extracted": "DKV",
                             "document": "DKV", "match": True}],
@@ -151,7 +152,7 @@ def test_verify_discrepancies(monkeypatch):
     monkeypatch.setattr(ai_verify, "model_name", lambda be: "gpt-4o")
     _patch_render(monkeypatch, 1)
 
-    def _call(prompt, data_str, images):
+    def _call(prompt, data_str, images, model=None):
         return {"verdict": "discrepancies",
                 "fields": [{"name": "vat", "extracted": "210.00",
                             "document": "201.00", "match": False}],
@@ -174,7 +175,7 @@ def test_capture_payload_carries_full_capture_document(monkeypatch):
     _patch_render(monkeypatch, 1)
     sent = {}
 
-    def _call(prompt, data_str, images):
+    def _call(prompt, data_str, images, model=None):
         sent["data"] = data_str
         return {"verdict": "confirmed", "fields": [], "notes": "ok"}
 
@@ -217,7 +218,7 @@ def test_verify_summary_path_backward_compatible(monkeypatch):
     _patch_render(monkeypatch, 1)
     sent = {}
     monkeypatch.setitem(ai_verify._VISION_CALL, "claude",
-                        lambda p, d, images: sent.update(data=d) or
+                        lambda p, d, images, model=None: sent.update(data=d) or
                         {"verdict": "confirmed", "fields": [], "notes": ""})
     ai_verify.verify(b"%PDF fake", DRAFT)         # no `capture` key
     d = sent["data"]
@@ -239,7 +240,7 @@ def test_backend_exception_returns_unavailable(monkeypatch):
     monkeypatch.setattr(ai_verify, "_provider", lambda *a, **k: "claude")
     _patch_render(monkeypatch, 1)
 
-    def _boom(prompt, data_str, images):
+    def _boom(prompt, data_str, images, model=None):
         raise RuntimeError("429 rate limit exceeded")
 
     monkeypatch.setitem(ai_verify._VISION_CALL, "claude", _boom)
@@ -262,7 +263,7 @@ def test_page_cap_honoured(monkeypatch):
     _patch_render(monkeypatch, 10)                     # a 10-page PDF
     sent = {}
     monkeypatch.setitem(ai_verify._VISION_CALL, "claude",
-                        lambda p, d, images: sent.update(n=len(images)) or
+                        lambda p, d, images, model=None: sent.update(n=len(images)) or
                         {"verdict": "confirmed", "fields": [], "notes": ""})
     ai_verify.verify(b"%PDF fake", DRAFT)
     assert sent["n"] <= ai_verify.MAX_PAGES
@@ -380,6 +381,28 @@ def test_admin_card_and_toggle(client):
     client.post("/admin", data={"_csrf": _tok(client, "/admin"),
                                 "__act": "set_ai_verify"})        # unchecked => off
     assert str(auth.get_setting("ai_verify_enabled")).lower() in ("off", "0", "false", "no")
+
+
+def test_admin_card_verify_model_override(client):
+    """The verify card exposes the OPTIONAL 'Verify backend' + 'Verify model' inputs and
+    persists them; blank inputs default to 'same as capture' (byte-identical)."""
+    import auth
+    html = client.get("/admin").get_data(as_text=True)
+    assert 'name="ai_verify_backend"' in html and 'name="ai_verify_model"' in html
+    assert "independent second opinion" in html
+    assert "blank" in html                                # the "leave blank" note
+    # set an independent verify model (different model, same provider)
+    client.post("/admin", data={"_csrf": _tok(client, "/admin"), "__act": "set_ai_verify",
+                                "ai_verify_enabled": "on", "ai_verify_backend": "openai",
+                                "ai_verify_model": "claude-sonnet-4-6"})
+    assert (auth.get_setting("ai_verify_backend") or "").lower() == "openai"
+    assert (auth.get_setting("ai_verify_model") or "") == "claude-sonnet-4-6"
+    # an invalid backend choice is coerced back to blank (= same as capture)
+    client.post("/admin", data={"_csrf": _tok(client, "/admin"), "__act": "set_ai_verify",
+                                "ai_verify_enabled": "on", "ai_verify_backend": "azure",
+                                "ai_verify_model": ""})
+    assert (auth.get_setting("ai_verify_backend") or "") == ""
+    assert (auth.get_setting("ai_verify_model") or "") == ""
 
 
 def test_review_screen_renders_verdict_and_escapes(client, monkeypatch):

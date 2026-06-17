@@ -228,7 +228,7 @@ def test_ai_verify_byte_identical_when_permissive(cl, monkeypatch):
     monkeypatch.setattr(ai_verify, "model_name", lambda be: "m")
     called = []
 
-    def _call(prompt, data_str, images):
+    def _call(prompt, data_str, images, model=None):
         called.append(1)
         return {"verdict": "confirmed", "fields": [], "notes": "ok"}
     monkeypatch.setitem(ai_verify._VISION_CALL, "claude", _call)

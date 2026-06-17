@@ -8874,9 +8874,26 @@ def admin():
                 # the flag is opt-in only; the backend/key reuse the extractor selection.
                 on = request.form.get("ai_verify_enabled") == "on"
                 _auth.set_setting("ai_verify_enabled", "on" if on else "off")
-                banner = ("AI PDF verification turned ON (advisory). Note: this sends the "
-                          "ORIGINAL PDF to the configured AI provider." if on
-                          else "AI PDF verification turned OFF.")
+                # OPTIONAL independent-second-opinion overrides: a DIFFERENT backend/model for
+                # the VERIFY step than capture uses. Both default to BLANK = "same as capture"
+                # (byte-identical). An invalid backend choice is coerced back to blank.
+                import ai_verify as _aiv
+                vbe = (request.form.get("ai_verify_backend") or "").strip().lower()
+                if vbe not in _aiv.VISION_BACKENDS:
+                    vbe = ""              # blank -> fall back to the shared capture backend
+                _auth.set_setting(_aiv.BACKEND_SETTING, vbe)
+                vmodel = (request.form.get("ai_verify_model") or "").strip()
+                _auth.set_setting(_aiv.MODEL_SETTING, vmodel)
+                _ov = []
+                if vbe:
+                    _ov.append(f"backend <b>{esc(vbe)}</b>")
+                if vmodel:
+                    _ov.append(f"model <b>{esc(vmodel)}</b>")
+                _ovtxt = (" Independent verify " + " / ".join(_ov) + "."
+                          if _ov else " Verify uses the same model as capture.")
+                banner = (("AI PDF verification turned ON (advisory). Note: this sends the "
+                           "ORIGINAL PDF to the configured AI provider." if on
+                           else "AI PDF verification turned OFF.") + _ovtxt)
             elif act == "set_ai_vision_capture":
                 # OPT-IN AI VISION CAPTURE (default OFF). THE DELIBERATE "AI for capture"
                 # exception: this SENDS the original PDF page images to the AI provider to
@@ -9425,6 +9442,14 @@ def admin():
     _verify_st = _aiv.status(_aiv.SETTING)
     _verify_active = _ai_status_line("AI vision verify", _verify_st)
     _testconn = _ai_test_connection_form()
+    # OPTIONAL independent-second-opinion overrides: a DIFFERENT backend/model for VERIFY than
+    # capture uses. Blank = "same as capture" (byte-identical default). Only vision backends.
+    _vbe_cur = (_auth.get_setting(_aiv.BACKEND_SETTING, "") or "").strip().lower()
+    _vbe_opts = "".join(
+        f'<option value="{esc(b)}" {"selected" if b == _vbe_cur else ""}>'
+        f'{esc(b or "(same as capture)")}</option>'
+        for b in ("",) + _aiv.VISION_BACKENDS)
+    _vmodel_cur = (_auth.get_setting(_aiv.MODEL_SETTING, "") or "").strip()
     aiverifyf = ('<div class="card" style="border-color:var(--bad)">'
                  '<h2>AI verification against the original PDF (advisory)</h2>'
                  '<div class="note bad" style="margin-top:0">⚠️ Enabling this sends the '
@@ -9442,8 +9467,16 @@ def admin():
                  + f'<label class="chk" style="display:flex;gap:7px;align-items:center">'
                    f'<input type="checkbox" name="ai_verify_enabled" {"checked" if _verify_on else ""}> '
                    f'Enable AI verification against the original PDF</label>'
+                 + f'<label>Verify backend<select name="ai_verify_backend">{_vbe_opts}</select></label>'
+                 + f'<label>Verify model<input type="text" name="ai_verify_model" '
+                   f'value="{esc(_vmodel_cur)}" placeholder="(same as capture)" '
+                   f'style="min-width:220px"></label>'
                  + '<button name="__act" value="set_ai_verify">Save verification setting</button>'
                  + '</form>'
+                 + '<div class="note" style="margin-top:6px">Leave the verify backend/model '
+                   '<b>blank</b> to use the same model as capture; set a <b>different</b> model '
+                   '(or provider) here for an <b>independent second opinion</b> — verification '
+                   'then cross-checks capture with a different model. The key is never shown.</div>'
                  + _testconn
                  + '</div>')
     # OPT-IN AI VISION CAPTURE — default OFF. THE DELIBERATE "AI for capture" exception:
