@@ -1,7 +1,12 @@
 """
 AI INVOICE VERIFICATION (vision) — an OPT-IN, ADVISORY check that compares an already-
-extracted DRAFT against the ORIGINAL invoice PDF using a VISION-capable model (Claude or
-OpenAI). It flags discrepancies for the human; it NEVER auto-changes or gates a figure.
+captured DRAFT against the ORIGINAL invoice PDF using a VISION-capable model (Claude or
+OpenAI). The PDF page images are the SOURCE OF TRUTH; each field of the captured data is
+verified against them in ONE batch. When the draft carries a full `capture` document (the
+vision-capture path) the WHOLE capture document — every header field, every transaction
+line with all its fields, and the totals — is verified field-by-field; otherwise the
+condensed summary is sent (backward compatible). It flags discrepancies for the human;
+it NEVER auto-changes or gates a figure.
 
 This is the deliberate, LOUDLY-GATED EXCEPTION to the project's AI-privacy rule: unlike
 `ai_review.py` / `ai_assistant.py` (which send MINIMIZED DERIVED DATA only and never the
@@ -55,17 +60,23 @@ MAX_PAGES = 3
 
 VERIFY_PROMPT = (
     "You are an ADVISORY invoice verifier. You are given the page IMAGES of an ORIGINAL "
-    "invoice PDF and a JSON object of data that was already EXTRACTED from it. Compare the "
-    "extracted data to what you can read on the page images and report discrepancies. Do "
-    "NOT recompute VAT or totals beyond reading them off the page; you are checking that "
-    "the extraction matches the document. You CANNOT and MUST NOT change any value — your "
-    "output is read-only commentary for a human. Return ONLY JSON: "
+    "invoice PDF and a JSON 'capture document' of data that was already captured from it. "
+    "THE PDF PAGE IMAGES ARE THE SOURCE OF TRUTH / THE MAIN DOCUMENT. Verify EACH field of "
+    "the provided capture document against the PDF. Where the capture DISAGREES with the "
+    "PDF, the PDF is correct and the captured value is flagged wrong. Do NOT invent values "
+    "that are not present in the PDF, and do NOT recompute VAT or totals beyond reading "
+    "them off the page. You CANNOT and MUST NOT change any value — your output is read-only "
+    "commentary for a human. Report PER FIELD: the field name, the captured value, the "
+    "value the PDF actually shows, and match true/false. Return ONLY JSON: "
     "{\"verdict\":\"confirmed\"|\"discrepancies\"|\"unreadable\","
-    "\"fields\":[{\"name\":str,\"extracted\":str,\"document\":str,\"match\":bool}],"
-    "\"notes\":str}. Use verdict 'confirmed' when every checked field matches, "
-    "'discrepancies' when at least one field does not match, and 'unreadable' when the "
-    "images cannot be read well enough to verify. Check supplier, supplier_vat, "
-    "statement_ref, statement_date, currency, the line items and the totals."
+    "\"fields\":[{\"name\":str,\"extracted\":str,\"document\":str,\"match\":bool}], "
+    "\"notes\":str}, where 'extracted' is the captured value and 'document' is the value "
+    "the PDF actually shows. Use verdict 'confirmed' when every field matches the PDF, "
+    "'discrepancies' when at least one captured field does not match the PDF, and "
+    "'unreadable' when the images cannot be read well enough to verify. Cover the header "
+    "fields (supplier, customer, invoice incl. due_date and exchange_rate), EVERY "
+    "transaction line with all its fields, and the totals. Use clear field names like "
+    "'invoice.due_date', 'line[2].vat', 'totals.gross'."
 )
 
 
@@ -168,6 +179,22 @@ def _draft_summary(draft):
     }
 
 
+def _verify_payload(draft):
+    """The data object handed to the verifier alongside the PDF page images.
+
+    When the draft carries a `capture` document (the VISION-capture path), send the FULL
+    capture document — every header field (supplier, customer, invoice incl. due_date +
+    exchange_rate), EVERY transaction line with ALL its fields, and the totals — so the
+    verifier checks the rich capture field-by-field against the PDF. Otherwise (a
+    deterministic / parser / OCR draft) keep the existing condensed summary (backward
+    compatible). Pure; never mutates `draft`."""
+    draft = draft or {}
+    cap = draft.get("capture")
+    if isinstance(cap, dict):
+        return cap
+    return _draft_summary(draft)
+
+
 # ---------------------------------------------------------------- backends (vision)
 def _unfence(raw):
     """Strip a ```json … ``` fence and parse the JSON object (same as extract/ai_review)."""
@@ -180,7 +207,7 @@ def _call_claude(prompt, data_str, images):
     parsed JSON dict. Raises on transport/HTTP errors."""
     import requests
     key = os.environ["ANTHROPIC_API_KEY"]
-    content = [{"type": "text", "text": prompt + "\n\nEXTRACTED DRAFT:\n" + data_str}]
+    content = [{"type": "text", "text": prompt + "\n\nCAPTURE DOCUMENT TO VERIFY:\n" + data_str}]
     for png in images:
         content.append({"type": "image", "source": {
             "type": "base64", "media_type": "image/png",
@@ -201,7 +228,7 @@ def _call_openai(prompt, data_str, images):
     the parsed JSON dict. Raises on transport/HTTP errors."""
     import requests
     key = os.environ["OPENAI_API_KEY"]
-    content = [{"type": "text", "text": prompt + "\n\nEXTRACTED DRAFT:\n" + data_str}]
+    content = [{"type": "text", "text": prompt + "\n\nCAPTURE DOCUMENT TO VERIFY:\n" + data_str}]
     for png in images:
         b64 = base64.b64encode(png).decode("ascii")
         content.append({"type": "image_url",
@@ -280,7 +307,7 @@ def verify(pdf_bytes, draft, backend=None, max_pages=None):
                 "notes": "Could not render the PDF to images for verification.",
                 "provider": be, "model": model_name(be), "pages": 0}
 
-    data_str = json.dumps(_draft_summary(draft), ensure_ascii=False, default=str)
+    data_str = json.dumps(_verify_payload(draft), ensure_ascii=False, default=str)
     try:
         raw = _VISION_CALL[be](VERIFY_PROMPT, data_str, images)
     except TransientExtractionError as e:

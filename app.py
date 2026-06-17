@@ -3801,34 +3801,60 @@ def extract_ai_verify():
                              ai_panel=panel), "ext")
 
 
+def _ai_verify_field_group(name):
+    """Group a verifier field name into a section for display. The PDF is authoritative and
+    the capture document is rich (header / per-line / totals), so we bucket fields by their
+    name prefix for a clean, scannable table. Pure; name itself is escaped at render time."""
+    n = (name or "").lower()
+    if n.startswith("line") or n.startswith("lines"):
+        return "Lines"
+    if n.startswith("total"):
+        return "Totals"
+    if n.startswith(("invoice", "supplier", "customer", "header", "currency", "statement")):
+        return "Header"
+    return "Other"
+
+
 def _ai_verify_panel(result):
     """Render the verification verdict: an overall badge (confirmed=green / discrepancies=
-    amber with each mismatch shown / unreadable|unavailable=muted) + the per-field rows +
-    notes. EVERY model-supplied value is ESCAPED (treated as untrusted). Advisory only —
-    nothing here changes a figure."""
+    amber with each mismatch shown / unreadable|unavailable=muted) + the per-field rows
+    GROUPED (Header / Lines / Totals / Other) + notes. The PDF is the source of truth, so a
+    mismatch shows the captured value vs what the PDF actually shows. EVERY model-supplied
+    value is ESCAPED (treated as untrusted). Advisory only — nothing here changes a figure."""
     verdict = result.get("verdict") or "unavailable"
     badge = {
-        "confirmed": ('ok', 'Confirmed — the draft matches the PDF'),
-        "discrepancies": ('warn', 'Discrepancies found — review the mismatches below'),
+        "confirmed": ('ok', 'Confirmed — the capture matches the PDF'),
+        "discrepancies": ('warn', 'Discrepancies found — the PDF disagrees with the capture below'),
         "unreadable": ('note', 'Unreadable — the AI could not read the page images'),
         "unavailable": ('note', 'Unavailable — no verification was performed'),
     }.get(verdict, ('note', 'Unavailable'))
     cls, label = badge
-    rows = ""
+    # Bucket fields into stable sections, preserving model order within each section.
+    order = ["Header", "Lines", "Totals", "Other"]
+    groups = {g: [] for g in order}
     for f in result.get("fields", []) or []:
-        match = bool(f.get("match"))
-        rcls = "" if match else "warn"
-        if match:
-            detail = '<span class="ok">match</span>'
-        else:
-            # field: read "X" vs document "Y" — both values escaped (untrusted model output)
-            detail = (f'read "<b>{esc(f.get("extracted",""))}</b>" vs document '
-                      f'"<b>{esc(f.get("document",""))}</b>"')
-        rows += (f'<tr class="{rcls}"><td>{esc(f.get("name",""))}</td><td>{detail}</td></tr>')
+        groups[_ai_verify_field_group(f.get("name"))].append(f)
+    rows = ""
+    for g in order:
+        items = groups[g]
+        if not items:
+            continue
+        rows += (f'<tr><td colspan="2" class="note" style="font-weight:600">{esc(g)}</td></tr>')
+        for f in items:
+            match = bool(f.get("match"))
+            rcls = "" if match else "warn"
+            if match:
+                detail = '<span class="ok">match</span>'
+            else:
+                # captured "X" vs PDF shows "Y" — both escaped (untrusted model output); the
+                # PDF is authoritative, so it is labelled as what the document actually shows.
+                detail = (f'captured "<b>{esc(f.get("extracted",""))}</b>" vs PDF shows '
+                          f'"<b>{esc(f.get("document",""))}</b>"')
+            rows += (f'<tr class="{rcls}"><td>{esc(f.get("name",""))}</td><td>{detail}</td></tr>')
     if not rows:
         rows = '<tr><td colspan="2" class="note">No field-level detail returned.</td></tr>'
     tbl = ('<table style="margin-top:8px"><thead><tr><th>Field</th>'
-           '<th>Comparison</th></tr></thead>'
+           '<th>Captured vs PDF</th></tr></thead>'
            f'<tbody>{rows}</tbody></table>')
     notes = result.get("notes")
     notes_html = (f'<div class="note" style="margin-top:8px"><b>Notes:</b> {esc(notes)}</div>'

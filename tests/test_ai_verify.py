@@ -43,6 +43,36 @@ DRAFT = {
 }
 
 
+# A draft that carries a FULL vision `capture` document (the vision_capture.to_draft shape).
+CAPTURE = {
+    "header": {
+        "supplier": {"name": "DKV", "vat_number": "LV40003XXXX",
+                     "address": "Riga 1", "country": "Latvia"},
+        "customer": {"name": "ACME OU", "vat_number": "EE100", "account_or_card_no": "C-7"},
+        "invoice": {"number": "S-9", "issue_date": "2026-05-31", "due_date": "2026-06-30",
+                    "currency": "EUR", "exchange_rate": 1.0},
+    },
+    "lines": [
+        {"date": "2026-05-30", "time": "08:12", "station_name": "Shell Antwerp",
+         "city": "Antwerp", "country": "Belgium", "product": "Diesel", "quantity": 500.0,
+         "unit": "L", "unit_price": 1.55, "discount": 5.0, "net": 775.0, "vat_rate": 21.0,
+         "vat": 162.75, "gross": 937.75, "card_no": "CARD-1", "receipt_no": "R-100"},
+        {"date": "2026-05-31", "time": "09:00", "station_name": "Total Liege",
+         "city": "Liege", "country": "Belgium", "product": "AdBlue", "quantity": 30.0,
+         "unit": "L", "unit_price": 0.90, "discount": 0.0, "net": 27.0, "vat_rate": 21.0,
+         "vat": 5.67, "gross": 32.67, "card_no": "CARD-1", "receipt_no": "R-101"},
+    ],
+    "totals": {"net_total": 802.0, "discount_total": 5.0, "vat_total": 168.42,
+               "gross_total": 970.42},
+}
+CAPTURE_DRAFT = {
+    "supplier": "DKV", "supplier_vat": "LV40003XXXX", "statement_ref": "S-9",
+    "statement_date": "2026-05-31", "currency": "EUR", "customer": "ACME OU",
+    "lines": [],          # the rich data lives under `capture`
+    "capture": CAPTURE,
+}
+
+
 # --------------------------------------------------------------- enabled() gating
 def test_enabled_false_when_setting_off(monkeypatch):
     import auth
@@ -132,6 +162,76 @@ def test_verify_discrepancies(monkeypatch):
     assert out["verdict"] == "discrepancies"
     assert out["fields"][0]["match"] is False
     assert out["fields"][0]["document"] == "201.00"
+
+
+# --------------------------------------------------------------- capture-document payload
+def test_capture_payload_carries_full_capture_document(monkeypatch):
+    """When the draft has a `capture` key, verify() sends the FULL capture document — rich
+    header fields, EVERY line with all its fields, and the totals — NOT the condensed
+    summary."""
+    monkeypatch.setattr(ai_verify, "_provider", lambda *a, **k: "claude")
+    monkeypatch.setattr(ai_verify, "model_name", lambda be: "claude-opus-4-8")
+    _patch_render(monkeypatch, 1)
+    sent = {}
+
+    def _call(prompt, data_str, images):
+        sent["data"] = data_str
+        return {"verdict": "confirmed", "fields": [], "notes": "ok"}
+
+    monkeypatch.setitem(ai_verify._VISION_CALL, "claude", _call)
+    out = ai_verify.verify(b"%PDF fake", CAPTURE_DRAFT)
+    assert out["verdict"] == "confirmed"
+    d = sent["data"]
+    # header (incl. due_date + exchange_rate) and customer present
+    assert "2026-06-30" in d and "exchange_rate" in d and "ACME OU" in d
+    # per-line rich fields present (both lines, all field kinds)
+    for needle in ("Shell Antwerp", "Total Liege", "unit_price", "1.55",
+                   "card_no", "CARD-1", "receipt_no", "R-100", "937.75", "vat_rate"):
+        assert needle in d, needle
+    # totals present
+    assert "gross_total" in d and "970.42" in d
+    # it is the capture document, not the condensed summary shape
+    assert "statement_ref" not in d        # summary-only key
+    assert "header" in d and "totals" in d
+
+
+def test_capture_payload_builder_is_the_full_document():
+    payload = ai_verify._verify_payload(CAPTURE_DRAFT)
+    assert payload is CAPTURE             # the full capture document, verbatim
+    assert payload["header"]["invoice"]["due_date"] == "2026-06-30"
+    assert payload["lines"][0]["station_name"] == "Shell Antwerp"
+
+
+def test_summary_payload_when_no_capture_key():
+    """Backward compat: a deterministic/parser/OCR draft (no `capture`) still gets the
+    condensed summary, not the capture-document shape."""
+    payload = ai_verify._verify_payload(DRAFT)
+    assert "statement_ref" in payload and payload["statement_ref"] == "S-9"
+    assert "header" not in payload and "totals" not in payload
+    assert payload["gross_total"] == 1210.0
+
+
+def test_verify_summary_path_backward_compatible(monkeypatch):
+    monkeypatch.setattr(ai_verify, "_provider", lambda *a, **k: "claude")
+    monkeypatch.setattr(ai_verify, "model_name", lambda be: "claude-opus-4-8")
+    _patch_render(monkeypatch, 1)
+    sent = {}
+    monkeypatch.setitem(ai_verify._VISION_CALL, "claude",
+                        lambda p, d, images: sent.update(data=d) or
+                        {"verdict": "confirmed", "fields": [], "notes": ""})
+    ai_verify.verify(b"%PDF fake", DRAFT)         # no `capture` key
+    d = sent["data"]
+    assert "S-9" in d and "DKV" in d
+    assert "header" not in d and "due_date" not in d     # the summary, not the capture doc
+
+
+def test_prompt_states_pdf_is_authoritative():
+    p = ai_verify.VERIFY_PROMPT.lower()
+    assert "source of truth" in p
+    assert "the pdf is correct" in p
+    assert "do not invent" in p
+    # the rich, per-field verdict contract is requested
+    assert "captured value" in p and "match" in p
 
 
 # --------------------------------------------------------------- transient => unavailable
@@ -230,6 +330,35 @@ def test_parse_verdict_drops_malformed_fields():
     assert out["fields"][0]["name"] == "vat"
     assert out["fields"][0]["extracted"] == ""           # None -> ""
     assert out["fields"][0]["match"] is True             # truthy -> bool
+
+
+# --------------------------------------------------------------- richer panel rendering
+def test_panel_groups_and_escapes_rich_fields():
+    """The panel renders rich header/line/totals fields, grouped, captured-vs-PDF, all
+    escaped (untrusted model output)."""
+    import app as A
+    xss = '<img src=x onerror=alert(1)>'
+    result = {
+        "verdict": "discrepancies",
+        "fields": [
+            {"name": "invoice.due_date", "extracted": "2026-06-30",
+             "document": "2026-07-01", "match": False},
+            {"name": "line[2].vat", "extracted": "5.67", "document": xss, "match": False},
+            {"name": "totals.gross", "extracted": "970.42", "document": "970.42",
+             "match": True},
+        ],
+        "notes": xss, "provider": "claude", "model": "claude-opus-4-8", "pages": 2,
+    }
+    html = A._ai_verify_panel(result)
+    # section headers present
+    assert "Header" in html and "Lines" in html and "Totals" in html
+    # rich field names rendered
+    assert "invoice.due_date" in html and "line[2].vat" in html and "totals.gross" in html
+    # captured-vs-PDF wording + the authoritative-PDF framing
+    assert "captured" in html and "PDF shows" in html
+    # the planted XSS (in a document value AND notes) is escaped, never a live tag
+    assert xss not in html
+    assert "&lt;img src=x onerror=alert(1)&gt;" in html
 
 
 # --------------------------------------------------------------- web surface
