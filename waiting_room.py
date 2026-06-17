@@ -812,6 +812,31 @@ def _import_log(row, channel, status, records=0, message=""):
             job_id = "?"
         log.warning("_import_log: failed to record import event for job %s: %s", job_id, e)
 
+def _audit_vision_capture(row, jid, draft):
+    """Audit a completed AI-VISION-CAPTURE run (the opt-in 'AI for capture' path that sent
+    the PDF page images to the provider). Records job/doc id + provider + model + pages —
+    NEVER the image/PDF bytes or any secret. Best-effort: an audit failure never breaks the
+    worker, and a non-vision draft is a no-op."""
+    try:
+        if (draft or {}).get("backend") != "vision":
+            return
+        import vision_capture, audit, auth
+        scon = auth.connect()
+        try:
+            audit.record_event(
+                scon, "vision_capture", str(jid), "VISION_CAPTURE",
+                {"provider": vision_capture._provider() or "",
+                 "model": vision_capture.model_name(),
+                 "pages": draft.get("_vision_pages"),
+                 "filename": row["filename"],
+                 "statement_ref": draft.get("statement_ref"),
+                 "lines": len(draft.get("lines", []))})
+        finally:
+            scon.close()
+    except Exception as e:
+        log.warning("vision-capture audit failed for job %s — extraction unaffected: %s", jid, e)
+
+
 def _row_tenant(row):
     """The tenant_id stamped on a job row, defensively defaulting to
     DEFAULT_TENANT_ID for an OLD row written before the tenant_id column existed
@@ -1060,6 +1085,7 @@ def process_one():
             con.commit()
             _import_log(row, "extract", "success", records=len(draft.get("lines", [])),
                         message=f"extracted via {draft.get('backend','')}")
+            _audit_vision_capture(row, jid, draft)
             return (jid, "ready")
         except EX.TransientExtractionError as e:
             # upstream out of tokens / rate-limited. This is not the document's

@@ -458,6 +458,7 @@ def _needs_setup():
 PERM_BY_ENDPOINT = {
     "extract_batch":   "data_import", "extract_confirm": "data_import",
     "extract_ai_review": "data_import", "extract_ai_verify": "data_import",
+    "extract_capture_download": "data_import",
     "data_manager":    "data_import",
     "intake_queue_page": "data_import", "intake_review": "data_import",
     "doc_mining_page": "data_import", "imports": "data_import", "files_archive": "data_import",
@@ -539,7 +540,7 @@ MODULES = {
                     "export_saft", "reports_page", "reliability_page", "analytics"}),
     "intake":     ("Intake — import, waiting room, files, document mining",
                    {"extract_batch", "extract_confirm", "extract_ai_review",
-                    "extract_ai_verify",
+                    "extract_ai_verify", "extract_capture_download",
                     "intake_queue_page", "intake_review",
                     "imports", "files_archive", "doc_mining_page", "data_manager"}),
     "compliance": ("Compliance — invoice control, contract audit, documents",
@@ -3127,6 +3128,69 @@ def _capture_findings_html(draft):
             f'<ul style="margin:6px 0 0 18px">{items}</ul></div>')
 
 
+def _capture_document_html(draft, token=None, intake_job=None):
+    """Render the FULL AI-vision capture document (header + per-transaction table with all
+    the richer columns + totals) on the review screen, with Download (JSON + readable text)
+    links. EVERY model-supplied value is ESCAPED — the capture document is UNTRUSTED model
+    output. Returns '' when the draft carries no `capture` (i.e. not a vision capture)."""
+    cap = draft.get("capture")
+    if not isinstance(cap, dict) or not cap:
+        return ""
+    hdr = cap.get("header") or {}
+    sup = hdr.get("supplier") or {}
+    cust = hdr.get("customer") or {}
+    inv = hdr.get("invoice") or {}
+    tot = cap.get("totals") or {}
+
+    def _v(x):
+        return esc("" if x is None else str(x))
+
+    head_rows = "".join(
+        f'<tr><td style="color:var(--mut);width:170px">{esc(label)}</td><td>{_v(val)}</td></tr>'
+        for label, val in [
+            ("supplier name", sup.get("name")), ("supplier VAT", sup.get("vat_number")),
+            ("supplier address", sup.get("address")), ("supplier country", sup.get("country")),
+            ("customer name", cust.get("name")), ("customer VAT", cust.get("vat_number")),
+            ("customer account/card", cust.get("account_or_card_no")),
+            ("invoice number", inv.get("number")), ("issue date", inv.get("issue_date")),
+            ("due date", inv.get("due_date")), ("currency", inv.get("currency")),
+            ("exchange rate", inv.get("exchange_rate")),
+        ])
+
+    cols = ["Date", "Time", "Station", "City", "Country", "Product", "Qty", "Unit",
+            "Unit price", "Discount", "Net", "VAT %", "VAT", "Gross", "Card", "Receipt"]
+    keys = ["date", "time", "station_name", "city", "country", "product", "quantity",
+            "unit", "unit_price", "discount", "net", "vat_rate", "vat", "gross",
+            "card_no", "receipt_no"]
+    line_rows = ""
+    for ln in (cap.get("lines") or []):
+        line_rows += "<tr>" + "".join(f"<td>{_v(ln.get(k))}</td>" for k in keys) + "</tr>"
+    if not line_rows:
+        line_rows = f'<tr><td colspan="{len(cols)}" class="note">No transaction lines captured.</td></tr>'
+
+    tot_html = (
+        '<div class="note" style="margin-top:8px">Totals (as captured): '
+        f'net <b>{_v(tot.get("net_total"))}</b> · discount <b>{_v(tot.get("discount_total"))}</b> · '
+        f'VAT <b>{_v(tot.get("vat_total"))}</b> · gross <b>{_v(tot.get("gross_total"))}</b>.</div>')
+
+    dl = ""
+    if token:
+        jq = f"?intake_job={esc(str(intake_job))}" if intake_job else ""
+        dl = ('<div class="note" style="margin-top:8px">Download the full capture document: '
+              f'<a href="/extract/capture/{esc(token)}.json{jq}">JSON</a> · '
+              f'<a href="/extract/capture/{esc(token)}.txt{jq}">readable text</a></div>')
+
+    return ('<div class="card"><h2>Capture document (AI vision — advisory)</h2>'
+            '<div class="note" style="margin-top:0">The comprehensive structured data a '
+            'vision model read from the page images. <b>Untrusted model output</b> — verify '
+            'every figure against the PDF before confirming; nothing here is authoritative.</div>'
+            '<table style="margin-top:8px"><tbody>' + head_rows + '</tbody></table>'
+            '<table style="margin-top:10px"><thead><tr>'
+            + "".join(f"<th>{h}</th>" for h in cols)
+            + f'</tr></thead><tbody>{line_rows}</tbody></table>'
+            + tot_html + dl + '</div>')
+
+
 def _provenance_badge(src):
     """Render a line's data provenance (`_source`) as a labelled badge so a reviewer can
     SEE which lines came from a hallucination-prone AI extraction versus a deterministic
@@ -3162,6 +3226,7 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel=""):
             f'<div class="note">Source: <b>{esc(draft.get("backend",""))}</b> · '
             f'confidence <span class="{ccls}">{esc(conf)}</span> · '
             f'{len(draft.get("files",[]))} PDF(s). {esc(draft.get("notes",""))}</div>'
+            + _capture_document_html(draft, token, intake_job)
             + _capture_findings_html(draft) +
             '<form method="post" action="/extract/confirm" class="f" style="margin-top:10px">'
             + _csrf_input() +
@@ -3591,6 +3656,90 @@ def _ai_review_panel(result):
             'already-extracted data. It never changes a figure or status and never gates '
             'the commit.</div>'
             + flags_tbl + note_html + det_html + prov + '</div>')
+
+
+def _capture_text(cap):
+    """A readable plain-text rendering of a capture document (header + per-transaction
+    lines + totals) for the .txt download. Pure; reads the validated capture dict."""
+    cap = cap or {}
+    hdr = cap.get("header") or {}
+    sup = hdr.get("supplier") or {}
+    cust = hdr.get("customer") or {}
+    inv = hdr.get("invoice") or {}
+    tot = cap.get("totals") or {}
+
+    def v(x):
+        return "" if x is None else str(x)
+
+    out = ["AI VISION CAPTURE DOCUMENT (advisory — verify against the PDF before confirming)",
+           "=" * 78, "",
+           "SUPPLIER",
+           f"  name        : {v(sup.get('name'))}",
+           f"  VAT number  : {v(sup.get('vat_number'))}",
+           f"  address     : {v(sup.get('address'))}",
+           f"  country     : {v(sup.get('country'))}", "",
+           "CUSTOMER",
+           f"  name        : {v(cust.get('name'))}",
+           f"  VAT number  : {v(cust.get('vat_number'))}",
+           f"  account/card: {v(cust.get('account_or_card_no'))}", "",
+           "INVOICE",
+           f"  number      : {v(inv.get('number'))}",
+           f"  issue date  : {v(inv.get('issue_date'))}",
+           f"  due date    : {v(inv.get('due_date'))}",
+           f"  currency    : {v(inv.get('currency'))}",
+           f"  exch. rate  : {v(inv.get('exchange_rate'))}", "",
+           "TRANSACTIONS", "-" * 78]
+    for i, ln in enumerate(cap.get("lines") or [], 1):
+        out.append(f"  [{i}] {v(ln.get('date'))} {v(ln.get('time'))} "
+                   f"{v(ln.get('station_name'))} / {v(ln.get('city'))} / {v(ln.get('country'))}")
+        out.append(f"      product={v(ln.get('product'))} qty={v(ln.get('quantity'))}"
+                   f"{v(ln.get('unit'))} unit_price={v(ln.get('unit_price'))} "
+                   f"discount={v(ln.get('discount'))}")
+        out.append(f"      net={v(ln.get('net'))} vat_rate={v(ln.get('vat_rate'))} "
+                   f"vat={v(ln.get('vat'))} gross={v(ln.get('gross'))} "
+                   f"card={v(ln.get('card_no'))} receipt={v(ln.get('receipt_no'))}")
+    out += ["", "TOTALS",
+            f"  net total     : {v(tot.get('net_total'))}",
+            f"  discount total: {v(tot.get('discount_total'))}",
+            f"  VAT total     : {v(tot.get('vat_total'))}",
+            f"  gross total   : {v(tot.get('gross_total'))}"]
+    return "\n".join(out) + "\n"
+
+
+@app.route("/extract/capture/<token>.<fmt>")
+def extract_capture_download(token, fmt):
+    """Download the FULL AI-vision capture document for a review token, as JSON or readable
+    text. Reads the stashed review draft (the capture doc rides under its `capture` key).
+    Access: data_import (enforced in _guard). Read-only; serves the captured document only."""
+    if fmt not in ("json", "txt"):
+        return page('<div class="card"><b class="bad">Unknown format.</b></div>', "ext")
+    draft = _load_draft(token)
+    cap = (draft or {}).get("capture") if isinstance(draft, dict) else None
+    if not cap:
+        # fall back to the persisted queue draft when a job id is supplied
+        ij = request.args.get("intake_job")
+        if ij:
+            try:
+                import waiting_room as IQ
+                stored = IQ.get_stored_draft(int(ij))
+                cap = (stored or {}).get("capture")
+            except Exception as e:
+                _log_exc("capture download stored draft", e)
+    if not cap:
+        return page('<div class="card"><b class="bad">No capture document is available for '
+                    'this draft.</b></div><p><a href="/extract">← back to import</a></p>', "ext")
+    if fmt == "json":
+        import json as _json
+        body = _json.dumps(cap, ensure_ascii=False, indent=2, default=str)
+        mime = "application/json"
+        fname = f"capture-{token}.json"
+    else:
+        body = _capture_text(cap)
+        mime = "text/plain; charset=utf-8"
+        fname = f"capture-{token}.txt"
+    from flask import Response
+    return Response(body, mimetype=mime,
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 @app.route("/extract/ai-verify", methods=["POST"])
@@ -4032,6 +4181,7 @@ def _read_only_draft_view(job, draft):
             f'<tr><td style="color:var(--mut)">confidence</td><td class="{ccls}">{esc(conf)}</td></tr>'
             f'<tr><td style="color:var(--mut)">source</td><td>{esc(draft.get("backend") or "")}</td></tr>'
             '</tbody></table>'
+            + _capture_document_html(draft)
             + _capture_findings_html(draft)
             + '<table style="margin-top:10px"><thead><tr>'
             + "".join(f"<th>{h}</th>" for h in ["Invoice no", "Date", "Country", "Ccy", "Net", "VAT", "Provenance"])
@@ -8021,6 +8171,17 @@ def admin():
                 banner = ("AI PDF verification turned ON (advisory). Note: this sends the "
                           "ORIGINAL PDF to the configured AI provider." if on
                           else "AI PDF verification turned OFF.")
+            elif act == "set_ai_vision_capture":
+                # OPT-IN AI VISION CAPTURE (default OFF). THE DELIBERATE "AI for capture"
+                # exception: this SENDS the original PDF page images to the AI provider to
+                # read a comprehensive capture document. Opt-in flag only; the backend/key
+                # reuse the extractor/verify selection (Claude/OpenAI, vision-capable).
+                on = request.form.get("ai_vision_capture_enabled") == "on"
+                _auth.set_setting("ai_vision_capture_enabled", "on" if on else "off")
+                banner = ("AI vision capture turned ON (advisory). Note: this sends the "
+                          "ORIGINAL PDF page images to the configured AI provider for "
+                          "unknown-layout/scanned invoices." if on
+                          else "AI vision capture turned OFF.")
             elif act == "toggle":
                 if tgt == session["user"]:
                     raise ValueError("you cannot disable your own account")
@@ -8554,6 +8715,44 @@ def admin():
                  + '<button name="__act" value="set_ai_verify">Save verification setting</button>'
                  + '</form>'
                  + '</div>')
+    # OPT-IN AI VISION CAPTURE — default OFF. THE DELIBERATE "AI for capture" exception:
+    # for an unknown-layout / scanned PLAIN PDF, it SENDS the original PDF page images to
+    # the vision provider to read a comprehensive capture document, which then flows into
+    # the SAME review screen + AI verification. Loudly gated; reuses the ai_verify provider
+    # selection (Claude/OpenAI). Structured e-invoice / hybrid PDFs stay deterministic.
+    _vcap_on = str(_auth.get_setting("ai_vision_capture_enabled", "off") or "off").lower() in ("on", "1", "true", "yes")
+    import vision_capture as _vc
+    _vcap_prov = _vc._provider()
+    _vcap_prov_label = _vc.provider_label(_vcap_prov) if _vcap_prov else ""
+    _vcap_active = (f'Active vision provider: <b>{esc(_vcap_prov_label)}</b> '
+                    f'(model <b>{esc(_vc.model_name(_vcap_prov))}</b>); page cap '
+                    f'<b>{_vc.VISION_CAPTURE_MAX_PAGES}</b>.'
+                    if _vcap_prov else
+                    '<b class="bad">No vision-capable backend is configured</b> — set the '
+                    'AI review backend above to <b>claude</b> or <b>openai</b> (with its '
+                    'API key present); capture stays OFF and sends nothing until then.')
+    aicapf = ('<div class="card" style="border-color:var(--bad)">'
+              '<h2>AI vision capture of scanned / unknown-layout invoices (advisory)</h2>'
+              '<div class="note bad" style="margin-top:0">⚠️ Enabling this sends the '
+              '<b>ORIGINAL invoice PDF page images</b> (which may contain <b>IBANs/bank '
+              'details</b>) to the configured AI provider (Claude/OpenAI) to read a '
+              'comprehensive capture document. Ensure a data-processing agreement and an '
+              'appropriate data region are in place. <b>Off by default.</b></div>'
+              f'<div class="note" style="margin-top:6px">{_vcap_active}</div>'
+              '<div class="note" style="margin-top:6px">When ON, a PLAIN unknown-layout / '
+              'scanned PDF is read by the vision model as the <b>preferred</b> draft (it '
+              'falls back to the existing OCR/parser path on any error). <b>Structured '
+              'e-invoices and hybrid Factur-X PDFs stay deterministic and AI-free.</b> The '
+              'capture is <b>advisory</b> — a human still confirms every figure; it changes '
+              'no figure, status, lock, or fee and never gates the commit.</div>'
+              '<form method="post" class="f" style="margin-top:8px">'
+              + _csrf_input()
+              + f'<label class="chk" style="display:flex;gap:7px;align-items:center">'
+                f'<input type="checkbox" name="ai_vision_capture_enabled" {"checked" if _vcap_on else ""}> '
+                f'Enable AI vision capture of scanned / unknown-layout invoices</label>'
+              + '<button name="__act" value="set_ai_vision_capture">Save capture setting</button>'
+              + '</form>'
+              + '</div>')
     # API keys (machine access to the versioned /api/v1 contract). Default-OFF: no keys
     # exist until issued here. Tokens are SHA-256 hashed at rest and shown once at issue.
     import api_keys
@@ -8650,6 +8849,7 @@ def admin():
             + aireviewf
             + aidocchatf
             + aiverifyf
+            + aicapf
             + '<h2 class="section" id="platform">Platform</h2>'
             + platform_card)
     return page(body, "adm")

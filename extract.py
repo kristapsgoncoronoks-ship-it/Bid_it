@@ -847,6 +847,24 @@ def _plain_draft(texts, files, backend, filename, strict, ocr_used=False):
                 "currency": "EUR", "customer": None, "lines": [], "notes": note,
                 "backend": be, "confidence": "low"}
 
+    # OPT-IN AI VISION CAPTURE (default OFF): for a PLAIN, unknown-layout / scanned PDF,
+    # read the page IMAGES with a vision model and use that as the PREFERRED draft. This is
+    # the deliberate "AI for capture" exception (CLAUDE.md) — gated behind
+    # `vision_capture.enabled()` (admin setting ON + a vision backend), so when OFF NO
+    # network call is made and the path below is byte-identical to before. It does NOT run
+    # for structured e-invoice / hybrid Factur-X PDFs (those stay deterministic, AI-free) —
+    # `_plain_draft` is only reached for plain PDFs. On None (off / render / backend error /
+    # unparseable) we fall straight through to the existing OCR→parser→AI→generic chain.
+    try:
+        import vision_capture
+        if vision_capture.enabled():
+            pdf0 = files[0][1] if files else None
+            vd = vision_capture.capture(pdf0, files=files)
+            if vd is not None:
+                return vd
+    except Exception as e:
+        log.warning("vision capture path failed (%s) — falling back to the existing path", e)
+
     draft = None
     fallback_note = "no parser matched and no AI backend configured - enter manually"
     if backend in ("auto", "parser"):
