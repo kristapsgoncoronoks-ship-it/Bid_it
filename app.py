@@ -17,7 +17,7 @@ Pages:  /            welcome landing (intro + section cards)
 Exports: /export/master  /export/history   (download the Excel deliverables)
 API:    /api/benchmark /api/compare /api/headtohead /api/entities /api/periods
 """
-import sqlite3, os, secrets, threading, time
+import sqlite3, os, re, secrets, threading, time
 from flask import Flask, request, jsonify, render_template_string, send_file, session, redirect, Response
 from markupsafe import escape as esc
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -7649,6 +7649,15 @@ def admin():
             elif act == "reset":
                 _auth.add_user(tgt, request.form["password"])
                 banner = f"Password of <b>{esc(tgt)}</b> reset."
+            elif act == "set_email":
+                # C3②: a user's optional contact email for secure-sharing alerts. A user
+                # may set their OWN (the "my email" field); an admin may set any user's.
+                who = tgt or session["user"]
+                if who != session["user"] and session.get("role") != "admin":
+                    raise ValueError("you can only change your own email")
+                _auth.set_email(who, request.form.get("email", ""))
+                banner = (f"Contact email for <b>{esc(who)}</b> updated — "
+                          "secure-sharing alerts will go to it.")
             elif act == "clear_errors":
                 _auth.clear_errors()
                 banner = "Error log cleared."
@@ -7780,6 +7789,27 @@ def admin():
                                     "send_test reported a transport failure — check the "
                                     "SMTP host/port/credentials", "", session["user"])
                     raise ValueError("test email FAILED to send — see error log")
+            elif act == "set_brand":
+                # C3③: custom branding for the PUBLIC viewer/room/gate pages only. Stored
+                # in app_settings (org name + hex accent + optional small data-URL logo).
+                # Validated so nothing unsafe reaches the CSP-scoped public response.
+                _auth.set_setting("brand_name", request.form.get("brand_name", "").strip())
+                accent = request.form.get("brand_accent", "").strip()
+                if accent and not re.fullmatch(r"#[0-9A-Fa-f]{3,8}", accent):
+                    raise ValueError("accent must be a hex color like #2d6cdf")
+                _auth.set_setting("brand_accent", accent)
+                logo = request.form.get("brand_logo", "").strip()
+                if request.form.get("brand_logo_clear") == "on":
+                    logo = ""
+                if logo and not logo.startswith("data:image/"):
+                    raise ValueError("logo must be a data:image/... URL "
+                                     "(no remote origins — keep it small)")
+                if len(logo) > 200000:
+                    raise ValueError("logo data URL is too large — keep it under ~150 KB")
+                if logo or request.form.get("brand_logo_clear") == "on":
+                    _auth.set_setting("brand_logo", logo)
+                banner = ("Public-viewer branding saved — it shows on /s and /r pages "
+                          "(the authed app is unchanged).")
             elif act == "issue_api_key":
                 import api_keys
                 label = request.form.get("api_label", "").strip()
@@ -7820,10 +7850,18 @@ def admin():
             f'<input type="hidden" name="username" value="{esc(u["username"])}">'
             f'<input type="password" name="password" placeholder="new password" required '
             f'style="width:110px"> <button name="__act" value="reset">Reset pw</button></form>')
+        # C3②: per-user contact email for secure-sharing alerts (admin may set any user's).
+        email_form = (
+            '<form method="post" style="display:inline">' + _csrf_input()
+            + f'<input type="hidden" name="username" value="{esc(u["username"])}">'
+            + f'<input type="email" name="email" value="{esc(u.get("email") or "")}" '
+              'placeholder="email" style="width:150px"> '
+              '<button name="__act" value="set_email">Set email</button></form>')
         utr.append([f'<td>{esc(u["username"])}{" <b>(you)</b>" if me else ""}</td>'
                     f'<td>{esc(u["role"])}</td>',
                     f'<td class="{ "ok" if u["active"] else "bad"}">'
                     f'{"active" if u["active"] else "DISABLED"}</td>',
+                    f'<td>{email_form}</td>',
                     f'<td>{esc(u["last_login"])}</td><td>{actions}</td>'])
     addf = ('<form method="post" class="f">'
             + _csrf_input() +
@@ -8012,6 +8050,34 @@ def admin():
                   'appear, independent of the digest cadence. The password is stored '
                   'write-only and never shown here — leave it blank to keep the current '
                   'one. Recipients are comma/semicolon-separated.</div></div>')
+    # C3③: custom branding for the PUBLIC viewer (the /s and /r pages + their gates).
+    _brand = _share_brand()
+    _has_logo = bool(_brand.get("logo"))
+    brandcard = ('<div class="card"><h2>Public-viewer branding</h2>'
+                 '<div class="note" style="margin-top:0">Brand the PUBLIC secure-sharing '
+                 'pages (the /s document viewer, the /r data-room index, and their '
+                 'password / NDA / email / sign gates) with your org name, accent color '
+                 'and an optional small logo. <b>The signed-in app is unchanged.</b> The '
+                 'logo must be a same-origin <code>data:</code> image (no remote URLs — '
+                 'keep it small).</div>'
+                 '<form method="post" class="f" style="margin-top:8px">' + _csrf_input()
+                 + f'<label>Org display name<input name="brand_name" '
+                   f'value="{esc(_brand.get("name") or "")}" '
+                   'placeholder="e.g. Baltic Fleet Recovery"></label>'
+                 + f'<label>Accent color (hex)<input name="brand_accent" '
+                   f'value="{esc(_brand.get("accent") or "")}" placeholder="#2d6cdf" '
+                   'style="width:120px"></label>'
+                 + '<label>Logo (data:image/... URL, optional)'
+                   '<textarea name="brand_logo" rows="2" '
+                   'placeholder="data:image/png;base64,...  (leave blank to keep current)">'
+                   '</textarea></label>'
+                 + ('<label class="ck"><input type="checkbox" name="brand_logo_clear" '
+                    'value="on"> Remove the current logo</label>' if _has_logo else '')
+                 + '<button name="__act" value="set_brand">Save branding</button></form>'
+                 + ('<div class="note">A logo is currently set.</div>' if _has_logo
+                    else '<div class="note">No logo set — the public header shows the '
+                         'org name only (or the generic header when blank).</div>')
+                 + '</div>')
     modchecks = "".join(
         f'<label class="chk" style="display:flex;gap:7px;align-items:center;font-size:13px;'
         f'flex-direction:row;color:var(--ink);margin:3px 0">'
@@ -8119,8 +8185,13 @@ def admin():
                + '<span class="note" style="margin-left:8px">tick at least one scope</span>'
                + '</form></div>')
     users_card = ('<div class="card"><h2>Users &amp; permissions</h2>'
-                  + tbl(["Username", "Role", "Status", "Last login", "Actions"], utr)
-                  + addf + "</div>")
+                  + tbl(["Username", "Role", "Status", "Email (alerts)", "Last login",
+                         "Actions"], utr)
+                  + addf
+                  + '<div class="note">An optional <b>contact email</b> targets that '
+                    'user\'s own secure-sharing alerts (a shared document viewed / signed, '
+                    'a data-room question). Unset = the team relay (Email settings below).'
+                    '</div></div>')
     security_card = (f'<div class="card"><h2>Security status</h2>'
                      f'<p>TLS certificate: '
                      f'{"<span class=ok>cert.pem present - app serves HTTPS</span>" if tls else "<span class=bad>none - run python3 make_cert.py (self-signed) or install a CA cert</span>"}'
@@ -8158,6 +8229,7 @@ def admin():
             + backupcard
             + '<h2 class="section" id="notifications">Notifications</h2>'
             + smtpcard
+            + brandcard
             + '<h2 class="section" id="modules">Modules &amp; AI</h2>'
             + modf
             + aireviewf
@@ -9115,18 +9187,84 @@ _SHARE_CSS = (
     ".pdf-page-wrap{box-shadow:0 2px 14px rgba(0,0,0,.4);background:#fff}"
     ".pdf-page-label{font:12px system-ui;color:#9fb0c8;text-align:center;padding:4px 0;"
     "background:transparent}.pdf-page{display:block}"
-    ".pdf-error{color:#ff8a8a;text-align:center;padding:40px}</style>")
+    ".pdf-error{color:#ff8a8a;text-align:center;padding:40px}"
+    # C3③ custom branding for the PUBLIC viewer header
+    ".brandbar{display:flex;align-items:center;gap:12px;padding:12px 16px;"
+    "border-bottom:1px solid #25304a;background:#16213a}"
+    ".brandbar img{height:32px;width:auto;display:block}"
+    ".brandbar .bname{font-weight:600;font-size:16px}</style>")
 
 
-def _share_shell(title, inner, head_extra=""):
+def _share_brand():
+    """C3③: the app-owned PUBLIC-viewer branding config (org display name, accent color,
+    optional small logo data URL). Returns a dict {name, accent, logo} with the configured
+    values or None each when unset. Read-only; never raises -> all-None (default header)."""
+    brand = {"name": None, "accent": None, "logo": None}
+    try:
+        brand["name"] = (_auth.get_setting("brand_name") or "").strip() or None
+        accent = (_auth.get_setting("brand_accent") or "").strip()
+        # accept only a simple hex color so it can be safely interpolated into CSS.
+        if re.fullmatch(r"#[0-9A-Fa-f]{3,8}", accent or ""):
+            brand["accent"] = accent
+        logo = (_auth.get_setting("brand_logo") or "").strip()
+        # only a same-origin data: image URL — never a remote origin (CSP-safe).
+        if logo.startswith("data:image/"):
+            brand["logo"] = logo
+    except Exception as e:
+        _log_exc("share: brand config", e)
+    return brand
+
+
+def _brand_header():
+    """The branded header bar for the PUBLIC pages (org name + optional logo), or '' when
+    no brand is configured (so the page falls back to its generic header). Every value is
+    esc()'d; the logo is a same-origin data: URL only. Never raises -> ''."""
+    try:
+        brand = _share_brand()
+        if not (brand.get("name") or brand.get("logo")):
+            return ""
+        logo = (f'<img src="{esc(brand["logo"])}" alt="logo">' if brand.get("logo") else "")
+        name = (f'<span class="bname">{esc(brand["name"])}</span>'
+                if brand.get("name") else "")
+        return f'<div class="brandbar">{logo}{name}</div>'
+    except Exception as e:
+        _log_exc("share: brand header", e)
+        return ""
+
+
+def _brand_style():
+    """A small per-response <style> that recolors the public buttons/accents to the
+    configured brand accent. '' when no accent is set. The accent is validated to a hex
+    color in _share_brand, so this interpolation is CSP-safe. Never raises -> ''."""
+    try:
+        accent = _share_brand().get("accent")
+        if not accent:
+            return ""
+        return (f"<style>.box button,.brandbar .bname{{}}"
+                f"button{{background:{accent}}}.brandbar .bname{{color:{accent}}}"
+                f"a{{color:{accent}}}</style>")
+    except Exception as e:
+        _log_exc("share: brand style", e)
+        return ""
+
+
+def _share_shell(title, inner, head_extra="", brand=True):
     """A minimal standalone HTML page for the PUBLIC surface (it does NOT use the
     authenticated BASE template / nav). Title is escaped by the caller as needed.
     `head_extra` lets the pdf.js viewer add its <script type=module> tag (served from
-    /static — script-src 'self')."""
+    /static — script-src 'self').
+
+    C3③: when `brand` is True (the default for every public surface) a configured org
+    name/logo/accent is applied — a branded header bar above the content + an accent
+    restyle. An UNSET brand falls back to the generic header (no bar, default accent).
+    The logo is a same-origin data: URL only; nothing here adds a remote origin, so the
+    scoped/global CSP is untouched."""
+    brand_head = _brand_style() if brand else ""
+    brand_bar = _brand_header() if brand else ""
     return ("<!doctype html><html lang=en><head><meta charset=utf-8>"
             "<meta name=viewport content='width=device-width,initial-scale=1'>"
-            f"<title>{esc(title)}</title>{_SHARE_CSS}{head_extra}</head>"
-            f"<body>{inner}</body></html>")
+            f"<title>{esc(title)}</title>{_SHARE_CSS}{brand_head}{head_extra}</head>"
+            f"<body>{brand_bar}{inner}</body></html>")
 
 
 # SCOPED CSP for the PUBLIC pdf.js viewer page ONLY. pdf.js needs a Web Worker
@@ -9375,7 +9513,8 @@ def _notify_sign_owner(link, signer_name):
             [f"'{link.get('title') or link.get('doc_ref')}' (shared by "
              f"{link.get('created_by') or 'unknown'}) was electronically signed by "
              f"{signer_name}.",
-             f"Link: /s/{link.get('token')}"])
+             f"Link: /s/{link.get('token')}"],
+            recipients=_creator_recipients(link.get("created_by")))
     except Exception as e:
         _log_exc("share: sign owner notify", e)
 
@@ -9511,11 +9650,21 @@ def share_file(token):
         return _share_not_found()
 
 
+def _creator_recipients(created_by):
+    """C3②: the per-owner alert target — the link CREATOR's own contact email if set,
+    else None (so notify.send_alert falls back to the team relay). Best-effort; a lookup
+    failure returns None so alerts are never broken. Never raises."""
+    try:
+        return _auth.user_email(created_by) or None
+    except Exception as e:
+        _log_exc("share: creator recipient lookup", e)
+        return None
+
+
 def _notify_share_owner(link, email):
-    """Best-effort: alert that a shared document was viewed, via the notify SMTP relay
-    (the configured notify_recipients — there is no per-user email store in B1, so this
-    is the team alert channel, attributed to the link's creator). A no-op when no
-    recipients/SMTP are configured. Never raises."""
+    """Best-effort: alert that a shared document was viewed. C3②: the alert is targeted at
+    the link CREATOR's own email when set, falling back to the team notify relay otherwise.
+    A no-op when neither recipient nor SMTP is configured. Never raises."""
     try:
         import notify
         who = email or "an anonymous visitor"
@@ -9523,7 +9672,8 @@ def _notify_share_owner(link, email):
             "Fleet Fuel & VAT — a shared document was viewed",
             [f"'{link.get('title') or link.get('doc_ref')}' (shared by "
              f"{link.get('created_by') or 'unknown'}) was viewed by {who}.",
-             f"Link: /s/{link.get('token')}"])
+             f"Link: /s/{link.get('token')}"],
+            recipients=_creator_recipients(link.get("created_by")))
     except Exception as e:
         _log_exc("share: owner notify", e)
 
@@ -9623,6 +9773,13 @@ def room_page(room_id):
                       f'<div class="card" style="border-left:4px solid var(--bad)">'
                       f'<b class="bad">Could not add document.</b> {esc(err)}</div>')
         elif act == "create_link":
+            # C3①: an optional per-link document allow-list. Unchecked = expose ALL docs.
+            allow_ids = []
+            for v in request.form.getlist("allow_doc"):
+                try:
+                    allow_ids.append(int(v))
+                except (TypeError, ValueError):
+                    continue
             link, err = sharing.create_room_link(
                 room_id, actor,
                 expires_at=(request.form.get("expires_at") or "").strip() or None,
@@ -9630,7 +9787,8 @@ def room_page(room_id):
                 require_email=bool(request.form.get("require_email")),
                 nda_required=bool(request.form.get("nda_required")),
                 agreement_text=(request.form.get("agreement_text") or "") or None,
-                watermark=bool(request.form.get("watermark")))
+                watermark=bool(request.form.get("watermark")),
+                allow_doc_ids=allow_ids or None)
             if link:
                 url = f"/r/{link['token']}"
                 banner = ('<div class="card" style="border-left:4px solid var(--ok)">'
@@ -9677,6 +9835,10 @@ def room_page(room_id):
         state = ('<b class="bad">revoked</b>' if l.get("revoked")
                  else '<b class="bad">expired</b>' if sharing.is_expired(l)
                  else '<b class="ok">active</b>')
+        # C3①: 0 = no allow-list = exposes ALL room documents; >0 = restricted subset.
+        n_allowed = l.get("allowed_docs", 0)
+        docs_cell = (f'<b>{esc(n_allowed)}</b> selected' if n_allowed
+                     else 'all documents')
         revoke_btn = ""
         if not l.get("revoked"):
             revoke_btn = ('<form method="post" style="display:inline">' + _csrf_input()
@@ -9685,10 +9847,10 @@ def room_page(room_id):
                           'onclick="return confirm(\'Revoke this link?\')">Revoke</button>'
                           '</form>')
         lrows.append([f'<a href="{esc(url)}">{esc(url)}</a>',
-                      (", ".join(gates) or "—"), state,
+                      docs_cell, (", ".join(gates) or "—"), state,
                       esc(l.get("created_at") or ""), revoke_btn])
-    link_table = (tbl(["Public link", "Gates", "State", "Created", ""], lrows) if lrows
-                  else '<p class="note">No room links yet.</p>')
+    link_table = (tbl(["Public link", "Documents", "Gates", "State", "Created", ""], lrows)
+                  if lrows else '<p class="note">No room links yet.</p>')
 
     add_form = (
         '<div class="card"><h2>Add a vaulted document</h2>'
@@ -9707,10 +9869,24 @@ def room_page(room_id):
           '<div style="margin-top:8px">'
           '<button name="__act" value="add_doc">Add document</button></div>'
           '</form></div>')
+    # C3①: the per-link document picker — leave ALL unticked to expose the whole room.
+    doc_picker = "".join(
+        f'<label class="ck"><input type="checkbox" name="allow_doc" '
+        f'value="{esc(d["id"])}"> {esc(d.get("title") or d.get("doc_ref"))}'
+        + (f' <span class="note">({esc(d["folder"])})</span>' if d.get("folder") else '')
+        + '</label>'
+        for d in docs)
+    doc_picker_block = (
+        '<fieldset style="border:1px solid #34405c;border-radius:6px;padding:8px 10px;'
+        'margin:6px 0"><legend class="note">Documents this link exposes '
+        '(leave all unticked to expose the whole room)</legend>'
+        + (doc_picker or '<span class="note">Add a document to the room first.</span>')
+        + '</fieldset>') if docs else ''
     link_form = (
         '<div class="card"><h2>Create a gated room link</h2>'
         '<p class="note">One shareable PUBLIC link to the whole room. The same gate '
-        'options as a share link apply to every document in the room.</p>'
+        'options as a share link apply to every document in the room. Optionally restrict '
+        'a link to a SUBSET of the room\'s documents (per-recipient permissions).</p>'
         '<form method="post" class="f">' + _csrf_input()
         + '<label>Expires (UTC, optional)<input name="expires_at" '
           'placeholder="YYYY-MM-DD or YYYY-MM-DD HH:MM"></label>'
@@ -9724,7 +9900,8 @@ def room_page(room_id):
           '<textarea name="agreement_text" rows="3"></textarea></label>'
           '<label class="ck"><input type="checkbox" name="watermark" value="1"> '
           'Watermark every page with the viewer + timestamp</label>'
-          '<div style="margin-top:8px">'
+        + doc_picker_block
+        + '<div style="margin-top:8px">'
           '<button name="__act" value="create_link">Create room link</button></div>'
           '</form></div>')
 
@@ -9860,7 +10037,9 @@ def room_public(token):
         if not room or room.get("archived"):
             return _share_not_found()
         _share_view_session(token)   # establish the per-visit id for beacons
-        docs = sharing.list_documents(room["id"])
+        # C3①: only the documents this LINK is permitted to expose (an empty allow-list
+        # = the whole room — backward compatible).
+        docs = sharing.list_permitted_documents(room_link)
         # group by folder, preserving list_documents' folder/sort order.
         groups = {}
         for d in docs:
@@ -9909,9 +10088,10 @@ def room_doc_viewer(token, doc_id):
             return _share_not_found()
         if state == "form":
             return _payload
-        doc = sharing.get_document(room_link["room_id"], doc_id)
+        # C3①: the doc must belong to the room AND be permitted by this link's allow-list.
+        doc = sharing.get_permitted_document(room_link, doc_id)
         if not doc:
-            return _share_not_found()   # not in this room
+            return _share_not_found()   # not in this room OR not permitted by this link
         _share_view_session(token)
         file_url = f"/r/{esc(token)}/doc/{doc_id}/file"
         event_url = f"/r/{esc(token)}/doc/{doc_id}/event"
@@ -9944,7 +10124,8 @@ def room_doc_file(token, doc_id):
         state, email = _room_gate(token, room_link, action)
         if state != "ok":
             return _share_not_found()
-        doc = sharing.get_document(room_link["room_id"], doc_id)
+        # C3①: room membership AND this link's per-link allow-list must both permit it.
+        doc = sharing.get_permitted_document(room_link, doc_id)
         if not doc:
             return _share_not_found()
         try:
@@ -9986,7 +10167,8 @@ def room_doc_event(token, doc_id):
         state, _payload = _room_gate(token, room_link, f"/r/{token}/doc/{doc_id}/event")
         if state != "ok":
             return Response(status=204)
-        doc = sharing.get_document(room_link["room_id"], doc_id)
+        # C3①: record nothing for a doc this link is not permitted to expose.
+        doc = sharing.get_permitted_document(room_link, doc_id)
         if not doc:
             return Response(status=204)
         data = request.get_json(silent=True) or {}
@@ -10034,8 +10216,9 @@ def room_ask(token):
 
 
 def _notify_room_question(room, question):
-    """Best-effort: alert the team that a data-room question was asked, via the notify
-    SMTP relay. A no-op when no recipients/SMTP are configured. Never raises."""
+    """Best-effort: alert that a data-room question was asked. C3②: targeted at the room
+    OWNER's own email when set, falling back to the team notify relay otherwise. A no-op
+    when neither recipient nor SMTP is configured. Never raises."""
     try:
         import notify
         who = question.get("viewer_email") or "an anonymous visitor"
@@ -10044,7 +10227,8 @@ def _notify_room_question(room, question):
             [f"Room '{room.get('name')}' (owner {room.get('created_by') or 'unknown'}) "
              f"received a question from {who}.",
              f"Q: {question.get('question')}",
-             f"Answer it on: /rooms/{room.get('id')}/qa"])
+             f"Answer it on: /rooms/{room.get('id')}/qa"],
+            recipients=_creator_recipients(room.get("created_by")))
     except Exception as e:
         _log_exc("dataroom: question notify", e)
 

@@ -199,6 +199,20 @@ _MIGRATIONS = [
     # esign.signature_requests row the signing records into. APPEND only — positions stable.
     "ALTER TABLE share_links ADD COLUMN require_signature INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE share_links ADD COLUMN signature_request_id INTEGER",
+    # C3① — PER-RECIPIENT (per-link) DOCUMENT PERMISSIONS in a data room. A room link by
+    # default exposes ALL of its room's documents; this OPTIONAL allow-list narrows a
+    # given link to a SUBSET. One row per (room link, room document) the link may expose.
+    # When a link has NO rows here it behaves exactly as before (all docs — backward
+    # compatible). APPEND only — positions stable; tenant_id stamped on INSERT, audited.
+    """CREATE TABLE IF NOT EXISTS dataroom_link_documents (
+        id          INTEGER PRIMARY KEY,
+        link_id     INTEGER NOT NULL,
+        doc_id      INTEGER NOT NULL,
+        tenant_id   TEXT NOT NULL DEFAULT 'default',
+        created_at  TEXT DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_dataroom_link_documents_link "
+    "ON dataroom_link_documents(link_id, doc_id)",
 ]
 
 # Beacon sanity bounds (defence-in-depth; the client also clamps). A single flushed
@@ -221,7 +235,8 @@ def connect():
         audit.install_audit(con, ["share_links", "share_views", "share_agreements",
                                   "share_page_views", "datarooms", "dataroom_documents",
                                   "dataroom_links", "dataroom_agreements",
-                                  "dataroom_questions", "dataroom_page_views"])
+                                  "dataroom_questions", "dataroom_page_views",
+                                  "dataroom_link_documents"])
         con.commit()
         _SCHEMA_READY.add(DB)
     return con
@@ -795,12 +810,82 @@ def get_document(room_id, doc_id):
         return None
 
 
+# ---------------------------------------------------------------- per-link doc permissions (C3①)
+def link_allowed_doc_ids(link_id):
+    """The SET of dataroom_documents ids the room link `link_id` is restricted to. An
+    EMPTY set means NO restriction is configured -> the link exposes ALL of its room's
+    documents (backward compatible). Never raises -> empty set (= no restriction)."""
+    try:
+        con = connect()
+        try:
+            rows = con.execute(
+                "SELECT doc_id FROM dataroom_link_documents WHERE link_id=?",
+                (link_id,)).fetchall()
+        finally:
+            con.close()
+        return {r["doc_id"] for r in rows}
+    except Exception as e:
+        log.warning("link_allowed_doc_ids failed for link %s: %s", link_id, e)
+        return set()
+
+
+def doc_permitted(room_link, doc_id):
+    """True iff document `doc_id` is visible/servable through `room_link`. A link with NO
+    allow-list permits EVERY document (the historical behaviour); a link WITH an allow-list
+    permits only the listed docs. This is enforced ON TOP OF the room-membership check
+    (get_document) by every public room route. Never raises -> False (fail closed)."""
+    if not room_link:
+        return False
+    try:
+        doc_id = int(doc_id)
+    except (TypeError, ValueError):
+        return False
+    allowed = link_allowed_doc_ids(room_link["id"])
+    if not allowed:
+        return True              # no allow-list -> all documents (backward compatible)
+    return doc_id in allowed
+
+
+def list_permitted_documents(room_link):
+    """The room's documents VISIBLE through `room_link`, in list_documents order. With no
+    allow-list this is the whole room; with an allow-list it is the listed subset. Never
+    raises -> []."""
+    if not room_link:
+        return []
+    docs = list_documents(room_link["room_id"])
+    allowed = link_allowed_doc_ids(room_link["id"])
+    if not allowed:
+        return docs
+    return [d for d in docs if d["id"] in allowed]
+
+
+def get_permitted_document(room_link, doc_id):
+    """A room document fetched ONLY IF it belongs to the room AND is permitted by the
+    link's allow-list. Returns the doc dict or None (not in room OR not permitted by this
+    link). Never raises."""
+    if not room_link:
+        return None
+    doc = get_document(room_link["room_id"], doc_id)
+    if not doc:
+        return None
+    if not doc_permitted(room_link, doc_id):
+        return None
+    return doc
+
+
 # ---------------------------------------------------------------- room link (gated)
 def create_room_link(room_id, actor, expires_at=None, password=None, require_email=False,
-                     nda_required=False, agreement_text=None, watermark=False):
+                     nda_required=False, agreement_text=None, watermark=False,
+                     allow_doc_ids=None):
     """Mint a ROOM-level access link mirroring the share_links gate columns. Returns
     (link_dict, "") or (None, error). Never raises. The same gate options as a B2 share
-    link (expiry/password/NDA/email/watermark) apply to the whole room."""
+    link (expiry/password/NDA/email/watermark) apply to the whole room.
+
+    C3① opt-in: `allow_doc_ids` (an iterable of dataroom_documents ids) RESTRICTS the link
+    to that SUBSET of the room's documents. Only ids that actually belong to the room are
+    kept; if NONE survive (or the arg is None/empty) the link exposes ALL of the room's
+    documents — byte-identical to the prior behaviour. The allow-list is the
+    `dataroom_link_documents` join table."""
     try:
         room_id = int(room_id)
     except (TypeError, ValueError):
@@ -809,7 +894,7 @@ def create_room_link(room_id, actor, expires_at=None, password=None, require_ema
     try:
         con = connect()
         try:
-            con.execute(
+            cur = con.execute(
                 """INSERT INTO dataroom_links
                    (token, room_id, created_by, tenant_id, expires_at, password_hash,
                     require_email, nda_required, agreement_text, watermark, revoked)
@@ -819,6 +904,23 @@ def create_room_link(room_id, actor, expires_at=None, password=None, require_ema
                  1 if require_email else 0, 1 if nda_required else 0,
                  ((agreement_text or "").strip() or None) if nda_required else None,
                  1 if watermark else 0))
+            link_id = cur.lastrowid
+            # Optional per-link document allow-list: keep only ids that belong to this
+            # room (so a stray/foreign id can never widen access), de-duplicated.
+            wanted = set()
+            for d in (allow_doc_ids or []):
+                try:
+                    wanted.add(int(d))
+                except (TypeError, ValueError):
+                    continue
+            if wanted:
+                room_doc_ids = {r["id"] for r in con.execute(
+                    "SELECT id FROM dataroom_documents WHERE room_id=?", (room_id,))}
+                for did in sorted(wanted & room_doc_ids):
+                    con.execute(
+                        """INSERT INTO dataroom_link_documents
+                           (link_id, doc_id, tenant_id) VALUES (?,?,?)""",
+                        (link_id, did, tenancy.write_tenant()))
             con.commit()
             row = con.execute("SELECT * FROM dataroom_links WHERE token=?",
                               (token,)).fetchone()
@@ -848,16 +950,25 @@ def get_room_link_by_token(token):
 
 
 def list_room_links(room_id):
-    """All access links for a room, newest first, as dicts. Never raises -> []."""
+    """All access links for a room, newest first, as dicts. Each dict carries an
+    `allowed_docs` count (0 = no per-link allow-list = exposes ALL room documents; >0 =
+    restricted to that many docs — C3①). Never raises -> []."""
     try:
         con = connect()
         try:
             rows = con.execute(
                 """SELECT * FROM dataroom_links WHERE room_id=?
                    ORDER BY created_at DESC, id DESC""", (room_id,)).fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["allowed_docs"] = con.execute(
+                    "SELECT COUNT(*) FROM dataroom_link_documents WHERE link_id=?",
+                    (d["id"],)).fetchone()[0]
+                out.append(d)
         finally:
             con.close()
-        return [dict(r) for r in rows]
+        return out
     except Exception as e:
         log.warning("list_room_links failed for room %s: %s", room_id, e)
         return []

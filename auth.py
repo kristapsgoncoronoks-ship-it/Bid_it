@@ -90,6 +90,10 @@ def connect():
             "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'editor'",
             f"ALTER TABLE users ADD COLUMN kdf_n INTEGER DEFAULT {LEGACY_N}",
             *tenancy.tenant_column_ddls(["error_log", "login_log"]),
+            # C3②: an OPTIONAL per-user contact email so secure-sharing alerts (view /
+            # sign / Q&A) can target the LINK CREATOR directly; unset = fall back to the
+            # team notify relay. APPEND only — positions stable.
+            "ALTER TABLE users ADD COLUMN email TEXT",
         ])
         _seed_permissions(con)
         audit.install_audit(con, ["users", "role_permissions"])  # both change-logged
@@ -257,15 +261,39 @@ def set_active(username, active):
 
 def get_user(username):
     con = connect()
-    u = con.execute("SELECT username, role, active, created FROM users WHERE username=?",
-                    (username,)).fetchone()
+    u = con.execute(
+        "SELECT username, role, active, created, email FROM users WHERE username=?",
+        (username,)).fetchone()
     con.close()
     return dict(u) if u else None
+
+def set_email(username, email):
+    """Set (or clear) a user's optional contact email — used to target secure-sharing
+    alerts at the link creator. Best-effort; an empty value clears it."""
+    con = connect()
+    con.execute("UPDATE users SET email=? WHERE username=?",
+                ((email or "").strip() or None, username))
+    con.commit(); con.close()
+
+def user_email(username):
+    """The user's contact email, or None (unknown user / unset). Never raises — a lookup
+    failure returns None so the caller falls back to the team relay."""
+    if not username:
+        return None
+    try:
+        con = connect()
+        row = con.execute("SELECT email FROM users WHERE username=?",
+                          (username,)).fetchone()
+        con.close()
+        return (row["email"] or None) if row else None
+    except Exception as e:
+        log.warning("user_email lookup failed for %r: %s", username, e)
+        return None
 
 def list_users():
     con = connect()
     users = [dict(u) for u in con.execute(
-        "SELECT username, role, active, created FROM users ORDER BY username")]
+        "SELECT username, role, active, created, email FROM users ORDER BY username")]
     for u in users:
         last = con.execute("""SELECT ts FROM login_log WHERE username=? AND success=1
                               ORDER BY ts DESC LIMIT 1""", (u["username"],)).fetchone()

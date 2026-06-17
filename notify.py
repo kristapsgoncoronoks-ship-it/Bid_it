@@ -291,10 +291,15 @@ def send_digest(transport=None, year=None):
 # (same SENT/NOOP/FAILED contract); critical_alert is the per-EVENT engine that fires
 # only when the critical set CHANGES (fingerprint dedup) so it never spams every tick.
 
-def send_alert(subject, lines, transport=None):
+def send_alert(subject, lines, transport=None, recipients=None):
     """Send ONE immediate alert built from `subject` + `lines` (a list of strings),
     as a plain-text + escaped-HTML body. `transport` (with .send(to, subject, html,
     text)) is injected by tests; in production it is built from admin SMTP settings.
+
+    `recipients` (a string or list, C3②) OVERRIDES the team relay so an alert can target
+    a specific address — e.g. the secure-sharing link CREATOR's own email. When it is
+    None/empty we fall back to the configured `notify_recipients` team relay (so alerts
+    are never silently dropped).
 
     Returns one of SENT (truthy), NOOP, or FAILED — mirrors send_digest so the caller
     can tell a real SMTP failure (retry + alert) apart from a legitimate no-op (no
@@ -302,7 +307,14 @@ def send_alert(subject, lines, transport=None):
     if not lines:
         log.info("notify: empty alert — nothing to send")
         return NOOP
-    recipients = _recipients()
+    if recipients:
+        if isinstance(recipients, str):
+            recipients = [a.strip() for a in recipients.replace(";", ",").split(",")
+                          if a.strip()]
+        else:
+            recipients = [str(a).strip() for a in recipients if str(a).strip()]
+    if not recipients:
+        recipients = _recipients()
     if not recipients:
         log.info("notify: no recipients configured (notify_recipients) — skipping alert")
         return NOOP
