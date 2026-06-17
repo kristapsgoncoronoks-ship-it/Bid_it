@@ -36,6 +36,10 @@ def isolated(monkeypatch, tmp_path):
     import sharing
     import document_vault
     import vat_refund as VR
+    import auth
+
+    # self-contained: keep the sharing module gate ON for the web surface.
+    auth.set_setting("module_sharing", "on")
 
     monkeypatch.setattr(sharing, "DB", str(tmp_path / "sharing.db"))
     monkeypatch.setattr(sharing, "_SCHEMA_READY", set())

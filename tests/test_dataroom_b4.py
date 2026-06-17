@@ -43,6 +43,10 @@ def isolated(monkeypatch, tmp_path):
     import sharing
     import document_vault
     import vat_refund as VR
+    import auth
+
+    # self-contained: the dataroom web surface lives under the sharing module gate.
+    auth.set_setting("module_sharing", "on")
 
     monkeypatch.setattr(sharing, "DB", str(tmp_path / "sharing.db"))
     monkeypatch.setattr(sharing, "_SCHEMA_READY", set())

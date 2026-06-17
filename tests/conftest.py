@@ -46,6 +46,50 @@ def admin_session():
         #       rather than failing teardown.
 
 
+# Settings keys (or key prefixes) that are GLOBAL, persisted in security.db's
+# app_settings table, and toggled by tests (module on/off switches, AI feature
+# flags, the multitenant switch, intake override, the scrape scheduler). A test
+# that flips one of these without restoring it pollutes every later test AND
+# every later run (security.db persists). We neutralise this two ways below.
+_RUNTIME_SETTING_PREFIXES = ("module_", "ai_", "multitenant",
+                             "intake_override_until", "scrape_scheduler_enabled")
+
+
+def _is_runtime_setting(key):
+    return any(key == p or key.startswith(p) for p in _RUNTIME_SETTING_PREFIXES)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_app_settings(admin_session):
+    """Per-test isolation of the global ``app_settings`` table (security.db).
+
+    BEFORE each test:
+      * snapshot the full settings table, then DELETE the runtime/toggleable keys
+        (``module_*``, ``ai_*``, ``multitenant``, ``intake_override_until``,
+        ``scrape_scheduler_enabled``) so the test starts from the in-code defaults
+        regardless of any leaked OR hostile pre-existing state (e.g. a stray
+        ``module_sharing=0`` set before the run). Modules default to "on", AI
+        flags to OFF — the clean product baseline.
+    AFTER each test:
+      * restore the snapshot verbatim, so no test leaks state to the next one and
+        we leave the developer's security.db exactly as we found it.
+    """
+    import auth
+    con = auth.connect()
+    snapshot = [(r["key"], r["value"])
+                for r in con.execute("SELECT key, value FROM app_settings")]
+    to_clear = [k for (k, _v) in snapshot if _is_runtime_setting(k)]
+    con.executemany("DELETE FROM app_settings WHERE key=?", [(k,) for k in to_clear])
+    con.commit(); con.close()
+    try:
+        yield
+    finally:
+        con = auth.connect()
+        con.execute("DELETE FROM app_settings")
+        con.executemany("INSERT INTO app_settings (key, value) VALUES (?,?)", snapshot)
+        con.commit(); con.close()
+
+
 @pytest.fixture()
 def client(admin_session):
     """A logged-in Flask test client (CSRF-exempt login keeps this simple)."""
