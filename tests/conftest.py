@@ -80,6 +80,16 @@ def _isolate_app_settings(admin_session):
                 for r in con.execute("SELECT key, value FROM app_settings")]
     to_clear = [k for (k, _v) in snapshot if _is_runtime_setting(k)]
     con.executemany("DELETE FROM app_settings WHERE key=?", [(k,) for k in to_clear])
+    # role_permissions (processor capabilities) is ALSO global mutable state in
+    # security.db — a test that revokes/grants a capability would otherwise leak
+    # into another (and across runs). Snapshot it, then reset to the in-code clean
+    # default (every grantable capability GRANTED for 'processor'), so each test
+    # starts identical regardless of order or a polluted dev DB.
+    perm_snap = [(r["role"], r["perm"], r["allowed"])
+                 for r in con.execute("SELECT role, perm, allowed FROM role_permissions")]
+    con.execute("DELETE FROM role_permissions")
+    con.executemany("INSERT INTO role_permissions (role, perm, allowed) VALUES ('processor',?,1)",
+                    [(p,) for p in auth.PERMISSIONS])
     con.commit(); con.close()
     try:
         yield
@@ -87,6 +97,8 @@ def _isolate_app_settings(admin_session):
         con = auth.connect()
         con.execute("DELETE FROM app_settings")
         con.executemany("INSERT INTO app_settings (key, value) VALUES (?,?)", snapshot)
+        con.execute("DELETE FROM role_permissions")
+        con.executemany("INSERT INTO role_permissions (role, perm, allowed) VALUES (?,?,?)", perm_snap)
         con.commit(); con.close()
 
 
