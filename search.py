@@ -161,12 +161,24 @@ def _doc_invoice_index(scon):
     return out
 
 
-def _metadata_text(rowkey):
+def _metadata_text(rowkey, tenant_id=None):
     """The A3 metadata blob (tag names + custom-field values) for a document `rowkey`
     (`doc:<id>`), or "" if there is none / metadata is unavailable. Best-effort and NEVER
-    raises — search must keep working even if the app-owned metadata.db is absent/empty."""
+    raises — search must keep working even if the app-owned metadata.db is absent/empty.
+
+    The rebuild runs the whole scan under OWNER scope (so metadata is readable across every
+    tenant). To keep a document's indexed body to ITS OWN tenant's metadata (a colliding
+    subject_ref must not pull another tenant's tags into this row's body), we BIND the
+    document's source `tenant_id` for the duration of this metadata read — restoring owner
+    scope afterwards. With the switch OFF (or tenant_id None) this is inert."""
     try:
         import metadata
+        if tenant_id is not None and tenancy.multitenant_enabled():
+            tenancy.set_tenant(tenant_id)
+            try:
+                return metadata.index_text(rowkey)
+            finally:
+                tenancy.set_owner_scope()   # restore the rebuild's cross-tenant read scope
         return metadata.index_text(rowkey)
     except Exception as e:
         log.debug("metadata enrichment skipped for %s: %s", rowkey, e)
@@ -204,17 +216,19 @@ def _scan(fcon, scon):
         inv_date = _txt(inv["invoice_date"]) if inv else ""
         vat = vats.get((sup, country)) or ""
         rowkey = f"doc:{d['id']}"
+        src_tenant = (d["tenant_id"] if doc_has_t else _DEFAULT_T) or _DEFAULT_T
         title = (f"{_txt(sup)} — invoice {_txt(d['invoice_ref'])}"
                  if d["invoice_ref"] else f"{_txt(sup)} — {_txt(d['filename'])}")
         # A3 — fold this document's metadata (tag names + custom-field values) into the
         # searchable body, keyed by the SAME `doc:<id>` rowkey metadata.py stores against,
         # so a document becomes findable by its tag/field text. Best-effort: empty/broken
         # metadata contributes "" and never breaks the rebuild (search must not depend on
-        # the app-owned metadata DB existing).
-        meta = _metadata_text(rowkey)
+        # the app-owned metadata DB existing). We pass the document's SOURCE tenant so the
+        # enrichment reads only THAT tenant's metadata (the rebuild runs under owner scope).
+        meta = _metadata_text(rowkey, tenant_id=src_tenant)
         yield {
             "rowkey": rowkey, "kind": KIND_DOC, "link": f"/doc/{d['id']}",
-            "tenant_id": (d["tenant_id"] if doc_has_t else _DEFAULT_T) or _DEFAULT_T,
+            "tenant_id": src_tenant,
             "title": title,
             "supplier": " ".join(x for x in (_txt(sup), legal) if x),
             "vat_number": vat,
@@ -361,6 +375,17 @@ def rebuild(fcon=None, scon=None):
     t0 = time.time()
     own_f = fcon is None
     own_s = scon is None
+    # The rebuild scans EVERY tenant's documents (the product DBs are not tenant-filtered
+    # at scan time — each FTS row is STAMPED with its source row's tenant_id below, and
+    # search() filters by that at QUERY time). The A3 metadata enrichment (_metadata_text
+    # -> metadata.tags_for / get_values) is tenant-SCOPED, so with the `multitenant` switch
+    # ON it would fail CLOSED (no tenant bound on the rebuild thread -> scope_clause returns
+    # " AND 1=0") and silently index nothing. Run the whole scan under OWNER scope — the
+    # deliberate, audited cross-tenant READ exception — so metadata reads span every tenant
+    # while the rebuild runs. We reset_tenant() afterwards to restore an unscoped thread.
+    # OFF byte-identical: scope_clause is inert when the switch is OFF, so owner scope here
+    # changes nothing.
+    tenancy.set_owner_scope()
     try:
         if own_f:
             fcon = dataproduct.connect("fuel_history")
@@ -372,6 +397,7 @@ def rebuild(fcon=None, scon=None):
         log.info("search index rebuilt: %d row(s) in %.3fs", n, secs)
         return {"rows": n, "seconds": secs}
     finally:
+        tenancy.reset_tenant()
         if own_f and fcon is not None:
             fcon.close()
         if own_s and scon is not None:

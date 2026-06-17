@@ -79,7 +79,27 @@ CREATE INDEX IF NOT EXISTS ix_doc_versions_subject ON doc_versions(subject_ref);
 """
 
 # Versioned migrations: APPEND new statements at the END (positions are stable).
-_MIGRATIONS = []
+_MIGRATIONS = [
+    # ── TENANT-QUALIFIED UNIQUE re-key (multi-tenant correctness) ───────────────
+    # The natural key here is (subject_ref, version_no): "one row per version of a
+    # logical document". The SCHEMA ships it as a UNIQUE INDEX, NOT tenant-qualified,
+    # so under the `multitenant` switch ON two tenants holding the SAME logical
+    # document ref could not BOTH have a version_no 1 — they would COLLIDE on the
+    # UNIQUE, losing/blocking a tenant's version chain. Re-key the UNIQUE to
+    # (tenant_id, subject_ref, version_no) so uniqueness is per-tenant.
+    #
+    # A UNIQUE *index* (not a table-level constraint / PK) re-keys with a simple DROP
+    # INDEX + CREATE — NO table rebuild, so the surrogate `id` PK, the rows, and the
+    # audit triggers (which live on the TABLE, not the index) are all untouched.
+    # Existing rows already carry tenant_id='default' (the P1 column DEFAULT), so the
+    # new index builds cleanly over them. OFF byte-identical: with one tenant
+    # ('default') a (tenant_id, subject_ref, version_no) UNIQUE rejects a duplicate
+    # exactly as (subject_ref, version_no) did. APPEND-ONLY — keep at END; idempotent
+    # (each statement runs once per DB via db_migrate; DROP … IF EXISTS is re-runnable).
+    "DROP INDEX IF EXISTS ux_doc_versions_sv",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_doc_versions_tsv "
+    "ON doc_versions(tenant_id, subject_ref, version_no)",
+]
 
 _SCHEMA_READY = set()   # DB files whose schema is set up this process
 

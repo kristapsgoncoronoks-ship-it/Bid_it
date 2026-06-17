@@ -96,7 +96,31 @@ CREATE INDEX IF NOT EXISTS ix_tag_links_tag ON tag_links(tag_id);
 """
 
 # Versioned migrations: APPEND new statements at the END (positions are stable).
-_MIGRATIONS = []
+_MIGRATIONS = [
+    # ── TENANT-QUALIFIED UNIQUE re-key (multi-tenant correctness) ───────────────
+    # Two natural-key UNIQUEs here could collide across tenants when the `multitenant`
+    # switch is ON:
+    #   • field_values(field_id, subject_ref) — "one value per (field, subject)";
+    #   • tag_links(tag_id, subject_ref)       — "one link per (tag, subject)".
+    # Two tenants assigning the same field/subject (or tag/subject) would COLLIDE on
+    # the UNIQUE — and set_value's ON CONFLICT(field_id, subject_ref) would even
+    # OVERWRITE the other tenant's value. Re-key each UNIQUE to lead with tenant_id so
+    # uniqueness (and the upsert conflict target) is per-tenant.
+    #
+    # These are UNIQUE *indexes* (not table-level constraints / PKs), so the re-key is
+    # a simple DROP INDEX + CREATE — NO table rebuild: the surrogate `id` PK, the rows
+    # and the audit triggers (on the TABLE, not the index) are untouched. Existing rows
+    # already carry tenant_id='default' (the P1 column DEFAULT) so the new indexes build
+    # cleanly. set_value()'s ON CONFLICT target is updated in lockstep below. OFF
+    # byte-identical: with one tenant a (tenant_id, …) UNIQUE rejects a duplicate exactly
+    # as before. APPEND-ONLY — keep at END; idempotent (DROP … IF EXISTS re-runnable).
+    "DROP INDEX IF EXISTS ux_field_values_fs",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_field_values_tfs "
+    "ON field_values(tenant_id, field_id, subject_ref)",
+    "DROP INDEX IF EXISTS ux_tag_links_ts",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_tag_links_tts "
+    "ON tag_links(tenant_id, tag_id, subject_ref)",
+]
 
 _SCHEMA_READY = set()   # DB files whose schema is set up this process
 
@@ -342,7 +366,7 @@ def set_value(field_id, subject_ref, raw):
             con.execute(
                 """INSERT INTO field_values (field_id, subject_ref, value, tenant_id)
                    VALUES (?,?,?,?)
-                   ON CONFLICT(field_id, subject_ref)
+                   ON CONFLICT(tenant_id, field_id, subject_ref)
                    DO UPDATE SET value=excluded.value""",
                 (field_id, subject_ref, stored, tenancy.write_tenant()))
             con.commit()
