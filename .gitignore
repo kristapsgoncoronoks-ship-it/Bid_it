@@ -93,6 +93,10 @@ retention.db
 #    finding {type,count} (NEVER raw values) keyed by reference (advisory; no demo data) ──
 classify.db
 
+# ── Workflow engine — app-owned runtime DB: configurable approval/routing workflows +
+#    per-subject runs + assignee tasks, keyed by reference (advisory; no product columns) ──
+workflow.db
+
 # ── Cross-process lock store + SQLite WAL sidecars (transient, machine-specific) ──
 locks.db
 *.db-wal

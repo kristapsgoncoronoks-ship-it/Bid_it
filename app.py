@@ -504,6 +504,13 @@ PERM_BY_ENDPOINT = {
     # Data rooms (B4) — same capability as the share-link management surface.
     "rooms_page": "share", "room_page": "share", "room_qa_page": "share",
     "room_engagement_page": "share",
+    # WORKFLOW engine (Box Relay-style, advisory) — the Tasks inbox is open to any
+    # logged-in user (no capability), so only the admin define/manage pages are gated
+    # here (the whole `workflow_admin*` surface needs the `documents` capability, plus
+    # an admin-only check below). The inbox + act-on-task + start-run are intentionally
+    # NOT listed -> any logged-in user may reach them (subject to login + CSRF).
+    "workflow_admin": "documents", "workflow_define": "documents",
+    "workflow_update": "documents", "workflow_deactivate": "documents",
     "export_master":   "exports", "export_history": "exports",
     "export_pricing":  "exports", "export_vat": "exports", "export_compare": "exports",
     "export_stations": "exports", "export_summary": "exports", "export_fee": "exports",
@@ -529,7 +536,11 @@ ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "recei
               # the confidence-learning scoreboard is a read-only admin surface.
               "admin_confidence",
               # the multi-tenancy registry is a read-only admin surface (P0).
-              "admin_tenants"}
+              "admin_tenants",
+              # the workflow DEFINE/MANAGE surface is admin-only (an admin builds the
+              # routing); the Tasks inbox / act / start-run are NOT here (any login).
+              "workflow_admin", "workflow_define", "workflow_update",
+              "workflow_deactivate"}
 
 # Switchable PARTS of the app. An admin turns these on/off in the Admin panel; a
 # disabled part is hidden from the menu and its pages return "turned off". Core pages
@@ -565,6 +576,10 @@ MODULES = {
                     "export_vat", "export_readiness", "export_fees", "export_fee",
                     "export_receivables", "export_evidence"}),
     "fx":         ("FX vs ECB exchange rates", {"fx"}),
+    "workflow":   ("Workflow — configurable approval/routing + a Tasks inbox (advisory)",
+                   {"tasks_page", "task_act", "workflow_start",
+                    "workflow_admin", "workflow_define", "workflow_update",
+                    "workflow_deactivate"}),
 }
 _ENDPOINT_MODULE = {ep: k for k, (_lbl, eps) in MODULES.items() for ep in eps}
 
@@ -1369,6 +1384,10 @@ h2.section:first-of-type{margin-top:4px}
   {% if 'data_import' in perms %}<a href="/data" class="{{'on' if page=='dat'}}">Data manager</a>{% endif %}
 </span></div></div>
 <a href="/history" class="{{'on' if page=='his'}}">History</a>
+{% if 'workflow' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['tasks','wfadm'] else ''}}">Tasks</span><div class="mdrop"><span>
+  <a href="/tasks" class="{{'on' if page=='tasks'}}">My tasks &amp; approvals</a>
+  {% if is_admin %}<a href="/workflows" class="{{'on' if page=='wfadm'}}">Manage workflows</a>{% endif %}
+</span></div></div>{% endif %}
 <span class="rightnav">
 {% if 'exports' in perms %}<div class="menu" tabindex="0"><span class="mlabel">⬇ Export</span><div class="mdrop"><span>
   <a href="/export/summary">Summary report</a><a href="/export/master">Master workbook</a><a href="/export/history">History report</a>
@@ -7223,9 +7242,11 @@ def doc_meta(doc_id):
 
     retention_card = _retention_card(doc_id, subject_ref)
     classification_card = _classification_card(doc_id, subject_ref)
+    workflow_card = _workflow_card(subject_ref)
 
     body = (banner
             + classification_card
+            + workflow_card
             + f'<div class="card"><h2>Document metadata — {esc(label)}</h2>'
             '<div class="note">Tags and typed custom fields attached to this document '
             '(stored in the app-owned metadata DB, not the engine product DBs). Monetary '
@@ -7239,6 +7260,56 @@ def doc_meta(doc_id):
             '<a href="/metadata">manage fields &amp; tags</a> · '
             '<a href="/retention">retention policies</a></p>')
     return page(body, "doc")
+
+
+def _workflow_card(subject_ref):
+    """The per-document WORKFLOW indicator + a "Start workflow" action, for the doc metadata
+    screen. Shows existing runs over this subject (current step / approved / rejected) and,
+    when the workflow module is on, a small form to start an ACTIVE workflow. ADVISORY only —
+    starting/advancing a workflow never touches a VAT figure, status or lock. Best-effort: any
+    failure renders nothing rather than breaking the page. Never raises."""
+    if not module_enabled("workflow"):
+        return ""
+    try:
+        import workflow
+        runs = workflow.runs_for(subject_ref)
+        active = workflow.list_workflows(active_only=True)
+    except Exception as e:
+        _log_exc("workflow: card", e)
+        return ""
+    run_rows = []
+    for r in runs:
+        st = workflow.run_status(r["id"]) or {}
+        step_lbl = "—"
+        if r.get("status") == "running" and st.get("current_step_name"):
+            step_lbl = (f'step {int(st.get("current_step") or 0) + 1}/'
+                        f'{int(st.get("n_steps") or 0)} · {st.get("current_step_name")}')
+        run_rows.append([
+            esc(r.get("workflow_name") or "—"),
+            _wf_status_html(r.get("status")),
+            esc(step_lbl),
+            esc(r.get("created_at") or ""),
+        ])
+    runs_html = (tbl(["Workflow", "Status", "Current step", "Started"], run_rows) if run_rows
+                 else '<p class="note">No workflows started on this document yet.</p>')
+    start_form = ""
+    if active:
+        opts = "".join(f'<option value="{int(w["id"])}">{esc(w.get("name") or "")}</option>'
+                       for w in active)
+        start_form = (
+            '<form method="post" action="/workflow/start" class="f" style="margin-top:10px">'
+            + _csrf_input()
+            + f'<input type="hidden" name="subject_ref" value="{esc(subject_ref)}">'
+            + f'<label>Start workflow <select name="workflow_id">{opts}</select></label>'
+            + '<button>Start</button></form>')
+    else:
+        start_form = ('<p class="note" style="margin-top:8px">No active workflows — '
+                      '<a href="/workflows">define one</a>.</p>')
+    return (f'<div class="card"><h2>Workflow</h2>'
+            '<p class="note">Advisory approval/routing over this document. A workflow '
+            'approval is process tracking only — it never overrides the VAT legal gates '
+            '(checklist, locks, period-end) or changes a claim figure, status or fee.</p>'
+            f'{runs_html}{start_form}</div>')
 
 
 def _doc_dates(doc_id):
@@ -10448,6 +10519,233 @@ def esign_signed_download(request_id, signature_id):
     resp.headers["Content-Disposition"] = "inline; filename=signed.pdf"
     resp.headers["Cache-Control"] = "no-store"
     return resp
+
+
+# ---------------------------------------------------------------- WORKFLOW (Box Relay-style)
+# A configurable, ORDERED approval/routing engine over a document/invoice (workflow.py). It is
+# ADVISORY: a workflow approval is additive process tracking and NEVER overrides the VAT legal
+# gates (checklist / locks / period-end still govern actual filing). The admin DEFINE/MANAGE
+# pages are admin-only; the Tasks inbox + act + start-run are open to any logged-in user.
+_WF_STATUS_BADGE = {
+    "running": ('warn', 'running'), "approved": ('ok', 'approved'),
+    "rejected": ('bad', 'rejected'), "done": ('ok', 'done'),
+    "cancelled": ('mut', 'cancelled'),
+}
+
+
+def _wf_status_html(status):
+    cls, label = _WF_STATUS_BADGE.get(status, ('mut', status or '—'))
+    style = "" if cls == 'mut' else f' class="{cls}"'
+    return f'<span{style}>{esc(label)}</span>'
+
+
+@app.route("/tasks", methods=["GET"])
+def tasks_page():
+    """The Tasks / Approvals inbox: the PENDING workflow tasks assigned to the logged-in user
+    (or their role, or unassigned), with Approve/Reject + a note. Open to any logged-in user."""
+    import workflow
+    user = session.get("user", "")
+    role = session.get("role", "processor")
+    try:
+        tasks = workflow.my_tasks(user=user, role=role)
+    except Exception as e:
+        _log_exc("workflow: my_tasks", e)
+        tasks = []
+    rows = []
+    for t in tasks:
+        act_form = (
+            '<form method="post" action="/tasks/act" class="f" style="margin:0;gap:6px">'
+            + _csrf_input()
+            + f'<input type="hidden" name="task_id" value="{int(t["id"])}">'
+            + '<input name="note" placeholder="note (optional)" style="width:160px">'
+            + '<button name="decision" value="approve">Approve</button>'
+            + '<button name="decision" value="reject" '
+              'style="background:var(--bad)">Reject</button></form>')
+        rows.append([
+            esc(t.get("workflow_name") or "—"),
+            esc((t.get("subject_ref") or "")[:60]),
+            esc(t.get("action") or ""),
+            esc(t.get("assignee") or "anyone"),
+            esc(t.get("created_at") or ""),
+            act_form,
+        ])
+    table = (tbl(["Workflow", "Subject", "Step action", "Assigned to", "Created", "Decision"],
+                 rows) if rows else '<p class="note">No pending tasks assigned to you.</p>')
+    note = ('<p class="note">These are advisory process steps. Approving a workflow step '
+            'records the approval and advances the run — it does <b>not</b> change a VAT '
+            'claim status, lock, fee or figure; the statutory checklist, invoice locks and '
+            'period-end gate remain the sole authority over what can actually be filed.</p>')
+    return page(f'<div class="card"><h2>My tasks &amp; approvals</h2>{note}{table}</div>',
+                "tasks")
+
+
+@app.route("/tasks/act", methods=["POST"])
+def task_act():
+    """Record an approve/reject decision on a pending task and advance the run."""
+    import workflow
+    actor = session.get("user", "")
+    try:
+        task_id = int(request.form.get("task_id", "0"))
+    except (TypeError, ValueError):
+        task_id = 0
+    decision = (request.form.get("decision") or "").strip().lower()
+    note = (request.form.get("note") or "").strip() or None
+    run, err = workflow.act_on_task(task_id, decision, actor, note)
+    if err or not run:
+        banner = ('<div class="card" style="border-left:4px solid var(--bad)">'
+                  f'<b class="bad">Could not act on the task.</b> {esc(err or "error")}</div>')
+    else:
+        banner = ('<div class="card" style="border-left:4px solid var(--ok)">'
+                  f'<b class="ok">Recorded.</b> The run is now '
+                  f'{_wf_status_html(run.get("status"))}.</div>')
+    return page(banner + '<p><a href="/tasks">Back to tasks</a></p>', "tasks")
+
+
+@app.route("/workflow/start", methods=["POST"])
+def workflow_start():
+    """Start a workflow run over a subject (a doc:<id> / invoice ref). Open to any logged-in
+    user — starting an advisory process is not a privileged action. `return_to` controls the
+    redirect target (defaults back to the subject's runs view via /tasks)."""
+    import workflow
+    actor = session.get("user", "")
+    try:
+        workflow_id = int(request.form.get("workflow_id", "0"))
+    except (TypeError, ValueError):
+        workflow_id = 0
+    subject_ref = (request.form.get("subject_ref") or "").strip()
+    run, err = workflow.start_run(workflow_id, subject_ref, actor)
+    if err or not run:
+        banner = ('<div class="card" style="border-left:4px solid var(--bad)">'
+                  f'<b class="bad">Could not start the workflow.</b> {esc(err or "error")}</div>')
+    else:
+        banner = ('<div class="card" style="border-left:4px solid var(--ok)">'
+                  '<b class="ok">Workflow started.</b> The first step\'s task has been '
+                  'assigned. This is an advisory process step and does not change any VAT '
+                  'figure, status or lock.</div>')
+    return page(banner + '<p><a href="/tasks">Back to tasks</a></p>', "tasks")
+
+
+@app.route("/workflows", methods=["GET"])
+def workflow_admin():
+    """Admin: define + manage workflows (name + an ordered list of steps, each with an
+    assignee role/user + an action). Admin-only (see ADMIN_ONLY)."""
+    import workflow
+    try:
+        wfs = workflow.list_workflows()
+    except Exception as e:
+        _log_exc("workflow: list", e)
+        wfs = []
+    rows = []
+    for w in wfs:
+        step_html = " → ".join(
+            esc(f'{s.get("name") or s.get("action")} '
+                f'[{s.get("action")}'
+                + (f' · {s.get("assignee")}' if s.get("assignee") else '')
+                + ']')
+            for s in (w.get("steps") or [])) or '—'
+        toggle = (
+            '<form method="post" action="/workflows/deactivate" style="display:inline">'
+            + _csrf_input()
+            + f'<input type="hidden" name="workflow_id" value="{int(w["id"])}">'
+            + f'<input type="hidden" name="active" value="{0 if w.get("active") else 1}">'
+            + f'<button>{"Deactivate" if w.get("active") else "Activate"}</button></form>')
+        rows.append([
+            esc(w.get("name") or ""),
+            esc(w.get("trigger") or "manual"),
+            step_html,
+            ('<span class="ok">active</span>' if w.get("active")
+             else '<span class="mut">inactive</span>'),
+            toggle,
+        ])
+    table = (tbl(["Name", "Trigger", "Steps", "Status", ""], rows) if rows
+             else '<p class="note">No workflows defined yet.</p>')
+
+    actions = "".join(f'<option value="{esc(a)}">{esc(a)}</option>'
+                      for a in workflow.STEP_ACTIONS)
+    # the steps are entered as ONE line per step: "name | assignee | action | param=value".
+    define_form = (
+        '<div class="card"><h2>Define a workflow</h2>'
+        '<p class="note">An ordered list of steps. Each step has an assignee (a role '
+        '<i>admin</i>/<i>processor</i> or a username; blank = anyone), an action '
+        '(<b>approve</b> = a human gate; <b>sign</b> = open an e-signature request; '
+        '<b>notify</b> = send an alert email; <b>tag</b> = assign a document tag), and '
+        'optional params. Enter one step per line as '
+        '<code>name | assignee | action | param=value</code>.</p>'
+        '<form method="post" action="/workflows/define" class="f">' + _csrf_input()
+        + '<label>Name<input name="name" required></label>'
+        + '<label>Trigger<select name="trigger">'
+          '<option value="manual">manual</option></select></label>'
+        + '<label style="flex:1 1 100%">Steps (one per line)'
+          '<textarea name="steps" rows="4" style="width:100%;font:13px ui-monospace,monospace" '
+          'placeholder="Manager approval | admin | approve&#10;'
+          'Sign PoA | admin | sign | title=Power of attorney&#10;'
+          'Tag reviewed | | tag | tag=Workflow-reviewed"></textarea></label>'
+        + f'<span class="note" style="flex:1 1 100%">Available actions: {esc(", ".join(workflow.STEP_ACTIONS))}</span>'
+        + '<div style="margin-top:8px"><button>Create workflow</button></div>'
+          '</form></div>')
+    advisory = ('<p class="note">Workflows are an <b>advisory</b> overlay: a workflow approval '
+                'is process tracking only and never overrides the VAT legal gates (checklist, '
+                'invoice locks, period-end) or mutates a claim figure, status or fee.</p>')
+    return page(define_form
+                + f'<div class="card"><h2>Workflows</h2>{advisory}{table}</div>', "wfadm")
+
+
+def _parse_step_lines(raw):
+    """Parse the textarea "one step per line" format into the step dicts normalize_steps wants.
+    Each line: "name | assignee | action | k=v | k2=v2". Blank lines are skipped. Never raises."""
+    steps = []
+    for line in (raw or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = [p.strip() for p in line.split("|")]
+        name = parts[0] if len(parts) > 0 else ""
+        assignee = parts[1] if len(parts) > 1 else ""
+        action = (parts[2] if len(parts) > 2 else "approve").lower()
+        params = {}
+        for kv in parts[3:]:
+            if "=" in kv:
+                k, v = kv.split("=", 1)
+                params[k.strip()] = v.strip()
+        steps.append({"name": name, "assignee": assignee, "action": action,
+                      "params": params})
+    return steps
+
+
+@app.route("/workflows/define", methods=["POST"])
+def workflow_define():
+    """Create a workflow from the admin form."""
+    import workflow
+    name = (request.form.get("name") or "").strip()
+    trigger = (request.form.get("trigger") or "manual").strip()
+    steps = _parse_step_lines(request.form.get("steps") or "")
+    wf, err = workflow.define_workflow(name, steps, trigger)
+    if err or not wf:
+        banner = ('<div class="card" style="border-left:4px solid var(--bad)">'
+                  f'<b class="bad">Could not create the workflow.</b> {esc(err or "error")}</div>')
+    else:
+        banner = ('<div class="card" style="border-left:4px solid var(--ok)">'
+                  f'<b class="ok">Workflow created.</b> {esc(wf.get("name"))} with '
+                  f'{len(wf.get("steps") or [])} step(s).</div>')
+    return page(banner + '<p><a href="/workflows">Back to workflows</a></p>', "wfadm")
+
+
+@app.route("/workflows/deactivate", methods=["POST"])
+def workflow_deactivate():
+    """Activate / deactivate a workflow (so it no longer offers a manual start)."""
+    import workflow
+    try:
+        wid = int(request.form.get("workflow_id", "0"))
+    except (TypeError, ValueError):
+        wid = 0
+    active = (request.form.get("active") or "0").strip() in ("1", "true", "on", "yes")
+    ok, msg = workflow.deactivate_workflow(wid, active)
+    banner = ('<div class="card" style="border-left:4px solid var(--ok)">'
+              f'<b class="ok">Workflow {"activated" if active else "deactivated"}.</b></div>'
+              if ok else
+              '<div class="card" style="border-left:4px solid var(--bad)">'
+              f'<b class="bad">Could not update.</b> {esc(msg)}</div>')
+    return page(banner + '<p><a href="/workflows">Back to workflows</a></p>', "wfadm")
 
 
 @app.route("/share/<int:link_id>/views")
