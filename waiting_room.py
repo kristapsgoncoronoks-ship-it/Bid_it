@@ -837,6 +837,23 @@ def _audit_vision_capture(row, jid, draft):
         log.warning("vision-capture audit failed for job %s — extraction unaffected: %s", jid, e)
 
 
+def _persist_capture_file(row, draft):
+    """Persist a vision draft's CAPTURE DOCUMENT as a durable second file (JSON + text) in
+    the app-owned data lake, LINKED to the original upload by its sha256 (the same sha the
+    upload archived as its raw_upload data-lake entry), so the original PDF and its captured-
+    data file are a clear pair. App-owned write only — no product-DB handle. Best-effort: a
+    non-vision draft is a no-op and a failure never breaks the worker."""
+    try:
+        if (draft or {}).get("backend") != "vision":
+            return
+        import capture_file
+        capture_file.persist(draft, row["sha256"], source_name=row["filename"],
+                             backend="vision", actor=row["uploaded_by"] or "system")
+    except Exception as e:
+        log.warning("capture-file persist failed for job %s — extraction unaffected: %s",
+                    row["id"] if row else "?", e)
+
+
 def _row_tenant(row):
     """The tenant_id stamped on a job row, defensively defaulting to
     DEFAULT_TENANT_ID for an OLD row written before the tenant_id column existed
@@ -1086,6 +1103,7 @@ def process_one():
             _import_log(row, "extract", "success", records=len(draft.get("lines", [])),
                         message=f"extracted via {draft.get('backend','')}")
             _audit_vision_capture(row, jid, draft)
+            _persist_capture_file(row, draft)
             return (jid, "ready")
         except EX.TransientExtractionError as e:
             # upstream out of tokens / rate-limited. This is not the document's

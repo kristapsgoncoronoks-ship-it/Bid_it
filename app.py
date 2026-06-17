@@ -460,6 +460,8 @@ PERM_BY_ENDPOINT = {
     "extract_ai_review": "data_import", "extract_ai_verify": "data_import",
     "extract_ai_correct": "data_import",
     "extract_capture_download": "data_import",
+    "extract_capture_file_download": "data_import",
+    "capture_file_download": "documents",
     "data_manager":    "data_import",
     "intake_queue_page": "data_import", "intake_review": "data_import",
     "doc_mining_page": "data_import", "imports": "data_import", "files_archive": "data_import",
@@ -542,10 +544,12 @@ MODULES = {
     "intake":     ("Intake — import, waiting room, files, document mining",
                    {"extract_batch", "extract_confirm", "extract_ai_review",
                     "extract_ai_verify", "extract_ai_correct", "extract_capture_download",
+                    "extract_capture_file_download",
                     "intake_queue_page", "intake_review",
                     "imports", "files_archive", "doc_mining_page", "data_manager"}),
     "compliance": ("Compliance — invoice control, contract audit, documents",
                    {"invoice_ctrl", "contracts", "documents", "doc_download", "doc_assistant",
+                    "capture_file_download",
                     "doc_meta", "metadata_admin", "search_page",
                     "doc_versions", "doc_version_download",
                     "retention_admin", "retention_review",
@@ -2909,6 +2913,20 @@ def extract_batch():
         with open(_os.path.join(tmp, token + ".pkl"), "wb") as pf:
             pickle.dump(draft.get("_pdf_bytes", []), pf)
         _stash_draft(token, draft)
+        # Persist the AI-vision CAPTURE DOCUMENT as a durable second file (JSON + text),
+        # LINKED to this upload's sha256 (the raw_upload archived above) so the original
+        # PDF and its captured-data file are a pair. Best-effort; only a vision draft.
+        if draft.get("backend") == "vision":
+            try:
+                import capture_file
+                capture_file.persist(draft, _sha, source_name=f.filename, backend="vision",
+                                     actor=session.get("user", "system"))
+                # stash the upload sha on the (already-stashed) draft so the review screen
+                # can surface the saved-file links (a `_`-prefixed key, never registered).
+                draft["_upload_sha256"] = _sha
+                _stash_draft(token, draft)
+            except Exception as e:
+                _log_exc("persist capture file", e)
         # READ-FIRST: derive the period from the invoice/statement date (the manual field
         # is an optional override) and surface what was auto-detected — auto-onboarding an
         # unknown-but-VAT-identified supplier as provisional, or flagging it UNMATCHED.
@@ -3129,7 +3147,25 @@ def _capture_findings_html(draft):
             f'<ul style="margin:6px 0 0 18px">{items}</ul></div>')
 
 
-def _capture_document_html(draft, token=None, intake_job=None):
+def _capture_upload_sha(draft, intake_job=None):
+    """Resolve the ORIGINAL upload's sha256 for a vision draft — the key the persisted
+    captured-data file is linked by. Prefers the sha stashed on the draft (sync path),
+    else the intake job's sha256 (queue path). Returns '' when unknown. NEVER raises."""
+    try:
+        s = (draft or {}).get("_upload_sha256") if isinstance(draft, dict) else None
+        if s:
+            return str(s)
+        if intake_job:
+            import waiting_room as IQ
+            job = IQ.get_job(int(intake_job))
+            if job and job.get("sha256"):
+                return str(job["sha256"])
+    except Exception as e:
+        _log_exc("resolve capture upload sha", e)
+    return ""
+
+
+def _capture_document_html(draft, token=None, intake_job=None, upload_sha=None):
     """Render the FULL AI-vision capture document (header + per-transaction table with all
     the richer columns + totals) on the review screen, with Download (JSON + readable text)
     links. EVERY model-supplied value is ESCAPED — the capture document is UNTRUSTED model
@@ -3181,6 +3217,26 @@ def _capture_document_html(draft, token=None, intake_job=None):
               f'<a href="/extract/capture/{esc(token)}.json{jq}">JSON</a> · '
               f'<a href="/extract/capture/{esc(token)}.txt{jq}">readable text</a></div>')
 
+    # The PERSISTED second file: when the captured data has been saved as a durable file
+    # in the data lake (linked to the original PDF by its upload sha256), surface it as
+    # "saved as a file" with the SAME view/download next to the original PDF in the vault.
+    saved = ""
+    sha = (upload_sha or _capture_upload_sha(draft, intake_job) or "").strip()
+    if sha:
+        try:
+            import capture_file
+            if capture_file.has_capture(sha):
+                s = esc(sha)
+                saved = ('<div class="note" style="margin-top:6px">'
+                         '<b class="ok">Saved as a file</b> — this captured data is stored '
+                         'permanently as a second file next to the original PDF (in the '
+                         'document vault): '
+                         f'<a href="/extract/capture-file/{s}.json?view=1">view</a> · '
+                         f'<a href="/extract/capture-file/{s}.json">JSON</a> · '
+                         f'<a href="/extract/capture-file/{s}.txt">text</a>.</div>')
+        except Exception as e:
+            _log_exc("review saved-capture link", e)
+
     return ('<div class="card"><h2>Capture document (AI vision — advisory)</h2>'
             '<div class="note" style="margin-top:0">The comprehensive structured data a '
             'vision model read from the page images. <b>Untrusted model output</b> — verify '
@@ -3189,7 +3245,7 @@ def _capture_document_html(draft, token=None, intake_job=None):
             '<table style="margin-top:10px"><thead><tr>'
             + "".join(f"<th>{h}</th>" for h in cols)
             + f'</tr></thead><tbody>{line_rows}</tbody></table>'
-            + tot_html + dl + '</div>')
+            + tot_html + dl + saved + '</div>')
 
 
 def _provenance_badge(src):
@@ -3237,7 +3293,7 @@ def _persisted_corrections_html(draft):
             'you Confirm below.</div></div>')
 
 
-def _review_form(draft, token, intake_job=None, period=None, ai_panel=""):
+def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload_sha=None):
     rows = ""
     for i, ln in enumerate(draft.get("lines", [])):
         rows += ('<tr>'
@@ -3255,7 +3311,7 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel=""):
             f'<div class="note">Source: <b>{esc(draft.get("backend",""))}</b> · '
             f'confidence <span class="{ccls}">{esc(conf)}</span> · '
             f'{len(draft.get("files",[]))} PDF(s). {esc(draft.get("notes",""))}</div>'
-            + _capture_document_html(draft, token, intake_job)
+            + _capture_document_html(draft, token, intake_job, upload_sha=upload_sha)
             + _persisted_corrections_html(draft)
             + _capture_findings_html(draft) +
             '<form method="post" action="/extract/confirm" class="f" style="margin-top:10px">'
@@ -3690,50 +3746,10 @@ def _ai_review_panel(result):
 
 def _capture_text(cap):
     """A readable plain-text rendering of a capture document (header + per-transaction
-    lines + totals) for the .txt download. Pure; reads the validated capture dict."""
-    cap = cap or {}
-    hdr = cap.get("header") or {}
-    sup = hdr.get("supplier") or {}
-    cust = hdr.get("customer") or {}
-    inv = hdr.get("invoice") or {}
-    tot = cap.get("totals") or {}
-
-    def v(x):
-        return "" if x is None else str(x)
-
-    out = ["AI VISION CAPTURE DOCUMENT (advisory — verify against the PDF before confirming)",
-           "=" * 78, "",
-           "SUPPLIER",
-           f"  name        : {v(sup.get('name'))}",
-           f"  VAT number  : {v(sup.get('vat_number'))}",
-           f"  address     : {v(sup.get('address'))}",
-           f"  country     : {v(sup.get('country'))}", "",
-           "CUSTOMER",
-           f"  name        : {v(cust.get('name'))}",
-           f"  VAT number  : {v(cust.get('vat_number'))}",
-           f"  account/card: {v(cust.get('account_or_card_no'))}", "",
-           "INVOICE",
-           f"  number      : {v(inv.get('number'))}",
-           f"  issue date  : {v(inv.get('issue_date'))}",
-           f"  due date    : {v(inv.get('due_date'))}",
-           f"  currency    : {v(inv.get('currency'))}",
-           f"  exch. rate  : {v(inv.get('exchange_rate'))}", "",
-           "TRANSACTIONS", "-" * 78]
-    for i, ln in enumerate(cap.get("lines") or [], 1):
-        out.append(f"  [{i}] {v(ln.get('date'))} {v(ln.get('time'))} "
-                   f"{v(ln.get('station_name'))} / {v(ln.get('city'))} / {v(ln.get('country'))}")
-        out.append(f"      product={v(ln.get('product'))} qty={v(ln.get('quantity'))}"
-                   f"{v(ln.get('unit'))} unit_price={v(ln.get('unit_price'))} "
-                   f"discount={v(ln.get('discount'))}")
-        out.append(f"      net={v(ln.get('net'))} vat_rate={v(ln.get('vat_rate'))} "
-                   f"vat={v(ln.get('vat'))} gross={v(ln.get('gross'))} "
-                   f"card={v(ln.get('card_no'))} receipt={v(ln.get('receipt_no'))}")
-    out += ["", "TOTALS",
-            f"  net total     : {v(tot.get('net_total'))}",
-            f"  discount total: {v(tot.get('discount_total'))}",
-            f"  VAT total     : {v(tot.get('vat_total'))}",
-            f"  gross total   : {v(tot.get('gross_total'))}"]
-    return "\n".join(out) + "\n"
+    lines + totals) for the .txt download. Delegates to the single reusable builder in
+    `capture_file` so the transient download and the persisted .txt artifact stay in sync."""
+    import capture_file
+    return capture_file.build_text(cap)
 
 
 @app.route("/extract/capture/<token>.<fmt>")
@@ -3770,6 +3786,58 @@ def extract_capture_download(token, fmt):
     from flask import Response
     return Response(body, mimetype=mime,
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+def _serve_capture_file(sha, fmt):
+    """Serve the PERSISTED captured-data file (the durable second file next to the original
+    PDF) for an upload sha256, as JSON or readable text. `?view=1` renders inline (View);
+    otherwise it downloads (attachment). Reads the artifact bytes via the app-owned data
+    lake; reads NO product DB. Read-only; escapes nothing into HTML (it serves raw bytes
+    with a non-HTML content type, so the captured fields cannot execute as markup)."""
+    if fmt not in ("json", "txt"):
+        return page('<div class="card"><b class="bad">Unknown format.</b></div>', "ext")
+    inline = request.args.get("view") in ("1", "true", "yes")
+    body, mime = None, None
+    try:
+        import capture_file, data_lake
+        latest = capture_file.latest_for_upload(sha)
+        row = latest.get("json") if fmt == "json" else latest.get("text")
+        if row:
+            data = data_lake.get(row["stored_path"])
+            if data:
+                body = data
+                mime = ("application/json" if fmt == "json"
+                        else "text/plain; charset=utf-8")
+    except Exception as e:
+        _log_exc("serve capture file", e)
+    if body is None:
+        return page('<div class="card"><b class="bad">No saved captured-data file is '
+                    'available for this document.</b></div>'
+                    '<p><a href="/documents">← back to documents</a></p>', "doc")
+    from flask import Response
+    fname = f"capture-{esc(str(sha)[:12])}.{ 'json' if fmt == 'json' else 'txt' }"
+    disp = "inline" if inline else "attachment"
+    # When rendering inline we still force a NON-HTML content type so untrusted captured
+    # fields cannot run as markup in the browser (defence-in-depth alongside esc()).
+    return Response(body, mimetype=mime,
+                    headers={"Content-Disposition": f'{disp}; filename="{fname}"',
+                             "X-Content-Type-Options": "nosniff"})
+
+
+@app.route("/capture-file/<sha>.<fmt>")
+def capture_file_download(sha, fmt):
+    """Document-vault view/download of the PERSISTED captured-data file for an original PDF,
+    keyed by the upload's sha256. Access: documents (enforced in _guard). The captured-data
+    file is the SECOND file paired with the original PDF in the vault."""
+    return _serve_capture_file(sha, fmt)
+
+
+@app.route("/extract/capture-file/<sha>.<fmt>")
+def extract_capture_file_download(sha, fmt):
+    """Intake-review view/download of the PERSISTED captured-data file (the same durable
+    artifact surfaced in the document vault), keyed by the upload's sha256. Access:
+    data_import (enforced in _guard) so a reviewer can open the saved file from review."""
+    return _serve_capture_file(sha, fmt)
 
 
 @app.route("/extract/ai-verify", methods=["POST"])
@@ -3897,6 +3965,17 @@ def extract_ai_correct():
                              "provider": reverify.get("provider", ""),
                              "model": reverify.get("model", "")}
     _stash_draft(token, corrected)
+    # RE-SAVE the persisted capture file so the durable second file reflects the AI-verified /
+    # CORRECTED capture (newest-wins versioning, linked to the same upload sha). Best-effort.
+    try:
+        import capture_file
+        upload_sha = (job or {}).get("sha256")
+        if upload_sha:
+            capture_file.persist(corrected, upload_sha,
+                                 source_name=(job or {}).get("filename"), backend="vision",
+                                 actor=session.get("user", "system"))
+    except Exception as e:
+        _log_exc("re-persist capture file after corrections", e)
     # 5) Audit the correction batch: job/doc id + count + provider/model + the FIELD NAMES
     #    only — NEVER the PDF bytes, image data, or any secret. Best-effort.
     try:
@@ -4394,7 +4473,7 @@ def _read_only_draft_view(job, draft):
             f'<tr><td style="color:var(--mut)">confidence</td><td class="{ccls}">{esc(conf)}</td></tr>'
             f'<tr><td style="color:var(--mut)">source</td><td>{esc(draft.get("backend") or "")}</td></tr>'
             '</tbody></table>'
-            + _capture_document_html(draft)
+            + _capture_document_html(draft, upload_sha=(job or {}).get("sha256"))
             + _capture_findings_html(draft)
             + '<table style="margin-top:10px"><thead><tr>'
             + "".join(f"<th>{h}</th>" for h in ["Invoice no", "Date", "Country", "Ccy", "Net", "VAT", "Provenance"])
@@ -6536,6 +6615,30 @@ def vat_unmatched():
     return page(body, "vat")
 
 
+def _captured_data_links(sha256):
+    """If a persisted AI-vision CAPTURE artifact is LINKED to this vaulted document's
+    sha256 (the original PDF = the same bytes the upload archived as raw_upload), render a
+    "Captured data" entry next to the PDF with View + Download (JSON / text) links. Returns
+    '' when there is no linked capture artifact (so a non-vision document shows nothing
+    extra). Best-effort: NEVER raises; the sha is escaped into every URL."""
+    sha = (sha256 or "").strip()
+    if not sha:
+        return ""
+    try:
+        import capture_file
+        if not capture_file.has_capture(sha):
+            return ""
+    except Exception as e:
+        _log_exc("captured-data links lookup", e)
+        return ""
+    s = esc(sha)
+    return (' <span class="note" title="AI-vision captured data saved alongside the original '
+            'PDF (advisory — verify against the PDF)">· Captured data: '
+            f'<a href="/capture-file/{s}.json?view=1">view</a> '
+            f'<a href="/capture-file/{s}.json">JSON</a> '
+            f'<a href="/capture-file/{s}.txt">text</a></span>')
+
+
 @app.route("/documents", methods=["GET", "POST"])
 def documents():
     import vat_refund as VR, supplier_master
@@ -6634,6 +6737,7 @@ def documents():
                           f'<a href="/doc-assistant/{d["id"]}" class="note">ask&nbsp;AI</a> '
                           f'<a href="/doc/{d["id"]}/meta" class="note">tags&nbsp;&amp;&nbsp;fields</a> '
                           f'<a href="/doc/{d["id"]}/versions" class="note">versions</a>'
+                          + _captured_data_links(d["sha256"])
                           for d in docs) or '<span class="bad">MISSING</span>'
             up = (f'<form method="post" enctype="multipart/form-data" style="margin:0;display:flex;gap:6px">'
                   + _csrf_input() +
