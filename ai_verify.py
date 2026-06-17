@@ -684,7 +684,35 @@ def _apply_one(draft, cap, target, document):
 
 
 # ---------------------------------------------------------------- orchestration
-def verify(pdf_bytes, draft, backend=None, max_pages=None):
+def _dlp_blocked(subject_ref):
+    """DLP gate (OPT-IN). When `subject_ref` is given AND the document's classified
+    sensitivity EXCEEDS the admin `ai_external_max_sensitivity` policy, return the blocked
+    note (a string) so the external-AI path REFUSES to send; else None (proceed). The
+    default policy is permissive (`restricted`) so this is None unless an admin TIGHTENED
+    it. FAILS OPEN on any error / when unset / when the doc was never classified. Best-
+    effort: never raises -> None (proceed)."""
+    if not subject_ref:
+        return None
+    try:
+        import classify
+        allowed, info = classify.external_ai_allowed(subject_ref)
+        if allowed:
+            return None
+        note = classify.blocked_result(info)
+        log.warning("AI verify refused by DLP policy for %r: %s", subject_ref, note)
+        try:
+            import auth
+            auth.log_error("DLP / data classification", "DlpBlocked", note, "")
+        except Exception as e:
+            log.warning("could not write DLP block to the admin error log: %s", e)
+        return note
+    except Exception as e:                       # FAIL OPEN — never block on a gate error
+        log.warning("DLP gate check failed for %r — failing OPEN (allow): %s",
+                    subject_ref, e)
+        return None
+
+
+def verify(pdf_bytes, draft, backend=None, max_pages=None, subject_ref=None):
     """Verify an already-extracted `draft` against the ORIGINAL `pdf_bytes` with a vision
     model. ADVISORY + READ-ONLY: returns a verdict dict for DISPLAY; it NEVER mutates the
     draft, a figure, a status, a lock, or a fee, and writes NO DB.
@@ -692,7 +720,16 @@ def verify(pdf_bytes, draft, backend=None, max_pages=None):
     Best-effort / NEVER raises: when no vision provider is configured it makes ZERO network
     calls and returns {"verdict":"unavailable"}; a transient backend error (quota / rate-
     limit / timeout) or a render failure likewise returns "unavailable" (logged via applog).
-    The PDF is rendered to at most `max_pages` (default MAX_PAGES=3) leading page images."""
+    The PDF is rendered to at most `max_pages` (default MAX_PAGES=3) leading page images.
+
+    DLP GATE (OPT-IN): when `subject_ref` is given AND the document's classified sensitivity
+    EXCEEDS the admin `ai_external_max_sensitivity` policy, this REFUSES to send the PDF to
+    the provider (ZERO network call) and returns a clear 'blocked by DLP policy' verdict. The
+    default policy is permissive, so by default behaviour is byte-identical."""
+    blocked = _dlp_blocked(subject_ref)
+    if blocked:
+        return {"verdict": "blocked", "fields": [], "notes": blocked,
+                "provider": "", "model": "", "pages": 0, "dlp_blocked": True}
     be = _provider(backend)
     if be is None:
         return {"verdict": "unavailable", "fields": [],

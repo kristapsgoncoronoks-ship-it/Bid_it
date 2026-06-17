@@ -84,6 +84,10 @@ versions.db
 #    legal holds keyed by reference (advisory; no product columns; no demo data) ──
 retention.db
 
+# ── Data classification / DLP — app-owned runtime DB: per-document sensitivity label +
+#    finding {type,count} (NEVER raw values) keyed by reference (advisory; no demo data) ──
+classify.db
+
 # ── Cross-process lock store + SQLite WAL sidecars (transient, machine-specific) ──
 locks.db
 *.db-wal

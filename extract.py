@@ -855,14 +855,51 @@ def _plain_draft(texts, files, backend, filename, strict, ocr_used=False):
     # for structured e-invoice / hybrid Factur-X PDFs (those stay deterministic, AI-free) —
     # `_plain_draft` is only reached for plain PDFs. On None (off / render / backend error /
     # unparseable) we fall straight through to the existing OCR→parser→AI→generic chain.
+    # AUTO-CLASSIFY (DLP): scan the document's available text ONCE so a sensitivity label
+    # exists without manual action. Best-effort + never raises; stores ONLY {type,count} +
+    # the label (NEVER the raw values). The label both surfaces on the review screen and
+    # gates the OPT-IN external-AI vision path below. classify_result stays None when the
+    # classifier is unavailable (extraction is byte-identical in that case).
+    classify_result = None
+    try:
+        import classify
+        classify_result = classify.scan_text("\n".join(t for t in (texts or []) if t))
+    except Exception as e:
+        log.warning("auto-classification skipped (advisory) for %s: %s", filename, e)
+
     capture_failed_reason = None
     try:
         import vision_capture
         if vision_capture.enabled():
-            pdf0 = files[0][1] if files else None
-            vd = vision_capture.capture(pdf0, files=files)
-            if vd is not None:
-                return vd
+            # DLP gate (OPT-IN, default permissive): refuse to send the page images to the
+            # external vision provider when the just-scanned label EXCEEDS the admin policy.
+            dlp_block = None
+            if classify_result is not None:
+                try:
+                    import classify
+                    allowed, _info = classify.external_ai_allowed_for_label(
+                        classify_result.get("label"))
+                    if not allowed:
+                        dlp_block = classify.blocked_result(_info)
+                except Exception as e:
+                    log.warning("DLP gate check skipped (failing OPEN) for %s: %s",
+                                filename, e)
+            if dlp_block:
+                log.warning("vision capture refused by DLP policy for %s: %s",
+                            filename, dlp_block)
+                try:
+                    import auth
+                    auth.log_error("DLP / data classification", "DlpBlocked", dlp_block, "")
+                except Exception as e:
+                    log.warning("could not write DLP block to the admin error log: %s", e)
+                capture_failed_reason = dlp_block
+            else:
+                pdf0 = files[0][1] if files else None
+                vd = vision_capture.capture(pdf0, files=files)
+                if vd is not None:
+                    if classify_result is not None:
+                        vd["classification"] = classify_result
+                    return vd
             # capture() returned None. It was ENABLED, so distinguish a BACKEND error (loud:
             # note + admin error-log entry) from the OFF/not-configured path (which never
             # sets a reason). _surface_capture_failure() handles the visibility.
@@ -913,6 +950,8 @@ def _plain_draft(texts, files, backend, filename, strict, ocr_used=False):
             draft["confidence"] = "medium"
     draft["files"] = [{"name": n, "size": len(b)} for n, b in files]
     draft["_pdf_bytes"] = files                    # kept for vault attach on confirm
+    if classify_result is not None:
+        draft["classification"] = classify_result   # advisory DLP label for the review screen
     _surface_capture_failure(draft, capture_failed_reason)
     return draft
 

@@ -308,8 +308,22 @@ def to_draft(capture, files=None, backend="vision"):
     return draft
 
 
+# ---------------------------------------------------------------- DLP gate (opt-in)
+def _dlp_blocked(subject_ref):
+    """DLP gate (OPT-IN). Reuses ai_verify._dlp_blocked: when `subject_ref` is given AND the
+    document's classified sensitivity EXCEEDS the admin `ai_external_max_sensitivity` policy,
+    return the blocked note so capture REFUSES to send; else None. Default policy is
+    permissive. FAILS OPEN on any error. Never raises -> None (proceed)."""
+    try:
+        return ai_verify._dlp_blocked(subject_ref)
+    except Exception as e:
+        log.warning("DLP gate check failed for %r — failing OPEN (allow): %s",
+                    subject_ref, e)
+        return None
+
+
 # ---------------------------------------------------------------- orchestration
-def capture(pdf_bytes, backend=None, max_pages=None, files=None):
+def capture(pdf_bytes, backend=None, max_pages=None, files=None, subject_ref=None):
     """Read a PLAIN invoice PDF's page images with a vision model and return a REVIEW DRAFT
     (capture document mapped onto the existing draft shape), or None.
 
@@ -319,11 +333,24 @@ def capture(pdf_bytes, backend=None, max_pages=None, files=None):
     NEVER raises. ADVISORY: the returned draft is a draft a human confirms; nothing here
     writes a DB or mutates a figure.
 
+    DLP GATE (OPT-IN): when `subject_ref` is given AND the document's classified sensitivity
+    EXCEEDS the admin `ai_external_max_sensitivity` policy, capture REFUSES to send the PDF
+    page images to the provider (ZERO network call) and returns None (the caller falls back
+    to the on-server OCR/parser path), recording a visible reason via take_last_error() so
+    the fallback is surfaced + admin-error-logged. The default policy is permissive, so by
+    default behaviour is byte-identical.
+
     `files` (a list of (name, bytes)) is the original PDF batch to vault on confirm; when
     given, the draft carries `files` + `_pdf_bytes` exactly like the other extract paths."""
     # Clear any stale reason FIRST. The OFF / not-configured branch below returns without
     # ever setting one (so OFF stays silent — no note, no error-log entry, byte-identical).
     _set_last_error(None)
+    # DLP gate (opt-in, default permissive). When a doc's label exceeds the policy, refuse
+    # to send the page images to the provider and fall back on-server (a visible reason).
+    blocked = _dlp_blocked(subject_ref)
+    if blocked:
+        _set_last_error(blocked)
+        return None
     be = backend or _provider()
     if be is None or not pdf_bytes:
         return None

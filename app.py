@@ -6940,8 +6940,10 @@ def doc_meta(doc_id):
                     '<a href="/metadata">create some</a>.</div>')
 
     retention_card = _retention_card(doc_id, subject_ref)
+    classification_card = _classification_card(doc_id, subject_ref)
 
     body = (banner
+            + classification_card
             + f'<div class="card"><h2>Document metadata — {esc(label)}</h2>'
             '<div class="note">Tags and typed custom fields attached to this document '
             '(stored in the app-owned metadata DB, not the engine product DBs). Monetary '
@@ -7058,6 +7060,86 @@ def _retention_card(doc_id, subject_ref):
             'retention everywhere — a held document is never flagged for disposition, and '
             'nothing is ever auto-deleted (the review queue is a human worklist).</div>'
             f'<h3 style="margin-top:12px">Legal hold</h3>{hold_block}</div>')
+
+
+# ---------------------------------------------------------------- data classification / DLP
+_DLP_BADGE_STYLE = {
+    "restricted":   ("&#128274; Restricted", "var(--bad)"),
+    "confidential": ("&#128274; Confidential", "var(--bad)"),
+    "internal":     ("&#128275; Internal", "var(--ink)"),
+    "public":       ("Public", "var(--ok)"),
+}
+
+
+def _classification_badge(rec):
+    """A small, ESCAPED sensitivity badge from a classify.classification() record (or scan
+    result) — e.g. "🔒 Restricted — contains IBAN×1, email×2". Returns "" when `rec` is
+    falsy. The finding TYPES + COUNTS only (never any value) are shown. Pure; never raises."""
+    if not rec:
+        return ""
+    label = (rec.get("label") or "public").lower()
+    text, color = _DLP_BADGE_STYLE.get(label, ("Public", "var(--ok)"))
+    findings = rec.get("findings") or []
+    if findings:
+        parts = ", ".join(f'{esc(str(f.get("type")))}&times;{esc(str(f.get("count")))}'
+                          for f in findings)
+        detail = f' &mdash; contains {parts}'
+    else:
+        detail = ' &mdash; no sensitive data detected'
+    return (f'<span class="badge" style="border:1px solid {color};border-radius:4px;'
+            f'padding:1px 7px;color:{color}"><b>{text}</b>{detail}</span>')
+
+
+def _classify_doc_text(doc_id):
+    """Best-effort text of a vaulted document for classification: read the ORIGINAL vaulted
+    bytes and extract text. Returns "" on any failure (classification then yields 'public').
+    Never raises."""
+    try:
+        orig = _doc_original(doc_id)
+        if not orig or not orig.get("stored_path"):
+            return ""
+        import document_vault as DV, extract as EX, vat_refund as VR
+        raw = DV.get_bytes(orig["stored_path"], VR.DOCDIR)
+        if not raw:
+            return ""
+        return EX.pdf_text(raw) or ""
+    except Exception as e:
+        _log_exc("classify doc text", e)
+        return ""
+
+
+def _classification_card(doc_id, subject_ref):
+    """The per-document DATA-CLASSIFICATION (DLP) panel. Lazily classifies the document from
+    its vaulted text when no record exists yet (so the label appears without manual action),
+    then shows the ESCAPED sensitivity badge + the current external-AI gate policy. Advisory;
+    classify.py is best-effort and never raises."""
+    import classify
+    rec = classify.classification(subject_ref)
+    if rec is None:
+        text = _classify_doc_text(doc_id)
+        if text:
+            classify.classify_document(subject_ref, text)
+            rec = classify.classification(subject_ref)
+    badge = _classification_badge(rec) if rec else (
+        '<span class="note">Not yet classified.</span>')
+    mx = classify.max_sensitivity()
+    allowed, info = (True, {}) if rec is None else classify.external_ai_allowed(subject_ref)
+    if rec is not None and not allowed:
+        gate = (f'<div class="note bad" style="margin-top:6px">&#128683; External AI is '
+                f'<b>blocked</b> for this document by the DLP policy '
+                f'(<code>{esc(mx)}</code>): {esc(info.get("reason") or "")}</div>')
+    else:
+        gate = (f'<div class="note" style="margin-top:6px">External-AI sensitivity limit: '
+                f'<b>{esc(mx)}</b>. This document is <b>allowed</b> to be sent to the '
+                f'external AI under the current policy '
+                f'(<a href="/admin#modules">change it</a>).</div>')
+    return (f'<div class="card"><h2>Data classification (DLP)</h2>'
+            f'<div>{badge}</div>{gate}'
+            '<div class="note" style="margin-top:6px">The sensitivity label is derived by '
+            'scanning the document text for sensitive-data <b>types</b> (IBAN, bank/card, '
+            'email, phone, VAT id, names). Only the type + a count is stored — <b>never the '
+            'matched value</b>. The label is <b>advisory</b>; it gates only the OPT-IN '
+            'external-AI paths and never a legal check.</div></div>')
 
 
 def _doc_original(doc_id):
@@ -8524,6 +8606,20 @@ def admin():
                           "ORIGINAL PDF page images to the configured AI provider for "
                           "unknown-layout/scanned invoices." if on
                           else "AI vision capture turned OFF.")
+            elif act == "set_dlp_policy":
+                # DATA CLASSIFICATION / DLP: the OPT-IN external-AI sensitivity gate. The
+                # default `restricted` is PERMISSIVE (allow everything) — tightening it BLOCKS
+                # any document whose classified label exceeds the chosen max from the external
+                # AI. No backend here; purely a policy setting.
+                import classify as _cl
+                want = (request.form.get("ai_external_max_sensitivity") or "").strip().lower()
+                if want not in _cl.LABELS:
+                    want = _cl.DEFAULT_MAX_SENSITIVITY
+                _auth.set_setting(_cl.POLICY_SETTING, want)
+                banner = (f"DLP external-AI sensitivity limit set to <b>{esc(want)}</b>."
+                          + (" (Permissive — nothing is blocked.)"
+                             if want == _cl.DEFAULT_MAX_SENSITIVITY else
+                             " Documents classified above this are blocked from external AI."))
             elif act == "test_ai_connection":
                 # MINIMAL real round-trip to the configured vision backend (text-only, no
                 # PDF) so the admin can verify the key/model in one click. Never logs/echoes
@@ -9101,6 +9197,46 @@ def admin():
               + '<button name="__act" value="set_ai_vision_capture">Save capture setting</button>'
               + '</form>'
               + '</div>')
+    # DATA CLASSIFICATION / DLP (Box-Shield-style). An app-owned overlay that scans a
+    # document's text for sensitive-data TYPES, assigns a sensitivity LABEL, and (OPT-IN)
+    # gates what may be sent to the EXTERNAL AI by sensitivity. Default policy is permissive
+    # (`restricted` = allow everything) so it never blocks until an admin tightens it.
+    import classify as _cl
+    _dlp_max = _cl.max_sensitivity()
+    _dlp_counts = _cl.counts_by_label()
+    _dlp_opts = "".join(
+        f'<option value="{esc(lbl)}" {"selected" if lbl == _dlp_max else ""}>'
+        f'{esc(lbl)}{" (permissive — allow all)" if lbl == _cl.DEFAULT_MAX_SENSITIVITY else ""}'
+        f'</option>' for lbl in _cl.LABELS)
+    _dlp_count_rows = "".join(
+        f'<li><b>{esc(lbl)}</b>: {esc(str(_dlp_counts.get(lbl, 0)))} document(s)</li>'
+        for lbl in reversed(_cl.LABELS) if _dlp_counts.get(lbl))
+    _dlp_count_block = (f'<ul class="note" style="margin-top:6px">{_dlp_count_rows}</ul>'
+                        if _dlp_count_rows else
+                        '<div class="note" style="margin-top:6px">No documents classified '
+                        'yet (a label is assigned when a document\'s text is available).</div>')
+    dlpf = ('<div class="card"><h2>Data classification / DLP</h2>'
+            '<div class="note" style="margin-top:0">Documents are scanned for sensitive-data '
+            '<b>types</b> (IBAN, bank account, BIC/SWIFT, card-like, email, phone, VAT id, '
+            'personal names) and assigned a sensitivity label on the scale '
+            '<code>public &lt; internal &lt; confidential &lt; restricted</code>. Only the '
+            'finding <b>type + a count</b> is stored — <b>never the matched value</b>. The '
+            'label is advisory and is shown on each document record.</div>'
+            '<div class="note" style="margin-top:8px">The <b>external-AI gate</b> below is '
+            '<b>opt-in</b>: it sets the maximum sensitivity that may be sent to the external '
+            'AI (vision verify / capture). The default <code>restricted</code> is '
+            '<b>permissive</b> (allow everything) — tighten it to BLOCK any document '
+            'classified above the chosen limit from the external AI; such a document is kept '
+            'on-server only. This gate <b>fails open</b> on a scan error and never blocks a '
+            'deterministic / on-server path.</div>'
+            '<form method="post" class="f" style="margin-top:8px">'
+            + _csrf_input()
+            + '<label>Maximum sensitivity allowed to external AI '
+              f'<select name="ai_external_max_sensitivity">{_dlp_opts}</select></label>'
+            + '<button name="__act" value="set_dlp_policy">Save DLP policy</button>'
+            + '</form>'
+            + f'<h3 style="margin-top:12px">Documents by sensitivity</h3>{_dlp_count_block}'
+            + '</div>')
     # API keys (machine access to the versioned /api/v1 contract). Default-OFF: no keys
     # exist until issued here. Tokens are SHA-256 hashed at rest and shown once at issue.
     import api_keys
@@ -9198,6 +9334,7 @@ def admin():
             + aidocchatf
             + aiverifyf
             + aicapf
+            + dlpf
             + '<h2 class="section" id="platform">Platform</h2>'
             + platform_card)
     return page(body, "adm")
