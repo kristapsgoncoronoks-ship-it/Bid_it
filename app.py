@@ -28,6 +28,15 @@ import dataproduct
 import applog
 _log = applog.get("app")
 
+# Load any admin-managed provider API keys (set from the Admin panel, sealed at rest)
+# into the process environment so the existing os.environ[...] reads keep working. A
+# real env var (systemd/shell) always wins; never raises.
+try:
+    import appsecrets as _appsecrets
+    _appsecrets.load_into_environ()
+except Exception as _e:   # pragma: no cover - never block startup on secret load
+    _log.warning("appsecrets.load_into_environ failed: %s", _e)
+
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(WORKDIR, "fuel_history.db")
 app = Flask(__name__)
@@ -9099,6 +9108,30 @@ def admin():
                           + (" (Permissive — nothing is blocked.)"
                              if want == _cl.DEFAULT_MAX_SENSITIVITY else
                              " Documents classified above this are blocked from external AI."))
+            elif act == "set_api_keys":
+                # Admin-managed provider API keys (sealed at rest via keyvault, applied to
+                # os.environ immediately). A blank field LEAVES the existing key unchanged;
+                # ticking "clear_<NAME>" REMOVES the stored key. A real systemd/shell env
+                # var always wins and cannot be set/overridden here.
+                import appsecrets as _aps
+                saved, cleared = [], []
+                for _nm in _aps.MANAGED:
+                    if request.form.get("clear_" + _nm) == "on":
+                        _aps.clear_secret(_nm)
+                        cleared.append(_nm)
+                        continue
+                    _val = request.form.get("key_" + _nm, "")
+                    if _val.strip():
+                        _aps.set_secret(_nm, _val)
+                        saved.append(_nm)
+                _parts = []
+                if saved:
+                    _parts.append("saved " + ", ".join(esc(s) for s in saved))
+                if cleared:
+                    _parts.append("cleared " + ", ".join(esc(c) for c in cleared))
+                banner = ("API keys updated — " + "; ".join(_parts) + "."
+                          if _parts else
+                          "No changes — blank fields leave existing keys untouched.")
             elif act == "test_ai_connection":
                 # MINIMAL real round-trip to the configured vision backend (text-only, no
                 # PDF) so the admin can verify the key/model in one click. Never logs/echoes
@@ -9567,6 +9600,47 @@ def admin():
             + _csrf_input() + modchecks
             + '<div style="margin-top:10px"><button name="__act" value="set_modules">'
               'Save modules</button></div></form></div>')
+    # Provider API keys — admin-managed, sealed at rest (appsecrets). Lets the admin set
+    # a key from the panel instead of a systemd drop-in; a real env var still WINS and is
+    # shown as "from environment". The key is never rendered back (masked tail only).
+    import appsecrets as _aps
+    def _keyrow(nm, label, placeholder):
+        src, hint = _aps.status(nm)
+        if src == "env":
+            badge = ('<b class="ok">from environment</b> '
+                     '<span class="note">(set on the server — overrides this panel)</span>')
+        elif src == "stored":
+            badge = f'<b class="ok">stored &#10003;</b> <span class="note">{esc(hint)}</span>'
+        else:
+            badge = '<b class="bad">not set</b>'
+        clear = ((f'<label class="note" style="font-weight:400;align-self:center">'
+                  f'<input type="checkbox" name="clear_{nm}"> clear</label>')
+                 if src == "stored" else "")
+        itype = "text" if nm in _aps._NOT_SECRET else "password"
+        return (f'<div style="margin:8px 0"><div style="font-size:13px">'
+                f'<b>{esc(label)}</b> — {badge}</div>'
+                f'<div class="f" style="margin-top:4px">'
+                f'<input name="key_{nm}" type="{itype}" autocomplete="new-password" '
+                f'placeholder="{esc(placeholder)}" style="min-width:340px"> {clear}</div></div>')
+    apikeysf = ('<div class="card"><h2>AI provider API keys</h2>'
+                '<div class="note" style="margin-top:0">Paste a provider API key here to power the '
+                'AI features below — <b>no server/terminal access needed</b>. Keys are '
+                '<b>encrypted at rest</b> (envelope encryption) and take effect immediately. '
+                'A <b>blank</b> field leaves the existing key unchanged. If a key is provided by '
+                'the server environment it shows as <b>from environment</b> and takes precedence. '
+                'The key itself is never displayed back — only a masked tail.</div>'
+                '<form method="post" style="margin-top:8px">'
+                + _csrf_input()
+                + _keyrow("ANTHROPIC_API_KEY", "Anthropic (Claude)", "sk-ant-api03-…")
+                + _keyrow("OPENAI_API_KEY", "OpenAI", "sk-…")
+                + '<details style="margin-top:6px"><summary class="note" style="cursor:pointer">'
+                  'Azure OpenAI (optional)</summary>'
+                + _keyrow("AZURE_OPENAI_KEY", "Azure OpenAI key", "key")
+                + _keyrow("AZURE_OPENAI_ENDPOINT", "Azure endpoint", "https://….openai.azure.com")
+                + _keyrow("AZURE_OPENAI_DEPLOYMENT", "Azure deployment", "deployment name")
+                + '</details>'
+                + '<div style="margin-top:10px"><button name="__act" value="set_api_keys">'
+                  'Save API keys</button></div></form></div>')
     # AI review assistant (advisory) — default OFF; reuses the extractor backend keys.
     _air_cur = _auth.get_setting("ai_review_backend", "none") or "none"
     _air_opts = "".join(f'<option value="{b}" {"selected" if b==_air_cur else ""}>{b}</option>'
@@ -9825,6 +9899,7 @@ def admin():
             + brandcard
             + '<h2 class="section" id="modules">Modules &amp; AI</h2>'
             + modf
+            + apikeysf
             + aireviewf
             + aidocchatf
             + aiverifyf
