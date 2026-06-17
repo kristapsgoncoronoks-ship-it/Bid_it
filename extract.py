@@ -863,7 +863,7 @@ def _plain_draft(texts, files, backend, filename, strict, ocr_used=False):
     classify_result = None
     try:
         import classify
-        classify_result = classify.scan_text("\n".join(t for t in (texts or []) if t))
+        classify_result = classify.scan_text("\n".join(t for _n, t in (texts or []) if t))
     except Exception as e:
         log.warning("auto-classification skipped (advisory) for %s: %s", filename, e)
 
