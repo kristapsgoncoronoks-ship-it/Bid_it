@@ -468,6 +468,7 @@ PERM_BY_ENDPOINT = {
     "invoice_ctrl":    "invoice_control", "contracts": "invoice_control",
     "vat":             "vat_claims", "api_vat": "vat_claims", "readiness": "vat_claims",
     "receivables":     "vat_claims", "export_receivables": "exports",
+    "financing":       "vat_claims",   # embedded-finance origination (advisory, NullProvider)
     "recon":           "vat_claims",
     "customers":       "customers", "cust_doc_download": "customers",
     "doc_requests":    "customers",   # the cross-customer document-requests control board
@@ -516,7 +517,7 @@ PERM_BY_ENDPOINT = {
 # The VAT-refund module (claims, readiness, recovery/fees + their exports/API) is
 # restricted to admins regardless of any processor capability.
 ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "receivables",
-              "recon",
+              "financing", "recon",
               "export_vat", "export_readiness", "export_fees", "export_fee",
               "export_receivables", "export_evidence",
               # the one-click monthly close is an engine-orchestration action (it
@@ -559,7 +560,8 @@ MODULES = {
                    {"share_links_page", "share_create", "share_views_page", "share_revoke",
                     "rooms_page", "room_page", "room_qa_page", "room_engagement_page"}),
     "vat":        ("VAT refunds — claims, readiness, recovery & fees (admin only)",
-                   {"vat", "api_vat", "readiness", "recovery", "receivables", "recon",
+                   {"vat", "api_vat", "readiness", "recovery", "receivables", "financing",
+                    "recon",
                     "export_vat", "export_readiness", "export_fees", "export_fee",
                     "export_receivables", "export_evidence"}),
     "fx":         ("FX vs ECB exchange rates", {"fx"}),
@@ -1332,12 +1334,13 @@ h2.section:first-of-type{margin-top:4px}
   {% if 'pricing' in perms %}<a href="/pricing" class="{{'on' if page=='pri'}}">Pricing intel</a>
   <a href="/reliability" class="{{'on' if page=='rel'}}">Reliability</a>{% endif %}
 </span></div></div>{% endif %}
-<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ent','vat','rdy','rec','rcv','fx'] else ''}}">VAT &amp; fees</span><div class="mdrop"><span>
+<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ent','vat','rdy','rec','rcv','fin','fx'] else ''}}">VAT &amp; fees</span><div class="mdrop"><span>
   <a href="/entities" class="{{'on' if page=='ent'}}">Entities &amp; VAT</a>
   {% if is_admin and 'vat' in modules %}<a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
   <a href="/readiness" class="{{'on' if page=='rdy'}}">Claims readiness</a>
   <a href="/recovery" class="{{'on' if page=='rec'}}">Recovery &amp; fees</a>
   <a href="/receivables" class="{{'on' if page=='rcv'}}">Receivables &amp; forecast</a>
+  <a href="/financing" class="{{'on' if page=='fin'}}">Embedded finance</a>
   <a href="/recon" class="{{'on' if page=='rcn'}}">Bank reconciliation</a>{% endif %}
   {% if 'fx' in modules %}<a href="/fx" class="{{'on' if page=='fx'}}">FX vs ECB</a>{% endif %}
 </span></div></div>
@@ -6116,6 +6119,186 @@ def receivables():
           'amount / factoring fee at the recorded terms.</div></div>')
     body = fin_banner + body + fin_section
     return page(body, "rcv")
+
+
+_FIN_DISCLAIMER = (
+    '<div class="card" style="border-left:4px solid #b06b00;background:#fff8ec">'
+    '<b>Advisory / origination-only.</b> This page <b>models a potential advance</b> '
+    'against your VAT receivable — <b>no funds move and this is not a financing offer</b>. '
+    'Real financing requires a <b>licensed partner</b>; the platform never lends. Nothing '
+    'here touches a VAT figure, claim status, lock, fee, or payment.</div>')
+
+
+@app.route("/financing", methods=["GET", "POST"])
+def financing():
+    """ADMIN-ONLY embedded-finance ORIGINATION surface (finance.py) — advisory, NullProvider
+    default. Models, per eligible open receivable, the advance offer (eligible / advance /
+    fee / net-now vs net-later / expected payout) at the configured origination terms, lets
+    an admin ORIGINATE an `offered` advance into the finance-owned ledger, and shows that
+    ledger with status transitions. ORIGINATION-ONLY: no funds move, and NOTHING here writes
+    a VAT figure/status/lock/fee/payment — finance only reads recovery_report() and writes
+    its own finance.db."""
+    import finance
+    banner = ""
+    if request.method == "POST":
+        act = request.form.get("__act", "")
+        try:
+            if act == "set_terms":
+                _auth.set_setting("finance_advance_rate",
+                                  request.form.get("advance_rate", "").strip())
+                _auth.set_setting("finance_fee_rate_annual",
+                                  request.form.get("fee_rate_annual", "").strip())
+                _auth.set_setting("finance_provider",
+                                  (request.form.get("provider", "none") or "none").strip())
+                banner = '<div class="card"><b class="ok">Origination terms saved.</b></div>'
+            elif act == "offer":
+                subject = request.form.get("subject", "")
+                ent = request.form.get("entity", ""); cty = request.form.get("country", "")
+                per = request.form.get("period", "")
+                elig = float(request.form.get("eligible_eur", "0") or 0)
+                adv = float(request.form.get("advance_eur", "0") or 0)
+                fee = float(request.form.get("fee_eur", "0") or 0)
+                row = finance.offer_advance(subject, elig, adv, fee,
+                                            actor=session.get("user", "admin"),
+                                            period=per, country=cty)
+                banner = ('<div class="card"><b class="ok">Advance offer recorded '
+                          '(origination-only — no funds move).</b></div>' if row
+                          else '<div class="card"><b class="bad">Could not record offer.</b></div>')
+            elif act == "set_status":
+                aid = int(request.form.get("advance_id", "0") or 0)
+                st = request.form.get("status", "")
+                row = finance.set_status(aid, st, actor=session.get("user", "admin"))
+                banner = ('<div class="card"><b class="ok">Advance status updated.</b></div>'
+                          if row else
+                          '<div class="card"><b class="bad">Could not update advance status.</b></div>')
+        except Exception as e:
+            _log_exc("financing/" + act, e)
+            banner = '<div class="card"><b class="bad">Action failed.</b></div>'
+
+    fo = finance.financeable_offers()
+    offers = fo["offers"]; totals = fo["totals"]; fterms = fo["terms"]
+    prov = finance.provider()
+    prov_lbl = "null" if prov.name == "none" else prov.name
+
+    # KPI strip — the aggregate economics of the financeable book.
+    kpis = (
+        '<div class="kpis">'
+        + f'<div class="kpi"><div class="v">EUR {totals["eligible_eur"]:,.0f}</div>'
+          '<div class="l">eligible receivable</div></div>'
+        + f'<div class="kpi"><div class="v">EUR {totals["advance_eur"]:,.0f}</div>'
+          f'<div class="l">advance ({fterms["advance_rate"]*100:.0f}%)</div></div>'
+        + f'<div class="kpi"><div class="v">EUR {totals["fee_eur"]:,.0f}</div>'
+          f'<div class="l">fee ({fterms["fee_rate_annual"]*100:.1f}%/yr)</div></div>'
+        + f'<div class="kpi"><div class="v">EUR {totals["net_now_eur"]:,.0f}</div>'
+          '<div class="l">net now (advance − fee)</div></div>'
+        + f'<div class="kpi"><div class="v">EUR {totals["net_later_eur"]:,.0f}</div>'
+          '<div class="l">net later (wait for the state)</div></div></div>')
+
+    # Financeable offers table — one row per eligible open receivable, each with an
+    # "Originate (offer)" action that records an `offered` ledger row.
+    offer_rows = []
+    for o in offers:
+        age = o.get("age_days")
+        form = (
+            '<form method="post" style="margin:0">' + _csrf_input()
+            + '<input type="hidden" name="__act" value="offer">'
+            + f'<input type="hidden" name="subject" value="{esc(o["subject"])}">'
+            + f'<input type="hidden" name="entity" value="{esc(o.get("entity") or "")}">'
+            + f'<input type="hidden" name="country" value="{esc(o.get("country") or "")}">'
+            + f'<input type="hidden" name="period" value="{esc(o.get("period") or "")}">'
+            + f'<input type="hidden" name="eligible_eur" value="{esc(str(o["eligible_eur"]))}">'
+            + f'<input type="hidden" name="advance_eur" value="{esc(str(o["advance_eur"]))}">'
+            + f'<input type="hidden" name="fee_eur" value="{esc(str(o["fee_eur"]))}">'
+            + '<button>Originate advance (offer)</button></form>')
+        offer_rows.append([
+            f"<td>{esc(o.get('entity') or '')}</td><td>{esc(o.get('country') or '')}</td>"
+            f"<td>{esc(o.get('period') or '')}</td>",
+            f"<td>{esc(o.get('status') or '')}</td>",
+            f"<td class=r>{money.f2(o['eligible_eur']):,.2f}</td>",
+            f"<td class=r><b>{money.f2(o['advance_eur']):,.2f}</b></td>",
+            f"<td class=r>{money.f2(o['fee_eur']):,.2f}</td>",
+            f"<td class=r>{money.f2(o['net_now_eur']):,.2f}</td>",
+            f"<td class=r>{money.f2(o['net_later_eur']):,.2f}</td>",
+            f"<td>{esc(o.get('expected_payout') or '')}"
+            + (f" <span class='note'>~{o['expected_days']}d</span>"
+               if isinstance(o.get('expected_days'), int) else "") + "</td>",
+            f"<td>{form}</td>"])
+    offers_tbl = (tbl(["Entity", "Country", "Period", "Claim status", "Eligible EUR",
+                       "Advance EUR", "Fee EUR", "Net now EUR", "Net later EUR",
+                       "Expected payout", "Originate"], offer_rows)
+                  if offer_rows
+                  else '<p class="note">No eligible (filed, unpaid) receivables to finance.</p>')
+
+    # Origination ledger with status transitions.
+    _next = {"offered": ("accepted", "declined"), "accepted": ("declined",)}
+    try:
+        ledger_rows = []
+        for a in finance.list_advances():
+            st = a.get("status") or ""
+            transitions = ""
+            for nxt in _next.get(st, ()):
+                transitions += (
+                    '<form method="post" style="display:inline;margin:0 4px 0 0">'
+                    + _csrf_input()
+                    + '<input type="hidden" name="__act" value="set_status">'
+                    + f'<input type="hidden" name="advance_id" value="{esc(str(a.get("id")))}">'
+                    + f'<input type="hidden" name="status" value="{esc(nxt)}">'
+                    + f'<button>{esc(nxt)}</button></form>')
+            ledger_rows.append([
+                f"<td>{esc(a.get('created_at') or '')}</td>",
+                f"<td>{esc(a.get('claim_key') or '')}</td>",
+                f"<td class=r>{money.f2(a.get('eligible_eur') or 0):,.2f}</td>",
+                f"<td class=r>{money.f2(a.get('amount_eur') or 0):,.2f}</td>",
+                f"<td class=r>{money.f2(a.get('fee_eur') or 0):,.2f}</td>",
+                f"<td>{esc(a.get('provider') or '')}</td>",
+                f"<td><b>{esc(st)}</b></td>",
+                f"<td>{transitions or '<span class=note>—</span>'}</td>"])
+        ledger_body = (tbl(["Recorded", "Receivable", "Eligible EUR", "Advance EUR",
+                            "Fee EUR", "Provider", "Status", "Transition"], ledger_rows)
+                       if ledger_rows
+                       else '<p class="note">No advances originated yet.</p>')
+    except Exception as e:
+        _log_exc("financing/list_advances", e)
+        ledger_body = '<p class="note">Origination ledger temporarily unavailable.</p>'
+
+    prov_note = (' — No partner configured; offers are <b>origination-only / informational</b>.'
+                 if prov.name == "none" else '')
+    body = (
+        banner + _FIN_DISCLAIMER
+        + '<div class="card"><h2>Embedded finance — origination</h2>'
+        + f'<div class="note">Provider: <b>{esc(prov_lbl)}</b>{prov_note}</div>'
+        + kpis
+        + '<div class="note">The financeable base is the SAME submitted/approved receivable '
+          'the recovery page shows (filed with the tax authority, not yet paid) — high '
+          'certainty is what makes it financeable. <b>Net now</b> = advance − fee (cash today); '
+          '<b>net later</b> = the full refund if you wait for the state. Fee = annual rate × '
+          'advance × expected-days/365 (a transparent, time-priced discount). NET EUR, '
+          'VAT-excluded.</div></div>'
+        + '<div class="card"><h2>Financeable receivables</h2>' + offers_tbl
+        + '<div class="note">Only eligible claims (status submitted/approved — filed but '
+          'unpaid) are financeable; a draft or paid claim is excluded. "Originate advance '
+          '(offer)" records an <b>offered</b> row in the finance ledger — origination-only, '
+          'no funds move.</div></div>'
+        + '<div class="card"><h2>Origination terms</h2>'
+        + '<form method="post" class="f">' + _csrf_input()
+        + '<input type="hidden" name="__act" value="set_terms">'
+        + f'<label>Advance rate<input name="advance_rate" '
+          f'value="{esc(str(fterms["advance_rate"]))}" style="width:80px"></label>'
+        + f'<label>Annual fee rate<input name="fee_rate_annual" '
+          f'value="{esc(str(fterms["fee_rate_annual"]))}" style="width:80px"></label>'
+        + '<label>Provider<select name="provider"><option value="none"'
+        + (' selected' if prov.name == "none" else '')
+        + '>none (origination-only)</option></select></label>'
+        + '<button>Save terms</button>'
+        + '<span class="note">Advance fraction (0&lt;x&le;1), annual fee fraction '
+          '(0&le;x&lt;1).</span></form></div>'
+        + '<div class="card"><h2>Origination ledger</h2>' + ledger_body
+        + '<div class="note">The finance-owned advances ledger (finance.db). Each row is a '
+          'MODELLED advance, never a funded one — with the NULL provider no money moves. '
+          'Lifecycle: offered → accepted / declined. EUR figures are the eligible receivable, '
+          'the advance and the fee at the recorded terms.</div></div>')
+    return page(body, "fin")
+
 
 @app.route("/export/receivables")
 def export_receivables():
