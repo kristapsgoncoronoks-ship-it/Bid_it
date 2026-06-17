@@ -457,7 +457,7 @@ def _needs_setup():
 # subset an admin has granted (see auth.PERMISSIONS / auth.has_perm).
 PERM_BY_ENDPOINT = {
     "extract_batch":   "data_import", "extract_confirm": "data_import",
-    "extract_ai_review": "data_import",
+    "extract_ai_review": "data_import", "extract_ai_verify": "data_import",
     "data_manager":    "data_import",
     "intake_queue_page": "data_import", "intake_review": "data_import",
     "doc_mining_page": "data_import", "imports": "data_import", "files_archive": "data_import",
@@ -539,6 +539,7 @@ MODULES = {
                     "export_saft", "reports_page", "reliability_page", "analytics"}),
     "intake":     ("Intake — import, waiting room, files, document mining",
                    {"extract_batch", "extract_confirm", "extract_ai_review",
+                    "extract_ai_verify",
                     "intake_queue_page", "intake_review",
                     "imports", "files_archive", "doc_mining_page", "data_manager"}),
     "compliance": ("Compliance — invoice control, contract audit, documents",
@@ -3186,6 +3187,7 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel=""):
             'auto-sync), attaches every source PDF to the document vault, and runs the '
             'normal triage. You can still edit any field above first.</div>'
             + _ai_review_button(token, intake_job, period)
+            + _ai_verify_button(token, intake_job, period)
             + '</div>'
             + ai_panel)
 
@@ -3207,6 +3209,28 @@ def _ai_review_button(token, intake_job=None, period=None):
             + '<button>AI review (advisory)</button>'
             + '<span class="note" style="margin-left:8px">A second opinion over the '
               'already-extracted data — never changes anything, never gates commit.</span>'
+            + '</form>')
+
+
+def _ai_verify_button(token, intake_job=None, period=None):
+    """The 'Verify against PDF with AI' control under the draft. Shown ONLY when AI
+    verification is enabled (opt-in setting ON AND a vision backend configured). This is the
+    DELIBERATE exception that sends the ORIGINAL PDF to the AI provider, so it is loudly
+    labelled and never shown unless explicitly enabled. Advisory only — never gates commit.
+    Needs the queue job to locate the original PDF, so it appears only for queued jobs."""
+    import ai_verify
+    if not (intake_job and ai_verify.enabled()):
+        return ""
+    prov = esc(ai_verify.provider_label() or "the configured AI provider")
+    return ('<form method="post" action="/extract/ai-verify" style="margin-top:10px">'
+            + _csrf_input()
+            + f'<input type="hidden" name="token" value="{esc(token)}">'
+            + f'<input type="hidden" name="intake_job" value="{esc(str(intake_job))}">'
+            + f'<input type="hidden" name="period" value="{esc(period or request.values.get("period", _default_period()))}">'
+            + '<button>Verify against PDF with AI (advisory)</button>'
+            + '<span class="bad" style="margin-left:8px">⚠️ Sends the ORIGINAL invoice PDF '
+              f'(which may contain IBANs/bank details) to {prov} for verification. Advisory '
+              'only — never changes a figure or gates the commit.</span>'
             + '</form>')
 
 
@@ -3567,6 +3591,108 @@ def _ai_review_panel(result):
             'already-extracted data. It never changes a figure or status and never gates '
             'the commit.</div>'
             + flags_tbl + note_html + det_html + prov + '</div>')
+
+
+@app.route("/extract/ai-verify", methods=["POST"])
+def extract_ai_verify():
+    """ADVISORY AI VERIFICATION of an extracted draft against the ORIGINAL PDF using a
+    vision model. Re-renders the same review/confirm screen with an appended verdict panel.
+    Access: data_import (enforced in _guard). NEVER mutates the draft, NEVER gates commit —
+    the /extract/confirm deterministic gate is untouched.
+
+    This is the deliberate, loudly-gated exception that DOES send the PDF: it only runs when
+    `ai_verify.enabled()` (opt-in setting ON + vision backend), and the original PDF bytes
+    are re-derived from the queue job's kept inbox file (so it is a queued-job action)."""
+    import ai_verify, waiting_room as IQ, extract as EX
+    token = request.form.get("token", "")
+    intake_job = request.form.get("intake_job") or None
+    period = request.form.get("period") or None
+    draft = _load_draft(token)
+    if draft is None:
+        return page('<div class="card"><b class="bad">This draft is no longer available '
+                    'for review (the session expired). Re-extract the batch.</b></div>'
+                    '<p><a href="/extract">← back to import</a></p>', "ext")
+    if not (intake_job and ai_verify.enabled()):
+        # belt-and-braces: never call out / render the panel when off
+        return page(_review_form(draft, token, intake_job=intake_job, period=period), "ext")
+    # Re-derive the ORIGINAL PDF bytes from the queue job's kept inbox file. We verify the
+    # FIRST PDF of the batch (one statement document per review). Never raises out of here.
+    pdf_bytes = b""
+    try:
+        job = IQ.get_job(int(intake_job))
+        if job:
+            pairs = EX.unpack(IQ.read_bytes(job["stored_path"]), job["filename"])
+            if pairs:
+                pdf_bytes = pairs[0][1]
+    except Exception as e:
+        _log_exc("ai verify load pdf", e)
+    try:
+        result = ai_verify.verify(pdf_bytes, draft)
+    except Exception as e:                              # verify() is best-effort; defensive
+        _log_exc("ai verify", e)
+        result = {"verdict": "unavailable", "fields": [],
+                  "notes": "AI verification is unavailable right now. Advisory only — "
+                           "nothing was changed; you can still confirm the draft.",
+                  "provider": "", "model": ""}
+    # Audit that a verification ran (job id + verdict + provider) — NEVER the PDF bytes,
+    # image data, or any secret. Best-effort: an audit failure never breaks the review.
+    try:
+        scon = _auth.connect()
+        _audit_mod.record_event(scon, "ai_verify", str(intake_job), "AI_VERIFY",
+                                {"verdict": result.get("verdict"),
+                                 "provider": result.get("provider"),
+                                 "model": result.get("model"),
+                                 "pages": result.get("pages"),
+                                 "statement_ref": draft.get("statement_ref")})
+        scon.close()
+    except Exception as e:
+        _log_exc("ai verify audit", e)
+    panel = _ai_verify_panel(result)
+    return page(_review_form(draft, token, intake_job=intake_job, period=period,
+                             ai_panel=panel), "ext")
+
+
+def _ai_verify_panel(result):
+    """Render the verification verdict: an overall badge (confirmed=green / discrepancies=
+    amber with each mismatch shown / unreadable|unavailable=muted) + the per-field rows +
+    notes. EVERY model-supplied value is ESCAPED (treated as untrusted). Advisory only —
+    nothing here changes a figure."""
+    verdict = result.get("verdict") or "unavailable"
+    badge = {
+        "confirmed": ('ok', 'Confirmed — the draft matches the PDF'),
+        "discrepancies": ('warn', 'Discrepancies found — review the mismatches below'),
+        "unreadable": ('note', 'Unreadable — the AI could not read the page images'),
+        "unavailable": ('note', 'Unavailable — no verification was performed'),
+    }.get(verdict, ('note', 'Unavailable'))
+    cls, label = badge
+    rows = ""
+    for f in result.get("fields", []) or []:
+        match = bool(f.get("match"))
+        rcls = "" if match else "warn"
+        if match:
+            detail = '<span class="ok">match</span>'
+        else:
+            # field: read "X" vs document "Y" — both values escaped (untrusted model output)
+            detail = (f'read "<b>{esc(f.get("extracted",""))}</b>" vs document '
+                      f'"<b>{esc(f.get("document",""))}</b>"')
+        rows += (f'<tr class="{rcls}"><td>{esc(f.get("name",""))}</td><td>{detail}</td></tr>')
+    if not rows:
+        rows = '<tr><td colspan="2" class="note">No field-level detail returned.</td></tr>'
+    tbl = ('<table style="margin-top:8px"><thead><tr><th>Field</th>'
+           '<th>Comparison</th></tr></thead>'
+           f'<tbody>{rows}</tbody></table>')
+    notes = result.get("notes")
+    notes_html = (f'<div class="note" style="margin-top:8px"><b>Notes:</b> {esc(notes)}</div>'
+                  if notes else "")
+    prov = result.get("provider") or ""
+    prov_html = ('<div class="note" style="margin-top:8px">'
+                 + (f'{esc(prov)}' + (f' · {esc(result.get("model",""))}'
+                                      if result.get("model") else "") + ' · ' if prov else "")
+                 + 'advisory only — the original PDF was sent for verification; nothing was '
+                   'changed and your confirmation is still required.</div>')
+    return ('<div class="card"><h2>AI verification against the PDF (advisory)</h2>'
+            f'<div style="margin-top:0"><span class="{cls}"><b>{esc(label)}</b></span></div>'
+            + tbl + notes_html + prov_html + '</div>')
 
 
 def _intake_extract_outcomes(limit=20):
@@ -7886,6 +8012,15 @@ def admin():
                 _auth.set_setting("ai_doc_chat_enabled", "on" if on else "off")
                 banner = ("AI document assistant turned ON (advisory; derived-data-only)."
                           if on else "AI document assistant turned OFF.")
+            elif act == "set_ai_verify":
+                # advisory AI VERIFICATION against the ORIGINAL PDF (vision). Default OFF.
+                # This is the deliberate exception that SENDS the PDF to the AI provider, so
+                # the flag is opt-in only; the backend/key reuse the extractor selection.
+                on = request.form.get("ai_verify_enabled") == "on"
+                _auth.set_setting("ai_verify_enabled", "on" if on else "off")
+                banner = ("AI PDF verification turned ON (advisory). Note: this sends the "
+                          "ORIGINAL PDF to the configured AI provider." if on
+                          else "AI PDF verification turned OFF.")
             elif act == "toggle":
                 if tgt == session["user"]:
                     raise ValueError("you cannot disable your own account")
@@ -8385,6 +8520,40 @@ def admin():
                   '(above) to be configured; otherwise the panel shows a disabled notice and '
                   'makes no network call.</div>'
                   + '</div>')
+    # AI VERIFICATION against the ORIGINAL PDF (vision) — default OFF. THE DELIBERATE
+    # EXCEPTION: this feature SENDS the original PDF (possible IBANs/bank details) to the
+    # external AI provider. Loudly gated with a red warning card; reuses the ai_review
+    # backend selection (Claude/OpenAI only — vision-capable).
+    import ai_verify as _aiv
+    _verify_on = str(_auth.get_setting("ai_verify_enabled", "off") or "off").lower() in ("on", "1", "true", "yes")
+    _verify_prov = _aiv._provider()
+    _verify_prov_label = _aiv.provider_label(_verify_prov) if _verify_prov else ""
+    _verify_active = (f'Active vision provider: <b>{esc(_verify_prov_label)}</b> '
+                      f'(model <b>{esc(_aiv.model_name(_verify_prov))}</b>).'
+                      if _verify_prov else
+                      '<b class="bad">No vision-capable backend is configured</b> — set the '
+                      'AI review backend above to <b>claude</b> or <b>openai</b> (with its '
+                      'API key present); verification stays OFF and sends nothing until then.')
+    aiverifyf = ('<div class="card" style="border-color:var(--bad)">'
+                 '<h2>AI verification against the original PDF (advisory)</h2>'
+                 '<div class="note bad" style="margin-top:0">⚠️ Enabling this sends the '
+                 '<b>ORIGINAL invoice PDF</b> (which may contain <b>IBANs/bank details</b>) '
+                 'to the configured AI provider (Claude/OpenAI) for verification. Ensure a '
+                 'data-processing agreement and an appropriate data region are in place. '
+                 '<b>Off by default.</b></div>'
+                 f'<div class="note" style="margin-top:6px">{_verify_active}</div>'
+                 '<div class="note" style="margin-top:6px">It compares the already-extracted '
+                 'draft to the PDF page images and flags discrepancies for you. It is '
+                 '<b>advisory and read-only</b> — it NEVER changes a figure, status, lock, '
+                 'or fee, and NEVER gates the commit; you still confirm the draft.</div>'
+                 '<form method="post" class="f" style="margin-top:8px">'
+                 + _csrf_input()
+                 + f'<label class="chk" style="display:flex;gap:7px;align-items:center">'
+                   f'<input type="checkbox" name="ai_verify_enabled" {"checked" if _verify_on else ""}> '
+                   f'Enable AI verification against the original PDF</label>'
+                 + '<button name="__act" value="set_ai_verify">Save verification setting</button>'
+                 + '</form>'
+                 + '</div>')
     # API keys (machine access to the versioned /api/v1 contract). Default-OFF: no keys
     # exist until issued here. Tokens are SHA-256 hashed at rest and shown once at issue.
     import api_keys
@@ -8480,6 +8649,7 @@ def admin():
             + modf
             + aireviewf
             + aidocchatf
+            + aiverifyf
             + '<h2 class="section" id="platform">Platform</h2>'
             + platform_card)
     return page(body, "adm")
