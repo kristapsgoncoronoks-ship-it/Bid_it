@@ -34,10 +34,13 @@ self-hosted vision endpoint can be added later; today Claude + OpenAI are implem
 import os
 import io
 import re
+import copy
 import json
 import base64
+import datetime
 
 import applog
+import money
 # Reuse extract's transient-error taxonomy + the env-keyed model/key config; reuse
 # ai_review.resolve_backend() for the shared backend selection. We do NOT reuse any
 # extraction/review PROMPT — this module has its own vision verifier prompt.
@@ -275,6 +278,294 @@ def parse_verdict(raw):
     notes = raw.get("notes")
     notes = notes if isinstance(notes, str) else ""
     return {"verdict": verdict, "fields": fields, "notes": notes}
+
+
+# ---------------------------------------------------------------- AI CORRECTION + RE-VERIFY
+# The PDF-authoritative correction loop. When verify() reports that a captured field
+# DISAGREES with the PDF (`match == False`), apply_corrections() writes the PDF value back
+# INTO the draft's `capture` document AND the corresponding mapped draft field that
+# registration consumes, so the fix flows downstream. It is best-effort and NEVER raises,
+# NEVER blanks a field, NEVER mutates the input draft in place (it works on a deep copy),
+# and only touches PATHS IT CAN RESOLVE (an unknown path is skipped, left flagged for the
+# human). The human Confirm gate still stands — this only edits the PRE-commit draft.
+
+# How a verdict field NAME maps to (capture-doc location, mapped-draft location). The
+# verifier is prompted to use names like 'invoice.due_date', 'line[2].vat', 'totals.gross';
+# we accept the common spelling variants too. A field whose path we can't resolve is skipped.
+
+# Capture header sub-objects keyed by their leading token (with/without a 'header.' prefix).
+_HEADER_OBJ = {"supplier": "supplier", "customer": "customer", "invoice": "invoice"}
+
+# A header (capture.header.<obj>.<key>) -> the mapped DRAFT key registration reads (or None
+# when the value lives only on the capture doc / is derived, e.g. the customer VAT number).
+# Mirrors vision_capture.to_draft()'s header mapping so a corrected capture value also moves
+# the draft field the rest of the pipeline uses.
+_HEADER_TO_DRAFT = {
+    ("supplier", "name"): "supplier",
+    ("supplier", "vat_number"): "supplier_vat",
+    ("invoice", "number"): "statement_ref",
+    ("invoice", "issue_date"): "statement_date",
+    ("invoice", "currency"): "currency",
+    ("customer", "name"): "customer",
+}
+
+# A capture LINE key -> the mapped DRAFT-line key registration reads (to_draft keeps the
+# rich keys verbatim and additionally projects a few onto the existing line keys).
+_LINE_TO_DRAFT = {
+    "net": "net", "vat": "vat", "country": "country", "product": "product",
+    "quantity": "qty", "date": "date",
+}
+
+# capture LINE keys that are money amounts (coerced via money.f2 — never bare round()).
+_LINE_AMOUNT_KEYS = {"net", "vat", "gross", "discount", "unit_price"}
+# capture LINE keys that are plain numerics (rates / quantities — full precision).
+_LINE_NUMERIC_KEYS = {"vat_rate", "quantity"}
+# capture LINE keys that are ISO dates.
+_LINE_DATE_KEYS = {"date"}
+
+# capture TOTALS: accept short aliases ('gross','net','vat','discount') and the full key.
+_TOTALS_ALIASES = {
+    "gross": "gross_total", "gross_total": "gross_total",
+    "net": "net_total", "net_total": "net_total",
+    "vat": "vat_total", "vat_total": "vat_total",
+    "discount": "discount_total", "discount_total": "discount_total",
+}
+
+_LINE_RE = re.compile(r"^lines?\[(\d+)\]\.(.+)$")
+
+
+def _coerce_amount(raw):
+    """A PDF amount string -> a money.f2 float, or None when empty/unparseable. NEVER 0.0 by
+    accident — an unparseable value returns None so the caller SKIPS (never blanks a field)."""
+    s = "" if raw is None else str(raw).strip()
+    if not s:
+        return None
+    # tolerate thousands separators / currency symbols the model may echo from the page.
+    cleaned = re.sub(r"[^0-9,.\-]", "", s)
+    if cleaned.count(",") and cleaned.count("."):
+        cleaned = cleaned.replace(",", "")          # 1,234.56 -> 1234.56
+    elif cleaned.count(","):
+        cleaned = cleaned.replace(",", ".")         # 1234,56 -> 1234.56
+    try:
+        return money.f2(float(cleaned))
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_numeric(raw):
+    """A PDF rate/qty -> float (full precision), or None when empty/unparseable."""
+    s = "" if raw is None else str(raw).strip()
+    if not s:
+        return None
+    cleaned = re.sub(r"[^0-9,.\-]", "", s).replace(",", ".")
+    try:
+        return float(cleaned)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_date(raw):
+    """A PDF date -> ISO YYYY-MM-DD, or None when empty/unparseable (never blanks a field)."""
+    s = "" if raw is None else str(raw).strip()
+    if not s:
+        return None
+    m = re.search(r"(\d{4})-(\d{2})-(\d{2})", s)
+    if m:
+        return m.group(0)
+    for fmt in ("%d.%m.%Y", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d", "%m/%d/%Y"):
+        try:
+            return datetime.datetime.strptime(s[:10], fmt).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def _coerce_text(raw):
+    """A PDF text value -> a trimmed string, or None when empty (never blanks a field)."""
+    s = "" if raw is None else str(raw).strip()
+    return s or None
+
+
+def _resolve(name):
+    """Resolve a verdict field NAME to a structured target we can apply, or None when the
+    path is unknown / unresolvable (the caller then SKIPS it, leaving it flagged for a human).
+
+    Returns one of:
+      ("header", obj, key)        -> capture.header[obj][key] (+ a mapped draft key)
+      ("line", index, key)        -> capture.lines[index][key] (+ a mapped draft-line key)
+      ("totals", totals_key, None)-> capture.totals[totals_key]
+    Pure; never raises."""
+    n = (name or "").strip()
+    if not n:
+        return None
+    low = n.lower()
+
+    # line[i].key / lines[i].key  (1-based or 0-based handled at apply time)
+    m = _LINE_RE.match(low)
+    if m:
+        idx = int(m.group(1))
+        key = m.group(2).strip()
+        # accept a couple of synonyms the model might use
+        key = {"unit_price": "unit_price", "qty": "quantity",
+               "vat_pct": "vat_rate", "vat%": "vat_rate"}.get(key, key)
+        from vision_capture import _LINE_KEYS
+        if key in _LINE_KEYS:
+            return ("line", idx, key)
+        return None
+
+    parts = low.split(".")
+    # drop a leading 'header' token: header.supplier.name -> supplier.name
+    if parts and parts[0] == "header":
+        parts = parts[1:]
+
+    # totals.<key>
+    if parts and parts[0] in ("totals", "total"):
+        if len(parts) >= 2 and parts[1] in _TOTALS_ALIASES:
+            return ("totals", _TOTALS_ALIASES[parts[1]], None)
+        return None
+
+    # currency is a header.invoice field exposed at the top level by the prompt
+    if parts == ["currency"]:
+        return ("header", "invoice", "currency")
+
+    # <obj>.<key>  (supplier/customer/invoice)
+    if len(parts) >= 2 and parts[0] in _HEADER_OBJ:
+        obj = _HEADER_OBJ[parts[0]]
+        key = parts[-1]
+        return ("header", obj, key)
+
+    # a bare leading token like 'supplier' / 'invoice' is too coarse to map to one field.
+    return None
+
+
+def _capture_line(cap_lines, idx):
+    """Resolve a verdict line index against capture lines. The verifier prompt numbers lines
+    1-based ('line[2]' = the 2nd transaction), so we resolve 1-based FIRST and fall back to a
+    0-based reading only when that is out of range. Returns (real_index, line_dict) or
+    (None, None) when neither resolves (the caller then SKIPS — leaves it flagged)."""
+    if not isinstance(cap_lines, list) or not cap_lines:
+        return None, None
+    if 1 <= idx <= len(cap_lines):                  # 1-based (the prompt's convention)
+        return idx - 1, cap_lines[idx - 1]
+    if 0 <= idx < len(cap_lines):                   # 0-based fallback
+        return idx, cap_lines[idx]
+    return None, None
+
+
+def apply_corrections(draft, verdict):
+    """Apply the PDF-authoritative corrections from a verify() `verdict` onto a COPY of the
+    draft, returning (corrected_draft, corrections).
+
+    For each verdict field with `match == False` that carries a usable `document` (PDF) value
+    we resolve its path in the capture document; when resolvable AND the coerced PDF value is
+    non-empty we write it INTO the capture doc AND the corresponding mapped draft field
+    (header key or lines[i] key) that registration consumes. We NEVER:
+      * mutate the input `draft` in place (a deep copy is corrected and returned);
+      * blank a field (an empty / unparseable PDF value is SKIPPED — left flagged);
+      * touch a path we can't resolve (skipped — left flagged for the human).
+
+    `corrections` is a list of {field, was, now, source:"ai-verify(PDF)", at}. Best-effort:
+    NEVER raises (a single bad field is logged and skipped). Pure w.r.t. the input draft."""
+    corrections = []
+    try:
+        corrected = copy.deepcopy(draft) if isinstance(draft, dict) else {}
+    except Exception as e:
+        log.warning("apply_corrections could not copy the draft — no corrections applied: %s", e)
+        return draft, corrections
+    cap = corrected.get("capture")
+    if not isinstance(cap, dict):
+        # Corrections only flow through the rich capture document (the vision-capture path).
+        return corrected, corrections
+    at = datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    fields = (verdict or {}).get("fields") or []
+
+    for f in fields:
+        if not isinstance(f, dict) or f.get("match"):
+            continue
+        name = f.get("name")
+        target = _resolve(name)
+        if target is None:
+            continue                                 # unknown path -> skip, stay flagged
+        try:
+            applied = _apply_one(corrected, cap, target, f.get("document"))
+        except Exception as e:                       # never let one bad field break the loop
+            log.warning("apply_corrections skipped field %r: %s", name, e)
+            applied = None
+        if applied is None:
+            continue                                 # unparseable/empty -> skip (never blank)
+        was, now = applied
+        corrections.append({"field": str(name), "was": was, "now": now,
+                            "source": "ai-verify(PDF)", "at": at})
+    return corrected, corrections
+
+
+def _apply_one(draft, cap, target, document):
+    """Apply ONE resolved correction to the capture doc + the mapped draft field. Returns
+    (was, now) on success, or None when the coerced PDF value is empty/unparseable (skip —
+    never blank). Coerces by field type (amounts via money.f2, dates ISO, rates numeric)."""
+    kind = target[0]
+
+    if kind == "header":
+        _, obj, key = target
+        header = cap.setdefault("header", {})
+        sub = header.get(obj)
+        if not isinstance(sub, dict):
+            return None
+        if key not in sub:
+            return None                              # unknown header key -> skip
+        if obj == "invoice" and key in ("issue_date", "due_date"):
+            new = _coerce_date(document)
+        elif obj == "invoice" and key == "exchange_rate":
+            new = _coerce_numeric(document)
+        else:
+            new = _coerce_text(document)
+        if new is None:
+            return None
+        was = sub.get(key)
+        sub[key] = new
+        dk = _HEADER_TO_DRAFT.get((obj, key))
+        if dk is not None:
+            draft[dk] = new
+        return was, new
+
+    if kind == "line":
+        _, idx, key = target
+        real, cline = _capture_line(cap.get("lines"), idx)
+        if cline is None:
+            return None
+        if key in _LINE_AMOUNT_KEYS:
+            new = _coerce_amount(document)
+        elif key in _LINE_NUMERIC_KEYS:
+            new = _coerce_numeric(document)
+        elif key in _LINE_DATE_KEYS:
+            new = _coerce_date(document)
+        else:
+            new = _coerce_text(document)
+        if new is None:
+            return None
+        was = cline.get(key)
+        cline[key] = new
+        # mirror onto the mapped draft line registration reads (same positional index)
+        dlines = draft.get("lines")
+        if isinstance(dlines, list) and 0 <= real < len(dlines) and isinstance(dlines[real], dict):
+            dline = dlines[real]
+            dline[key] = new                         # the rich key is kept verbatim by to_draft
+            mapped = _LINE_TO_DRAFT.get(key)
+            if mapped is not None:
+                dline[mapped] = new
+        return was, new
+
+    if kind == "totals":
+        _, tkey, _ = target
+        tot = cap.setdefault("totals", {})
+        new = _coerce_amount(document)
+        if new is None:
+            return None
+        was = tot.get(tkey)
+        tot[tkey] = new
+        return was, new
+
+    return None
 
 
 # ---------------------------------------------------------------- orchestration

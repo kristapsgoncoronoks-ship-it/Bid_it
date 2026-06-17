@@ -458,6 +458,7 @@ def _needs_setup():
 PERM_BY_ENDPOINT = {
     "extract_batch":   "data_import", "extract_confirm": "data_import",
     "extract_ai_review": "data_import", "extract_ai_verify": "data_import",
+    "extract_ai_correct": "data_import",
     "extract_capture_download": "data_import",
     "data_manager":    "data_import",
     "intake_queue_page": "data_import", "intake_review": "data_import",
@@ -540,7 +541,7 @@ MODULES = {
                     "export_saft", "reports_page", "reliability_page", "analytics"}),
     "intake":     ("Intake — import, waiting room, files, document mining",
                    {"extract_batch", "extract_confirm", "extract_ai_review",
-                    "extract_ai_verify", "extract_capture_download",
+                    "extract_ai_verify", "extract_ai_correct", "extract_capture_download",
                     "intake_queue_page", "intake_review",
                     "imports", "files_archive", "doc_mining_page", "data_manager"}),
     "compliance": ("Compliance — invoice control, contract audit, documents",
@@ -3208,6 +3209,34 @@ def _provenance_badge(src):
     return f'<span class="note" title="deterministic parser / source PDF">{esc(s)}</span>'
 
 
+def _persisted_corrections_html(draft):
+    """Render the AI corrections log + status PERSISTED on the draft (so the review screen,
+    a reload, and the read-only view all surface what the AI corrected). EVERY value is
+    ESCAPED (untrusted model output). Returns '' when no corrections were applied. Advisory:
+    the corrections are on the PRE-commit draft only; the human Confirm gate still stands."""
+    corrections = (draft or {}).get("corrections") or []
+    if not corrections:
+        return ""
+    status = (draft or {}).get("correction_status") or "corrected"
+    badge = ('<span class="ok"><b>AI-corrected &amp; verified ✅</b></span>'
+             if status == "verified_after_correction"
+             else '<span class="warn"><b>AI-corrected (re-verify pending/incomplete)</b></span>')
+    items = ""
+    for c in corrections:
+        items += ('<li>'
+                  f'<b>{esc(c.get("field",""))}</b>: captured "<span class="bad">'
+                  f'{esc("" if c.get("was") is None else str(c.get("was")))}</span>" '
+                  f'→ AI-corrected to "<span class="ok">'
+                  f'{esc("" if c.get("now") is None else str(c.get("now")))}</span>" '
+                  f'<span class="note">({esc(c.get("source","ai-verify(PDF)"))})</span></li>')
+    return ('<div class="card"><h2>AI corrections applied (per PDF)</h2>'
+            f'<div style="margin-top:0">{badge}</div>'
+            f'<ul style="margin:8px 0 0 18px">{items}</ul>'
+            '<div class="note" style="margin-top:8px">These values were written into the '
+            'pre-commit draft to match the PDF and are audited. Nothing is registered until '
+            'you Confirm below.</div></div>')
+
+
 def _review_form(draft, token, intake_job=None, period=None, ai_panel=""):
     rows = ""
     for i, ln in enumerate(draft.get("lines", [])):
@@ -3227,6 +3256,7 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel=""):
             f'confidence <span class="{ccls}">{esc(conf)}</span> · '
             f'{len(draft.get("files",[]))} PDF(s). {esc(draft.get("notes",""))}</div>'
             + _capture_document_html(draft, token, intake_job)
+            + _persisted_corrections_html(draft)
             + _capture_findings_html(draft) +
             '<form method="post" action="/extract/confirm" class="f" style="margin-top:10px">'
             + _csrf_input() +
@@ -3796,8 +3826,97 @@ def extract_ai_verify():
         scon.close()
     except Exception as e:
         _log_exc("ai verify audit", e)
-    panel = _ai_verify_panel(result)
+    panel = _ai_verify_panel(result, token=token, intake_job=intake_job, period=period)
     return page(_review_form(draft, token, intake_job=intake_job, period=period,
+                             ai_panel=panel), "ext")
+
+
+@app.route("/extract/ai-correct", methods=["POST"])
+def extract_ai_correct():
+    """AI CORRECTION + RE-VERIFY loop. Given a draft whose AI verification found
+    discrepancies against the ORIGINAL PDF, apply the PDF-authoritative values back into the
+    PRE-commit draft (ai_verify.apply_corrections), PERSIST the corrected draft + a visible
+    corrections log + status, AUDIT the batch (field names only — never the PDF bytes), then
+    automatically RE-VERIFY the corrected draft and render the corrections log + the re-verify
+    verdict. Access: data_import (enforced in _guard).
+
+    SAFETY: the corrections edit the PRE-commit draft ONLY. Nothing registers here — the
+    existing /extract/confirm human gate still stands; the human reviews the corrections +
+    the ✅ status and clicks Confirm. Gated exactly like verify (opt-in setting ON + a vision
+    backend); OFF => this action is unavailable and falls back to the plain review form."""
+    import ai_verify, waiting_room as IQ, extract as EX
+    token = request.form.get("token", "")
+    intake_job = request.form.get("intake_job") or None
+    period = request.form.get("period") or None
+    draft = _load_draft(token)
+    if draft is None:
+        return page('<div class="card"><b class="bad">This draft is no longer available '
+                    'for review (the session expired). Re-extract the batch.</b></div>'
+                    '<p><a href="/extract">← back to import</a></p>', "ext")
+    if not (intake_job and ai_verify.enabled()):
+        return page(_review_form(draft, token, intake_job=intake_job, period=period), "ext")
+    # Re-derive the ORIGINAL PDF bytes from the queue job (same as verify). Never raises out.
+    pdf_bytes = b""
+    try:
+        job = IQ.get_job(int(intake_job))
+        if job:
+            pairs = EX.unpack(IQ.read_bytes(job["stored_path"]), job["filename"])
+            if pairs:
+                pdf_bytes = pairs[0][1]
+    except Exception as e:
+        _log_exc("ai correct load pdf", e)
+    # 1) Verify the CURRENT draft to obtain the discrepancy verdict to correct from.
+    try:
+        verdict = ai_verify.verify(pdf_bytes, draft)
+    except Exception as e:
+        _log_exc("ai correct verify", e)
+        verdict = {"verdict": "unavailable", "fields": [], "notes": "", "provider": "",
+                   "model": "", "pages": 0}
+    # 2) Apply the PDF-authoritative corrections onto a COPY of the draft (never in place).
+    try:
+        corrected, corrections = ai_verify.apply_corrections(draft, verdict)
+    except Exception as e:                              # apply_corrections is best-effort
+        _log_exc("ai correct apply", e)
+        corrected, corrections = draft, []
+    # 3) Persist: store the corrections log + status on the draft so the review screen and
+    #    downstream see it; the CORRECTED draft becomes what Confirm registers.
+    corrected = dict(corrected or {})
+    corrected["corrections"] = (corrected.get("corrections") or []) + corrections
+    # 4) Auto re-verify the corrected draft (same one-batch capture-doc-vs-PDF check).
+    try:
+        reverify = ai_verify.verify(pdf_bytes, corrected)
+    except Exception as e:
+        _log_exc("ai correct re-verify", e)
+        reverify = {"verdict": "unavailable", "fields": [], "notes": "", "provider": "",
+                    "model": "", "pages": 0}
+    corrected["correction_status"] = ("verified_after_correction"
+                                      if reverify.get("verdict") == "confirmed" else "corrected")
+    corrected["reverify"] = {"verdict": reverify.get("verdict"),
+                             "fields": reverify.get("fields", []),
+                             "notes": reverify.get("notes", ""),
+                             "provider": reverify.get("provider", ""),
+                             "model": reverify.get("model", "")}
+    _stash_draft(token, corrected)
+    # 5) Audit the correction batch: job/doc id + count + provider/model + the FIELD NAMES
+    #    only — NEVER the PDF bytes, image data, or any secret. Best-effort.
+    try:
+        scon = _auth.connect()
+        _audit_mod.record_event(scon, "ai_verify", str(intake_job), "AI_CORRECT",
+                                {"count": len(corrections),
+                                 "fields": [c.get("field") for c in corrections],
+                                 "provider": reverify.get("provider"),
+                                 "model": reverify.get("model"),
+                                 "correction_status": corrected.get("correction_status"),
+                                 "reverify": reverify.get("verdict"),
+                                 "statement_ref": corrected.get("statement_ref")})
+        scon.close()
+    except Exception as e:
+        _log_exc("ai correct audit", e)
+    panel = (_ai_correction_panel(corrections, reverify)
+             + _ai_verify_panel(reverify, token=token, intake_job=intake_job, period=period))
+    # render the CORRECTED draft (so Confirm registers the corrected values)
+    corrected = _load_draft(token) or corrected
+    return page(_review_form(corrected, token, intake_job=intake_job, period=period,
                              ai_panel=panel), "ext")
 
 
@@ -3815,12 +3934,77 @@ def _ai_verify_field_group(name):
     return "Other"
 
 
-def _ai_verify_panel(result):
+def _ai_correction_action(token, intake_job, period):
+    """The 'Apply AI corrections & re-verify' control, shown under a DISCREPANCY verdict when
+    AI verification is enabled. It posts to /extract/ai-correct, which writes the PDF values
+    into the PRE-commit draft and re-verifies. Loudly labelled: the AI edits the draft, but
+    nothing registers without the human Confirm. Returns '' unless enabled + a queued job."""
+    import ai_verify
+    if not (token and intake_job and ai_verify.enabled()):
+        return ""
+    prov = esc(ai_verify.provider_label() or "the configured AI provider")
+    return ('<form method="post" action="/extract/ai-correct" style="margin-top:10px">'
+            + _csrf_input()
+            + f'<input type="hidden" name="token" value="{esc(token)}">'
+            + f'<input type="hidden" name="intake_job" value="{esc(str(intake_job))}">'
+            + f'<input type="hidden" name="period" value="{esc(period or request.values.get("period", _default_period()))}">'
+            + '<button>Apply AI corrections &amp; re-verify</button>'
+            + '<span class="note" style="margin-left:8px">Writes the PDF value into the '
+              f'pre-commit draft for each mismatch above (via {prov}), then re-verifies. The '
+              'corrections are shown and audited; <b>nothing registers</b> until you Confirm.</span>'
+            + '</form>')
+
+
+def _ai_correction_panel(corrections, reverify):
+    """Render the CORRECTIONS LOG (each change as field: captured "X" → AI-corrected to "Y"
+    (per PDF)) + the re-verify outcome banner (green 'AI-corrected & re-verified ✅' when the
+    re-verify confirmed, else 'AI-corrected — discrepancies remain'). EVERY value is ESCAPED
+    (untrusted model output). Advisory: the human Confirm gate still stands."""
+    if not corrections:
+        body = ('<div class="note">No correctable discrepancies were found — nothing in the '
+                'capture document could be safely corrected from the PDF (any remaining '
+                'mismatches are left flagged above for manual review).</div>')
+    else:
+        items = ""
+        for c in corrections:
+            items += ('<li>'
+                      f'<b>{esc(c.get("field",""))}</b>: captured "<span class="bad">'
+                      f'{esc("" if c.get("was") is None else str(c.get("was")))}</span>" '
+                      f'→ AI-corrected to "<span class="ok">'
+                      f'{esc("" if c.get("now") is None else str(c.get("now")))}</span>" '
+                      '<span class="note">(per PDF)</span></li>')
+        body = (f'<div class="note">{len(corrections)} field(s) corrected to the PDF value '
+                '(applied to the pre-commit draft only):</div>'
+                f'<ul style="margin:6px 0 0 18px">{items}</ul>')
+    rv = (reverify or {}).get("verdict")
+    if rv == "confirmed":
+        banner = '<span class="ok"><b>AI-corrected &amp; re-verified ✅</b></span>'
+    elif rv == "discrepancies":
+        banner = ('<span class="warn"><b>AI-corrected — discrepancies remain</b></span> '
+                  '<span class="note">some captured fields still disagree with the PDF '
+                  '(shown below); review them before confirming.</span>')
+    elif rv in ("unreadable", "unavailable"):
+        banner = ('<span class="note"><b>AI-corrected — re-verification unavailable</b></span> '
+                  '<span class="note">the corrections were applied; re-verification could '
+                  'not run right now.</span>')
+    else:
+        banner = '<span class="note"><b>Corrections applied</b></span>'
+    return ('<div class="card"><h2>AI corrections &amp; re-verify</h2>'
+            f'<div style="margin-top:0">{banner}</div>'
+            f'<div style="margin-top:8px">{body}</div>'
+            '<div class="note" style="margin-top:8px">The AI edited the PRE-commit draft to '
+            'match the PDF; every change above is audited. Nothing has been registered — '
+            'review the corrections and click <b>Confirm</b> below to register.</div></div>')
+
+
+def _ai_verify_panel(result, token=None, intake_job=None, period=None):
     """Render the verification verdict: an overall badge (confirmed=green / discrepancies=
     amber with each mismatch shown / unreadable|unavailable=muted) + the per-field rows
     GROUPED (Header / Lines / Totals / Other) + notes. The PDF is the source of truth, so a
     mismatch shows the captured value vs what the PDF actually shows. EVERY model-supplied
-    value is ESCAPED (treated as untrusted). Advisory only — nothing here changes a figure."""
+    value is ESCAPED (treated as untrusted). When the verdict is `discrepancies` and the
+    feature is enabled, the 'Apply AI corrections & re-verify' action is offered. The
+    correction edits the PRE-commit draft only — nothing registers without the human Confirm."""
     verdict = result.get("verdict") or "unavailable"
     badge = {
         "confirmed": ('ok', 'Confirmed — the capture matches the PDF'),
@@ -3865,9 +4049,12 @@ def _ai_verify_panel(result):
                                       if result.get("model") else "") + ' · ' if prov else "")
                  + 'advisory only — the original PDF was sent for verification; nothing was '
                    'changed and your confirmation is still required.</div>')
+    # When discrepancies remain, offer the AI correction + re-verify action (gated/enabled).
+    action = (_ai_correction_action(token, intake_job, period)
+              if verdict == "discrepancies" else "")
     return ('<div class="card"><h2>AI verification against the PDF (advisory)</h2>'
             f'<div style="margin-top:0"><span class="{cls}"><b>{esc(label)}</b></span></div>'
-            + tbl + notes_html + prov_html + '</div>')
+            + tbl + notes_html + prov_html + action + '</div>')
 
 
 def _intake_extract_outcomes(limit=20):

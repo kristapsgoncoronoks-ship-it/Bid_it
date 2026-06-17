@@ -415,6 +415,40 @@ def test_review_screen_renders_verdict_and_escapes(client, monkeypatch):
     assert 'action="/extract/confirm"' in html
 
 
+def test_verify_panel_links_correction_action_when_enabled(client, monkeypatch):
+    """When the verdict is `discrepancies` and the feature is enabled, the verify panel
+    offers the 'Apply AI corrections & re-verify' action (the entry to the correction loop).
+    A confirmed verdict offers no such action (nothing to correct)."""
+    import app as A, ai_verify as V
+    monkeypatch.setattr(V, "enabled", lambda: True)
+    monkeypatch.setattr(V, "provider_label", lambda *a, **k: "Claude (Anthropic)")
+    disc = {"verdict": "discrepancies", "provider": "claude", "model": "m", "pages": 1,
+            "notes": "", "fields": [{"name": "totals.gross", "extracted": "1",
+                                     "document": "2", "match": False}]}
+    with A.app.test_request_context("/extract"):
+        html = A._ai_verify_panel(disc, token="t", intake_job="1", period="2026-05")
+        ok = {"verdict": "confirmed", "fields": [], "notes": "", "provider": "claude",
+              "model": "m", "pages": 1}
+        html_ok = A._ai_verify_panel(ok, token="t", intake_job="1", period="2026-05")
+    assert 'action="/extract/ai-correct"' in html
+    assert 'action="/extract/ai-correct"' not in html_ok
+
+
+def test_apply_corrections_is_advisory_does_not_mutate_input(monkeypatch):
+    """The correction loop edits a COPY — apply_corrections never mutates the input draft."""
+    import copy as _copy
+    d = _copy.deepcopy(CAPTURE_DRAFT)
+    d["lines"] = [{"net": 775.0, "vat": 162.75}, {"net": 27.0, "vat": 5.67}]
+    before = _copy.deepcopy(d)
+    verdict = {"verdict": "discrepancies", "fields": [
+        {"name": "totals.gross", "extracted": "970.42", "document": "971.00",
+         "match": False}], "notes": ""}
+    corrected, corrections = ai_verify.apply_corrections(d, verdict)
+    assert d == before                                  # input untouched
+    assert corrected["capture"]["totals"]["gross_total"] == 971.0
+    assert corrections and corrections[0]["field"] == "totals.gross"
+
+
 def test_review_off_makes_no_verify_call(client, monkeypatch):
     import app as A, ai_verify as V
     monkeypatch.setattr(V, "enabled", lambda: False)
