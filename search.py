@@ -34,6 +34,7 @@ import time
 import applog
 import dataproduct
 import db_tuning
+import tenancy
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 # App-owned index DB (gitignored). A module-level attr so tests can repoint it the same
@@ -64,12 +65,34 @@ def _ensure_schema(con):
     columns are the searchable text. contentless-external is unnecessary here — the
     index is small and fully rebuilt, so a plain (content-stored) FTS5 table keeps
     snippet() cheap and the rebuild a simple DELETE + INSERT."""
+    # If a PRE-tenant corpus exists (built before the tenant_id column was added), drop it
+    # so the (re)create below lands the new schema. The index is fully rebuilt from the
+    # product DBs, so dropping a stale index loses nothing — the next rebuild repopulates it.
+    try:
+        cols = {r[1] for r in con.execute("PRAGMA table_info(corpus)").fetchall()}
+        if cols and "tenant_id" not in cols:
+            con.execute("DROP TABLE corpus")
+    except sqlite3.OperationalError:
+        pass
     con.execute(
         "CREATE VIRTUAL TABLE IF NOT EXISTS corpus USING fts5("
         "rowkey UNINDEXED, kind UNINDEXED, link UNINDEXED, title UNINDEXED, "
+        "tenant_id UNINDEXED, "
         "supplier, vat_number, ref, parties, country, dates, products, amounts, "
         "filename, body, "
         "tokenize='unicode61 remove_diacritics 2')")
+
+
+def _has_tenant_col(con, table):
+    """True iff `table` carries a tenant_id column. Tolerant of a missing table -> False.
+    Lets _scan stamp the real source tenant when the engine product DB has the P1 column,
+    and fall back to DEFAULT_TENANT_ID otherwise (so a pre-P1 / test product corpus indexes
+    byte-identically to before)."""
+    try:
+        cols = {r[1] for r in con.execute(f"PRAGMA table_info({table})").fetchall()}
+        return "tenant_id" in cols
+    except sqlite3.OperationalError:
+        return False
 
 
 # --------------------------------------------------------------------------- read corpus
@@ -159,11 +182,15 @@ def _scan(fcon, scon):
     products = _supplier_products(fcon)
     inv_by_key = _doc_invoice_index(scon)
 
+    _DEFAULT_T = tenancy.DEFAULT_TENANT_ID
+
     # ---- DOCUMENTS (invoice_documents, fuel_history.db) -> /doc/<id>
+    doc_has_t = _has_tenant_col(fcon, "invoice_documents")
     try:
         doc_rows = fcon.execute(
-            "SELECT id, entity, supplier, invoice_ref, filename, kind, uploaded_at "
-            "FROM invoice_documents").fetchall()
+            "SELECT id, entity, supplier, invoice_ref, filename, kind, uploaded_at"
+            + (", tenant_id" if doc_has_t else "")
+            + " FROM invoice_documents").fetchall()
     except sqlite3.OperationalError as e:
         log.debug("invoice_documents not readable: %s", e)
         doc_rows = []
@@ -187,6 +214,7 @@ def _scan(fcon, scon):
         meta = _metadata_text(rowkey)
         yield {
             "rowkey": rowkey, "kind": KIND_DOC, "link": f"/doc/{d['id']}",
+            "tenant_id": (d["tenant_id"] if doc_has_t else _DEFAULT_T) or _DEFAULT_T,
             "title": title,
             "supplier": " ".join(x for x in (_txt(sup), legal) if x),
             "vat_number": vat,
@@ -201,10 +229,13 @@ def _scan(fcon, scon):
         }
 
     # ---- SUPPLIER INVOICES (supplier_invoices, suppliers.db) -> /transactions?...
+    inv_has_t = _has_tenant_col(scon, "supplier_invoices")
     try:
         inv_rows = scon.execute(
             "SELECT supplier, country, invoice_no, invoice_date, period, currency, "
-            "gross_total, notes FROM supplier_invoices").fetchall()
+            "gross_total, notes"
+            + (", tenant_id" if inv_has_t else "")
+            + " FROM supplier_invoices").fetchall()
     except sqlite3.OperationalError as e:
         log.debug("supplier_invoices not readable for invoice index: %s", e)
         inv_rows = []
@@ -218,6 +249,7 @@ def _scan(fcon, scon):
                 + (f"&period={_txt(r['period'])}" if r["period"] else ""))
         yield {
             "rowkey": rowkey, "kind": KIND_INVOICE, "link": link,
+            "tenant_id": (r["tenant_id"] if inv_has_t else _DEFAULT_T) or _DEFAULT_T,
             "title": f"{_txt(sup)} — invoice {_txt(r['invoice_no'])} ({_txt(r['country'])})",
             "supplier": " ".join(x for x in (_txt(sup), legal) if x),
             "vat_number": vat,
@@ -271,10 +303,11 @@ class Fts5Backend(Backend):
             _ensure_schema(con)
             con.execute("DELETE FROM corpus")
             con.executemany(
-                "INSERT INTO corpus (rowkey, kind, link, title, supplier, vat_number, "
-                "ref, parties, country, dates, products, amounts, filename, body) "
-                "VALUES (:rowkey,:kind,:link,:title,:supplier,:vat_number,:ref,:parties,"
-                ":country,:dates,:products,:amounts,:filename,:body)",
+                "INSERT INTO corpus (rowkey, kind, link, title, tenant_id, supplier, "
+                "vat_number, ref, parties, country, dates, products, amounts, filename, "
+                "body) "
+                "VALUES (:rowkey,:kind,:link,:title,:tenant_id,:supplier,:vat_number,:ref,"
+                ":parties,:country,:dates,:products,:amounts,:filename,:body)",
                 rows)
             con.commit()
             return len(rows)
@@ -287,6 +320,11 @@ class Fts5Backend(Backend):
         m = _fts_query(query)
         if not m:
             return []
+        # Tenant isolation: filter the index to the caller's tenant (inert when multitenant
+        # is OFF — fragment is ""). tenant_id is an UNINDEXED FTS5 column, filterable with =.
+        # ON + owner scope -> no filter (the audited cross-tenant analytics exception); ON +
+        # a tenant -> AND tenant_id = ?; ON + no principal -> AND 1=0 (fail closed).
+        frag, tp = tenancy.scope_clause("tenant_id")
         con = _index_connect()
         try:
             try:
@@ -294,11 +332,13 @@ class Fts5Backend(Backend):
                     "SELECT rowkey, kind, link, title, "
                     "snippet(corpus, -1, '<mark>', '</mark>', '…', 12) AS snip, "
                     "bm25(corpus) AS score "
-                    "FROM corpus WHERE corpus MATCH ? ORDER BY score LIMIT ?",
-                    (m, int(limit)))
+                    "FROM corpus WHERE corpus MATCH ?" + frag
+                    + " ORDER BY score LIMIT ?",
+                    (m, *tp, int(limit)))
                 return [dict(r) for r in cur.fetchall()]
             except sqlite3.OperationalError as e:
-                # no such table (index never built) or a query FTS5 still rejects
+                # no such table (index never built / a pre-tenant index needs a rebuild) or
+                # a query FTS5 still rejects
                 log.debug("search query unsatisfied (%r): %s", query, e)
                 return []
         finally:

@@ -747,6 +747,27 @@ def _reset_actor(resp):
     _tenancy.reset_tenant()   # inert no-op when nothing was bound (multitenant OFF)
     return resp
 
+def _bind_link_tenant(link):
+    """Bind this request's tenant context FROM a public share/room link's stored
+    tenant_id (multi-tenancy). The PUBLIC share/room routes (/s/<token>, /r/<token>...)
+    are login-exempt, so the before-request hook bound NO tenant; the unguessable token
+    is the principal and the link carries the owning tenant. We bind it so every
+    downstream tenant-scoped read (record_view, get_by_id, room documents, page beacons,
+    agreements, Q&A) sees EXACTLY that link's tenant and nothing else — a public viewer
+    can never reach across tenants.
+
+    STRICT/SAFE reading: a link only ever exposes its OWN tenant's data. Inert when
+    multitenant is OFF (the default) and a no-op for a missing/foreign link (the route
+    then denies anyway). The after-request hook resets the context. Never raises."""
+    try:
+        if not _tenancy.multitenant_enabled():
+            return
+        t = (link or {}).get("tenant_id")
+        if t:
+            _tenancy.set_tenant(t)
+    except Exception as e:
+        _log.debug("_bind_link_tenant failed (treating as unbound): %s", e)
+
 def _log_exc(context, e):
     """Record a handled exception to the admin error log (keeps the user-facing
     banner unchanged). Safe to call OUTSIDE a request context (e.g. from the
@@ -9426,6 +9447,7 @@ def share_sign(token):
     import sharing, esign, document_vault, vat_refund as VR
     try:
         link = sharing.get_by_token(token)
+        _bind_link_tenant(link)   # public route: scope to THIS link's tenant
         state, payload = _share_gate_or_form(token, link)
         if state == "deny":
             return _share_not_found()
@@ -9528,6 +9550,7 @@ def share_public(token):
     import sharing
     try:
         link = sharing.get_by_token(token)
+        _bind_link_tenant(link)   # public route: scope to THIS link's tenant
         state, payload = _share_gate_or_form(token, link)
         if state == "deny":
             return _share_not_found()
@@ -9577,6 +9600,7 @@ def share_event(token):
     import sharing
     try:
         link = sharing.get_by_token(token)
+        _bind_link_tenant(link)   # public route: scope to THIS link's tenant
         # SAME gate as the file route — but with NO side effects: a GET-style re-check.
         # _share_gate_or_form on a POST would try to consume password/email fields, so we
         # only treat it as "ok" when the session already satisfies the gates (state==ok
@@ -9612,6 +9636,7 @@ def share_file(token):
     import sharing, document_vault, vat_refund as VR
     try:
         link = sharing.get_by_token(token)
+        _bind_link_tenant(link)   # public route: scope to THIS link's tenant
         state, email = _share_gate_or_form(token, link)
         if state != "ok":
             # missing/revoked/expired OR gates not yet satisfied -> do not serve bytes.
@@ -10027,6 +10052,7 @@ def room_public(token):
     import sharing
     try:
         room_link = sharing.get_room_link_by_token(token)
+        _bind_link_tenant(room_link)   # public route: scope to THIS link's tenant
         action = f"/r/{token}"
         state, payload = _room_gate(token, room_link, action)
         if state == "deny":
@@ -10082,6 +10108,7 @@ def room_doc_viewer(token, doc_id):
     import sharing
     try:
         room_link = sharing.get_room_link_by_token(token)
+        _bind_link_tenant(room_link)   # public route: scope to THIS link's tenant
         action = f"/r/{token}/doc/{doc_id}"
         state, _payload = _room_gate(token, room_link, action)
         if state == "deny":
@@ -10120,6 +10147,7 @@ def room_doc_file(token, doc_id):
     import sharing, document_vault, vat_refund as VR
     try:
         room_link = sharing.get_room_link_by_token(token)
+        _bind_link_tenant(room_link)   # public route: scope to THIS link's tenant
         action = f"/r/{token}/doc/{doc_id}/file"
         state, email = _room_gate(token, room_link, action)
         if state != "ok":
@@ -10164,6 +10192,7 @@ def room_doc_event(token, doc_id):
     import sharing
     try:
         room_link = sharing.get_room_link_by_token(token)
+        _bind_link_tenant(room_link)   # public route: scope to THIS link's tenant
         state, _payload = _room_gate(token, room_link, f"/r/{token}/doc/{doc_id}/event")
         if state != "ok":
             return Response(status=204)
@@ -10195,6 +10224,7 @@ def room_ask(token):
     import sharing
     try:
         room_link = sharing.get_room_link_by_token(token)
+        _bind_link_tenant(room_link)   # public route: scope to THIS link's tenant
         state, payload = _room_gate(token, room_link, f"/r/{token}/ask")
         if state != "ok":
             return Response(status=204)

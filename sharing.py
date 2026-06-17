@@ -332,11 +332,17 @@ def get_by_token(token):
 
 
 def get_by_id(link_id):
-    """Return the link row dict by id, or None. Never raises."""
+    """Return the link row dict by id, or None. Never raises.
+
+    Tenant-scoped: when multitenant is ON a caller only resolves a link by id within
+    its OWN tenant (the public routes bind the link's tenant via get_by_token FIRST,
+    then operate by id under that bound tenant). OFF -> the fragment is inert."""
     try:
         con = connect()
         try:
-            row = con.execute("SELECT * FROM share_links WHERE id=?", (link_id,)).fetchone()
+            frag, tp = tenancy.scope_clause("tenant_id")
+            row = con.execute("SELECT * FROM share_links WHERE id=?" + frag,
+                              [link_id, *tp]).fetchone()
         finally:
             con.close()
         return dict(row) if row else None
@@ -395,11 +401,12 @@ def record_view(link, email, ip, ua):
         try:
             link_id = link["id"]
             email = (email or None)
+            frag, tp = tenancy.scope_clause("tenant_id")
             recent = con.execute(
                 """SELECT 1 FROM share_views
                    WHERE link_id=? AND COALESCE(viewer_email,'')=COALESCE(?,'')
-                     AND viewed_at >= datetime('now', ?) LIMIT 1""",
-                (link_id, email, f"-{int(VIEW_DEDUP_SECONDS)} seconds")).fetchone()
+                     AND viewed_at >= datetime('now', ?)""" + frag + " LIMIT 1",
+                [link_id, email, f"-{int(VIEW_DEDUP_SECONDS)} seconds", *tp]).fetchone()
             if recent:
                 return False
             con.execute(
@@ -420,10 +427,12 @@ def views_for(link_id):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             rows = con.execute(
                 """SELECT id, link_id, viewer_email, ip, user_agent, viewed_at
-                   FROM share_views WHERE link_id=? ORDER BY viewed_at DESC, id DESC""",
-                (link_id,)).fetchall()
+                   FROM share_views WHERE link_id=?""" + frag
+                + " ORDER BY viewed_at DESC, id DESC",
+                [link_id, *tp]).fetchall()
         finally:
             con.close()
         return [dict(r) for r in rows]
@@ -437,8 +446,9 @@ def view_count(link_id):
     try:
         con = connect()
         try:
-            return con.execute("SELECT COUNT(*) FROM share_views WHERE link_id=?",
-                               (link_id,)).fetchone()[0]
+            frag, tp = tenancy.scope_clause("tenant_id")
+            return con.execute("SELECT COUNT(*) FROM share_views WHERE link_id=?" + frag,
+                               [link_id, *tp]).fetchone()[0]
         finally:
             con.close()
     except Exception as e:
@@ -515,15 +525,17 @@ def page_engagement(link_id, total_pages=None):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             rows = con.execute(
                 """SELECT page_number AS page, SUM(dwell_ms) AS dwell_ms,
                           COUNT(DISTINCT COALESCE(view_session,'')) AS sessions
-                   FROM share_page_views WHERE link_id=?
-                   GROUP BY page_number ORDER BY page_number ASC""",
-                (link_id,)).fetchall()
+                   FROM share_page_views WHERE link_id=?""" + frag
+                + " GROUP BY page_number ORDER BY page_number ASC",
+                [link_id, *tp]).fetchall()
             visitors = con.execute(
                 """SELECT COUNT(DISTINCT COALESCE(view_session,''))
-                   FROM share_page_views WHERE link_id=?""", (link_id,)).fetchone()[0]
+                   FROM share_page_views WHERE link_id=?""" + frag,
+                [link_id, *tp]).fetchone()[0]
         finally:
             con.close()
         pages = [{"page": r["page"], "dwell_ms": int(r["dwell_ms"] or 0),
@@ -550,12 +562,13 @@ def visitor_timeline(link_id):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             rows = con.execute(
                 """SELECT COALESCE(view_session,'') AS view_session, page_number AS page,
                           SUM(dwell_ms) AS dwell_ms, MAX(viewed_at) AS last_at
-                   FROM share_page_views WHERE link_id=?
-                   GROUP BY COALESCE(view_session,''), page_number""",
-                (link_id,)).fetchall()
+                   FROM share_page_views WHERE link_id=?""" + frag
+                + " GROUP BY COALESCE(view_session,''), page_number",
+                [link_id, *tp]).fetchall()
         finally:
             con.close()
         sessions = {}
@@ -623,10 +636,12 @@ def agreements_for(link_id):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             rows = con.execute(
                 """SELECT id, link_id, viewer_email, ip, user_agent, accepted_at
-                   FROM share_agreements WHERE link_id=? ORDER BY accepted_at DESC, id DESC""",
-                (link_id,)).fetchall()
+                   FROM share_agreements WHERE link_id=?""" + frag
+                + " ORDER BY accepted_at DESC, id DESC",
+                [link_id, *tp]).fetchall()
         finally:
             con.close()
         return [dict(r) for r in rows]
@@ -643,11 +658,12 @@ def list_links(actor):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("l.tenant_id")
             rows = con.execute(
                 """SELECT l.*, (SELECT COUNT(*) FROM share_views v WHERE v.link_id=l.id)
                           AS views
-                   FROM share_links l WHERE l.created_by=?
-                   ORDER BY l.created_at DESC, l.id DESC""", (actor or "",)).fetchall()
+                   FROM share_links l WHERE l.created_by=?""" + frag
+                + " ORDER BY l.created_at DESC, l.id DESC", [actor or "", *tp]).fetchall()
         finally:
             con.close()
         return [dict(r) for r in rows]
@@ -663,7 +679,9 @@ def revoke(link_id, actor):
     try:
         con = connect()
         try:
-            cur = con.execute("UPDATE share_links SET revoked=1 WHERE id=?", (link_id,))
+            frag, tp = tenancy.scope_clause("tenant_id")
+            cur = con.execute("UPDATE share_links SET revoked=1 WHERE id=?" + frag,
+                              [link_id, *tp])
             con.commit()
             if cur.rowcount == 0:
                 return False, "no such link"
@@ -713,8 +731,9 @@ def get_room(room_id):
     try:
         con = connect()
         try:
-            row = con.execute("SELECT * FROM datarooms WHERE id=?",
-                              (room_id,)).fetchone()
+            frag, tp = tenancy.scope_clause("tenant_id")
+            row = con.execute("SELECT * FROM datarooms WHERE id=?" + frag,
+                              [room_id, *tp]).fetchone()
         finally:
             con.close()
         return dict(row) if row else None
@@ -729,11 +748,12 @@ def list_rooms(actor):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("r.tenant_id")
             rows = con.execute(
                 """SELECT r.*, (SELECT COUNT(*) FROM dataroom_documents d
                                 WHERE d.room_id=r.id) AS documents
-                   FROM datarooms r WHERE r.created_by=?
-                   ORDER BY r.created_at DESC, r.id DESC""", (actor or "",)).fetchall()
+                   FROM datarooms r WHERE r.created_by=?""" + frag
+                + " ORDER BY r.created_at DESC, r.id DESC", [actor or "", *tp]).fetchall()
         finally:
             con.close()
         return [dict(r) for r in rows]
@@ -753,9 +773,10 @@ def add_document(room_id, doc_ref, title=None, folder=None, sort_order=None):
         con = connect()
         try:
             if sort_order is None:
+                frag, tp = tenancy.scope_clause("tenant_id")
                 nxt = con.execute(
                     "SELECT COALESCE(MAX(sort_order), -1)+1 FROM dataroom_documents "
-                    "WHERE room_id=?", (room_id,)).fetchone()[0]
+                    "WHERE room_id=?" + frag, [room_id, *tp]).fetchone()[0]
                 sort_order = int(nxt or 0)
             cur = con.execute(
                 """INSERT INTO dataroom_documents
@@ -781,10 +802,11 @@ def list_documents(room_id):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             rows = con.execute(
-                """SELECT * FROM dataroom_documents WHERE room_id=?
-                   ORDER BY COALESCE(folder,''), sort_order, id""",
-                (room_id,)).fetchall()
+                """SELECT * FROM dataroom_documents WHERE room_id=?""" + frag
+                + " ORDER BY COALESCE(folder,''), sort_order, id",
+                [room_id, *tp]).fetchall()
         finally:
             con.close()
         return [dict(r) for r in rows]
@@ -799,9 +821,10 @@ def get_document(room_id, doc_id):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             row = con.execute(
-                "SELECT * FROM dataroom_documents WHERE id=? AND room_id=?",
-                (doc_id, room_id)).fetchone()
+                "SELECT * FROM dataroom_documents WHERE id=? AND room_id=?" + frag,
+                [doc_id, room_id, *tp]).fetchone()
         finally:
             con.close()
         return dict(row) if row else None
@@ -818,9 +841,10 @@ def link_allowed_doc_ids(link_id):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             rows = con.execute(
-                "SELECT doc_id FROM dataroom_link_documents WHERE link_id=?",
-                (link_id,)).fetchall()
+                "SELECT doc_id FROM dataroom_link_documents WHERE link_id=?" + frag,
+                [link_id, *tp]).fetchall()
         finally:
             con.close()
         return {r["doc_id"] for r in rows}
@@ -914,8 +938,10 @@ def create_room_link(room_id, actor, expires_at=None, password=None, require_ema
                 except (TypeError, ValueError):
                     continue
             if wanted:
+                frag, tp = tenancy.scope_clause("tenant_id")
                 room_doc_ids = {r["id"] for r in con.execute(
-                    "SELECT id FROM dataroom_documents WHERE room_id=?", (room_id,))}
+                    "SELECT id FROM dataroom_documents WHERE room_id=?" + frag,
+                    [room_id, *tp])}
                 for did in sorted(wanted & room_doc_ids):
                     con.execute(
                         """INSERT INTO dataroom_link_documents
@@ -956,15 +982,16 @@ def list_room_links(room_id):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             rows = con.execute(
-                """SELECT * FROM dataroom_links WHERE room_id=?
-                   ORDER BY created_at DESC, id DESC""", (room_id,)).fetchall()
+                """SELECT * FROM dataroom_links WHERE room_id=?""" + frag
+                + " ORDER BY created_at DESC, id DESC", [room_id, *tp]).fetchall()
             out = []
             for r in rows:
                 d = dict(r)
                 d["allowed_docs"] = con.execute(
-                    "SELECT COUNT(*) FROM dataroom_link_documents WHERE link_id=?",
-                    (d["id"],)).fetchone()[0]
+                    "SELECT COUNT(*) FROM dataroom_link_documents WHERE link_id=?" + frag,
+                    [d["id"], *tp]).fetchone()[0]
                 out.append(d)
         finally:
             con.close()
@@ -980,8 +1007,9 @@ def revoke_room_link(room_link_id):
     try:
         con = connect()
         try:
-            cur = con.execute("UPDATE dataroom_links SET revoked=1 WHERE id=?",
-                              (room_link_id,))
+            frag, tp = tenancy.scope_clause("tenant_id")
+            cur = con.execute("UPDATE dataroom_links SET revoked=1 WHERE id=?" + frag,
+                              [room_link_id, *tp])
             con.commit()
             if cur.rowcount == 0:
                 return False, "no such link"
@@ -1068,21 +1096,22 @@ def room_engagement(room_id, total_pages_by_doc=None):
     try:
         con = connect()
         try:
+            frag, sp = tenancy.scope_clause("pv.tenant_id")
             for d in docs:
                 rows = con.execute(
                     """SELECT pv.page_number AS page, SUM(pv.dwell_ms) AS dwell_ms,
                               COUNT(DISTINCT COALESCE(pv.view_session,'')) AS sessions
                        FROM dataroom_page_views pv
                        JOIN dataroom_links l ON l.id = pv.room_link_id
-                       WHERE l.room_id=? AND pv.doc_id=?
-                       GROUP BY pv.page_number ORDER BY pv.page_number ASC""",
-                    (room_id, d["id"])).fetchall()
+                       WHERE l.room_id=? AND pv.doc_id=?""" + frag
+                    + " GROUP BY pv.page_number ORDER BY pv.page_number ASC",
+                    [room_id, d["id"], *sp]).fetchall()
                 visitors = con.execute(
                     """SELECT COUNT(DISTINCT COALESCE(pv.view_session,''))
                        FROM dataroom_page_views pv
                        JOIN dataroom_links l ON l.id = pv.room_link_id
-                       WHERE l.room_id=? AND pv.doc_id=?""",
-                    (room_id, d["id"])).fetchone()[0]
+                       WHERE l.room_id=? AND pv.doc_id=?""" + frag,
+                    [room_id, d["id"], *sp]).fetchone()[0]
                 pages = [{"page": r["page"], "dwell_ms": int(r["dwell_ms"] or 0),
                           "sessions": int(r["sessions"] or 0)} for r in rows]
                 pages_viewed = sum(1 for p in pages if p["dwell_ms"] > 0)
@@ -1141,10 +1170,11 @@ def answer_question(question_id, answer):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             cur = con.execute(
                 """UPDATE dataroom_questions
                    SET answer=?, status='answered', answered_at=CURRENT_TIMESTAMP
-                   WHERE id=?""", (answer[:8000], question_id))
+                   WHERE id=?""" + frag, [answer[:8000], question_id, *tp])
             con.commit()
             if cur.rowcount == 0:
                 return False, "no such question"
@@ -1161,8 +1191,9 @@ def get_question(question_id):
     try:
         con = connect()
         try:
-            row = con.execute("SELECT * FROM dataroom_questions WHERE id=?",
-                              (question_id,)).fetchone()
+            frag, tp = tenancy.scope_clause("tenant_id")
+            row = con.execute("SELECT * FROM dataroom_questions WHERE id=?" + frag,
+                              [question_id, *tp]).fetchone()
         finally:
             con.close()
         return dict(row) if row else None
@@ -1176,9 +1207,10 @@ def questions_for(room_id):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             rows = con.execute(
-                """SELECT * FROM dataroom_questions WHERE room_id=?
-                   ORDER BY created_at DESC, id DESC""", (room_id,)).fetchall()
+                """SELECT * FROM dataroom_questions WHERE room_id=?""" + frag
+                + " ORDER BY created_at DESC, id DESC", [room_id, *tp]).fetchall()
         finally:
             con.close()
         return [dict(r) for r in rows]

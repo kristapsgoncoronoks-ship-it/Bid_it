@@ -108,10 +108,12 @@ def _row(r):
 
 
 def _chain(con, subject_ref):
-    """All version rows for a subject, OLDEST first (internal helper)."""
+    """All version rows for a subject, OLDEST first (internal helper). Tenant-scoped
+    (inert when multitenant OFF)."""
+    frag, tp = tenancy.scope_clause("tenant_id")
     return con.execute(
-        "SELECT * FROM doc_versions WHERE subject_ref=? ORDER BY version_no",
-        (subject_ref,)).fetchall()
+        "SELECT * FROM doc_versions WHERE subject_ref=?" + frag
+        + " ORDER BY version_no", [subject_ref, *tp]).fetchall()
 
 
 def _vault_bytes(data, subject_ref, version_no, filename=None):
@@ -143,9 +145,10 @@ def record_initial(subject_ref, vault_locator, sha256=None, size=None, actor=Non
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             existing = con.execute(
-                "SELECT * FROM doc_versions WHERE subject_ref=? ORDER BY version_no DESC "
-                "LIMIT 1", (subject_ref,)).fetchone()
+                "SELECT * FROM doc_versions WHERE subject_ref=?" + frag
+                + " ORDER BY version_no DESC LIMIT 1", [subject_ref, *tp]).fetchone()
             if existing is not None:
                 # already seeded — idempotent no-op, return the current version
                 return current(subject_ref), ""
@@ -157,8 +160,8 @@ def record_initial(subject_ref, vault_locator, sha256=None, size=None, actor=Non
                  actor or "system", tenancy.write_tenant()))
             con.commit()
             row = con.execute(
-                "SELECT * FROM doc_versions WHERE subject_ref=? AND version_no=1",
-                (subject_ref,)).fetchone()
+                "SELECT * FROM doc_versions WHERE subject_ref=? AND version_no=1" + frag,
+                [subject_ref, *tp]).fetchone()
         finally:
             con.close()
         return _row(row), ""
@@ -211,14 +214,15 @@ def add_version(subject_ref, new_bytes=None, *, vault_locator=None, sha256=None,
                  actor or "system", _reverted_from, tenancy.write_tenant()))
             # supersede everything BELOW the new current (so a re-seed of a damaged
             # chain still leaves exactly one current = the newest).
+            frag, tp = tenancy.scope_clause("tenant_id")
             con.execute(
                 "UPDATE doc_versions SET superseded=1 "
-                "WHERE subject_ref=? AND version_no<?",
-                (subject_ref, next_no))
+                "WHERE subject_ref=? AND version_no<?" + frag,
+                [subject_ref, next_no, *tp])
             con.commit()
             row = con.execute(
-                "SELECT * FROM doc_versions WHERE subject_ref=? AND version_no=?",
-                (subject_ref, next_no)).fetchone()
+                "SELECT * FROM doc_versions WHERE subject_ref=? AND version_no=?" + frag,
+                [subject_ref, next_no, *tp]).fetchone()
         finally:
             con.close()
         return _row(row), ""
@@ -253,9 +257,10 @@ def versions_for(subject_ref):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             rows = con.execute(
-                "SELECT * FROM doc_versions WHERE subject_ref=? "
-                "ORDER BY version_no DESC", (subject_ref,)).fetchall()
+                "SELECT * FROM doc_versions WHERE subject_ref=?" + frag
+                + " ORDER BY version_no DESC", [subject_ref, *tp]).fetchall()
         finally:
             con.close()
         out = [dict(r) for r in rows]
@@ -277,9 +282,10 @@ def current(subject_ref):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             row = con.execute(
-                "SELECT * FROM doc_versions WHERE subject_ref=? "
-                "ORDER BY version_no DESC LIMIT 1", (subject_ref,)).fetchone()
+                "SELECT * FROM doc_versions WHERE subject_ref=?" + frag
+                + " ORDER BY version_no DESC LIMIT 1", [subject_ref, *tp]).fetchone()
         finally:
             con.close()
         return _row(row)
@@ -297,7 +303,9 @@ def get_version(version_id):
     try:
         con = connect()
         try:
-            row = con.execute("SELECT * FROM doc_versions WHERE id=?", (vid,)).fetchone()
+            frag, tp = tenancy.scope_clause("tenant_id")
+            row = con.execute("SELECT * FROM doc_versions WHERE id=?" + frag,
+                              [vid, *tp]).fetchone()
         finally:
             con.close()
         return _row(row)

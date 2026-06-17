@@ -147,8 +147,9 @@ def get_request(request_id):
     try:
         con = connect()
         try:
-            row = con.execute("SELECT * FROM signature_requests WHERE id=?",
-                              (request_id,)).fetchone()
+            frag, tp = tenancy.scope_clause("tenant_id")
+            row = con.execute("SELECT * FROM signature_requests WHERE id=?" + frag,
+                              [request_id, *tp]).fetchone()
         finally:
             con.close()
         return dict(row) if row else None
@@ -170,6 +171,9 @@ def list_requests(requested_by=None):
             if requested_by is not None:
                 q += " AND r.requested_by=?"
                 params.append(requested_by or "")
+            frag, tp = tenancy.scope_clause("r.tenant_id")
+            q += frag
+            params.extend(tp)
             q += " ORDER BY r.created_at DESC, r.id DESC"
             rows = con.execute(q, params).fetchall()
         finally:
@@ -187,14 +191,16 @@ def void_request(request_id, actor=None):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             cur = con.execute(
-                "UPDATE signature_requests SET status='void' WHERE id=? AND status!='void'",
-                (request_id,))
+                "UPDATE signature_requests SET status='void' "
+                "WHERE id=? AND status!='void'" + frag,
+                [request_id, *tp])
             con.commit()
             if cur.rowcount == 0:
                 # already void, or no such request — distinguish for the caller
-                exists = con.execute("SELECT 1 FROM signature_requests WHERE id=?",
-                                     (request_id,)).fetchone()
+                exists = con.execute("SELECT 1 FROM signature_requests WHERE id=?" + frag,
+                                     [request_id, *tp]).fetchone()
                 if not exists:
                     return False, "no such request"
                 return True, ""   # already void: idempotent success
@@ -207,9 +213,11 @@ def void_request(request_id, actor=None):
 
 
 def _mark_signed(con, request_id):
-    """Flip a pending request to 'signed' (no-op if it isn't pending). Caller commits."""
+    """Flip a pending request to 'signed' (no-op if it isn't pending). Caller commits.
+    Tenant-scoped (inert when multitenant OFF)."""
+    frag, tp = tenancy.scope_clause("tenant_id")
     con.execute("UPDATE signature_requests SET status='signed' "
-                "WHERE id=? AND status='pending'", (request_id,))
+                "WHERE id=? AND status='pending'" + frag, [request_id, *tp])
 
 
 # ---------------------------------------------------------------- signing
@@ -302,9 +310,11 @@ def signatures_for(request_id):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             rows = con.execute(
-                "SELECT * FROM signatures WHERE request_id=? ORDER BY signed_at DESC, id DESC",
-                (request_id,)).fetchall()
+                "SELECT * FROM signatures WHERE request_id=?" + frag
+                + " ORDER BY signed_at DESC, id DESC",
+                [request_id, *tp]).fetchall()
         finally:
             con.close()
         return [dict(r) for r in rows]
@@ -318,8 +328,9 @@ def get_signature(signature_id):
     try:
         con = connect()
         try:
-            row = con.execute("SELECT * FROM signatures WHERE id=?",
-                              (signature_id,)).fetchone()
+            frag, tp = tenancy.scope_clause("tenant_id")
+            row = con.execute("SELECT * FROM signatures WHERE id=?" + frag,
+                              [signature_id, *tp]).fetchone()
         finally:
             con.close()
         return dict(row) if row else None

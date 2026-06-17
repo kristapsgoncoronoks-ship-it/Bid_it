@@ -273,8 +273,10 @@ def list_fields():
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             rows = con.execute(
-                "SELECT * FROM custom_fields ORDER BY name, id").fetchall()
+                "SELECT * FROM custom_fields WHERE 1=1" + frag
+                + " ORDER BY name, id", tp).fetchall()
         finally:
             con.close()
         return [_field_dict(r) for r in rows]
@@ -288,8 +290,9 @@ def get_field(field_id):
     try:
         con = connect()
         try:
-            row = con.execute("SELECT * FROM custom_fields WHERE id=?",
-                              (field_id,)).fetchone()
+            frag, tp = tenancy.scope_clause("tenant_id")
+            row = con.execute("SELECT * FROM custom_fields WHERE id=?" + frag,
+                              [field_id, *tp]).fetchone()
         finally:
             con.close()
         return _field_dict(row) if row else None
@@ -304,8 +307,11 @@ def delete_field(field_id):
     try:
         con = connect()
         try:
-            con.execute("DELETE FROM field_values WHERE field_id=?", (field_id,))
-            con.execute("DELETE FROM custom_fields WHERE id=?", (field_id,))
+            frag, tp = tenancy.scope_clause("tenant_id")
+            con.execute("DELETE FROM field_values WHERE field_id=?" + frag,
+                        [field_id, *tp])
+            con.execute("DELETE FROM custom_fields WHERE id=?" + frag,
+                        [field_id, *tp])
             con.commit()
         finally:
             con.close()
@@ -353,8 +359,9 @@ def clear_value(field_id, subject_ref):
     try:
         con = connect()
         try:
-            con.execute("DELETE FROM field_values WHERE field_id=? AND subject_ref=?",
-                        (field_id, (subject_ref or "").strip()))
+            frag, tp = tenancy.scope_clause("tenant_id")
+            con.execute("DELETE FROM field_values WHERE field_id=? AND subject_ref=?" + frag,
+                        [field_id, (subject_ref or "").strip(), *tp])
             con.commit()
         finally:
             con.close()
@@ -375,11 +382,12 @@ def get_values(subject_ref):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("v.tenant_id")
             rows = con.execute(
                 """SELECT v.field_id, v.value, f.name, f.type, f.options
                    FROM field_values v JOIN custom_fields f ON f.id=v.field_id
-                   WHERE v.subject_ref=? ORDER BY f.name, f.id""",
-                (subject_ref,)).fetchall()
+                   WHERE v.subject_ref=?""" + frag + " ORDER BY f.name, f.id",
+                [subject_ref, *tp]).fetchall()
         finally:
             con.close()
         out = []
@@ -402,9 +410,10 @@ def subjects_for_field_value(field_id, value):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             rows = con.execute(
-                "SELECT subject_ref FROM field_values WHERE field_id=? AND value=?",
-                (field_id, value)).fetchall()
+                "SELECT subject_ref FROM field_values WHERE field_id=? AND value=?" + frag,
+                [field_id, value, *tp]).fetchall()
         finally:
             con.close()
         return [r["subject_ref"] for r in rows]
@@ -451,7 +460,9 @@ def get_tag(tag_id):
     try:
         con = connect()
         try:
-            row = con.execute("SELECT * FROM tags WHERE id=?", (tag_id,)).fetchone()
+            frag, tp = tenancy.scope_clause("tenant_id")
+            row = con.execute("SELECT * FROM tags WHERE id=?" + frag,
+                              [tag_id, *tp]).fetchone()
         finally:
             con.close()
         return dict(row) if row else None
@@ -465,8 +476,9 @@ def _all_tags():
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             rows = con.execute(
-                "SELECT * FROM tags ORDER BY name, id").fetchall()
+                "SELECT * FROM tags WHERE 1=1" + frag + " ORDER BY name, id", tp).fetchall()
         finally:
             con.close()
         return [dict(r) for r in rows]
@@ -514,11 +526,13 @@ def flat_tags():
 def _ancestors(con, tag_id):
     """The set of ancestor ids of `tag_id` (walking parent_id up). Cycle-safe (a visited
     set stops an already-corrupt loop)."""
+    frag, tp = tenancy.scope_clause("tenant_id")
     seen = set()
     cur = tag_id
     while cur is not None and cur not in seen:
         seen.add(cur)
-        row = con.execute("SELECT parent_id FROM tags WHERE id=?", (cur,)).fetchone()
+        row = con.execute("SELECT parent_id FROM tags WHERE id=?" + frag,
+                          [cur, *tp]).fetchone()
         cur = row["parent_id"] if row else None
     seen.discard(tag_id)
     return seen
@@ -532,13 +546,15 @@ def _would_cycle(con, tag_id, new_parent_id):
         return False
     if new_parent_id == tag_id:
         return True
+    frag, tp = tenancy.scope_clause("tenant_id")
     cur = new_parent_id
     seen = set()
     while cur is not None and cur not in seen:
         if cur == tag_id:
             return True
         seen.add(cur)
-        row = con.execute("SELECT parent_id FROM tags WHERE id=?", (cur,)).fetchone()
+        row = con.execute("SELECT parent_id FROM tags WHERE id=?" + frag,
+                          [cur, *tp]).fetchone()
         cur = row["parent_id"] if row else None
     return False
 
@@ -557,18 +573,20 @@ def rename_tag(tag_id, name=None, color=None, parent_id="__keep__"):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             if parent_id == "__keep__":
                 new_parent = tag.get("parent_id")
             else:
                 new_parent = _as_int_or_none(parent_id)
                 if new_parent is not None and con.execute(
-                        "SELECT 1 FROM tags WHERE id=?", (new_parent,)).fetchone() is None:
+                        "SELECT 1 FROM tags WHERE id=?" + frag,
+                        [new_parent, *tp]).fetchone() is None:
                     return False, "no such parent tag"
                 if _would_cycle(con, tag_id, new_parent):
                     return False, "that move would create a tag cycle"
             new_color = tag.get("color") if color is None else ((color or "").strip() or None)
-            con.execute("UPDATE tags SET name=?, color=?, parent_id=? WHERE id=?",
-                        (new_name, new_color, new_parent, tag_id))
+            con.execute("UPDATE tags SET name=?, color=?, parent_id=? WHERE id=?" + frag,
+                        [new_name, new_color, new_parent, tag_id, *tp])
             con.commit()
         finally:
             con.close()
@@ -587,10 +605,11 @@ def delete_tag(tag_id):
     try:
         con = connect()
         try:
-            con.execute("UPDATE tags SET parent_id=? WHERE parent_id=?",
-                        (tag.get("parent_id"), tag_id))
-            con.execute("DELETE FROM tag_links WHERE tag_id=?", (tag_id,))
-            con.execute("DELETE FROM tags WHERE id=?", (tag_id,))
+            frag, tp = tenancy.scope_clause("tenant_id")
+            con.execute("UPDATE tags SET parent_id=? WHERE parent_id=?" + frag,
+                        [tag.get("parent_id"), tag_id, *tp])
+            con.execute("DELETE FROM tag_links WHERE tag_id=?" + frag, [tag_id, *tp])
+            con.execute("DELETE FROM tags WHERE id=?" + frag, [tag_id, *tp])
             con.commit()
         finally:
             con.close()
@@ -630,8 +649,9 @@ def unassign_tag(tag_id, subject_ref):
     try:
         con = connect()
         try:
-            con.execute("DELETE FROM tag_links WHERE tag_id=? AND subject_ref=?",
-                        (tag_id, (subject_ref or "").strip()))
+            frag, tp = tenancy.scope_clause("tenant_id")
+            con.execute("DELETE FROM tag_links WHERE tag_id=? AND subject_ref=?" + frag,
+                        [tag_id, (subject_ref or "").strip(), *tp])
             con.commit()
         finally:
             con.close()
@@ -650,11 +670,12 @@ def tags_for(subject_ref):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("l.tenant_id")
             rows = con.execute(
                 """SELECT t.id, t.name, t.parent_id, t.color
                    FROM tag_links l JOIN tags t ON t.id=l.tag_id
-                   WHERE l.subject_ref=? ORDER BY t.name, t.id""",
-                (subject_ref,)).fetchall()
+                   WHERE l.subject_ref=?""" + frag + " ORDER BY t.name, t.id",
+                [subject_ref, *tp]).fetchall()
         finally:
             con.close()
         return [dict(r) for r in rows]
@@ -677,9 +698,10 @@ def subjects_for_tag(tag_id, include_descendants=False):
             if include_descendants:
                 ids |= _descendant_ids(con, tag_id)
             qmarks = ",".join("?" for _ in ids)
+            frag, tp = tenancy.scope_clause("tenant_id")
             rows = con.execute(
-                f"SELECT DISTINCT subject_ref FROM tag_links WHERE tag_id IN ({qmarks})",
-                tuple(ids)).fetchall()
+                f"SELECT DISTINCT subject_ref FROM tag_links WHERE tag_id IN ({qmarks})"
+                + frag, [*ids, *tp]).fetchall()
         finally:
             con.close()
         return sorted(r["subject_ref"] for r in rows)
@@ -690,12 +712,14 @@ def subjects_for_tag(tag_id, include_descendants=False):
 
 def _descendant_ids(con, tag_id):
     """The set of all descendant tag ids of `tag_id` (cycle-safe BFS)."""
+    frag, tp = tenancy.scope_clause("tenant_id")
     out = set()
     frontier = [tag_id]
     while frontier:
         nxt = []
         for pid in frontier:
-            for r in con.execute("SELECT id FROM tags WHERE parent_id=?", (pid,)):
+            for r in con.execute("SELECT id FROM tags WHERE parent_id=?" + frag,
+                                 [pid, *tp]):
                 cid = r["id"]
                 if cid not in out and cid != tag_id:
                     out.add(cid)

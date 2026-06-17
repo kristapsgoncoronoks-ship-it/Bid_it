@@ -242,8 +242,10 @@ def list_policies():
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             rows = con.execute(
-                "SELECT * FROM retention_policies ORDER BY id DESC").fetchall()
+                "SELECT * FROM retention_policies WHERE 1=1" + frag
+                + " ORDER BY id DESC", tp).fetchall()
         finally:
             con.close()
         return [dict(r) for r in rows]
@@ -259,7 +261,9 @@ def delete_policy(policy_id):
     try:
         con = connect()
         try:
-            con.execute("DELETE FROM retention_policies WHERE id=?", (policy_id,))
+            frag, tp = tenancy.scope_clause("tenant_id")
+            con.execute("DELETE FROM retention_policies WHERE id=?" + frag,
+                        [policy_id, *tp])
             con.commit()
         finally:
             con.close()
@@ -283,9 +287,10 @@ def place_hold(subject_ref, reason, actor):
         con = connect()
         try:
             audit.set_actor(con, actor or "system")
+            frag, tp = tenancy.scope_clause("tenant_id")
             existing = con.execute(
-                "SELECT * FROM legal_holds WHERE subject_ref=? AND released_at IS NULL "
-                "ORDER BY id DESC LIMIT 1", (subject_ref,)).fetchone()
+                "SELECT * FROM legal_holds WHERE subject_ref=? AND released_at IS NULL"
+                + frag + " ORDER BY id DESC LIMIT 1", [subject_ref, *tp]).fetchone()
             if existing is not None:
                 return dict(existing), ""   # idempotent — one active hold per subject
             cur = con.execute(
@@ -316,14 +321,16 @@ def release_hold(hold_id, actor):
         con = connect()
         try:
             audit.set_actor(con, actor or "system")
-            row = con.execute("SELECT * FROM legal_holds WHERE id=?", (hid,)).fetchone()
+            frag, tp = tenancy.scope_clause("tenant_id")
+            row = con.execute("SELECT * FROM legal_holds WHERE id=?" + frag,
+                              [hid, *tp]).fetchone()
             if row is None:
                 return False, "no such hold"
             if row["released_at"] is not None:
                 return True, ""   # already released — idempotent
             con.execute(
                 "UPDATE legal_holds SET released_at=CURRENT_TIMESTAMP, released_by=? "
-                "WHERE id=?", (actor or "system", hid))
+                "WHERE id=?" + frag, [actor or "system", hid, *tp])
             con.commit()
         finally:
             audit.reset_actor(con)
@@ -343,9 +350,10 @@ def holds_for(subject_ref):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             rows = con.execute(
-                "SELECT * FROM legal_holds WHERE subject_ref=? ORDER BY id DESC",
-                (subject_ref,)).fetchall()
+                "SELECT * FROM legal_holds WHERE subject_ref=?" + frag
+                + " ORDER BY id DESC", [subject_ref, *tp]).fetchall()
         finally:
             con.close()
         return [dict(r) for r in rows]
@@ -364,9 +372,10 @@ def is_on_hold(subject_ref):
     try:
         con = connect()
         try:
+            frag, tp = tenancy.scope_clause("tenant_id")
             row = con.execute(
-                "SELECT 1 FROM legal_holds WHERE subject_ref=? AND released_at IS NULL "
-                "LIMIT 1", (subject_ref,)).fetchone()
+                "SELECT 1 FROM legal_holds WHERE subject_ref=? AND released_at IS NULL"
+                + frag + " LIMIT 1", [subject_ref, *tp]).fetchone()
         finally:
             con.close()
         return row is not None
