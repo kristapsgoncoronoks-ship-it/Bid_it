@@ -94,6 +94,11 @@ def connect():
             # sign / Q&A) can target the LINK CREATOR directly; unset = fall back to the
             # team notify relay. APPEND only — positions stable.
             "ALTER TABLE users ADD COLUMN email TEXT",
+            # SSO: marks how the account authenticates. NULL/'local' = local
+            # username/password (the default, unchanged). 'sso' = provisioned via the
+            # OIDC connector and MUST NOT be able to password-login (see verify()).
+            # APPEND only — positions stable.
+            "ALTER TABLE users ADD COLUMN auth_source TEXT",
         ])
         _seed_permissions(con)
         audit.install_audit(con, ["users", "role_permissions"])  # both change-logged
@@ -248,6 +253,44 @@ def add_user(username, password, role="processor"):
                 (username, salt, _hash(password, salt, NEW_N), keep_role, NEW_N))
     con.commit(); con.close()
 
+# Sentinel stored in pw_hash for an SSO user: a fresh random blob that no password can
+# ever scrypt to. Belt-and-braces alongside the auth_source='sso' check in verify().
+def _unusable_hash():
+    return b"sso:" + secrets.token_bytes(32)
+
+def add_sso_user(username, email, role="processor"):
+    """Provision a user authenticated via SSO (OIDC). The account has NO usable password
+    (a random unusable hash) and is marked auth_source='sso', so verify() rejects any
+    password-login attempt for it. New SSO users are role 'processor' only. Idempotent on
+    the username (INSERT OR REPLACE) but keeps an existing user's role if they already
+    exist as a processor. The username for an SSO user is the email."""
+    assert role in ROLES, f"role must be one of {ROLES}"
+    con = connect()
+    salt = secrets.token_bytes(16)
+    prev = con.execute("SELECT role FROM users WHERE username=?", (username,)).fetchone()
+    keep_role = prev["role"] if prev and role == "processor" else role
+    con.execute("""INSERT OR REPLACE INTO users
+                   (username, salt, pw_hash, active, role, kdf_n, email, auth_source)
+                   VALUES (?,?,?,1,?,?,?, 'sso')""",
+                (username, salt, _unusable_hash(), keep_role, NEW_N,
+                 (email or "").strip() or None))
+    con.commit(); con.close()
+
+def get_user_by_email(email):
+    """The user row whose email matches (case-insensitive), or None. Used to map an SSO
+    identity onto an existing account. Returns the first match (email is not unique by
+    schema, but is unique for SSO accounts whose username IS the email)."""
+    email = (email or "").strip()
+    if not email:
+        return None
+    con = connect()
+    u = con.execute(
+        "SELECT username, role, active, created, email, auth_source FROM users "
+        "WHERE email IS NOT NULL AND LOWER(email)=LOWER(?) ORDER BY username LIMIT 1",
+        (email,)).fetchone()
+    con.close()
+    return dict(u) if u else None
+
 def set_role(username, role):
     assert role in ROLES
     con = connect()
@@ -309,7 +352,12 @@ def list_users():
 def verify(username, password, remote=""):
     con = connect()
     u = con.execute("SELECT * FROM users WHERE username=? AND active=1", (username,)).fetchone()
-    if u is not None:
+    # An SSO-provisioned user has NO usable password and MUST NOT be able to
+    # password-login: reject up front (still run the dummy scrypt below for constant
+    # time) regardless of what password was supplied. Local users (auth_source
+    # NULL/'local') are unaffected.
+    _is_sso = u is not None and ((u["auth_source"] or "").lower() == "sso")
+    if u is not None and not _is_sso:
         n = u["kdf_n"] or LEGACY_N
         # maxmem must be large enough for whichever n this user was hashed with.
         mm = SCRYPT_MAXMEM if n >= NEW_N else 132 * 1024 * 1024

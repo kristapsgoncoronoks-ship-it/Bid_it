@@ -52,7 +52,8 @@ def admin_session():
 # that flips one of these without restoring it pollutes every later test AND
 # every later run (security.db persists). We neutralise this two ways below.
 _RUNTIME_SETTING_PREFIXES = ("module_", "ai_", "multitenant",
-                             "intake_override_until", "scrape_scheduler_enabled")
+                             "intake_override_until", "scrape_scheduler_enabled",
+                             "sso_")
 
 
 def _is_runtime_setting(key):
