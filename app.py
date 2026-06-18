@@ -3519,6 +3519,18 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload
         return (" " + weak[field]) if field in weak else ""
     rows = ""
     for i, ln in enumerate(draft.get("lines", [])):
+        # Entity of supply for this line — can differ per country on cross-border
+        # statements. Shown read-only from the captured draft: line-specific values are
+        # highlighted; a line with none inherits the header supplier.
+        _sup = ln.get("supplier_name")
+        _supvat = ln.get("supplier_vat")
+        if _sup:
+            _origin = "per-country" if ln.get("supplier_is_line_specific") else "from header"
+            _supply_cell = (f'<td class="note">{esc(_sup)}'
+                            + (f'<br>{esc(_supvat)}' if _supvat else "")
+                            + f'<br><span style="font-size:11px">({_origin})</span></td>')
+        else:
+            _supply_cell = '<td class="note">—</td>'
         rows += ('<tr>'
                  f'<td><input name="inv_{i}" value="{esc(ln.get("invoice_no") or "")}" style="width:160px">{_wh("line.invoice_no")}</td>'
                  f'<td><input name="date_{i}" value="{esc(ln.get("date") or draft.get("statement_date") or "")}" style="width:100px" placeholder="YYYY-MM-DD">{_wh("line.date")}</td>'
@@ -3526,6 +3538,7 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload
                  f'<td><input name="ccy_{i}" value="{esc(ln.get("currency") or "EUR")}" style="width:55px">{_wh("line.currency")}</td>'
                  f'<td><input name="net_{i}" value="{ln.get("net",0)}" style="width:90px" class="r">{_wh("line.net")}</td>'
                  f'<td><input name="vat_{i}" value="{ln.get("vat",0)}" style="width:90px" class="r">{_wh("line.vat")}</td>'
+                 f'{_supply_cell}'
                  f'<td class="note">{_provenance_badge(ln.get("_source"))}</td></tr>')
     gross = sum((ln.get("net",0) or 0) + (ln.get("vat",0) or 0) for ln in draft.get("lines", []))
     conf = draft.get("confidence","low")
@@ -3550,7 +3563,7 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload
             f'<label>period (YYYY-MM)<input name="period" value="{esc(period or request.values.get("period", _default_period()))}" required></label>'
             '</label></div>'
             + '<table style="margin-top:10px"><thead><tr>'
-            + "".join(f"<th>{h}</th>" for h in ["Invoice no","Date","Country","Ccy","Net","VAT","Provenance"])
+            + "".join(f"<th>{h}</th>" for h in ["Invoice no","Date","Country","Ccy","Net","VAT","Supply entity","Provenance"])
             + f'</tr></thead><tbody>{rows}</tbody></table>'
             f'<div class="note" style="margin-top:8px">Draft gross total: <b>{gross:,.2f}</b> — '
             'check this equals the coversheet total before confirming.</div>'
