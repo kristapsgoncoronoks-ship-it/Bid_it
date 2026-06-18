@@ -3650,6 +3650,57 @@ def _source_text_html(draft, upload_sha=None):
             + links + body + '</div>')
 
 
+def _country_supply_summary_html(draft):
+    """A read-only per-country roll-up of the draft lines: net, VAT, gross and the entity
+    of supply per country. Surfaces the cross-border breakdown a fuel-card statement
+    implies (each country = a separate refund jurisdiction with its own supplying entity).
+    Derived purely from the draft lines — invents no figure, changes nothing. Renders only
+    when at least one line carries a country."""
+    lines = [l for l in (draft.get("lines") or []) if isinstance(l, dict)]
+    by_country = {}
+    for l in lines:
+        ctry = (l.get("country") or "").strip() or "—"
+        agg = by_country.setdefault(ctry, {"net": [], "vat": [], "n": 0, "entities": {}})
+        agg["net"].append(l.get("net") or 0)
+        agg["vat"].append(l.get("vat") or 0)
+        agg["n"] += 1
+        ent = (l.get("supplier_name") or "").strip()
+        if ent:
+            agg["entities"][ent] = (l.get("supplier_vat") or "").strip()
+    # only show it when there is real country structure (>1 country, or a single named one)
+    real = [c for c in by_country if c != "—"]
+    if not real:
+        return ""
+    rows = ""
+    tnet = tvat = 0.0
+    for ctry in sorted(by_country):
+        a = by_country[ctry]
+        net = money.fsum(a["net"]); vat = money.fsum(a["vat"])
+        tnet += float(net); tvat += float(vat)
+        ents = a["entities"]
+        ent_html = "<br>".join(
+            f'{esc(name)}' + (f' <span class="note">{esc(vatno)}</span>' if vatno else "")
+            for name, vatno in ents.items()) or '<span class="note">(header supplier)</span>'
+        rows += (f'<tr><td><b>{esc(ctry)}</b></td><td class="r">{a["n"]}</td>'
+                 f'<td class="r">{money.f2(net):,.2f}</td>'
+                 f'<td class="r">{money.f2(vat):,.2f}</td>'
+                 f'<td class="r">{money.f2(float(net)+float(vat)):,.2f}</td>'
+                 f'<td>{ent_html}</td></tr>')
+    rows += (f'<tr><td><b>All countries</b></td>'
+             f'<td class="r"><b>{len(lines)}</b></td>'
+             f'<td class="r"><b>{money.f2(tnet):,.2f}</b></td>'
+             f'<td class="r"><b>{money.f2(tvat):,.2f}</b></td>'
+             f'<td class="r"><b>{money.f2(tnet+tvat):,.2f}</b></td><td></td></tr>')
+    return ('<div class="card"><h2>Per-country VAT &amp; entity of supply</h2>'
+            '<div class="note" style="margin-top:0">Each country is a separate refund '
+            'jurisdiction. NET basis (VAT excluded). The supply entity is the supplier for '
+            'that country when the document names one, else the header supplier.</div>'
+            '<table style="margin-top:8px"><thead><tr>'
+            + "".join(f"<th>{h}</th>" for h in
+                      ["Country", "Lines", "Net EUR", "VAT EUR", "Gross EUR", "Entity of supply"])
+            + f'</tr></thead><tbody>{rows}</tbody></table></div>')
+
+
 def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload_sha=None):
     acc_line, weak = _capture_accuracy_hints(draft)
     def _wh(field):  # a weak-field hint cell fragment, or empty
@@ -3686,6 +3737,7 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload
             f'{len(draft.get("files",[]))} PDF(s). {esc(draft.get("notes",""))}</div>'
             + acc_line
             + _source_text_html(draft, upload_sha=upload_sha)
+            + _country_supply_summary_html(draft)
             + _capture_document_html(draft, token, intake_job, upload_sha=upload_sha)
             + _persisted_corrections_html(draft)
             + _capture_findings_html(draft) +
