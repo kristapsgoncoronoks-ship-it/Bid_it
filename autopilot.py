@@ -158,10 +158,21 @@ def autofile(con, row, draft, actor="autopilot"):
     NEVER bypasses the legal gate: registration is enqueued only on can_commit."""
     import validate as VAL
     vlines = _vlines(draft)
-    vr = VAL.validate_batch(vlines)
+    # Enforce the SAME invoice tie-out the human-confirm and bulk-confirm paths use: thread
+    # the parsed document total so a line-sum mismatch fails can_commit here too (the
+    # authoritative file step), not only in the callers. No total -> no tie (unchanged).
+    ct = draft.get("coversheet_total")
+    try:
+        ct = float(ct) if ct is not None else None
+    except (TypeError, ValueError):
+        ct = None
+    vr = (VAL.validate_batch(vlines, coversheet_total=ct) if ct is not None
+          else VAL.validate_batch(vlines))
     if not vr["can_commit"]:
-        return ("ready", {"filed": False,
-                          "reason": "validation: %d error(s)" % vr["errors"]})
+        tie = vr.get("tie")
+        reason = ("tie-out mismatch" if tie is not None and not tie.get("ok")
+                  else "validation: %d error(s)" % vr["errors"])
+        return ("ready", {"filed": False, "reason": reason})
 
     period = _period(draft, vlines)
     if not period:

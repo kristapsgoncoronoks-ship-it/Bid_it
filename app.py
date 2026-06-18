@@ -8883,7 +8883,14 @@ def suppliers():
                            else '<span class="bad">INPUT</span>')
                 ent = (r["entity_name"] or "").strip()
                 if ent:
-                    entcell = f'<b>{esc(ent)}</b>'
+                    # An entity name lands on the legal claim. Flag a CAPTURE-sourced one as
+                    # UNVERIFIED until an admin confirms it (saving via the editor sets
+                    # source='manual'); a manual/document-mining one shows plainly.
+                    if (r["source"] or "") == "capture":
+                        entcell = (f'<b>{esc(ent)}</b> '
+                                   '<span class="chip warn">⚠ unverified — confirm</span>')
+                    else:
+                        entcell = f'<b>{esc(ent)}</b>'
                 else:
                     entcell = (f'<span class="note">uses default: {esc(default_name)}</span>')
                 if _is_admin:

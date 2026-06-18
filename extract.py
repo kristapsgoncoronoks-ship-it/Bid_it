@@ -593,10 +593,11 @@ def parse_einvoice(xml_bytes):
 
     # Document-level GROSS total (net + VAT) for the tie-out gate. EN-16931 BT-112
     # (UBL cbc:TaxInclusiveAmount / CII GrandTotalAmount) is the net+VAT figure — the
-    # SAME basis validate_batch ties on (sum(net+vat)). Read it independently of the
-    # line detail so a mis-captured line can be caught; left absent if not present.
-    _gross_raw = first(root, "TaxInclusiveAmount", "GrandTotalAmount",
-                       "DuePayableAmount", "PayableAmount")
+    # SAME basis validate_batch ties on (sum(net+vat)). We read ONLY that basis: the
+    # amount-DUE figures (PayableAmount / DuePayableAmount = TaxInclusive − Prepaid) are
+    # a DIFFERENT basis and would falsely fail the tie-out on an invoice with a prepayment,
+    # so they are deliberately NOT used. Absent when no net+VAT total is stated -> no tie.
+    _gross_raw = first(root, "TaxInclusiveAmount", "GrandTotalAmount")
     gross_total = _num(_gross_raw) if _gross_raw is not None else None
 
     # Capture trust: high ONLY when real per-line detail was present AND the declared

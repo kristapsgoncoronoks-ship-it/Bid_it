@@ -416,11 +416,12 @@ def set_vat_registration(supplier, country, vat_number, source="document mining"
     # the existing row first so a capture write can't clobber an admin/manual name and a
     # VAT-only write (entity_name=None) preserves whatever is already there.
     frag, params = tenancy.scope_clause()
-    cur = con.execute("""SELECT entity_name, source FROM supplier_vat_registrations
+    cur = con.execute("""SELECT entity_name, source, vat_number FROM supplier_vat_registrations
                          WHERE supplier=? AND country=?""" + frag,
                       [supplier, country, *params]).fetchone()
     existing_name = (cur["entity_name"] if cur and cur["entity_name"] else "") or ""
     existing_src = (cur["source"] if cur else "") or ""
+    existing_vat = (cur["vat_number"] if cur and cur["vat_number"] else None)
     new_name = (entity_name or "").strip()
     capture_decline = (source == "capture" and existing_name and existing_src != "capture")
     if not new_name:
@@ -435,6 +436,15 @@ def set_vat_registration(supplier, country, vat_number, source="document mining"
     else:
         eff_name = new_name
         eff_src = source
+    # VAT NUMBER precedence (this is the VAT id on the legal claim): a 'capture' write must
+    # NOT overwrite an existing CURATED (non-'capture') VAT number — an AI-misread VAT id
+    # can't clobber an admin/document-mining one. A missing new VAT keeps the existing.
+    if source == "capture" and existing_vat and existing_src != "capture":
+        eff_vat = existing_vat
+    elif vat_number:
+        eff_vat = vat_number
+    else:
+        eff_vat = existing_vat
     con.execute("""INSERT INTO supplier_vat_registrations
                      (supplier, country, vat_number, source, entity_name, tenant_id)
                    VALUES (?,?,?,?,?,?)
@@ -442,7 +452,7 @@ def set_vat_registration(supplier, country, vat_number, source="document mining"
                      vat_number=excluded.vat_number,
                      source=excluded.source,
                      entity_name=excluded.entity_name""",
-                (supplier, country, vat_number, eff_src, eff_name, tid))
+                (supplier, country, eff_vat, eff_src, eff_name, tid))
     con.commit(); con.close()
 
 def vat_registrations():
