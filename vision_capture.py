@@ -69,7 +69,10 @@ def take_last_error():
 # Page cap — render at most this many leading PDF pages to images. Fuel invoices carry
 # many transaction pages, so the default is higher than the verifier's; still bounded to
 # cap tokens/cost. Adjustable via env without a code change.
-VISION_CAPTURE_MAX_PAGES = int(os.environ.get("VISION_CAPTURE_MAX_PAGES", "8"))
+# Page cap for capture. Fuel-card statements can run many pages of transactions, and ALL
+# transactions must be captured — so default generously. If a PDF still exceeds this, the
+# capture LOUDLY flags that later pages were not read (it never silently drops them).
+VISION_CAPTURE_MAX_PAGES = int(os.environ.get("VISION_CAPTURE_MAX_PAGES", "40"))
 
 
 CAPTURE_PROMPT = (
@@ -346,6 +349,17 @@ def _dlp_blocked(subject_ref):
 
 
 # ---------------------------------------------------------------- orchestration
+def _pdf_page_count(pdf_bytes):
+    """Total page count of a PDF (so capture can tell if its page cap dropped any), or None."""
+    try:
+        import io
+        from pypdf import PdfReader
+        return len(PdfReader(io.BytesIO(pdf_bytes)).pages)
+    except Exception as e:
+        log.debug("page-count probe failed: %s", e)
+        return None
+
+
 def capture(pdf_bytes, backend=None, max_pages=None, files=None, subject_ref=None):
     """Read a PLAIN invoice PDF's page images with a vision model and return a REVIEW DRAFT
     (capture document mapped onto the existing draft shape), or None.
@@ -413,6 +427,17 @@ def capture(pdf_bytes, backend=None, max_pages=None, files=None, subject_ref=Non
     draft = to_draft(cap_doc, files=files, backend="vision")
     draft["_vision_pages"] = len(images)        # for audit (job/doc id + provider + pages)
     draft["notes"] = (draft.get("notes") or "") + f" | {provider_label(be)} · {model_name(be)}"
+    # ALL transactions must be captured: if the PDF has MORE pages than we read, say so
+    # LOUDLY on the draft (never silently drop later-page transactions). Lower confidence.
+    total_pages = _pdf_page_count(pdf_bytes)
+    if total_pages and total_pages > len(images):
+        warn = (f"ONLY THE FIRST {len(images)} OF {total_pages} PAGES WERE READ — transactions "
+                f"on later pages are NOT captured. Raise VISION_CAPTURE_MAX_PAGES and re-capture "
+                f"to include every transaction.")
+        draft["notes"] = (draft.get("notes") or "") + " | ⚠ " + warn
+        draft["confidence"] = "low"
+        draft["_pages_truncated"] = {"read": len(images), "total": total_pages}
+        log.warning("vision capture truncated: read %d of %d pages", len(images), total_pages)
     return draft
 
 

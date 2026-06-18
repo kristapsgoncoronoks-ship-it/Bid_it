@@ -186,7 +186,7 @@ def test_page_cap_honoured(monkeypatch):
     monkeypatch.setattr(VC, "_provider", lambda *a, **k: "claude")
     monkeypatch.setattr(VC, "model_name", lambda *a, **k: "m")
     monkeypatch.setattr(VC, "provider_label", lambda *a, **k: "Claude")
-    _patch_render(monkeypatch, 30)                    # a 30-page PDF
+    _patch_render(monkeypatch, VC.VISION_CAPTURE_MAX_PAGES + 12)   # a PDF bigger than the cap
     sent = {}
     monkeypatch.setitem(ai_verify._VISION_CALL, "claude",
                         lambda p, d, images: sent.update(n=len(images)) or _full_capture())

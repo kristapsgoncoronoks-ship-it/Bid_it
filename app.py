@@ -602,6 +602,7 @@ PERM_BY_ENDPOINT = {
     "extract_capture_download": "data_import",
     "extract_capture_file_download": "data_import",
     "extract_folder": "data_import", "extract_folder_file": "data_import",
+    "extract_capture_excel": "data_import",
     "capture_file_download": "documents",
     "data_manager":    "data_import",
     "intake_queue_page": "data_import", "intake_review": "data_import",
@@ -701,6 +702,7 @@ MODULES = {
                    {"extract_batch", "extract_confirm", "extract_ai_review",
                     "extract_ai_verify", "extract_ai_correct", "extract_capture_download",
                     "extract_capture_file_download", "extract_folder", "extract_folder_file",
+                    "extract_capture_excel",
                     "intake_queue_page", "intake_review",
                     "imports", "files_archive", "doc_mining_page", "data_manager"}),
     "compliance": ("Compliance — invoice control, contract audit, documents",
@@ -3650,12 +3652,13 @@ def _source_text_html(draft, upload_sha=None):
             + links + body + '</div>')
 
 
-def _country_supply_summary_html(draft):
+def _country_supply_summary_html(draft, token=None):
     """A read-only per-country roll-up of the draft lines: net, VAT, gross and the entity
     of supply per country. Surfaces the cross-border breakdown a fuel-card statement
     implies (each country = a separate refund jurisdiction with its own supplying entity).
     Derived purely from the draft lines — invents no figure, changes nothing. Renders only
-    when at least one line carries a country."""
+    when at least one line carries a country. `token` enables the analytics-Excel link."""
+    _xl_token = token
     lines = [l for l in (draft.get("lines") or []) if isinstance(l, dict)]
     by_country = {}
     for l in lines:
@@ -3694,7 +3697,10 @@ def _country_supply_summary_html(draft):
     return ('<div class="card"><h2>Per-country VAT &amp; entity of supply</h2>'
             '<div class="note" style="margin-top:0">Each country is a separate refund '
             'jurisdiction. NET basis (VAT excluded). The supply entity is the supplier for '
-            'that country when the document names one, else the header supplier.</div>'
+            'that country when the document names one, else the header supplier. '
+            + (f'<a href="/extract/capture.xlsx?token={esc(_xl_token)}">⬇ Download '
+               'analytics Excel</a> (Transactions · Per-country · Invoice).'
+               if _xl_token else "") + '</div>'
             '<table style="margin-top:8px"><thead><tr>'
             + "".join(f"<th>{h}</th>" for h in
                       ["Country", "Lines", "Net EUR", "VAT EUR", "Gross EUR", "Entity of supply"])
@@ -3731,13 +3737,22 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload
     gross = sum((ln.get("net",0) or 0) + (ln.get("vat",0) or 0) for ln in draft.get("lines", []))
     conf = draft.get("confidence","low")
     ccls = {"high":"ok","medium":"","low":"bad"}.get(conf,"")
-    return ('<div class="card"><h2>Review extracted draft — confirm before anything is saved</h2>'
+    _tr = draft.get("_pages_truncated") if isinstance(draft, dict) else None
+    trunc_banner = (
+        f'<div class="card" style="border-left:4px solid #c0392b;background:#fdecea">'
+        f'<b class="bad">⚠ Not all pages were read.</b> Only the first '
+        f'{esc(str(_tr.get("read")))} of {esc(str(_tr.get("total")))} pages were captured — '
+        f'<b>transactions on later pages are missing</b>. Raise the page limit '
+        f'(VISION_CAPTURE_MAX_PAGES) and re-capture before confirming.</div>'
+        if isinstance(_tr, dict) else "")
+    return (trunc_banner
+            + '<div class="card"><h2>Review extracted draft — confirm before anything is saved</h2>'
             f'<div class="note">Source: <b>{esc(draft.get("backend",""))}</b> · '
             f'confidence <span class="{ccls}">{esc(conf)}</span> · '
             f'{len(draft.get("files",[]))} PDF(s). {esc(draft.get("notes",""))}</div>'
             + acc_line
             + _source_text_html(draft, upload_sha=upload_sha)
-            + _country_supply_summary_html(draft)
+            + _country_supply_summary_html(draft, token=token)
             + _capture_document_html(draft, token, intake_job, upload_sha=upload_sha)
             + _persisted_corrections_html(draft)
             + _capture_findings_html(draft) +
@@ -4350,6 +4365,39 @@ def extract_capture_file_download(sha, fmt):
     artifact surfaced in the document vault), keyed by the upload's sha256. Access:
     data_import (enforced in _guard) so a reviewer can open the saved file from review."""
     return _serve_capture_file(sha, fmt)
+
+
+@app.route("/extract/capture.xlsx")
+def extract_capture_excel():
+    """Download the captured invoice as a typed, analytics-ready .xlsx (Transactions /
+    Per-country / Invoice sheets). Access: data_import (enforced in _guard). Built from the
+    stashed review draft for the token, or the queue's stored draft via ?intake_job=."""
+    token = request.args.get("token", "")
+    draft = _load_draft(token)
+    if not draft:
+        ij = request.args.get("intake_job")
+        if ij:
+            try:
+                import waiting_room as IQ
+                draft = IQ.get_stored_draft(int(ij))
+            except Exception as e:
+                _log_exc("capture excel stored draft", e)
+    if not draft:
+        return page('<div class="card"><b class="bad">No draft is available to export.</b>'
+                    '</div><p><a href="/extract">← back to import</a></p>', "ext")
+    try:
+        import capture_excel
+        src = (draft.get("files") or [{}])[0].get("name") if draft.get("files") else None
+        data = capture_excel.build(draft, source_name=src)
+    except Exception as e:
+        _log_exc("capture excel build", e)
+        return page('<div class="card"><b class="bad">Could not build the Excel file.</b>'
+                    '</div>', "ext")
+    from flask import Response
+    return Response(data,
+                    mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": 'attachment; filename="captured_invoice.xlsx"',
+                             "X-Content-Type-Options": "nosniff"})
 
 
 @app.route("/extract/folder/<sha>")

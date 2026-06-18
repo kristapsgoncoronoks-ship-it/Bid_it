@@ -53,7 +53,7 @@ def admin_session():
 # every later run (security.db persists). We neutralise this two ways below.
 _RUNTIME_SETTING_PREFIXES = ("module_", "ai_", "multitenant",
                              "intake_override_until", "scrape_scheduler_enabled",
-                             "sso_")
+                             "sso_", "intake_autopilot_enabled")
 
 
 def _is_runtime_setting(key):
