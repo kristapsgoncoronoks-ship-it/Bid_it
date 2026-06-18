@@ -144,10 +144,10 @@ def build(draft, source_name=None):
 
     wb = Workbook()
 
-    # ===== Sheet 1: SUMMARY (the main data, first) ====================================
+    # ===== Sheet 1: OVERVIEW (invoice header + totals — the main data) =================
     ws = wb.active
-    ws.title = "Summary"
-    ws.append(["CAPTURED INVOICE — SUMMARY"])
+    ws.title = "Overview"
+    ws.append(["CAPTURED INVOICE — OVERVIEW"])
     ws.cell(row=1, column=1).font = Font(bold=True, size=13)
     for k, v in [
         ("Source file", source_name or ""),
@@ -157,6 +157,7 @@ def build(draft, source_name=None):
         ("Invoice / statement no", draft.get("statement_ref") or ""),
         ("Statement date", draft.get("statement_date") or ""),
         ("Currency", currency),
+        ("Countries", len([c for c in by if c != "—"])),
         ("Transactions captured", len(lines)),
         ("Total net", float(money.f2(tnet))),
         ("Total VAT", float(money.f2(tvat))),
@@ -171,24 +172,24 @@ def build(draft, source_name=None):
                    f"only {t.get('read')} of {t.get('total')} pages were read — "
                    "later-page transactions are missing"])
         ws.cell(row=ws.max_row, column=1).font = Font(bold=True, color="C0392B")
-    ws.append([])
-    hrow = ws.max_row + 1
-    ws.append(["Per country", "Lines", "Net", "VAT", "Gross", "Supply entities"])
-    for c in range(1, 7):
-        cell = ws.cell(row=hrow, column=c); cell.fill = _HDR_FILL; cell.font = _HDR_FONT
-    for r in country_rows:
-        ws.append(r)
-    if country_rows:
-        ws.append(["All countries", len(lines), float(money.f2(tnet)),
-                   float(money.f2(tvat)), float(money.f2(tgross)), ""])
-        for c in range(1, 7):
-            ws.cell(row=ws.max_row, column=c).font = _TOT_FONT
-    ws.column_dimensions["A"].width = 26
-    for col in ("B", "C", "D", "E"):
-        ws.column_dimensions[col].width = 15
-    ws.column_dimensions["F"].width = 44
+    ws.column_dimensions["A"].width = 24
+    ws.column_dimensions["B"].width = 52
 
-    # ===== Sheet 2: TRANSACTIONS (ALL cleaned line items, every country) ==============
+    # ===== Sheet 2: PER-COUNTRY (the breakdown table — its own page) ===================
+    wspc = wb.create_sheet("Per-country")
+    wspc.append(["Country", "Lines", "Net", "VAT", "Gross", "Supply entities"])
+    for r in country_rows:
+        wspc.append(r)
+    if country_rows:
+        wspc.append(["All countries", len(lines), float(money.f2(tnet)),
+                     float(money.f2(tvat)), float(money.f2(tgross)), ""])
+        for c in range(1, 7):
+            wspc.cell(row=wspc.max_row, column=c).font = _TOT_FONT
+    _style_header(wspc, 6)
+    _autowidth(wspc, 6)
+    wspc.column_dimensions["F"].width = 44
+
+    # ===== Sheet 3: TRANSACTIONS (ALL cleaned line items, every country) ==============
     ws2 = wb.create_sheet("Transactions")
     ws2.append([c[0] for c in _TX_COLS])
     for ln in lines:
@@ -199,7 +200,7 @@ def build(draft, source_name=None):
     # ===== One sheet PER COUNTRY (each = a refund jurisdiction) ========================
     # Each country gets its own tab: a short overview (totals + supply entity) then ITS
     # transactions. Grouped from the same lines; no figure invented.
-    used = {"summary", "transactions"}
+    used = {"overview", "per-country", "transactions"}
     by_lines = {}
     for ln in lines:
         by_lines.setdefault((ln.get("country") or "—").strip() or "—", []).append(ln)

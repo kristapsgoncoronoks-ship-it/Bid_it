@@ -93,7 +93,12 @@ CAPTURE_PROMPT = (
     '"receipt_no": str|null} ],\n'
     '  "totals": {"net_total": number|null, "discount_total": number|null, "vat_total": number|null, "gross_total": number|null}\n'
     "}\n"
-    "ONE line object per fuel/toll transaction shown. STRICT RULES: extract ONLY what is "
+    "ONE line object per fuel/toll transaction shown. Capture EVERY transaction line from "
+    "ANYWHERE in the document — whether it is listed in a SUMMARY / overview table (e.g. a "
+    "per-country product breakdown on the first page) OR in a DETAILED transaction list on "
+    "later pages. Read ALL pages. IMPORTANT: if the SAME transactions appear BOTH in a "
+    "summary table AND in a detailed list, capture them ONCE from the most detailed view — "
+    "do NOT double-count. STRICT RULES: extract ONLY what is "
     "actually printed on the page. If a field is not present, use null — NEVER invent, "
     "estimate, guess, or compute a value that is not shown. Do NOT recompute totals or VAT. "
     "ENTITY OF SUPPLY (IMPORTANT for cross-border statements): the SUPPLYING entity and its "

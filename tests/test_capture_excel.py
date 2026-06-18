@@ -17,10 +17,11 @@ def _draft(n_lines):
             "statement_date": "2026-05-31", "currency": "EUR", "lines": lines}
 
 
-def test_summary_first_then_transactions_then_per_country():
-    # _draft uses a single country (Germany) -> Summary, Transactions, Germany
+def test_separated_overview_percountry_transactions():
+    # Overview (header) and Per-country (table) are SEPARATE pages, then Transactions,
+    # then a sheet per country (_draft is single-country Germany).
     wb = load_workbook(io.BytesIO(capture_excel.build(_draft(3))))
-    assert wb.sheetnames[:2] == ["Summary", "Transactions"]
+    assert wb.sheetnames[:3] == ["Overview", "Per-country", "Transactions"]
     assert "Germany" in wb.sheetnames
 
 
@@ -56,9 +57,9 @@ def test_numbers_are_numeric_not_text():
     assert isinstance(v, (int, float)), "Net must be a real number for analytics"
 
 
-def test_per_country_totals_reconcile_on_summary():
+def test_per_country_totals_reconcile():
     wb = load_workbook(io.BytesIO(capture_excel.build(_draft(3))))
-    ws = wb["Summary"]
+    ws = wb["Per-country"]
     rows = list(ws.iter_rows(values_only=True))
     total = [r for r in rows if r and r[0] == "All countries"][0]
     assert total[1] == 3                 # 3 lines
