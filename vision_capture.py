@@ -83,7 +83,8 @@ CAPTURE_PROMPT = (
     '    "invoice": {"number": str|null, "issue_date": "YYYY-MM-DD"|null, "due_date": "YYYY-MM-DD"|null, "currency": str|null, "exchange_rate": number|null}\n'
     "  },\n"
     '  "lines": [ {"date": "YYYY-MM-DD"|null, "time": str|null, "station_name": str|null, '
-    '"city": str|null, "country": str|null, "product": str|null, "quantity": number|null, '
+    '"city": str|null, "country": str|null, "supplier_name": str|null, "supplier_vat": str|null, '
+    '"product": str|null, "quantity": number|null, '
     '"unit": str|null, "unit_price": number|null, "discount": number|null, "net": number|null, '
     '"vat_rate": number|null, "vat": number|null, "gross": number|null, "card_no": str|null, '
     '"receipt_no": str|null} ],\n'
@@ -92,6 +93,13 @@ CAPTURE_PROMPT = (
     "ONE line object per fuel/toll transaction shown. STRICT RULES: extract ONLY what is "
     "actually printed on the page. If a field is not present, use null — NEVER invent, "
     "estimate, guess, or compute a value that is not shown. Do NOT recompute totals or VAT. "
+    "ENTITY OF SUPPLY (IMPORTANT for cross-border statements): the SUPPLYING entity and its "
+    "VAT registration can DIFFER per country. When a per-country VAT specification / supplier "
+    "block is printed (common on fuel-card statements covering several countries), set each "
+    "line's 'supplier_name' and 'supplier_vat' to the SUPPLYING entity and VAT number FOR THAT "
+    "COUNTRY/transaction as printed; leave them null when the line is supplied by the same "
+    "entity as the header. Do NOT copy the header supplier into every line — only fill these "
+    "when a country-specific supplying entity / VAT number is actually shown. "
     "Normalize every date to ISO YYYY-MM-DD. 'net' = amount excl. VAT, 'vat' = the VAT "
     "amount, 'gross' = amount incl. VAT, as printed. Currency = ISO 4217 code (e.g. EUR). "
     "Country = full English name. Return ONLY the JSON object, no prose, no markdown fence."
@@ -173,7 +181,8 @@ def _iso_date(v):
     return s[:10]
 
 
-_LINE_KEYS = ("date", "time", "station_name", "city", "country", "product", "quantity",
+_LINE_KEYS = ("date", "time", "station_name", "city", "country",
+              "supplier_name", "supplier_vat", "product", "quantity",
               "unit", "unit_price", "discount", "net", "vat_rate", "vat", "gross",
               "card_no", "receipt_no")
 
@@ -189,6 +198,10 @@ def _parse_line(raw):
         "station_name": _s(raw.get("station_name")),
         "city": _s(raw.get("city")),
         "country": _s(raw.get("country")),
+        # entity of supply for THIS line/country (differs per country on some statements);
+        # null when the line is supplied by the header supplier — never auto-filled.
+        "supplier_name": _s(raw.get("supplier_name")),
+        "supplier_vat": _s(raw.get("supplier_vat")),
         "product": _s(raw.get("product")),
         "quantity": _rate(raw.get("quantity")),
         "unit": _s(raw.get("unit")),
@@ -261,6 +274,12 @@ def to_draft(capture, files=None, backend="vision"):
 
     lines = []
     for ln in (capture.get("lines") or []):
+        # ENTITY OF SUPPLY per line: the supplying entity / VAT registration can differ per
+        # country. Use the line's own values when the capture provided them; otherwise fall
+        # back to the header supplier (the issuing/card entity) so every line still carries
+        # an attributable supplier for the VAT claim.
+        line_supplier = ln.get("supplier_name") or sup.get("name")
+        line_supplier_vat = ln.get("supplier_vat") or sup.get("vat_number")
         lines.append({
             # the EXISTING draft-line keys the rest of the pipeline reads
             "invoice_no": stmt_ref,
@@ -272,6 +291,10 @@ def to_draft(capture, files=None, backend="vision"):
             "product": ln.get("product"),
             "qty": ln.get("quantity"),
             "_source": "vision",
+            # entity of supply attributed to THIS line (per-country aware)
+            "supplier_name": line_supplier,
+            "supplier_vat": line_supplier_vat,
+            "supplier_is_line_specific": bool(ln.get("supplier_name")),
             # the RICHER capture keys, kept so they are not lost downstream
             "time": ln.get("time"),
             "station_name": ln.get("station_name"),

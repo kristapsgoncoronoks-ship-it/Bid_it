@@ -73,6 +73,11 @@ def build_text(cap):
     for i, ln in enumerate(cap.get("lines") or [], 1):
         out.append(f"  [{i}] {v(ln.get('date'))} {v(ln.get('time'))} "
                    f"{v(ln.get('station_name'))} / {v(ln.get('city'))} / {v(ln.get('country'))}")
+        # entity of supply for THIS line — only shown when the capture marked it per-country
+        # specific (it can differ by country on cross-border statements).
+        if ln.get("supplier_name") or ln.get("supplier_vat"):
+            out.append(f"      supply entity={v(ln.get('supplier_name'))} "
+                       f"supply VAT={v(ln.get('supplier_vat'))}")
         out.append(f"      product={v(ln.get('product'))} qty={v(ln.get('quantity'))}"
                    f"{v(ln.get('unit'))} unit_price={v(ln.get('unit_price'))} "
                    f"discount={v(ln.get('discount'))}")
