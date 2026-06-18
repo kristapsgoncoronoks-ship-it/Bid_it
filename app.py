@@ -1739,6 +1739,42 @@ def _close_status(period):
 
 _AGING_DAYS = 120   # an unpaid submitted claim older than this needs chasing
 
+def _period_close_nudge():
+    """Return the 'period fully registered → run the close' nudge text, or None.
+
+    Fires when the ACTIVE close period (month_config.PERIOD) has ≥1 REGISTERED statement
+    AND there are NO still-in-flight intake jobs (queued/waiting/held/processing/ready/
+    failed) — i.e. everything for the period has been registered and nothing is left to
+    process. Advisory only; never runs the close. Best-effort: any failure -> None."""
+    try:
+        import month_config
+        period = (getattr(month_config, "PERIOD", "") or "").strip()
+        if not period:
+            return None
+        # nothing may still be in flight in intake (only 'done' jobs are acceptable)
+        import waiting_room as _wr
+        c = _wr.counts()
+        in_flight = sum(c.get(s, 0) for s in
+                        ("queued", "waiting", "held", "processing", "ready", "failed"))
+        if in_flight:
+            return None
+        # ≥1 registered statement for the period (suppliers.db, read-only via dataproduct)
+        import dataproduct
+        con = dataproduct.connect("suppliers")
+        try:
+            n = con.execute("SELECT COUNT(*) FROM supplier_statements WHERE period=?",
+                            (period,)).fetchone()[0]
+        finally:
+            con.close()
+        if not n:
+            return None
+        return (f"Period {esc(period)} is fully registered ({n} statement(s), nothing "
+                "pending in intake) — run the monthly close")
+    except Exception as e:
+        _log_exc("period close nudge", e)
+        return None
+
+
 def _worklist_card(year):
     """A 'what needs action' worklist for VAT recovery: claims ready to submit,
     claims blocked on documents, aging unpaid claims, and fees ready to invoice.
@@ -1881,6 +1917,16 @@ def _worklist_card(year):
                           f"— invoices not registered", "/queue"))
     except Exception as e:
         _log_exc("worklist register jobs", e)
+    # PERIOD-FULLY-REGISTERED nudge: when the active close period has ≥1 registered
+    # statement AND nothing is still in-flight in intake (no queued/waiting/held/
+    # processing/ready/failed jobs), everything for the period is registered — nudge the
+    # operator to run the monthly close. Advisory only; never auto-runs.
+    try:
+        nudge = _period_close_nudge()
+        if nudge:
+            items.append(("ok", nudge, "/close"))
+    except Exception as e:
+        _log_exc("worklist close nudge", e)
     if not items:
         return ('<div class="card"><h2>What needs action</h2>'
                 '<p class="note">Nothing outstanding — all claims are submitted, '
@@ -3708,6 +3754,30 @@ def _country_supply_summary_html(draft, token=None):
             + f'</tr></thead><tbody>{rows}</tbody></table></div>')
 
 
+def _draft_total_note(draft, gross):
+    """The 'check this equals the coversheet total' note under the draft. When the extraction
+    PARSED a document gross total (net+VAT), show it alongside the draft line sum and flag
+    whether they tie (±0.02) — this note is now BACKED by a hard tie-out gate at confirm.
+    When no total was parsed, the note is advisory exactly as before (no gate)."""
+    ct = draft.get("coversheet_total") if isinstance(draft, dict) else None
+    try:
+        ct = float(ct) if ct is not None else None
+    except (TypeError, ValueError):
+        ct = None
+    if ct is None:
+        return (f'<div class="note" style="margin-top:8px">Draft gross total: '
+                f'<b>{gross:,.2f}</b> — check this equals the coversheet total before '
+                'confirming.</div>')
+    ties = abs(money.q2(gross) - money.q2(ct)) <= money.q2(0.02)
+    cls = "ok" if ties else "bad"
+    verdict = ("matches the parsed document total"
+               if ties else "does NOT match the parsed document total — confirm is BLOCKED")
+    return (f'<div class="note" style="margin-top:8px">Draft gross total: '
+            f'<b>{money.f2(gross):,.2f}</b> · parsed document total: '
+            f'<b>{money.f2(ct):,.2f}</b> — <span class="{cls}">{verdict}</span> '
+            '(tie-out is enforced as a hard block at confirm).</div>')
+
+
 def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload_sha=None):
     acc_line, weak = _capture_accuracy_hints(draft)
     def _wh(field):  # a weak-field hint cell fragment, or empty
@@ -3770,9 +3840,8 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload
             + '<table style="margin-top:10px"><thead><tr>'
             + "".join(f"<th>{h}</th>" for h in ["Invoice no","Date","Country","Ccy","Net","VAT","Supply entity","Provenance"])
             + f'</tr></thead><tbody>{rows}</tbody></table>'
-            f'<div class="note" style="margin-top:8px">Draft gross total: <b>{gross:,.2f}</b> — '
-            'check this equals the coversheet total before confirming.</div>'
-            f'<input type="hidden" name="nlines" value="{len(draft.get("lines",[]))}">'
+            + _draft_total_note(draft, gross)
+            + f'<input type="hidden" name="nlines" value="{len(draft.get("lines",[]))}">'
             '<div style="margin-top:10px">'
             '<button name="__do" value="confirm">Confirm &amp; register statement</button> '
             '<button name="__do" value="cancel" style="background:var(--mut)">Discard draft</button>'
@@ -3963,12 +4032,28 @@ def extract_confirm():
     import validate as VAL
     vlines = [{"invoice_no": l[0], "date": l[1], "country": l[2], "currency": l[3],
                "net": l[4], "vat": l[5]} for l in lines]
-    vr = VAL.validate_batch(vlines)
+    # TIE-OUT HARD BLOCK: when the extraction parsed a document/coversheet GROSS total
+    # (net+VAT) onto the draft, thread it so validate_batch computes the tie and REFUSES the
+    # commit on a mismatch (>0.02). Only blocks when a total is actually known — no total =>
+    # byte-identical to before (no tie, no block). The draft stash survives _stash_draft
+    # because `coversheet_total` is a '_'-free key.
+    _confirm_draft = _load_draft(token)
+    _cover_total = None
+    if isinstance(_confirm_draft, dict):
+        _ct = _confirm_draft.get("coversheet_total")
+        try:
+            _cover_total = float(_ct) if _ct is not None else None
+        except (TypeError, ValueError):
+            _cover_total = None
+    if _cover_total is not None:
+        vr = VAL.validate_batch(vlines, coversheet_total=_cover_total)
+    else:
+        vr = VAL.validate_batch(vlines)
     _feed_validator_trust(supplier, vr)        # ground-truth signal into the trust model
     # CAPTURE-CONFIDENCE (advisory learning loop): diff the CAPTURED draft against what the
     # human just confirmed — an unchanged field is a correct capture, an edited one a miss.
     # Best-effort, before the draft file is dropped below; never gates the commit.
-    _feed_capture_confidence_confirm(supplier, _load_draft(token))
+    _feed_capture_confidence_confirm(supplier, _confirm_draft)
     if not vr["can_commit"]:
         rows_html = ""
         for res in vr["lines"]:
@@ -3987,7 +4072,23 @@ def extract_confirm():
         except Exception as e:
             _log.debug("statement-commit blocked: import_log write failed: %s", e)
         thead = "".join(f"<th>{h}</th>" for h in ["Invoice","Country","Net","VAT","Check","Issue"])
-        return page('<div class="card"><b class="bad">Commit blocked - fix the errors '
+        # TIE-OUT verdict (HARD BLOCK, no override): when a document total was parsed and the
+        # captured line sum does NOT tie to it, show the line sum, the stated total, and the
+        # difference so the operator knows exactly what to correct before re-confirming.
+        tie_html = ""
+        _tie = vr.get("tie")
+        if _tie is not None and not _tie["ok"]:
+            tie_html = (
+                '<div class="card" style="border-left:4px solid #c0392b;background:#fdecea">'
+                '<b class="bad">⚠ Tie-out FAILED — the captured lines do not match the '
+                'document total.</b> This is a hard block: correct the figures so the line '
+                'sum equals the document total, then confirm again.'
+                '<table style="margin-top:6px"><tbody>'
+                f'<tr><td>Captured line sum (net+VAT)</td><td class="r"><b>{money.f2(_tie["gross"]):,.2f}</b></td></tr>'
+                f'<tr><td>Document / coversheet total</td><td class="r"><b>{money.f2(_tie["stated"]):,.2f}</b></td></tr>'
+                f'<tr><td>Difference</td><td class="r bad"><b>{money.f2(_tie["diff"]):,.2f}</b></td></tr>'
+                '</tbody></table></div>')
+        return page(tie_html + '<div class="card"><b class="bad">Commit blocked - fix the errors '
                     f'({vr["errors"]} error, {vr["warnings"]} warning) and re-import:</b>'
                     f'<table><thead><tr>{thead}</tr></thead><tbody>{rows_html}</tbody></table>'
                     + "</div>", "ext")
@@ -4882,6 +4983,99 @@ def _intake_reliability_card():
             'more than one attempt; median duration is finished − started.</div>'
             + table + hist + '</div>')
 
+_BULK_SYNTHETIC = {"INPUT", "ALL:", "UNMATCHED"}
+
+
+def _draft_is_synthetic(draft):
+    """True when ANY line is a synthetic / placeholder line that can never be filed
+    (empty / INPUT / ALL: / UNMATCHED). Mirrors autopilot.evaluate's refusal so bulk
+    confirm-all SKIPS such a draft (left 'ready' for manual handling), never force-files."""
+    for ln in (draft.get("lines") or []):
+        if not isinstance(ln, dict):
+            return True
+        inv = ln.get("invoice_no")
+        inv_s = inv.strip() if isinstance(inv, str) else ""
+        if not inv_s or inv_s in _BULK_SYNTHETIC or inv_s.startswith("ALL:"):
+            return True
+    return False
+
+
+def _bulk_confirm_ready_jobs(actor):
+    """BULK 'confirm all clean drafts': iterate every intake job in status 'ready' and, for
+    each whose stored draft passes validate.validate_batch with ZERO errors AND is not
+    synthetic/placeholder AND (when a coversheet_total is present) ties out, perform the SAME
+    registration the single confirm does — by reusing autopilot.autofile (validate ->
+    enqueue_registration -> save_baseline -> vault PDFs), then mark the job done.
+
+    Returns (confirmed, skipped, reasons) where reasons is a Counter-like dict {reason: n}.
+    Best-effort PER JOB: one bad draft is logged + skipped and never aborts the batch."""
+    import waiting_room as IQ
+    import validate as VAL
+    import autopilot
+    confirmed, skipped = 0, 0
+    reasons = {}
+
+    def _skip(why):
+        nonlocal skipped
+        skipped += 1
+        reasons[why] = reasons.get(why, 0) + 1
+
+    for j in IQ.jobs(status="ready", limit=500):
+        jid = j["id"]
+        try:
+            # the editable draft + its source PDF bytes (named), so autofile can vault them
+            stored = IQ.get_stored_draft(jid)
+            if not isinstance(stored, dict) or not (stored.get("lines") or []):
+                _skip("no draft/lines")
+                continue
+            # selection gate: synthetic/placeholder lines are never force-filed
+            if _draft_is_synthetic(stored):
+                _skip("synthetic/placeholder line")
+                continue
+            vlines = [{"invoice_no": ln.get("invoice_no"), "date": ln.get("date"),
+                       "country": ln.get("country"), "currency": ln.get("currency") or "EUR",
+                       "net": ln.get("net"), "vat": ln.get("vat")}
+                      for ln in stored.get("lines") if isinstance(ln, dict)]
+            # tie-out: thread the parsed document total so a mismatch SKIPS (never files)
+            ct = stored.get("coversheet_total")
+            try:
+                ct = float(ct) if ct is not None else None
+            except (TypeError, ValueError):
+                ct = None
+            vr = (VAL.validate_batch(vlines, coversheet_total=ct) if ct is not None
+                  else VAL.validate_batch(vlines))
+            if vr["errors"]:
+                _skip(f"{vr['errors']} validation error(s)")
+                continue
+            if vr.get("tie") is not None and not vr["tie"]["ok"]:
+                _skip("tie-out mismatch")
+                continue
+            # re-derive the source PDFs WITH names so autofile's vaulting can match them
+            try:
+                import extract as EX
+                row = IQ.get_job(jid)
+                named_pdfs = EX.unpack(IQ.read_bytes(row["stored_path"]), row["filename"]) \
+                    if row and row.get("stored_path") else []
+            except Exception as e:
+                _log_exc(f"bulk-confirm unpack job {jid}", e)
+                named_pdfs = []
+            file_draft = dict(stored)
+            file_draft["_pdf_bytes"] = list(named_pdfs)
+            # REUSE the confirm path exactly (validate -> enqueue_registration ->
+            # save_baseline -> vault). autofile re-validates and refuses on can_commit, so a
+            # racing change can only leave the job 'ready', never mis-file it.
+            st, info = autopilot.autofile(IQ.connect(), j, file_draft, actor=actor)
+            if st == "done":
+                IQ.complete(jid)
+                confirmed += 1
+            else:
+                _skip(info.get("reason") or "not filed")
+        except Exception as e:
+            _log_exc(f"bulk-confirm job {jid}", e)
+            _skip("error (left for review)")
+    return confirmed, skipped, reasons
+
+
 @app.route("/queue", methods=["GET", "POST"])
 def intake_queue_page():
     """The 'waiting room': uploaded batches parked for deferred extraction. Shows
@@ -4899,6 +5093,23 @@ def intake_queue_page():
             except Exception as e:
                 _log_exc("intake drain", e)
                 banner = f'<div class="card"><b class="bad">Processing error: {esc(str(e))}</b></div>'
+        elif act == "confirm_all_ready":
+            # BULK confirm every CLEAN ready draft (zero errors, not synthetic, ties out)
+            # in one click — capability data_import (same as single confirm), CSRF-protected.
+            try:
+                confirmed, skipped, reasons = _bulk_confirm_ready_jobs(
+                    session.get("user", "system"))
+                reason_txt = ("; ".join(f"{n} {esc(why)}" for why, n in reasons.items())
+                              if reasons else "")
+                banner = (f'<div class="card"><b class="ok">Confirmed {confirmed} '
+                          f'statement(s)</b>'
+                          + (f'; skipped {skipped} (' + reason_txt + ')' if skipped else '')
+                          + '. Clean drafts were registered; anything with errors, a '
+                            'synthetic line, or a tie-out mismatch was left ready for '
+                            'manual review.</div>')
+            except Exception as e:
+                _log_exc("bulk confirm-all", e)
+                banner = f'<div class="card"><b class="bad">Bulk confirm failed: {esc(str(e))}</b></div>'
         elif act == "send_all":
             # bulk "manual send / restart workflow": reset every stuck job
             # (waiting/held/failed) back to queued and run the whole backlog now.
@@ -4995,6 +5206,16 @@ def intake_queue_page():
     # bulk "manual send / restart workflow" for every pending document
     send_all_btn = ('<form method="post" style="display:inline;margin-right:10px">' + _csrf_input()
                     + '<button name="__act" value="send_all">↻ Send / restart all</button></form>')
+    # BULK confirm every CLEAN ready draft — only shown when there's something to confirm.
+    confirm_all_btn = ""
+    if c.get("ready"):
+        confirm_all_btn = (
+            '<form method="post" style="display:inline;margin-right:10px"'
+            ' onsubmit="return confirm(\'Confirm and register every clean ready draft? '
+            'Drafts with errors, synthetic lines, or a tie-out mismatch are skipped.\')">'
+            + _csrf_input()
+            + '<button name="__act" value="confirm_all_ready">'
+            + f'✓ Confirm all clean drafts ({c["ready"]} ready)</button></form>')
     process_form = ('<form method="post" class="f" style="margin:0">' + _csrf_input()
                     + '<label>batch size<input name="limit" value="5" style="width:60px" class="r"></label>'
                     + '<button name="__act" value="process" style="background:var(--mut)">Process queued only</button></form>')
@@ -5030,7 +5251,7 @@ def intake_queue_page():
               'stays safe until you top up the API credit and press <b>Send now</b>.</div></div>'
             + '<div class="card"><h2>Process backlog</h2>'
             + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px">'
-            + send_all_btn + process_form + '</div>'
+            + confirm_all_btn + send_all_btn + process_form + '</div>'
             + '<div class="note"><b>Send / restart all</b> resets every waiting/held/failed '
               'document and runs the whole backlog now. Or run a dedicated worker process: '
               '<kbd>python waiting_room.py --work</kbd>.</div>'

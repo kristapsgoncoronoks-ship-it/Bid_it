@@ -333,6 +333,13 @@ def to_draft(capture, files=None, backend="vision"):
         # reviewer is told to scrutinise every figure. A structured/parser path still wins.
         "confidence": "low",
     }
+    # Document GROSS total for the confirm tie-out: the captured net+VAT total, the SAME
+    # basis validate_batch ties on (sum(net+vat)). Only set when the model actually read a
+    # gross_total — absent otherwise (no total => no tie-out gate, exactly as before).
+    _totals = capture.get("totals") if isinstance(capture.get("totals"), dict) else {}
+    _gross = _totals.get("gross_total")
+    if _gross is not None:
+        draft["coversheet_total"] = _gross
     if files is not None:
         draft["files"] = [{"name": n, "size": len(b)} for n, b in files]
         draft["_pdf_bytes"] = files             # vault the ORIGINAL PDF(s) on confirm

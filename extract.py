@@ -591,6 +591,14 @@ def parse_einvoice(xml_bytes):
             lines = [{"invoice_no": doc_id, "date": issue, "country": "", "currency": currency,
                       "net": net, "vat": vat, "_source": "e-invoice"}]
 
+    # Document-level GROSS total (net + VAT) for the tie-out gate. EN-16931 BT-112
+    # (UBL cbc:TaxInclusiveAmount / CII GrandTotalAmount) is the net+VAT figure — the
+    # SAME basis validate_batch ties on (sum(net+vat)). Read it independently of the
+    # line detail so a mis-captured line can be caught; left absent if not present.
+    _gross_raw = first(root, "TaxInclusiveAmount", "GrandTotalAmount",
+                       "DuePayableAmount", "PayableAmount")
+    gross_total = _num(_gross_raw) if _gross_raw is not None else None
+
     # Capture trust: high ONLY when real per-line detail was present AND the declared
     # profile (if any) is one that carries lines. A line-less profile, or a totals-only
     # fall-back, downgrades to 'medium' and tells the reviewer to confirm lines against
@@ -605,10 +613,14 @@ def parse_einvoice(xml_bytes):
                  "totals only); confirm lines against the PDF before submitting")
     else:
         note += " — verify on review"
-    return {"supplier": sup_name, "supplier_vat": sup_vat, "statement_ref": doc_id,
-            "statement_date": issue, "currency": currency, "customer": cust_name,
-            "lines": lines, "notes": note, "profile": profile,
-            "backend": "e-invoice", "confidence": "medium" if low_detail else "high"}
+    out = {"supplier": sup_name, "supplier_vat": sup_vat, "statement_ref": doc_id,
+           "statement_date": issue, "currency": currency, "customer": cust_name,
+           "lines": lines, "notes": note, "profile": profile,
+           "backend": "e-invoice", "confidence": "medium" if low_detail else "high"}
+    # Document gross total for the confirm tie-out (net+VAT basis); absent if not stated.
+    if gross_total is not None:
+        out["coversheet_total"] = gross_total
+    return out
 
 def _einvoice_draft(xmls):
     """Merge one or more parsed e-invoice XMLs into a single review draft. Confidence is
@@ -633,6 +645,11 @@ def _einvoice_draft(xmls):
                          "notes": "structured e-invoice (UBL/CII/XML) — verify on review"})
     draft["lines"] = merged
     draft["confidence"] = confidence
+    # The tie-out total on `hdr` covers ONLY the first invoice's lines; a multi-invoice
+    # merge has a combined line set the single header total cannot tie against — drop it
+    # so we never block on a mismatched scope (no total => no gate, exactly as before).
+    if len(xmls) != 1:
+        draft.pop("coversheet_total", None)
     if profile:
         draft["profile"] = profile
     if confidence == "medium" and "line-item detail" not in (draft.get("notes") or ""):
