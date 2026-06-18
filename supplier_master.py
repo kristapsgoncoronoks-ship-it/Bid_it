@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS suppliers (
     phone TEXT, email TEXT, portal TEXT,
     payment_terms TEXT, payment_notes TEXT, status TEXT DEFAULT 'active', notes TEXT);
 CREATE TABLE IF NOT EXISTS supplier_vat_registrations (
-    supplier TEXT, country TEXT, vat_number TEXT, source TEXT,
+    supplier TEXT, country TEXT, vat_number TEXT, source TEXT, entity_name TEXT,
     PRIMARY KEY (supplier, country));
 CREATE TABLE IF NOT EXISTS supplier_bank_accounts (
     supplier TEXT, beneficiary TEXT, iban TEXT PRIMARY KEY, swift TEXT,
@@ -264,13 +264,22 @@ def connect():
 
             # supplier_vat_registrations: PK (supplier, country) -> (tenant_id, supplier,
             # country). rowkey stays NEW.supplier.
+            # entity_name (per-country actual issuing legal entity) is APPENDED to this
+            # list at the END (single ALTER); the rekey twin carries the column so a DB
+            # rebuilt here lands it. We SELECT a literal NULL for it (not the source
+            # column): entity_name is brand-new, so no pre-rekey row can hold a value, and
+            # the committed demo suppliers.db has NEVER been rekeyed (no _ffs_migrations) —
+            # i.e. its source table has NO entity_name column yet, so referencing it in the
+            # SELECT would fail. The END-of-list ALTER is then a tolerated duplicate on an
+            # already-rekeyed DB and the real add on one that skipped this rebuild.
             """CREATE TABLE IF NOT EXISTS supplier_vat_registrations__rekey (
                 supplier TEXT, country TEXT, vat_number TEXT, source TEXT,
+                entity_name TEXT,
                 tenant_id TEXT NOT NULL DEFAULT 'default',
                 PRIMARY KEY (tenant_id, supplier, country))""",
             """INSERT INTO supplier_vat_registrations__rekey
-                (supplier, country, vat_number, source, tenant_id)
-                SELECT supplier, country, vat_number, source, tenant_id
+                (supplier, country, vat_number, source, entity_name, tenant_id)
+                SELECT supplier, country, vat_number, source, NULL, tenant_id
                 FROM supplier_vat_registrations""",
             "DROP TABLE supplier_vat_registrations",
             "ALTER TABLE supplier_vat_registrations__rekey RENAME TO supplier_vat_registrations",
@@ -356,6 +365,15 @@ def connect():
                 FROM statement_invoices""",
             "DROP TABLE statement_invoices",
             "ALTER TABLE statement_invoices__rekey RENAME TO statement_invoices",
+
+            # PER-COUNTRY ENTITY NAME (append-only, END of list). The actual local
+            # issuing/supplying legal entity for a (supplier, country) — e.g. EUROWAG ->
+            # "W.A.G. Deutschland GmbH" in DE — distinct from suppliers.legal_name (one per
+            # supplier). The rekey twin above already carries this column on a freshly
+            # rebuilt DB; this ALTER adds it to a DB that SKIPPED the rebuild (already
+            # rekeyed under old code), and is a tolerated duplicate where it is present.
+            # Default NULL = "not set" -> get_issuer falls back to suppliers.legal_name.
+            "ALTER TABLE supplier_vat_registrations ADD COLUMN entity_name TEXT",
         ])
         audit.install_audit(con, ['suppliers', 'supplier_vat_registrations', 'supplier_bank_accounts',
                                   'supplier_products', 'supplier_invoices', 'supplier_discounts'])
@@ -380,16 +398,51 @@ def set_discount_rule(supplier, country="%", station_like="%", product_group="Di
     con.commit(); rid = con.execute("SELECT last_insert_rowid()").fetchone()[0]; con.close()
     return rid
 
-def set_vat_registration(supplier, country, vat_number, source="document mining"):
-    """Upsert a supplier's VAT registration for a country (used to fill INPUT gaps)."""
+def set_vat_registration(supplier, country, vat_number, source="document mining",
+                         entity_name=None):
+    """Upsert a supplier's VAT registration for a country (used to fill INPUT gaps).
+
+    `entity_name` (optional) is the actual per-country issuing/supplying legal entity
+    name that lands on the legal VAT claim (distinct from the supplier's default
+    legal_name). PRECEDENCE: a 'capture'-sourced entity_name NEVER overwrites an
+    existing non-'capture' (admin/manual/document-mining) one — a human edit always
+    wins; it only SEEDS an empty/capture slot. Passing entity_name=None leaves any
+    existing entity_name untouched (so VAT-only callers keep today's behavior)."""
     con = connect()
     # Multi-tenant P2: stamp the tenant on the registration row (soft queue_tenant —
     # OFF -> DEFAULT_TENANT_ID == the column DEFAULT, byte-identical).
-    con.execute("""INSERT INTO supplier_vat_registrations (supplier, country, vat_number, source, tenant_id)
-                   VALUES (?,?,?,?,?)
-                   ON CONFLICT(tenant_id, supplier, country) DO UPDATE SET vat_number=excluded.vat_number,
-                     source=excluded.source""",
-                (supplier, country, vat_number, source, tenancy.queue_tenant()))
+    tid = tenancy.queue_tenant()
+    # Decide the entity_name to persist, honoring manual > capture precedence. We read
+    # the existing row first so a capture write can't clobber an admin/manual name and a
+    # VAT-only write (entity_name=None) preserves whatever is already there.
+    frag, params = tenancy.scope_clause()
+    cur = con.execute("""SELECT entity_name, source FROM supplier_vat_registrations
+                         WHERE supplier=? AND country=?""" + frag,
+                      [supplier, country, *params]).fetchone()
+    existing_name = (cur["entity_name"] if cur and cur["entity_name"] else "") or ""
+    existing_src = (cur["source"] if cur else "") or ""
+    new_name = (entity_name or "").strip()
+    capture_decline = (source == "capture" and existing_name and existing_src != "capture")
+    if not new_name:
+        # No entity_name supplied: keep whatever is on file.
+        eff_name = existing_name or None
+        eff_src = source
+    elif capture_decline:
+        # A manual/admin/document-mining name is on file: a capture write must NOT
+        # overwrite the entity_name OR downgrade the row's source — the human edit wins.
+        eff_name = existing_name
+        eff_src = existing_src or source
+    else:
+        eff_name = new_name
+        eff_src = source
+    con.execute("""INSERT INTO supplier_vat_registrations
+                     (supplier, country, vat_number, source, entity_name, tenant_id)
+                   VALUES (?,?,?,?,?,?)
+                   ON CONFLICT(tenant_id, supplier, country) DO UPDATE SET
+                     vat_number=excluded.vat_number,
+                     source=excluded.source,
+                     entity_name=excluded.entity_name""",
+                (supplier, country, vat_number, eff_src, eff_name, tid))
     con.commit(); con.close()
 
 def vat_registrations():
@@ -462,11 +515,15 @@ def get_issuer(code, country=None, con=None):
     frag, params = tenancy.scope_clause()
     s = con.execute("SELECT legal_name FROM suppliers WHERE code=?" + frag,
                     [code, *params]).fetchone()
-    v = con.execute("""SELECT vat_number, source FROM supplier_vat_registrations
+    v = con.execute("""SELECT vat_number, source, entity_name FROM supplier_vat_registrations
                        WHERE supplier=? AND country=?""" + frag,
                     [code, country, *params]).fetchone()
     if own: con.close()
-    name = s["legal_name"] if s else code
+    # Issuer NAME precedence (this lands on the legal VAT claim): the per-country actual
+    # issuing entity_name when set, ELSE the supplier's default legal_name, ELSE the code.
+    # NULL/empty entity_name => byte-identical to the pre-feature behavior.
+    entity = (v["entity_name"] if v and v["entity_name"] else "").strip() if v else ""
+    name = entity or (s["legal_name"] if s else code)
     if v and v["vat_number"]:
         return name, v["vat_number"], v["source"]
     return name, None, (v["source"] if v else "no VAT registration on file - INPUT")

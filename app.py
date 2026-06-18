@@ -4126,6 +4126,53 @@ def extract_confirm():
     }
     job_id, _job_st = IQ.enqueue_registration(reg_payload, user=session.get("user", "system"))
     VAL.save_baseline(supplier, stmt_ref, vlines)
+    # CAPTURE-SEED the per-country ENTITY REGISTRY (best-effort, advisory). The captured
+    # draft carries the per-line ACTUAL supplying/issuing entity (supplier_name +
+    # supplier_vat), line-specific on cross-border statements. A confirmed register seeds
+    # supplier_vat_registrations.entity_name for each DISTINCT country whose draft lines
+    # carried a LINE-SPECIFIC supplier_name, source='capture'. set_vat_registration
+    # enforces manual > capture, so an admin-set entity is NEVER clobbered. This NEVER
+    # blocks/fails the confirm (wrapped + _log_exc).
+    try:
+        import supplier_master as _SM
+        _draft_lines = (_confirm_draft.get("lines", [])
+                        if isinstance(_confirm_draft, dict) else [])
+        seen = {}
+        for _ln in _draft_lines:
+            if not _ln.get("supplier_is_line_specific"):
+                continue
+            _ctry = (_ln.get("country") or "").strip()
+            _name = (_ln.get("supplier_name") or "").strip()
+            if not _ctry or not _name:
+                continue
+            # first line-specific entity wins per country (deterministic, draft order)
+            seen.setdefault(_ctry, (_name, (_ln.get("supplier_vat") or "").strip() or None))
+        if seen:
+            _sc = _SM.connect()
+            _exrows = {r["country"]: r for r in _sc.execute(
+                "SELECT country, vat_number, source, entity_name "
+                "FROM supplier_vat_registrations WHERE supplier=?", (supplier,))}
+            _sc.close()
+            for _ctry, (_name, _vat) in seen.items():
+                _ex = _exrows.get(_ctry)
+                # Don't clobber ADMIN data: skip the seed only when a non-'capture'
+                # registration already carries an entity_name (the human source of truth).
+                # An INPUT/document-mining row with NO entity_name (the common case for a
+                # demo Q8 country) IS seedable — set_vat_registration enforces manual >
+                # capture on the name anyway; this guard also leaves such a row's
+                # vat_number/source fully intact.
+                if (_ex and (_ex["entity_name"] or "").strip()
+                        and (_ex["source"] or "") != "capture"):
+                    continue
+                # keep an existing VAT number when the capture didn't carry one
+                _vat_eff = _vat or (_ex["vat_number"] if _ex else None)
+                _SM.set_vat_registration(supplier, _ctry, _vat_eff,
+                                         source="capture", entity_name=_name)
+        if seen:
+            _log.info("capture-seed: %d per-country entity name(s) seeded for %s",
+                      len(seen), supplier)
+    except Exception as e:
+        _log_exc("capture-seed per-country entity", e)
     # attach source PDFs to the vault against their invoice refs
     attached = 0
     if _os.path.exists(tmpf):
@@ -8779,6 +8826,38 @@ def suppliers():
             except Exception as e:
                 _log_exc("supplier activate enqueue", e)
                 banner = f'<div class="card"><b class="bad">Could not queue activation: {esc(str(e))}</b></div>'
+    elif request.method == "POST" and request.form.get("__act") == "set_entity":
+        # Per-country ACTUAL issuing legal entity name (lands on the legal VAT claim via
+        # get_issuer). Admin-only source of truth, source='manual' so it WINS over any
+        # capture-seeded value (set_vat_registration enforces manual > capture).
+        if session.get("role") != "admin":
+            banner = '<div class="card"><b class="bad">Setting the per-country legal entity is admin-only.</b></div>'
+        else:
+            try:
+                code = (request.form.get("code") or "").strip().upper()
+                country = (request.form.get("country") or "").strip()
+                entity = (request.form.get("entity_name") or "").strip()
+                vatnum = (request.form.get("vat_number") or "").strip() or None
+                if not code or not country:
+                    raise ValueError("supplier code and country are required")
+                # This admin form edits the per-country ENTITY NAME; preserve the existing
+                # VAT number when the form didn't carry one (don't blank an INPUT-resolved
+                # VAT registration just because the entity got named).
+                if vatnum is None:
+                    _scon = supplier_master.connect()
+                    _ex = _scon.execute(
+                        "SELECT vat_number FROM supplier_vat_registrations "
+                        "WHERE supplier=? AND country=?", (code, country)).fetchone()
+                    _scon.close()
+                    vatnum = _ex["vat_number"] if _ex else None
+                supplier_master.set_vat_registration(
+                    code, country, vatnum, source="manual", entity_name=entity)
+                shown = esc(entity) if entity else "<i>(cleared — uses supplier default)</i>"
+                banner = (f'<div class="card"><b class="ok">Saved legal entity for '
+                          f'{esc(code)} / {esc(country)}: {shown}.</b></div>')
+            except Exception as e:
+                _log_exc("supplier set-entity", e)
+                banner = f'<div class="card"><b class="bad">Could not save the entity: {esc(str(e))}</b></div>'
     con = supplier_master.connect()
     cards = []
     for s in con.execute("SELECT * FROM suppliers ORDER BY code"):
@@ -8786,8 +8865,48 @@ def suppliers():
                        for k in ("legal_name","group_name","address","home_country","company_reg",
                                  "phone","email","portal","payment_terms","payment_notes","notes") if s[k])
         sect = ""
+        # VAT REGISTRATIONS — rendered specially because the per-country ACTUAL issuing
+        # legal entity (entity_name) lands on the legal VAT claim (via get_issuer). Each
+        # country shows its entity_name, or a muted "uses default: <legal_name>" when none
+        # is set, plus an admin-only inline editor (source='manual' so it WINS over a
+        # capture-seeded value). Non-admins see the names read-only.
+        _is_admin = (session.get("role") == "admin")
+        vrows = con.execute(
+            "SELECT country, vat_number, source, entity_name FROM supplier_vat_registrations "
+            "WHERE supplier=? ORDER BY country", (s["code"],)).fetchall()
+        if vrows:
+            default_name = s["legal_name"] or s["code"]
+            body_rows = ""
+            for r in vrows:
+                ctry = r["country"] or ""
+                vatcell = (esc(r["vat_number"]) if r["vat_number"]
+                           else '<span class="bad">INPUT</span>')
+                ent = (r["entity_name"] or "").strip()
+                if ent:
+                    entcell = f'<b>{esc(ent)}</b>'
+                else:
+                    entcell = (f'<span class="note">uses default: {esc(default_name)}</span>')
+                if _is_admin:
+                    editf = (
+                        '<form method="post" style="margin:0;display:flex;gap:4px">'
+                        + _csrf_input()
+                        + '<input type="hidden" name="__act" value="set_entity">'
+                        + f'<input type="hidden" name="code" value="{esc(s["code"])}">'
+                        + f'<input type="hidden" name="country" value="{esc(ctry)}">'
+                        + f'<input name="entity_name" value="{esc(ent)}" '
+                          'placeholder="actual local legal entity" style="width:240px">'
+                        + '<button style="font-size:12px;padding:4px 10px">Save</button></form>')
+                else:
+                    editf = ""
+                body_rows += (f"<tr><td>{esc(ctry)}</td><td>{vatcell}</td>"
+                              f"<td>{esc(r['source'])}</td><td>{entcell}</td>"
+                              + (f"<td>{editf}</td>" if _is_admin else "") + "</tr>")
+            head = ("<tr><th>country</th><th>vat number</th><th>source</th>"
+                    "<th>legal entity (per country)</th>"
+                    + ("<th>set entity</th>" if _is_admin else "") + "</tr>")
+            sect += ("<h2 style='margin-top:12px'>VAT registrations</h2>"
+                     f"<table><thead>{head}</thead><tbody>{body_rows}</tbody></table>")
         for title, q, cols in (
-            ("VAT registrations","SELECT country, COALESCE(vat_number,'<span class=bad>INPUT</span>') v, source FROM supplier_vat_registrations WHERE supplier=?",("country","v","source")),
             ("Bank accounts","SELECT beneficiary, iban, COALESCE(swift,'') s, bank, currency FROM supplier_bank_accounts WHERE supplier=?",("beneficiary","iban","s","bank","currency")),
             ("Products","SELECT COALESCE(product_code,'') c, product_name, product_group, vat_rate, discount_terms FROM supplier_products WHERE supplier=?",("c","product_name","product_group","vat_rate","discount_terms")),
             ("Invoices","SELECT country, invoice_no, invoice_date, currency, gross_total FROM supplier_invoices WHERE supplier=?",("country","invoice_no","invoice_date","currency","gross_total"))):
