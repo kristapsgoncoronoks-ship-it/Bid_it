@@ -23,13 +23,21 @@ import month_config
 import ecb_rates
 import applog
 import tenancy
+import paths
 from openpyxl import Workbook
 from openpyxl.chart import LineChart, Reference
 from openpyxl.styles import Font, PatternFill, Alignment
 
 import os
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
-DB = f"{WORKDIR}/fuel_history.db"
+DB = paths.db_path("fuel_history.db")   # default-env value (repo); tests may monkeypatch
+_DB_DEFAULT = DB                        # import-time default, to detect an explicit override
+
+def _db():
+    """Resolve the fuel_history.db path FRESH so FFS_DATA_DIR (per-test isolation) is
+    honored at call time; an explicit monkeypatch of DB still wins."""
+    return paths.db_path("fuel_history.db") if DB == _DB_DEFAULT else DB
+
 FIELDS = ["entity","supplier","country","vehicle","date","time","station","product",
           "product_group","qty","currency","net_local","vat_local","gross_local",
           "net_eur","vat_eur","net_eur_eff","note"]
@@ -133,7 +141,7 @@ def load(period=None):
     # journal mode — mixed WAL/rollback risks reader/writer contention on close.
     # (build_master.py writes only consolidated_rows.pkl and consolidate.py writes
     # no DB — neither holds a product-DB handle, so neither needs tuning.)
-    con = sqlite3.connect(DB)
+    con = sqlite3.connect(_db())   # resolve fresh (honors FFS_DATA_DIR / an override)
     db_tuning.tune(con)   # WAL + busy_timeout; idempotent, no-ops on :memory:/Postgres
     con.executescript("""
 CREATE TABLE IF NOT EXISTS transactions (

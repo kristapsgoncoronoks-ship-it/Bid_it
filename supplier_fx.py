@@ -16,9 +16,17 @@ import os, sqlite3, collections
 
 import db_tuning
 import ecb_rates
+import paths
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
-DB = f"{WORKDIR}/fuel_history.db"
+DB = paths.db_path("fuel_history.db")   # default-env value (repo); tests may monkeypatch
+_DB_DEFAULT = DB                        # import-time default, to detect an explicit override
+
+def _db():
+    """Resolve the fuel_history.db path FRESH so FFS_DATA_DIR (per-test isolation) is
+    honored at call time; an explicit monkeypatch of DB still wins."""
+    return paths.db_path("fuel_history.db") if DB == _DB_DEFAULT else DB
+
 _READY = set()
 EPS = 0.1   # pp change below which a markup move is treated as 'stable' (noise floor)
 
@@ -33,6 +41,7 @@ CREATE TABLE IF NOT EXISTS supplier_fx_history (
 
 
 def connect():
+    DB = _db()   # resolve the on-disk path fresh (honors FFS_DATA_DIR / an override)
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
     db_tuning.tune(con)

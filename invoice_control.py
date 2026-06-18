@@ -25,10 +25,18 @@ import db_migrate
 import db_tuning
 import applog
 import tenancy
+import paths
 
 import os
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
-FUEL_HISTORY_DB = f"{WORKDIR}/fuel_history.db"
+FUEL_HISTORY_DB = paths.db_path("fuel_history.db")  # default-env value (repo); tests may monkeypatch
+_FUEL_HISTORY_DEFAULT = FUEL_HISTORY_DB             # import-time default, to detect an override
+
+def _fuel_history_db():
+    """Resolve the fuel_history.db path FRESH so FFS_DATA_DIR (per-test isolation) is
+    honored at call time; an explicit monkeypatch of FUEL_HISTORY_DB still wins."""
+    return paths.db_path("fuel_history.db") if FUEL_HISTORY_DB == _FUEL_HISTORY_DEFAULT else FUEL_HISTORY_DB
+
 log = applog.get("invoice_control")
 
 def _control_writer():
@@ -36,7 +44,7 @@ def _control_writer():
     invoice_receipt_control is an engine-owned table this module persists into during
     the CLI / monthly-close (never from a web request — the render path uses the
     read-only dataproduct accessor). Tuned to WAL like the canonical engine writer."""
-    con = sqlite3.connect(FUEL_HISTORY_DB)
+    con = sqlite3.connect(_fuel_history_db())   # resolve fresh (FFS_DATA_DIR/override)
     con.row_factory = sqlite3.Row
     db_tuning.tune(con)
     return con

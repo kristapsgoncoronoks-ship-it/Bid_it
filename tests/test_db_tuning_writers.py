@@ -36,7 +36,10 @@ def test_history_db_is_wal_after_load():
     r = subprocess.run([sys.executable, history.__file__],
                        cwd=history.WORKDIR, capture_output=True, text=True)
     assert r.returncode == 0, f"history.py failed: {r.stderr}"
-    assert _journal_mode(history.DB) == "wal"
+    # history.DB is the import-time default; the loader resolves the on-disk file via
+    # paths.db_path AT CALL TIME (honoring FFS_DATA_DIR, which the per-test isolation
+    # fixture sets and the subprocess inherits) — assert WAL on that resolved file.
+    assert _journal_mode(history._db()) == "wal"
 
 
 def test_history_writer_tunes_connection():

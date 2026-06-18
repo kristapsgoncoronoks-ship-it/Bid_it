@@ -19,10 +19,17 @@ import sqlite3, sys
 import audit
 import db_tuning, db_migrate
 import tenancy
+import paths
 
 import os
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
-DB = f"{WORKDIR}/customers.db"
+DB = paths.db_path("customers.db")   # default-env value (repo); tests may monkeypatch
+_DB_DEFAULT = DB                     # import-time default, to detect an explicit override
+
+def _db():
+    """Resolve the customers.db path FRESH so FFS_DATA_DIR (per-test isolation) is
+    honored at call time; an explicit monkeypatch of DB still wins."""
+    return paths.db_path("customers.db") if DB == _DB_DEFAULT else DB
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS customers (
@@ -148,6 +155,7 @@ SUPPLIER_ACCOUNTS = [
 _SCHEMA_READY = set()   # DB files whose schema is set up this process
 
 def connect():
+    DB = _db()   # resolve the on-disk path fresh (honors FFS_DATA_DIR / an override)
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
     db_tuning.tune(con)  # WAL + busy_timeout for safe multi-process access

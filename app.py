@@ -25,6 +25,7 @@ import auth as _auth
 import audit as _audit_mod
 import tenancy as _tenancy
 import dataproduct
+import paths
 import applog
 _log = applog.get("app")
 
@@ -38,7 +39,7 @@ except Exception as _e:   # pragma: no cover - never block startup on secret loa
     _log.warning("appsecrets.load_into_environ failed: %s", _e)
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(WORKDIR, "fuel_history.db")
+DB_PATH = paths.db_path("fuel_history.db")   # default-env value; product reads go via dataproduct
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 app.secret_key = _auth.secret_key()
@@ -4125,7 +4126,7 @@ def _ai_review_context(draft):
     if supplier:
         try:
             import sqlite3 as _sq
-            hp = os.path.join(WORKDIR, "fuel_history.db")
+            hp = paths.db_path("fuel_history.db")   # call-time resolve (FFS_DATA_DIR isolation)
             if os.path.exists(hp) and countries:
                 hc = _sq.connect(hp)
                 qmarks = ",".join("?" for _ in set(countries))
@@ -9839,7 +9840,9 @@ def admin():
         last_bk = '<span class="bad">none yet — run a backup</span>'
     dbstat = []
     for _db in ("customers.db", "suppliers.db", "fuel_history.db", "vat_claims.db", "security.db"):
-        _p = _os.path.join(WORKDIR, _db)
+        # The 5 data DBs resolve under the data root (FFS_DATA_DIR isolation); security.db
+        # is platform-managed and ALWAYS lives in the repo dir (never redirected).
+        _p = _os.path.join(WORKDIR, _db) if _db == "security.db" else paths.db_path(_db)
         if not _os.path.exists(_p):
             continue
         try:

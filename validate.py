@@ -19,9 +19,16 @@ from datetime import timezone as _tz
 from decimal import Decimal
 
 import money
+import paths
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
-DB = f"{WORKDIR}/fuel_history.db"
+DB = paths.db_path("fuel_history.db")   # default-env value (repo); tests may monkeypatch
+_DB_DEFAULT = DB                        # import-time default, to detect an explicit override
+
+def _db():
+    """Resolve the fuel_history.db path FRESH so FFS_DATA_DIR (per-test isolation) is
+    honored at call time; an explicit monkeypatch of DB still wins."""
+    return paths.db_path("fuel_history.db") if DB == _DB_DEFAULT else DB
 
 # Standard VAT rates by country (full + reduced where fuel-relevant). Used as a
 # coherence check, not a hard rule - reduced rates (e.g. PL diesel 8%) are allowed.
@@ -116,7 +123,7 @@ def validate_batch(lines, coversheet_total=None, capture=None):
 
 # ---------------------------------------------------------------- regression store
 def _con():
-    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    con = sqlite3.connect(_db()); con.row_factory = sqlite3.Row   # resolve fresh (FFS_DATA_DIR/override)
     con.execute("""CREATE TABLE IF NOT EXISTS extraction_baseline (
         supplier TEXT, statement_ref TEXT, invoice_no TEXT,
         net REAL, vat REAL, confirmed_at TEXT,

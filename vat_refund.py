@@ -15,6 +15,7 @@ from openpyxl.styles import Font, PatternFill, Alignment
 import supplier_master, customer_master, audit, money
 import db, db_tuning, db_migrate, applog
 import tenancy
+import paths
 import vat_config
 from vat_config import (GOODS_CODE,
                         MIN_QUARTER, MIN_ANNUAL, DEADLINE_FMT,
@@ -26,8 +27,20 @@ WORKDIR = os.path.dirname(os.path.abspath(__file__))
 # index) live in their OWN database, isolated from the analytics/transactions store
 # that history.py rebuilds every month — so a monthly reload can never corrupt the
 # legal/financial claim data. Transactions are read from the analytics DB on demand.
-DB = f"{WORKDIR}/vat_claims.db"            # claim records (this module owns it)
-ANALYTICS_DB = f"{WORKDIR}/fuel_history.db"  # transactions (read-only here)
+DB = paths.db_path("vat_claims.db")            # claim records (this module owns it)
+ANALYTICS_DB = paths.db_path("fuel_history.db")  # transactions (read-only here)
+_DB_DEFAULT = DB                  # import-time defaults, to detect an explicit override
+_ANALYTICS_DEFAULT = ANALYTICS_DB
+
+def _db():
+    """Resolve the vat_claims.db path FRESH so FFS_DATA_DIR (per-test isolation) is
+    honored at call time; an explicit monkeypatch of DB still wins."""
+    return paths.db_path("vat_claims.db") if DB == _DB_DEFAULT else DB
+
+def _analytics_db():
+    """Resolve the fuel_history.db (analytics) path FRESH; an override of
+    ANALYTICS_DB still wins (tests monkeypatch it to a hand-built transactions DB)."""
+    return paths.db_path("fuel_history.db") if ANALYTICS_DB == _ANALYTICS_DEFAULT else ANALYTICS_DB
 
 log = applog.get("vat_refund")
 
@@ -60,6 +73,7 @@ def period_ended(period, today=None):
 _SCHEMA_READY = set()   # DB files whose schema is set up this process
 
 def connect():
+    DB = _db()   # resolve the on-disk path fresh (honors FFS_DATA_DIR / an override)
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
     db_tuning.tune(con)  # WAL + busy_timeout for safe multi-process access
@@ -292,12 +306,14 @@ def analytics_connect():
     Passes this module's ANALYTICS_DB so the location-independent / test-monkeypatch
     seam is preserved (the file may differ; the read-only window is the same)."""
     import dataproduct
-    return dataproduct.connect("fuel_history", path=ANALYTICS_DB)
+    return dataproduct.connect("fuel_history", path=_analytics_db())
 
 def _migrate_from_analytics(con):
     """One-time upgrade path: if the claim tables are empty in the (new) claims DB but
     populated in the old shared fuel_history.db, copy them across. Idempotent — skips
     once the claims DB has data. The originals are left in place (now unused)."""
+    DB = _db()                  # resolve fresh (honors FFS_DATA_DIR / an override)
+    ANALYTICS_DB = _analytics_db()
     if DB == ":memory:" or DB in _SCHEMA_READY:
         return
     try:

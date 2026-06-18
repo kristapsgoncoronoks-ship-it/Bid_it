@@ -19,14 +19,22 @@ import money
 
 import supplier_master
 import db_tuning
+import paths
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
-DB = f"{WORKDIR}/fuel_history.db"
+DB = paths.db_path("fuel_history.db")   # default-env value (repo); tests may monkeypatch
+_DB_DEFAULT = DB                        # import-time default, to detect an explicit override
 TOLERANCE = float(os.environ.get("AUDIT_TOLERANCE_EUR_L", "0.005"))   # 0.5 cent/L slack
 
 
+def _db():
+    """Resolve the fuel_history.db path FRESH so FFS_DATA_DIR (per-test isolation) is
+    honored at call time; an explicit monkeypatch of DB still wins."""
+    return paths.db_path("fuel_history.db") if DB == _DB_DEFAULT else DB
+
+
 def _con():
-    con = sqlite3.connect(DB)
+    con = sqlite3.connect(_db())   # resolve fresh (honors FFS_DATA_DIR / an override)
     con.row_factory = sqlite3.Row
     db_tuning.tune(con)
     return con

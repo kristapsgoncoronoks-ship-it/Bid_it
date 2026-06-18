@@ -57,6 +57,7 @@ def sup(tmp_path, monkeypatch):
     import tenancy
     import supplier_master
     import vat_refund
+    import customer_master
     import invoice_control as IC
 
     importlib.reload(supplier_master)
@@ -83,8 +84,15 @@ def sup(tmp_path, monkeypatch):
     vat_refund._SCHEMA_READY.clear()
     monkeypatch.setitem(dataproduct._PATHS, "fuel_history", fh)
     monkeypatch.setattr(IC, "FUEL_HISTORY_DB", fh)
+    # reconcile_statements opens the CRM (customer_master) for the statement's customer
+    # country; point it at a fresh throwaway DB and build its schema NOW (no tenant /
+    # owner scope bound yet) so the lazy schema+seed — which stamps the write-tenant —
+    # never runs later under owner scope (where require_tenant would refuse).
+    monkeypatch.setattr(customer_master, "DB", str(tmp_path / "customers.db"))
+    customer_master._SCHEMA_READY.clear()
     # build the vault schema once so invoice_documents exists for reconcile/control.
     vat_refund.connect().close()
+    customer_master.connect().close()
 
     # Arm the master switch (stored in app_settings/security.db like every module
     # switch). This is what makes scope_clause()/queue_tenant() engage.

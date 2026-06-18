@@ -219,6 +219,13 @@ def test_tenant_scoped_tools_fail_closed_when_unbound(monkeypatch):
     fails CLOSED (" AND 1=0"). A tenant-scoped tool must then return an empty set, never
     leak across tenants. We force the switch ON and clear the thread context."""
     import tenancy
+    import customer_master
+    # Build the CRM schema BEFORE arming multitenant: customer_master.connect() lazily
+    # seeds checklist_rules (stamping the write-tenant) the first time it opens a given
+    # DB file. Under per-test data isolation each test gets a fresh customers.db, so warm
+    # it now (multitenant OFF -> write_tenant() == 'default'); otherwise the seed would
+    # run inside list_customers() below where require_tenant() correctly refuses.
+    customer_master.connect().close()
     monkeypatch.setattr(tenancy, "multitenant_enabled", lambda: True)
     tenancy.reset_tenant()   # neither owner nor a tenant bound -> fail closed
     try:

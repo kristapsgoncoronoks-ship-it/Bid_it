@@ -30,13 +30,20 @@ import dataproduct
 import db_migrate
 import db_tuning
 import money
+import paths
 import queries
 import tenancy
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 # Same on-disk file history.py owns; a module-level attr so tests can repoint it the
 # same way they repoint history.DB.
-DB = f"{WORKDIR}/fuel_history.db"
+DB = paths.db_path("fuel_history.db")   # default-env value (repo); tests may monkeypatch
+_DB_DEFAULT = DB                        # import-time default, to detect an explicit override
+
+def _db():
+    """Resolve the fuel_history.db path FRESH so FFS_DATA_DIR (per-test isolation) is
+    honored at call time; an explicit monkeypatch of DB still wins."""
+    return paths.db_path("fuel_history.db") if DB == _DB_DEFAULT else DB
 
 log = applog.get("metrics")
 
@@ -68,7 +75,7 @@ def _writable_connect():
     """Open the WRITABLE engine handle to fuel_history.db, exactly as history.py does
     (plain sqlite3.connect + db_tuning.tune for WAL + busy_timeout). This is the engine
     writer path — NOT dataproduct's read-only window."""
-    con = sqlite3.connect(DB)
+    con = sqlite3.connect(_db())   # resolve fresh (honors FFS_DATA_DIR / an override)
     con.row_factory = sqlite3.Row
     db_tuning.tune(con)   # WAL + busy_timeout; idempotent
     return con

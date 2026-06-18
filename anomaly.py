@@ -17,9 +17,16 @@ price level or an absolute month-over-month limit):
   off_hours       diesel fuelled in the deep-night window (possible card misuse)
 """
 import os, sys, sqlite3, collections, statistics
+import paths
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
-DB = f"{WORKDIR}/fuel_history.db"
+DB = paths.db_path("fuel_history.db")   # default-env value (repo); tests may monkeypatch
+_DB_DEFAULT = DB                        # import-time default, to detect an explicit override
+
+def _db():
+    """Resolve the fuel_history.db path FRESH so FFS_DATA_DIR (per-test isolation) is
+    honored at call time; an explicit monkeypatch of DB still wins."""
+    return paths.db_path("fuel_history.db") if DB == _DB_DEFAULT else DB
 # Thresholds are LEARNED from the data, never fixed: each check measures the relevant
 # distribution's own spread (std-dev) and flags points beyond mean ± K·σ. ANOMALY_SIGMAS
 # is the only knob — the statistical sensitivity (default 2.0 = the standard outlier
@@ -162,7 +169,7 @@ def annotate(rows, hist_rebates=None):
 
 
 def find(period):
-    con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+    con = sqlite3.connect(_db()); con.row_factory = sqlite3.Row
     flags = []
 
     # station price outlier — LEARN each country's price distribution this month and
@@ -284,7 +291,7 @@ def time_of_day_summary(period, con=None):
     0..23 then 'unknown', each: {hour, count, litres, eur_l}."""
     own = con is None
     if own:
-        con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+        con = sqlite3.connect(_db()); con.row_factory = sqlite3.Row
     try:
         # accumulate in Python so we can hour-parse the same way the flag does (one source
         # of truth) and route bad `time` to the 'unknown' bucket.
@@ -325,7 +332,7 @@ def vehicle_cost_summary(period, con=None):
         {vehicle, litres, eur_l, spend, n_fuellings}."""
     own = con is None
     if own:
-        con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+        con = sqlite3.connect(_db()); con.row_factory = sqlite3.Row
     try:
         out = []
         for r in con.execute(

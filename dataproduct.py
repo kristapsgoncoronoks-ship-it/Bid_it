@@ -32,13 +32,18 @@ import os
 import sqlite3
 import db
 import db_tuning
+import paths
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 
-# Logical product name -> on-disk file. Only engine-owned product DBs belong here.
+# Logical product name -> on-disk FILENAME (resolved under the data root AT CALL TIME
+# in connect() via paths.db_path, so FFS_DATA_DIR / per-test isolation is honored and
+# the default — env unset — is byte-identical to the repo dir). Only engine-owned
+# product DBs belong here. Tests may monkeypatch a value to an ABSOLUTE path; os.path.join
+# in paths.db_path keeps an absolute override verbatim.
 _PATHS = {
-    "fuel_history": f"{WORKDIR}/fuel_history.db",
-    "suppliers":    f"{WORKDIR}/suppliers.db",
+    "fuel_history": "fuel_history.db",
+    "suppliers":    "suppliers.db",
 }
 
 
@@ -66,7 +71,10 @@ def connect(which="fuel_history", path=None):
     applies the read-safe busy_timeout. tune() no-ops on Postgres."""
     if path is None:
         try:
-            path = _PATHS[which]
+            # Resolve the on-disk path FRESH under the data root (honors FFS_DATA_DIR /
+            # per-test isolation). An absolute monkeypatched _PATHS value is kept verbatim
+            # by os.path.join inside paths.db_path.
+            path = paths.db_path(_PATHS[which])
         except KeyError:
             raise ValueError(f"unknown product DB {which!r}; expected one of {sorted(_PATHS)}")
     # Postgres cutover would branch on db.ENGINE here and connect under _role()'s

@@ -20,15 +20,27 @@ VAT excluded). City = the station town on the invoice.
 import os, sqlite3, datetime
 import money
 import tenancy
+import paths
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 # transactions live in the engine-owned product DB (read-only from the app side,
 # via dataproduct.connect("fuel_history")). DB names that file for the location-
 # independent / test-monkeypatch seam — it is NEVER opened read-write here (D1/D3).
-DB = f"{WORKDIR}/fuel_history.db"
+DB = paths.db_path("fuel_history.db")
 # The benchmark tables (my_prices/wholesale_prices) are app/portal-owned and live in
 # their OWN read-write DB, decoupled from the product DB in D3.
-BENCHMARK_DB = f"{WORKDIR}/benchmark.db"
+BENCHMARK_DB = paths.db_path("benchmark.db")
+_DB_DEFAULT = DB                  # import-time defaults, to detect an explicit override
+_BENCHMARK_DEFAULT = BENCHMARK_DB
+
+def _db():
+    """Resolve the fuel_history.db path FRESH so FFS_DATA_DIR (per-test isolation) is
+    honored at call time; an explicit monkeypatch of DB still wins."""
+    return paths.db_path("fuel_history.db") if DB == _DB_DEFAULT else DB
+
+def _benchmark_db():
+    """Resolve the benchmark.db path FRESH; an explicit monkeypatch of BENCHMARK_DB wins."""
+    return paths.db_path("benchmark.db") if BENCHMARK_DB == _BENCHMARK_DEFAULT else BENCHMARK_DB
 
 # Per-entity-vs-peer benchmark (M1) min-cohort gate: a (country, bucket) cell needs at
 # least this many OTHER entities (excluding the entity itself) for a peer figure to be
@@ -149,7 +161,7 @@ def connect():
     wholesale_prices). The engine-owned product DB (fuel_history.db) is NOT opened
     here — readers that need `transactions` use product_connect() (read-only)."""
     import db_tuning, db_migrate
-    con = sqlite3.connect(BENCHMARK_DB); con.row_factory = sqlite3.Row
+    con = sqlite3.connect(_benchmark_db()); con.row_factory = sqlite3.Row   # fresh (FFS_DATA_DIR/override)
     db_tuning.tune(con)  # WAL + busy_timeout for safe multi-process access
     db_migrate.apply(con, "pricing_intelligence", _BENCHMARK_DDL)
     _migrate_from_product(con)
@@ -162,7 +174,7 @@ def product_connect():
     passes this module's DB so the location-independent / test-monkeypatch seam
     (DB) is preserved. The app never writes the product DB."""
     import dataproduct
-    return dataproduct.connect("fuel_history", path=DB)
+    return dataproduct.connect("fuel_history", path=_db())
 
 
 # one-time data copy guard: (resolved BENCHMARK_DB path) once migration has run
@@ -176,6 +188,8 @@ def _migrate_from_product(con):
     originals are LEFT in place in fuel_history.db (same precedent as
     vat_refund._migrate_from_analytics); the engine-owned DB just stops being
     written by the app."""
+    DB = _db()                  # resolve fresh (honors FFS_DATA_DIR / an override)
+    BENCHMARK_DB = _benchmark_db()
     if BENCHMARK_DB == ":memory:" or BENCHMARK_DB in _MIGRATED:
         return
     try:

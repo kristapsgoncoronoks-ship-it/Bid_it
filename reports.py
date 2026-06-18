@@ -19,9 +19,16 @@ from openpyxl.utils import get_column_letter
 
 import money
 import queries
+import paths
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
-DB = f"{WORKDIR}/fuel_history.db"
+DB = paths.db_path("fuel_history.db")   # default-env value (repo); tests may monkeypatch
+_DB_DEFAULT = DB                        # import-time default, to detect an explicit override
+
+def _db():
+    """Resolve the fuel_history.db path FRESH so FFS_DATA_DIR (per-test isolation) is
+    honored at call time; an explicit monkeypatch of DB still wins."""
+    return paths.db_path("fuel_history.db") if DB == _DB_DEFAULT else DB
 
 # palette
 INK = "1A2733"; ACC = "0E5FA8"; OKG = "1B7340"; BADR = "C8102E"
@@ -53,7 +60,7 @@ def _formula_safe(v):
 
 def connect():
     import db_tuning
-    con = sqlite3.connect(DB)
+    con = sqlite3.connect(_db())   # resolve fresh (honors FFS_DATA_DIR / an override)
     con.row_factory = sqlite3.Row
     db_tuning.tune(con)  # WAL + busy_timeout for safe multi-process access
     return con
