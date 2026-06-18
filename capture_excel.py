@@ -68,15 +68,48 @@ def _style_header(ws, ncols):
     ws.freeze_panes = "A2"
 
 
-def _autowidth(ws, ncols, cap=42):
+def _autowidth(ws, ncols, cap=42, first_row=1):
     from openpyxl.utils import get_column_letter
     for c in range(1, ncols + 1):
         width = 8
-        for row in ws.iter_rows(min_col=c, max_col=c):
+        for row in ws.iter_rows(min_col=c, max_col=c, min_row=first_row):
             v = row[0].value
             if v is not None:
                 width = max(width, min(cap, len(str(v)) + 2))
         ws.column_dimensions[get_column_letter(c)].width = width
+
+
+_BAD_SHEET = set(r'[]:*?/\\')
+
+
+def _sheet_name(name, used):
+    """A valid, unique Excel sheet title (<=31 chars, no []:*?/\\, non-empty)."""
+    s = "".join(" " if ch in _BAD_SHEET else ch for ch in (name or "").strip()) or "Unspecified"
+    s = s[:31].strip() or "Unspecified"
+    base, i = s, 2
+    while s.lower() in used:
+        suffix = f" ({i})"
+        s = (base[:31 - len(suffix)] + suffix)
+        i += 1
+    used.add(s.lower())
+    return s
+
+
+def _tx_row(ln, hdr_supplier, hdr_supplier_vat, currency):
+    rowvals = []
+    for _title, key, is_num in _TX_COLS:
+        v = ln.get(key)
+        if key == "supplier_name" and not v:
+            v = hdr_supplier
+        elif key == "supplier_vat" and not v:
+            v = hdr_supplier_vat
+        elif key == "currency" and not v:
+            v = currency
+        if is_num:
+            nval = _num(v)
+            v = (float(money.f2(nval)) if key in _MONEY_KEYS and nval is not None else nval)
+        rowvals.append(v)
+    return rowvals
 
 
 def build(draft, source_name=None):
@@ -155,26 +188,45 @@ def build(draft, source_name=None):
         ws.column_dimensions[col].width = 15
     ws.column_dimensions["F"].width = 44
 
-    # ===== Sheet 2: TRANSACTIONS (all cleaned line items) =============================
+    # ===== Sheet 2: TRANSACTIONS (ALL cleaned line items, every country) ==============
     ws2 = wb.create_sheet("Transactions")
     ws2.append([c[0] for c in _TX_COLS])
     for ln in lines:
-        rowvals = []
-        for _title, key, is_num in _TX_COLS:
-            v = ln.get(key)
-            if key == "supplier_name" and not v:
-                v = hdr_supplier
-            elif key == "supplier_vat" and not v:
-                v = hdr_supplier_vat
-            elif key == "currency" and not v:
-                v = currency
-            if is_num:
-                nval = _num(v)
-                v = (float(money.f2(nval)) if key in _MONEY_KEYS and nval is not None else nval)
-            rowvals.append(v)
-        ws2.append(rowvals)
+        ws2.append(_tx_row(ln, hdr_supplier, hdr_supplier_vat, currency))
     _style_header(ws2, len(_TX_COLS))
     _autowidth(ws2, len(_TX_COLS))
+
+    # ===== One sheet PER COUNTRY (each = a refund jurisdiction) ========================
+    # Each country gets its own tab: a short overview (totals + supply entity) then ITS
+    # transactions. Grouped from the same lines; no figure invented.
+    used = {"summary", "transactions"}
+    by_lines = {}
+    for ln in lines:
+        by_lines.setdefault((ln.get("country") or "—").strip() or "—", []).append(ln)
+    for ctry in sorted(by_lines):
+        clines = by_lines[ctry]
+        a = by[ctry]
+        net = float(money.fsum(a["net"])); vat = float(money.fsum(a["vat"]))
+        gross = float(money.fsum(a["gross"]))
+        wsx = wb.create_sheet(_sheet_name(ctry, used))
+        wsx.append([f"{ctry} — overview"])
+        wsx.cell(row=1, column=1).font = Font(bold=True, size=12)
+        for k, v in [("Country", ctry), ("Transactions", len(clines)),
+                     ("Supply entit(y/ies)", ", ".join(sorted(a["ents"])) or (hdr_supplier or "")),
+                     ("Net", float(money.f2(net))), ("VAT", float(money.f2(vat))),
+                     ("Gross", float(money.f2(gross))), ("Currency", currency)]:
+            wsx.append([k, v])
+            wsx.cell(row=wsx.max_row, column=1).font = _TOT_FONT
+        wsx.append([])
+        hr = wsx.max_row + 1
+        wsx.append([c[0] for c in _TX_COLS])
+        for c in range(1, len(_TX_COLS) + 1):
+            cell = wsx.cell(row=hr, column=c); cell.fill = _HDR_FILL; cell.font = _HDR_FONT
+        for ln in clines:
+            wsx.append(_tx_row(ln, hdr_supplier, hdr_supplier_vat, currency))
+        wsx.freeze_panes = wsx.cell(row=hr + 1, column=1)
+        _autowidth(wsx, len(_TX_COLS), first_row=hr)
+        wsx.column_dimensions["A"].width = 22
 
     buf = io.BytesIO()
     wb.save(buf)

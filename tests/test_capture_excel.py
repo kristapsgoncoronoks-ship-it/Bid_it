@@ -17,10 +17,27 @@ def _draft(n_lines):
             "statement_date": "2026-05-31", "currency": "EUR", "lines": lines}
 
 
-def test_summary_first_then_transactions():
+def test_summary_first_then_transactions_then_per_country():
+    # _draft uses a single country (Germany) -> Summary, Transactions, Germany
     wb = load_workbook(io.BytesIO(capture_excel.build(_draft(3))))
-    # main data first, cleaned detail further
-    assert wb.sheetnames == ["Summary", "Transactions"]
+    assert wb.sheetnames[:2] == ["Summary", "Transactions"]
+    assert "Germany" in wb.sheetnames
+
+
+def test_one_sheet_per_country_with_overview():
+    d = {"supplier": "S", "lines": [
+        {"country": "Germany", "net": 100, "vat": 19, "gross": 119},
+        {"country": "Poland", "net": 80, "vat": 18.4, "gross": 98.4},
+        {"country": "Germany", "net": 50, "vat": 9.5, "gross": 59.5},
+    ]}
+    wb = load_workbook(io.BytesIO(capture_excel.build(d)))
+    assert "Germany" in wb.sheetnames and "Poland" in wb.sheetnames
+    # the Germany sheet aggregates ITS lines (2) and lists them
+    rows = list(wb["Germany"].iter_rows(values_only=True))
+    assert any(r[0] == "Transactions" and r[1] == 2 for r in rows if r and r[0])
+    # header row + 2 transaction rows somewhere on the sheet
+    assert sum(1 for r in rows if r and r[0] == "Germany" and len(r) > 5) == 0  # no stray
+    assert wb["Germany"].max_row >= 11   # overview (8) + blank + header + 2 lines
 
 
 def test_all_transactions_included_no_truncation():
