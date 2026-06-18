@@ -10535,7 +10535,21 @@ def doc_download(doc_id):
     con.close()
     if d is None:
         return page('<div class="card"><b class="bad">No such document.</b></div>', ""), 404
-    data = document_vault.get_bytes(d["stored_path"], VR.DOCDIR)
+    # A record can exist while its stored file is missing/unreadable (NULL stored_path,
+    # deleted/corrupt vault file). Guard so that is a clean 404, never a 500 crash.
+    data = None
+    try:
+        if d["stored_path"]:
+            data = document_vault.get_bytes(d["stored_path"], VR.DOCDIR)
+    except Exception as e:
+        _log_exc("doc_download get_bytes", e)
+    if not data:
+        _log_exc("doc_download", ValueError(
+            f"document {doc_id} file missing/unreadable (stored_path={d['stored_path']!r})"))
+        return page('<div class="card"><b class="bad">This document file is missing or '
+                    'unreadable.</b><div class="note">The record exists but its stored file '
+                    'could not be read — run “Check document integrity” in Admin.</div></div>',
+                    ""), 404
     return send_file(io.BytesIO(data), as_attachment=True, download_name=d["filename"])
 
 
@@ -10658,7 +10672,17 @@ def cust_doc_download(doc_id):
     con.close()
     if d is None:
         return page('<div class="card"><b class="bad">No such document.</b></div>', ""), 404
-    data = document_vault.get_bytes(d["stored_path"], CD.DOCDIR)
+    data = None
+    try:
+        if d["stored_path"]:
+            data = document_vault.get_bytes(d["stored_path"], CD.DOCDIR)
+    except Exception as e:
+        _log_exc("customer doc_download get_bytes", e)
+    if not data:
+        _log_exc("customer doc_download", ValueError(
+            f"customer document {doc_id} file missing/unreadable (stored_path={d['stored_path']!r})"))
+        return page('<div class="card"><b class="bad">This document file is missing or '
+                    'unreadable.</b></div>', ""), 404
     return send_file(io.BytesIO(data), as_attachment=True, download_name=d["filename"])
 
 
