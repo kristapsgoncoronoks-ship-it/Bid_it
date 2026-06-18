@@ -4720,6 +4720,10 @@ def intake_queue_page():
             statetxt = f'{esc(st)}<br><span class="note">retry ≥ {esc(j["next_attempt_at"])} UTC</span>'
         elif st == "held":
             statetxt = f'{esc(st)}<br><span class="note">auto-retry stopped · press Send</span>'
+        elif st == "done" and (j.get("error") or "").startswith("auto-filed"):
+            # auto-pilot intake filed this WITHOUT a human reviewer — make it distinguishable
+            # so the queue does not imply a person registered it.
+            statetxt = f'{esc(st)}<br><span class="note">auto-filed via autopilot</span>'
         # supplier as resolved by extraction (only known once ready); show the draft
         # confidence alongside it as the extraction-quality signal.
         supplier = j.get("draft_supplier")
@@ -9199,6 +9203,18 @@ def admin():
                           + (" (Permissive — nothing is blocked.)"
                              if want == _cl.DEFAULT_MAX_SENSITIVITY else
                              " Documents classified above this are blocked from external AI."))
+            elif act == "set_autopilot":
+                # AUTO-PILOT INTAKE (default OFF). When ON, a document is AUTO-FILED into the
+                # VAT pipeline WITHOUT human review — but ONLY when it is high-confidence AND
+                # passes AI verification AND the deterministic validation gate. Anything
+                # doubtful still waits for review. Opt-in flag only — no backend here; it
+                # reuses the existing verify backend when verification is enabled.
+                on = request.form.get("intake_autopilot_enabled") == "on"
+                _auth.set_setting("intake_autopilot_enabled", "on" if on else "off")
+                banner = ("Auto-pilot intake turned ON. High-confidence, verified documents "
+                          "that pass the validation gate are now auto-filed; everything else "
+                          "still waits for review." if on
+                          else "Auto-pilot intake turned OFF (every document waits for review).")
             elif act == "set_api_keys":
                 # Admin-managed provider API keys (sealed at rest via keyvault, applied to
                 # os.environ immediately). A blank field LEAVES the existing key unchanged;
@@ -9897,6 +9913,35 @@ def admin():
             + '</form>'
             + f'<h3 style="margin-top:12px">Documents by sensitivity</h3>{_dlp_count_block}'
             + '</div>')
+    # AUTO-PILOT INTAKE (advisory). Default OFF. When ON, a document is AUTO-FILED into the
+    # VAT pipeline WITHOUT human review — but ONLY when it is high-confidence AND passes AI
+    # verification AND the deterministic validation gate; everything doubtful still waits.
+    _apilot_on = str(_auth.get_setting("intake_autopilot_enabled", "off") or "off").lower() in (
+        "on", "1", "true", "yes")
+    autopilotf = ('<div class="card" style="border-color:var(--bad)">'
+                  '<h2>Auto-pilot intake (advisory)</h2>'
+                  '<div class="note bad" style="margin-top:0">⚠️ This is a '
+                  '<b>compliance-sensitive money path</b> (VAT filings). When ON, a document '
+                  'is <b>auto-filed</b> (registered) into the VAT pipeline <b>without human '
+                  'review</b> — but ONLY when it is <b>high-confidence</b> AND passes <b>AI '
+                  'verification</b> (when verification is enabled) AND the <b>deterministic '
+                  'validation gate</b>. <b>Off by default.</b></div>'
+                  '<div class="note" style="margin-top:6px">Anything doubtful — lower '
+                  'confidence, a failed verification, any validation error, a synthetic / '
+                  'unmatched line, or any error — <b>still waits for review exactly as '
+                  'today</b>. The legal gate is never bypassed: registration only happens on '
+                  '<code>validate_batch().can_commit</code>. Auto-filed documents are audit-'
+                  'logged under the actor <b>autopilot</b>.</div>'
+                  '<form method="post" class="f" style="margin-top:8px">'
+                  + _csrf_input()
+                  + '<label class="chk" style="display:flex;gap:7px;align-items:center">'
+                    f'<input type="checkbox" name="intake_autopilot_enabled" '
+                    f'{"checked" if _apilot_on else ""}> '
+                    'Enable auto-pilot intake (auto-file high-confidence, verified, valid documents)'
+                    '</label>'
+                  + '<button name="__act" value="set_autopilot">Save</button>'
+                  + '</form>'
+                  + '</div>')
     # API keys (machine access to the versioned /api/v1 contract). Default-OFF: no keys
     # exist until issued here. Tokens are SHA-256 hashed at rest and shown once at issue.
     import api_keys
@@ -9996,6 +10041,7 @@ def admin():
             + aiverifyf
             + aicapf
             + dlpf
+            + autopilotf
             + '<h2 class="section" id="platform">Platform</h2>'
             + platform_card)
     return page(body, "adm")

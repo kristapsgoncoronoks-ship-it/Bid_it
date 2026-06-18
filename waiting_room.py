@@ -854,6 +854,41 @@ def _persist_capture_file(row, draft):
                     row["id"] if row else "?", e)
 
 
+def _autopilot_verify(row, draft):
+    """For auto-pilot: optionally run AI verification of the draft against the ORIGINAL
+    PDF and return a boolean verify_ok, or None when verification is NOT enabled.
+
+    Returns:
+      * None  — AI verification is OFF (or no PDF bytes): the gate may still pass on the
+                other criteria (verification was not requested).
+      * True  — verification ran and CONFIRMED the draft (no discrepancies).
+      * False — verification is enabled but did not confirm (discrepancies / unreadable /
+                unavailable) OR errored: FAIL SAFE — do NOT auto-file an unverifiable doc
+                when verify is enabled.
+
+    Best-effort: never raises (an exception -> False so an unverifiable doc is not filed)."""
+    try:
+        import auth
+        on = str(auth.get_setting("ai_verify_enabled", "off") or "off").lower() in (
+            "on", "1", "true", "yes")
+        if not on:
+            return None
+        import ai_verify
+        if ai_verify._verify_provider() is None:
+            return None
+        pdfs = draft.get("_pdf_bytes") or []
+        if not pdfs:
+            # verify is ON but there's nothing to verify against — fail safe.
+            return False
+        pdf_bytes = pdfs[0][1] if isinstance(pdfs[0], (tuple, list)) else pdfs[0]
+        verdict = ai_verify.verify(pdf_bytes, draft)
+        return (verdict or {}).get("verdict") == "confirmed"
+    except Exception as e:
+        log.warning("autopilot verify failed for job %s — failing safe (no auto-file): %s",
+                    row["id"] if row else "?", e)
+        return False
+
+
 def _row_tenant(row):
     """The tenant_id stamped on a job row, defensively defaulting to
     DEFAULT_TENANT_ID for an OLD row written before the tenant_id column existed
@@ -1104,6 +1139,41 @@ def process_one():
                         message=f"extracted via {draft.get('backend','')}")
             _audit_vision_capture(row, jid, draft)
             _persist_capture_file(row, draft)
+            # AUTO-PILOT INTAKE (opt-in, default OFF): when ON, AUTO-FILE this draft into
+            # the VAT pipeline WITHOUT human review — but ONLY when it is high-confidence,
+            # passes AI verification (when verify is enabled), AND passes the deterministic
+            # validation gate. Anything doubtful (or any error) falls through to 'ready'
+            # for the human. Best-effort; NEVER crashes the worker. Note the draft still
+            # carries _pdf_bytes here (stripped only when stored above), so the vault step
+            # has the original PDFs.
+            try:
+                import autopilot
+                if autopilot.enabled():
+                    verify_ok = _autopilot_verify(row, draft)
+                    ev = autopilot.evaluate(draft, verify_ok)
+                    if ev["ok"]:
+                        st, info = autopilot.autofile(con, row, draft, actor="autopilot")
+                        if st == "done":
+                            con.execute(
+                                "UPDATE intake_jobs SET status='done', finished_at=?, "
+                                "error=? WHERE id=?",
+                                (_now(), "auto-filed via autopilot", jid))
+                            con.commit()
+                            _import_log(row, "extract", "auto-filed",
+                                        records=info.get("lines", 0),
+                                        message=(f"auto-filed (period {info.get('period')}, "
+                                                 f"{info.get('lines')} lines, "
+                                                 f"{info.get('attached')} PDFs vaulted)"))
+                            return (jid, "done")
+                        else:
+                            log.info("job %s not auto-filed (%s) — left for review",
+                                     jid, info.get("reason"))
+                    else:
+                        log.info("job %s not auto-filed: %s — left for review",
+                                 jid, "; ".join(ev["reasons"]))
+            except Exception as e:
+                log.warning("autopilot evaluation failed for job %s — left for review: %s",
+                            jid, e)
             return (jid, "ready")
         except EX.TransientExtractionError as e:
             # upstream out of tokens / rate-limited. This is not the document's
