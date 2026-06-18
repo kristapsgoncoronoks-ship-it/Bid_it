@@ -463,10 +463,21 @@ def file_documents_for_claim(con, ent, ctry, period):
     for lk in locked:
         for d in docs_for(con, ent, lk["supplier"], lk["invoice_ref"]):
             old = d["stored_path"]
+            # A doc row can exist with a NULL stored_path or a missing vault file. SKIP it
+            # (logged) so one bad doc never aborts filing the rest — it is not lost, just
+            # not re-filed into the claim folder.
+            if not old:
+                log.warning("file_documents_for_claim: skipping doc id=%s — no stored_path",
+                            d["id"])
+                continue
             # filing folder follows the CLAIM's period (Annual for a yearly claim),
             # not the invoice's calendar quarter.
             new_name = document_vault.invoice_vault_path(cust_name, reg, ctry, period, d["filename"])
             data = document_vault.get_bytes(old, DOCDIR)
+            if not data:
+                log.warning("file_documents_for_claim: skipping doc id=%s — stored file "
+                            "missing/unreadable (%s)", d["id"], old)
+                continue
             new_loc, web_url = document_vault.copy_to(new_name, data, DOCDIR)
             if str(new_loc) == str(old):
                 continue                                # already in the right folder
