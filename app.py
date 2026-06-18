@@ -1393,7 +1393,7 @@ def svg_line(series, labels, unit="", width=720, height=260, fmt=",.0f", title="
 BASE = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fleet Fuel Analytics</title><style>
-:root{--ink:#1a2733;--mut:#5b6b7a;--line:#dde4ea;--line2:#e7ecf1;--bg:#f4f6f8;--acc:#0e5fa8;--acc2:#0b4d89;--ok:#1b7340;--bad:#c8102e;--card-sh:0 1px 2px rgba(26,39,51,.05),0 1px 3px rgba(26,39,51,.04);--radius:11px}
+:root{--ink:#1a2733;--mut:#5b6b7a;--line:#dde4ea;--line2:#e7ecf1;--bg:#f4f6f8;--acc:#0e5fa8;--acc2:#0b4d89;--ok:#1b7340;--bad:#c8102e;--warn:#9a6700;--info:#0e5fa8;--card-sh:0 1px 2px rgba(26,39,51,.05),0 1px 3px rgba(26,39,51,.04);--radius:11px}
 *{box-sizing:border-box}body{margin:0;font:14px/1.55 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 header{background:linear-gradient(180deg,#2a3c4f,#1a2733);color:#fff;padding:11px 22px;display:flex;gap:6px 18px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:20;box-shadow:0 2px 10px rgba(10,20,30,.20),inset 0 -1px 0 rgba(255,255,255,.06)}
 header b{font-size:16px;margin-right:6px;letter-spacing:.2px}
@@ -1424,7 +1424,8 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{ou
 main{max-width:1180px;margin:22px auto;padding:0 18px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
 .kpi{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 16px;box-shadow:var(--card-sh)}
-.kpi .v{font-size:22px;font-weight:700;line-height:1.1;letter-spacing:-.01em}.kpi .l{color:var(--mut);font-size:12px;margin-top:3px}
+.kpi .v{font-size:23px;font-weight:800;line-height:1.05;letter-spacing:-.02em}.kpi .l{color:var(--mut);font-size:12px;margin-top:3px;font-weight:500}
+.kpi .d{font-size:11.5px;font-weight:700;margin-top:2px}.kpi .d.up{color:var(--ok)}.kpi .d.down{color:var(--bad)}
 /* dashboard: metric KPI row reads as the focal "at a glance" header */
 .kpis.metrics{margin-bottom:14px}
 .kpis.metrics .kpi{display:flex;flex-direction:column;justify-content:space-between;min-height:78px;padding:13px 16px 12px}
@@ -1485,28 +1486,45 @@ h2.section:first-of-type{margin-top:4px}
 .dropzone .dzlink{color:var(--acc)}
 .dropzone.has{border-style:solid;border-color:var(--ok);background:#f2faf5}
 .dropzone input[type=file]{position:absolute;width:1px;height:1px;opacity:0;clip:rect(0 0 0 0)}
+/* inline icon sizing helper */
+.ic{font-style:normal;font-size:1.05em;line-height:1;margin-right:.3em;display:inline-block}
+/* compact pill status badge */
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;line-height:1;padding:3px 9px;border-radius:999px;background:#eef2f6;color:var(--mut);border:1px solid var(--line);white-space:nowrap;vertical-align:middle}
+.chip.ok{background:#e7f5ec;color:var(--ok);border-color:#bfe3cd}
+.chip.warn{background:#fdf3e0;color:var(--warn);border-color:#f0d9a8}
+.chip.bad{background:#fdeaec;color:var(--bad);border-color:#f4c6cd}
+.chip.info{background:#eaf2fb;color:var(--info);border-color:#c6dcf3}
+/* landing: responsive grid of icon tiles */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:20px}
+.tile{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:22px 16px 18px;box-shadow:var(--card-sh);text-decoration:none;color:inherit;transition:border-color .12s,box-shadow .14s,transform .08s}
+.tile:hover{border-color:#bcd3ec;box-shadow:0 4px 16px rgba(14,95,168,.13);transform:translateY(-3px)}
+.tile .tic{font-size:34px;line-height:1;margin-bottom:2px}
+.tile .tt{font-size:14.5px;font-weight:700;color:var(--ink);letter-spacing:-.01em}
+.tile .td{font-size:12px;color:var(--mut);line-height:1.45}
+.tile:hover .tt{color:var(--acc)}
+@media (max-width:760px){.tiles{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.tile{padding:18px 12px 14px}}
 </style></head><body>
-<header><b>⛽ Fleet Fuel</b>
-<a href="/" class="{{'on' if page=='home'}}">Home</a>
-{% if 'intake' in modules and 'data_import' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ext','queue','imp','fil','min'] else ''}}">Intake</span><div class="mdrop"><span>
+<header><b>🚛 ⛽ Fleet Fuel</b>
+<a href="/" class="{{'on' if page=='home'}}"><span class="ic">🏠</span>Home</a>
+{% if 'intake' in modules and 'data_import' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ext','queue','imp','fil','min'] else ''}}"><span class="ic">📥</span>Intake</span><div class="mdrop"><span>
   <a href="/extract" class="{{'on' if page=='ext'}}">Import batch</a>
   <a href="/queue" class="{{'on' if page=='queue'}}">Waiting room</a>
   <a href="/imports" class="{{'on' if page=='imp'}}">Import log</a>
   <a href="/files" class="{{'on' if page=='fil'}}">File archive</a>
   <a href="/mining" class="{{'on' if page=='min'}}">Doc mining</a>
 </span></div></div>{% endif %}
-{% if 'compliance' in modules and ('invoice_control' in perms or 'documents' in perms) %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['doc','srch','esign','inv','con'] else ''}}">Documents</span><div class="mdrop"><span>
+{% if 'compliance' in modules and ('invoice_control' in perms or 'documents' in perms) %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['doc','srch','esign','inv','con'] else ''}}"><span class="ic">📄</span>Documents</span><div class="mdrop"><span>
   {% if 'documents' in perms %}<a href="/documents" class="{{'on' if page=='doc'}}">Documents</a>
   <a href="/search" class="{{'on' if page=='srch'}}">Search</a>
   <a href="/esign" class="{{'on' if page=='esign'}}">E-signatures</a>{% endif %}
   {% if 'invoice_control' in perms %}<a href="/invoices" class="{{'on' if page=='inv'}}">Invoice control</a>
   <a href="/contracts" class="{{'on' if page=='con'}}">Contract audit</a>{% endif %}
 </span></div></div>{% endif %}
-{% if 'sharing' in modules and 'share' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['shr','rooms'] else ''}}">Sharing</span><div class="mdrop"><span>
+{% if 'sharing' in modules and 'share' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['shr','rooms'] else ''}}"><span class="ic">🔗</span>Sharing</span><div class="mdrop"><span>
   <a href="/share" class="{{'on' if page=='shr'}}">Share links</a>
   <a href="/rooms" class="{{'on' if page=='rooms'}}">Data rooms</a>
 </span></div></div>{% endif %}
-{% if 'analytics' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ana','rep','sav','exp','int','cmp','txn','h2h','stn','ano','pri','rel'] else ''}}">Analytics</span><div class="mdrop"><span>
+{% if 'analytics' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ana','rep','sav','exp','int','cmp','txn','h2h','stn','ano','pri','rel'] else ''}}"><span class="ic">📊</span>Analytics</span><div class="mdrop"><span>
   <a href="/analytics" class="{{'on' if page=='ana'}}">Dashboard</a>
   <a href="/reports" class="{{'on' if page=='rep'}}">Reports (charts)</a>
   <a href="/savings" class="{{'on' if page=='sav'}}">Savings</a>
@@ -1520,7 +1538,7 @@ h2.section:first-of-type{margin-top:4px}
   {% if 'pricing' in perms %}<a href="/pricing" class="{{'on' if page=='pri'}}">Pricing intel</a>
   <a href="/reliability" class="{{'on' if page=='rel'}}">Reliability</a>{% endif %}
 </span></div></div>{% endif %}
-<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ent','vat','rdy','rec','rcv','fin','rcn','fx'] else ''}}">VAT &amp; Recovery</span><div class="mdrop"><span>
+<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ent','vat','rdy','rec','rcv','fin','rcn','fx'] else ''}}"><span class="ic">💶</span>VAT &amp; Recovery</span><div class="mdrop"><span>
   <a href="/entities" class="{{'on' if page=='ent'}}">Entities &amp; VAT</a>
   {% if is_admin and 'vat' in modules %}<a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
   <a href="/readiness" class="{{'on' if page=='rdy'}}">Claims readiness</a>
@@ -1530,24 +1548,24 @@ h2.section:first-of-type{margin-top:4px}
   <a href="/recon" class="{{'on' if page=='rcn'}}">Bank reconciliation</a>{% endif %}
   {% if 'fx' in modules %}<a href="/fx" class="{{'on' if page=='fx'}}">FX vs ECB</a>{% endif %}
 </span></div></div>
-<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['sup','cus','dreq','dat'] else ''}}">Master data</span><div class="mdrop"><span>
+<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['sup','cus','dreq','dat'] else ''}}"><span class="ic">🗂️</span>Master data</span><div class="mdrop"><span>
   <a href="/suppliers" class="{{'on' if page=='sup'}}">Suppliers</a>
   {% if is_admin %}<a href="/customers" class="{{'on' if page=='cus'}}">Customers (CRM)</a>{% endif %}
   {% if is_admin %}<a href="/doc-requests" class="{{'on' if page=='dreq'}}">Document requests</a>{% endif %}
   {% if 'data_import' in perms %}<a href="/data" class="{{'on' if page=='dat'}}">Data manager</a>{% endif %}
 </span></div></div>
-<a href="/history" class="{{'on' if page=='his'}}">History</a>
-{% if 'workflow' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['tasks','wfadm'] else ''}}">Tasks</span><div class="mdrop"><span>
+<a href="/history" class="{{'on' if page=='his'}}"><span class="ic">🕘</span>History</a>
+{% if 'workflow' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['tasks','wfadm'] else ''}}"><span class="ic">✅</span>Tasks</span><div class="mdrop"><span>
   <a href="/tasks" class="{{'on' if page=='tasks'}}">My tasks &amp; approvals</a>
   {% if is_admin %}<a href="/workflows" class="{{'on' if page=='wfadm'}}">Manage workflows</a>{% endif %}
 </span></div></div>{% endif %}
 <span class="rightnav">
-{% if 'exports' in perms %}<div class="menu" tabindex="0"><span class="mlabel">⬇ Export</span><div class="mdrop"><span>
+{% if 'exports' in perms %}<div class="menu" tabindex="0"><span class="mlabel"><span class="ic">⬇️</span>Export</span><div class="mdrop"><span>
   <a href="/export/summary">Summary report</a><a href="/export/master">Master workbook</a><a href="/export/history">History report</a>
   {% if 'analytics' in modules %}<a href="/exports">Accounting &amp; ERP exports</a>{% endif %}
 </span></div></div>{% endif %}
-{% if role == 'admin' %}<a href="/close" class="{{'on' if page=='close'}}">Monthly close</a>
-<a href="/admin" class="{{'on' if page=='adm'}}">Admin</a>{% endif %}
+{% if role == 'admin' %}<a href="/close" class="{{'on' if page=='close'}}"><span class="ic">🔒</span>Monthly close</a>
+<a href="/admin" class="{{'on' if page=='adm'}}"><span class="ic">⚙️</span>Admin</a>{% endif %}
 <span class="note" style="color:#9fb3c4">{{ user }} ({{ role }})</span>
 <a href="/logout">Sign out</a></span>
 </header><main>{{ body|safe }}</main><script src="/app.js" defer></script></body></html>"""
@@ -1592,41 +1610,41 @@ def home():
     is_admin = (role == "admin")
     mods = enabled_modules()
     perms = _auth.permissions_for(role)
-    # (title, blurb, href, show?) — only sections the user can actually reach are shown.
+    # (icon, title, one-line desc, href, show?) — only sections the user can reach.
     cards = [
-        ("Analytics", "Diesel benchmark, savings and price intelligence across every fuel card.",
+        ("📊", "Analytics", "Benchmark, savings &amp; price intel.",
          "/analytics", "analytics" in mods),
-        ("Intake", "Import invoice batches, run the waiting room and mine documents.",
+        ("📥", "Intake", "Import batches &amp; mine documents.",
          "/extract", "intake" in mods and "data_import" in perms),
-        ("Documents", "Vaulted invoices and supporting evidence, deduplicated and hash-verified.",
+        ("📄", "Documents", "Vaulted, hash-verified evidence.",
          "/documents", "compliance" in mods and "documents" in perms),
-        ("Invoice control", "Receipt control, statement reconciliation and contract audit.",
+        ("🧾", "Invoice control", "Receipt control &amp; reconciliation.",
          "/invoices", "compliance" in mods and "invoice_control" in perms),
-        ("Customers", "The light CRM: entities, activation, checklist rules, fees and expiry.",
+        ("👥", "Customers", "The light CRM &amp; checklist rules.",
          "/customers", is_admin),
-        ("Suppliers", "Supplier master, cadences and registered statements.",
+        ("🏷️", "Suppliers", "Master, cadences &amp; statements.",
          "/suppliers", True),
-        ("VAT &amp; recovery", "EU VAT refund claims (2008/9/EC), readiness, recovery and fees.",
+        ("💶", "VAT &amp; recovery", "EU refund claims (2008/9/EC).",
          "/vat", is_admin and "vat" in mods),
-        ("History", "The validated, reconciled transaction record across periods.",
+        ("🕘", "History", "The validated transaction record.",
          "/history", True),
-        ("Admin", "Users, capabilities, modules, backups and server setup.",
+        ("⚙️", "Admin", "Users, modules, backups &amp; setup.",
          "/admin", is_admin),
     ]
     tiles = "".join(
-        f'<a class="kpi link" href="{esc(href)}" style="text-decoration:none;color:inherit">'
-        f'<div class="v" style="font-size:16px">{title} &rarr;</div>'
-        f'<div class="l" style="margin-top:6px">{blurb}</div></a>'
-        for title, blurb, href, show in cards if show)
+        f'<a class="tile" href="{esc(href)}">'
+        f'<span class="tic">{icon}</span>'
+        f'<span class="tt">{title}</span>'
+        f'<span class="td">{desc}</span></a>'
+        for icon, title, desc, href, show in cards if show)
     body = (
-        '<div class="card"><h2>Welcome to Fleet Fuel</h2>'
-        '<p class="note" style="font-size:13.5px;color:var(--ink)">This system turns your '
-        'multi-supplier fuel and toll spend into recovered cash and an audit-ready financial '
-        'record. It processes fuel invoices from every card, recovers EU VAT under Directive '
-        '2008/9/EC, and benchmarks prices so you can see where you are overpaying.</p>'
-        '<p class="note">Pick a section below to get started — only the areas you have access '
-        'to are shown.</p></div>'
-        f'<div class="kpis metrics">{tiles}</div>')
+        '<div class="card"><h2>🚛 Welcome to Fleet Fuel</h2>'
+        '<p class="note" style="font-size:13.5px;color:var(--ink)">Turn multi-supplier fuel '
+        'and toll spend into recovered cash and an audit-ready record — every fuel card, '
+        'EU VAT under Directive 2008/9/EC, and price benchmarking in one place.</p>'
+        '<p class="note">Pick a section to get started — only the areas you can access are '
+        'shown.</p></div>'
+        f'<div class="tiles">{tiles}</div>')
     return page(body, "home")
 
 @app.route("/analytics")
@@ -1683,9 +1701,9 @@ def dash():
     close = _close_status(period)
     body = (f'<form class="f" method="get"><label>Period<select name="period" onchange="this.form.submit()">{psw}</select></label></form>'
             + kpis + close
-            + f'<div class="card"><h2>Diesel benchmark — effective net €/L (cheapest first)</h2>{bench}'
+            + f'<div class="card"><h2>⛽ Diesel benchmark — effective net €/L (cheapest first)</h2>{bench}'
             f'<div class="note">Effective includes rebate layers (Q8/Port One).</div></div>'
-            f'<div class="card"><h2>Monthly trend</h2>{trend}<div class="note">Populates as periods are loaded via history.py.</div></div>')
+            f'<div class="card"><h2>📈 Monthly trend</h2>{trend}<div class="note">Populates as periods are loaded via history.py.</div></div>')
     con.close(); return page(body, "ana")
 
 _close_cache = {}   # period -> (expires_epoch, html); the controls below are heavy
@@ -1732,8 +1750,8 @@ def _close_status(period):
         ic = "ok" if ok_ else "bad"
         mark = "\u2713" if ok_ else "\u2717"
         cells += (f'<div class="kpi"><div class="v {ic}">{mark}</div>'
-                  f'<div class="l">{esc(label)}<br><span class="note">{esc(detail)}</span></div></div>')
-    html = f'<div class="card"><h2>Month-close status — {esc(period)}</h2><div class="kpis status">{cells}</div></div>'
+                  f'<div class="l">{esc(label)}<br><span class="chip {ic}">{esc(detail)}</span></div></div>')
+    html = f'<div class="card"><h2>🔒 Month-close status — {esc(period)}</h2><div class="kpis status">{cells}</div></div>'
     _close_cache[period] = (time.time() + _CLOSE_TTL, html)
     return html
 
@@ -7479,7 +7497,7 @@ def vat():
                       if m["verdict"].startswith("READY") and not m["period"].endswith("YEAR"))
     # "What needs action" worklist (admin-only; the /vat route is already ADMIN_ONLY).
     worklist = _worklist_card(int(year[:4]) if year[:4].isdigit() else 2026)
-    body = (banner + worklist + f'<div class="card"><h2>VAT refund applications {esc(year)} (2008/9/EC) — '
+    body = (banner + worklist + f'<div class="card"><h2>💶 VAT refund applications {esc(year)} (2008/9/EC) — '
             f'quarterly READY total: <span class="ok">€{total_ready:,.0f}</span> &nbsp; '
             f'<a href="/export/vat?year={esc(year)}">⬇ Generate claim workbook</a></h2>'
             + tbl(["Entity","Refund country","Period","VAT EUR","VAT local","Threshold verdict",
@@ -10260,13 +10278,13 @@ def admin():
         return ('<div style="display:flex;justify-content:space-between;align-items:center;'
                 f'gap:14px;padding:11px 0;border-top:1px solid #eef1f4">{left}{right}</div>')
 
-    svccenter = ('<div class="card"><h2>Services — switch on / off</h2>'
+    svccenter = ('<div class="card"><h2>🧩 Services — switch on / off</h2>'
                  '<div class="note" style="margin-top:0">'
                  '<span style="color:#1a7f37">●</span> on &amp; working &nbsp; '
                  '<span style="color:#c98a00">●</span> needs setup &nbsp; '
                  '<span style="color:#9aa6b2">●</span> off &nbsp;— tap a switch to change.</div>'
                  + "".join(_svc_row(s) for s in _svc.services()) + '</div>')
-    modf = ('<div class="card"><h2>Modules — turn parts of the app on / off</h2>'
+    modf = ('<div class="card"><h2>🔌 Modules — turn parts of the app on / off</h2>'
             '<div class="note" style="margin-top:0">Switch whole parts of the system on or off. '
             'A part that is off disappears from the menu and its pages are unavailable to everyone '
             '(you can turn it back on here at any time). Core pages — dashboard, entities, '
@@ -10555,7 +10573,7 @@ def admin():
                + '<button name="__act" value="issue_api_key">+ Issue API key</button>'
                + '<span class="note" style="margin-left:8px">tick at least one scope</span>'
                + '</form></div>')
-    users_card = ('<div class="card"><h2>Users &amp; permissions</h2>'
+    users_card = ('<div class="card"><h2>👤 Users &amp; permissions</h2>'
                   + tbl(["Username", "Role", "Status", "Email (alerts)", "Last login",
                          "Actions"], utr)
                   + addf
