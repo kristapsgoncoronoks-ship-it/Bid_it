@@ -18,6 +18,7 @@ price level or an absolute month-over-month limit):
 """
 import os, sys, sqlite3, collections, statistics
 import paths
+import dataproduct
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 DB = paths.db_path("fuel_history.db")   # default-env value (repo); tests may monkeypatch
@@ -169,7 +170,7 @@ def annotate(rows, hist_rebates=None):
 
 
 def find(period):
-    con = sqlite3.connect(_db()); con.row_factory = sqlite3.Row
+    con = dataproduct.connect("fuel_history", path=_db())   # READ-ONLY (product-DB boundary)
     flags = []
 
     # station price outlier — LEARN each country's price distribution this month and
@@ -291,7 +292,7 @@ def time_of_day_summary(period, con=None):
     0..23 then 'unknown', each: {hour, count, litres, eur_l}."""
     own = con is None
     if own:
-        con = sqlite3.connect(_db()); con.row_factory = sqlite3.Row
+        con = dataproduct.connect("fuel_history", path=_db())   # READ-ONLY (product-DB boundary)
     try:
         # accumulate in Python so we can hour-parse the same way the flag does (one source
         # of truth) and route bad `time` to the 'unknown' bucket.
@@ -332,7 +333,7 @@ def vehicle_cost_summary(period, con=None):
         {vehicle, litres, eur_l, spend, n_fuellings}."""
     own = con is None
     if own:
-        con = sqlite3.connect(_db()); con.row_factory = sqlite3.Row
+        con = dataproduct.connect("fuel_history", path=_db())   # READ-ONLY (product-DB boundary)
     try:
         out = []
         for r in con.execute(

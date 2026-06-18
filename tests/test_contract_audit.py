@@ -1,6 +1,7 @@
 """Contract-compliance auditor: invoiced lines vs contracted discount terms, with
 recoverable EUR per breach."""
 import importlib
+import sqlite3
 
 import pytest
 
@@ -13,8 +14,9 @@ def ca(tmp_path, monkeypatch):
     monkeypatch.setattr(supplier_master, "DB", str(tmp_path / "suppliers.db"))
     supplier_master._SCHEMA_READY.clear()
     monkeypatch.setattr(contract_audit, "DB", str(tmp_path / "fuel_history.db"))
-    # transactions store the auditor reads
-    con = contract_audit._con()
+    # Build the engine-owned transactions store with a WRITABLE handle (the engine writes
+    # it; the auditor only READS it via the read-only contract_audit._con()).
+    con = sqlite3.connect(str(tmp_path / "fuel_history.db"))
     con.execute("""CREATE TABLE IF NOT EXISTS transactions (
         period TEXT, supplier TEXT, country TEXT, station TEXT, product_group TEXT,
         qty REAL, net_eur REAL, net_eur_eff REAL)""")

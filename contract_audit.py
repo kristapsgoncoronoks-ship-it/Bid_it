@@ -18,8 +18,8 @@ import os, re, sqlite3
 import money
 
 import supplier_master
-import db_tuning
 import paths
+import dataproduct
 
 WORKDIR = os.path.dirname(os.path.abspath(__file__))
 DB = paths.db_path("fuel_history.db")   # default-env value (repo); tests may monkeypatch
@@ -34,10 +34,9 @@ def _db():
 
 
 def _con():
-    con = sqlite3.connect(_db())   # resolve fresh (honors FFS_DATA_DIR / an override)
-    con.row_factory = sqlite3.Row
-    db_tuning.tune(con)
-    return con
+    # READ-ONLY product-DB handle (the app never writes the engine-owned fuel_history.db);
+    # a stray write now correctly raises OperationalError. No db_tuning.tune write either.
+    return dataproduct.connect("fuel_history", path=_db())
 
 def _like(value, pattern):
     """SQL-LIKE match (%, _) case-insensitive; '%' matches anything including empty."""

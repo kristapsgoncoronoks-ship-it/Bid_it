@@ -1899,8 +1899,8 @@ def invoice_lines(con, ent, ctry, qtr, cache=None):
             cache[ck] = (issuer, vatid, vnote, regs, overrides)
         refs = [r[0] for r in regs]
         rows = acon.execute(
-            """SELECT note, product_group, ROUND(SUM(net_eur),2) net, ROUND(SUM(vat_eur),2) vat,
-                      ROUND(SUM(net_local),2) netl, ROUND(SUM(vat_local),2) vatl, currency
+            """SELECT note, product_group, SUM(net_eur) net, SUM(vat_eur) vat,
+                      SUM(net_local) netl, SUM(vat_local) vatl, currency
                FROM transactions WHERE entity=? AND country=? AND supplier=?
                AND period IN (%s)""" % ",".join("?"*len(months)) + tfrag
             + " GROUP BY note, product_group",
