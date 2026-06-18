@@ -834,6 +834,13 @@ def _guard():
     # surface). When SSO is OFF the views themselves redirect to /login (no-op).
     if request.endpoint in ("sso_login", "sso_callback"):
         return
+    # Dokobit signing postback: a PUBLIC server-to-server POST (no session) that Dokobit
+    # calls on signing events. Like the share beacons it is a no-cookie-authority POST that
+    # acts ONLY on a signing_token we issued (verified in-view) and records nothing
+    # otherwise; it is exempt from login + the session-CSRF check (Dokobit cannot carry a
+    # CSRF token). When the seam is OFF no token is ever issued, so the route is inert.
+    if request.endpoint == "dokobit_postback":
+        return
     # Data rooms (B4): the PUBLIC room index, in-room pdf.js viewer, file stream, the
     # per-page engagement beacon and the Q&A 'ask' POST are PUBLIC by design (no session)
     # and run their OWN per-token room-link gate in-view. Like the B1-B3 public surface
@@ -6561,6 +6568,58 @@ def export_intel():
     return send_file(path, as_attachment=True, download_name=os.path.basename(path),
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+def _dk_signer(cust):
+    """Map a customer dict to a Dokobit signer (name/surname/email for e-delivery). We do
+    not hold the personal code/country here, so they are left to the operator's Dokobit
+    account context; the email enables e-delivery of the signing invite."""
+    name = (cust.get("signatory_name") or cust.get("name") or "").strip()
+    parts = name.split()
+    first = parts[0] if parts else (name or "Signer")
+    surname = " ".join(parts[1:]) if len(parts) > 1 else "."
+    out = {"name": first, "surname": surname}
+    if cust.get("country"):
+        out["country"] = cust["country"]
+    if cust.get("email"):
+        out["email"] = cust["email"]
+    return out
+
+
+@app.route("/dokobit/postback", methods=["POST"])
+def dokobit_postback():
+    """PUBLIC server-to-server postback from Dokobit (no session — exempted in _guard like
+    the share/sso public routes). On `signing_completed` we fetch the signed file and vault
+    it, then mark the issued invoice signed. We VERIFY the signing_token is one we issued;
+    an unknown/bad token is ignored (200, no error). NEVER raises."""
+    import dokobit as _dk, invoice_issue as _ii, data_lake as _dl
+    try:
+        pb = _dk.parse_postback(request.form or {})
+        token = pb.get("signing_token")
+        inv = _ii.by_signing_token(token) if token else None
+        if not inv:
+            # Unknown/foreign token — acknowledge without acting (never 500).
+            return ("ok", 200)
+        if pb.get("action") == _dk.ACTION_COMPLETED or pb.get("status") == "completed":
+            url = pb.get("file_url")
+            if not url:
+                st = _dk.signing_status(token)
+                url = st.get("signed_file_url") if st.get("ok") else None
+            data = _dk.fetch_signed(url) if url else None
+            doc_ref = None
+            if data:
+                try:
+                    doc_ref = _dl.put(data, f"{inv.get('number') or token}_signed.pdf",
+                                      kind="issued_invoice_signed",
+                                      supplier=inv.get("customer"),
+                                      period=(inv.get("period") or "")[:7] or None)
+                except Exception as e:
+                    _log_exc("dokobit_postback vault", e)
+            _ii.mark_signed(token, doc_ref)
+        return ("ok", 200)
+    except Exception as e:
+        _log_exc("dokobit_postback", e)
+        return ("ok", 200)
+
+
 @app.route("/recovery", methods=["GET", "POST"])
 def recovery():
     import vat_refund as VR, customer_master as CD, money
@@ -6574,6 +6633,81 @@ def recovery():
         banner = (f'<div class="card"><b class="{"ok" if ok else "bad"}">'
                   + (f"Fee invoice {esc(res)} issued." if ok else f"Could not issue invoice: {esc(res)}")
                   + '</b></div>')
+    elif request.method == "POST" and request.form.get("__act") == "issue_dokobit":
+        # Build the CUSTOMER service-fee invoice, vault the unsigned HTML, record it in
+        # issued_invoices, and (when Dokobit is enabled) open a signing with the customer
+        # as a signer. Admin-only (the whole VAT module is ADMIN_ONLY). NEVER touches a VAT
+        # figure — invoice_issue reads the SAME recovery figures the page shows.
+        import invoice_issue as _ii, dokobit as _dk, data_lake as _dl
+        entity = request.form.get("entity", "")
+        country = request.form.get("country", "")
+        period = request.form.get("period", "")
+        try:
+            ff = _ii.fee_for(entity, country, period, year)
+            if not ff:
+                banner = ('<div class="card"><b class="bad">Could not build the invoice — '
+                          'no matching recovery row.</b></div>')
+            else:
+                recovered, fee = ff
+                cust = None
+                try:
+                    import customer_master as _CD
+                    c = _CD.get_customer(entity)
+                    cust = {"name": c.get("company_name") or entity,
+                            "country": c.get("country") or country,
+                            "vat_number": c.get("vat_number"),
+                            "email": c.get("email"),
+                            "signatory_name": c.get("signatory_name")}
+                except Exception as e:
+                    _log_exc("recovery/issue_dokobit customer", e)
+                inv = _ii.build_invoice(entity, country, period, recovered, fee,
+                                        buyer=cust)
+                html = _ii.render_html(inv)
+                doc_ref = None
+                try:
+                    doc_ref = _dl.put(html.encode("utf-8"),
+                                      f"invoice_{entity}_{country}_{period}.html",
+                                      kind="issued_invoice", supplier=entity,
+                                      period=(period or "")[:7] or None)
+                except Exception as e:
+                    _log_exc("recovery/issue_dokobit vault", e)
+                row = _ii.record(inv, status="draft", unsigned_doc_ref=doc_ref,
+                                 created_by=session["user"])
+                if not row:
+                    banner = ('<div class="card"><b class="bad">Could not record the '
+                              'issued invoice.</b></div>')
+                elif _dk.enabled():
+                    up = _dk.upload_file(html.encode("utf-8"),
+                                         f"{row['number']}.pdf")
+                    if not up.get("ok"):
+                        banner = ('<div class="card"><b class="bad">Invoice '
+                                  + esc(row["number"]) + ' stored, but Dokobit upload '
+                                  'failed: ' + esc(up.get("error")) + '</b></div>')
+                    else:
+                        signer = _dk_signer(cust or {"name": entity})
+                        cre = _dk.create_signing(
+                            [{"token": up["token"], "filename": f"{row['number']}.pdf"}],
+                            [signer])
+                        if not cre.get("ok"):
+                            banner = ('<div class="card"><b class="bad">Invoice '
+                                      + esc(row["number"]) + ' stored, but opening the '
+                                      'signing failed: ' + esc(cre.get("error")) + '</b></div>')
+                        else:
+                            su = (cre.get("signers") or [{}])[0].get("sign_url")
+                            _ii.set_signing(row["id"], cre["signing_token"], su, "sent")
+                            link = (f' — <a href="{esc(su)}">signing link</a>'
+                                    if su else "")
+                            banner = ('<div class="card"><b class="ok">Invoice '
+                                      + esc(row["number"]) + ' issued and sent to Dokobit '
+                                      'for signing' + link + '.</b></div>')
+                else:
+                    banner = ('<div class="card"><b class="ok">Invoice '
+                              + esc(row["number"]) + ' built and stored '
+                              '(draft — Dokobit off).</b></div>')
+        except Exception as e:
+            _log_exc("recovery/issue_dokobit", e)
+            banner = ('<div class="card"><b class="bad">Could not issue the invoice — '
+                      'see the error log.</b></div>')
     elif request.method == "POST" and request.form.get("__act") == "advance":
         # advance the claim's workflow code (4 invoice fee / 4A credit / 5 closed, …)
         con = VR.connect()
@@ -6600,6 +6734,11 @@ def recovery():
             con.close()
         banner = f'<div class="card"><b class="{"ok" if ok else "bad"}">{esc(res)}</b></div>'
     rows, summ = VR.recovery_report(year)
+    try:
+        import dokobit as _DK
+        _dokobit_on = _DK.enabled()
+    except Exception:
+        _dokobit_on = False
     trs = []
     total_charged = total_net = total_recv = 0.0
     for r in rows:
@@ -6642,6 +6781,12 @@ def recovery():
         inv_cell += ('<form method="post" action="/export/evidence" style="margin:2px 0 0">'
                      + _csrf_input() + hid
                      + '<button style="font-size:11px;padding:3px 8px">⬇ Evidence pack</button></form>')
+        # Issue the CUSTOMER service-fee invoice (build + store; sign/e-deliver via Dokobit
+        # when that seam is enabled — otherwise it is stored as a draft). Admin-only page.
+        inv_cell += ('<form method="post" style="margin:2px 0 0">' + _csrf_input() + hid
+                     + '<button name="__act" value="issue_dokobit" '
+                       'style="font-size:11px;padding:3px 8px">Issue fee invoice'
+                     + (' (sign)' if _dokobit_on else '') + '</button></form>')
         # workflow cell: the claim's status code + suggested next step (after 3A the
         # payout route decides: 4 invoice the fee / 4A credit; then 5 closed)
         code = r.get("status_code") or {"submitted": "2", "approved": "3", "paid": "3A"}.get(r["status"], "")
@@ -10087,6 +10232,45 @@ def admin():
                 else:
                     banner = ("Single sign-on " + ("ENABLED" if on else "turned OFF")
                               + " — local username/password login always remains available.")
+            elif act == "set_dokobit":
+                # OPTIONAL Dokobit invoice signing/e-delivery. DEFAULT OFF; the seam makes
+                # NO network call until enabled AND a token is sealed. The API token is
+                # sealed at rest (keyvault) and write-only here — a blank field LEAVES it
+                # unchanged.
+                import dokobit as _dk
+                on = request.form.get("dokobit_enabled") == "on"
+                _auth.set_setting("dokobit_enabled", "on" if on else "off")
+                env = (request.form.get("dokobit_env") or "sandbox").strip().lower()
+                if env not in ("sandbox", "production"):
+                    env = "sandbox"
+                _auth.set_setting("dokobit_env", env)
+                _auth.set_setting("dokobit_postback_url",
+                                  (request.form.get("dokobit_postback_url") or "").strip())
+                _auth.set_setting("dokobit_return_url",
+                                  (request.form.get("dokobit_return_url") or "").strip())
+                vat_pct = (request.form.get("invoice_fee_vat_pct") or "").strip()
+                if vat_pct != "":
+                    try:
+                        v = float(vat_pct)
+                        if not (0 <= v <= 100):
+                            raise ValueError
+                        _auth.set_setting("invoice_fee_vat_pct", str(v))
+                    except ValueError:
+                        raise ValueError("fee VAT rate must be a percentage between 0 and 100")
+                # Token: blank leaves it unchanged; ticking clear removes it; else seal.
+                if request.form.get("dokobit_token_clear") == "on":
+                    _dk.set_token("")
+                elif (request.form.get("dokobit_token") or "").strip():
+                    _dk.set_token(request.form.get("dokobit_token"))
+                if on and not _dk.enabled():
+                    _banner_klass = "bad"
+                    banner = ("Dokobit settings saved, but the seam is NOT yet active — it "
+                              "needs the toggle ON and a saved API token before any signing "
+                              "is sent.")
+                else:
+                    banner = ("Dokobit invoice signing "
+                              + ("ENABLED" if on else "turned OFF")
+                              + " — nothing is sent to Dokobit until it is enabled with a token.")
             elif act == "issue_api_key":
                 import api_keys
                 label = request.form.get("api_label", "").strip()
@@ -10764,6 +10948,70 @@ def admin():
                  'encryption) and never shown — leave it blank to keep the current one. '
                  'With no allowed domains, sign-in is refused for everyone (set at least '
                  'one to go live).</div></div>')
+    # Invoice issuance & Dokobit signing — optional, default off. The API token is sealed
+    # at rest (keyvault) and write-only here; nothing is sent to Dokobit until enabled.
+    import dokobit as _dk, invoice_issue as _ii
+    _dcfg = _dk.config()
+    _dk_postback = url_for("dokobit_postback", _external=True)
+    _dk_state = ('<span class="ok">ACTIVE</span>' if _dcfg["enabled"]
+                 else '<span class="bad">not active</span>')
+    _dk_token_state = ('<span class="ok">set ✓</span>' if _dcfg["has_token"]
+                       else '<span class="bad">not set</span>')
+    _env_opts = "".join(
+        f'<option value="{e}" {"selected" if _dcfg["env"] == e else ""}>{e}</option>'
+        for e in ("sandbox", "production"))
+    _issued = _ii.list_invoices(50)
+    _itr = []
+    for r in _issued:
+        link = (f'<a href="{esc(r.get("sign_url"))}">sign &rarr;</a>'
+                if r.get("sign_url") else "")
+        scls = {"signed": "ok", "sent": "", "draft": "note"}.get(r.get("status"), "note")
+        _itr.append([f'<td>{esc(r.get("number"))}</td>',
+                     f'<td>{esc(r.get("customer"))}</td>'
+                     f'<td>{esc(r.get("country"))} {esc(r.get("period"))}</td>',
+                     f'<td class="r">{esc(_ii._eur(r.get("gross_eur")))}</td>',
+                     f'<td class="{scls}">{esc(r.get("status"))}</td>',
+                     f'<td>{link}</td>'])
+    _issued_tbl = (tbl(["Number", "Customer", "Country / period", "Gross EUR",
+                        "Status", "Signing"], _itr) if _itr
+                   else '<div class="note">No invoices issued yet.</div>')
+    dokocard = ('<div class="card"><h2>Invoice issuance &amp; Dokobit signing</h2>'
+                f'<p>Status: {_dk_state} &nbsp;|&nbsp; API token: {_dk_token_state} '
+                f'&nbsp;|&nbsp; environment: <b>{esc(_dcfg["env"])}</b></p>'
+                '<div class="note" style="margin-top:0">Issue the <b>customer service-fee '
+                'invoice</b> (what we bill a client for the VAT-recovery work) and optionally '
+                'have it qualified-signed &amp; e-delivered via the <b>Dokobit Gateway</b>. '
+                '<b>Default off</b> — until you enable it <b>and</b> save an API token, an '
+                '"Issue invoice" action just builds and stores the document; <b>nothing is '
+                'ever sent to Dokobit</b>. Register this exact postback URL at Dokobit: '
+                f'<code>{esc(_dk_postback)}</code></div>'
+                '<form method="post" class="f" style="margin-top:8px">' + _csrf_input()
+                + '<label class="ck"><input type="checkbox" name="dokobit_enabled" '
+                + ('checked' if (_auth.get_setting("dokobit_enabled", "off") == "on") else '')
+                + '> Enable Dokobit signing &amp; e-delivery</label>'
+                + '<label>Environment<select name="dokobit_env">' + _env_opts + '</select></label>'
+                + '<label>API access token<input type="password" name="dokobit_token" '
+                  'placeholder="leave blank to keep current" autocomplete="new-password"></label>'
+                + ('<label class="ck"><input type="checkbox" name="dokobit_token_clear" '
+                   'value="on"> Remove the stored API token</label>'
+                   if _dcfg["has_token"] else '')
+                + f'<label>Postback URL<input name="dokobit_postback_url" '
+                  f'value="{esc(_dcfg["postback_url"])}" '
+                  f'placeholder="{esc(_dk_postback)}"></label>'
+                + f'<label>Return URL<input name="dokobit_return_url" '
+                  f'value="{esc(_dcfg["return_url"])}" '
+                  'placeholder="where the signer lands after signing"></label>'
+                + f'<label>Fee VAT rate %<input name="invoice_fee_vat_pct" type="number" '
+                  f'step="0.01" min="0" max="100" '
+                  f'value="{esc(_auth.get_setting("invoice_fee_vat_pct", "0"))}" '
+                  'style="width:90px"></label>'
+                + '<button name="__act" value="set_dokobit">Save Dokobit settings</button></form>'
+                + '<div class="note">The API token is <b>sealed at rest</b> (envelope '
+                  'encryption) and never shown — leave it blank to keep the current one. The '
+                  'fee VAT rate defaults to 0 (cross-border B2B service fees are commonly '
+                  'reverse-charged); set it if you charge domestic VAT on the fee.</div>'
+                + '<h3 style="margin:14px 0 4px">Issued invoices</h3>' + _issued_tbl
+                + '</div>')
     logins_card = ('<div class="card"><h2>Recent logins</h2>'
                    + tbl(["Timestamp (UTC)", "Username", "Result", "From"], ltr) + "</div>")
     # Platform surfaces live on their own read-only admin routes; link to them so the
@@ -10789,6 +11037,7 @@ def admin():
             + permf
             + security_card
             + ssocard
+            + dokocard
             + logins_card
             + errcard
             + apikeyf

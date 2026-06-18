@@ -63,6 +63,10 @@ capture_confidence.db
 #    over the recovery data; NULL provider by default, never gates a VAT figure) ──
 finance.db
 
+# ── Issued customer service-fee invoices — app-owned runtime DB (invoice numbers +
+#    Dokobit signing lifecycle; reads recovery figures, never writes a product DB) ──
+invoice_issue.db
+
 # ── Secure share links / data rooms — app-owned runtime DB (links, views, page
 #    analytics, NDA acceptances, Q&A; no demo data) ──
 sharing.db

@@ -167,6 +167,28 @@ def services():
                 "toggleable": True, "setting": "sso_enabled",
                 "on": sso_on, "status": st, "reason": rs, "fix": fx})
 
+    # ---- Invoice issuance & Dokobit signing -------------------------------------------
+    dk_on = _on("dokobit_enabled")
+    dk_token = False
+    try:
+        import dokobit
+        dk_token = bool(dokobit.has_token())
+    except Exception:
+        dk_token = False
+    if not dk_on:
+        st, rs, fx = ("off", "Switched off — invoices are built/stored but not signed", "")
+    elif not dk_token:
+        st, rs, fx = ("needs_setup", "Enabled but no Dokobit API token is saved",
+                      "Add the API access token in the “Invoice issuance & Dokobit” card.")
+    else:
+        st, rs, fx = ("active", "On — issued fee invoices can be signed & e-delivered", "")
+    out.append({"key": "dokobit", "title": "Invoice signing & e-delivery (Dokobit)",
+                "what": "Sign and e-deliver the customer service-fee invoice via the Dokobit "
+                        "Gateway. Off = the invoice is still built and stored, just not signed. "
+                        "Default off.",
+                "toggleable": True, "setting": "dokobit_enabled",
+                "on": dk_on, "status": st, "reason": rs, "fix": fx})
+
     # ---- Schedulers -------------------------------------------------------------------
     try:
         hrs = int(float(_get("backup_interval_hours", "0") or 0))
