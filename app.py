@@ -536,12 +536,13 @@ def sso_callback():
                                      "email domain is not permitted. Ask an admin.")
         u = _auth.get_user_by_email(email)
         if not u:
-            if _sso.auto_provision():
+            if _sso.auto_provision_allowed(email):
                 _auth.add_sso_user(email, email)   # username == email; role processor
                 u = _auth.get_user_by_email(email)
             else:
                 return _login_with_error(f"No account for {email} — ask an admin "
-                                         "to create one.")
+                                         "to create one. (Auto-creation requires an "
+                                         "allowed-domain list.)")
         if not u or not u.get("active", 1):
             return _login_with_error("Your account is disabled. Ask an admin.")
         # Log in the SAME way the local-login success path does.
@@ -9285,6 +9286,20 @@ def admin():
                 for k in MODULES:
                     _auth.set_setting(f"module_{k}", "on" if request.form.get(f"mod_{k}") == "on" else "off")
                 banner = "Modules updated — the menu reflects what's turned on."
+            elif act == "set_service":
+                # Services control center: flip ONE service on/off by its setting key. Defence
+                # in depth — only a key in services_status.TOGGLEABLE_SETTINGS may be written,
+                # and only to "on"/"off"; nothing arbitrary.
+                import services_status as _svc
+                skey = (request.form.get("service") or "").strip()
+                want = "on" if request.form.get("state") == "on" else "off"
+                if skey in _svc.TOGGLEABLE_SETTINGS:
+                    _auth.set_setting(skey, want)
+                    _title = next((s["title"] for s in _svc.services()
+                                   if s.get("setting") == skey), skey)
+                    banner = f"<b>{esc(_title)}</b> turned <b>{'ON' if want=='on' else 'OFF'}</b>."
+                else:
+                    banner = "Unknown service toggle ignored."
             elif act == "set_ai_review":
                 # advisory AI review backend (default 'none' = OFF). Reuses the same
                 # API keys as the extractor backends; no new env vars.
@@ -9880,6 +9895,53 @@ def admin():
         f'<input type="checkbox" name="mod_{esc(k)}" {"checked" if module_enabled(k) else ""}> '
         f'<b>{esc(k)}</b> — {esc(lbl)}</label>'
         for k, (lbl, _eps) in MODULES.items())
+    # Services control center — a visual switchboard: colored status dot + a big ON/OFF
+    # switch per service, minimal text. No command line needed for anything toggleable.
+    import services_status as _svc
+    _DOT = {"active": "#1a7f37", "off": "#9aa6b2", "needs_setup": "#c98a00", "info": "#0e5fa8"}
+
+    def _svc_row(s):
+        dot = _DOT.get(s["status"], "#9aa6b2")
+        warn = (f'<div style="font-size:12px;color:#9a6a00;margin-top:2px">⚠ {esc(s["reason"])}'
+                + (f' — {esc(s["fix"])}' if s.get("fix") else "") + '</div>'
+                if s["status"] == "needs_setup" else "")
+        left = (f'<div style="display:flex;gap:11px;align-items:flex-start;min-width:0">'
+                f'<span style="flex:0 0 auto;width:12px;height:12px;border-radius:50%;'
+                f'background:{dot};margin-top:4px"></span>'
+                f'<div style="min-width:0"><div style="font-weight:600">{esc(s["title"])}</div>'
+                f'<div class="note" style="margin:0;font-size:12px">{esc(s["what"])}</div>'
+                f'{warn}</div></div>')
+        if s["toggleable"] and s["setting"]:
+            on = s["on"]
+            nxt = "off" if on else "on"
+            bg = ("#1a7f37" if (on and s["status"] == "active")
+                  else "#c98a00" if on else "#cfd6dd")
+            fg = "#fff" if on else "#5b6b7a"
+            right = (f'<form method="post" style="margin:0;flex:0 0 auto">' + _csrf_input()
+                     + f'<input type="hidden" name="service" value="{esc(s["setting"])}">'
+                     + f'<input type="hidden" name="state" value="{nxt}">'
+                     + f'<button name="__act" value="set_service" '
+                       f'title="Click to turn {nxt.upper()}" '
+                       f'style="min-width:66px;padding:8px 16px;border:none;border-radius:999px;'
+                       f'font-weight:700;cursor:pointer;background:{bg};color:{fg}">'
+                       f'{"ON" if on else "OFF"}</button></form>')
+        else:
+            if s["status"] == "info":
+                bg, fg = ("#e8f0f9", "#0e5fa8") if s["on"] else ("#fff4e0", "#9a6a00")
+            else:
+                bg, fg = ("#e7f5ec", "#1a7f37") if s["on"] else ("#eef1f4", "#5b6b7a")
+            right = (f'<span style="flex:0 0 auto;padding:6px 12px;border-radius:999px;'
+                     f'font-size:12px;font-weight:600;background:{bg};color:{fg}">'
+                     f'{esc(s["reason"] or ("On" if s["on"] else "Off"))}</span>')
+        return ('<div style="display:flex;justify-content:space-between;align-items:center;'
+                f'gap:14px;padding:11px 0;border-top:1px solid #eef1f4">{left}{right}</div>')
+
+    svccenter = ('<div class="card"><h2>Services — switch on / off</h2>'
+                 '<div class="note" style="margin-top:0">'
+                 '<span style="color:#1a7f37">●</span> on &amp; working &nbsp; '
+                 '<span style="color:#c98a00">●</span> needs setup &nbsp; '
+                 '<span style="color:#9aa6b2">●</span> off &nbsp;— tap a switch to change.</div>'
+                 + "".join(_svc_row(s) for s in _svc.services()) + '</div>')
     modf = ('<div class="card"><h2>Modules — turn parts of the app on / off</h2>'
             '<div class="note" style="margin-top:0">Switch whole parts of the system on or off. '
             'A part that is off disappears from the menu and its pages are unavailable to everyone '
@@ -10268,6 +10330,7 @@ def admin():
             + smtpcard
             + brandcard
             + '<h2 class="section" id="modules">Modules &amp; AI</h2>'
+            + svccenter
             + modf
             + apikeysf
             + aireviewf

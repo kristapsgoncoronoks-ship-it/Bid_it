@@ -265,3 +265,16 @@ def domain_allowed(email):
     if at < 0:
         return False
     return email[at + 1:] in doms
+
+
+def auto_provision_allowed(email):
+    """May a NEW account be auto-created for this email? Requires auto-provision ON *and* an
+    EXPLICIT domain allowlist that the email matches. A BLANK allowlist NEVER auto-creates —
+    otherwise anyone with a Google/Microsoft account could self-provision into the system.
+    (Existing users can still sign in regardless of this.)"""
+    if not auto_provision():
+        return False
+    if not allowed_domains():                 # blank allowlist -> no open self-provisioning
+        return False
+    return domain_allowed(email)
+
