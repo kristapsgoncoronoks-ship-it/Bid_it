@@ -10,7 +10,7 @@ supplier's row_map receives either a tuple (xlsx/csv) or a dict (xml/api).
 Nothing downstream changes: validation, master workbook, history DB all stay identical.
 
 SOURCE CONFIG EXAMPLES (put in the spec as "source"):
-  {"type": "xlsx", "file": "DKV_SE_May2026_transactions.xlsx", "sheet": "Transactions"}
+  {"type": "xlsx", "file": "samples/supplier_files/DKV_SE_May2026_transactions.xlsx", "sheet": "Transactions"}
   {"type": "csv",  "file": "e100_export_2026-06.csv", "delimiter": ";", "encoding": "utf-8"}
   {"type": "xml",  "file": "invoice_2026-06.xml",
    "record_path": ".//cac:InvoiceLine",                 # element that repeats per transaction

@@ -109,9 +109,9 @@ captures/
 
 # ── Document vault (local backend): the LIVE store of vaulted invoice PDFs/ZIPs.
 #    On a real server this holds REAL CLIENT documents (PII + bank details) and must
-#    NEVER be committed. (The demo invoice PDFs already tracked under documents/ are
-#    fixtures, pending relocation to samples/; this rule keeps any NEW runtime document
-#    out of git so a live client file can never be accidentally pushed.) ──
+#    NEVER be committed. The demo invoice PDFs now live under samples/documents/ (cleanly
+#    separated from this runtime vault); this rule keeps any NEW runtime document out of
+#    git so a live client file can never be accidentally pushed. ──
 documents/
 
 # ── Cross-process lock store + SQLite WAL sidecars (transient, machine-specific) ──

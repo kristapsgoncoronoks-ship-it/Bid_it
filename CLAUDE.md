@@ -174,6 +174,10 @@ captures/, data_lake/), and every app-owned runtime DB — including this sessio
 new ones (already in `.gitignore`): `capture_confidence.db`, `classify.db`, `workflow.db`,
 `sharing.db`, `esign.db`, `ai_chat.db`, `search.db`, `metadata.db`, `versions.db`,
 `retention.db`, `finance.db` (vision/verify add no DB beyond `capture_confidence.db`). See `.gitignore`.
+Demo fixtures (sample supplier workbooks, demo invoice PDFs) live under `samples/`
+(`samples/supplier_files/`, `samples/documents/`) — cleanly separated from the live
+`documents/` vault; the three demo working DBs (`customers.db`, `suppliers.db`,
+`fuel_history.db`) stay at the repo root (opened WORKDIR-relative by every module).
 
 ## Testing
 `python -m pytest tests/ -q` — the full suite (claims workflow, checklist, CRM

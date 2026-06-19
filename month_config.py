@@ -4,13 +4,15 @@ PERIOD = "2026-05"
 # amount by this to get EUR). E.g. EUR_PER_PLN = 1/4.27 means 4.27 PLN = 1 EUR.
 # Update from ECB monthly average.
 FX = {"EUR_PER_PLN": 1/4.27}
+# Demo supplier workbooks live under samples/supplier_files/ (resolved WORKDIR-relative
+# by ingest.py). Real monthly drops can sit anywhere relative to the repo root.
 FILES = {
-    "Q8":    "Q8_DE00752298_adjusted_pricing.xlsx",  # use ADJUSTED file (rebate cols)
-    "BP":    "BP_PL_0261167596_transactions.xlsx",
-    "TFC":   "TFC_26056012270_transactions.xlsx",
-    "E100":  "E100_BE98759_BE99954_transactions.xlsx",
-    "MOEVE": "Moeve_BA72400000187538_transactions.xlsx",
-    "DKV":   "DKV_SE_May2026_transactions.xlsx",
+    "Q8":    "samples/supplier_files/Q8_DE00752298_adjusted_pricing.xlsx",  # use ADJUSTED file (rebate cols)
+    "BP":    "samples/supplier_files/BP_PL_0261167596_transactions.xlsx",
+    "TFC":   "samples/supplier_files/TFC_26056012270_transactions.xlsx",
+    "E100":  "samples/supplier_files/E100_BE98759_BE99954_transactions.xlsx",
+    "MOEVE": "samples/supplier_files/Moeve_BA72400000187538_transactions.xlsx",
+    "DKV":   "samples/supplier_files/DKV_SE_May2026_transactions.xlsx",
 }
 PAYMENTS = [
     ("2026-06-14","Jupiter Plus AS","Port One (Q8)",54859.20,"EUR","Net after country rebates 12,367.83"),

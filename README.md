@@ -210,7 +210,9 @@ python consolidate.py             # the pipeline smoke test (must PASS all suppl
 - Every data change is audit‑logged with the acting user.
 - Do **not** commit secrets (`.secret_key`, certs), `security.db`, generated Excel, or
   runtime dirs (`backups/`, `inbox/`, `documents/` = the live vault of client invoice
-  PDFs, `captures/`, `data_lake/`). See `.gitignore`.
+  PDFs, `captures/`, `data_lake/`). See `.gitignore`. Demo fixtures live under `samples/`
+  (`samples/supplier_files/` workbooks, `samples/documents/` invoice PDFs), separate from
+  the live `documents/` vault.
 
 More detail for AI/codebase contributors is in `CLAUDE.md`.
 
