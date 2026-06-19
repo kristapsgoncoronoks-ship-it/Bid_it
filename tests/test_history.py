@@ -57,6 +57,13 @@ def loaded(tmp_path, monkeypatch):
     hist_db = str(tmp_path / "fuel_history.db")
     monkeypatch.setattr(history, "DB", hist_db, raising=True)
 
+    # Isolate the ECB rate cache to an EMPTY temp path so the "uncovered" assertions are
+    # hermetic: rate_for() returns (None,None) deterministically, regardless of any rate a
+    # networked FX test may have left in the default ecb_rates.db (the pollution that made
+    # this module fail only in CI). The covered fixture (loaded_with_ecb) seeds its own temp
+    # ecb DB; this one deliberately leaves it absent.
+    monkeypatch.setattr(ecb_rates, "DB", str(tmp_path / "ecb_rates.db"), raising=True)
+
     history.load(PERIOD)
     return hist_db
 
