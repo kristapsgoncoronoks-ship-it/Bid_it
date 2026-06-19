@@ -2266,6 +2266,12 @@ button[disabled].btn,button.btn:disabled{opacity:.55;cursor:not-allowed;pointer-
   table{display:block;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch}
   /* badges wrap rather than overflow */
   .chip{white-space:normal}
+  /* dense admin forms: long checkbox/permission/2FA labels (inline display:flex with no
+     flex-wrap) must wrap instead of forcing the page wider than the iPhone viewport */
+  label.chk{flex-wrap:wrap}
+  /* belt-and-braces: a card never spills sideways (its tables scroll themselves above) */
+  .card{overflow-x:hidden}
+  .card,.section{overflow-wrap:anywhere}
   .subnav{padding:8px 10px}
   .khgrid{grid-template-columns:1fr}
 }
