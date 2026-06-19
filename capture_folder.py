@@ -58,10 +58,11 @@ def folder(upload_sha256):
 
 
 def save(upload_sha256, pdfs, read_text, source_name=None,
-         capture_json=None, capture_text=None):
+         capture_json=None, capture_text=None, excel_bytes=None):
     """Write the paired folder for one upload. `pdfs` is a list of (name, bytes); both the
-    source document(s) and the captured text land in the SAME folder. Returns the folder
-    path on success or None. NEVER raises."""
+    source document(s) and the captured text/Excel land in the SAME folder. `excel_bytes`
+    (optional) is the analytics-ready .xlsx of the capture. Returns the folder path on
+    success or None. NEVER raises."""
     d = _sha_dir(upload_sha256)
     if not d:
         log.warning("capture_folder.save: missing/short sha — skipped")
@@ -91,6 +92,11 @@ def save(upload_sha256, pdfs, read_text, source_name=None,
         with open(os.path.join(d, READ_TEXT_NAME), "wb") as f:
             f.write(txt)
         files.append({"name": READ_TEXT_NAME, "size": len(txt)})
+        # the analytics-ready Excel of the capture (the preferred analysis artifact)
+        if excel_bytes:
+            with open(os.path.join(d, "captured.xlsx"), "wb") as f:
+                f.write(excel_bytes)
+            files.append({"name": "captured.xlsx", "size": len(excel_bytes)})
         # the AI-vision capture document, when present
         if capture_json is not None:
             blob = json.dumps(capture_json, ensure_ascii=False, indent=2,

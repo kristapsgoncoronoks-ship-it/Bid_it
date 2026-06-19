@@ -3293,10 +3293,16 @@ def extract_batch():
                     _cap_txt = _capture_text(_cap)
                 except Exception:
                     _cap_txt = None
+            _xls = None
+            try:
+                import capture_excel
+                _xls = capture_excel.build(draft, source_name=f.filename)
+            except Exception as e:
+                _log_exc("capture folder excel", e)
             capture_folder.save(_sha, draft.get("_pdf_bytes") or [],
                                 draft.get("_source_text") or "",
                                 source_name=f.filename, capture_json=_cap,
-                                capture_text=_cap_txt)
+                                capture_text=_cap_txt, excel_bytes=_xls)
         except Exception as e:
             _log_exc("capture folder save", e)
         # READ-FIRST: derive the period from the invoice/statement date (the manual field
@@ -3909,6 +3915,11 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload
             f'<div class="note">Source: <b>{esc(draft.get("backend",""))}</b> · '
             f'confidence <span class="{ccls}">{esc(conf)}</span> · '
             f'{len(draft.get("files",[]))} PDF(s). {esc(draft.get("notes",""))}</div>'
+            + (f'<div style="margin-top:10px"><a href="/extract/capture.xlsx?token={esc(token)}" '
+               'style="display:inline-block;background:#1a7340;color:#fff;text-decoration:none;'
+               'padding:9px 16px;border-radius:8px;font-weight:600">⬇ Download analytics Excel</a>'
+               ' <span class="note">Overview · Per-country · Transactions · one sheet per country '
+               '— the clean, analytics-ready capture.</span></div>' if token else "")
             + acc_line
             + _source_text_html(draft, upload_sha=upload_sha)
             + _country_supply_summary_html(draft, token=token)
