@@ -1194,7 +1194,10 @@ OPEN_ENDPOINTS = {
     "home", "dash", "savings", "compare", "transactions", "h2h", "entities",
     "stations", "anomalies_page", "expenses", "fx", "history_page",
     "reports_page", "suppliers",
-    "api_periods", "api_benchmark", "api_compare", "api_h2h", "api_entities",
+    # The JSON analytics twins moved to the `analytics_api` blueprint (URLs unchanged);
+    # their endpoint names are now dotted (blueprint-prefixed). See routes/analytics_api.py.
+    "analytics_api.api_periods", "analytics_api.api_benchmark",
+    "analytics_api.api_compare", "analytics_api.api_h2h", "analytics_api.api_entities",
 }
 
 
@@ -4203,30 +4206,11 @@ def export_summary():
                      download_name=os.path.basename(path),
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-@app.route("/api/periods")
-def api_periods():
-    con = DB(); out = q_periods(con); con.close(); return jsonify(out)
-
-@app.route("/api/benchmark")
-def api_benchmark():
-    con = DB(); ps = q_periods(con); period = request.args.get("period", ps[0] if ps else None)
-    out = [dict(r) for r in q_benchmark(con, period)] if period else []
-    con.close(); return jsonify(out)
-
-@app.route("/api/compare")
-def api_compare():
-    con = DB(); out = [dict(r) for r in q_compare(con, request.args)]; con.close(); return jsonify(out)
-
-@app.route("/api/headtohead")
-def api_h2h():
-    con = DB(); ps = q_periods(con); period = request.args.get("period", ps[0] if ps else None)
-    out = q_headtohead(con, period) if period else []; con.close(); return jsonify(out)
-
-@app.route("/api/entities")
-def api_entities():
-    con = DB(); ps = q_periods(con); period = request.args.get("period", ps[0] if ps else None)
-    out = [dict(r) for r in q_entities(con, period)] if period else []
-    con.close(); return jsonify(out)
+# The read-only JSON analytics twins (/api/periods, /api/benchmark, /api/compare,
+# /api/headtohead, /api/entities) moved to the `analytics_api` blueprint as the first
+# slice of the app.py->blueprints split. URL paths are unchanged; endpoint names are now
+# "analytics_api.<func>" (carried in OPEN_ENDPOINTS). See routes/analytics_api.py and the
+# blueprint registration below. Their former definitions lived here.
 
 
 def _human_bytes(n):
@@ -15716,10 +15700,20 @@ def api_v1_customer_update(code):
         return _api_err(404 if "not found" in msg else 400, msg)
     return jsonify(_v1_customer_detail(code)), 200
 
+# ---------------------------------------------------------------- blueprints
+# Incremental app.py -> blueprints split (see routes/__init__.py). Register each
+# blueprint BEFORE the coverage self-check so its routes are classified too. The
+# global before/after hooks above (_guard, CSRF, actor, origin lock) apply to
+# blueprint routes unchanged. URL paths are identical to the old @app.route paths;
+# only endpoint names gain the blueprint prefix (e.g. "analytics_api.api_periods"),
+# which is why those names appear in OPEN_ENDPOINTS above.
+from routes.analytics_api import bp as _analytics_api_bp
+app.register_blueprint(_analytics_api_bp)
+
 # Run the fail-closed endpoint-coverage self-check ONCE, now that every @app.route above
-# has been registered. Module import-time so it fires under `python app.py`, waitress
-# (`serve.py`), gunicorn, AND the test suite — adding an unclassified route is caught
-# immediately. Best-effort: it logs, it does not break boot.
+# AND every registered blueprint has been registered. Module import-time so it fires
+# under `python app.py`, waitress (`serve.py`), gunicorn, AND the test suite — adding an
+# unclassified route is caught immediately. Best-effort: it logs, it does not break boot.
 _assert_endpoint_coverage()
 
 if __name__ == "__main__":
