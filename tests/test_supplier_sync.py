@@ -74,6 +74,18 @@ def test_plan_classifies_bank_and_vat_high_risk():
     assert "iban" not in p["safe_updates"]
 
 
+def test_plan_classifies_company_reg_as_identity_anchor():
+    # registration number is a STABLE IDENTITY anchor (like VAT) — a change is HIGH-RISK
+    # (admin confirms), never an auto-applied SAFE update.
+    _seed()
+    ex = _existing("E100")
+    assert ex is not None
+    cap = {"legal_name": ex.get("legal_name"), "reg_no": "NEW-REG-12345"}
+    p = SS.plan(cap, ex)
+    assert "company_reg" in p["high_risk_changes"], "reg number change must be high-risk"
+    assert "company_reg" not in p["safe_updates"]
+
+
 def test_plan_empty_capture_never_blanks():
     _seed()
     ex = _existing("TFC")

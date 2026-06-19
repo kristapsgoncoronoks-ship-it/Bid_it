@@ -54,8 +54,12 @@ WORKDIR = os.path.dirname(os.path.abspath(__file__))
 
 # SAFE fields auto-update (AI-verified, audited). HIGH-RISK fields (bank/IBAN, VAT) NEVER
 # auto-update on an existing supplier — they become pending change requests.
-SAFE_FIELDS = ("legal_name", "address", "company_reg", "phone", "email")
-HIGH_RISK_FIELDS = ("iban", "vat")
+SAFE_FIELDS = ("legal_name", "address", "phone", "email")
+# Identity anchors + payment instruction — NEVER auto-applied on an existing supplier; a
+# change here always becomes a pending admin confirmation. VAT id + company registration
+# number are the supplier's stable identity ("these numbers don't change"); bank/IBAN is the
+# payment destination (the invoice-fraud target).
+HIGH_RISK_FIELDS = ("iban", "vat", "company_reg")
 
 
 # ─────────────────────────────────────────────────────────── normalisation helpers
@@ -160,18 +164,24 @@ def plan(captured, existing):
     # insensitive) is an update. A captured-empty field is never an update (we never blank
     # a stored value from a capture that didn't read it).
     for field, cval in (("legal_name", c_name), ("address", c_addr),
-                        ("company_reg", c_reg), ("phone", c_phone), ("email", c_email)):
+                        ("phone", c_phone), ("email", c_email)):
         if not cval:
             continue
         old = _s(ex.get(field))
         if _norm_text(cval) != _norm_text(old):
             safe[field] = (old or None, cval)
 
-    # HIGH-RISK — VAT number. Compare the captured VAT against the stored VAT registration.
+    # HIGH-RISK — VAT number AND company registration number are the STABLE IDENTITY of the
+    # supplier ("these numbers don't change"); a change means it may be a different entity (or
+    # fraud), so it is NEVER auto-applied — an admin confirms it.
     if c_vat:
         old_vat = _s(ex.get("vat"))
         if norm_vat(c_vat) != norm_vat(old_vat):
             high["vat"] = (old_vat or None, c_vat)
+    if c_reg:
+        old_reg = _s(ex.get("company_reg"))
+        if _norm_text(c_reg) != _norm_text(old_reg):
+            high["company_reg"] = (old_reg or None, c_reg)
 
     # HIGH-RISK — IBAN. A captured IBAN that does NOT match ANY stored bank account for the
     # supplier is a change (a brand-new IBAN on an existing supplier is exactly the swap we
@@ -448,6 +458,11 @@ def approve_change(req_id, actor, con=None):
                 VALUES (?,?,?,?,?,?,?,?)""",
                 (supplier, beneficiary, new, None, None, None,
                  "admin-approved from capture change request", tid))
+        elif field == "company_reg":
+            # registration number is an identity anchor — an admin approved the change, so
+            # write it to the supplier's company_reg (audited).
+            con.execute("UPDATE suppliers SET company_reg=? WHERE code=?" + frag,
+                        [new, supplier, *params])
         else:
             # a high-risk field we don't auto-apply for — should not happen, but be safe
             return {"skipped": f"unsupported high-risk field {field!r}"}
