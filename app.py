@@ -370,6 +370,60 @@ APP_JS = r"""/* progressive enhancement: sort + filter + horizontal scroll + key
       if(btn.dataset._orig!==undefined) btn.textContent=btn.dataset._orig; }
     window.addEventListener('pageshow',restore,{once:true});  // bfcache return
   });
+
+  // ---- INTAKE REVIEW COCKPIT (live tie-out + Enter guard) --------------------
+  // Progressive enhancement on the draft-review screen. No server round-trip; the
+  // server still hard-blocks a mismatched tie-out at /extract/confirm.
+  (function(){
+    var pill=document.getElementById('tieout'); if(!pill) return;
+    var label=pill.querySelector('[data-tieout-label]');
+    function money(n){
+      var neg=n<0; n=Math.abs(n);
+      var s=n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+      return (neg?'-':'')+'€'+s;                 // €1,234.56
+    }
+    function parseNum(v){ var n=parseFloat(String(v).replace(/[^0-9.\-]/g,'')); return isNaN(n)?0:n; }
+    function sumAttr(sel){
+      var t=0; document.querySelectorAll(sel).forEach(function(i){ t+=parseNum(i.value); }); return t;
+    }
+    var coverAttr=pill.getAttribute('data-cover-total');
+    var cover=(coverAttr===null||coverAttr==='')?null:parseFloat(coverAttr);
+    function recompute(){
+      var net=sumAttr('[data-tieout-net]'), vat=sumAttr('[data-tieout-vat]'), gross=net+vat;
+      pill.classList.remove('ok','bad');
+      if(cover===null||isNaN(cover)){
+        label.textContent='Line sum: '+money(gross)+' net+VAT (no document total parsed)';
+        return;
+      }
+      var diff=gross-cover;
+      if(Math.abs(diff)<=0.0101){                     // within a cent (HALF_UP-safe margin)
+        pill.classList.add('ok');
+        label.textContent='balances ✓  '+money(gross)+' = document total';
+      } else {
+        pill.classList.add('bad');
+        label.textContent='off by '+money(Math.abs(diff))+'  (lines '+money(gross)+' vs document '+money(cover)+')';
+      }
+    }
+    document.querySelectorAll('[data-tieout-net],[data-tieout-vat]').forEach(function(i){
+      i.addEventListener('input',recompute);
+    });
+    recompute();
+  })();
+  // ENTER guard: in the review confirm form, pressing Enter inside a line/text input
+  // must NOT accidentally submit (register) the statement. Only the explicit Confirm
+  // /Discard buttons do. textareas/selects keep native behaviour.
+  (function(){
+    var forms=document.querySelectorAll('form[data-noenter]');
+    Array.prototype.forEach.call(forms,function(form){
+      form.addEventListener('keydown',function(e){
+        if(e.key!=='Enter') return;
+        var t=e.target, tag=(t&&t.tagName)||'';
+        if(tag==='TEXTAREA') return;
+        if(tag==='BUTTON'||(t&&t.type==='submit')) return;   // a real button press is fine
+        e.preventDefault();                                  // block accidental submit
+      });
+    });
+  })();
 })();
 """
 
@@ -1013,6 +1067,7 @@ PERM_BY_ENDPOINT = {
     "extract_ai_review": "data_import", "extract_ai_verify": "data_import",
     "extract_ai_correct": "data_import",
     "extract_capture_download": "data_import",
+    "extract_review_pdf": "data_import",   # streams the in-review PDF for the source pane
     "extract_capture_file_download": "data_import",
     "extract_folder": "data_import", "extract_folder_file": "data_import",
     "extract_capture_excel": "data_import",
@@ -1096,6 +1151,9 @@ ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "api_r
               "admin_confidence",
               # the pending high-risk supplier-change review is admin-curated master data.
               "supplier_changes",
+              # inline brand→legal-entity linking from the review cockpit is the same
+              # admin-curated master-data action as the suppliers-CRM brand control.
+              "extract_link_brand",
               # the multi-tenancy registry is a read-only admin surface (P0).
               "admin_tenants",
               # the workflow DEFINE/MANAGE surface is admin-only (an admin builds the
@@ -1182,7 +1240,7 @@ MODULES = {
                    {"extract_batch", "extract_confirm", "extract_ai_review",
                     "extract_ai_verify", "extract_ai_correct", "extract_capture_download",
                     "extract_capture_file_download", "extract_folder", "extract_folder_file",
-                    "extract_capture_excel",
+                    "extract_capture_excel", "extract_review_pdf", "extract_link_brand",
                     "intake_queue_page", "intake_review",
                     "imports", "files_archive", "doc_mining_page", "data_manager"}),
     "compliance": ("Compliance — invoice control, contract audit, documents",
@@ -2044,6 +2102,33 @@ h2.section:first-of-type{margin-top:4px}
 .chip-legend .chip{font-size:11px;padding:2px 8px}
 /* RIGHT-ALIGNED MONEY cells (alias of .r; semantic name for amounts) */
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+/* ---- INTAKE REVIEW COCKPIT --------------------------------------------------
+   The high-traffic "verify the extracted draft" screen: a fields|PDF two-column
+   layout (stacks on mobile), a live line-sum tie-out indicator, amber needs-check
+   highlights and a "why can't I file this?" checklist. */
+.rvk{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+.rvk-fields{min-width:0}
+.rvk-src{min-width:0;position:sticky;top:calc(var(--navh,56px) + 8px)}
+.rvk-src object,.rvk-src embed{width:100%;height:78vh;min-height:420px;border:1px solid var(--line);border-radius:var(--radius);background:#f7f9fb}
+.rvk-src .rvk-srchead{font-size:12px;color:var(--mut);margin:0 0 6px}
+@media (max-width:900px){.rvk{grid-template-columns:1fr}.rvk-src{position:static}.rvk-src object,.rvk-src embed{height:60vh}}
+/* amber "verify this" highlight on a low-confidence / empty-required field */
+.needs-check{background:#fdf6e3;outline:1px solid #f0d9a8;border-radius:4px}
+input.needs-check,select.needs-check{border-color:#d9a514;box-shadow:0 0 0 2px rgba(217,165,20,.14)}
+.field-hint{display:block;font-size:11px;color:var(--warn);margin-top:2px}
+/* live tie-out indicator (JS-driven; server renders a neutral placeholder) */
+.tieout{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;padding:4px 11px;border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--mut)}
+.tieout.ok{background:#e7f5ec;color:var(--ok);border-color:#bfe3cd}
+.tieout.bad{background:#fdeaec;color:var(--bad);border-color:#f4c6cd}
+.tieout .tdot{width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
+/* "why can't I file this?" checklist near Confirm */
+.filelist{margin:10px 0 0;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius);background:#fff}
+.filelist.ready{background:#e7f5ec;border-color:#bfe3cd}
+.filelist.blocked{background:#fdeaec;border-color:#f4c6cd}
+.filelist .flh{font-weight:700;font-size:13.5px;margin:0 0 2px}
+.filelist ul{margin:6px 0 0 18px;font-size:13px}
+.filelist li.blk{color:var(--bad)}
+button[disabled].btn,button.btn:disabled{opacity:.55;cursor:not-allowed;pointer-events:none}
 /* EMPTY STATE — shown instead of an empty table/list */
 .empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;background:#fff;border:1px dashed var(--line);border-radius:var(--radius);padding:34px 24px;color:var(--mut);box-shadow:var(--card-sh)}
 .empty .eic{font-size:38px;line-height:1;opacity:.85}
@@ -2181,6 +2266,21 @@ def page(body, p):
                              user=session.get("user", ""), role=role, is_admin=(role == "admin"),
                              modules=enabled_modules() if session.get("user") else set(),
                              perms=_auth.permissions_for(role) if session.get("user") else set())
+
+def _review_page(body, p):
+    """Render an intake-review page like page(), but with a CSP that permits the
+    same-origin PDF SOURCE pane: the global policy is object-src 'none', so the
+    review cockpit's `<object data="/extract/review/pdf/…">` embed needs object-src
+    'self' (and frame-src 'self' for browsers that promote the PDF object to a frame).
+    Everything else stays identical (script-src 'self', no inline script)."""
+    from flask import Response
+    resp = Response(page(body, p))
+    resp.headers["Content-Security-Policy"] = (
+        "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+        "script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; "
+        "object-src 'self'; frame-src 'self'")
+    return resp
+
 
 def tbl(headers, rows, sortable=False):
     h = "".join(f"<th>{x}</th>" for x in headers)
@@ -4017,7 +4117,7 @@ def extract_batch():
         # unknown-but-VAT-identified supplier as provisional, or flagging it UNMATCHED.
         period = _derive_period(draft, request.form.get("period") or None)
         notice = _read_first_notice(draft, period)
-        return page(receipt + notice + _review_form(draft, token, period=period), "ext")
+        return _review_page(receipt + notice + _review_form(draft, token, period=period), "ext")
     return page(_upload_form(backend_env), "ext")
 
 
@@ -4789,10 +4889,232 @@ def _captured_entity_html(draft):
             f'<table style="margin-top:8px"><tbody>{body}</tbody></table></div>')
 
 
+# ============================ REVIEW COCKPIT (Build 2) ========================
+# The intake REVIEW screen is the highest-traffic workflow: a reviewer verifies an
+# extracted draft before confirming/registering. These helpers turn it into a focused
+# cockpit — inline brand-linking, live tie-out, confidence cues, a "why can't I file
+# this?" checklist read from the SAME deterministic gate, and a side-by-side PDF pane.
+# All ADDITIVE: the existing confirm/cancel flow + server-side gate are untouched, and
+# everything degrades gracefully without JS.
+
+def _review_pdf_path(token):
+    """The on-disk path of the token's stashed PDF-bytes pickle, or None for a forged
+    token. The file may not exist (non-PDF intake / already consumed)."""
+    if not _valid_extract_token(token):
+        return None
+    import os as _os
+    return _os.path.join(WORKDIR, ".extract_tmp", token + ".pkl")
+
+
+def _review_pdf_bytes(token):
+    """Return the FIRST PDF's raw bytes stashed for an in-review token, or None. The
+    stash is a pickled list of (name, bytes) pairs (the live/queue paths both write it);
+    a PDF is a member whose bytes start with the %PDF magic. C1: the token is validated
+    BEFORE any path join / unpickle (a forged token can never name a `<hex>.pkl`). Best-
+    effort — a missing/corrupt stash or a non-PDF batch returns None (the pane hides)."""
+    p = _review_pdf_path(token)
+    if not p:
+        return None
+    import os as _os, pickle
+    if not _os.path.exists(p):
+        return None
+    try:
+        with open(p, "rb") as f:
+            pairs = pickle.load(f)
+    except Exception as e:
+        _log_exc("review pdf stash load", e)
+        return None
+    if not isinstance(pairs, (list, tuple)):
+        return None
+    for item in pairs:
+        try:
+            b = item[1] if isinstance(item, (list, tuple)) and len(item) >= 2 else item
+        except Exception:
+            continue
+        if isinstance(b, (bytes, bytearray)) and bytes(b[:5]) == b"%PDF-":
+            return bytes(b)
+    return None
+
+
+def _review_pdf_pane(token):
+    """The PDF SOURCE pane (right column of the cockpit): an <object> embed of the
+    in-review original PDF served by /extract/review/pdf/<token>, so the reviewer can
+    verify the extracted fields against the source without leaving. Returns '' when the
+    intake has no PDF (xlsx/xml/e-invoice) so the layout collapses to one column — no
+    broken embed. The embed URL re-checks login + the C1 token gate server-side."""
+    if not (token and _review_pdf_bytes(token)):
+        return ""
+    url = f"/extract/review/pdf/{esc(token)}"
+    return ('<div class="rvk-src">'
+            '<div class="rvk-srchead">Original PDF — verify the fields on the left '
+            'against this source.</div>'
+            f'<object data="{url}" type="application/pdf" aria-label="Original invoice PDF">'
+            f'<div class="note">Your browser can’t embed the PDF here — '
+            f'<a href="{url}" target="_blank" rel="noopener">open it in a new tab</a>.</div>'
+            '</object></div>')
+
+
+def _supplier_options_html(selected=None):
+    """A read-only `<option>` list of EXISTING suppliers ("CODE — legal name") for the
+    brand-link control, sourced via dataproduct (mode=ro) — the web request never opens a
+    writable suppliers.db handle. Sorted by code. Best-effort -> '' on any read error."""
+    sel = (selected or "").strip().upper()
+    try:
+        import dataproduct
+        con = dataproduct.connect("suppliers")
+        try:
+            rows = con.execute(
+                "SELECT code, legal_name FROM suppliers ORDER BY code").fetchall()
+        finally:
+            con.close()
+    except Exception as e:
+        _log_exc("supplier options for brand-link", e)
+        return ""
+    out = ['<option value="">— pick a legal entity —</option>']
+    for r in rows:
+        code = (r["code"] or "").strip()
+        nm = (r["legal_name"] or "").strip()
+        label = f"{code} — {nm}" if nm else code
+        s = " selected" if code.upper() == sel else ""
+        out.append(f'<option value="{esc(code)}"{s}>{esc(label)}</option>')
+    return "".join(out)
+
+
+def _brand_link_html(draft, token, intake_job=None, period=None):
+    """Inline BRAND→legal-entity linking, shown RIGHT in the review when the captured
+    supplier is an UNRECOGNISED brand (it resolves to no code AND is not a known code).
+    Admin (the suppliers CRM is ADMIN_ONLY): a <select> of existing suppliers + a Link
+    button that records the alias via supplier_master.add_brand and re-resolves. A non-
+    admin processor sees the unrecognised-brand guidance instead (degrade gracefully).
+    Returns '' when the captured supplier already resolves to a known entity."""
+    supplier = (draft.get("supplier") or "").strip()
+    vat = (draft.get("supplier_vat") or "").strip()
+    if not supplier:
+        return ""
+    # already a known code, or resolves to one via VAT/legal-name/existing alias -> no
+    # control needed (the read-first notice already led with the legal entity).
+    if _supplier_known(supplier) or _resolve_supplier_code(supplier, vat):
+        return ""
+    raw = esc(supplier)
+    if session.get("role") != "admin":
+        return ('<div class="card" style="border-left:4px solid var(--warn)">'
+                '<h2>Unrecognised supplier / brand</h2>'
+                f'<div class="note" style="margin-top:0">“{raw}” did not match any '
+                'registered legal entity or its linked brands. Linking a brand to a legal '
+                'entity is an administrator task — ask an admin to link it on the '
+                '<a href="/suppliers">Suppliers</a> page (or set the correct supplier code '
+                'below before confirming). It will then be recognised automatically next '
+                'time.</div></div>')
+    opts = _supplier_options_html()
+    if not opts:
+        return ""
+    return ('<div class="card" style="border-left:4px solid var(--warn)">'
+            '<h2>Link this brand to a legal entity</h2>'
+            f'<div class="note" style="margin-top:0">“{raw}” isn’t recognised. Link it to '
+            'an existing legal entity so this statement — and every future invoice that '
+            'reads as this brand — resolves automatically.</div>'
+            '<form method="post" action="/extract/link-brand" class="f" '
+            'style="margin-top:8px;align-items:flex-end">'
+            + _csrf_input()
+            + f'<input type="hidden" name="token" value="{esc(token)}">'
+            + (f'<input type="hidden" name="intake_job" value="{esc(str(intake_job))}">'
+               if intake_job else "")
+            + f'<input type="hidden" name="period" value="{esc(period or "")}">'
+            + f'<input type="hidden" name="brand" value="{esc(supplier)}">'
+            + f'<label>legal entity<select name="code" required>{opts}</select></label>'
+            + '<button class="btn">Link</button>'
+            + '</form>'
+            '<div class="note" style="margin-top:6px">Recorded as a brand alias (audited) '
+            'and manageable on the <a href="/suppliers">Suppliers</a> page.</div></div>')
+
+
+def _review_blockers(draft):
+    """Run the SAME deterministic gate `/extract/confirm` uses (validate.validate_batch on
+    the draft lines, threading the parsed coversheet_total when present) and return
+    (can_commit, [blocker strings]). READ-ONLY — this never changes the gate; it only
+    SURFACES it so a blocked draft is self-explanatory. Best-effort -> (True, []) on a
+    read error (the real gate at confirm is always authoritative)."""
+    try:
+        import validate as VAL
+        lines = [{"invoice_no": ln.get("invoice_no"), "date": ln.get("date"),
+                  "country": ln.get("country"), "currency": ln.get("currency"),
+                  "net": ln.get("net"), "vat": ln.get("vat")}
+                 for ln in (draft.get("lines") or [])]
+        ct = draft.get("coversheet_total")
+        try:
+            ct = float(ct) if ct is not None else None
+        except (TypeError, ValueError):
+            ct = None
+        vr = (VAL.validate_batch(lines, coversheet_total=ct) if ct is not None
+              else VAL.validate_batch(lines))
+    except Exception as e:
+        _log_exc("review blockers gate", e)
+        return True, []
+    blockers = []
+    if not lines:
+        blockers.append("No invoice lines to file — add at least one line.")
+    for res in vr.get("lines", []):
+        if res.get("verdict") == "error":
+            inv = (res["line"].get("invoice_no") or "—")
+            msg = "; ".join(res.get("messages") or []) or "line has an error"
+            blockers.append(f"Line {inv}: {msg}")
+    tie = vr.get("tie")
+    if tie is not None and not tie["ok"]:
+        blockers.append(
+            f"Tie-out mismatch: line sum €{money.f2(tie['gross']):,.2f} vs document "
+            f"total €{money.f2(tie['stated']):,.2f} (off by €{money.f2(abs(tie['diff'])):,.2f}).")
+    return bool(vr.get("can_commit")), blockers
+
+
+def _review_blockers_html(draft):
+    """Render the 'why can't I file this?' checklist near Confirm: a green 'Ready to file'
+    when the gate passes, else a red list of the specific blockers. Read-only mirror of the
+    deterministic gate (the server still refuses a blocked confirm — this never weakens it).
+    Returns (html, can_commit) so the caller can secondary-style the Confirm button."""
+    can_commit, blockers = _review_blockers(draft)
+    if can_commit and not blockers:
+        return ('<div class="filelist ready"><div class="flh ok">✓ Ready to file</div>'
+                '<div class="note" style="margin-top:2px">The deterministic checks pass. '
+                'Confirming registers the statement.</div></div>', True)
+    items = "".join(f'<li class="blk">{esc(b)}</li>' for b in blockers) or \
+        '<li class="blk">The deterministic gate would refuse this draft.</li>'
+    return ('<div class="filelist blocked"><div class="flh bad">Can’t file this yet</div>'
+            '<div class="note" style="margin-top:2px">Fix these, then confirm '
+            '(the server enforces the same checks):</div>'
+            f'<ul>{items}</ul></div>', False)
+
+
+def _review_needs_check(draft):
+    """Per-field CONFIDENCE cues for the review form. Returns a set of field keys that
+    should be tinted amber (`.needs-check`) so the reviewer's eye lands on what to verify:
+    the header `supplier`/`stmt_ref`, and any EMPTY required line field (invoice_no/net),
+    plus — when the overall draft confidence is LOW — every supplier/ref/date field. The
+    overall _conf_chip carries the headline signal; this is the targeted highlight."""
+    needs = set()
+    conf = (draft.get("confidence") or "").strip().lower()
+    low = conf in ("low", "")
+    if not (draft.get("supplier") or "").strip() or low:
+        needs.add("supplier")
+    if not (draft.get("statement_ref") or "").strip() or low:
+        needs.add("stmt_ref")
+    if low and not (draft.get("statement_date") or "").strip():
+        needs.add("stmt_date")
+    for i, ln in enumerate(draft.get("lines") or []):
+        if not (ln.get("invoice_no") or "").strip():
+            needs.add(f"inv_{i}")
+        net = ln.get("net")
+        if net in (None, "", 0, 0.0) or low and not str(net or "").strip():
+            needs.add(f"net_{i}")
+    return needs
+
+
 def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload_sha=None):
     acc_line, weak = _capture_accuracy_hints(draft)
     def _wh(field):  # a weak-field hint cell fragment, or empty
         return (" " + weak[field]) if field in weak else ""
+    needs = _review_needs_check(draft)        # CONFIDENCE cues: amber the risky fields
+    def _nc(key):  # the needs-check class for an input, when flagged
+        return " needs-check" if key in needs else ""
     rows = ""
     for i, ln in enumerate(draft.get("lines", [])):
         # Entity of supply for this line — can differ per country on cross-border
@@ -4807,13 +5129,14 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload
                             + f'<br><span style="font-size:11px">({_origin})</span></td>')
         else:
             _supply_cell = '<td class="note">—</td>'
+        # data-tieout-net / -vat mark the editable amount inputs the live tie-out sums.
         rows += ('<tr>'
-                 f'<td><input name="inv_{i}" value="{esc(ln.get("invoice_no") or "")}" style="width:160px">{_wh("line.invoice_no")}</td>'
+                 f'<td><input name="inv_{i}" value="{esc(ln.get("invoice_no") or "")}" style="width:160px" class="{_nc(f"inv_{i}").strip()}">{_wh("line.invoice_no")}</td>'
                  f'<td><input name="date_{i}" value="{esc(ln.get("date") or draft.get("statement_date") or "")}" style="width:100px" placeholder="YYYY-MM-DD">{_wh("line.date")}</td>'
                  f'<td><input name="ctry_{i}" value="{esc(ln.get("country") or "")}" style="width:100px">{_wh("line.country")}</td>'
                  f'<td><input name="ccy_{i}" value="{esc(ln.get("currency") or "EUR")}" style="width:55px">{_wh("line.currency")}</td>'
-                 f'<td><input name="net_{i}" value="{ln.get("net",0)}" style="width:90px" class="r">{_wh("line.net")}</td>'
-                 f'<td><input name="vat_{i}" value="{ln.get("vat",0)}" style="width:90px" class="r">{_wh("line.vat")}</td>'
+                 f'<td><input name="net_{i}" value="{ln.get("net",0)}" style="width:90px" class="r{_nc(f"net_{i}")}" data-tieout-net inputmode="decimal">{_wh("line.net")}</td>'
+                 f'<td><input name="vat_{i}" value="{ln.get("vat",0)}" style="width:90px" class="r" data-tieout-vat inputmode="decimal">{_wh("line.vat")}</td>'
                  f'{_supply_cell}'
                  f'<td class="note">{_provenance_badge(ln.get("_source"))}</td></tr>')
     gross = sum((ln.get("net",0) or 0) + (ln.get("vat",0) or 0) for ln in draft.get("lines", []))
@@ -4826,8 +5149,35 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload
         f'<b>transactions on later pages are missing</b>. Raise the page limit '
         f'(VISION_CAPTURE_MAX_PAGES) and re-capture before confirming.</div>'
         if isinstance(_tr, dict) else "")
-    return (trunc_banner
-            + '<div class="card"><h2>Review extracted draft — confirm before anything is saved</h2>'
+    # LIVE TIE-OUT (JS, progressive enhancement): the document/coversheet total drives a
+    # green "balances" / red "off by €X.XX" badge as the reviewer edits the net+VAT lines.
+    # data-cover-total = the parsed document GROSS total when present (else absent -> the
+    # JS shows the running line sum only). The server still hard-blocks at confirm.
+    _ct = draft.get("coversheet_total") if isinstance(draft, dict) else None
+    try:
+        _ct = float(_ct) if _ct is not None else None
+    except (TypeError, ValueError):
+        _ct = None
+    tie_attr = (f' data-cover-total="{_ct}"' if _ct is not None else "")
+    tieout_el = (f'<span class="tieout" id="tieout"{tie_attr}>'
+                 '<span class="tdot"></span><span data-tieout-label>tie-out: computing…</span></span>')
+    # "Why can't I file this?" checklist (read-only mirror of the deterministic gate).
+    blockers_html, _can_commit = _review_blockers_html(draft)
+    confirm_btn = ('<button name="__do" value="confirm" class="btn"'
+                   + ('' if _can_commit else ' disabled aria-disabled="true" '
+                      'title="Resolve the blockers above first — the server enforces them too"')
+                   + '>Confirm &amp; register statement</button>')
+    # CONFIDENCE chip — prominent at the top of the cockpit.
+    conf_head = (f'<div style="margin:0 0 8px;font-weight:600">Extraction confidence: '
+                 f'{_conf_chip(conf)} '
+                 '<span class="note" style="font-weight:400">— amber fields below need an '
+                 'extra check.</span></div>')
+    # The left COLUMN: brand-link + the editable review/confirm card. The right column is
+    # the original PDF (or nothing for a non-PDF intake — then the layout is one column).
+    fields_col = (conf_head
+            + _brand_link_html(draft, token, intake_job=intake_job, period=period)
+            + '<div class="card" data-review-cockpit>'
+            '<h2>Review extracted draft — confirm before anything is saved</h2>'
             f'<div class="note">Source: <b>{esc(draft.get("backend",""))}</b> · '
             f'confidence {_conf_chip(conf)} · '
             f'{len(draft.get("files",[]))} PDF(s). {esc(draft.get("notes",""))}</div>'
@@ -4843,32 +5193,38 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload
             + _capture_document_html(draft, token, intake_job, upload_sha=upload_sha)
             + _persisted_corrections_html(draft)
             + _capture_findings_html(draft) +
-            '<form method="post" action="/extract/confirm" class="f" style="margin-top:10px">'
+            # data-noenter: app.js guards Enter in a line input from accidental confirm.
+            '<form method="post" action="/extract/confirm" class="f" style="margin-top:10px" data-noenter>'
             + _csrf_input() +
             f'<input type="hidden" name="token" value="{esc(token)}">'
             + (f'<input type="hidden" name="intake_job" value="{esc(str(intake_job))}">' if intake_job else "")
-            + f'<label>supplier code<input name="supplier" value="{esc(draft.get("supplier") or "")}" required>{_wh("supplier.name")}</label>'
-            f'<label>statement ref<input name="stmt_ref" value="{esc(draft.get("statement_ref") or "")}" required>{_wh("invoice.statement_ref")}</label>'
-            f'<label>statement date<input type="date" name="stmt_date" value="{esc(draft.get("statement_date") or "")}">{_wh("invoice.statement_date")}</label>'
+            + f'<label>supplier code<input name="supplier" value="{esc(draft.get("supplier") or "")}" required class="{_nc("supplier").strip()}">{_wh("supplier.name")}</label>'
+            f'<label>statement ref<input name="stmt_ref" value="{esc(draft.get("statement_ref") or "")}" required class="{_nc("stmt_ref").strip()}">{_wh("invoice.statement_ref")}</label>'
+            f'<label>statement date<input type="date" name="stmt_date" value="{esc(draft.get("statement_date") or "")}" class="{_nc("stmt_date").strip()}">{_wh("invoice.statement_date")}</label>'
             f'<label>customer<input name="customer" value="{esc((draft.get("customer") or "").strip())}">{_wh("customer.name")}</label>'
             f'<label>period (YYYY-MM)<input name="period" value="{esc(period or request.values.get("period", _default_period()))}" required></label>'
             '</label></div>'
             + '<table style="margin-top:10px"><thead><tr>'
             + "".join(f"<th>{h}</th>" for h in ["Invoice no","Date","Country","Ccy","Net","VAT","Supply entity","Provenance"])
             + f'</tr></thead><tbody>{rows}</tbody></table>'
+            + '<div style="margin-top:8px">' + tieout_el + '</div>'
             + _draft_total_note(draft, gross)
             + f'<input type="hidden" name="nlines" value="{len(draft.get("lines",[]))}">'
-            '<div style="margin-top:10px">'
-            '<button name="__do" value="confirm">Confirm &amp; register statement</button> '
-            '<button name="__do" value="cancel" style="background:var(--mut)">Discard draft</button>'
+            + blockers_html
+            + '<div style="margin-top:10px">'
+            + confirm_btn + ' '
+            '<button name="__do" value="cancel" class="btn btn-secondary">Discard draft</button>'
             '</div></form>'
             '<div class="note">Confirming registers the statement (VAT-bearing invoices '
             'auto-sync), attaches every source PDF to the document vault, and runs the '
             'normal triage. You can still edit any field above first.</div>'
             + _ai_review_button(token, intake_job, period)
             + _ai_verify_button(token, intake_job, period)
-            + '</div>'
-            + ai_panel)
+            + '</div>')
+    pdf_pane = _review_pdf_pane(token)
+    cockpit = (f'<div class="rvk"><div class="rvk-fields">{fields_col}</div>{pdf_pane}</div>'
+               if pdf_pane else fields_col)
+    return trunc_banner + cockpit + ai_panel
 
 
 def _ai_review_button(token, intake_job=None, period=None):
@@ -5243,6 +5599,86 @@ def extract_confirm():
                 f'<a href="/invoices?period={esc(period)}">→ Invoice control</a></p>', "ext")
 
 
+@app.route("/extract/link-brand", methods=["POST"])
+def extract_link_brand():
+    """Inline BRAND→legal-entity linking from the review cockpit: record the captured,
+    unrecognised brand as an alias of an existing supplier (supplier_master.add_brand,
+    audited) and re-render the review so it now leads with the legal entity. Access is
+    ADMIN-ONLY (the suppliers CRM / brand management is ADMIN_ONLY; a belt-and-suspenders
+    role check refuses a non-admin defensively). CSRF is enforced globally. The C1 token
+    gate protects the re-render path. Advisory to the review only — it never touches the
+    legal gate or registers anything."""
+    token = request.form.get("token", "")
+    intake_job = request.form.get("intake_job") or None
+    period = request.form.get("period") or None
+    if not _valid_extract_token(token):
+        return page('<div class="card"><b class="bad">This draft is no longer available '
+                    'for review (the session expired or could not be found). Re-extract '
+                    'the batch.</b></div>'
+                    '<p><a href="/extract">← back to import</a></p>', "ext")
+    # Defensive: the route is in ADMIN_ONLY (enforced in _guard), but refuse explicitly so
+    # a mis-wired gate never lets a processor curate master data.
+    if session.get("role") != "admin":
+        return page('<div class="card"><b class="bad">Linking a brand to a legal entity is '
+                    'admin-only.</b></div><p><a href="/extract">← back to import</a></p>', "ext")
+    draft = _load_draft(token)
+    if draft is None:
+        return page('<div class="card"><b class="bad">This draft is no longer available '
+                    'for review (the session expired). Re-extract the batch.</b></div>'
+                    '<p><a href="/extract">← back to import</a></p>', "ext")
+    code = (request.form.get("code") or "").strip().upper()
+    brand = (request.form.get("brand") or draft.get("supplier") or "").strip()
+    flash = ""
+    if not code or not brand:
+        flash = _toast_el("Pick a legal entity to link this brand to.", "error")
+    else:
+        try:
+            import supplier_master as SM
+            ok = SM.add_brand(code, brand, actor=session.get("user", "system"))
+        except Exception as e:
+            _log_exc("extract link-brand", e)
+            ok = False
+        if ok:
+            # Re-resolve so the review now leads with the legal entity: prefill the draft's
+            # supplier with the linked CODE and persist it back to the stash.
+            draft["supplier"] = code
+            _stash_draft(token, draft)
+            legal = _supplier_legal_name(code) or code
+            flash = _toast_el(f"Linked “{brand}” → {legal} ({code}).", "success")
+        else:
+            flash = _toast_el(f"Could not link “{brand}” to {code}.", "error")
+    if period is None:
+        period = _derive_period(draft)
+    notice = _read_first_notice(draft, period)
+    p = "queue" if intake_job else "ext"
+    return _review_page(
+        flash + notice + _review_form(draft, token, intake_job=intake_job, period=period), p)
+
+
+@app.route("/extract/review/pdf/<token>")
+def extract_review_pdf(token):
+    """Stream the in-review ORIGINAL PDF for the review cockpit's side-by-side source
+    pane. ACCESS: login + the data_import capability (enforced centrally in _guard) AND
+    the C1 token gate — a forged token is rejected BEFORE any path join / unpickle, so a
+    crafted token can never escape `.extract_tmp` or load attacker bytes. Serves only the
+    %PDF-magic bytes stashed for this token (the SAME access surface as the review the
+    token was minted for); a non-PDF intake (xlsx/xml/e-invoice) has no PDF -> 404 and the
+    pane hides. Content-Type application/pdf + nosniff."""
+    if not _valid_extract_token(token):
+        return page('<div class="card"><b class="bad">Invalid or expired review link.</b>'
+                    '</div>', "ext"), 404
+    data = _review_pdf_bytes(token)
+    if not data:
+        return page('<div class="card"><b class="bad">No source PDF is available for this '
+                    'draft (non-PDF intake, or the draft has been confirmed/discarded).</b>'
+                    '</div>', "ext"), 404
+    from flask import Response
+    return Response(data, mimetype="application/pdf",
+                    headers={"Content-Disposition": 'inline; filename="source.pdf"',
+                             "X-Content-Type-Options": "nosniff",
+                             "Cache-Control": "no-store"})
+
+
 def _contract_price_terms(SM, supplier, country, product_group="Diesel"):
     """The contracted PURCHASE-price terms for (supplier, country) from
     supplier_master.supplier_discounts — the SAME source/keying contract_audit.py uses.
@@ -5354,7 +5790,7 @@ def extract_ai_review():
     backend = ai_review.resolve_backend()
     if backend == "none":
         # belt-and-braces: never call out when off
-        return page(_review_form(draft, token, intake_job=intake_job, period=period), "ext")
+        return _review_page(_review_form(draft, token, intake_job=intake_job, period=period), "ext")
     # CONFIDENCE-LEARNING (advisory-only consumer). If this (supplier, country) pair has
     # earned enough trust, SKIP computing the AI panel entirely — a cost saving. This is
     # the ONLY place trust is consulted; it never touches a deterministic gate (the
@@ -5383,7 +5819,7 @@ def extract_ai_review():
                  'Advisory only; the deterministic checks and your confirmation are '
                  'unchanged.</div></div>')
         # NB: no validation event recorded on a skip — we didn't validate anything here.
-        return page(_review_form(draft, token, intake_job=intake_job, period=period,
+        return _review_page(_review_form(draft, token, intake_job=intake_job, period=period,
                                  ai_panel=panel), "ext")
     try:
         ctx = _ai_review_context(draft)
@@ -5393,7 +5829,7 @@ def extract_ai_review():
         panel = ('<div class="card"><b class="bad">AI review unavailable right now '
                  f'({esc(str(e))}). It is advisory only — nothing was changed; you can '
                  'still confirm the draft.</b></div>')
-        return page(_review_form(draft, token, intake_job=intake_job, period=period,
+        return _review_page(_review_form(draft, token, intake_job=intake_job, period=period,
                                  ai_panel=panel), "ext")
     # Best-effort confidence telemetry: a no-flag review is a clean validation (trust
     # rises); a review that surfaced flags is a discrepancy (trust falls). A failure
@@ -5404,7 +5840,7 @@ def extract_ai_review():
     except Exception as e:
         _log_exc("confidence record_validation", e)
     panel = _ai_review_panel(result)
-    return page(_review_form(draft, token, intake_job=intake_job, period=period,
+    return _review_page(_review_form(draft, token, intake_job=intake_job, period=period,
                              ai_panel=panel), "ext")
 
 
@@ -5658,7 +6094,7 @@ def extract_ai_verify():
                     '<p><a href="/extract">← back to import</a></p>', "ext")
     if not (intake_job and ai_verify.enabled()):
         # belt-and-braces: never call out / render the panel when off
-        return page(_review_form(draft, token, intake_job=intake_job, period=period), "ext")
+        return _review_page(_review_form(draft, token, intake_job=intake_job, period=period), "ext")
     # Re-derive the ORIGINAL PDF bytes from the queue job's kept inbox file. We verify the
     # FIRST PDF of the batch (one statement document per review). Never raises out of here.
     pdf_bytes = b""
@@ -5702,7 +6138,7 @@ def extract_ai_verify():
     except Exception as e:
         _log_exc("ai verify stash verdict", e)
     panel = _ai_verify_panel(result, token=token, intake_job=intake_job, period=period)
-    return page(_review_form(draft, token, intake_job=intake_job, period=period,
+    return _review_page(_review_form(draft, token, intake_job=intake_job, period=period,
                              ai_panel=panel), "ext")
 
 
@@ -5729,7 +6165,7 @@ def extract_ai_correct():
                     'for review (the session expired). Re-extract the batch.</b></div>'
                     '<p><a href="/extract">← back to import</a></p>', "ext")
     if not (intake_job and ai_verify.enabled()):
-        return page(_review_form(draft, token, intake_job=intake_job, period=period), "ext")
+        return _review_page(_review_form(draft, token, intake_job=intake_job, period=period), "ext")
     # Re-derive the ORIGINAL PDF bytes from the queue job (same as verify). Never raises out.
     pdf_bytes = b""
     try:
@@ -5802,7 +6238,7 @@ def extract_ai_correct():
              + _ai_verify_panel(reverify, token=token, intake_job=intake_job, period=period))
     # render the CORRECTED draft (so Confirm registers the corrected values)
     corrected = _load_draft(token) or corrected
-    return page(_review_form(corrected, token, intake_job=intake_job, period=period,
+    return _review_page(_review_form(corrected, token, intake_job=intake_job, period=period,
                              ai_panel=panel), "ext")
 
 
@@ -6450,7 +6886,7 @@ def intake_review(job_id):
     # what was auto-detected (auto-onboarding an unknown-but-VAT-identified supplier).
     period = _derive_period(draft, job.get("period"))
     notice = _read_first_notice(draft, period)
-    return page(notice + _review_form(draft, token, intake_job=job_id, period=period), "queue")
+    return _review_page(notice + _review_form(draft, token, intake_job=job_id, period=period), "queue")
 
 @app.route("/mining", methods=["GET", "POST"])
 def doc_mining_page():
