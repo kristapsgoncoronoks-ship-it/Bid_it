@@ -1,0 +1,12 @@
+[Unit]
+Description=Fleet Fuel auto-deploy (DEV phase) — pull the dev branch and redeploy if it changed
+After=network-online.target fleetfuel.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Runs as root so it can `systemctl restart fleetfuel`; git ops drop to the app user
+# inside the script (sudo -u). Override config via /etc/default/fleetfuel-autodeploy.
+EnvironmentFile=-/etc/default/fleetfuel-autodeploy
+ExecStart=/opt/fleetfuel/app/deploy/auto_deploy.sh
+TimeoutStartSec=300
