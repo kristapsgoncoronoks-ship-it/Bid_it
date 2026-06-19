@@ -236,6 +236,49 @@ def autofile(con, row, draft, actor="autopilot"):
     except Exception as e:
         log.warning("autopilot PDF vaulting failed (registration unaffected): %s", e)
 
+    # AUTO SUPPLIER-MASTER MAINTENANCE (best-effort). Autopilot only fires on a HIGH-confidence,
+    # verified draft (evaluate()), so the supplier_sync gate is satisfied: a brand-new supplier
+    # is created PROVISIONAL with full legal details; a recognised supplier's SAFE fields auto-
+    # update; HIGH-RISK (IBAN/VAT) changes become admin-pending requests (NEVER auto-applied).
+    # NEVER raises into the auto-file — registration is already done above.
+    try:
+        import supplier_sync as SS
+        captured = {
+            "legal_name": supplier or draft.get("supplier"),
+            "reg_no": draft.get("supplier_reg_no"),
+            "address": draft.get("supplier_address"),
+            "country": draft.get("supplier_country"),
+            "vat": draft.get("supplier_vat"),
+            "iban": draft.get("supplier_iban"),
+            "bank": draft.get("supplier_bank"),
+        }
+        if captured["legal_name"] or captured["vat"]:
+            existing_code = None
+            try:
+                import dataproduct
+                scon = dataproduct.connect("suppliers")
+                try:
+                    if SS.norm_vat(captured["vat"]):
+                        r = scon.execute(
+                            "SELECT supplier FROM supplier_vat_registrations "
+                            "WHERE REPLACE(UPPER(vat_number),' ','')=?",
+                            (SS.norm_vat(captured["vat"]),)).fetchone()
+                        if r:
+                            existing_code = r["supplier"]
+                    if not existing_code and supplier:
+                        r = scon.execute("SELECT code FROM suppliers WHERE UPPER(code)=?",
+                                         (supplier.upper(),)).fetchone()
+                        if r:
+                            existing_code = r["code"]
+                finally:
+                    scon.close()
+            except Exception as e:
+                log.warning("autopilot supplier resolve failed: %s", e)
+            SS.apply(captured, existing_code, actor=actor, verified=True,
+                     invoice_ref=statement_ref, confidence=draft.get("confidence"))
+    except Exception as e:
+        log.warning("autopilot supplier-master sync failed (registration unaffected): %s", e)
+
     try:
         import import_log as _IL
         _IL.log("statement", statement_ref, "success", actor=actor,

@@ -661,6 +661,7 @@ PERM_BY_ENDPOINT = {
     "export_stations": "exports", "export_summary": "exports", "export_fee": "exports",
     "export_readiness": "exports", "export_fees": "exports",
     "export_evidence": "exports",
+    "supplier_changes": "user_admin",  # admin review of pending high-risk supplier changes
     "admin":           "user_admin",   # server setup / overall software changes
     "admin_confidence": "user_admin",  # confidence-learning scoreboard (read-only)
     "admin_tenants":   "user_admin",   # multi-tenancy registry (read-only, P0)
@@ -680,6 +681,8 @@ ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "recei
               "customers", "cust_doc_download", "doc_requests",
               # the confidence-learning scoreboard is a read-only admin surface.
               "admin_confidence",
+              # the pending high-risk supplier-change review is admin-curated master data.
+              "supplier_changes",
               # the multi-tenancy registry is a read-only admin surface (P0).
               "admin_tenants",
               # the workflow DEFINE/MANAGE surface is admin-only (an admin builds the
@@ -1952,6 +1955,17 @@ def _worklist_card(year):
             items.append(("ok", nudge, "/close"))
     except Exception as e:
         _log_exc("worklist close nudge", e)
+    # HIGH-RISK supplier changes (IBAN/VAT captured from an invoice) awaiting admin
+    # confirmation — never auto-applied, so flag the count to the admin (admin-only surface).
+    try:
+        if session.get("role") == "admin":
+            import supplier_sync as _ss
+            n_chg = _ss.pending_count()
+            if n_chg:
+                items.append(("bad", f"Confirm {n_chg} high-risk supplier change(s) "
+                              f"(bank/VAT) detected from captures", "/supplier-changes"))
+    except Exception as e:
+        _log_exc("worklist supplier changes", e)
     if not items:
         return ('<div class="card"><h2>What needs action</h2>'
                 '<p class="note">Nothing outstanding — all claims are submitted, '
@@ -3413,6 +3427,101 @@ def _resolve_supplier_code(name, vat=None):
     return None
 
 
+def _draft_verified(draft):
+    """Whether the captured draft passed AI VERIFICATION — the gate supplier_sync uses for a
+    NEW supplier and for SAFE auto-updates. True when ai_verify recorded a passing verdict on
+    the draft: a plain 'confirmed' verify, or a 'verified_after_correction' correction status,
+    or a re-verify whose verdict is 'confirmed'. False otherwise (incl. ai_verify OFF — the
+    caller then falls back to the capture confidence). Never raises -> False."""
+    try:
+        d = draft or {}
+        if d.get("ai_verify_verdict") == "confirmed":
+            return True
+        if d.get("correction_status") == "verified_after_correction":
+            return True
+        rv = d.get("reverify") or {}
+        if isinstance(rv, dict) and rv.get("verdict") == "confirmed":
+            return True
+    except Exception as e:
+        _log_exc("draft verified check", e)
+    return False
+
+
+def _captured_entity(draft):
+    """Extract the captured FULL LEGAL ENTITY from a (vision) draft for supplier_sync /
+    the review screen. Pulls the top-level supplier_* fields the vision capture maps, and
+    falls back to the nested capture document's header.supplier when present. Returns a dict
+    {legal_name, reg_no, address, country, vat, iban, bank, phone, email}; missing fields are
+    None. Pure-ish, never raises -> {}."""
+    try:
+        d = draft or {}
+        cap = d.get("capture") or {}
+        hsup = ((cap.get("header") or {}).get("supplier") or {}) if isinstance(cap, dict) else {}
+        def pick(*keys):
+            for k in keys:
+                v = d.get(k)
+                if v:
+                    return v
+            return None
+        return {
+            "legal_name": pick("supplier") or hsup.get("name"),
+            "reg_no": pick("supplier_reg_no") or hsup.get("registration_number"),
+            "address": pick("supplier_address") or hsup.get("address"),
+            "country": pick("supplier_country") or hsup.get("country"),
+            "vat": pick("supplier_vat") or hsup.get("vat_number"),
+            "iban": pick("supplier_iban") or hsup.get("iban"),
+            "bank": pick("supplier_bank") or hsup.get("bank_name"),
+            "phone": pick("supplier_phone"),
+            "email": pick("supplier_email"),
+        }
+    except Exception as e:
+        _log_exc("captured entity extract", e)
+        return {}
+
+
+def _sync_supplier_master(supplier_code, draft, actor, invoice_ref=None):
+    """Best-effort AUTO supplier-master maintenance from a captured draft, called AFTER a
+    successful register. NEVER blocks/raises into the confirm path. Returns a short human
+    string describing what happened (for the operator banner), or '' when nothing applied.
+
+    The verification gate: `verified` from the draft's AI-verification verdict when ai_verify
+    ran; else the capture confidence ('high') is passed so supplier_sync can fall back to it.
+    The confirming user is the audit actor. The matched supplier code (or None for a new one)
+    is supplied by the caller via _resolve_supplier_code."""
+    try:
+        import supplier_sync as SS
+        captured = _captured_entity(draft)
+        if not (captured.get("legal_name") or captured.get("vat")):
+            return ""    # nothing captured to maintain from (e.g. a non-vision parser draft)
+        verified = _draft_verified(draft)
+        confidence = (draft or {}).get("confidence")
+        res = SS.apply(captured, supplier_code, actor=actor, verified=verified,
+                       invoice_ref=invoice_ref, confidence=confidence)
+        if "created" in res:
+            return (f'<div class="card"><b class="ok">New supplier '
+                    f'{esc(res["created"])} added (provisional)</b><div class="note">'
+                    'Captured as a real legal entity from this invoice — admin-confirm it on '
+                    'the <a href="/suppliers">Suppliers</a> page before it goes live.</div></div>')
+        updated = res.get("updated") or []
+        pending = res.get("pending") or []
+        bits = ""
+        if updated:
+            bits += (f'<div class="card"><b class="ok">Supplier {esc(supplier_code)} '
+                     f'updated ({esc(", ".join(updated))})</b><div class="note">AI-verified '
+                     'legal-entity details were refreshed automatically (audited).</div></div>')
+        if pending:
+            bits += (f'<div class="card" style="border-left:4px solid var(--bad)">'
+                     f'<b class="bad">⚠ {len(pending)} high-risk change(s) need admin '
+                     f'confirmation</b><div class="note">A change to '
+                     f'{esc(", ".join(pending))} for {esc(supplier_code)} was detected. '
+                     'Bank account / VAT changes are NEVER auto-applied — an admin reviews '
+                     'them on <a href="/supplier-changes">Pending supplier changes</a>.</div></div>')
+        return bits
+    except Exception as e:
+        _log_exc("supplier-master auto-sync", e)
+        return ""
+
+
 def _read_first_notice(draft, period):
     """Surface what read-first extraction AUTO-DETECTED (supplier, statement ref/date,
     derived period) and, for an UNKNOWN supplier, either enqueue an auto-onboard job (when
@@ -3872,6 +3981,40 @@ def _draft_total_note(draft, gross):
             '(tie-out is enforced as a hard block at confirm).</div>')
 
 
+def _captured_entity_html(draft):
+    """Read-only block showing the CAPTURED FULL LEGAL ENTITY (legal name, company
+    registration number, registered address, country, VAT number, IBAN/bank) so the operator
+    sees the real entity being captured/stored and kept in the supplier master. Shown only
+    when the capture carried at least the legal name or VAT. Every value escaped; never
+    raises -> ''."""
+    try:
+        e = _captured_entity(draft)
+    except Exception as ex:
+        _log_exc("captured entity html", ex)
+        return ""
+    if not (e.get("legal_name") or e.get("vat")):
+        return ""
+    fields = [("Legal name", e.get("legal_name")),
+              ("Company reg. no.", e.get("reg_no")),
+              ("Registered address", e.get("address")),
+              ("Country", e.get("country")),
+              ("VAT number", e.get("vat")),
+              ("IBAN", e.get("iban")),
+              ("Bank", e.get("bank"))]
+    def _cell(val):
+        return esc(val) if val else '<span class="note">—</span>'
+    body = "".join(
+        f'<tr><td style="color:var(--mut);width:170px">{esc(label)}</td>'
+        f'<td>{_cell(val)}</td></tr>'
+        for label, val in fields)
+    return ('<div class="card"><h2>Captured supplier — legal entity</h2>'
+            '<div class="note">Read off this invoice as the real legal entity. On confirm, an '
+            'unknown supplier is added (provisional) and a known one\'s details are kept up to '
+            'date — bank account (IBAN) and VAT-number changes are NEVER auto-applied; they go '
+            'to an admin for confirmation.</div>'
+            f'<table style="margin-top:8px"><tbody>{body}</tbody></table></div>')
+
+
 def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload_sha=None):
     acc_line, weak = _capture_accuracy_hints(draft)
     def _wh(field):  # a weak-field hint cell fragment, or empty
@@ -3922,6 +4065,7 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload
                '— the clean, analytics-ready capture.</span></div>' if token else "")
             + acc_line
             + _source_text_html(draft, upload_sha=upload_sha)
+            + _captured_entity_html(draft)
             + _country_supply_summary_html(draft, token=token)
             + _capture_document_html(draft, token, intake_job, upload_sha=upload_sha)
             + _persisted_corrections_html(draft)
@@ -4290,10 +4434,30 @@ def extract_confirm():
                         f"registration queued (job {job_id})")
     except Exception as e:
         _log_exc("import log statement", e)
+    # AUTO SUPPLIER-MASTER MAINTENANCE (best-effort, never blocks the confirm). After the
+    # register is queued, keep the supplier master up to date from the CAPTURED legal entity:
+    # a brand-new supplier is created PROVISIONAL with full legal details + VAT + IBAN (gated
+    # on AI verification / high confidence); a recognised supplier's SAFE fields auto-update
+    # (verified), while HIGH-RISK changes (IBAN/VAT) become admin-pending change requests.
+    sync_banner = ""
+    try:
+        # resolve the matched EXISTING supplier code from the captured legal name + VAT
+        # (the form `supplier` is the operator-confirmed code, possibly already resolved);
+        # None => a new supplier is created.
+        _cap = _captured_entity(_confirm_draft)
+        _existing_code = (supplier if _supplier_known(supplier)
+                          else _resolve_supplier_code(_cap.get("legal_name") or supplier,
+                                                      _cap.get("vat")))
+        sync_banner = _sync_supplier_master(
+            _existing_code, _confirm_draft, actor=session.get("user", "system"),
+            invoice_ref=stmt_ref)
+    except Exception as e:
+        _log_exc("supplier-master sync wire", e)
     banner = (f'<div class="card"><b class="ok">Statement {esc(stmt_ref)} '
               f'queued for registration: {len(lines)} invoices validated, '
               f'{attached} PDFs vaulted. The suppliers.db write is completing in the '
-              f'background — see the intake monitor below for the outcome.</b></div>')
+              f'background — see the intake monitor below for the outcome.</b></div>'
+              + sync_banner)
     return page(banner + '<p><a href="/extract">→ Intake monitor</a> &nbsp; '
                 f'<a href="/invoices?period={esc(period)}">→ Invoice control</a></p>', "ext")
 
@@ -4746,6 +4910,16 @@ def extract_ai_verify():
         scon.close()
     except Exception as e:
         _log_exc("ai verify audit", e)
+    # PERSIST the verification verdict onto the draft so the confirm step can read it as the
+    # supplier auto-maintenance gate (a 'confirmed' verdict => verified). Best-effort; never
+    # mutates a figure — only records the verdict next to the existing draft.
+    try:
+        vdraft = dict(draft)
+        vdraft["ai_verify_verdict"] = result.get("verdict")
+        _stash_draft(token, vdraft)
+        draft = vdraft
+    except Exception as e:
+        _log_exc("ai verify stash verdict", e)
     panel = _ai_verify_panel(result, token=token, intake_job=intake_job, period=period)
     return page(_review_form(draft, token, intake_job=intake_job, period=period,
                              ai_panel=panel), "ext")
@@ -9149,8 +9323,96 @@ def suppliers():
             '<b>suppliers.db</b> — a separate database from the VAT refund claim database '
             '(fuel_history.db). Transactions and claims reference suppliers by code only.</div>'
             + _provisional_suppliers_card()
+            + _pending_changes_card()
             + "".join(cards))
     return page(body, "sup")
+
+
+def _pending_changes_card(standalone=False):
+    """Admin surface for PENDING high-risk supplier change requests (IBAN / VAT changes
+    detected from a capture, which are NEVER auto-applied). Lists supplier · field · old →
+    new · invoice ref with Approve / Reject. The action posts to /supplier-changes (admin +
+    CSRF gated). Returns '' when there are none (unless `standalone`, which always renders a
+    header so the dedicated page isn't blank). Every value escaped."""
+    is_admin = session.get("role") == "admin"
+    try:
+        import supplier_sync as SS
+        pend = SS.pending_changes("pending")
+    except Exception as e:
+        _log_exc("pending supplier changes list", e)
+        return ""
+    if not pend and not standalone:
+        return ""
+    if not pend:
+        return ('<div class="card"><h2>Pending supplier changes</h2>'
+                '<div class="note">No high-risk supplier changes are awaiting confirmation. '
+                'Bank account (IBAN) and VAT-number changes detected from a captured invoice '
+                'land here for an admin to approve before they touch the supplier master.</div></div>')
+    rows = []
+    for r in pend:
+        act = '<span class="note">admin only</span>'
+        if is_admin:
+            common = (_csrf_input()
+                      + f'<input type="hidden" name="id" value="{esc(str(r["id"]))}">')
+            act = ('<form method="post" action="/supplier-changes" style="display:inline">'
+                   + common + '<button name="__act" value="approve">Approve</button></form> '
+                   '<form method="post" action="/supplier-changes" style="display:inline">'
+                   + common + '<button name="__act" value="reject" '
+                   'style="background:var(--mut)">Reject</button></form>')
+        rows.append([
+            f'<td><b>{esc(r.get("supplier") or "")}</b></td>',
+            f'<td>{esc((r.get("field") or "").upper())}</td>',
+            f'<td class="note">{esc(r.get("old_value") or "—")}</td>',
+            f'<td><b>{esc(r.get("new_value") or "")}</b></td>',
+            f'<td class="note">{esc(r.get("invoice_ref") or "")}</td>',
+            f'<td class="note">{esc(r.get("created_at") or "")}</td>',
+            f'<td>{act}</td>'])
+    return ('<div class="card" style="border-left:4px solid var(--bad)">'
+            '<h2>Pending supplier changes — admin confirmation required</h2>'
+            '<div class="note">A captured invoice proposed a change to a HIGH-RISK field '
+            '(bank account / IBAN or VAT number). These are NEVER auto-applied — AI '
+            'verification confirms the capture matches the invoice, not that the invoice is '
+            'legitimate, so a swapped IBAN/VAT would otherwise slip through. Approve to apply '
+            'it to the supplier master (audited); Reject to discard.</div>'
+            + tbl(["Supplier", "Field", "Old", "New (proposed)", "Invoice", "Detected", ""], rows)
+            + '</div>')
+
+
+@app.route("/supplier-changes", methods=["GET", "POST"])
+def supplier_changes():
+    """Admin review of PENDING high-risk supplier change requests (IBAN / VAT). Approve
+    applies the change to the supplier master (audited); Reject discards it. Admin-only
+    (enforced here AND in ADMIN_ONLY) + CSRF (global before_request)."""
+    if session.get("role") != "admin":
+        return page('<div class="card"><b class="bad">Pending supplier changes are '
+                    'admin-only.</b></div>', "sup")
+    banner = ""
+    if request.method == "POST":
+        try:
+            import supplier_sync as SS
+            act = request.form.get("__act")
+            rid = int(request.form.get("id", "0") or "0")
+            actor = session.get("user", "system")
+            if act == "approve":
+                res = SS.approve_change(rid, actor=actor)
+                if "applied" in res:
+                    banner = (f'<div class="card"><b class="ok">Change approved and applied '
+                              f'to {esc(res.get("supplier") or "")} ({esc(res["applied"])}).</b></div>')
+                else:
+                    banner = (f'<div class="card"><b class="bad">Could not approve: '
+                              f'{esc(res.get("skipped") or "unknown")}.</b></div>')
+            elif act == "reject":
+                res = SS.reject_change(rid, actor=actor)
+                if "rejected" in res:
+                    banner = '<div class="card"><b class="ok">Change rejected (discarded).</b></div>'
+                else:
+                    banner = (f'<div class="card"><b class="bad">Could not reject: '
+                              f'{esc(res.get("skipped") or "unknown")}.</b></div>')
+        except Exception as e:
+            _log_exc("supplier-changes action", e)
+            banner = f'<div class="card"><b class="bad">Action failed: {esc(str(e))}</b></div>'
+    return page(banner + _pending_changes_card(standalone=True)
+                + '<p><a href="/suppliers">← back to Suppliers</a></p>', "sup")
 
 class _GenWarn(Exception):
     """Carries a pre-rendered warning banner out of the gen_doc action (unfilled fields)."""

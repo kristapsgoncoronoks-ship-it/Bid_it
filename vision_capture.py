@@ -81,7 +81,8 @@ CAPTURE_PROMPT = (
     "JSON object — the capture document — with this exact structure:\n"
     "{\n"
     '  "header": {\n'
-    '    "supplier": {"name": str|null, "vat_number": str|null, "address": str|null, "country": str|null},\n'
+    '    "supplier": {"name": str|null, "vat_number": str|null, "registration_number": str|null, '
+    '"address": str|null, "country": str|null, "iban": str|null, "bank_name": str|null},\n'
     '    "customer": {"name": str|null, "vat_number": str|null, "account_or_card_no": str|null},\n'
     '    "invoice": {"number": str|null, "issue_date": "YYYY-MM-DD"|null, "due_date": "YYYY-MM-DD"|null, "currency": str|null, "exchange_rate": number|null}\n'
     "  },\n"
@@ -101,6 +102,13 @@ CAPTURE_PROMPT = (
     "do NOT double-count. STRICT RULES: extract ONLY what is "
     "actually printed on the page. If a field is not present, use null — NEVER invent, "
     "estimate, guess, or compute a value that is not shown. Do NOT recompute totals or VAT. "
+    "LEGAL ENTITY DETAILS (capture the supplier as a real legal entity): the SUPPLIER block "
+    "is the issuing/supplying company. Read its full legal 'name', 'vat_number', "
+    "'registration_number' (the company REGISTRATION / commercial-register number — e.g. IČO, "
+    "HRB/HRA, KRS, SIREN/SIRET, CIF, company number, Reg.Merc.), full 'address', 'country' (full "
+    "English name), and — when a PAYMENT / bank block is printed — the supplier's 'iban' and "
+    "'bank_name'. STRICT: leave any of these null when not actually printed; never invent a "
+    "registration number, IBAN, or VAT id. "
     "ENTITY OF SUPPLY (IMPORTANT for cross-border statements): the SUPPLYING entity and its "
     "VAT registration can DIFFER per country. When a per-country VAT specification / supplier "
     "block is printed (common on fuel-card statements covering several countries), set each "
@@ -245,7 +253,9 @@ def parse_capture(raw):
     return {
         "header": {
             "supplier": {"name": _s(sup.get("name")), "vat_number": _s(sup.get("vat_number")),
-                         "address": _s(sup.get("address")), "country": _s(sup.get("country"))},
+                         "registration_number": _s(sup.get("registration_number")),
+                         "address": _s(sup.get("address")), "country": _s(sup.get("country")),
+                         "iban": _s(sup.get("iban")), "bank_name": _s(sup.get("bank_name"))},
             "customer": {"name": _s(cust.get("name")), "vat_number": _s(cust.get("vat_number")),
                          "account_or_card_no": _s(cust.get("account_or_card_no"))},
             "invoice": {"number": _s(inv.get("number")), "issue_date": _iso_date(inv.get("issue_date")),
@@ -319,6 +329,13 @@ def to_draft(capture, files=None, backend="vision"):
     draft = {
         "supplier": sup.get("name"),
         "supplier_vat": sup.get("vat_number"),
+        # FULL captured legal entity (for auto supplier-master maintenance + the review
+        # screen). STRICT passthrough — null when the model didn't read the field.
+        "supplier_reg_no": sup.get("registration_number"),
+        "supplier_address": sup.get("address"),
+        "supplier_country": sup.get("country"),
+        "supplier_iban": sup.get("iban"),
+        "supplier_bank": sup.get("bank_name"),
         "statement_ref": stmt_ref,
         "statement_date": stmt_date,
         "currency": currency,
