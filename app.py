@@ -1198,6 +1198,13 @@ ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "api_r
               "extract_link_brand",
               # the multi-tenancy registry is a read-only admin surface (P0).
               "admin_tenants",
+              # SALES-INVOICING (a client issues legally-compliant invoices to ITS OWN
+              # customers): legal documents over client + customer PII, so the whole
+              # surface is admin-only (consistent with the VAT/CRM module).
+              "invoicing_home", "invoicing_customers", "invoicing_customer_save",
+              "invoicing_issuer", "invoicing_issuer_save", "invoicing_compose",
+              "invoicing_create", "invoicing_line_add", "invoicing_line_remove",
+              "invoicing_fields_save", "invoicing_issue", "invoicing_pdf",
               # the workflow DEFINE/MANAGE surface is admin-only (an admin builds the
               # routing); the Tasks inbox / act / start-run are NOT here (any login).
               "workflow_admin", "workflow_define", "workflow_update",
@@ -1310,6 +1317,11 @@ MODULES = {
                     "receivables", "financing", "recon",
                     "export_vat", "export_readiness", "export_fees", "export_fee",
                     "export_receivables", "export_evidence"}),
+    "invoicing":  ("Invoicing — issue sales invoices to your own customers (admin only)",
+                   {"invoicing_home", "invoicing_customers", "invoicing_customer_save",
+                    "invoicing_issuer", "invoicing_issuer_save", "invoicing_compose",
+                    "invoicing_create", "invoicing_line_add", "invoicing_line_remove",
+                    "invoicing_fields_save", "invoicing_issue", "invoicing_pdf"}),
     "fx":         ("FX vs ECB exchange rates", {"fx"}),
     "workflow":   ("Workflow — configurable approval/routing + a Tasks inbox (advisory)",
                    {"tasks_page", "task_act", "workflow_start",
@@ -2400,6 +2412,11 @@ button[disabled].btn,button.btn:disabled{opacity:.55;cursor:not-allowed;pointer-
   {% if is_admin %}<a href="/doc-requests" class="{{'on' if page=='dreq'}}">Document requests</a>{% endif %}
   {% if 'data_import' in perms %}<a href="/data" class="{{'on' if page=='dat'}}">Data manager</a>{% endif %}
 </span></div></div>
+{% if is_admin and 'invoicing' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ivc','ivcc','ivci'] else ''}}"><span class="ic">🧾</span>Invoicing</span><div class="mdrop"><span>
+  <a href="/invoicing" class="{{'on' if page=='ivc'}}">Invoices</a>
+  <a href="/invoicing/customers" class="{{'on' if page=='ivcc'}}">Customer book</a>
+  <a href="/invoicing/issuer" class="{{'on' if page=='ivci'}}">Issuer profile</a>
+</span></div></div>{% endif %}
 <a href="/history" class="{{'on' if page=='his'}}"><span class="ic">🕘</span>History</a>
 {% if 'workflow' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['tasks','wfadm'] else ''}}"><span class="ic">✅</span>Tasks</span><div class="mdrop"><span>
   <a href="/tasks" class="{{'on' if page=='tasks'}}">My tasks &amp; approvals</a>
@@ -14360,6 +14377,428 @@ def workflow_deactivate():
               '<div class="card" style="border-left:4px solid var(--bad)">'
               f'<b class="bad">Could not update.</b> {esc(msg)}</div>')
     return page(banner + '<p><a href="/workflows">Back to workflows</a></p>', "wfadm")
+
+
+# ================================================================ SALES INVOICING
+# A client ISSUES legally-compliant sales invoices to ITS OWN customers (the
+# accounts-RECEIVABLE counterpart of the inbound VAT-refund work). Admin-only (see
+# ADMIN_ONLY) + the `invoicing` MODULES switch. All POSTs are CSRF-checked by the
+# global before-request hook and audited (the actor is set by the request hooks).
+
+def _ivc_banner(ok, msg):
+    side = "var(--ok)" if ok else "var(--bad)"
+    cls = "ok" if ok else "bad"
+    return (f'<div class="card" style="border-left:4px solid {side}">'
+            f'<b class="{cls}">{esc(msg)}</b></div>')
+
+
+@app.route("/invoicing")
+def invoicing_home():
+    """Invoicing landing page: list invoices (number, customer, dates, totals, status
+    chip) with status/year filters."""
+    import invoicing
+    status = (request.args.get("status") or "").strip() or None
+    year = (request.args.get("year") or "").strip() or None
+    try:
+        invs = invoicing.list_invoices(status=status, year=year)
+    except Exception as e:
+        _log_exc("invoicing: list", e)
+        invs = []
+    rows = []
+    for d in invs:
+        st = d.get("status") or "draft"
+        chip = ('<span class="chip s-done">issued</span>' if st == "issued"
+                else f'<span class="chip s-neutral">{esc(st)}</span>')
+        num = d.get("number") or "(draft)"
+        rows.append([
+            f'<a href="/invoicing/compose/{int(d["id"])}">{esc(num)}</a>',
+            esc(d.get("customer_name") or "—"),
+            esc(d.get("issue_date") or "—"),
+            esc(d.get("due_date") or "—"),
+            _eur(d.get("gross_total")),
+            chip,
+            (f'<a href="/invoicing/pdf/{int(d["id"])}">PDF</a>'),
+        ])
+    table = (tbl(["Number", "Customer", "Issue date", "Due", "Total (gross)",
+                  "Status", ""], rows) if rows
+             else _empty("No invoices yet", "Compose your first invoice to a customer.",
+                         "New invoice", "/invoicing/compose"))
+    # filters
+    statuses = "".join(f'<option value="{esc(s)}" {"selected" if status==s else ""}>{esc(s)}</option>'
+                       for s in ("", invoicing.STATUS_DRAFT, invoicing.STATUS_ISSUED))
+    filt = ('<form method="get" class="f" style="margin-bottom:10px">'
+            f'<label>Status<select name="status">{statuses}</select></label>'
+            f'<label>Year<input name="year" value="{esc(year or "")}" '
+            'style="width:90px" inputmode="numeric"></label>'
+            '<button>Filter</button>'
+            ' <a class="btn" href="/invoicing/compose">New invoice</a></form>')
+    help_card = ('<div class="card"><h2>Invoicing</h2>'
+                 '<p class="note">Issue legally-compliant sales invoices to your own '
+                 'customers. Amounts are shown on a <b>NET</b> basis (VAT excluded). A '
+                 'draft is freely editable; once <b>issued</b> it gets a gap-free number '
+                 'and becomes immutable (a legal record).</p></div>')
+    return page(help_card + '<div class="card"><h2>Invoices</h2>'
+                + filt + table + '</div>', "ivc")
+
+
+@app.route("/invoicing/customers")
+def invoicing_customers():
+    """The client's OWN customer book (bill-to parties). List + add/edit."""
+    import invoicing
+    edit_id = (request.args.get("edit") or "").strip()
+    try:
+        custs = invoicing.list_customers()
+    except Exception as e:
+        _log_exc("invoicing: customers", e)
+        custs = []
+    editing = None
+    if edit_id.isdigit():
+        editing = invoicing.get_customer(int(edit_id))
+    rows = []
+    for c in custs:
+        rows.append([
+            esc(c.get("name") or ""),
+            esc(c.get("country") or "—"),
+            esc(c.get("vat_number") or "—"),
+            esc(c.get("email") or "—"),
+            (f'<a href="/invoicing/customers?edit={int(c["id"])}">Edit</a>'),
+        ])
+    table = (tbl(["Name", "Country", "VAT no", "Email", ""], rows) if rows
+             else '<p class="note">No customers yet — add one below.</p>')
+
+    def _v(k):
+        return esc((editing or {}).get(k) or "") if editing else ""
+    form = (
+        '<div class="card"><h2>' + ("Edit customer" if editing else "Add a customer") + '</h2>'
+        '<form method="post" action="/invoicing/customers/save" class="f">' + _csrf_input()
+        + (f'<input type="hidden" name="id" value="{int(editing["id"])}">' if editing else '')
+        + f'<label>Name<input name="name" required value="{_v("name")}"></label>'
+        + f'<label>Country (ISO-2)<input name="country" maxlength="2" style="width:90px" '
+          f'value="{_v("country")}"></label>'
+        + f'<label>VAT number<input name="vat_number" value="{_v("vat_number")}"></label>'
+        + f'<label>Reg number<input name="reg_no" value="{_v("reg_no")}"></label>'
+        + f'<label style="flex:1 1 100%">Address<input name="address" value="{_v("address")}"></label>'
+        + f'<label>Email<input name="email" type="email" value="{_v("email")}"></label>'
+        + f'<label>Payment terms (days)<input name="payment_terms_days" inputmode="numeric" '
+          f'style="width:120px" value="{_v("payment_terms_days")}"></label>'
+        + f'<label style="flex:1 1 100%">Notes<input name="notes" value="{_v("notes")}"></label>'
+        + '<div style="margin-top:8px"><button>'
+        + ("Save changes" if editing else "Add customer") + '</button>'
+        + (' <a class="btn" href="/invoicing/customers">Cancel</a>' if editing else '')
+        + '</div></form>'
+        '<p class="note">These are <b>your</b> customers (bill-to). They are kept separate '
+        'from the platform CRM (which holds the VAT-refund clients).</p></div>')
+    return page('<div class="card"><h2>Customer book</h2>' + table + '</div>' + form, "ivcc")
+
+
+@app.route("/invoicing/customers/save", methods=["POST"])
+def invoicing_customer_save():
+    import invoicing
+    f = request.form
+    cid = (f.get("id") or "").strip()
+    fields = dict(name=f.get("name"), country=f.get("country"),
+                  vat_number=f.get("vat_number"), reg_no=f.get("reg_no"),
+                  address=f.get("address"), email=f.get("email"),
+                  payment_terms_days=f.get("payment_terms_days"), notes=f.get("notes"))
+    if cid.isdigit():
+        obj, err = invoicing.update_customer(int(cid), **fields)
+    else:
+        obj, err = invoicing.add_customer(created_by=session.get("user"), **fields)
+    banner = _ivc_banner(not err, "Customer saved." if not err else (err or "error"))
+    return page(banner + '<p><a href="/invoicing/customers">Back to customer book</a></p>',
+                "ivcc")
+
+
+@app.route("/invoicing/issuer")
+def invoicing_issuer():
+    """Configure the issuer profile (the client's OWN legal entity = the invoice
+    SUPPLIER). Admin-configured settings."""
+    import invoicing
+    iss = invoicing.get_issuer()
+
+    def _v(k):
+        return esc(iss.get(k) or "")
+    complete = invoicing.issuer_complete(iss)
+    warn = ('' if complete else
+            '<div class="card" style="border-left:4px solid var(--bad)">'
+            '<b class="bad">Incomplete.</b> The legal name, address and VAT number are '
+            'mandatory before you can issue an invoice.</div>')
+    form = (
+        '<div class="card"><h2>Issuer profile</h2>'
+        '<p class="note">This is your legal entity as it appears on the invoice as the '
+        'supplier. The legal name, address and VAT number are mandatory (EU VAT Dir. '
+        '2006/112/EC Art. 226). Multi-tenant note: a per-tenant issuer profile is a later '
+        'phase; today this is one global profile.</p>'
+        '<form method="post" action="/invoicing/issuer/save" class="f">' + _csrf_input()
+        + f'<label style="flex:1 1 100%">Legal name<input name="name" value="{_v("name")}"></label>'
+        + f'<label style="flex:1 1 100%">Address<input name="address" value="{_v("address")}"></label>'
+        + f'<label>VAT number<input name="vat_number" value="{_v("vat_number")}"></label>'
+        + f'<label>Reg number<input name="reg_no" value="{_v("reg_no")}"></label>'
+        + f'<label>IBAN<input name="iban" value="{_v("iban")}"></label>'
+        + f'<label>Bank<input name="bank" value="{_v("bank")}"></label>'
+        + f'<label>Number series<input name="series" value="{_v("series")}" style="width:120px"></label>'
+        + f'<label>Number format<input name="number_format" value="{_v("number_format")}" '
+          'style="width:220px"></label>'
+        + f'<label>Default payment terms (days)<input name="payment_terms_days" '
+          f'inputmode="numeric" style="width:140px" value="{_v("payment_terms_days")}"></label>'
+        + f'<label style="flex:1 1 100%">Header text (optional)<input name="logo_text" '
+          f'value="{_v("logo_text")}"></label>'
+        + '<div style="margin-top:8px"><button>Save issuer profile</button></div>'
+        + '<p class="note">Number format placeholders: '
+          '<code>{series}</code>, <code>{year}</code>, <code>{seq:06d}</code>.</p>'
+        '</form></div>')
+    return page(warn + form, "ivci")
+
+
+@app.route("/invoicing/issuer/save", methods=["POST"])
+def invoicing_issuer_save():
+    import invoicing
+    f = request.form
+    try:
+        invoicing.set_issuer({k: f.get(k, "") for k in invoicing.ISSUER_KEYS})
+        banner = _ivc_banner(True, "Issuer profile saved.")
+    except Exception as e:
+        _log_exc("invoicing: issuer save", e)
+        banner = _ivc_banner(False, "Could not save the issuer profile.")
+    return page(banner + '<p><a href="/invoicing/issuer">Back to issuer profile</a></p>',
+                "ivci")
+
+
+@app.route("/invoicing/compose", methods=["GET"])
+@app.route("/invoicing/compose/<int:invoice_id>", methods=["GET"])
+def invoicing_compose(invoice_id=None):
+    """Compose / view an invoice: pick a customer, add lines, see live totals, then Issue."""
+    import invoicing
+    custs = invoicing.list_customers(include_inactive=False)
+    if invoice_id is None:
+        # the "new invoice" screen: pick a customer to start a draft
+        opts = "".join(f'<option value="{int(c["id"])}">{esc(c.get("name") or "")}</option>'
+                       for c in custs)
+        if not custs:
+            body = _empty("No customers yet",
+                          "Add a customer to the customer book before composing an invoice.",
+                          "Customer book", "/invoicing/customers")
+            return page('<div class="card"><h2>New invoice</h2>' + body + '</div>', "ivc")
+        start = (
+            '<div class="card"><h2>New invoice</h2>'
+            '<form method="post" action="/invoicing/create" class="f">' + _csrf_input()
+            + f'<label>Customer<select name="customer_id" required>{opts}</select></label>'
+            + '<label>Currency<input name="currency" value="EUR" style="width:90px"></label>'
+            + '<div style="margin-top:8px"><button>Start draft</button></div>'
+            + '<p class="note">A draft has no number yet — the gap-free number is assigned '
+              'only when you Issue.</p></form></div>')
+        return page(start, "ivc")
+
+    inv = invoicing.get_invoice(invoice_id)
+    if not inv:
+        return page('<div class="card"><b class="bad">No such invoice.</b></div>', "ivc"), 404
+    lines = invoicing.get_lines(invoice_id)
+    issued = inv["status"] != invoicing.STATUS_DRAFT
+    cust = invoicing.get_customer(inv["customer_id"]) if inv.get("customer_id") else None
+
+    # header summary
+    head_rows = [
+        ["Number", esc(inv.get("number") or "(assigned at issue)")],
+        ["Status", '<span class="chip s-done">issued</span>' if issued
+         else '<span class="chip s-neutral">draft</span>'],
+        ["Customer", esc((cust or {}).get("name") or "—")],
+        ["Issue date", esc(inv.get("issue_date") or "—")],
+        ["Due date", esc(inv.get("due_date") or "—")],
+        ["Reverse charge", "yes — recipient accounts for VAT" if inv.get("reverse_charge") else "no"],
+        ["Net total", _eur(inv.get("net_total"))],
+        ["VAT total", _eur(inv.get("vat_total"))],
+        ["Grand total", _eur(inv.get("gross_total"))],
+    ]
+    head = tbl(["", ""], [[esc(a), b] for a, b in head_rows])
+
+    # line table
+    lrows = []
+    for ln in lines:
+        rm = ""
+        if not issued:
+            rm = ('<form method="post" action="/invoicing/line/remove" style="display:inline">'
+                  + _csrf_input()
+                  + f'<input type="hidden" name="invoice_id" value="{int(invoice_id)}">'
+                  + f'<input type="hidden" name="line_id" value="{int(ln["id"])}">'
+                  + '<button>Remove</button></form>')
+        lrows.append([
+            esc(ln.get("description") or ""),
+            esc(f'{float(ln.get("quantity") or 0):g}'),
+            esc(ln.get("unit") or ""),
+            _eur(ln.get("unit_price_net")),
+            esc(f'{float(ln.get("vat_rate") or 0) * 100:g}%'),
+            _eur(ln.get("line_net")),
+            _eur(ln.get("line_vat")),
+            rm,
+        ])
+    ltable = (tbl(["Description", "Qty", "Unit", "Unit price (net)", "Rate", "Net", "VAT", ""],
+                  lrows) if lrows else '<p class="note">No lines yet.</p>')
+
+    body = ['<div class="card"><h2>Invoice</h2>' + head
+            + f' <a class="btn" href="/invoicing/pdf/{int(invoice_id)}">Download PDF</a></div>']
+    body.append('<div class="card"><h2>Lines (net basis, VAT excluded)</h2>' + ltable + '</div>')
+
+    if not issued:
+        # add-line form
+        add = (
+            '<div class="card"><h2>Add a line</h2>'
+            '<form method="post" action="/invoicing/line/add" class="f">' + _csrf_input()
+            + f'<input type="hidden" name="invoice_id" value="{int(invoice_id)}">'
+            + '<label style="flex:1 1 100%">Description<input name="description" required></label>'
+            + '<label>Quantity<input name="quantity" required inputmode="decimal" style="width:110px"></label>'
+            + '<label>Unit<input name="unit" style="width:90px"></label>'
+            + '<label>Unit price (net)<input name="unit_price_net" required inputmode="decimal" style="width:140px"></label>'
+            + '<label>VAT rate %<input name="vat_rate" inputmode="decimal" style="width:110px" '
+              'placeholder="21"></label>'
+            + '<div style="margin-top:8px"><button>Add line</button></div>'
+            + ('<p class="note">Reverse charge is ON: lines are at 0% VAT (the recipient '
+               'accounts for VAT).</p>' if inv.get("reverse_charge") else '')
+            + '</form></div>')
+        # reverse-charge toggle + issue
+        rc_on = bool(inv.get("reverse_charge"))
+        rc = (
+            '<div class="card"><h2>Settings</h2>'
+            '<form method="post" action="/invoicing/fields/save" class="f">' + _csrf_input()
+            + f'<input type="hidden" name="invoice_id" value="{int(invoice_id)}">'
+            + '<label>Reverse charge '
+            + f'<input type="checkbox" name="reverse_charge" {"checked" if rc_on else ""}></label>'
+            + f'<label>Supply date<input name="supply_date" type="date" '
+              f'value="{esc(inv.get("supply_date") or "")}"></label>'
+            + '<div style="margin-top:8px"><button>Update settings</button></div>'
+            + '<p class="note">Reverse charge applies to a cross-border EU B2B customer '
+              '(0% VAT, the recipient accounts for VAT). Toggling it re-rates existing '
+              'lines; re-enter line rates if you turn it back off.</p>'
+            + '</form></div>')
+        issue_err = invoicing.validate_for_issue(invoice_id)
+        if issue_err:
+            issue_block = ('<div class="card"><h2>Issue</h2>'
+                           f'<p class="note bad">Not ready to issue: {esc(issue_err)}</p></div>')
+        else:
+            issue_block = (
+                '<div class="card"><h2>Issue</h2>'
+                '<p class="note">Issuing assigns the gap-free invoice number, snapshots the '
+                'issuer + customer, and makes the invoice immutable.</p>'
+                '<form method="post" action="/invoicing/issue">' + _csrf_input()
+                + f'<input type="hidden" name="invoice_id" value="{int(invoice_id)}">'
+                + '<button>Issue invoice</button></form></div>')
+        body.append(add)
+        body.append(rc)
+        body.append(issue_block)
+    else:
+        body.append('<div class="card"><p class="note">This invoice is issued and '
+                    'immutable. Download the PDF above.</p></div>')
+    return page("".join(body), "ivc")
+
+
+@app.route("/invoicing/create", methods=["POST"])
+def invoicing_create():
+    import invoicing
+    f = request.form
+    try:
+        cid = int(f.get("customer_id") or "0")
+    except (TypeError, ValueError):
+        cid = 0
+    inv, err = invoicing.create_draft(customer_id=cid or None,
+                                      currency=(f.get("currency") or "EUR"),
+                                      created_by=session.get("user"))
+    if err or not inv:
+        return page(_ivc_banner(False, err or "Could not start the draft.")
+                    + '<p><a href="/invoicing/compose">Back</a></p>', "ivc")
+    return redirect(f"/invoicing/compose/{int(inv['id'])}")
+
+
+def _parse_rate(raw):
+    """Parse a user-entered VAT rate into a FRACTION. Accepts '21', '21%', '0.21'."""
+    s = (raw or "").strip().replace("%", "")
+    if not s:
+        return 0.0
+    try:
+        v = float(s)
+    except ValueError:
+        return 0.0
+    return v / 100.0 if v > 1 else v
+
+
+@app.route("/invoicing/line/add", methods=["POST"])
+def invoicing_line_add():
+    import invoicing
+    f = request.form
+    try:
+        iid = int(f.get("invoice_id") or "0")
+    except (TypeError, ValueError):
+        iid = 0
+    inv, err = invoicing.add_line(
+        iid, description=f.get("description"), quantity=f.get("quantity"),
+        unit=f.get("unit"), unit_price_net=f.get("unit_price_net"),
+        vat_rate=_parse_rate(f.get("vat_rate")))
+    if err:
+        return page(_ivc_banner(False, err)
+                    + f'<p><a href="/invoicing/compose/{iid}">Back</a></p>', "ivc")
+    return redirect(f"/invoicing/compose/{iid}")
+
+
+@app.route("/invoicing/line/remove", methods=["POST"])
+def invoicing_line_remove():
+    import invoicing
+    f = request.form
+    try:
+        iid = int(f.get("invoice_id") or "0")
+        lid = int(f.get("line_id") or "0")
+    except (TypeError, ValueError):
+        iid, lid = 0, 0
+    inv, err = invoicing.remove_line(iid, lid)
+    if err:
+        return page(_ivc_banner(False, err)
+                    + f'<p><a href="/invoicing/compose/{iid}">Back</a></p>', "ivc")
+    return redirect(f"/invoicing/compose/{iid}")
+
+
+@app.route("/invoicing/fields/save", methods=["POST"])
+def invoicing_fields_save():
+    import invoicing
+    f = request.form
+    try:
+        iid = int(f.get("invoice_id") or "0")
+    except (TypeError, ValueError):
+        iid = 0
+    fields = {"reverse_charge": (f.get("reverse_charge") == "on")}
+    if f.get("supply_date") is not None:
+        fields["supply_date"] = f.get("supply_date") or None
+    inv, err = invoicing.set_invoice_fields(iid, **fields)
+    if err:
+        return page(_ivc_banner(False, err)
+                    + f'<p><a href="/invoicing/compose/{iid}">Back</a></p>', "ivc")
+    return redirect(f"/invoicing/compose/{iid}")
+
+
+@app.route("/invoicing/issue", methods=["POST"])
+def invoicing_issue():
+    import invoicing
+    f = request.form
+    try:
+        iid = int(f.get("invoice_id") or "0")
+    except (TypeError, ValueError):
+        iid = 0
+    inv, err = invoicing.issue(iid, issued_by=session.get("user"))
+    if err or not inv:
+        return page(_ivc_banner(False, err or "Could not issue.")
+                    + f'<p><a href="/invoicing/compose/{iid}">Back</a></p>', "ivc")
+    return redirect(f"/invoicing/compose/{int(inv['id'])}")
+
+
+@app.route("/invoicing/pdf/<int:invoice_id>")
+def invoicing_pdf(invoice_id):
+    import io, invoicing
+    inv = invoicing.get_invoice(invoice_id)
+    if not inv:
+        return page('<div class="card"><b class="bad">No such invoice.</b></div>', "ivc"), 404
+    data = invoicing.invoice_pdf(invoice_id)
+    if not data:
+        return page('<div class="card"><b class="bad">Could not render the PDF.</b></div>',
+                    "ivc"), 500
+    num = (inv.get("number") or f"draft-{invoice_id}").replace("/", "-")
+    return send_file(io.BytesIO(data), as_attachment=True,
+                     download_name=f"Invoice_{num}.pdf", mimetype="application/pdf")
 
 
 @app.route("/share/<int:link_id>/views")
