@@ -90,6 +90,41 @@ APP_JS = r"""/* progressive enhancement: sort + filter + horizontal scroll + key
     document.documentElement.style.setProperty('--navh',(h?h.offsetHeight:56)+'px');
   }
   navh(); window.addEventListener('resize',navh);
+
+  // Touch-friendly nav: the dropdown menus open on :hover on desktop (gated behind
+  // @media (hover:hover) in CSS), but a touch device has no hover, so tapping a
+  // menu label does nothing. Toggle an `open` class on the .menu instead — close
+  // siblings, close on an outside tap, and clear it when we resize back to a
+  // hover-capable / desktop width. CSP-safe: behaviour lives here, not inline.
+  (function(){
+    var hoverable=window.matchMedia&&window.matchMedia('(hover:hover)').matches;
+    function closeAll(except){
+      document.querySelectorAll('header .menu.open').forEach(function(m){
+        if(m!==except) m.classList.remove('open');
+      });
+    }
+    document.querySelectorAll('header .menu > .mlabel').forEach(function(lab){
+      lab.addEventListener('click',function(e){
+        // on a hover-capable pointer the CSS already opens it; only intercept taps
+        if(hoverable) return;
+        e.preventDefault(); e.stopPropagation();
+        var menu=lab.parentNode, was=menu.classList.contains('open');
+        closeAll(menu);
+        menu.classList.toggle('open',!was);
+        navh();
+      });
+    });
+    document.addEventListener('click',function(e){
+      if(e.target&&e.target.closest&&e.target.closest('header .menu')) return;
+      closeAll(null);
+    });
+    window.addEventListener('resize',function(){
+      var h=window.matchMedia&&window.matchMedia('(hover:hover)').matches;
+      hoverable=h;
+      if(h) closeAll(null);   // back on desktop: hover takes over, drop the toggle state
+    });
+  })();
+
   document.querySelectorAll('table').forEach(function(t){
     var head=t.tHead;
     // Wrap for horizontal scroll ONLY when the table is genuinely wider than the
@@ -302,13 +337,14 @@ def _csrf_token():
 def _csrf_input():
     return f'<input type="hidden" name="_csrf" value="{esc(_csrf_token())}">'
 
-LOGIN_HTML = """<!doctype html><html><head><meta charset='utf-8'><title>Fleet Fuel - login</title>
-<style>body{font:14px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial;background:#eef2f5;color:#1a2733;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;-webkit-font-smoothing:antialiased}
-.box{background:#fff;border:1px solid #dde4ea;border-radius:12px;padding:28px 30px;width:300px;box-shadow:0 1px 3px rgba(26,39,51,.06),0 6px 24px rgba(26,39,51,.08)}
+LOGIN_HTML = """<!doctype html><html><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'><title>Fleet Fuel - login</title>
+<style>body{font:14px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial;background:#eef2f5;color:#1a2733;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:16px;-webkit-font-smoothing:antialiased}
+.box{background:#fff;border:1px solid #dde4ea;border-radius:12px;padding:28px 30px;width:300px;max-width:100%;box-shadow:0 1px 3px rgba(26,39,51,.06),0 6px 24px rgba(26,39,51,.08)}
 h1{font-size:17px;margin:0 0 16px;letter-spacing:-.01em}
-input{width:100%;box-sizing:border-box;padding:9px 11px;margin:5px 0 12px;border:1px solid #dde4ea;border-radius:7px;font-size:14px;transition:border-color .12s,box-shadow .12s}
+input{width:100%;box-sizing:border-box;padding:11px;margin:5px 0 12px;border:1px solid #dde4ea;border-radius:7px;font-size:16px;min-height:42px;transition:border-color .12s,box-shadow .12s}
 input:focus{outline:none;border-color:#0e5fa8;box-shadow:0 0 0 3px rgba(14,95,168,.12)}
-button{width:100%;background:#0e5fa8;color:#fff;border:0;border-radius:7px;padding:10px;font-size:14px;font-weight:600;cursor:pointer;transition:background .12s}
+button{width:100%;background:#0e5fa8;color:#fff;border:0;border-radius:7px;padding:11px;font-size:15px;min-height:44px;font-weight:600;cursor:pointer;transition:background .12s}
 button:hover{background:#0b4d89}
 .err{color:#c8102e;font-size:13px;margin-bottom:8px}
 .pwwrap{position:relative}.pwwrap input{padding-right:54px}
@@ -1414,7 +1450,11 @@ header>a.on,.mlabel.on{color:#fff;border-bottom:2px solid #6db1e8;padding-bottom
 .mlabel{color:#cfe0f0;font-size:13.5px;cursor:pointer;user-select:none;padding:2px 0;white-space:nowrap}
 .mlabel::after{content:"▾";color:#6db1e8;font-size:10px;margin-left:4px}
 .mdrop{position:absolute;top:100%;left:0;padding-top:8px;display:none;flex-direction:column;gap:1px;z-index:30}
-.menu:hover .mdrop,.menu:focus-within .mdrop{display:flex}
+/* desktop: hover/focus opens the dropdown. Gated behind a fine pointer so a touch
+   device never relies on a (non-existent) hover — there the app.js tap toggle
+   adds .menu.open instead. */
+@media (hover:hover){.menu:hover .mdrop,.menu:focus-within .mdrop{display:flex}}
+.menu.open .mdrop{display:flex}
 .mdrop>span{background:#223240;border:1px solid #34485a;border-radius:10px;padding:6px;min-width:185px;display:flex;flex-direction:column;gap:1px;box-shadow:0 14px 34px rgba(0,0,0,.45)}
 .mdrop a{color:#cfe0f0;padding:7px 11px;border-radius:6px;white-space:nowrap;font-size:13px;transition:background .1s,color .1s}
 .mdrop a:hover{background:#31485a;color:#fff}
@@ -1513,6 +1553,39 @@ h2.section:first-of-type{margin-top:4px}
 .tile .td{font-size:12px;color:var(--mut);line-height:1.45}
 .tile:hover .tt{color:var(--acc)}
 @media (max-width:760px){.tiles{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.tile{padding:18px 12px 14px}}
+/* ---- mobile / touch (phones, 360-640px) ---------------------------------- */
+@media (max-width:640px){
+  main{margin:14px auto;padding:0 12px}
+  /* header: brand + items wrap into tappable rows; rightnav (sign out) stays reachable */
+  header{gap:8px 14px;padding:9px 12px;row-gap:6px}
+  header b{font-size:15px;width:100%;margin-right:0}
+  header>a,.mlabel{padding:6px 2px;font-size:14px}
+  .rightnav{margin-left:auto;gap:10px}
+  /* dropdowns drop to a full-width, comfortably-tappable panel */
+  .menu{position:static}
+  .menu .mdrop{position:absolute;left:0;right:0;width:100%;padding-top:4px}
+  .menu.open .mdrop>span{min-width:0;width:100%;padding:8px}
+  .mdrop a{padding:11px 12px;font-size:14px}
+  /* forms stack full-width; inputs sized for thumbs + 16px to stop iOS zoom-on-focus */
+  form.f{flex-direction:column;align-items:stretch;gap:12px}
+  form.f label{width:100%}
+  select,input,.rowfilter{width:100%;min-height:42px;font-size:16px}
+  form.f label select,form.f label input{width:100%}
+  button,a.btn{min-height:42px;font-size:15px}
+  form.f button,form.f a.btn{width:100%}
+  /* wide tables: keep the page from sideways-scrolling — each table scrolls itself */
+  .tablewrap{-webkit-overflow-scrolling:touch}
+  table{display:block;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch}
+  /* badges wrap rather than overflow */
+  .chip{white-space:normal}
+  .subnav{padding:8px 10px}
+  .khgrid{grid-template-columns:1fr}
+}
+@media (max-width:480px){
+  main{padding:0 10px}
+  .kpis,.kpis.metrics,.kpis.status{grid-template-columns:1fr}
+  .tiles{grid-template-columns:1fr 1fr}
+}
 </style></head><body>
 <header><b>🚛 ⛽ Fleet Fuel</b>
 <a href="/" class="{{'on' if page=='home'}}"><span class="ic">🏠</span>Home</a>
