@@ -3355,6 +3355,58 @@ def _supplier_known(code):
         return False
 
 
+def _norm_name(s):
+    """Normalise a supplier name for matching: lowercase, drop punctuation, collapse spaces."""
+    s = re.sub(r"[^\w\s]", " ", (s or "").lower())
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _resolve_supplier_code(name, vat=None):
+    """Resolve a CAPTURED supplier name and/or VAT id to an EXISTING supplier CODE, so a
+    captured legal name ("W.A.G. Issuing Services a.s."), brand ("Eurowag") or VAT id
+    ("CZ29137291") maps to the supplier we already have instead of being treated as unknown.
+    Read-only via dataproduct (the web request never writes suppliers.db). Match order:
+    VAT registration (strongest) -> exact code -> legal_name -> brand/group_name (contains).
+    Returns the code or None; never raises -> None."""
+    vat_n = re.sub(r"\s+", "", (vat or "")).upper()
+    name_n = _norm_name(name)
+    if not (vat_n or name_n):
+        return None
+    try:
+        import dataproduct
+        con = dataproduct.connect("suppliers")
+        try:
+            if vat_n:
+                r = con.execute(
+                    "SELECT supplier FROM supplier_vat_registrations "
+                    "WHERE REPLACE(UPPER(vat_number),' ','')=?", (vat_n,)).fetchone()
+                if r:
+                    return r["supplier"]
+            rows = con.execute("SELECT code, legal_name, group_name FROM suppliers").fetchall()
+        finally:
+            con.close()
+    except Exception as e:
+        _log_exc("resolve supplier code", e)
+        return None
+    if not name_n:
+        return None
+    # exact code (case-insensitive)
+    for r in rows:
+        if _norm_name(r["code"]) == name_n:
+            return r["code"]
+    # exact legal name
+    for r in rows:
+        if r["legal_name"] and _norm_name(r["legal_name"]) == name_n:
+            return r["code"]
+    # brand / legal-name containment (e.g. "eurowag" within the group "Eurowag / W.A.G.")
+    for r in rows:
+        for field in (r["group_name"], r["legal_name"]):
+            fn = _norm_name(field or "")
+            if fn and len(fn) >= 3 and (name_n in fn or fn in name_n):
+                return r["code"]
+    return None
+
+
 def _read_first_notice(draft, period):
     """Surface what read-first extraction AUTO-DETECTED (supplier, statement ref/date,
     derived period) and, for an UNKNOWN supplier, either enqueue an auto-onboard job (when
@@ -3373,6 +3425,17 @@ def _read_first_notice(draft, period):
                     f'<li>statement ref: <b>{esc(draft.get("statement_ref") or "—")}</b></li>'
                     f'<li>statement date: <b>{esc(draft.get("statement_date") or "—")}</b></li>'
                     f'<li>period (derived): <b>{esc(period or "—")}</b></li></ul></div>')
+        # RECOGNISE an existing supplier from the captured name / brand / VAT id (the AI
+        # reads a legal name, not our code). Prefill the resolved CODE so the review form
+        # and confirm/register use it — and we don't auto-create a duplicate.
+        if supplier and not _supplier_known(supplier):
+            resolved = _resolve_supplier_code(supplier, vat)
+            if resolved:
+                draft["supplier"] = resolved          # form prefills the matched code
+                return (detected + '<div class="card"><b class="ok">Supplier recognised</b>'
+                        f'<div class="note">Captured “{esc(supplier)}” matched your registered '
+                        f'supplier <b>{esc(resolved)}</b> — using that code. You can confirm '
+                        'this statement against it now.</div></div>')
         if not supplier or _supplier_known(supplier):
             return detected
         # UNKNOWN supplier — onboard only when a VAT id yields a country (never guess).

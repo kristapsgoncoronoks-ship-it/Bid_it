@@ -340,6 +340,9 @@ def test_worklist_card_empty(monkeypatch):
     # the register-failure reconcile reads the real demo vault — stub it empty so
     # this "nothing outstanding" path is isolated to the claim sources under test.
     monkeypatch.setattr(IC, "unregistered_vaulted_documents", lambda: [])
+    # the period close-nudge fires off the demo's registered statements (independent of the
+    # claim sources) — stub it so this test isolates the "all sources empty" rendering.
+    monkeypatch.setattr(A, "_period_close_nudge", lambda: None)
     assert "Nothing outstanding" in A._worklist_card(2026)
 
 
