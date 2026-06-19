@@ -209,3 +209,28 @@ def test_m2_every_endpoint_is_classified():
 
 def test_m2_self_check_returns_empty_on_clean_app():
     assert A._assert_endpoint_coverage() == set()
+
+
+def test_strict_endpoints_raises_on_unclassified(monkeypatch):
+    # FFS_STRICT_ENDPOINTS=1 (CI/production): an unclassified route must FAIL CLOSED
+    # (raise / refuse to boot), not just log. A clean app still passes; default is log-only.
+    monkeypatch.setenv("FFS_STRICT_ENDPOINTS", "1")
+    assert A._assert_endpoint_coverage() == set()          # clean app passes even in strict
+    # empty the classification sets so every real endpoint reads as unclassified
+    monkeypatch.setattr(A, "PERM_BY_ENDPOINT", {})
+    monkeypatch.setattr(A, "ADMIN_ONLY", set())
+    monkeypatch.setattr(A, "API_V1_SCOPE", {})
+    monkeypatch.setattr(A, "OPEN_ENDPOINTS", set())
+    with pytest.raises(RuntimeError):
+        A._assert_endpoint_coverage()
+
+
+def test_strict_endpoints_default_is_log_only(monkeypatch):
+    # With the env UNSET, an unclassified route is logged but does NOT raise (boot-safe).
+    monkeypatch.delenv("FFS_STRICT_ENDPOINTS", raising=False)
+    monkeypatch.setattr(A, "PERM_BY_ENDPOINT", {})
+    monkeypatch.setattr(A, "ADMIN_ONLY", set())
+    monkeypatch.setattr(A, "API_V1_SCOPE", {})
+    monkeypatch.setattr(A, "OPEN_ENDPOINTS", set())
+    result = A._assert_endpoint_coverage()                  # surfaced, not raised
+    assert result and isinstance(result, set)

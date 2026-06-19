@@ -1219,9 +1219,15 @@ def _assert_endpoint_coverage():
         _log.warning("endpoint-coverage self-check failed to run: %s", e)
         return set()
     if unclassified:
-        _log.error("ENDPOINT-COVERAGE: %d unclassified endpoint(s) — classify in "
-                   "PERM_BY_ENDPOINT / ADMIN_ONLY / API_V1_SCOPE / OPEN_ENDPOINTS: %s",
-                   len(unclassified), ", ".join(sorted(unclassified)))
+        msg = ("ENDPOINT-COVERAGE: %d unclassified endpoint(s) — classify in "
+               "PERM_BY_ENDPOINT / ADMIN_ONLY / API_V1_SCOPE / OPEN_ENDPOINTS: %s" % (
+                   len(unclassified), ", ".join(sorted(unclassified))))
+        _log.error(msg)
+        # STRICT mode (CI / production): an unclassified route is a fail-closed error —
+        # refuse to boot so a missing classification can never ship. Default (unset) stays
+        # log-only so a stray route never breaks a running box by accident.
+        if str(os.environ.get("FFS_STRICT_ENDPOINTS", "")).lower() in ("1", "true", "yes", "on"):
+            raise RuntimeError(msg)
     return unclassified
 
 # Switchable PARTS of the app. An admin turns these on/off in the Admin panel; a
