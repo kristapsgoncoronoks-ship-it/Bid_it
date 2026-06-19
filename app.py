@@ -531,12 +531,24 @@ def login():
             err = ('<div class="err">Temporarily locked after too many failed attempts. '
                    'Try again in a few minutes.</div>')
         elif _auth.verify(uname, request.form.get("password", ""), remote=_cip or ""):
-            session.clear()                         # session fixation: start fresh on login
-            session["user"] = uname
-            u = _auth.get_user(uname)
-            session["role"] = (u or {}).get("role", "processor")
-            session.permanent = True
-            return redirect("/")
+            # Password OK. If this user opted in to email two-factor (and the master switch
+            # is on + they have an email), DON'T complete the session yet: issue + email a
+            # one-time code and stage a NON-authenticated pending-2FA marker, then send them
+            # to /login/verify. Only a correct code there completes the login (fail-closed:
+            # if the code can't be emailed we do NOT log them in). When 2FA is off/not opted
+            # in this branch is skipped entirely — login is byte-identical to before.
+            if _auth.twofa_enabled(uname):
+                err = _begin_2fa_challenge(uname)
+                if err is None:
+                    return redirect("/login/verify")
+                # else: fall through and re-render /login with the (delivery) error
+            else:
+                session.clear()                     # session fixation: start fresh on login
+                session["user"] = uname
+                u = _auth.get_user(uname)
+                session["role"] = (u or {}).get("role", "processor")
+                session.permanent = True
+                return redirect("/")
         else:
             err = '<div class="err">Invalid username or password.</div>'
     # Optional "Sign in with …" buttons — one per ENABLED provider (Google / Microsoft /
@@ -548,6 +560,278 @@ def login():
 def logout():
     session.clear()
     return redirect("/login")
+
+# ---------------------------------------------------------------- email two-factor (OTP)
+# The login route stages a NON-authenticated pending-2FA marker (pending_2fa_user +
+# pending_2fa_ts) after a correct password; /login/verify is the second factor. These are
+# login-only OPEN_ENDPOINTS (pre-auth, like /login) but keep session-CSRF on their POSTs.
+def _begin_2fa_challenge(uname):
+    """Issue + email a one-time code for `uname` and stage the pending-2FA session marker.
+    Returns None on success (caller redirects to /login/verify), or an HTML error banner
+    string if the code could NOT be delivered (caller re-renders /login; the user is NOT
+    logged in — fail closed). A rate-limited resend still succeeds (the previous code
+    stands)."""
+    import twofa as _twofa
+    code = _twofa.issue(uname)
+    if code is None:
+        # Either a resend cooldown (a pending code already stands — fine, let them enter it)
+        # or the code could not be issued. Distinguish by whether a pending code exists.
+        if _twofa.attempts_left(uname) > 0:
+            # a live code already exists; proceed to the verify page (don't re-send).
+            session.clear()
+            session["pending_2fa_user"] = uname
+            session["pending_2fa_ts"] = time.time()
+            return None
+        return ('<div class="err">Could not start two-factor verification. '
+                'Please try again.</div>')
+    if not _twofa.send_code(uname, code):
+        # We generated a code but could not e-mail it. Do NOT log the user in (fail closed).
+        # Clear the just-issued code so a stale code can't be guessed later.
+        _twofa.clear(uname)
+        return ('<div class="err">We could not send your sign-in code by email. '
+                'Please contact an administrator.</div>')
+    session.clear()                                  # session fixation: fresh, NON-authed
+    session["pending_2fa_user"] = uname
+    session["pending_2fa_ts"] = time.time()
+    return None
+
+def _pending_2fa_user():
+    """The username mid-2FA, or None. Discards an EXPIRED pending state (absolute timeout)
+    so a stale marker can't sit around indefinitely."""
+    import twofa as _twofa
+    u = session.get("pending_2fa_user")
+    if not u:
+        return None
+    ts = session.get("pending_2fa_ts") or 0
+    if (time.time() - ts) > _twofa.PENDING_2FA_TTL_SEC:
+        session.pop("pending_2fa_user", None)
+        session.pop("pending_2fa_ts", None)
+        return None
+    return u
+
+def _complete_2fa_login(uname):
+    """Finish a 2FA login for `uname`: clear the (pending) session and establish the
+    authenticated session exactly like the local-login success path (session-fixation safe).
+    The password + OTP were both already verified by the caller."""
+    session.clear()                                  # drop the pending marker, fresh session
+    session["user"] = uname
+    u = _auth.get_user(uname)
+    session["role"] = (u or {}).get("role", "processor")
+    session.permanent = True
+
+def _verify_2fa_page(uname, err="", note=""):
+    """Render the small code-entry page (same visual language as LOGIN_HTML)."""
+    import twofa as _twofa
+    masked = _twofa.mask_email(_auth.user_email(uname))
+    err_html = f'<div class="err">{esc(err)}</div>' if err else ""
+    note_html = (f'<div style="color:#5f7385;font-size:13px;margin-bottom:10px">{esc(note)}</div>'
+                 if note else "")
+    sent_to = (f'<p style="color:#5f7385;font-size:13px;margin:0 0 12px">We sent a 6-digit code '
+               f'to <b>{esc(masked)}</b>. It is valid for 10 minutes.</p>') if masked else ""
+    body = (f'<div class="box"><h1>Enter your sign-in code</h1>{err_html}{note_html}{sent_to}'
+            '<form method="post" action="/login/verify">'
+            + _csrf_input()
+            + '<input name="code" inputmode="numeric" autocomplete="one-time-code" '
+              'pattern="[0-9]*" maxlength="6" placeholder="123456" autofocus required>'
+            '<button>Verify</button></form>'
+            '<form method="post" action="/login/verify/resend" style="margin-top:6px">'
+            + _csrf_input()
+            + '<button style="background:#fff;color:#0e5fa8;border:1px solid #dde4ea">'
+              'Resend code</button></form>'
+            '<p class="ssosep" style="margin-top:14px"><a href="/login" '
+            'style="color:#0e5fa8;text-decoration:none">Back to sign in</a></p></div>')
+    # Reuse the LOGIN_HTML chrome (CSS + app.js) but swap in the code-entry box.
+    html = LOGIN_HTML.replace("{ERR}", "").replace("{SSO}", "")
+    head, _, tail = html.partition('<div class="box">')
+    # tail is the original login box up to </body>; replace the whole box with ours.
+    after = tail.partition("</div><script")[2]
+    return head + body + "</div><script" + after
+
+@app.route("/login/verify", methods=["GET", "POST"])
+def login_verify():
+    """The SECOND factor: a user mid-2FA enters the emailed code here. GET renders the
+    code-entry page; POST verifies it and, on success, completes the authenticated session.
+    No `pending_2fa_user` in session => back to /login. Login-only (OPEN_ENDPOINTS) but the
+    POST is session-CSRF checked by _guard."""
+    import twofa as _twofa
+    uname = _pending_2fa_user()
+    if not uname:
+        return redirect("/login")
+    if request.method == "POST":
+        res = _twofa.verify(uname, request.form.get("code", ""))
+        if res.get("ok"):
+            _complete_2fa_login(uname)
+            return redirect("/")
+        reason = res.get("reason")
+        if reason in ("no_code", "expired", "locked", "error"):
+            # the code is dead — make them sign in again.
+            session.pop("pending_2fa_user", None)
+            session.pop("pending_2fa_ts", None)
+            msg = {"expired": "Your code expired. Please sign in again.",
+                   "locked": "Too many incorrect attempts. Please sign in again.",
+                   "no_code": "Please sign in again.",
+                   "error": "Something went wrong. Please sign in again."}[reason]
+            return _login_with_error(msg)
+        left = _twofa.attempts_left(uname)
+        return _verify_2fa_page(uname,
+                                err=f"Incorrect or expired code — {left} attempt(s) left.")
+    return _verify_2fa_page(uname)
+
+@app.route("/login/verify/resend", methods=["POST"])
+def login_verify_resend():
+    """Re-issue + re-send the OTP for the user mid-2FA (honouring the 60s cooldown). POST
+    only; session-CSRF checked by _guard. Login-only (OPEN_ENDPOINTS)."""
+    import twofa as _twofa
+    uname = _pending_2fa_user()
+    if not uname:
+        return redirect("/login")
+    code = _twofa.issue(uname)
+    if code is None:
+        # cooldown (a live code still stands) or could-not-issue — show a wait note.
+        return _verify_2fa_page(uname,
+                                note="A code was already sent — please wait a moment "
+                                     "before requesting another.")
+    if not _twofa.send_code(uname, code):
+        _twofa.clear(uname)
+        session.pop("pending_2fa_user", None)
+        session.pop("pending_2fa_ts", None)
+        return _login_with_error("We could not send your sign-in code by email. "
+                                 "Please contact an administrator.")
+    return _verify_2fa_page(uname, note="A new code was sent to your email.")
+
+@app.route("/account", methods=["GET", "POST"])
+def account():
+    """Per-user "Account security": any logged-in user manages THEIR OWN account — the
+    contact/2FA email, and the email-2FA opt-in. Turning 2FA ON VERIFIES deliverability
+    first: we email a TEST code and require the user to enter it on this page; only a
+    correct test code persists set_twofa(ON). This prevents enabling 2FA to an address
+    that doesn't receive mail (self-lockout). Turning OFF just clears the flag. Every
+    change is audited with the actor. The view acts ONLY on session["user"]."""
+    import twofa as _twofa
+    me = session["user"]
+    banner = ""; banner_klass = "ok"
+    master_on = _twofa.enabled()
+    if request.method == "POST":
+        try:
+            scon = _auth.connect(); _audit_mod.set_actor(scon, me); scon.close()
+            act = request.form.get("__act", "")
+            if act == "set_email":
+                _auth.set_user_email(me, request.form.get("email", ""))
+                banner = "Your email was updated."
+            elif act == "twofa_off":
+                _auth.set_twofa(me, False)
+                _twofa.clear(me)
+                session.pop("acct_2fa_pending", None)
+                banner = "Two-factor sign-in is now OFF for your account."
+            elif act == "twofa_begin":
+                # Step 1: confirm/save the email, then email a TEST code to it. The opt-in
+                # is NOT yet persisted — only entering the correct code (step 2) enables it.
+                email = (request.form.get("email", "") or "").strip()
+                if email:
+                    _auth.set_user_email(me, email)
+                if not (_auth.user_email(me) or "").strip():
+                    raise ValueError("Add an email address first — a code is sent to it.")
+                code = _twofa.issue(me)
+                if code is None:
+                    raise ValueError("Please wait a moment before requesting another code.")
+                if not _twofa.send_code(me, code):
+                    _twofa.clear(me)
+                    raise ValueError("We could not send a test code to that email. "
+                                     "Check the address and the SMTP settings.")
+                session["acct_2fa_pending"] = True
+                banner = ("A test code was sent to your email. Enter it below to turn on "
+                          "two-factor sign-in.")
+            elif act == "twofa_confirm":
+                # Step 2: the user enters the TEST code; only a correct one enables 2FA.
+                if not session.get("acct_2fa_pending"):
+                    raise ValueError("Start the setup again — no pending test code.")
+                res = _twofa.verify(me, request.form.get("code", ""))
+                if res.get("ok"):
+                    _auth.set_twofa(me, True)
+                    session.pop("acct_2fa_pending", None)
+                    banner = "Two-factor sign-in is now ON for your account."
+                else:
+                    banner_klass = "bad"
+                    reason = res.get("reason")
+                    if reason in ("expired", "locked", "no_code"):
+                        session.pop("acct_2fa_pending", None)
+                        banner = ("That code expired or was used too many times. "
+                                  "Please start the setup again.")
+                    else:
+                        banner = "Incorrect code — please try again."
+            elif act == "twofa_cancel":
+                session.pop("acct_2fa_pending", None)
+                _twofa.clear(me)
+                banner = "Two-factor setup cancelled."
+            scon = _auth.connect(); _audit_mod.reset_actor(scon); scon.close()
+        except Exception as e:
+            banner_klass = "bad"
+            if isinstance(e, ValueError):
+                banner = str(e)
+            else:
+                _log_exc("account action", e)
+                banner = "Something went wrong. Please try again."
+    u = _auth.get_user(me) or {}
+    email = (u.get("email") or "")
+    is_on = bool(u.get("twofa_email"))
+    pending = bool(session.get("acct_2fa_pending"))
+    banner_html = (f'<div class="card"><b class="{banner_klass}">{esc(banner)}</b></div>'
+                   if banner else "")
+    # email form (always available)
+    email_card = (
+        '<div class="card"><h2>Email</h2>'
+        '<p class="note" style="margin-top:0">Used for sign-in codes (if you turn on '
+        'two-factor) and for your own secure-sharing alerts.</p>'
+        '<form method="post" class="f">' + _csrf_input()
+        + f'<label>Email<input type="email" name="email" value="{esc(email)}" '
+          'style="width:220px"></label>'
+        + '<button name="__act" value="set_email">Save email</button></form></div>')
+    # 2FA card
+    if not master_on:
+        twofa_card = (
+            '<div class="card"><h2>Two-factor sign-in</h2>'
+            '<p class="note">Email two-factor sign-in is not enabled on this system. '
+            'An administrator can turn it on in the Admin panel; until then you cannot '
+            'opt in.</p></div>')
+    elif is_on:
+        twofa_card = (
+            '<div class="card"><h2>Two-factor sign-in</h2>'
+            '<p class="note" style="margin-top:0"><b class="ok">ON</b> — after your '
+            f'password you enter a 6-digit code sent to <b>{esc(_twofa.mask_email(email))}</b>.</p>'
+            '<form method="post" style="display:inline">' + _csrf_input()
+            + '<button name="__act" value="twofa_off" style="background:var(--bad)">'
+              'Turn off two-factor</button></form></div>')
+    elif pending:
+        twofa_card = (
+            '<div class="card"><h2>Two-factor sign-in — confirm</h2>'
+            f'<p class="note" style="margin-top:0">We sent a test code to '
+            f'<b>{esc(_twofa.mask_email(email))}</b>. Enter it to finish turning on '
+            'two-factor sign-in.</p>'
+            '<form method="post" class="f">' + _csrf_input()
+            + '<label>Code<input name="code" inputmode="numeric" pattern="[0-9]*" '
+              'maxlength="6" placeholder="123456" autofocus style="width:120px"></label>'
+            + '<button name="__act" value="twofa_confirm">Confirm &amp; turn on</button>'
+            '</form>'
+            '<form method="post" style="display:inline;margin-top:6px">' + _csrf_input()
+            + '<button name="__act" value="twofa_cancel" '
+              'style="background:var(--mut)">Cancel</button></form></div>')
+    else:
+        twofa_card = (
+            '<div class="card"><h2>Two-factor sign-in</h2>'
+            '<p class="note" style="margin-top:0">Require a one-time code emailed to you '
+            'after your password. We first send a <b>test code</b> to confirm you can '
+            'receive it — you only turn on after entering it (so you can never lock '
+            'yourself out).</p>'
+            '<form method="post" class="f">' + _csrf_input()
+            + f'<label>Email<input type="email" name="email" value="{esc(email)}" '
+              'style="width:220px"></label>'
+            + '<button name="__act" value="twofa_begin">Require an email code when I sign in'
+              '</button></form></div>')
+    body = ('<div class="card"><h2>🔐 Account security</h2>'
+            '<p class="note" style="margin-top:0">Manage your own email and two-factor '
+            'sign-in. Changes apply only to your account and are audit-logged.</p></div>'
+            + banner_html + email_card + twofa_card)
+    return page(body, "account")
 
 @app.route("/sso/login")
 def sso_login():
@@ -777,6 +1061,10 @@ ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "api_r
 OPEN_ENDPOINTS = {
     # --- public / pre-session infrastructure (handled explicitly at the top of _guard) ---
     "setup", "static", "app_js", "login", "logout",
+    # email two-factor: the post-password verify page + resend are a PRE-AUTH step (the
+    # user holds only a non-authenticated pending-2FA marker), so they are login-only like
+    # /login. Session-CSRF stays ENFORCED on their POSTs (see _guard).
+    "login_verify", "login_verify_resend",
     # --- no-cookie, token-as-principal public routes (each runs its OWN per-token gate
     #     in-view; login + session-CSRF exempt) ---
     "share_public", "share_file", "share_event", "share_sign",   # secure share links / SES sign
@@ -787,6 +1075,10 @@ OPEN_ENDPOINTS = {
     # --- documented OPEN workflow inbox (any logged-in user; the admin define/manage pages
     #     are gated in ADMIN_ONLY/PERM_BY_ENDPOINT instead) ---
     "tasks_page", "task_act", "workflow_start",
+    # the per-user "Account security" page — any logged-in user manages their OWN account
+    # (email + email-2FA opt-in via a verified-email gate). Login-only (no capability):
+    # a processor reaches it for THEIR account only (the view acts on session["user"]).
+    "account",
     # --- login-only, read-only pages + their JSON twins, intentionally processor-visible
     #     (analytics / dashboards / master-data reads) ---
     "home", "dash", "savings", "compare", "transactions", "h2h", "entities",
@@ -1004,6 +1296,19 @@ def _guard():
     if _needs_setup():
         return redirect("/setup")
     if request.endpoint == "login":
+        return
+    # Email two-factor: the verify page + resend are a PRE-AUTH step (the user has passed
+    # the password but holds only a NON-authenticated pending-2FA marker, not session.user).
+    # Let them through WITHOUT a full session — but keep the session-CSRF check below for
+    # their POSTs (they ARE cookie/session routes). The views themselves bounce to /login
+    # when there is no pending marker.
+    if request.endpoint in ("login_verify", "login_verify_resend"):
+        if request.method == "POST":
+            sess_tok = session.get("_csrf") or ""
+            if not sess_tok or not secrets.compare_digest(
+                    request.form.get("_csrf") or "", sess_tok):
+                return page('<div class="card"><h2>Invalid or missing CSRF token</h2>'
+                            '<p>Please reload the page and try again.</p></div>', ""), 400
         return
     if not session.get("user"):
         return redirect("/login")
@@ -1762,6 +2067,7 @@ h2.section:first-of-type{margin-top:4px}
 {% if role == 'admin' %}<a href="/close" class="{{'on' if page=='close'}}"><span class="ic">🔒</span>Monthly close</a>
 <a href="/admin" class="{{'on' if page=='adm'}}"><span class="ic">⚙️</span>Admin</a>{% endif %}
 <span class="note" style="color:#9fb3c4">{{ user }} ({{ role }})</span>
+<a href="/account">Account</a>
 <a href="/logout">Sign out</a></span>
 </header><main>{{ body|safe }}</main><script src="/app.js" defer></script></body></html>"""
 
@@ -10617,6 +10923,18 @@ def admin():
                 _auth.set_email(who, request.form.get("email", ""))
                 banner = (f"Contact email for <b>{esc(who)}</b> updated — "
                           "secure-sharing alerts will go to it.")
+            elif act == "twofa_reset":
+                # BREAK-GLASS: an admin clears a user's email-2FA opt-in flag AND any pending
+                # login OTP, so a user who lost access to their email (or is locked mid-
+                # challenge) can sign in with their password again. Admin-only (the /admin
+                # route is gated to user_admin). Audited via the users-table triggers.
+                import twofa as _twofa
+                if not tgt:
+                    raise ValueError("pick a user")
+                _auth.set_twofa(tgt, False)
+                _twofa.clear(tgt)
+                banner = (f"Two-factor sign-in disabled for <b>{esc(tgt)}</b> and any "
+                          "pending code cleared. They can now sign in with just their password.")
             elif act == "clear_errors":
                 _auth.clear_errors()
                 banner = "Error log cleared."
@@ -10713,6 +11031,16 @@ def admin():
                         f"re-run the monthly close to re-settle")
                 banner = (f"Settled metrics for <b>{esc(_period)}</b> match a live "
                           f"recompute — no drift.")
+            elif act == "set_twofa_master":
+                # Master switch for per-user email two-factor sign-in. OFF (default) means
+                # no challenge anywhere — login byte-identical to today. Turning it ON only
+                # affects users who THEMSELVES opted in via /account; an admin can always
+                # disable a user's 2FA from the Users table (break-glass) if email breaks.
+                on = bool(request.form.get("twofa_email_enabled"))
+                _auth.set_setting("twofa_email_enabled", "1" if on else "0")
+                banner = (f"Email two-factor sign-in is now <b>{'ON' if on else 'OFF'}</b>. "
+                          + ("Only users who opt in (Account → Two-factor) are challenged."
+                             if on else "No sign-in challenges will be sent."))
             elif act == "set_smtp":
                 # SMTP relay config for the digest + per-event alerts. The password is
                 # WRITE-ONLY: a blank field leaves the stored secret untouched, so
@@ -10896,11 +11224,23 @@ def admin():
             + f'<input type="email" name="email" value="{esc(u.get("email") or "")}" '
               'placeholder="email" style="width:150px"> '
               '<button name="__act" value="set_email">Set email</button></form>')
+        # Email-2FA status + BREAK-GLASS reset (admin clears the opt-in + any pending OTP so
+        # a user who lost email access can sign in with just their password again).
+        twofa_on = bool(u.get("twofa_email"))
+        twofa_cell = (f'<span class="{ "ok" if twofa_on else "note" }">'
+                      f'{"ON" if twofa_on else "off"}</span>')
+        if twofa_on:
+            twofa_cell += (
+                ' <form method="post" style="display:inline">' + _csrf_input()
+                + f'<input type="hidden" name="username" value="{esc(u["username"])}">'
+                + '<button name="__act" value="twofa_reset" style="background:var(--bad)">'
+                  'Disable 2FA</button></form>')
         utr.append([f'<td>{esc(u["username"])}{" <b>(you)</b>" if me else ""}</td>'
                     f'<td>{esc(u["role"])}</td>',
                     f'<td class="{ "ok" if u["active"] else "bad"}">'
                     f'{"active" if u["active"] else "DISABLED"}</td>',
                     f'<td>{email_form}</td>',
+                    f'<td>{twofa_cell}</td>',
                     f'<td>{esc(u["last_login"])}</td><td>{actions}</td>'])
     addf = ('<form method="post" class="f">'
             + _csrf_input() +
@@ -11462,13 +11802,30 @@ def admin():
                + '<span class="note" style="margin-left:8px">tick at least one scope</span>'
                + '</form></div>')
     users_card = ('<div class="card"><h2>👤 Users &amp; permissions</h2>'
-                  + tbl(["Username", "Role", "Status", "Email (alerts)", "Last login",
+                  + tbl(["Username", "Role", "Status", "Email (alerts)", "2FA", "Last login",
                          "Actions"], utr)
                   + addf
                   + '<div class="note">An optional <b>contact email</b> targets that '
                     'user\'s own secure-sharing alerts (a shared document viewed / signed, '
                     'a data-room question). Unset = the team relay (Email settings below).'
                     '</div></div>')
+    _twofa_master_on = (_auth.get_setting("twofa_email_enabled") or "").strip() in (
+        "1", "true", "True", "on")
+    twofa_master_card = (
+        '<div class="card"><h2>🔐 Email two-factor sign-in</h2>'
+        '<p class="note" style="margin-top:0">Master switch for per-user email two-factor '
+        '(a one-time code emailed after the password). <b>OFF by default</b> — when off, no '
+        'challenge is ever sent. Turning it ON only affects users who opt in themselves '
+        '(Account → Two-factor, which verifies their email can receive a code first). You '
+        'can always <b>Disable 2FA</b> for a user above if they lose email access. Requires '
+        'the SMTP relay below to be configured.</p>'
+        '<form method="post">' + _csrf_input()
+        + '<label class="chk" style="display:flex;gap:7px;align-items:center;font-size:13px;'
+          'flex-direction:row;color:var(--ink);margin:3px 0">'
+        + f'<input type="checkbox" name="twofa_email_enabled" {"checked" if _twofa_master_on else ""}> '
+          '<b>Enable email two-factor sign-in (per-user opt-in)</b></label>'
+        + '<div style="margin-top:8px"><button name="__act" value="set_twofa_master">'
+          'Save</button></div></form></div>')
     security_card = (f'<div class="card"><h2>Security status</h2>'
                      f'<p>TLS certificate: '
                      f'{"<span class=ok>cert.pem present - app serves HTTPS</span>" if tls else "<span class=bad>none - run python3 make_cert.py (self-signed) or install a CA cert</span>"}'
@@ -11680,6 +12037,7 @@ def admin():
             + subnav
             + '<h2 class="section" id="access">Access &amp; Security</h2>'
             + users_card
+            + twofa_master_card
             + permf
             + security_card
             + cloudflarecard

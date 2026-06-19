@@ -130,7 +130,8 @@ _RUNTIME_SETTING_PREFIXES = ("module_", "ai_", "multitenant",
                              "sso_", "intake_autopilot_enabled",
                              "dokobit_", "invoice_fee_vat_pct",
                              "trust_cloudflare", "cloudflare_only",
-                             "cloudflare_ip_ranges", "cloudflare_trusted_proxies")
+                             "cloudflare_ip_ranges", "cloudflare_trusted_proxies",
+                             "twofa_email_enabled")
 
 
 def _is_runtime_setting(key):

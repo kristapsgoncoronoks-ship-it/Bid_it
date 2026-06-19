@@ -20,6 +20,11 @@ def _get_routes():
         # /login (no page to render). They have dedicated coverage in test_sso.py.
         if rule.endpoint in ("sso_login", "sso_callback"):
             continue
+        # The email-2FA verify page correctly redirects to /login when there is no
+        # pending-2FA marker in the session (the only legitimate way to reach it).
+        # It has dedicated coverage in test_twofa.py.
+        if rule.endpoint == "login_verify":
+            continue
         # /api/v1/* is the TOKEN-ONLY external contract: a session client correctly
         # gets 401 (no bearer token). It has its own auth/contract suite
         # (test_api_v1.py), so it's out of scope for this session-based page smoke.

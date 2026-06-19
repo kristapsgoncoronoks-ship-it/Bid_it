@@ -99,6 +99,12 @@ def connect():
             # OIDC connector and MUST NOT be able to password-login (see verify()).
             # APPEND only — positions stable.
             "ALTER TABLE users ADD COLUMN auth_source TEXT",
+            # Per-user OPT-IN email two-factor (email OTP). 0 (default) = no second
+            # factor; 1 = require a one-time email code after the password. Only ever
+            # set ON via the verified-email flow in /account, and only EFFECTIVE when
+            # the master switch `twofa_email_enabled` is ON AND the user has an email
+            # (see twofa.twofa_enabled). APPEND only — positions stable.
+            "ALTER TABLE users ADD COLUMN twofa_email INTEGER DEFAULT 0",
         ])
         _seed_permissions(con)
         audit.install_audit(con, ["users", "role_permissions"])  # both change-logged
@@ -305,7 +311,7 @@ def set_active(username, active):
 def get_user(username):
     con = connect()
     u = con.execute(
-        "SELECT username, role, active, created, email FROM users WHERE username=?",
+        "SELECT username, role, active, created, email, twofa_email FROM users WHERE username=?",
         (username,)).fetchone()
     con.close()
     return dict(u) if u else None
@@ -316,6 +322,39 @@ def set_email(username, email):
     con = connect()
     con.execute("UPDATE users SET email=? WHERE username=?",
                 ((email or "").strip() or None, username))
+    con.commit(); con.close()
+
+# set_user_email is the explicit-name alias of set_email (the email column is shared by
+# secure-sharing alerts AND the email-2FA delivery address — one address per user).
+set_user_email = set_email
+
+def twofa_enabled(username):
+    """Does this user get an email-2FA challenge on login? TRUE only when the MASTER switch
+    `twofa_email_enabled` is ON AND the user opted in (users.twofa_email=1) AND the user has
+    a non-empty email (a code can be delivered). Never raises — any failure returns False."""
+    try:
+        if not username:
+            return False
+        master = (get_setting("twofa_email_enabled") or "").strip() in ("1", "true", "True", "on")
+        if not master:
+            return False
+        con = connect()
+        row = con.execute("SELECT twofa_email, email FROM users WHERE username=? AND active=1",
+                          (username,)).fetchone()
+        con.close()
+        if not row:
+            return False
+        return bool(row["twofa_email"]) and bool((row["email"] or "").strip())
+    except Exception as e:
+        log.warning("twofa_enabled lookup failed for %r: %s", username, e)
+        return False
+
+def set_twofa(username, on):
+    """Turn a user's email-2FA opt-in flag ON/OFF. Audited via the users-table triggers
+    (the caller sets the actor). Turning OFF leaves the email intact."""
+    con = connect()
+    con.execute("UPDATE users SET twofa_email=? WHERE username=?",
+                (1 if on else 0, username))
     con.commit(); con.close()
 
 def user_email(username):
@@ -336,7 +375,7 @@ def user_email(username):
 def list_users():
     con = connect()
     users = [dict(u) for u in con.execute(
-        "SELECT username, role, active, created, email FROM users ORDER BY username")]
+        "SELECT username, role, active, created, email, twofa_email FROM users ORDER BY username")]
     for u in users:
         last = con.execute("""SELECT ts FROM login_log WHERE username=? AND success=1
                               ORDER BY ts DESC LIMIT 1""", (u["username"],)).fetchone()
