@@ -594,7 +594,300 @@ class DemoAdapter(PortalAdapter):
         return list(rows)
 
 
-_BUILTIN = {"http_json": HttpJsonAdapter, "csv": CsvExportAdapter, "demo": DemoAdapter}
+# ====================================================================================
+# DOCUMENT-YIELDING ADAPTERS — pull statement FILES (not benchmark prices).
+#
+# The HttpJson/Csv/Demo adapters above return PRICE rows that scrape() loads into the
+# my_prices benchmark. A DocumentAdapter instead DOWNLOADS the supplier's statement
+# files (CSV/XLSX/XML/PDF) so they enter the SAME extract->review-draft->register
+# pipeline an upload uses — that is the "onboard a portal with CONFIG, not code" goal.
+# Such an adapter sets DOCUMENT_YIELDING=True; the orchestrator routes it to
+# scrape_documents() (which enqueues each file on the intake queue) instead of the
+# price-loading scrape() body.
+# ====================================================================================
+class DocumentAdapter(PortalAdapter):
+    """Base for adapters that DOWNLOAD statement files. fetch_documents() returns a list
+    of (filename, bytes); each is handed to the existing extract/register pipeline. A
+    `log_step(step, detail)` callback records per-step progress on the portal_runs row so
+    a failure names the step that failed (clearer breaker reasons)."""
+    DOCUMENT_YIELDING = True
+
+    def fetch_documents(self, creds, cfg, date_from, date_to, log_step):
+        raise NotImplementedError
+
+    # DocumentAdapters do not produce price rows; fetch() is never called for them.
+    def fetch(self, creds, cfg, date_from, date_to):
+        raise RuntimeError("document adapter: use fetch_documents()")
+
+
+# A swappable HTTP session factory so tests inject a FAKE transport (no network). The
+# real factory returns a requests.Session; a test monkeypatches this to return a stub
+# exposing the same request()/get()/post() surface the adapter uses.
+def _http_session():
+    import requests
+    return requests.Session()
+
+
+_FORMAT_EXT = {"csv": ".csv", "xlsx": ".xlsx", "xls": ".xls",
+               "xml": ".xml", "pdf": ".pdf", "zip": ".zip"}
+
+
+def _filename_for(cfg, idx, url, fallback_format):
+    """Best filename for a downloaded statement: a name in the URL's last path segment
+    if it carries a known extension, else <supplier-ish>_<idx><ext-for-format>. The
+    extension drives which pipeline branch extract.extract() takes, so we always end on
+    a known extension."""
+    import os as _os
+    from urllib.parse import urlparse
+    seg = _os.path.basename(urlparse(url or "").path) if url else ""
+    if seg and "." in seg:
+        ext = "." + seg.rsplit(".", 1)[1].lower()
+        if ext in _FORMAT_EXT.values():
+            return seg
+    ext = _FORMAT_EXT.get((fallback_format or "").lower(), ".bin")
+    return f"statement_{idx}{ext}"
+
+
+class HttpFormAdapter(DocumentAdapter):
+    """CONFIG-DRIVEN generic "form-login + download" adapter — the workhorse for the
+    majority of low-IT supplier portals (POST a login form, GET a statement list, download
+    each statement). A NEW portal is onboarded by FILLING cfg['config'], not writing code.
+
+    cfg['config'] schema (all optional unless noted; base_url is prepended to every
+    relative URL):
+
+      AUTH (auth_mode, default 'form'):
+        'form'   : POST login_url with the credentials + static fields.
+            login_url        (required)            login form action (relative or absolute)
+            login_method     'POST'|'GET'          default 'POST'
+            username_field   form field NAME for the username (default 'username')
+            password_field   form field NAME for the password (default 'password')
+            login_extra      {field: value}        static hidden fields (csrf seed, etc.)
+            login_as_json    bool                  send JSON body instead of form-encoded
+        'basic'  : HTTP Basic auth (username/secret) on every request; no login POST.
+        'oauth2_client_credentials':
+            token_url        (required)            OAuth2 token endpoint
+            token_field_map  {client_id, client_secret} -> 'username'|'secret'|literal
+                             (default {client_id:'username', client_secret:'secret'})
+            token_extra      {field: value}        extra token params (scope, audience…)
+            token_path       dotted path to the access token in the JSON (default
+                             'access_token'); sent as 'Authorization: Bearer <tok>'.
+
+      SUCCESS CHECK (login_success, optional — verifies auth before enumerating):
+            status           int|[ints]            acceptable status code(s) (default 2xx)
+            redirect_contains substring required in the final URL after redirects
+            text_contains    substring required in the login response body
+            text_absent      substring that must NOT appear (e.g. 'login failed')
+
+      ENUMERATE the downloadable statements (one of):
+            list_url         the statement-listing page/endpoint URL
+            list_method      'GET'|'POST'          default 'GET'
+            list_params      {.. '_from','_to' placeholders substituted with the window}
+          A) link_regex      regex over the listing TEXT whose group(1) is each download
+                             URL (or path). Use for an HTML listing.
+            link_limit       cap the number of matched links (default 200)
+          B) url_template    a download-URL template enumerated over `ids` OR over the
+                             window; '{id}','{from}','{to}' are substituted.
+            ids              [list of ids] for the template (one download per id)
+          PAGINATION (optional, applies to link_regex enumeration):
+            page_param       query param name for the page number
+            page_start       first page number (default 1)
+            max_pages        hard cap on pages walked (default 1 = no pagination)
+            next_link_regex  regex whose group(1) is the next-page URL (alternative to
+                             page_param; walking stops when it stops matching)
+
+      DOWNLOAD:
+            download_method  'GET'|'POST'          default 'GET'
+            format           csv|xlsx|xml|pdf|zip  the expected file format (drives the
+                             stored filename extension -> the extract pipeline branch).
+
+    SECURITY: credentials arrive already-decrypted from get_credentials (envelope-opened);
+    they are sent to the portal but NEVER logged (log_step records steps/URLs/counts only).
+    Runs ONLY on the worker tier via scrape_documents()."""
+    DOCUMENT_YIELDING = True
+
+    def fetch_documents(self, creds, cfg, date_from, date_to, log_step):
+        from urllib.parse import urljoin
+        c = cfg.get("config") or {}
+        base = cfg.get("base_url") or ""
+        username = (creds or {}).get("username") or ""
+        secret = (creds or {}).get("secret") or ""
+
+        def U(u):
+            """Resolve a possibly-relative URL against base_url."""
+            if not u:
+                return u
+            return u if u.startswith(("http://", "https://")) else urljoin(base + "/", u.lstrip("/"))
+
+        def sub_window(s):
+            return (str(s).replace("{from}", date_from or "").replace("{to}", date_to or "")
+                    if s is not None else s)
+
+        s = _http_session()
+        auth_mode = (c.get("auth_mode") or "form").lower()
+        req_auth = None
+        headers = {}
+
+        # ---- AUTH -----------------------------------------------------------------
+        if auth_mode == "basic":
+            req_auth = (username, secret)
+            log_step("auth", "http-basic")
+        elif auth_mode == "oauth2_client_credentials":
+            if not c.get("token_url"):
+                raise RuntimeError("http_form oauth2: token_url is required")
+            fmap = c.get("token_field_map") or {"client_id": "username", "client_secret": "secret"}
+            body = {}
+            for field, src in fmap.items():
+                body[field] = {"username": username, "secret": secret}.get(src, src)
+            body.setdefault("grant_type", "client_credentials")
+            for k, v in (c.get("token_extra") or {}).items():
+                body[k] = v
+            try:
+                tr = s.request("POST", U(c["token_url"]), data=body, timeout=DEFAULT_TIMEOUT)
+                tr.raise_for_status()
+                tok = _dig(tr.json(), c.get("token_path") or "access_token")
+            except Exception as e:
+                raise RuntimeError(f"oauth2 token request failed: {type(e).__name__}: {e}")
+            if not tok:
+                raise RuntimeError("oauth2 token request returned no access token")
+            headers["Authorization"] = f"Bearer {tok}"
+            log_step("auth", "oauth2 client-credentials token acquired")
+        elif auth_mode == "form":
+            if not c.get("login_url"):
+                raise RuntimeError("http_form: login_url is required for auth_mode 'form'")
+            fields = dict(c.get("login_extra") or {})
+            fields[c.get("username_field", "username")] = username
+            fields[c.get("password_field", "password")] = secret
+            kw = {"json": fields} if c.get("login_as_json") else {"data": fields}
+            try:
+                lr = s.request(c.get("login_method", "POST"), U(c["login_url"]),
+                               timeout=DEFAULT_TIMEOUT, **kw)
+            except Exception as e:
+                raise RuntimeError(f"login request failed: {type(e).__name__}: {e}")
+            self._check_login(lr, c.get("login_success") or {})
+            log_step("auth", "form login OK")
+        else:
+            raise RuntimeError(f"http_form: unknown auth_mode '{auth_mode}'")
+
+        # ---- ENUMERATE ------------------------------------------------------------
+        download_urls = []
+        if c.get("url_template"):
+            tpl = c["url_template"]
+            ids = c.get("ids")
+            if ids:
+                download_urls = [sub_window(tpl).replace("{id}", str(i)) for i in ids]
+            else:
+                download_urls = [sub_window(tpl)]
+            log_step("enumerate", f"url_template -> {len(download_urls)} statement(s)")
+        elif c.get("link_regex"):
+            download_urls = self._enumerate_links(s, c, U, sub_window, req_auth, headers, log_step)
+        else:
+            raise RuntimeError("http_form: enumeration needs either url_template or link_regex")
+
+        if not download_urls:
+            log_step("enumerate", "no statements found in the window")
+            return []
+
+        # ---- DOWNLOAD -------------------------------------------------------------
+        fmt = (c.get("format") or "csv").lower()
+        method = c.get("download_method", "GET")
+        out = []
+        for idx, du in enumerate(download_urls, 1):
+            try:
+                r = s.request(method, U(du), auth=req_auth, headers=headers,
+                              timeout=DEFAULT_TIMEOUT)
+                r.raise_for_status()
+            except Exception as e:
+                raise RuntimeError(f"download {idx}/{len(download_urls)} failed: "
+                                   f"{type(e).__name__}: {e}")
+            data = r.content
+            if not data:
+                log_step("download", f"statement {idx} was empty — skipped")
+                continue
+            out.append((_filename_for(cfg, idx, du, fmt), data))
+        log_step("download", f"downloaded {len(out)} statement file(s)")
+        return out
+
+    def _check_login(self, resp, spec):
+        """Verify the login response against the configured success check; raise a clear
+        per-criterion error on a wrong credential / failed login so the run records a
+        failed status and the breaker can trip."""
+        want = spec.get("status")
+        if want is not None:
+            ok = (resp.status_code in want) if isinstance(want, (list, tuple)) else (resp.status_code == want)
+            if not ok:
+                raise RuntimeError(f"login status {resp.status_code} (wanted {want})")
+        elif resp.status_code >= 400:
+            raise RuntimeError(f"login failed: HTTP {resp.status_code}")
+        if spec.get("redirect_contains"):
+            url = getattr(resp, "url", "") or ""
+            if spec["redirect_contains"] not in url:
+                raise RuntimeError("login did not redirect as expected (auth likely failed)")
+        body = None
+        if spec.get("text_contains") or spec.get("text_absent"):
+            body = resp.text or ""
+        if spec.get("text_contains") and spec["text_contains"] not in body:
+            raise RuntimeError("login success marker absent (auth likely failed)")
+        if spec.get("text_absent") and spec["text_absent"] in body:
+            raise RuntimeError(f"login failure marker present: {spec['text_absent']!r}")
+
+    def _enumerate_links(self, s, c, U, sub_window, req_auth, headers, log_step):
+        """Walk the statement-listing page(s) and collect download URLs by regex. Supports
+        pagination via either a page_param counter or a next_link_regex chain, capped by
+        max_pages (default 1)."""
+        import re as _re
+        if not c.get("list_url"):
+            raise RuntimeError("http_form: link_regex enumeration needs list_url")
+        pat = _re.compile(c["link_regex"])
+        # window placeholders ({from}/{to}) in list_params string values are substituted
+        params = {k: (sub_window(v) if isinstance(v, str) else v)
+                  for k, v in (c.get("list_params") or {}).items()}
+        method = c.get("list_method", "GET")
+        max_pages = max(1, _as_int_local(c.get("max_pages"), 1))
+        page_param = c.get("page_param")
+        page = _as_int_local(c.get("page_start"), 1)
+        next_re = _re.compile(c["next_link_regex"]) if c.get("next_link_regex") else None
+        limit = _as_int_local(c.get("link_limit"), 200)
+        urls, next_url, pages = [], U(c["list_url"]), 0
+        while next_url and pages < max_pages:
+            p = dict(params)
+            if page_param:
+                p[page_param] = page
+            try:
+                lr = s.request(method, next_url, params=p, auth=req_auth,
+                               headers=headers, timeout=DEFAULT_TIMEOUT)
+                lr.raise_for_status()
+            except Exception as e:
+                raise RuntimeError(f"statement-list page {pages+1} failed: "
+                                   f"{type(e).__name__}: {e}")
+            text = lr.text or ""
+            found = pat.findall(text)
+            for m in found:
+                if len(urls) >= limit:
+                    break
+                urls.append(m if isinstance(m, str) else m[0])
+            pages += 1
+            if next_re:
+                nm = next_re.search(text)
+                next_url = U(nm.group(1)) if nm else None
+            elif page_param:
+                page += 1
+                next_url = U(c["list_url"]) if pages < max_pages else None
+            else:
+                next_url = None
+        log_step("enumerate", f"link_regex matched {len(urls)} statement(s) over {pages} page(s)")
+        return urls
+
+
+def _as_int_local(v, default):
+    try:
+        return int(v) if v is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
+_BUILTIN = {"http_json": HttpJsonAdapter, "csv": CsvExportAdapter, "demo": DemoAdapter,
+            "http_form": HttpFormAdapter}
 
 def _adapter_for(supplier, cfg):
     if supplier.upper() in ADAPTERS:           # a registered custom code adapter wins
@@ -635,10 +928,12 @@ def _finish_run(con, run_id, status, rows, message):
     con.commit()
 
 def scrape(supplier, entity, date_from=None, date_to=None):
-    """Scrape one portal account and load the prices into the MY-Prices benchmark
-    (source 'portal:<SUPPLIER>'). Returns a summary dict; records the run; never
-    leaves a half-written state (load is its own transaction in pricing_intelligence).
-    Raises RuntimeError on misconfiguration or an upstream failure (recorded first)."""
+    """Scrape one portal account. A PRICE adapter (http_json/csv/demo/custom) loads the
+    MY-Prices benchmark (source 'portal:<SUPPLIER>'). A DOCUMENT adapter (http_form, or a
+    registered DocumentAdapter) downloads STATEMENT FILES and enqueues them into the SAME
+    extract->review-draft->register pipeline an upload uses (scrape_documents). Returns a
+    summary dict; records the run; raises RuntimeError on misconfiguration or an upstream
+    failure (recorded on the run first). Called only on the worker tier via _do_fetch."""
     supplier = supplier.upper()
     cfg = get_config(supplier)
     if not cfg:
@@ -649,6 +944,8 @@ def scrape(supplier, entity, date_from=None, date_to=None):
     if creds is None and cfg["kind"] != "demo":
         raise RuntimeError(f"no stored credentials for {supplier} / {entity}")
     adapter = _adapter_for(supplier, cfg)
+    if getattr(adapter, "DOCUMENT_YIELDING", False):
+        return scrape_documents(supplier, entity, cfg, creds, adapter, date_from, date_to)
     con = connect()
     run_id = _start_run(con, supplier, entity)
     try:
@@ -661,6 +958,53 @@ def scrape(supplier, entity, date_from=None, date_to=None):
         return {"supplier": supplier, "entity": entity, "fetched": len(raw or []), "loaded": n}
     except Exception as e:
         _finish_run(con, run_id, "failed", 0, f"{type(e).__name__}: {e}")
+        con.close()
+        raise
+
+
+def scrape_documents(supplier, entity, cfg, creds, adapter, date_from=None, date_to=None):
+    """Download statement FILES from a portal and ENQUEUE each into the existing intake
+    queue (waiting_room.enqueue), so they flow through the SAME extract->review-draft->
+    register pipeline as an upload — deterministic-first, human-confirmed (advisory until
+    confirmed; autopilot may auto-file when ON, exactly as for an upload). The enqueue
+    `backend` is the SUPPLIER, so the supplier's parser/AI routing is unchanged.
+
+    Records a portal_runs row with a STEP-by-step message so a failure names the failing
+    step (clearer breaker reasons). NEVER loads my_prices (that's the price-scrape path).
+    Returns {supplier, entity, fetched, loaded} where `fetched` = files downloaded and
+    `loaded` = jobs enqueued (re-using scrape()'s return shape so _do_fetch logs uniformly).
+    Raises (after recording 'failed') on any per-step failure so the worker retries/breaks."""
+    supplier = supplier.upper()
+    con = connect()
+    run_id = _start_run(con, supplier, entity)
+    steps = []
+
+    def log_step(step, detail):
+        # progress only — NEVER a secret. Kept short; the latest steps form the run message.
+        steps.append(f"{step}: {detail}")
+        log.info("portal[%s/%s] %s: %s", supplier, entity, step, detail)
+
+    try:
+        docs = adapter.fetch_documents(creds or {}, cfg, date_from, date_to, log_step)
+        import waiting_room as IQ
+        user = (creds or {}).get("user") or "portal-fetch"
+        enqueued = 0
+        for fname, data in docs:
+            try:
+                IQ.enqueue(data, fname, backend=supplier, user=f"portal:{supplier}")
+                enqueued += 1
+            except ValueError as e:           # empty upload etc. — skip, keep going
+                log_step("enqueue", f"skipped {fname}: {e}")
+        msg = f"{enqueued} statement(s) enqueued from {len(docs)} downloaded · " + " | ".join(steps[-4:])
+        _finish_run(con, run_id, "ok", enqueued, msg)
+        con.close()
+        return {"supplier": supplier, "entity": entity,
+                "fetched": len(docs), "loaded": enqueued}
+    except Exception as e:
+        msg = f"{type(e).__name__}: {e}"
+        if steps:
+            msg += " · steps: " + " | ".join(steps[-4:])
+        _finish_run(con, run_id, "failed", 0, msg)
         con.close()
         raise
 

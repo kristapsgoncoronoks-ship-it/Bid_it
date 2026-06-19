@@ -7738,7 +7738,7 @@ def _portals_card():
             '<form method="post" action="/pricing/portal" class="f" style="margin-top:8px">' + _csrf_input()
             + '<label>supplier code<input name="supplier" required style="width:110px"></label>'
             + '<label>kind<select name="kind">'
-            + ''.join(f'<option>{k}</option>' for k in ("demo", "http_json", "csv", "custom"))
+            + ''.join(f'<option>{k}</option>' for k in ("demo", "http_json", "csv", "http_form", "custom"))
             + '</select></label>'
             + '<label>base URL<input name="base_url" style="width:220px" placeholder="https://portal.supplier.com"></label>'
             + '<label><input type="checkbox" name="enabled" checked> enabled</label>'
@@ -7748,12 +7748,34 @@ def _portals_card():
               '<textarea name="config" rows="3" style="width:100%;font-family:monospace" '
               'placeholder=\'{"price_url":"/api/prices","rows_path":"data","map":{"country":"ctry","city":"station","date":"day","net_price":"net"}}\'></textarea></label>'
             + '<button name="__act" value="save_config">Save portal</button></form>'
+            '<div class="note" style="margin-top:6px">'
+            '<b>kind <code>http_form</code></b> = the generic <b>form-login + download</b> '
+            'adapter: onboard most low-IT portals by CONFIG (no Python). It logs in (form / '
+            'HTTP-basic / OAuth2 client-credentials), enumerates statements (a link-regex over '
+            'the listing or a URL template), downloads each file (csv/xlsx/xml/pdf) and '
+            '<b>enqueues it into the normal review pipeline</b>. Example config: '
+            '<code>{"auth_mode":"form","login_url":"/login","username_field":"email",'
+            '"password_field":"pass","list_url":"/statements","link_regex":"href=\\"(/dl/[^\\"]+\\\\.csv)\\"",'
+            '"format":"csv"}</code>. See <code>portal_scraper.HttpFormAdapter</code> for the full schema.'
+            '</div>'
             '<form method="post" action="/pricing/portal" class="f" style="margin-top:6px">' + _csrf_input()
             + '<label>supplier<input name="supplier" required style="width:90px"></label>'
             + '<label>entity<input name="entity" required style="width:120px"></label>'
             + '<label>username<input name="username" autocomplete="off"></label>'
             + '<label>password / token<input name="secret" type="password" autocomplete="new-password"></label>'
             + '<button name="__act" value="save_creds">Store credentials (encrypted)</button></form>'
+            '</details>'
+            '<details style="margin-top:10px"><summary><b>Import an inbound e-invoice (admin)</b></summary>'
+            '<div class="note" style="margin-top:6px">The PUSH side of capture: hand a structured '
+            'e-invoice (UBL/CII <b>XML</b>, or a <b>Factur-X PDF</b>) straight into the normal '
+            'review pipeline — parsed deterministically (no AI), confirmed by a human like any '
+            'upload. A live PEPPOL Access Point wires its delivery to this same intake; this form '
+            'exercises the whole downstream path with a real file.</div>'
+            '<form method="post" action="/pricing/portal" class="f" style="margin-top:8px" '
+            'enctype="multipart/form-data">' + _csrf_input()
+            + '<label>e-invoice file (.xml / .pdf)<input type="file" name="einvoice" '
+              'accept=".xml,.pdf,application/xml,text/xml,application/pdf" required></label>'
+            + '<button name="__act" value="import_einvoice">Import e-invoice</button></form>'
             '</details>')
     note = ('<div class="note">Pulls each entity\'s own NET prices from its authorized supplier '
             'portal into <b>MY Prices</b> (source <code>portal:&lt;SUPPLIER&gt;</code>), so the '
@@ -7812,6 +7834,23 @@ def pricing_portal():
                       f'{state}.</b> Scheduled pulls only run for <b>enabled</b> portals '
                       f'with a <b>non-zero interval</b> and <b>stored credentials</b>, and '
                       f'only for portals you are authorized to access.</div>')
+        elif act == "import_einvoice" and is_admin:
+            # PUSH-side capture: parse a structured e-invoice (UBL/CII XML or Factur-X PDF)
+            # via the SAME deterministic pipeline an upload uses, parking it for human
+            # review. Admin-only (intake of arbitrary documents into the VAT pipeline).
+            import inbound_einvoice as IE
+            f = request.files.get("einvoice")
+            data = f.read() if f else b""
+            fname = (getattr(f, "filename", "") or "einvoice.xml")
+            try:
+                jid, st = IE.intake_einvoice(data, fname,
+                                             user=session.get("user", "system"))
+                banner = (f'<div class="card"><b class="ok">E-invoice <code>{esc(fname)}</code> '
+                          f'accepted (job {jid}, {esc(st)}) — it is parsed on the worker tier '
+                          f'and waits in the intake queue for review.</b></div>')
+            except IE.InboundRejected as e:
+                banner = (f'<div class="card"><b class="bad">E-invoice rejected: '
+                          f'{esc(str(e))}</b></div>')
         elif act == "save_config" and is_admin:
             cfg_raw = request.form.get("config", "").strip() or "{}"
             import json as _json
