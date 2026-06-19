@@ -120,12 +120,26 @@ def connect():
 # Provider seam
 # ============================================================================
 class FinanceProvider:
-    """Interface a licensed factoring partner implements to receive advance requests.
+    """Interface a licensed factoring partner implements to model/track an advance.
+
+    The PROTOCOL (matching the offer/advance shapes already modelled by offer_for /
+    offer_advance / set_status):
+
+      * quote(receivable)   -> offer terms for a receivable (advance %, fee, net-now/later);
+      * accept(advance_id)  -> move a modelled offer to `accepted`;
+      * fund(advance_id)    -> the partner funds the advance (status `funded`);
+      * repay(advance_id)   -> the receivable settles and the advance is repaid (`repaid`);
+      * status(advance_id)  -> the current ledger status of an advance;
+      * submit_advance(...) -> the LEGACY aggregate request entrypoint (kept for the
+                               Receivables KPI's `request_advance`).
 
     A real provider (e.g. a Factris-style partner: OUR data + UI, the PARTNER's API and
-    licence) would, in `submit_advance`, call out to the partner over an authenticated,
-    out-of-band channel and return the partner's decision. NOTHING in this repo makes
-    such a call — that integration is the licensed partner's plug-in point.
+    licence) would, in `fund`/`repay`/`submit_advance`, call out to the partner over an
+    authenticated, out-of-band channel and return the partner's decision. NOTHING in this
+    repo makes such a call — that integration is the licensed partner's plug-in point.
+
+    CARDINAL INVARIANT: a provider NEVER mutates a VAT figure, claim status, lock, fee or
+    payment. It only models terms and advances the finance-owned finance.db ledger.
     """
     name = "base"
 
@@ -135,26 +149,132 @@ class FinanceProvider:
         {ok, ref, status, message}."""
         raise NotImplementedError
 
+    # ----- lifecycle protocol (offer/advance shapes) ------------------------
+    def quote(self, eligible_eur, status, submitted=None):
+        """Offer terms for an eligible receivable. The DEFAULT models them with the pure
+        offer_for() economics (advance/fee/net-now/net-later) — a real partner may price
+        differently. Returns the offer_for() dict."""
+        return offer_for(eligible_eur, status, submitted)
+
+    def accept(self, advance_id, actor="system"):
+        """Move a modelled `offered` advance to `accepted`. The base default does NOT
+        fund — only the ledger status moves."""
+        return set_status(advance_id, "accepted", actor=actor)
+
+    def fund(self, advance_id, actor="system"):
+        """Fund an accepted advance. The DEFAULT does NOT fund (no partner) — subclasses
+        for a real/sandbox partner advance the ledger to `funded`."""
+        raise NotImplementedError
+
+    def repay(self, advance_id, actor="system"):
+        """Settle/repay a funded advance. The DEFAULT does NOT repay — subclasses advance
+        the ledger to `repaid`."""
+        raise NotImplementedError
+
+    def status(self, advance_id):
+        """The current finance.db ledger status of an advance (or None)."""
+        row = advance_by_id(advance_id)
+        return row.get("status") if row else None
+
 
 class NullProvider(FinanceProvider):
     """The DEFAULT. No financing partner is configured, so no money moves — an advance
-    request is recorded as INTENT only and reports `no_provider`."""
+    request is recorded as INTENT only and reports `no_provider`. `fund`/`repay` are NOT
+    available (nothing funds): they no-op (return the row unchanged) so a caller can probe
+    the protocol uniformly without a partner ever moving money."""
     name = "none"
 
     def submit_advance(self, claim_key, amount_eur, meta):
         return {"ok": False, "ref": None, "status": "no_provider",
                 "message": "No financing partner configured — informational only."}
 
+    def fund(self, advance_id, actor="system"):
+        # No partner -> nothing funds. Return the row UNCHANGED (no status move).
+        log.info("finance: NullProvider.fund is a no-op (no partner configured)")
+        return advance_by_id(advance_id)
+
+    def repay(self, advance_id, actor="system"):
+        log.info("finance: NullProvider.repay is a no-op (no partner configured)")
+        return advance_by_id(advance_id)
+
+
+class SandboxFinanceProvider(FinanceProvider):
+    """A DETERMINISTIC, NETWORK-FREE simulation of a licensed factoring partner, so the
+    full advance lifecycle is exercisable end-to-end WITHOUT a live partner. It generates
+    realistic offer terms from the receivable and advances the finance.db ledger through
+    offered → accepted → funded → repaid on the appropriate calls.
+
+    STRICT INVARIANT (CLAUDE.md): the sandbox SIMULATES a lifecycle ONLY in finance.db's
+    own advances ledger — it touches NO VAT figure, claim status, lock, fee or payment. No
+    real money moves; the rows are stamped provider="sandbox" so they are never mistaken
+    for a real partner's funding. Use it to demo/test origination, never to settle cash."""
+    name = "sandbox"
+
+    def quote(self, eligible_eur, status, submitted=None):
+        # The sandbox prices with the same transparent offer_for() model — deterministic.
+        return offer_for(eligible_eur, status, submitted)
+
+    def submit_advance(self, claim_key, amount_eur, meta):
+        # Aggregate request entrypoint: the sandbox "accepts" the request (modelled), but
+        # NO money moves and NO claim is touched — it only reports a deterministic ref.
+        ref = f"SBX-{claim_key}"
+        return {"ok": True, "ref": ref, "status": "accepted",
+                "message": "Sandbox provider — advance modelled (no funds move)."}
+
+    def fund(self, advance_id, actor="system"):
+        """Advance an `accepted` row to `funded` in finance.db ONLY. No money moves; the
+        VAT claim is untouched. Refuses to fund an offer that was never accepted."""
+        row = advance_by_id(advance_id)
+        if not row:
+            log.warning("finance: sandbox.fund: no advance %r", advance_id)
+            return None
+        if row.get("status") != "accepted":
+            log.warning("finance: sandbox.fund refuses %r in status %r (need 'accepted')",
+                        advance_id, row.get("status"))
+            return None
+        return set_status(advance_id, "funded", actor=actor)
+
+    def repay(self, advance_id, actor="system"):
+        """Advance a `funded` row to `repaid` in finance.db ONLY (the simulated state
+        settlement). No money moves; the VAT claim is untouched."""
+        row = advance_by_id(advance_id)
+        if not row:
+            log.warning("finance: sandbox.repay: no advance %r", advance_id)
+            return None
+        if row.get("status") != "funded":
+            log.warning("finance: sandbox.repay refuses %r in status %r (need 'funded')",
+                        advance_id, row.get("status"))
+            return None
+        return set_status(advance_id, "repaid", actor=actor)
+
+    def simulate(self, advance_id, actor="system"):
+        """Run the WHOLE deterministic lifecycle from the current state forward:
+        offered → accepted → funded → repaid, advancing the finance.db ledger one step at
+        a time. Returns the final row. Touches NO VAT figure — finance.db only."""
+        row = advance_by_id(advance_id)
+        if not row:
+            return None
+        if row.get("status") == "offered":
+            row = self.accept(advance_id, actor=actor) or row
+        if row and row.get("status") == "accepted":
+            row = self.fund(advance_id, actor=actor) or row
+        if row and row.get("status") == "funded":
+            row = self.repay(advance_id, actor=actor) or row
+        return row
+
 
 # >>> LICENSED-PARTNER SEAM <<<
 # To wire a real factoring partner, add a `FinanceProvider` subclass whose
-# `submit_advance` calls the partner's API (out-of-band, authenticated, audited — never
-# inline secrets), register it in `_PROVIDERS` below, and select it via the
-# `finance_provider` app setting. The platform stays origination-only: the partner holds
-# the lending/factoring licence and the balance-sheet risk. Do NOT implement a real
-# partner call in this repo.
+# `fund`/`repay`/`submit_advance` call the partner's API (out-of-band, authenticated,
+# audited — never inline secrets), register it in `_PROVIDERS` below, and select it via
+# the `finance_provider` app setting. The platform stays origination-only: the partner
+# holds the lending/factoring licence and the balance-sheet risk. Do NOT implement a real
+# partner call in this repo — the `sandbox` provider above is a DETERMINISTIC simulation
+# (finance.db ledger only, no money, no network) for end-to-end exercise WITHOUT a partner.
 _PROVIDERS = {
     "none": NullProvider,
+    "null": NullProvider,        # explicit alias for the default
+    "sandbox": SandboxFinanceProvider,
 }
 
 

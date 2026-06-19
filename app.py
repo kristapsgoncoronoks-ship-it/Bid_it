@@ -8891,9 +8891,11 @@ def receivables():
           'style="width:80px"></label>'
         + f'<label>Fee %<input name="fee_pct" value="{esc(str(fterms["fee_pct"]))}" '
           'style="width:80px"></label>'
-        + '<label>Provider<select name="provider"><option value="none"'
-        + (' selected' if prov.name == "none" else '')
-        + '>none (informational)</option></select></label>'
+        + '<label>Provider<select name="provider">'
+        + '<option value="none"' + (' selected' if prov.name == "none" else '')
+        + '>none (informational)</option>'
+        + '<option value="sandbox"' + (' selected' if prov.name == "sandbox" else '')
+        + '>sandbox (deterministic simulation)</option></select></label>'
         + '<button>Save terms</button>'
         + '<span class="note">Advance fraction (0&lt;x&le;1) and fee fraction (0&le;x&lt;0.5).</span>'
         + '</form></div>')
@@ -8977,6 +8979,30 @@ def financing():
                 banner = ('<div class="card"><b class="ok">Advance status updated.</b></div>'
                           if row else
                           '<div class="card"><b class="bad">Could not update advance status.</b></div>')
+            elif act in ("fund", "repay", "simulate"):
+                # Provider lifecycle steps. fund/repay/simulate advance the finance.db
+                # ledger ONLY (no money moves, no claim is touched). With the NULL provider
+                # fund/repay are no-ops; the sandbox provider runs the deterministic
+                # simulation. simulate() runs offered→accepted→funded→repaid in one click.
+                aid = int(request.form.get("advance_id", "0") or 0)
+                actor = session.get("user", "admin")
+                p = finance.provider()
+                row = None
+                if act == "simulate" and hasattr(p, "simulate"):
+                    row = p.simulate(aid, actor=actor)
+                elif act == "fund":
+                    row = p.fund(aid, actor=actor)
+                elif act == "repay":
+                    row = p.repay(aid, actor=actor)
+                ok = bool(row) and (act != "simulate" or (row or {}).get("status") == "repaid")
+                if p.name == "none":
+                    banner = ('<div class="card"><b class="bad">No partner configured — '
+                              'nothing funds (origination-only).</b></div>')
+                else:
+                    banner = ('<div class="card"><b class="ok">Sandbox lifecycle advanced '
+                              '(finance ledger only — no money moved).</b></div>' if row else
+                              '<div class="card"><b class="bad">Could not advance lifecycle '
+                              '(check the advance status).</b></div>')
         except Exception as e:
             _log_exc("financing/" + act, e)
             banner = '<div class="card"><b class="bad">Action failed.</b></div>'
@@ -9035,8 +9061,13 @@ def financing():
                   if offer_rows
                   else '<p class="note">No eligible (filed, unpaid) receivables to finance.</p>')
 
-    # Origination ledger with status transitions.
+    # Origination ledger with status transitions. The manual set_status transitions are the
+    # admin-curated lifecycle; with the SANDBOX provider, fund/repay/simulate steps appear
+    # too (deterministic simulation, finance ledger only — never funds real money).
     _next = {"offered": ("accepted", "declined"), "accepted": ("declined",)}
+    _sandbox = prov.name == "sandbox"
+    # provider-driven steps available per status under the sandbox provider
+    _steps = {"accepted": ("fund",), "funded": ("repay",)} if _sandbox else {}
     try:
         ledger_rows = []
         for a in finance.list_advances():
@@ -9050,6 +9081,20 @@ def financing():
                     + f'<input type="hidden" name="advance_id" value="{esc(str(a.get("id")))}">'
                     + f'<input type="hidden" name="status" value="{esc(nxt)}">'
                     + f'<button>{esc(nxt)}</button></form>')
+            for step in _steps.get(st, ()):
+                transitions += (
+                    '<form method="post" style="display:inline;margin:0 4px 0 0">'
+                    + _csrf_input()
+                    + f'<input type="hidden" name="__act" value="{esc(step)}">'
+                    + f'<input type="hidden" name="advance_id" value="{esc(str(a.get("id")))}">'
+                    + f'<button>{esc(step)} (sandbox)</button></form>')
+            if _sandbox and st in ("offered", "accepted", "funded"):
+                transitions += (
+                    '<form method="post" style="display:inline;margin:0 4px 0 0">'
+                    + _csrf_input()
+                    + '<input type="hidden" name="__act" value="simulate">'
+                    + f'<input type="hidden" name="advance_id" value="{esc(str(a.get("id")))}">'
+                    + '<button>simulate → repaid (sandbox)</button></form>')
             ledger_rows.append([
                 f"<td>{esc(a.get('created_at') or '')}</td>",
                 f"<td>{esc(a.get('claim_key') or '')}</td>",
@@ -9092,17 +9137,23 @@ def financing():
           f'value="{esc(str(fterms["advance_rate"]))}" style="width:80px"></label>'
         + f'<label>Annual fee rate<input name="fee_rate_annual" '
           f'value="{esc(str(fterms["fee_rate_annual"]))}" style="width:80px"></label>'
-        + '<label>Provider<select name="provider"><option value="none"'
-        + (' selected' if prov.name == "none" else '')
-        + '>none (origination-only)</option></select></label>'
+        + '<label>Provider<select name="provider">'
+        + '<option value="none"' + (' selected' if prov.name == "none" else '')
+        + '>none (origination-only)</option>'
+        + '<option value="sandbox"' + (' selected' if prov.name == "sandbox" else '')
+        + '>sandbox (deterministic simulation)</option></select></label>'
         + '<button>Save terms</button>'
         + '<span class="note">Advance fraction (0&lt;x&le;1), annual fee fraction '
-          '(0&le;x&lt;1).</span></form></div>'
+          '(0&le;x&lt;1). <b>sandbox</b> simulates a full advance lifecycle in the finance '
+          'ledger only — no money moves, no claim is touched.</span></form></div>'
         + '<div class="card"><h2>Origination ledger</h2>' + ledger_body
         + '<div class="note">The finance-owned advances ledger (finance.db). Each row is a '
           'MODELLED advance, never a funded one — with the NULL provider no money moves. '
-          'Lifecycle: offered → accepted / declined. EUR figures are the eligible receivable, '
-          'the advance and the fee at the recorded terms.</div></div>')
+          'Lifecycle: offered → accepted / declined. With the <b>sandbox</b> provider the '
+          'fund / repay / simulate steps advance the ledger through accepted → funded → '
+          'repaid as a DETERMINISTIC simulation (finance ledger only — no money moves, no '
+          'claim is touched). EUR figures are the eligible receivable, the advance and the '
+          'fee at the recorded terms.</div></div>')
     return page(body, "fin")
 
 
@@ -9131,7 +9182,15 @@ def recon():
     banner = ""
     bank_lines = []
     did_recon = False
-    if request.method == "POST" and request.form.get("__act") == "upload":
+    if request.method == "POST" and request.form.get("__act") == "set_bank_provider":
+        try:
+            _auth.set_setting("bank_provider",
+                              (request.form.get("provider", "none") or "none").strip())
+            banner = '<div class="card"><b class="ok">Bank feed provider saved.</b></div>'
+        except Exception as e:
+            _log_exc("recon/set_bank_provider", e)
+            banner = '<div class="card"><b class="bad">Could not save bank provider.</b></div>'
+    elif request.method == "POST" and request.form.get("__act") == "upload":
         f = request.files.get("file")
         try:
             if not f or not f.filename:
@@ -9174,8 +9233,21 @@ def recon():
                 f'<b>Provider: {esc(prov.name)}</b>'
                 + (' (none configured).' if prov.name == "none" else '.') + '</div>')
 
+    prov_form = (
+        '<form method="post" class="f" style="margin-top:10px">' + _csrf_input()
+        + '<input type="hidden" name="__act" value="set_bank_provider">'
+        + '<label>Bank feed provider<select name="provider">'
+        + '<option value="none"' + (' selected' if prov.name == "none" else '')
+        + '>none (CSV upload only)</option>'
+        + '<option value="sandbox"' + (' selected' if prov.name == "sandbox" else '')
+        + '>sandbox (deterministic mock feed)</option></select></label>'
+        + '<button>Save provider</button>'
+        + '<span class="note">The <b>sandbox</b> feed returns deterministic mock bank lines '
+          '(matching the expected refunds + noise) — account-information only, no payment, '
+          'no claim is touched.</span></form>')
+
     upload_form = (
-        '<div class="card"><h2>Bank statement</h2>' + advisory
+        '<div class="card"><h2>Bank statement</h2>' + advisory + prov_form
         + '<form method="post" enctype="multipart/form-data" class="f" style="margin-top:10px">'
         + _csrf_input()
         + '<input type="hidden" name="__act" value="upload">'

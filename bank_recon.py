@@ -67,6 +67,66 @@ class NullProvider(BankingProvider):
         return []
 
 
+class SandboxBankProvider(BankingProvider):
+    """A DETERMINISTIC, NETWORK-FREE mock account-information feed, so the advisory
+    reconciliation is exercisable end-to-end WITHOUT a live AISP partner.
+
+    It returns mock bank lines that INCLUDE credits matching the EXPECTED refunds (so
+    `reconcile` produces hits) plus some non-matching NOISE (a fee debit, an unrelated
+    credit). It reads the SAME expected_refunds() recovery view to synthesise a credit per
+    expected refund (amount = expected_eur, date = `since` + a few days, inside the
+    reconcile day-tolerance), so a demo/test sees real matches.
+
+    STRICT INVARIANT (CLAUDE.md): account-information ONLY — it fabricates READ lines and
+    NEVER initiates a payment, marks a claim paid, or mutates any VAT figure/status. The
+    feed is fully deterministic (no randomness, no clock dependence beyond the expected
+    refunds' own dates) so a test is stable."""
+    name = "sandbox"
+
+    # days after a refund's `since` (filing) date that the simulated credit lands — well
+    # inside reconcile()'s default 14-day tolerance, so every expected refund matches.
+    _LAND_DAYS = 5
+
+    def fetch_transactions(self, account, since=None):
+        lines = []
+        try:
+            expected = expected_refunds()
+        except Exception as e:                       # defensive — never raise
+            log.warning("bank_recon: sandbox fetch could not read expected refunds: %s", e)
+            expected = []
+        for e in expected:
+            amt = e.get("expected_eur")
+            base = e.get("since")
+            date = self._offset(base, self._LAND_DAYS) or base
+            if amt is None or date is None:
+                continue
+            lines.append({
+                "date": date,
+                "amount": float(amt),
+                "description": f"VAT refund {e.get('country') or ''} {e.get('period') or ''}".strip(),
+                "counterparty": "Tax authority (sandbox)",
+            })
+        # deterministic NOISE — a non-matching credit + an outgoing debit. Anchored to the
+        # earliest expected date (or a fixed fallback) so the output is stable.
+        anchor = min((e.get("since") for e in expected if e.get("since")), default=None)
+        noise_date = self._offset(anchor, 1) or "2026-01-15"
+        lines.append({"date": noise_date, "amount": 42.00,
+                      "description": "Interest credit (sandbox)",
+                      "counterparty": "Bank (sandbox)"})
+        lines.append({"date": noise_date, "amount": -17.50,
+                      "description": "Account fee (sandbox)",
+                      "counterparty": "Bank (sandbox)"})
+        return lines
+
+    @staticmethod
+    def _offset(iso_date, days):
+        try:
+            return (datetime.date.fromisoformat(iso_date)
+                    + datetime.timedelta(days=days)).isoformat()
+        except (TypeError, ValueError):
+            return None
+
+
 # >>> AISP AGENT SEAM <<<
 # To wire an automated bank feed, add a `BankingProvider` subclass whose
 # `fetch_transactions` calls a LICENSED account-information aggregator (Tink / TrueLayer /
@@ -80,9 +140,12 @@ class NullProvider(BankingProvider):
 #     prefer scoped OAuth tokens, least-privilege, full audit (see CLAUDE.md);
 #   * fetching runs OUT-OF-BAND on the intake worker tier, never inline in a web request.
 # Register the subclass in `_PROVIDERS` and select it via the `bank_provider` app setting.
-# Do NOT implement a real bank API call in this repo.
+# Do NOT implement a real bank API call in this repo — the `sandbox` provider above is a
+# DETERMINISTIC mock feed (no network, account-information only) for end-to-end exercise.
 _PROVIDERS = {
     "none": NullProvider,
+    "null": NullProvider,         # explicit alias for the default
+    "sandbox": SandboxBankProvider,
 }
 
 
