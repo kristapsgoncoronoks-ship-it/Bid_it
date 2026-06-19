@@ -281,14 +281,37 @@ def signing_status(signing_token):
         return {"ok": False, "error": f"status failed: {e}"}
 
 
+def _is_dokobit_host(url):
+    """True iff `url` is an https URL on the configured Gateway host. The access token is
+    added to this request, so we must NEVER fetch (and leak the token to) an arbitrary
+    host fed via a postback body. Defensive; any parse problem -> False."""
+    try:
+        from urllib.parse import urlparse
+        u = urlparse(url or "")
+        if u.scheme != "https" or not u.hostname:
+            return False
+        allowed = urlparse(_base()).hostname
+        host = u.hostname.lower()
+        return host == allowed or host.endswith(".dokobit.com")
+    except Exception:
+        return False
+
+
 def fetch_signed(url):
     """Download the signed document bytes from a Dokobit file URL (the token is added as
     a param). Returns the bytes, or None on any failure / when the seam is OFF. Never
-    raises and NEVER logs the token."""
+    raises and NEVER logs the token.
+
+    SSRF GUARD: the access token rides this request as a query param, so the URL MUST be
+    on the configured Dokobit Gateway host — a foreign host (e.g. fed via an untrusted
+    postback body) is refused so the token is never leaked off-domain."""
     if not enabled():
         return None
     try:
         if not url:
+            return None
+        if not _is_dokobit_host(url):
+            log.warning("dokobit.fetch_signed refused off-allowlist host")
             return None
         import requests
         r = requests.get(url, params={"access_token": _token()}, timeout=_HTTP_TIMEOUT)

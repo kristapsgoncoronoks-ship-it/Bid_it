@@ -63,7 +63,7 @@ def _drop(token):
             pass
 
 
-def _confirm_form(client, net="1000", vat="210", token="tie-tok"):
+def _confirm_form(client, net="1000", vat="210", token="aaaaaaaaaaaaaaaa"):
     return {
         "_csrf": _csrf(client), "token": token, "nlines": "1",
         "supplier": "DKV", "period": "2026-05", "stmt_ref": "S-TIE",
@@ -74,7 +74,7 @@ def _confirm_form(client, net="1000", vat="210", token="tie-tok"):
 
 
 def test_confirm_blocks_when_lines_do_not_tie_to_total(client):
-    token = "tie-block-tok"
+    token = "00000000000000b1"
     _stash(token, coversheet_total=1210.0)             # document says gross 1210
     try:
         # operator mis-keys VAT so the line sum is 1090, not 1210 -> HARD BLOCK
@@ -93,7 +93,7 @@ def test_confirm_blocks_when_lines_do_not_tie_to_total(client):
 
 
 def test_confirm_allows_when_lines_tie_to_total(client):
-    token = "tie-ok-tok"
+    token = "00000000000000c2"
     _stash(token, coversheet_total=1210.0)
     try:
         form = _confirm_form(client, net="1000", vat="210", token=token)
@@ -108,7 +108,7 @@ def test_confirm_allows_when_lines_tie_to_total(client):
 
 def test_confirm_allows_when_no_total_present(client):
     # clean line, NO parsed total -> no tie-out gate, confirms as before
-    token = "tie-none-ok-tok"
+    token = "00000000000000d3"
     _stash(token, coversheet_total=None)
     try:
         form = _confirm_form(client, net="1000", vat="210", token=token)

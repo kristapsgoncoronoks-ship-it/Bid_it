@@ -163,7 +163,7 @@ def _confirm_form(client, supplier, lines, token):
 
 
 def test_confirm_seed_populates_per_country_entity(client):
-    token = "enttok_seed"
+    token = "00000000ce000001"
     lines = [
         {"invoice_no": "DE-001", "country": "Germany", "net": 100, "vat": 19,
          "supplier_name": "W.A.G. Deutschland GmbH", "supplier_vat": "DE811234567",
@@ -199,7 +199,7 @@ def test_confirm_seed_does_not_clobber_manual_entity(client):
     # Pre-set a MANUAL entity for Germany; a confirmed capture must NOT overwrite it.
     SM.set_vat_registration("Q8", "Germany", "DE-ADMIN-VAT", source="manual",
                             entity_name="Admin Set GmbH")
-    token = "enttok_noclobber"
+    token = "00000000ce000002"
     lines = [
         {"invoice_no": "DE-002", "country": "Germany", "net": 100, "vat": 19,
          "supplier_name": "Captured Other GmbH", "supplier_vat": "DE999999999",

@@ -98,7 +98,7 @@ def test_confirm_route_enqueues_and_does_not_write_synchronously(client, engine,
     monkeypatch.setattr(IC, "register_statement", _boom)
 
     form = {
-        "_csrf": _csrf(client), "token": "no-such-token", "nlines": "1",
+        "_csrf": _csrf(client), "token": "00000000deadbeef", "nlines": "1",
         "supplier": "DKV", "period": "2026-05", "stmt_ref": "S-WEB-1",
         "stmt_date": "2026-05-31", "customer": "OUR ENTITY",
         "inv_0": "BE001", "date_0": "2026-05-31", "ctry_0": "Belgium",
@@ -135,7 +135,7 @@ def test_confirm_route_blocks_invalid_draft_without_queueing(client, engine, mon
                    "verdict": "error", "messages": ["bad VAT"]}]})
 
     form = {
-        "_csrf": _csrf(client), "token": "no-such-token", "nlines": "1",
+        "_csrf": _csrf(client), "token": "00000000deadbeef", "nlines": "1",
         "supplier": "DKV", "period": "2026-05", "stmt_ref": "S-BAD-1",
         "stmt_date": "2026-05-31", "customer": "OUR ENTITY",
         "inv_0": "BE001", "date_0": "2026-05-31", "ctry_0": "Belgium",

@@ -73,7 +73,8 @@ def connect():
 # ---------------------------------------------------------------- parsers
 def _parse(xml_text):
     """ECB eurofxref XML -> list of (date, currency, rate). Namespace-agnostic."""
-    root = ET.fromstring(xml_text)
+    import safexml  # defused parse of EXTERNAL ECB network XML (billion-laughs safe)
+    root = safexml.fromstring(xml_text)
     ln = lambda t: t.rsplit("}", 1)[-1]
     out = []
     for el in root.iter():

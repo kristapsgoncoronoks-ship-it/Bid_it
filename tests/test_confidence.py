@@ -186,10 +186,10 @@ def test_route_skips_review_when_trusted(client, monkeypatch, web_conf):
     # ai_review.review must NOT be called on a skip
     monkeypatch.setattr(ai_review, "review",
                         lambda *a, **k: pytest.fail("review() called for a trusted pair"))
-    A._stash_draft("tok_skip", DRAFT)
+    A._stash_draft("0000000000c0f001", DRAFT)
     n_before = len(web_conf.recent_events())
     r = client.post("/extract/ai-review",
-                    data={"_csrf": _tok(client), "token": "tok_skip", "period": "2026-05"})
+                    data={"_csrf": _tok(client), "token": "0000000000c0f001", "period": "2026-05"})
     html = r.get_data(as_text=True)
     assert "AI review skipped" in html
     assert "is trusted" in html
@@ -207,9 +207,9 @@ def test_route_runs_review_for_untrusted_and_records(client, monkeypatch, web_co
                                   "lines": []},
                 "backend": "claude", "model": "claude-opus-4-8", "sent_keys": []}
     monkeypatch.setattr(ai_review, "review", lambda *a, **k: no_flags)
-    A._stash_draft("tok_run", DRAFT)
+    A._stash_draft("0000000000c0f002", DRAFT)
     r = client.post("/extract/ai-review",
-                    data={"_csrf": _tok(client), "token": "tok_run", "period": "2026-05"})
+                    data={"_csrf": _tok(client), "token": "0000000000c0f002", "period": "2026-05"})
     assert "AI review skipped" not in r.get_data(as_text=True)
     # a NO-flag review records a CLEAN validation -> trust rises off INIT
     assert web_conf.trust("DKV", "Belgium") == pytest.approx(0.6125)
@@ -226,9 +226,9 @@ def test_route_flagged_review_records_not_clean(client, monkeypatch, web_conf):
                                  "lines": []},
                "backend": "claude", "model": "claude-opus-4-8", "sent_keys": []}
     monkeypatch.setattr(ai_review, "review", lambda *a, **k: flagged)
-    A._stash_draft("tok_flag", DRAFT)
+    A._stash_draft("0000000000c0f003", DRAFT)
     client.post("/extract/ai-review",
-                data={"_csrf": _tok(client), "token": "tok_flag", "period": "2026-05"})
+                data={"_csrf": _tok(client), "token": "0000000000c0f003", "period": "2026-05"})
     # a FLAGGED review records a NOT-clean validation -> trust falls off INIT
     assert web_conf.trust("DKV", "Belgium") == pytest.approx(0.20)
     ev = web_conf.recent_events()

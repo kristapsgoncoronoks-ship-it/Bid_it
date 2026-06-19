@@ -66,7 +66,8 @@ def _xml_extract(root, cfg):
 
 
 def _xml(cfg):
-    tree = ET.parse(f"{WORKDIR}/{cfg['file']}")
+    import safexml  # defused parse of UNTRUSTED supplier XML (billion-laughs safe)
+    tree = safexml.parse(f"{WORKDIR}/{cfg['file']}")
     yield from _xml_extract(tree.getroot(), cfg)
 
 
@@ -96,7 +97,8 @@ def _api(cfg, ctx):
         recs = _dig(resp.json(), cfg.get("records_key", "data"))
         yield from recs
     else:  # xml over http
-        yield from _xml_extract(ET.fromstring(resp.text), cfg)
+        import safexml  # defused parse of UNTRUSTED supplier XML (billion-laughs safe)
+        yield from _xml_extract(safexml.fromstring(resp.text), cfg)
 
 
 ADAPTERS = {"xlsx": _xlsx, "csv": _csvsrc, "xml": _xml, "api": _api}

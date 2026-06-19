@@ -84,8 +84,8 @@ def test_empty_draft_does_not_crash():
 def test_route_serves_xlsx(client):
     import app
     # stash a draft for a token, then download
-    app._stash_draft("xltok", _draft(2))
-    r = client.get("/extract/capture.xlsx?token=xltok")
+    app._stash_draft("00000000000f0001", _draft(2))
+    r = client.get("/extract/capture.xlsx?token=00000000000f0001")
     assert r.status_code == 200
     assert "spreadsheetml" in r.headers.get("Content-Type", "")
     wb = load_workbook(io.BytesIO(r.data))

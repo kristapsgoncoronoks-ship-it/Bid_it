@@ -330,11 +330,11 @@ def test_capture_download(client):
     cap = {"header": {"supplier": {"name": "ACME"}, "customer": {}, "invoice": {"number": "Z9"}},
            "lines": [{"date": "2026-05-31", "product": "Diesel", "net": 10.0}],
            "totals": {"gross_total": 12.1}}
-    A._stash_draft("dltok", {"supplier": "ACME", "capture": cap, "lines": []})
-    rj = client.get("/extract/capture/dltok.json")
+    A._stash_draft("00000000d1000001", {"supplier": "ACME", "capture": cap, "lines": []})
+    rj = client.get("/extract/capture/00000000d1000001.json")
     assert rj.status_code == 200
     assert b"ACME" in rj.data and b"Z9" in rj.data
-    rt = client.get("/extract/capture/dltok.txt")
+    rt = client.get("/extract/capture/00000000d1000001.txt")
     assert rt.status_code == 200
     body = rt.get_data(as_text=True)
     assert "AI VISION CAPTURE DOCUMENT" in body and "Diesel" in body

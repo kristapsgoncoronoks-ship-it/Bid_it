@@ -62,10 +62,10 @@ def test_ai_review_off_shows_note_and_no_call(client, monkeypatch):
     auth.set_setting("ai_review_backend", "none")
     called = []
     monkeypatch.setattr(ai_review, "review", lambda *a, **k: called.append(1) or {})
-    _stash("tok_off")
+    _stash("00000000000a0001")
     # the review screen shows the muted "off" note when backend is none
     r = client.post("/extract/ai-review",
-                    data={"_csrf": _tok(client, "/extract"), "token": "tok_off",
+                    data={"_csrf": _tok(client, "/extract"), "token": "00000000000a0001",
                           "period": "2026-05"})
     html = r.get_data(as_text=True)
     assert "AI review is off" in html
@@ -89,9 +89,9 @@ def test_ai_review_panel_escapes_and_does_not_gate(client, monkeypatch):
         seen["draft"] = dict(draft)                      # capture to assert no mutation
         return canned
     monkeypatch.setattr(ai_review, "review", _review)
-    _stash("tok_on")
+    _stash("00000000000a0002")
     r = client.post("/extract/ai-review",
-                    data={"_csrf": _tok(client, "/extract"), "token": "tok_on",
+                    data={"_csrf": _tok(client, "/extract"), "token": "00000000000a0002",
                           "period": "2026-05"})
     html = r.get_data(as_text=True)
     # the HTML-injection flag message is ESCAPED, never rendered as a live tag
@@ -120,9 +120,9 @@ def test_period_default_comes_from_month_config(client, monkeypatch):
     assert A._default_period() == "2099-12"
     # off-path AI-review re-render: no explicit period -> falls back to month_config
     auth.set_setting("ai_review_backend", "none")
-    _stash("tok_period")
+    _stash("00000000000a0003")
     r = client.post("/extract/ai-review",
-                    data={"_csrf": _tok(client, "/extract"), "token": "tok_period"})
+                    data={"_csrf": _tok(client, "/extract"), "token": "00000000000a0003"})
     html = r.get_data(as_text=True)
     assert 'value="2099-12"' in html          # month_config period, not "2026-05"
     assert 'value="2026-05"' not in html      # the old stale literal is gone

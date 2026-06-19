@@ -424,9 +424,9 @@ def test_review_screen_renders_verdict_and_escapes(client, monkeypatch):
     monkeypatch.setattr(IQ, "read_bytes", lambda p: b"%PDF fake")
     monkeypatch.setattr(EX, "unpack", lambda b, n: [("f.pdf", b"%PDF fake")])
 
-    A._stash_draft("vtok", DRAFT)
+    A._stash_draft("00000000000e0001", DRAFT)
     r = client.post("/extract/ai-verify",
-                    data={"_csrf": _tok(client, "/extract"), "token": "vtok",
+                    data={"_csrf": _tok(client, "/extract"), "token": "00000000000e0001",
                           "intake_job": "1", "period": "2026-05"})
     html = r.get_data(as_text=True)
     assert "AI verification against the PDF" in html
@@ -477,9 +477,9 @@ def test_review_off_makes_no_verify_call(client, monkeypatch):
     monkeypatch.setattr(V, "enabled", lambda: False)
     called = []
     monkeypatch.setattr(V, "verify", lambda *a, **k: called.append(1) or {})
-    A._stash_draft("offtok", DRAFT)
+    A._stash_draft("00000000000e0002", DRAFT)
     r = client.post("/extract/ai-verify",
-                    data={"_csrf": _tok(client, "/extract"), "token": "offtok",
+                    data={"_csrf": _tok(client, "/extract"), "token": "00000000000e0002",
                           "intake_job": "1", "period": "2026-05"})
     assert called == []                                   # OFF => no verify() call
     # falls back to the plain review form (no verdict panel)

@@ -4,3 +4,4 @@ requests==2.34.2
 cryptography==48.0.1
 waitress==3.0.2
 pypdf==6.13.2
+defusedxml==0.7.1

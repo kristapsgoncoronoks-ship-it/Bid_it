@@ -199,9 +199,9 @@ def test_correct_route_persists_reverifies_and_renders(client, monkeypatch):
 
     monkeypatch.setattr(V, "verify", _verify)
 
-    A._stash_draft("ctok", _draft())
+    A._stash_draft("00000000000c0001", _draft())
     r = client.post("/extract/ai-correct",
-                    data={"_csrf": _tok(client, "/extract"), "token": "ctok",
+                    data={"_csrf": _tok(client, "/extract"), "token": "00000000000c0001",
                           "intake_job": "1", "period": "2026-05"})
     html = r.get_data(as_text=True)
     # corrections log + the green re-verified badge
@@ -211,7 +211,7 @@ def test_correct_route_persists_reverifies_and_renders(client, monkeypatch):
     # the verify() was called twice (correct-from + re-verify)
     assert calls["n"] == 2
     # the corrected draft was persisted with the corrections + status
-    d = A._load_draft("ctok")
+    d = A._load_draft("00000000000c0001")
     assert d["correction_status"] == "verified_after_correction"
     assert d["capture"]["lines"][0]["vat"] == 162.99
     assert d["lines"][0]["vat"] == 162.99
@@ -237,9 +237,9 @@ def test_correct_route_escapes_xss_in_corrected_value(client, monkeypatch):
                             "document": xss, "match": False}]}
 
     monkeypatch.setattr(V, "verify", _verify)
-    A._stash_draft("xtok", _draft())
+    A._stash_draft("00000000000c0002", _draft())
     r = client.post("/extract/ai-correct",
-                    data={"_csrf": _tok(client, "/extract"), "token": "xtok",
+                    data={"_csrf": _tok(client, "/extract"), "token": "00000000000c0002",
                           "intake_job": "1", "period": "2026-05"})
     html = r.get_data(as_text=True)
     assert xss not in html
@@ -252,9 +252,9 @@ def test_correct_route_off_is_unavailable(client, monkeypatch):
     called = []
     monkeypatch.setattr(V, "verify", lambda *a, **k: called.append(1) or {})
     monkeypatch.setattr(V, "apply_corrections", lambda *a, **k: called.append("c") or (a[0], []))
-    A._stash_draft("offc", _draft())
+    A._stash_draft("00000000000c0003", _draft())
     r = client.post("/extract/ai-correct",
-                    data={"_csrf": _tok(client, "/extract"), "token": "offc",
+                    data={"_csrf": _tok(client, "/extract"), "token": "00000000000c0003",
                           "intake_job": "1", "period": "2026-05"})
     assert called == []                       # OFF => no verify / no apply call
     html = r.get_data(as_text=True)
@@ -298,8 +298,8 @@ def test_no_figure_committed_by_correct_route(client, monkeypatch):
     if hasattr(VR, "register_statement"):
         monkeypatch.setattr(VR, "register_statement",
                             lambda *a, **k: registered.append(1))
-    A._stash_draft("nc", _draft())
+    A._stash_draft("00000000000c0004", _draft())
     client.post("/extract/ai-correct",
-                data={"_csrf": _tok(client, "/extract"), "token": "nc",
+                data={"_csrf": _tok(client, "/extract"), "token": "00000000000c0004",
                       "intake_job": "1", "period": "2026-05"})
     assert registered == []

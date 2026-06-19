@@ -86,6 +86,11 @@ def test_postback_signing_completed_vaults_and_marks_signed(client, monkeypatch)
     import dokobit
     monkeypatch.setattr(dokobit, "enabled", lambda: True)
     monkeypatch.setattr(dokobit, "fetch_signed", lambda url: b"%PDF-signed")
+    # M1: the download URL is now derived from the AUTHORITATIVE status response, never the
+    # attacker-controllable postback body. Provide a status-derived signed-file URL.
+    monkeypatch.setattr(dokobit, "signing_status", lambda token: {
+        "ok": True, "status": "completed",
+        "signed_file_url": "https://gateway.dokobit.com/f/signed"})
 
     resp = client.post("/dokobit/postback", data={
         "action": "signing_completed", "token": "sign-tok-web",

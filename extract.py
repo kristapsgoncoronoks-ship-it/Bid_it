@@ -513,9 +513,9 @@ def _is_xml(filename, data):
 
 def _xml_invoice_root(data):
     """True if `data` parses as XML whose root local-name is an invoice root."""
-    import xml.etree.ElementTree as ET
+    import safexml  # defused parse of UNTRUSTED uploaded XML (billion-laughs safe)
     try:
-        return _xml_local(ET.fromstring(data).tag) in _INVOICE_ROOTS
+        return _xml_local(safexml.fromstring(data).tag) in _INVOICE_ROOTS
     except Exception:
         return False
 
@@ -540,8 +540,8 @@ def parse_einvoice(xml_bytes):
     """Parse one UBL/CII/XML invoice into the standard draft shape. Lines are grouped
     by country (delivery/origin where present) so each becomes one claimable invoice
     row. Confidence 'high' — these are structured, not OCR'd."""
-    import xml.etree.ElementTree as ET
-    root = ET.fromstring(xml_bytes)
+    import safexml  # defused parse of UNTRUSTED e-invoice XML (billion-laughs safe)
+    root = safexml.fromstring(xml_bytes)
     ln = _xml_local
 
     def first(elem, *names):

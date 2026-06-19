@@ -646,6 +646,7 @@ PERM_BY_ENDPOINT = {
     "doc_mining_page": "data_import", "imports": "data_import", "files_archive": "data_import",
     "invoice_ctrl":    "invoice_control", "contracts": "invoice_control",
     "vat":             "vat_claims", "api_vat": "vat_claims", "readiness": "vat_claims",
+    "api_recovery":    "vat_claims",   # JSON twin of the admin-only recovery page
     "receivables":     "vat_claims", "export_receivables": "exports",
     "financing":       "vat_claims",   # embedded-finance origination (advisory, NullProvider)
     "recon":           "vat_claims",
@@ -705,8 +706,8 @@ PERM_BY_ENDPOINT = {
 
 # The VAT-refund module (claims, readiness, recovery/fees + their exports/API) is
 # restricted to admins regardless of any processor capability.
-ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "receivables",
-              "financing", "recon",
+ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "api_recovery",
+              "receivables", "financing", "recon",
               "export_vat", "export_readiness", "export_fees", "export_fee",
               "export_receivables", "export_evidence",
               # the one-click monthly close is an engine-orchestration action (it
@@ -725,6 +726,61 @@ ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "recei
               # routing); the Tasks inbox / act / start-run are NOT here (any login).
               "workflow_admin", "workflow_define", "workflow_update",
               "workflow_deactivate"}
+
+# RULE for the next dev: EVERY new Flask route must be classified as exactly one of
+# PERM_BY_ENDPOINT (capability-gated), ADMIN_ONLY (admin-only), API_V1_SCOPE (token-only
+# external API), or OPEN_ENDPOINTS (deliberately login-only / public). The startup
+# self-check `_assert_endpoint_coverage()` LOUDLY logs any unclassified endpoint so a
+# route added without an access decision is caught immediately (it does NOT change today's
+# behaviour — _guard remains default-allow for the OPEN set below). This set is built from
+# the CURRENT unmapped endpoints, grouped by why each is open.
+OPEN_ENDPOINTS = {
+    # --- public / pre-session infrastructure (handled explicitly at the top of _guard) ---
+    "setup", "static", "app_js", "login", "logout",
+    # --- no-cookie, token-as-principal public routes (each runs its OWN per-token gate
+    #     in-view; login + session-CSRF exempt) ---
+    "share_public", "share_file", "share_event", "share_sign",   # secure share links / SES sign
+    "sso_login", "sso_callback",                                  # OIDC login start + callback
+    "dokobit_postback",                                           # Dokobit server-to-server postback
+    "room_public", "room_doc_viewer", "room_doc_file",           # data rooms (public viewer)
+    "room_doc_event", "room_ask",
+    # --- documented OPEN workflow inbox (any logged-in user; the admin define/manage pages
+    #     are gated in ADMIN_ONLY/PERM_BY_ENDPOINT instead) ---
+    "tasks_page", "task_act", "workflow_start",
+    # --- login-only, read-only pages + their JSON twins, intentionally processor-visible
+    #     (analytics / dashboards / master-data reads) ---
+    "home", "dash", "savings", "compare", "transactions", "h2h", "entities",
+    "stations", "anomalies_page", "expenses", "fx", "history_page",
+    "reports_page", "suppliers",
+    "api_periods", "api_benchmark", "api_compare", "api_h2h", "api_entities",
+}
+
+
+def _assert_endpoint_coverage():
+    """Fail-closed COVERAGE self-check (root-cause guard for the H1 class of bug): assert
+    every registered Flask endpoint is classified in exactly one of PERM_BY_ENDPOINT,
+    ADMIN_ONLY, API_V1_SCOPE, or OPEN_ENDPOINTS. An UNCLASSIFIED endpoint is _guard's
+    default-allow blind spot (how an admin-only JSON twin leaked to processors), so we log
+    it LOUDLY at boot. Returns the set of unclassified endpoints (empty == all covered).
+    Never raises — it must NOT break boot; it only surfaces the gap immediately."""
+    classified = (set(PERM_BY_ENDPOINT) | set(ADMIN_ONLY)
+                  | set(API_V1_SCOPE) | set(OPEN_ENDPOINTS))
+    unclassified = set()
+    try:
+        for rule in app.url_map.iter_rules():
+            ep = rule.endpoint
+            if ep == "static":          # Flask's built-in (also in OPEN_ENDPOINTS)
+                continue
+            if ep not in classified:
+                unclassified.add(ep)
+    except Exception as e:              # never block boot on the self-check itself
+        _log.warning("endpoint-coverage self-check failed to run: %s", e)
+        return set()
+    if unclassified:
+        _log.error("ENDPOINT-COVERAGE: %d unclassified endpoint(s) — classify in "
+                   "PERM_BY_ENDPOINT / ADMIN_ONLY / API_V1_SCOPE / OPEN_ENDPOINTS: %s",
+                   len(unclassified), ", ".join(sorted(unclassified)))
+    return unclassified
 
 # Switchable PARTS of the app. An admin turns these on/off in the Admin panel; a
 # disabled part is hidden from the menu and its pages return "turned off". Core pages
@@ -757,8 +813,8 @@ MODULES = {
                    {"share_links_page", "share_create", "share_views_page", "share_revoke",
                     "rooms_page", "room_page", "room_qa_page", "room_engagement_page"}),
     "vat":        ("VAT refunds — claims, readiness, recovery & fees (admin only)",
-                   {"vat", "api_vat", "readiness", "recovery", "receivables", "financing",
-                    "recon",
+                   {"vat", "api_vat", "readiness", "recovery", "api_recovery",
+                    "receivables", "financing", "recon",
                     "export_vat", "export_readiness", "export_fees", "export_fee",
                     "export_receivables", "export_evidence"}),
     "fx":         ("FX vs ECB exchange rates", {"fx"}),
@@ -3717,11 +3773,26 @@ def _upload_form(backend_env):
             'overloads the server.</div></div>')
 
 
+_EXTRACT_TOKEN_RE = re.compile(r"^[0-9a-f]{16}$")
+
+
+def _valid_extract_token(t):
+    """A legitimate extract-stash token is exactly the 16 lowercase-hex chars produced by
+    `os.urandom(8).hex()` (the ONLY way a token is minted). Anything else is request-forged:
+    reject it BEFORE it is joined into an `.extract_tmp` path so a crafted token (e.g.
+    `../../etc/passwd`) can never escape the temp dir and pickle-load an attacker file (RCE).
+    Returns True only for a server-shaped token."""
+    return isinstance(t, str) and bool(_EXTRACT_TOKEN_RE.match(t))
+
+
 def _stash_draft(token, draft):
     """Persist the cleaned review draft (no PDF bytes, no '_'-prefixed keys) next to the
     token's PDF stash, so the advisory /extract/ai-review route can rebuild context from
     the SAME token. Best-effort: a failure here never blocks the review screen."""
     import os as _os, json as _json
+    if not _valid_extract_token(token):
+        _log.warning("stash review draft: rejected malformed token")
+        return
     clean = {k: v for k, v in (draft or {}).items() if not str(k).startswith("_")}
     try:
         tmp = _os.path.join(WORKDIR, ".extract_tmp")
@@ -3735,6 +3806,8 @@ def _stash_draft(token, draft):
 def _load_draft(token):
     """Read back the cleaned draft for a token, or None."""
     import os as _os, json as _json
+    if not _valid_extract_token(token):
+        return None
     p = _os.path.join(WORKDIR, ".extract_tmp", token + ".draft.json")
     if not _os.path.exists(p):
         return None
@@ -4321,6 +4394,14 @@ def extract_confirm():
     import os as _os, pickle
     # access is enforced centrally in _guard (capability: data_import)
     token = request.form["token"]
+    # C1: reject a forged token BEFORE any os.path.join / file access / pickle.load. Only a
+    # server-minted 16-hex token (os.urandom(8).hex()) can ever name a `<hex>.pkl` to load;
+    # a crafted `../../x` would otherwise escape `.extract_tmp` and pickle an attacker file.
+    if not _valid_extract_token(token):
+        return page('<div class="card"><b class="bad">This draft is no longer available '
+                    'for review (the session expired or could not be found). Re-extract '
+                    'the batch.</b></div>'
+                    '<p><a href="/extract">← back to import</a></p>', "ext")
     tmpf = _os.path.join(WORKDIR, ".extract_tmp", token + ".pkl")
     draftf = _os.path.join(WORKDIR, ".extract_tmp", token + ".draft.json")
     def _drop_draft():
@@ -6543,8 +6624,8 @@ def _reliability_parse_upload(f, form_supplier, form_country, form_pg):
             if row:
                 rows.append(row)
     elif name.endswith(".xml"):
-        import xml.etree.ElementTree as ET
-        root = ET.fromstring(raw.decode("utf-8-sig", errors="replace"))
+        import safexml  # defused parse of UNTRUSTED uploaded price XML (billion-laughs safe)
+        root = safexml.fromstring(raw.decode("utf-8-sig", errors="replace"))
         # Generic element-per-row: any element carrying a price (child or attribute).
         for rec in root.iter():
             fields = dict(rec.attrib)
@@ -6920,10 +7001,12 @@ def dokobit_postback():
             # Unknown/foreign token — acknowledge without acting (never 500).
             return ("ok", 200)
         if pb.get("action") == _dk.ACTION_COMPLETED or pb.get("status") == "completed":
-            url = pb.get("file_url")
-            if not url:
-                st = _dk.signing_status(token)
-                url = st.get("signed_file_url") if st.get("ok") else None
+            # SSRF/token-leak guard (M1): NEVER trust the postback BODY `file_url` — it is
+            # attacker-controllable and `fetch_signed` adds our access token to the request.
+            # Derive the download URL from the AUTHORITATIVE Dokobit status response, and
+            # `fetch_signed` additionally allowlists the Gateway host.
+            st = _dk.signing_status(token)
+            url = st.get("signed_file_url") if st.get("ok") else None
             data = _dk.fetch_signed(url) if url else None
             doc_ref = None
             if data:
@@ -13919,6 +14002,12 @@ def api_v1_customer_update(code):
     if not ok:
         return _api_err(404 if "not found" in msg else 400, msg)
     return jsonify(_v1_customer_detail(code)), 200
+
+# Run the fail-closed endpoint-coverage self-check ONCE, now that every @app.route above
+# has been registered. Module import-time so it fires under `python app.py`, waitress
+# (`serve.py`), gunicorn, AND the test suite — adding an unclassified route is caught
+# immediately. Best-effort: it logs, it does not break boot.
+_assert_endpoint_coverage()
 
 if __name__ == "__main__":
     import tls
