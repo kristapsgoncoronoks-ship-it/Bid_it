@@ -474,6 +474,41 @@ cross‑tenant leak is a GDPR breach — **do not enable it before completing th
 read‑only `/admin/tenants` page shows the current (single‑tenant) state. See
 **[STRATEGY.md#multi-tenancy-program-plan](STRATEGY.md#multi-tenancy-program-plan)** before changing it.
 
+### PART 7f — Single sign-on (SSO / OIDC, optional, MULTI-PROVIDER)
+
+Optional OpenID Connect login, **default OFF**. Local username/password login **always
+stays available** as the fallback, so an admin can never be locked out. Configure it in
+**Admin → Single sign-on (SSO)**.
+
+**Multi-provider.** **Google** and **Microsoft Entra ID** (Azure AD / Microsoft 365) can be
+enabled **at the same time** — the login page then shows one "Sign in with Google" and one
+"Sign in with Microsoft" button, each working independently — plus an optional **custom
+OIDC** provider as a third. Each provider has its **own** settings: an enable checkbox, a
+client ID, a sealed client secret, and an issuer / discovery URL:
+
+* **Google** — issuer defaults to the fixed `https://accounts.google.com` (override only if
+  you must).
+* **Microsoft** — the issuer is **tenant-specific and required**, e.g.
+  `https://login.microsoftonline.com/<tenant>/v2.0` or `.../common/v2.0`.
+* **Custom** — paste any standard OIDC issuer (we discover its endpoints from
+  `<issuer>/.well-known/openid-configuration`).
+
+A provider goes live only when the **master switch** is on, its **own** enable box is
+ticked, and its issuer + client ID + saved client secret are all present. Register the
+**same** redirect URI (shown on the card) at every provider. The **allowed email domains**
+and **auto-provision** options are **shared** across providers. New SSO users get the
+**processor** role only, and only when their verified email domain is in the allowlist.
+
+Each client secret is **sealed at rest** (keyvault envelope encryption) and write-only in
+the UI (leave blank to keep the current one). The chosen provider is stashed in the session
+when the flow starts, so the callback always resolves identity against that provider — the
+callback URL is never trusted for provider selection.
+
+**Upgrading from the old single-provider SSO:** a deployment that already had SSO configured
+keeps working with **zero admin action** — a read-shim honours the legacy `sso_issuer` /
+`sso_client_id` / sealed-secret settings for whichever provider they named, until you fill in
+the new per-provider fields. You can then add the second provider alongside it.
+
 ### PART 8 — Automatic backups
 
 Snapshots include every database — `customers.db`, `suppliers.db`, `fuel_history.db`,

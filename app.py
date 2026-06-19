@@ -233,19 +233,6 @@ APP_JS = r"""/* progressive enhancement: sort + filter + horizontal scroll + key
     if(p2) p2.addEventListener('input',check);
   })();
 
-  // SSO admin card: choosing a provider preset prefills the issuer hint (Google /
-  // Microsoft); 'Custom' leaves it alone. Progressive enhancement — no-op if absent.
-  (function(){
-    var sel=document.querySelector('select[data-sso-preset]'); if(!sel) return;
-    var iss=document.querySelector('input[name="sso_issuer"]'); if(!iss) return;
-    var hints={google:'https://accounts.google.com',
-               microsoft:'https://login.microsoftonline.com/<tenant>/v2.0'};
-    sel.addEventListener('change',function(){
-      var h=hints[sel.value];
-      if(h && !iss.value.trim()) iss.value=h;
-    });
-  })();
-
   // Drag-and-drop for file uploads. Every <input type=file> is wrapped in a friendly
   // drop zone: click to browse, or drag a file onto it. Progressive enhancement — the
   // plain input still works if this never runs. Dropped files are placed back on the
@@ -489,6 +476,49 @@ def setup():
         '<button>Create account &amp; finish</button></form>')
     return SETUP_HTML.replace("{BODY}", form)
 
+# Small CSP-safe inline brand marks (no external assets, no <img>). Google 'G' /
+# Microsoft four-square. Rendered BEFORE the label inside each SSO button.
+_SSO_BRAND_SVG = {
+    "google": ('<svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true" '
+               'style="vertical-align:-3px;margin-right:8px">'
+               '<path fill="#4285F4" d="M45 24c0-1.6-.1-3.1-.4-4.6H24v9.1h11.8c-.5 2.7-2 5-4.3 '
+               '6.6v5.5h7C42.6 36.9 45 31 45 24z"/>'
+               '<path fill="#34A853" d="M24 46c5.9 0 10.8-2 14.4-5.3l-7-5.5c-2 1.3-4.5 '
+               '2.1-7.4 2.1-5.7 0-10.5-3.8-12.2-9H4.5v5.7C8.1 41.1 15.4 46 24 46z"/>'
+               '<path fill="#FBBC05" d="M11.8 28.3c-.4-1.3-.7-2.7-.7-4.3s.3-3 .7-4.3v-5.7H4.5'
+               'C3 17 2 20.4 2 24s1 7 2.5 10z"/>'
+               '<path fill="#EA4335" d="M24 10.9c3.2 0 6.1 1.1 8.4 3.3l6.3-6.3C34.8 4.1 29.9 2 '
+               '24 2 15.4 2 8.1 6.9 4.5 14l7.3 5.7c1.7-5.2 6.5-8.8 12.2-8.8z"/></svg>'),
+    "microsoft": ('<svg viewBox="0 0 23 23" width="16" height="16" aria-hidden="true" '
+                  'style="vertical-align:-2px;margin-right:8px">'
+                  '<path fill="#F25022" d="M1 1h10v10H1z"/>'
+                  '<path fill="#7FBA00" d="M12 1h10v10H12z"/>'
+                  '<path fill="#00A4EF" d="M1 12h10v10H1z"/>'
+                  '<path fill="#FFB900" d="M12 12h10v10H12z"/></svg>'),
+}
+
+
+def _sso_buttons_html():
+    """Render one "Sign in with …" button per ENABLED provider, plus the separator. Returns
+    "" when no provider is usable (byte-identical to the no-SSO login page). Every label is
+    esc()'d; the brand SVG is a fixed inline constant (no DB value interpolated)."""
+    try:
+        import sso as _sso
+        provs = _sso.enabled_providers()
+    except Exception as e:
+        _log_exc("login: SSO button render", e)
+        return ""
+    if not provs:
+        return ""
+    btns = []
+    for key, label in provs:
+        brand = _SSO_BRAND_SVG.get(key, "")
+        btns.append(f'<a class="ssobtn" href="/sso/login?provider={esc(key)}">'
+                    f'{brand}Sign in with {esc(label)}</a>')
+    return ("".join(btns)
+            + '<p class="ssosep">— or sign in with a username —</p>')
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     err = ""
@@ -509,20 +539,10 @@ def login():
             return redirect("/")
         else:
             err = '<div class="err">Invalid username or password.</div>'
-    # Optional "Sign in with SSO" button — shown ONLY when SSO is enabled+configured.
-    # Local username/password ALWAYS stays available below it (fallback so the admin
-    # can never be locked out).
-    sso_html = ""
-    try:
-        import sso as _sso
-        if _sso.enabled():
-            cfg = _sso.config()
-            label = esc(cfg.get("provider") or "single sign-on")
-            sso_html = (f'<a class="ssobtn" href="/sso/login">Sign in with {label}</a>'
-                        '<p class="ssosep">— or sign in with a username —</p>')
-    except Exception as e:
-        _log_exc("login: SSO button render", e)
-    return LOGIN_HTML.replace("{ERR}", err).replace("{SSO}", sso_html)
+    # Optional "Sign in with …" buttons — one per ENABLED provider (Google / Microsoft /
+    # custom), shown ONLY when that provider is enabled+configured. Local username/password
+    # ALWAYS stays available below them (fallback so the admin can never be locked out).
+    return LOGIN_HTML.replace("{ERR}", err).replace("{SSO}", _sso_buttons_html())
 
 @app.route("/logout")
 def logout():
@@ -537,14 +557,23 @@ def sso_login():
     request — any failure maps to /login with an error banner."""
     try:
         import sso as _sso
-        if not _sso.enabled():
+        # Which provider was chosen? Validate it against the ENABLED set (never trust an
+        # arbitrary query value). The CHOSEN provider is stashed in the session so the
+        # callback resolves identity against the SAME provider — the callback URL is never
+        # trusted for provider selection.
+        provs = dict(_sso.enabled_providers())
+        if not provs:
             return redirect("/login")
+        provider = (request.args.get("provider") or "").strip().lower()
+        if provider not in provs:
+            return _login_with_error("Please choose a sign-in provider.")
         state = secrets.token_urlsafe(32)
         nonce = secrets.token_urlsafe(32)
         session["sso_state"] = state
         session["sso_nonce"] = nonce
+        session["sso_pending_provider"] = provider
         redirect_uri = url_for("sso_callback", _external=True)
-        url = _sso.login_url(redirect_uri, state, nonce)
+        url = _sso.login_url(provider, redirect_uri, state, nonce)
         if not url:
             return _login_with_error("Single sign-on is temporarily unavailable "
                                      "(could not reach the identity provider).")
@@ -566,10 +595,16 @@ def sso_callback():
         # CSRF/replay: the returned state MUST match what we stashed before redirecting.
         sess_state = session.pop("sso_state", "") or ""
         session.pop("sso_nonce", None)
+        # The provider is read from the SESSION (set by /sso/login) — NOT a query param, so
+        # the callback URL cannot pick which provider's secret/discovery we use.
+        provider = session.pop("sso_pending_provider", "") or ""
         ret_state = request.args.get("state", "") or ""
         if not sess_state or not secrets.compare_digest(ret_state, sess_state):
             return _login_with_error("Single sign-on could not be verified "
                                      "(state mismatch). Please try again.")
+        if provider not in dict(_sso.enabled_providers()):
+            return _login_with_error("Single sign-on could not be verified "
+                                     "(unknown provider). Please try again.")
         # An IdP-side error (user denied, etc.) comes back as ?error=...
         if request.args.get("error"):
             return _login_with_error("Single sign-on was cancelled or failed at the "
@@ -578,7 +613,7 @@ def sso_callback():
         if not code:
             return _login_with_error("Single sign-on did not return an authorization code.")
         redirect_uri = url_for("sso_callback", _external=True)
-        ident = _sso.resolve_identity(code, redirect_uri)
+        ident = _sso.resolve_identity(provider, code, redirect_uri)
         if not ident.get("ok"):
             return _login_with_error("Single sign-on failed: "
                                      + (ident.get("reason") or "unknown error") + ".")
@@ -619,17 +654,7 @@ def sso_callback():
 def _login_with_error(msg):
     """Render the login page with an error banner (used by the SSO flow)."""
     err = f'<div class="err">{esc(msg)}</div>'
-    sso_html = ""
-    try:
-        import sso as _sso
-        if _sso.enabled():
-            cfg = _sso.config()
-            label = esc(cfg.get("provider") or "single sign-on")
-            sso_html = (f'<a class="ssobtn" href="/sso/login">Sign in with {label}</a>'
-                        '<p class="ssosep">— or sign in with a username —</p>')
-    except Exception:
-        pass
-    return LOGIN_HTML.replace("{ERR}", err).replace("{SSO}", sso_html)
+    return LOGIN_HTML.replace("{ERR}", err).replace("{SSO}", _sso_buttons_html())
 
 FORBIDDEN = ('<div class="card"><h2>Insufficient permissions</h2>'
              '<p>Your role does not allow this action. An administrator can change '
@@ -10745,37 +10770,45 @@ def admin():
                 banner = ("Public-viewer branding saved — it shows on /s and /r pages "
                           "(the authed app is unchanged).")
             elif act == "set_sso":
-                # OPTIONAL single sign-on (OIDC). DEFAULT OFF; local username/password
-                # ALWAYS stays available as the fallback. The client secret is sealed at
-                # rest (keyvault) and write-only here — a blank field LEAVES it unchanged.
+                # OPTIONAL single sign-on (OIDC), MULTI-PROVIDER (Google / Microsoft /
+                # custom — each independent). DEFAULT OFF; local username/password ALWAYS
+                # stays available as the fallback. Each client secret is sealed at rest
+                # (keyvault) and write-only here — a blank field LEAVES it unchanged.
                 import sso as _sso
                 on = request.form.get("sso_enabled") == "on"
                 _auth.set_setting("sso_enabled", "on" if on else "off")
-                provider = (request.form.get("sso_provider") or "").strip()
-                if provider not in _sso.PROVIDER_PRESETS:
-                    provider = "custom"
-                _auth.set_setting("sso_provider", _sso.PROVIDER_PRESETS[provider][0])
-                _auth.set_setting("sso_issuer",
-                                  (request.form.get("sso_issuer") or "").strip().rstrip("/"))
-                _auth.set_setting("sso_client_id",
-                                  (request.form.get("sso_client_id") or "").strip())
+                # Shared/global fields (saved once).
                 _auth.set_setting("sso_allowed_domains",
                                   (request.form.get("sso_allowed_domains") or "").strip())
                 _auth.set_setting("sso_auto_provision",
                                   "on" if request.form.get("sso_auto_provision") == "on"
                                   else "off")
-                # Secret: blank leaves it unchanged; ticking clear removes it; otherwise seal.
-                if request.form.get("sso_secret_clear") == "on":
-                    _sso.set_secret("")
-                elif (request.form.get("sso_client_secret") or "").strip():
-                    _sso.set_secret(request.form.get("sso_client_secret"))
-                if on and not _sso.enabled():
+                # Per-provider fields.
+                for _pk in _sso.PROVIDER_KEYS:
+                    _auth.set_setting(
+                        f"sso_{_pk}_enabled",
+                        "on" if request.form.get(f"sso_{_pk}_enabled") == "on" else "off")
+                    _auth.set_setting(
+                        f"sso_{_pk}_issuer",
+                        (request.form.get(f"sso_{_pk}_issuer") or "").strip().rstrip("/"))
+                    _auth.set_setting(
+                        f"sso_{_pk}_client_id",
+                        (request.form.get(f"sso_{_pk}_client_id") or "").strip())
+                    # Secret: blank leaves it unchanged; ticking clear removes it; else seal.
+                    if request.form.get(f"sso_{_pk}_secret_clear") == "on":
+                        _sso.set_secret(_pk, "")
+                    elif (request.form.get(f"sso_{_pk}_client_secret") or "").strip():
+                        _sso.set_secret(_pk, request.form.get(f"sso_{_pk}_client_secret"))
+                _active = _sso.enabled_providers()
+                if on and not _active:
                     _banner_klass = "bad"
-                    banner = ("SSO settings saved, but SSO is NOT yet active — it needs an "
-                              "issuer URL, a client ID and a saved client secret before the "
-                              "Sign-in-with-SSO button appears.")
+                    banner = ("SSO settings saved, but no provider is active yet — each "
+                              "provider you enable needs an issuer URL, a client ID and a "
+                              "saved client secret before its Sign-in button appears.")
                 else:
+                    _names = ", ".join(lbl for _k, lbl in _active)
                     banner = ("Single sign-on " + ("ENABLED" if on else "turned OFF")
+                              + (f" ({_names})" if (on and _names) else "")
                               + " — local username/password login always remains available.")
             elif act == "set_dokobit":
                 # OPTIONAL Dokobit invoice signing/e-delivery. DEFAULT OFF; the seam makes
@@ -11482,46 +11515,73 @@ def admin():
           'placeholder="e.g. 10.0.0.0/8"></label>'
         + '<button name="__act" value="set_cloudflare">Save Cloudflare settings</button>'
         + '</form></div>')
-    # Single sign-on (SSO / OIDC) — optional, default off. Local username/password
-    # always remains the fallback. The client secret is sealed at rest and write-only.
+    # Single sign-on (SSO / OIDC) — optional, default off, MULTI-PROVIDER (Google /
+    # Microsoft / custom, each independent). Local username/password always remains the
+    # fallback. Each client secret is sealed at rest and write-only.
     import sso as _sso
     _scfg = _sso.config()
     _sso_redirect = url_for("sso_callback", _external=True)
     _sso_state = ('<span class="ok">ACTIVE</span>' if _scfg["enabled"]
                   else '<span class="bad">not active</span>')
-    _sso_secret_state = ('<span class="ok">set ✓</span>' if _scfg["has_secret"]
-                         else '<span class="bad">not set</span>')
-    _provider_opts = "".join(
-        f'<option value="{esc(k)}">{esc(lbl)}</option>'
-        for k, (lbl, _hint) in _sso.PROVIDER_PRESETS.items())
+    _sso_active_lbls = ", ".join(
+        v["label"] for v in _scfg["providers"].values() if v["active"]) or "none"
+    # One config section per provider (Google / Microsoft / Custom).
+    _prov_issuer_ph = {
+        "google":    "https://accounts.google.com",
+        "microsoft": "https://login.microsoftonline.com/&lt;tenant&gt;/v2.0",
+        "custom":    "https://your-idp.example.com",
+    }
+    _prov_blocks = []
+    for _pk in _sso.PROVIDER_KEYS:
+        _pc = _scfg["providers"][_pk]
+        _sec_state = ('<span class="ok">set ✓</span>' if _pc["has_secret"]
+                      else '<span class="bad">not set</span>')
+        _pstate = ('<span class="ok">ACTIVE</span>' if _pc["active"]
+                   else '<span class="bad">not active</span>')
+        _iss_note = (' <span class="note">(tenant-specific — required, e.g. '
+                     'https://login.microsoftonline.com/&lt;tenant&gt;/v2.0 or '
+                     '.../common/v2.0)</span>') if _pk == "microsoft" else (
+                     ' <span class="note">(fixed Google issuer — override only if needed)'
+                     '</span>' if _pk == "google" else "")
+        _prov_blocks.append(
+            f'<fieldset style="border:1px solid #dde4ea;border-radius:7px;'
+            f'padding:8px 10px;margin:8px 0"><legend style="padding:0 6px">'
+            f'<b>{esc(_pc["label"])}</b> &nbsp;{_pstate} &nbsp;|&nbsp; secret: {_sec_state}'
+            f'</legend>'
+            + f'<label class="ck"><input type="checkbox" name="sso_{_pk}_enabled" '
+            + ('checked' if _pc["enabled"] else '')
+            + f'> Enable {esc(_pc["label"])} sign-in</label>'
+            + f'<label>Issuer / discovery URL{_iss_note}<input name="sso_{_pk}_issuer" '
+              f'value="{esc(_pc["issuer"])}" placeholder="{_prov_issuer_ph[_pk]}"></label>'
+            + f'<label>Client ID<input name="sso_{_pk}_client_id" '
+              f'value="{esc(_pc["client_id"])}" placeholder="OIDC application/client ID">'
+              '</label>'
+            + f'<label>Client secret<input type="password" name="sso_{_pk}_client_secret" '
+              'placeholder="leave blank to keep current" autocomplete="new-password"></label>'
+            + (f'<label class="ck"><input type="checkbox" name="sso_{_pk}_secret_clear" '
+               'value="on"> Remove the stored client secret</label>'
+               if _pc["has_secret"] else '')
+            + '</fieldset>')
     ssocard = ('<div class="card"><h2>Single sign-on (SSO)</h2>'
-               f'<p>Status: {_sso_state} &nbsp;|&nbsp; client secret: {_sso_secret_state}</p>'
+               f'<p>Status: {_sso_state} &nbsp;|&nbsp; active providers: '
+               f'<b>{esc(_sso_active_lbls)}</b></p>'
                '<div class="note" style="margin-top:0">Optional OpenID Connect (OIDC) '
-               'login for <b>Google Workspace</b>, <b>Microsoft Entra ID</b> (Azure AD / '
-               'Microsoft 365) or any standard OIDC provider. <b>Default off.</b> '
+               'login for <b>Google Workspace</b> and <b>Microsoft Entra ID</b> (Azure AD / '
+               'Microsoft 365) — both can be enabled <b>at the same time</b> — plus any '
+               'standard <b>custom OIDC</b> provider. <b>Default off.</b> '
                'Local username/password login <b>always stays available</b> as the '
                'fallback, so an admin can never be locked out. New SSO users get the '
                '<b>processor</b> role only, and only when their verified email domain is '
-               'in the allowlist below. Register this exact redirect URI at the provider: '
+               'in the allowlist below. Register this exact redirect URI (the same callback '
+               'for every provider): '
                f'<code>{esc(_sso_redirect)}</code></div>'
                '<form method="post" class="f" style="margin-top:8px">' + _csrf_input()
                + '<label class="ck"><input type="checkbox" name="sso_enabled" '
-               + ('checked' if (_auth.get_setting("sso_enabled", "off") == "on") else '')
-               + '> Enable single sign-on</label>'
-               + f'<label>Provider preset<select name="sso_provider" '
-                 'data-sso-preset>' + _provider_opts + '</select></label>'
-               + f'<label>Issuer / discovery URL<input name="sso_issuer" '
-                 f'value="{esc(_scfg["issuer"])}" '
-                 'placeholder="https://accounts.google.com  or  '
-                 'https://login.microsoftonline.com/&lt;tenant&gt;/v2.0"></label>'
-               + f'<label>Client ID<input name="sso_client_id" '
-                 f'value="{esc(_scfg["client_id"])}" placeholder="OIDC application/client ID"></label>'
-               + '<label>Client secret<input type="password" name="sso_client_secret" '
-                 'placeholder="leave blank to keep current" autocomplete="new-password"></label>'
-               + ('<label class="ck"><input type="checkbox" name="sso_secret_clear" '
-                  'value="on"> Remove the stored client secret</label>'
-                  if _scfg["has_secret"] else '')
-               + f'<label>Allowed email domains<input name="sso_allowed_domains" '
+               + ('checked' if _scfg["master_enabled"] else '')
+               + '> Enable single sign-on (master switch)</label>'
+               + "".join(_prov_blocks)
+               + f'<label>Allowed email domains <span class="note">(shared across all '
+                 'providers)</span><input name="sso_allowed_domains" '
                  f'value="{esc(", ".join(_scfg["allowed_domains"]))}" '
                  'placeholder="example.com, sub.example.com (blank = allow any)"></label>'
                + '<label class="ck"><input type="checkbox" name="sso_auto_provision" '
@@ -11529,10 +11589,11 @@ def admin():
                + '> Auto-create a processor account on first SSO login (within the '
                  'allowed domains)</label>'
                + '<button name="__act" value="set_sso">Save SSO settings</button></form>'
-               + '<div class="note">The client secret is <b>sealed at rest</b> (envelope '
+               + '<div class="note">Each client secret is <b>sealed at rest</b> (envelope '
                  'encryption) and never shown — leave it blank to keep the current one. '
-                 'With no allowed domains, sign-in is refused for everyone (set at least '
-                 'one to go live).</div></div>')
+                 'A provider goes live only with the master switch on, its own enable box '
+                 'ticked, and an issuer + client ID + saved secret. With no allowed domains, '
+                 'sign-in is refused for everyone (set at least one to go live).</div></div>')
     # Invoice issuance & Dokobit signing — optional, default off. The API token is sealed
     # at rest (keyvault) and write-only here; nothing is sent to Dokobit until enabled.
     import dokobit as _dk, invoice_issue as _ii

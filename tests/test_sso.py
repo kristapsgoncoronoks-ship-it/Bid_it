@@ -20,11 +20,12 @@ def test_enabled_default_false():
 
 def test_enabled_true_once_fully_configured():
     auth.set_setting("sso_enabled", "on")
-    auth.set_setting("sso_issuer", "https://accounts.google.com")
-    auth.set_setting("sso_client_id", "client-123")
+    auth.set_setting("sso_google_enabled", "on")
+    auth.set_setting("sso_google_issuer", "https://accounts.google.com")
+    auth.set_setting("sso_google_client_id", "client-123")
     # Still false without a secret.
     assert sso.enabled() is False
-    sso.set_secret("super-secret-value")
+    sso.set_secret("google", "super-secret-value")
     assert sso.enabled() is True
     # Flipping the master switch off makes it inert again.
     auth.set_setting("sso_enabled", "off")
@@ -47,18 +48,18 @@ def test_domain_allowed_with_allowlist():
 
 # ---------------------------------------------------------------- sealed secret
 def test_secret_seal_open_roundtrip_and_never_leaks():
-    assert sso.has_secret() is False
-    sso.set_secret("oidc-client-secret-xyz")
-    assert sso.has_secret() is True
+    assert sso.has_secret("google") is False
+    sso.set_secret("google", "oidc-client-secret-xyz")
+    assert sso.has_secret("google") is True
     # config() must NOT contain the plaintext anywhere.
     cfg = sso.config()
-    assert cfg["has_secret"] is True
+    assert cfg["providers"]["google"]["has_secret"] is True
     assert "oidc-client-secret-xyz" not in str(cfg)
     # The private decrypt path round-trips the exact value (used only for token exchange).
-    assert sso._client_secret() == "oidc-client-secret-xyz"
+    assert sso._client_secret("google") == "oidc-client-secret-xyz"
     # Clearing removes it.
-    sso.set_secret("")
-    assert sso.has_secret() is False
+    sso.set_secret("google", "")
+    assert sso.has_secret("google") is False
 
 
 # ---------------------------------------------------------------- auth user model
@@ -96,15 +97,17 @@ def test_get_user_by_email_case_insensitive():
 
 # ---------------------------------------------------------------- helpers
 def _configure_sso():
+    # Configure the Google provider (the single-button scenarios reuse this).
     auth.set_setting("sso_enabled", "on")
-    auth.set_setting("sso_issuer", "https://accounts.google.com")
-    auth.set_setting("sso_client_id", "client-123")
+    auth.set_setting("sso_google_enabled", "on")
+    auth.set_setting("sso_google_issuer", "https://accounts.google.com")
+    auth.set_setting("sso_google_client_id", "client-123")
     auth.set_setting("sso_auto_provision", "on")
-    sso.set_secret("the-secret")
+    sso.set_secret("google", "the-secret")
 
 
 def _patch_discovery(monkeypatch):
-    monkeypatch.setattr(sso, "_discovery", lambda issuer=None: {
+    monkeypatch.setattr(sso, "_discovery", lambda p=None, issuer=None: {
         "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
         "token_endpoint": "https://oauth2.googleapis.com/token",
         "userinfo_endpoint": "https://openidconnect.googleapis.com/v1/userinfo",
@@ -122,7 +125,7 @@ def test_sso_login_redirects_to_login_when_disabled(client):
 def test_sso_login_redirects_to_provider_and_stores_state(client, monkeypatch):
     _configure_sso()
     _patch_discovery(monkeypatch)
-    r = client.get("/sso/login")
+    r = client.get("/sso/login?provider=google")
     assert r.status_code == 302
     loc = r.headers["Location"]
     assert loc.startswith("https://accounts.google.com/o/oauth2/v2/auth")
@@ -132,6 +135,7 @@ def test_sso_login_redirects_to_provider_and_stores_state(client, monkeypatch):
     with client.session_transaction() as s:
         assert s.get("sso_state")
         assert s.get("sso_nonce")
+        assert s.get("sso_pending_provider") == "google"
 
 
 # ---------------------------------------------------------------- /sso/callback route
@@ -140,6 +144,7 @@ def test_sso_callback_state_mismatch_refused(client, monkeypatch):
     _patch_discovery(monkeypatch)
     with client.session_transaction() as s:
         s["sso_state"] = "the-correct-state"
+        s["sso_pending_provider"] = "google"
         s.pop("user", None)
     r = client.get("/sso/callback?state=WRONG&code=abc")
     assert r.status_code == 200
@@ -156,10 +161,11 @@ def test_sso_callback_happy_path_autoprovisions(client, monkeypatch):
     con = auth.connect(); con.execute("DELETE FROM users WHERE username=?", (email,))
     con.commit(); con.close()
     monkeypatch.setattr(sso, "resolve_identity",
-                        lambda code, ru: {"ok": True, "email": email, "name": "New Hire",
-                                          "reason": ""})
+                        lambda p, code, ru: {"ok": True, "email": email, "name": "New Hire",
+                                             "reason": ""})
     with client.session_transaction() as s:
         s["sso_state"] = "match-me"
+        s["sso_pending_provider"] = "google"
     r = client.get("/sso/callback?state=match-me&code=goodcode")
     assert r.status_code == 302
     assert r.headers["Location"].endswith("/")
@@ -180,10 +186,11 @@ def test_sso_callback_out_of_domain_refused(client, monkeypatch):
     _patch_discovery(monkeypatch)
     email = "intruder@evil.com"
     monkeypatch.setattr(sso, "resolve_identity",
-                        lambda code, ru: {"ok": True, "email": email, "name": "",
-                                          "reason": ""})
+                        lambda p, code, ru: {"ok": True, "email": email, "name": "",
+                                             "reason": ""})
     with client.session_transaction() as s:
         s["sso_state"] = "ok-state"
+        s["sso_pending_provider"] = "google"
         s.pop("user", None)
     r = client.get("/sso/callback?state=ok-state&code=goodcode")
     assert r.status_code == 200
