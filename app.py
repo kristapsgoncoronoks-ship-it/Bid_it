@@ -80,8 +80,37 @@ def _client_ip():
     return _cloudflare.client_ip(request.remote_addr or "",
                                  request.headers.get("CF-Connecting-IP", ""))
 
-APP_JS = r"""/* progressive enhancement: sort + filter + horizontal scroll + keyboard nav */
+APP_JS = r"""/* progressive enhancement: sort + filter + horizontal scroll + keyboard nav
+   + toasts + submit-loading states */
 (function(){
+  // ---- TOASTS ----------------------------------------------------------------
+  // toast(msg, kind) pops a transient notification (kind: success|error|info).
+  // Driven from the SERVER without inline scripts: the server renders a
+  // <div id="flash" data-toast data-kind="success">…</div>; this reads it on load.
+  function toast(msg, kind){
+    if(!msg) return;
+    var host=document.getElementById('toasts');
+    if(!host){ host=document.createElement('div'); host.id='toasts';
+               host.setAttribute('aria-live','polite'); document.body.appendChild(host); }
+    var t=document.createElement('div'); t.className='toast '+(kind||'info');
+    var ic=document.createElement('span'); ic.className='tx';
+    ic.textContent=kind==='success'?'✓':kind==='error'?'⚠':'ℹ';
+    var m=document.createElement('span'); m.textContent=msg;
+    t.appendChild(ic); t.appendChild(m); host.appendChild(t);
+    function close(){ t.classList.add('leaving');
+      setTimeout(function(){ if(t.parentNode) t.parentNode.removeChild(t); },220); }
+    t.addEventListener('click',close);
+    setTimeout(close, kind==='error'?7000:4200);
+  }
+  window.toast=toast;  // also callable by other small scripts if ever needed
+  (function(){
+    var f=document.getElementById('flash');
+    if(f && f.hasAttribute('data-toast')){
+      toast((f.textContent||'').trim(), f.getAttribute('data-kind')||'info');
+      f.parentNode && f.parentNode.removeChild(f);  // consumed; page continues
+    }
+  })();
+
   function val(td){return td?(td.textContent||'').trim():'';}
   function num(s){var n=parseFloat(String(s).replace(/[^0-9.\-]/g,''));return isNaN(n)?null:n;}
   function isTotal(r){return /\bTOTAL\b/i.test(r.textContent||'');}
@@ -317,6 +346,29 @@ APP_JS = r"""/* progressive enhancement: sort + filter + horizontal scroll + key
   document.addEventListener('submit',function(e){
     var form=e.target; if(!form||!form.hasAttribute('data-confirm')) return;
     if(!window.confirm(form.getAttribute('data-confirm'))) e.preventDefault();
+  });
+  // ---- SUBMIT / LOADING STATE ------------------------------------------------
+  // On submit, disable the triggering button + show an inline spinner so the user
+  // can't double-submit (critical on intake confirm/file + any mutating POST).
+  // Pure progressive enhancement: if JS is off the form still posts normally.
+  // Re-enables if the browser stays on the page (validation failure / Back/cache).
+  // Bubble phase (NOT capture) so a data-confirm cancel (preventDefault) wins first;
+  // if the submit was already cancelled we never mark the button working.
+  document.addEventListener('submit',function(e){
+    var form=e.target; if(!form||form.hasAttribute('data-noloading')) return;
+    if(e.defaultPrevented) return;                          // confirm cancelled / blocked
+    if(form.checkValidity && !form.checkValidity()) return;  // let native validation block
+    var btn=(e.submitter)||form.querySelector('button[type=submit],button:not([type]),input[type=submit]');
+    if(!btn||btn.classList.contains('working')||btn.hasAttribute('data-noloading')) return;
+    var orig=btn.textContent;
+    btn.classList.add('working'); btn.setAttribute('aria-busy','true');
+    if(btn.hasAttribute('data-working')) btn.textContent=btn.getAttribute('data-working');
+    btn.dataset._orig=orig;
+    setTimeout(function(){ btn.disabled=true; },0);  // disable AFTER submit so the value posts
+    function restore(){ btn.classList.remove('working'); btn.disabled=false;
+      btn.removeAttribute('aria-busy');
+      if(btn.dataset._orig!==undefined) btn.textContent=btn.dataset._orig; }
+    window.addEventListener('pageshow',restore,{once:true});  // bfcache return
   });
 })();
 """
@@ -1856,7 +1908,15 @@ def svg_line(series, labels, unit="", width=720, height=260, fmt=",.0f", title="
 BASE = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fleet Fuel Analytics</title><style>
-:root{--ink:#1a2733;--mut:#5b6b7a;--line:#dde4ea;--line2:#e7ecf1;--bg:#f4f6f8;--acc:#0e5fa8;--acc2:#0b4d89;--ok:#1b7340;--bad:#c8102e;--warn:#9a6700;--info:#0e5fa8;--card-sh:0 1px 2px rgba(26,39,51,.05),0 1px 3px rgba(26,39,51,.04);--radius:11px}
+/* DESIGN TOKENS — consolidated, reusable across every page.
+   Colours: --ink/--mut text, --line/--line2 borders, --bg surface, --acc primary
+   (blue, the established brand), --ok/--bad/--warn/--info semantic.
+   SPACING SCALE --s1..--s5 (4/8/12/16/24px) — use for new gaps/padding, do not
+   restructure existing layouts. TYPE SCALE --t-xs..--t-lg (12/13.5/15/17px).
+   BUTTON HIERARCHY: .btn = primary (blue, unchanged), .btn-secondary = neutral
+   outline, .btn-danger = red destructive (delete/withdraw). */
+:root{--ink:#1a2733;--mut:#5b6b7a;--line:#dde4ea;--line2:#e7ecf1;--bg:#f4f6f8;--acc:#0e5fa8;--acc2:#0b4d89;--ok:#1b7340;--bad:#c8102e;--warn:#9a6700;--info:#0e5fa8;--card-sh:0 1px 2px rgba(26,39,51,.05),0 1px 3px rgba(26,39,51,.04);--radius:11px;
+ --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--t-xs:12px;--t-sm:13.5px;--t-md:15px;--t-lg:17px}
 *{box-sizing:border-box}body{margin:0;font:14px/1.55 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 header{background:linear-gradient(180deg,#2a3c4f,#1a2733);color:#fff;padding:11px 22px;display:flex;gap:6px 18px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:20;box-shadow:0 2px 10px rgba(10,20,30,.20),inset 0 -1px 0 rgba(255,255,255,.06)}
 header b{font-size:16px;margin-right:6px;letter-spacing:.2px}
@@ -1931,6 +1991,17 @@ button:active{transform:translateY(1px)}
 a.btn{display:inline-block;background:var(--acc);color:#fff;text-decoration:none;border:0;border-radius:7px;padding:8px 16px;font-size:13.5px;font-weight:600;cursor:pointer;transition:background .12s,box-shadow .12s,transform .04s}
 a.btn:hover{background:var(--acc2);box-shadow:0 1px 3px rgba(14,95,168,.3)}
 a.btn:active{transform:translateY(1px)}
+/* BUTTON HIERARCHY — secondary (neutral outline) + danger (destructive red).
+   Primary stays the default <button>/.btn blue above. */
+button.btn-secondary,a.btn.btn-secondary,.btn-secondary{background:#fff;color:var(--ink);border:1px solid var(--line)}
+button.btn-secondary:hover,a.btn.btn-secondary:hover,.btn-secondary:hover{background:#f4f7f9;border-color:#c4cfda;box-shadow:none}
+button.btn-danger,a.btn.btn-danger,.btn-danger{background:var(--bad);color:#fff}
+button.btn-danger:hover,a.btn.btn-danger:hover,.btn-danger:hover{background:#a50d26;box-shadow:0 1px 3px rgba(200,16,46,.3)}
+/* SUBMIT / LOADING STATE — app.js adds .working on submit (anti double-submit). */
+button.working,a.btn.working{opacity:.7;pointer-events:none;position:relative}
+button.working::after,a.btn.working::after{content:"";display:inline-block;width:11px;height:11px;margin-left:7px;vertical-align:-1px;border:2px solid rgba(255,255,255,.5);border-top-color:#fff;border-radius:50%;animation:ffspin .6s linear infinite}
+button.btn-secondary.working::after{border-color:rgba(26,39,51,.3);border-top-color:var(--ink)}
+@keyframes ffspin{to{transform:rotate(360deg)}}
 .note{color:var(--mut);font-size:12px;margin-top:8px;line-height:1.5}
 main a:not(.btn):not(.kpi){color:var(--acc);text-decoration:none}
 main a:not(.btn):not(.kpi):hover{text-decoration:underline}
@@ -1961,6 +2032,35 @@ h2.section:first-of-type{margin-top:4px}
 .chip.warn{background:#fdf3e0;color:var(--warn);border-color:#f0d9a8}
 .chip.bad{background:#fdeaec;color:var(--bad);border-color:#f4c6cd}
 .chip.info{background:#eaf2fb;color:var(--info);border-color:#c6dcf3}
+/* SEMANTIC STATUS CHIPS — fixed colour mapping. VAT claim stages: grey/blue early,
+   amber in-progress, green filed/paid, red blocked (see _status_chip in app.py).
+   Also supplier status (active/provisional) + confidence (high/med/low). */
+.chip.s-neutral{background:#eef2f6;color:var(--mut);border-color:var(--line)}
+.chip.s-early{background:#eaf2fb;color:var(--info);border-color:#c6dcf3}
+.chip.s-progress{background:#fdf3e0;color:var(--warn);border-color:#f0d9a8}
+.chip.s-done{background:#e7f5ec;color:var(--ok);border-color:#bfe3cd}
+.chip.s-blocked{background:#fdeaec;color:var(--bad);border-color:#f4c6cd}
+.chip-legend{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:11.5px;color:var(--mut);margin:0 0 10px}
+.chip-legend .chip{font-size:11px;padding:2px 8px}
+/* RIGHT-ALIGNED MONEY cells (alias of .r; semantic name for amounts) */
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+/* EMPTY STATE — shown instead of an empty table/list */
+.empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;background:#fff;border:1px dashed var(--line);border-radius:var(--radius);padding:34px 24px;color:var(--mut);box-shadow:var(--card-sh)}
+.empty .eic{font-size:38px;line-height:1;opacity:.85}
+.empty .et{font-size:15px;font-weight:700;color:var(--ink)}
+.empty .ed{font-size:13px;max-width:420px}
+.empty .btn{margin-top:6px}
+/* TOAST NOTIFICATIONS — transient action feedback (server drives via #flash[data-toast]).
+   Persistent integrity/error BANNERS stay as banners; toasts never replace them. */
+#toasts{position:fixed;right:16px;bottom:16px;z-index:60;display:flex;flex-direction:column;gap:8px;max-width:340px}
+.toast{background:#223240;color:#fff;border-radius:9px;padding:11px 14px 11px 13px;font-size:13.5px;font-weight:500;box-shadow:0 6px 24px rgba(10,20,30,.32);display:flex;align-items:flex-start;gap:9px;border-left:4px solid #6db1e8;animation:fftoastin .18s ease-out}
+.toast.success{border-left-color:#36c08a}.toast.error{border-left-color:#ff6b7d}.toast.info{border-left-color:#6db1e8}
+.toast .tx{font-size:15px;line-height:1.2}
+.toast.leaving{animation:fftoastout .2s ease-in forwards}
+@keyframes fftoastin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes fftoastout{to{opacity:0;transform:translateY(8px)}}
+@media (max-width:640px){ #toasts{left:12px;right:12px;max-width:none;bottom:12px}}
+@media print{ #toasts{display:none!important}}
 /* landing: responsive grid of icon tiles */
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:20px}
 .tile{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:22px 16px 18px;box-shadow:var(--card-sh);text-decoration:none;color:inherit;transition:border-color .12s,box-shadow .14s,transform .08s}
@@ -2069,7 +2169,7 @@ h2.section:first-of-type{margin-top:4px}
 <span class="note" style="color:#9fb3c4">{{ user }} ({{ role }})</span>
 <a href="/account">Account</a>
 <a href="/logout">Sign out</a></span>
-</header><main>{{ body|safe }}</main><script src="/app.js" defer></script></body></html>"""
+</header><main>{{ body|safe }}</main><div id="toasts" aria-live="polite"></div><script src="/app.js" defer></script></body></html>"""
 
 _BASE_TMPL = None   # compiled once; render_template_string would recompile per call
 def page(body, p):
@@ -2082,10 +2182,97 @@ def page(body, p):
                              modules=enabled_modules() if session.get("user") else set(),
                              perms=_auth.permissions_for(role) if session.get("user") else set())
 
-def tbl(headers, rows):
+def tbl(headers, rows, sortable=False):
     h = "".join(f"<th>{x}</th>" for x in headers)
     b = "".join("<tr>" + "".join(r) + "</tr>" for r in rows)
-    return f"<table><thead><tr>{h}</tr></thead><tbody>{b}</tbody></table>"
+    cls = ' class="sortable"' if sortable else ""
+    return f"<table{cls}><thead><tr>{h}</tr></thead><tbody>{b}</tbody></table>"
+
+# ---------------------------------------------------------------- presentation helpers
+def _eur(x, unit=True):
+    """DISPLAY-ONLY EUR formatter — thousands separators + 2 decimals + a leading €.
+    Chosen format: "€1,234.56" (€ prefix, comma thousands, dot decimal) — used
+    consistently across money columns. DISPLAY ONLY: values come from money.py / the
+    queries; this never rounds for a decision or mutates a stored figure. None/blank
+    renders as an em-dash."""
+    if x is None or x == "":
+        return "—"
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return esc(str(x))
+    s = f"{v:,.2f}"
+    return f"€{s}" if unit else s
+
+# VAT claim status → semantic chip class (FIXED mapping, codes per
+# vat_refund.STATUS_LABELS): early = grey/blue, in-progress = amber,
+# filed/paid/closed = green, blocked/rejected = red.
+_VAT_CHIP = {
+    "1A": "s-blocked",   # missing documents
+    "1B": "s-neutral",   # received, period not ended
+    "1C": "s-early", "1E": "s-early",          # can/ready to submit
+    "2": "s-progress", "2A": "s-progress", "2B": "s-progress",  # submitted / in-flight
+    "3": "s-progress",   # decision received (pending action)
+    "3A": "s-done",      # money received
+    "3B": "s-blocked", "3C": "s-blocked", "3D": "s-blocked",    # rejection / appeal / confiscation
+    "4": "s-progress", "4A": "s-progress",     # ready to invoice
+    "5": "s-done",       # closed
+}
+
+def _status_chip(code, label=None):
+    """Reusable VAT-claim status pill. Escapes all text; falls back to a neutral chip
+    for an unknown code."""
+    code = (code or "").strip()
+    cls = _VAT_CHIP.get(code, "s-neutral")
+    import vat_refund as _VR
+    txt = label if label is not None else _VR.STATUS_LABELS.get(code, "")
+    inner = f"{esc(code)}" + (f" {esc(txt)}" if txt else "")
+    return f'<span class="chip {cls}">{inner}</span>'
+
+def _vat_status_legend():
+    """A tiny legend of the VAT-status colour families (shown near the first place
+    claim statuses render)."""
+    cells = [("s-neutral", "received"), ("s-early", "ready to submit"),
+             ("s-progress", "in progress"), ("s-done", "paid / closed"),
+             ("s-blocked", "blocked")]
+    return ('<div class="chip-legend">Status colours:'
+            + "".join(f'<span class="chip {c}">{esc(t)}</span>' for c, t in cells)
+            + "</div>")
+
+def _supplier_chip(active):
+    """active → green chip; provisional/inactive → neutral chip."""
+    if active:
+        return '<span class="chip s-done">active</span>'
+    return '<span class="chip s-neutral">provisional</span>'
+
+def _conf_chip(level):
+    """Confidence pill: high → green, medium → amber, low → red."""
+    lv = (level or "").strip().lower()
+    cls = {"high": "s-done", "medium": "s-progress", "med": "s-progress",
+           "low": "s-blocked"}.get(lv, "s-neutral")
+    return f'<span class="chip {cls}">{esc(level or "—")}</span>'
+
+def _toast_el(msg, kind="info"):
+    """Render the SERVER-side flash element that app.js reads on load and pops as a
+    toast (no inline script). kind ∈ success|error|info. Returns "" for an empty msg.
+    Use for TRANSIENT action feedback (saved/added/updated) — NOT for persistent
+    integrity/error banners, which stay as banners."""
+    if not msg:
+        return ""
+    if kind not in ("success", "error", "info"):
+        kind = "info"
+    return (f'<div id="flash" data-toast data-kind="{kind}" '
+            f'style="display:none">{esc(msg)}</div>')
+
+def _empty(title, desc="", cta_label=None, cta_href=None, icon="📭"):
+    """Reusable EMPTY-STATE block — shown INSTEAD of an empty table/list. Optional
+    primary CTA button. All text escaped."""
+    cta = ""
+    if cta_label and cta_href:
+        cta = f'<a class="btn" href="{esc(cta_href)}">{esc(cta_label)}</a>'
+    d = f'<div class="ed">{esc(desc)}</div>' if desc else ""
+    return (f'<div class="empty"><div class="eic">{icon}</div>'
+            f'<div class="et">{esc(title)}</div>{d}{cta}</div>')
 
 def psel(name, options, cur, allow_all=True):
     opts = (["ALL"] if allow_all else []) + list(options)
@@ -2776,11 +2963,19 @@ def stations():
         flag = ('<td class="ok">PREFER</td>' if rf == "PREFER"
                 else '<td class="bad">AVOID</td>' if rf == "AVOID" else "<td></td>")
         trs.append([f"<td>{esc(r['supplier'])}</td><td>{esc(r['country'])}</td><td>{esc(r['station'])}</td>",
-                    f"<td class=r>{r['litres']:,.0f}</td><td class=r><b>{(eurl or 0):.4f}</b></td>{flag}"])
+                    f"<td class=num>{r['litres']:,.0f}</td><td class=num><b>{(eurl or 0):.4f}</b></td>{flag}"])
+    if trs:
+        table_or_empty = tbl(["Supplier","Country","Station","Litres","Eff. €/L","Routing"],
+                             trs, sortable=True)
+    else:
+        table_or_empty = _empty("No station data for this period",
+                                "Stations with at least 300 L of diesel appear here once a "
+                                "period is loaded. Pick another period or import a batch.",
+                                "Import a batch", "/extract", icon="⛽")
     body = (f'<form class="f" method="get"><label>Period<select name="period" onchange="this.form.submit()">{psw}</select></label>'
             f'<a href="/export/stations?period={esc(period or "")}" style="align-self:end;padding:8px 12px;font-size:13px">⬇ Routing export (Excel)</a></form>'
             f'<div class="card"><h2>Diesel station scorecard ≥300 L — cheapest first ({esc(period) if period else "no data"})</h2>'
-            + tbl(["Supplier","Country","Station","Litres","Eff. €/L","Routing"], trs)
+            + table_or_empty
             + '<div class="note">PREFER / AVOID are <b>learned from the data</b>: a station is flagged '
               'only when it falls outside its own country\'s normal price spread this period '
               '(±1 std-dev of the volume-weighted average). No fixed price band — the trigger adapts to '
@@ -3247,11 +3442,11 @@ def transactions():
         # rebate / discount cell: applied rebate (e.g. Port One), a discount line's value,
         # or an expected-but-missing rebate learned from history
         if a["is_discount"]:
-            reb = f'<span class="bad">discount {(r["net_eur"] or 0):,.2f}</span>'
+            reb = f'<span class="bad">discount {_eur(r["net_eur"] or 0)}</span>'
         elif a["rebate"] and a["rebate"] > 0.005:
-            reb = f'<span class="ok">−{a["rebate"]:,.2f}</span>'
+            reb = f'<span class="ok">−{_eur(a["rebate"])}</span>'
         elif a["expected_rebate"]:
-            reb = f'<span class="note">exp ~−{a["expected_rebate"]:,.2f}</span>'
+            reb = f'<span class="note">exp ~−{_eur(a["expected_rebate"])}</span>'
         else:
             reb = ""
         flags = []
@@ -3266,11 +3461,18 @@ def transactions():
         body_rows += (f'<tr class="{cls}"><td>{esc(r["date"])}</td><td>{esc(r["supplier"])}</td>'
                       f'<td>{esc(r["country"])}</td><td>{esc(r["station"])}</td>'
                       f'<td>{esc(r["vehicle"])}</td><td>{esc(r["product"])}</td>'
-                      f'<td class=r>{(r["qty"] or 0):,.2f}</td><td class=r>{(r["net_eur"] or 0):,.2f}</td>'
-                      f'<td class=r>{reb}</td><td class=r>{eurl_disp}</td>'
+                      f'<td class=num>{(r["qty"] or 0):,.2f}</td><td class=num>{_eur(r["net_eur"] or 0)}</td>'
+                      f'<td class=num>{reb}</td><td class=num>{eurl_disp}</td>'
                       f'<td class=note>{" · ".join(flags)}</td></tr>')
-    table = ('<table class="sticky"><thead><tr>' + "".join(f"<th>{h}</th>" for h in head_cells)
-             + f'</tr></thead><tbody>{body_rows}</tbody></table>')
+    if body_rows:
+        table = ('<table class="sticky sortable"><thead><tr>'
+                 + "".join(f"<th>{h}</th>" for h in head_cells)
+                 + f'</tr></thead><tbody>{body_rows}</tbody></table>')
+    else:
+        table = _empty("No transactions match",
+                       "Nothing matches these filters for this period. Widen the filters, "
+                       "pick another period, or import a batch to load data.",
+                       "Import a batch", "/extract", icon="🧾")
     body = (form
             + '<div class="kpis">'
             + f'<div class="kpi"><div class="v">{len(rows)}</div><div class="l">lines</div></div>'
@@ -4616,7 +4818,6 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload
                  f'<td class="note">{_provenance_badge(ln.get("_source"))}</td></tr>')
     gross = sum((ln.get("net",0) or 0) + (ln.get("vat",0) or 0) for ln in draft.get("lines", []))
     conf = draft.get("confidence","low")
-    ccls = {"high":"ok","medium":"","low":"bad"}.get(conf,"")
     _tr = draft.get("_pages_truncated") if isinstance(draft, dict) else None
     trunc_banner = (
         f'<div class="card" style="border-left:4px solid #c0392b;background:#fdecea">'
@@ -4628,7 +4829,7 @@ def _review_form(draft, token, intake_job=None, period=None, ai_panel="", upload
     return (trunc_banner
             + '<div class="card"><h2>Review extracted draft — confirm before anything is saved</h2>'
             f'<div class="note">Source: <b>{esc(draft.get("backend",""))}</b> · '
-            f'confidence <span class="{ccls}">{esc(conf)}</span> · '
+            f'confidence {_conf_chip(conf)} · '
             f'{len(draft.get("files",[]))} PDF(s). {esc(draft.get("notes",""))}</div>'
             + (f'<div style="margin-top:10px"><a href="/extract/capture.xlsx?token={esc(token)}" '
                'style="display:inline-block;background:#1a7340;color:#fff;text-decoration:none;'
@@ -6091,7 +6292,7 @@ def intake_queue_page():
         supplier = j.get("draft_supplier")
         if supplier:
             conf = j.get("draft_confidence")
-            sup_cell = (f'{esc(supplier)}<br><span class="note">conf: {esc(conf)}</span>'
+            sup_cell = (f'{esc(supplier)}<br>{_conf_chip(conf)}'
                         if conf else esc(supplier))
         else:
             sup_cell = '<span class="note">—</span>'
@@ -6188,7 +6389,6 @@ def _read_only_draft_view(job, draft):
                  f'<td class="note">{_provenance_badge(ln.get("_source"))}</td></tr>')
     gross = sum((ln.get("net", 0) or 0) + (ln.get("vat", 0) or 0) for ln in lines)
     conf = draft.get("confidence", "low")
-    ccls = {"high": "ok", "medium": "", "low": "bad"}.get(conf, "")
     vat = (draft.get("supplier_vat") or "").strip()
     head = (f'<div class="card"><h2>Extracted data — job {job["id"]} '
             f'<span class="note">({esc(job["status"])})</span></h2>'
@@ -6200,7 +6400,7 @@ def _read_only_draft_view(job, draft):
             f'<tr><td style="color:var(--mut)">statement ref</td><td>{esc(draft.get("statement_ref") or "—")}</td></tr>'
             f'<tr><td style="color:var(--mut)">statement date</td><td>{esc(draft.get("statement_date") or "—")}</td></tr>'
             f'<tr><td style="color:var(--mut)">currency</td><td>{esc(draft.get("currency") or "EUR")}</td></tr>'
-            f'<tr><td style="color:var(--mut)">confidence</td><td class="{ccls}">{esc(conf)}</td></tr>'
+            f'<tr><td style="color:var(--mut)">confidence</td><td>{_conf_chip(conf)}</td></tr>'
             f'<tr><td style="color:var(--mut)">source</td><td>{esc(draft.get("backend") or "")}</td></tr>'
             '</tbody></table>'
             + _capture_document_html(draft, upload_sha=(job or {}).get("sha256"))
@@ -7546,7 +7746,7 @@ def recovery():
                                      request.form.get("period", ""),
                                      request.form.get("to", ""))
         con.close()
-        banner = f'<div class="card"><b class="{"ok" if ok else "bad"}">{esc(res)}</b></div>'
+        banner = _toast_el(res, "success" if ok else "error")
     elif request.method == "POST" and request.form.get("__act") == "record_payment":
         # record the ACTUALLY-refunded amount; the fee re-bills on the paid amount
         con = VR.connect()
@@ -7562,7 +7762,7 @@ def recovery():
             res = "could not record payment"
         finally:
             con.close()
-        banner = f'<div class="card"><b class="{"ok" if ok else "bad"}">{esc(res)}</b></div>'
+        banner = _toast_el(res, "success" if ok else "error")
     rows, summ = VR.recovery_report(year)
     try:
         import dokobit as _DK
@@ -7621,7 +7821,7 @@ def recovery():
         # payout route decides: 4 invoice the fee / 4A credit; then 5 closed)
         code = r.get("status_code") or {"submitted": "2", "approved": "3", "paid": "3A"}.get(r["status"], "")
         nxt = r.get("next_code")
-        wf = f'<b>{esc(code)}</b> {esc(VR.STATUS_LABELS.get(code, ""))}'
+        wf = _status_chip(code)
         bits = []
         if r.get("decision_date"):
             bits.append(f"decision {esc(r['decision_date'])}")
@@ -7646,24 +7846,34 @@ def recovery():
                    + '<button name="__act" value="record_payment" '
                      'style="font-size:11px;padding:3px 8px">Record payment</button></form>')
         trs.append([f"<td>{esc(r['entity'])}</td><td>{esc(r['country'])}</td><td>{esc(r['period'])}</td>",
-                    f"<td class=r>{vat:,.2f}</td>",
-                    f"<td class=r>{fee:,.2f}</td><td class='{'ok' if billed else 'note'}'>{esc(basis)} · {'charged' if billed else 'pending'}</td>",
+                    f"<td class=num>{_eur(vat)}</td>",
+                    f"<td class=num>{_eur(fee)}</td><td class='{'ok' if billed else 'note'}'>{esc(basis)} · {'charged' if billed else 'pending'}</td>",
                     f"<td class=note>{settle}</td>",
                     f"<td>{wf}</td>",
                     f"<td class='{agecls}'>{r['age_days'] if r['age_days']!='' else ''}</td>",
                     f"<td>{esc(r['paid'] or '')}</td><td>{inv_cell}</td>"])
+    if trs:
+        table_or_empty = (_vat_status_legend()
+                          + tbl(["Entity","Country","Period","VAT EUR","Our fee","Settlement",
+                                 "Workflow (2→5)","Age (days)","Paid","Fee invoice / report"],
+                                trs, sortable=True))
+    else:
+        table_or_empty = _empty("No recovery rows for this year",
+                                "Once claims are submitted they appear here for fee "
+                                "settlement. Check the claims readiness page or pick another year.",
+                                "Go to claims readiness", "/readiness")
     body = (banner + f'<form class="f" method="get"><label>Year<input name="year" value="{esc(year)}" style="width:80px"></label>'
             f'<a href="/export/fees?year={esc(year)}" style="align-self:end;padding:8px 12px;font-size:13px">⬇ Fees statement (Excel)</a></form>'
-            + f'<div class="card"><h2>VAT recovery &amp; fee settlement {esc(year)}</h2>'
-            f'<div class="kpis"><div class="kpi"><div class="v">EUR {summ["submitted"]:,.0f}</div>'
+            + f'<div class="card"><h2>VAT recovery &amp; fee settlement {esc(year)} '
+            '<span class="note" style="font-weight:400">— amounts NET EUR</span></h2>'
+            f'<div class="kpis"><div class="kpi"><div class="v">{_eur(summ["submitted"])}</div>'
             f'<div class="l">submitted</div></div>'
-            f'<div class="kpi"><div class="v ok">EUR {summ["paid"]:,.0f}</div><div class="l">paid back</div></div>'
-            f'<div class="kpi"><div class="v bad">EUR {summ["outstanding"]:,.0f}</div>'
+            f'<div class="kpi"><div class="v ok">{_eur(summ["paid"])}</div><div class="l">paid back</div></div>'
+            f'<div class="kpi"><div class="v bad">{_eur(summ["outstanding"])}</div>'
             f'<div class="l">outstanding</div></div>'
-            f'<div class="kpi"><div class="v ok">EUR {total_charged:,.0f}</div><div class="l">fees charged</div></div>'
-            f'<div class="kpi"><div class="v">EUR {total_net:,.0f}</div><div class="l">net remitted to customers</div></div></div>'
-            + tbl(["Entity","Country","Period","VAT EUR","Our fee","Settlement","Workflow (2→5)",
-                   "Age (days)","Paid","Fee invoice / report"], trs)
+            f'<div class="kpi"><div class="v ok">{_eur(total_charged)}</div><div class="l">fees charged</div></div>'
+            f'<div class="kpi"><div class="v">{_eur(total_net)}</div><div class="l">net remitted to customers</div></div></div>'
+            + table_or_empty
             + '<div class="note">Fee rate is frozen at submission and <b>charged when the refund is '
               'paid</b>. Settlement depends on where the refund lands (set per customer): to the '
               '<b>customer</b> → <b>4 invoice the fee</b>; to <b>us</b> → <b>4A credit</b> (deduct '
@@ -8341,9 +8551,7 @@ def _vat_status_cell(con, VR, m, cache):
     is_year = period.endswith("YEAR")
     code = VR.current_code(con, ent, ctry, period, m["verdict"], cache)
     label = VR.STATUS_LABELS.get(code, code)
-    cls = ("ok" if code in ("1E", "2A", "3A", "4", "4A")
-           else "bad" if code in ("1A", "3B", "3C") else "")
-    badge = f'<b class="{cls}">{esc(code)} — {esc(label)}</b>'
+    badge = _status_chip(code, label)
     chk = ""
     if not is_year:
         items = VR.submission_checklist(con, ent, ctry, period, cache)
@@ -8394,12 +8602,14 @@ def _vat_status_cell(con, VR, m, cache):
            '<button style="font-size:12px;padding:4px 10px">Set</button></form>')
     wd = ""
     if row and row["status"] in VR.LOCKING and session.get("role") == "admin":
-        wd = ('<form method="post" style="margin:2px 0 0">' + _csrf_input() +
+        wd = ('<form method="post" style="margin:2px 0 0" '
+              'data-confirm="Withdraw this claim and release its invoice locks?">'
+              + _csrf_input() +
               f'<input type="hidden" name="entity" value="{esc(ent)}">'
               f'<input type="hidden" name="country" value="{esc(ctry)}">'
               f'<input type="hidden" name="ref_period" value="{esc(period)}">'
-              '<button name="__act" value="withdraw" style="background:var(--mut);'
-              'font-size:11px;padding:3px 8px">Withdraw (release locks)</button></form>')
+              '<button name="__act" value="withdraw" class="btn-danger" '
+              'style="font-size:11px;padding:3px 8px">Withdraw (release locks)</button></form>')
     # Receipt-control WAIVE (admin-only, not on the YEAR roll-up): a supplier whose ref
     # is SYNTHETIC *and* has NO registered invoice for this country (R5 case (a): the
     # invoice isn't coming, so its ref is the INPUT stub) can be waived so it neither
@@ -8511,7 +8721,7 @@ def vat():
             else:
                 doccov = label
         rows.append([f"<td>{esc(m['entity'])}</td><td>{esc(m['country'])}</td><td>{esc(m['period'])}</td>",
-                     f"<td class=r>{m['vat_eur']:,.2f}</td><td class=r>{m['vat_local']:,.2f} {esc(m['currency'])}</td>",
+                     f"<td class=num>{_eur(m['vat_eur'])}</td><td class=num>{m['vat_local']:,.2f} {esc(m['currency'])}</td>",
                      f"<td class='{vcls}'>{esc(v)}</td><td>{esc(', '.join(m['missing']))}</td>",
                      f"<td>{doccov}</td><td>{esc(m['home'])}</td><td>{esc(m['deadline'])}</td>"
                      f"<td>{_vat_status_cell(con, VR, m, inv_cache)}</td>"])
@@ -8519,11 +8729,20 @@ def vat():
                       if m["verdict"].startswith("READY") and not m["period"].endswith("YEAR"))
     # "What needs action" worklist (admin-only; the /vat route is already ADMIN_ONLY).
     worklist = _worklist_card(int(year[:4]) if year[:4].isdigit() else 2026)
+    if rows:
+        vat_table = (_vat_status_legend()
+                     + tbl(["Entity","Refund country","Period","VAT EUR","VAT local",
+                            "Threshold verdict","Months missing","Documents","Home portal",
+                            "Deadline","Status (1A→5)"], rows, sortable=True))
+    else:
+        vat_table = _empty("No claimable quarters yet",
+                           "Once entities have transactions for a claimable quarter, the "
+                           "refund matrix appears here. Load a period or pick another year.",
+                           icon="💶")
     body = (banner + worklist + f'<div class="card"><h2>💶 VAT refund applications {esc(year)} (2008/9/EC) — '
-            f'quarterly READY total: <span class="ok">€{total_ready:,.0f}</span> &nbsp; '
+            f'quarterly READY total: <span class="ok">{_eur(total_ready)}</span> &nbsp; '
             f'<a href="/export/vat?year={esc(year)}">⬇ Generate claim workbook</a></h2>'
-            + tbl(["Entity","Refund country","Period","VAT EUR","VAT local","Threshold verdict",
-                   "Months missing","Documents","Home portal","Deadline","Status (1A→5)"], rows)
+            + vat_table
             + '<div class="note">Status follows a system-controlled checklist: a claim climbs '
               '<b>1A→1E</b> automatically as documents/data are completed and the period ends, '
               'then you advance it manually (2 Submitted → 3A Money received → 5 Closed). '
@@ -9790,23 +10009,23 @@ def suppliers():
     banner = ""
     if request.method == "POST" and request.form.get("__act") == "activate":
         if session.get("role") != "admin":
-            banner = '<div class="card"><b class="bad">Activating a supplier is admin-only.</b></div>'
+            banner = _toast_el("Activating a supplier is admin-only.", "error")
         else:
             try:
                 import waiting_room as IQ
                 code = (request.form.get("code") or "").strip().upper()
                 jid, _st = IQ.enqueue_activate(code, user=session.get("user", "system"))
-                banner = (f'<div class="card"><b class="ok">Activation queued for {esc(code)} '
-                          f'(job {jid}) — the engine worker will flip it to active.</b></div>')
+                banner = _toast_el(f"Activation queued for {code} (job {jid}) — the engine "
+                                   "worker will flip it to active.", "success")
             except Exception as e:
                 _log_exc("supplier activate enqueue", e)
-                banner = f'<div class="card"><b class="bad">Could not queue activation: {esc(str(e))}</b></div>'
+                banner = _toast_el(f"Could not queue activation: {e}", "error")
     elif request.method == "POST" and request.form.get("__act") == "set_entity":
         # Per-country ACTUAL issuing legal entity name (lands on the legal VAT claim via
         # get_issuer). Admin-only source of truth, source='manual' so it WINS over any
         # capture-seeded value (set_vat_registration enforces manual > capture).
         if session.get("role") != "admin":
-            banner = '<div class="card"><b class="bad">Setting the per-country legal entity is admin-only.</b></div>'
+            banner = _toast_el("Setting the per-country legal entity is admin-only.", "error")
         else:
             try:
                 code = (request.form.get("code") or "").strip().upper()
@@ -9827,41 +10046,37 @@ def suppliers():
                     vatnum = _ex["vat_number"] if _ex else None
                 supplier_master.set_vat_registration(
                     code, country, vatnum, source="manual", entity_name=entity)
-                shown = esc(entity) if entity else "<i>(cleared — uses supplier default)</i>"
-                banner = (f'<div class="card"><b class="ok">Saved legal entity for '
-                          f'{esc(code)} / {esc(country)}: {shown}.</b></div>')
+                shown = entity if entity else "(cleared — uses supplier default)"
+                banner = _toast_el(f"Saved legal entity for {code} / {country}: {shown}.",
+                                   "success")
             except Exception as e:
                 _log_exc("supplier set-entity", e)
-                banner = f'<div class="card"><b class="bad">Could not save the entity: {esc(str(e))}</b></div>'
+                banner = _toast_el(f"Could not save the entity: {e}", "error")
     elif request.method == "POST" and request.form.get("__act") in ("add_brand", "remove_brand"):
         # BRAND→LEGAL-ENTITY links. The legal entity (suppliers.code/legal_name) is the
         # canonical identity; a brand read off an invoice (e.g. "Shell") is an explicit
         # alias to it so intake recognises it. Admin-only (the suppliers CRM is ADMIN_ONLY);
         # audited via the request actor; written in-request like set_entity.
         if session.get("role") != "admin":
-            banner = '<div class="card"><b class="bad">Managing supplier brands is admin-only.</b></div>'
+            banner = _toast_el("Managing supplier brands is admin-only.", "error")
         else:
             act = request.form.get("__act")
             code = (request.form.get("code") or "").strip().upper()
             brand = (request.form.get("brand") or "").strip()
             actor = session.get("user", "system")
             if not code or not brand:
-                banner = '<div class="card"><b class="bad">A supplier code and a brand name are required.</b></div>'
+                banner = _toast_el("A supplier code and a brand name are required.", "error")
             elif act == "add_brand":
                 if supplier_master.add_brand(code, brand, actor=actor):
-                    banner = (f'<div class="card"><b class="ok">Linked brand '
-                              f'“{esc(brand)}” to {esc(code)}.</b> Invoices that read as '
-                              f'“{esc(brand)}” now resolve to this legal entity.</div>')
+                    banner = _toast_el(f"Linked brand “{brand}” to {code}. Invoices that read "
+                                       f"as “{brand}” now resolve to this legal entity.", "success")
                 else:
-                    banner = (f'<div class="card"><b class="bad">Could not link brand '
-                              f'“{esc(brand)}” to {esc(code)}.</b></div>')
+                    banner = _toast_el(f"Could not link brand “{brand}” to {code}.", "error")
             else:  # remove_brand
                 if supplier_master.remove_brand(code, brand):
-                    banner = (f'<div class="card"><b class="ok">Removed brand '
-                              f'“{esc(brand)}” from {esc(code)}.</b></div>')
+                    banner = _toast_el(f"Removed brand “{brand}” from {code}.", "success")
                 else:
-                    banner = (f'<div class="card"><b class="bad">Brand “{esc(brand)}” '
-                              f'was not linked to {esc(code)}.</b></div>')
+                    banner = _toast_el(f"Brand “{brand}” was not linked to {code}.", "error")
     con = supplier_master.connect()
     cards = []
     for s in con.execute("SELECT * FROM suppliers ORDER BY code"):
@@ -9934,7 +10149,8 @@ def suppliers():
                         + f'<input type="hidden" name="code" value="{esc(s["code"])}">'
                         + f'<input type="hidden" name="brand" value="{esc(b)}">'
                         + '<button title="remove brand" style="background:none;border:none;'
-                          'color:var(--bad);cursor:pointer;font-size:14px;padding:0 2px">×'
+                          'color:var(--bad);cursor:pointer;font-size:14px;padding:0 2px" '
+                          'data-noloading>×'
                           '</button></form></span>')
                 else:
                     chips += f'<span class="chip" style="margin:2px">{esc(b)}</span>'
@@ -9967,16 +10183,27 @@ def suppliers():
         _legal = esc(s["legal_name"] or s["code"])
         cards.append(f'<div class="card"><h2>{_legal} '
                      f'<span class="note" style="font-weight:normal">({esc(s["code"])})</span> '
-                     f'<span class="{"ok" if s["status"]=="active" else "bad"}">[{esc(s["status"])}]</span></h2>'
+                     f'{_supplier_chip(s["status"]=="active")}</h2>'
                      f"<table><tbody>{meta}</tbody></table>{sect}</div>")
     con.close()
+    if cards:
+        cards_html = "".join(cards)
+    elif session.get("role") == "admin":
+        cards_html = _empty("No suppliers yet",
+                            "Suppliers are usually auto-onboarded from invoices, or you can "
+                            "import a statement to seed the master.",
+                            "Import a batch", "/extract", icon="🏷️")
+    else:
+        cards_html = _empty("No suppliers yet",
+                            "Suppliers appear here once they are onboarded by an administrator.",
+                            icon="🏷️")
     body = (banner
             + '<div class="note" style="margin-bottom:10px">Supplier master data lives in '
             '<b>suppliers.db</b> — a separate database from the VAT refund claim database '
             '(fuel_history.db). Transactions and claims reference suppliers by code only.</div>'
             + _provisional_suppliers_card()
             + _pending_changes_card()
-            + "".join(cards))
+            + cards_html)
     return page(body, "sup")
 
 
@@ -10829,9 +11056,17 @@ def history_page():
         trs.append([f"<td>{esc(r['ts'])}</td><td>{esc(r['tbl'])}</td><td>{esc(r['rowkey'])}</td>",
                     f"<td class='{cls}'>{esc(r['action'])}</td><td>{esc(r['changed_by'])}</td>"
                     f"<td class='note'>{esc(str(change)[:220])}</td>"])
+    if trs:
+        hist_table = tbl(["Timestamp (UTC)","Table","Record key","Action","By","Change / snapshot"],
+                         trs, sortable=True)
+    else:
+        hist_table = _empty("No change history",
+                            "No audited changes match these filters. Widen the date range, "
+                            "clear the record-key filter, or pick another database.",
+                            icon="🕘")
     body = (form + f'<div class="card"><h2>Change history — {dbk}.db ({len(rows)} entries'
             + (f", {f_ or 'start'} → {t_ or 'now'}" if f_ or t_ else "") + ')</h2>'
-            + tbl(["Timestamp (UTC)","Table","Record key","Action","By","Change / snapshot"], trs)
+            + hist_table
             + '<div class="note">BASELINE = state captured at audit installation. DELETE rows keep the '
               'full old record (restore by re-adding via Data manager). As-of reconstruction: '
               'audit.as_of(con, table, timestamp).</div></div>')
