@@ -37,5 +37,11 @@ jobs:
           FFS_STRICT_ENDPOINTS: "1"
         run: python -m pytest tests/ -q
 
+      # The test suite churns the tracked demo DBs (suppliers.db carries per-supplier
+      # config the close reads). Restore them to the pristine checkout before the
+      # consolidate smoke — mirrors the local "git restore" after a test run.
+      - name: Restore demo DBs before consolidate
+        run: git checkout -- customers.db suppliers.db fuel_history.db
+
       - name: Consolidate smoke (all suppliers must pass)
         run: python consolidate.py
