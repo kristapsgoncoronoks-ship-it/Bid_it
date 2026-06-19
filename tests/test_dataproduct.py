@@ -51,6 +51,24 @@ def test_write_through_dataproduct_raises():
         con.close()
 
 
+def test_suppliers_window_is_read_only():
+    """The `suppliers` read-window exposed via dataproduct is ALSO read-only: the app
+    reads supplier master through it and must never mutate it via this handle (the admin
+    CRM has its own writable supplier_master.connect path; this accessor is read-only)."""
+    if not os.path.exists(dataproduct._PATHS["suppliers"]):
+        pytest.skip("suppliers.db not present")
+    con = dataproduct.connect("suppliers")
+    try:
+        # read works
+        con.execute("SELECT 1 FROM suppliers LIMIT 1")
+        # any write must raise — the boundary guard
+        with pytest.raises(sqlite3.OperationalError):
+            con.execute("UPDATE suppliers SET legal_name = legal_name")
+            con.commit()
+    finally:
+        con.close()
+
+
 def test_read_matches_direct():
     """queries.py reads through the read-only handle return the same rows as a plain
     direct read of the same file."""
