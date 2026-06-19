@@ -409,6 +409,48 @@ APP_JS = r"""/* progressive enhancement: sort + filter + horizontal scroll + key
     });
     recompute();
   })();
+  // ---- MOBILE HELP DECLUTTER -------------------------------------------------
+  // On phones the inline advisory help (.note) buries the actual controls. For
+  // each card/section that holds PLAIN advisory help, inject a small "ⓘ help"
+  // toggle and let the CSS collapse the help by default (gated behind the
+  // @media (max-width:640px) block, so DESKTOP is untouched). Tapping the toggle
+  // flips `.help-open` on the card to reveal/re-hide just that card's help.
+  //   - STATUS/ERROR notes (.note.bad / .note.ok) are never counted as help and
+  //     stay visible (the CSS only collapses plain .note).
+  //   - Progressive enhancement: with JS off, no card gets `.has-help`, so the
+  //     CSS collapse is inert and all help shows (never permanently unreachable).
+  //   - Only cards that actually contain plain help get a toggle (no toggle wall).
+  (function(){
+    var cards=document.querySelectorAll('.card,.section');
+    Array.prototype.forEach.call(cards,function(card){
+      // count PLAIN advisory notes only — skip status (.bad/.ok) and any note
+      // that lives inside a nested card (it belongs to that inner card).
+      var notes=Array.prototype.filter.call(card.querySelectorAll('.note'),function(n){
+        if(n.classList.contains('bad')||n.classList.contains('ok')) return false;
+        var owner=n.parentNode&&n.parentNode.closest&&n.parentNode.closest('.card,.section');
+        return owner===card;
+      });
+      if(!notes.length) return;             // nothing collapsible → no toggle
+      card.classList.add('has-help');
+      var btn=document.createElement('button');
+      btn.type='button'; btn.className='helptoggle';
+      btn.setAttribute('aria-expanded','false');
+      var on=false;
+      function label(){ btn.innerHTML='<i class="hti">ⓘ</i>'+(on?'hide help':'help'); }
+      label();
+      btn.addEventListener('click',function(){
+        on=!on;
+        card.classList.toggle('help-open',on);
+        btn.setAttribute('aria-expanded',on?'true':'false');
+        label();
+      });
+      // place the affordance right after the card heading (or at the top).
+      var h=card.querySelector('h2,h3,.dashlabel');
+      if(h&&h.parentNode===card) card.insertBefore(btn,h.nextSibling);
+      else card.insertBefore(btn,card.firstChild);
+    });
+  })();
+
   // ENTER guard: in the review confirm form, pressing Enter inside a line/text input
   // must NOT accidentally submit (register) the statement. Only the explicit Confirm
   // /Discard buttons do. textareas/selects keep native behaviour.
@@ -2138,6 +2180,10 @@ button.working::after,a.btn.working::after{content:"";display:inline-block;width
 button.btn-secondary.working::after{border-color:rgba(26,39,51,.3);border-top-color:var(--ink)}
 @keyframes ffspin{to{transform:rotate(360deg)}}
 .note{color:var(--mut);font-size:12px;margin-top:8px;line-height:1.5}
+/* MOBILE HELP TOGGLE — app.js injects a ".helptoggle" into cards that hold plain
+   advisory .note help; on phones (≤640px) the help collapses and this little
+   "ⓘ help" affordance reveals it. Hidden on desktop (everything shows as today). */
+.helptoggle{display:none}
 main a:not(.btn):not(.kpi){color:var(--acc);text-decoration:none}
 main a:not(.btn):not(.kpi):hover{text-decoration:underline}
 .subnav a:hover{text-decoration:none}
@@ -2277,6 +2323,26 @@ button[disabled].btn,button.btn:disabled{opacity:.55;cursor:not-allowed;pointer-
   .card,.section{overflow-wrap:anywhere}
   .subnav{padding:8px 10px}
   .khgrid{grid-template-columns:1fr}
+  /* MOBILE DECLUTTER — collapse plain advisory help so controls come first.
+     app.js marks each card that holds collapsible help with `.has-help` and
+     injects a `.helptoggle`. Plain `.note` help hides by default and reveals
+     only when the card carries `.help-open`. STATUS notes (.note.bad / .note.ok)
+     and any banner/alert ALWAYS stay visible — never collapsed. Cards with NO
+     collapsible help are untouched (no `.has-help`, no toggle). With JS off no
+     card gets `.has-help`, so this whole block is inert and help shows (the
+     `.has-help` gate is the progressive-enhancement fallback). */
+  .has-help>.note:not(.bad):not(.ok),
+  .has-help .note:not(.bad):not(.ok){display:none}
+  .has-help.help-open>.note:not(.bad):not(.ok),
+  .has-help.help-open .note:not(.bad):not(.ok){display:block}
+  .helptoggle{display:inline-flex;align-items:center;gap:5px;margin:6px 0 2px;
+    padding:5px 11px;border:1px solid var(--line);border-radius:999px;background:#fff;
+    color:var(--mut);font-size:12.5px;font-weight:600;line-height:1;cursor:pointer;
+    -webkit-appearance:none;min-height:0}
+  .helptoggle:hover{background:#f4f7f9;border-color:#c4cfda;box-shadow:none}
+  .helptoggle .hti{font-style:normal;font-weight:700;color:var(--acc)}
+  .has-help.help-open>.helptoggle,.has-help.help-open .helptoggle{
+    background:#eef5fc;border-color:#bcd3ec;color:var(--acc)}
 }
 @media (max-width:480px){
   main{padding:0 10px}
