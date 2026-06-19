@@ -209,7 +209,8 @@ python consolidate.py             # the pipeline smoke test (must PASS all suppl
 - HTML output is escaped with `markupsafe.escape` — never f‑string raw DB values into a page.
 - Every data change is audit‑logged with the acting user.
 - Do **not** commit secrets (`.secret_key`, certs), `security.db`, generated Excel, or
-  runtime dirs (`backups/`, `inbox/`). See `.gitignore`.
+  runtime dirs (`backups/`, `inbox/`, `documents/` = the live vault of client invoice
+  PDFs, `captures/`, `data_lake/`). See `.gitignore`.
 
 More detail for AI/codebase contributors is in `CLAUDE.md`.
 

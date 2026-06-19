@@ -169,7 +169,8 @@ Platform floor under all seven: `auth`/`audit`/`backup`/`db`/`db_migrate`/`applo
 
 ## Do NOT commit
 Secrets (.secret_key, certs), `security.db` (password hashes), generated Excel,
-runtime dirs (backups/, inbox/), and every app-owned runtime DB — including this session's
+runtime dirs (backups/, inbox/, **documents/** = the live vault of client invoice PDFs,
+captures/, data_lake/), and every app-owned runtime DB — including this session's
 new ones (already in `.gitignore`): `capture_confidence.db`, `classify.db`, `workflow.db`,
 `sharing.db`, `esign.db`, `ai_chat.db`, `search.db`, `metadata.db`, `versions.db`,
 `retention.db`, `finance.db` (vision/verify add no DB beyond `capture_confidence.db`). See `.gitignore`.
