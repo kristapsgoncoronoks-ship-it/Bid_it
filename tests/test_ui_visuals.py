@@ -7,8 +7,9 @@ pages still serve 200; they do NOT touch routes, data, or behaviour.
 
 def test_home_renders_tile_grid(client):
     html = client.get("/").get_data(as_text=True)
-    assert "Welcome to Fleet Fuel" in html
-    # the section list is now a visual tile grid, not text+link cards
+    # the home page is now an action center; the section nav is preserved below it
+    assert "Jump to" in html
+    # the section list is still a visual tile grid, not text+link cards
     assert 'class="tiles"' in html
     assert 'class="tile"' in html
     # each tile is a link to its section (admin client sees Analytics + Admin)

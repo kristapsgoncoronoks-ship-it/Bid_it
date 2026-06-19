@@ -2155,6 +2155,18 @@ button[disabled].btn,button.btn:disabled{opacity:.55;cursor:not-allowed;pointer-
 .tile .td{font-size:12px;color:var(--mut);line-height:1.45}
 .tile:hover .tt{color:var(--acc)}
 @media (max-width:760px){.tiles{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.tile{padding:18px 12px 14px}}
+/* ---- home "needs attention" ACTION tiles (count + label + click-through) -- */
+.atiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:13px;margin-bottom:18px}
+.atile{display:flex;flex-direction:column;gap:5px;background:#fff;border:1px solid var(--line);border-left:4px solid var(--line);border-radius:var(--radius);padding:15px 16px 14px;box-shadow:var(--card-sh);text-decoration:none;color:inherit;transition:border-color .12s,box-shadow .14s,transform .08s}
+.atile:hover{box-shadow:0 4px 16px rgba(14,95,168,.13);transform:translateY(-2px)}
+.atile .an{font-size:27px;font-weight:800;line-height:1.02;letter-spacing:-.02em;color:var(--ink)}
+.atile .al{font-size:12.5px;color:var(--mut);font-weight:500;line-height:1.35}
+.atile .ag{margin-top:auto;font-size:11.5px;font-weight:600;color:var(--acc)}
+.atile.act{border-left-color:var(--warn);background:#fffdf7}.atile.act .an{color:#9a6a06}
+.atile.alert{border-left-color:var(--bad);background:#fff9f9}.atile.alert .an{color:var(--bad)}
+.atile.clear{border-left-color:var(--ok)}.atile.clear .an{color:var(--ok);font-size:20px}
+.atile.dim{border-left-color:var(--line)}.atile.dim .an{color:var(--mut);font-size:20px}
+@media (max-width:480px){.atiles{grid-template-columns:1fr 1fr}}
 /* ---- mobile / touch (phones, 360-640px) ---------------------------------- */
 @media (max-width:640px){
   main{margin:14px auto;padding:0 12px}
@@ -2389,15 +2401,178 @@ def multisel(name, label, options, selected, size=4):
             f'<select name="{esc(name)}" multiple size="{sz}">{o}</select></label>')
 
 # ---------------------------------------------------------------- pages
+# ---------------------------------------------------------------- home action center
+def _atile(n, label, href, link="Open →", state="dim"):
+    """One home ATTENTION tile: a big count/figure + label + click-through link, with a
+    semantic state class (act=amber/needs-action, alert=red, clear=green/all-clear,
+    dim=neutral/unknown). All text is escaped — pass `n` already-formatted (str or int)."""
+    return (f'<a class="atile {state}" href="{esc(href)}">'
+            f'<span class="an">{esc(str(n))}</span>'
+            f'<span class="al">{esc(label)}</span>'
+            f'<span class="ag">{esc(link)}</span></a>')
+
+
+def _home_attention(is_admin, mods, perms):
+    """Build the home "needs attention" ACTION row from the CANONICAL read-only sources.
+    Every tile is wrapped in its own try/except + _log_exc so a single failing source
+    degrades to a neutral "—/unavailable" tile and the home page still renders (never a
+    500). Returns the joined HTML for the .atiles grid. Role-aware: admin-only tiles
+    (pending supplier changes, recent errors) are skipped for processors / when the data
+    isn't reachable; module switches are respected by the caller via what it passes in."""
+    tiles = []
+    # 1) INVOICES AWAITING REVIEW — waiting_room drafts in the 'ready' state (the same
+    #    count the /extract intake monitor shows as "ready to review"). -> /extract.
+    if "intake" in mods and "data_import" in perms:
+        try:
+            import waiting_room as _wr
+            n = _wr.counts().get("ready", 0)
+            st = "act" if n else "clear"
+            tiles.append(_atile(n if n else "✓", "Invoices awaiting review",
+                                "/extract", "Review queue →" if n else "All reviewed",
+                                st))
+        except Exception as e:
+            _log_exc("home attention: intake review", e)
+            tiles.append(_atile("—", "Invoices awaiting review (unavailable)",
+                                "/extract", "Open →", "dim"))
+    # 2) CLAIMS READY TO FILE — to_submit rows whose readiness gate is satisfied but not
+    #    yet filed (reuse claims_overview's `ready` verdict — do NOT re-derive the gate).
+    #    -> /recovery. Only when the VAT module is on.
+    if is_admin and "vat" in mods:
+        try:
+            import vat_refund as _VR
+            ov = _VR.claims_overview(2026)
+            n = sum(1 for c in ov.get("to_submit", []) if c.get("ready"))
+            st = "act" if n else "clear"
+            tiles.append(_atile(n if n else "✓", "Claims ready to file",
+                                "/recovery", "File claims →" if n else "None waiting",
+                                st))
+        except Exception as e:
+            _log_exc("home attention: claims ready", e)
+            tiles.append(_atile("—", "Claims ready to file (unavailable)",
+                                "/recovery", "Open →", "dim"))
+    # 3) OLDEST-PENDING / DLQ SLO — surface the intake worker's oldest-pending age when
+    #    the SLO is breached, or stuck (failed/held) jobs in the DLQ. -> /queue. Only for
+    #    operators who can touch intake.
+    if "intake" in mods and "data_import" in perms:
+        try:
+            import waiting_room as _wr
+            h = _wr.queue_health()
+            dlq = h.get("dlq") or 0
+            age_s = h.get("oldest_pending_age_s")
+            if h.get("age_breach") and age_s:
+                hrs = int(age_s) // 3600
+                tiles.append(_atile(f"{hrs}h", "Oldest pending (SLO breach)",
+                                    "/queue", "Intake stalled →", "alert"))
+            elif dlq:
+                tiles.append(_atile(dlq, "Documents stuck in intake",
+                                    "/queue", "Redrive →", "alert"))
+            # nothing breached/stuck -> no tile (keep the row tight; the calm state is
+            # already covered by tile #1's "all reviewed").
+        except Exception as e:
+            _log_exc("home attention: queue health", e)
+    # 4) PENDING SUPPLIER CHANGES — high-risk IBAN/VAT changes awaiting confirm
+    #    (supplier_sync.pending_count). ADMIN-ONLY. -> /supplier-changes.
+    if is_admin:
+        try:
+            import supplier_sync as _ss
+            n = _ss.pending_count()
+            st = "act" if n else "clear"
+            tiles.append(_atile(n if n else "✓", "Pending supplier changes",
+                                "/supplier-changes",
+                                "Confirm bank/VAT →" if n else "None pending", st))
+        except Exception as e:
+            _log_exc("home attention: supplier changes", e)
+            tiles.append(_atile("—", "Pending supplier changes (unavailable)",
+                                "/supplier-changes", "Open →", "dim"))
+    # 5) RECENT ERRORS — count from the admin error log. ADMIN-ONLY. -> /admin.
+    if is_admin:
+        try:
+            n = len(_auth.recent_errors(limit=200))
+            st = "alert" if n else "clear"
+            tiles.append(_atile(n if n else "✓", "Recent errors",
+                                "/admin", "Review log →" if n else "None logged", st))
+        except Exception as e:
+            _log_exc("home attention: recent errors", e)
+            tiles.append(_atile("—", "Recent errors (unavailable)",
+                                "/admin", "Open →", "dim"))
+    return "".join(tiles)
+
+
+def _home_kpis(is_admin, mods):
+    """The headline KPIs: recoverable VAT OUTSTANDING (NET EUR) + a claims-by-status
+    breakdown using _status_chip. Reuses vat_refund.recovery_report (the /recovery
+    source) — never forks the query. Defensive: any failure degrades to '' so the home
+    page still renders. Returns ('' , '') when the VAT module is off or the user can't
+    see it (the whole VAT module is admin-only)."""
+    if not (is_admin and "vat" in mods):
+        return ""
+    try:
+        import vat_refund as _VR
+        recs, summary = _VR.recovery_report("2026")
+    except Exception as e:
+        _log_exc("home kpis: recovery report", e)
+        return ('<div class="card"><h2>💶 Recoverable VAT</h2>'
+                '<p class="note">Recovery figures are temporarily unavailable.</p></div>')
+    outstanding = summary.get("outstanding")
+    # claims-by-status: group the open receivable rows by status_code → a chip each. The
+    # codes are the SAME ones recovery_report stamps (2/2A/2B/3/3A/3B…); _status_chip maps
+    # them to the fixed colour family. Count distinct claims, not EUR.
+    import collections as _coll
+    by_code = _coll.Counter((r.get("status_code") or "").strip() for r in recs)
+    chips = ""
+    if by_code:
+        import vat_refund as _VR2
+        order = list(_VR2.STATUS_LABELS.keys())
+        items = sorted(by_code.items(),
+                       key=lambda kv: order.index(kv[0]) if kv[0] in order else 999)
+        chips = ('<div class="kpis status" style="margin-top:12px">'
+                 + "".join(f'<div class="kpi"><div class="v">{n}</div>'
+                           f'<div class="l">{_status_chip(code)}</div></div>'
+                           for code, n in items if code)
+                 + "</div>")
+    else:
+        chips = ('<p class="note" style="margin-top:10px">No submitted claims yet — '
+                 'recoverable VAT appears here once claims are filed.</p>')
+    return ('<div class="card"><h2>💶 Recoverable VAT outstanding</h2>'
+            f'<div class="kpis metrics"><div class="kpi">'
+            f'<div class="v">{_eur(outstanding)}</div>'
+            '<div class="l">Outstanding refund owed by the state · NET EUR (VAT excl.)</div>'
+            '</div></div>'
+            f'{chips}'
+            '<div class="note" style="margin-top:8px">Submitted &amp; approved claims not '
+            'yet paid, under Directive 2008/9/EC. <a href="/recovery">Open recovery →</a></div>'
+            '</div>')
+
+
 @app.route("/")
 def home():
-    """Clean WELCOME landing page: a short intro to what the system does plus a row
-    of cards linking to the main sections the user has permission for. No data tables
-    or VAT worklist — those live on /analytics and /vat respectively."""
+    """The home ACTION CENTER — "what needs me today" for a small accounting/fleet team.
+    A top row of "needs attention" ACTION tiles (count + click-through) and the headline
+    recoverable-VAT KPIs, then the section-navigation tiles ("Jump to…"). Presentation +
+    READ-ONLY aggregation only — every figure reuses a CANONICAL source (recovery_report,
+    claims_overview, waiting_room, supplier_sync, auth.recent_errors) and each aggregation
+    is individually crash-safe so the home page never 500s. Role-aware: a processor sees
+    its work tiles but NOT the admin-only ones (pending supplier changes, error log)."""
     role = session.get("role", "processor")
     is_admin = (role == "admin")
     mods = enabled_modules()
     perms = _auth.permissions_for(role)
+
+    # 1) "Needs attention" action row (each tile is individually crash-safe).
+    attention = _home_attention(is_admin, mods, perms)
+    attention_card = (
+        '<div class="card"><h2>🔔 Needs attention</h2>'
+        '<p class="note">What needs you today — each tile links to where it gets '
+        'resolved.</p>'
+        f'<div class="atiles">{attention}</div></div>'
+        if attention else
+        '<div class="card"><h2>🔔 Needs attention</h2>'
+        '<p class="note">All clear — nothing is waiting on you right now. 🎉</p></div>')
+
+    # 2) Headline KPIs — recoverable VAT outstanding + claims-by-status (admin + VAT on).
+    kpis = _home_kpis(is_admin, mods)
+
+    # 3) Section navigation, moved BELOW the action center as "Jump to…".
     # (icon, title, one-line desc, href, show?) — only sections the user can reach.
     cards = [
         ("📊", "Analytics", "Benchmark, savings &amp; price intel.",
@@ -2425,14 +2600,10 @@ def home():
         f'<span class="tt">{title}</span>'
         f'<span class="td">{desc}</span></a>'
         for icon, title, desc, href, show in cards if show)
-    body = (
-        '<div class="card"><h2>🚛 Welcome to Fleet Fuel</h2>'
-        '<p class="note" style="font-size:13.5px;color:var(--ink)">Turn multi-supplier fuel '
-        'and toll spend into recovered cash and an audit-ready record — every fuel card, '
-        'EU VAT under Directive 2008/9/EC, and price benchmarking in one place.</p>'
-        '<p class="note">Pick a section to get started — only the areas you can access are '
-        'shown.</p></div>'
-        f'<div class="tiles">{tiles}</div>')
+    nav = (f'<div class="card"><h2>🧭 Jump to…</h2></div>'
+           f'<div class="tiles">{tiles}</div>')
+
+    body = attention_card + kpis + nav
     return page(body, "home")
 
 @app.route("/analytics")

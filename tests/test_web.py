@@ -414,13 +414,14 @@ def test_savings_page_renders_chart(client):
 
 
 def test_home_landing_page(client):
-    # The landing page is a clean welcome with section cards — no analytics tables
-    # and no VAT worklist (those live on /analytics and /vat respectively).
+    # The landing page is now an ACTION CENTER: a "needs attention" row + the headline
+    # recoverable-VAT KPIs, then the section nav ("Jump to…"). The section tiles are
+    # preserved (navigation isn't removed), but no analytics tables live here.
     html = client.get("/").get_data(as_text=True)
-    assert "Welcome to Fleet Fuel" in html
+    assert "Needs attention" in html            # the action center
+    assert "Jump to" in html                     # section nav preserved, moved below
     assert 'href="/analytics"' in html          # links to the analytics dashboard
     assert "Avoidable overpay" not in html      # analytics KPI moved off the landing page
-    assert "What needs action" not in html      # VAT worklist not on landing
 
 
 def test_analytics_dashboard_no_worklist(client):
