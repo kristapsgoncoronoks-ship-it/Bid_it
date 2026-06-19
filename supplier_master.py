@@ -14,8 +14,9 @@ Helpers for other modules:
     get_issuer(code, country) -> (legal_name, vat_id_or_None, note)
     get_invoices(code, country) -> [(invoice_no, date), ...]
 """
-import sqlite3, sys
+import sqlite3, sys, re
 import audit
+import applog
 import db_tuning
 import db_migrate
 import tenancy
@@ -374,9 +375,29 @@ def connect():
             # rekeyed under old code), and is a tolerated duplicate where it is present.
             # Default NULL = "not set" -> get_issuer falls back to suppliers.legal_name.
             "ALTER TABLE supplier_vat_registrations ADD COLUMN entity_name TEXT",
+
+            # ── BRAND ALIASES (append-only, END of list) ────────────────────────
+            # The SUPPLIER LEGAL ENTITY (suppliers.code/legal_name) is the canonical
+            # identity; BRAND names read off an invoice (e.g. "Shell", "Circle K",
+            # "Neste") are EXPLICIT links/aliases to a legal-entity supplier. A legal
+            # entity may carry MANY brands; brand_norm is the normalized lookup key
+            # (the SAME normalization the app's _resolve_supplier_code uses) so a brand
+            # typed in the UI matches what intake reads. UNIQUE on (tenant_id, supplier,
+            # brand_norm) — the same brand can't be linked twice to one supplier, but
+            # could (rarely) name two suppliers; the resolver/code_for_brand take the
+            # first by code so the result is deterministic. Tenant-stamped (P1 plumbing)
+            # so a brand link is tenant-scoped like the rest of suppliers.db. This is the
+            # WRITABLE engine/admin path (supplier_master.connect()); the app reads the
+            # table READ-ONLY via dataproduct for recognition.
+            """CREATE TABLE IF NOT EXISTS supplier_brands (
+                supplier TEXT, brand TEXT, brand_norm TEXT,
+                created_at TEXT, created_by TEXT,
+                tenant_id TEXT NOT NULL DEFAULT 'default',
+                PRIMARY KEY (tenant_id, supplier, brand_norm))""",
         ])
         audit.install_audit(con, ['suppliers', 'supplier_vat_registrations', 'supplier_bank_accounts',
-                                  'supplier_products', 'supplier_invoices', 'supplier_discounts'])
+                                  'supplier_products', 'supplier_invoices', 'supplier_discounts',
+                                  'supplier_brands'])
         _SCHEMA_READY.add(DB)
     return con
 
@@ -575,6 +596,149 @@ def country_from_vat(vat_number):
     if len(v) < 2:
         return None
     return VAT_PREFIX_COUNTRY.get(v[:2])
+
+
+# ──────────────────────── BRAND ALIASES (legal entity = canonical) ────────────
+# A supplier (LEGAL ENTITY, e.g. "Shell Latvia SIA") may carry many BRANDS read off
+# invoices (e.g. "Shell"). These helpers maintain the explicit brand→entity links so
+# intake recognises a brand as its legal entity instead of treating it as unknown.
+
+def _norm_brand(s):
+    """Normalise a brand for matching: lowercase, drop punctuation, collapse spaces.
+    Kept BYTE-IDENTICAL to app._resolve_supplier_code's _norm_name so a brand typed in
+    the UI matches exactly what intake reads off a PDF (casefold + strip punctuation/
+    whitespace). Pure; never raises."""
+    s = re.sub(r"[^\w\s]", " ", (s or "").lower())
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def add_brand(code, brand, actor=None):
+    """Link a BRAND name to a legal-entity supplier CODE (admin-curated master data).
+    Idempotent (the (tenant, supplier, brand_norm) PK upserts), audited via the bound
+    actor, tenant-stamped. Returns True when a link exists after the call, False on a
+    blank code/brand or any error (never raises -> the admin sees a banner, not a 500)."""
+    code = (code or "").strip().upper()
+    brand = (brand or "").strip()
+    bn = _norm_brand(brand)
+    if not code or not bn:
+        return False
+    con = None
+    try:
+        con = connect()
+        if actor:
+            audit.set_actor(con, actor)
+        tid = tenancy.queue_tenant()
+        con.execute("""INSERT INTO supplier_brands
+                         (supplier, brand, brand_norm, created_at, created_by, tenant_id)
+                       VALUES (?,?,?,datetime('now'),?,?)
+                       ON CONFLICT(tenant_id, supplier, brand_norm) DO UPDATE SET
+                         brand=excluded.brand""",
+                    (code, brand, bn, actor, tid))
+        con.commit()
+        return True
+    except Exception as e:
+        applog.get("supplier_master").warning("add_brand failed: %s", e)
+        return False
+    finally:
+        if con is not None:
+            con.close()
+
+
+def remove_brand(code, brand):
+    """Unlink a BRAND from a supplier CODE (matched on the normalized brand, so the same
+    spelling the UI shows removes it). Audited (DELETE trigger), tenant-scoped. Returns
+    True when a row was deleted, False otherwise; never raises -> False."""
+    code = (code or "").strip().upper()
+    bn = _norm_brand(brand)
+    if not code or not bn:
+        return False
+    con = None
+    try:
+        con = connect()
+        frag, params = tenancy.scope_clause()
+        cur = con.execute(
+            "DELETE FROM supplier_brands WHERE supplier=? AND brand_norm=?" + frag,
+            [code, bn, *params])
+        con.commit()
+        return (cur.rowcount or 0) > 0
+    except Exception as e:
+        applog.get("supplier_master").warning("remove_brand failed: %s", e)
+        return False
+    finally:
+        if con is not None:
+            con.close()
+
+
+def brands_for(code, con=None):
+    """Every BRAND linked to a supplier CODE, in display order (brand text). Tenant-
+    scoped (OFF inert). Returns a list of brand strings; never raises -> []."""
+    code = (code or "").strip().upper()
+    if not code:
+        return []
+    own = con is None
+    try:
+        if own:
+            con = connect()
+        frag, params = tenancy.scope_clause()
+        rows = con.execute(
+            "SELECT brand FROM supplier_brands WHERE supplier=?" + frag
+            + " ORDER BY brand", [code, *params]).fetchall()
+        return [r["brand"] for r in rows]
+    except Exception as e:
+        applog.get("supplier_master").warning("brands_for failed: %s", e)
+        return []
+    finally:
+        if own and con is not None:
+            con.close()
+
+
+def code_for_brand(brand, con=None):
+    """Resolve a BRAND name to the linked legal-entity supplier CODE, or None. Matches on
+    the normalized brand (case/punctuation/spacing-insensitive). Deterministic when a
+    brand is linked to more than one supplier: lowest code wins. Tenant-scoped (OFF
+    inert). Never raises -> None."""
+    bn = _norm_brand(brand)
+    if not bn:
+        return None
+    own = con is None
+    try:
+        if own:
+            con = connect()
+        frag, params = tenancy.scope_clause()
+        r = con.execute(
+            "SELECT supplier FROM supplier_brands WHERE brand_norm=?" + frag
+            + " ORDER BY supplier LIMIT 1", [bn, *params]).fetchone()
+        return r["supplier"] if r else None
+    except Exception as e:
+        applog.get("supplier_master").warning("code_for_brand failed: %s", e)
+        return None
+    finally:
+        if own and con is not None:
+            con.close()
+
+
+def all_brand_map(con=None):
+    """Bulk {brand_norm: supplier_code} for the resolver (one read, no per-brand query).
+    Deterministic on collisions: lowest code wins (matches code_for_brand). Tenant-scoped
+    (OFF inert). Never raises -> {}."""
+    own = con is None
+    try:
+        if own:
+            con = connect()
+        frag, params = tenancy.scope_clause()
+        rows = con.execute(
+            "SELECT brand_norm, supplier FROM supplier_brands WHERE 1=1" + frag
+            + " ORDER BY supplier", params).fetchall()
+        out = {}
+        for r in rows:
+            out.setdefault(r["brand_norm"], r["supplier"])   # first (lowest code) wins
+        return out
+    except Exception as e:
+        applog.get("supplier_master").warning("all_brand_map failed: %s", e)
+        return {}
+    finally:
+        if own and con is not None:
+            con.close()
 
 
 def supplier_exists(code, con=None):

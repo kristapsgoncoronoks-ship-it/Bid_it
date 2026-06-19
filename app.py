@@ -3866,6 +3866,30 @@ def _supplier_known(code):
         return False
 
 
+def _supplier_legal_name(code):
+    """READ-ONLY lookup of a supplier's canonical LEGAL ENTITY name (suppliers.legal_name)
+    for a CODE, via dataproduct (mode=ro) — used so the review screen leads with the legal
+    entity rather than the brand read off the PDF. Returns the legal_name, or the code when
+    no legal_name is on file, or None when the code is blank/unknown. Never raises -> None."""
+    code = (code or "").strip().upper()
+    if not code:
+        return None
+    try:
+        import dataproduct
+        con = dataproduct.connect("suppliers")
+        try:
+            r = con.execute(
+                "SELECT legal_name FROM suppliers WHERE code=?", (code,)).fetchone()
+        finally:
+            con.close()
+        if r is None:
+            return None
+        return (r["legal_name"] or "").strip() or code
+    except Exception as e:
+        _log_exc("supplier legal-name lookup", e)
+        return None
+
+
 def _norm_name(s):
     """Normalise a supplier name for matching: lowercase, drop punctuation, collapse spaces."""
     s = re.sub(r"[^\w\s]", " ", (s or "").lower())
@@ -3877,12 +3901,14 @@ def _resolve_supplier_code(name, vat=None):
     captured legal name ("W.A.G. Issuing Services a.s."), brand ("Eurowag") or VAT id
     ("CZ29137291") maps to the supplier we already have instead of being treated as unknown.
     Read-only via dataproduct (the web request never writes suppliers.db). Match order:
-    VAT registration (strongest) -> exact code -> legal_name -> brand/group_name (contains).
+    VAT registration (strongest) -> exact code -> legal_name -> EXPLICIT brand alias
+    (a taught brand→entity link) -> brand/group_name (contains).
     Returns the code or None; never raises -> None."""
     vat_n = re.sub(r"\s+", "", (vat or "")).upper()
     name_n = _norm_name(name)
     if not (vat_n or name_n):
         return None
+    brand_map = {}
     try:
         import dataproduct
         con = dataproduct.connect("suppliers")
@@ -3894,6 +3920,16 @@ def _resolve_supplier_code(name, vat=None):
                 if r:
                     return r["supplier"]
             rows = con.execute("SELECT code, legal_name, group_name FROM suppliers").fetchall()
+            # Explicit brand→legal-entity aliases (admin-curated). brand_norm uses the
+            # SAME normalization as _norm_name, so a captured brand keys directly.
+            try:
+                brand_map = {br["brand_norm"]: br["supplier"] for br in con.execute(
+                    "SELECT brand_norm, supplier FROM supplier_brands "
+                    "ORDER BY supplier").fetchall()}
+            except Exception as be:
+                # A pre-migration suppliers.db without the table must degrade, not fail.
+                _log_exc("resolve supplier brand map", be)
+                brand_map = {}
         finally:
             con.close()
     except Exception as e:
@@ -3909,6 +3945,12 @@ def _resolve_supplier_code(name, vat=None):
     for r in rows:
         if r["legal_name"] and _norm_name(r["legal_name"]) == name_n:
             return r["code"]
+    # EXPLICIT brand alias (STRONG tier): a taught brand→entity link is AUTHORITATIVE
+    # over the fuzzy containment below, so "Shell" -> "Shell Latvia SIA" wins even when a
+    # different supplier's name happens to contain "shell". The {brand_norm: code} map was
+    # built deterministically (lowest code on a collision).
+    if name_n in brand_map:
+        return brand_map[name_n]
     # brand / legal-name containment (e.g. "eurowag" within the group "Eurowag / W.A.G.")
     for r in rows:
         for field in (r["group_name"], r["legal_name"]):
@@ -4031,27 +4073,49 @@ def _read_first_notice(draft, period):
                     f'<li>statement ref: <b>{esc(draft.get("statement_ref") or "—")}</b></li>'
                     f'<li>statement date: <b>{esc(draft.get("statement_date") or "—")}</b></li>'
                     f'<li>period (derived): <b>{esc(period or "—")}</b></li></ul></div>')
+        # The raw value the PDF carried (often a BRAND, e.g. "Shell") — kept as secondary
+        # context so the operator can see what was read even after we lead with the entity.
+        raw_captured = supplier
         # RECOGNISE an existing supplier from the captured name / brand / VAT id (the AI
-        # reads a legal name, not our code). Prefill the resolved CODE so the review form
-        # and confirm/register use it — and we don't auto-create a duplicate.
+        # reads a legal name OR a brand, not our code). Prefill the resolved CODE so the
+        # review form and confirm/register use it — and we don't auto-create a duplicate.
+        # The review must LEAD WITH THE LEGAL ENTITY (suppliers.legal_name); the captured
+        # brand is shown only as secondary context.
         if supplier and not _supplier_known(supplier):
             resolved = _resolve_supplier_code(supplier, vat)
             if resolved:
                 draft["supplier"] = resolved          # form prefills the matched code
-                return (detected + '<div class="card"><b class="ok">Supplier recognised</b>'
-                        f'<div class="note">Captured “{esc(supplier)}” matched your registered '
-                        f'supplier <b>{esc(resolved)}</b> — using that code. You can confirm '
-                        'this statement against it now.</div></div>')
+                legal = _supplier_legal_name(resolved) or resolved
+                return (detected + '<div class="card"><b class="ok">Supplier recognised — '
+                        'legal entity</b>'
+                        f'<div class="note">Legal entity: <b>{esc(legal)}</b> '
+                        f'(code <b>{esc(resolved)}</b>) · read from invoice as: '
+                        f'“{esc(raw_captured)}”. Using that code — you can confirm this '
+                        'statement against it now. Manage brand→entity links on the '
+                        '<a href="/suppliers">Suppliers</a> page.</div></div>')
         if not supplier or _supplier_known(supplier):
+            # Already a known code (or nothing captured). When it's a known supplier, lead
+            # with its LEGAL ENTITY too, so the canonical identity is what the user sees.
+            if supplier and _supplier_known(supplier):
+                legal = _supplier_legal_name(supplier)
+                if legal and _norm_name(legal) != _norm_name(supplier):
+                    detected += ('<div class="card"><b class="ok">Supplier — legal entity'
+                                 '</b><div class="note">Legal entity: '
+                                 f'<b>{esc(legal)}</b> (code <b>{esc(supplier)}</b>).'
+                                 '</div></div>')
             return detected
         # UNKNOWN supplier — onboard only when a VAT id yields a country (never guess).
         country = SM.country_from_vat(vat) if vat else None
         if not country:
-            return (detected + '<div class="card"><b class="bad">Unknown supplier — left '
-                    'UNMATCHED</b><div class="note">No usable VAT number was read, so the '
-                    'supplier was NOT auto-created (a mis-read must never invent master '
-                    'data). Set the correct supplier code below, or create the supplier on '
-                    'the <a href="/suppliers">Suppliers</a> page, then confirm.</div></div>')
+            return (detected + '<div class="card"><b class="bad">Unknown supplier / brand — '
+                    'left UNMATCHED</b><div class="note">'
+                    f'“{esc(raw_captured)}” did not match any registered legal entity or its '
+                    'linked brands, and no usable VAT number was read, so the supplier was '
+                    'NOT auto-created (a mis-read must never invent master data). If this is a '
+                    'BRAND of a supplier you already have (e.g. “Shell” → “Shell Latvia SIA”), '
+                    'link it as a brand on the <a href="/suppliers">Suppliers</a> page so it is '
+                    'recognised automatically next time. Otherwise set the correct supplier '
+                    'code below, or create the supplier, then confirm.</div></div>')
         try:
             import waiting_room as IQ
             jid, _st = IQ.enqueue_onboard(
@@ -9769,6 +9833,35 @@ def suppliers():
             except Exception as e:
                 _log_exc("supplier set-entity", e)
                 banner = f'<div class="card"><b class="bad">Could not save the entity: {esc(str(e))}</b></div>'
+    elif request.method == "POST" and request.form.get("__act") in ("add_brand", "remove_brand"):
+        # BRAND→LEGAL-ENTITY links. The legal entity (suppliers.code/legal_name) is the
+        # canonical identity; a brand read off an invoice (e.g. "Shell") is an explicit
+        # alias to it so intake recognises it. Admin-only (the suppliers CRM is ADMIN_ONLY);
+        # audited via the request actor; written in-request like set_entity.
+        if session.get("role") != "admin":
+            banner = '<div class="card"><b class="bad">Managing supplier brands is admin-only.</b></div>'
+        else:
+            act = request.form.get("__act")
+            code = (request.form.get("code") or "").strip().upper()
+            brand = (request.form.get("brand") or "").strip()
+            actor = session.get("user", "system")
+            if not code or not brand:
+                banner = '<div class="card"><b class="bad">A supplier code and a brand name are required.</b></div>'
+            elif act == "add_brand":
+                if supplier_master.add_brand(code, brand, actor=actor):
+                    banner = (f'<div class="card"><b class="ok">Linked brand '
+                              f'“{esc(brand)}” to {esc(code)}.</b> Invoices that read as '
+                              f'“{esc(brand)}” now resolve to this legal entity.</div>')
+                else:
+                    banner = (f'<div class="card"><b class="bad">Could not link brand '
+                              f'“{esc(brand)}” to {esc(code)}.</b></div>')
+            else:  # remove_brand
+                if supplier_master.remove_brand(code, brand):
+                    banner = (f'<div class="card"><b class="ok">Removed brand '
+                              f'“{esc(brand)}” from {esc(code)}.</b></div>')
+                else:
+                    banner = (f'<div class="card"><b class="bad">Brand “{esc(brand)}” '
+                              f'was not linked to {esc(code)}.</b></div>')
     con = supplier_master.connect()
     cards = []
     for s in con.execute("SELECT * FROM suppliers ORDER BY code"):
@@ -9824,6 +9917,43 @@ def suppliers():
                     + ("<th>set entity</th>" if _is_admin else "") + "</tr>")
             sect += ("<h2 style='margin-top:12px'>VAT registrations</h2>"
                      f"<table><thead>{head}</thead><tbody>{body_rows}</tbody></table>")
+        # BRANDS — explicit brand→legal-entity aliases. The legal entity (this card's
+        # legal_name) is canonical; brands read off invoices link to it so intake
+        # recognises them. Shown as chips with an admin remove (×); an admin add form.
+        brands = supplier_master.brands_for(s["code"], con=con)
+        if brands or _is_admin:
+            chips = ""
+            for b in brands:
+                if _is_admin:
+                    chips += (
+                        '<span class="chip" style="display:inline-flex;align-items:center;'
+                        'gap:4px;margin:2px">' + esc(b)
+                        + '<form method="post" style="display:inline;margin:0">'
+                        + _csrf_input()
+                        + '<input type="hidden" name="__act" value="remove_brand">'
+                        + f'<input type="hidden" name="code" value="{esc(s["code"])}">'
+                        + f'<input type="hidden" name="brand" value="{esc(b)}">'
+                        + '<button title="remove brand" style="background:none;border:none;'
+                          'color:var(--bad);cursor:pointer;font-size:14px;padding:0 2px">×'
+                          '</button></form></span>')
+                else:
+                    chips += f'<span class="chip" style="margin:2px">{esc(b)}</span>'
+            if not brands:
+                chips = '<span class="note">No brands linked yet.</span>'
+            addf = ""
+            if _is_admin:
+                addf = (
+                    '<form method="post" style="margin:8px 0 0;display:flex;gap:4px">'
+                    + _csrf_input()
+                    + '<input type="hidden" name="__act" value="add_brand">'
+                    + f'<input type="hidden" name="code" value="{esc(s["code"])}">'
+                    + '<input name="brand" placeholder="brand read off invoices (e.g. Shell)" '
+                      'style="width:280px" required>'
+                    + '<button style="font-size:12px;padding:4px 10px">Add brand</button></form>')
+            sect += ("<h2 style='margin-top:12px'>Brands "
+                     "<span class='note' style='font-weight:normal'>(invoice names that map "
+                     "to this legal entity)</span></h2>"
+                     f"<div>{chips}</div>{addf}")
         for title, q, cols in (
             ("Bank accounts","SELECT beneficiary, iban, COALESCE(swift,'') s, bank, currency FROM supplier_bank_accounts WHERE supplier=?",("beneficiary","iban","s","bank","currency")),
             ("Products","SELECT COALESCE(product_code,'') c, product_name, product_group, vat_rate, discount_terms FROM supplier_products WHERE supplier=?",("c","product_name","product_group","vat_rate","discount_terms")),
@@ -9832,7 +9962,11 @@ def suppliers():
             if rows:
                 body_rows = "".join("<tr>" + "".join(f"<td>{esc(r[col])}</td>" for col in cols) + "</tr>" for r in rows)
                 sect += f"<h2 style='margin-top:12px'>{esc(title)}</h2><table><tbody>{body_rows}</tbody></table>"
-        cards.append(f'<div class="card"><h2>{esc(s["code"])} — {esc(s["legal_name"])} '
+        # Lead with the canonical LEGAL ENTITY (legal_name); the code is the secondary
+        # machine identifier. Brands read off invoices are explicit aliases (Brands section).
+        _legal = esc(s["legal_name"] or s["code"])
+        cards.append(f'<div class="card"><h2>{_legal} '
+                     f'<span class="note" style="font-weight:normal">({esc(s["code"])})</span> '
                      f'<span class="{"ok" if s["status"]=="active" else "bad"}">[{esc(s["status"])}]</span></h2>'
                      f"<table><tbody>{meta}</tbody></table>{sect}</div>")
     con.close()
