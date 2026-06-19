@@ -1717,6 +1717,70 @@ def _scrape_tick():
     except Exception as e:
         _log_exc("scrape-scheduler tick", e)
 
+# ---------------------------------------------------------------- fx scheduler
+# Pulls the ECB daily reference XML (eurofxref-daily.xml, via ecb_rates.fetch_and_store)
+# automatically so the rate cache stays current without a manual /fx click. Like the
+# backup/scrape schedulers it is OPT-IN (fx_refresh_interval_hours = 0 = OFF, byte-
+# identical to today) and rides the notify-scheduler's SINGLE elected leader, so exactly
+# one worker fetches per due window no matter how many processes run. The last successful
+# run is tracked in a setting (fx_refresh_last_run) so a restart doesn't re-fetch
+# immediately and a failed fetch leaves it due for the next tick.
+def fx_refresh_interval_hours():
+    try:
+        return float(_auth.get_setting("fx_refresh_interval_hours", "0") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+def _fx_due(hrs):
+    """True if at least `hrs` hours have passed since the last recorded successful FX
+    refresh (or none has ever been recorded). hrs<=0 means the scheduler is off."""
+    if hrs <= 0:
+        return False
+    last = _auth.get_setting("fx_refresh_last_run", "") or ""
+    if not last:
+        return True
+    try:
+        import datetime as _dt
+        prev = _dt.datetime.fromisoformat(last)
+        return (_dt.datetime.utcnow() - prev).total_seconds() >= hrs * 3600
+    except (TypeError, ValueError):
+        return True
+
+def _fx_tick():
+    """One scheduler iteration: pull ECB daily rates if a refresh is due. Records the
+    last successful run (so it won't re-fetch until the next interval) and logs the
+    result to the import log on the "fx" channel exactly like the manual /fx refresh.
+    BEST-EFFORT: a fetch failure is logged and left DUE for the next tick — never raises
+    out of the tick (a broken rate source must not crash the worker)."""
+    import traceback
+    try:
+        hrs = fx_refresh_interval_hours()
+        if not _fx_due(hrs):
+            return False
+        import ecb_rates as ECB, import_log as _IL, datetime as _dt
+        try:
+            info = ECB.fetch_and_store()
+        except Exception as e:
+            # transport/source failure: do NOT advance fx_refresh_last_run so the
+            # refresh is retried next tick, AND surface it on the fx import channel.
+            _IL.log("fx", "ECB daily (auto)", "failed", actor="scheduler",
+                    message=str(e)[:200])
+            _log_exc("fx-scheduler fetch", e)
+            return True
+        _IL.log("fx", "ECB daily (auto)", "success", actor="scheduler",
+                records=info.get("rows", 0),
+                message=f"{info.get('source')} · {len(info.get('currencies') or [])} "
+                        f"currencies · as of {info.get('asof')}")
+        _auth.set_setting("fx_refresh_last_run", _dt.datetime.utcnow().isoformat())
+        return True
+    except Exception as e:
+        try:
+            _auth.log_error("fx-scheduler", type(e).__name__, str(e),
+                            traceback.format_exc(), "system")
+        except Exception:
+            pass
+    return False
+
 def _notify_tick():
     """One scheduler iteration: send the digest if it is due. Returns True if a send
     was attempted, else False. Never raises (logs instead)."""
@@ -1775,6 +1839,10 @@ def _notify_loop():
             # tier (rate-limited downstream). Inert unless the admin armed the global
             # kill-switch AND a portal has interval>0 + creds. Never raises.
             _scrape_tick()
+            # off-by-default daily ECB rate refresh: pull eurofxref-daily when due so the
+            # rate cache stays current. Inert unless fx_refresh_interval_hours > 0. Never
+            # raises (a failed fetch is logged and left due for the next tick).
+            _fx_tick()
         time.sleep(BACKUP_CHECK_SECONDS)
 
 def start_notify_scheduler():
@@ -3800,6 +3868,23 @@ def fx():
                       f'{esc(str(e))}</b><div class="note">The server needs outbound HTTPS to a rate '
                       f'source (ECB, Frankfurter, exchangerate.host or er-api), or an admin can upload '
                       f'rates instead. Cached rates (if any) are still shown.</div></div>')
+    elif request.method == "POST" and request.form.get("__act") == "set_fx_schedule":
+        if not is_admin:
+            banner = '<div class="card"><b class="bad">Only an admin can change the auto-refresh schedule.</b></div>'
+        else:
+            hrs = request.form.get("fx_interval", "0")
+            try:
+                hrs_i = int(float(hrs))
+            except (TypeError, ValueError):
+                hrs_i = 0
+            if hrs_i < 0:
+                hrs_i = 0
+            _auth.set_setting("fx_refresh_interval_hours", str(hrs_i))
+            banner = ('<div class="card"><b class="ok">Automatic ECB rate refresh turned OFF '
+                      '(manual only).</b></div>' if hrs_i <= 0
+                      else f'<div class="card"><b class="ok">Automatic ECB rate refresh set to run '
+                           f'every {hrs_i} hour(s).</b> Runs on the worker tier (one leader across '
+                           'processes); enable a worker to actually run it.</div>')
     elif request.method == "POST" and request.form.get("__act") == "upload":
         if not is_admin:
             banner = '<div class="card"><b class="bad">Only an admin can upload exchange rates.</b></div>'
@@ -3878,6 +3963,21 @@ def fx():
               + _csrf_input()
               + '<input type="file" name="file" accept=".csv,.xml" required>'
               + '<button name="__act" value="upload">⬆ Upload rates</button></form>') if is_admin else ""
+    # opt-in DAILY auto-refresh scheduler (off by default; runs on the worker tier under a
+    # single elected leader). Admin-only, audited like other settings.
+    _fx_hrs = int(fx_refresh_interval_hours())
+    _fx_opts = [(0, "Off (manual only)"), (6, "Every 6 hours"), (12, "Every 12 hours"),
+                (24, "Daily (24h)"), (48, "Every 2 days"), (168, "Weekly")]
+    _fx_osel = "".join(f'<option value="{v}" {"selected" if v == _fx_hrs else ""}>{esc(lab)}</option>'
+                       for v, lab in _fx_opts)
+    _fx_last = _auth.get_setting("fx_refresh_last_run", "") or ""
+    _fx_last_txt = (f' &nbsp;·&nbsp; last auto-run: <b>{esc(_fx_last[:19].replace("T", " "))} UTC</b>'
+                    if _fx_last else ' &nbsp;·&nbsp; no auto-run yet')
+    sched = (('<form method="post" class="f" style="display:inline-flex;gap:6px;align-items:center">'
+              + _csrf_input()
+              + f'<label>Auto-refresh<select name="fx_interval">{_fx_osel}</select></label>'
+              + '<button name="__act" value="set_fx_schedule">Save</button></form>'
+              + f'<span class="note" style="align-self:center">{_fx_last_txt}</span>') if is_admin else "")
     # reference card: every European currency and its latest rate stored in the database
     cov = ECB.coverage()
     latest = ECB.latest_rates(list(ECB.EUROPEAN) + ["USD"])
@@ -3991,6 +4091,7 @@ def fx():
                 + ('scrape live or upload a CSV/ECB-XML.' if is_admin
                    else 'ask an admin to scrape or upload rates.') + '</span>') if not asof else '')
             + '</div>'
+            + (f'<div class="f" style="margin-bottom:12px;align-items:center;gap:8px">{sched}</div>' if sched else '')
             + head
             + filt
             + trend_card
