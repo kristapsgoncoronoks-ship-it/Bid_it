@@ -37,11 +37,17 @@ jobs:
           FFS_STRICT_ENDPOINTS: "1"
         run: python -m pytest tests/ -q
 
-      # The test suite churns the tracked demo DBs (suppliers.db carries per-supplier
-      # config the close reads). Restore them to the pristine checkout before the
-      # consolidate smoke — mirrors the local "git restore" after a test run.
-      - name: Restore demo DBs before consolidate
-        run: git checkout -- customers.db suppliers.db fuel_history.db
+      # Reset the demo state before the consolidate smoke (mirrors the local cleanup):
+      #  - the test suite churns the tracked demo DBs (suppliers.db carries per-supplier
+      #    config the close reads), so restore them to the pristine checkout;
+      #  - a networked FX test caches live PLN rates in the gitignored ecb_rates.db, which
+      #    would make BP's consolidate conversion use the live rate instead of the config
+      #    4.27 (supplier_specs._pln_rate falls back to config only when no rate is cached)
+      #    — remove it so the smoke validates against the deterministic config rate.
+      - name: Reset demo state before consolidate
+        run: |
+          git checkout -- customers.db suppliers.db fuel_history.db
+          rm -f ecb_rates.db *.db-wal *.db-shm
 
       - name: Consolidate smoke (all suppliers must pass)
         run: python consolidate.py
