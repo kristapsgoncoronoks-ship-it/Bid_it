@@ -24,6 +24,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import auth as _auth
 import audit as _audit_mod
 import tenancy as _tenancy
+import cloudflare as _cloudflare
 import dataproduct
 import paths
 import applog
@@ -67,6 +68,17 @@ def _security_headers(resp):
     if request.is_secure:
         resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     return resp
+
+
+def _client_ip():
+    """The REAL client IP for security-sensitive use (brute-force throttle + audit/login
+    log). Behind Cloudflare (orange-cloud) `request.remote_addr` is a CF EDGE IP, not the
+    visitor; cloudflare.client_ip resolves the visitor from `CF-Connecting-IP` — but ONLY
+    when the `trust_cloudflare` setting is ON *and* the peer is genuinely Cloudflare / a
+    trusted proxy / loopback. With the setting OFF (default) this returns `request.remote_addr`
+    byte-identically, and a forged header from a non-CF peer is always ignored."""
+    return _cloudflare.client_ip(request.remote_addr or "",
+                                 request.headers.get("CF-Connecting-IP", ""))
 
 APP_JS = r"""/* progressive enhancement: sort + filter + horizontal scroll + keyboard nav */
 (function(){
@@ -482,10 +494,13 @@ def login():
     err = ""
     if request.method == "POST":
         uname = request.form.get("username", "")
-        if _auth.is_locked(uname) or _auth.is_locked_ip(request.remote_addr):
+        # Use the REAL client IP (Cloudflare-aware) for the throttle + verify log, so the
+        # per-IP brute-force defense + audit record the attacker, not a CF edge IP.
+        _cip = _client_ip()
+        if _auth.is_locked(uname) or _auth.is_locked_ip(_cip):
             err = ('<div class="err">Temporarily locked after too many failed attempts. '
                    'Try again in a few minutes.</div>')
-        elif _auth.verify(uname, request.form.get("password", ""), remote=request.remote_addr or ""):
+        elif _auth.verify(uname, request.form.get("password", ""), remote=_cip or ""):
             session.clear()                         # session fixation: start fresh on login
             session["user"] = uname
             u = _auth.get_user(uname)
@@ -592,7 +607,7 @@ def sso_callback():
             scon = _auth.connect()
             _audit_mod.set_actor(scon, u["username"])
             scon.execute("INSERT INTO login_log (username, success, remote) VALUES (?,1,?)",
-                         (u["username"], request.remote_addr or "sso"))
+                         (u["username"], _client_ip() or "sso"))
             scon.commit(); scon.close()
         except Exception as e:
             _log_exc("sso_callback: audit login", e)
@@ -859,6 +874,22 @@ def _bearer_token():
 def _api_err(status, message):
     """Uniform JSON error for the v1 API (no HTML, no session)."""
     return jsonify({"error": message}), status
+
+@app.before_request
+def _cloudflare_origin_lock():
+    """ORIGIN LOCK (default OFF, `cloudflare_only`). When ON, refuse any request whose
+    socket peer is NOT Cloudflare / a configured trusted proxy / loopback — a plain 403 —
+    so nobody can bypass the Cloudflare edge (WAF/rate-limit/Bot-Fight) and hit the origin
+    directly (this is also what makes CF-Connecting-IP unspoofable). Registered FIRST so it
+    runs before the API-token guard, the session guard, and the actor-setting hook; it is a
+    pure peer check that touches no session/DB. Loopback is ALWAYS allowed (health checks,
+    the worker tier, local curl). With the setting OFF it returns None immediately (no-op)."""
+    if not _cloudflare.origin_lock_enabled():
+        return None
+    if not _cloudflare.peer_allowed(request.remote_addr or ""):
+        # Minimal plain 403 — no app chrome, no info leak about why.
+        return Response("Forbidden", status=403, mimetype="text/plain")
+    return None
 
 @app.before_request
 def _api_v1_guard():
@@ -10482,6 +10513,28 @@ def admin():
                           "that pass the validation gate are now auto-filed; everything else "
                           "still waits for review." if on
                           else "Auto-pilot intake turned OFF (every document waits for review).")
+            elif act == "set_cloudflare":
+                # CLOUDFLARE EDGE SAFETY (both default OFF). `trust_cloudflare` makes the
+                # app resolve the REAL client IP from CF-Connecting-IP (only when the peer
+                # is genuinely Cloudflare) so the brute-force throttle + audit see the
+                # visitor, not a CF edge IP. `cloudflare_only` refuses non-CF peers (403) so
+                # nobody bypasses the edge. Optional CIDR overrides for the embedded CF range
+                # list + a local reverse proxy. Settings only — no backend / network call.
+                trust_on = request.form.get("trust_cloudflare") == "on"
+                only_on = request.form.get("cloudflare_only") == "on"
+                _auth.set_setting(_cloudflare.TRUST_SETTING, "on" if trust_on else "off")
+                _auth.set_setting(_cloudflare.ORIGIN_SETTING, "on" if only_on else "off")
+                _auth.set_setting(_cloudflare.RANGES_SETTING,
+                                  request.form.get("cloudflare_ip_ranges", "").strip())
+                _auth.set_setting(_cloudflare.PROXIES_SETTING,
+                                  request.form.get("cloudflare_trusted_proxies", "").strip())
+                banner = ("Cloudflare edge safety saved — "
+                          + ("trust real client IP <b>ON</b>" if trust_on
+                             else "trust real client IP <b>off</b>")
+                          + " &nbsp;|&nbsp; "
+                          + ("origin lock <b>ON</b> (non-Cloudflare peers get 403)" if only_on
+                             else "origin lock <b>off</b>")
+                          + ". Loopback is always allowed.")
             elif act == "set_api_keys":
                 # Admin-managed provider API keys (sealed at rest via keyvault, applied to
                 # os.environ immediately). A blank field LEAVES the existing key unchanged;
@@ -11389,6 +11442,46 @@ def admin():
                      f' &nbsp;|&nbsp; Password storage: <span class="ok">scrypt (salted)</span>'
                      f' &nbsp;|&nbsp; Session cookies: HttpOnly, SameSite'
                      f'{", Secure (HTTPS)" if tls else ""}</p></div>')
+    # Cloudflare edge safety — both default OFF. (1) trust_cloudflare: resolve the REAL
+    # client IP from CF-Connecting-IP (only when the peer is genuinely Cloudflare) so the
+    # brute-force throttle + audit see the visitor not a CF edge IP; (2) cloudflare_only:
+    # refuse non-Cloudflare peers (403) so nobody bypasses the edge (also makes the header
+    # unspoofable). Loopback is ALWAYS allowed.
+    _cf_trust_on = _cloudflare.trust_enabled()
+    _cf_only_on = _cloudflare.origin_lock_enabled()
+    _cf_ranges = esc(_auth.get_setting(_cloudflare.RANGES_SETTING, "") or "")
+    _cf_proxies = esc(_auth.get_setting(_cloudflare.PROXIES_SETTING, "") or "")
+    cloudflarecard = (
+        '<div class="card"><h2>Cloudflare edge safety</h2>'
+        '<div class="note" style="margin-top:0">For running behind the Cloudflare proxy '
+        '(orange-cloud DNS). <b>Both default off</b> — with them off the app behaves exactly '
+        'as today. The <code>CF-Connecting-IP</code> header is trusted <b>only</b> when the '
+        'request peer is genuinely Cloudflare / a configured proxy / loopback, so a forged '
+        'header from a direct hit is ignored. See '
+        'docs/MANUAL.md#putting-the-app-behind-cloudflare.</div>'
+        '<form method="post" class="f" style="margin-top:8px">' + _csrf_input()
+        + '<label class="chk" style="display:flex;gap:7px;align-items:center">'
+          f'<input type="checkbox" name="trust_cloudflare" {"checked" if _cf_trust_on else ""}> '
+          'Trust real client IP from <code>CF-Connecting-IP</code> (so the brute-force '
+          'throttle &amp; audit log record the visitor, not a Cloudflare edge IP)</label>'
+        + '<label class="chk" style="display:flex;gap:7px;align-items:center">'
+          f'<input type="checkbox" name="cloudflare_only" {"checked" if _cf_only_on else ""}> '
+          'Origin lock — refuse requests that don\'t come from Cloudflare (403). Loopback is '
+          'always allowed. Turn on only once DNS is proxied, or you can lock yourself out '
+          '(or firewall the origin to the CF ranges instead)</label>'
+        + '<label class="f" style="margin:6px 0 0">Cloudflare IP ranges override '
+          '<span class="note">(optional — newline/comma CIDRs; REPLACES the embedded '
+          'published list when set)</span>'
+          f'<textarea name="cloudflare_ip_ranges" rows="2" '
+          f'placeholder="leave blank to use the built-in Cloudflare ranges">{_cf_ranges}</textarea>'
+          '</label>'
+        + '<label class="f" style="margin:6px 0 0">Local trusted proxy CIDRs '
+          '<span class="note">(optional — an nginx between Cloudflare and the app; loopback '
+          'is always trusted)</span>'
+          f'<input name="cloudflare_trusted_proxies" value="{_cf_proxies}" '
+          'placeholder="e.g. 10.0.0.0/8"></label>'
+        + '<button name="__act" value="set_cloudflare">Save Cloudflare settings</button>'
+        + '</form></div>')
     # Single sign-on (SSO / OIDC) — optional, default off. Local username/password
     # always remains the fallback. The client secret is sealed at rest and write-only.
     import sso as _sso
@@ -11528,6 +11621,7 @@ def admin():
             + users_card
             + permf
             + security_card
+            + cloudflarecard
             + ssocard
             + dokocard
             + logins_card

@@ -313,6 +313,61 @@ sudo ufw enable
 sudo ufw status
 ```
 
+### PART 6a — Putting the app behind Cloudflare
+
+Optional. Cloudflare's proxy (orange-cloud DNS) puts a WAF, rate-limiting, Bot-Fight and
+(optionally) Turnstile in front of the origin — complementary to the app's own per-user /
+per-IP login lockout. Both Cloudflare-related app settings are **default OFF**: with them
+off the app behaves byte-identically to today. Turn them on in **Admin → Access & Security
+→ Cloudflare edge safety** once DNS is proxied.
+
+**1. Proxy the DNS record.** In the Cloudflare dashboard, set the A/AAAA record for the
+hostname to **Proxied** (orange cloud). Traffic now flows browser → Cloudflare → origin.
+
+**2. SSL/TLS mode = Full (Strict).** Set the zone's SSL/TLS encryption mode to **Full
+(Strict)** and present a **valid origin certificate** (a Cloudflare Origin CA cert, or your
+existing CA cert) on the origin (nginx or the app's own TLS). Full (Strict) keeps the
+Cloudflare↔origin hop encrypted *and* verified — do not use Flexible.
+
+**3. Turn ON `trust_cloudflare` (trust the real client IP).** Once proxied, the app's
+immediate socket peer (`request.remote_addr`) is a **Cloudflare edge IP**, not the visitor.
+Without this setting the per-IP brute-force throttle (`auth.is_locked_ip`) and every
+audit/login-log IP would record Cloudflare instead of the attacker — the defense silently
+stops working. With it ON, the app resolves the real client from Cloudflare's
+`CF-Connecting-IP` header. **Precedence:** the header is trusted **only** when the request
+peer is genuinely Cloudflare (a published CF range), a configured local proxy, or loopback
+— so a forged `CF-Connecting-IP` from a direct hit on the origin is always ignored.
+
+**4. Turn ON `cloudflare_only` (origin lock) — or firewall the origin to the CF ranges.**
+This refuses any request whose peer is not Cloudflare / a trusted proxy / loopback with a
+plain `403`, so nobody can bypass the Cloudflare edge and hit the origin directly. This is
+also what makes `CF-Connecting-IP` unspoofable (the only way to reach the app is through
+Cloudflare). Loopback is **always** allowed (health checks, the worker tier, local curl), so
+you can't lock yourself out of the box. Equivalent at the network layer: firewall the origin
+(ufw / security group) to allow inbound only from the published Cloudflare ranges.
+**Caution:** only enable this after DNS is actually proxied, or legitimate traffic that
+arrives directly will be refused.
+
+**Embedded IP ranges & refresh.** The published Cloudflare ranges
+(https://www.cloudflare.com/ips-v4, /ips-v6) are **embedded** in `cloudflare.py` (they
+change only rarely). If they ever change, you can override them at runtime — no code change
+— via the **Cloudflare IP ranges override** field (newline/comma-separated CIDRs); a
+non-empty override **replaces** the built-in list.
+
+**Reverse-proxy topology (nginx in front of waitress).** If a **local** reverse proxy
+(nginx) sits between Cloudflare and the app (PART 6), the app's peer for these checks is the
+nginx box, which is normally **loopback** (`127.0.0.1`) and therefore always trusted — so the
+default works. If nginx runs on a *different* host on the LAN, add that host's IP/CIDR to the
+**Local trusted proxy CIDRs** field, otherwise the origin lock will 403 it and the trusted-IP
+resolver won't trust the forwarded header. The app keeps its existing `ProxyFix(x_proto,
+x_host)` for HTTPS-scheme detection (secure cookies / HSTS) — that is unchanged and still
+needed.
+
+**Cloudflare-side hardening (dashboard).** Configure Cloudflare's **WAF**, **Rate Limiting**,
+**Bot Fight Mode**, and optionally **Turnstile** on the login route in the Cloudflare
+dashboard. These run at the edge and are complementary to — not a replacement for — the app's
+own account/IP lockout, CSRF, and audit logging.
+
 ### PART 6b — Multiple worker processes (scale-out)
 
 The system is built to run as several worker processes over the same `.db` files
