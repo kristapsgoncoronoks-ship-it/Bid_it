@@ -176,6 +176,28 @@ def test_unknown_supplier_with_vat_enqueues_onboard(monkeypatch, tmp_path):
     assert len(reg) == 1 and reg[0]["status"] == "queued"
 
 
+def test_vat_in_name_field_not_unmatched(monkeypatch, tmp_path):
+    """REGRESSION: the extractor put a VAT id (LV…) in the supplier-NAME field with no
+    separate VAT captured. It must NOT be left UNMATCHED — the VAT-shaped name is promoted
+    to the effective VAT so an unknown supplier is auto-onboarded by its country (LV)."""
+    import app as A, waiting_room as IQ
+    monkeypatch.setattr(IQ, "DB", str(tmp_path / "intake.db"))
+    monkeypatch.setattr(IQ, "INBOX", str(tmp_path / "inbox"))
+    IQ._SCHEMA_READY.clear()
+    monkeypatch.setattr(A, "_supplier_known", lambda code: False)
+    # force 'unknown' so we exercise the onboard path (not a demo-DB match)
+    monkeypatch.setattr(A, "_resolve_supplier_code", lambda name, vat=None: None)
+
+    draft = {"supplier": "LV43603043473", "supplier_vat": "", "statement_ref": "BE95489/5413791",
+             "statement_date": "2026-03-31", "lines": []}
+    with A.app.test_request_context("/extract"):
+        html = A._read_first_notice(draft, "2026-03")
+    assert "UNMATCHED" not in html
+    assert "provisional" in html.lower()
+    reg = [j for j in IQ.jobs() if j.get("kind") == IQ.KIND_ONBOARD]
+    assert len(reg) == 1 and reg[0]["status"] == "queued"
+
+
 # ---------------------------------------------------------------------------
 # provisional admin surface: list + activate + XSS escaping
 # ---------------------------------------------------------------------------

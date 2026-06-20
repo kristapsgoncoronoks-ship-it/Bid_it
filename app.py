@@ -4987,6 +4987,29 @@ def _norm_name(s):
     return re.sub(r"\s+", " ", s).strip()
 
 
+def _vat_shaped(s):
+    """If a captured string is shaped like an EU VAT id, return it CANONICALISED (no spaces/
+    punctuation, upper-case); otherwise return None. Identity = a known two-letter VAT country
+    prefix (supplier_master.country_from_vat) + a body of >=6 digits (8–14 chars total). This
+    lets a VAT id that lands in the supplier-NAME field (a common extractor mis-map) still be
+    recognised as identity instead of being treated as an unknown brand. Strict enough that a
+    real legal name ("Eurowag", "Shell") is never mistaken for a VAT id. Never raises -> None."""
+    try:
+        v = re.sub(r"[^0-9A-Za-z]", "", (s or "")).upper()
+        if not (8 <= len(v) <= 14):
+            return None
+        import supplier_master as SM
+        if not SM.country_from_vat(v):
+            return None
+        body = v[2:]
+        if not body.isalnum() or sum(c.isdigit() for c in body) < 6:
+            return None
+        return v
+    except Exception as e:
+        _log_exc("vat-shape check", e)
+        return None
+
+
 def _resolve_supplier_code(name, vat=None):
     """Resolve a CAPTURED supplier name and/or VAT id to an EXISTING supplier CODE, so a
     captured legal name ("W.A.G. Issuing Services a.s."), brand ("Eurowag") or VAT id
@@ -4996,6 +5019,13 @@ def _resolve_supplier_code(name, vat=None):
     (a taught brand→entity link) -> brand/group_name (contains).
     Returns the code or None; never raises -> None."""
     vat_n = re.sub(r"\s+", "", (vat or "")).upper()
+    # A VAT id frequently lands in the NAME field with no separate VAT captured. When the
+    # name is itself VAT-shaped and we have no explicit VAT, treat it as the VAT id so the
+    # strongest (registration) match still fires instead of falling through to name fuzz.
+    if not vat_n:
+        vs = _vat_shaped(name)
+        if vs:
+            vat_n = vs
     name_n = _norm_name(name)
     if not (vat_n or name_n):
         return None
@@ -5156,6 +5186,13 @@ def _read_first_notice(draft, period):
         import supplier_master as SM
         supplier = (draft.get("supplier") or "").strip()
         vat = (draft.get("supplier_vat") or "").strip()
+        # Recover a VAT id that the extractor placed in the supplier-NAME field (no separate
+        # VAT captured): promote it to the effective VAT so recognition/onboarding work off the
+        # strongest identity instead of leaving an identifiable supplier UNMATCHED.
+        if not vat and supplier:
+            vs = _vat_shaped(supplier)
+            if vs:
+                vat = vs
         detected = ('<div class="card"><b class="ok">Auto-detected from the document</b>'
                     '<div class="note">These were read for you; the fields below are '
                     'editable overrides.</div><ul style="margin:6px 0 0 18px">'
