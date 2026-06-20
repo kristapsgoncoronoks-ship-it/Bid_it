@@ -247,4 +247,63 @@ CATALOG = {
     "Confirm accepted matches": "Apstiprināt pieņemtās sasaistes",
     "for bank-statement matching": "bankas izraksta sasaistei",
     "Recorded %d payment(s); %d skipped.": "Reģistrēti %d maksājumi; %d izlaisti.",
+
+    # ============================================================ PHASE 4: EMAIL + CREDIT NOTES
+    # Emailing the invoice to the customer, and credit notes / cancellation (kreditrēķins).
+    # ⚠️ accounting/legal wording — native-speaker review recommended before customer use. ⚠️
+    # --- email the invoice ---
+    "Send to customer": "Nosūtīt klientam",
+    "Send invoice by email": "Nosūtīt rēķinu pa e-pastu",
+    "Send the invoice (PDF + e-invoice XML) to the customer by email.":
+        "Nosūtīt rēķinu (PDF + e-rēķina XML) klientam pa e-pastu.",
+    "Recipient email": "Saņēmēja e-pasts",
+    "Leave blank to use the customer's stored email.":
+        "Atstājiet tukšu, lai izmantotu klienta saglabāto e-pastu.",
+    "Send": "Nosūtīt",
+    "Sent": "Nosūtīts",
+    "Sent to": "Nosūtīts uz",
+    "Not sent yet.": "Vēl nav nosūtīts.",
+    "The invoice was emailed to the customer.": "Rēķins ir nosūtīts klientam pa e-pastu.",
+    "Email is not configured (set up the SMTP relay in Admin).":
+        "E-pasts nav konfigurēts (iestatiet SMTP releju sadaļā Administrēšana).",
+    "The customer has no email address.": "Klientam nav e-pasta adreses.",
+    "Please find the invoice attached (PDF and e-invoice XML).":
+        "Pielikumā pievienots rēķins (PDF un e-rēķina XML).",
+    "Invoice %s": "Rēķins %s",
+    "Credit note %s": "Kreditrēķins %s",
+    # --- credit note / cancellation ---
+    "CREDIT NOTE": "KREDITRĒĶINS",
+    "Credit note": "Kreditrēķins",
+    "Credit / cancel": "Kreditēt / atcelt",
+    "Credit or cancel invoice": "Kreditēt vai atcelt rēķinu",
+    "Full cancellation": "Pilna atcelšana",
+    "Partial credit": "Daļēja kreditēšana",
+    "Mode": "Režīms",
+    "Qty to credit": "Kreditējamais daudzums",
+    "Could not send the invoice.": "Neizdevās nosūtīt rēķinu.",
+    "Could not create the credit note.": "Neizdevās izveidot kreditrēķinu.",
+    "Reason": "Iemesls",
+    "Original invoice": "Sākotnējais rēķins",
+    "References original invoice": "Atsaucas uz sākotnējo rēķinu",
+    "the amounts are a credit to the customer": "summas ir kredīts klientam",
+    "Credited": "Kreditēts",
+    "credited": "kreditēts",
+    "Amount to credit": "Kreditējamā summa",
+    "Create credit note": "Izveidot kreditrēķinu",
+    "A credit note is the legal way to reverse or correct an issued invoice "
+    "(the original stays immutable). A full cancellation mirrors every line; a "
+    "partial credit lets you choose the amounts to credit. The credit note is a "
+    "draft until you issue it.":
+        "Kreditrēķins ir likumīgais veids, kā atcelt vai labot izrakstītu rēķinu "
+        "(sākotnējais paliek nemainīgs). Pilna atcelšana atspoguļo katru rindu; "
+        "daļēja kreditēšana ļauj izvēlēties kreditējamās summas. Kreditrēķins ir "
+        "melnraksts, līdz to izrakstāt.",
+    "This credit note references the original invoice (number + issue date) and "
+    "the reason for the credit. Amounts are shown as a credit.":
+        "Šis kreditrēķins atsaucas uz sākotnējo rēķinu (numurs + datums) un "
+        "kreditēšanas iemeslu. Summas ir norādītas kā kredīts.",
+    "Only an issued invoice can be credited.": "Kreditēt var tikai izrakstītu rēķinu.",
+    "The amount to credit exceeds the original.":
+        "Kreditējamā summa pārsniedz sākotnējo rēķinu.",
+    "Choose at least one line to credit.": "Izvēlieties vismaz vienu rindu kreditēšanai.",
 }

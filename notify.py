@@ -191,16 +191,33 @@ class _SmtpTransport:
         self.host, self.port = host, port
         self.user, self.password, self.sender = user, password, sender
 
-    def send(self, to, subject, html, text):
+    def send(self, to, subject, html, text, attachments=None):
+        """Send a multipart/alternative e-mail. `attachments` (optional) is a list of
+        (filename, mime_type, payload_bytes) — each added as a binary MIME part so a
+        message can carry the invoice PDF + e-invoice XML. None/empty = a plain
+        text+html message exactly as before (backward-compatible with the notify/twofa
+        callers that pass no attachments)."""
         import smtplib
         from email.mime.multipart import MIMEMultipart
         from email.mime.text import MIMEText
-        msg = MIMEMultipart("alternative")
+        from email.mime.application import MIMEApplication
+        body = MIMEMultipart("alternative")
+        body.attach(MIMEText(text, "plain", "utf-8"))
+        body.attach(MIMEText(html, "html", "utf-8"))
+        if attachments:
+            msg = MIMEMultipart("mixed")
+            msg.attach(body)
+            for (filename, mime_type, payload) in attachments:
+                maintype, _, subtype = (mime_type or "application/octet-stream").partition("/")
+                part = MIMEApplication(payload, _subtype=(subtype or "octet-stream"))
+                part.add_header("Content-Disposition", "attachment",
+                                filename=str(filename or "attachment"))
+                msg.attach(part)
+        else:
+            msg = body
         msg["Subject"] = subject
         msg["From"] = self.sender or self.user or "noreply@localhost"
         msg["To"] = ", ".join(to) if isinstance(to, (list, tuple)) else to
-        msg.attach(MIMEText(text, "plain", "utf-8"))
-        msg.attach(MIMEText(html, "html", "utf-8"))
         with smtplib.SMTP(self.host, self.port or 25, timeout=30) as s:
             try:
                 s.starttls()

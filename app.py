@@ -1262,6 +1262,8 @@ ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "api_r
               # bank-statement import + advisory match confirm (admin-only, like the rest).
               "invoicing_payment_record", "invoicing_receivable",
               "invoicing_import", "invoicing_import_confirm",
+              # Phase 4: email the invoice + credit notes / cancellation (admin-only).
+              "invoicing_send", "invoicing_credit", "invoicing_credit_create",
               # the workflow DEFINE/MANAGE surface is admin-only (an admin builds the
               # routing); the Tasks inbox / act / start-run are NOT here (any login).
               "workflow_admin", "workflow_define", "workflow_update",
@@ -1385,7 +1387,8 @@ MODULES = {
                     "invoicing_fields_save", "invoicing_issue", "invoicing_pdf",
                     "invoicing_einvoice_xml", "invoicing_pdf_hybrid",
                     "invoicing_payment_record", "invoicing_receivable",
-                    "invoicing_import", "invoicing_import_confirm"}),
+                    "invoicing_import", "invoicing_import_confirm",
+                    "invoicing_send", "invoicing_credit", "invoicing_credit_create"}),
     "fx":         ("FX vs ECB exchange rates", {"fx"}),
     "workflow":   ("Workflow — configurable approval/routing + a Tasks inbox (advisory)",
                    {"tasks_page", "task_act", "workflow_start",
@@ -14832,9 +14835,88 @@ def invoicing_compose(invoice_id=None):
     else:
         body.append('<div class="card"><p class="note">This invoice is issued and '
                     'immutable. Download the PDF above.</p></div>')
+        # ---- PHASE 4: email the invoice to the customer (issued docs only) ----
+        body.append(_ivc_send_card(invoicing, inv, cust))
+        # ---- PHASE 4: credit / cancel (ordinary invoices only — not a credit note) ----
+        if inv.get("doc_type") != invoicing.DOC_CREDIT_NOTE:
+            body.append(_ivc_credit_card(invoicing, inv))
+        else:
+            body.append(_ivc_credit_note_origin_card(invoicing, inv))
         # ---- PHASE 3: payments ledger + record-payment form (issued invoices only) ----
         body.append(_ivc_payments_card(invoicing, inv))
     return page("".join(body), "ivc")
+
+
+def _ivc_send_card(invoicing, inv, cust):
+    """The 'Send to customer' card for an ISSUED invoice/credit note: a confirm form +
+    the sent status (when + to whom). CSRF + admin-only. Returns HTML."""
+    iid = int(inv["id"])
+    stored_email = (cust or {}).get("email") or ""
+    sent_at = inv.get("sent_at")
+    sent_to = inv.get("sent_to")
+    status_line = ""
+    if sent_at:
+        status_line = (f'<p class="note ok">{esc(_t("Sent"))}: {esc(sent_at)}'
+                       + (f' · {esc(_t("Sent to"))} {esc(sent_to)}' if sent_to else '')
+                       + '</p>')
+    else:
+        status_line = f'<p class="note">{esc(_t("Not sent yet."))}</p>'
+    help_txt = esc(_t("Send the invoice (PDF + e-invoice XML) to the customer by email."))
+    blank_hint = esc(_t("Leave blank to use the customer's stored email."))
+    form = (
+        '<form method="post" action="/invoicing/send" class="f" '
+        'onsubmit="return confirm(\'Send this invoice to the customer?\')">' + _csrf_input()
+        + f'<input type="hidden" name="invoice_id" value="{iid}">'
+        + f'<label style="flex:1 1 100%">{esc(_t("Recipient email"))}'
+        + f'<input name="to" type="email" placeholder="{esc(stored_email)}" '
+          f'value=""></label>'
+        + f'<p class="note">{blank_hint}</p>'
+        + f'<div style="margin-top:8px"><button>{esc(_t("Send"))}</button></div></form>')
+    return (f'<div class="card"><h2>{esc(_t("Send invoice by email"))}</h2>'
+            f'<p class="note">{help_txt}</p>' + status_line + form + '</div>')
+
+
+def _ivc_credit_card(invoicing, inv):
+    """The 'Credit / cancel' entry card for an issued ORDINARY invoice. Shows the amount
+    already credited (derived) and links to the credit/cancel screen. Returns HTML."""
+    iid = int(inv["id"])
+    credited = invoicing.credited_total(iid)
+    cns = invoicing.credit_notes_for(iid)
+    rows = []
+    for cn in cns:
+        rows.append([
+            f'<a href="/invoicing/compose/{int(cn["id"])}">{esc(cn.get("number") or _t("draft"))}</a>',
+            _ivc_status_chip(invoicing.display_status(cn)),
+            _eur(cn.get("gross_total")),
+        ])
+    table = (tbl([_t("Credit note"), _t("Status"), _t("Credited")], rows)
+             if rows else "")
+    note = ""
+    if credited > 0:
+        note = f'<p class="note">{esc(_t("Credited"))}: {_eur(credited)}</p>'
+    fully = invoicing.is_fully_credited(inv)
+    btn = ""
+    if not fully:
+        btn = (f'<a class="btn" href="/invoicing/credit/{iid}">'
+               f'{esc(_t("Credit / cancel"))}</a>')
+    else:
+        btn = f'<p class="note ok">{esc(_t("cancelled"))}</p>'
+    return (f'<div class="card"><h2>{esc(_t("Credit / cancel"))}</h2>'
+            + note + table + '<div style="margin-top:8px">' + btn + '</div></div>')
+
+
+def _ivc_credit_note_origin_card(invoicing, inv):
+    """For a credit-note document, a card linking back to the ORIGINAL invoice it corrects."""
+    orig = (invoicing.get_invoice(inv.get("corrects_invoice_id"))
+            if inv.get("corrects_invoice_id") else None)
+    if not orig:
+        return ''
+    return (f'<div class="card"><h2>{esc(_t("Credit note"))}</h2>'
+            f'<p class="note">{esc(_t("Original invoice"))}: '
+            f'<a href="/invoicing/compose/{int(orig["id"])}">'
+            f'{esc(orig.get("number") or "—")}</a>'
+            + (f' ({esc(orig.get("issue_date"))})' if orig.get("issue_date") else '')
+            + '</p></div>')
 
 
 def _ivc_payments_card(invoicing, inv):
@@ -15051,6 +15133,124 @@ def invoicing_pdf_hybrid(invoice_id):
     return send_file(io.BytesIO(data), as_attachment=True,
                      download_name=f"Invoice_{num}_hybrid.pdf",
                      mimetype="application/pdf")
+
+
+# ----------------------------------------------------------------- PHASE 4: email
+@app.route("/invoicing/send", methods=["POST"])
+def invoicing_send():
+    """Email an ISSUED invoice (or credit note) to the customer: the hybrid PDF + the
+    standalone e-invoice XML, with a short cover note in the document's language. Sets
+    status `sent` on success. Admin-only, CSRF, audited. Best-effort (never raises)."""
+    import i18n, invoicing
+    f = request.form
+    try:
+        iid = int(f.get("invoice_id") or "0")
+    except (TypeError, ValueError):
+        iid = 0
+    to = (f.get("to") or "").strip() or None
+    ok, err = invoicing.send_invoice(iid, to=to, lang=i18n.current_lang())
+    if not ok:
+        return page(_ivc_banner(False, err or _t("Could not send the invoice."))
+                    + f'<p><a href="/invoicing/compose/{iid}">{esc(_t("Back"))}</a></p>', "ivc")
+    return redirect(f"/invoicing/compose/{iid}")
+
+
+# ----------------------------------------------------------------- PHASE 4: credit notes
+@app.route("/invoicing/credit/<int:invoice_id>", methods=["GET"])
+def invoicing_credit(invoice_id):
+    """The Credit / cancel screen for an ISSUED invoice: choose FULL cancellation or a
+    PARTIAL credit (pick lines + amounts) + a reason. Admin-only, CSRF. The POST creates a
+    credit-note DRAFT (then the operator reviews → issues → downloads/sends it)."""
+    import invoicing
+    orig = invoicing.get_invoice(invoice_id)
+    if not orig:
+        return page('<div class="card"><b class="bad">No such invoice.</b></div>', "ivc"), 404
+    if orig.get("doc_type") == invoicing.DOC_CREDIT_NOTE or orig.get("status") == "draft" \
+            or not orig.get("number"):
+        return page(_ivc_banner(False, _t("Only an issued invoice can be credited."))
+                    + f'<p><a href="/invoicing/compose/{invoice_id}">{esc(_t("Back"))}</a></p>',
+                    "ivc")
+    lines = invoicing.get_lines(invoice_id)
+    help_txt = esc(_t(
+        "A credit note is the legal way to reverse or correct an issued invoice "
+        "(the original stays immutable). A full cancellation mirrors every line; a "
+        "partial credit lets you choose the amounts to credit. The credit note is a "
+        "draft until you issue it."))
+    # per-line partial picker (description / original qty×price / a credit-amount field)
+    lrows = []
+    for ln in lines:
+        ln_no = int(ln.get("line_no") or 0)
+        qty_str = f'{float(ln.get("quantity") or 0):g}'
+        lrows.append([
+            f'<input type="checkbox" name="pick_{ln_no}" value="1">',
+            esc(ln.get("description") or ""),
+            esc(qty_str),
+            _eur(ln.get("unit_price_net")),
+            _eur(ln.get("line_net")),
+            (f'<input type="number" step="0.0001" min="0" name="qty_{ln_no}" '
+             f'style="width:90px" value="{esc(qty_str)}">'),
+        ])
+    ltable = tbl([_t("Credit"), _t("Description"), _t("Qty"), _t("Unit price (net)"),
+                  _t("Net"), _t("Qty to credit")], lrows)
+    body = (
+        f'<div class="card"><h2>{esc(_t("Credit or cancel invoice"))} '
+        f'{esc(orig.get("number") or "")}</h2>'
+        f'<p class="note">{help_txt}</p>'
+        '<form method="post" action="/invoicing/credit/create" class="f">' + _csrf_input()
+        + f'<input type="hidden" name="invoice_id" value="{int(invoice_id)}">'
+        + f'<label>{esc(_t("Mode"))}<select name="mode">'
+          f'<option value="full">{esc(_t("Full cancellation"))}</option>'
+          f'<option value="partial">{esc(_t("Partial credit"))}</option></select></label>'
+        + f'<label style="flex:1 1 100%">{esc(_t("Reason"))}<input name="reason" '
+          'placeholder="e.g. invoice issued in error / goods returned"></label>'
+        + f'<div style="margin-top:8px"><button>{esc(_t("Create credit note"))}</button>'
+        + f' <a class="btn" href="/invoicing/compose/{int(invoice_id)}">{esc(_t("Cancel"))}</a>'
+          '</div></form>'
+        '<p class="note">For a PARTIAL credit, tick the lines to credit and set the '
+        'quantity to credit for each (each credited amount must not exceed the original '
+        'line). FULL cancellation ignores the line picks and mirrors every line.</p></div>'
+    )
+    pick = (f'<div class="card"><h2>{esc(_t("Partial credit"))}</h2>'
+            '<p class="note">Used only when Mode = Partial credit.</p>' + ltable + '</div>')
+    # the line picks live in the SAME form as the mode/reason; wrap so they post together.
+    body = body.replace('</form>', '')          # reopen the form to include the picker
+    body = (body + pick.replace('<div class="card"><h2>',
+                                '<div class="card" style="margin-top:0"><h2>')
+            + '</form>')
+    return page(body, "ivc")
+
+
+@app.route("/invoicing/credit/create", methods=["POST"])
+def invoicing_credit_create():
+    """Create a credit-note DRAFT (full or partial) against an issued invoice, then redirect
+    to its compose page to review → issue. Admin-only, CSRF, audited."""
+    import invoicing
+    f = request.form
+    try:
+        iid = int(f.get("invoice_id") or "0")
+    except (TypeError, ValueError):
+        iid = 0
+    mode = (f.get("mode") or "full").strip()
+    reason = (f.get("reason") or "").strip()
+    lines = None
+    if mode == "partial":
+        lines = []
+        for ln in invoicing.get_lines(iid):
+            ln_no = int(ln.get("line_no") or 0)
+            if f.get(f"pick_{ln_no}") != "1":
+                continue
+            qty = (f.get(f"qty_{ln_no}") or "").strip()
+            lines.append({"line_no": ln_no, "quantity": qty or ln.get("quantity"),
+                          "unit_price_net": ln.get("unit_price_net")})
+        if not lines:
+            return page(_ivc_banner(False, _t("Choose at least one line to credit."))
+                        + f'<p><a href="/invoicing/credit/{iid}">{esc(_t("Back"))}</a></p>', "ivc")
+    cn, err = invoicing.create_credit_note(iid, mode=mode, lines=lines, reason=reason,
+                                           created_by=session.get("user"))
+    if err or not cn:
+        return page(_ivc_banner(False, err or _t("Could not create the credit note."))
+                    + f'<p><a href="/invoicing/credit/{iid}">{esc(_t("Back"))}</a></p>', "ivc")
+    return redirect(f"/invoicing/compose/{int(cn['id'])}")
 
 
 # ----------------------------------------------------------------- PHASE 3: payments

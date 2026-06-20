@@ -1138,3 +1138,266 @@ def test_i18n_phase3_labels_have_lv(inv):
         # an LV entry exists and differs from the English source
         assert i18n.has(en, "lv"), f"missing LV translation for {en!r}"
         assert i18n.t(en, "lv") != en, f"LV translation equals EN for {en!r}"
+
+
+# ====================================================================================
+# PHASE 4 — (A) EMAIL THE INVOICE + (B) CREDIT NOTES / CANCELLATION
+# ====================================================================================
+import xml.etree.ElementTree as _ET   # noqa: E402
+
+
+class _FakeTransport:
+    """A notify-shaped transport (.send(to, subject, html, text, attachments)) that
+    captures the message so a test can assert the attachments + body without live SMTP."""
+    def __init__(self):
+        self.sent = []
+
+    def send(self, to, subject, html, text, attachments=None):
+        self.sent.append({"to": to, "subject": subject, "html": html, "text": text,
+                          "attachments": list(attachments or [])})
+
+
+# ---------------------------------------------------------------- (A) email the invoice
+def test_send_invoice_attaches_hybrid_and_xml_and_sets_sent(inv):
+    issued, c = _issued_invoice(inv, gross_check=121.0)
+    inv.update_customer(c["id"], email="billing@bauer.example")
+    t = _FakeTransport()
+    ok, err = inv.send_invoice(issued["id"], transport=t)
+    assert ok and err == "", err
+    assert len(t.sent) == 1
+    msg = t.sent[0]
+    assert msg["to"] == "billing@bauer.example"
+    # two attachments: the hybrid PDF and the standalone e-invoice XML
+    names = [a[0] for a in msg["attachments"]]
+    mimes = [a[1] for a in msg["attachments"]]
+    assert any(n.endswith("_hybrid.pdf") for n in names), names
+    assert any(n.endswith(".xml") for n in names), names
+    assert "application/pdf" in mimes and "application/xml" in mimes
+    pdf_att = next(a for a in msg["attachments"] if a[1] == "application/pdf")
+    xml_att = next(a for a in msg["attachments"] if a[1] == "application/xml")
+    assert pdf_att[2][:5] == b"%PDF-"
+    assert b"Invoice" in xml_att[2] or b"InvoiceTypeCode" in xml_att[2]
+    # status moved issued -> sent, with when + to recorded
+    after = inv.get_invoice(issued["id"])
+    assert after["status"] == "sent"
+    assert after["sent_at"] and after["sent_to"] == "billing@bauer.example"
+
+
+def test_send_invoice_refuses_draft(inv):
+    _set_issuer(inv)
+    c, _ = inv.add_customer("Bauer GmbH", country="DE", vat_number="DE1",
+                            address="Hauptstr 2", email="x@y.z")
+    draft, _ = inv.create_draft(customer_id=c["id"], reverse_charge=False)
+    inv.add_line(draft["id"], description="X", quantity=1, unit_price_net=10, vat_rate=0.21)
+    ok, err = inv.send_invoice(draft["id"], transport=_FakeTransport())
+    assert not ok and "issued" in err.lower()
+
+
+def test_send_invoice_errors_without_email(inv):
+    issued, c = _issued_invoice(inv)        # _issued_invoice sets no email on the customer
+    ok, err = inv.send_invoice(issued["id"], transport=_FakeTransport())
+    assert not ok and "email" in err.lower()
+
+
+def test_send_invoice_errors_without_smtp(inv, monkeypatch):
+    import notify
+    issued, c = _issued_invoice(inv)
+    inv.update_customer(c["id"], email="a@b.c")
+    # no transport injected AND no SMTP configured -> a clear error, no send.
+    monkeypatch.setattr(notify, "_settings_transport", lambda: None)
+    ok, err = inv.send_invoice(issued["id"])
+    assert not ok and "configured" in err.lower()
+
+
+def test_send_invoice_explicit_to_overrides_customer_email(inv):
+    issued, c = _issued_invoice(inv)
+    inv.update_customer(c["id"], email="stored@bauer.example")
+    t = _FakeTransport()
+    ok, err = inv.send_invoice(issued["id"], to="override@elsewhere.example", transport=t)
+    assert ok and err == ""
+    assert t.sent[0]["to"] == "override@elsewhere.example"
+
+
+def test_sent_invoice_can_still_be_paid(inv):
+    issued, c = _issued_invoice(inv, gross_check=121.0)
+    inv.update_customer(c["id"], email="a@b.c")
+    inv.send_invoice(issued["id"], transport=_FakeTransport())
+    assert inv.get_invoice(issued["id"])["status"] == "sent"
+    out, err = inv.record_payment(issued["id"], 121.0, "2026-03-12")
+    assert err == ""
+    assert inv.get_invoice(issued["id"])["status"] == "paid"
+    assert inv.outstanding(issued["id"]) == 0.0
+
+
+# ---------------------------------------------------------------- (B) credit notes
+def test_full_credit_mirrors_lines_and_zeroes_ar(inv):
+    issued, c = _issued_invoice(inv, gross_check=121.0)
+    cn, err = inv.create_credit_note(issued["id"], mode="full", reason="issued in error")
+    assert err == "", err
+    assert cn["doc_type"] == "credit_note"
+    assert cn["corrects_invoice_id"] == issued["id"]
+    # the credit mirrors the original lines + totals
+    cn_lines = inv.get_lines(cn["id"])
+    assert len(cn_lines) == len(inv.get_lines(issued["id"]))
+    assert cn["gross_total"] == issued["gross_total"]
+    # a DRAFT credit note does not yet affect the original (only ISSUED credits count)
+    assert inv.outstanding(issued["id"]) == 121.0
+    cn2, err2 = inv.issue(cn["id"], issued_by="pytest", issue_date="2026-03-15")
+    assert err2 == "", err2
+    # now the original reads cancelled and its AR is zeroed
+    assert inv.outstanding(issued["id"]) == 0.0
+    assert inv.display_status(issued["id"]) == "cancelled"
+    assert inv.is_fully_credited(issued["id"]) is True
+    ar = inv.accounts_receivable()
+    assert all(r["id"] != issued["id"] for r in ar["rows"])
+    # the credit note itself is NOT a receivable on the AR view either
+    assert all(r["id"] != cn["id"] for r in ar["rows"])
+
+
+def test_partial_credit_reduces_outstanding_by_credited_amount(inv):
+    issued, c = _issued_invoice(inv, gross_check=121.0)   # 2h x 50 net = 100, vat 21
+    # credit 1 of the 2 hours -> net 50, vat 10.50, gross 60.50
+    cn, err = inv.create_credit_note(
+        issued["id"], mode="partial",
+        lines=[{"line_no": 1, "quantity": 1, "unit_price_net": 50}],
+        reason="partial return")
+    assert err == "", err
+    assert cn["gross_total"] == 60.5
+    inv.issue(cn["id"], issued_by="pytest", issue_date="2026-03-16")
+    # outstanding reduced by exactly the credited amount
+    assert inv.outstanding(issued["id"]) == 121.0 - 60.5
+    assert inv.is_fully_credited(issued["id"]) is False
+    assert inv.credited_total(issued["id"]) == 60.5
+
+
+def test_credit_note_uses_own_gap_free_series_no_invoice_collision(inv):
+    issued, c = _issued_invoice(inv)
+    # the invoice took INV-2026-000001; the credit note must number from the KR series.
+    cn, _ = inv.create_credit_note(issued["id"], mode="full")
+    cn, err = inv.issue(cn["id"], issued_by="pytest", issue_date="2026-03-15")
+    assert err == "", err
+    assert cn["number"] == "KR-2026-000001"
+    assert cn["number"] != issued["number"]
+    # a SECOND credit note (against a second invoice) gap-free continues the KR series
+    issued2, _ = _issued_invoice(inv, issue_date="2026-03-20")
+    assert issued2["number"] == "INV-2026-000002"   # invoice series independent
+    cn2, _ = inv.create_credit_note(issued2["id"], mode="full")
+    cn2, err2 = inv.issue(cn2["id"], issued_by="pytest", issue_date="2026-03-21")
+    assert err2 == "", err2
+    assert cn2["number"] == "KR-2026-000002"          # KR series gap-free, no INV collision
+
+
+def test_credit_note_einvoice_is_381_with_billing_reference_and_round_trips(inv):
+    import safexml
+    import extract
+    issued, c = _issued_invoice(inv)
+    cn, _ = inv.create_credit_note(issued["id"], mode="full", reason="cancelled")
+    cn, _ = inv.issue(cn["id"], issued_by="pytest", issue_date="2026-03-15")
+    xml = inv.einvoice_xml(cn["id"])
+    root = safexml.fromstring(xml)
+
+    def _local(tag):
+        return tag.split("}", 1)[1] if "}" in tag else tag
+
+    type_codes = [e.text for e in root.iter() if _local(e.tag) == "InvoiceTypeCode"]
+    assert type_codes == ["381"], type_codes
+    # BillingReference / InvoiceDocumentReference back to the ORIGINAL invoice number + date
+    brefs = [e for e in root.iter() if _local(e.tag) == "InvoiceDocumentReference"]
+    assert brefs, "no BillingReference/InvoiceDocumentReference on the credit note"
+    ref_ids = [e.text for e in brefs[0].iter() if _local(e.tag) == "ID"]
+    ref_dates = [e.text for e in brefs[0].iter() if _local(e.tag) == "IssueDate"]
+    assert issued["number"] in ref_ids
+    assert issued["issue_date"] in ref_dates
+    # still round-trips through OUR reader (parse_einvoice is type-code-agnostic)
+    drafted = extract.parse_einvoice(xml)
+    assert drafted["statement_ref"] == cn["number"]
+    assert drafted["supplier"] == "Acme Logistics OU"
+
+
+def test_credit_note_refused_on_non_issued_original(inv):
+    _set_issuer(inv)
+    c, _ = inv.add_customer("Bauer GmbH", country="DE", vat_number="DE1",
+                            address="Hauptstr 2")
+    draft, _ = inv.create_draft(customer_id=c["id"], reverse_charge=False)
+    inv.add_line(draft["id"], description="X", quantity=1, unit_price_net=10, vat_rate=0.21)
+    cn, err = inv.create_credit_note(draft["id"], mode="full")
+    assert cn is None and "issued" in err.lower()
+
+
+def test_over_credit_partial_refused(inv):
+    issued, c = _issued_invoice(inv)        # line 1: 2h x 50 = net 100
+    # try to credit 3 of the 2 hours -> exceeds the original line amount
+    cn, err = inv.create_credit_note(
+        issued["id"], mode="partial",
+        lines=[{"line_no": 1, "quantity": 3, "unit_price_net": 50}])
+    assert cn is None and ("exceed" in err.lower() or "cannot exceed" in err.lower())
+
+
+def test_over_credit_full_after_partial_refused(inv):
+    issued, c = _issued_invoice(inv, gross_check=121.0)
+    cn, err = inv.create_credit_note(
+        issued["id"], mode="partial",
+        lines=[{"line_no": 1, "quantity": 2, "unit_price_net": 50}])   # full value
+    assert err == "", err
+    inv.issue(cn["id"], issued_by="pytest", issue_date="2026-03-16")
+    # a SECOND credit (any amount) now exceeds the remaining original gross -> refused
+    cn2, err2 = inv.create_credit_note(
+        issued["id"], mode="partial",
+        lines=[{"line_no": 1, "quantity": 1, "unit_price_net": 50}])
+    assert cn2 is None and "exceed" in err2.lower()
+
+
+def test_credit_note_pdf_titles_and_references_original(inv):
+    issued, c = _issued_invoice(inv)
+    cn, _ = inv.create_credit_note(issued["id"], mode="full", reason="cancelled in error")
+    cn, _ = inv.issue(cn["id"], issued_by="pytest", issue_date="2026-03-15")
+    html = inv.invoice_html(cn["id"], lang="en")
+    assert "CREDIT NOTE" in html
+    assert issued["number"] in html                  # references the original number
+    assert "cancelled in error" in html              # the reason
+    txt = inv.invoice_text(cn["id"])
+    assert "CREDIT NOTE" in txt and issued["number"] in txt
+
+
+# ---------------------------------------------------------------- web routes (Phase 4)
+def test_web_send_invoice(inv, client, monkeypatch):
+    import invoicing as IV
+    issued, c = _issued_invoice(inv)
+    inv.update_customer(c["id"], email="web@bauer.example")
+    captured = {}
+
+    def fake_send(invoice_id, to=None, lang=None, transport=None):
+        captured["id"] = invoice_id
+        captured["to"] = to
+        return True, ""
+
+    monkeypatch.setattr(IV, "send_invoice", fake_send)
+    page = client.get(f"/invoicing/compose/{issued['id']}").get_data(as_text=True)
+    tok = re.search(r'name="_csrf" value="([^"]+)"', page).group(1)
+    r = client.post("/invoicing/send", data={"_csrf": tok, "invoice_id": issued["id"]})
+    assert r.status_code == 302
+    assert captured["id"] == issued["id"]
+
+
+def test_web_credit_create_flow(inv, client):
+    issued, c = _issued_invoice(inv)
+    page = client.get(f"/invoicing/credit/{issued['id']}").get_data(as_text=True)
+    assert "Credit" in page
+    tok = re.search(r'name="_csrf" value="([^"]+)"', page).group(1)
+    r = client.post("/invoicing/credit/create",
+                    data={"_csrf": tok, "invoice_id": issued["id"], "mode": "full",
+                          "reason": "web cancel"})
+    assert r.status_code == 302    # redirect to the new credit-note draft
+    cns = inv.credit_notes_for(issued["id"])
+    assert len(cns) == 1 and cns[0]["doc_type"] == "credit_note"
+    assert cns[0]["status"] == "draft"
+
+
+def test_i18n_phase4_labels_have_lv(inv):
+    import i18n
+    for en in ("Send to customer", "Credit / cancel", "CREDIT NOTE", "Credit note",
+               "Full cancellation", "Partial credit", "Reason", "Original invoice",
+               "Create credit note", "Sent", "credited"):
+        assert i18n.t(en) == en                       # default (en) unchanged
+        assert i18n.has(en, "lv"), f"missing LV translation for {en!r}"
+        assert i18n.t(en, "lv") != en, f"LV translation equals EN for {en!r}"

@@ -88,8 +88,16 @@ STATUS_SENT = "sent"
 STATUS_PARTIALLY_PAID = "partially_paid"
 STATUS_PAID = "paid"
 STATUS_OVERDUE = "overdue"            # DERIVED only (never stored) — see is_overdue()
+STATUS_CANCELLED = "cancelled"        # DERIVED only — an invoice FULLY credited reads cancelled
 STATUSES = (STATUS_DRAFT, STATUS_ISSUED, STATUS_SENT, STATUS_PARTIALLY_PAID,
-            STATUS_PAID, STATUS_OVERDUE, "cancelled")
+            STATUS_PAID, STATUS_OVERDUE, STATUS_CANCELLED)
+
+# PHASE 4: document type. An ordinary sales invoice vs a credit note (kreditrēķins) — a
+# first-class document that reverses/corrects an issued invoice. Both ride the SAME
+# tables/machinery; doc_type + corrects_invoice_id (and a separate number series) is the
+# whole distinction.
+DOC_INVOICE = "invoice"
+DOC_CREDIT_NOTE = "credit_note"
 # The statuses on which a payment may be recorded (a draft has no legal amount due).
 _PAYABLE_STATUSES = (STATUS_ISSUED, STATUS_SENT, STATUS_PARTIALLY_PAID, STATUS_PAID)
 # Payment sources (provenance of a payment row).
@@ -100,12 +108,17 @@ PAYMENT_SOURCE_BANK = "bank"
 # audited via the normal settings audit). Kept as flat settings in Phase 1; a per-tenant
 # issuers table is a Phase 2 item (see module docstring).
 ISSUER_KEYS = ("name", "address", "vat_number", "reg_no", "iban", "bank",
-               "series", "number_format", "payment_terms_days", "logo_text")
+               "series", "credit_series", "number_format", "payment_terms_days",
+               "logo_text")
 SETTING_PREFIX = "invoice_issuer_"
 
 # The number format placeholders: {series}, {year}, {seq} (seq zero-padded to {pad}).
 DEFAULT_NUMBER_FORMAT = "{series}-{year}-{seq:06d}"
 DEFAULT_SERIES = "INV"
+# Credit notes number from their OWN series (default 'KR' for kreditrēķins) so their
+# gap-free counter is independent of the invoice series — a credit note can never share a
+# number with an invoice.
+DEFAULT_CREDIT_SERIES = "KR"
 DEFAULT_PAYMENT_TERMS_DAYS = 14
 DEFAULT_CURRENCY = "EUR"
 
@@ -261,6 +274,21 @@ _MIGRATIONS = [
     # The bill-to customer's stored IBAN — the PAYER account used by the advisory bank-
     # statement matcher (priority (iii): payer IBAN == the customer's IBAN). Optional.
     "ALTER TABLE bill_customers ADD COLUMN iban TEXT",
+    # PHASE 4 — EMAIL + CREDIT NOTES -----------------------------------------
+    # EMAIL: when an issued invoice has been emailed to the customer the status moves to
+    # `sent` (= issued + emailed). These columns record the audited send (when + to whom).
+    "ALTER TABLE invoices ADD COLUMN sent_at TEXT",
+    "ALTER TABLE invoices ADD COLUMN sent_to TEXT",
+    # CREDIT NOTE / cancellation (kreditrēķins): a credit note is a first-class document
+    # reusing the invoice machinery. `doc_type` distinguishes an ordinary invoice from a
+    # credit note; `corrects_invoice_id` references the ORIGINAL issued invoice the credit
+    # note reverses/corrects. A credit note numbers from its OWN series (issuer.credit_series,
+    # default 'KR') via the existing invoice_counters keyed by that series, so credit notes
+    # never collide with invoice numbers.
+    "ALTER TABLE invoices ADD COLUMN doc_type TEXT NOT NULL DEFAULT 'invoice'",
+    "ALTER TABLE invoices ADD COLUMN corrects_invoice_id INTEGER",
+    "CREATE INDEX IF NOT EXISTS ix_invoices_corrects "
+    "ON invoices(corrects_invoice_id) WHERE corrects_invoice_id IS NOT NULL",
 ]
 
 _AUDITED_TABLES = ["bill_customers", "invoices", "invoice_lines",
@@ -297,6 +325,7 @@ def get_issuer():
         log.warning("get_issuer read failed, returning blanks: %s", e)
         out = {k: "" for k in ISSUER_KEYS}
     out["series"] = out.get("series") or DEFAULT_SERIES
+    out["credit_series"] = out.get("credit_series") or DEFAULT_CREDIT_SERIES
     out["number_format"] = out.get("number_format") or DEFAULT_NUMBER_FORMAT
     out["payment_terms_days"] = out.get("payment_terms_days") or str(DEFAULT_PAYMENT_TERMS_DAYS)
     return out
@@ -938,7 +967,14 @@ def issue(invoice_id, *, issued_by=None, issue_date=None):
     if err:
         return None, err
     issuer = get_issuer()
-    series = (issuer.get("series") or DEFAULT_SERIES).strip() or DEFAULT_SERIES
+    # A CREDIT NOTE numbers from the issuer's INDEPENDENT credit series (default 'KR') so
+    # its gap-free counter never collides with the invoice series. An ordinary invoice uses
+    # the invoice series. The SAME {series}-{year}-{seq} format renders both.
+    _doc = (get_invoice(invoice_id) or {}).get("doc_type") or DOC_INVOICE
+    if _doc == DOC_CREDIT_NOTE:
+        series = (issuer.get("credit_series") or DEFAULT_CREDIT_SERIES).strip() or DEFAULT_CREDIT_SERIES
+    else:
+        series = (issuer.get("series") or DEFAULT_SERIES).strip() or DEFAULT_SERIES
     number_format = issuer.get("number_format") or DEFAULT_NUMBER_FORMAT
     try:
         terms = int(issuer.get("payment_terms_days") or DEFAULT_PAYMENT_TERMS_DAYS)
@@ -1005,6 +1041,195 @@ def issue(invoice_id, *, issued_by=None, issue_date=None):
         return None, f"could not issue invoice ({str(e)[:80]})"
 
 
+# ============================================================ PHASE 4: credit notes
+# A CREDIT NOTE (kreditrēķins) is the LEGAL way to reverse or correct an ISSUED invoice —
+# an issued invoice stays IMMUTABLE, so we never edit it; instead we issue a credit note
+# that references it. It is a FIRST-CLASS document reusing the invoice machinery: same
+# tables, same compose/issue/PDF/e-invoice path, distinguished only by doc_type =
+# 'credit_note', a corrects_invoice_id pointing at the original, and its own number SERIES.
+#
+# EFFECT ON THE ORIGINAL is DERIVED, never a mutation of the original's stored figures:
+# credited_total() sums the ISSUED credit notes against an invoice (gross), and
+# outstanding()/display_status()/the AR view subtract that — so a FULLY-credited invoice
+# reads `cancelled` with a zero receivable, and a partial credit reduces the receivable by
+# exactly the credited amount, all without touching the filed original.
+#
+# LV NOTE flagged for the product owner: in Latvian practice a FULL reversal of an issued
+# invoice is conventionally a credit note (kreditrēķins) as modelled here; some
+# jurisdictions distinguish a "cancellation" document. We model BOTH full and partial as a
+# credit note (the EN-16931 type 381) — confirm this matches your accountant's convention.
+
+def credited_total(original_invoice_id):
+    """The total (gross) credited against an ORIGINAL invoice by ISSUED credit notes,
+    cents-exact (money.fsum). Drafts do not count (they carry no legal amount). Read-only;
+    never raises -> 0.0."""
+    frag, tp = tenancy.scope_clause()
+    try:
+        con = connect()
+        try:
+            rows = con.execute(
+                "SELECT gross_total FROM invoices WHERE corrects_invoice_id=? "
+                "AND doc_type=? AND status<>'draft'" + frag,
+                [original_invoice_id, DOC_CREDIT_NOTE, *tp]).fetchall()
+        finally:
+            con.close()
+        return money.fsum([r["gross_total"] for r in rows])
+    except Exception as e:
+        log.warning("credited_total(%s) failed: %s", original_invoice_id, e)
+        return 0.0
+
+
+def credit_notes_for(original_invoice_id):
+    """All credit notes (draft + issued) raised against an ORIGINAL invoice, newest first,
+    tenant-scoped. Read-only; never raises -> []."""
+    frag, tp = tenancy.scope_clause()
+    try:
+        con = connect()
+        try:
+            rows = con.execute(
+                "SELECT * FROM invoices WHERE corrects_invoice_id=? AND doc_type=?" + frag
+                + " ORDER BY (issued_at IS NULL) DESC, issued_at DESC, id DESC",
+                [original_invoice_id, DOC_CREDIT_NOTE, *tp]).fetchall()
+        finally:
+            con.close()
+        return [_inv_dict(r) for r in rows]
+    except Exception as e:
+        log.warning("credit_notes_for(%s) failed: %s", original_invoice_id, e)
+        return []
+
+
+def is_fully_credited(invoice):
+    """True iff an invoice has been credited (by issued credit notes) for its full gross
+    (within a cent, money.q2). Pure-ish read; never raises -> False."""
+    try:
+        inv = invoice if isinstance(invoice, dict) else get_invoice(invoice)
+        if not inv or inv.get("doc_type") == DOC_CREDIT_NOTE:
+            return False
+        gross = money.q2(inv.get("gross_total") or 0)
+        if gross <= 0:
+            return False
+        return money.q2(credited_total(inv["id"])) >= gross
+    except Exception as e:
+        log.warning("is_fully_credited() failed: %s", e)
+        return False
+
+
+def create_credit_note(original_invoice_id, *, mode="full", lines=None, reason="",
+                       created_by=None):
+    """Create a DRAFT credit note that reverses or corrects an ISSUED invoice.
+
+    `mode='full'` mirrors EVERY line of the original (a full reversal). `mode='partial'`
+    takes `lines` = a list of dicts to credit, each
+        {"line_no": <original line_no>, "quantity": q, "unit_price_net": p}
+    (or a free line with description/unit/vat_rate) — each credited amount must be ≤ the
+    original's corresponding line amount, and the total credited (existing issued credit
+    notes + this one) must not exceed the original gross. Same VAT rates / reverse-charge
+    as the original. Returns (credit_note_dict, "") or (None, error).
+
+    The credit note is a DRAFT until issue() — which assigns its number from the CREDIT
+    series (not the invoice series) and makes it immutable. It snapshots issuer + customer
+    at issue exactly like an invoice."""
+    orig = get_invoice(original_invoice_id)
+    if not orig:
+        return None, "original invoice not found"
+    if orig.get("doc_type") == DOC_CREDIT_NOTE:
+        return None, "cannot credit a credit note"
+    if orig.get("status") == STATUS_DRAFT or not orig.get("number"):
+        return None, "only an issued invoice can be credited"
+    orig_lines = get_lines(original_invoice_id)
+    rc = bool(orig.get("reverse_charge"))
+
+    # Resolve the lines to credit (positive amounts, the PDF/e-invoice present them as a
+    # credit per convention). FULL = mirror every original line; PARTIAL = the supplied set.
+    if mode == "full":
+        to_credit = [dict(quantity=ln.get("quantity"), unit=ln.get("unit"),
+                          unit_price_net=ln.get("unit_price_net"),
+                          vat_rate=ln.get("vat_rate"),
+                          description=ln.get("description"),
+                          goods_code=ln.get("goods_code"))
+                     for ln in orig_lines]
+        if not to_credit:
+            return None, "the original invoice has no lines to credit"
+    else:
+        if not lines:
+            return None, "choose at least one line to credit"
+        by_no = {int(ln["line_no"]): ln for ln in orig_lines if ln.get("line_no") is not None}
+        to_credit = []
+        for req in lines:
+            try:
+                qty = money.D(req.get("quantity") or 0)
+                price = money.D(req.get("unit_price_net") or 0)
+            except Exception:
+                return None, "invalid credit-line amount"
+            if qty <= 0 or price < 0:
+                continue
+            src = None
+            ln_no = req.get("line_no")
+            if ln_no is not None and str(ln_no).strip() != "":
+                src = by_no.get(int(ln_no))
+                if src is None:
+                    return None, "credit line does not match an original line"
+                # each credited amount must be ≤ the original line's net amount
+                credit_net = money.q2(qty * price)
+                orig_net = money.q2(src.get("line_net") or 0)
+                if credit_net > orig_net:
+                    return None, ("a credit line cannot exceed the original line amount "
+                                  f"(line {ln_no})")
+            desc = req.get("description") or (src.get("description") if src else "")
+            unit = req.get("unit") or (src.get("unit") if src else "")
+            rate = req.get("vat_rate")
+            if rate is None:
+                rate = (src.get("vat_rate") if src else 0)
+            to_credit.append(dict(quantity=float(qty), unit=unit,
+                                  unit_price_net=float(price), vat_rate=rate,
+                                  description=desc,
+                                  goods_code=(src.get("goods_code") if src else "")))
+        if not to_credit:
+            return None, "choose at least one line to credit"
+
+    # over-credit guard: existing issued credits + this new credit ≤ the original gross.
+    this_gross = compute_totals(to_credit, reverse_charge=rc)["gross_total"]
+    already = credited_total(original_invoice_id)
+    if money.q2(money.D(already) + money.D(this_gross)) > money.q2(orig.get("gross_total") or 0):
+        return None, "the amount to credit exceeds the original invoice"
+
+    try:
+        con = connect()
+        try:
+            cur = con.execute(
+                """INSERT INTO invoices
+                   (status, customer_id, currency, supply_date, notes,
+                    reverse_charge, simplified, fx_rate, doc_type, corrects_invoice_id,
+                    created_by, tenant_id)
+                   VALUES ('draft', ?,?,?,?,?,?,?,?,?,?,?)""",
+                (orig.get("customer_id"), orig.get("currency") or DEFAULT_CURRENCY,
+                 orig.get("supply_date"),
+                 (reason or "").strip(), (1 if rc else 0),
+                 (1 if orig.get("simplified") else 0), orig.get("fx_rate"),
+                 DOC_CREDIT_NOTE, original_invoice_id, created_by, tenancy.write_tenant()))
+            cn_id = cur.lastrowid
+            for i, ln in enumerate(to_credit, 1):
+                net, vat, rate = compute_line(ln.get("quantity"), ln.get("unit_price_net"),
+                                              ln.get("vat_rate"), reverse_charge=rc)
+                con.execute(
+                    """INSERT INTO invoice_lines
+                       (invoice_id, line_no, description, quantity, unit, unit_price_net,
+                        vat_rate, line_net, line_vat, goods_code, tenant_id)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    (cn_id, i, (ln.get("description") or "").strip(),
+                     float(money.D(ln.get("quantity"))), (ln.get("unit") or "").strip(),
+                     float(money.D(ln.get("unit_price_net"))), rate, net, vat,
+                     (ln.get("goods_code") or "").strip(), tenancy.write_tenant()))
+            con.commit()
+        finally:
+            con.close()
+        _retotal(cn_id)
+        return get_invoice(cn_id), ""
+    except Exception as e:
+        log.exception("create_credit_note(%s) failed", original_invoice_id)
+        return None, f"could not create credit note ({str(e)[:80]})"
+
+
 # ============================================================ PHASE 3: payments + status
 # PAYMENT LEDGER + STATUS LIFECYCLE. A payment is APPENDED to invoice_payments (manual or
 # bank-sourced); the paid total is recomputed (money.fsum, cents-exact) and the stored
@@ -1041,15 +1266,19 @@ def paid_total(invoice_id):
 
 
 def outstanding(invoice):
-    """gross_total - paid_total for an invoice DICT (or id). The amount still owed, never
-    below zero, cents-exact. Pure-ish read; never raises -> the gross (worst case)."""
+    """gross_total - paid_total - credited_total for an invoice DICT (or id). The amount
+    still owed, never below zero, cents-exact. A credit note (issued against this invoice)
+    REDUCES the receivable (a full credit zeroes it) — the credited amount is DERIVED, not
+    a mutation of the original. Pure-ish read; never raises -> the gross (worst case)."""
     try:
         inv = invoice if isinstance(invoice, dict) else get_invoice(invoice)
         if not inv:
             return 0.0
         gross = money.q2(inv.get("gross_total") or 0)
         paid = money.q2(paid_total(inv["id"]))
-        rem = gross - paid
+        credited = (money.q2(credited_total(inv["id"]))
+                    if inv.get("doc_type") != DOC_CREDIT_NOTE else money.q2(0))
+        rem = gross - paid - credited
         return float(rem) if rem > 0 else 0.0
     except Exception as e:
         log.warning("outstanding() failed: %s", e)
@@ -1185,12 +1414,18 @@ def is_overdue(invoice, today=None):
 
 
 def display_status(invoice, today=None):
-    """The status to SHOW for an invoice: the stored status, except an unpaid/partly-paid
-    issued/sent invoice past its due date reads `overdue` (DERIVED). Pure; never raises."""
+    """The status to SHOW for an invoice: the stored status, except (a) a FULLY-CREDITED
+    invoice reads `cancelled` (DERIVED from issued credit notes), and (b) an unpaid/
+    partly-paid issued/sent invoice past its due date reads `overdue` (DERIVED). Pure;
+    never raises."""
     try:
         inv = invoice if isinstance(invoice, dict) else get_invoice(invoice)
         if not inv:
             return ""
+        # a fully-credited invoice is effectively cancelled — show that ahead of overdue
+        # (there is nothing left to chase).
+        if inv.get("doc_type") != DOC_CREDIT_NOTE and is_fully_credited(inv):
+            return STATUS_CANCELLED
         if is_overdue(inv, today=today):
             return STATUS_OVERDUE
         return inv.get("status") or STATUS_DRAFT
@@ -1240,7 +1475,7 @@ def accounts_receivable(today=None):
         rows = connect_query(
             "SELECT i.*, c.name AS customer_name FROM invoices i "
             "LEFT JOIN bill_customers c ON c.id=i.customer_id "
-            "WHERE i.status IN (?,?,?)" + frag
+            "WHERE i.status IN (?,?,?) AND i.doc_type='invoice'" + frag
             + " ORDER BY i.due_date, i.id",
             [STATUS_ISSUED, STATUS_SENT, STATUS_PARTIALLY_PAID, *tp])
         bucket_amts = {b: [] for b in AGING_BUCKETS}
@@ -1611,7 +1846,7 @@ def open_invoices_for_matching(today=None):
         recs = connect_query(
             "SELECT i.*, c.name AS customer_name, c.iban AS customer_iban "
             "FROM invoices i LEFT JOIN bill_customers c ON c.id=i.customer_id "
-            "WHERE i.status IN (?,?,?)" + frag + " ORDER BY i.id",
+            "WHERE i.status IN (?,?,?) AND i.doc_type='invoice'" + frag + " ORDER BY i.id",
             [STATUS_ISSUED, STATUS_SENT, STATUS_PARTIALLY_PAID, *tp])
     except Exception as e:
         log.warning("open_invoices_for_matching() failed: %s", e)
@@ -1721,8 +1956,14 @@ def _invoice_view(invoice_id):
     else:
         customer = get_customer(inv["customer_id"]) or {}
     totals = compute_totals(lines, reverse_charge=bool(inv["reverse_charge"]))
+    # For a CREDIT NOTE expose the ORIGINAL invoice (number + issue date) so the document
+    # can carry the mandatory reference back to the corrected invoice.
+    original = None
+    if inv.get("doc_type") == DOC_CREDIT_NOTE and inv.get("corrects_invoice_id"):
+        original = get_invoice(inv.get("corrects_invoice_id"))
     return {"invoice": inv, "lines": lines, "issuer": issuer, "customer": customer,
-            "by_rate": totals["by_rate"], "issued": issued}
+            "by_rate": totals["by_rate"], "issued": issued, "original": original,
+            "is_credit_note": inv.get("doc_type") == DOC_CREDIT_NOTE}
 
 
 def _fmt_money(x):
@@ -1746,17 +1987,27 @@ def invoice_text(invoice_id):
         return ""
     inv, lines, issuer, cust = v["invoice"], v["lines"], v["issuer"], v["customer"]
     ccy = inv.get("currency") or DEFAULT_CURRENCY
+    is_cn = v.get("is_credit_note")
+    original = v.get("original")
+    doc_word = "CREDIT NOTE" if is_cn else "INVOICE"
     L = []
     if not v["issued"]:
-        L.append("*** DRAFT — not a valid invoice ***")
+        L.append(f"*** DRAFT — not a valid {doc_word.lower()} ***")
         L.append("")
     # Art. 226(2) sequential number / (1) issue date / 'date of supply'
-    L.append("INVOICE" if v["issued"] else "INVOICE (DRAFT)")
-    L.append(f"Invoice number: {inv.get('number') or '(assigned at issue)'}")
+    L.append(doc_word if v["issued"] else f"{doc_word} (DRAFT)")
+    L.append(f"{'Credit note' if is_cn else 'Invoice'} number: "
+             f"{inv.get('number') or '(assigned at issue)'}")
     L.append(f"Issue date: {inv.get('issue_date') or '(at issue)'}")
     sd = inv.get("supply_date")
     if sd and sd != inv.get("issue_date"):
         L.append(f"Date of supply: {sd}")
+    # CREDIT NOTE: reference the ORIGINAL invoice (number + issue date) + reason.
+    if is_cn and original:
+        L.append(f"Original invoice: {original.get('number') or '—'}"
+                 + (f" ({original.get('issue_date')})" if original.get('issue_date') else ""))
+        if inv.get("notes"):
+            L.append(f"Reason: {inv.get('notes')}")
     L.append("")
     # Art. 226(3)/(4): supplier (issuer) + customer full name, address, VAT id
     L.append("Supplier (issuer):")
@@ -1913,6 +2164,8 @@ def invoice_html(invoice_id, lang=None):
     inv, lines, issuer, cust = v["invoice"], v["lines"], v["issuer"], v["customer"]
     ccy = inv.get("currency") or DEFAULT_CURRENCY
     issued = v["issued"]
+    is_cn = v.get("is_credit_note")
+    original = v.get("original")
     P = []                                              # HTML parts (already escaped)
     P.append("<!DOCTYPE html><html><head><meta charset='utf-8'>")
     P.append(f"<style>{_INVOICE_CSS}</style></head><body>")
@@ -1935,9 +2188,14 @@ def invoice_html(invoice_id, lang=None):
         P.append(f"<br>{_h(_t('IBAN'))}: {_h(issuer.get('iban'))}{bank}")
     P.append("</div></div>")                            # /issuer /det
     P.append("<div class='meta'>")
-    # Title: English keeps the historic dual-language "INVOICE / Rēķins"; Latvian collapses
-    # to the single localized title.
-    if L == "lv":
+    # Title: English keeps the historic dual-language form; Latvian collapses to the single
+    # localized title. A CREDIT NOTE swaps "INVOICE / Rēķins" for "CREDIT NOTE / Kreditrēķins".
+    if is_cn:
+        if L == "lv":
+            P.append(f"<div class='title'>{_h(_t('CREDIT NOTE'))}</div>")
+        else:
+            P.append("<div class='title'>CREDIT NOTE <span class='lv'>/ Kreditrēķins</span></div>")
+    elif L == "lv":
         P.append(f"<div class='title'>{_h(_t('INVOICE'))}</div>")
     else:
         P.append("<div class='title'>INVOICE <span class='lv'>/ Rēķins</span></div>")
@@ -1952,6 +2210,12 @@ def invoice_html(invoice_id, lang=None):
     P.append(f"<tr><td class='k'>{_h(_t('Due date'))}</td><td class='v'>"
              f"{_h(inv.get('due_date') or '(set at issue)')}</td></tr>")
     P.append(f"<tr><td class='k'>{_h(_t('Currency'))}</td><td class='v'>{_h(ccy)}</td></tr>")
+    # CREDIT NOTE: a clear reference back to the ORIGINAL invoice (number + issue date).
+    if is_cn and original:
+        P.append(f"<tr><td class='k'>{_h(_t('Original invoice'))}</td><td class='v'>"
+                 f"{_h(original.get('number') or '—')}"
+                 + (f" ({_h(original.get('issue_date'))})" if original.get('issue_date') else "")
+                 + "</td></tr>")
     P.append("</table></div></div>")                    # /meta /head
     # ---- bill-to ----
     P.append(f"<div class='billto'><div class='lbl'>{_h(_t('Bill to'))}</div>")
@@ -2004,6 +2268,15 @@ def invoice_html(invoice_id, lang=None):
                      f"</span></td></tr>")
     P.append("</table></div></div>")                    # /grand /totbox
     # ---- notes / legal wording ----
+    # CREDIT NOTE: the amounts above are a CREDIT against the referenced original invoice.
+    if is_cn:
+        ref = ""
+        if original and original.get("number"):
+            ref = (f" — {_h(_t('References original invoice'))}: "
+                   f"{_h(original.get('number'))}"
+                   + (f" ({_h(original.get('issue_date'))})" if original.get('issue_date') else ""))
+        P.append(f"<div class='note'>{_h(_t('Credit note'))}: "
+                 f"{_h(_t('the amounts are a credit to the customer'))}.{ref}</div>")
     if inv.get("simplified"):
         P.append(f"<div class='note'>{_h(_t('Simplified invoice'))} "
                  f"(gross ≤ EUR {SIMPLIFIED_GROSS_CEILING_EUR:.0f}, "
@@ -2011,7 +2284,8 @@ def invoice_html(invoice_id, lang=None):
     if inv.get("reverse_charge"):
         P.append(f"<div class='note'>{_h(_t(REVERSE_CHARGE_NOTE))}</div>")
     if inv.get("notes"):
-        P.append(f"<div class='note'>{_h(inv.get('notes'))}</div>")
+        lbl = (_h(_t('Reason')) + ": ") if is_cn else ""
+        P.append(f"<div class='note'>{lbl}{_h(inv.get('notes'))}</div>")
     # ---- payment block ----
     P.append("<div class='pay'>")
     P.append(f"{_h(_t('Payment due'))}: <b>{_h(inv.get('due_date') or '(set at issue)')}</b>.")
@@ -2384,6 +2658,7 @@ PEPPOL_CUSTOMIZATION_ID = ("urn:cen.eu:en16931:2017#compliant#"
                            "urn:fdc:peppol.eu:2017:poacc:billing:3.0")
 PEPPOL_PROFILE_ID = "urn:fdc:peppol.eu:2017:poacc:billing:01:1.0"
 _INVOICE_TYPE_CODE = "380"      # commercial invoice (BT-3)
+_CREDIT_NOTE_TYPE_CODE = "381"  # credit note (BT-3) — UNTDID 1001 code 381
 _TAX_SCHEME_VAT = "VAT"
 _UNIT_DEFAULT = "C62"           # UN/ECE Rec 20 "one" (dimensionless)
 _REVERSE_CHARGE_REASON = ("Reverse charge — VAT to be accounted for by the recipient "
@@ -2472,7 +2747,9 @@ def einvoice_xml(invoice_id):
     if not v:
         raise ValueError("invoice not found")
     inv, lines = v["invoice"], v["lines"]
-    if inv.get("status") != STATUS_ISSUED or not inv.get("number"):
+    # An e-invoice exists for any NON-DRAFT (numbered) document — issued and every later
+    # state (sent / partially_paid / paid). A draft has no legal number, so no e-invoice.
+    if inv.get("status") == STATUS_DRAFT or not inv.get("number"):
         raise ValueError("only an ISSUED invoice has an e-invoice (a draft has no legal "
                          "number) — issue it first")
     issuer, customer = v["issuer"], v["customer"]
@@ -2489,7 +2766,19 @@ def einvoice_xml(invoice_id):
     _esub(root, "cbc:IssueDate", inv.get("issue_date") or "")       # BT-2
     if inv.get("due_date"):
         _esub(root, "cbc:DueDate", inv.get("due_date"))            # BT-9
-    _esub(root, "cbc:InvoiceTypeCode", _INVOICE_TYPE_CODE)         # BT-3
+    # BT-3 document type: 380 (commercial invoice) or 381 (credit note). A CREDIT NOTE also
+    # carries a BillingReference to the ORIGINAL invoice (BG-3 / BT-25 + BT-26).
+    is_cn = inv.get("doc_type") == DOC_CREDIT_NOTE
+    _esub(root, "cbc:InvoiceTypeCode",
+          _CREDIT_NOTE_TYPE_CODE if is_cn else _INVOICE_TYPE_CODE)  # BT-3
+    if is_cn:
+        orig = get_invoice(inv.get("corrects_invoice_id")) if inv.get("corrects_invoice_id") else None
+        if orig and orig.get("number"):
+            br = _esub(root, "cac:BillingReference")               # BG-3
+            idr = _esub(br, "cac:InvoiceDocumentReference")
+            _esub(idr, "cbc:ID", orig.get("number"))              # BT-25
+            if orig.get("issue_date"):
+                _esub(idr, "cbc:IssueDate", orig.get("issue_date"))  # BT-26
     # BT-22 document note(s): reverse-charge / simplified wording.
     if rc:
         _esub(root, "cbc:Note", _REVERSE_CHARGE_REASON)
@@ -2599,11 +2888,13 @@ def _ubl_unit_code(unit):
 
 
 def einvoice_filename(invoice_id):
-    """A filesystem-safe download name for the e-invoice XML of an ISSUED invoice."""
+    """A filesystem-safe download name for the e-invoice XML of an ISSUED invoice (or
+    credit note)."""
     inv = get_invoice(invoice_id)
     num = (inv.get("number") if inv else None) or f"draft-{invoice_id}"
     safe = "".join(ch if ch.isalnum() else "_" for ch in str(num)).strip("_") or "invoice"
-    return f"Invoice_{safe}.xml"
+    prefix = "CreditNote" if (inv and inv.get("doc_type") == DOC_CREDIT_NOTE) else "Invoice"
+    return f"{prefix}_{safe}.xml"
 
 
 # ============================================================ PHASE 2: hybrid PDF
@@ -2658,6 +2949,144 @@ def _embed_facturx(pdf_bytes, xml_bytes):
         return out.getvalue()
     finally:
         pdf.close()
+
+
+# ============================================================ PHASE 4: email the invoice
+# EMAIL: send the ISSUED invoice (or credit note) to the customer, attaching the HYBRID PDF
+# (the human+machine-readable Factur-X document) PLUS the standalone EN-16931 e-invoice XML.
+# Reuses notify.py's injectable SMTP transport (notify._settings_transport()) so no live
+# SMTP is touched in tests (a fake transport is injected). On success the status moves to
+# `sent` (= issued + emailed) and the send is recorded (when + to whom). Best-effort: never
+# raises; returns (ok, error) with a clear message when SMTP isn't configured or the
+# customer has no email.
+
+def _cover_note(invoice_id, lang=None):
+    """The short cover-note body (plain_text, escaped_html) in the document's language for
+    the customer email. Fixed labels via i18n.t; the invoice number/issuer name are
+    HTML-escaped in the html part. Pure-ish; never raises."""
+    import i18n
+    L = i18n.normalize(lang) if lang is not None else i18n.current_lang()
+
+    def _t(s):
+        return i18n.t(s, L)
+
+    v = _invoice_view(invoice_id) or {}
+    inv = v.get("invoice") or {}
+    issuer = v.get("issuer") or {}
+    is_cn = v.get("is_credit_note")
+    num = inv.get("number") or ""
+    head = (_t("Credit note %s") if is_cn else _t("Invoice %s")) % num
+    intro = _t("Please find the invoice attached (PDF and e-invoice XML).")
+    sign = issuer.get("name") or ""
+    text = "\n".join([head, "", intro, "", sign])
+    html = (f"<p>{esc(head)}</p><p>{esc(intro)}</p>"
+            + (f"<p>{esc(sign)}</p>" if sign else ""))
+    return text, html, head
+
+
+def _invoice_recipient_email(invoice_id):
+    """The customer's email for this invoice — from the SNAPSHOT once issued (so a later
+    customer-book edit never re-targets a filed invoice), else the live customer book.
+    Returns '' when none is known. Never raises."""
+    import json
+    inv = get_invoice(invoice_id) or {}
+    snap = inv.get("customer_snapshot")
+    if snap:
+        try:
+            d = json.loads(snap)
+            em = (d.get("email") or "").strip()
+            if em:
+                return em
+        except Exception as e:
+            log.warning("recipient email: bad customer snapshot for %s: %s", invoice_id, e)
+    cust = get_customer(inv.get("customer_id")) if inv.get("customer_id") else None
+    return ((cust or {}).get("email") or "").strip()
+
+
+def send_invoice(invoice_id, to=None, lang=None, transport=None):
+    """Email an ISSUED invoice (or credit note) to the customer, attaching the HYBRID PDF
+    and the standalone e-invoice XML. `to` overrides the customer's stored email; `lang`
+    sets the cover-note language (defaults to the current request language). `transport`
+    (a notify-shaped object with .send(to, subject, html, text, attachments)) is injected
+    by tests; in production it is built from admin SMTP settings.
+
+    Only an issued (non-draft) document may be emailed (a draft has no legal number). On a
+    successful send the status moves to `sent` (= issued + emailed; never regresses a
+    paid/partially-paid invoice) and the send is recorded (sent_at + sent_to). Returns
+    (True, "") or (False, error). Best-effort: never raises."""
+    inv = get_invoice(invoice_id)
+    if not inv:
+        return False, "invoice not found"
+    if inv.get("status") == STATUS_DRAFT or not inv.get("number"):
+        return False, "only an issued invoice can be emailed — issue it first"
+    recipient = (to or "").strip() or _invoice_recipient_email(invoice_id)
+    if not recipient:
+        return False, "the customer has no email address"
+
+    # build the attachments: the hybrid PDF (PDF + embedded e-invoice) + the standalone XML.
+    try:
+        hybrid = invoice_pdf_hybrid(invoice_id)
+        xml = einvoice_xml(invoice_id)
+    except ValueError as e:
+        return False, str(e)
+    except Exception as e:
+        log.exception("send_invoice(%s): could not build attachments", invoice_id)
+        return False, f"could not build the invoice documents ({str(e)[:80]})"
+    if not hybrid:
+        return False, "could not render the invoice PDF"
+    num = (inv.get("number") or f"doc-{invoice_id}").replace("/", "-")
+    prefix = "CreditNote" if inv.get("doc_type") == DOC_CREDIT_NOTE else "Invoice"
+    attachments = [
+        (f"{prefix}_{num}_hybrid.pdf", "application/pdf", hybrid),
+        (einvoice_filename(invoice_id), "application/xml", xml),
+    ]
+
+    # resolve the transport (reuse notify's injectable SMTP transport).
+    import notify
+    if transport is None:
+        transport = notify._settings_transport()
+    if transport is None:
+        return False, "email is not configured (set up the SMTP relay)"
+
+    text, html, subject = _cover_note(invoice_id, lang=lang)
+    try:
+        transport.send(recipient, subject, html, text, attachments=attachments)
+    except TypeError:
+        # a legacy transport without the attachments kwarg — send without attachments
+        # rather than fail outright (best-effort), then surface that limitation.
+        try:
+            transport.send(recipient, subject, html, text)
+        except Exception as e:
+            log.warning("send_invoice(%s) transport failed: %s", invoice_id, e)
+            return False, f"could not send the email ({str(e)[:80]})"
+    except Exception as e:
+        log.warning("send_invoice(%s) transport failed: %s", invoice_id, e)
+        return False, f"could not send the email ({str(e)[:80]})"
+
+    # record the send: status -> sent (don't regress paid/partially_paid), sent_at/sent_to.
+    try:
+        when = datetime.datetime.utcnow().isoformat(timespec="seconds")
+        con = connect()
+        try:
+            frag, tp = tenancy.scope_clause()
+            # only move issued -> sent; a partially_paid/paid invoice keeps its status but
+            # still records that it was (re-)emailed.
+            if inv.get("status") == STATUS_ISSUED:
+                con.execute("UPDATE invoices SET status=?, sent_at=?, sent_to=? "
+                            "WHERE id=?" + frag,
+                            [STATUS_SENT, when, recipient, invoice_id, *tp])
+            else:
+                con.execute("UPDATE invoices SET sent_at=?, sent_to=? WHERE id=?" + frag,
+                            [when, recipient, invoice_id, *tp])
+            con.commit()
+        finally:
+            con.close()
+    except Exception as e:
+        # the email DID go out — log the bookkeeping failure but report success so the
+        # operator isn't told the send failed when it didn't.
+        log.warning("send_invoice(%s): email sent but status update failed: %s",
+                    invoice_id, e)
+    return True, ""
 
 
 if __name__ == "__main__":
