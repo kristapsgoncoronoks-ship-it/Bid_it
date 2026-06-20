@@ -1293,6 +1293,11 @@ ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "api_r
               "invoicing_reports_statement_pdf", "invoicing_reports_statement_email",
               "invoicing_reports_aging", "invoicing_reports_aging_xlsx",
               "invoicing_reports_aging_pdf",
+              # Phase 6: RECURRING invoices — a template auto-generates invoices on a
+              # schedule. Manage templates + the manual "generate due now" action + the
+              # opt-in scheduler toggle (all admin-only, behind the invoicing module).
+              "invoicing_recurring", "invoicing_recurring_save",
+              "invoicing_recurring_action", "invoicing_recurring_generate",
               # the workflow DEFINE/MANAGE surface is admin-only (an admin builds the
               # routing); the Tasks inbox / act / start-run are NOT here (any login).
               "workflow_admin", "workflow_define", "workflow_update",
@@ -1425,7 +1430,9 @@ MODULES = {
                     "invoicing_reports_statement", "invoicing_reports_statement_xlsx",
                     "invoicing_reports_statement_pdf", "invoicing_reports_statement_email",
                     "invoicing_reports_aging", "invoicing_reports_aging_xlsx",
-                    "invoicing_reports_aging_pdf"}),
+                    "invoicing_reports_aging_pdf",
+                    "invoicing_recurring", "invoicing_recurring_save",
+                    "invoicing_recurring_action", "invoicing_recurring_generate"}),
     "fx":         ("FX vs ECB exchange rates", {"fx"}),
     "workflow":   ("Workflow — configurable approval/routing + a Tasks inbox (advisory)",
                    {"tasks_page", "task_act", "workflow_start",
@@ -1955,6 +1962,51 @@ def _fx_tick():
             pass
     return False
 
+# ---------------------------------------------------------------- recurring-invoice scheduler
+# Auto-generates DUE recurring sales invoices (Phase 6 of the invoicing module) once/day.
+# Like the backup/scrape/fx schedulers it is OPT-IN (`invoicing_recurring_enabled` = "0" =
+# OFF, byte-identical to today) and rides the notify-scheduler's SINGLE elected leader, so
+# exactly one worker generates per day no matter how many processes run. The last run date
+# is tracked in a setting (`invoicing_recurring_last_run`, YYYY-MM-DD) so it runs at most
+# once per calendar day; generate_due is itself idempotent per (template, due-date), so even
+# a double-tick can never double-generate. Best-effort: a failure is logged, never raised.
+def invoicing_recurring_on():
+    """True only when an admin has explicitly armed the recurring-invoice scheduler
+    (`invoicing_recurring_enabled` == "1"). Default install: OFF -> the tick is inert."""
+    return (_auth.get_setting("invoicing_recurring_enabled", "0") or "0") == "1"
+
+def _invoicing_recurring_tick():
+    """One scheduler iteration: generate DUE recurring invoices at most once per calendar
+    day. Inert unless the admin armed the switch. Records the run date so it fires once/day;
+    logs the outcome to the import log on the 'invoicing' channel. Never raises."""
+    import traceback
+    try:
+        if not invoicing_recurring_on():
+            return False                          # master gate — inert by default
+        import datetime as _dt
+        today = _dt.date.today().isoformat()
+        if (_auth.get_setting("invoicing_recurring_last_run", "") or "") == today:
+            return False                          # already ran today
+        import invoicing as _IV, import_log as _IL
+        results = _IV.generate_due(today)
+        made = [r for r in results if r[1]]
+        if made:
+            _IL.log("invoicing", "recurring (auto)", "success", actor="scheduler",
+                    records=len(made),
+                    message=f"generated {len(made)} invoice(s) from "
+                            f"{len(results)} due template(s)")
+            applog.get("app").info(
+                "recurring-invoice scheduler: generated %s invoice(s)", len(made))
+        _auth.set_setting("invoicing_recurring_last_run", today)
+        return True
+    except Exception as e:
+        try:
+            _auth.log_error("invoicing-recurring", type(e).__name__, str(e),
+                            traceback.format_exc(), "system")
+        except Exception:
+            pass
+    return False
+
 def _notify_tick():
     """One scheduler iteration: send the digest if it is due. Returns True if a send
     was attempted, else False. Never raises (logs instead)."""
@@ -2017,6 +2069,9 @@ def _notify_loop():
             # rate cache stays current. Inert unless fx_refresh_interval_hours > 0. Never
             # raises (a failed fetch is logged and left due for the next tick).
             _fx_tick()
+            # off-by-default recurring sales invoices: generate DUE recurring templates at
+            # most once/day. Inert unless invoicing_recurring_enabled == "1". Never raises.
+            _invoicing_recurring_tick()
         time.sleep(BACKUP_CHECK_SECONDS)
 
 def start_notify_scheduler():
@@ -2535,8 +2590,9 @@ button[disabled].btn,button.btn:disabled{opacity:.55;cursor:not-allowed;pointer-
   {% if is_admin %}<a href="/doc-requests" class="{{'on' if page=='dreq'}}">Document requests</a>{% endif %}
   {% if 'data_import' in perms %}<a href="/data" class="{{'on' if page=='dat'}}">Data manager</a>{% endif %}
 </span></div></div>
-{% if is_admin and 'invoicing' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ivc','ivcc','ivci','ivcr'] else ''}}"><span class="ic">🧾</span>{{ t('Invoicing') }}</span><div class="mdrop"><span>
+{% if is_admin and 'invoicing' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ivc','ivcc','ivci','ivcr','ivcrec'] else ''}}"><span class="ic">🧾</span>{{ t('Invoicing') }}</span><div class="mdrop"><span>
   <a href="/invoicing" class="{{'on' if page=='ivc'}}">{{ t('Invoices') }}</a>
+  <a href="/invoicing/recurring" class="{{'on' if page=='ivcrec'}}">{{ t('Recurring invoices') }}</a>
   <a href="/invoicing/customers" class="{{'on' if page=='ivcc'}}">{{ t('Customer book') }}</a>
   <a href="/invoicing/issuer" class="{{'on' if page=='ivci'}}">{{ t('Issuer profile') }}</a>
   <a href="/invoicing/reports" class="{{'on' if page=='ivcr'}}">{{ t('Invoicing reports') }}</a>
@@ -14581,6 +14637,7 @@ def invoicing_home():
             'style="width:90px" inputmode="numeric"></label>'
             f'<button>{esc(_t("Filter"))}</button>'
             f' <a class="btn" href="/invoicing/compose">{esc(_t("New invoice"))}</a>'
+            f' <a class="btn" href="/invoicing/recurring">{esc(_t("Recurring invoices"))}</a>'
             f' <a class="btn" href="/invoicing/receivable">{esc(_t("Accounts receivable"))}</a>'
             f' <a class="btn" href="/invoicing/import">{esc(_t("Import bank statement"))}</a>'
             '</form>')
@@ -15015,6 +15072,281 @@ def invoicing_create():
         return page(_ivc_banner(False, err or "Could not start the draft.")
                     + '<p><a href="/invoicing/compose">Back</a></p>', "ivc")
     return redirect(f"/invoicing/compose/{int(inv['id'])}")
+
+
+# ============================================================ PHASE 6: recurring invoices
+# Admin-only (the whole module is), behind the `invoicing` MODULES switch. CSRF on every
+# POST (global hook), audited. The schedule/generation engine lives in invoicing.py; these
+# routes are the management UI + the manual "generate due now" action + the scheduler toggle.
+
+def _ivc_recurring_lines_from_form(f):
+    """Parse the repeated line fields (description[], quantity[], unit[], price[], rate[])
+    from the recurring-template form into a list of line dicts for create/update_recurring."""
+    descs = f.getlist("description")
+    qtys = f.getlist("quantity")
+    units = f.getlist("unit")
+    prices = f.getlist("unit_price_net")
+    rates = f.getlist("vat_rate")
+    out = []
+    for i in range(max(len(descs), len(qtys), len(prices))):
+        d = descs[i] if i < len(descs) else ""
+        if not (d or "").strip():
+            continue
+        out.append({
+            "description": d,
+            "quantity": qtys[i] if i < len(qtys) else 0,
+            "unit": units[i] if i < len(units) else "",
+            "unit_price_net": prices[i] if i < len(prices) else 0,
+            "vat_rate": _parse_rate(rates[i] if i < len(rates) else "0"),
+        })
+    return out
+
+
+@app.route("/invoicing/recurring", methods=["GET"])
+def invoicing_recurring():
+    """Manage recurring-invoice templates: list (customer, frequency, next run, status,
+    auto-issue) + a create/edit form + the scheduler toggle + the manual generate action."""
+    import invoicing
+    edit_id = (request.args.get("edit") or "").strip()
+    editing = invoicing.get_recurring(int(edit_id)) if edit_id.isdigit() else None
+    try:
+        tmpls = invoicing.list_recurring()
+    except Exception as e:
+        _log_exc("invoicing: recurring list", e)
+        tmpls = []
+    custs = invoicing.list_customers(include_inactive=False)
+
+    # ----- the template list -----
+    rows = []
+    for t in tmpls:
+        st = (t.get("status") or "active")
+        chip = (f'<span class="chip {"s-done" if st=="active" else "s-neutral"}">'
+                f'{esc(_t(st))}</span>')
+        gen = invoicing.invoices_from_template(int(t["id"]))
+        rows.append([
+            esc(t.get("name") or t.get("customer_name") or "—"),
+            esc(t.get("customer_name") or "—"),
+            esc(_t(t.get("frequency") or "monthly"))
+            + (f' ×{int(t.get("interval_n") or 1)}' if int(t.get("interval_n") or 1) > 1 else ''),
+            esc(t.get("next_run") or "—"),
+            (esc(_t("Yes")) if t.get("auto_issue") else esc(_t("No"))),
+            chip,
+            f'{len(gen)}',
+            (f'<a href="/invoicing/recurring?edit={int(t["id"])}">{esc(_t("Edit"))}</a>'),
+        ])
+    table = (tbl([_t("Name"), _t("Customer"), _t("Frequency"), _t("Next run"),
+                  _t("Auto-issue"), _t("Status"), _t("Generated"), ""], rows) if rows
+             else f'<p class="note">{esc(_t("No recurring templates yet — create one below."))}</p>')
+
+    # ----- the create / edit form -----
+    cust_opts = "".join(
+        f'<option value="{int(c["id"])}" '
+        f'{"selected" if editing and editing.get("customer_id")==c["id"] else ""}>'
+        f'{esc(c.get("name") or "")}</option>' for c in custs)
+    freq_opts = "".join(
+        f'<option value="{esc(fr)}" '
+        f'{"selected" if (editing or {}).get("frequency")==fr else ""}>'
+        f'{esc(_t(fr))}</option>' for fr in invoicing.FREQUENCIES)
+
+    def _v(k):
+        return esc(str((editing or {}).get(k) or "")) if editing else ""
+    # line rows (existing on edit, else one blank row)
+    e_lines = (editing or {}).get("lines") or [{}]
+    line_rows = ""
+    for ln in e_lines:
+        line_rows += (
+            '<div class="f" style="gap:6px;margin-bottom:4px">'
+            + f'<input name="description" placeholder="{esc(_t("Description"))}" '
+              f'value="{esc(ln.get("description") or "")}" style="flex:1 1 220px">'
+            + f'<input name="quantity" inputmode="decimal" placeholder="{esc(_t("Qty"))}" '
+              f'value="{esc(str(ln.get("quantity")) if ln.get("quantity") not in (None,"") else "")}" style="width:90px">'
+            + f'<input name="unit" placeholder="{esc(_t("Unit"))}" '
+              f'value="{esc(ln.get("unit") or "")}" style="width:80px">'
+            + f'<input name="unit_price_net" inputmode="decimal" placeholder="{esc(_t("Unit price (net)"))}" '
+              f'value="{esc(str(ln.get("unit_price_net")) if ln.get("unit_price_net") not in (None,"") else "")}" style="width:130px">'
+            + f'<input name="vat_rate" inputmode="decimal" placeholder="VAT %" '
+              f'value="{esc(str(round(float(ln.get("vat_rate") or 0)*100,4)) if ln.get("vat_rate") else "")}" style="width:90px">'
+            + '</div>')
+    # a couple of spare blank rows so the user can add lines without JS
+    for _ in range(3):
+        line_rows += (
+            '<div class="f" style="gap:6px;margin-bottom:4px">'
+            f'<input name="description" placeholder="{esc(_t("Description"))}" style="flex:1 1 220px">'
+            f'<input name="quantity" inputmode="decimal" placeholder="{esc(_t("Qty"))}" style="width:90px">'
+            f'<input name="unit" placeholder="{esc(_t("Unit"))}" style="width:80px">'
+            f'<input name="unit_price_net" inputmode="decimal" placeholder="{esc(_t("Unit price (net)"))}" style="width:130px">'
+            f'<input name="vat_rate" inputmode="decimal" placeholder="VAT %" style="width:90px">'
+            '</div>')
+
+    form = (
+        '<div class="card"><h2>'
+        + str(esc(_t("Edit recurring template") if editing else _t("New recurring template")))
+        + '</h2><form method="post" action="/invoicing/recurring/save" class="f">' + _csrf_input()
+        + (f'<input type="hidden" name="id" value="{int(editing["id"])}">' if editing else '')
+        + f'<label style="flex:1 1 100%">{esc(_t("Name"))}<input name="name" value="{_v("name")}" '
+          f'placeholder="{esc(_t("e.g. Monthly fuel-card billing"))}"></label>'
+        + f'<label>{esc(_t("Customer"))}<select name="customer_id" required>{cust_opts}</select></label>'
+        + f'<label>{esc(_t("Currency"))}<input name="currency" value="{esc((editing or {}).get("currency") or "EUR")}" style="width:90px"></label>'
+        + f'<label>{esc(_t("Frequency"))}<select name="frequency">{freq_opts}</select></label>'
+        + f'<label>{esc(_t("Every N periods"))}<input name="interval_n" inputmode="numeric" style="width:90px" '
+          f'value="{esc(str((editing or {}).get("interval_n") or 1))}"></label>'
+        + f'<label>{esc(_t("Start date"))}<input name="start_date" type="date" value="{_v("start_date")}"></label>'
+        + f'<label>{esc(_t("End date (optional)"))}<input name="end_date" type="date" value="{_v("end_date")}"></label>'
+        + f'<label>{esc(_t("Max occurrences (optional)"))}<input name="max_occurrences" inputmode="numeric" '
+          f'style="width:120px" value="{_v("max_occurrences")}"></label>'
+        + f'<label>{esc(_t("Auto-issue"))} '
+          f'<input type="checkbox" name="auto_issue" {"checked" if (editing or {}).get("auto_issue") else ""}></label>'
+        + f'<label style="flex:1 1 100%">{esc(_t("Notes"))}<input name="notes" value="{_v("notes")}"></label>'
+        + f'<div style="flex:1 1 100%"><b>{esc(_t("Lines (net basis, VAT excluded)"))}</b>{line_rows}</div>'
+        + '<div style="margin-top:8px"><button>'
+        + str(esc(_t("Save changes") if editing else _t("Create template"))) + '</button>'
+        + (f' <a class="btn" href="/invoicing/recurring">{esc(_t("Cancel"))}</a>' if editing else '')
+        + '</div>'
+        + '<p class="note">' + esc(_t(
+            "Auto-issue OFF (the default) generates a DRAFT for review at each due date; "
+            "turn it ON to assign the gap-free number automatically. The next-run date "
+            "advances month-end safely (a 31st lands on the last day of a short month).")) + '</p>'
+        + '</form></div>')
+
+    # ----- per-template action card (only when editing) -----
+    action_card = ""
+    if editing:
+        tid = int(editing["id"])
+        st = editing.get("status") or "active"
+        gen_rows = []
+        for g in invoicing.invoices_from_template(tid):
+            gen_rows.append([
+                f'<a href="/invoicing/compose/{int(g["id"])}">{esc(g.get("number") or _t("draft"))}</a>',
+                _ivc_status_chip(invoicing.display_status(g)),
+                esc(g.get("issue_date") or g.get("supply_date") or "—"),
+                _eur(g.get("gross_total")),
+            ])
+        gen_table = (tbl([_t("Number"), _t("Status"), _t("Date"), _t("Total (gross)")],
+                         gen_rows) if gen_rows
+                     else f'<p class="note">{esc(_t("No invoices generated yet."))}</p>')
+        toggle = ("resume" if st == "paused" else "pause")
+        toggle_lbl = _t("Resume") if st == "paused" else _t("Pause")
+        action_card = (
+            f'<div class="card"><h2>{esc(_t("Generated invoices"))}</h2>' + gen_table
+            + '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">'
+            + '<form method="post" action="/invoicing/recurring/action" style="display:inline">'
+            + _csrf_input() + f'<input type="hidden" name="id" value="{tid}">'
+            + f'<input type="hidden" name="op" value="{toggle}">'
+            + f'<button>{esc(toggle_lbl)}</button></form>'
+            + '<form method="post" action="/invoicing/recurring/action" style="display:inline" '
+              'onsubmit="return confirm(\'Delete this recurring template? Generated invoices are kept.\')">'
+            + _csrf_input() + f'<input type="hidden" name="id" value="{tid}">'
+            + '<input type="hidden" name="op" value="delete">'
+            + f'<button>{esc(_t("Delete"))}</button></form>'
+            + '</div></div>')
+
+    # ----- scheduler toggle + manual generate -----
+    sched_on = (_auth.get_setting("invoicing_recurring_enabled", "0") == "1")
+    last_run = _auth.get_setting("invoicing_recurring_last_run", "") or ""
+    try:
+        due_now = len(invoicing.due_templates())
+    except Exception:
+        due_now = 0
+    sched_card = (
+        f'<div class="card"><h2>{esc(_t("Scheduler"))}</h2>'
+        '<form method="post" action="/invoicing/recurring/action" class="f">' + _csrf_input()
+        + '<input type="hidden" name="op" value="set_scheduler">'
+        + f'<label>{esc(_t("Auto-generate due recurring invoices daily"))} '
+          f'<input type="checkbox" name="enabled" {"checked" if sched_on else ""}></label>'
+        + f'<div style="margin-top:8px"><button>{esc(_t("Save scheduler state"))}</button></div></form>'
+        + (f'<p class="note">{esc(_t("Last run"))}: {esc(last_run)}</p>' if last_run else '')
+        + '<form method="post" action="/invoicing/recurring/generate" style="margin-top:10px">'
+        + _csrf_input()
+        + f'<button>{esc(_t("Generate due now"))}</button>'
+        + f' <span class="note">{esc(_t("Templates due:"))} {due_now}</span></form>'
+        + '<p class="note">' + esc(_t(
+            "The scheduler is OFF by default and runs on the worker tier (one leader across "
+            "processes) — enable a worker to actually run it. 'Generate due now' works "
+            "without the scheduler. Generation is idempotent: a template generates at most "
+            "one invoice per due date.")) + '</p></div>')
+
+    help_card = (f'<div class="card"><h2>{esc(_t("Recurring invoices"))}</h2>'
+                 f'<p class="note">' + esc(_t(
+                     "Define a template that auto-generates invoices on a schedule (e.g. "
+                     "monthly fuel-card billing). Amounts are on a NET basis (VAT excluded).")) + '</p></div>')
+    body = (help_card + sched_card
+            + f'<div class="card"><h2>{esc(_t("Templates"))}</h2>' + table + '</div>'
+            + action_card + form)
+    return page(body, "ivcrec")
+
+
+@app.route("/invoicing/recurring/save", methods=["POST"])
+def invoicing_recurring_save():
+    import invoicing
+    f = request.form
+    rid = (f.get("id") or "").strip()
+    lines = _ivc_recurring_lines_from_form(f)
+    fields = dict(
+        name=f.get("name"), customer_id=(int(f.get("customer_id")) if (f.get("customer_id") or "").isdigit() else None),
+        currency=(f.get("currency") or "EUR"), lines=lines,
+        frequency=(f.get("frequency") or "monthly"),
+        interval_n=(f.get("interval_n") or "1"),
+        start_date=(f.get("start_date") or None), end_date=(f.get("end_date") or None),
+        max_occurrences=(f.get("max_occurrences") or None),
+        auto_issue=bool(f.get("auto_issue")), notes=f.get("notes"))
+    if rid.isdigit():
+        obj, err = invoicing.update_recurring(int(rid), **fields)
+    else:
+        obj, err = invoicing.create_recurring(created_by=session.get("user"), **fields)
+    banner = _ivc_banner(not err, _t("Recurring template saved.") if not err else (err or "error"))
+    return page(banner + f'<p><a href="/invoicing/recurring">{esc(_t("Back to recurring invoices"))}</a></p>',
+                "ivcrec")
+
+
+@app.route("/invoicing/recurring/action", methods=["POST"])
+def invoicing_recurring_action():
+    import invoicing
+    f = request.form
+    op = (f.get("op") or "").strip()
+    if op == "set_scheduler":
+        on = bool(f.get("enabled"))
+        _auth.set_setting("invoicing_recurring_enabled", "1" if on else "0")
+        banner = _ivc_banner(True, _t("Recurring scheduler is ON (runs on the worker tier).")
+                             if on else _t("Recurring scheduler is OFF."))
+        return page(banner + f'<p><a href="/invoicing/recurring">{esc(_t("Back to recurring invoices"))}</a></p>',
+                    "ivcrec")
+    rid = (f.get("id") or "").strip()
+    if not rid.isdigit():
+        return page(_ivc_banner(False, _t("No template selected."))
+                    + f'<p><a href="/invoicing/recurring">{esc(_t("Back to recurring invoices"))}</a></p>', "ivcrec")
+    tid = int(rid)
+    if op == "pause":
+        _o, err = invoicing.pause_recurring(tid)
+        msg = _t("Template paused.")
+    elif op == "resume":
+        _o, err = invoicing.resume_recurring(tid)
+        msg = _t("Template resumed.")
+    elif op == "delete":
+        _ok, err = invoicing.delete_recurring(tid)
+        msg = _t("Template deleted.")
+    else:
+        err, msg = "unknown action", ""
+    banner = _ivc_banner(not err, msg if not err else (err or "error"))
+    back = (f'<p><a href="/invoicing/recurring{("?edit=" + str(tid)) if op != "delete" and not err else ""}">'
+            f'{esc(_t("Back to recurring invoices"))}</a></p>')
+    return page(banner + back, "ivcrec")
+
+
+@app.route("/invoicing/recurring/generate", methods=["POST"])
+def invoicing_recurring_generate():
+    """The MANUAL 'generate due now' admin action — generates DUE recurring invoices
+    immediately (so the feature works without enabling the scheduler). Audited."""
+    import invoicing
+    try:
+        results = invoicing.generate_due()
+        made = [r for r in results if r[1]]
+        banner = _ivc_banner(True, f'{_t("Generated")}: {len(made)} '
+                             f'({_t("Templates due:")} {len(results)})')
+    except Exception as e:
+        _log_exc("invoicing: recurring generate", e)
+        banner = _ivc_banner(False, _t("Could not generate due invoices."))
+    return page(banner + f'<p><a href="/invoicing/recurring">{esc(_t("Back to recurring invoices"))}</a></p>',
+                "ivcrec")
 
 
 def _parse_rate(raw):

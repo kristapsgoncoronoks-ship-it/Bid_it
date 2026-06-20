@@ -388,4 +388,73 @@ CATALOG = {
     "buckets (1-30 + 31-60 + 60+). As of today.":
         "Neapmaksāts EUR (ar PVN − maksājumi − kredīti). Nokavēts = nokavētās grupas "
         "(1-30 + 31-60 + 60+). Uz šodienu.",
+
+    # ============================================================ PHASE 6: RECURRING INVOICES
+    # A template that auto-generates invoices on a schedule (e.g. monthly fuel-card billing).
+    # ⚠️ accounting wording — native-speaker review recommended before live use. ⚠️
+    "Recurring invoices": "Periodiskie rēķini",
+    "Define a template that auto-generates invoices on a schedule (e.g. "
+    "monthly fuel-card billing). Amounts are on a NET basis (VAT excluded).":
+        "Definējiet veidni, kas automātiski izveido rēķinus pēc grafika (piemēram, "
+        "ikmēneša degvielas karšu rēķini). Summas ir uz NETO (bez PVN) bāzes.",
+    "Recurring template saved.": "Periodiskā veidne saglabāta.",
+    "New recurring template": "Jauna periodiskā veidne",
+    "Edit recurring template": "Rediģēt periodisko veidni",
+    "Create template": "Izveidot veidni",
+    "No recurring templates yet — create one below.":
+        "Vēl nav periodisko veidņu — izveidojiet kādu zemāk.",
+    "Back to recurring invoices": "Atpakaļ uz periodiskajiem rēķiniem",
+    "Templates": "Veidnes",
+    "Frequency": "Biežums",
+    "Every N periods": "Ik pēc N periodiem",
+    "Next run": "Nākamā izpilde",
+    "Auto-issue": "Automātiski izrakstīt",
+    "Generated": "Izveidoti",
+    "Generated invoices": "Izveidotie rēķini",
+    "No invoices generated yet.": "Vēl nav izveidots neviens rēķins.",
+    "Start date": "Sākuma datums",
+    "End date (optional)": "Beigu datums (neobligāts)",
+    "Max occurrences (optional)": "Maks. reižu skaits (neobligāts)",
+    "e.g. Monthly fuel-card billing": "piemēram, ikmēneša degvielas karšu rēķini",
+    "weekly": "iknedēļas",
+    "monthly": "ikmēneša",
+    "quarterly": "ceturkšņa",
+    "yearly": "gada",
+    "active": "aktīvs",
+    "paused": "pauzēts",
+    "Pause": "Pauzēt",
+    "Resume": "Atsākt",
+    "Template paused.": "Veidne pauzēta.",
+    "Template resumed.": "Veidne atsākta.",
+    "Template deleted.": "Veidne dzēsta.",
+    "No template selected.": "Nav izvēlēta neviena veidne.",
+    "Scheduler": "Plānotājs",
+    "Auto-generate due recurring invoices daily":
+        "Automātiski izveidot pienākušos periodiskos rēķinus katru dienu",
+    "Save scheduler state": "Saglabāt plānotāja stāvokli",
+    "Last run": "Pēdējā izpilde",
+    "Generate due now": "Izveidot pienākušos tagad",
+    "Templates due:": "Pienākušās veidnes:",
+    "Recurring scheduler is ON (runs on the worker tier).":
+        "Periodiskais plānotājs ir IESLĒGTS (darbojas darbinieku slānī).",
+    "Recurring scheduler is OFF.": "Periodiskais plānotājs ir IZSLĒGTS.",
+    "Could not generate due invoices.": "Neizdevās izveidot pienākušos rēķinus.",
+    "Yes": "Jā",
+    "No": "Nē",
+    "Auto-issue OFF (the default) generates a DRAFT for review at each due "
+    "date; turn it ON to assign the gap-free number automatically. The "
+    "next-run date advances month-end safely (a 31st lands on the last day "
+    "of a short month).":
+        "Automātiskā izrakstīšana IZSLĒGTA (noklusējums) katrā termiņā izveido "
+        "MELNRAKSTU pārbaudei; ieslēdziet to, lai automātiski piešķirtu secīgo numuru. "
+        "Nākamais datums tiek pārcelts droši attiecībā uz mēneša beigām (31. datums "
+        "nonāk īsa mēneša pēdējā dienā).",
+    "The scheduler is OFF by default and runs on the worker tier (one leader "
+    "across processes) — enable a worker to actually run it. 'Generate due "
+    "now' works without the scheduler. Generation is idempotent: a template "
+    "generates at most one invoice per due date.":
+        "Plānotājs pēc noklusējuma ir IZSLĒGTS un darbojas darbinieku slānī (viens "
+        "līderis starp procesiem) — iespējojiet darbinieku, lai tas patiešām darbotos. "
+        "“Izveidot pienākušos tagad” darbojas bez plānotāja. Ģenerēšana ir idempotenta: "
+        "viena veidne katrā termiņā izveido ne vairāk kā vienu rēķinu.",
 }

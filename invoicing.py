@@ -134,6 +134,18 @@ SIMPLIFIED_GROSS_CEILING_EUR = 150.0
 # Statutory retention period for an issued invoice (years). LV/EU record-keeping.
 RETENTION_YEARS = 5
 
+# PHASE 6: recurring-invoice frequencies + statuses. `interval_n` (every N periods) scales
+# each. The schedule math (advance_next_run) is MONTH-END SAFE for month-based cadences.
+FREQ_WEEKLY = "weekly"
+FREQ_MONTHLY = "monthly"
+FREQ_QUARTERLY = "quarterly"
+FREQ_YEARLY = "yearly"
+FREQUENCIES = (FREQ_WEEKLY, FREQ_MONTHLY, FREQ_QUARTERLY, FREQ_YEARLY)
+# how many MONTHS one period of each month-based frequency spans (weekly handled apart)
+_FREQ_MONTHS = {FREQ_MONTHLY: 1, FREQ_QUARTERLY: 3, FREQ_YEARLY: 12}
+REC_ACTIVE = "active"
+REC_PAUSED = "paused"
+
 # PDF RENDERING. The PRIMARY path renders the HTML/CSS template to a print-ready A4 PDF
 # via the wkhtmltopdf CLI (UTF-8 + system TrueType fonts -> Latvian/Unicode renders
 # natively, and HTML/CSS gives a real invoice design). On a host WITHOUT wkhtmltopdf
@@ -289,10 +301,59 @@ _MIGRATIONS = [
     "ALTER TABLE invoices ADD COLUMN corrects_invoice_id INTEGER",
     "CREATE INDEX IF NOT EXISTS ix_invoices_corrects "
     "ON invoices(corrects_invoice_id) WHERE corrects_invoice_id IS NOT NULL",
+    # PHASE 6 — RECURRING INVOICES -------------------------------------------
+    # A template that auto-generates invoices on a schedule (e.g. monthly fuel-card
+    # billing). The template OWNS no figures — it carries a customer + a JSON line spec +
+    # the schedule math, and at each due date `generate_due` composes a DRAFT (or, when
+    # auto_issue, an ISSUED) invoice from it via the SAME create_draft/add_line/issue path.
+    # Nothing here mutates a filed invoice; the schedule cursor `next_run` advances
+    # MONTH-END SAFE (a Jan-31 monthly recurring lands Feb-28/29, never skipping a month).
+    """CREATE TABLE IF NOT EXISTS recurring_templates (
+        id               INTEGER PRIMARY KEY,
+        name             TEXT,
+        customer_id      INTEGER,
+        currency         TEXT NOT NULL DEFAULT 'EUR',
+        lines            TEXT NOT NULL DEFAULT '[]',   -- JSON list of line dicts
+        frequency        TEXT NOT NULL DEFAULT 'monthly',
+        interval_n       INTEGER NOT NULL DEFAULT 1,   -- every N periods
+        start_date       TEXT,                         -- YYYY-MM-DD (first due date)
+        next_run         TEXT,                         -- YYYY-MM-DD (next generation due)
+        end_date         TEXT,                         -- optional stop date
+        max_occurrences  INTEGER,                      -- optional cap on # generated
+        occurrences_done INTEGER NOT NULL DEFAULT 0,
+        auto_issue       INTEGER NOT NULL DEFAULT 0,   -- 0 = generate a DRAFT for review
+        status           TEXT NOT NULL DEFAULT 'active',  -- active | paused
+        notes            TEXT,
+        created_at       TEXT DEFAULT CURRENT_TIMESTAMP,
+        created_by       TEXT,
+        tenant_id        TEXT NOT NULL DEFAULT 'default'
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_recurring_tenant "
+    "ON recurring_templates(tenant_id, status, next_run)",
+    # The GENERATION LOG / linkage: one row per (template, due-date) the engine generated.
+    # It records WHICH invoice came from WHICH template+period (traceability) AND is the
+    # IDEMPOTENCY guard — a UNIQUE (tenant_id, template_id, period) means a second run on
+    # the same due date collides on the INSERT and is skipped (never double-generates).
+    """CREATE TABLE IF NOT EXISTS recurring_runs (
+        id           INTEGER PRIMARY KEY,
+        template_id  INTEGER NOT NULL,
+        period       TEXT NOT NULL,                    -- the due date this run satisfied
+        invoice_id   INTEGER,                          -- the generated invoice (NULL = error)
+        status       TEXT,                             -- draft | issued | error
+        message      TEXT,
+        created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+        tenant_id    TEXT NOT NULL DEFAULT 'default'
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_recurring_runs_period "
+    "ON recurring_runs(tenant_id, template_id, period)",
+    # Linkage on the generated invoice back to its source template (traceability + the AR
+    # views can show 'recurring'). NULL for an ordinary, hand-composed invoice.
+    "ALTER TABLE invoices ADD COLUMN from_template_id INTEGER",
 ]
 
 _AUDITED_TABLES = ["bill_customers", "invoices", "invoice_lines",
-                   "invoice_counters", "invoice_payments"]
+                   "invoice_counters", "invoice_payments",
+                   "recurring_templates", "recurring_runs"]
 
 _SCHEMA_READY = set()   # DB files whose schema is set up this process
 
@@ -3094,6 +3155,500 @@ def send_invoice(invoice_id, to=None, lang=None, transport=None):
         log.warning("send_invoice(%s): email sent but status update failed: %s",
                     invoice_id, e)
     return True, ""
+
+
+# ============================================================ PHASE 6: recurring invoices
+# A RECURRING TEMPLATE auto-generates invoices on a schedule (e.g. monthly fuel-card
+# billing). It is structurally a SCHEDULE + a line SPEC over the existing compose/issue
+# machinery — it stores NO invoice figures and mutates NO filed invoice. At each due date
+# `generate_due` builds a DRAFT (or, with auto_issue, an ISSUED) invoice from the spec via
+# the same create_draft/add_line/issue path. The schedule cursor `next_run` advances
+# MONTH-END SAFE (see `_add_months`), so a Jan-31 monthly recurring lands Feb-28/29 and
+# never skips a month. Generation is IDEMPOTENT per (template, due-date) via the unique
+# recurring_runs index, AUDITED, and NEVER-RAISE (one bad template can't block the others).
+import json as _json
+
+
+def _add_months(d, months):
+    """Return `d` shifted by `months` calendar months, MONTH-END SAFE: if the target month
+    has no matching day (e.g. Jan-31 + 1 month) we clamp to that month's last day (Feb-28/
+    29), so monthly billing never skips a month or overflows into the next. Pure."""
+    total = (d.year * 12 + (d.month - 1)) + months
+    y, m = divmod(total, 12)
+    m += 1
+    # last day of the target month
+    if m == 12:
+        last = 31
+    else:
+        last = (datetime.date(y, m + 1, 1) - datetime.timedelta(days=1)).day
+    return datetime.date(y, m, min(d.day, last))
+
+
+def _as_date(v, default=None):
+    """Parse a YYYY-MM-DD into a date (None/blank -> default). Best-effort, never raises."""
+    if not v:
+        return default
+    if isinstance(v, datetime.date):
+        return v
+    try:
+        return datetime.date.fromisoformat(str(v)[:10])
+    except (TypeError, ValueError):
+        return default
+
+
+def advance_next_run(template, from_date):
+    """The NEXT occurrence date after `from_date` for a template's frequency/interval.
+    Month-based cadences (monthly/quarterly/yearly) use `_add_months` (month-end safe);
+    weekly adds 7*interval days. `from_date` is a date or YYYY-MM-DD string. Pure, never
+    raises (an unknown frequency falls back to monthly)."""
+    base = _as_date(from_date) or datetime.date.today()
+    try:
+        n = max(1, int(template.get("interval_n") or 1))
+    except (TypeError, ValueError):
+        n = 1
+    freq = (template.get("frequency") or FREQ_MONTHLY).strip().lower()
+    if freq == FREQ_WEEKLY:
+        return base + datetime.timedelta(days=7 * n)
+    months = _FREQ_MONTHS.get(freq, 1) * n
+    return _add_months(base, months)
+
+
+def _rec_dict(row):
+    d = dict(row)
+    d["auto_issue"] = bool(d.get("auto_issue"))
+    try:
+        d["lines"] = _json.loads(d.get("lines") or "[]")
+    except (TypeError, ValueError):
+        d["lines"] = []
+    return d
+
+
+def _normalize_rec_lines(lines):
+    """Coerce a caller-supplied list of line dicts into the stored shape (description,
+    quantity, unit, unit_price_net, vat_rate). Returns a clean list (drops empties)."""
+    out = []
+    for ln in (lines or []):
+        desc = (str(ln.get("description") or "")).strip()
+        try:
+            qty = float(money.D(ln.get("quantity") or 0))
+        except Exception:
+            qty = 0.0
+        try:
+            price = float(money.D(ln.get("unit_price_net") or 0))
+        except Exception:
+            price = 0.0
+        try:
+            rate = float(ln.get("vat_rate") or 0)
+        except (TypeError, ValueError):
+            rate = 0.0
+        if rate > 1:               # tolerate a percent (21 -> 0.21)
+            rate = rate / 100.0
+        if not desc and qty == 0 and price == 0:
+            continue
+        out.append({"description": desc, "quantity": qty,
+                    "unit": (str(ln.get("unit") or "")).strip(),
+                    "unit_price_net": price, "vat_rate": rate})
+    return out
+
+
+def create_recurring(*, customer_id, lines, frequency=FREQ_MONTHLY, interval_n=1,
+                     start_date=None, end_date=None, max_occurrences=None,
+                     auto_issue=False, currency=DEFAULT_CURRENCY, name="", notes="",
+                     created_by=None):
+    """Create a recurring template. The first due date is `start_date` (defaults to today).
+    `lines` is a list of line dicts. Returns (template_dict, "") or (None, error)."""
+    freq = (frequency or FREQ_MONTHLY).strip().lower()
+    if freq not in FREQUENCIES:
+        return None, f"unknown frequency {freq!r}"
+    try:
+        n = max(1, int(interval_n or 1))
+    except (TypeError, ValueError):
+        n = 1
+    sd = _as_date(start_date) or datetime.date.today()
+    norm = _normalize_rec_lines(lines)
+    if not norm:
+        return None, "a recurring template needs at least one line"
+    try:
+        mo = int(max_occurrences) if str(max_occurrences or "").strip() else None
+    except (TypeError, ValueError):
+        mo = None
+    try:
+        con = connect()
+        try:
+            cur = con.execute(
+                """INSERT INTO recurring_templates
+                   (name, customer_id, currency, lines, frequency, interval_n,
+                    start_date, next_run, end_date, max_occurrences, auto_issue,
+                    status, notes, created_by, tenant_id)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                ((name or "").strip(), customer_id,
+                 (currency or DEFAULT_CURRENCY).strip().upper(),
+                 _json.dumps(norm, ensure_ascii=False), freq, n,
+                 sd.isoformat(), sd.isoformat(),
+                 (_as_date(end_date).isoformat() if _as_date(end_date) else None),
+                 mo, 1 if auto_issue else 0, REC_ACTIVE, (notes or "").strip(),
+                 created_by, tenancy.write_tenant()))
+            con.commit()
+            row = con.execute("SELECT * FROM recurring_templates WHERE id=?",
+                              (cur.lastrowid,)).fetchone()
+        finally:
+            con.close()
+        return (_rec_dict(row) if row else None), ""
+    except Exception as e:
+        log.exception("create_recurring failed")
+        return None, f"could not create recurring template ({str(e)[:80]})"
+
+
+def get_recurring(template_id):
+    """One recurring template (tenant-scoped), or None. Never raises."""
+    if not template_id:
+        return None
+    frag, tp = tenancy.scope_clause()
+    try:
+        con = connect()
+        try:
+            row = con.execute("SELECT * FROM recurring_templates WHERE id=?" + frag,
+                              [template_id, *tp]).fetchone()
+        finally:
+            con.close()
+        return _rec_dict(row) if row else None
+    except Exception as e:
+        log.warning("get_recurring(%s) failed: %s", template_id, e)
+        return None
+
+
+def list_recurring(status=None):
+    """All recurring templates for the current tenant (active first, then next_run).
+    Joins the customer name for display. Optional status filter. Never raises -> []."""
+    frag, tp = tenancy.scope_clause(column="r.tenant_id")
+    where = ["1=1"]
+    params = []
+    if status:
+        where.append("r.status=?")
+        params.append(status)
+    sql = ("SELECT r.*, c.name AS customer_name FROM recurring_templates r "
+           "LEFT JOIN bill_customers c ON c.id=r.customer_id "
+           "WHERE " + " AND ".join(where) + frag
+           + " ORDER BY (r.status='active') DESC, r.next_run, r.id")
+    try:
+        con = connect()
+        try:
+            rows = con.execute(sql, [*params, *tp]).fetchall()
+        finally:
+            con.close()
+        out = []
+        for r in rows:
+            d = _rec_dict(r)
+            d["customer_name"] = r["customer_name"]
+            out.append(d)
+        return out
+    except Exception as e:
+        log.warning("list_recurring failed: %s", e)
+        return []
+
+
+def update_recurring(template_id, **fields):
+    """Update editable fields of a recurring template (tenant-scoped). Recognises name,
+    customer_id, currency, lines (list), frequency, interval_n, start_date, end_date,
+    max_occurrences, auto_issue, notes. Returns (template_dict, "") or (None, error).
+    NOTE: editing start_date does NOT rewind next_run (use the cursor as-is); set next_run
+    explicitly via this call if you must re-seed the schedule."""
+    allowed = ("name", "customer_id", "currency", "lines", "frequency", "interval_n",
+               "start_date", "next_run", "end_date", "max_occurrences", "auto_issue",
+               "notes", "status")
+    sets, params = [], []
+    for k in allowed:
+        if k not in fields:
+            continue
+        v = fields[k]
+        if k == "lines":
+            v = _json.dumps(_normalize_rec_lines(v), ensure_ascii=False)
+        elif k == "currency" and v:
+            v = str(v).strip().upper()
+        elif k == "frequency":
+            v = (str(v) or FREQ_MONTHLY).strip().lower()
+            if v not in FREQUENCIES:
+                return None, f"unknown frequency {v!r}"
+        elif k == "interval_n":
+            try:
+                v = max(1, int(v or 1))
+            except (TypeError, ValueError):
+                v = 1
+        elif k in ("start_date", "next_run", "end_date"):
+            dv = _as_date(v)
+            v = dv.isoformat() if dv else None
+        elif k == "max_occurrences":
+            try:
+                v = int(v) if str(v or "").strip() else None
+            except (TypeError, ValueError):
+                v = None
+        elif k == "auto_issue":
+            v = 1 if v else 0
+        elif isinstance(v, str):
+            v = v.strip()
+        sets.append(f"{k}=?")
+        params.append(v)
+    if not sets:
+        return get_recurring(template_id), ""
+    frag, tp = tenancy.scope_clause()
+    try:
+        con = connect()
+        try:
+            con.execute(f"UPDATE recurring_templates SET {', '.join(sets)} WHERE id=?"
+                        + frag, [*params, template_id, *tp])
+            con.commit()
+        finally:
+            con.close()
+        return get_recurring(template_id), ""
+    except Exception as e:
+        log.exception("update_recurring(%s) failed", template_id)
+        return None, f"could not update recurring template ({str(e)[:80]})"
+
+
+def pause_recurring(template_id):
+    """Pause a template (skipped by generate_due). Returns (template_dict, "") / (None,err)."""
+    return update_recurring(template_id, status=REC_PAUSED)
+
+
+def resume_recurring(template_id):
+    """Resume a paused template. Returns (template_dict, "") / (None, err)."""
+    return update_recurring(template_id, status=REC_ACTIVE)
+
+
+def delete_recurring(template_id):
+    """Delete a recurring template (tenant-scoped). Generated invoices are untouched (they
+    are independent legal/draft documents). Returns (True, "") or (False, error)."""
+    frag, tp = tenancy.scope_clause()
+    try:
+        con = connect()
+        try:
+            con.execute("DELETE FROM recurring_templates WHERE id=?" + frag,
+                        [template_id, *tp])
+            con.commit()
+        finally:
+            con.close()
+        return True, ""
+    except Exception as e:
+        log.exception("delete_recurring(%s) failed", template_id)
+        return False, f"could not delete recurring template ({str(e)[:80]})"
+
+
+def _rec_exhausted(t):
+    """True if a template has reached its max_occurrences cap."""
+    mo = t.get("max_occurrences")
+    if mo in (None, "", 0):
+        return False
+    try:
+        return int(t.get("occurrences_done") or 0) >= int(mo)
+    except (TypeError, ValueError):
+        return False
+
+
+def _rec_past_end(t, on_date):
+    """True if `on_date` is strictly past the template's end_date (inclusive end)."""
+    ed = _as_date(t.get("end_date"))
+    return bool(ed and on_date > ed)
+
+
+def due_templates(today=None):
+    """The ACTIVE templates whose next_run <= today and which are not past their end_date
+    / max_occurrences. `today` defaults to the system date. Read-only; never raises -> []."""
+    today = _as_date(today) or datetime.date.today()
+    out = []
+    for t in list_recurring(status=REC_ACTIVE):
+        nr = _as_date(t.get("next_run"))
+        if not nr or nr > today:
+            continue
+        if _rec_exhausted(t) or _rec_past_end(t, nr):
+            continue
+        out.append(t)
+    return out
+
+
+def recurring_runs_for(template_id):
+    """The generation log rows for a template (newest first), tenant-scoped. -> []."""
+    frag, tp = tenancy.scope_clause()
+    try:
+        con = connect()
+        try:
+            rows = con.execute(
+                "SELECT * FROM recurring_runs WHERE template_id=?" + frag
+                + " ORDER BY id DESC", [template_id, *tp]).fetchall()
+        finally:
+            con.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        log.warning("recurring_runs_for(%s) failed: %s", template_id, e)
+        return []
+
+
+def invoices_from_template(template_id):
+    """Invoices generated from a template (newest first), tenant-scoped. -> []."""
+    frag, tp = tenancy.scope_clause()
+    try:
+        con = connect()
+        try:
+            rows = con.execute(
+                "SELECT * FROM invoices WHERE from_template_id=?" + frag
+                + " ORDER BY id DESC", [template_id, *tp]).fetchall()
+        finally:
+            con.close()
+        return [_inv_dict(r) for r in rows]
+    except Exception as e:
+        log.warning("invoices_from_template(%s) failed: %s", template_id, e)
+        return []
+
+
+def _claim_run(template_id, period):
+    """IDEMPOTENCY GUARD: try to claim a (template, period) generation slot by INSERTing a
+    recurring_runs row. Returns the new run id, or None if the slot is already taken (the
+    unique index collides -> this period was already generated). Never raises -> None on a
+    real error (caller treats as 'skip')."""
+    try:
+        con = connect()
+        try:
+            cur = con.execute(
+                "INSERT OR IGNORE INTO recurring_runs "
+                "(template_id, period, status, tenant_id) VALUES (?,?,?,?)",
+                (template_id, period, "pending", tenancy.write_tenant()))
+            con.commit()
+            if cur.rowcount == 0:
+                return None                       # slot already claimed -> idempotent skip
+            return cur.lastrowid
+        finally:
+            con.close()
+    except Exception as e:
+        log.warning("_claim_run(%s,%s) failed: %s", template_id, period, e)
+        return None
+
+
+def _finish_run(run_id, *, invoice_id, status, message=""):
+    """Record the outcome of a claimed generation slot."""
+    if not run_id:
+        return
+    frag, tp = tenancy.scope_clause()
+    try:
+        con = connect()
+        try:
+            con.execute("UPDATE recurring_runs SET invoice_id=?, status=?, message=? "
+                        "WHERE id=?" + frag,
+                        [invoice_id, status, (message or "")[:200], run_id, *tp])
+            con.commit()
+        finally:
+            con.close()
+    except Exception as e:
+        log.warning("_finish_run(%s) failed: %s", run_id, e)
+
+
+def _generate_one(template, today):
+    """Generate the invoice for ONE due template at its current next_run, then advance the
+    schedule. Returns (invoice_id_or_None, status) where status is 'draft'/'issued'/
+    'skipped'/'error'. Idempotent per (template, period) via _claim_run. Never raises."""
+    tid = int(template["id"])
+    period = (_as_date(template.get("next_run")) or today).isoformat()
+    run_id = _claim_run(tid, period)
+    if run_id is None:
+        return None, "skipped"           # already generated for this period (idempotent)
+    try:
+        inv, err = create_draft(customer_id=template.get("customer_id"),
+                                currency=template.get("currency") or DEFAULT_CURRENCY,
+                                supply_date=period,
+                                notes=template.get("notes") or "",
+                                created_by="recurring")
+        if err or not inv:
+            _finish_run(run_id, invoice_id=None, status="error",
+                        message=err or "draft failed")
+            return None, "error"
+        iid = int(inv["id"])
+        # stamp the source-template linkage on the generated invoice (traceability)
+        try:
+            con = connect()
+            try:
+                con.execute("UPDATE invoices SET from_template_id=? WHERE id=?",
+                            (tid, iid))
+                con.commit()
+            finally:
+                con.close()
+        except Exception as e:
+            log.warning("_generate_one(%s): linkage stamp failed: %s", tid, e)
+        for ln in (template.get("lines") or []):
+            _i, lerr = add_line(iid, description=ln.get("description") or "",
+                                quantity=ln.get("quantity") or 0,
+                                unit=ln.get("unit") or "",
+                                unit_price_net=ln.get("unit_price_net") or 0,
+                                vat_rate=ln.get("vat_rate") or 0)
+            if lerr:
+                log.warning("_generate_one(%s): add_line failed: %s", tid, lerr)
+        status = "draft"
+        if template.get("auto_issue"):
+            issued, ierr = issue(iid, issued_by="recurring", issue_date=period)
+            if ierr:
+                # leave it as a draft (still a valid generated document); record the reason
+                _finish_run(run_id, invoice_id=iid, status="draft",
+                            message=f"auto-issue failed: {ierr}")
+            else:
+                status = "issued"
+        _finish_run(run_id, invoice_id=iid, status=status)
+        # advance the schedule cursor + bump occurrences, deactivating when exhausted.
+        _advance_template_after_run(template, today)
+        return iid, status
+    except Exception as e:
+        log.exception("_generate_one(%s) failed", tid)
+        _finish_run(run_id, invoice_id=None, status="error", message=str(e)[:200])
+        return None, "error"
+
+
+def _advance_template_after_run(template, today):
+    """After a successful generation: bump occurrences_done, move next_run to the next
+    occurrence, and PAUSE the template when it hits max_occurrences or rolls past end_date.
+    `today` only bounds nothing here — the cursor advances by exactly one period from the
+    period just generated, so a long-idle scheduler catches up one invoice per run."""
+    tid = int(template["id"])
+    cur_run = _as_date(template.get("next_run")) or today
+    nxt = advance_next_run(template, cur_run)
+    done = int(template.get("occurrences_done") or 0) + 1
+    # decide whether the template is now exhausted (max occurrences) or past its end date.
+    exhausted = False
+    mo = template.get("max_occurrences")
+    if mo not in (None, "", 0):
+        try:
+            exhausted = done >= int(mo)
+        except (TypeError, ValueError):
+            exhausted = False
+    ed = _as_date(template.get("end_date"))
+    if ed and nxt > ed:
+        exhausted = True
+    new_status = REC_PAUSED if exhausted else template.get("status") or REC_ACTIVE
+    frag, tp = tenancy.scope_clause()
+    try:
+        con = connect()
+        try:
+            con.execute("UPDATE recurring_templates SET next_run=?, occurrences_done=?, "
+                        "status=? WHERE id=?" + frag,
+                        [nxt.isoformat(), done, new_status, tid, *tp])
+            con.commit()
+        finally:
+            con.close()
+    except Exception as e:
+        log.warning("_advance_template_after_run(%s) failed: %s", tid, e)
+
+
+def generate_due(today=None):
+    """Generate invoices for every DUE recurring template. For each, compose a DRAFT (or an
+    ISSUED invoice when auto_issue) from the template, link it back to the template + period,
+    advance the schedule cursor and bump occurrences (deactivating at end_date/max). IDEMPOTENT
+    per (template, due-date) and NEVER-RAISE: a failure on one template is logged and skipped,
+    it never blocks the others. Returns a list of (template_id, invoice_id_or_None, status)."""
+    today = _as_date(today) or datetime.date.today()
+    out = []
+    for t in due_templates(today):
+        try:
+            iid, status = _generate_one(t, today)
+        except Exception as e:        # belt-and-braces; _generate_one already guards
+            log.exception("generate_due: template %s failed", t.get("id"))
+            iid, status = None, "error"
+        out.append((int(t["id"]), iid, status))
+    return out
 
 
 if __name__ == "__main__":
