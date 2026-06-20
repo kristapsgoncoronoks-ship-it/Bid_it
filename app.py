@@ -1205,6 +1205,7 @@ ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "api_r
               "invoicing_issuer", "invoicing_issuer_save", "invoicing_compose",
               "invoicing_create", "invoicing_line_add", "invoicing_line_remove",
               "invoicing_fields_save", "invoicing_issue", "invoicing_pdf",
+              "invoicing_einvoice_xml", "invoicing_pdf_hybrid",
               # the workflow DEFINE/MANAGE surface is admin-only (an admin builds the
               # routing); the Tasks inbox / act / start-run are NOT here (any login).
               "workflow_admin", "workflow_define", "workflow_update",
@@ -1321,7 +1322,8 @@ MODULES = {
                    {"invoicing_home", "invoicing_customers", "invoicing_customer_save",
                     "invoicing_issuer", "invoicing_issuer_save", "invoicing_compose",
                     "invoicing_create", "invoicing_line_add", "invoicing_line_remove",
-                    "invoicing_fields_save", "invoicing_issue", "invoicing_pdf"}),
+                    "invoicing_fields_save", "invoicing_issue", "invoicing_pdf",
+                    "invoicing_einvoice_xml", "invoicing_pdf_hybrid"}),
     "fx":         ("FX vs ECB exchange rates", {"fx"}),
     "workflow":   ("Workflow — configurable approval/routing + a Tasks inbox (advisory)",
                    {"tasks_page", "task_act", "workflow_start",
@@ -14634,8 +14636,18 @@ def invoicing_compose(invoice_id=None):
     ltable = (tbl(["Description", "Qty", "Unit", "Unit price (net)", "Rate", "Net", "VAT", ""],
                   lrows) if lrows else '<p class="note">No lines yet.</p>')
 
-    body = ['<div class="card"><h2>Invoice</h2>' + head
-            + f' <a class="btn" href="/invoicing/pdf/{int(invoice_id)}">Download PDF</a></div>']
+    dl = f' <a class="btn" href="/invoicing/pdf/{int(invoice_id)}">Download PDF</a>'
+    if issued:
+        dl += (f' <a class="btn" href="/invoicing/einvoice/{int(invoice_id)}.xml">'
+               'Download e-invoice (XML)</a>'
+               f' <a class="btn" href="/invoicing/hybrid/{int(invoice_id)}">'
+               'Download hybrid PDF (PDF + e-invoice)</a>')
+    body = ['<div class="card"><h2>Invoice</h2>' + head + dl
+            + ('<p class="note">The e-invoice is an EN-16931 / PEPPOL BIS Billing 3.0 '
+               'UBL 2.1 document — the structured format Latvia mandates (B2G now, B2B '
+               'from 2028). The hybrid PDF embeds that XML inside the PDF (Factur-X style) '
+               'so it is both human- and machine-readable.</p>' if issued else '')
+            + '</div>']
     body.append('<div class="card"><h2>Lines (net basis, VAT excluded)</h2>' + ltable + '</div>')
 
     if not issued:
@@ -14648,9 +14660,15 @@ def invoicing_compose(invoice_id=None):
             + '<label>Quantity<input name="quantity" required inputmode="decimal" style="width:110px"></label>'
             + '<label>Unit<input name="unit" style="width:90px"></label>'
             + '<label>Unit price (net)<input name="unit_price_net" required inputmode="decimal" style="width:140px"></label>'
-            + '<label>VAT rate %<input name="vat_rate" inputmode="decimal" style="width:110px" '
-              'placeholder="21"></label>'
+            + '<label>VAT rate (Latvia 2026)<select name="vat_rate_preset" style="width:150px">'
+              + ''.join(f'<option value="{p}">{p * 100:g}%</option>'
+                        for p in invoicing.LV_VAT_RATE_PRESETS)
+              + '<option value="custom">Custom…</option></select></label>'
+            + '<label>Custom rate %<input name="vat_rate" inputmode="decimal" style="width:110px" '
+              'placeholder="(only if Custom)"></label>'
             + '<div style="margin-top:8px"><button>Add line</button></div>'
+            + '<p class="note">Pick a Latvia VAT rate (21% standard · 12% / 5% reduced · 0%) '
+              'or choose Custom and type a rate.</p>'
             + ('<p class="note">Reverse charge is ON: lines are at 0% VAT (the recipient '
                'accounts for VAT).</p>' if inv.get("reverse_charge") else '')
             + '</form></div>')
@@ -14662,12 +14680,23 @@ def invoicing_compose(invoice_id=None):
             + f'<input type="hidden" name="invoice_id" value="{int(invoice_id)}">'
             + '<label>Reverse charge '
             + f'<input type="checkbox" name="reverse_charge" {"checked" if rc_on else ""}></label>'
+            + '<label>Simplified invoice (gross &le; €150) '
+            + f'<input type="checkbox" name="simplified" '
+              f'{"checked" if inv.get("simplified") else ""}></label>'
             + f'<label>Supply date<input name="supply_date" type="date" '
               f'value="{esc(inv.get("supply_date") or "")}"></label>'
+            + (f'<label>FX rate ({esc(inv.get("currency") or "")} per 1 EUR)'
+               f'<input name="fx_rate" inputmode="decimal" style="width:130px" '
+               f'value="{esc(str(inv.get("fx_rate")) if inv.get("fx_rate") not in (None, "") else "")}">'
+               '</label>' if (inv.get("currency") or "EUR") != "EUR" else "")
             + '<div style="margin-top:8px"><button>Update settings</button></div>'
             + '<p class="note">Reverse charge applies to a cross-border EU B2B customer '
               '(0% VAT, the recipient accounts for VAT). Toggling it re-rates existing '
-              'lines; re-enter line rates if you turn it back off.</p>'
+              'lines; re-enter line rates if you turn it back off. A simplified invoice '
+              '(EU VAT Dir. Art. 238, gross &le; €150) relaxes the customer-detail '
+              'requirement. For a non-EUR invoice, supply the FX rate (currency per 1 EUR) '
+              'so the VAT total can also be stated in EUR (LV/EU rule); leave blank to use '
+              'a cached ECB rate.</p>'
             + '</form></div>')
         issue_err = invoicing.validate_for_issue(invoice_id)
         if issue_err:
@@ -14727,10 +14756,17 @@ def invoicing_line_add():
         iid = int(f.get("invoice_id") or "0")
     except (TypeError, ValueError):
         iid = 0
+    # VAT rate: a Latvia preset (a fraction string like '0.21') unless the user chose
+    # "custom", in which case the free-text vat_rate field is parsed.
+    preset = (f.get("vat_rate_preset") or "").strip()
+    if preset and preset != "custom":
+        rate = _parse_rate(preset)
+    else:
+        rate = _parse_rate(f.get("vat_rate"))
     inv, err = invoicing.add_line(
         iid, description=f.get("description"), quantity=f.get("quantity"),
         unit=f.get("unit"), unit_price_net=f.get("unit_price_net"),
-        vat_rate=_parse_rate(f.get("vat_rate")))
+        vat_rate=rate)
     if err:
         return page(_ivc_banner(False, err)
                     + f'<p><a href="/invoicing/compose/{iid}">Back</a></p>', "ivc")
@@ -14761,9 +14797,12 @@ def invoicing_fields_save():
         iid = int(f.get("invoice_id") or "0")
     except (TypeError, ValueError):
         iid = 0
-    fields = {"reverse_charge": (f.get("reverse_charge") == "on")}
+    fields = {"reverse_charge": (f.get("reverse_charge") == "on"),
+              "simplified": (f.get("simplified") == "on")}
     if f.get("supply_date") is not None:
         fields["supply_date"] = f.get("supply_date") or None
+    if f.get("fx_rate") is not None:
+        fields["fx_rate"] = f.get("fx_rate") or None
     inv, err = invoicing.set_invoice_fields(iid, **fields)
     if err:
         return page(_ivc_banner(False, err)
@@ -14799,6 +14838,57 @@ def invoicing_pdf(invoice_id):
     num = (inv.get("number") or f"draft-{invoice_id}").replace("/", "-")
     return send_file(io.BytesIO(data), as_attachment=True,
                      download_name=f"Invoice_{num}.pdf", mimetype="application/pdf")
+
+
+@app.route("/invoicing/einvoice/<int:invoice_id>.xml")
+def invoicing_einvoice_xml(invoice_id):
+    """Download the EN-16931 / PEPPOL BIS Billing 3.0 UBL e-invoice XML of an ISSUED
+    invoice. Refuses for a draft (no legal number → no e-invoice)."""
+    import io, invoicing
+    inv = invoicing.get_invoice(invoice_id)
+    if not inv:
+        return page('<div class="card"><b class="bad">No such invoice.</b></div>', "ivc"), 404
+    try:
+        data = invoicing.einvoice_xml(invoice_id)
+    except ValueError as e:
+        return page('<div class="card"><b class="bad">' + esc(str(e)) + '</b>'
+                    f'<p><a href="/invoicing/compose/{int(invoice_id)}">Back</a></p></div>',
+                    "ivc"), 400
+    except Exception as e:
+        _log_exc("invoicing: e-invoice xml", e)
+        return page('<div class="card"><b class="bad">Could not build the e-invoice.</b>'
+                    '</div>', "ivc"), 500
+    return send_file(io.BytesIO(data), as_attachment=True,
+                     download_name=invoicing.einvoice_filename(invoice_id),
+                     mimetype="application/xml")
+
+
+@app.route("/invoicing/hybrid/<int:invoice_id>")
+def invoicing_pdf_hybrid(invoice_id):
+    """Download the HYBRID PDF (the compliant PDF with the EN-16931 UBL XML embedded as
+    factur-x.xml). Refuses for a draft. If pikepdf is unavailable the module degrades to
+    the plain PDF (the e-invoice XML is then available via the separate XML button)."""
+    import io, invoicing
+    inv = invoicing.get_invoice(invoice_id)
+    if not inv:
+        return page('<div class="card"><b class="bad">No such invoice.</b></div>', "ivc"), 404
+    try:
+        data = invoicing.invoice_pdf_hybrid(invoice_id)
+    except ValueError as e:
+        return page('<div class="card"><b class="bad">' + esc(str(e)) + '</b>'
+                    f'<p><a href="/invoicing/compose/{int(invoice_id)}">Back</a></p></div>',
+                    "ivc"), 400
+    except Exception as e:
+        _log_exc("invoicing: hybrid pdf", e)
+        return page('<div class="card"><b class="bad">Could not build the hybrid PDF.</b>'
+                    '</div>', "ivc"), 500
+    if not data:
+        return page('<div class="card"><b class="bad">Could not render the hybrid PDF.</b>'
+                    '</div>', "ivc"), 500
+    num = (inv.get("number") or f"draft-{invoice_id}").replace("/", "-")
+    return send_file(io.BytesIO(data), as_attachment=True,
+                     download_name=f"Invoice_{num}_hybrid.pdf",
+                     mimetype="application/pdf")
 
 
 @app.route("/share/<int:link_id>/views")

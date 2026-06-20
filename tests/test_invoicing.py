@@ -374,3 +374,261 @@ def test_web_add_line(inv, client):
     lines = inv.get_lines(draft["id"])
     assert len(lines) == 1 and lines[0]["description"] == "Consulting"
     assert lines[0]["line_net"] == 200.0 and lines[0]["vat_rate"] == 0.21
+
+
+# ===================================================================================
+# PHASE 2 — EN-16931 / PEPPOL BIS Billing 3.0 e-invoice (XML) + hybrid PDF (Factur-X)
+# + the Latvia refinements (rate presets / simplified <=€150 / VAT-in-EUR / retention).
+# ===================================================================================
+import xml.etree.ElementTree as ET  # noqa: E402
+
+import safexml  # noqa: E402
+import extract  # noqa: E402
+
+_UBL = "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
+_CAC = "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+
+
+def _local(tag):
+    return tag.split("}", 1)[1] if "}" in tag else tag
+
+
+def _findall_local(root, name):
+    return [e for e in root.iter() if _local(e.tag) == name]
+
+
+def _multi_rate_issued(inv, **over):
+    """A ready, ISSUED two-rate invoice (21% + 9%) for the e-invoice tests."""
+    _set_issuer(inv)
+    c, _ = inv.add_customer("Bauer GmbH", country="DE", vat_number="DE111111111",
+                            address="Hauptstr 2, Berlin")
+    draft, _ = inv.create_draft(customer_id=c["id"], reverse_charge=False, **over)
+    inv.add_line(draft["id"], description="Transport service", quantity=2, unit="h",
+                 unit_price_net=50, vat_rate=0.21)        # net 100, vat 21
+    inv.add_line(draft["id"], description="Materials", quantity=1,
+                 unit_price_net=100, vat_rate=0.09)        # net 100, vat 9
+    issued, err = inv.issue(draft["id"], issued_by="pytest", issue_date="2026-03-10")
+    assert err == "", err
+    return issued, c
+
+
+def test_einvoice_xml_mandatory_business_terms(inv):
+    issued, _ = _multi_rate_issued(inv)
+    xml = inv.einvoice_xml(issued["id"])
+    assert isinstance(xml, bytes)
+    root = safexml.fromstring(xml)        # parses back as well-formed XML
+    assert _local(root.tag) == "Invoice"
+
+    def one(name):
+        els = _findall_local(root, name)
+        assert els, f"missing {name}"
+        return els[0].text
+
+    # CustomizationID = PEPPOL BIS Billing 3.0 + ProfileID
+    assert one("CustomizationID") == inv.PEPPOL_CUSTOMIZATION_ID
+    assert one("ProfileID") == inv.PEPPOL_PROFILE_ID
+    # BT-1 number, BT-2 date, BT-3 type 380, BT-5 currency
+    assert one("ID") == "INV-2026-000001"
+    assert one("IssueDate") == "2026-03-10"
+    assert one("InvoiceTypeCode") == "380"
+    assert one("DocumentCurrencyCode") == "EUR"
+    # both VAT ids (supplier BT-31 + customer BT-48) present
+    company_ids = [e.text for e in _findall_local(root, "CompanyID")]
+    assert "EE100000000" in company_ids and "DE111111111" in company_ids
+    # IBAN payment means (BG-16): the PayeeFinancialAccount carries the IBAN as its ID
+    fa = _findall_local(root, "PayeeFinancialAccount")
+    assert fa, "missing PayeeFinancialAccount"
+    fa_iban = [e.text for e in fa[0] if _local(e.tag) == "ID"]
+    assert "EE001234567890" in fa_iban
+
+    # one InvoiceLine per line
+    lines = _findall_local(root, "InvoiceLine")
+    assert len(lines) == 2
+
+    # per-rate TaxSubtotal summing to the header TaxTotal
+    tax_total = _findall_local(root, "TaxTotal")[0]
+    header_tax = float([e for e in tax_total
+                        if _local(e.tag) == "TaxAmount"][0].text)
+    subs = _findall_local(tax_total, "TaxSubtotal")
+    assert len(subs) == 2     # 21% and 9% buckets
+    sub_sum = 0.0
+    base_sum = 0.0
+    for s in subs:
+        ta = float([e for e in s if _local(e.tag) == "TaxAmount"][0].text)
+        ba = float([e for e in s if _local(e.tag) == "TaxableAmount"][0].text)
+        sub_sum += ta
+        base_sum += ba
+    assert round(sub_sum, 2) == round(header_tax, 2) == 30.0   # 21 + 9
+    assert round(base_sum, 2) == 200.0
+
+    # LegalMonetaryTotal payable == gross
+    lmt = _findall_local(root, "LegalMonetaryTotal")[0]
+    payable = float([e for e in lmt if _local(e.tag) == "PayableAmount"][0].text)
+    assert payable == issued["gross_total"] == 230.0
+
+
+def test_einvoice_refused_for_draft(inv):
+    _set_issuer(inv)
+    c, _ = inv.add_customer("Bauer GmbH", country="DE", vat_number="DE1", address="y")
+    draft, _ = inv.create_draft(customer_id=c["id"], reverse_charge=False)
+    inv.add_line(draft["id"], description="x", quantity=1, unit_price_net=10, vat_rate=0.21)
+    with pytest.raises(ValueError):
+        inv.einvoice_xml(draft["id"])
+    with pytest.raises(ValueError):
+        inv.invoice_pdf_hybrid(draft["id"])
+
+
+def test_einvoice_reverse_charge_category_ae(inv):
+    _set_issuer(inv)
+    c, _ = inv.add_customer("Bauer GmbH", country="DE", vat_number="DE111111111",
+                            address="Hauptstr 2, Berlin")
+    draft, _ = inv.create_draft(customer_id=c["id"])   # auto reverse charge
+    assert draft["reverse_charge"] is True
+    inv.add_line(draft["id"], description="Freight", quantity=1,
+                 unit_price_net=1000, vat_rate=0.21)
+    issued, err = inv.issue(draft["id"], issued_by="pytest")
+    assert err == ""
+    root = safexml.fromstring(inv.einvoice_xml(issued["id"]))
+    # every TaxCategory/ClassifiedTaxCategory ID is 'AE', percent 0
+    cats = _findall_local(root, "TaxCategory") + _findall_local(root, "ClassifiedTaxCategory")
+    assert cats
+    for cat in cats:
+        cid = [e for e in cat if _local(e.tag) == "ID"][0].text
+        pct = [e for e in cat if _local(e.tag) == "Percent"][0].text
+        assert cid == "AE", cid
+        assert float(pct) == 0.0
+    # mandatory reverse-charge note + exemption reason present
+    notes = " ".join(e.text or "" for e in _findall_local(root, "Note"))
+    reasons = " ".join(e.text or "" for e in _findall_local(root, "TaxExemptionReason"))
+    assert "Reverse charge" in notes
+    assert "Reverse charge" in reasons
+
+
+def test_hybrid_pdf_round_trips_through_our_own_reader(inv):
+    issued, _ = _multi_rate_issued(inv)
+    hybrid = inv.invoice_pdf_hybrid(issued["id"])
+    assert hybrid[:5] == b"%PDF-"
+    # OUR OWN reader pulls the embedded factur-x.xml back out ...
+    emb = extract._pdf_embedded_xml(hybrid)
+    assert emb is not None, "embedded XML not found by our reader"
+    # ... and parse_einvoice turns it into a correct draft.
+    drafted = extract.parse_einvoice(emb)
+    assert drafted["supplier"] == "Acme Logistics OU"
+    assert drafted["statement_ref"] == "INV-2026-000001"
+    # the net total ties out (reader groups lines by country -> one bucket of net 200)
+    net = sum(float(l["net"]) for l in drafted["lines"])
+    assert round(net, 2) == 200.0
+
+
+def test_hybrid_degrades_to_plain_pdf_without_pikepdf(inv, monkeypatch):
+    issued, _ = _multi_rate_issued(inv)
+    # Simulate pikepdf being unavailable: make `import pikepdf` raise inside the module.
+    import builtins
+    real_import = builtins.__import__
+
+    def fake_import(name, *a, **k):
+        if name == "pikepdf":
+            raise ImportError("simulated missing pikepdf")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    data = inv.invoice_pdf_hybrid(issued["id"])
+    assert data[:5] == b"%PDF-"
+    # degraded -> a PLAIN PDF, so our reader finds NO embedded XML
+    monkeypatch.undo()
+    assert extract._pdf_embedded_xml(data) is None
+
+
+# ----------------------------------------------------- Latvia refinements
+def test_vat_rate_presets_constant(inv):
+    assert inv.LV_VAT_RATE_PRESETS == (0.21, 0.12, 0.05, 0.0)
+
+
+def test_simplified_invoice_relaxes_customer_detail(inv):
+    _set_issuer(inv)
+    # a customer with NO address — normally refused, but allowed when simplified + small.
+    c, _ = inv.add_customer("Walk-in", country="LV")
+    draft, _ = inv.create_draft(customer_id=c["id"], reverse_charge=False)
+    inv.add_line(draft["id"], description="Coffee", quantity=1,
+                 unit_price_net=10, vat_rate=0.21)        # gross 12.10 <= 150
+    # without the flag: refused (missing address)
+    assert "address" in inv.validate_for_issue(draft["id"])
+    inv.set_invoice_fields(draft["id"], simplified=True)
+    assert inv.validate_for_issue(draft["id"]) == ""
+    issued, err = inv.issue(draft["id"], issued_by="pytest")
+    assert err == "" and issued["simplified"] is True
+    assert "Simplified invoice" in inv.invoice_text(issued["id"])
+    # and the e-invoice carries the simplified note
+    root = safexml.fromstring(inv.einvoice_xml(issued["id"]))
+    notes = " ".join(e.text or "" for e in _findall_local(root, "Note"))
+    assert "Simplified invoice" in notes
+
+
+def test_simplified_refused_when_over_ceiling(inv):
+    _set_issuer(inv)
+    c, _ = inv.add_customer("Walk-in", country="LV")
+    draft, _ = inv.create_draft(customer_id=c["id"], reverse_charge=False)
+    inv.add_line(draft["id"], description="Big", quantity=1,
+                 unit_price_net=500, vat_rate=0.21)        # gross 605 > 150
+    inv.set_invoice_fields(draft["id"], simplified=True)
+    err = inv.validate_for_issue(draft["id"])
+    assert "150" in err and "simplified" in err.lower()
+
+
+def test_vat_in_eur_for_foreign_currency(inv, monkeypatch):
+    # Force "no cached ECB rate" so the test is deterministic regardless of the box's
+    # ecb_rates.db — the user must then supply the rate, which is exactly what we assert.
+    import ecb_rates
+    monkeypatch.setattr(ecb_rates, "rate_for", lambda ccy, on_date=None: (None, None))
+    _set_issuer(inv)
+    c, _ = inv.add_customer("UK Co", country="GB", vat_number="GB123",
+                            address="London")
+    draft, _ = inv.create_draft(customer_id=c["id"], currency="GBP",
+                                reverse_charge=False)
+    inv.add_line(draft["id"], description="Service", quantity=1,
+                 unit_price_net=100, vat_rate=0.21)        # vat 21 GBP
+    # no FX rate yet -> issue refused (cannot state VAT in EUR)
+    err = inv.validate_for_issue(draft["id"])
+    assert "EUR" in err and "FX" in err
+    # supply a rate: 0.85 GBP per 1 EUR -> EUR VAT = 21 / 0.85 = 24.71
+    inv.set_invoice_fields(draft["id"], fx_rate=0.85)
+    assert inv.validate_for_issue(draft["id"]) == ""
+    issued, e = inv.issue(draft["id"], issued_by="pytest")
+    assert e == ""
+    eur_vat, rate, source = inv.vat_total_eur(issued)
+    assert rate == 0.85 and source == "manual"
+    assert eur_vat == 24.71
+    # the PDF text states the EUR VAT, and the XML carries BT-6 + a EUR TaxAmount
+    txt = inv.invoice_text(issued["id"])
+    assert "Total VAT (EUR)" in txt and "24.71" in txt
+    root = safexml.fromstring(inv.einvoice_xml(issued["id"]))
+    assert any(e.text == "EUR" for e in _findall_local(root, "TaxCurrencyCode"))
+    eur_amounts = [e.text for e in _findall_local(root, "TaxAmount")
+                   if e.get("currencyID") == "EUR"]
+    assert "24.71" in eur_amounts
+
+
+def test_retention_marker_stamped_at_issue(inv):
+    issued, _ = _multi_rate_issued(inv)
+    assert issued["retain_until"] == "2031-03-10"   # issue 2026-03-10 + 5y
+
+
+def test_web_einvoice_and_hybrid_downloads(inv, client):
+    issued, _ = _multi_rate_issued(inv)
+    r = client.get(f"/invoicing/einvoice/{issued['id']}.xml")
+    assert r.status_code == 200
+    assert "xml" in r.headers["Content-Type"]
+    assert b"CustomizationID" in r.get_data()
+    r2 = client.get(f"/invoicing/hybrid/{issued['id']}")
+    assert r2.status_code == 200
+    assert r2.headers["Content-Type"] == "application/pdf"
+    assert r2.get_data()[:5] == b"%PDF-"
+
+
+def test_web_einvoice_refused_for_draft(inv, client):
+    _set_issuer(inv)
+    c, _ = inv.add_customer("Bauer GmbH", country="DE", vat_number="DE1", address="y")
+    draft, _ = inv.create_draft(customer_id=c["id"], reverse_charge=False)
+    inv.add_line(draft["id"], description="x", quantity=1, unit_price_net=10, vat_rate=0.21)
+    r = client.get(f"/invoicing/einvoice/{draft['id']}.xml")
+    assert r.status_code == 400

@@ -128,7 +128,7 @@ def admin_session():
 _RUNTIME_SETTING_PREFIXES = ("module_", "ai_", "multitenant",
                              "intake_override_until", "scrape_scheduler_enabled",
                              "sso_", "intake_autopilot_enabled",
-                             "dokobit_", "invoice_fee_vat_pct",
+                             "dokobit_", "invoice_fee_vat_pct", "invoice_issuer_",
                              "trust_cloudflare", "cloudflare_only",
                              "cloudflare_ip_ranges", "cloudflare_trusted_proxies",
                              "twofa_email_enabled")

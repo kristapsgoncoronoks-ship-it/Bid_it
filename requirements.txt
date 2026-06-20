@@ -5,3 +5,8 @@ cryptography==48.0.1
 waitress==3.0.2
 pypdf==6.13.2
 defusedxml==0.7.1
+# pikepdf embeds the EN-16931 e-invoice XML inside the sales-invoice PDF (Factur-X hybrid,
+# invoicing.invoice_pdf_hybrid). On a PEP-668 "externally-managed" box the pip install may
+# need `apt install python3-pikepdf` (or `pip install --break-system-packages`). The embed
+# DEGRADES GRACEFULLY to a plain PDF + a separate XML download if pikepdf is unavailable.
+pikepdf==10.9.0

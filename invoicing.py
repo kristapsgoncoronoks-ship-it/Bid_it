@@ -49,7 +49,9 @@ via applog) rather than taking down a request; the WRITE helpers (create/issue) 
 """
 import os
 import datetime
+import io
 import sqlite3
+import xml.etree.ElementTree as ET
 
 import applog
 import audit
@@ -84,6 +86,18 @@ DEFAULT_NUMBER_FORMAT = "{series}-{year}-{seq:06d}"
 DEFAULT_SERIES = "INV"
 DEFAULT_PAYMENT_TERMS_DAYS = 14
 DEFAULT_CURRENCY = "EUR"
+
+# Latvia 2026 VAT-rate presets offered as a dropdown in the line editor (a custom rate
+# is still allowed). Stored/used as FRACTIONS. 21% standard, 12% reduced (e.g. heating,
+# press), 5% reduced (e.g. fruit/veg, books), 0% (intra-Community / exports).
+LV_VAT_RATE_PRESETS = (0.21, 0.12, 0.05, 0.0)
+
+# Simplified-invoice gross ceiling (EU VAT Dir. Art. 238/226b: member states may permit
+# a simplified invoice up to EUR 100; Latvia applies EUR 150). GROSS (VAT-inclusive) EUR.
+SIMPLIFIED_GROSS_CEILING_EUR = 150.0
+
+# Statutory retention period for an issued invoice (years). LV/EU record-keeping.
+RETENTION_YEARS = 5
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS bill_customers (
@@ -174,7 +188,19 @@ CREATE INDEX IF NOT EXISTS ix_invoice_payments_invoice ON invoice_payments(invoi
 """
 
 # Versioned migrations: APPEND new statements at the END (positions are stable).
-_MIGRATIONS = []
+_MIGRATIONS = [
+    # PHASE 2 ------------------------------------------------------------------
+    # SIMPLIFIED INVOICE (EU VAT Dir. Art. 238 / Art. 226b): when gross <= EUR 150 a
+    # member state may relax the full customer-detail requirement. Off by default.
+    "ALTER TABLE invoices ADD COLUMN simplified INTEGER NOT NULL DEFAULT 0",
+    # FX rate (foreign-per-1-EUR) snapshotted at issue so the VAT-in-EUR figure on a
+    # foreign-currency invoice is reproducible (LV/EU rule: VAT must also be stated in
+    # EUR). NULL while EUR or until the user supplies a rate.
+    "ALTER TABLE invoices ADD COLUMN fx_rate REAL",
+    # 5-YEAR RETENTION marker stamped at issue (record-keeping obligation). A date the
+    # invoice must be retained until; no enforcement yet, purely a metadata marker.
+    "ALTER TABLE invoices ADD COLUMN retain_until TEXT",
+]
 
 _AUDITED_TABLES = ["bill_customers", "invoices", "invoice_lines",
                    "invoice_counters", "invoice_payments"]
@@ -397,6 +423,46 @@ def compute_totals(lines, reverse_charge=False):
             "net_total": net_total, "vat_total": vat_total, "gross_total": gross_total}
 
 
+def eur_fx_rate(invoice):
+    """The FX rate (FOREIGN units per 1 EUR) to convert this invoice's amounts to EUR.
+    EUR -> 1.0. A foreign currency uses the invoice's stored `fx_rate` if the user
+    supplied one; otherwise we look up an ECB rate for the issue/supply date (best-effort).
+    Returns (rate, source) or (None, "") when no rate is available — we NEVER fabricate one.
+    `source` is a short human label ('manual'/'ECB <date>')."""
+    ccy = (invoice.get("currency") or DEFAULT_CURRENCY).strip().upper()
+    if ccy == "EUR":
+        return 1.0, "EUR"
+    fx = invoice.get("fx_rate")
+    if fx not in (None, "", 0):
+        try:
+            return float(fx), "manual"
+        except (TypeError, ValueError):
+            pass
+    on_date = invoice.get("issue_date") or invoice.get("supply_date")
+    try:
+        import ecb_rates
+        rate, asof = ecb_rates.rate_for(ccy, on_date)
+        if rate:
+            return float(rate), f"ECB {asof}" if asof else "ECB"
+    except Exception as e:
+        log.warning("eur_fx_rate ECB lookup failed for %s: %s", ccy, e)
+    return None, ""
+
+
+def vat_total_eur(invoice, vat_total=None):
+    """The invoice VAT total expressed in EUR (LV/EU rule: a foreign-currency invoice must
+    ALSO state the VAT amount in EUR). For an EUR invoice this is just the VAT total. For a
+    foreign currency it is vat_total / fx_rate (fx = foreign-per-EUR), quantized HALF_UP.
+    Returns (eur_vat, fx_rate, source) or (None, None, "") when no rate is available."""
+    vt = invoice.get("vat_total") if vat_total is None else vat_total
+    rate, source = eur_fx_rate(invoice)
+    if rate is None:
+        return None, None, ""
+    if rate == 1.0 and source == "EUR":
+        return money.f2(vt), 1.0, "EUR"
+    return float(money.q2(money.D(vt) / money.D(rate))), rate, source
+
+
 def derive_reverse_charge(issuer, customer):
     """Decide whether an invoice from `issuer` to `customer` is an intra-EU B2B
     REVERSE-CHARGE supply (the customer accounts for VAT; the supplier charges 0%).
@@ -444,6 +510,7 @@ REVERSE_CHARGE_NOTE = ("Reverse charge — VAT to be accounted for by the recipi
 def _inv_dict(row):
     d = dict(row)
     d["reverse_charge"] = bool(d.get("reverse_charge"))
+    d["simplified"] = bool(d.get("simplified"))
     return d
 
 
@@ -619,7 +686,8 @@ def set_invoice_fields(invoice_id, **fields):
     """Edit header fields of a DRAFT invoice (customer_id, currency, supply_date, notes,
     reverse_charge). Re-totals if reverse_charge changes (it flips every line's VAT).
     Returns (invoice_dict, "") or (None, error)."""
-    allowed = ("customer_id", "currency", "supply_date", "notes", "reverse_charge")
+    allowed = ("customer_id", "currency", "supply_date", "notes", "reverse_charge",
+               "simplified", "fx_rate")
     sets, params = [], []
     rc_changed = False
     for k in allowed:
@@ -630,6 +698,13 @@ def set_invoice_fields(invoice_id, **fields):
             elif k == "reverse_charge":
                 v = 1 if v else 0
                 rc_changed = True
+            elif k == "simplified":
+                v = 1 if v else 0
+            elif k == "fx_rate":
+                try:
+                    v = float(v) if str(v if v is not None else "").strip() else None
+                except (TypeError, ValueError):
+                    v = None
             elif isinstance(v, str):
                 v = v.strip()
             sets.append(f"{k}=?")
@@ -747,14 +822,34 @@ def validate_for_issue(invoice_id):
     cust = get_customer(inv["customer_id"]) if inv["customer_id"] else None
     if not cust:
         return "choose a customer to bill before issuing"
-    if not (cust.get("name") or "").strip() or not (cust.get("address") or "").strip():
-        return "the customer is missing a name or address (mandatory on a VAT invoice)"
+    # SIMPLIFIED INVOICE (Art. 238/226b): when the flag is on AND gross <= the ceiling the
+    # full customer-detail requirement is relaxed (a name still helps but address/VAT may be
+    # omitted). Reverse charge is incompatible with a simplified invoice (it needs the
+    # customer VAT number), so its check below still applies.
+    flag = bool(inv.get("simplified"))
+    gross = float(inv.get("gross_total") or 0)
+    if flag and gross > SIMPLIFIED_GROSS_CEILING_EUR:
+        return (f"simplified invoices are only allowed up to EUR {SIMPLIFIED_GROSS_CEILING_EUR:.0f} "
+                "gross — turn the simplified flag off or reduce the amount")
+    simplified = flag and gross <= SIMPLIFIED_GROSS_CEILING_EUR
+    if not simplified:
+        if not (cust.get("name") or "").strip() or not (cust.get("address") or "").strip():
+            return "the customer is missing a name or address (mandatory on a VAT invoice)"
     if inv["reverse_charge"] and not (cust.get("vat_number") or "").strip():
         return ("reverse charge requires the customer's VAT number (intra-EU B2B); add it "
                 "or turn reverse charge off")
     lines = get_lines(invoice_id)
     if not lines:
         return "add at least one line before issuing"
+    # VAT-IN-EUR (LV/EU): a foreign-currency invoice must also state the VAT total in EUR.
+    # We need a reproducible FX rate — the user's supplied rate or a cached ECB rate. We
+    # never fabricate one, so refuse to issue until a rate is available.
+    if (inv.get("currency") or DEFAULT_CURRENCY).strip().upper() != "EUR":
+        rate, _src = eur_fx_rate(inv)
+        if not rate:
+            return ("this invoice is in a foreign currency — supply an FX rate (foreign per "
+                    "1 EUR) so the VAT total can also be stated in EUR (LV/EU rule), or set "
+                    "the currency to EUR")
     return ""
 
 
@@ -804,6 +899,13 @@ def issue(invoice_id, *, issued_by=None, issue_date=None):
         except (TypeError, ValueError):
             pass
     due = (idt + datetime.timedelta(days=terms)).isoformat()
+    # 5-YEAR RETENTION marker (record-keeping). Best-effort exact-year arithmetic; a
+    # 29-Feb issue date falls back to 28-Feb (a non-leap target year has no 29 Feb).
+    try:
+        retain_until = idt.replace(year=idt.year + RETENTION_YEARS).isoformat()
+    except ValueError:
+        retain_until = idt.replace(year=idt.year + RETENTION_YEARS,
+                                   day=28).isoformat()
     try:
         con = connect()
         try:
@@ -823,11 +925,11 @@ def issue(invoice_id, *, issued_by=None, issue_date=None):
                 """UPDATE invoices
                    SET number=?, series=?, issue_date=?, due_date=?,
                        supply_date=COALESCE(supply_date, ?),
-                       issuer_snapshot=?, customer_snapshot=?,
+                       issuer_snapshot=?, customer_snapshot=?, retain_until=?,
                        status='issued', issued_at=?, issued_by=?
                    WHERE id=?""",
                 (number, series, today, due, today,
-                 _snapshot_issuer(issuer), _snapshot_customer(cust),
+                 _snapshot_issuer(issuer), _snapshot_customer(cust), retain_until,
                  datetime.datetime.utcnow().isoformat(timespec="seconds"),
                  issued_by, invoice_id))
             con.commit()
@@ -939,7 +1041,18 @@ def invoice_text(invoice_id):
     L.append(f"Total net:   {_fmt_money(inv.get('net_total')):>15} {ccy}")
     L.append(f"Total VAT:   {_fmt_money(inv.get('vat_total')):>15} {ccy}")
     L.append(f"Grand total: {_fmt_money(inv.get('gross_total')):>15} {ccy}")
+    # VAT-IN-EUR (LV/EU): a foreign-currency invoice must ALSO state the VAT in EUR.
+    if ccy != "EUR":
+        eur_vat, rate, source = vat_total_eur(inv)
+        if eur_vat is not None:
+            L.append(f"Total VAT (EUR): {_fmt_money(eur_vat):>11} EUR  "
+                     f"(FX {money.D(rate):g} {ccy}/EUR, {source})")
     L.append("")
+    # SIMPLIFIED INVOICE label (Art. 238/226b) when the flag is set.
+    if inv.get("simplified"):
+        L.append(f"Simplified invoice (gross <= EUR {SIMPLIFIED_GROSS_CEILING_EUR:.0f}, "
+                 "EU VAT Dir. Art. 238).")
+        L.append("")
     # Art. 226(11)/(11a): exemption / reverse-charge wording
     if inv.get("reverse_charge"):
         L.append(REVERSE_CHARGE_NOTE)
@@ -973,6 +1086,325 @@ def invoice_pdf(invoice_id):
     except Exception as e:
         log.warning("invoice_pdf(%s) failed: %s", invoice_id, e)
         return None
+
+
+# ============================================================ PHASE 2: e-invoice (UBL)
+# EN-16931 / PEPPOL BIS Billing 3.0 UBL 2.1 export of a SALES invoice. This is the
+# OUTBOUND structured form Latvia mandates (B2G now, B2B from 2028; voluntary from
+# Mar 2026) and the format the embedded hybrid PDF carries. It mirrors the shapes in
+# `einvoice_export.py` (which exports REGISTERED inbound invoices) but reads the sales
+# invoice's OWN data (invoices/invoice_lines + the issuer/customer snapshot).
+#
+# DATA -> EN-16931 BUSINESS-TERM MAPPING
+#   cbc:CustomizationID  <- PEPPOL BIS Billing 3.0 customization URN     (BT-24)
+#   cbc:ProfileID        <- PEPPOL billing process                       (BT-23)
+#   cbc:ID               <- gap-free invoice number                      (BT-1)
+#   cbc:IssueDate        <- issue date (ISO)                             (BT-2)
+#   cbc:DueDate          <- payment due date                            (BT-9)
+#   cbc:InvoiceTypeCode  <- 380 (commercial invoice)                    (BT-3)
+#   cbc:DocumentCurrencyCode <- currency                                 (BT-5)
+#   cbc:TaxCurrencyCode  <- 'EUR' when currency != EUR (VAT-in-EUR rule) (BT-6)
+#   cbc:Note             <- reverse-charge / simplified wording          (BT-22)
+#   cac:AccountingSupplierParty (BG-4): name BT-27, postal address BG-5, VAT id BT-31
+#   cac:AccountingCustomerParty (BG-7): name BT-44, postal address BG-8, VAT id BT-48
+#   cac:PaymentMeans/.../cbc:ID (IBAN)                                   (BG-16/BT-84)
+#   cac:TaxTotal (BG-22): cbc:TaxAmount BT-110 (+ BT-111 in EUR for FX);
+#       per-category cac:TaxSubtotal (BG-23): TaxableAmount BT-116, TaxAmount BT-117,
+#       TaxCategory ID BT-118 + Percent BT-119 (+ ExemptionReason BT-120 when not S)
+#   cac:LegalMonetaryTotal (BG-22): LineExtension BT-106, TaxExclusive BT-109,
+#       TaxInclusive BT-112, Payable BT-115
+#   cac:InvoiceLine (BG-25): ID BT-126, InvoicedQuantity BT-129/130, LineExtension BT-131,
+#       Item/Name BT-153, ClassifiedTaxCategory BT-151/152, Price/PriceAmount BT-146
+#
+# REVERSE CHARGE: tax category 'AE', 0%, the mandatory exemption reason + the BT-22 note.
+# Other zero-VAT lines on a normal invoice map to category 'Z' (zero-rated) with the
+# exemption reason. Amounts via money.f2; XML escaping via ElementTree.
+
+# UBL 2.1 namespaces (EN-16931 invoice syntax binding) — same set as einvoice_export.
+_NS = {
+    "inv": "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2",
+    "cac": "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2",
+    "cbc": "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2",
+}
+# PEPPOL BIS Billing 3.0 / EN-16931 identifiers.
+PEPPOL_CUSTOMIZATION_ID = ("urn:cen.eu:en16931:2017#compliant#"
+                           "urn:fdc:peppol.eu:2017:poacc:billing:3.0")
+PEPPOL_PROFILE_ID = "urn:fdc:peppol.eu:2017:poacc:billing:01:1.0"
+_INVOICE_TYPE_CODE = "380"      # commercial invoice (BT-3)
+_TAX_SCHEME_VAT = "VAT"
+_UNIT_DEFAULT = "C62"           # UN/ECE Rec 20 "one" (dimensionless)
+_REVERSE_CHARGE_REASON = ("Reverse charge — VAT to be accounted for by the recipient "
+                          "(Art. 196 Directive 2006/112/EC).")
+_ZERO_RATE_REASON = "Zero-rated supply."
+
+
+def _eq(tag):
+    pref, local = tag.split(":", 1)
+    return "{%s}%s" % (_NS[pref], local)
+
+
+def _esub(parent, tag, text=None, attrib=None):
+    el = ET.SubElement(parent, _eq(tag), attrib or {})
+    if text is not None:
+        el.text = str(text)
+    return el
+
+
+def _emoney(v):
+    return f"{money.f2(v or 0):.2f}"
+
+
+def _eamt(parent, tag, value, currency):
+    return _esub(parent, tag, _emoney(value), {"currencyID": currency})
+
+
+def _tax_category_for(rate, reverse_charge):
+    """Map a (rate, reverse_charge) pair to a UBL tax-category code + an optional
+    EN-16931 exemption-reason text. Standard-rated -> ('S', None); reverse charge ->
+    ('AE', the reverse-charge reason); a plain 0% line on a normal invoice -> ('Z',
+    the zero-rate reason). Percent is always emitted (0 for AE/Z)."""
+    if reverse_charge:
+        return "AE", _REVERSE_CHARGE_REASON
+    if money.f2(rate or 0) == 0.0:
+        return "Z", _ZERO_RATE_REASON
+    return "S", None
+
+
+def _party_block(root, role_tag, party):
+    """Emit an AccountingSupplier/CustomerParty block: name (BT-27/44), postal address
+    (BG-5/8) and the VAT PartyTaxScheme (BT-31/48). Missing values are simply omitted
+    (the customer block on a SIMPLIFIED invoice legitimately carries less)."""
+    apx = _esub(root, role_tag)
+    party_el = _esub(apx, "cac:Party")
+    name = (party.get("name") or "").strip()
+    addr = (party.get("address") or "").strip()
+    country = (party.get("country") or "").strip().upper()
+    vat = (party.get("vat_number") or "").strip()
+    # PostalAddress (BG-5 / BG-8). We carry the free-form address line + country code.
+    pa = _esub(party_el, "cac:PostalAddress")
+    if addr:
+        _esub(pa, "cbc:StreetName", addr)
+    ctry = _esub(pa, "cac:Country")
+    if not country and len(vat) >= 2 and vat[:2].isalpha():
+        country = vat[:2].upper()
+    if country:
+        _esub(ctry, "cbc:IdentificationCode", country)
+    # PartyTaxScheme (BT-31 / BT-48) — only when a VAT id is present.
+    if vat:
+        pts = _esub(party_el, "cac:PartyTaxScheme")
+        _esub(pts, "cbc:CompanyID", vat)
+        ts = _esub(pts, "cac:TaxScheme")
+        _esub(ts, "cbc:ID", _TAX_SCHEME_VAT)
+    # PartyLegalEntity carries the registration name (BT-27 / BT-44 legal name).
+    ple = _esub(party_el, "cac:PartyLegalEntity")
+    _esub(ple, "cbc:RegistrationName", name or "")
+    if (party.get("reg_no") or "").strip():
+        _esub(ple, "cbc:CompanyID", str(party.get("reg_no")).strip())
+    # PartyName (display name) — last so name is unambiguous to a lenient reader.
+    pn = _esub(party_el, "cac:PartyName")
+    _esub(pn, "cbc:Name", name or "")
+    return apx
+
+
+def einvoice_xml(invoice_id):
+    """Build the EN-16931 / PEPPOL BIS Billing 3.0 UBL 2.1 Invoice for an ISSUED sales
+    invoice. Returns the XML bytes (utf-8, with declaration). Raises ValueError for a
+    DRAFT / unknown invoice (a draft has no legal number, so it has no e-invoice).
+
+    NET basis per the invoice currency; per-line money.f2 quantization so the BG-23
+    per-rate subtotals tie to the BG-22 totals. Reverse charge -> category 'AE' + 0% +
+    the mandatory note. A foreign currency additionally states the VAT total in EUR
+    (BT-6 TaxCurrencyCode + a second TaxAmount)."""
+    v = _invoice_view(invoice_id)
+    if not v:
+        raise ValueError("invoice not found")
+    inv, lines = v["invoice"], v["lines"]
+    if inv.get("status") != STATUS_ISSUED or not inv.get("number"):
+        raise ValueError("only an ISSUED invoice has an e-invoice (a draft has no legal "
+                         "number) — issue it first")
+    issuer, customer = v["issuer"], v["customer"]
+    currency = (inv.get("currency") or DEFAULT_CURRENCY).strip().upper()
+    rc = bool(inv.get("reverse_charge"))
+
+    for pref, uri in _NS.items():
+        ET.register_namespace("" if pref == "inv" else pref, uri)
+    root = ET.Element(_eq("inv:Invoice"))
+
+    _esub(root, "cbc:CustomizationID", PEPPOL_CUSTOMIZATION_ID)      # BT-24
+    _esub(root, "cbc:ProfileID", PEPPOL_PROFILE_ID)                 # BT-23
+    _esub(root, "cbc:ID", inv.get("number"))                       # BT-1
+    _esub(root, "cbc:IssueDate", inv.get("issue_date") or "")       # BT-2
+    if inv.get("due_date"):
+        _esub(root, "cbc:DueDate", inv.get("due_date"))            # BT-9
+    _esub(root, "cbc:InvoiceTypeCode", _INVOICE_TYPE_CODE)         # BT-3
+    # BT-22 document note(s): reverse-charge / simplified wording.
+    if rc:
+        _esub(root, "cbc:Note", _REVERSE_CHARGE_REASON)
+    if inv.get("simplified"):
+        _esub(root, "cbc:Note",
+              f"Simplified invoice (gross <= EUR {SIMPLIFIED_GROSS_CEILING_EUR:.0f}, "
+              "EU VAT Dir. Art. 238).")
+    _esub(root, "cbc:DocumentCurrencyCode", currency)             # BT-5
+    # BT-6 VAT accounting currency: 'EUR' when the document currency is not EUR, so the
+    # VAT total can be (and is) also stated in EUR below (LV/EU rule).
+    eur_vat = None
+    if currency != "EUR":
+        eur_vat, _fx, _src = vat_total_eur(inv)
+        if eur_vat is not None:
+            _esub(root, "cbc:TaxCurrencyCode", "EUR")             # BT-6
+
+    # parties (BG-4 / BG-7)
+    _party_block(root, "cac:AccountingSupplierParty", issuer)
+    _party_block(root, "cac:AccountingCustomerParty", customer)
+
+    # payment means + IBAN (BG-16 / BT-84) when the issuer carries an IBAN.
+    iban = (issuer.get("iban") or "").strip()
+    if iban:
+        pm = _esub(root, "cac:PaymentMeans")
+        _esub(pm, "cbc:PaymentMeansCode", "30")   # credit transfer
+        fa = _esub(pm, "cac:PayeeFinancialAccount")
+        _esub(fa, "cbc:ID", iban)
+        if (issuer.get("bank") or "").strip():
+            _esub(fa, "cbc:Name", str(issuer.get("bank")).strip())
+
+    # ----- TaxTotal (BG-22) + per-category subtotals (BG-23) -----
+    # Group lines by (category, rate). On reverse charge every line is AE/0%.
+    by_cat = {}
+    for ln in lines:
+        rate = 0.0 if rc else money.f2(ln.get("vat_rate") or 0)
+        cat, reason = _tax_category_for(rate, rc)
+        key = (cat, rate)
+        b = by_cat.setdefault(key, {"net": [], "vat": [], "reason": reason})
+        b["net"].append(money.f2(ln.get("line_net") or 0))
+        b["vat"].append(money.f2(ln.get("line_vat") or 0))
+    tax_total = _esub(root, "cac:TaxTotal")
+    doc_vat = money.fsum([money.f2(ln.get("line_vat") or 0) for ln in lines])
+    _eamt(tax_total, "cbc:TaxAmount", doc_vat, currency)           # BT-110
+    for (cat, rate), b in sorted(by_cat.items(), key=lambda kv: (kv[0][1], kv[0][0])):
+        sub = _esub(tax_total, "cac:TaxSubtotal")
+        _eamt(sub, "cbc:TaxableAmount", money.fsum(b["net"]), currency)   # BT-116
+        _eamt(sub, "cbc:TaxAmount", money.fsum(b["vat"]), currency)       # BT-117
+        tc = _esub(sub, "cac:TaxCategory")
+        _esub(tc, "cbc:ID", cat)                                  # BT-118
+        _esub(tc, "cbc:Percent", f"{rate * 100:g}")              # BT-119
+        if b["reason"]:
+            _esub(tc, "cbc:TaxExemptionReason", b["reason"])     # BT-120
+        ts = _esub(tc, "cac:TaxScheme")
+        _esub(ts, "cbc:ID", _TAX_SCHEME_VAT)
+    # BT-111: VAT total in the accounting currency (EUR) for a foreign-currency invoice.
+    if currency != "EUR" and eur_vat is not None:
+        tt_eur = _esub(root, "cac:TaxTotal")
+        _eamt(tt_eur, "cbc:TaxAmount", eur_vat, "EUR")            # BT-111
+
+    # ----- LegalMonetaryTotal (BG-22) -----
+    net_total = money.fsum([money.f2(ln.get("line_net") or 0) for ln in lines])
+    lmt = _esub(root, "cac:LegalMonetaryTotal")
+    _eamt(lmt, "cbc:LineExtensionAmount", net_total, currency)     # BT-106
+    _eamt(lmt, "cbc:TaxExclusiveAmount", net_total, currency)      # BT-109
+    gross = money.f2(net_total + doc_vat)
+    _eamt(lmt, "cbc:TaxInclusiveAmount", gross, currency)         # BT-112
+    _eamt(lmt, "cbc:PayableAmount", gross, currency)              # BT-115
+
+    # ----- InvoiceLine (BG-25) -----
+    for i, ln in enumerate(lines, 1):
+        rate = 0.0 if rc else money.f2(ln.get("vat_rate") or 0)
+        cat, _reason = _tax_category_for(rate, rc)
+        il = _esub(root, "cac:InvoiceLine")
+        _esub(il, "cbc:ID", str(i))                              # BT-126
+        qty = ln.get("quantity")
+        unit = (ln.get("unit") or "").strip() or _UNIT_DEFAULT
+        try:
+            qty_text = f"{float(qty):g}"
+        except (TypeError, ValueError):
+            qty_text = "1"
+        _esub(il, "cbc:InvoicedQuantity", qty_text,
+              {"unitCode": _ubl_unit_code(unit)})                 # BT-129/130
+        _eamt(il, "cbc:LineExtensionAmount", ln.get("line_net"), currency)  # BT-131
+        item = _esub(il, "cac:Item")
+        _esub(item, "cbc:Name", (ln.get("description") or "Item"))         # BT-153
+        ctc = _esub(item, "cac:ClassifiedTaxCategory")
+        _esub(ctc, "cbc:ID", cat)                                # BT-151
+        _esub(ctc, "cbc:Percent", f"{rate * 100:g}")            # BT-152
+        cts = _esub(ctc, "cac:TaxScheme")
+        _esub(cts, "cbc:ID", _TAX_SCHEME_VAT)
+        price = _esub(il, "cac:Price")
+        _eamt(price, "cbc:PriceAmount", ln.get("unit_price_net"), currency)  # BT-146
+
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+# Map a stored unit token to a UN/ECE Rec 20 code where we recognise it; else pass the
+# token through (a free-form unit is still a valid unitCode for a lenient reader).
+_UNIT_MAP = {"h": "HUR", "hr": "HUR", "hour": "HUR", "l": "LTR", "ltr": "LTR",
+             "pcs": "C62", "pc": "C62", "ea": "C62", "kg": "KGM", "km": "KMT",
+             "day": "DAY", "month": "MON"}
+
+
+def _ubl_unit_code(unit):
+    u = (unit or "").strip()
+    return _UNIT_MAP.get(u.lower(), u or _UNIT_DEFAULT)
+
+
+def einvoice_filename(invoice_id):
+    """A filesystem-safe download name for the e-invoice XML of an ISSUED invoice."""
+    inv = get_invoice(invoice_id)
+    num = (inv.get("number") if inv else None) or f"draft-{invoice_id}"
+    safe = "".join(ch if ch.isalnum() else "_" for ch in str(num)).strip("_") or "invoice"
+    return f"Invoice_{safe}.xml"
+
+
+# ============================================================ PHASE 2: hybrid PDF
+# Factur-X/ZUGFeRD-style hybrid: the Phase-1 compliant PDF with the UBL XML embedded as
+# `factur-x.xml` (the name our OWN reader, extract._FACTURX_NAMES, probes for), so the
+# document round-trips back into a draft through extract.parse_einvoice. pikepdf does the
+# embed; if it is unavailable we DEGRADE GRACEFULLY to the plain PDF (the route then offers
+# the XML as a separate download) — we never crash.
+FACTURX_ATTACHMENT_NAME = "factur-x.xml"
+
+
+def invoice_pdf_hybrid(invoice_id):
+    """Return hybrid-PDF bytes: the Phase-1 compliant PDF with the EN-16931 UBL XML
+    embedded as `factur-x.xml` (AFRelationship Alternative, mime text/xml). Raises
+    ValueError for a draft / unknown invoice (no legal e-invoice). If pikepdf is
+    unavailable the embed DEGRADES to the plain PDF (best-effort) — never crashes."""
+    xml_bytes = einvoice_xml(invoice_id)        # raises for a draft/unknown
+    pdf_bytes = invoice_pdf(invoice_id)
+    if not pdf_bytes:
+        raise ValueError("could not render the base PDF")
+    try:
+        import pikepdf
+    except Exception as e:
+        log.warning("pikepdf unavailable - hybrid PDF degrades to plain PDF: %s", e)
+        return pdf_bytes
+    try:
+        return _embed_facturx(pdf_bytes, xml_bytes)
+    except Exception as e:
+        log.warning("invoice_pdf_hybrid(%s) embed failed - returning plain PDF: %s",
+                    invoice_id, e)
+        return pdf_bytes
+
+
+def _embed_facturx(pdf_bytes, xml_bytes):
+    """Embed `xml_bytes` into `pdf_bytes` as the Factur-X `factur-x.xml` attachment via
+    pikepdf: an AFRelationship=Alternative associated file in the EmbeddedFiles name tree,
+    mime text/xml. Returns the new PDF bytes. Raises on a pikepdf error (caller degrades)."""
+    import pikepdf
+    pdf = pikepdf.open(io.BytesIO(pdf_bytes))
+    try:
+        af = pikepdf.AttachedFileSpec(pdf, xml_bytes, mime_type="text/xml",
+                                      description="EN-16931 e-invoice (PEPPOL BIS 3.0)")
+        # AFRelationship 'Alternative' = the XML is an alternative representation of the
+        # PDF (the Factur-X convention for the embedded structured invoice).
+        try:
+            af.relationship = pikepdf.Name.Alternative
+        except Exception:
+            pass
+        pdf.attachments[FACTURX_ATTACHMENT_NAME] = af
+        out = io.BytesIO()
+        pdf.save(out)
+        return out.getvalue()
+    finally:
+        pdf.close()
 
 
 if __name__ == "__main__":
