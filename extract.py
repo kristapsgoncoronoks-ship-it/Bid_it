@@ -453,9 +453,10 @@ def _xml_local(tag):
     return tag.rsplit("}", 1)[-1]
 
 # Recognised invoice document roots (namespace-agnostic local names): UBL `Invoice`,
-# UN/CEFACT CII `CrossIndustryInvoice` (the Factur-X/ZUGFeRD/Order-X format) and the
-# older `CrossIndustryDocument`.
-_INVOICE_ROOTS = ("Invoice", "CrossIndustryInvoice", "CrossIndustryDocument")
+# UBL `CreditNote` (a PEPPOL credit note BT-3=381 is a UBL CreditNote, NOT an Invoice with
+# InvoiceTypeCode 381), UN/CEFACT CII `CrossIndustryInvoice` (the Factur-X/ZUGFeRD/Order-X
+# format) and the older `CrossIndustryDocument`.
+_INVOICE_ROOTS = ("Invoice", "CreditNote", "CrossIndustryInvoice", "CrossIndustryDocument")
 
 # Factur-X / ZUGFeRD / EN-16931 PROFILE (a.k.a. conformance level), declared in the
 # document context — CII `GuidelineSpecifiedDocumentContextParameter/ID` or UBL
@@ -566,7 +567,8 @@ def parse_einvoice(xml_bytes):
     cust_name, _ = party("AccountingCustomerParty", "BuyerTradeParty")
 
     line_elems = [e for e in root.iter()
-                  if ln(e.tag) in ("InvoiceLine", "IncludedSupplyChainTradeLineItem", "Line")]
+                  if ln(e.tag) in ("InvoiceLine", "CreditNoteLine",
+                                   "IncludedSupplyChainTradeLineItem", "Line")]
     by_country = {}
     for le in line_elems:
         net = _num(first(le, "LineExtensionAmount", "NetAmount", "LineTotalAmount"))

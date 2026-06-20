@@ -10,3 +10,10 @@ defusedxml==0.7.1
 # need `apt install python3-pikepdf` (or `pip install --break-system-packages`). The embed
 # DEGRADES GRACEFULLY to a plain PDF + a separate XML download if pikepdf is unavailable.
 pikepdf==10.9.0
+# saxonche (SaxonC-HE, a REAL XSLT 2.0 engine) powers einvoice_validate.py — the OFFICIAL
+# EN 16931 / PEPPOL BIS Billing 3.0 schematron validation of issued sales e-invoices. The
+# official schematrons are queryBinding="xslt2", which lxml's bundled XSLT-1.0 ISO skeleton
+# CANNOT run (it would silently drop the BR-CO rules → a false PASS), so a true XSLT2 engine
+# is required. ONLY the "Validate e-invoice" feature depends on it; the rest of the app does
+# not — einvoice_validate FAILS SOFT (reports "unavailable", never a false pass) if missing.
+saxonche==13.0.0

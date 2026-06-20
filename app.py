@@ -1522,6 +1522,7 @@ ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "api_r
               "invoicing_line_discount", "invoicing_convert", "invoicing_lines_save",
               "invoicing_fields_save", "invoicing_issue", "invoicing_pdf",
               "invoicing_einvoice_xml", "invoicing_pdf_hybrid",
+              "invoicing_validate_einvoice",
               # Phase 3: payment / status tracking — payment recording, AR/aging,
               # bank-statement import + advisory match confirm (admin-only, like the rest).
               "invoicing_payment_record", "invoicing_receivable",
@@ -1667,6 +1668,7 @@ MODULES = {
                     "invoicing_line_discount", "invoicing_convert", "invoicing_lines_save",
                     "invoicing_fields_save", "invoicing_issue", "invoicing_pdf",
                     "invoicing_einvoice_xml", "invoicing_pdf_hybrid",
+                    "invoicing_validate_einvoice",
                     "invoicing_payment_record", "invoicing_receivable",
                     "invoicing_import", "invoicing_import_confirm",
                     "invoicing_send", "invoicing_credit", "invoicing_credit_create",
@@ -14965,6 +14967,10 @@ def invoicing_customers():
         + f'<label>{esc(_t("VAT number"))}<input name="vat_number" value="{_v("vat_number")}"></label>'
         + f'<label>{esc(_t("Reg number"))}<input name="reg_no" value="{_v("reg_no")}"></label>'
         + f'<label style="flex:1 1 100%">{esc(_t("Address"))}<input name="address" value="{_v("address")}"></label>'
+        + f'<label>{esc(_t("City"))}<input name="city" value="{_v("city")}"></label>'
+        + f'<label>{esc(_t("Postal code"))}<input name="postal_code" style="width:140px" value="{_v("postal_code")}"></label>'
+        + f'<label>{esc(_t("Country code (ISO-2)"))}<input name="country_code" maxlength="2" style="width:110px" '
+          f'value="{_v("country_code")}" placeholder="{esc(_t("e-invoice"))}"></label>'
         + f'<label>{esc(_t("Email"))}<input name="email" type="email" value="{_v("email")}"></label>'
         + f'<label>{esc(_t("IBAN"))}<input name="iban" value="{_v("iban")}" '
           f'placeholder="{esc(_t("for bank-statement matching"))}"></label>'
@@ -14989,7 +14995,8 @@ def invoicing_customer_save():
                   vat_number=f.get("vat_number"), reg_no=f.get("reg_no"),
                   address=f.get("address"), email=f.get("email"),
                   payment_terms_days=f.get("payment_terms_days"), notes=f.get("notes"),
-                  iban=f.get("iban"))
+                  iban=f.get("iban"), city=f.get("city"),
+                  postal_code=f.get("postal_code"), country_code=f.get("country_code"))
     if cid.isdigit():
         obj, err = invoicing.update_customer(int(cid), **fields)
     else:
@@ -15030,6 +15037,10 @@ def invoicing_issuer():
         'enctype="multipart/form-data">' + _csrf_input()
         + f'<label style="flex:1 1 100%">{esc(_t("Legal name"))}<input name="name" value="{_v("name")}"></label>'
         + f'<label style="flex:1 1 100%">{esc(_t("Address"))}<input name="address" value="{_v("address")}"></label>'
+        + f'<label>{esc(_t("City"))}<input name="city" value="{_v("city")}"></label>'
+        + f'<label>{esc(_t("Postal code"))}<input name="postal_code" style="width:140px" value="{_v("postal_code")}"></label>'
+        + f'<label>{esc(_t("Country code (ISO-2)"))}<input name="country_code" maxlength="2" style="width:110px" '
+          f'value="{_v("country_code")}" placeholder="{esc(_t("e-invoice"))}"></label>'
         + f'<label>{esc(_t("VAT number"))}<input name="vat_number" value="{_v("vat_number")}"></label>'
         + f'<label>{esc(_t("Reg number"))}<input name="reg_no" value="{_v("reg_no")}"></label>'
         + f'<label>{esc(_t("IBAN"))}<input name="iban" value="{_v("iban")}"></label>'
@@ -15228,6 +15239,9 @@ def invoicing_compose(invoice_id=None):
         # ---- ISSUED: a read-only line table (immutable) ----
         body.append(_ivc_readonly_lines_card(invoicing, lines))
         body.append(f'<div class="card"><p class="note">{esc(_t("This invoice is issued and immutable. Download the PDF above."))}</p></div>')
+        # ---- Validate the e-invoice against the OFFICIAL EN 16931 / PEPPOL schematrons ----
+        if not is_non_legal:
+            body.append(_ivc_validate_card(invoice_id))
         # ---- PHASE 4: email the invoice to the customer (issued docs only) ----
         body.append(_ivc_send_card(invoicing, inv, cust))
         # ---- PHASE 4: credit / cancel (ordinary invoices only — not a credit note) ----
@@ -15508,6 +15522,18 @@ def _ivc_credit_card(invoicing, inv):
         btn = f'<p class="note ok">{esc(_t("cancelled"))}</p>'
     return (f'<div class="card"><h2>{esc(_t("Credit / cancel"))}</h2>'
             + note + table + '<div style="margin-top:8px">' + btn + '</div></div>')
+
+
+def _ivc_validate_card(invoice_id):
+    """The 'Validate e-invoice (EN 16931 / PEPPOL)' action card for an issued invoice.
+    POSTs to /invoicing/validate/<id>, which runs the OFFICIAL schematrons and renders the
+    result. Admin-only at the route layer (the whole /invoicing/* surface is guarded)."""
+    iid = int(invoice_id)
+    return (f'<div class="card"><h2>{esc(_t("Validate e-invoice (EN 16931 / PEPPOL)"))}</h2>'
+            f'<p class="note">{esc(_t("Validate the UBL e-invoice against the OFFICIAL EN 16931 (CEN) and PEPPOL BIS Billing 3.0 schematrons. Requires the saxonche package on the server; if it is not installed the check reports as unavailable (never a false pass)."))}</p>'
+            '<form method="post" action="/invoicing/validate/' + str(iid) + '">'
+            + _csrf_input()
+            + f'<button>{esc(_t("Validate e-invoice"))}</button></form></div>')
 
 
 def _ivc_credit_note_origin_card(invoicing, inv):
@@ -16101,6 +16127,66 @@ def invoicing_einvoice_xml(invoice_id):
     return send_file(io.BytesIO(data), as_attachment=True,
                      download_name=invoicing.einvoice_filename(invoice_id),
                      mimetype="application/xml")
+
+
+@app.route("/invoicing/validate/<int:invoice_id>", methods=["POST"])
+def invoicing_validate_einvoice(invoice_id):
+    """Validate an ISSUED invoice's UBL e-invoice against the OFFICIAL EN 16931 (CEN) +
+    PEPPOL BIS Billing 3.0 schematrons (via saxonche). Admin-only (guarded). Renders ✓
+    PASSED, the list of errors/warnings, or an 'unavailable' state — never a false pass."""
+    import invoicing
+    inv = invoicing.get_invoice(invoice_id)
+    if not inv:
+        return page('<div class="card"><b class="bad">No such invoice.</b></div>', "ivc"), 404
+    try:
+        res = invoicing.validate_einvoice(invoice_id)
+    except Exception as e:
+        _log_exc("invoicing: validate e-invoice", e)
+        res = {"available": True, "ok": None, "errors": [], "warnings": [],
+               "message": _t("Validation failed unexpectedly.")}
+    try:
+        audit.log("invoicing", "validate_einvoice", str(invoice_id),
+                  {"available": res.get("available"), "ok": res.get("ok"),
+                   "errors": len(res.get("errors") or []),
+                   "warnings": len(res.get("warnings") or [])})
+    except Exception as e:
+        _log_exc("invoicing: validate audit", e)
+    back = (f'<p><a href="/invoicing/compose/{int(invoice_id)}">'
+            f'{esc(_t("Back to the invoice"))}</a></p>')
+    num = esc(inv.get("number") or f"#{invoice_id}")
+    if not res.get("available"):
+        body = (f'<div class="card"><h2>{esc(_t("Validate e-invoice (EN 16931 / PEPPOL)"))}</h2>'
+                f'<p class="note">{esc(_t("Validation unavailable."))} '
+                f'{esc(res.get("message") or "")}</p>' + back + '</div>')
+        return page(body, "ivc")
+    if res.get("ok") is None:
+        body = (f'<div class="card"><h2>{esc(_t("Validate e-invoice (EN 16931 / PEPPOL)"))}</h2>'
+                f'<p class="bad">{esc(res.get("message") or _t("Could not validate."))}</p>'
+                + back + '</div>')
+        return page(body, "ivc")
+
+    def _findings_table(items):
+        rows = []
+        for f in items:
+            rows.append([esc(f.get("schematron") or ""), esc(f.get("rule") or ""),
+                         esc(f.get("text") or "")])
+        return tbl([_t("Schematron"), _t("Rule"), _t("Message")], rows) if rows else ""
+
+    errs, warns = res.get("errors") or [], res.get("warnings") or []
+    if res.get("ok"):
+        head = (f'<p class="ok" style="font-weight:600">✓ {esc(_t("PASSED"))} — '
+                f'{esc(_t("0 errors against the official CEN + PEPPOL schematrons."))}</p>')
+    else:
+        head = (f'<p class="bad" style="font-weight:600">✗ '
+                + str(esc(_t("%d error(s)") % len(errs))) + '</p>'
+                + _findings_table(errs))
+    warn_html = ''
+    if warns:
+        warn_html = (f'<h3>{esc(_t("Warnings"))} ({len(warns)})</h3>'
+                     + _findings_table(warns))
+    body = (f'<div class="card"><h2>{esc(_t("Validate e-invoice (EN 16931 / PEPPOL)"))}: '
+            + str(num) + '</h2>' + head + warn_html + back + '</div>')
+    return page(body, "ivc")
 
 
 @app.route("/invoicing/hybrid/<int:invoice_id>")

@@ -121,6 +121,7 @@ PAYMENT_SOURCE_BANK = "bank"
 # audited via the normal settings audit). Kept as flat settings in Phase 1; a per-tenant
 # issuers table is a Phase 2 item (see module docstring).
 ISSUER_KEYS = ("name", "address", "vat_number", "reg_no", "iban", "bank",
+               "city", "postal_code", "country_code",
                "series", "credit_series", "proforma_series", "quote_series",
                "number_format", "payment_terms_days",
                "logo_text", "brand_color")
@@ -410,6 +411,15 @@ _MIGRATIONS = [
     "ALTER TABLE invoices ADD COLUMN converted_from_id INTEGER",
     "CREATE INDEX IF NOT EXISTS ix_invoices_converted_from "
     "ON invoices(converted_from_id) WHERE converted_from_id IS NOT NULL",
+    # PHASE 8 — STRUCTURED POSTAL ADDRESS (EN 16931 BG-5/BG-8) ----------------
+    # The free-form `address` line alone does not satisfy BR-08 (a postal address MUST have
+    # a city) / BR-10 (a country code). These structured fields let `einvoice_xml` emit a
+    # proper cac:PostalAddress (cbc:CityName / cbc:PostalZone / cac:Country) per party.
+    # `country_code` is the ISO 3166-1 alpha-2 code; it falls back to `country` / the VAT
+    # prefix at emit time. The PDF still renders the free-form `address`.
+    "ALTER TABLE bill_customers ADD COLUMN city TEXT",
+    "ALTER TABLE bill_customers ADD COLUMN postal_code TEXT",
+    "ALTER TABLE bill_customers ADD COLUMN country_code TEXT",
 ]
 
 _AUDITED_TABLES = ["bill_customers", "invoices", "invoice_lines",
@@ -575,7 +585,8 @@ def _cust_dict(row):
 
 
 def add_customer(name, *, reg_no="", vat_number="", address="", country="",
-                 email="", payment_terms_days=None, notes="", iban="", created_by=None):
+                 email="", payment_terms_days=None, notes="", iban="",
+                 city="", postal_code="", country_code="", created_by=None):
     """Create a bill-to customer. Returns (customer_dict, "") or (None, error)."""
     name = (name or "").strip()
     if not name:
@@ -584,18 +595,21 @@ def add_customer(name, *, reg_no="", vat_number="", address="", country="",
         ptd = int(payment_terms_days) if str(payment_terms_days or "").strip() else None
     except (TypeError, ValueError):
         ptd = None
+    cc = (country_code or country or "").strip().upper()[:2]
     try:
         con = connect()
         try:
             cur = con.execute(
                 """INSERT INTO bill_customers
                    (name, reg_no, vat_number, address, country, email,
-                    payment_terms_days, notes, iban, created_by, tenant_id)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    payment_terms_days, notes, iban, city, postal_code, country_code,
+                    created_by, tenant_id)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (name, (reg_no or "").strip(), (vat_number or "").strip(),
                  (address or "").strip(), (country or "").strip().upper(),
                  (email or "").strip(), ptd, (notes or "").strip(),
                  (iban or "").strip().replace(" ", "").upper(),
+                 (city or "").strip(), (postal_code or "").strip(), cc,
                  created_by, tenancy.write_tenant()))
             con.commit()
             row = con.execute("SELECT * FROM bill_customers WHERE id=?",
@@ -612,13 +626,14 @@ def update_customer(customer_id, **fields):
     """Update editable fields of a bill-to customer (tenant-scoped). Returns
     (customer_dict, "") or (None, error)."""
     allowed = ("name", "reg_no", "vat_number", "address", "country", "email",
-               "payment_terms_days", "notes", "active", "iban")
+               "payment_terms_days", "notes", "active", "iban",
+               "city", "postal_code", "country_code")
     sets, params = [], []
     for k in allowed:
         if k in fields:
             v = fields[k]
-            if k == "country" and v:
-                v = str(v).strip().upper()
+            if k in ("country", "country_code") and v:
+                v = str(v).strip().upper()[:2]
             elif k == "iban" and v:
                 v = str(v).strip().replace(" ", "").upper()
             elif k == "payment_terms_days":
@@ -1457,7 +1472,7 @@ def _snapshot_issuer(issuer):
 def _snapshot_customer(cust):
     import json
     keep = ("id", "name", "reg_no", "vat_number", "address", "country", "email",
-            "payment_terms_days", "iban")
+            "payment_terms_days", "iban", "city", "postal_code", "country_code")
     return json.dumps({k: cust.get(k) for k in keep}, ensure_ascii=False)
 
 
@@ -3375,6 +3390,7 @@ def invoice_pdf(invoice_id, lang=None):
 # UBL 2.1 namespaces (EN-16931 invoice syntax binding) — same set as einvoice_export.
 _NS = {
     "inv": "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2",
+    "cn": "urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2",
     "cac": "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2",
     "cbc": "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2",
 }
@@ -3423,25 +3439,57 @@ def _tax_category_for(rate, reverse_charge):
     return "S", None
 
 
+# PEPPOL Electronic Address Identifier (EAS) scheme for a VAT-number endpoint. 9930 =
+# "Latvia VAT number" in the PEPPOL EAS code list; we use the VAT-based endpoint (BT-34/49)
+# generically since the issuer/customer book carries a VAT id, not a per-country GLN.
+_VAT_ENDPOINT_EAS = "9930"
+
+
+def _party_address(party):
+    """Resolve the structured postal-address fields for a party, with best-effort fallbacks
+    so BR-08 (city) / BR-10 (country code) can be satisfied. Returns (street, city, zip,
+    country). Country derives from country_code -> country -> the VAT prefix; the free-form
+    `address` line is the street fallback. Never raises."""
+    street = (party.get("address") or "").strip()
+    city = (party.get("city") or "").strip()
+    zip_ = (party.get("postal_code") or "").strip()
+    vat = (party.get("vat_number") or "").strip()
+    country = (party.get("country_code") or party.get("country") or "").strip().upper()[:2]
+    if (not country or not country.isalpha()) and len(vat) >= 2 and vat[:2].isalpha():
+        country = vat[:2].upper()
+    return street, city, zip_, country
+
+
 def _party_block(root, role_tag, party):
-    """Emit an AccountingSupplier/CustomerParty block: name (BT-27/44), postal address
-    (BG-5/8) and the VAT PartyTaxScheme (BT-31/48). Missing values are simply omitted
-    (the customer block on a SIMPLIFIED invoice legitimately carries less)."""
+    """Emit an AccountingSupplier/CustomerParty block: the PEPPOL electronic address
+    (EndpointID, BT-34/49), name (BT-27/44), structured postal address (BG-5/8, with city +
+    country to satisfy BR-08/BR-10) and the VAT PartyTaxScheme (BT-31/48). Missing values are
+    omitted where EN-16931 allows it."""
     apx = _esub(root, role_tag)
     party_el = _esub(apx, "cac:Party")
     name = (party.get("name") or "").strip()
-    addr = (party.get("address") or "").strip()
-    country = (party.get("country") or "").strip().upper()
     vat = (party.get("vat_number") or "").strip()
-    # PostalAddress (BG-5 / BG-8). We carry the free-form address line + country code.
+    street, city, zip_, country = _party_address(party)
+    # UBL cac:Party child order is FIXED (XSD sequence): EndpointID, PartyIdentification,
+    # PartyName, PostalAddress, PartyTaxScheme, PartyLegalEntity, ... — emit in that order.
+    # EndpointID (BT-34 seller / BT-49 buyer): the PEPPOL electronic address. PEPPOL-R020/R010
+    # require it; we use the VAT-number EAS endpoint (schemeID 9930).
+    if vat:
+        _esub(party_el, "cbc:EndpointID", vat, {"schemeID": _VAT_ENDPOINT_EAS})
+    # PartyName (display name) — before the postal address per the UBL sequence.
+    pn = _esub(party_el, "cac:PartyName")
+    _esub(pn, "cbc:Name", name or "")
+    # PostalAddress (BG-5 / BG-8): street + city + postal zone + ISO country code.
     pa = _esub(party_el, "cac:PostalAddress")
-    if addr:
-        _esub(pa, "cbc:StreetName", addr)
+    if street:
+        _esub(pa, "cbc:StreetName", street)
+    if city:
+        _esub(pa, "cbc:CityName", city)           # BT-37/52 (BR-08 needs the city)
+    if zip_:
+        _esub(pa, "cbc:PostalZone", zip_)         # BT-38/53
     ctry = _esub(pa, "cac:Country")
-    if not country and len(vat) >= 2 and vat[:2].isalpha():
-        country = vat[:2].upper()
     if country:
-        _esub(ctry, "cbc:IdentificationCode", country)
+        _esub(ctry, "cbc:IdentificationCode", country)  # BT-40/55 (BR-09/10)
     # PartyTaxScheme (BT-31 / BT-48) — only when a VAT id is present.
     if vat:
         pts = _esub(party_el, "cac:PartyTaxScheme")
@@ -3453,9 +3501,6 @@ def _party_block(root, role_tag, party):
     _esub(ple, "cbc:RegistrationName", name or "")
     if (party.get("reg_no") or "").strip():
         _esub(ple, "cbc:CompanyID", str(party.get("reg_no")).strip())
-    # PartyName (display name) — last so name is unambiguous to a lenient reader.
-    pn = _esub(party_el, "cac:PartyName")
-    _esub(pn, "cbc:Name", name or "")
     return apx
 
 
@@ -3489,29 +3534,27 @@ def einvoice_xml(invoice_id):
     by_rate = v["by_rate"]
     doc_disc_total = money.f2((v.get("totals") or {}).get("doc_discount") or 0)
 
+    # A PEPPOL CREDIT NOTE (BT-3 = 381) MUST be a UBL `CreditNote` document — code 381 is
+    # NOT a valid InvoiceTypeCode (BR-CL-01 / PEPPOL-P0100). The credit-note syntax uses the
+    # cn:CreditNote root, cbc:CreditNoteTypeCode, and cac:CreditNoteLine/cbc:CreditedQuantity;
+    # it has NO cbc:DueDate. Everything else (parties, tax totals, monetary totals) is shared.
+    is_cn = inv.get("doc_type") == DOC_CREDIT_NOTE
+    root_pref = "cn" if is_cn else "inv"
     for pref, uri in _NS.items():
-        ET.register_namespace("" if pref == "inv" else pref, uri)
-    root = ET.Element(_eq("inv:Invoice"))
+        ET.register_namespace("" if pref == root_pref else pref, uri)
+    root = ET.Element(_eq("%s:%s" % (root_pref, "CreditNote" if is_cn else "Invoice")))
 
     _esub(root, "cbc:CustomizationID", PEPPOL_CUSTOMIZATION_ID)      # BT-24
     _esub(root, "cbc:ProfileID", PEPPOL_PROFILE_ID)                 # BT-23
     _esub(root, "cbc:ID", inv.get("number"))                       # BT-1
     _esub(root, "cbc:IssueDate", inv.get("issue_date") or "")       # BT-2
-    if inv.get("due_date"):
+    # BT-9 DueDate: an Invoice carries it; a UBL CreditNote has no DueDate element.
+    if not is_cn and inv.get("due_date"):
         _esub(root, "cbc:DueDate", inv.get("due_date"))            # BT-9
-    # BT-3 document type: 380 (commercial invoice) or 381 (credit note). A CREDIT NOTE also
-    # carries a BillingReference to the ORIGINAL invoice (BG-3 / BT-25 + BT-26).
-    is_cn = inv.get("doc_type") == DOC_CREDIT_NOTE
-    _esub(root, "cbc:InvoiceTypeCode",
+    # BT-3 document type: 380 (commercial invoice, InvoiceTypeCode) or 381 (credit note,
+    # CreditNoteTypeCode). The element name differs with the document syntax.
+    _esub(root, "cbc:CreditNoteTypeCode" if is_cn else "cbc:InvoiceTypeCode",
           _CREDIT_NOTE_TYPE_CODE if is_cn else _INVOICE_TYPE_CODE)  # BT-3
-    if is_cn:
-        orig = get_invoice(inv.get("corrects_invoice_id")) if inv.get("corrects_invoice_id") else None
-        if orig and orig.get("number"):
-            br = _esub(root, "cac:BillingReference")               # BG-3
-            idr = _esub(br, "cac:InvoiceDocumentReference")
-            _esub(idr, "cbc:ID", orig.get("number"))              # BT-25
-            if orig.get("issue_date"):
-                _esub(idr, "cbc:IssueDate", orig.get("issue_date"))  # BT-26
     # BT-22 document note(s): reverse-charge / simplified wording.
     if rc:
         _esub(root, "cbc:Note", _REVERSE_CHARGE_REASON)
@@ -3527,6 +3570,22 @@ def einvoice_xml(invoice_id):
         eur_vat, _fx, _src = vat_total_eur(inv)
         if eur_vat is not None:
             _esub(root, "cbc:TaxCurrencyCode", "EUR")             # BT-6
+
+    # BT-10 BuyerReference: PEPPOL-R003 requires a buyer reference OR an order reference. We
+    # always emit a buyer reference (the invoice number is a stable, unambiguous default) so
+    # the document is routable even when the customer gave no PO. UBL order: after the
+    # currency codes, before the parties.
+    _esub(root, "cbc:BuyerReference", inv.get("number") or "")    # BT-10
+
+    # BG-3 BillingReference -> the corrected invoice (a CREDIT NOTE only; BT-25 + BT-26).
+    if is_cn:
+        orig = get_invoice(inv.get("corrects_invoice_id")) if inv.get("corrects_invoice_id") else None
+        if orig and orig.get("number"):
+            br = _esub(root, "cac:BillingReference")               # BG-3
+            idr = _esub(br, "cac:InvoiceDocumentReference")
+            _esub(idr, "cbc:ID", orig.get("number"))              # BT-25
+            if orig.get("issue_date"):
+                _esub(idr, "cbc:IssueDate", orig.get("issue_date"))  # BT-26
 
     # parties (BG-4 / BG-7)
     _party_block(root, "cac:AccountingSupplierParty", issuer)
@@ -3621,11 +3680,15 @@ def einvoice_xml(invoice_id):
     _eamt(lmt, "cbc:TaxInclusiveAmount", gross, currency)         # BT-112
     _eamt(lmt, "cbc:PayableAmount", gross, currency)              # BT-115
 
-    # ----- InvoiceLine (BG-25) -----
+    # ----- InvoiceLine / CreditNoteLine (BG-25) -----
+    # A UBL CreditNote uses cac:CreditNoteLine + cbc:CreditedQuantity; an Invoice uses
+    # cac:InvoiceLine + cbc:InvoicedQuantity. The rest of the line is identical.
+    line_tag = "cac:CreditNoteLine" if is_cn else "cac:InvoiceLine"
+    qty_tag = "cbc:CreditedQuantity" if is_cn else "cbc:InvoicedQuantity"
     for i, ln in enumerate(lines, 1):
         rate = 0.0 if rc else money.f2(ln.get("vat_rate") or 0)
         cat, _reason = _tax_category_for(rate, rc)
-        il = _esub(root, "cac:InvoiceLine")
+        il = _esub(root, line_tag)
         _esub(il, "cbc:ID", str(i))                              # BT-126
         qty = ln.get("quantity")
         unit = (ln.get("unit") or "").strip() or _UNIT_DEFAULT
@@ -3633,7 +3696,7 @@ def einvoice_xml(invoice_id):
             qty_text = f"{float(qty):g}"
         except (TypeError, ValueError):
             qty_text = "1"
-        _esub(il, "cbc:InvoicedQuantity", qty_text,
+        _esub(il, qty_tag, qty_text,
               {"unitCode": _ubl_unit_code(unit)})                 # BT-129/130
         # BT-131 line net = (qty × price) − line allowances (post LINE discount). The line
         # discount, when present, is a LINE AllowanceCharge (BG-27/28).
@@ -3679,6 +3742,25 @@ def einvoice_filename(invoice_id):
     safe = "".join(ch if ch.isalnum() else "_" for ch in str(num)).strip("_") or "invoice"
     prefix = "CreditNote" if (inv and inv.get("doc_type") == DOC_CREDIT_NOTE) else "Invoice"
     return f"{prefix}_{safe}.xml"
+
+
+def validate_einvoice(invoice_id):
+    """Validate an ISSUED invoice's UBL e-invoice against the OFFICIAL EN 16931 / PEPPOL
+    BIS Billing 3.0 schematrons (via einvoice_validate / saxonche). Returns the
+    einvoice_validate.validate_ubl result dict {available, ok, errors, warnings, message}.
+    FAIL-SOFT: if the e-invoice can't even be BUILT (a draft / proforma) or saxonche is
+    unavailable, returns an `available:False`/`ok:None` dict — never raises a false PASS."""
+    try:
+        xml_bytes = einvoice_xml(invoice_id)     # raises for a draft / non-legal doc
+    except ValueError as e:
+        return {"available": True, "ok": None, "errors": [], "warnings": [],
+                "message": str(e)}
+    except Exception as e:
+        log.exception("validate_einvoice(%s): build failed", invoice_id)
+        return {"available": True, "ok": None, "errors": [], "warnings": [],
+                "message": f"could not build e-invoice ({str(e)[:120]})"}
+    import einvoice_validate
+    return einvoice_validate.validate_ubl(xml_bytes)
 
 
 # ============================================================ PHASE 2: hybrid PDF

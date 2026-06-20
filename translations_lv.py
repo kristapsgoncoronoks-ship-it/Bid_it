@@ -97,6 +97,31 @@ CATALOG = {
     "VAT number": "PVN numurs",
     "Reg number": "Reģistrācijas numurs",
     "Address": "Adrese",
+    "City": "Pilsēta",
+    "Postal code": "Pasta indekss",
+    "Country code (ISO-2)": "Valsts kods (ISO-2)",
+    "e-invoice": "e-rēķins",
+    "Validate e-invoice (EN 16931 / PEPPOL)":
+        "Validēt e-rēķinu (EN 16931 / PEPPOL)",
+    "Validate e-invoice": "Validēt e-rēķinu",
+    "Validate the UBL e-invoice against the OFFICIAL EN 16931 (CEN) and PEPPOL BIS Billing "
+    "3.0 schematrons. Requires the saxonche package on the server; if it is not installed "
+    "the check reports as unavailable (never a false pass).":
+        "Validēt UBL e-rēķinu pret OFICIĀLAJIEM EN 16931 (CEN) un PEPPOL BIS Billing 3.0 "
+        "schematron noteikumiem. Serverī nepieciešama saxonche pakotne; ja tā nav "
+        "instalēta, pārbaude tiek norādīta kā nepieejama (nekad nav viltus apstiprinājuma).",
+    "Validation unavailable.": "Validācija nav pieejama.",
+    "Could not validate.": "Neizdevās validēt.",
+    "Back to the invoice": "Atpakaļ uz rēķinu",
+    "PASSED": "IZTURĒTS",
+    "0 errors against the official CEN + PEPPOL schematrons.":
+        "0 kļūdu pret oficiālajiem CEN + PEPPOL schematron noteikumiem.",
+    "Schematron": "Schematron",
+    "Rule": "Noteikums",
+    "Message": "Ziņojums",
+    "Warnings": "Brīdinājumi",
+    "Validation failed unexpectedly.": "Validācija negaidīti neizdevās.",
+    "%d error(s)": "%d kļūda(-s)",
     "Payment terms (days)": "Apmaksas termiņš (dienas)",
     "These are your customers (bill-to). They are kept separate "
     "from the platform CRM (which holds the VAT-refund clients).":

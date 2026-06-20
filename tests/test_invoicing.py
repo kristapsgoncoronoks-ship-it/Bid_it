@@ -1302,8 +1302,16 @@ def test_credit_note_einvoice_is_381_with_billing_reference_and_round_trips(inv)
     def _local(tag):
         return tag.split("}", 1)[1] if "}" in tag else tag
 
-    type_codes = [e.text for e in root.iter() if _local(e.tag) == "InvoiceTypeCode"]
+    # A PEPPOL credit note (BT-3 = 381) is a UBL CreditNote document with a
+    # CreditNoteTypeCode — code 381 is NOT a valid InvoiceTypeCode (BR-CL-01 / PEPPOL-P0100).
+    assert _local(root.tag) == "CreditNote", _local(root.tag)
+    inv_codes = [e.text for e in root.iter() if _local(e.tag) == "InvoiceTypeCode"]
+    assert inv_codes == [], inv_codes
+    type_codes = [e.text for e in root.iter() if _local(e.tag) == "CreditNoteTypeCode"]
     assert type_codes == ["381"], type_codes
+    # the credit-note lines use CreditNoteLine / CreditedQuantity, not InvoiceLine
+    assert any(_local(e.tag) == "CreditNoteLine" for e in root.iter())
+    assert any(_local(e.tag) == "CreditedQuantity" for e in root.iter())
     # BillingReference / InvoiceDocumentReference back to the ORIGINAL invoice number + date
     brefs = [e for e in root.iter() if _local(e.tag) == "InvoiceDocumentReference"]
     assert brefs, "no BillingReference/InvoiceDocumentReference on the credit note"
