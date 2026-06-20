@@ -1131,6 +1131,71 @@ def remove_line(invoice_id, line_id):
         return None, f"could not remove line ({str(e)[:80]})"
 
 
+def replace_lines(invoice_id, lines):
+    """ATOMICALLY replace ALL lines of a DRAFT invoice with `lines` (a list of dicts), then
+    re-total — the single-round-trip counterpart of the per-line add_line/remove_line forms.
+
+    The SERVER stays the source of truth: every figure (line_net / line_vat / the per-rate
+    breakdown / the header totals) is recomputed here via the SAME compute_line / _retotal
+    path add_line uses; the client's preview math is never trusted for a stored figure. Each
+    dict may carry description, quantity, unit, unit_price_net, vat_rate (a FRACTION),
+    goods_code, discount_kind ('percent'|'amount'|''), discount_value. Blank/whitespace-only
+    rows (no description AND zero qty AND zero price) are dropped. Refuses on a non-draft
+    (immutable). Returns (invoice_dict, "") or (None, error)."""
+    try:
+        con = connect()
+        try:
+            row, err = _assert_draft(con, invoice_id)
+            if err:
+                return None, err
+            rc = bool(row["reverse_charge"])
+            # Drop the old lines wholesale, then re-insert the supplied set in order. The
+            # delete + inserts share one transaction so a half-written replace can't persist.
+            con.execute("DELETE FROM invoice_lines WHERE invoice_id=?", (invoice_id,))
+            line_no = 0
+            tenant = tenancy.write_tenant()
+            for ln in (lines or []):
+                desc = (str(ln.get("description") or "")).strip()
+                try:
+                    qty = float(money.D(ln.get("quantity") or 0))
+                except Exception:
+                    qty = 0.0
+                try:
+                    price = float(money.D(ln.get("unit_price_net") or 0))
+                except Exception:
+                    price = 0.0
+                # skip a wholly-empty row (the editor leaves a blank trailing row)
+                if not desc and qty == 0 and price == 0:
+                    continue
+                dk, dv = _norm_discount(ln.get("discount_kind"), ln.get("discount_value"))
+                try:
+                    rate_in = float(ln.get("vat_rate") or 0)
+                except (TypeError, ValueError):
+                    rate_in = 0.0
+                net, vat, rate, gross_net, disc = compute_line(
+                    qty, price, rate_in, reverse_charge=rc,
+                    discount_kind=dk, discount_value=dv)
+                line_no += 1
+                con.execute(
+                    """INSERT INTO invoice_lines
+                       (invoice_id, line_no, description, quantity, unit, unit_price_net,
+                        vat_rate, line_net, line_vat, goods_code, discount_kind,
+                        discount_value, discount_amount, gross_amount, tenant_id)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (invoice_id, line_no, desc, qty,
+                     (str(ln.get("unit") or "")).strip(), price, rate,
+                     net, vat, (str(ln.get("goods_code") or "")).strip(), dk, dv,
+                     disc, gross_net, tenant))
+            con.commit()
+        finally:
+            con.close()
+        _retotal(invoice_id)
+        return get_invoice(invoice_id), ""
+    except Exception as e:
+        log.exception("replace_lines(%s) failed", invoice_id)
+        return None, f"could not save the lines ({str(e)[:80]})"
+
+
 def set_line_discount(invoice_id, line_id, discount_kind="", discount_value=0):
     """Set/clear the LINE discount on a DRAFT invoice line and re-total. The line VAT is
     recomputed on the post-discount net. Returns (invoice_dict, "") or (None, error).

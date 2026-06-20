@@ -138,6 +138,37 @@ CATALOG = {
     "Start a draft": "Sākt melnrakstu",
     "Date of supply": "Piegādes datums",
 
+    # compose overhaul — clean layout, live line editor, inline customer
+    "Line items": "Pozīcijas",
+    "Save draft": "Saglabāt melnrakstu",
+    "Saving…": "Saglabā…",
+    "More options": "Vairāk iestatījumu",
+    "+ Add line": "+ Pievienot pozīciju",
+    "preview — the server recomputes the final figures on Save/Issue":
+        "priekšskatījums — galīgās summas pārrēķina serveris, saglabājot/izrakstot",
+    "Not ready to issue": "Nav gatavs izrakstīšanai",
+    "(assigned at issue)": "(piešķir izrakstot)",
+    "yes — recipient accounts for VAT": "jā — PVN uzskaita saņēmējs",
+    "no": "nē",
+    "Custom…": "Pielāgota…",
+    "Custom rate %": "Pielāgota likme %",
+    "(only if Custom)": "(tikai ja Pielāgota)",
+    "VAT rate (Latvia 2026)": "PVN likme (Latvija 2026)",
+    "FX rate": "Valūtas kurss",
+    "Download e-invoice (XML)": "Lejupielādēt e-rēķinu (XML)",
+    "Download hybrid PDF (PDF + e-invoice)": "Lejupielādēt hibrīda PDF (PDF + e-rēķins)",
+    "— choose a customer —": "— izvēlieties klientu —",
+    "+ New customer": "+ Jauns klients",
+    "New customer": "Jauns klients",
+    "No customers yet — choose “+ New customer” to add one inline.":
+        "Vēl nav klientu — izvēlieties “+ Jauns klients”, lai pievienotu uzreiz.",
+    "Could not add customer.": "Neizdevās pievienot klientu.",
+    "Could not start the draft.": "Neizdevās sākt melnrakstu.",
+    "Could not save the lines.": "Neizdevās saglabāt pozīcijas.",
+    "Could not issue.": "Neizdevās izrakstīt.",
+    "This invoice is issued and immutable. Download the PDF above.":
+        "Šis rēķins ir izrakstīts un nemaināms. Lejupielādējiet PDF augstāk.",
+
     # ============================================================ INVOICE TEMPLATE (PDF/HTML)
     # The labels that print on the document itself (driven by the invoice language).
     "INVOICE": "RĒĶINS",

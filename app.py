@@ -485,6 +485,251 @@ APP_JS = r"""/* progressive enhancement: sort + filter + horizontal scroll + key
     sel.addEventListener('change',sync);
     sync();
   })();
+
+  // ---- INVOICING: NEW-INVOICE INLINE CUSTOMER --------------------------------
+  // On the "New invoice" screen, choosing "+ New customer" in the picker reveals the
+  // inline new-customer fields and flips the hidden customer_mode to 'new' (so the server
+  // creates the customer AND the draft in one action). Progressive: with JS off both the
+  // picker and the inline fields show and the server still honours customer_mode.
+  (function(){
+    var form=document.querySelector('form[data-ivc-new-form]');
+    if(!form) return;
+    var sel=form.querySelector('select[data-ivc-cust-select]');
+    var box=form.querySelector('[data-ivc-new-cust]');
+    var mode=form.querySelector('[data-ivc-cust-mode]');
+    if(!sel||!box||!mode) return;
+    function sync(){
+      var isNew=sel.value==='__new__';
+      box.style.display=isNew?'':'none';
+      mode.value=isNew?'new':'existing';
+      // make the name field required only while inline-creating
+      var name=box.querySelector('input[name="new_name"]');
+      if(name) name.required=isNew;
+    }
+    sel.addEventListener('change',sync);
+    sync();
+  })();
+
+  // ---- INVOICING: LIVE LINE EDITOR (no page reloads) -------------------------
+  // Replaces the per-line add/remove forms with an in-place editable table whose per-line
+  // net/VAT and the invoice totals update LIVE as a PREVIEW. Save draft / Issue batch-posts
+  // EVERY line as one hidden `lines` JSON field to /invoicing/lines/save — the SERVER
+  // recomputes the authoritative VAT/totals (and assigns the gap-free number on Issue); the
+  // client math here is preview-only and never trusted for a stored figure. With JS off the
+  // <noscript> server forms (add/remove + Issue) are what the user sees and uses.
+  (function(){
+    var mount=document.querySelector('[data-ivc-editor]');
+    if(!mount) return;
+    function D(k){return mount.getAttribute('data-'+k)||'';}
+    var iid=D('invoice-id');
+    var rc=D('rc')==='1';
+    var csrf=D('csrf');
+    var rateOptions=D('rate-options');
+    var issueReady=D('issue-ready')==='1';
+    var issueErr=D('issue-err');
+    var discKind=D('disc-kind'), discValue=parseFloat(D('disc-value'))||0;
+    var L={desc:D('l-desc'),qty:D('l-qty'),unit:D('l-unit'),price:D('l-price'),
+           rate:D('l-rate'),disc:D('l-disc'),net:D('l-net'),vat:D('l-vat'),
+           custom:D('l-custom'),none:D('l-none'),addrow:D('l-addrow'),remove:D('l-remove'),
+           nettotal:D('l-nettotal'),vattotal:D('l-vattotal'),grand:D('l-grand'),
+           docdisc:D('l-docdisc'),preview:D('l-preview'),save:D('l-save'),issue:D('l-issue'),
+           saving:D('l-saving'),notready:D('l-notready')};
+    var rows=[];
+    try{ rows=JSON.parse(D('lines')||'[]'); }catch(e){ rows=[]; }
+    if(!Array.isArray(rows)) rows=[];
+
+    // half-up rounding to 2 dp, matching money.q2's intent (preview only).
+    function q2(x){
+      if(!isFinite(x)) return 0;
+      var s=x<0?-1:1; x=Math.abs(x);
+      return s*Math.round((x+1e-9)*100)/100;
+    }
+    function fnum(s){var n=parseFloat(String(s).replace(',','.'));return isNaN(n)?0:n;}
+    function eur(x){return '€'+q2(x).toFixed(2);}
+    function lineCalc(r){
+      var qty=fnum(r.quantity), price=fnum(r.unit_price_net);
+      var rate=rc?0:fnum(r.vat_rate);
+      var gross=q2(qty*price), disc=0;
+      var dv=fnum(r.discount_value);
+      if(dv>0 && gross>0){
+        if(r.discount_kind==='percent') disc=q2(gross*dv/100);
+        else if(r.discount_kind==='amount') disc=q2(dv);
+        if(disc>gross) disc=gross;
+      }
+      var net=q2(gross-disc); if(net<0) net=0;
+      var vat=q2(net*rate);
+      return {net:net,vat:vat,disc:disc};
+    }
+
+    var host=document.createElement('div');
+    var tbl=document.createElement('table'); tbl.className='ivc-edit';
+    tbl.style.width='100%';
+    var thead=document.createElement('thead');
+    thead.innerHTML='<tr><th>'+L.desc+'</th><th>'+L.qty+'</th><th>'+L.unit+'</th>'+
+      '<th>'+L.price+'</th><th>'+L.rate+'</th><th>'+L.disc+'</th>'+
+      '<th style="text-align:right">'+L.net+'</th><th style="text-align:right">'+L.vat+'</th><th></th></tr>';
+    var tbody=document.createElement('tbody');
+    tbl.appendChild(thead); tbl.appendChild(tbody);
+    // horizontal scroll wrapper so the wide editor never overflows on a 390px phone.
+    var scroll=document.createElement('div'); scroll.style.overflowX='auto';
+    scroll.appendChild(tbl); host.appendChild(scroll);
+
+    function inp(val,attrs){
+      var i=document.createElement('input');
+      i.value=(val===undefined||val===null)?'':val;
+      for(var k in attrs){ if(attrs.hasOwnProperty(k)) i.setAttribute(k,attrs[k]); }
+      return i;
+    }
+    function isPreset(rate){
+      var opts=[0.21,0.12,0.05,0]; for(var i=0;i<opts.length;i++){ if(Math.abs(opts[i]-rate)<1e-9) return true; } return false;
+    }
+    function buildRow(r){
+      var tr=document.createElement('tr');
+      function cell(child){var td=document.createElement('td'); td.appendChild(child); tr.appendChild(td); return td;}
+      var dsc=inp(r.description,{style:'min-width:140px'}); cell(dsc);
+      var qty=inp(r.quantity?String(r.quantity):'',{inputmode:'decimal',style:'width:70px'}); cell(qty);
+      var unit=inp(r.unit,{style:'width:64px'}); cell(unit);
+      var price=inp(r.unit_price_net?String(r.unit_price_net):'',{inputmode:'decimal',style:'width:90px'}); cell(price);
+      // rate: a preset select + a custom free-text input revealed for a non-preset rate.
+      var rateWrap=document.createElement('div'); rateWrap.style.display='flex'; rateWrap.style.gap='3px';
+      var rateSel=document.createElement('select'); rateSel.innerHTML=rateOptions; rateSel.style.width='80px';
+      var rateCustom=inp(r.vat_rate!==undefined?String(q2(fnum(r.vat_rate)*100)):'',{inputmode:'decimal',style:'width:60px'});
+      var curRate=fnum(r.vat_rate);
+      if(isPreset(curRate)){ rateSel.value=String(curRate); rateCustom.style.display='none'; }
+      else { rateSel.value='custom'; rateCustom.style.display=''; }
+      rateWrap.appendChild(rateSel); rateWrap.appendChild(rateCustom);
+      cell(rateWrap);
+      // discount: kind select + value
+      var dWrap=document.createElement('div'); dWrap.style.display='flex'; dWrap.style.gap='3px';
+      var dKind=document.createElement('select'); dKind.style.width='60px';
+      dKind.innerHTML='<option value="">'+L.none+'</option><option value="percent">%</option><option value="amount">EUR</option>';
+      dKind.value=r.discount_kind||'';
+      var dVal=inp(r.discount_value?String(r.discount_value):'',{inputmode:'decimal',style:'width:56px'});
+      dWrap.appendChild(dKind); dWrap.appendChild(dVal); cell(dWrap);
+      var netTd=document.createElement('td'); netTd.style.textAlign='right'; tr.appendChild(netTd);
+      var vatTd=document.createElement('td'); vatTd.style.textAlign='right'; tr.appendChild(vatTd);
+      var rmTd=document.createElement('td');
+      var rm=document.createElement('button'); rm.type='button'; rm.className='btn'; rm.textContent=L.remove;
+      rmTd.appendChild(rm); tr.appendChild(rmTd);
+
+      function read(){
+        r.description=dsc.value; r.quantity=qty.value; r.unit=unit.value;
+        r.unit_price_net=price.value;
+        r.vat_rate=(rateSel.value==='custom')?(fnum(rateCustom.value)/100):fnum(rateSel.value);
+        r.discount_kind=dKind.value; r.discount_value=dVal.value;
+      }
+      function repaint(){
+        var c=lineCalc(r);
+        netTd.textContent=eur(c.net); vatTd.textContent=eur(c.vat);
+        recalcTotals();
+      }
+      rateSel.addEventListener('change',function(){
+        rateCustom.style.display=(rateSel.value==='custom')?'':'none';
+        read(); repaint();
+      });
+      [dsc,qty,unit,price,rateCustom,dVal].forEach(function(el){
+        el.addEventListener('input',function(){ read(); repaint(); });
+      });
+      dKind.addEventListener('change',function(){ read(); repaint(); });
+      rm.addEventListener('click',function(){
+        var i=rows.indexOf(r); if(i>=0) rows.splice(i,1);
+        tr.parentNode.removeChild(tr); recalcTotals();
+      });
+      tr._read=read;
+      return tr;
+    }
+    function addRow(r){ r=r||{}; rows.push(r); tbody.appendChild(buildRow(r)); }
+
+    // totals preview panel (sticky)
+    var totals=document.createElement('div'); totals.className='card';
+    totals.style.position='sticky'; totals.style.bottom='0'; totals.style.marginTop='10px';
+    function recalcTotals(){
+      // group post-line-discount nets by rate, then apply the document discount proportionally
+      // (preview mirroring compute_totals; the server is authoritative on Save).
+      var byRate={}, lineNet=0;
+      Array.prototype.forEach.call(tbody.rows,function(tr){ if(tr._read) tr._read(); });
+      rows.forEach(function(r){
+        var c=lineCalc(r); var rate=rc?0:fnum(r.vat_rate);
+        if(!byRate[rate]) byRate[rate]={net:0,vat:0,rate:rate};
+        byRate[rate].net=q2(byRate[rate].net+c.net); lineNet=q2(lineNet+c.net);
+      });
+      var docDisc=0;
+      if(discValue>0 && lineNet>0){
+        if(discKind==='percent') docDisc=q2(lineNet*discValue/100);
+        else if(discKind==='amount') docDisc=q2(discValue);
+        if(docDisc>lineNet) docDisc=lineNet;
+      }
+      var netTotal=0, vatTotal=0;
+      for(var k in byRate){ if(!byRate.hasOwnProperty(k)) continue;
+        var b=byRate[k];
+        var net=b.net;
+        if(docDisc>0 && lineNet>0){ net=q2(b.net-q2(docDisc*b.net/lineNet)); if(net<0) net=0; }
+        var vat=q2(net*b.rate);
+        netTotal=q2(netTotal+net); vatTotal=q2(vatTotal+vat);
+      }
+      var grand=q2(netTotal+vatTotal);
+      totals.innerHTML='<div style="display:flex;flex-wrap:wrap;gap:6px 24px;justify-content:flex-end;font-weight:600">'+
+        '<span>'+L.nettotal+': '+eur(netTotal)+'</span>'+
+        '<span>'+L.vattotal+': '+eur(vatTotal)+'</span>'+
+        (docDisc>0?'<span>'+L.docdisc+': -'+eur(docDisc)+'</span>':'')+
+        '<span style="font-size:1.1em">'+L.grand+': '+eur(grand)+'</span></div>'+
+        '<p class="note" style="text-align:right;margin:6px 0 0">'+L.preview+'</p>';
+    }
+
+    // build the table rows
+    rows.forEach(function(r){ tbody.appendChild(buildRow(r)); });
+    if(rows.length===0) addRow({});
+
+    var addBtn=document.createElement('button');
+    addBtn.type='button'; addBtn.className='btn'; addBtn.textContent=L.addrow;
+    addBtn.style.marginTop='8px';
+    addBtn.addEventListener('click',function(){ addRow({}); recalcTotals(); });
+    host.appendChild(addBtn);
+    host.appendChild(totals);
+
+    // action buttons: Save draft + Issue (batch post)
+    var actions=document.createElement('div'); actions.style.marginTop='10px';
+    var saveBtn=document.createElement('button'); saveBtn.type='button'; saveBtn.className='btn';
+    saveBtn.textContent=L.save;
+    var issueBtn=document.createElement('button'); issueBtn.type='button'; issueBtn.className='btn';
+    issueBtn.textContent=L.issue; issueBtn.style.marginLeft='8px';
+    actions.appendChild(saveBtn); actions.appendChild(issueBtn);
+    if(!issueReady){
+      var warn=document.createElement('p'); warn.className='note'; warn.style.margin='6px 0 0';
+      warn.textContent=L.notready+(issueErr?(': '+issueErr):'');
+      actions.appendChild(warn);
+      issueBtn.disabled=true; issueBtn.style.opacity='0.5';
+    }
+    host.appendChild(actions);
+
+    function collect(){
+      Array.prototype.forEach.call(tbody.rows,function(tr){ if(tr._read) tr._read(); });
+      // strip wholly-empty trailing rows; keep rate as a fraction string the server re-parses.
+      return rows.filter(function(r){
+        return (String(r.description||'').trim()!=='') || fnum(r.quantity)!==0 || fnum(r.unit_price_net)!==0;
+      }).map(function(r){
+        return {description:r.description||'',quantity:fnum(r.quantity),unit:r.unit||'',
+                unit_price_net:fnum(r.unit_price_net),vat_rate:fnum(r.vat_rate),
+                discount_kind:r.discount_kind||'',discount_value:fnum(r.discount_value)};
+      });
+    }
+    function submit(action,btn){
+      btn.disabled=true; var prev=btn.textContent; btn.textContent=L.saving;
+      var form=document.createElement('form'); form.method='post'; form.action='/invoicing/lines/save';
+      form.style.display='none';
+      function hid(n,v){var i=document.createElement('input'); i.type='hidden'; i.name=n; i.value=v; form.appendChild(i);}
+      hid('_csrf',csrf); hid('invoice_id',iid); hid('action',action);
+      hid('lines',JSON.stringify(collect()));
+      document.body.appendChild(form); form.submit();
+    }
+    saveBtn.addEventListener('click',function(){ submit('save',saveBtn); });
+    issueBtn.addEventListener('click',function(){
+      if(window.confirm(L.issue+'?')) submit('issue',issueBtn);
+    });
+
+    recalcTotals();
+    mount.appendChild(host);
+  })();
 })();
 """
 
@@ -1274,7 +1519,7 @@ ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "api_r
               "invoicing_home", "invoicing_customers", "invoicing_customer_save",
               "invoicing_issuer", "invoicing_issuer_save", "invoicing_compose",
               "invoicing_create", "invoicing_line_add", "invoicing_line_remove",
-              "invoicing_line_discount", "invoicing_convert",
+              "invoicing_line_discount", "invoicing_convert", "invoicing_lines_save",
               "invoicing_fields_save", "invoicing_issue", "invoicing_pdf",
               "invoicing_einvoice_xml", "invoicing_pdf_hybrid",
               # Phase 3: payment / status tracking — payment recording, AR/aging,
@@ -1419,7 +1664,7 @@ MODULES = {
                    {"invoicing_home", "invoicing_customers", "invoicing_customer_save",
                     "invoicing_issuer", "invoicing_issuer_save", "invoicing_compose",
                     "invoicing_create", "invoicing_line_add", "invoicing_line_remove",
-                    "invoicing_line_discount", "invoicing_convert",
+                    "invoicing_line_discount", "invoicing_convert", "invoicing_lines_save",
                     "invoicing_fields_save", "invoicing_issue", "invoicing_pdf",
                     "invoicing_einvoice_xml", "invoicing_pdf_hybrid",
                     "invoicing_payment_record", "invoicing_receivable",
@@ -14599,6 +14844,15 @@ def _ivc_status_chip(status):
     return f'<span class="chip {cls}">{esc(_t(st))}</span>'
 
 
+def _ivc_g(x):
+    """Compact float format ('%g') for a data-* attribute; 0/blank -> ''. Pure."""
+    try:
+        v = float(x or 0)
+    except (TypeError, ValueError):
+        return ""
+    return f"{v:g}" if v else ""
+
+
 def _ivc_line_discount_cell(invoicing, ln):
     """A compact inline per-line discount editor (used while the invoice is a DRAFT): a
     kind selector + a value + Apply, prefilled from the stored line discount. Returns HTML."""
@@ -14851,32 +15105,58 @@ def invoicing_issuer_save():
 @app.route("/invoicing/compose", methods=["GET"])
 @app.route("/invoicing/compose/<int:invoice_id>", methods=["GET"])
 def invoicing_compose(invoice_id=None):
-    """Compose / view an invoice: pick a customer, add lines, see live totals, then Issue."""
+    """Compose / view an invoice: pick (or inline-create) a customer, edit lines in place
+    with a live totals preview, then Issue — collapsing the old per-line round-trips to one
+    server-authoritative Save/Issue."""
     import invoicing
     custs = invoicing.list_customers(include_inactive=False)
     if invoice_id is None:
-        # the "new invoice" screen: pick a customer to start a draft
+        # ---- the "New invoice" screen: pick an EXISTING customer OR create one INLINE ----
+        # The picker offers every customer plus a "+ New customer" sentinel that reveals the
+        # inline-customer fields (app.js); with JS off both the picker and the inline fields
+        # show and the server honours customer_mode. One action creates the customer (if new)
+        # AND the draft, landing in the editor — no separate trip to the customer book.
         opts = "".join(f'<option value="{int(c["id"])}">{esc(c.get("name") or "")}</option>'
                        for c in custs)
-        if not custs:
-            body = _empty(_t("No customers yet"),
-                          "Add a customer to the customer book before composing an invoice.",
-                          _t("Customer book"), "/invoicing/customers")
-            return page(f'<div class="card"><h2>{esc(_t("New invoice"))}</h2>' + body + '</div>', "ivc")
+        cust_select = (
+            f'<select name="customer_id" data-ivc-cust-select style="flex:1 1 auto">'
+            f'<option value="">{esc(_t("— choose a customer —"))}</option>'
+            + opts
+            + f'<option value="__new__">{esc(_t("+ New customer"))}</option></select>')
+        # the inline new-customer fieldset (hidden until "+ New customer" is chosen, by app.js)
+        inline_cust = (
+            '<div data-ivc-new-cust style="display:none;flex:1 1 100%;border:1px solid var(--line,#dde4ea);'
+            'border-radius:8px;padding:10px;margin-top:6px">'
+            + f'<b>{esc(_t("New customer"))}</b>'
+            + '<div class="f" style="margin-top:6px">'
+            + f'<label style="flex:1 1 100%">{esc(_t("Name"))}<input name="new_name" '
+              'data-ivc-newcust-field></label>'
+            + f'<label>{esc(_t("VAT number"))}<input name="new_vat_number" data-ivc-newcust-field></label>'
+            + f'<label>{esc(_t("Country (ISO-2)"))}<input name="new_country" maxlength="2" '
+              'style="width:90px" data-ivc-newcust-field></label>'
+            + f'<label style="flex:1 1 100%">{esc(_t("Address"))}<input name="new_address" '
+              'data-ivc-newcust-field></label>'
+            + f'<label style="flex:1 1 100%">{esc(_t("Email"))}<input name="new_email" '
+              'type="email" data-ivc-newcust-field></label>'
+            + '</div></div>')
+        empty_hint = ('' if custs else
+                      f'<p class="note">{esc(_t("No customers yet — choose “+ New customer” to add one inline."))}</p>')
         start = (
             f'<div class="card"><h2>{esc(_t("New invoice"))}</h2>'
-            '<form method="post" action="/invoicing/create" class="f">' + _csrf_input()
+            + empty_hint
+            + '<form method="post" action="/invoicing/create" class="f" data-ivc-new-form>'
+            + _csrf_input()
+            + '<input type="hidden" name="customer_mode" value="existing" data-ivc-cust-mode>'
             + f'<label>{esc(_t("Document type"))}<select name="doc_type">'
               f'<option value="invoice">{esc(_t("Invoice"))}</option>'
               f'<option value="proforma">{esc(_t("Proforma invoice"))}</option>'
               f'<option value="quote">{esc(_t("Quote"))}</option></select></label>'
-            + f'<label>{esc(_t("Customer"))}<select name="customer_id" required>{opts}</select></label>'
+            + f'<label style="flex:1 1 100%">{esc(_t("Customer"))}{cust_select}</label>'
+            + inline_cust
             + f'<label>{esc(_t("Currency"))}<input name="currency" value="EUR" style="width:90px"></label>'
             + f'<div style="margin-top:8px"><button>{esc(_t("Start draft"))}</button></div>'
-            + '<p class="note">A draft has no number yet — the gap-free number is assigned '
-              'only when you Issue. A proforma invoice / quote is NOT a tax invoice (its own '
-              'non-legal number series, no output VAT) and can be converted to an invoice '
-              'later.</p></form></div>')
+            + f'<p class="note">{esc(_t("A draft has no number yet — the gap-free number is assigned only when you Issue. A proforma invoice / quote is NOT a tax invoice (its own non-legal number series, no output VAT) and can be converted to an invoice later. Choose “+ New customer” to add the bill-to party inline."))}</p>'
+            + '</form></div>')
         return page(start, "ivc")
 
     inv = invoicing.get_invoice(invoice_id)
@@ -14886,74 +15166,52 @@ def invoicing_compose(invoice_id=None):
     issued = inv["status"] != invoicing.STATUS_DRAFT
     cust = invoicing.get_customer(inv["customer_id"]) if inv.get("customer_id") else None
 
-    # header summary
-    head_rows = [
-        [_t("Number"), esc(inv.get("number") or "(assigned at issue)")],
-        [_t("Status"), _ivc_status_chip(invoicing.display_status(inv))],
-        [_t("Customer"), esc((cust or {}).get("name") or "—")],
-        [_t("Issue date"), esc(inv.get("issue_date") or "—")],
-        [_t("Due date"), esc(inv.get("due_date") or "—")],
-        [_t("Reverse charge"), "yes — recipient accounts for VAT" if inv.get("reverse_charge") else "no"],
-        [_t("Net total"), _eur(inv.get("net_total"))],
-        [_t("VAT total"), _eur(inv.get("vat_total"))],
-        [_t("Grand total"), _eur(inv.get("gross_total"))],
-    ]
-    if issued:
-        head_rows.append([_t("Paid to date"), _eur(invoicing.paid_total(invoice_id))])
-        head_rows.append([_t("Outstanding"), _eur(invoicing.outstanding(inv))])
-    head = tbl(["", ""], [[esc(a), b] for a, b in head_rows])
-
-    # line table (with a Discount column + an inline per-line set-discount form while draft)
-    lrows = []
-    for ln in lines:
-        rm = ""
-        disc_cell = _ivc_line_discount_cell(invoicing, ln) if not issued else \
-            (f'-{_eur(ln.get("discount_amount"))}' if float(ln.get("discount_amount") or 0) > 0
-             else '—')
-        if not issued:
-            rm = ('<form method="post" action="/invoicing/line/remove" style="display:inline">'
-                  + _csrf_input()
-                  + f'<input type="hidden" name="invoice_id" value="{int(invoice_id)}">'
-                  + f'<input type="hidden" name="line_id" value="{int(ln["id"])}">'
-                  + f'<button>{esc(_t("Remove"))}</button></form>')
-        lrows.append([
-            esc(ln.get("description") or ""),
-            esc(f'{float(ln.get("quantity") or 0):g}'),
-            esc(ln.get("unit") or ""),
-            _eur(ln.get("unit_price_net")),
-            disc_cell,
-            esc(f'{float(ln.get("vat_rate") or 0) * 100:g}%'),
-            _eur(ln.get("line_net")),
-            _eur(ln.get("line_vat")),
-            rm,
-        ])
-    ltable = (tbl([_t("Description"), _t("Qty"), _t("Unit"), _t("Unit price (net)"),
-                   _t("Discount"), _t("Rate"), _t("Net"), _t("VAT"), ""],
-                  lrows) if lrows else f'<p class="note">{esc(_t("No lines yet."))}</p>')
-
     dt = inv.get("doc_type") or invoicing.DOC_INVOICE
     is_non_legal = dt in invoicing.NON_LEGAL_TYPES
     doc_label = {invoicing.DOC_INVOICE: _t("Invoice"),
                  invoicing.DOC_CREDIT_NOTE: _t("Credit note"),
                  invoicing.DOC_PROFORMA: _t("Proforma invoice"),
                  invoicing.DOC_QUOTE: _t("Quote")}.get(dt, _t("Invoice"))
-    dl = f' <a class="btn" href="/invoicing/pdf/{int(invoice_id)}">{esc(_t("Download PDF"))}</a>'
+
+    # ---- HEADER / PARTIES block: a clean label/value grid (replaces the run-together table)
+    rc_txt = (_t("yes — recipient accounts for VAT") if inv.get("reverse_charge")
+              else _t("no"))
+    head_pairs = [
+        (_t("Number"), esc(inv.get("number") or _t("(assigned at issue)"))),
+        (_t("Status"), _ivc_status_chip(invoicing.display_status(inv))),
+        (_t("Customer"), esc((cust or {}).get("name") or "—")),
+        (_t("Issue date"), esc(inv.get("issue_date") or "—")),
+        (_t("Due date"), esc(inv.get("due_date") or "—")),
+        (_t("Reverse charge"), esc(rc_txt)),
+        (_t("Currency"), esc(inv.get("currency") or "EUR")),
+    ]
+    if issued:
+        head_pairs.append((_t("Paid to date"), _eur(invoicing.paid_total(invoice_id))))
+        head_pairs.append((_t("Outstanding"), _eur(invoicing.outstanding(inv))))
+    head = ('<div class="kv-grid" style="display:grid;'
+            'grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px 18px;margin:8px 0">'
+            + "".join(
+                '<div class="kv" style="display:flex;justify-content:space-between;gap:10px;'
+                'padding:4px 0;border-bottom:1px solid var(--line,#eef2f5)">'
+                f'<span class="note" style="margin:0">{str(esc(k))}</span>'
+                f'<span style="font-weight:600;text-align:right">{v}</span></div>'
+                for k, v in head_pairs)
+            + '</div>')
+
+    dl = f'<a class="btn" href="/invoicing/pdf/{int(invoice_id)}">{esc(_t("Download PDF"))}</a>'
     # A proforma/quote has NO e-invoice / hybrid PDF (it is not a tax invoice).
     if issued and not is_non_legal:
         dl += (f' <a class="btn" href="/invoicing/einvoice/{int(invoice_id)}.xml">'
-               'Download e-invoice (XML)</a>'
+               f'{esc(_t("Download e-invoice (XML)"))}</a>'
                f' <a class="btn" href="/invoicing/hybrid/{int(invoice_id)}">'
-               'Download hybrid PDF (PDF + e-invoice)</a>')
+               f'{esc(_t("Download hybrid PDF (PDF + e-invoice)"))}</a>')
     body = [f'<div class="card"><h2>{esc(doc_label)}</h2>' + head + dl
-            + ('<p class="note">The e-invoice is an EN-16931 / PEPPOL BIS Billing 3.0 '
-               'UBL 2.1 document — the structured format Latvia mandates (B2G now, B2B '
-               'from 2028). The hybrid PDF embeds that XML inside the PDF (Factur-X style) '
-               'so it is both human- and machine-readable.</p>' if (issued and not is_non_legal) else '')
-            + ('<p class="note">This is a proforma invoice / quote — NOT a tax invoice. It '
-               'carries no output VAT and is excluded from the VAT report, AR and revenue. '
-               'Convert it to an invoice to create a real, legally-numbered invoice.</p>'
+            + (f'<p class="note">{esc(_t("The e-invoice is an EN-16931 / PEPPOL BIS Billing 3.0 UBL 2.1 document — the structured format Latvia mandates (B2G now, B2B from 2028). The hybrid PDF embeds that XML inside the PDF (Factur-X style) so it is both human- and machine-readable."))}</p>'
+               if (issued and not is_non_legal) else '')
+            + (f'<p class="note">{esc(_t("This is a proforma invoice / quote — NOT a tax invoice. It carries no output VAT and is excluded from the VAT report, AR and revenue. Convert it to an invoice to create a real, legally-numbered invoice."))}</p>'
                if is_non_legal else '')
             + '</div>']
+
     # PHASE 7: CONVERT a proforma/quote to a real DRAFT invoice (draft or issued source).
     if is_non_legal:
         body.append(
@@ -14962,94 +15220,14 @@ def invoicing_compose(invoice_id=None):
             '<form method="post" action="/invoicing/convert">' + _csrf_input()
             + f'<input type="hidden" name="proforma_id" value="{int(invoice_id)}">'
             + f'<button>{esc(_t("Convert to invoice"))}</button></form></div>')
-        if inv.get("converted_from_id"):
-            pass  # n/a (a non-legal source isn't itself converted-from)
-    body.append(f'<div class="card"><h2>{esc(_t("Lines (net basis, VAT excluded)"))}</h2>' + ltable + '</div>')
 
     if not issued:
-        # add-line form
-        add = (
-            f'<div class="card"><h2>{esc(_t("Add a line"))}</h2>'
-            '<form method="post" action="/invoicing/line/add" class="f">' + _csrf_input()
-            + f'<input type="hidden" name="invoice_id" value="{int(invoice_id)}">'
-            + f'<label style="flex:1 1 100%">{esc(_t("Description"))}<input name="description" required></label>'
-            + f'<label>{esc(_t("Quantity"))}<input name="quantity" required inputmode="decimal" style="width:110px"></label>'
-            + f'<label>{esc(_t("Unit"))}<input name="unit" style="width:90px"></label>'
-            + f'<label>{esc(_t("Unit price (net)"))}<input name="unit_price_net" required inputmode="decimal" style="width:140px"></label>'
-            + '<label>VAT rate (Latvia 2026)<select name="vat_rate_preset" style="width:150px">'
-              + ''.join(f'<option value="{p}">{p * 100:g}%</option>'
-                        for p in invoicing.LV_VAT_RATE_PRESETS)
-              + '<option value="custom">Custom…</option></select></label>'
-            + '<label>Custom rate %<input name="vat_rate" inputmode="decimal" style="width:110px" '
-              'placeholder="(only if Custom)"></label>'
-            + f'<label>{esc(_t("Line discount"))}<select name="discount_kind" style="width:130px">'
-              f'<option value="">{esc(_t("none"))}</option>'
-              f'<option value="percent">{esc(_t("percent (%)"))}</option>'
-              f'<option value="amount">{esc(_t("amount (EUR)"))}</option></select></label>'
-            + f'<label>{esc(_t("Discount value"))}<input name="discount_value" inputmode="decimal" '
-              'style="width:110px" placeholder="0"></label>'
-            + f'<div style="margin-top:8px"><button>{esc(_t("Add line"))}</button></div>'
-            + '<p class="note">Pick a Latvia VAT rate (21% standard · 12% / 5% reduced · 0%) '
-              'or choose Custom and type a rate. An optional line discount (a percent or a '
-              'fixed amount) reduces the line net before VAT.</p>'
-            + ('<p class="note">Reverse charge is ON: lines are at 0% VAT (the recipient '
-               'accounts for VAT).</p>' if inv.get("reverse_charge") else '')
-            + '</form></div>')
-        # reverse-charge toggle + issue
-        rc_on = bool(inv.get("reverse_charge"))
-        _dv = float(inv.get("disc_value") or 0)
-        _dv_s = f"{_dv:g}" if _dv > 0 else ""
-        rc = (
-            f'<div class="card"><h2>{esc(_t("Settings"))}</h2>'
-            '<form method="post" action="/invoicing/fields/save" class="f">' + _csrf_input()
-            + f'<input type="hidden" name="invoice_id" value="{int(invoice_id)}">'
-            + f'<label>{esc(_t("Reverse charge"))} '
-            + f'<input type="checkbox" name="reverse_charge" {"checked" if rc_on else ""}></label>'
-            + f'<label>{esc(_t("Simplified invoice"))} (gross &le; €150) '
-            + f'<input type="checkbox" name="simplified" '
-              f'{"checked" if inv.get("simplified") else ""}></label>'
-            + f'<label>{esc(_t("Supply date"))}<input name="supply_date" type="date" '
-              f'value="{esc(inv.get("supply_date") or "")}"></label>'
-            + (f'<label>FX rate ({esc(inv.get("currency") or "")} per 1 EUR)'
-               f'<input name="fx_rate" inputmode="decimal" style="width:130px" '
-               f'value="{esc(str(inv.get("fx_rate")) if inv.get("fx_rate") not in (None, "") else "")}">'
-               '</label>' if (inv.get("currency") or "EUR") != "EUR" else "")
-            + f'<label>{esc(_t("Document discount"))}<select name="disc_kind" style="width:130px">'
-              + ''.join(f'<option value="{esc(k)}" {"selected" if (inv.get("disc_kind") or "")==k else ""}>{esc(lbl)}</option>'
-                        for k, lbl in (("", _t("none")), ("percent", _t("percent (%)")),
-                                       ("amount", _t("amount (EUR)"))))
-              + '</select></label>'
-            + f'<label>{esc(_t("Discount value"))}<input name="disc_value" inputmode="decimal" '
-              f'style="width:110px" value="{esc(_dv_s)}"></label>'
-            + f'<div style="margin-top:8px"><button>{esc(_t("Update settings"))}</button></div>'
-            + '<p class="note">An invoice-level (document) discount is allocated across the '
-              'VAT rates proportionally — VAT is recomputed on the post-discount net. '
-              'Reverse charge applies to a cross-border EU B2B customer '
-              '(0% VAT, the recipient accounts for VAT). Toggling it re-rates existing '
-              'lines; re-enter line rates if you turn it back off. A simplified invoice '
-              '(EU VAT Dir. Art. 238, gross &le; €150) relaxes the customer-detail '
-              'requirement. For a non-EUR invoice, supply the FX rate (currency per 1 EUR) '
-              'so the VAT total can also be stated in EUR (LV/EU rule); leave blank to use '
-              'a cached ECB rate.</p>'
-            + '</form></div>')
-        issue_err = invoicing.validate_for_issue(invoice_id)
-        if issue_err:
-            issue_block = (f'<div class="card"><h2>{esc(_t("Issue"))}</h2>'
-                           f'<p class="note bad">Not ready to issue: {esc(issue_err)}</p></div>')
-        else:
-            issue_block = (
-                f'<div class="card"><h2>{esc(_t("Issue"))}</h2>'
-                '<p class="note">Issuing assigns the gap-free invoice number, snapshots the '
-                'issuer + customer, and makes the invoice immutable.</p>'
-                '<form method="post" action="/invoicing/issue">' + _csrf_input()
-                + f'<input type="hidden" name="invoice_id" value="{int(invoice_id)}">'
-                + f'<button>{esc(_t("Issue invoice"))}</button></form></div>')
-        body.append(add)
-        body.append(rc)
-        body.append(issue_block)
+        body.append(_ivc_editor_card(invoicing, inv, lines, invoice_id))
+        body.append(_ivc_options_card(invoicing, inv, invoice_id))
     else:
-        body.append('<div class="card"><p class="note">This invoice is issued and '
-                    'immutable. Download the PDF above.</p></div>')
+        # ---- ISSUED: a read-only line table (immutable) ----
+        body.append(_ivc_readonly_lines_card(invoicing, lines))
+        body.append(f'<div class="card"><p class="note">{esc(_t("This invoice is issued and immutable. Download the PDF above."))}</p></div>')
         # ---- PHASE 4: email the invoice to the customer (issued docs only) ----
         body.append(_ivc_send_card(invoicing, inv, cust))
         # ---- PHASE 4: credit / cancel (ordinary invoices only — not a credit note) ----
@@ -15060,6 +15238,218 @@ def invoicing_compose(invoice_id=None):
         # ---- PHASE 3: payments ledger + record-payment form (issued invoices only) ----
         body.append(_ivc_payments_card(invoicing, inv))
     return page("".join(body), "ivc")
+
+
+def _ivc_readonly_lines_card(invoicing, lines):
+    """The immutable line table shown for an ISSUED invoice (net basis, VAT excluded)."""
+    lrows = []
+    for ln in lines:
+        disc = (f'-{_eur(ln.get("discount_amount"))}'
+                if float(ln.get("discount_amount") or 0) > 0 else "—")
+        lrows.append([
+            esc(ln.get("description") or ""),
+            esc(f'{float(ln.get("quantity") or 0):g}'),
+            esc(ln.get("unit") or ""),
+            _eur(ln.get("unit_price_net")),
+            disc,
+            esc(f'{float(ln.get("vat_rate") or 0) * 100:g}%'),
+            _eur(ln.get("line_net")),
+            _eur(ln.get("line_vat")),
+        ])
+    ltable = (tbl([_t("Description"), _t("Qty"), _t("Unit"), _t("Unit price (net)"),
+                   _t("Discount"), _t("Rate"), _t("Net"), _t("VAT")], lrows)
+              if lrows else f'<p class="note">{esc(_t("No lines yet."))}</p>')
+    return (f'<div class="card"><h2>{esc(_t("Lines (net basis, VAT excluded)"))}</h2>'
+            + ltable + '</div>')
+
+
+# VAT-rate preset options reused by the JS line editor's per-row picker (and the no-JS
+# add-line form). The values are FRACTION strings; "custom" reveals a free-text rate input.
+def _ivc_rate_options(invoicing, selected_rate=None):
+    out = []
+    matched = False
+    for p in invoicing.LV_VAT_RATE_PRESETS:
+        sel = ""
+        if selected_rate is not None and abs(float(selected_rate) - p) < 1e-9:
+            sel = " selected"; matched = True
+        out.append(f'<option value="{p}"{sel}>{p * 100:g}%</option>')
+    cust_sel = " selected" if (selected_rate is not None and not matched) else ""
+    out.append(f'<option value="custom"{cust_sel}>{esc(_t("Custom…"))}</option>')
+    return "".join(out)
+
+
+def _ivc_editor_card(invoicing, inv, lines, invoice_id):
+    """The LINE-ITEMS editor for a DRAFT: a real editable table + a sticky totals panel, with
+    a single Save / Issue that batch-posts every line to /invoicing/lines/save (one round-trip,
+    server-authoritative). PROGRESSIVE ENHANCEMENT: app.js turns this into a no-reload inline
+    editor with a LIVE totals PREVIEW; with JS off the table prefilled rows still post via the
+    same batch endpoint and the legacy per-line add/remove forms below keep working."""
+    rc_on = bool(inv.get("reverse_charge"))
+    # Seed data for the JS editor: the current lines as JSON (server-rendered, escaped in an
+    # attribute). app.js reads it to build the editable rows; the server stays authoritative.
+    import json
+    seed = []
+    for ln in lines:
+        seed.append({
+            "description": ln.get("description") or "",
+            "quantity": float(ln.get("quantity") or 0),
+            "unit": ln.get("unit") or "",
+            "unit_price_net": float(ln.get("unit_price_net") or 0),
+            "vat_rate": float(ln.get("vat_rate") or 0),
+            "discount_kind": ln.get("discount_kind") or "",
+            "discount_value": float(ln.get("discount_value") or 0),
+        })
+    seed_json = json.dumps(seed, ensure_ascii=False)
+
+    # ----- NO-JS fallback: a server-rendered table of the existing lines (read) + the legacy
+    # per-line add/remove forms keep a JS-off user fully able to build the invoice. -----
+    noscript_rows = []
+    for ln in lines:
+        rm = ('<form method="post" action="/invoicing/line/remove" style="display:inline">'
+              + _csrf_input()
+              + f'<input type="hidden" name="invoice_id" value="{int(invoice_id)}">'
+              + f'<input type="hidden" name="line_id" value="{int(ln["id"])}">'
+              + f'<button>{esc(_t("Remove"))}</button></form>')
+        disc_cell = _ivc_line_discount_cell(invoicing, ln)
+        noscript_rows.append([
+            esc(ln.get("description") or ""),
+            esc(f'{float(ln.get("quantity") or 0):g}'),
+            esc(ln.get("unit") or ""),
+            _eur(ln.get("unit_price_net")),
+            disc_cell,
+            esc(f'{float(ln.get("vat_rate") or 0) * 100:g}%'),
+            _eur(ln.get("line_net")),
+            _eur(ln.get("line_vat")),
+            rm,
+        ])
+    noscript_table = (tbl([_t("Description"), _t("Qty"), _t("Unit"), _t("Unit price (net)"),
+                           _t("Discount"), _t("Rate"), _t("Net"), _t("VAT"), ""],
+                          noscript_rows)
+                      if noscript_rows else f'<p class="note">{esc(_t("No lines yet."))}</p>')
+    # legacy add-line form (no-JS path)
+    add = (
+        '<form method="post" action="/invoicing/line/add" class="f">' + _csrf_input()
+        + f'<input type="hidden" name="invoice_id" value="{int(invoice_id)}">'
+        + f'<label style="flex:1 1 100%">{esc(_t("Description"))}<input name="description" required></label>'
+        + f'<label>{esc(_t("Quantity"))}<input name="quantity" required inputmode="decimal" style="width:110px"></label>'
+        + f'<label>{esc(_t("Unit"))}<input name="unit" style="width:90px"></label>'
+        + f'<label>{esc(_t("Unit price (net)"))}<input name="unit_price_net" required inputmode="decimal" style="width:140px"></label>'
+        + f'<label>{esc(_t("VAT rate (Latvia 2026)"))}<select name="vat_rate_preset" style="width:150px">'
+        + _ivc_rate_options(invoicing) + '</select></label>'
+        + f'<label>{esc(_t("Custom rate %"))}<input name="vat_rate" inputmode="decimal" style="width:110px" '
+        + f'placeholder="{esc(_t("(only if Custom)"))}"></label>'
+        + f'<label>{esc(_t("Line discount"))}<select name="discount_kind" style="width:130px">'
+          f'<option value="">{esc(_t("none"))}</option>'
+          f'<option value="percent">{esc(_t("percent (%)"))}</option>'
+          f'<option value="amount">{esc(_t("amount (EUR)"))}</option></select></label>'
+        + f'<label>{esc(_t("Discount value"))}<input name="discount_value" inputmode="decimal" '
+          'style="width:110px" placeholder="0"></label>'
+        + f'<div style="margin-top:8px"><button>{esc(_t("Add line"))}</button></div>'
+        + '</form>')
+    noscript_block = (
+        '<noscript>'
+        + noscript_table
+        + f'<h3>{esc(_t("Add a line"))}</h3>' + add
+        + '</noscript>')
+
+    # ----- JS editor mount point. app.js (data-ivc-editor) replaces this with the live
+    # editable table + totals preview; it stays empty/invisible with JS off (the <noscript>
+    # path above is what a JS-off user sees + uses). -----
+    issue_err = invoicing.validate_for_issue(invoice_id)
+    rate_opts = _ivc_rate_options(invoicing)
+    editor = (
+        f'<div data-ivc-editor '
+        f'data-invoice-id="{int(invoice_id)}" '
+        f'data-rc="{"1" if rc_on else "0"}" '
+        f'data-currency="{esc(inv.get("currency") or "EUR")}" '
+        f'data-disc-kind="{esc(inv.get("disc_kind") or "")}" '
+        f'data-disc-value="{esc(_ivc_g(inv.get("disc_value")))}" '
+        f'data-rate-options="{esc(rate_opts)}" '
+        f"data-lines='{esc(seed_json)}' "
+        f'data-csrf="{esc(_csrf_token())}" '
+        f'data-issue-ready="{"0" if issue_err else "1"}" '
+        f'data-issue-err="{esc(issue_err or "")}" '
+        # i18n strings the JS editor renders (escaped; read as data-* attrs):
+        f'data-l-desc="{esc(_t("Description"))}" '
+        f'data-l-qty="{esc(_t("Qty"))}" '
+        f'data-l-unit="{esc(_t("Unit"))}" '
+        f'data-l-price="{esc(_t("Unit price (net)"))}" '
+        f'data-l-rate="{esc(_t("Rate"))}" '
+        f'data-l-disc="{esc(_t("Discount"))}" '
+        f'data-l-net="{esc(_t("Net"))}" '
+        f'data-l-vat="{esc(_t("VAT"))}" '
+        f'data-l-custom="{esc(_t("Custom…"))}" '
+        f'data-l-none="{esc(_t("none"))}" '
+        f'data-l-addrow="{esc(_t("+ Add line"))}" '
+        f'data-l-remove="{esc(_t("Remove"))}" '
+        f'data-l-nettotal="{esc(_t("Net total"))}" '
+        f'data-l-vattotal="{esc(_t("VAT total"))}" '
+        f'data-l-grand="{esc(_t("Grand total"))}" '
+        f'data-l-docdisc="{esc(_t("Document discount"))}" '
+        f'data-l-preview="{esc(_t("preview — the server recomputes the final figures on Save/Issue"))}" '
+        f'data-l-save="{esc(_t("Save draft"))}" '
+        f'data-l-issue="{esc(_t("Issue invoice"))}" '
+        f'data-l-saving="{esc(_t("Saving…"))}" '
+        f'data-l-notready="{esc(_t("Not ready to issue"))}">'
+        '</div>')
+
+    help_note = (f'<p class="note">{esc(_t("Edit lines in place — description, quantity, unit, net unit price, the Latvia VAT rate (21% standard · 12% / 5% reduced · 0% · or Custom) and an optional line discount. Totals update live as a preview; Save draft (or Issue) posts every line in one step and the server recomputes the authoritative VAT and totals."))}</p>'
+                 + (f'<p class="note">{esc(_t("Reverse charge is ON: lines are at 0% VAT (the recipient accounts for VAT)."))}</p>'
+                    if rc_on else ''))
+    return (f'<div class="card"><h2>{esc(_t("Line items"))}</h2>'
+            + editor + noscript_block + help_note + '</div>')
+
+
+def _ivc_options_card(invoicing, inv, invoice_id):
+    """The 'More options' disclosure (reverse-charge / simplified / supply-date / FX / document
+    discount) + the no-JS Issue button. These are lower-frequency settings tucked behind a
+    <details> so the editor stays uncluttered; they still post to the existing handlers."""
+    rc_on = bool(inv.get("reverse_charge"))
+    _dv = float(inv.get("disc_value") or 0)
+    _dv_s = f"{_dv:g}" if _dv > 0 else ""
+    settings_form = (
+        '<form method="post" action="/invoicing/fields/save" class="f">' + _csrf_input()
+        + f'<input type="hidden" name="invoice_id" value="{int(invoice_id)}">'
+        + f'<label>{esc(_t("Reverse charge"))} '
+        + f'<input type="checkbox" name="reverse_charge" {"checked" if rc_on else ""}></label>'
+        + f'<label>{esc(_t("Simplified invoice"))} (gross &le; €150) '
+        + f'<input type="checkbox" name="simplified" '
+          f'{"checked" if inv.get("simplified") else ""}></label>'
+        + f'<label>{esc(_t("Supply date"))}<input name="supply_date" type="date" '
+          f'value="{esc(inv.get("supply_date") or "")}"></label>'
+        + (f'<label>{esc(_t("FX rate"))} ({esc(inv.get("currency") or "")} per 1 EUR)'
+           f'<input name="fx_rate" inputmode="decimal" style="width:130px" '
+           f'value="{esc(str(inv.get("fx_rate")) if inv.get("fx_rate") not in (None, "") else "")}">'
+           '</label>' if (inv.get("currency") or "EUR") != "EUR" else "")
+        + f'<label>{esc(_t("Document discount"))}<select name="disc_kind" style="width:130px">'
+        + ''.join(f'<option value="{esc(k)}" {"selected" if (inv.get("disc_kind") or "")==k else ""}>{esc(lbl)}</option>'
+                  for k, lbl in (("", _t("none")), ("percent", _t("percent (%)")),
+                                 ("amount", _t("amount (EUR)"))))
+        + '</select></label>'
+        + f'<label>{esc(_t("Discount value"))}<input name="disc_value" inputmode="decimal" '
+          f'style="width:110px" value="{esc(_dv_s)}"></label>'
+        + f'<div style="margin-top:8px"><button>{esc(_t("Update settings"))}</button></div>'
+        + f'<p class="note">{esc(_t("An invoice-level (document) discount is allocated across the VAT rates proportionally — VAT is recomputed on the post-discount net. Reverse charge applies to a cross-border EU B2B customer (0% VAT, the recipient accounts for VAT). Toggling it re-rates existing lines; re-enter line rates if you turn it back off. A simplified invoice (EU VAT Dir. Art. 238, gross ≤ €150) relaxes the customer-detail requirement. For a non-EUR invoice, supply the FX rate (currency per 1 EUR) so the VAT total can also be stated in EUR (LV/EU rule); leave blank to use a cached ECB rate."))}</p>'
+        + '</form>')
+    options = (
+        '<details class="card"><summary style="cursor:pointer;font-weight:600">'
+        + str(esc(_t("More options")))
+        + '</summary><div style="margin-top:10px">' + settings_form + '</div></details>')
+
+    # The no-JS Issue button (the JS editor issues via its own Save/Issue batch button).
+    issue_err = invoicing.validate_for_issue(invoice_id)
+    if issue_err:
+        issue_block = (
+            f'<noscript><div class="card"><h2>{esc(_t("Issue"))}</h2>'
+            f'<p class="note bad">{esc(_t("Not ready to issue"))}: {esc(issue_err)}</p></div></noscript>')
+    else:
+        issue_block = (
+            f'<noscript><div class="card"><h2>{esc(_t("Issue"))}</h2>'
+            f'<p class="note">{esc(_t("Issuing assigns the gap-free invoice number, snapshots the issuer + customer, and makes the invoice immutable."))}</p>'
+            '<form method="post" action="/invoicing/issue">' + _csrf_input()
+            + f'<input type="hidden" name="invoice_id" value="{int(invoice_id)}">'
+            + f'<button>{esc(_t("Issue invoice"))}</button></form></div></noscript>')
+    return options + issue_block
 
 
 def _ivc_send_card(invoicing, inv, cust):
@@ -15179,23 +15569,95 @@ def _ivc_payments_card(invoicing, inv):
 
 @app.route("/invoicing/create", methods=["POST"])
 def invoicing_create():
+    """Start a draft. The customer may be an EXISTING one (customer_id) OR created INLINE in
+    the SAME action (customer_mode='new' → add_customer first, then create_draft) so the user
+    never leaves for the customer book. Lands directly in the editor."""
     import invoicing
     f = request.form
-    try:
-        cid = int(f.get("customer_id") or "0")
-    except (TypeError, ValueError):
-        cid = 0
     doc_type = (f.get("doc_type") or "invoice").strip().lower()
     if doc_type not in ("invoice", "proforma", "quote"):
         doc_type = "invoice"
+    # INLINE new customer: when the user chose "+ New customer", create it now, then the
+    # draft against it — one round-trip, server-authoritative (add_customer → create_draft).
+    cid = 0
+    if (f.get("customer_mode") or "").strip() == "new":
+        cust, cerr = invoicing.add_customer(
+            name=f.get("new_name"), vat_number=f.get("new_vat_number"),
+            address=f.get("new_address"), country=f.get("new_country"),
+            email=f.get("new_email"), created_by=session.get("user"))
+        if cerr or not cust:
+            return page(_ivc_banner(False, cerr or _t("Could not add customer."))
+                        + f'<p><a href="/invoicing/compose">{esc(_t("Back"))}</a></p>', "ivc")
+        cid = int(cust["id"])
+    else:
+        try:
+            cid = int(f.get("customer_id") or "0")
+        except (TypeError, ValueError):
+            cid = 0
     inv, err = invoicing.create_draft(customer_id=cid or None,
                                       currency=(f.get("currency") or "EUR"),
                                       doc_type=doc_type,
                                       created_by=session.get("user"))
     if err or not inv:
-        return page(_ivc_banner(False, err or "Could not start the draft.")
-                    + '<p><a href="/invoicing/compose">Back</a></p>', "ivc")
+        return page(_ivc_banner(False, err or _t("Could not start the draft."))
+                    + f'<p><a href="/invoicing/compose">{esc(_t("Back"))}</a></p>', "ivc")
     return redirect(f"/invoicing/compose/{int(inv['id'])}")
+
+
+def _ivc_lines_from_json(raw):
+    """Parse the editor's single hidden `lines` JSON field into a list of line dicts for
+    invoicing.replace_lines. Tolerant — a bad payload yields []. Each row's vat_rate is
+    normalised to a FRACTION via _parse_rate so '21', '21%' and '0.21' all work (the
+    SERVER recomputes every money figure; the client only sends the inputs)."""
+    import json
+    try:
+        data = json.loads(raw or "[]")
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    out = []
+    for ln in data:
+        if not isinstance(ln, dict):
+            continue
+        out.append({
+            "description": ln.get("description") or "",
+            "quantity": ln.get("quantity") or 0,
+            "unit": ln.get("unit") or "",
+            "unit_price_net": ln.get("unit_price_net") or 0,
+            "vat_rate": _parse_rate(str(ln.get("vat_rate") or "0")),
+            "discount_kind": ln.get("discount_kind") or "",
+            "discount_value": ln.get("discount_value") or 0,
+        })
+    return out
+
+
+@app.route("/invoicing/lines/save", methods=["POST"])
+def invoicing_lines_save():
+    """BATCH line save: replace ALL of a DRAFT's lines in ONE round-trip (the JS editor posts
+    every line as a hidden `lines` JSON field), recompute the SERVER-authoritative totals, and
+    — when action='issue' — issue the invoice. This collapses the old N-per-line round-trips to
+    one while the server stays the source of truth for every money/legal figure (it recomputes
+    VAT/totals via invoicing.replace_lines and assigns the gap-free number via invoicing.issue;
+    the client preview is never trusted for a stored figure). Admin-only, CSRF (global hook),
+    audited. The no-JS path keeps using the existing per-line add/remove forms."""
+    import invoicing
+    f = request.form
+    try:
+        iid = int(f.get("invoice_id") or "0")
+    except (TypeError, ValueError):
+        iid = 0
+    lines = _ivc_lines_from_json(f.get("lines"))
+    inv, err = invoicing.replace_lines(iid, lines)
+    if err or not inv:
+        return page(_ivc_banner(False, err or _t("Could not save the lines."))
+                    + f'<p><a href="/invoicing/compose/{iid}">{esc(_t("Back"))}</a></p>', "ivc")
+    if (f.get("action") or "save").strip() == "issue":
+        issued, ierr = invoicing.issue(iid, issued_by=session.get("user"))
+        if ierr or not issued:
+            return page(_ivc_banner(False, ierr or _t("Could not issue."))
+                        + f'<p><a href="/invoicing/compose/{iid}">{esc(_t("Back"))}</a></p>', "ivc")
+    return redirect(f"/invoicing/compose/{iid}")
 
 
 # ============================================================ PHASE 6: recurring invoices
