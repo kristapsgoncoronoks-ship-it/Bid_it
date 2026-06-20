@@ -457,4 +457,43 @@ CATALOG = {
         "līderis starp procesiem) — iespējojiet darbinieku, lai tas patiešām darbotos. "
         "“Izveidot pienākušos tagad” darbojas bez plānotāja. Ģenerēšana ir idempotenta: "
         "viena veidne katrā termiņā izveido ne vairāk kā vienu rēķinu.",
+    # PHASE 7 — logo / branding, discounts, proforma / quote ----------------------
+    "PROFORMA INVOICE": "Priekšapmaksas rēķins",
+    "Proforma invoice": "Priekšapmaksas rēķins",
+    "Proforma series": "Priekšapmaksas sērija",
+    "QUOTE": "Piedāvājums",
+    "Quote": "Piedāvājums",
+    "Quote series": "Piedāvājuma sērija",
+    "Credit-note series": "Kreditrēķina sērija",
+    "Document type": "Dokumenta tips",
+    "not a VAT invoice, not a demand for payment":
+        "nav PVN rēķins, nav maksājuma pieprasījums",
+    "not a VAT invoice": "nav PVN rēķins",
+    "This is a quote — not a demand for payment.":
+        "Šis ir piedāvājums — nav maksājuma pieprasījums.",
+    "Proforma — for advance payment / order confirmation; not a VAT invoice.":
+        "Priekšapmaksas rēķins — avansa maksājumam / pasūtījuma apstiprinājumam; nav PVN rēķins.",
+    "Discount": "Atlaide",
+    "Line discount": "Rindas atlaide",
+    "Document discount": "Dokumenta atlaide",
+    "Discount value": "Atlaides vērtība",
+    "Subtotal (net)": "Starpsumma (neto)",
+    "none": "nav",
+    "percent (%)": "procenti (%)",
+    "amount (EUR)": "summa (EUR)",
+    "Apply": "Piemērot",
+    "Convert to invoice": "Pārvērst par rēķinu",
+    "Could not convert to invoice.": "Neizdevās pārvērst par rēķinu.",
+    "Creates a real DRAFT invoice copying the customer, lines and discounts; it then "
+    "issues normally and gets the legal invoice number.":
+        "Izveido īstu rēķina MELNRAKSTU, kopējot klientu, rindas un atlaides; pēc tam to "
+        "izraksta parastā kārtībā un piešķir likumīgo rēķina numuru.",
+    "Brand colour": "Zīmola krāsa",
+    "Logo image (PNG/JPG, max 512 KiB)": "Logotipa attēls (PNG/JPG, maks. 512 KiB)",
+    "Remove logo": "Noņemt logotipu",
+    "A logo is set": "Logotips ir iestatīts",
+    "No logo set.": "Logotips nav iestatīts.",
+    "Logo saved.": "Logotips saglabāts.",
+    "Logo removed.": "Logotips noņemts.",
+    "Could not save the logo.": "Neizdevās saglabāt logotipu.",
 }

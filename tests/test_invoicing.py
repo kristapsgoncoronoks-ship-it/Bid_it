@@ -46,11 +46,14 @@ def _set_issuer(inv, **over):
 # ====================================================================== VAT math
 def test_compute_line_half_up_rounding(inv):
     # 1 * 10.005 * (rate handled separately): use a known half-up trap on net
-    net, vat, rate = inv.compute_line(quantity=3, unit_price_net=2.675, vat_rate=0.21)
+    # PHASE 7: compute_line now returns (net, vat, rate, gross_net, discount).
+    net, vat, rate, gross_net, disc = inv.compute_line(
+        quantity=3, unit_price_net=2.675, vat_rate=0.21)
     # 3 * 2.675 = 8.025 -> half-up -> 8.03 (banker's would give 8.02)
     assert net == 8.03, net
     assert vat == money.f2(8.03 * 0.21), vat
     assert rate == 0.21
+    assert gross_net == 8.03 and disc == 0.0
 
 
 def test_multi_rate_totals_and_breakdown(inv):

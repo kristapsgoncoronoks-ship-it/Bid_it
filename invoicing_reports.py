@@ -94,12 +94,16 @@ def _month_end(year, month):
 def _issued_docs(start, end, doc_type=None):
     """Every ISSUED (non-draft) invoice/credit-note whose ISSUE DATE is in [start, end],
     tenant-scoped, with the customer name joined. doc_type=None returns both. Read-only;
-    never raises -> []. Reuses invoicing.connect()/scope_clause so this is tenant-safe."""
+    never raises -> []. Reuses invoicing.connect()/scope_clause so this is tenant-safe.
+
+    PROFORMA / QUOTE are EXCLUDED — they are not tax invoices and must never be counted in
+    the VAT-output / revenue reports (they carry no legal amount / no output VAT)."""
     import invoicing
     import tenancy
     frag, tp = tenancy.scope_clause(column="i.tenant_id")
     where = ["i.status<>'draft'", "i.issue_date IS NOT NULL",
-             "i.issue_date>=?", "i.issue_date<=?"]
+             "i.issue_date>=?", "i.issue_date<=?",
+             "i.doc_type IN ('invoice','credit_note')"]
     params = [start, end]
     if doc_type is not None:
         where.append("i.doc_type=?")
@@ -296,7 +300,8 @@ def _customer_payments(customer_id, start=None, end=None):
     import invoicing
     import tenancy
     frag, tp = tenancy.scope_clause(column="p.tenant_id")
-    where = ["i.customer_id=?", "i.status<>'draft'"]
+    where = ["i.customer_id=?", "i.status<>'draft'",
+             "i.doc_type IN ('invoice','credit_note')"]
     params = [customer_id]
     if start:
         where.append("p.paid_date>=?")
@@ -326,7 +331,8 @@ def _customer_docs(customer_id, start=None, end=None):
     import invoicing
     import tenancy
     frag, tp = tenancy.scope_clause(column="i.tenant_id")
-    where = ["i.customer_id=?", "i.status<>'draft'", "i.issue_date IS NOT NULL"]
+    where = ["i.customer_id=?", "i.status<>'draft'", "i.issue_date IS NOT NULL",
+             "i.doc_type IN ('invoice','credit_note')"]
     params = [customer_id]
     if start:
         where.append("i.issue_date>=?")

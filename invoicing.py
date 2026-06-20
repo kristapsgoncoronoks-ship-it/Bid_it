@@ -98,6 +98,19 @@ STATUSES = (STATUS_DRAFT, STATUS_ISSUED, STATUS_SENT, STATUS_PARTIALLY_PAID,
 # whole distinction.
 DOC_INVOICE = "invoice"
 DOC_CREDIT_NOTE = "credit_note"
+# PHASE 7: PROFORMA invoice / QUOTE. NEITHER is a tax invoice — they do NOT consume a legal
+# invoice number (they number from their OWN non-legal series), trigger NO output VAT, and are
+# EXCLUDED everywhere a real invoice is counted (the VAT-output report, AR/aging, revenue, and
+# bank-matching all filter doc_type='invoice'). A proforma/quote is freely editable like any
+# draft; it can be CONVERTED to a real DRAFT invoice (copying customer + lines + discounts),
+# which then issues normally and gets the legal invoice number.
+DOC_PROFORMA = "proforma"
+DOC_QUOTE = "quote"
+# The set of "real tax invoice" doc types that count toward output VAT / AR / revenue / bank
+# matching. A proforma/quote is deliberately NOT in here (see the filters that reference it).
+REAL_INVOICE_TYPES = (DOC_INVOICE,)
+# Non-legal document types (no legal number, no output VAT, excluded from real-invoice counting).
+NON_LEGAL_TYPES = (DOC_PROFORMA, DOC_QUOTE)
 # The statuses on which a payment may be recorded (a draft has no legal amount due).
 _PAYABLE_STATUSES = (STATUS_ISSUED, STATUS_SENT, STATUS_PARTIALLY_PAID, STATUS_PAID)
 # Payment sources (provenance of a payment row).
@@ -108,8 +121,9 @@ PAYMENT_SOURCE_BANK = "bank"
 # audited via the normal settings audit). Kept as flat settings in Phase 1; a per-tenant
 # issuers table is a Phase 2 item (see module docstring).
 ISSUER_KEYS = ("name", "address", "vat_number", "reg_no", "iban", "bank",
-               "series", "credit_series", "number_format", "payment_terms_days",
-               "logo_text")
+               "series", "credit_series", "proforma_series", "quote_series",
+               "number_format", "payment_terms_days",
+               "logo_text", "brand_color")
 SETTING_PREFIX = "invoice_issuer_"
 
 # The number format placeholders: {series}, {year}, {seq} (seq zero-padded to {pad}).
@@ -119,8 +133,21 @@ DEFAULT_SERIES = "INV"
 # gap-free counter is independent of the invoice series — a credit note can never share a
 # number with an invoice.
 DEFAULT_CREDIT_SERIES = "KR"
+# PHASE 7: a PROFORMA invoice / a QUOTE number from their OWN non-legal series so their counter
+# can NEVER take a number from the legal invoice series (default 'PROF' / 'PIED' = piedāvājums).
+DEFAULT_PROFORMA_SERIES = "PROF"
+DEFAULT_QUOTE_SERIES = "PIED"
 DEFAULT_PAYMENT_TERMS_DAYS = 14
 DEFAULT_CURRENCY = "EUR"
+# PHASE 7: a default brand/accent colour for the invoice header (overridable per issuer).
+DEFAULT_BRAND_COLOR = "#0a3d62"
+# Logo upload constraints: a small, header-sized image embedded as a data: URI in the PDF.
+LOGO_MAX_BYTES = 512 * 1024            # 512 KiB cap on the stored logo image
+LOGO_ALLOWED_MIME = ("image/png", "image/jpeg")
+# Discount kinds for a line / document discount (a PERCENT of the base, or a fixed AMOUNT).
+DISC_NONE = ""
+DISC_PERCENT = "percent"
+DISC_AMOUNT = "amount"
 
 # Latvia 2026 VAT-rate presets offered as a dropdown in the line editor (a custom rate
 # is still allowed). Stored/used as FRACTIONS. 21% standard, 12% reduced (e.g. heating,
@@ -253,6 +280,18 @@ CREATE TABLE IF NOT EXISTS invoice_payments (
     tenant_id   TEXT NOT NULL DEFAULT 'default'
 );
 CREATE INDEX IF NOT EXISTS ix_invoice_payments_invoice ON invoice_payments(invoice_id);
+
+-- PHASE 7: the issuer LOGO image (bytes) lives in the app-owned invoicing DB, NOT in
+-- app_settings (which holds text only). One row per tenant (the issuer profile is global
+-- today; tenant_id keeps the multi-tenant seam). Embedded as a data: URI on the PDF.
+CREATE TABLE IF NOT EXISTS issuer_logo (
+    tenant_id   TEXT NOT NULL DEFAULT 'default',
+    mime        TEXT,
+    data        BLOB,
+    updated_at  TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_by  TEXT,
+    PRIMARY KEY (tenant_id)
+);
 """
 
 # Versioned migrations: APPEND new statements at the END (positions are stable).
@@ -349,11 +388,33 @@ _MIGRATIONS = [
     # Linkage on the generated invoice back to its source template (traceability + the AR
     # views can show 'recurring'). NULL for an ordinary, hand-composed invoice.
     "ALTER TABLE invoices ADD COLUMN from_template_id INTEGER",
+    # PHASE 7 — DISCOUNTS + PROFORMA/QUOTE ------------------------------------
+    # LINE-level discount: a kind ('percent' | 'amount' | '' = none) + a value. The
+    # discounted line net = q2(qty*unit_price_net) − discount (clamped ≥ 0); VAT is computed
+    # on the DISCOUNTED net. `line_net`/`line_vat` are STORED POST-DISCOUNT (so the VAT-output
+    # report and every read sees the post-discount figures). `gross_amount` keeps the
+    # PRE-discount line net for the PDF/e-invoice (the EN-16931 line allowance base BG-27/28).
+    "ALTER TABLE invoice_lines ADD COLUMN discount_kind TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE invoice_lines ADD COLUMN discount_value REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE invoice_lines ADD COLUMN discount_amount REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE invoice_lines ADD COLUMN gross_amount REAL NOT NULL DEFAULT 0",
+    # INVOICE-level (document) discount: a kind + a value, allocated PER VAT RATE so each
+    # rate's taxable net (and its VAT) is reduced proportionally (VAT on the post-discount
+    # net). `disc_amount` snapshots the actually-applied document allowance amount (the
+    # EN-16931 BT-107 allowance total / BG-20 document allowance).
+    "ALTER TABLE invoices ADD COLUMN disc_kind TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE invoices ADD COLUMN disc_value REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE invoices ADD COLUMN disc_amount REAL NOT NULL DEFAULT 0",
+    # PROFORMA/QUOTE: when a proforma/quote is CONVERTED to a real draft invoice, the new
+    # invoice links back to the source proforma (traceability). NULL otherwise.
+    "ALTER TABLE invoices ADD COLUMN converted_from_id INTEGER",
+    "CREATE INDEX IF NOT EXISTS ix_invoices_converted_from "
+    "ON invoices(converted_from_id) WHERE converted_from_id IS NOT NULL",
 ]
 
 _AUDITED_TABLES = ["bill_customers", "invoices", "invoice_lines",
                    "invoice_counters", "invoice_payments",
-                   "recurring_templates", "recurring_runs"]
+                   "recurring_templates", "recurring_runs", "issuer_logo"]
 
 _SCHEMA_READY = set()   # DB files whose schema is set up this process
 
@@ -387,8 +448,11 @@ def get_issuer():
         out = {k: "" for k in ISSUER_KEYS}
     out["series"] = out.get("series") or DEFAULT_SERIES
     out["credit_series"] = out.get("credit_series") or DEFAULT_CREDIT_SERIES
+    out["proforma_series"] = out.get("proforma_series") or DEFAULT_PROFORMA_SERIES
+    out["quote_series"] = out.get("quote_series") or DEFAULT_QUOTE_SERIES
     out["number_format"] = out.get("number_format") or DEFAULT_NUMBER_FORMAT
     out["payment_terms_days"] = out.get("payment_terms_days") or str(DEFAULT_PAYMENT_TERMS_DAYS)
+    out["brand_color"] = out.get("brand_color") or DEFAULT_BRAND_COLOR
     return out
 
 
@@ -409,6 +473,98 @@ def issuer_complete(issuer=None):
     *present* on the entity, but name/address/VAT are."""
     iss = issuer or get_issuer()
     return all((iss.get(k) or "").strip() for k in ("name", "address", "vat_number"))
+
+
+# ============================================================ PHASE 7: issuer LOGO / branding
+# The issuer LOGO is an optional small header image (PNG/JPG, size-capped). It is stored as
+# BYTES in the app-owned invoicing DB (issuer_logo), NOT in app_settings (text only). It is
+# embedded as a data: URI in the invoice HTML so wkhtmltopdf renders it; the dependency-free
+# Latvian fallback simply OMITS it (it has no image support). A missing/corrupt logo NEVER
+# breaks PDF generation — every read path degrades gracefully.
+
+def _sniff_image_mime(data):
+    """Detect PNG/JPEG from the magic bytes. Returns a mime string or None. Pure."""
+    if not data or len(data) < 4:
+        return None
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    return None
+
+
+def set_issuer_logo(data, *, mime=None, updated_by=None):
+    """Store (or, with data=None/empty, CLEAR) the issuer logo image. Validates the size cap
+    and that the bytes are a real PNG/JPEG (sniffed, not trusted from the upload). Returns
+    (mime, "") on success / ("", "") on clear / (None, error). Never raises."""
+    tenant = tenancy.write_tenant()
+    try:
+        if not data:
+            con = connect()
+            try:
+                con.execute("DELETE FROM issuer_logo WHERE tenant_id=?", (tenant,))
+                con.commit()
+            finally:
+                con.close()
+            return "", ""
+        if len(data) > LOGO_MAX_BYTES:
+            return None, (f"the logo is too large (max {LOGO_MAX_BYTES // 1024} KiB) — "
+                          "use a smaller PNG or JPG")
+        sniffed = _sniff_image_mime(data)
+        if sniffed is None:
+            return None, "the logo must be a PNG or JPG image"
+        use_mime = sniffed   # trust the magic bytes, never the client-supplied mime
+        con = connect()
+        try:
+            con.execute(
+                "INSERT INTO issuer_logo (tenant_id, mime, data, updated_at, updated_by) "
+                "VALUES (?,?,?,?,?) "
+                "ON CONFLICT(tenant_id) DO UPDATE SET mime=excluded.mime, "
+                "data=excluded.data, updated_at=excluded.updated_at, "
+                "updated_by=excluded.updated_by",
+                (tenant, use_mime, sqlite3.Binary(data),
+                 datetime.datetime.utcnow().isoformat(timespec="seconds"), updated_by))
+            con.commit()
+        finally:
+            con.close()
+        return use_mime, ""
+    except Exception as e:
+        log.exception("set_issuer_logo failed")
+        return None, f"could not store the logo ({str(e)[:80]})"
+
+
+def get_issuer_logo():
+    """The stored issuer logo as (mime, bytes), or (None, None) when none is set. Tenant-
+    scoped. Read path — never raises -> (None, None)."""
+    frag, tp = tenancy.scope_clause()
+    try:
+        con = connect()
+        try:
+            row = con.execute("SELECT mime, data FROM issuer_logo WHERE 1=1" + frag,
+                              tp).fetchone()
+        finally:
+            con.close()
+        if not row or not row["data"]:
+            return None, None
+        return row["mime"], bytes(row["data"])
+    except Exception as e:
+        log.warning("get_issuer_logo failed: %s", e)
+        return None, None
+
+
+def logo_data_uri():
+    """The issuer logo as an embeddable `data:` URI for the HTML→PDF header, or "" when no
+    logo is set / it can't be read. NEVER raises (a bad logo degrades to no image)."""
+    try:
+        mime, data = get_issuer_logo()
+        if not data or not mime:
+            return ""
+        import base64
+        b64 = base64.b64encode(data).decode("ascii")
+        return f"data:{mime};base64,{b64}"
+    except Exception as e:
+        log.warning("logo_data_uri failed, omitting logo: %s", e)
+        return ""
 
 
 # ============================================================ bill-to customers (CRUD)
@@ -531,36 +687,140 @@ def list_customers(include_inactive=True):
 
 
 # ============================================================ VAT math (the heart)
-def compute_line(quantity, unit_price_net, vat_rate, reverse_charge=False):
-    """Per-line money: line_net = qty * unit_price_net (quantized half-up),
-    line_vat = line_net * effective_rate. Under reverse charge the effective rate is 0.
-    Returns (line_net, line_vat, effective_rate) as floats / float. Pure, never raises."""
+def line_discount_amount(gross_net, discount_kind, discount_value):
+    """The MONEY discount on ONE line given its PRE-discount net `gross_net`. A PERCENT kind
+    takes `value`% of the gross net; an AMOUNT kind takes the fixed value. The result is
+    quantized half-up and CLAMPED to [0, gross_net] (a discount can never make a line
+    negative, nor be negative). Returns a Decimal. Pure, never raises."""
+    base = money.D(gross_net or 0)
+    kind = (discount_kind or "").strip().lower()
+    try:
+        val = money.D(discount_value or 0)
+    except Exception:
+        val = money.D(0)
+    if val <= 0 or base <= 0:
+        return money.D(0)
+    if kind == DISC_PERCENT:
+        disc = money.q2(base * val / money.D(100))
+    elif kind == DISC_AMOUNT:
+        disc = money.q2(val)
+    else:
+        return money.D(0)
+    if disc < 0:
+        disc = money.D(0)
+    if disc > money.q2(base):
+        disc = money.q2(base)
+    return disc
+
+
+def compute_line(quantity, unit_price_net, vat_rate, reverse_charge=False,
+                 discount_kind="", discount_value=0):
+    """Per-line money. The PRE-discount net = q2(qty*unit_price_net); the LINE DISCOUNT
+    (percent of that net, or a fixed amount, clamped to [0, net]) is subtracted to give the
+    DISCOUNTED line net, and VAT is computed on the DISCOUNTED net. Under reverse charge the
+    effective rate is 0. Returns (line_net, line_vat, effective_rate, gross_net, discount)
+    — line_net/line_vat are POST-discount; gross_net is the PRE-discount net; discount is the
+    money discount. All floats (rate float). Pure, never raises."""
     qty = money.D(quantity)
     price = money.D(unit_price_net)
     rate = money.D(0) if reverse_charge else money.D(vat_rate)
-    net = money.q2(qty * price)
+    gross_net = money.q2(qty * price)
+    disc = line_discount_amount(gross_net, discount_kind, discount_value)
+    net = money.q2(gross_net - disc)
+    if net < 0:
+        net = money.D(0)
     vat = money.q2(net * rate)
-    return float(net), float(vat), float(rate)
+    return float(net), float(vat), float(rate), float(gross_net), float(disc)
 
 
-def compute_totals(lines, reverse_charge=False):
+def document_discount_amount(net_total, disc_kind, disc_value):
+    """The TOTAL document-level discount given the post-line-discount net total. PERCENT =
+    value% of the net total; AMOUNT = the fixed value; clamped to [0, net_total]. Returns a
+    Decimal (quantized half-up). Pure, never raises."""
+    base = money.D(net_total or 0)
+    kind = (disc_kind or "").strip().lower()
+    try:
+        val = money.D(disc_value or 0)
+    except Exception:
+        val = money.D(0)
+    if val <= 0 or base <= 0:
+        return money.D(0)
+    if kind == DISC_PERCENT:
+        disc = money.q2(base * val / money.D(100))
+    elif kind == DISC_AMOUNT:
+        disc = money.q2(val)
+    else:
+        return money.D(0)
+    if disc < 0:
+        disc = money.D(0)
+    if disc > money.q2(base):
+        disc = money.q2(base)
+    return disc
+
+
+def _allocate_document_discount(by_rate, total_discount):
+    """Allocate a document-level discount across the per-rate buckets PROPORTIONALLY to each
+    bucket's (post-line-discount) net, so VAT is recomputed on the POST-document-discount net
+    per rate and the totals tie out EXACTLY (cents). `by_rate` is a list of
+    {"rate","net","vat"} dicts; `total_discount` is a Decimal. Returns a NEW list of
+    {"rate","net","vat","alloc"} (alloc = the discount removed from that bucket). The
+    allocation is cents-exact: it floors each share and hands the rounding remainder to the
+    LARGEST-net bucket so Σalloc == total_discount precisely. Pure."""
+    disc = money.q2(total_discount or 0)
+    rows = [dict(r) for r in by_rate]
+    base_total = money.D(money.fsum([r["net"] for r in rows]))
+    if disc <= 0 or base_total <= 0:
+        for r in rows:
+            r["alloc"] = 0.0
+        return rows
+    # cents-exact proportional split: floor each share, distribute the remainder.
+    allocs = []
+    for r in rows:
+        share = (money.D(r["net"]) * disc) / base_total
+        allocs.append(money.q2(share))
+    # fix the rounding drift so Σalloc == disc exactly.
+    drift = disc - money.D(money.fsum([float(a) for a in allocs]))
+    if drift != 0 and rows:
+        # hand the (small) drift to the largest-net bucket.
+        idx = max(range(len(rows)), key=lambda i: money.D(rows[i]["net"]))
+        allocs[idx] = money.q2(allocs[idx] + drift)
+    out = []
+    for r, a in zip(rows, allocs):
+        a = money.q2(a)
+        if a > money.q2(r["net"]):
+            a = money.q2(r["net"])
+        new_net = money.q2(money.D(r["net"]) - a)
+        new_vat = money.q2(new_net * money.D(r["rate"]))
+        out.append({"rate": r["rate"], "net": float(new_net), "vat": float(new_vat),
+                    "alloc": float(a)})
+    return out
+
+
+def compute_totals(lines, reverse_charge=False, disc_kind="", disc_value=0):
     """Compute the per-VAT-rate breakdown and the grand totals from a list of line dicts
-    (each with quantity, unit_price_net, vat_rate). Returns a dict:
+    (each with quantity, unit_price_net, vat_rate and optional discount_kind/discount_value).
+    A DOCUMENT-level discount (disc_kind/disc_value) is allocated PER RATE proportionally and
+    VAT is recomputed on the post-discount net. Returns a dict:
 
-        {"lines": [{...line with line_net/line_vat/rate...}],
-         "by_rate": [{"rate": 0.21, "net": .., "vat": ..}, ...] (rate asc),
-         "net_total": .., "vat_total": .., "gross_total": ..}
+        {"lines": [{...line with line_net/line_vat/rate/gross_net/discount...}],
+         "by_rate": [{"rate": 0.21, "net": .., "vat": .., "alloc": ..}, ...] (rate asc),
+         "net_total": .., "vat_total": .., "gross_total": ..,
+         "line_net_total": .. (post-line-discount, pre-document-discount),
+         "doc_discount": .. (the applied document-discount amount)}
 
-    All amounts are floats already quantized to cents (ROUND_HALF_UP), summed exactly
-    via money.fsum so a per-rate subtotal equals the sum of its lines. Pure, never raises."""
+    All amounts are floats already quantized to cents (ROUND_HALF_UP), summed exactly via
+    money.fsum so a per-rate subtotal equals the sum of its lines (post both discounts).
+    Pure, never raises."""
     out_lines = []
     buckets = {}   # rate(float) -> {"net":[..], "vat":[..]}
     for ln in lines:
-        net, vat, rate = compute_line(
+        net, vat, rate, gross_net, disc = compute_line(
             ln.get("quantity"), ln.get("unit_price_net"), ln.get("vat_rate"),
-            reverse_charge=reverse_charge)
+            reverse_charge=reverse_charge,
+            discount_kind=ln.get("discount_kind"), discount_value=ln.get("discount_value"))
         row = dict(ln)
         row["line_net"], row["line_vat"], row["vat_rate"] = net, vat, rate
+        row["gross_amount"], row["discount_amount"] = gross_net, disc
         out_lines.append(row)
         b = buckets.setdefault(rate, {"net": [], "vat": []})
         b["net"].append(net)
@@ -569,12 +829,18 @@ def compute_totals(lines, reverse_charge=False):
     for rate in sorted(buckets):
         b = buckets[rate]
         by_rate.append({"rate": rate, "net": money.fsum(b["net"]),
-                        "vat": money.fsum(b["vat"])})
+                        "vat": money.fsum(b["vat"]), "alloc": 0.0})
+    # post-line-discount net total (the base for a document-level discount).
+    line_net_total = money.fsum([r["net"] for r in by_rate])
+    doc_disc = document_discount_amount(line_net_total, disc_kind, disc_value)
+    if doc_disc > 0:
+        by_rate = _allocate_document_discount(by_rate, doc_disc)
     net_total = money.fsum([r["net"] for r in by_rate])
     vat_total = money.fsum([r["vat"] for r in by_rate])
     gross_total = money.fsum([net_total, vat_total])
     return {"lines": out_lines, "by_rate": by_rate,
-            "net_total": net_total, "vat_total": vat_total, "gross_total": gross_total}
+            "net_total": net_total, "vat_total": vat_total, "gross_total": gross_total,
+            "line_net_total": line_net_total, "doc_discount": float(money.q2(doc_disc))}
 
 
 def eur_fx_rate(invoice):
@@ -669,10 +935,15 @@ def _inv_dict(row):
 
 
 def create_draft(customer_id=None, *, currency=DEFAULT_CURRENCY, supply_date=None,
-                 notes="", reverse_charge=None, created_by=None):
+                 notes="", reverse_charge=None, created_by=None, doc_type=DOC_INVOICE):
     """Create a DRAFT invoice (no number, no snapshots yet). `reverse_charge` may be left
     None to auto-derive from issuer+customer at this moment (the user can still override
-    later). Returns (invoice_dict, "") or (None, error)."""
+    later). `doc_type` chooses an ordinary 'invoice' or a non-legal 'proforma'/'quote'
+    (a proforma/quote numbers from its own non-legal series and never consumes a legal
+    number). Returns (invoice_dict, "") or (None, error)."""
+    dt = (doc_type or DOC_INVOICE).strip().lower()
+    if dt not in (DOC_INVOICE, DOC_PROFORMA, DOC_QUOTE):
+        dt = DOC_INVOICE
     try:
         rc = reverse_charge
         if rc is None and customer_id:
@@ -685,10 +956,10 @@ def create_draft(customer_id=None, *, currency=DEFAULT_CURRENCY, supply_date=Non
             cur = con.execute(
                 """INSERT INTO invoices
                    (status, customer_id, currency, supply_date, notes,
-                    reverse_charge, created_by, tenant_id)
-                   VALUES ('draft', ?,?,?,?,?,?,?)""",
+                    reverse_charge, doc_type, created_by, tenant_id)
+                   VALUES ('draft', ?,?,?,?,?,?,?,?)""",
                 (customer_id, (currency or DEFAULT_CURRENCY).strip().upper(),
-                 supply_date, (notes or "").strip(), rc, created_by,
+                 supply_date, (notes or "").strip(), rc, dt, created_by,
                  tenancy.write_tenant()))
             con.commit()
             row = con.execute("SELECT * FROM invoices WHERE id=?",
@@ -783,10 +1054,30 @@ def _assert_draft(con, invoice_id):
     return row, ""
 
 
+def _norm_discount(kind, value):
+    """Normalise a (kind, value) discount pair to a clean (kind, value-float). An empty/
+    unknown kind or a non-positive value => (DISC_NONE, 0.0). Pure."""
+    k = (kind or "").strip().lower()
+    if k not in (DISC_PERCENT, DISC_AMOUNT):
+        return DISC_NONE, 0.0
+    try:
+        v = float(money.D(value or 0))
+    except Exception:
+        v = 0.0
+    if v <= 0:
+        return DISC_NONE, 0.0
+    return k, v
+
+
 def add_line(invoice_id, *, description="", quantity=0, unit="", unit_price_net=0,
-             vat_rate=0, goods_code=""):
-    """Append a line to a DRAFT invoice and re-total. Returns (invoice_dict, "") or
-    (None, error). Refuses if the invoice is issued (immutable)."""
+             vat_rate=0, goods_code="", discount_kind="", discount_value=0):
+    """Append a line to a DRAFT invoice and re-total. The optional LINE DISCOUNT
+    (discount_kind='percent'|'amount', discount_value) reduces the line net BEFORE VAT —
+    `line_net`/`line_vat` are STORED POST-discount (so every read/report sees post-discount
+    figures), `gross_amount` keeps the pre-discount net and `discount_amount` the money
+    discount. Returns (invoice_dict, "") or (None, error). Refuses if the invoice is issued
+    (immutable)."""
+    dk, dv = _norm_discount(discount_kind, discount_value)
     try:
         con = connect()
         try:
@@ -795,16 +1086,20 @@ def add_line(invoice_id, *, description="", quantity=0, unit="", unit_price_net=
                 return None, err
             n = con.execute("SELECT COALESCE(MAX(line_no),0) FROM invoice_lines "
                             "WHERE invoice_id=?", (invoice_id,)).fetchone()[0]
-            net, vat, rate = compute_line(quantity, unit_price_net, vat_rate,
-                                          reverse_charge=bool(row["reverse_charge"]))
+            net, vat, rate, gross_net, disc = compute_line(
+                quantity, unit_price_net, vat_rate,
+                reverse_charge=bool(row["reverse_charge"]),
+                discount_kind=dk, discount_value=dv)
             con.execute(
                 """INSERT INTO invoice_lines
                    (invoice_id, line_no, description, quantity, unit, unit_price_net,
-                    vat_rate, line_net, line_vat, goods_code, tenant_id)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    vat_rate, line_net, line_vat, goods_code, discount_kind,
+                    discount_value, discount_amount, gross_amount, tenant_id)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (invoice_id, n + 1, (description or "").strip(), float(money.D(quantity)),
                  (unit or "").strip(), float(money.D(unit_price_net)), rate,
-                 net, vat, (goods_code or "").strip(), tenancy.write_tenant()))
+                 net, vat, (goods_code or "").strip(), dk, dv, disc, gross_net,
+                 tenancy.write_tenant()))
             con.commit()
         finally:
             con.close()
@@ -836,12 +1131,53 @@ def remove_line(invoice_id, line_id):
         return None, f"could not remove line ({str(e)[:80]})"
 
 
+def set_line_discount(invoice_id, line_id, discount_kind="", discount_value=0):
+    """Set/clear the LINE discount on a DRAFT invoice line and re-total. The line VAT is
+    recomputed on the post-discount net. Returns (invoice_dict, "") or (None, error).
+    Refuses on an issued invoice (immutable)."""
+    dk, dv = _norm_discount(discount_kind, discount_value)
+    try:
+        con = connect()
+        try:
+            row, err = _assert_draft(con, invoice_id)
+            if err:
+                return None, err
+            ln = con.execute("SELECT quantity, unit_price_net, vat_rate FROM invoice_lines "
+                             "WHERE id=? AND invoice_id=?", (line_id, invoice_id)).fetchone()
+            if not ln:
+                return None, "line not found"
+            net, vat, rate, gross_net, disc = compute_line(
+                ln["quantity"], ln["unit_price_net"], ln["vat_rate"],
+                reverse_charge=bool(row["reverse_charge"]),
+                discount_kind=dk, discount_value=dv)
+            con.execute(
+                "UPDATE invoice_lines SET discount_kind=?, discount_value=?, "
+                "discount_amount=?, gross_amount=?, line_net=?, line_vat=? "
+                "WHERE id=? AND invoice_id=?",
+                (dk, dv, disc, gross_net, net, vat, line_id, invoice_id))
+            con.commit()
+        finally:
+            con.close()
+        _retotal(invoice_id)
+        return get_invoice(invoice_id), ""
+    except Exception as e:
+        log.exception("set_line_discount(%s,%s) failed", invoice_id, line_id)
+        return None, f"could not set the line discount ({str(e)[:80]})"
+
+
+def set_document_discount(invoice_id, discount_kind="", discount_value=0):
+    """Set/clear the INVOICE-level (document) discount on a DRAFT invoice. Convenience
+    wrapper over set_invoice_fields. Returns (invoice_dict, "") or (None, error)."""
+    dk, dv = _norm_discount(discount_kind, discount_value)
+    return set_invoice_fields(invoice_id, disc_kind=dk, disc_value=dv)
+
+
 def set_invoice_fields(invoice_id, **fields):
     """Edit header fields of a DRAFT invoice (customer_id, currency, supply_date, notes,
     reverse_charge). Re-totals if reverse_charge changes (it flips every line's VAT).
     Returns (invoice_dict, "") or (None, error)."""
     allowed = ("customer_id", "currency", "supply_date", "notes", "reverse_charge",
-               "simplified", "fx_rate")
+               "simplified", "fx_rate", "disc_kind", "disc_value")
     sets, params = [], []
     rc_changed = False
     for k in allowed:
@@ -852,6 +1188,17 @@ def set_invoice_fields(invoice_id, **fields):
             elif k == "reverse_charge":
                 v = 1 if v else 0
                 rc_changed = True
+            elif k == "disc_kind":
+                v = (str(v or "").strip().lower()
+                     if str(v or "").strip().lower() in (DISC_PERCENT, DISC_AMOUNT)
+                     else DISC_NONE)
+            elif k == "disc_value":
+                try:
+                    v = float(money.D(v or 0))
+                except Exception:
+                    v = 0.0
+                if v < 0:
+                    v = 0.0
             elif k == "simplified":
                 v = 1 if v else 0
             elif k == "fx_rate":
@@ -874,18 +1221,23 @@ def set_invoice_fields(invoice_id, **fields):
                             [*params, invoice_id])
                 con.commit()
                 if rc_changed:
-                    # reverse charge flips every line between its rate and 0% — recompute.
+                    # reverse charge flips every line between its rate and 0% — recompute,
+                    # PRESERVING each line's discount (the discounted net is what's taxed).
                     rc = bool(fields.get("reverse_charge"))
                     for ln in con.execute(
-                            "SELECT id, quantity, unit_price_net, vat_rate "
-                            "FROM invoice_lines WHERE invoice_id=?", (invoice_id,)).fetchall():
+                            "SELECT id, quantity, unit_price_net, vat_rate, discount_kind, "
+                            "discount_value FROM invoice_lines WHERE invoice_id=?",
+                            (invoice_id,)).fetchall():
                         # When turning RC OFF we cannot recover the original rate if it was
                         # stored as 0; callers re-enter rates. Here we only zero-out on ON.
-                        net, vat, rate = compute_line(
+                        net, vat, rate, gross_net, disc = compute_line(
                             ln["quantity"], ln["unit_price_net"], ln["vat_rate"],
-                            reverse_charge=rc)
+                            reverse_charge=rc, discount_kind=ln["discount_kind"],
+                            discount_value=ln["discount_value"])
                         con.execute("UPDATE invoice_lines SET vat_rate=?, line_net=?, "
-                                    "line_vat=? WHERE id=?", (rate, net, vat, ln["id"]))
+                                    "line_vat=?, discount_amount=?, gross_amount=? "
+                                    "WHERE id=?",
+                                    (rate, net, vat, disc, gross_net, ln["id"]))
                     con.commit()
         finally:
             con.close()
@@ -897,16 +1249,41 @@ def set_invoice_fields(invoice_id, **fields):
 
 
 def _retotal(invoice_id):
-    """Recompute and persist the header totals from the stored lines (cents-exact)."""
+    """Recompute and persist the header totals from the stored lines (cents-exact). The
+    per-line `line_net`/`line_vat` are already POST-line-discount; the DOCUMENT discount
+    (disc_kind/disc_value on the header) is allocated per VAT rate here, so the stored header
+    net/VAT/gross are POST both discounts. `disc_amount` snapshots the applied document
+    discount (the EN-16931 BG-20 / BT-107 allowance amount)."""
     con = connect()
     try:
-        lines = con.execute("SELECT line_net, line_vat FROM invoice_lines "
-                            "WHERE invoice_id=?", (invoice_id,)).fetchall()
-        net = money.fsum([r["line_net"] for r in lines])
-        vat = money.fsum([r["line_vat"] for r in lines])
+        hdr = con.execute(
+            "SELECT disc_kind, disc_value FROM invoices WHERE id=?",
+            (invoice_id,)).fetchone()
+        disc_kind = (hdr["disc_kind"] if hdr else "") or ""
+        disc_value = (hdr["disc_value"] if hdr else 0) or 0
+        rows = con.execute(
+            "SELECT line_net, line_vat, vat_rate FROM invoice_lines WHERE invoice_id=?",
+            (invoice_id,)).fetchall()
+        # group the post-line-discount nets/vats by rate, then allocate the document discount.
+        buckets = {}
+        for r in rows:
+            rate = float(r["vat_rate"] or 0)
+            b = buckets.setdefault(rate, {"net": [], "vat": []})
+            b["net"].append(r["line_net"])
+            b["vat"].append(r["line_vat"])
+        by_rate = [{"rate": rate, "net": money.fsum(buckets[rate]["net"]),
+                    "vat": money.fsum(buckets[rate]["vat"]), "alloc": 0.0}
+                   for rate in sorted(buckets)]
+        line_net_total = money.fsum([r["net"] for r in by_rate])
+        doc_disc = document_discount_amount(line_net_total, disc_kind, disc_value)
+        if doc_disc > 0:
+            by_rate = _allocate_document_discount(by_rate, doc_disc)
+        net = money.fsum([r["net"] for r in by_rate])
+        vat = money.fsum([r["vat"] for r in by_rate])
         gross = money.fsum([net, vat])
-        con.execute("UPDATE invoices SET net_total=?, vat_total=?, gross_total=? "
-                    "WHERE id=?", (net, vat, gross, invoice_id))
+        con.execute("UPDATE invoices SET net_total=?, vat_total=?, gross_total=?, "
+                    "disc_amount=? WHERE id=?",
+                    (net, vat, gross, float(money.q2(doc_disc)), invoice_id))
         con.commit()
     finally:
         con.close()
@@ -1028,12 +1405,20 @@ def issue(invoice_id, *, issued_by=None, issue_date=None):
     if err:
         return None, err
     issuer = get_issuer()
-    # A CREDIT NOTE numbers from the issuer's INDEPENDENT credit series (default 'KR') so
-    # its gap-free counter never collides with the invoice series. An ordinary invoice uses
-    # the invoice series. The SAME {series}-{year}-{seq} format renders both.
+    # Each document type numbers from its OWN gap-free series so the counters never collide:
+    #   - CREDIT NOTE -> credit_series  (default 'KR')
+    #   - PROFORMA    -> proforma_series (default 'PROF') — a NON-LEGAL series; a proforma
+    #     never takes a number from the legal invoice series
+    #   - QUOTE       -> quote_series    (default 'PIED')
+    #   - INVOICE     -> the legal invoice series
+    # The SAME {series}-{year}-{seq} format renders them all.
     _doc = (get_invoice(invoice_id) or {}).get("doc_type") or DOC_INVOICE
     if _doc == DOC_CREDIT_NOTE:
         series = (issuer.get("credit_series") or DEFAULT_CREDIT_SERIES).strip() or DEFAULT_CREDIT_SERIES
+    elif _doc == DOC_PROFORMA:
+        series = (issuer.get("proforma_series") or DEFAULT_PROFORMA_SERIES).strip() or DEFAULT_PROFORMA_SERIES
+    elif _doc == DOC_QUOTE:
+        series = (issuer.get("quote_series") or DEFAULT_QUOTE_SERIES).strip() or DEFAULT_QUOTE_SERIES
     else:
         series = (issuer.get("series") or DEFAULT_SERIES).strip() or DEFAULT_SERIES
     number_format = issuer.get("number_format") or DEFAULT_NUMBER_FORMAT
@@ -1270,17 +1655,20 @@ def create_credit_note(original_invoice_id, *, mode="full", lines=None, reason="
                  DOC_CREDIT_NOTE, original_invoice_id, created_by, tenancy.write_tenant()))
             cn_id = cur.lastrowid
             for i, ln in enumerate(to_credit, 1):
-                net, vat, rate = compute_line(ln.get("quantity"), ln.get("unit_price_net"),
-                                              ln.get("vat_rate"), reverse_charge=rc)
+                # a credit line mirrors the already-(line-)discounted original net (no further
+                # line discount on the credit note itself).
+                net, vat, rate, gross_net, disc = compute_line(
+                    ln.get("quantity"), ln.get("unit_price_net"),
+                    ln.get("vat_rate"), reverse_charge=rc)
                 con.execute(
                     """INSERT INTO invoice_lines
                        (invoice_id, line_no, description, quantity, unit, unit_price_net,
-                        vat_rate, line_net, line_vat, goods_code, tenant_id)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                        vat_rate, line_net, line_vat, goods_code, gross_amount, tenant_id)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (cn_id, i, (ln.get("description") or "").strip(),
                      float(money.D(ln.get("quantity"))), (ln.get("unit") or "").strip(),
                      float(money.D(ln.get("unit_price_net"))), rate, net, vat,
-                     (ln.get("goods_code") or "").strip(), tenancy.write_tenant()))
+                     (ln.get("goods_code") or "").strip(), gross_net, tenancy.write_tenant()))
             con.commit()
         finally:
             con.close()
@@ -1289,6 +1677,77 @@ def create_credit_note(original_invoice_id, *, mode="full", lines=None, reason="
     except Exception as e:
         log.exception("create_credit_note(%s) failed", original_invoice_id)
         return None, f"could not create credit note ({str(e)[:80]})"
+
+
+# ============================================================ PHASE 7: proforma / quote
+# A PROFORMA invoice / a QUOTE is NOT a tax invoice. It numbers from its OWN non-legal series
+# (it NEVER takes a number from the legal invoice series), triggers NO output VAT, and is
+# EXCLUDED everywhere a real invoice is counted (the VAT-output report, AR/aging, revenue,
+# bank-matching — all filter doc_type='invoice'). It IS clearly labelled on the PDF and CAN
+# be CONVERTED to a real DRAFT invoice (copying customer + lines + discounts), which then
+# issues normally and gets the legal invoice number. The conversion links the new invoice
+# back to the source proforma/quote (converted_from_id) for traceability.
+
+def convert_to_invoice(proforma_id, *, created_by=None):
+    """Convert a PROFORMA/QUOTE into a NEW DRAFT ordinary invoice, copying the customer,
+    currency, reverse-charge/simplified/fx flags, the document discount, and EVERY line with
+    its line discount. The new invoice is a DRAFT (doc_type='invoice') linked back to the
+    source via converted_from_id; the caller then issues it normally to assign the legal
+    number. Returns (invoice_dict, "") or (None, error).
+
+    A proforma/quote can be converted whether it is still a DRAFT or already issued (an issued
+    proforma is a non-legal numbered offer; converting it produces the real invoice). It is
+    NOT consumed — it stays as the historical offer. An ordinary invoice / credit note cannot
+    be converted (it is already, or cannot become, a real invoice)."""
+    src = get_invoice(proforma_id)
+    if not src:
+        return None, "document not found"
+    if src.get("doc_type") not in (DOC_PROFORMA, DOC_QUOTE):
+        return None, "only a proforma invoice or a quote can be converted to an invoice"
+    src_lines = get_lines(proforma_id)
+    if not src_lines:
+        return None, "the proforma/quote has no lines to convert"
+    rc = bool(src.get("reverse_charge"))
+    try:
+        con = connect()
+        try:
+            cur = con.execute(
+                """INSERT INTO invoices
+                   (status, customer_id, currency, supply_date, notes,
+                    reverse_charge, simplified, fx_rate, doc_type, disc_kind, disc_value,
+                    converted_from_id, created_by, tenant_id)
+                   VALUES ('draft', ?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (src.get("customer_id"), src.get("currency") or DEFAULT_CURRENCY,
+                 src.get("supply_date"), (src.get("notes") or "").strip(),
+                 (1 if rc else 0), (1 if src.get("simplified") else 0),
+                 src.get("fx_rate"), DOC_INVOICE,
+                 (src.get("disc_kind") or ""), (src.get("disc_value") or 0),
+                 proforma_id, created_by, tenancy.write_tenant()))
+            new_id = cur.lastrowid
+            for i, ln in enumerate(src_lines, 1):
+                dk, dv = _norm_discount(ln.get("discount_kind"), ln.get("discount_value"))
+                net, vat, rate, gross_net, disc = compute_line(
+                    ln.get("quantity"), ln.get("unit_price_net"), ln.get("vat_rate"),
+                    reverse_charge=rc, discount_kind=dk, discount_value=dv)
+                con.execute(
+                    """INSERT INTO invoice_lines
+                       (invoice_id, line_no, description, quantity, unit, unit_price_net,
+                        vat_rate, line_net, line_vat, goods_code, discount_kind,
+                        discount_value, discount_amount, gross_amount, tenant_id)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (new_id, i, (ln.get("description") or "").strip(),
+                     float(money.D(ln.get("quantity"))), (ln.get("unit") or "").strip(),
+                     float(money.D(ln.get("unit_price_net"))), rate, net, vat,
+                     (ln.get("goods_code") or "").strip(), dk, dv, disc, gross_net,
+                     tenancy.write_tenant()))
+            con.commit()
+        finally:
+            con.close()
+        _retotal(new_id)
+        return get_invoice(new_id), ""
+    except Exception as e:
+        log.exception("convert_to_invoice(%s) failed", proforma_id)
+        return None, f"could not convert to invoice ({str(e)[:80]})"
 
 
 # ============================================================ PHASE 3: payments + status
@@ -1385,11 +1844,16 @@ def record_payment(invoice_id, amount, date=None, *, method="", reference="",
         try:
             con.execute("BEGIN IMMEDIATE")
             frag, tp = tenancy.scope_clause()
-            inv = con.execute("SELECT id, status, currency, gross_total FROM invoices "
-                              "WHERE id=?" + frag, [invoice_id, *tp]).fetchone()
+            inv = con.execute("SELECT id, status, currency, gross_total, doc_type "
+                              "FROM invoices WHERE id=?" + frag,
+                              [invoice_id, *tp]).fetchone()
             if not inv:
                 con.rollback()
                 return None, "invoice not found"
+            if inv["doc_type"] in NON_LEGAL_TYPES:
+                con.rollback()
+                return None, ("a proforma invoice / quote is not a tax invoice — it carries "
+                              "no legal amount due; convert it to an invoice first")
             if inv["status"] == STATUS_DRAFT:
                 con.rollback()
                 return None, ("cannot record a payment on a draft — issue the invoice first "
@@ -2016,15 +2480,20 @@ def _invoice_view(invoice_id):
             customer = get_customer(inv["customer_id"]) or {}
     else:
         customer = get_customer(inv["customer_id"]) or {}
-    totals = compute_totals(lines, reverse_charge=bool(inv["reverse_charge"]))
+    totals = compute_totals(lines, reverse_charge=bool(inv["reverse_charge"]),
+                            disc_kind=inv.get("disc_kind"), disc_value=inv.get("disc_value"))
     # For a CREDIT NOTE expose the ORIGINAL invoice (number + issue date) so the document
     # can carry the mandatory reference back to the corrected invoice.
+    doc_type = inv.get("doc_type") or DOC_INVOICE
     original = None
-    if inv.get("doc_type") == DOC_CREDIT_NOTE and inv.get("corrects_invoice_id"):
+    if doc_type == DOC_CREDIT_NOTE and inv.get("corrects_invoice_id"):
         original = get_invoice(inv.get("corrects_invoice_id"))
-    return {"invoice": inv, "lines": lines, "issuer": issuer, "customer": customer,
+    return {"invoice": inv, "lines": totals["lines"], "issuer": issuer, "customer": customer,
             "by_rate": totals["by_rate"], "issued": issued, "original": original,
-            "is_credit_note": inv.get("doc_type") == DOC_CREDIT_NOTE}
+            "totals": totals, "doc_type": doc_type,
+            "is_credit_note": doc_type == DOC_CREDIT_NOTE,
+            "is_proforma": doc_type == DOC_PROFORMA, "is_quote": doc_type == DOC_QUOTE,
+            "is_non_legal": doc_type in NON_LEGAL_TYPES}
 
 
 def _fmt_money(x):
@@ -2049,15 +2518,31 @@ def invoice_text(invoice_id):
     inv, lines, issuer, cust = v["invoice"], v["lines"], v["issuer"], v["customer"]
     ccy = inv.get("currency") or DEFAULT_CURRENCY
     is_cn = v.get("is_credit_note")
+    is_pf = v.get("is_proforma")
+    is_qt = v.get("is_quote")
     original = v.get("original")
-    doc_word = "CREDIT NOTE" if is_cn else "INVOICE"
+    if is_cn:
+        doc_word, doc_kw = "CREDIT NOTE", "Credit note"
+    elif is_pf:
+        doc_word, doc_kw = "PROFORMA INVOICE", "Proforma"
+    elif is_qt:
+        doc_word, doc_kw = "QUOTE", "Quote"
+    else:
+        doc_word, doc_kw = "INVOICE", "Invoice"
     L = []
     if not v["issued"]:
         L.append(f"*** DRAFT — not a valid {doc_word.lower()} ***")
         L.append("")
+    # PROFORMA/QUOTE: a loud "not a tax invoice / not a demand for payment" banner.
+    if is_pf:
+        L.append("*** PROFORMA INVOICE — not a VAT invoice, not a demand for payment ***")
+        L.append("")
+    elif is_qt:
+        L.append("*** QUOTE — not a VAT invoice ***")
+        L.append("")
     # Art. 226(2) sequential number / (1) issue date / 'date of supply'
     L.append(doc_word if v["issued"] else f"{doc_word} (DRAFT)")
-    L.append(f"{'Credit note' if is_cn else 'Invoice'} number: "
+    L.append(f"{doc_kw} number: "
              f"{inv.get('number') or '(assigned at issue)'}")
     L.append(f"Issue date: {inv.get('issue_date') or '(at issue)'}")
     sd = inv.get("supply_date")
@@ -2087,15 +2572,26 @@ def invoice_text(invoice_id):
     if cust.get("reg_no"):
         L.append(f"  Reg no: {cust.get('reg_no')}")
     L.append("")
-    # Art. 226(6)/(7)/(8): per-line description, qty, unit price, rate
-    L.append(f"Lines (amounts NET, {ccy}, VAT excluded):")
-    L.append(f"  {'#':<3}{'Description':<34}{'Qty':>8} {'Unit price':>12} "
-             f"{'Rate':>7} {'Net':>13}")
+    # Art. 226(6)/(7)/(8): per-line description, qty, unit price, rate. The Discount column
+    # shows the per-line allowance (the line Net is POST-discount).
+    L.append(f"Lines (amounts NET, {ccy}, VAT excluded; Net is after any line discount):")
+    L.append(f"  {'#':<3}{'Description':<30}{'Qty':>7} {'Unit price':>11} "
+             f"{'Disc.':>9} {'Rate':>6} {'Net':>12}")
     for i, ln in enumerate(lines, 1):
-        L.append(f"  {i:<3}{(ln.get('description') or '')[:34]:<34}"
-                 f"{money.D(ln.get('quantity')):>8} {_fmt_money(ln.get('unit_price_net')):>12} "
-                 f"{_pct(ln.get('vat_rate')):>7} {_fmt_money(ln.get('line_net')):>13}")
+        disc = float(ln.get("discount_amount") or 0)
+        disc_s = f"-{_fmt_money(disc)}" if disc > 0 else "—"
+        L.append(f"  {i:<3}{(ln.get('description') or '')[:30]:<30}"
+                 f"{money.D(ln.get('quantity')):>7} {_fmt_money(ln.get('unit_price_net')):>11} "
+                 f"{disc_s:>9} {_pct(ln.get('vat_rate')):>6} {_fmt_money(ln.get('line_net')):>12}")
     L.append("")
+    # INVOICE-level (document) discount: the pre/post amounts. The per-rate breakdown + the
+    # totals below are already POST document discount.
+    doc_disc = float((v.get("totals") or {}).get("doc_discount") or inv.get("disc_amount") or 0)
+    if doc_disc > 0:
+        sub = float((v.get("totals") or {}).get("line_net_total") or 0)
+        L.append(f"Subtotal (net):       {_fmt_money(sub):>15} {ccy}")
+        L.append(f"Document discount:   -{_fmt_money(doc_disc):>15} {ccy}")
+        L.append("")
     # Art. 226(9)/(10): per-VAT-rate breakdown (taxable amount per rate, rate, VAT amount)
     L.append("VAT breakdown:")
     L.append(f"  {'Rate':>7} {'Taxable net':>15} {'VAT amount':>15}")
@@ -2123,9 +2619,15 @@ def invoice_text(invoice_id):
     if inv.get("reverse_charge"):
         L.append(REVERSE_CHARGE_NOTE)
         L.append("")
-    # payment terms + due date + IBAN
-    L.append(f"Payment due: {inv.get('due_date') or '(set at issue)'}")
-    if issuer.get("iban"):
+    # payment terms + due date + IBAN. A proforma/quote is NOT a demand for payment, so it
+    # carries no "Payment due" wording (a proforma may still show bank details for prepayment).
+    if is_qt:
+        L.append("This is a quote — not a demand for payment.")
+    elif is_pf:
+        L.append("Proforma — for advance payment / order confirmation; not a VAT invoice.")
+    else:
+        L.append(f"Payment due: {inv.get('due_date') or '(set at issue)'}")
+    if issuer.get("iban") and not is_qt:
         L.append(f"IBAN: {issuer.get('iban')}"
                  + (f" ({issuer.get('bank')})" if issuer.get("bank") else ""))
     if inv.get("notes"):
@@ -2153,6 +2655,8 @@ body { font-family: 'DejaVu Sans', 'Helvetica Neue', Arial, sans-serif;
 .head .issuer { display: table-cell; vertical-align: top; width: 58%; }
 .head .meta { display: table-cell; vertical-align: top; text-align: right; }
 .issuer .logo { font-size: 15pt; font-weight: bold; color: #0a3d62; }
+.issuer .logoimg { margin-bottom: 6px; }
+.issuer .logoimg img { max-height: 64px; max-width: 240px; height: auto; width: auto; }
 .issuer .name { font-size: 12pt; font-weight: bold; }
 .issuer .det { color: #444; line-height: 1.4; }
 .title { font-size: 22pt; font-weight: bold; color: #0a3d62; margin: 0 0 4px 0; }
@@ -2197,6 +2701,33 @@ def _h(v):
     return esc("" if v is None else str(v))
 
 
+import re as _re_color
+_HEX_COLOR = _re_color.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+
+
+def _safe_color(value):
+    """Return a SAFE #rrggbb/#rgb hex colour string, or "" for anything else. This defends the
+    invoice CSS against injection — only a strict hex literal is ever interpolated into the
+    <style>. Pure."""
+    s = (value or "").strip()
+    if not s:
+        return ""
+    if not s.startswith("#"):
+        s = "#" + s
+    return s if _HEX_COLOR.match(s) else ""
+
+
+def _brand_css(color):
+    """A small CSS override that re-skins the invoice's accent colour to the issuer brand
+    colour (`color` is a pre-validated hex string). Applies to the title, the line-table
+    header band, the grand-total rule, and the issuer logo text. Pure."""
+    return (f".issuer .logo {{ color:{color}; }}"
+            f".title {{ color:{color}; }}"
+            f"table.lines th {{ background:{color}; }}"
+            f"table.grand tr.total td {{ color:{color}; border-top-color:{color}; }}"
+            f".note {{ border-left-color:{color}; }}")
+
+
 def invoice_html(invoice_id, lang=None):
     """The full invoice as a standalone, print-ready A4 HTML document (UTF-8). EVERY DB
     value is escaped via markupsafe (`esc`) — no raw f-string interpolation of DB text.
@@ -2226,15 +2757,36 @@ def invoice_html(invoice_id, lang=None):
     ccy = inv.get("currency") or DEFAULT_CURRENCY
     issued = v["issued"]
     is_cn = v.get("is_credit_note")
+    is_pf = v.get("is_proforma")
+    is_qt = v.get("is_quote")
     original = v.get("original")
     P = []                                              # HTML parts (already escaped)
     P.append("<!DOCTYPE html><html><head><meta charset='utf-8'>")
-    P.append(f"<style>{_INVOICE_CSS}</style></head><body>")
+    P.append(f"<style>{_INVOICE_CSS}</style>")
+    # PHASE 7: the issuer accent/brand colour overrides the default header colour. Only a
+    # safe #rrggbb / #rgb hex string is honoured (defended against CSS injection).
+    brand = _safe_color(issuer.get("brand_color"))
+    if brand:
+        P.append(f"<style>{_brand_css(brand)}</style>")
+    P.append("</head><body>")
     if not issued:
         P.append(f"<div class='watermark'>{_h(_t('DRAFT'))}</div>")
         P.append(f"<div class='draft-banner'>{_h(_t('DRAFT'))} — {_h('not a valid invoice')}</div>")
+    # PHASE 7: PROFORMA / QUOTE — a loud "not a tax invoice / not a demand for payment" banner.
+    if is_pf:
+        P.append(f"<div class='draft-banner' style='background:#f4f8fb;border-color:#0a3d62;"
+                 f"color:#0a3d62'>{_h(_t('PROFORMA INVOICE'))} — "
+                 f"{_h(_t('not a VAT invoice, not a demand for payment'))}</div>")
+    elif is_qt:
+        P.append(f"<div class='draft-banner' style='background:#f4f8fb;border-color:#0a3d62;"
+                 f"color:#0a3d62'>{_h(_t('QUOTE'))} — {_h(_t('not a VAT invoice'))}</div>")
     # ---- header: issuer block (left) + invoice meta (right) ----
     P.append("<div class='head'><div class='issuer'>")
+    # PHASE 7: the issuer LOGO IMAGE (data: URI), shown above the text header. A missing/
+    # corrupt logo degrades to no image (the legacy text header still renders).
+    _logo = logo_data_uri()
+    if _logo:
+        P.append(f"<div class='logoimg'><img src='{_h(_logo)}' alt=''></div>")
     if issuer.get("logo_text"):
         P.append(f"<div class='logo'>{_h(issuer.get('logo_text'))}</div>")
     P.append(f"<div class='name'>{_h(issuer.get('name'))}</div>")
@@ -2256,6 +2808,16 @@ def invoice_html(invoice_id, lang=None):
             P.append(f"<div class='title'>{_h(_t('CREDIT NOTE'))}</div>")
         else:
             P.append("<div class='title'>CREDIT NOTE <span class='lv'>/ Kreditrēķins</span></div>")
+    elif is_pf:
+        if L == "lv":
+            P.append(f"<div class='title'>{_h(_t('PROFORMA INVOICE'))}</div>")
+        else:
+            P.append("<div class='title'>PROFORMA INVOICE <span class='lv'>/ Priekšapmaksas rēķins</span></div>")
+    elif is_qt:
+        if L == "lv":
+            P.append(f"<div class='title'>{_h(_t('QUOTE'))}</div>")
+        else:
+            P.append("<div class='title'>QUOTE <span class='lv'>/ Piedāvājums</span></div>")
     elif L == "lv":
         P.append(f"<div class='title'>{_h(_t('INVOICE'))}</div>")
     else:
@@ -2287,13 +2849,22 @@ def invoice_html(invoice_id, lang=None):
     if cust.get("reg_no"):
         P.append(f"<br>{_h(_t('Reg. no'))}: {_h(cust.get('reg_no'))}")
     P.append("</div></div>")
-    # ---- line-item table (amounts NET, VAT excluded) ----
-    P.append(f"<table class='lines'><thead><tr>"
+    # ---- line-item table (amounts NET, VAT excluded). A Discount column shows the per-line
+    # allowance; the Net column is POST-discount. ----
+    any_line_disc = any(float(ln.get("discount_amount") or 0) > 0 for ln in lines)
+    P.append("<table class='lines'><thead><tr>"
              f"<th class='num'>#</th><th>{_h(_t('Description'))}</th>"
              f"<th class='num'>{_h(_t('Qty'))}</th><th>{_h(_t('Unit'))}</th>"
-             f"<th class='num'>{_h(_t('Unit price'))}</th><th class='num'>{_h(_t('VAT'))}</th>"
+             f"<th class='num'>{_h(_t('Unit price'))}</th>"
+             + (f"<th class='num'>{_h(_t('Discount'))}</th>" if any_line_disc else "")
+             + f"<th class='num'>{_h(_t('VAT'))}</th>"
              f"<th class='num'>{_h(_t('Net'))} ({_h(ccy)})</th></tr></thead><tbody>")
     for i, ln in enumerate(lines, 1):
+        disc = float(ln.get("discount_amount") or 0)
+        disc_cell = ""
+        if any_line_disc:
+            disc_cell = (f"<td class='num'>-{_h(_fmt_money(disc))}</td>"
+                         if disc > 0 else "<td class='num'>—</td>")
         P.append(
             "<tr>"
             f"<td class='num'>{i}</td>"
@@ -2301,7 +2872,8 @@ def invoice_html(invoice_id, lang=None):
             f"<td class='num'>{_h(format(money.D(ln.get('quantity', 0)), 'g'))}</td>"
             f"<td>{_h(ln.get('unit'))}</td>"
             f"<td class='num'>{_h(_fmt_money(ln.get('unit_price_net')))}</td>"
-            f"<td class='num'>{_h(_pct(ln.get('vat_rate')))}</td>"
+            + disc_cell
+            + f"<td class='num'>{_h(_pct(ln.get('vat_rate')))}</td>"
             f"<td class='num'>{_h(_fmt_money(ln.get('line_net')))}</td>"
             "</tr>")
     P.append("</tbody></table>")
@@ -2314,6 +2886,15 @@ def invoice_html(invoice_id, lang=None):
                  f"<td>{_h(_fmt_money(b['net']))}</td>"
                  f"<td>{_h(_fmt_money(b['vat']))}</td></tr>")
     P.append("</tbody></table></div><div class='grand'><table class='grand'>")
+    # PHASE 7: a DOCUMENT-level discount shows the pre-discount subtotal + the discount line
+    # above the (post-discount) total-net row.
+    doc_disc = float((v.get("totals") or {}).get("doc_discount") or inv.get("disc_amount") or 0)
+    if doc_disc > 0:
+        sub = float((v.get("totals") or {}).get("line_net_total") or 0)
+        P.append(f"<tr><td class='k'>{_h(_t('Subtotal (net)'))}</td><td>"
+                 f"{_h(_fmt_money(sub))} {_h(ccy)}</td></tr>")
+        P.append(f"<tr><td class='k'>{_h(_t('Document discount'))}</td><td>"
+                 f"-{_h(_fmt_money(doc_disc))} {_h(ccy)}</td></tr>")
     P.append(f"<tr><td class='k'>{_h(_t('Total net'))}</td><td>"
              f"{_h(_fmt_money(inv.get('net_total')))} {_h(ccy)}</td></tr>")
     P.append(f"<tr><td class='k'>{_h(_t('Total VAT'))}</td><td>"
@@ -2347,13 +2928,24 @@ def invoice_html(invoice_id, lang=None):
     if inv.get("notes"):
         lbl = (_h(_t('Reason')) + ": ") if is_cn else ""
         P.append(f"<div class='note'>{lbl}{_h(inv.get('notes'))}</div>")
-    # ---- payment block ----
+    # ---- payment block. A QUOTE is NOT a demand for payment; a PROFORMA is for advance
+    # payment but is not a VAT invoice. ----
     P.append("<div class='pay'>")
-    P.append(f"{_h(_t('Payment due'))}: <b>{_h(inv.get('due_date') or '(set at issue)')}</b>.")
-    if issuer.get("iban"):
-        bank = f" ({_h(issuer.get('bank'))})" if issuer.get("bank") else ""
-        P.append(f" Please transfer to IBAN <span class='iban'>"
-                 f"{_h(issuer.get('iban'))}</span>{bank}.")
+    if is_qt:
+        P.append(_h(_t("This is a quote — not a demand for payment.")))
+    elif is_pf:
+        P.append(_h(_t("Proforma — for advance payment / order confirmation; "
+                       "not a VAT invoice.")))
+        if issuer.get("iban"):
+            bank = f" ({_h(issuer.get('bank'))})" if issuer.get("bank") else ""
+            P.append(f" Please transfer to IBAN <span class='iban'>"
+                     f"{_h(issuer.get('iban'))}</span>{bank}.")
+    else:
+        P.append(f"{_h(_t('Payment due'))}: <b>{_h(inv.get('due_date') or '(set at issue)')}</b>.")
+        if issuer.get("iban"):
+            bank = f" ({_h(issuer.get('bank'))})" if issuer.get("bank") else ""
+            P.append(f" Please transfer to IBAN <span class='iban'>"
+                     f"{_h(issuer.get('iban'))}</span>{bank}.")
     P.append("</div>")
     P.append("<div class='foot'>Amounts are NET (VAT excluded) unless stated, "
              f"in {_h(ccy)}. Retain per statutory record-keeping rules.</div>")
@@ -2820,9 +3412,17 @@ def einvoice_xml(invoice_id):
     if inv.get("status") == STATUS_DRAFT or not inv.get("number"):
         raise ValueError("only an ISSUED invoice has an e-invoice (a draft has no legal "
                          "number) — issue it first")
+    # PROFORMA / QUOTE are NOT tax invoices — they have no EN-16931 e-invoice (they carry no
+    # output VAT and must never be filed). Convert to an invoice first.
+    if inv.get("doc_type") in NON_LEGAL_TYPES:
+        raise ValueError("a proforma invoice / quote is not a tax invoice — it has no "
+                         "e-invoice; convert it to an invoice first")
     issuer, customer = v["issuer"], v["customer"]
     currency = (inv.get("currency") or DEFAULT_CURRENCY).strip().upper()
     rc = bool(inv.get("reverse_charge"))
+    # the document-discount allocation per rate (post-document-discount net/vat are in by_rate).
+    by_rate = v["by_rate"]
+    doc_disc_total = money.f2((v.get("totals") or {}).get("doc_discount") or 0)
 
     for pref, uri in _NS.items():
         ET.register_namespace("" if pref == "inv" else pref, uri)
@@ -2877,18 +3477,53 @@ def einvoice_xml(invoice_id):
         if (issuer.get("bank") or "").strip():
             _esub(fa, "cbc:Name", str(issuer.get("bank")).strip())
 
-    # ----- TaxTotal (BG-22) + per-category subtotals (BG-23) -----
-    # Group lines by (category, rate). On reverse charge every line is AE/0%.
-    by_cat = {}
+    # ----- DOCUMENT-level AllowanceCharge (BG-20) for an invoice-level discount -----
+    # The invoice-level discount is allocated per VAT rate (each rate's taxable net is reduced
+    # proportionally — VAT on the post-discount net). EN-16931 carries this as one document
+    # AllowanceCharge PER RATE (ChargeIndicator false, BT-92 amount, BT-93 base = the rate's
+    # pre-document-discount net, BT-95 TaxCategory). BT-107 (sum of allowances) ties out to
+    # the total document discount; BT-109 (TaxExclusive) is net AFTER allowances.
+    # `by_rate` carries each rate's POST-document-discount net/vat + the `alloc` removed.
+    # Build a rate->pre-document-discount-net map from the line totals for the allowance base.
+    pre_doc_net_by_rate = {}
     for ln in lines:
-        rate = 0.0 if rc else money.f2(ln.get("vat_rate") or 0)
+        r = 0.0 if rc else money.f2(ln.get("vat_rate") or 0)
+        pre_doc_net_by_rate[r] = money.f2(
+            (pre_doc_net_by_rate.get(r) or 0) + money.f2(ln.get("line_net") or 0))
+    if doc_disc_total > 0:
+        for b in by_rate:
+            alloc = money.f2(b.get("alloc") or 0)
+            if alloc <= 0:
+                continue
+            rate = 0.0 if rc else money.f2(b.get("rate") or 0)
+            cat, reason = _tax_category_for(rate, rc)
+            ac = _esub(root, "cac:AllowanceCharge")              # BG-20
+            _esub(ac, "cbc:ChargeIndicator", "false")            # allowance (not a charge)
+            _esub(ac, "cbc:AllowanceChargeReason", "Document discount")  # BT-97
+            _eamt(ac, "cbc:Amount", alloc, currency)             # BT-92
+            _eamt(ac, "cbc:BaseAmount",
+                  pre_doc_net_by_rate.get(rate, 0), currency)    # BT-93
+            tc = _esub(ac, "cac:TaxCategory")                    # BT-95 category
+            _esub(tc, "cbc:ID", cat)
+            _esub(tc, "cbc:Percent", f"{rate * 100:g}")
+            if reason:
+                _esub(tc, "cbc:TaxExemptionReason", reason)
+            ts = _esub(tc, "cac:TaxScheme")
+            _esub(ts, "cbc:ID", _TAX_SCHEME_VAT)
+
+    # ----- TaxTotal (BG-22) + per-category subtotals (BG-23) -----
+    # The TaxSubtotals are the POST-document-discount per-rate nets/VATs (from by_rate), so
+    # the VAT is on the post-discount taxable amount and the totals tie out.
+    by_cat = {}
+    for b in by_rate:
+        rate = 0.0 if rc else money.f2(b.get("rate") or 0)
         cat, reason = _tax_category_for(rate, rc)
         key = (cat, rate)
-        b = by_cat.setdefault(key, {"net": [], "vat": [], "reason": reason})
-        b["net"].append(money.f2(ln.get("line_net") or 0))
-        b["vat"].append(money.f2(ln.get("line_vat") or 0))
+        bucket = by_cat.setdefault(key, {"net": [], "vat": [], "reason": reason})
+        bucket["net"].append(money.f2(b.get("net") or 0))
+        bucket["vat"].append(money.f2(b.get("vat") or 0))
     tax_total = _esub(root, "cac:TaxTotal")
-    doc_vat = money.fsum([money.f2(ln.get("line_vat") or 0) for ln in lines])
+    doc_vat = money.fsum([money.f2(b.get("vat") or 0) for b in by_rate])
     _eamt(tax_total, "cbc:TaxAmount", doc_vat, currency)           # BT-110
     for (cat, rate), b in sorted(by_cat.items(), key=lambda kv: (kv[0][1], kv[0][0])):
         sub = _esub(tax_total, "cac:TaxSubtotal")
@@ -2907,9 +3542,15 @@ def einvoice_xml(invoice_id):
         _eamt(tt_eur, "cbc:TaxAmount", eur_vat, "EUR")            # BT-111
 
     # ----- LegalMonetaryTotal (BG-22) -----
-    net_total = money.fsum([money.f2(ln.get("line_net") or 0) for ln in lines])
+    # BT-106 LineExtension = Σ line net (post LINE discount, PRE document discount).
+    # BT-107 AllowanceTotal = the document discount (sum of document allowances).
+    # BT-109 TaxExclusive = BT-106 − BT-107 (post BOTH discounts) = the by_rate net total.
+    line_ext_total = money.fsum([money.f2(ln.get("line_net") or 0) for ln in lines])
+    net_total = money.fsum([money.f2(b.get("net") or 0) for b in by_rate])
     lmt = _esub(root, "cac:LegalMonetaryTotal")
-    _eamt(lmt, "cbc:LineExtensionAmount", net_total, currency)     # BT-106
+    _eamt(lmt, "cbc:LineExtensionAmount", line_ext_total, currency)   # BT-106
+    if doc_disc_total > 0:
+        _eamt(lmt, "cbc:AllowanceTotalAmount", doc_disc_total, currency)  # BT-107
     _eamt(lmt, "cbc:TaxExclusiveAmount", net_total, currency)      # BT-109
     gross = money.f2(net_total + doc_vat)
     _eamt(lmt, "cbc:TaxInclusiveAmount", gross, currency)         # BT-112
@@ -2929,7 +3570,17 @@ def einvoice_xml(invoice_id):
             qty_text = "1"
         _esub(il, "cbc:InvoicedQuantity", qty_text,
               {"unitCode": _ubl_unit_code(unit)})                 # BT-129/130
+        # BT-131 line net = (qty × price) − line allowances (post LINE discount). The line
+        # discount, when present, is a LINE AllowanceCharge (BG-27/28).
         _eamt(il, "cbc:LineExtensionAmount", ln.get("line_net"), currency)  # BT-131
+        line_disc = money.f2(ln.get("discount_amount") or 0)
+        if line_disc > 0:
+            lac = _esub(il, "cac:AllowanceCharge")               # BG-27/28
+            _esub(lac, "cbc:ChargeIndicator", "false")           # allowance (not a charge)
+            _esub(lac, "cbc:AllowanceChargeReason", "Line discount")  # BT-139
+            _eamt(lac, "cbc:Amount", line_disc, currency)        # BT-136
+            _eamt(lac, "cbc:BaseAmount",
+                  ln.get("gross_amount"), currency)              # BT-137 (pre-discount net)
         item = _esub(il, "cac:Item")
         _esub(item, "cbc:Name", (ln.get("description") or "Item"))         # BT-153
         ctc = _esub(item, "cac:ClassifiedTaxCategory")

@@ -1274,6 +1274,7 @@ ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "api_r
               "invoicing_home", "invoicing_customers", "invoicing_customer_save",
               "invoicing_issuer", "invoicing_issuer_save", "invoicing_compose",
               "invoicing_create", "invoicing_line_add", "invoicing_line_remove",
+              "invoicing_line_discount", "invoicing_convert",
               "invoicing_fields_save", "invoicing_issue", "invoicing_pdf",
               "invoicing_einvoice_xml", "invoicing_pdf_hybrid",
               # Phase 3: payment / status tracking — payment recording, AR/aging,
@@ -1418,6 +1419,7 @@ MODULES = {
                    {"invoicing_home", "invoicing_customers", "invoicing_customer_save",
                     "invoicing_issuer", "invoicing_issuer_save", "invoicing_compose",
                     "invoicing_create", "invoicing_line_add", "invoicing_line_remove",
+                    "invoicing_line_discount", "invoicing_convert",
                     "invoicing_fields_save", "invoicing_issue", "invoicing_pdf",
                     "invoicing_einvoice_xml", "invoicing_pdf_hybrid",
                     "invoicing_payment_record", "invoicing_receivable",
@@ -14597,6 +14599,27 @@ def _ivc_status_chip(status):
     return f'<span class="chip {cls}">{esc(_t(st))}</span>'
 
 
+def _ivc_line_discount_cell(invoicing, ln):
+    """A compact inline per-line discount editor (used while the invoice is a DRAFT): a
+    kind selector + a value + Apply, prefilled from the stored line discount. Returns HTML."""
+    iid = int(ln.get("invoice_id") or 0)
+    lid = int(ln.get("id") or 0)
+    kind = (ln.get("discount_kind") or "")
+    val = float(ln.get("discount_value") or 0)
+    val_s = f"{val:g}" if val > 0 else ""
+    opts = "".join(
+        f'<option value="{esc(k)}" {"selected" if kind == k else ""}>{esc(lbl)}</option>'
+        for k, lbl in (("", _t("none")), ("percent", "%"), ("amount", "EUR")))
+    return (
+        '<form method="post" action="/invoicing/line/discount" style="display:flex;gap:3px">'
+        + _csrf_input()
+        + f'<input type="hidden" name="invoice_id" value="{iid}">'
+        + f'<input type="hidden" name="line_id" value="{lid}">'
+        + f'<select name="discount_kind" style="width:70px">{opts}</select>'
+        + f'<input name="discount_value" inputmode="decimal" style="width:64px" value="{esc(val_s)}">'
+        + f'<button>{esc(_t("Apply"))}</button></form>')
+
+
 @app.route("/invoicing")
 def invoicing_home():
     """Invoicing landing page: list invoices (number, customer, dates, totals, status
@@ -14736,13 +14759,21 @@ def invoicing_issuer():
             '<div class="card" style="border-left:4px solid var(--bad)">'
             '<b class="bad">Incomplete.</b> The legal name, address and VAT number are '
             'mandatory before you can issue an invoice.</div>')
+    # PHASE 7: logo + brand colour. The logo is an uploaded image stored in invoicing.db;
+    # show whether one is set + a remove option.
+    _logo_mime, _logo_bytes = invoicing.get_issuer_logo()
+    logo_status = (f'<p class="note ok">{esc(_t("A logo is set"))} ({esc(_logo_mime or "")}).</p>'
+                   if _logo_bytes else
+                   f'<p class="note">{esc(_t("No logo set."))}</p>')
+    brand = invoicing._safe_color(iss.get("brand_color")) or invoicing.DEFAULT_BRAND_COLOR
     form = (
         f'<div class="card"><h2>{esc(_t("Issuer profile"))}</h2>'
         '<p class="note">This is your legal entity as it appears on the invoice as the '
         'supplier. The legal name, address and VAT number are mandatory (EU VAT Dir. '
         '2006/112/EC Art. 226). Multi-tenant note: a per-tenant issuer profile is a later '
         'phase; today this is one global profile.</p>'
-        '<form method="post" action="/invoicing/issuer/save" class="f">' + _csrf_input()
+        '<form method="post" action="/invoicing/issuer/save" class="f" '
+        'enctype="multipart/form-data">' + _csrf_input()
         + f'<label style="flex:1 1 100%">{esc(_t("Legal name"))}<input name="name" value="{_v("name")}"></label>'
         + f'<label style="flex:1 1 100%">{esc(_t("Address"))}<input name="address" value="{_v("address")}"></label>'
         + f'<label>{esc(_t("VAT number"))}<input name="vat_number" value="{_v("vat_number")}"></label>'
@@ -14750,15 +14781,30 @@ def invoicing_issuer():
         + f'<label>{esc(_t("IBAN"))}<input name="iban" value="{_v("iban")}"></label>'
         + f'<label>{esc(_t("Bank"))}<input name="bank" value="{_v("bank")}"></label>'
         + f'<label>{esc(_t("Number series"))}<input name="series" value="{_v("series")}" style="width:120px"></label>'
+        + f'<label>{esc(_t("Credit-note series"))}<input name="credit_series" '
+          f'value="{_v("credit_series")}" style="width:120px"></label>'
+        + f'<label>{esc(_t("Proforma series"))}<input name="proforma_series" '
+          f'value="{_v("proforma_series")}" style="width:120px"></label>'
+        + f'<label>{esc(_t("Quote series"))}<input name="quote_series" '
+          f'value="{_v("quote_series")}" style="width:120px"></label>'
         + f'<label>{esc(_t("Number format"))}<input name="number_format" value="{_v("number_format")}" '
           'style="width:220px"></label>'
         + f'<label>{esc(_t("Default payment terms (days)"))}<input name="payment_terms_days" '
           f'inputmode="numeric" style="width:140px" value="{_v("payment_terms_days")}"></label>'
         + f'<label style="flex:1 1 100%">{esc(_t("Header text (optional)"))}<input name="logo_text" '
           f'value="{_v("logo_text")}"></label>'
+        + f'<label>{esc(_t("Brand colour"))}<input name="brand_color" type="color" '
+          f'value="{esc(brand)}" style="width:80px;padding:2px"></label>'
+        + f'<label style="flex:1 1 100%">{esc(_t("Logo image (PNG/JPG, max 512 KiB)"))}'
+          '<input name="logo" type="file" accept="image/png,image/jpeg"></label>'
+        + (f'<label>{esc(_t("Remove logo"))} <input type="checkbox" name="logo_remove"></label>'
+           if _logo_bytes else '')
         + f'<div style="margin-top:8px"><button>{esc(_t("Save issuer profile"))}</button></div>'
+        + logo_status
         + '<p class="note">Number format placeholders: '
-          '<code>{series}</code>, <code>{year}</code>, <code>{seq:06d}</code>.</p>'
+          '<code>{series}</code>, <code>{year}</code>, <code>{seq:06d}</code>. '
+          'The logo + brand colour appear on the invoice header (the designed HTML/PDF). '
+          'A missing logo never breaks PDF generation.</p>'
         '</form></div>')
     return page(warn + form, "ivci")
 
@@ -14767,13 +14813,38 @@ def invoicing_issuer():
 def invoicing_issuer_save():
     import invoicing
     f = request.form
+    msgs = []
+    ok = True
     try:
         invoicing.set_issuer({k: f.get(k, "") for k in invoicing.ISSUER_KEYS})
-        banner = _ivc_banner(True, "Issuer profile saved.")
+        msgs.append(_t("Issuer profile saved."))
     except Exception as e:
         _log_exc("invoicing: issuer save", e)
-        banner = _ivc_banner(False, "Could not save the issuer profile.")
-    return page(banner + '<p><a href="/invoicing/issuer">Back to issuer profile</a></p>',
+        ok = False
+        msgs.append(_t("Could not save the issuer profile."))
+    # PHASE 7: the LOGO image (multipart upload) + a remove toggle. Both best-effort and
+    # validated in invoicing.set_issuer_logo (size cap + PNG/JPG magic sniff).
+    try:
+        if f.get("logo_remove") == "on":
+            invoicing.set_issuer_logo(None, updated_by=session.get("user"))
+            msgs.append(_t("Logo removed."))
+        else:
+            up = request.files.get("logo")
+            if up and (up.filename or "").strip():
+                data = up.read(invoicing.LOGO_MAX_BYTES + 1)
+                mime, lerr = invoicing.set_issuer_logo(
+                    data, mime=up.mimetype, updated_by=session.get("user"))
+                if lerr:
+                    ok = False
+                    msgs.append(lerr)
+                else:
+                    msgs.append(_t("Logo saved."))
+    except Exception as e:
+        _log_exc("invoicing: issuer logo", e)
+        ok = False
+        msgs.append(_t("Could not save the logo."))
+    banner = _ivc_banner(ok, " ".join(str(m) for m in msgs))
+    return page(banner + f'<p><a href="/invoicing/issuer">{esc(_t("Back to issuer profile"))}</a></p>',
                 "ivci")
 
 
@@ -14795,11 +14866,17 @@ def invoicing_compose(invoice_id=None):
         start = (
             f'<div class="card"><h2>{esc(_t("New invoice"))}</h2>'
             '<form method="post" action="/invoicing/create" class="f">' + _csrf_input()
+            + f'<label>{esc(_t("Document type"))}<select name="doc_type">'
+              f'<option value="invoice">{esc(_t("Invoice"))}</option>'
+              f'<option value="proforma">{esc(_t("Proforma invoice"))}</option>'
+              f'<option value="quote">{esc(_t("Quote"))}</option></select></label>'
             + f'<label>{esc(_t("Customer"))}<select name="customer_id" required>{opts}</select></label>'
             + f'<label>{esc(_t("Currency"))}<input name="currency" value="EUR" style="width:90px"></label>'
             + f'<div style="margin-top:8px"><button>{esc(_t("Start draft"))}</button></div>'
             + '<p class="note">A draft has no number yet — the gap-free number is assigned '
-              'only when you Issue.</p></form></div>')
+              'only when you Issue. A proforma invoice / quote is NOT a tax invoice (its own '
+              'non-legal number series, no output VAT) and can be converted to an invoice '
+              'later.</p></form></div>')
         return page(start, "ivc")
 
     inv = invoicing.get_invoice(invoice_id)
@@ -14826,10 +14903,13 @@ def invoicing_compose(invoice_id=None):
         head_rows.append([_t("Outstanding"), _eur(invoicing.outstanding(inv))])
     head = tbl(["", ""], [[esc(a), b] for a, b in head_rows])
 
-    # line table
+    # line table (with a Discount column + an inline per-line set-discount form while draft)
     lrows = []
     for ln in lines:
         rm = ""
+        disc_cell = _ivc_line_discount_cell(invoicing, ln) if not issued else \
+            (f'-{_eur(ln.get("discount_amount"))}' if float(ln.get("discount_amount") or 0) > 0
+             else '—')
         if not issued:
             rm = ('<form method="post" action="/invoicing/line/remove" style="display:inline">'
                   + _csrf_input()
@@ -14841,27 +14921,49 @@ def invoicing_compose(invoice_id=None):
             esc(f'{float(ln.get("quantity") or 0):g}'),
             esc(ln.get("unit") or ""),
             _eur(ln.get("unit_price_net")),
+            disc_cell,
             esc(f'{float(ln.get("vat_rate") or 0) * 100:g}%'),
             _eur(ln.get("line_net")),
             _eur(ln.get("line_vat")),
             rm,
         ])
     ltable = (tbl([_t("Description"), _t("Qty"), _t("Unit"), _t("Unit price (net)"),
-                   _t("Rate"), _t("Net"), _t("VAT"), ""],
+                   _t("Discount"), _t("Rate"), _t("Net"), _t("VAT"), ""],
                   lrows) if lrows else f'<p class="note">{esc(_t("No lines yet."))}</p>')
 
+    dt = inv.get("doc_type") or invoicing.DOC_INVOICE
+    is_non_legal = dt in invoicing.NON_LEGAL_TYPES
+    doc_label = {invoicing.DOC_INVOICE: _t("Invoice"),
+                 invoicing.DOC_CREDIT_NOTE: _t("Credit note"),
+                 invoicing.DOC_PROFORMA: _t("Proforma invoice"),
+                 invoicing.DOC_QUOTE: _t("Quote")}.get(dt, _t("Invoice"))
     dl = f' <a class="btn" href="/invoicing/pdf/{int(invoice_id)}">{esc(_t("Download PDF"))}</a>'
-    if issued:
+    # A proforma/quote has NO e-invoice / hybrid PDF (it is not a tax invoice).
+    if issued and not is_non_legal:
         dl += (f' <a class="btn" href="/invoicing/einvoice/{int(invoice_id)}.xml">'
                'Download e-invoice (XML)</a>'
                f' <a class="btn" href="/invoicing/hybrid/{int(invoice_id)}">'
                'Download hybrid PDF (PDF + e-invoice)</a>')
-    body = [f'<div class="card"><h2>{esc(_t("Invoice"))}</h2>' + head + dl
+    body = [f'<div class="card"><h2>{esc(doc_label)}</h2>' + head + dl
             + ('<p class="note">The e-invoice is an EN-16931 / PEPPOL BIS Billing 3.0 '
                'UBL 2.1 document — the structured format Latvia mandates (B2G now, B2B '
                'from 2028). The hybrid PDF embeds that XML inside the PDF (Factur-X style) '
-               'so it is both human- and machine-readable.</p>' if issued else '')
+               'so it is both human- and machine-readable.</p>' if (issued and not is_non_legal) else '')
+            + ('<p class="note">This is a proforma invoice / quote — NOT a tax invoice. It '
+               'carries no output VAT and is excluded from the VAT report, AR and revenue. '
+               'Convert it to an invoice to create a real, legally-numbered invoice.</p>'
+               if is_non_legal else '')
             + '</div>']
+    # PHASE 7: CONVERT a proforma/quote to a real DRAFT invoice (draft or issued source).
+    if is_non_legal:
+        body.append(
+            f'<div class="card"><h2>{esc(_t("Convert to invoice"))}</h2>'
+            f'<p class="note">{esc(_t("Creates a real DRAFT invoice copying the customer, lines and discounts; it then issues normally and gets the legal invoice number."))}</p>'
+            '<form method="post" action="/invoicing/convert">' + _csrf_input()
+            + f'<input type="hidden" name="proforma_id" value="{int(invoice_id)}">'
+            + f'<button>{esc(_t("Convert to invoice"))}</button></form></div>')
+        if inv.get("converted_from_id"):
+            pass  # n/a (a non-legal source isn't itself converted-from)
     body.append(f'<div class="card"><h2>{esc(_t("Lines (net basis, VAT excluded)"))}</h2>' + ltable + '</div>')
 
     if not issued:
@@ -14880,14 +14982,23 @@ def invoicing_compose(invoice_id=None):
               + '<option value="custom">Custom…</option></select></label>'
             + '<label>Custom rate %<input name="vat_rate" inputmode="decimal" style="width:110px" '
               'placeholder="(only if Custom)"></label>'
+            + f'<label>{esc(_t("Line discount"))}<select name="discount_kind" style="width:130px">'
+              f'<option value="">{esc(_t("none"))}</option>'
+              f'<option value="percent">{esc(_t("percent (%)"))}</option>'
+              f'<option value="amount">{esc(_t("amount (EUR)"))}</option></select></label>'
+            + f'<label>{esc(_t("Discount value"))}<input name="discount_value" inputmode="decimal" '
+              'style="width:110px" placeholder="0"></label>'
             + f'<div style="margin-top:8px"><button>{esc(_t("Add line"))}</button></div>'
             + '<p class="note">Pick a Latvia VAT rate (21% standard · 12% / 5% reduced · 0%) '
-              'or choose Custom and type a rate.</p>'
+              'or choose Custom and type a rate. An optional line discount (a percent or a '
+              'fixed amount) reduces the line net before VAT.</p>'
             + ('<p class="note">Reverse charge is ON: lines are at 0% VAT (the recipient '
                'accounts for VAT).</p>' if inv.get("reverse_charge") else '')
             + '</form></div>')
         # reverse-charge toggle + issue
         rc_on = bool(inv.get("reverse_charge"))
+        _dv = float(inv.get("disc_value") or 0)
+        _dv_s = f"{_dv:g}" if _dv > 0 else ""
         rc = (
             f'<div class="card"><h2>{esc(_t("Settings"))}</h2>'
             '<form method="post" action="/invoicing/fields/save" class="f">' + _csrf_input()
@@ -14903,8 +15014,17 @@ def invoicing_compose(invoice_id=None):
                f'<input name="fx_rate" inputmode="decimal" style="width:130px" '
                f'value="{esc(str(inv.get("fx_rate")) if inv.get("fx_rate") not in (None, "") else "")}">'
                '</label>' if (inv.get("currency") or "EUR") != "EUR" else "")
+            + f'<label>{esc(_t("Document discount"))}<select name="disc_kind" style="width:130px">'
+              + ''.join(f'<option value="{esc(k)}" {"selected" if (inv.get("disc_kind") or "")==k else ""}>{esc(lbl)}</option>'
+                        for k, lbl in (("", _t("none")), ("percent", _t("percent (%)")),
+                                       ("amount", _t("amount (EUR)"))))
+              + '</select></label>'
+            + f'<label>{esc(_t("Discount value"))}<input name="disc_value" inputmode="decimal" '
+              f'style="width:110px" value="{esc(_dv_s)}"></label>'
             + f'<div style="margin-top:8px"><button>{esc(_t("Update settings"))}</button></div>'
-            + '<p class="note">Reverse charge applies to a cross-border EU B2B customer '
+            + '<p class="note">An invoice-level (document) discount is allocated across the '
+              'VAT rates proportionally — VAT is recomputed on the post-discount net. '
+              'Reverse charge applies to a cross-border EU B2B customer '
               '(0% VAT, the recipient accounts for VAT). Toggling it re-rates existing '
               'lines; re-enter line rates if you turn it back off. A simplified invoice '
               '(EU VAT Dir. Art. 238, gross &le; €150) relaxes the customer-detail '
@@ -15065,8 +15185,12 @@ def invoicing_create():
         cid = int(f.get("customer_id") or "0")
     except (TypeError, ValueError):
         cid = 0
+    doc_type = (f.get("doc_type") or "invoice").strip().lower()
+    if doc_type not in ("invoice", "proforma", "quote"):
+        doc_type = "invoice"
     inv, err = invoicing.create_draft(customer_id=cid or None,
                                       currency=(f.get("currency") or "EUR"),
+                                      doc_type=doc_type,
                                       created_by=session.get("user"))
     if err or not inv:
         return page(_ivc_banner(False, err or "Could not start the draft.")
@@ -15379,7 +15503,8 @@ def invoicing_line_add():
     inv, err = invoicing.add_line(
         iid, description=f.get("description"), quantity=f.get("quantity"),
         unit=f.get("unit"), unit_price_net=f.get("unit_price_net"),
-        vat_rate=rate)
+        vat_rate=rate, discount_kind=(f.get("discount_kind") or ""),
+        discount_value=(f.get("discount_value") or 0))
     if err:
         return page(_ivc_banner(False, err)
                     + f'<p><a href="/invoicing/compose/{iid}">Back</a></p>', "ivc")
@@ -15402,6 +15527,42 @@ def invoicing_line_remove():
     return redirect(f"/invoicing/compose/{iid}")
 
 
+@app.route("/invoicing/line/discount", methods=["POST"])
+def invoicing_line_discount():
+    """Set/clear a LINE discount on a DRAFT invoice line, then re-total. Admin-only, CSRF."""
+    import invoicing
+    f = request.form
+    try:
+        iid = int(f.get("invoice_id") or "0")
+        lid = int(f.get("line_id") or "0")
+    except (TypeError, ValueError):
+        iid, lid = 0, 0
+    inv, err = invoicing.set_line_discount(iid, lid, discount_kind=(f.get("discount_kind") or ""),
+                                           discount_value=(f.get("discount_value") or 0))
+    if err:
+        return page(_ivc_banner(False, err)
+                    + f'<p><a href="/invoicing/compose/{iid}">{esc(_t("Back"))}</a></p>', "ivc")
+    return redirect(f"/invoicing/compose/{iid}")
+
+
+@app.route("/invoicing/convert", methods=["POST"])
+def invoicing_convert():
+    """Convert a PROFORMA/QUOTE into a NEW DRAFT ordinary invoice (copying customer + lines
+    + discounts), then redirect to its compose page to review → issue. Admin-only, CSRF,
+    audited."""
+    import invoicing
+    f = request.form
+    try:
+        pid = int(f.get("proforma_id") or "0")
+    except (TypeError, ValueError):
+        pid = 0
+    inv, err = invoicing.convert_to_invoice(pid, created_by=session.get("user"))
+    if err or not inv:
+        return page(_ivc_banner(False, err or _t("Could not convert to invoice."))
+                    + f'<p><a href="/invoicing/compose/{pid}">{esc(_t("Back"))}</a></p>', "ivc")
+    return redirect(f"/invoicing/compose/{int(inv['id'])}")
+
+
 @app.route("/invoicing/fields/save", methods=["POST"])
 def invoicing_fields_save():
     import invoicing
@@ -15416,6 +15577,9 @@ def invoicing_fields_save():
         fields["supply_date"] = f.get("supply_date") or None
     if f.get("fx_rate") is not None:
         fields["fx_rate"] = f.get("fx_rate") or None
+    if f.get("disc_kind") is not None:
+        fields["disc_kind"] = f.get("disc_kind") or ""
+        fields["disc_value"] = f.get("disc_value") or 0
     inv, err = invoicing.set_invoice_fields(iid, **fields)
     if err:
         return page(_ivc_banner(False, err)
