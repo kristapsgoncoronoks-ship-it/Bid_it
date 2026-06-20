@@ -1158,7 +1158,7 @@ def _h(v):
     return esc("" if v is None else str(v))
 
 
-def invoice_html(invoice_id):
+def invoice_html(invoice_id, lang=None):
     """The full invoice as a standalone, print-ready A4 HTML document (UTF-8). EVERY DB
     value is escaped via markupsafe (`esc`) — no raw f-string interpolation of DB text.
 
@@ -1169,7 +1169,17 @@ def invoice_html(invoice_id):
     date + IBAN, the reverse-charge/exemption wording, and a DRAFT watermark + banner
     until the invoice is issued. Returns the HTML string, or "" if the invoice is unknown.
 
+    i18n: the FIXED LABELS (not DB values) go through i18n.t in the invoice's language.
+    `lang=None` resolves the current request language (so the on-screen PDF matches the UI);
+    an explicit `lang` (e.g. the issuer's default) overrides. DEFAULT 'en' renders the
+    document byte-identically to before. The historic dual-language title "INVOICE / Rēķins"
+    is preserved under English and collapses to the single Latvian title under lv.
+
     Latvian + full Unicode render NATIVELY here (UTF-8 + system fonts via wkhtmltopdf)."""
+    import i18n
+    L = i18n.normalize(lang) if lang is not None else i18n.current_lang()
+    def _t(s):
+        return i18n.t(s, L)
     v = _invoice_view(invoice_id)
     if not v:
         return ""
@@ -1180,8 +1190,8 @@ def invoice_html(invoice_id):
     P.append("<!DOCTYPE html><html><head><meta charset='utf-8'>")
     P.append(f"<style>{_INVOICE_CSS}</style></head><body>")
     if not issued:
-        P.append("<div class='watermark'>DRAFT</div>")
-        P.append("<div class='draft-banner'>DRAFT — not a valid invoice</div>")
+        P.append(f"<div class='watermark'>{_h(_t('DRAFT'))}</div>")
+        P.append(f"<div class='draft-banner'>{_h(_t('DRAFT'))} — {_h('not a valid invoice')}</div>")
     # ---- header: issuer block (left) + invoice meta (right) ----
     P.append("<div class='head'><div class='issuer'>")
     if issuer.get("logo_text"):
@@ -1190,42 +1200,47 @@ def invoice_html(invoice_id):
     P.append("<div class='det'>")
     if issuer.get("address"):
         P.append(f"{_h(issuer.get('address'))}<br>")
-    P.append(f"VAT: {_h(issuer.get('vat_number'))}")
+    P.append(f"{_h(_t('VAT'))}: {_h(issuer.get('vat_number'))}")
     if issuer.get("reg_no"):
-        P.append(f"<br>Reg. no: {_h(issuer.get('reg_no'))}")
+        P.append(f"<br>{_h(_t('Reg. no'))}: {_h(issuer.get('reg_no'))}")
     if issuer.get("iban"):
         bank = f" ({_h(issuer.get('bank'))})" if issuer.get("bank") else ""
-        P.append(f"<br>IBAN: {_h(issuer.get('iban'))}{bank}")
+        P.append(f"<br>{_h(_t('IBAN'))}: {_h(issuer.get('iban'))}{bank}")
     P.append("</div></div>")                            # /issuer /det
     P.append("<div class='meta'>")
-    P.append("<div class='title'>INVOICE <span class='lv'>/ Rēķins</span></div>")
+    # Title: English keeps the historic dual-language "INVOICE / Rēķins"; Latvian collapses
+    # to the single localized title.
+    if L == "lv":
+        P.append(f"<div class='title'>{_h(_t('INVOICE'))}</div>")
+    else:
+        P.append("<div class='title'>INVOICE <span class='lv'>/ Rēķins</span></div>")
     P.append("<table>")
-    P.append(f"<tr><td class='k'>Number</td><td class='v'>"
+    P.append(f"<tr><td class='k'>{_h(_t('Number'))}</td><td class='v'>"
              f"{_h(inv.get('number') or '(assigned at issue)')}</td></tr>")
-    P.append(f"<tr><td class='k'>Issue date</td><td class='v'>"
+    P.append(f"<tr><td class='k'>{_h(_t('Issue date'))}</td><td class='v'>"
              f"{_h(inv.get('issue_date') or '(at issue)')}</td></tr>")
     sd = inv.get("supply_date")
     if sd and sd != inv.get("issue_date"):
-        P.append(f"<tr><td class='k'>Date of supply</td><td class='v'>{_h(sd)}</td></tr>")
-    P.append(f"<tr><td class='k'>Due date</td><td class='v'>"
+        P.append(f"<tr><td class='k'>{_h(_t('Date of supply'))}</td><td class='v'>{_h(sd)}</td></tr>")
+    P.append(f"<tr><td class='k'>{_h(_t('Due date'))}</td><td class='v'>"
              f"{_h(inv.get('due_date') or '(set at issue)')}</td></tr>")
-    P.append(f"<tr><td class='k'>Currency</td><td class='v'>{_h(ccy)}</td></tr>")
+    P.append(f"<tr><td class='k'>{_h(_t('Currency'))}</td><td class='v'>{_h(ccy)}</td></tr>")
     P.append("</table></div></div>")                    # /meta /head
     # ---- bill-to ----
-    P.append("<div class='billto'><div class='lbl'>Bill to</div>")
+    P.append(f"<div class='billto'><div class='lbl'>{_h(_t('Bill to'))}</div>")
     P.append(f"<div class='name'>{_h(cust.get('name'))}</div><div class='det'>")
     if cust.get("address"):
         P.append(f"{_h(cust.get('address'))}<br>")
-    P.append(f"VAT: {_h(cust.get('vat_number') or '(not VAT-registered)')}")
+    P.append(f"{_h(_t('VAT'))}: {_h(cust.get('vat_number') or '(not VAT-registered)')}")
     if cust.get("reg_no"):
-        P.append(f"<br>Reg. no: {_h(cust.get('reg_no'))}")
+        P.append(f"<br>{_h(_t('Reg. no'))}: {_h(cust.get('reg_no'))}")
     P.append("</div></div>")
     # ---- line-item table (amounts NET, VAT excluded) ----
     P.append(f"<table class='lines'><thead><tr>"
-             f"<th class='num'>#</th><th>Description</th>"
-             f"<th class='num'>Qty</th><th>Unit</th>"
-             f"<th class='num'>Unit price</th><th class='num'>VAT</th>"
-             f"<th class='num'>Net ({_h(ccy)})</th></tr></thead><tbody>")
+             f"<th class='num'>#</th><th>{_h(_t('Description'))}</th>"
+             f"<th class='num'>{_h(_t('Qty'))}</th><th>{_h(_t('Unit'))}</th>"
+             f"<th class='num'>{_h(_t('Unit price'))}</th><th class='num'>{_h(_t('VAT'))}</th>"
+             f"<th class='num'>{_h(_t('Net'))} ({_h(ccy)})</th></tr></thead><tbody>")
     for i, ln in enumerate(lines, 1):
         P.append(
             "<tr>"
@@ -1240,39 +1255,39 @@ def invoice_html(invoice_id):
     P.append("</tbody></table>")
     # ---- totals: per-rate VAT (left) + grand totals (right) ----
     P.append("<div class='totbox'><div class='vat'>")
-    P.append("<table class='vat'><thead><tr><th>VAT rate</th>"
-             "<th>Taxable net</th><th>VAT amount</th></tr></thead><tbody>")
+    P.append(f"<table class='vat'><thead><tr><th>{_h(_t('VAT rate'))}</th>"
+             f"<th>{_h(_t('Taxable net'))}</th><th>{_h(_t('VAT amount'))}</th></tr></thead><tbody>")
     for b in v["by_rate"]:
         P.append(f"<tr><td>{_h(_pct(b['rate']))}</td>"
                  f"<td>{_h(_fmt_money(b['net']))}</td>"
                  f"<td>{_h(_fmt_money(b['vat']))}</td></tr>")
     P.append("</tbody></table></div><div class='grand'><table class='grand'>")
-    P.append(f"<tr><td class='k'>Total net</td><td>"
+    P.append(f"<tr><td class='k'>{_h(_t('Total net'))}</td><td>"
              f"{_h(_fmt_money(inv.get('net_total')))} {_h(ccy)}</td></tr>")
-    P.append(f"<tr><td class='k'>Total VAT</td><td>"
+    P.append(f"<tr><td class='k'>{_h(_t('Total VAT'))}</td><td>"
              f"{_h(_fmt_money(inv.get('vat_total')))} {_h(ccy)}</td></tr>")
-    P.append(f"<tr class='total'><td class='k'>Grand total</td><td>"
+    P.append(f"<tr class='total'><td class='k'>{_h(_t('Grand total'))}</td><td>"
              f"{_h(_fmt_money(inv.get('gross_total')))} {_h(ccy)}</td></tr>")
     if ccy != "EUR":
         eur_vat, rate, source = vat_total_eur(inv)
         if eur_vat is not None:
-            P.append(f"<tr><td class='k'>VAT in EUR</td><td>{_h(_fmt_money(eur_vat))} EUR"
+            P.append(f"<tr><td class='k'>{_h(_t('VAT in EUR'))}</td><td>{_h(_fmt_money(eur_vat))} EUR"
                      f"<br><span style='color:#888;font-size:8pt'>FX "
                      f"{_h(format(money.D(rate), 'g'))} {_h(ccy)}/EUR · {_h(source)}"
                      f"</span></td></tr>")
     P.append("</table></div></div>")                    # /grand /totbox
     # ---- notes / legal wording ----
     if inv.get("simplified"):
-        P.append("<div class='note'>Simplified invoice "
+        P.append(f"<div class='note'>{_h(_t('Simplified invoice'))} "
                  f"(gross ≤ EUR {SIMPLIFIED_GROSS_CEILING_EUR:.0f}, "
                  "EU VAT Dir. Art. 238).</div>")
     if inv.get("reverse_charge"):
-        P.append(f"<div class='note'>{_h(REVERSE_CHARGE_NOTE)}</div>")
+        P.append(f"<div class='note'>{_h(_t(REVERSE_CHARGE_NOTE))}</div>")
     if inv.get("notes"):
         P.append(f"<div class='note'>{_h(inv.get('notes'))}</div>")
     # ---- payment block ----
     P.append("<div class='pay'>")
-    P.append(f"Payment due: <b>{_h(inv.get('due_date') or '(set at issue)')}</b>.")
+    P.append(f"{_h(_t('Payment due'))}: <b>{_h(inv.get('due_date') or '(set at issue)')}</b>.")
     if issuer.get("iban"):
         bank = f" ({_h(issuer.get('bank'))})" if issuer.get("bank") else ""
         P.append(f" Please transfer to IBAN <span class='iban'>"
@@ -1568,8 +1583,12 @@ def _invoice_pdf_fallback(invoice_id):
     return _pdf_unicode_doc(font_bytes, pages, lines_widths=(upm, nglyphs, widths))
 
 
-def invoice_pdf(invoice_id):
+def invoice_pdf(invoice_id, lang=None):
     """Render the invoice to a print-ready PDF (bytes), Latvian/Unicode-correct.
+
+    i18n: `lang` is passed through to invoice_html (the FIXED labels are localized; DB
+    values are never translated). `lang=None` resolves the current request language;
+    DEFAULT 'en' renders byte-identically to before.
 
     PRIMARY: the designed HTML/CSS template (invoice_html) rendered via the wkhtmltopdf
     CLI — UTF-8 + system fonts, so Latvian diacritics render natively and the invoice
@@ -1579,7 +1598,7 @@ def invoice_pdf(invoice_id):
     the latin-1 `?` the legacy shared text_to_pdf produced. A DRAFT is watermarked/labelled
     'DRAFT — not a valid invoice'. Returns the PDF bytes, or None if the invoice is
     unknown / both renderers are unavailable."""
-    html = invoice_html(invoice_id)
+    html = invoice_html(invoice_id, lang=lang)
     if html:
         try:
             data = _render_pdf_wkhtmltopdf(html)

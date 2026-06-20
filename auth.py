@@ -105,6 +105,10 @@ def connect():
             # the master switch `twofa_email_enabled` is ON AND the user has an email
             # (see twofa.twofa_enabled). APPEND only — positions stable.
             "ALTER TABLE users ADD COLUMN twofa_email INTEGER DEFAULT 0",
+            # i18n: per-user UI-language preference ('en'/'lv'), default 'en' = the source
+            # language, so every existing account renders exactly as before (default-EN
+            # invariant). Read/written via i18n.user_lang/set_lang. APPEND only.
+            "ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'en'",
         ])
         _seed_permissions(con)
         audit.install_audit(con, ["users", "role_permissions"])  # both change-logged

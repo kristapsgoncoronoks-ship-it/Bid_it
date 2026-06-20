@@ -23,6 +23,7 @@ from markupsafe import escape as esc
 from werkzeug.middleware.proxy_fix import ProxyFix
 import auth as _auth
 import audit as _audit_mod
+from i18n import t as _t   # i18n translator (English-text-as-key); resolves the request language
 import tenancy as _tenancy
 import cloudflare as _cloudflare
 import dataproduct
@@ -498,12 +499,37 @@ button:hover{background:#0b4d89}
 .pwtoggle{position:absolute;right:11px;top:15px;font-size:12px;color:#0e5fa8;cursor:pointer;user-select:none;font-weight:500}
 .ssobtn{display:block;text-align:center;text-decoration:none;background:#fff;color:#1a2733;border:1px solid #dde4ea;border-radius:7px;padding:10px;font-size:14px;font-weight:600;margin-bottom:14px}
 .ssobtn:hover{background:#f4f7f9}
-.ssosep{text-align:center;color:#9fb3c4;font-size:12px;margin:0 0 12px}</style></head><body>
+.ssosep{text-align:center;color:#9fb3c4;font-size:12px;margin:0 0 12px}
+.langsw{text-align:center;margin-top:14px;font-size:12px}
+.langsw form{display:inline;margin:0}
+.langsw button{width:auto;background:none;border:0;color:#0e5fa8;cursor:pointer;font-size:12px;padding:0 3px;font-weight:600;min-height:0}
+.langsw b{color:#1a2733;padding:0 3px}
+.langsw .sep{color:#9fb3c4}</style></head><body>
 <div class="box"><h1>Fleet Fuel Analytics</h1>{ERR}{SSO}
 <form method="post" data-setup><input name="username" placeholder="username" autofocus required>
 <div class="pwwrap"><input type="password" name="password" id="pw" placeholder="password" required>
 <span class="pwtoggle" data-for="pw">show</span></div>
-<button>Sign in</button></form></div><script src="/app.js" defer></script></body></html>"""
+<button>Sign in</button></form>{LANGSW}</div><script src="/app.js" defer></script></body></html>"""
+
+def _login_langsw():
+    """The tiny EN | LV switch for the pre-login pages. POSTs to /lang/<code> with the
+    session CSRF token (established here). i18n-aware: the active language shows as bold."""
+    import i18n
+    cur = i18n.current_lang()
+    tok = esc(_csrf_token())
+    parts = []
+    for i, code in enumerate(i18n.LANGS):
+        label = esc(i18n.LANG_LABELS[code])
+        if code == cur:
+            parts.append(f"<b>{label}</b>")
+        else:
+            parts.append(f'<form method="post" action="/lang/{esc(code)}">'
+                         f'<input type="hidden" name="_csrf" value="{tok}">'
+                         f'<input type="hidden" name="next" value="/login">'
+                         f'<button type="submit">{label}</button></form>')
+        if i < len(i18n.LANGS) - 1:
+            parts.append('<span class="sep">|</span>')
+    return '<div class="langsw">' + "".join(parts) + '</div>'
 
 SETUP_HTML = """<!doctype html><html><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
@@ -702,12 +728,37 @@ def login():
     # Optional "Sign in with …" buttons — one per ENABLED provider (Google / Microsoft /
     # custom), shown ONLY when that provider is enabled+configured. Local username/password
     # ALWAYS stays available below them (fallback so the admin can never be locked out).
-    return LOGIN_HTML.replace("{ERR}", err).replace("{SSO}", _sso_buttons_html())
+    return (LOGIN_HTML.replace("{ERR}", err).replace("{SSO}", _sso_buttons_html())
+            .replace("{LANGSW}", _login_langsw()))
 
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect("/login")
+
+@app.route("/lang/<lang>", methods=["POST"])
+def set_language(lang):
+    """Persist the UI language choice (i18n EN | LV switch in the header) and bounce back.
+    Per-user when logged in (users.lang); also stored on the session so the choice
+    survives across requests AND on pre-login pages. CSRF-protected like any POST (the
+    global _guard checks the session token). Coerced to a supported language."""
+    import i18n
+    chosen = i18n.normalize(lang)
+    session["lang"] = chosen
+    user = session.get("user")
+    if user:
+        try:
+            scon = _auth.connect(); _audit_mod.set_actor(scon, user); scon.close()
+            i18n.set_lang(user, chosen)
+            scon = _auth.connect(); _audit_mod.reset_actor(scon); scon.close()
+        except Exception as e:
+            _log_exc("set_language persist", e)
+    i18n.invalidate()   # so the redirect target resolves the new language this request
+    # Bounce back to where the user was (same-origin only), else home.
+    nxt = request.form.get("next") or request.referrer or "/"
+    if not nxt.startswith("/"):
+        nxt = "/"
+    return redirect(nxt)
 
 # ---------------------------------------------------------------- email two-factor (OTP)
 # The login route stages a NON-authenticated pending-2FA marker (pending_2fa_user +
@@ -1086,7 +1137,8 @@ def sso_callback():
 def _login_with_error(msg):
     """Render the login page with an error banner (used by the SSO flow)."""
     err = f'<div class="err">{esc(msg)}</div>'
-    return LOGIN_HTML.replace("{ERR}", err).replace("{SSO}", _sso_buttons_html())
+    return (LOGIN_HTML.replace("{ERR}", err).replace("{SSO}", _sso_buttons_html())
+            .replace("{LANGSW}", _login_langsw()))
 
 FORBIDDEN = ('<div class="card"><h2>Insufficient permissions</h2>'
              '<p>Your role does not allow this action. An administrator can change '
@@ -1221,6 +1273,10 @@ ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "api_r
 OPEN_ENDPOINTS = {
     # --- public / pre-session infrastructure (handled explicitly at the top of _guard) ---
     "setup", "static", "app_js", "login", "logout",
+    # i18n language switch (EN | LV). Login-exempt (works on pre-login pages too); its own
+    # session-CSRF check runs at the top of _guard. No capability — it only writes a UI
+    # preference (session + the logged-in user's users.lang).
+    "set_language",
     # email two-factor: the post-password verify page + resend are a PRE-AUTH step (the
     # user holds only a non-authenticated pending-2FA marker), so they are login-only like
     # /login. Session-CSRF stays ENFORCED on their POSTs (see _guard).
@@ -1467,6 +1523,19 @@ def _guard():
     # go through the normal session + capability + CSRF checks below.
     if request.endpoint in ("room_public", "room_doc_viewer", "room_doc_file",
                             "room_doc_event", "room_ask"):
+        return
+    # i18n language switch: usable on PRE-LOGIN pages too (login/setup), so it is
+    # login-exempt like /login. It is a POST and we keep session-CSRF ENFORCED on it
+    # whenever a session token exists; a pre-login page that has rendered the switch
+    # form carries the token (the login/setup pages establish one). When no token has
+    # been established yet, the POST is a harmless preference write with no auth effect,
+    # so an empty-token request is rejected by the check below only if a token exists.
+    if request.endpoint == "set_language":
+        sess_tok = session.get("_csrf") or ""
+        if sess_tok and not secrets.compare_digest(
+                request.form.get("_csrf") or "", sess_tok):
+            return page('<div class="card"><h2>Invalid or missing CSRF token</h2>'
+                        '<p>Please reload the page and try again.</p></div>', ""), 400
         return
     if _needs_setup():
         return redirect("/setup")
@@ -2128,6 +2197,12 @@ header>a.on,.mlabel.on{color:#fff;border-bottom:2px solid #6db1e8;padding-bottom
 .mdrop a:hover{background:#31485a;color:#fff}
 .mdrop a.on{background:var(--acc);color:#fff}
 .rightnav{margin-left:auto;display:flex;align-items:center;gap:14px}
+.langsw{display:inline-flex;align-items:center;gap:4px;font-size:12px}
+.langsw form{margin:0}
+.langbtn{background:none;border:0;color:#9fb3c4;cursor:pointer;font-size:12px;padding:0 2px;font-weight:600}
+.langbtn:hover{color:#fff;text-decoration:underline}
+.langon{color:#fff;font-size:12px}
+.langsep{color:#5f7385}
 th[data-sort]::after{content:" " attr(data-sort);color:#6db1e8;font-weight:400}
 .rowfilter{margin:0 0 8px;padding:7px 10px;border:1px solid var(--line);border-radius:7px;width:240px;font-size:13px;background:#fff;transition:border-color .12s,box-shadow .12s}
 .rowfilter:focus{border-color:var(--acc);box-shadow:0 0 0 3px rgba(14,95,168,.12);outline:none}
@@ -2365,26 +2440,26 @@ button[disabled].btn,button.btn:disabled{opacity:.55;cursor:not-allowed;pointer-
 }
 </style></head><body>
 <header><b>🚛 ⛽ Fleet Fuel</b>
-<a href="/" class="{{'on' if page=='home'}}"><span class="ic">🏠</span>Home</a>
-{% if 'intake' in modules and 'data_import' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ext','queue','imp','fil','min'] else ''}}"><span class="ic">📥</span>Intake</span><div class="mdrop"><span>
+<a href="/" class="{{'on' if page=='home'}}"><span class="ic">🏠</span>{{ t('Home') }}</a>
+{% if 'intake' in modules and 'data_import' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ext','queue','imp','fil','min'] else ''}}"><span class="ic">📥</span>{{ t('Intake') }}</span><div class="mdrop"><span>
   <a href="/extract" class="{{'on' if page=='ext'}}">Import batch</a>
   <a href="/queue" class="{{'on' if page=='queue'}}">Waiting room</a>
   <a href="/imports" class="{{'on' if page=='imp'}}">Import log</a>
   <a href="/files" class="{{'on' if page=='fil'}}">File archive</a>
   <a href="/mining" class="{{'on' if page=='min'}}">Doc mining</a>
 </span></div></div>{% endif %}
-{% if 'compliance' in modules and ('invoice_control' in perms or 'documents' in perms) %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['doc','srch','esign','inv','con'] else ''}}"><span class="ic">📄</span>Documents</span><div class="mdrop"><span>
+{% if 'compliance' in modules and ('invoice_control' in perms or 'documents' in perms) %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['doc','srch','esign','inv','con'] else ''}}"><span class="ic">📄</span>{{ t('Documents') }}</span><div class="mdrop"><span>
   {% if 'documents' in perms %}<a href="/documents" class="{{'on' if page=='doc'}}">Documents</a>
   <a href="/search" class="{{'on' if page=='srch'}}">Search</a>
   <a href="/esign" class="{{'on' if page=='esign'}}">E-signatures</a>{% endif %}
   {% if 'invoice_control' in perms %}<a href="/invoices" class="{{'on' if page=='inv'}}">Invoice control</a>
   <a href="/contracts" class="{{'on' if page=='con'}}">Contract audit</a>{% endif %}
 </span></div></div>{% endif %}
-{% if 'sharing' in modules and 'share' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['shr','rooms'] else ''}}"><span class="ic">🔗</span>Sharing</span><div class="mdrop"><span>
+{% if 'sharing' in modules and 'share' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['shr','rooms'] else ''}}"><span class="ic">🔗</span>{{ t('Sharing') }}</span><div class="mdrop"><span>
   <a href="/share" class="{{'on' if page=='shr'}}">Share links</a>
   <a href="/rooms" class="{{'on' if page=='rooms'}}">Data rooms</a>
 </span></div></div>{% endif %}
-{% if 'analytics' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ana','rep','sav','exp','int','cmp','txn','h2h','stn','ano','pri','rel'] else ''}}"><span class="ic">📊</span>Analytics</span><div class="mdrop"><span>
+{% if 'analytics' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ana','rep','sav','exp','int','cmp','txn','h2h','stn','ano','pri','rel'] else ''}}"><span class="ic">📊</span>{{ t('Analytics') }}</span><div class="mdrop"><span>
   <a href="/analytics" class="{{'on' if page=='ana'}}">Dashboard</a>
   <a href="/reports" class="{{'on' if page=='rep'}}">Reports (charts)</a>
   <a href="/savings" class="{{'on' if page=='sav'}}">Savings</a>
@@ -2398,7 +2473,7 @@ button[disabled].btn,button.btn:disabled{opacity:.55;cursor:not-allowed;pointer-
   {% if 'pricing' in perms %}<a href="/pricing" class="{{'on' if page=='pri'}}">Pricing intel</a>
   <a href="/reliability" class="{{'on' if page=='rel'}}">Reliability</a>{% endif %}
 </span></div></div>{% endif %}
-<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ent','vat','rdy','rec','rcv','fin','rcn','fx'] else ''}}"><span class="ic">💶</span>VAT &amp; Recovery</span><div class="mdrop"><span>
+<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ent','vat','rdy','rec','rcv','fin','rcn','fx'] else ''}}"><span class="ic">💶</span>{{ t('VAT & Recovery') }}</span><div class="mdrop"><span>
   <a href="/entities" class="{{'on' if page=='ent'}}">Entities &amp; VAT</a>
   {% if is_admin and 'vat' in modules %}<a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
   <a href="/readiness" class="{{'on' if page=='rdy'}}">Claims readiness</a>
@@ -2408,32 +2483,34 @@ button[disabled].btn,button.btn:disabled{opacity:.55;cursor:not-allowed;pointer-
   <a href="/recon" class="{{'on' if page=='rcn'}}">Bank reconciliation</a>{% endif %}
   {% if 'fx' in modules %}<a href="/fx" class="{{'on' if page=='fx'}}">FX vs ECB</a>{% endif %}
 </span></div></div>
-<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['sup','cus','dreq','dat'] else ''}}"><span class="ic">🗂️</span>Master data</span><div class="mdrop"><span>
+<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['sup','cus','dreq','dat'] else ''}}"><span class="ic">🗂️</span>{{ t('Master data') }}</span><div class="mdrop"><span>
   <a href="/suppliers" class="{{'on' if page=='sup'}}">Suppliers</a>
   {% if is_admin %}<a href="/customers" class="{{'on' if page=='cus'}}">Customers (CRM)</a>{% endif %}
   {% if is_admin %}<a href="/doc-requests" class="{{'on' if page=='dreq'}}">Document requests</a>{% endif %}
   {% if 'data_import' in perms %}<a href="/data" class="{{'on' if page=='dat'}}">Data manager</a>{% endif %}
 </span></div></div>
-{% if is_admin and 'invoicing' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ivc','ivcc','ivci'] else ''}}"><span class="ic">🧾</span>Invoicing</span><div class="mdrop"><span>
-  <a href="/invoicing" class="{{'on' if page=='ivc'}}">Invoices</a>
-  <a href="/invoicing/customers" class="{{'on' if page=='ivcc'}}">Customer book</a>
-  <a href="/invoicing/issuer" class="{{'on' if page=='ivci'}}">Issuer profile</a>
+{% if is_admin and 'invoicing' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ivc','ivcc','ivci'] else ''}}"><span class="ic">🧾</span>{{ t('Invoicing') }}</span><div class="mdrop"><span>
+  <a href="/invoicing" class="{{'on' if page=='ivc'}}">{{ t('Invoices') }}</a>
+  <a href="/invoicing/customers" class="{{'on' if page=='ivcc'}}">{{ t('Customer book') }}</a>
+  <a href="/invoicing/issuer" class="{{'on' if page=='ivci'}}">{{ t('Issuer profile') }}</a>
 </span></div></div>{% endif %}
-<a href="/history" class="{{'on' if page=='his'}}"><span class="ic">🕘</span>History</a>
-{% if 'workflow' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['tasks','wfadm'] else ''}}"><span class="ic">✅</span>Tasks</span><div class="mdrop"><span>
+<a href="/history" class="{{'on' if page=='his'}}"><span class="ic">🕘</span>{{ t('History') }}</a>
+{% if 'workflow' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['tasks','wfadm'] else ''}}"><span class="ic">✅</span>{{ t('Tasks') }}</span><div class="mdrop"><span>
   <a href="/tasks" class="{{'on' if page=='tasks'}}">My tasks &amp; approvals</a>
   {% if is_admin %}<a href="/workflows" class="{{'on' if page=='wfadm'}}">Manage workflows</a>{% endif %}
 </span></div></div>{% endif %}
 <span class="rightnav">
-{% if 'exports' in perms %}<div class="menu" tabindex="0"><span class="mlabel"><span class="ic">⬇️</span>Export</span><div class="mdrop"><span>
+{% if 'exports' in perms %}<div class="menu" tabindex="0"><span class="mlabel"><span class="ic">⬇️</span>{{ t('Export') }}</span><div class="mdrop"><span>
   <a href="/export/summary">Summary report</a><a href="/export/master">Master workbook</a><a href="/export/history">History report</a>
   {% if 'analytics' in modules %}<a href="/exports">Accounting &amp; ERP exports</a>{% endif %}
 </span></div></div>{% endif %}
-{% if role == 'admin' %}<a href="/close" class="{{'on' if page=='close'}}"><span class="ic">🔒</span>Monthly close</a>
-<a href="/admin" class="{{'on' if page=='adm'}}"><span class="ic">⚙️</span>Admin</a>{% endif %}
+{% if role == 'admin' %}<a href="/close" class="{{'on' if page=='close'}}"><span class="ic">🔒</span>{{ t('Monthly close') }}</a>
+<a href="/admin" class="{{'on' if page=='adm'}}"><span class="ic">⚙️</span>{{ t('Admin') }}</a>{% endif %}
 <span class="note" style="color:#9fb3c4">{{ user }} ({{ role }})</span>
-<a href="/account">Account</a>
-<a href="/logout">Sign out</a></span>
+<a href="/account">{{ t('Account') }}</a>
+<a href="/logout">{{ t('Sign out') }}</a>
+<span class="langsw">{% for code in langs %}{% if code == lang %}<b class="langon">{{ lang_labels[code] }}</b>{% else %}<form method="post" action="/lang/{{ code }}" style="display:inline">{{ csrf_field|safe }}<button class="langbtn" type="submit">{{ lang_labels[code] }}</button></form>{% endif %}{% if not loop.last %}<span class="langsep">|</span>{% endif %}{% endfor %}</span>
+</span>
 </header><main>{{ body|safe }}</main><div id="toasts" aria-live="polite"></div><script src="/app.js" defer></script></body></html>"""
 
 _BASE_TMPL = None   # compiled once; render_template_string would recompile per call
@@ -2442,10 +2519,17 @@ def page(body, p):
     if _BASE_TMPL is None:
         _BASE_TMPL = app.jinja_env.from_string(BASE)
     role = session.get("role", "processor")
+    # i18n: pass the translator + the active language + the switch context. `lang` is
+    # 'en' by default (the source language) so the chrome renders byte-identically until a
+    # user switches to Latvian. `csrf_field` carries the hidden CSRF input for the POST
+    # switch (only meaningful once a session token exists; harmless empty otherwise).
+    import i18n
     return _BASE_TMPL.render(body=body, page=p,
                              user=session.get("user", ""), role=role, is_admin=(role == "admin"),
                              modules=enabled_modules() if session.get("user") else set(),
-                             perms=_auth.permissions_for(role) if session.get("user") else set())
+                             perms=_auth.permissions_for(role) if session.get("user") else set(),
+                             t=i18n.t, lang=i18n.current_lang(), langs=i18n.LANGS,
+                             lang_labels=i18n.LANG_LABELS, csrf_field=_csrf_input())
 
 def _review_page(body, p):
     """Render an intake-review page like page(), but with a CSP that permits the
@@ -14409,8 +14493,8 @@ def invoicing_home():
     rows = []
     for d in invs:
         st = d.get("status") or "draft"
-        chip = ('<span class="chip s-done">issued</span>' if st == "issued"
-                else f'<span class="chip s-neutral">{esc(st)}</span>')
+        chip = (f'<span class="chip s-done">{esc(_t("issued"))}</span>' if st == "issued"
+                else f'<span class="chip s-neutral">{esc(_t(st) if st=="draft" else st)}</span>')
         num = d.get("number") or "(draft)"
         rows.append([
             f'<a href="/invoicing/compose/{int(d["id"])}">{esc(num)}</a>',
@@ -14419,27 +14503,29 @@ def invoicing_home():
             esc(d.get("due_date") or "—"),
             _eur(d.get("gross_total")),
             chip,
-            (f'<a href="/invoicing/pdf/{int(d["id"])}">PDF</a>'),
+            (f'<a href="/invoicing/pdf/{int(d["id"])}">{esc(_t("PDF"))}</a>'),
         ])
-    table = (tbl(["Number", "Customer", "Issue date", "Due", "Total (gross)",
-                  "Status", ""], rows) if rows
-             else _empty("No invoices yet", "Compose your first invoice to a customer.",
-                         "New invoice", "/invoicing/compose"))
+    table = (tbl([_t("Number"), _t("Customer"), _t("Issue date"), _t("Due"),
+                  _t("Total (gross)"), _t("Status"), ""], rows) if rows
+             else _empty(_t("No invoices yet"),
+                         _t("Compose your first invoice to a customer."),
+                         _t("New invoice"), "/invoicing/compose"))
     # filters
-    statuses = "".join(f'<option value="{esc(s)}" {"selected" if status==s else ""}>{esc(s)}</option>'
+    statuses = "".join(f'<option value="{esc(s)}" {"selected" if status==s else ""}>{esc(_t(s) if s else s)}</option>'
                        for s in ("", invoicing.STATUS_DRAFT, invoicing.STATUS_ISSUED))
     filt = ('<form method="get" class="f" style="margin-bottom:10px">'
-            f'<label>Status<select name="status">{statuses}</select></label>'
-            f'<label>Year<input name="year" value="{esc(year or "")}" '
+            f'<label>{esc(_t("Status"))}<select name="status">{statuses}</select></label>'
+            f'<label>{esc(_t("Year"))}<input name="year" value="{esc(year or "")}" '
             'style="width:90px" inputmode="numeric"></label>'
-            '<button>Filter</button>'
-            ' <a class="btn" href="/invoicing/compose">New invoice</a></form>')
-    help_card = ('<div class="card"><h2>Invoicing</h2>'
-                 '<p class="note">Issue legally-compliant sales invoices to your own '
-                 'customers. Amounts are shown on a <b>NET</b> basis (VAT excluded). A '
-                 'draft is freely editable; once <b>issued</b> it gets a gap-free number '
-                 'and becomes immutable (a legal record).</p></div>')
-    return page(help_card + '<div class="card"><h2>Invoices</h2>'
+            f'<button>{esc(_t("Filter"))}</button>'
+            f' <a class="btn" href="/invoicing/compose">{esc(_t("New invoice"))}</a></form>')
+    _ivc_help = ("Issue legally-compliant sales invoices to your own "
+                 "customers. Amounts are shown on a NET basis (VAT excluded). A "
+                 "draft is freely editable; once issued it gets a gap-free number "
+                 "and becomes immutable (a legal record).")
+    help_card = (f'<div class="card"><h2>{esc(_t("Invoicing"))}</h2>'
+                 f'<p class="note">{esc(_t(_ivc_help))}</p></div>')
+    return page(help_card + f'<div class="card"><h2>{esc(_t("Invoices"))}</h2>'
                 + filt + table + '</div>', "ivc")
 
 
@@ -14463,34 +14549,34 @@ def invoicing_customers():
             esc(c.get("country") or "—"),
             esc(c.get("vat_number") or "—"),
             esc(c.get("email") or "—"),
-            (f'<a href="/invoicing/customers?edit={int(c["id"])}">Edit</a>'),
+            (f'<a href="/invoicing/customers?edit={int(c["id"])}">{esc(_t("Edit"))}</a>'),
         ])
-    table = (tbl(["Name", "Country", "VAT no", "Email", ""], rows) if rows
-             else '<p class="note">No customers yet — add one below.</p>')
+    table = (tbl([_t("Name"), _t("Country"), _t("VAT no"), _t("Email"), ""], rows) if rows
+             else f'<p class="note">{esc(_t("No customers yet — add one below."))}</p>')
 
     def _v(k):
         return esc((editing or {}).get(k) or "") if editing else ""
     form = (
-        '<div class="card"><h2>' + ("Edit customer" if editing else "Add a customer") + '</h2>'
+        '<div class="card"><h2>' + str(esc(_t("Edit customer") if editing else _t("Add a customer"))) + '</h2>'
         '<form method="post" action="/invoicing/customers/save" class="f">' + _csrf_input()
         + (f'<input type="hidden" name="id" value="{int(editing["id"])}">' if editing else '')
-        + f'<label>Name<input name="name" required value="{_v("name")}"></label>'
-        + f'<label>Country (ISO-2)<input name="country" maxlength="2" style="width:90px" '
+        + f'<label>{esc(_t("Name"))}<input name="name" required value="{_v("name")}"></label>'
+        + f'<label>{esc(_t("Country (ISO-2)"))}<input name="country" maxlength="2" style="width:90px" '
           f'value="{_v("country")}"></label>'
-        + f'<label>VAT number<input name="vat_number" value="{_v("vat_number")}"></label>'
-        + f'<label>Reg number<input name="reg_no" value="{_v("reg_no")}"></label>'
-        + f'<label style="flex:1 1 100%">Address<input name="address" value="{_v("address")}"></label>'
-        + f'<label>Email<input name="email" type="email" value="{_v("email")}"></label>'
-        + f'<label>Payment terms (days)<input name="payment_terms_days" inputmode="numeric" '
+        + f'<label>{esc(_t("VAT number"))}<input name="vat_number" value="{_v("vat_number")}"></label>'
+        + f'<label>{esc(_t("Reg number"))}<input name="reg_no" value="{_v("reg_no")}"></label>'
+        + f'<label style="flex:1 1 100%">{esc(_t("Address"))}<input name="address" value="{_v("address")}"></label>'
+        + f'<label>{esc(_t("Email"))}<input name="email" type="email" value="{_v("email")}"></label>'
+        + f'<label>{esc(_t("Payment terms (days)"))}<input name="payment_terms_days" inputmode="numeric" '
           f'style="width:120px" value="{_v("payment_terms_days")}"></label>'
-        + f'<label style="flex:1 1 100%">Notes<input name="notes" value="{_v("notes")}"></label>'
+        + f'<label style="flex:1 1 100%">{esc(_t("Notes"))}<input name="notes" value="{_v("notes")}"></label>'
         + '<div style="margin-top:8px"><button>'
-        + ("Save changes" if editing else "Add customer") + '</button>'
-        + (' <a class="btn" href="/invoicing/customers">Cancel</a>' if editing else '')
+        + str(esc(_t("Save changes") if editing else _t("Add customer"))) + '</button>'
+        + (f' <a class="btn" href="/invoicing/customers">{esc(_t("Cancel"))}</a>' if editing else '')
         + '</div></form>'
-        '<p class="note">These are <b>your</b> customers (bill-to). They are kept separate '
-        'from the platform CRM (which holds the VAT-refund clients).</p></div>')
-    return page('<div class="card"><h2>Customer book</h2>' + table + '</div>' + form, "ivcc")
+        + '<p class="note">' + str(esc(_t("These are your customers (bill-to). They are kept separate "
+          "from the platform CRM (which holds the VAT-refund clients)."))) + '</p></div>')
+    return page(f'<div class="card"><h2>{esc(_t("Customer book"))}</h2>' + table + '</div>' + form, "ivcc")
 
 
 @app.route("/invoicing/customers/save", methods=["POST"])
@@ -14506,8 +14592,8 @@ def invoicing_customer_save():
         obj, err = invoicing.update_customer(int(cid), **fields)
     else:
         obj, err = invoicing.add_customer(created_by=session.get("user"), **fields)
-    banner = _ivc_banner(not err, "Customer saved." if not err else (err or "error"))
-    return page(banner + '<p><a href="/invoicing/customers">Back to customer book</a></p>',
+    banner = _ivc_banner(not err, _t("Customer saved.") if not err else (err or "error"))
+    return page(banner + f'<p><a href="/invoicing/customers">{esc(_t("Back to customer book"))}</a></p>',
                 "ivcc")
 
 
@@ -14526,26 +14612,26 @@ def invoicing_issuer():
             '<b class="bad">Incomplete.</b> The legal name, address and VAT number are '
             'mandatory before you can issue an invoice.</div>')
     form = (
-        '<div class="card"><h2>Issuer profile</h2>'
+        f'<div class="card"><h2>{esc(_t("Issuer profile"))}</h2>'
         '<p class="note">This is your legal entity as it appears on the invoice as the '
         'supplier. The legal name, address and VAT number are mandatory (EU VAT Dir. '
         '2006/112/EC Art. 226). Multi-tenant note: a per-tenant issuer profile is a later '
         'phase; today this is one global profile.</p>'
         '<form method="post" action="/invoicing/issuer/save" class="f">' + _csrf_input()
-        + f'<label style="flex:1 1 100%">Legal name<input name="name" value="{_v("name")}"></label>'
-        + f'<label style="flex:1 1 100%">Address<input name="address" value="{_v("address")}"></label>'
-        + f'<label>VAT number<input name="vat_number" value="{_v("vat_number")}"></label>'
-        + f'<label>Reg number<input name="reg_no" value="{_v("reg_no")}"></label>'
-        + f'<label>IBAN<input name="iban" value="{_v("iban")}"></label>'
-        + f'<label>Bank<input name="bank" value="{_v("bank")}"></label>'
-        + f'<label>Number series<input name="series" value="{_v("series")}" style="width:120px"></label>'
-        + f'<label>Number format<input name="number_format" value="{_v("number_format")}" '
+        + f'<label style="flex:1 1 100%">{esc(_t("Legal name"))}<input name="name" value="{_v("name")}"></label>'
+        + f'<label style="flex:1 1 100%">{esc(_t("Address"))}<input name="address" value="{_v("address")}"></label>'
+        + f'<label>{esc(_t("VAT number"))}<input name="vat_number" value="{_v("vat_number")}"></label>'
+        + f'<label>{esc(_t("Reg number"))}<input name="reg_no" value="{_v("reg_no")}"></label>'
+        + f'<label>{esc(_t("IBAN"))}<input name="iban" value="{_v("iban")}"></label>'
+        + f'<label>{esc(_t("Bank"))}<input name="bank" value="{_v("bank")}"></label>'
+        + f'<label>{esc(_t("Number series"))}<input name="series" value="{_v("series")}" style="width:120px"></label>'
+        + f'<label>{esc(_t("Number format"))}<input name="number_format" value="{_v("number_format")}" '
           'style="width:220px"></label>'
-        + f'<label>Default payment terms (days)<input name="payment_terms_days" '
+        + f'<label>{esc(_t("Default payment terms (days)"))}<input name="payment_terms_days" '
           f'inputmode="numeric" style="width:140px" value="{_v("payment_terms_days")}"></label>'
-        + f'<label style="flex:1 1 100%">Header text (optional)<input name="logo_text" '
+        + f'<label style="flex:1 1 100%">{esc(_t("Header text (optional)"))}<input name="logo_text" '
           f'value="{_v("logo_text")}"></label>'
-        + '<div style="margin-top:8px"><button>Save issuer profile</button></div>'
+        + f'<div style="margin-top:8px"><button>{esc(_t("Save issuer profile"))}</button></div>'
         + '<p class="note">Number format placeholders: '
           '<code>{series}</code>, <code>{year}</code>, <code>{seq:06d}</code>.</p>'
         '</form></div>')
@@ -14577,16 +14663,16 @@ def invoicing_compose(invoice_id=None):
         opts = "".join(f'<option value="{int(c["id"])}">{esc(c.get("name") or "")}</option>'
                        for c in custs)
         if not custs:
-            body = _empty("No customers yet",
+            body = _empty(_t("No customers yet"),
                           "Add a customer to the customer book before composing an invoice.",
-                          "Customer book", "/invoicing/customers")
-            return page('<div class="card"><h2>New invoice</h2>' + body + '</div>', "ivc")
+                          _t("Customer book"), "/invoicing/customers")
+            return page(f'<div class="card"><h2>{esc(_t("New invoice"))}</h2>' + body + '</div>', "ivc")
         start = (
-            '<div class="card"><h2>New invoice</h2>'
+            f'<div class="card"><h2>{esc(_t("New invoice"))}</h2>'
             '<form method="post" action="/invoicing/create" class="f">' + _csrf_input()
-            + f'<label>Customer<select name="customer_id" required>{opts}</select></label>'
-            + '<label>Currency<input name="currency" value="EUR" style="width:90px"></label>'
-            + '<div style="margin-top:8px"><button>Start draft</button></div>'
+            + f'<label>{esc(_t("Customer"))}<select name="customer_id" required>{opts}</select></label>'
+            + f'<label>{esc(_t("Currency"))}<input name="currency" value="EUR" style="width:90px"></label>'
+            + f'<div style="margin-top:8px"><button>{esc(_t("Start draft"))}</button></div>'
             + '<p class="note">A draft has no number yet — the gap-free number is assigned '
               'only when you Issue.</p></form></div>')
         return page(start, "ivc")
@@ -14600,16 +14686,16 @@ def invoicing_compose(invoice_id=None):
 
     # header summary
     head_rows = [
-        ["Number", esc(inv.get("number") or "(assigned at issue)")],
-        ["Status", '<span class="chip s-done">issued</span>' if issued
-         else '<span class="chip s-neutral">draft</span>'],
-        ["Customer", esc((cust or {}).get("name") or "—")],
-        ["Issue date", esc(inv.get("issue_date") or "—")],
-        ["Due date", esc(inv.get("due_date") or "—")],
-        ["Reverse charge", "yes — recipient accounts for VAT" if inv.get("reverse_charge") else "no"],
-        ["Net total", _eur(inv.get("net_total"))],
-        ["VAT total", _eur(inv.get("vat_total"))],
-        ["Grand total", _eur(inv.get("gross_total"))],
+        [_t("Number"), esc(inv.get("number") or "(assigned at issue)")],
+        [_t("Status"), f'<span class="chip s-done">{esc(_t("issued"))}</span>' if issued
+         else f'<span class="chip s-neutral">{esc(_t("draft"))}</span>'],
+        [_t("Customer"), esc((cust or {}).get("name") or "—")],
+        [_t("Issue date"), esc(inv.get("issue_date") or "—")],
+        [_t("Due date"), esc(inv.get("due_date") or "—")],
+        [_t("Reverse charge"), "yes — recipient accounts for VAT" if inv.get("reverse_charge") else "no"],
+        [_t("Net total"), _eur(inv.get("net_total"))],
+        [_t("VAT total"), _eur(inv.get("vat_total"))],
+        [_t("Grand total"), _eur(inv.get("gross_total"))],
     ]
     head = tbl(["", ""], [[esc(a), b] for a, b in head_rows])
 
@@ -14622,7 +14708,7 @@ def invoicing_compose(invoice_id=None):
                   + _csrf_input()
                   + f'<input type="hidden" name="invoice_id" value="{int(invoice_id)}">'
                   + f'<input type="hidden" name="line_id" value="{int(ln["id"])}">'
-                  + '<button>Remove</button></form>')
+                  + f'<button>{esc(_t("Remove"))}</button></form>')
         lrows.append([
             esc(ln.get("description") or ""),
             esc(f'{float(ln.get("quantity") or 0):g}'),
@@ -14633,40 +14719,41 @@ def invoicing_compose(invoice_id=None):
             _eur(ln.get("line_vat")),
             rm,
         ])
-    ltable = (tbl(["Description", "Qty", "Unit", "Unit price (net)", "Rate", "Net", "VAT", ""],
-                  lrows) if lrows else '<p class="note">No lines yet.</p>')
+    ltable = (tbl([_t("Description"), _t("Qty"), _t("Unit"), _t("Unit price (net)"),
+                   _t("Rate"), _t("Net"), _t("VAT"), ""],
+                  lrows) if lrows else f'<p class="note">{esc(_t("No lines yet."))}</p>')
 
-    dl = f' <a class="btn" href="/invoicing/pdf/{int(invoice_id)}">Download PDF</a>'
+    dl = f' <a class="btn" href="/invoicing/pdf/{int(invoice_id)}">{esc(_t("Download PDF"))}</a>'
     if issued:
         dl += (f' <a class="btn" href="/invoicing/einvoice/{int(invoice_id)}.xml">'
                'Download e-invoice (XML)</a>'
                f' <a class="btn" href="/invoicing/hybrid/{int(invoice_id)}">'
                'Download hybrid PDF (PDF + e-invoice)</a>')
-    body = ['<div class="card"><h2>Invoice</h2>' + head + dl
+    body = [f'<div class="card"><h2>{esc(_t("Invoice"))}</h2>' + head + dl
             + ('<p class="note">The e-invoice is an EN-16931 / PEPPOL BIS Billing 3.0 '
                'UBL 2.1 document — the structured format Latvia mandates (B2G now, B2B '
                'from 2028). The hybrid PDF embeds that XML inside the PDF (Factur-X style) '
                'so it is both human- and machine-readable.</p>' if issued else '')
             + '</div>']
-    body.append('<div class="card"><h2>Lines (net basis, VAT excluded)</h2>' + ltable + '</div>')
+    body.append(f'<div class="card"><h2>{esc(_t("Lines (net basis, VAT excluded)"))}</h2>' + ltable + '</div>')
 
     if not issued:
         # add-line form
         add = (
-            '<div class="card"><h2>Add a line</h2>'
+            f'<div class="card"><h2>{esc(_t("Add a line"))}</h2>'
             '<form method="post" action="/invoicing/line/add" class="f">' + _csrf_input()
             + f'<input type="hidden" name="invoice_id" value="{int(invoice_id)}">'
-            + '<label style="flex:1 1 100%">Description<input name="description" required></label>'
-            + '<label>Quantity<input name="quantity" required inputmode="decimal" style="width:110px"></label>'
-            + '<label>Unit<input name="unit" style="width:90px"></label>'
-            + '<label>Unit price (net)<input name="unit_price_net" required inputmode="decimal" style="width:140px"></label>'
+            + f'<label style="flex:1 1 100%">{esc(_t("Description"))}<input name="description" required></label>'
+            + f'<label>{esc(_t("Quantity"))}<input name="quantity" required inputmode="decimal" style="width:110px"></label>'
+            + f'<label>{esc(_t("Unit"))}<input name="unit" style="width:90px"></label>'
+            + f'<label>{esc(_t("Unit price (net)"))}<input name="unit_price_net" required inputmode="decimal" style="width:140px"></label>'
             + '<label>VAT rate (Latvia 2026)<select name="vat_rate_preset" style="width:150px">'
               + ''.join(f'<option value="{p}">{p * 100:g}%</option>'
                         for p in invoicing.LV_VAT_RATE_PRESETS)
               + '<option value="custom">Custom…</option></select></label>'
             + '<label>Custom rate %<input name="vat_rate" inputmode="decimal" style="width:110px" '
               'placeholder="(only if Custom)"></label>'
-            + '<div style="margin-top:8px"><button>Add line</button></div>'
+            + f'<div style="margin-top:8px"><button>{esc(_t("Add line"))}</button></div>'
             + '<p class="note">Pick a Latvia VAT rate (21% standard · 12% / 5% reduced · 0%) '
               'or choose Custom and type a rate.</p>'
             + ('<p class="note">Reverse charge is ON: lines are at 0% VAT (the recipient '
@@ -14675,21 +14762,21 @@ def invoicing_compose(invoice_id=None):
         # reverse-charge toggle + issue
         rc_on = bool(inv.get("reverse_charge"))
         rc = (
-            '<div class="card"><h2>Settings</h2>'
+            f'<div class="card"><h2>{esc(_t("Settings"))}</h2>'
             '<form method="post" action="/invoicing/fields/save" class="f">' + _csrf_input()
             + f'<input type="hidden" name="invoice_id" value="{int(invoice_id)}">'
-            + '<label>Reverse charge '
+            + f'<label>{esc(_t("Reverse charge"))} '
             + f'<input type="checkbox" name="reverse_charge" {"checked" if rc_on else ""}></label>'
-            + '<label>Simplified invoice (gross &le; €150) '
+            + f'<label>{esc(_t("Simplified invoice"))} (gross &le; €150) '
             + f'<input type="checkbox" name="simplified" '
               f'{"checked" if inv.get("simplified") else ""}></label>'
-            + f'<label>Supply date<input name="supply_date" type="date" '
+            + f'<label>{esc(_t("Supply date"))}<input name="supply_date" type="date" '
               f'value="{esc(inv.get("supply_date") or "")}"></label>'
             + (f'<label>FX rate ({esc(inv.get("currency") or "")} per 1 EUR)'
                f'<input name="fx_rate" inputmode="decimal" style="width:130px" '
                f'value="{esc(str(inv.get("fx_rate")) if inv.get("fx_rate") not in (None, "") else "")}">'
                '</label>' if (inv.get("currency") or "EUR") != "EUR" else "")
-            + '<div style="margin-top:8px"><button>Update settings</button></div>'
+            + f'<div style="margin-top:8px"><button>{esc(_t("Update settings"))}</button></div>'
             + '<p class="note">Reverse charge applies to a cross-border EU B2B customer '
               '(0% VAT, the recipient accounts for VAT). Toggling it re-rates existing '
               'lines; re-enter line rates if you turn it back off. A simplified invoice '
@@ -14700,16 +14787,16 @@ def invoicing_compose(invoice_id=None):
             + '</form></div>')
         issue_err = invoicing.validate_for_issue(invoice_id)
         if issue_err:
-            issue_block = ('<div class="card"><h2>Issue</h2>'
+            issue_block = (f'<div class="card"><h2>{esc(_t("Issue"))}</h2>'
                            f'<p class="note bad">Not ready to issue: {esc(issue_err)}</p></div>')
         else:
             issue_block = (
-                '<div class="card"><h2>Issue</h2>'
+                f'<div class="card"><h2>{esc(_t("Issue"))}</h2>'
                 '<p class="note">Issuing assigns the gap-free invoice number, snapshots the '
                 'issuer + customer, and makes the invoice immutable.</p>'
                 '<form method="post" action="/invoicing/issue">' + _csrf_input()
                 + f'<input type="hidden" name="invoice_id" value="{int(invoice_id)}">'
-                + '<button>Issue invoice</button></form></div>')
+                + f'<button>{esc(_t("Issue invoice"))}</button></form></div>')
         body.append(add)
         body.append(rc)
         body.append(issue_block)
@@ -14831,7 +14918,8 @@ def invoicing_pdf(invoice_id):
     inv = invoicing.get_invoice(invoice_id)
     if not inv:
         return page('<div class="card"><b class="bad">No such invoice.</b></div>', "ivc"), 404
-    data = invoicing.invoice_pdf(invoice_id)
+    import i18n
+    data = invoicing.invoice_pdf(invoice_id, lang=i18n.current_lang())
     if not data:
         return page('<div class="card"><b class="bad">Could not render the PDF.</b></div>',
                     "ivc"), 500
