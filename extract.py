@@ -808,6 +808,72 @@ def _detect_currency(text):
     return "EUR"
 
 
+# Seller-vs-buyer disambiguation for the generic header heuristic. Many invoices print the
+# BUYER block (Client / Pircējs / Acheteur …) BEFORE the SELLER block (Vendeur / Pārdevējs /
+# Fournisseur …), so the FIRST VAT-id on the page is the customer's, not the supplier's
+# (this is exactly what mis-recognised an E100 invoice as its Latvian buyer). We label every
+# VAT-id by the nearest PRECEDING party header and prefer the seller's.
+_BUYER_KW = ("client", "pircēj", "pirkēj", "acheteur", "customer", "buyer", "käufer",
+             "saņēmēj", "kupują")
+_SELLER_KW = ("vendeur", "pārdevēj", "seller", "fournisseur", "supplier", "verkäufer",
+              "lieferant", "sprzedaw", "pardavėj", "müüja", "tarnij")
+
+
+def _kw_positions(low, kws):
+    """All start offsets of any keyword in `kws` within the already-lowercased text."""
+    out = []
+    for kw in kws:
+        i = low.find(kw)
+        while i != -1:
+            out.append(i)
+            i = low.find(kw, i + 1)
+    return out
+
+
+def _seller_identity(joined):
+    """Best-effort (name, vat) of the SELLER from a plain-text invoice. Each VAT-id is
+    assigned to whichever party header (buyer/seller) most recently precedes it; we return
+    the first VAT-id in a SELLER block — else the first VAT-id NOT in a buyer block, which
+    preserves the historical 'first VAT-id' behaviour when no party headers are printed.
+    The name is the first name-like line after the earliest seller header. Never raises."""
+    try:
+        low = joined.lower()
+        buyer = _kw_positions(low, _BUYER_KW)
+        seller = _kw_positions(low, _SELLER_KW)
+
+        def block_of(p):
+            b = max([x for x in buyer if x < p], default=-1)
+            s = max([x for x in seller if x < p], default=-1)
+            if s > b:
+                return "seller"
+            if b > s:
+                return "buyer"
+            return None
+
+        vats = [(m.start(), m.group(1)) for m in _VATID_RE.finditer(joined)]
+        vat = next((v for p, v in vats if block_of(p) == "seller"), None)
+        if vat is None:
+            vat = next((v for p, v in vats if block_of(p) != "buyer"), None)
+
+        name = None
+        if seller:
+            tail = joined[min(seller):].splitlines()
+            for ln in tail[1:8]:
+                s = ln.strip(" \t:•-")
+                if (len(s) >= 3 and any(c.isalpha() for c in s)
+                        and not _VATID_RE.search(s)
+                        and not re.match(r"^\d", s)
+                        and not any(k in s.lower() for k in _SELLER_KW + _BUYER_KW)
+                        and not re.search(r"tva|pvn|vat|mwst|date|datums|valūt|devise",
+                                          s.lower())):
+                    name = s
+                    break
+        return name, vat
+    except Exception as e:
+        log.warning("seller identity heuristic failed: %s", e)
+        return None, None
+
+
 def _generic_text_draft(texts):
     """LAST-RESORT, on-prem, deterministic best-effort header extractor for a plain PDF
     that no per-supplier parser recognised and that no AI backend processed. Best-effort
@@ -836,8 +902,11 @@ def _generic_text_draft(texts):
 
         currency = _detect_currency(joined)
 
-        mv = _VATID_RE.search(joined)
-        supplier = mv.group(1) if mv else None      # VAT-id is a best-effort name hint
+        # Seller identity, distinguishing the supplier from the customer (so a buyer-first
+        # layout like E100's doesn't mis-capture the client). Name is preferred when found;
+        # the seller VAT-id is always carried so VAT-registration recognition can resolve it.
+        sup_name, sup_vat = _seller_identity(joined)
+        supplier = sup_name or sup_vat               # name if read, else VAT-id hint
 
         # Amounts are recorded as TEXT HINTS only: we show BOTH the raw printed token and
         # the `_num()` (European-basis) reading, because the printed grouping is ambiguous
@@ -859,14 +928,14 @@ def _generic_text_draft(texts):
 
         note = ("auto-prefilled by on-prem heuristics (no recognised layout) — verify "
                 "and complete every figure")
-        if supplier and not ref:
+        if supplier and not sup_name:
             note += " | supplier shown is a VAT-id hint, not a confirmed name"
         if hints:
             note += " | " + "; ".join(hints) + " (HINT only — not a claim line)"
 
-        return {"supplier": supplier, "statement_ref": ref, "statement_date": date,
-                "currency": currency, "customer": None, "lines": [], "notes": note,
-                "backend": "generic", "confidence": "low"}
+        return {"supplier": supplier, "supplier_vat": sup_vat, "statement_ref": ref,
+                "statement_date": date, "currency": currency, "customer": None,
+                "lines": [], "notes": note, "backend": "generic", "confidence": "low"}
     except Exception as e:
         log.warning("generic text draft failed — falling back to empty draft: %s", e)
         return None

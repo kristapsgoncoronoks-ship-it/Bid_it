@@ -34,6 +34,41 @@ def test_generic_fills_header_and_hints():
     assert "HINT" in d["notes"]
 
 
+# A buyer-first bilingual layout (FR/LV, like an E100 fuel invoice): the BUYER block
+# (Client / Pircējs) and its VAT-id are printed BEFORE the SELLER block (Vendeur /
+# Pārdevējs). The heuristic must capture the SELLER, not the customer.
+_BUYER_FIRST = (
+    "Client / Pircējs\n"
+    'SIA "Iecavnieks Auto"\n'
+    "Iecavnieki, Iecavas novads, LV-3913, Latvija\n"
+    "TVA-NR / PVN: LV43603043473\n"
+    "Facture / Rēķins Nr  BE95489/5413791\n"
+    "Vendeur / Pārdevējs\n"
+    "E100 International Trade sp. z o.o.\n"
+    "ul. Pory 78/7, 02-757 Warszawa\n"
+    "TVA-NR / PVN: BE0676647155\n"
+    "Date / Datums: 2026-03-31\n"
+)
+
+
+def test_generic_picks_seller_not_buyer():
+    name, vat = EX._seller_identity(_BUYER_FIRST)
+    assert vat == "BE0676647155"                   # the SELLER's VAT, NOT the buyer's LV id
+    assert name == "E100 International Trade sp. z o.o."
+    d = EX._generic_text_draft([("e100.pdf", _BUYER_FIRST)])
+    assert d["supplier_vat"] == "BE0676647155"
+    assert d["supplier"] == "E100 International Trade sp. z o.o."
+    assert d["statement_ref"] == "BE95489/5413791"
+    # the buyer's VAT must not leak into the supplier identity
+    assert "LV43603043473" not in (d["supplier"] or "")
+
+
+def test_seller_identity_no_headers_keeps_first_vat():
+    # no party headers -> unchanged behaviour: first VAT-id, no name resolved
+    name, vat = EX._seller_identity("Some text\nVAT ID: DE123456789\nMore text\n")
+    assert (name, vat) == (None, "DE123456789")
+
+
 def test_generic_detects_non_eur_currency():
     txt = "Faktura nr 778/2026\nData: 12.04.2026\nRazem: 5 000,00 PLN\n"
     d = EX._generic_text_draft([("inv.pdf", txt)])
