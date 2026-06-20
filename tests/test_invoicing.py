@@ -632,3 +632,152 @@ def test_web_einvoice_refused_for_draft(inv, client):
     inv.add_line(draft["id"], description="x", quantity=1, unit_price_net=10, vat_rate=0.21)
     r = client.get(f"/invoicing/einvoice/{draft['id']}.xml")
     assert r.status_code == 400
+
+
+# ===================================================================================
+# LATVIAN / UNICODE RENDERING — the invoice PDF must render Latvian diacritics, NEVER
+# the legacy latin-1 `?`. PRIMARY = HTML/wkhtmltopdf; FALLBACK = DejaVu-embedded PDF.
+# ===================================================================================
+# Latvian text exercising the full diacritic set: ā š ž ē ī ū ķ ļ ņ ģ č.
+_LV_ISSUER = "Auroras māja SIA"
+_LV_CUSTOMER = "SIA Žagariņš"
+_LV_LINE = "Degvielas karšu apkalpošana"
+_LV_DIACRITICS = "āšžēīūķļņģč"
+
+
+def _lv_issued(inv):
+    """A ready, ISSUED invoice whose issuer/customer/line carry Latvian diacritics."""
+    inv.set_issuer(dict(name=_LV_ISSUER, address="Brīvības iela 1, Rīga, Latvija",
+                        vat_number="LV40003000000", reg_no="40003000000",
+                        iban="LV80BANK0000435195001", bank="Swedbank",
+                        series="INV", number_format="{series}-{year}-{seq:06d}",
+                        payment_terms_days="14"))
+    c, _ = inv.add_customer(_LV_CUSTOMER, country="LV", vat_number="LV40103000000",
+                            address="Ķengaraga iela 5, Rīga")
+    draft, _ = inv.create_draft(customer_id=c["id"], reverse_charge=False)
+    inv.add_line(draft["id"], description=_LV_LINE, quantity=2, unit="gab",
+                 unit_price_net=50, vat_rate=0.21)
+    issued, err = inv.issue(draft["id"], issued_by="pytest", issue_date="2026-03-10")
+    assert err == "", err
+    return issued
+
+
+def test_invoice_html_carries_latvian_and_is_escaped(inv):
+    issued = _lv_issued(inv)
+    html = inv.invoice_html(issued["id"])
+    # the designed template renders the Latvian text natively (UTF-8 source)
+    for word in (_LV_ISSUER, _LV_CUSTOMER, _LV_LINE, "Brīvības", "Ķengaraga", "Rēķins"):
+        assert word in html, word
+    # no `?` substitution of Latvian (the OLD failure mode is gone)
+    assert "?" not in html.replace("?>", "")   # ignore an XML/doctype '?>' if any
+    # XSS / DB values are markupsafe-escaped
+    inv2 = inv
+    c, _ = inv2.add_customer("<script>x</script>", address="z")
+    d, _ = inv2.create_draft(customer_id=c["id"])
+    body = inv2.invoice_html(d["id"])
+    assert "<script>x</script>" not in body
+    assert "&lt;script&gt;" in body
+
+
+def test_invoice_pdf_renders_latvian_via_wkhtmltopdf(inv, tmp_path):
+    """PRIMARY path: when wkhtmltopdf is present the PDF is produced AND the Latvian text
+    is recoverable from it (proving the glyphs are the real letters, not `?`)."""
+    if not inv._wkhtmltopdf_available():
+        pytest.skip("wkhtmltopdf not installed on this host")
+    issued = _lv_issued(inv)
+    pdf = inv._render_pdf_wkhtmltopdf(inv.invoice_html(issued["id"]))
+    assert pdf and pdf[:5] == b"%PDF-"
+    out = tmp_path / "inv_wk.pdf"
+    out.write_bytes(pdf)
+    assert out.stat().st_size > 0
+    # recover the text and assert the Latvian came through verbatim, zero `?`. pypdf
+    # reconstructs words from positioned glyphs so inter-word whitespace may differ
+    # (tabs/newlines); normalise it, then assert each diacritic-bearing token survived.
+    pypdf = pytest.importorskip("pypdf")
+    reader = pypdf.PdfReader(str(out))
+    raw_text = "\n".join(p.extract_text() for p in reader.pages)
+    norm = " ".join(raw_text.split())
+    for token in ("māja", "Žagariņš", "apkalpošana", "Brīvības", "Rīga",
+                  "Ķengaraga", "Rēķins"):
+        assert token in norm, f"{token!r} not recovered from the PDF text"
+    assert "?" not in raw_text, "Latvian collapsed to '?' — the old latin-1 bug is back"
+
+
+def test_invoice_pdf_fallback_embeds_unicode_font_and_glyphs(inv, tmp_path):
+    """FALLBACK path (wkhtmltopdf absent): the dependency-free PDF embeds a Unicode TTF and
+    draws the Latvian letters as REAL glyphs (Type0/Identity-H) — never the latin-1 `?`."""
+    issued = _lv_issued(inv)
+    # force the fallback by pretending wkhtmltopdf is not on the host
+    pdf = inv._invoice_pdf_fallback(issued["id"])
+    assert pdf and pdf[:5] == b"%PDF-"
+    out = tmp_path / "inv_fb.pdf"
+    out.write_bytes(pdf)
+    assert out.stat().st_size > 0
+    raw = pdf
+    # embedded Unicode TrueType font + composite Type0/Identity-H encoding
+    assert b"FontFile2" in raw and b"Identity-H" in raw and b"CIDFontType2" in raw
+    # every Latvian diacritic resolves to a NON-zero glyph that differs from the `?` glyph,
+    # and that glyph id is what gets DRAWN in the content stream (hex, Identity-H).
+    font_path = inv._find_fallback_font()
+    assert font_path, "no Unicode TTF on the host for the fallback"
+    data = open(font_path, "rb").read()
+    tables = inv._ttf_tables(data)
+    cmap = inv._ttf_cmap_unicode(data, tables)
+    q_gid = cmap.get(ord("?"))
+    # (a) EVERY Latvian diacritic resolves to a real, non-`?` glyph in the font cmap.
+    for ch in _LV_DIACRITICS:
+        gid = cmap.get(ord(ch), 0)
+        assert gid > 0, f"{ch!r} has no glyph (would render blank/notdef)"
+        assert gid != q_gid, f"{ch!r} maps to the '?' glyph"
+    # (b) the diacritics PRESENT in this invoice's text are actually DRAWN as those glyphs
+    #     (hex glyph runs in the content stream) — never substituted by `?`.
+    drawn = "".join(sorted(set(inv.invoice_text(issued["id"])) & set(_LV_DIACRITICS)))
+    assert drawn, "the test invoice should contain some Latvian diacritics"
+    for ch in drawn:
+        gid = cmap[ord(ch)]
+        assert ("%04X" % gid).encode("latin-1") in raw, f"{ch!r} glyph not drawn"
+
+
+def test_invoice_pdf_uses_fallback_when_wkhtmltopdf_absent(inv, monkeypatch, tmp_path):
+    """invoice_pdf() degrades to the Latvian-capable fallback when wkhtmltopdf is missing —
+    it does NOT regress to the broken latin-1 path. Verified end-to-end via invoice_pdf()."""
+    issued = _lv_issued(inv)
+    # make wkhtmltopdf appear absent
+    monkeypatch.setattr(inv.shutil, "which", lambda b: None)
+    pdf = inv.invoice_pdf(issued["id"])
+    assert pdf and pdf[:5] == b"%PDF-"
+    out = tmp_path / "inv_forced_fb.pdf"
+    out.write_bytes(pdf)
+    assert out.stat().st_size > 0
+    # it is the Unicode-font fallback (not the wkhtmltopdf output, not latin-1 text_to_pdf)
+    assert b"Identity-H" in pdf and b"FontFile2" in pdf
+
+
+def test_invoice_pdf_top_level_produces_pdf(inv):
+    """invoice_pdf() (whichever path the host supports) yields a valid PDF for a Latvian
+    invoice — both for an issued invoice and a draft (draft watermark path)."""
+    issued = _lv_issued(inv)
+    assert inv.invoice_pdf(issued["id"])[:5] == b"%PDF-"
+    # a fresh draft with Latvian text -> still a valid PDF (DRAFT banner/watermark)
+    c, _ = inv.add_customer("SIA Liepāja", address="Kūrmājas prospekts 1, Liepāja")
+    d, _ = inv.create_draft(customer_id=c["id"])
+    inv.add_line(d["id"], description="Apkalpošana", quantity=1, unit_price_net=10,
+                 vat_rate=0.21)
+    pdf = inv.invoice_pdf(d["id"])
+    assert pdf and pdf[:5] == b"%PDF-"
+    html = inv.invoice_html(d["id"])
+    assert "DRAFT" in html and "not a valid invoice" in html
+
+
+def test_hybrid_round_trips_on_fallback_pdf(inv, monkeypatch):
+    """The Factur-X hybrid embed must keep round-tripping when the BASE PDF is the Unicode
+    fallback (wkhtmltopdf absent) — not just the wkhtmltopdf output."""
+    issued = _lv_issued(inv)
+    monkeypatch.setattr(inv.shutil, "which", lambda b: None)   # force fallback base PDF
+    hybrid = inv.invoice_pdf_hybrid(issued["id"])
+    assert hybrid[:5] == b"%PDF-"
+    emb = extract._pdf_embedded_xml(hybrid)
+    assert emb is not None, "embedded XML lost when embedding into the fallback PDF"
+    drafted = extract.parse_einvoice(emb)
+    assert drafted["supplier"] == _LV_ISSUER
+    assert drafted["statement_ref"] == "INV-2026-000001"

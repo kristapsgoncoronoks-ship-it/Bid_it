@@ -50,8 +50,14 @@ via applog) rather than taking down a request; the WRITE helpers (create/issue) 
 import os
 import datetime
 import io
+import shutil
+import struct
+import subprocess
+import tempfile
 import sqlite3
 import xml.etree.ElementTree as ET
+
+from markupsafe import escape as esc
 
 import applog
 import audit
@@ -98,6 +104,27 @@ SIMPLIFIED_GROSS_CEILING_EUR = 150.0
 
 # Statutory retention period for an issued invoice (years). LV/EU record-keeping.
 RETENTION_YEARS = 5
+
+# PDF RENDERING. The PRIMARY path renders the HTML/CSS template to a print-ready A4 PDF
+# via the wkhtmltopdf CLI (UTF-8 + system TrueType fonts -> Latvian/Unicode renders
+# natively, and HTML/CSS gives a real invoice design). On a host WITHOUT wkhtmltopdf
+# (e.g. a production server before `apt install wkhtmltopdf`) we DEGRADE to a
+# dependency-free PDF that STILL renders Latvian — it embeds a Unicode TrueType font
+# (DejaVuSans) and writes the text as Unicode (Type0/Identity-H), so `ā š ž ē ī ū ķ ļ ņ
+# ģ č` are real glyphs, never the latin-1 `?` the old shared text_to_pdf produced.
+# SERVER NOTE: install wkhtmltopdf (Debian/Ubuntu: `apt install wkhtmltopdf`) to get the
+# DESIGNED HTML invoice; without it the Latvian-capable fallback below is used.
+WKHTMLTOPDF_BIN = "wkhtmltopdf"
+WKHTMLTOPDF_TIMEOUT = 30          # seconds; the subprocess is killed past this
+# Candidate Unicode TrueType fonts for the dependency-free fallback (first that exists
+# wins). DejaVuSans covers the full Latvian diacritic set.
+_FALLBACK_FONT_CANDIDATES = (
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    "/Library/Fonts/Arial Unicode.ttf",
+    "C:/Windows/Fonts/arial.ttf",
+)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS bill_customers (
@@ -1071,20 +1098,500 @@ def invoice_text(invoice_id):
     return "\n".join(L)
 
 
-def invoice_pdf(invoice_id):
-    """Render the invoice to PDF bytes via the app's dependency-free text_to_pdf. A DRAFT
-    is watermarked/labelled 'DRAFT — not a valid invoice' (see invoice_text). Returns the
-    PDF bytes, or None if the invoice is unknown / rendering is unavailable."""
+# ----------------------------------------------------------------- HTML invoice template
+_INVOICE_CSS = """
+@page { size: A4; margin: 16mm 14mm 16mm 14mm; }
+* { box-sizing: border-box; }
+body { font-family: 'DejaVu Sans', 'Helvetica Neue', Arial, sans-serif;
+       font-size: 10pt; color: #1a1a1a; margin: 0; }
+.draft-banner { background: #fff4f4; border: 1px solid #d33; color: #b00020;
+                padding: 8px 12px; margin: 0 0 14px 0; font-weight: bold;
+                text-align: center; letter-spacing: .04em; }
+.watermark { position: fixed; top: 42%; left: 0; right: 0; text-align: center;
+             font-size: 92pt; color: rgba(200,0,0,.07); font-weight: bold;
+             transform: rotate(-24deg); z-index: -1; letter-spacing: .08em; }
+.head { display: table; width: 100%; margin-bottom: 18px; }
+.head .issuer { display: table-cell; vertical-align: top; width: 58%; }
+.head .meta { display: table-cell; vertical-align: top; text-align: right; }
+.issuer .logo { font-size: 15pt; font-weight: bold; color: #0a3d62; }
+.issuer .name { font-size: 12pt; font-weight: bold; }
+.issuer .det { color: #444; line-height: 1.4; }
+.title { font-size: 22pt; font-weight: bold; color: #0a3d62; margin: 0 0 4px 0; }
+.title .lv { color: #888; font-size: 13pt; font-weight: normal; }
+.meta table { border-collapse: collapse; margin-left: auto; }
+.meta td { padding: 1px 0 1px 10px; }
+.meta td.k { color: #666; text-align: right; }
+.meta td.v { font-weight: bold; text-align: right; }
+.billto { border: 1px solid #ddd; background: #fafafa; padding: 8px 12px;
+          margin-bottom: 16px; }
+.billto .lbl { color: #888; font-size: 8pt; text-transform: uppercase;
+               letter-spacing: .06em; margin-bottom: 2px; }
+.billto .name { font-weight: bold; }
+.billto .det { color: #444; line-height: 1.4; }
+table.lines { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+table.lines th { background: #0a3d62; color: #fff; font-weight: bold;
+                 padding: 6px 8px; text-align: left; font-size: 9pt; }
+table.lines td { padding: 5px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
+table.lines td.num, table.lines th.num { text-align: right; white-space: nowrap; }
+.totbox { width: 100%; display: table; }
+.totbox .vat { display: table-cell; vertical-align: top; width: 56%; }
+.totbox .grand { display: table-cell; vertical-align: bottom; text-align: right; }
+table.vat { border-collapse: collapse; font-size: 9pt; }
+table.vat th, table.vat td { padding: 3px 10px; border-bottom: 1px solid #eee;
+                             text-align: right; }
+table.vat th { color: #666; text-align: right; font-weight: normal; }
+table.grand { border-collapse: collapse; margin-left: auto; }
+table.grand td { padding: 3px 12px; text-align: right; }
+table.grand td.k { color: #555; }
+table.grand tr.total td { font-size: 12pt; font-weight: bold; color: #0a3d62;
+                          border-top: 2px solid #0a3d62; padding-top: 6px; }
+.note { background: #f4f8fb; border-left: 3px solid #0a3d62; padding: 8px 12px;
+        margin: 12px 0; color: #234; }
+.pay { margin-top: 18px; border-top: 1px solid #ddd; padding-top: 10px; color: #333; }
+.pay .iban { font-weight: bold; }
+.foot { margin-top: 22px; color: #999; font-size: 8pt; text-align: center; }
+"""
+
+
+def _h(v):
+    """Escape a value for HTML (markupsafe). None -> ''."""
+    return esc("" if v is None else str(v))
+
+
+def invoice_html(invoice_id):
+    """The full invoice as a standalone, print-ready A4 HTML document (UTF-8). EVERY DB
+    value is escaped via markupsafe (`esc`) — no raw f-string interpolation of DB text.
+
+    Design: issuer header (name/address/VAT/reg/IBAN), the "INVOICE / Rēķins" title +
+    number + dates, a customer bill-to block, the line-item table (description / qty /
+    unit / unit price / rate / net), the per-VAT-rate subtotal table, the totals
+    (net/VAT/grand, currency; + VAT-in-EUR when currency != EUR), payment terms + due
+    date + IBAN, the reverse-charge/exemption wording, and a DRAFT watermark + banner
+    until the invoice is issued. Returns the HTML string, or "" if the invoice is unknown.
+
+    Latvian + full Unicode render NATIVELY here (UTF-8 + system fonts via wkhtmltopdf)."""
+    v = _invoice_view(invoice_id)
+    if not v:
+        return ""
+    inv, lines, issuer, cust = v["invoice"], v["lines"], v["issuer"], v["customer"]
+    ccy = inv.get("currency") or DEFAULT_CURRENCY
+    issued = v["issued"]
+    P = []                                              # HTML parts (already escaped)
+    P.append("<!DOCTYPE html><html><head><meta charset='utf-8'>")
+    P.append(f"<style>{_INVOICE_CSS}</style></head><body>")
+    if not issued:
+        P.append("<div class='watermark'>DRAFT</div>")
+        P.append("<div class='draft-banner'>DRAFT — not a valid invoice</div>")
+    # ---- header: issuer block (left) + invoice meta (right) ----
+    P.append("<div class='head'><div class='issuer'>")
+    if issuer.get("logo_text"):
+        P.append(f"<div class='logo'>{_h(issuer.get('logo_text'))}</div>")
+    P.append(f"<div class='name'>{_h(issuer.get('name'))}</div>")
+    P.append("<div class='det'>")
+    if issuer.get("address"):
+        P.append(f"{_h(issuer.get('address'))}<br>")
+    P.append(f"VAT: {_h(issuer.get('vat_number'))}")
+    if issuer.get("reg_no"):
+        P.append(f"<br>Reg. no: {_h(issuer.get('reg_no'))}")
+    if issuer.get("iban"):
+        bank = f" ({_h(issuer.get('bank'))})" if issuer.get("bank") else ""
+        P.append(f"<br>IBAN: {_h(issuer.get('iban'))}{bank}")
+    P.append("</div></div>")                            # /issuer /det
+    P.append("<div class='meta'>")
+    P.append("<div class='title'>INVOICE <span class='lv'>/ Rēķins</span></div>")
+    P.append("<table>")
+    P.append(f"<tr><td class='k'>Number</td><td class='v'>"
+             f"{_h(inv.get('number') or '(assigned at issue)')}</td></tr>")
+    P.append(f"<tr><td class='k'>Issue date</td><td class='v'>"
+             f"{_h(inv.get('issue_date') or '(at issue)')}</td></tr>")
+    sd = inv.get("supply_date")
+    if sd and sd != inv.get("issue_date"):
+        P.append(f"<tr><td class='k'>Date of supply</td><td class='v'>{_h(sd)}</td></tr>")
+    P.append(f"<tr><td class='k'>Due date</td><td class='v'>"
+             f"{_h(inv.get('due_date') or '(set at issue)')}</td></tr>")
+    P.append(f"<tr><td class='k'>Currency</td><td class='v'>{_h(ccy)}</td></tr>")
+    P.append("</table></div></div>")                    # /meta /head
+    # ---- bill-to ----
+    P.append("<div class='billto'><div class='lbl'>Bill to</div>")
+    P.append(f"<div class='name'>{_h(cust.get('name'))}</div><div class='det'>")
+    if cust.get("address"):
+        P.append(f"{_h(cust.get('address'))}<br>")
+    P.append(f"VAT: {_h(cust.get('vat_number') or '(not VAT-registered)')}")
+    if cust.get("reg_no"):
+        P.append(f"<br>Reg. no: {_h(cust.get('reg_no'))}")
+    P.append("</div></div>")
+    # ---- line-item table (amounts NET, VAT excluded) ----
+    P.append(f"<table class='lines'><thead><tr>"
+             f"<th class='num'>#</th><th>Description</th>"
+             f"<th class='num'>Qty</th><th>Unit</th>"
+             f"<th class='num'>Unit price</th><th class='num'>VAT</th>"
+             f"<th class='num'>Net ({_h(ccy)})</th></tr></thead><tbody>")
+    for i, ln in enumerate(lines, 1):
+        P.append(
+            "<tr>"
+            f"<td class='num'>{i}</td>"
+            f"<td>{_h(ln.get('description'))}</td>"
+            f"<td class='num'>{_h(format(money.D(ln.get('quantity', 0)), 'g'))}</td>"
+            f"<td>{_h(ln.get('unit'))}</td>"
+            f"<td class='num'>{_h(_fmt_money(ln.get('unit_price_net')))}</td>"
+            f"<td class='num'>{_h(_pct(ln.get('vat_rate')))}</td>"
+            f"<td class='num'>{_h(_fmt_money(ln.get('line_net')))}</td>"
+            "</tr>")
+    P.append("</tbody></table>")
+    # ---- totals: per-rate VAT (left) + grand totals (right) ----
+    P.append("<div class='totbox'><div class='vat'>")
+    P.append("<table class='vat'><thead><tr><th>VAT rate</th>"
+             "<th>Taxable net</th><th>VAT amount</th></tr></thead><tbody>")
+    for b in v["by_rate"]:
+        P.append(f"<tr><td>{_h(_pct(b['rate']))}</td>"
+                 f"<td>{_h(_fmt_money(b['net']))}</td>"
+                 f"<td>{_h(_fmt_money(b['vat']))}</td></tr>")
+    P.append("</tbody></table></div><div class='grand'><table class='grand'>")
+    P.append(f"<tr><td class='k'>Total net</td><td>"
+             f"{_h(_fmt_money(inv.get('net_total')))} {_h(ccy)}</td></tr>")
+    P.append(f"<tr><td class='k'>Total VAT</td><td>"
+             f"{_h(_fmt_money(inv.get('vat_total')))} {_h(ccy)}</td></tr>")
+    P.append(f"<tr class='total'><td class='k'>Grand total</td><td>"
+             f"{_h(_fmt_money(inv.get('gross_total')))} {_h(ccy)}</td></tr>")
+    if ccy != "EUR":
+        eur_vat, rate, source = vat_total_eur(inv)
+        if eur_vat is not None:
+            P.append(f"<tr><td class='k'>VAT in EUR</td><td>{_h(_fmt_money(eur_vat))} EUR"
+                     f"<br><span style='color:#888;font-size:8pt'>FX "
+                     f"{_h(format(money.D(rate), 'g'))} {_h(ccy)}/EUR · {_h(source)}"
+                     f"</span></td></tr>")
+    P.append("</table></div></div>")                    # /grand /totbox
+    # ---- notes / legal wording ----
+    if inv.get("simplified"):
+        P.append("<div class='note'>Simplified invoice "
+                 f"(gross ≤ EUR {SIMPLIFIED_GROSS_CEILING_EUR:.0f}, "
+                 "EU VAT Dir. Art. 238).</div>")
+    if inv.get("reverse_charge"):
+        P.append(f"<div class='note'>{_h(REVERSE_CHARGE_NOTE)}</div>")
+    if inv.get("notes"):
+        P.append(f"<div class='note'>{_h(inv.get('notes'))}</div>")
+    # ---- payment block ----
+    P.append("<div class='pay'>")
+    P.append(f"Payment due: <b>{_h(inv.get('due_date') or '(set at issue)')}</b>.")
+    if issuer.get("iban"):
+        bank = f" ({_h(issuer.get('bank'))})" if issuer.get("bank") else ""
+        P.append(f" Please transfer to IBAN <span class='iban'>"
+                 f"{_h(issuer.get('iban'))}</span>{bank}.")
+    P.append("</div>")
+    P.append("<div class='foot'>Amounts are NET (VAT excluded) unless stated, "
+             f"in {_h(ccy)}. Retain per statutory record-keeping rules.</div>")
+    P.append("</body></html>")
+    return "".join(str(p) for p in P)
+
+
+def _wkhtmltopdf_available():
+    """True iff the wkhtmltopdf CLI is resolvable on this host. Cheap, never raises."""
+    try:
+        return shutil.which(WKHTMLTOPDF_BIN) is not None
+    except Exception:
+        return False
+
+
+def _render_pdf_wkhtmltopdf(html):
+    """Render an HTML document to PDF bytes via the wkhtmltopdf CLI. SAFETY: a FIXED argv
+    list (no shell, so DB text in the HTML can never be interpreted as a command), input
+    and output go through dedicated TEMP FILES that are always cleaned up, and the call is
+    bounded by WKHTMLTOPDF_TIMEOUT. Returns the PDF bytes, or None on any failure (the
+    caller then degrades to the Unicode fallback) — NEVER raises."""
+    path = shutil.which(WKHTMLTOPDF_BIN)
+    if not path:
+        return None
+    in_fd, in_path = tempfile.mkstemp(suffix=".html")
+    out_fd, out_path = tempfile.mkstemp(suffix=".pdf")
+    os.close(out_fd)
+    try:
+        with os.fdopen(in_fd, "wb") as fh:
+            fh.write(html.encode("utf-8"))
+        # Fixed argv; --enable-local-file-access is off (no remote/file fetch needed —
+        # the doc is self-contained), quiet, A4 with the @page margins from the CSS.
+        argv = [path, "--quiet", "--encoding", "utf-8", "--print-media-type",
+                "--page-size", "A4", in_path, out_path]
+        proc = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              timeout=WKHTMLTOPDF_TIMEOUT, check=False)
+        if proc.returncode != 0 and not os.path.getsize(out_path):
+            log.warning("wkhtmltopdf rc=%s: %s", proc.returncode,
+                        proc.stderr.decode("utf-8", "replace")[:200])
+            return None
+        with open(out_path, "rb") as fh:
+            data = fh.read()
+        return data if data[:5] == b"%PDF-" else None
+    except (subprocess.TimeoutExpired, OSError) as e:
+        log.warning("wkhtmltopdf render failed: %s", e)
+        return None
+    except Exception as e:                              # defensive: never raise
+        log.warning("wkhtmltopdf render unexpected error: %s", e)
+        return None
+    finally:
+        for p in (in_path, out_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
+# ------------------------------------------- Unicode (DejaVu-embedded) fallback PDF
+# A dependency-free PDF writer that EMBEDS a Unicode TrueType font and writes text as a
+# composite Type0 font with Identity-H encoding (glyph IDs straight from the font's
+# cmap). This is what renders Latvian when wkhtmltopdf is absent — every char maps to its
+# real glyph, so `ā š ž ē ī ū ķ ļ ņ ģ č` are drawn, NEVER the latin-1 `?`. Plainer than
+# the HTML version, but legible and legally complete.
+
+def _find_fallback_font():
+    """Path to the first available Unicode TrueType font, or None."""
+    for p in _FALLBACK_FONT_CANDIDATES:
+        try:
+            if os.path.isfile(p):
+                return p
+        except OSError:
+            continue
+    return None
+
+
+def _ttf_tables(data):
+    """Parse the TrueType table directory -> {tag: (offset, length)}. Supports the plain
+    'sfnt' (0x00010000 / 'true') layout used by DejaVuSans.ttf."""
+    if len(data) < 12:
+        raise ValueError("not a TrueType font")
+    num_tables = struct.unpack(">H", data[4:6])[0]
+    tables = {}
+    off = 12
+    for _ in range(num_tables):
+        tag = data[off:off + 4].decode("latin-1")
+        _checksum, t_off, t_len = struct.unpack(">III", data[off + 4:off + 16])
+        tables[tag] = (t_off, t_len)
+        off += 16
+    return tables
+
+
+def _ttf_cmap_unicode(data, tables):
+    """Build a {codepoint -> glyph_id} map from the font's cmap. Prefers a Unicode BMP
+    (platform 3, encoding 1, format 4) subtable; falls back to a format-12 (full Unicode)
+    subtable. Covers every codepoint we draw (Latin + Latvian diacritics)."""
+    base, _ = tables["cmap"]
+    ntab = struct.unpack(">H", data[base + 2:base + 4])[0]
+    sub_off = None
+    f12_off = None
+    for i in range(ntab):
+        rec = base + 4 + i * 8
+        plat, enc = struct.unpack(">HH", data[rec:rec + 4])
+        offset = struct.unpack(">I", data[rec + 4:rec + 8])[0]
+        fmt = struct.unpack(">H", data[base + offset:base + offset + 2])[0]
+        if plat == 3 and enc in (1, 10) and fmt == 4 and sub_off is None:
+            sub_off = base + offset
+        if (plat == 3 and enc == 10 or plat == 0) and fmt == 12:
+            f12_off = base + offset
+    cmap = {}
+    if sub_off is not None:
+        seg_x2 = struct.unpack(">H", data[sub_off + 6:sub_off + 8])[0]
+        segc = seg_x2 // 2
+        p = sub_off + 14
+        end = struct.unpack(">%dH" % segc, data[p:p + seg_x2]); p += seg_x2 + 2
+        start = struct.unpack(">%dH" % segc, data[p:p + seg_x2]); p += seg_x2
+        delta = struct.unpack(">%dh" % segc, data[p:p + seg_x2]); p += seg_x2
+        ro_base = p
+        rangeoff = struct.unpack(">%dH" % segc, data[p:p + seg_x2])
+        for s in range(segc):
+            for c in range(start[s], end[s] + 1):
+                if c == 0xFFFF:
+                    continue
+                if rangeoff[s] == 0:
+                    g = (c + delta[s]) & 0xFFFF
+                else:
+                    gi = ro_base + s * 2 + rangeoff[s] + (c - start[s]) * 2
+                    g = struct.unpack(">H", data[gi:gi + 2])[0]
+                    if g != 0:
+                        g = (g + delta[s]) & 0xFFFF
+                if g:
+                    cmap[c] = g
+    if f12_off is not None:
+        ngroups = struct.unpack(">I", data[f12_off + 12:f12_off + 16])[0]
+        gp = f12_off + 16
+        for _ in range(ngroups):
+            sc, ec, sg = struct.unpack(">III", data[gp:gp + 12]); gp += 12
+            for c in range(sc, ec + 1):
+                cmap.setdefault(c, sg + (c - sc))
+    return cmap
+
+
+def _ttf_metrics(data, tables):
+    """Return (units_per_em, num_glyphs, advance_widths[list]) from head/maxp/hhea/hmtx."""
+    head, _ = tables["head"]
+    upm = struct.unpack(">H", data[head + 18:head + 20])[0]
+    maxp, _ = tables["maxp"]
+    nglyphs = struct.unpack(">H", data[maxp + 4:maxp + 6])[0]
+    hhea, _ = tables["hhea"]
+    num_hm = struct.unpack(">H", data[hhea + 34:hhea + 36])[0]
+    hmtx, _ = tables["hmtx"]
+    widths = []
+    p = hmtx
+    last = 0
+    for i in range(nglyphs):
+        if i < num_hm:
+            last = struct.unpack(">H", data[p:p + 2])[0]
+            p += 4
+        widths.append(last)
+    return upm, nglyphs, widths
+
+
+def _pdf_unicode_doc(font_bytes, pages, lines_widths=None):
+    """Assemble a multi-page PDF that embeds `font_bytes` (a Unicode TTF) as a Type0
+    composite font (Identity-H) and draws `pages` — a list of pages, each a list of
+    (x, y, size, glyph_ids) text runs. Returns the PDF bytes.
+
+    The text is emitted as 2-byte GLYPH IDS (Identity-H), so any Unicode codepoint the
+    font covers is drawn correctly. A ToUnicode CMap is omitted (display-only doc) but the
+    glyphs themselves are the real Latvian letters — never `?`."""
+    upm, nglyphs, widths = lines_widths
+    # /W default width array maps every glyph to its real advance (1000-unit text space).
+    scale = 1000.0 / upm
+    w_entries = " ".join(str(int(round(w * scale))) for w in widths)
+
+    objs = []   # (body_str_or_bytes,)
+    def add(body):
+        objs.append(body)
+        return len(objs)
+
+    # Reserve ids in a fixed order so the cross-refs are simple.
+    catalog_id = 1
+    pages_id = 2
+    font0_id = 3        # Type0
+    cidfont_id = 4      # CIDFontType2
+    desc_id = 5         # FontDescriptor
+    fontfile_id = 6     # FontFile2 (the embedded TTF)
+    w_id = 7            # the /W width array (own object to keep the dict small)
+    cidsysinfo_id = 8
+    first_page_id = 9   # pages then content objects follow
+
+    page_ids = [first_page_id + 2 * i for i in range(len(pages))]
+    content_ids = [pid + 1 for pid in page_ids]
+    kids = " ".join(f"{pid} 0 R" for pid in page_ids)
+
+    parts = []          # (id, header_str, stream_bytes_or_None)
+    parts.append((catalog_id, f"<< /Type /Catalog /Pages {pages_id} 0 R >>", None))
+    parts.append((pages_id,
+                  f"<< /Type /Pages /Kids [{kids}] /Count {len(pages)} >>", None))
+    parts.append((font0_id,
+                  f"<< /Type /Font /Subtype /Type0 /BaseFont /EmbeddedFont "
+                  f"/Encoding /Identity-H /DescendantFonts [{cidfont_id} 0 R] >>", None))
+    parts.append((cidfont_id,
+                  f"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /EmbeddedFont "
+                  f"/CIDSystemInfo {cidsysinfo_id} 0 R /FontDescriptor {desc_id} 0 R "
+                  f"/CIDToGIDMap /Identity /DW 500 /W {w_id} 0 R >>", None))
+    parts.append((cidsysinfo_id,
+                  "<< /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>", None))
+    parts.append((w_id, f"[ 0 [ {w_entries} ] ]", None))
+    parts.append((desc_id,
+                  f"<< /Type /FontDescriptor /FontName /EmbeddedFont /Flags 4 "
+                  f"/FontBBox [-1000 -300 2000 1100] /ItalicAngle 0 /Ascent 800 "
+                  f"/Descent -200 /CapHeight 700 /StemV 80 "
+                  f"/FontFile2 {fontfile_id} 0 R >>", None))
+    parts.append((fontfile_id,
+                  f"<< /Length {len(font_bytes)} /Length1 {len(font_bytes)} >>",
+                  font_bytes))
+    for i, page in enumerate(pages):
+        runs = []
+        for (x, y, size, gids) in page:
+            hexs = "".join("%04X" % g for g in gids)
+            runs.append(f"BT /F1 {size} Tf {x} {y} Td <{hexs}> Tj ET")
+        content = "\n".join(runs).encode("latin-1")
+        parts.append((page_ids[i],
+                      f"<< /Type /Page /Parent {pages_id} 0 R /MediaBox [0 0 595 842] "
+                      f"/Resources << /Font << /F1 {font0_id} 0 R >> >> "
+                      f"/Contents {content_ids[i]} 0 R >>", None))
+        parts.append((content_ids[i],
+                      f"<< /Length {len(content)} >>", content))
+
+    parts.sort(key=lambda t: t[0])
+    out = bytearray(b"%PDF-1.5\n%\xe2\xe3\xcf\xd3\n")
+    offsets = {}
+    for (oid, header, stream) in parts:
+        offsets[oid] = len(out)
+        out += f"{oid} 0 obj\n".encode("latin-1")
+        out += header.encode("latin-1")
+        if stream is not None:
+            out += b"\nstream\n" + stream + b"\nendstream"
+        out += b"\nendobj\n"
+    xref_pos = len(out)
+    n = len(parts) + 1
+    out += f"xref\n0 {n}\n".encode("latin-1")
+    out += b"0000000000 65535 f \n"
+    for oid in range(1, n):
+        out += f"{offsets[oid]:010d} 00000 n \n".encode("latin-1")
+    out += (f"trailer\n<< /Size {n} /Root {catalog_id} 0 R >>\n"
+            f"startxref\n{xref_pos}\n%%EOF").encode("latin-1")
+    return bytes(out)
+
+
+def _invoice_pdf_fallback(invoice_id):
+    """Dependency-free, Latvian-capable PDF: embed a Unicode TTF and draw invoice_text as
+    real glyphs (Type0/Identity-H). Returns PDF bytes, or None if no Unicode font is on
+    the host (we still NEVER fall back to the latin-1 `?` path)."""
     text = invoice_text(invoice_id)
     if not text:
         return None
+    font_path = _find_fallback_font()
+    if not font_path:
+        log.warning("no Unicode TTF for the invoice PDF fallback; cannot render Latvian")
+        return None
+    with open(font_path, "rb") as fh:
+        font_bytes = fh.read()
+    tables = _ttf_tables(font_bytes)
+    cmap = _ttf_cmap_unicode(font_bytes, tables)
+    upm, nglyphs, widths = _ttf_metrics(font_bytes, tables)
+    notdef = 0
+
+    def to_gids(s):
+        return [cmap.get(ord(ch), notdef) for ch in s]
+
+    # Lay out the monospace-ish text from invoice_text: wrap, paginate, draw each line as
+    # glyph ids. Using a fixed leading; the embedded font carries the real advances so the
+    # text is proportionally spaced (good enough for the plain fallback).
+    import textwrap
+    raw_lines = []
+    for para in text.split("\n"):
+        raw_lines.extend(textwrap.wrap(para, width=95) or [""])
+    per_page, leading, x0, y0, size = 56, 13, 50, 800, 10
+    chunks = [raw_lines[i:i + per_page] for i in range(0, len(raw_lines), per_page)] or [[""]]
+    pages = []
+    for chunk in chunks:
+        runs = []
+        y = y0
+        for ln in chunk:
+            runs.append((x0, y, size, to_gids(ln)))
+            y -= leading
+        pages.append(runs)
+    return _pdf_unicode_doc(font_bytes, pages, lines_widths=(upm, nglyphs, widths))
+
+
+def invoice_pdf(invoice_id):
+    """Render the invoice to a print-ready PDF (bytes), Latvian/Unicode-correct.
+
+    PRIMARY: the designed HTML/CSS template (invoice_html) rendered via the wkhtmltopdf
+    CLI — UTF-8 + system fonts, so Latvian diacritics render natively and the invoice
+    looks like a real, well-laid-out document. FALLBACK (no wkhtmltopdf on the host):
+    a dependency-free PDF that EMBEDS a Unicode TrueType font (DejaVuSans) and writes the
+    text as Unicode (Type0/Identity-H) — so `ā š ž ē ī ū ķ ļ ņ ģ č` are real glyphs, NEVER
+    the latin-1 `?` the legacy shared text_to_pdf produced. A DRAFT is watermarked/labelled
+    'DRAFT — not a valid invoice'. Returns the PDF bytes, or None if the invoice is
+    unknown / both renderers are unavailable."""
+    html = invoice_html(invoice_id)
+    if html:
+        try:
+            data = _render_pdf_wkhtmltopdf(html)
+            if data:
+                return data
+        except Exception as e:                          # never let the primary crash us
+            log.warning("invoice_pdf(%s) wkhtmltopdf path failed: %s", invoice_id, e)
+    # DEGRADE: Latvian-capable, dependency-free fallback (never the broken latin-1 path).
     try:
-        import customer_master
-        inv = get_invoice(invoice_id)
-        title = (inv.get("number") if inv else None) or "Invoice (draft)"
-        return customer_master.text_to_pdf(text, title=title)
+        return _invoice_pdf_fallback(invoice_id)
     except Exception as e:
-        log.warning("invoice_pdf(%s) failed: %s", invoice_id, e)
+        log.warning("invoice_pdf(%s) fallback failed: %s", invoice_id, e)
         return None
 
 
