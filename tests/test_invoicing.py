@@ -781,3 +781,360 @@ def test_hybrid_round_trips_on_fallback_pdf(inv, monkeypatch):
     drafted = extract.parse_einvoice(emb)
     assert drafted["supplier"] == _LV_ISSUER
     assert drafted["statement_ref"] == "INV-2026-000001"
+
+
+# ===================================================================================
+# PHASE 3 — PAYMENT / STATUS TRACKING: manual recording, the paid/partially-paid status
+# lifecycle, the DERIVED overdue, the AR/aging view, and the bank-statement import path
+# (camt.053 + CSV parse, advisory matching by number/amount/IBAN, confirm + dedupe).
+# ===================================================================================
+def _issued_invoice(inv, *, gross_check=None, iban="DE89370400440532013000",
+                    issue_date="2026-03-10"):
+    """A ready, ISSUED single-line invoice (gross 121.00 EUR) for the payment tests."""
+    _set_issuer(inv)
+    c, _ = inv.add_customer("Bauer GmbH", country="DE", vat_number="DE111111111",
+                            address="Hauptstr 2, Berlin", iban=iban)
+    draft, _ = inv.create_draft(customer_id=c["id"], reverse_charge=False)
+    inv.add_line(draft["id"], description="Transport", quantity=2, unit="h",
+                 unit_price_net=50, vat_rate=0.21)            # net 100, vat 21, gross 121
+    issued, err = inv.issue(draft["id"], issued_by="pytest", issue_date=issue_date)
+    assert err == "", err
+    if gross_check is not None:
+        assert issued["gross_total"] == gross_check
+    return issued, c
+
+
+# ---------------------------------------------------------------- payment ledger / status
+def test_full_payment_sets_paid(inv):
+    issued, _ = _issued_invoice(inv, gross_check=121.0)
+    out, err = inv.record_payment(issued["id"], 121.0, "2026-03-12", method="transfer")
+    assert err == ""
+    assert out["status"] == "paid"
+    assert inv.outstanding(out) == 0.0
+    assert inv.paid_total(issued["id"]) == 121.0
+
+
+def test_partial_payment_sets_partially_paid_and_outstanding(inv):
+    issued, _ = _issued_invoice(inv)
+    out, err = inv.record_payment(issued["id"], 50.0, "2026-03-12")
+    assert err == ""
+    assert out["status"] == "partially_paid"
+    assert inv.outstanding(out) == 71.0
+    # a second payment completes it
+    out, err = inv.record_payment(issued["id"], 71.0, "2026-03-14")
+    assert err == "" and out["status"] == "paid"
+    assert inv.outstanding(out) == 0.0
+
+
+def test_overpay_within_tolerance_settles_paid(inv):
+    issued, _ = _issued_invoice(inv)
+    # a one-cent overpay still settles to paid (paid_total >= gross via money.q2)
+    out, err = inv.record_payment(issued["id"], 121.01, "2026-03-12")
+    assert err == "" and out["status"] == "paid"
+    assert inv.outstanding(out) == 0.0            # never negative
+
+
+def test_exact_cent_boundary_paid(inv):
+    issued, _ = _issued_invoice(inv)              # gross 121.00
+    out, _ = inv.record_payment(issued["id"], 120.98, "2026-03-12")
+    assert out["status"] == "partially_paid"      # 2 cents short
+    assert inv.outstanding(out) == 0.02
+    out, _ = inv.record_payment(issued["id"], 0.01, "2026-03-12")
+    assert out["status"] == "partially_paid"      # still 1 cent short
+    assert inv.outstanding(out) == 0.01
+    out, _ = inv.record_payment(issued["id"], 0.01, "2026-03-12")
+    assert out["status"] == "paid"                # exactly settled at 121.00
+
+
+def test_payment_refused_on_draft(inv):
+    _set_issuer(inv)
+    c, _ = inv.add_customer("Bauer GmbH", country="DE", vat_number="DE1", address="y")
+    draft, _ = inv.create_draft(customer_id=c["id"], reverse_charge=False)
+    inv.add_line(draft["id"], description="x", quantity=1, unit_price_net=10, vat_rate=0.21)
+    out, err = inv.record_payment(draft["id"], 10.0)
+    assert out is None and "draft" in err.lower()
+    assert inv.list_payments(draft["id"]) == []
+
+
+def test_payment_refuses_nonpositive(inv):
+    issued, _ = _issued_invoice(inv)
+    out, err = inv.record_payment(issued["id"], 0)
+    assert out is None and "positive" in err
+    out, err = inv.record_payment(issued["id"], -5)
+    assert out is None and "positive" in err
+
+
+# ---------------------------------------------------------------- DERIVED overdue
+def test_overdue_derived_from_due_date(inv):
+    # issue 2026-03-10, terms 14 -> due 2026-03-24
+    issued, _ = _issued_invoice(inv)
+    fresh = inv.get_invoice(issued["id"])
+    assert fresh["due_date"] == "2026-03-24"
+    # before the due date: not overdue
+    assert inv.is_overdue(fresh, today="2026-03-20") is False
+    assert inv.display_status(fresh, today="2026-03-20") == "issued"
+    # after the due date, unpaid: OVERDUE (derived)
+    assert inv.is_overdue(fresh, today="2026-04-01") is True
+    assert inv.display_status(fresh, today="2026-04-01") == "overdue"
+
+
+def test_paid_invoice_is_not_overdue(inv):
+    issued, _ = _issued_invoice(inv)
+    inv.record_payment(issued["id"], 121.0, "2026-03-12")
+    paid = inv.get_invoice(issued["id"])
+    assert paid["status"] == "paid"
+    # even well past the due date, a paid invoice is never overdue
+    assert inv.is_overdue(paid, today="2099-01-01") is False
+    assert inv.display_status(paid, today="2099-01-01") == "paid"
+
+
+def test_partially_paid_past_due_is_overdue(inv):
+    issued, _ = _issued_invoice(inv)
+    inv.record_payment(issued["id"], 50.0, "2026-03-12")
+    part = inv.get_invoice(issued["id"])
+    assert part["status"] == "partially_paid"
+    assert inv.is_overdue(part, today="2026-04-01") is True
+    assert inv.display_status(part, today="2026-04-01") == "overdue"
+
+
+# ---------------------------------------------------------------- AR / aging
+def test_accounts_receivable_aging_buckets(inv):
+    # three issued invoices with different due dates; today = 2026-05-01.
+    a, _ = _issued_invoice(inv, issue_date="2026-04-20")   # due 2026-05-04 -> current
+    # b: due ~20 days past -> 1-30
+    _set_issuer(inv)
+    cb, _ = inv.add_customer("B Co", country="LV", address="x")
+    db, _ = inv.create_draft(customer_id=cb["id"], reverse_charge=False)
+    inv.add_line(db["id"], description="svc", quantity=1, unit_price_net=100, vat_rate=0.0)
+    ib, _ = inv.issue(db["id"], issued_by="pytest", issue_date="2026-03-28")  # due 2026-04-11
+    # c: due ~70 days past -> 60+
+    cc, _ = inv.add_customer("C Co", country="LV", address="y")
+    dc, _ = inv.create_draft(customer_id=cc["id"], reverse_charge=False)
+    inv.add_line(dc["id"], description="svc", quantity=1, unit_price_net=200, vat_rate=0.0)
+    ic, _ = inv.issue(dc["id"], issued_by="pytest", issue_date="2026-02-04")  # due 2026-02-18
+    ar = inv.accounts_receivable(today="2026-05-01")
+    buckets = {k: v["count"] for k, v in ar["buckets"].items()}
+    assert buckets["current"] == 1     # invoice a (due 2026-05-04)
+    assert buckets["1-30"] == 1        # invoice b (due 2026-04-11, 20 days past)
+    assert buckets["60+"] == 1         # invoice c (due 2026-02-18, ~72 days past)
+    # total outstanding = 121 + 100 + 200
+    assert ar["total_outstanding"] == money.f2(121.0 + 100.0 + 200.0)
+    # the overdue rows show the DERIVED overdue status
+    by_num = {r["number"]: r for r in ar["rows"]}
+    assert by_num[ib["number"]]["display_status"] == "overdue"
+    assert by_num[ic["number"]]["display_status"] == "overdue"
+
+
+def test_paid_invoice_drops_off_ar(inv):
+    issued, _ = _issued_invoice(inv)
+    inv.record_payment(issued["id"], 121.0, "2026-03-12")
+    ar = inv.accounts_receivable(today="2026-05-01")
+    assert all(r["number"] != issued["number"] for r in ar["rows"])
+    assert ar["total_outstanding"] == 0.0
+
+
+# ---------------------------------------------------------------- camt.053 parsing
+_CAMT = b"""<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02">
+ <BkToCstmrStmt><Stmt>
+  <Ntry>
+   <Amt Ccy="EUR">121.00</Amt><CdtDbtInd>CRDT</CdtDbtInd>
+   <ValDt><Dt>2026-03-20</Dt></ValDt>
+   <NtryDtls><TxDtls>
+     <Refs><AcctSvcrRef>TX-555</AcctSvcrRef><EndToEndId>INV-2026-000001</EndToEndId></Refs>
+     <RmtInf><Ustrd>Payment for INV-2026-000001 - thank you</Ustrd></RmtInf>
+     <RltdPties><Dbtr><Nm>Bauer GmbH</Nm></Dbtr>
+       <DbtrAcct><Id><IBAN>DE89 3704 0044 0532 0130 00</IBAN></Id></DbtrAcct></RltdPties>
+   </TxDtls></NtryDtls>
+  </Ntry>
+  <Ntry>
+   <Amt Ccy="EUR">42.00</Amt><CdtDbtInd>DBIT</CdtDbtInd>
+   <ValDt><Dt>2026-03-20</Dt></ValDt>
+  </Ntry>
+ </Stmt></BkToCstmrStmt>
+</Document>"""
+
+
+def test_camt053_extracts_credits_only(inv):
+    lines = inv.parse_camt053(_CAMT)
+    assert len(lines) == 1                      # the DBIT entry is excluded
+    ln = lines[0]
+    assert ln["amount"] == 121.0
+    assert ln["date"] == "2026-03-20"
+    assert "INV-2026-000001" in ln["reference"]
+    assert ln["counterparty"] == "Bauer GmbH"
+    assert ln["iban"] == "DE89370400440532013000"   # spaces stripped, upper
+    assert ln["txn_id"] == "camt:TX-555"            # bank ref preferred for idempotency
+
+
+def test_camt053_garbage_returns_empty(inv):
+    assert inv.parse_camt053(b"not xml at all") == []
+    assert inv.parse_camt053(b"<Document></Document>") == []
+
+
+# ---------------------------------------------------------------- CSV parsing
+def test_csv_statement_parses_credits(inv):
+    csv = (b"\xef\xbb\xbfBooking Date,Amount,Reference,Payer,IBAN\n"
+           b"2026-03-20,121.00,INV-2026-000001,Bauer GmbH,DE89 3704 0044 0532 0130 00\n"
+           b"2026-03-21,-15.00,Bank fee,Bank,\n")          # debit excluded
+    lines = inv.parse_bank_csv(csv)
+    assert len(lines) == 1
+    ln = lines[0]
+    assert ln["amount"] == 121.0 and ln["date"] == "2026-03-20"
+    assert ln["reference"] == "INV-2026-000001"
+    assert ln["iban"] == "DE89370400440532013000"
+    assert ln["txn_id"].startswith("csv:")
+
+
+def test_csv_credit_debit_columns(inv):
+    csv = (b"Date,Credit,Debit,Description\n"
+           b"2026-03-20,121.00,,INV-2026-000001\n"
+           b"2026-03-21,,15.00,fee\n")
+    lines = inv.parse_bank_csv(csv)
+    assert len(lines) == 1 and lines[0]["amount"] == 121.0
+
+
+def test_parse_statement_autodetects_format(inv):
+    assert inv.parse_statement(_CAMT, "x.xml")[1] == "camt.053"
+    csv = b"Date,Amount,Reference\n2026-03-20,121.00,INV-2026-000001\n"
+    assert inv.parse_statement(csv, "x.csv")[1] == "csv"
+    assert inv.parse_statement(b"\x00\x01garbage", "x")[1] == "unknown"
+
+
+# ---------------------------------------------------------------- advisory matching
+def test_match_by_invoice_number_in_reference(inv):
+    issued, _ = _issued_invoice(inv)        # INV-2026-000001, owed 121
+    credit = {"txn_id": "t1", "date": "2026-03-20", "amount": 999.0,
+              "reference": "ref INV-2026-000001 paid", "counterparty": "X", "iban": ""}
+    found, reason = inv.suggest_match(credit, inv.open_invoices_for_matching())
+    assert reason == inv.MATCH_BY_NUMBER
+    assert found["number"] == issued["number"]
+
+
+def test_match_by_exact_amount(inv):
+    issued, _ = _issued_invoice(inv)        # owed 121.00
+    credit = {"txn_id": "t1", "date": "2026-03-20", "amount": 121.00,
+              "reference": "no number here", "counterparty": "X", "iban": ""}
+    found, reason = inv.suggest_match(credit, inv.open_invoices_for_matching())
+    assert reason == inv.MATCH_BY_AMOUNT and found["number"] == issued["number"]
+
+
+def test_match_by_iban(inv):
+    issued, _ = _issued_invoice(inv, iban="DE89370400440532013000")
+    credit = {"txn_id": "t1", "date": "2026-03-20", "amount": 7.77,   # wrong amount
+              "reference": "no number", "counterparty": "X",
+              "iban": "DE89 3704 0044 0532 0130 00"}
+    found, reason = inv.suggest_match(credit, inv.open_invoices_for_matching())
+    assert reason == inv.MATCH_BY_IBAN and found["number"] == issued["number"]
+
+
+def test_no_match_returns_none(inv):
+    _issued_invoice(inv)
+    credit = {"txn_id": "t1", "date": "2026-03-20", "amount": 7.77,
+              "reference": "unrelated", "counterparty": "X", "iban": "FR0000"}
+    found, reason = inv.suggest_match(credit, inv.open_invoices_for_matching())
+    assert found is None and reason == inv.MATCH_NONE
+
+
+def test_ambiguous_amount_not_auto_matched(inv):
+    # two invoices with the SAME outstanding amount -> an amount-only credit is ambiguous
+    _issued_invoice(inv)
+    _set_issuer(inv)
+    c2, _ = inv.add_customer("Other Co", country="LV", address="z")
+    d2, _ = inv.create_draft(customer_id=c2["id"], reverse_charge=False)
+    inv.add_line(d2["id"], description="svc", quantity=2, unit_price_net=50, vat_rate=0.21)
+    inv.issue(d2["id"], issued_by="pytest", issue_date="2026-03-10")   # also gross 121
+    credit = {"txn_id": "t1", "date": "2026-03-20", "amount": 121.00,
+              "reference": "no number", "counterparty": "X", "iban": ""}
+    found, reason = inv.suggest_match(credit, inv.open_invoices_for_matching())
+    assert found is None and reason == inv.MATCH_NONE
+
+
+# ---------------------------------------------------------------- confirm flow + dedupe
+def test_bank_confirm_records_payment_and_sets_status(inv):
+    issued, _ = _issued_invoice(inv)
+    lines = inv.parse_camt053(_CAMT)
+    review = inv.match_statement(lines)
+    assert len(review) == 1 and review[0]["suggested"]["number"] == issued["number"]
+    cr = review[0]["credit"]
+    out, err = inv.record_payment(issued["id"], cr["amount"], cr["date"],
+                                  source="bank", matched_txn_ref=cr["reference"],
+                                  txn_id=cr["txn_id"])
+    assert err == "" and out["status"] == "paid"
+    pays = inv.list_payments(issued["id"])
+    assert len(pays) == 1 and pays[0]["source"] == "bank"
+    assert pays[0]["txn_id"] == cr["txn_id"]
+
+
+def test_reimport_dedupes_no_double_payment(inv):
+    issued, _ = _issued_invoice(inv)
+    cr = inv.parse_camt053(_CAMT)[0]
+    out, err = inv.record_payment(issued["id"], cr["amount"], cr["date"],
+                                  source="bank", txn_id=cr["txn_id"])
+    assert err == "" and out["status"] == "paid"
+    # re-import the SAME txn — idempotent no-op (no error, no second payment row)
+    out2, err2 = inv.record_payment(issued["id"], cr["amount"], cr["date"],
+                                    source="bank", txn_id=cr["txn_id"])
+    assert err2 == ""
+    assert len(inv.list_payments(issued["id"])) == 1     # still ONE payment
+    assert inv.paid_total(issued["id"]) == 121.0
+
+
+# ---------------------------------------------------------------- web routes
+def test_web_record_manual_payment(inv, client):
+    issued, _ = _issued_invoice(inv)
+    page = client.get(f"/invoicing/compose/{issued['id']}").get_data(as_text=True)
+    assert "Record payment" in page
+    tok = re.search(r'name="_csrf" value="([^"]+)"', page).group(1)
+    r = client.post("/invoicing/payment/record",
+                    data={"_csrf": tok, "invoice_id": issued["id"],
+                          "amount": "121.00", "date": "2026-03-12",
+                          "method": "transfer", "reference": "manual ref"})
+    assert r.status_code == 302
+    assert inv.get_invoice(issued["id"])["status"] == "paid"
+
+
+def test_web_ar_page_renders(inv, client):
+    issued, _ = _issued_invoice(inv, issue_date="2026-02-04")   # past due
+    body = client.get("/invoicing/receivable").get_data(as_text=True)
+    assert "Accounts receivable" in body
+    assert issued["number"] in body
+
+
+def test_web_statement_import_review_and_confirm(inv, client):
+    import io as _io
+    issued, _ = _issued_invoice(inv)
+    # upload the camt statement -> the review screen suggests the matching invoice
+    page = client.get("/invoicing/import").get_data(as_text=True)
+    tok = re.search(r'name="_csrf" value="([^"]+)"', page).group(1)
+    r = client.post("/invoicing/import",
+                    data={"_csrf": tok,
+                          "file": (_io.BytesIO(_CAMT), "stmt.xml")},
+                    content_type="multipart/form-data")
+    body = r.get_data(as_text=True)
+    assert r.status_code == 200
+    assert issued["number"] in body and "Review matches" in body
+    # confirm: accept the single match (index 0)
+    tok2 = re.search(r'name="_csrf" value="([^"]+)"', body).group(1)
+    cr = inv.parse_camt053(_CAMT)[0]
+    r2 = client.post("/invoicing/import/confirm",
+                     data={"_csrf": tok2, "count": "1", "accept_0": "1",
+                           "invoice_id_0": issued["id"], "amount_0": "121.00",
+                           "date_0": cr["date"], "ref_0": cr["reference"],
+                           "txn_id_0": cr["txn_id"]})
+    assert r2.status_code == 200
+    assert inv.get_invoice(issued["id"])["status"] == "paid"
+    pays = inv.list_payments(issued["id"])
+    assert len(pays) == 1 and pays[0]["source"] == "bank"
+
+
+def test_i18n_phase3_labels_have_lv(inv):
+    import i18n
+    for en in ("Record payment", "Accounts receivable", "Import bank statement",
+               "Outstanding", "Payments", "overdue", "partially_paid", "paid",
+               "Review matches", "no match"):
+        # default (en) returns the source unchanged
+        assert i18n.t(en) == en
+        # an LV entry exists and differs from the English source
+        assert i18n.has(en, "lv"), f"missing LV translation for {en!r}"
+        assert i18n.t(en, "lv") != en, f"LV translation equals EN for {en!r}"

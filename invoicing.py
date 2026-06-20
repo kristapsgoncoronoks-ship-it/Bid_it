@@ -64,6 +64,7 @@ import audit
 import db_tuning
 import db_migrate
 import money
+import safexml
 import tenancy
 
 log = applog.get("invoicing")
@@ -74,11 +75,26 @@ WORKDIR = os.path.dirname(os.path.abspath(__file__))
 DB = f"{WORKDIR}/invoicing.db"
 
 # Phase-1 invoice lifecycle. `draft` is editable; `issued` is the immutable, numbered
-# legal invoice. The later statuses are declared here (NOT reachable in Phase 1) so the
-# column already knows them — Phase 3 adds the transitions, no migration.
+# legal invoice. Phase 3 adds the PAYMENT transitions (`partially_paid`/`paid`); `sent`
+# is the Phase-2/email state, `cancelled` a later credit-note state.
+#
+# OVERDUE is DELIBERATELY NOT a stored status — it is DERIVED at read time from the due
+# date + the paid total (see `is_overdue` / `display_status`), so an issued/sent, unpaid
+# (or partly-paid) invoice past its due date is always correctly shown overdue without a
+# background job racing the stored value.
 STATUS_DRAFT = "draft"
 STATUS_ISSUED = "issued"
-STATUSES = (STATUS_DRAFT, STATUS_ISSUED, "sent", "paid", "overdue", "cancelled")
+STATUS_SENT = "sent"
+STATUS_PARTIALLY_PAID = "partially_paid"
+STATUS_PAID = "paid"
+STATUS_OVERDUE = "overdue"            # DERIVED only (never stored) — see is_overdue()
+STATUSES = (STATUS_DRAFT, STATUS_ISSUED, STATUS_SENT, STATUS_PARTIALLY_PAID,
+            STATUS_PAID, STATUS_OVERDUE, "cancelled")
+# The statuses on which a payment may be recorded (a draft has no legal amount due).
+_PAYABLE_STATUSES = (STATUS_ISSUED, STATUS_SENT, STATUS_PARTIALLY_PAID, STATUS_PAID)
+# Payment sources (provenance of a payment row).
+PAYMENT_SOURCE_MANUAL = "manual"
+PAYMENT_SOURCE_BANK = "bank"
 
 # Issuer profile is stored in security.db's app_settings under these keys (admin-only,
 # audited via the normal settings audit). Kept as flat settings in Phase 1; a per-tenant
@@ -227,6 +243,24 @@ _MIGRATIONS = [
     # 5-YEAR RETENTION marker stamped at issue (record-keeping obligation). A date the
     # invoice must be retained until; no enforcement yet, purely a metadata marker.
     "ALTER TABLE invoices ADD COLUMN retain_until TEXT",
+    # PHASE 3 — PAYMENT / STATUS TRACKING -------------------------------------
+    # Provenance of a payment row: 'manual' (a human keyed it) or 'bank' (confirmed from a
+    # bank-statement import). Defaults to 'manual' so any Phase-1-era empty row reads cleanly.
+    "ALTER TABLE invoice_payments ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'",
+    # For a bank-sourced payment: the matched bank transaction reference (remittance/Ustrd
+    # or the statement's own ref), kept for the audit trail of WHY this payment was booked.
+    "ALTER TABLE invoice_payments ADD COLUMN matched_txn_ref TEXT",
+    # IDEMPOTENCY key for a bank import: a stable per-transaction id/hash so re-importing
+    # the same statement (or the same txn) never double-records. NULL for a manual payment.
+    "ALTER TABLE invoice_payments ADD COLUMN txn_id TEXT",
+    # Dedupe a bank txn PER TENANT: a partial UNIQUE index over (tenant_id, txn_id) for the
+    # non-NULL txn_id rows only, so a re-import collides on the INSERT (caught + skipped) and
+    # manual payments (txn_id NULL) are never constrained.
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_invoice_payments_txn "
+    "ON invoice_payments(tenant_id, txn_id) WHERE txn_id IS NOT NULL",
+    # The bill-to customer's stored IBAN — the PAYER account used by the advisory bank-
+    # statement matcher (priority (iii): payer IBAN == the customer's IBAN). Optional.
+    "ALTER TABLE bill_customers ADD COLUMN iban TEXT",
 ]
 
 _AUDITED_TABLES = ["bill_customers", "invoices", "invoice_lines",
@@ -295,7 +329,7 @@ def _cust_dict(row):
 
 
 def add_customer(name, *, reg_no="", vat_number="", address="", country="",
-                 email="", payment_terms_days=None, notes="", created_by=None):
+                 email="", payment_terms_days=None, notes="", iban="", created_by=None):
     """Create a bill-to customer. Returns (customer_dict, "") or (None, error)."""
     name = (name or "").strip()
     if not name:
@@ -310,11 +344,12 @@ def add_customer(name, *, reg_no="", vat_number="", address="", country="",
             cur = con.execute(
                 """INSERT INTO bill_customers
                    (name, reg_no, vat_number, address, country, email,
-                    payment_terms_days, notes, created_by, tenant_id)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                    payment_terms_days, notes, iban, created_by, tenant_id)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (name, (reg_no or "").strip(), (vat_number or "").strip(),
                  (address or "").strip(), (country or "").strip().upper(),
                  (email or "").strip(), ptd, (notes or "").strip(),
+                 (iban or "").strip().replace(" ", "").upper(),
                  created_by, tenancy.write_tenant()))
             con.commit()
             row = con.execute("SELECT * FROM bill_customers WHERE id=?",
@@ -331,13 +366,15 @@ def update_customer(customer_id, **fields):
     """Update editable fields of a bill-to customer (tenant-scoped). Returns
     (customer_dict, "") or (None, error)."""
     allowed = ("name", "reg_no", "vat_number", "address", "country", "email",
-               "payment_terms_days", "notes", "active")
+               "payment_terms_days", "notes", "active", "iban")
     sets, params = [], []
     for k in allowed:
         if k in fields:
             v = fields[k]
             if k == "country" and v:
                 v = str(v).strip().upper()
+            elif k == "iban" and v:
+                v = str(v).strip().replace(" ", "").upper()
             elif k == "payment_terms_days":
                 try:
                     v = int(v) if str(v or "").strip() else None
@@ -888,7 +925,7 @@ def _snapshot_issuer(issuer):
 def _snapshot_customer(cust):
     import json
     keep = ("id", "name", "reg_no", "vat_number", "address", "country", "email",
-            "payment_terms_days")
+            "payment_terms_days", "iban")
     return json.dumps({k: cust.get(k) for k in keep}, ensure_ascii=False)
 
 
@@ -966,6 +1003,696 @@ def issue(invoice_id, *, issued_by=None, issue_date=None):
     except Exception as e:
         log.exception("issue(%s) failed", invoice_id)
         return None, f"could not issue invoice ({str(e)[:80]})"
+
+
+# ============================================================ PHASE 3: payments + status
+# PAYMENT LEDGER + STATUS LIFECYCLE. A payment is APPENDED to invoice_payments (manual or
+# bank-sourced); the paid total is recomputed (money.fsum, cents-exact) and the stored
+# status moves draft -> issued -> sent -> partially_paid -> paid. OVERDUE is NEVER stored:
+# it is DERIVED at read time from the due date + the paid total (see is_overdue /
+# display_status), so it is always correct without a job racing the column.
+#
+# CURRENCY NOTE: a payment is assumed to be in the invoice's own currency (the amount is
+# compared directly to the gross total). A foreign-currency settlement-in-EUR is out of
+# scope for this phase — the operator records the amount in the invoice currency. This is
+# flagged, not silently mishandled.
+
+def _paid_total(con, invoice_id):
+    """The sum of all recorded payments for an invoice (cents-exact via money.fsum),
+    tenant-scoped. Runs on an OPEN connection (so it can share the write transaction)."""
+    frag, tp = tenancy.scope_clause()
+    rows = con.execute(
+        "SELECT amount FROM invoice_payments WHERE invoice_id=?" + frag,
+        [invoice_id, *tp]).fetchall()
+    return money.fsum([r["amount"] for r in rows])
+
+
+def paid_total(invoice_id):
+    """Public: the total paid against an invoice (EUR/local, cents-exact). Never raises."""
+    try:
+        con = connect()
+        try:
+            return _paid_total(con, invoice_id)
+        finally:
+            con.close()
+    except Exception as e:
+        log.warning("paid_total(%s) failed: %s", invoice_id, e)
+        return 0.0
+
+
+def outstanding(invoice):
+    """gross_total - paid_total for an invoice DICT (or id). The amount still owed, never
+    below zero, cents-exact. Pure-ish read; never raises -> the gross (worst case)."""
+    try:
+        inv = invoice if isinstance(invoice, dict) else get_invoice(invoice)
+        if not inv:
+            return 0.0
+        gross = money.q2(inv.get("gross_total") or 0)
+        paid = money.q2(paid_total(inv["id"]))
+        rem = gross - paid
+        return float(rem) if rem > 0 else 0.0
+    except Exception as e:
+        log.warning("outstanding() failed: %s", e)
+        return 0.0
+
+
+def _status_for_paid(gross, paid):
+    """Map (gross, paid) to a STORED status: `paid` when paid >= gross (within a cent via
+    money.q2 — a tiny overpay/rounding still settles), `partially_paid` when 0 < paid <
+    gross, else `issued` (nothing paid). Pure."""
+    g = money.q2(gross or 0)
+    p = money.q2(paid or 0)
+    if p >= g and g > 0:
+        return STATUS_PAID
+    if p > 0:
+        return STATUS_PARTIALLY_PAID
+    return STATUS_ISSUED
+
+
+def record_payment(invoice_id, amount, date=None, *, method="", reference="",
+                   source=PAYMENT_SOURCE_MANUAL, matched_txn_ref=None, txn_id=None,
+                   created_by=None):
+    """Append a payment against an ISSUED invoice and recompute its status.
+
+    Refuses a payment on a DRAFT (a draft has no legal amount due) and on an unknown
+    invoice. The paid total is recomputed (money.fsum) and the status moves to `paid`
+    (paid_total >= gross within a cent, money.q2) or `partially_paid` (0 < paid < gross).
+    A `paid` invoice that later changes is preserved by the same rule. Bank-sourced rows
+    carry `matched_txn_ref` + a `txn_id` for IDEMPOTENCY: a duplicate (tenant, txn_id) is
+    REFUSED (the UNIQUE index), so re-importing a statement never double-records.
+
+    Returns (invoice_dict, "") or (None, error). Audited via the invoice_payments triggers;
+    never raises (programming errors aside) — returns (None, error)."""
+    try:
+        amt = float(money.q2(amount))
+    except Exception:
+        return None, "invalid payment amount"
+    if amt <= 0:
+        return None, "the payment amount must be positive"
+    paid_date = (date or datetime.date.today().isoformat())
+    try:
+        con = connect()
+        try:
+            con.execute("BEGIN IMMEDIATE")
+            frag, tp = tenancy.scope_clause()
+            inv = con.execute("SELECT id, status, currency, gross_total FROM invoices "
+                              "WHERE id=?" + frag, [invoice_id, *tp]).fetchone()
+            if not inv:
+                con.rollback()
+                return None, "invoice not found"
+            if inv["status"] == STATUS_DRAFT:
+                con.rollback()
+                return None, ("cannot record a payment on a draft — issue the invoice first "
+                              "(a draft has no legal amount due)")
+            # IDEMPOTENCY: a bank txn already recorded for this tenant is a no-op (not an
+            # error) — re-importing the same statement must not double-book.
+            if txn_id:
+                dup = con.execute(
+                    "SELECT 1 FROM invoice_payments WHERE txn_id=?" + frag,
+                    [txn_id, *tp]).fetchone()
+                if dup:
+                    con.rollback()
+                    return get_invoice(invoice_id), ""
+            con.execute(
+                """INSERT INTO invoice_payments
+                   (invoice_id, paid_date, amount, currency, method, reference,
+                    source, matched_txn_ref, txn_id, created_by, tenant_id)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (invoice_id, paid_date, amt, (inv["currency"] or DEFAULT_CURRENCY),
+                 (method or "").strip(), (reference or "").strip(),
+                 (source or PAYMENT_SOURCE_MANUAL), matched_txn_ref, txn_id,
+                 created_by, tenancy.write_tenant()))
+            paid = _paid_total(con, invoice_id)
+            new_status = _status_for_paid(inv["gross_total"], paid)
+            con.execute("UPDATE invoices SET status=? WHERE id=?",
+                        (new_status, invoice_id))
+            con.commit()
+        finally:
+            con.close()
+        return get_invoice(invoice_id), ""
+    except sqlite3.IntegrityError:
+        # the UNIQUE (tenant, txn_id) index fired on a concurrent duplicate import — treat
+        # as an idempotent no-op, not an error.
+        log.info("record_payment: duplicate txn_id %r ignored (idempotent)", txn_id)
+        return get_invoice(invoice_id), ""
+    except Exception as e:
+        log.exception("record_payment(%s) failed", invoice_id)
+        return None, f"could not record the payment ({str(e)[:80]})"
+
+
+def list_payments(invoice_id):
+    """All payments recorded against an invoice (oldest first), tenant-scoped. Never
+    raises -> []."""
+    frag, tp = tenancy.scope_clause()
+    try:
+        con = connect()
+        try:
+            rows = con.execute(
+                "SELECT * FROM invoice_payments WHERE invoice_id=?" + frag
+                + " ORDER BY paid_date, id", [invoice_id, *tp]).fetchall()
+        finally:
+            con.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        log.warning("list_payments(%s) failed: %s", invoice_id, e)
+        return []
+
+
+def is_overdue(invoice, today=None):
+    """True iff an invoice is OVERDUE: an issued/sent/partially-paid invoice that is NOT
+    fully paid and whose due date is strictly in the past. DERIVED (never stored) so it is
+    always correct. A draft / a fully-paid / an undated invoice is never overdue. Pure;
+    never raises -> False."""
+    try:
+        inv = invoice if isinstance(invoice, dict) else get_invoice(invoice)
+        if not inv:
+            return False
+        st = inv.get("status")
+        if st not in (STATUS_ISSUED, STATUS_SENT, STATUS_PARTIALLY_PAID):
+            return False
+        due = inv.get("due_date")
+        if not due:
+            return False
+        ref = today or datetime.date.today().isoformat()
+        # outstanding > 0 is implied by the status set above, but guard against a stale
+        # status (e.g. fully paid but not yet flipped) by checking the balance too.
+        if outstanding(inv) <= 0:
+            return False
+        return str(due) < str(ref)
+    except Exception as e:
+        log.warning("is_overdue() failed: %s", e)
+        return False
+
+
+def display_status(invoice, today=None):
+    """The status to SHOW for an invoice: the stored status, except an unpaid/partly-paid
+    issued/sent invoice past its due date reads `overdue` (DERIVED). Pure; never raises."""
+    try:
+        inv = invoice if isinstance(invoice, dict) else get_invoice(invoice)
+        if not inv:
+            return ""
+        if is_overdue(inv, today=today):
+            return STATUS_OVERDUE
+        return inv.get("status") or STATUS_DRAFT
+    except Exception:
+        return (invoice or {}).get("status") if isinstance(invoice, dict) else ""
+
+
+def _age_bucket(due_date, today=None):
+    """Aging bucket of a past-due invoice from its due date: 'current' (not yet due),
+    '1-30', '31-60', '60+'. Returns (label, days_past_due). Pure."""
+    ref = today or datetime.date.today().isoformat()
+    try:
+        d = datetime.date.fromisoformat(str(due_date))
+        r = datetime.date.fromisoformat(str(ref))
+    except (TypeError, ValueError):
+        return "current", 0
+    days = (r - d).days
+    if days <= 0:
+        return "current", days
+    if days <= 30:
+        return "1-30", days
+    if days <= 60:
+        return "31-60", days
+    return "60+", days
+
+
+# Aging-bucket order (for a stable display). 'current' = issued but not yet due.
+AGING_BUCKETS = ("current", "1-30", "31-60", "60+")
+
+
+def accounts_receivable(today=None):
+    """The AR view: every UNPAID / partly-paid issued invoice with its outstanding balance,
+    derived status and aging bucket, plus the totals. Read-only; never raises -> empty.
+
+    Returns {"rows": [{invoice fields..., outstanding, paid, display_status, bucket,
+                        days_past_due, customer_name}],
+             "total_outstanding": float,
+             "buckets": {bucket: {"count": n, "outstanding": float}}}.
+    Money at full precision (money.fsum); the route formats for display."""
+    ref = today or datetime.date.today().isoformat()
+    out = {"rows": [], "total_outstanding": 0.0,
+           "buckets": {b: {"count": 0, "outstanding": 0.0} for b in AGING_BUCKETS}}
+    try:
+        # only issued-and-onward invoices carry a legal amount due; a fully-paid one drops
+        # off the AR list.
+        frag, tp = tenancy.scope_clause(column="i.tenant_id")
+        rows = connect_query(
+            "SELECT i.*, c.name AS customer_name FROM invoices i "
+            "LEFT JOIN bill_customers c ON c.id=i.customer_id "
+            "WHERE i.status IN (?,?,?)" + frag
+            + " ORDER BY i.due_date, i.id",
+            [STATUS_ISSUED, STATUS_SENT, STATUS_PARTIALLY_PAID, *tp])
+        bucket_amts = {b: [] for b in AGING_BUCKETS}
+        all_out = []
+        for r in rows:
+            inv = _inv_dict(r)
+            inv["customer_name"] = r["customer_name"] if "customer_name" in r.keys() else None
+            owed = outstanding(inv)
+            if owed <= 0:
+                continue
+            inv["paid"] = paid_total(inv["id"])
+            inv["outstanding"] = owed
+            inv["display_status"] = display_status(inv, today=ref)
+            bucket, days = _age_bucket(inv.get("due_date"), today=ref)
+            inv["bucket"] = bucket
+            inv["days_past_due"] = days
+            out["rows"].append(inv)
+            out["buckets"][bucket]["count"] += 1
+            bucket_amts[bucket].append(owed)
+            all_out.append(owed)
+        for b in AGING_BUCKETS:
+            out["buckets"][b]["outstanding"] = money.fsum(bucket_amts[b])
+        out["total_outstanding"] = money.fsum(all_out)
+        return out
+    except Exception as e:
+        log.warning("accounts_receivable() failed: %s", e)
+        return {"rows": [], "total_outstanding": 0.0,
+                "buckets": {b: {"count": 0, "outstanding": 0.0} for b in AGING_BUCKETS}}
+
+
+def connect_query(sql, params):
+    """Small helper: run a read-only SELECT and return the rows, closing the connection.
+    Used by accounts_receivable so the AR query is a single readable call."""
+    con = connect()
+    try:
+        return con.execute(sql, params).fetchall()
+    finally:
+        con.close()
+
+
+# ============================================================ PHASE 3: bank statements
+# Two import paths feed the ADVISORY auto-matcher: ISO 20022 camt.053 (the SEPA bank-to-
+# customer statement) and a generic bank-export CSV. Each yields the SAME normalized
+# CREDIT shape so the matcher consumes either identically:
+#
+#   {txn_id, date, amount (positive EUR/local), reference, counterparty, iban}
+#
+# camt.053 is parsed with safexml (defused — entity-bomb-safe) and bounded by a size cap.
+# MATCHING IS ADVISORY (mirroring bank_recon.py): we SUGGEST the best open-invoice match,
+# a human confirms, and only on confirm does record_payment(source='bank') book it. The
+# txn_id makes the whole flow IDEMPOTENT (re-import = no double payment).
+
+# Hard size cap on an uploaded statement (defensive — an admin upload, but still bounded).
+MAX_STATEMENT_BYTES = 8 * 1024 * 1024      # 8 MiB
+
+# ISO 20022 camt.053 lives in a versioned namespace (camt.053.001.02 .. .08). We match by
+# LOCAL element name (namespace-agnostic) so every version parses.
+
+
+def _camt_local(tag):
+    return tag.split("}", 1)[1] if "}" in tag else tag
+
+
+def _camt_find(el, name):
+    """First descendant of `el` whose local tag == name, else None."""
+    for d in el.iter():
+        if _camt_local(d.tag) == name:
+            return d
+    return None
+
+
+def _camt_findall_direct(el, name):
+    """Direct-or-descendant search for ALL elements with local tag == name."""
+    return [d for d in el.iter() if _camt_local(d.tag) == name]
+
+
+def parse_camt053(data):
+    """Parse an ISO 20022 camt.053 bank statement (bytes/str) into normalized CREDIT lines.
+    Never raises (-> []). Each CREDIT entry (CdtDbtInd == 'CRDT') yields:
+
+        {txn_id, date (value date, ISO), amount (positive float), reference (remittance /
+         Ustrd / EndToEndId), counterparty (debtor name), iban (debtor IBAN)}
+
+    Parsed with safexml (defused: entity-bomb-safe). A statement that is not camt is simply
+    not recognised (returns []). The txn_id is the statement's own AcctSvcrRef/EndToEndId
+    when present, else a stable hash of (date, amount, reference) so re-imports dedupe."""
+    out = []
+    try:
+        if isinstance(data, (bytes, bytearray)) and len(data) > MAX_STATEMENT_BYTES:
+            log.warning("parse_camt053: statement exceeds %d bytes, refusing",
+                        MAX_STATEMENT_BYTES)
+            return out
+        root = safexml.fromstring(data)
+    except Exception as e:
+        log.warning("parse_camt053: not parseable XML: %s", e)
+        return out
+    try:
+        entries = _camt_findall_direct(root, "Ntry")
+        for ntry in entries:
+            cdi = _camt_find(ntry, "CdtDbtInd")
+            if cdi is None or (cdi.text or "").strip().upper() != "CRDT":
+                continue          # only incoming credits settle a receivable
+            amt_el = _camt_find(ntry, "Amt")
+            amount = _camt_amount(amt_el)
+            if amount is None or amount <= 0:
+                continue
+            # value date (preferred) then booking date
+            date = (_camt_date(_camt_find(ntry, "ValDt"))
+                    or _camt_date(_camt_find(ntry, "BookgDt")))
+            # remittance / references — search the transaction detail block.
+            ref = _camt_remittance(ntry)
+            party, iban = _camt_debtor(ntry)
+            txn_id = _camt_txn_id(ntry, date, amount, ref)
+            out.append({"txn_id": txn_id, "date": date, "amount": float(amount),
+                        "reference": ref or "", "counterparty": party or "",
+                        "iban": iban or ""})
+    except Exception as e:
+        log.warning("parse_camt053: extraction failed: %s", e)
+    return out
+
+
+def _camt_amount(amt_el):
+    """A camt <Amt> element's value as a positive float, or None."""
+    if amt_el is None:
+        return None
+    try:
+        return abs(float((amt_el.text or "").strip()))
+    except (TypeError, ValueError):
+        return None
+
+
+def _camt_date(dt_el):
+    """A camt <ValDt>/<BookgDt> wrapper -> ISO 'YYYY-MM-DD' (it wraps <Dt> or <DtTm>)."""
+    if dt_el is None:
+        return None
+    for child in dt_el:
+        txt = (child.text or "").strip()
+        if txt:
+            return txt[:10]
+    return None
+
+
+def _camt_remittance(ntry):
+    """The best remittance/reference text on a camt entry: unstructured <Ustrd>, else a
+    structured creditor reference, else EndToEndId, else the entry's AddtlNtryInf."""
+    for name in ("Ustrd", "CdtrRefInf", "EndToEndId", "AddtlTxInf", "AddtlNtryInf"):
+        el = _camt_find(ntry, name)
+        if el is not None and (el.text or "").strip():
+            # CdtrRefInf wraps a <Ref>; prefer that child when present.
+            if name == "CdtrRefInf":
+                ref = _camt_find(el, "Ref")
+                if ref is not None and (ref.text or "").strip():
+                    return ref.text.strip()
+            return el.text.strip()
+    return ""
+
+
+def _camt_debtor(ntry):
+    """(debtor name, debtor IBAN) on a camt CREDIT entry — the PAYER. Best-effort -> ('','')."""
+    name, iban = "", ""
+    dbtr = _camt_find(ntry, "Dbtr")
+    if dbtr is not None:
+        nm = _camt_find(dbtr, "Nm")
+        if nm is not None and (nm.text or "").strip():
+            name = nm.text.strip()
+    acct = _camt_find(ntry, "DbtrAcct")
+    if acct is not None:
+        ib = _camt_find(acct, "IBAN")
+        if ib is not None and (ib.text or "").strip():
+            iban = ib.text.strip().replace(" ", "").upper()
+    return name, iban
+
+
+def _camt_txn_id(ntry, date, amount, ref):
+    """A STABLE idempotency id for a camt entry: the bank's own reference when present
+    (AcctSvcrRef / TxId / EndToEndId), else a sha256 of (date, amount, reference)."""
+    for name in ("AcctSvcrRef", "TxId", "EndToEndId"):
+        el = _camt_find(ntry, name)
+        if el is not None and (el.text or "").strip():
+            return f"camt:{el.text.strip()}"
+    import hashlib
+    h = hashlib.sha256(f"{date}|{amount}|{ref}".encode("utf-8")).hexdigest()[:24]
+    return f"camt:h:{h}"
+
+
+# ----------------------------------------------------------------- generic CSV statement
+# Reuses the same header-alias / amount-parsing approach as bank_recon (a bank export's
+# common shape) but yields the Phase-3 normalized CREDIT shape with a stable txn_id.
+_CSV_DATE_ALIASES = ("date", "booking date", "bookingdate", "value date", "valuedate",
+                     "transaction date", "posted")
+_CSV_AMOUNT_ALIASES = ("amount", "value", "transaction amount")
+_CSV_CREDIT_ALIASES = ("credit", "credit amount", "paid in", "paid-in", "money in")
+_CSV_DEBIT_ALIASES = ("debit", "debit amount", "paid out", "paid-out", "money out")
+_CSV_REF_ALIASES = ("reference", "description", "details", "narrative", "remittance",
+                    "memo", "payment reference")
+_CSV_PARTY_ALIASES = ("counterparty", "payer", "name", "debtor", "creditor", "payee",
+                      "beneficiary")
+_CSV_IBAN_ALIASES = ("iban", "debtor iban", "payer iban", "counterparty iban", "account")
+_CSV_TXNID_ALIASES = ("txn id", "txnid", "transaction id", "id", "reference number",
+                      "bank reference")
+
+
+def _csv_norm_header(h):
+    return (h or "").strip().lower().lstrip("﻿")
+
+
+def _csv_find_col(fieldnames, aliases):
+    norm = {_csv_norm_header(f): f for f in (fieldnames or [])}
+    for a in aliases:
+        if a in norm:
+            return norm[a]
+    return None
+
+
+def _csv_parse_amount(raw):
+    """A possibly-formatted amount cell -> float (None if unparseable). Tolerates thousands
+    separators, a currency symbol, accountancy parentheses and a decimal comma."""
+    s = (raw or "").strip()
+    if not s:
+        return None
+    neg = s.startswith("(") and s.endswith(")")
+    s = s.strip("()")
+    s = "".join(ch for ch in s if ch.isdigit() or ch in ".,-+")
+    if not s or s in ("+", "-", ".", ","):
+        return None
+    if "," in s and "." in s:
+        if s.rfind(",") > s.rfind("."):
+            s = s.replace(".", "").replace(",", ".")
+        else:
+            s = s.replace(",", "")
+    elif "," in s:
+        s = s.replace(",", ".")
+    try:
+        val = float(s)
+    except ValueError:
+        return None
+    return -val if neg else val
+
+
+def _csv_parse_date(raw):
+    s = (raw or "").strip()
+    if not s:
+        return None
+    try:
+        return datetime.date.fromisoformat(s[:10]).isoformat()
+    except ValueError:
+        pass
+    for fmt in ("%d.%m.%Y", "%d/%m/%Y", "%Y/%m/%d", "%d-%m-%Y", "%m/%d/%Y"):
+        try:
+            return datetime.datetime.strptime(s, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def parse_bank_csv(data):
+    """Parse a generic bank-statement CSV (bytes/str) into normalized CREDIT lines. Never
+    raises (-> []). Auto-detects columns by case-insensitive header alias (BOM tolerated):
+
+      date         : date | booking date | value date | transaction date | posted
+      amount       : amount | value     (signed; + = credit)  OR  a credit/debit pair
+      reference    : reference | description | details | narrative | remittance | memo
+      counterparty : counterparty | payer | name | debtor | creditor | beneficiary
+      iban         : iban | payer iban | counterparty iban | account
+      txn_id       : txn id | transaction id | id | bank reference   (optional)
+
+    Only CREDITS (positive amount) are returned (a debit is not a customer payment-in).
+    The txn_id is the file's own column when present, else a sha256 of (date, amount,
+    reference) so re-importing the same file dedupes."""
+    out = []
+    try:
+        if isinstance(data, (bytes, bytearray)) and len(data) > MAX_STATEMENT_BYTES:
+            log.warning("parse_bank_csv: statement exceeds %d bytes, refusing",
+                        MAX_STATEMENT_BYTES)
+            return out
+        text = (data.decode("utf-8-sig", "replace")
+                if isinstance(data, (bytes, bytearray)) else str(data))
+    except Exception as e:
+        log.warning("parse_bank_csv: could not decode bytes: %s", e)
+        return out
+    import csv
+    try:
+        reader = csv.DictReader(io.StringIO(text))
+        fields = reader.fieldnames
+        if not fields:
+            return out
+        date_col = _csv_find_col(fields, _CSV_DATE_ALIASES)
+        amt_col = _csv_find_col(fields, _CSV_AMOUNT_ALIASES)
+        credit_col = _csv_find_col(fields, _CSV_CREDIT_ALIASES)
+        debit_col = _csv_find_col(fields, _CSV_DEBIT_ALIASES)
+        ref_col = _csv_find_col(fields, _CSV_REF_ALIASES)
+        party_col = _csv_find_col(fields, _CSV_PARTY_ALIASES)
+        iban_col = _csv_find_col(fields, _CSV_IBAN_ALIASES)
+        txnid_col = _csv_find_col(fields, _CSV_TXNID_ALIASES)
+        for row in reader:
+            try:
+                date = _csv_parse_date(row.get(date_col) if date_col else None)
+                amount = _csv_parse_amount(row.get(amt_col)) if amt_col else None
+                if amount is None and (credit_col or debit_col):
+                    cr = _csv_parse_amount(row.get(credit_col)) if credit_col else None
+                    dr = _csv_parse_amount(row.get(debit_col)) if debit_col else None
+                    if cr:
+                        amount = abs(cr)
+                    elif dr:
+                        amount = -abs(dr)
+                if date is None or amount is None or amount <= 0:
+                    continue          # skip non-credits / unparseable rows
+                ref = (row.get(ref_col) or "").strip() if ref_col else ""
+                party = (row.get(party_col) or "").strip() if party_col else ""
+                iban = ((row.get(iban_col) or "").strip().replace(" ", "").upper()
+                        if iban_col else "")
+                txn_id = (row.get(txnid_col) or "").strip() if txnid_col else ""
+                if txn_id:
+                    txn_id = f"csv:{txn_id}"
+                else:
+                    import hashlib
+                    h = hashlib.sha256(
+                        f"{date}|{amount}|{ref}|{party}".encode("utf-8")).hexdigest()[:24]
+                    txn_id = f"csv:h:{h}"
+                out.append({"txn_id": txn_id, "date": date, "amount": float(amount),
+                            "reference": ref, "counterparty": party, "iban": iban})
+            except Exception as e:
+                log.debug("parse_bank_csv: skipping bad row %r: %s", row, e)
+                continue
+    except Exception as e:
+        log.warning("parse_bank_csv failed: %s", e)
+    return out
+
+
+def parse_statement(data, filename=""):
+    """Parse an uploaded statement, AUTO-DETECTING the format: camt.053 (XML) vs generic
+    CSV. Returns (lines, format_label). Never raises -> ([], 'unknown'). The detection is
+    by content (an XML prolog / a 'camt.053'/'Document' root) then by extension, so a
+    mislabelled upload still parses."""
+    try:
+        head = data[:512] if isinstance(data, (bytes, bytearray)) else str(data)[:512]
+        head_s = (head.decode("utf-8-sig", "replace")
+                  if isinstance(head, (bytes, bytearray)) else head).lstrip()
+    except Exception:
+        head_s = ""
+    looks_xml = head_s.startswith("<?xml") or head_s.startswith("<")
+    fn = (filename or "").lower()
+    if looks_xml or fn.endswith(".xml") or "camt" in head_s.lower():
+        lines = parse_camt053(data)
+        if lines:
+            return lines, "camt.053"
+        # fall through to CSV only if the XML yielded nothing AND it's not clearly XML
+        if looks_xml:
+            return [], "camt.053"
+    lines = parse_bank_csv(data)
+    return lines, ("csv" if lines else "unknown")
+
+
+# ----------------------------------------------------------------- advisory matching
+def _norm_ref_text(s):
+    """Uppercase + strip non-alphanumerics, for a forgiving substring match of an invoice
+    NUMBER against free-form remittance text (spaces/dashes/slashes vary by bank)."""
+    return "".join(ch for ch in (s or "").upper() if ch.isalnum())
+
+
+def open_invoices_for_matching(today=None):
+    """The set of invoices a bank credit could settle: issued/sent/partially-paid with a
+    positive outstanding balance, each enriched with its outstanding + the customer's
+    stored IBAN (for the IBAN match). Read-only; never raises -> []."""
+    rows = []
+    try:
+        frag, tp = tenancy.scope_clause(column="i.tenant_id")
+        recs = connect_query(
+            "SELECT i.*, c.name AS customer_name, c.iban AS customer_iban "
+            "FROM invoices i LEFT JOIN bill_customers c ON c.id=i.customer_id "
+            "WHERE i.status IN (?,?,?)" + frag + " ORDER BY i.id",
+            [STATUS_ISSUED, STATUS_SENT, STATUS_PARTIALLY_PAID, *tp])
+    except Exception as e:
+        log.warning("open_invoices_for_matching() failed: %s", e)
+        return rows
+    for r in recs:
+        inv = _inv_dict(r)
+        inv["customer_name"] = r["customer_name"] if "customer_name" in r.keys() else None
+        # customer IBAN may live on the bill_customers row (Phase-3 adds the column below).
+        inv["customer_iban"] = ((r["customer_iban"] or "").replace(" ", "").upper()
+                                if "customer_iban" in r.keys() and r["customer_iban"]
+                                else "")
+        owed = outstanding(inv)
+        if owed <= 0:
+            continue
+        inv["outstanding"] = owed
+        rows.append(inv)
+    return rows
+
+
+# Match-reason codes, in PRIORITY order (best first). The matcher returns the first that
+# hits for a credit.
+MATCH_BY_NUMBER = "number"      # the invoice number appears in the remittance/reference
+MATCH_BY_AMOUNT = "amount"      # exact outstanding-amount match
+MATCH_BY_IBAN = "iban"         # payer IBAN == the customer's stored IBAN
+MATCH_NONE = "none"
+
+
+def suggest_match(credit, open_invoices):
+    """ADVISORY: suggest the single best open-invoice match for ONE incoming bank CREDIT,
+    by PRIORITY: (i) the invoice NUMBER appearing in the remittance/reference text, (ii) an
+    exact outstanding-amount match (within a cent, money.q2), (iii) the payer IBAN equal to
+    the customer's stored IBAN. Returns (invoice_or_None, reason_code). Pure; never raises.
+
+    NEVER auto-applies — the caller shows this as a suggestion a human confirms."""
+    try:
+        ref_norm = _norm_ref_text(credit.get("reference"))
+        # (i) invoice number in the remittance text (most specific).
+        if ref_norm:
+            for inv in open_invoices:
+                num = _norm_ref_text(inv.get("number"))
+                if num and num in ref_norm:
+                    return inv, MATCH_BY_NUMBER
+        # (ii) exact outstanding-amount match. If several invoices share the amount we
+        # cannot disambiguate -> no confident suggestion (avoid a wrong auto-pick).
+        amt = money.q2(credit.get("amount"))
+        amount_hits = [inv for inv in open_invoices
+                       if money.q2(inv.get("outstanding")) == amt]
+        if len(amount_hits) == 1:
+            return amount_hits[0], MATCH_BY_AMOUNT
+        # (iii) payer IBAN == the customer's stored IBAN (again, only when unambiguous).
+        payer = (credit.get("iban") or "").replace(" ", "").upper()
+        if payer:
+            iban_hits = [inv for inv in open_invoices
+                         if (inv.get("customer_iban") or "") == payer]
+            if len(iban_hits) == 1:
+                return iban_hits[0], MATCH_BY_IBAN
+        return None, MATCH_NONE
+    except Exception as e:
+        log.warning("suggest_match() failed: %s", e)
+        return None, MATCH_NONE
+
+
+def match_statement(lines, today=None):
+    """Run the advisory matcher over parsed statement CREDITS, returning a review list:
+    [{credit, suggested (invoice dict or None), reason}]. One-to-one greedy: once an
+    invoice is suggested for a credit it is not re-suggested for a later credit (so two
+    transfers don't both point at the same invoice). Read-only; never raises -> []."""
+    try:
+        open_invs = open_invoices_for_matching(today=today)
+        used = set()
+        review = []
+        for credit in (lines or []):
+            avail = [i for i in open_invs if i["id"] not in used]
+            inv, reason = suggest_match(credit, avail)
+            if inv is not None:
+                used.add(inv["id"])
+            review.append({"credit": credit, "suggested": inv, "reason": reason})
+        return review
+    except Exception as e:
+        log.warning("match_statement() failed: %s", e)
+        return []
 
 
 # ============================================================ PDF (Art. 226 compliant)

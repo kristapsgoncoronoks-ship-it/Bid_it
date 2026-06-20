@@ -1258,6 +1258,10 @@ ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "api_r
               "invoicing_create", "invoicing_line_add", "invoicing_line_remove",
               "invoicing_fields_save", "invoicing_issue", "invoicing_pdf",
               "invoicing_einvoice_xml", "invoicing_pdf_hybrid",
+              # Phase 3: payment / status tracking — payment recording, AR/aging,
+              # bank-statement import + advisory match confirm (admin-only, like the rest).
+              "invoicing_payment_record", "invoicing_receivable",
+              "invoicing_import", "invoicing_import_confirm",
               # the workflow DEFINE/MANAGE surface is admin-only (an admin builds the
               # routing); the Tasks inbox / act / start-run are NOT here (any login).
               "workflow_admin", "workflow_define", "workflow_update",
@@ -1379,7 +1383,9 @@ MODULES = {
                     "invoicing_issuer", "invoicing_issuer_save", "invoicing_compose",
                     "invoicing_create", "invoicing_line_add", "invoicing_line_remove",
                     "invoicing_fields_save", "invoicing_issue", "invoicing_pdf",
-                    "invoicing_einvoice_xml", "invoicing_pdf_hybrid"}),
+                    "invoicing_einvoice_xml", "invoicing_pdf_hybrid",
+                    "invoicing_payment_record", "invoicing_receivable",
+                    "invoicing_import", "invoicing_import_confirm"}),
     "fx":         ("FX vs ECB exchange rates", {"fx"}),
     "workflow":   ("Workflow — configurable approval/routing + a Tasks inbox (advisory)",
                    {"tasks_page", "task_act", "workflow_start",
@@ -14478,6 +14484,22 @@ def _ivc_banner(ok, msg):
             f'<b class="{cls}">{esc(msg)}</b></div>')
 
 
+# Invoicing status → chip class (DISPLAY status, so the DERIVED `overdue` has its own pill).
+_IVC_CHIP = {
+    "draft": "s-neutral", "issued": "s-early", "sent": "s-early",
+    "partially_paid": "s-progress", "paid": "s-done", "overdue": "s-blocked",
+    "cancelled": "s-neutral",
+}
+
+
+def _ivc_status_chip(status):
+    """A pill for an invoicing DISPLAY status (pass invoicing.display_status(inv)). Escapes
+    + translates the label; unknown -> neutral."""
+    st = (status or "draft").strip()
+    cls = _IVC_CHIP.get(st, "s-neutral")
+    return f'<span class="chip {cls}">{esc(_t(st))}</span>'
+
+
 @app.route("/invoicing")
 def invoicing_home():
     """Invoicing landing page: list invoices (number, customer, dates, totals, status
@@ -14492,9 +14514,7 @@ def invoicing_home():
         invs = []
     rows = []
     for d in invs:
-        st = d.get("status") or "draft"
-        chip = (f'<span class="chip s-done">{esc(_t("issued"))}</span>' if st == "issued"
-                else f'<span class="chip s-neutral">{esc(_t(st) if st=="draft" else st)}</span>')
+        chip = _ivc_status_chip(invoicing.display_status(d))
         num = d.get("number") or "(draft)"
         rows.append([
             f'<a href="/invoicing/compose/{int(d["id"])}">{esc(num)}</a>',
@@ -14512,13 +14532,17 @@ def invoicing_home():
                          _t("New invoice"), "/invoicing/compose"))
     # filters
     statuses = "".join(f'<option value="{esc(s)}" {"selected" if status==s else ""}>{esc(_t(s) if s else s)}</option>'
-                       for s in ("", invoicing.STATUS_DRAFT, invoicing.STATUS_ISSUED))
+                       for s in ("", invoicing.STATUS_DRAFT, invoicing.STATUS_ISSUED,
+                                 invoicing.STATUS_PARTIALLY_PAID, invoicing.STATUS_PAID))
     filt = ('<form method="get" class="f" style="margin-bottom:10px">'
             f'<label>{esc(_t("Status"))}<select name="status">{statuses}</select></label>'
             f'<label>{esc(_t("Year"))}<input name="year" value="{esc(year or "")}" '
             'style="width:90px" inputmode="numeric"></label>'
             f'<button>{esc(_t("Filter"))}</button>'
-            f' <a class="btn" href="/invoicing/compose">{esc(_t("New invoice"))}</a></form>')
+            f' <a class="btn" href="/invoicing/compose">{esc(_t("New invoice"))}</a>'
+            f' <a class="btn" href="/invoicing/receivable">{esc(_t("Accounts receivable"))}</a>'
+            f' <a class="btn" href="/invoicing/import">{esc(_t("Import bank statement"))}</a>'
+            '</form>')
     _ivc_help = ("Issue legally-compliant sales invoices to your own "
                  "customers. Amounts are shown on a NET basis (VAT excluded). A "
                  "draft is freely editable; once issued it gets a gap-free number "
@@ -14567,6 +14591,8 @@ def invoicing_customers():
         + f'<label>{esc(_t("Reg number"))}<input name="reg_no" value="{_v("reg_no")}"></label>'
         + f'<label style="flex:1 1 100%">{esc(_t("Address"))}<input name="address" value="{_v("address")}"></label>'
         + f'<label>{esc(_t("Email"))}<input name="email" type="email" value="{_v("email")}"></label>'
+        + f'<label>{esc(_t("IBAN"))}<input name="iban" value="{_v("iban")}" '
+          f'placeholder="{esc(_t("for bank-statement matching"))}"></label>'
         + f'<label>{esc(_t("Payment terms (days)"))}<input name="payment_terms_days" inputmode="numeric" '
           f'style="width:120px" value="{_v("payment_terms_days")}"></label>'
         + f'<label style="flex:1 1 100%">{esc(_t("Notes"))}<input name="notes" value="{_v("notes")}"></label>'
@@ -14587,7 +14613,8 @@ def invoicing_customer_save():
     fields = dict(name=f.get("name"), country=f.get("country"),
                   vat_number=f.get("vat_number"), reg_no=f.get("reg_no"),
                   address=f.get("address"), email=f.get("email"),
-                  payment_terms_days=f.get("payment_terms_days"), notes=f.get("notes"))
+                  payment_terms_days=f.get("payment_terms_days"), notes=f.get("notes"),
+                  iban=f.get("iban"))
     if cid.isdigit():
         obj, err = invoicing.update_customer(int(cid), **fields)
     else:
@@ -14687,8 +14714,7 @@ def invoicing_compose(invoice_id=None):
     # header summary
     head_rows = [
         [_t("Number"), esc(inv.get("number") or "(assigned at issue)")],
-        [_t("Status"), f'<span class="chip s-done">{esc(_t("issued"))}</span>' if issued
-         else f'<span class="chip s-neutral">{esc(_t("draft"))}</span>'],
+        [_t("Status"), _ivc_status_chip(invoicing.display_status(inv))],
         [_t("Customer"), esc((cust or {}).get("name") or "—")],
         [_t("Issue date"), esc(inv.get("issue_date") or "—")],
         [_t("Due date"), esc(inv.get("due_date") or "—")],
@@ -14697,6 +14723,9 @@ def invoicing_compose(invoice_id=None):
         [_t("VAT total"), _eur(inv.get("vat_total"))],
         [_t("Grand total"), _eur(inv.get("gross_total"))],
     ]
+    if issued:
+        head_rows.append([_t("Paid to date"), _eur(invoicing.paid_total(invoice_id))])
+        head_rows.append([_t("Outstanding"), _eur(invoicing.outstanding(inv))])
     head = tbl(["", ""], [[esc(a), b] for a, b in head_rows])
 
     # line table
@@ -14803,7 +14832,52 @@ def invoicing_compose(invoice_id=None):
     else:
         body.append('<div class="card"><p class="note">This invoice is issued and '
                     'immutable. Download the PDF above.</p></div>')
+        # ---- PHASE 3: payments ledger + record-payment form (issued invoices only) ----
+        body.append(_ivc_payments_card(invoicing, inv))
     return page("".join(body), "ivc")
+
+
+def _ivc_payments_card(invoicing, inv):
+    """The payment ledger + a Record-payment form for an ISSUED invoice. Amount prefilled
+    to the outstanding balance. CSRF + admin-only (the whole module). Returns HTML."""
+    iid = int(inv["id"])
+    pays = invoicing.list_payments(iid)
+    owed = invoicing.outstanding(inv)
+    prows = []
+    for p in pays:
+        src = p.get("source") or "manual"
+        prows.append([
+            esc(p.get("paid_date") or "—"),
+            _eur(p.get("amount")),
+            esc(p.get("method") or "—"),
+            esc(p.get("reference") or "—"),
+            f'<span class="chip {"s-progress" if src=="bank" else "s-neutral"}">{esc(_t(src))}</span>',
+        ])
+    ptable = (tbl([_t("Date"), _t("Amount"), _t("Method"), _t("Reference"), _t("Source")],
+                  prows) if prows
+              else f'<p class="note">{esc(_t("No payments recorded yet."))}</p>')
+    form = ""
+    if owed > 0:
+        form = (
+            '<form method="post" action="/invoicing/payment/record" class="f" '
+            'style="margin-top:10px">' + _csrf_input()
+            + f'<input type="hidden" name="invoice_id" value="{iid}">'
+            + f'<label>{esc(_t("Amount"))}<input name="amount" required inputmode="decimal" '
+              f'style="width:130px" value="{esc(f"{owed:.2f}")}"></label>'
+            + f'<label>{esc(_t("Date"))}<input name="date" type="date" '
+              f'value="{esc(_dt.date.today().isoformat())}"></label>'
+            + f'<label>{esc(_t("Method"))}<input name="method" style="width:140px" '
+              'placeholder="bank transfer"></label>'
+            + f'<label>{esc(_t("Reference"))}<input name="reference" style="width:180px"></label>'
+            + f'<div style="margin-top:8px"><button>{esc(_t("Record payment"))}</button></div>'
+            + '<p class="note">' + esc(_t(
+                "The amount is prefilled to the outstanding balance. Recording a payment "
+                "updates the invoice status (partially paid / paid).")) + '</p>'
+            + '</form>')
+    else:
+        form = f'<p class="note ok">{esc(_t("This invoice is fully paid."))}</p>'
+    return (f'<div class="card"><h2>{esc(_t("Payments"))}</h2>'
+            + ptable + form + '</div>')
 
 
 @app.route("/invoicing/create", methods=["POST"])
@@ -14977,6 +15051,212 @@ def invoicing_pdf_hybrid(invoice_id):
     return send_file(io.BytesIO(data), as_attachment=True,
                      download_name=f"Invoice_{num}_hybrid.pdf",
                      mimetype="application/pdf")
+
+
+# ----------------------------------------------------------------- PHASE 3: payments
+@app.route("/invoicing/payment/record", methods=["POST"])
+def invoicing_payment_record():
+    """Record a MANUAL payment against an issued invoice (source='manual'). CSRF + admin-
+    only (the whole module); audited via the invoice_payments triggers."""
+    import invoicing
+    f = request.form
+    try:
+        iid = int(f.get("invoice_id") or "0")
+    except (TypeError, ValueError):
+        iid = 0
+    inv, err = invoicing.record_payment(
+        iid, f.get("amount"), (f.get("date") or "").strip() or None,
+        method=f.get("method") or "", reference=f.get("reference") or "",
+        source=invoicing.PAYMENT_SOURCE_MANUAL, created_by=session.get("user"))
+    if err:
+        return page(_ivc_banner(False, err)
+                    + f'<p><a href="/invoicing/compose/{iid}">{esc(_t("Back"))}</a></p>', "ivc")
+    return redirect(f"/invoicing/compose/{iid}")
+
+
+@app.route("/invoicing/receivable")
+def invoicing_receivable():
+    """Accounts-receivable / aging view: total outstanding, the unpaid / partly-paid
+    invoices (with the DERIVED overdue status) and aging buckets. Read-only, admin-only."""
+    import invoicing
+    try:
+        ar = invoicing.accounts_receivable()
+    except Exception as e:
+        _log_exc("invoicing: AR", e)
+        ar = {"rows": [], "total_outstanding": 0.0,
+              "buckets": {b: {"count": 0, "outstanding": 0.0}
+                          for b in invoicing.AGING_BUCKETS}}
+    # aging-bucket summary tiles
+    bucket_labels = {"current": _t("Current (not due)"), "1-30": _t("1–30 days"),
+                     "31-60": _t("31–60 days"), "60+": _t("60+ days")}
+    brow = []
+    for b in invoicing.AGING_BUCKETS:
+        cell = ar["buckets"].get(b, {"count": 0, "outstanding": 0.0})
+        brow.append([esc(bucket_labels.get(b, b)), str(int(cell["count"])),
+                     _eur(cell["outstanding"])])
+    btable = tbl([_t("Aging bucket"), _t("Invoices"), _t("Outstanding")], brow)
+    # the per-invoice list
+    rows = []
+    for inv in ar["rows"]:
+        rows.append([
+            f'<a href="/invoicing/compose/{int(inv["id"])}">{esc(inv.get("number") or "—")}</a>',
+            esc(inv.get("customer_name") or "—"),
+            esc(inv.get("due_date") or "—"),
+            str(int(inv.get("days_past_due") or 0)) if (inv.get("days_past_due") or 0) > 0 else "—",
+            _eur(inv.get("outstanding")),
+            _ivc_status_chip(inv.get("display_status")),
+        ])
+    table = (tbl([_t("Number"), _t("Customer"), _t("Due date"), _t("Days past due"),
+                  _t("Outstanding"), _t("Status")], rows) if rows
+             else f'<p class="note">{esc(_t("Nothing outstanding — every issued invoice is paid."))}</p>')
+    ar_help = esc(_t("Outstanding = invoice gross − payments recorded. Overdue is derived "
+                     "from the due date + the paid total, so it is always current."))
+    total = (f'<div class="card"><h2>{esc(_t("Accounts receivable"))}</h2>'
+             f'<p class="note">{ar_help}</p>'
+             f'<p><b>{esc(_t("Total outstanding"))}:</b> {_eur(ar["total_outstanding"])}</p>'
+             + btable + '</div>')
+    return page(total + f'<div class="card"><h2>{esc(_t("Outstanding invoices"))}</h2>'
+                + table + '</div>', "ivc")
+
+
+@app.route("/invoicing/import", methods=["GET", "POST"])
+def invoicing_import():
+    """Bank-statement import with ADVISORY auto-matching. GET shows the upload form; POST
+    parses the statement (camt.053 or CSV, size-capped, safexml-defused) and renders a
+    REVIEW screen with a suggested invoice per credit — the user confirms (a separate POST
+    to /invoicing/import/confirm). NEVER auto-posts. Admin-only, CSRF."""
+    import invoicing
+    if request.method == "GET":
+        imp_help = esc(_t("Upload a bank statement (ISO 20022 camt.053 XML or a CSV export). "
+                          "Each incoming credit is matched — advisory only — to an open "
+                          "invoice by invoice number in the reference, then exact amount, "
+                          "then payer IBAN. You confirm each match before any payment is "
+                          "recorded."))
+        upl = (
+            f'<div class="card"><h2>{esc(_t("Import bank statement"))}</h2>'
+            f'<p class="note">{imp_help}</p>'
+            '<form method="post" action="/invoicing/import" enctype="multipart/form-data" '
+            'class="f">' + _csrf_input()
+            + f'<label>{esc(_t("Statement file"))}<input type="file" name="file" '
+              'accept=".xml,.csv,text/xml,text/csv" required></label>'
+            + f'<div style="margin-top:8px"><button>{esc(_t("Upload and match"))}</button></div>'
+            + '</form></div>')
+        return page(upl, "ivc")
+    # POST: parse + match
+    f = request.files.get("file")
+    if not f:
+        return page(_ivc_banner(False, _t("No file uploaded."))
+                    + f'<p><a href="/invoicing/import">{esc(_t("Back"))}</a></p>', "ivc")
+    raw = f.read(invoicing.MAX_STATEMENT_BYTES + 1)
+    if len(raw) > invoicing.MAX_STATEMENT_BYTES:
+        return page(_ivc_banner(False, _t("That statement is too large."))
+                    + f'<p><a href="/invoicing/import">{esc(_t("Back"))}</a></p>', "ivc")
+    try:
+        lines, fmt = invoicing.parse_statement(raw, getattr(f, "filename", "") or "")
+    except Exception as e:
+        _log_exc("invoicing: parse statement", e)
+        lines, fmt = [], "unknown"
+    if not lines:
+        no_credits = _t("No incoming credits found in that statement "
+                        "(is it a camt.053 or a recognised CSV?).")
+        return page(_ivc_banner(False, no_credits)
+                    + f'<p><a href="/invoicing/import">{esc(_t("Back"))}</a></p>', "ivc")
+    review = invoicing.match_statement(lines)
+    # the review screen: one row per credit, a hidden field carrying its txn_id + the
+    # suggested invoice id (the user may clear/keep each). One confirm POST books all kept.
+    rrows = []
+    body = ('<form method="post" action="/invoicing/import/confirm">' + _csrf_input())
+    for i, item in enumerate(review):
+        cr = item["credit"]
+        sug = item["suggested"]
+        reason = item["reason"]
+        try:
+            amt_v = float(cr.get("amount") or 0)
+        except (TypeError, ValueError):
+            amt_v = 0.0
+        amt_str = esc(f"{amt_v:.2f}")
+        txn_v = esc(cr.get("txn_id") or "")
+        date_v = esc(cr.get("date") or "")
+        ref_v = esc(cr.get("reference") or "")
+        sug_id = int(sug["id"]) if sug else 0
+        if sug:
+            sug_label = (f'{esc(sug.get("number") or "—")} · '
+                         f'{esc(sug.get("customer_name") or "—")} '
+                         f'(owed {_eur(sug.get("outstanding"))})')
+        else:
+            sug_label = f'<span class="note">{esc(_t("no match"))}</span>'
+        # a checkbox to ACCEPT this match (only present when there is a suggestion)
+        accept = (f'<input type="checkbox" name="accept_{i}" value="1" checked>'
+                  if sug else '<span class="note">—</span>')
+        body += (f'<input type="hidden" name="txn_id_{i}" value="{txn_v}">'
+                 f'<input type="hidden" name="amount_{i}" value="{amt_str}">'
+                 f'<input type="hidden" name="date_{i}" value="{date_v}">'
+                 f'<input type="hidden" name="ref_{i}" value="{ref_v}">'
+                 f'<input type="hidden" name="invoice_id_{i}" value="{sug_id}">')
+        rrows.append([
+            accept,
+            esc(cr.get("date") or "—"),
+            _eur(cr.get("amount")),
+            esc((cr.get("reference") or "")[:48] or "—"),
+            esc(cr.get("counterparty") or "—"),
+            sug_label,
+            esc(_t(reason)) if reason != "none" else esc(_t("no match")),
+        ])
+    body += (f'<input type="hidden" name="count" value="{len(review)}">')
+    table = tbl([_t("Accept"), _t("Date"), _t("Amount"), _t("Reference"),
+                 _t("Payer"), _t("Suggested invoice"), _t("Matched by")], rrows)
+    review_help = esc(_t("Advisory only. Uncheck any row you do not want to book. Confirming "
+                         "records a payment (source: bank) against each accepted invoice; "
+                         "re-importing the same statement will not double-record."))
+    card = (f'<div class="card"><h2>{esc(_t("Review matches"))} ({esc(fmt)})</h2>'
+            f'<p class="note">{review_help}</p>'
+            + table
+            + f'<div style="margin-top:10px"><button>{esc(_t("Confirm accepted matches"))}</button>'
+            + f' <a class="btn" href="/invoicing/import">{esc(_t("Cancel"))}</a></div></form></div>')
+    return page(card, "ivc")
+
+
+@app.route("/invoicing/import/confirm", methods=["POST"])
+def invoicing_import_confirm():
+    """Book the ACCEPTED bank-statement matches: each calls record_payment(source='bank',
+    matched_txn_ref=…, txn_id=…) so the flow is idempotent (a re-import is a no-op).
+    Admin-only, CSRF, audited."""
+    import invoicing
+    f = request.form
+    try:
+        count = int(f.get("count") or "0")
+    except (TypeError, ValueError):
+        count = 0
+    booked, skipped, errors = 0, 0, []
+    for i in range(count):
+        if f.get(f"accept_{i}") != "1":
+            skipped += 1
+            continue
+        try:
+            iid = int(f.get(f"invoice_id_{i}") or "0")
+        except (TypeError, ValueError):
+            iid = 0
+        if not iid:
+            skipped += 1
+            continue
+        before = len(invoicing.list_payments(iid))
+        inv, err = invoicing.record_payment(
+            iid, f.get(f"amount_{i}"), (f.get(f"date_{i}") or "").strip() or None,
+            method="bank transfer", reference=f.get(f"ref_{i}") or "",
+            source=invoicing.PAYMENT_SOURCE_BANK,
+            matched_txn_ref=f.get(f"ref_{i}") or "",
+            txn_id=(f.get(f"txn_id_{i}") or "").strip() or None,
+            created_by=session.get("user"))
+        if err:
+            errors.append(err)
+        elif len(invoicing.list_payments(iid)) > before:
+            booked += 1
+        else:
+            skipped += 1          # idempotent no-op (already recorded)
+    msg = _t("Recorded %d payment(s); %d skipped.") % (booked, skipped)
+    banner = _ivc_banner(not errors, msg if not errors else (msg + " " + "; ".join(errors[:3])))
+    return page(banner + f'<p><a href="/invoicing/receivable">{esc(_t("Accounts receivable"))}</a> · '
+                f'<a href="/invoicing">{esc(_t("Invoices"))}</a></p>', "ivc")
 
 
 @app.route("/share/<int:link_id>/views")

@@ -164,4 +164,87 @@ CATALOG = {
     "Simplified invoice": "Vienkāršots rēķins",
     "Amounts are NET (VAT excluded) unless stated.":
         "Summas ir NETO (bez PVN), ja nav norādīts citādi.",
+
+    # ============================================================ PHASE 3: PAYMENTS / AR
+    # Payment / status tracking, the AR/aging view and the bank-statement import flow.
+    # ⚠️ accounting wording — native-speaker review recommended before customer use. ⚠️
+    # statuses (DISPLAY)
+    "partially_paid": "daļēji apmaksāts",
+    "paid": "apmaksāts",
+    "overdue": "nokavēts",
+    "sent": "nosūtīts",
+    "cancelled": "atcelts",
+    # payment ledger + form (compose page)
+    "Payments": "Maksājumi",
+    "Record payment": "Reģistrēt maksājumu",
+    "Paid to date": "Apmaksāts līdz šim",
+    "Outstanding": "Neapmaksāts atlikums",
+    "No payments recorded yet.": "Vēl nav reģistrētu maksājumu.",
+    "This invoice is fully paid.": "Šis rēķins ir pilnībā apmaksāts.",
+    "Amount": "Summa",
+    "Date": "Datums",
+    "Method": "Metode",
+    "Reference": "Atsauce",
+    "Source": "Avots",
+    "manual": "manuāls",
+    "bank": "banka",
+    "The amount is prefilled to the outstanding balance. Recording a payment "
+    "updates the invoice status (partially paid / paid).":
+        "Summa ir aizpildīta ar neapmaksāto atlikumu. Maksājuma reģistrēšana "
+        "atjaunina rēķina statusu (daļēji apmaksāts / apmaksāts).",
+    # AR / aging view
+    "Accounts receivable": "Debitoru parādi",
+    "Total outstanding": "Kopā neapmaksāts",
+    "Outstanding invoices": "Neapmaksātie rēķini",
+    "Aging bucket": "Novecošanas grupa",
+    "Invoices": "Rēķini",
+    "Current (not due)": "Tekošie (vēl nav termiņa)",
+    "1–30 days": "1–30 dienas",
+    "31–60 days": "31–60 dienas",
+    "60+ days": "60+ dienas",
+    "Days past due": "Nokavētās dienas",
+    "Nothing outstanding — every issued invoice is paid.":
+        "Nav neapmaksātu — visi izrakstītie rēķini ir apmaksāti.",
+    "Outstanding = invoice gross − payments recorded. Overdue is derived "
+    "from the due date + the paid total, so it is always current.":
+        "Neapmaksāts = rēķina kopsumma ar PVN − reģistrētie maksājumi. Nokavējums "
+        "tiek atvasināts no apmaksas termiņa un apmaksātās summas, tāpēc tas vienmēr "
+        "ir aktuāls.",
+    # bank-statement import + advisory matching
+    "Import bank statement": "Importēt bankas izrakstu",
+    "Statement file": "Izraksta fails",
+    "Upload and match": "Augšupielādēt un sasaistīt",
+    "Upload a bank statement (ISO 20022 camt.053 XML or a CSV export). "
+    "Each incoming credit is matched — advisory only — to an open "
+    "invoice by invoice number in the reference, then exact amount, "
+    "then payer IBAN. You confirm each match before any payment is "
+    "recorded.":
+        "Augšupielādējiet bankas izrakstu (ISO 20022 camt.053 XML vai CSV eksportu). "
+        "Katrs ienākošais kredīts tiek sasaistīts — tikai informatīvi — ar atvērtu "
+        "rēķinu pēc rēķina numura atsaucē, pēc tam pēc precīzas summas un pēc maksātāja "
+        "IBAN. Pirms maksājuma reģistrēšanas jūs apstiprināt katru sasaisti.",
+    "No file uploaded.": "Nav augšupielādēts fails.",
+    "That statement is too large.": "Šis izraksts ir pārāk liels.",
+    "No incoming credits found in that statement "
+    "(is it a camt.053 or a recognised CSV?).":
+        "Šajā izrakstā nav atrasti ienākošie kredīti "
+        "(vai tas ir camt.053 vai atpazīts CSV?).",
+    "Review matches": "Pārskatīt sasaistes",
+    "Advisory only. Uncheck any row you do not want to book. Confirming "
+    "records a payment (source: bank) against each accepted invoice; "
+    "re-importing the same statement will not double-record.":
+        "Tikai informatīvi. Noņemiet atzīmi rindām, kuras nevēlaties grāmatot. "
+        "Apstiprināšana reģistrē maksājumu (avots: banka) katram pieņemtajam rēķinam; "
+        "tā paša izraksta atkārtota importēšana neradīs dubultu ierakstu.",
+    "Accept": "Pieņemt",
+    "Payer": "Maksātājs",
+    "Suggested invoice": "Ieteiktais rēķins",
+    "Matched by": "Sasaistīts pēc",
+    "no match": "nav atbilstības",
+    "number": "numurs",
+    "amount": "summa",
+    "iban": "iban",
+    "Confirm accepted matches": "Apstiprināt pieņemtās sasaistes",
+    "for bank-statement matching": "bankas izraksta sasaistei",
+    "Recorded %d payment(s); %d skipped.": "Reģistrēti %d maksājumi; %d izlaisti.",
 }
