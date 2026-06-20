@@ -3432,10 +3432,10 @@ def compare():
     # Active-filter chips + export link carrying the same query string.
     chips = []
     if pcur != "ALL": chips.append(f"period {esc(pcur)}")
-    if sup: chips.append("suppliers: " + esc(", ".join(sup)))
-    if ctry: chips.append("countries: " + esc(", ".join(ctry)))
+    if sup: chips.append("suppliers: " + str(esc(", ".join(sup))))
+    if ctry: chips.append("countries: " + str(esc(", ".join(ctry))))
     if stn: chips.append(f"{len(stn)} location(s)")
-    if prod != "ALL": chips.append("product " + esc(prod))
+    if prod != "ALL": chips.append("product " + str(esc(prod)))
     if df or dt: chips.append(f"date {esc(df or '…')}→{esc(dt or '…')}")
     chip_html = (' &nbsp;·&nbsp; '.join(chips)) if chips else "no filters (all data)"
     qs = request.query_string.decode()
@@ -4279,7 +4279,7 @@ def fx():
                 + ' Use <b>Backfill full history</b> so a relevant rate exists for any transaction date.</div></div>')
     head = (f'<div class="kpis">'
             f'<div class="kpi"><div class="v">{esc(asof) if asof else "—"}</div>'
-            f'<div class="l">rates as of{(" · " + esc(asof_src)) if asof_src else ""}</div></div>'
+            f'<div class="l">rates as of{(" · " + str(esc(asof_src))) if asof_src else ""}</div></div>'
             f'<div class="kpi"><div class="v {"bad" if abs(total_diff)>=1 else ""}">'
             f'€{total_diff:+,.0f}</div><div class="l">invoiced EUR vs EUR at ECB</div></div>'
             f'<div class="kpi"><div class="v {"bad" if flagged else "ok"}">{flagged}</div>'
@@ -8728,8 +8728,8 @@ def recovery():
                                          f"{row['number']}.pdf")
                     if not up.get("ok"):
                         banner = ('<div class="card"><b class="bad">Invoice '
-                                  + esc(row["number"]) + ' stored, but Dokobit upload '
-                                  'failed: ' + esc(up.get("error")) + '</b></div>')
+                                  + str(esc(row["number"])) + ' stored, but Dokobit upload '
+                                  'failed: ' + str(esc(up.get("error"))) + '</b></div>')
                     else:
                         signer = _dk_signer(cust or {"name": entity})
                         cre = _dk.create_signing(
@@ -8737,19 +8737,19 @@ def recovery():
                             [signer])
                         if not cre.get("ok"):
                             banner = ('<div class="card"><b class="bad">Invoice '
-                                      + esc(row["number"]) + ' stored, but opening the '
-                                      'signing failed: ' + esc(cre.get("error")) + '</b></div>')
+                                      + str(esc(row["number"])) + ' stored, but opening the '
+                                      'signing failed: ' + str(esc(cre.get("error"))) + '</b></div>')
                         else:
                             su = (cre.get("signers") or [{}])[0].get("sign_url")
                             _ii.set_signing(row["id"], cre["signing_token"], su, "sent")
                             link = (f' — <a href="{esc(su)}">signing link</a>'
                                     if su else "")
                             banner = ('<div class="card"><b class="ok">Invoice '
-                                      + esc(row["number"]) + ' issued and sent to Dokobit '
+                                      + str(esc(row["number"])) + ' issued and sent to Dokobit '
                                       'for signing' + link + '.</b></div>')
                 else:
                     banner = ('<div class="card"><b class="ok">Invoice '
-                              + esc(row["number"]) + ' built and stored '
+                              + str(esc(row["number"])) + ' built and stored '
                               '(draft — Dokobit off).</b></div>')
         except Exception as e:
             _log_exc("recovery/issue_dokobit", e)
@@ -11231,7 +11231,7 @@ def suppliers():
                 if _is_admin:
                     chips += (
                         '<span class="chip" style="display:inline-flex;align-items:center;'
-                        'gap:4px;margin:2px">' + esc(b)
+                        'gap:4px;margin:2px">' + str(esc(b))
                         + '<form method="post" style="display:inline;margin:0">'
                         + _csrf_input()
                         + '<input type="hidden" name="__act" value="remove_brand">'
@@ -15167,9 +15167,9 @@ def _ivc_payments_card(invoicing, inv):
               'placeholder="bank transfer"></label>'
             + f'<label>{esc(_t("Reference"))}<input name="reference" style="width:180px"></label>'
             + f'<div style="margin-top:8px"><button>{esc(_t("Record payment"))}</button></div>'
-            + '<p class="note">' + esc(_t(
+            + '<p class="note">' + str(esc(_t(
                 "The amount is prefilled to the outstanding balance. Recording a payment "
-                "updates the invoice status (partially paid / paid).")) + '</p>'
+                "updates the invoice status (partially paid / paid)."))) + '</p>'
             + '</form>')
     else:
         form = f'<p class="note ok">{esc(_t("This invoice is fully paid."))}</p>'
@@ -15326,10 +15326,10 @@ def invoicing_recurring():
         + str(esc(_t("Save changes") if editing else _t("Create template"))) + '</button>'
         + (f' <a class="btn" href="/invoicing/recurring">{esc(_t("Cancel"))}</a>' if editing else '')
         + '</div>'
-        + '<p class="note">' + esc(_t(
+        + '<p class="note">' + str(esc(_t(
             "Auto-issue OFF (the default) generates a DRAFT for review at each due date; "
             "turn it ON to assign the gap-free number automatically. The next-run date "
-            "advances month-end safely (a 31st lands on the last day of a short month).")) + '</p>'
+            "advances month-end safely (a 31st lands on the last day of a short month)."))) + '</p>'
         + '</form></div>')
 
     # ----- per-template action card (only when editing) -----
@@ -15383,16 +15383,16 @@ def invoicing_recurring():
         + _csrf_input()
         + f'<button>{esc(_t("Generate due now"))}</button>'
         + f' <span class="note">{esc(_t("Templates due:"))} {due_now}</span></form>'
-        + '<p class="note">' + esc(_t(
+        + '<p class="note">' + str(esc(_t(
             "The scheduler is OFF by default and runs on the worker tier (one leader across "
             "processes) — enable a worker to actually run it. 'Generate due now' works "
             "without the scheduler. Generation is idempotent: a template generates at most "
-            "one invoice per due date.")) + '</p></div>')
+            "one invoice per due date."))) + '</p></div>')
 
     help_card = (f'<div class="card"><h2>{esc(_t("Recurring invoices"))}</h2>'
-                 f'<p class="note">' + esc(_t(
+                 f'<p class="note">' + str(esc(_t(
                      "Define a template that auto-generates invoices on a schedule (e.g. "
-                     "monthly fuel-card billing). Amounts are on a NET basis (VAT excluded).")) + '</p></div>')
+                     "monthly fuel-card billing). Amounts are on a NET basis (VAT excluded)."))) + '</p></div>')
     body = (help_card + sched_card
             + f'<div class="card"><h2>{esc(_t("Templates"))}</h2>' + table + '</div>'
             + action_card + form)
@@ -15629,7 +15629,7 @@ def invoicing_einvoice_xml(invoice_id):
     try:
         data = invoicing.einvoice_xml(invoice_id)
     except ValueError as e:
-        return page('<div class="card"><b class="bad">' + esc(str(e)) + '</b>'
+        return page('<div class="card"><b class="bad">' + str(esc(str(e))) + '</b>'
                     f'<p><a href="/invoicing/compose/{int(invoice_id)}">Back</a></p></div>',
                     "ivc"), 400
     except Exception as e:
@@ -15653,7 +15653,7 @@ def invoicing_pdf_hybrid(invoice_id):
     try:
         data = invoicing.invoice_pdf_hybrid(invoice_id)
     except ValueError as e:
-        return page('<div class="card"><b class="bad">' + esc(str(e)) + '</b>'
+        return page('<div class="card"><b class="bad">' + str(esc(str(e))) + '</b>'
                     f'<p><a href="/invoicing/compose/{int(invoice_id)}">Back</a></p></div>',
                     "ivc"), 400
     except Exception as e:
@@ -16396,8 +16396,8 @@ def invoicing_reports_aging():
     table = tbl([_t("Customer"), _t("Current (not due)"), _t("1–30 days"),
                  _t("31–60 days"), _t("60+ days"), _t("Total outstanding"), _t("Overdue")],
                 rows)
-    exp = ('<a class="btn" href="/invoicing/reports/aging.xlsx">' + esc(_t("Excel")) + '</a> '
-           '<a class="btn" href="/invoicing/reports/aging.pdf">' + esc(_t("PDF")) + '</a>')
+    exp = ('<a class="btn" href="/invoicing/reports/aging.xlsx">' + str(esc(_t("Excel"))) + '</a> '
+           '<a class="btn" href="/invoicing/reports/aging.pdf">' + str(esc(_t("PDF"))) + '</a>')
     note = esc(_t("Outstanding EUR (gross − payments − credits). Overdue = past-due "
                   "buckets (1-30 + 31-60 + 60+). As of today."))
     body = (_ivc_reports_nav("ar")
