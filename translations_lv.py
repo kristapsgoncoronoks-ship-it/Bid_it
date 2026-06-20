@@ -306,4 +306,86 @@ CATALOG = {
     "The amount to credit exceeds the original.":
         "Kreditējamā summa pārsniedz sākotnējo rēķinu.",
     "Choose at least one line to credit.": "Izvēlieties vismaz vienu rindu kreditēšanai.",
+
+    # ============================================================ PHASE 5: REPORTS SUITE
+    # The read-only invoicing reporting suite: VAT output (PVN), revenue, customer
+    # statements, AR aging. ⚠️ accounting/legal/VAT-return wording — native-speaker +
+    # accountant review recommended before the figures are filed/sent to a customer. ⚠️
+    # --- nav / shared ---
+    "Invoicing reports": "Rēķinu pārskati",
+    "Read-only reports over your issued invoices, lines, payments and "
+    "credit notes. Amounts are EUR; revenue and output VAT are on a NET "
+    "(VAT-excluded) basis (a gross column is labelled where shown).":
+        "Tikai lasāmi pārskati par jūsu izrakstītajiem rēķiniem, rindām, maksājumiem un "
+        "kreditrēķiniem. Summas ir EUR; ieņēmumi un aprēķinātais PVN ir uz NETO "
+        "(bez PVN) bāzes (ar PVN aile ir atzīmēta, kur tāda ir).",
+    "Period type": "Perioda veids",
+    "Month": "Mēnesis",
+    "Quarter": "Ceturksnis",
+    "Show": "Rādīt",
+    "From": "No",
+    "To": "Līdz",
+    "Excel": "Excel",
+    "No data for this period.": "Šajā periodā nav datu.",
+    "Could not render the PDF.": "Neizdevās izveidot PDF.",
+    # --- VAT output report (PVN) ---
+    "Output VAT report (PVN)": "Aprēķinātā PVN pārskats (PVN)",
+    "Output VAT": "Aprēķinātais PVN",
+    "Total output VAT": "Kopā aprēķinātais PVN",
+    "Reverse charge (AE)": "Apgrieztā PVN maksāšana (AE)",
+    "0% / exempt": "0% / atbrīvots",
+    "Tax point = issue date; drafts excluded; credit notes reduce output "
+    "VAT. Reverse-charge and 0%/exempt supplies carry no output VAT but are "
+    "reportable. EUR, NET (taxable) basis.":
+        "Nodokļa rašanās brīdis = izrakstīšanas datums; melnraksti netiek iekļauti; "
+        "kreditrēķini samazina aprēķināto PVN. Apgrieztā PVN maksāšanas un 0%/atbrīvotās "
+        "piegādes nerada aprēķināto PVN, bet ir jāatspoguļo. EUR, NETO (ar nodokli "
+        "apliekamā) bāze.",
+    "Reverse-charge and 0%/exempt supplies are reportable but carry no "
+    "output VAT.":
+        "Apgrieztā PVN maksāšanas un 0%/atbrīvotās piegādes ir jāatspoguļo, bet tās "
+        "nerada aprēķināto PVN.",
+    # --- revenue report ---
+    "Sales / revenue report": "Pārdošanas / ieņēmumu pārskats",
+    "Revenue by month": "Ieņēmumi pa mēnešiem",
+    "Revenue by customer": "Ieņēmumi pa klientiem",
+    "Revenue by service": "Ieņēmumi pa pakalpojumiem",
+    "Credit notes": "Kreditrēķini",
+    "Service / description": "Pakalpojums / apraksts",
+    "Lines": "Rindas",
+    "Total": "Kopā",
+    "NET (VAT-excluded) EUR; tax point = issue date; drafts excluded; "
+    "credit notes subtracted.":
+        "NETO (bez PVN) EUR; nodokļa rašanās brīdis = izrakstīšanas datums; melnraksti "
+        "netiek iekļauti; kreditrēķini atskaitīti.",
+    # --- customer statement ---
+    "Statement of account": "Norēķinu izraksts",
+    "Choose a customer and a date range.": "Izvēlieties klientu un datumu diapazonu.",
+    "No entries in this date range.": "Šajā datumu diapazonā nav ierakstu.",
+    "Opening balance": "Sākuma atlikums",
+    "Closing balance": "Beigu atlikums",
+    "Debit": "Debets",
+    "Credit": "Kredīts",
+    "Balance": "Atlikums",
+    "Type": "Veids",
+    "invoice": "rēķins",
+    "credit_note": "kreditrēķins",
+    "payment": "maksājums",
+    "Could not build the statement.": "Neizdevās izveidot izrakstu.",
+    "Email statement to customer": "Nosūtīt izrakstu klientam pa e-pastu",
+    "Please find your statement of account attached.":
+        "Pielikumā pievienots jūsu norēķinu izraksts.",
+    "The statement was emailed to the customer.":
+        "Izraksts ir nosūtīts klientam pa e-pastu.",
+    "Could not send the statement.": "Neizdevās nosūtīt izrakstu.",
+    "GROSS EUR. Debit = invoice; credit = credit note / payment.":
+        "Ar PVN EUR. Debets = rēķins; kredīts = kreditrēķins / maksājums.",
+    # --- AR aging report ---
+    "Accounts receivable aging": "Debitoru parādu novecošana",
+    "Overdue": "Nokavēts",
+    "As of": "Uz",
+    "Outstanding EUR (gross − payments − credits). Overdue = past-due "
+    "buckets (1-30 + 31-60 + 60+). As of today.":
+        "Neapmaksāts EUR (ar PVN − maksājumi − kredīti). Nokavēts = nokavētās grupas "
+        "(1-30 + 31-60 + 60+). Uz šodienu.",
 }

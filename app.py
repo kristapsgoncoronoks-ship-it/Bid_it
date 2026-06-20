@@ -467,6 +467,24 @@ APP_JS = r"""/* progressive enhancement: sort + filter + horizontal scroll + key
       });
     });
   })();
+
+  // ---- INVOICING-REPORTS PERIOD SELECTOR -------------------------------------
+  // Show only the relevant sub-selector (month vs quarter) for the chosen period
+  // type; for a year, hide both. Progressive: without JS both are present and the
+  // server ignores the unused one.
+  (function(){
+    var sel=document.querySelector('select[data-ivc-kind]');
+    if(!sel) return;
+    function sync(){
+      var k=sel.value;
+      Array.prototype.forEach.call(document.querySelectorAll('[data-ivc-sub]'),function(el){
+        var want=el.getAttribute('data-ivc-sub');
+        el.style.display=(k===want)?'':'none';
+      });
+    }
+    sel.addEventListener('change',sync);
+    sync();
+  })();
 })();
 """
 
@@ -1264,6 +1282,17 @@ ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "api_r
               "invoicing_import", "invoicing_import_confirm",
               # Phase 4: email the invoice + credit notes / cancellation (admin-only).
               "invoicing_send", "invoicing_credit", "invoicing_credit_create",
+              # Phase 5: the read-only invoicing REPORTS suite (VAT output / revenue /
+              # customer statement / AR aging) + their Excel/PDF exports + the
+              # statement-email action — all admin-only, behind the invoicing module.
+              "invoicing_reports_home",
+              "invoicing_reports_vat", "invoicing_reports_vat_xlsx", "invoicing_reports_vat_pdf",
+              "invoicing_reports_revenue", "invoicing_reports_revenue_xlsx",
+              "invoicing_reports_revenue_pdf",
+              "invoicing_reports_statement", "invoicing_reports_statement_xlsx",
+              "invoicing_reports_statement_pdf", "invoicing_reports_statement_email",
+              "invoicing_reports_aging", "invoicing_reports_aging_xlsx",
+              "invoicing_reports_aging_pdf",
               # the workflow DEFINE/MANAGE surface is admin-only (an admin builds the
               # routing); the Tasks inbox / act / start-run are NOT here (any login).
               "workflow_admin", "workflow_define", "workflow_update",
@@ -1388,7 +1417,15 @@ MODULES = {
                     "invoicing_einvoice_xml", "invoicing_pdf_hybrid",
                     "invoicing_payment_record", "invoicing_receivable",
                     "invoicing_import", "invoicing_import_confirm",
-                    "invoicing_send", "invoicing_credit", "invoicing_credit_create"}),
+                    "invoicing_send", "invoicing_credit", "invoicing_credit_create",
+                    "invoicing_reports_home",
+                    "invoicing_reports_vat", "invoicing_reports_vat_xlsx",
+                    "invoicing_reports_vat_pdf", "invoicing_reports_revenue",
+                    "invoicing_reports_revenue_xlsx", "invoicing_reports_revenue_pdf",
+                    "invoicing_reports_statement", "invoicing_reports_statement_xlsx",
+                    "invoicing_reports_statement_pdf", "invoicing_reports_statement_email",
+                    "invoicing_reports_aging", "invoicing_reports_aging_xlsx",
+                    "invoicing_reports_aging_pdf"}),
     "fx":         ("FX vs ECB exchange rates", {"fx"}),
     "workflow":   ("Workflow — configurable approval/routing + a Tasks inbox (advisory)",
                    {"tasks_page", "task_act", "workflow_start",
@@ -2498,10 +2535,11 @@ button[disabled].btn,button.btn:disabled{opacity:.55;cursor:not-allowed;pointer-
   {% if is_admin %}<a href="/doc-requests" class="{{'on' if page=='dreq'}}">Document requests</a>{% endif %}
   {% if 'data_import' in perms %}<a href="/data" class="{{'on' if page=='dat'}}">Data manager</a>{% endif %}
 </span></div></div>
-{% if is_admin and 'invoicing' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ivc','ivcc','ivci'] else ''}}"><span class="ic">🧾</span>{{ t('Invoicing') }}</span><div class="mdrop"><span>
+{% if is_admin and 'invoicing' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ivc','ivcc','ivci','ivcr'] else ''}}"><span class="ic">🧾</span>{{ t('Invoicing') }}</span><div class="mdrop"><span>
   <a href="/invoicing" class="{{'on' if page=='ivc'}}">{{ t('Invoices') }}</a>
   <a href="/invoicing/customers" class="{{'on' if page=='ivcc'}}">{{ t('Customer book') }}</a>
   <a href="/invoicing/issuer" class="{{'on' if page=='ivci'}}">{{ t('Issuer profile') }}</a>
+  <a href="/invoicing/reports" class="{{'on' if page=='ivcr'}}">{{ t('Invoicing reports') }}</a>
 </span></div></div>{% endif %}
 <a href="/history" class="{{'on' if page=='his'}}"><span class="ic">🕘</span>{{ t('History') }}</a>
 {% if 'workflow' in modules %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['tasks','wfadm'] else ''}}"><span class="ic">✅</span>{{ t('Tasks') }}</span><div class="mdrop"><span>
@@ -15457,6 +15495,441 @@ def invoicing_import_confirm():
     banner = _ivc_banner(not errors, msg if not errors else (msg + " " + "; ".join(errors[:3])))
     return page(banner + f'<p><a href="/invoicing/receivable">{esc(_t("Accounts receivable"))}</a> · '
                 f'<a href="/invoicing">{esc(_t("Invoices"))}</a></p>', "ivc")
+
+
+# =====================================================================================
+# PHASE 5 — INVOICING REPORTS (read-only analytics over the invoicing data)
+# Four reports — VAT output (PVN), revenue, customer statement, AR aging — each with an
+# on-screen table + a shared period selector + Excel AND PDF export. Read-only (never
+# mutates the invoicing data); admin-only behind the `invoicing` MODULES switch; the money
+# is summed via money.fsum (invoicing_reports), shown on a stated EUR/NET basis. All POSTs
+# are CSRF-checked by the global hook; these are GET-only report surfaces.
+# =====================================================================================
+
+# Default period kind/values for the selector (current month).
+def _ivc_period_from_request():
+    """Resolve (kind, year, sub) from the request args, defaulting to the current month.
+    Returns (kind, year, sub) — strings/ints suitable for invoicing_reports.period_window."""
+    import datetime as _dt
+    today = _dt.date.today()
+    kind = (request.args.get("kind") or "month").strip()
+    if kind not in ("month", "quarter", "year"):
+        kind = "month"
+    try:
+        year = int(request.args.get("year") or today.year)
+    except (TypeError, ValueError):
+        year = today.year
+    sub = request.args.get("sub")
+    if sub is None or str(sub).strip() == "":
+        sub = today.month if kind == "month" else ((today.month - 1) // 3 + 1) if kind == "quarter" else None
+    return kind, year, sub
+
+
+def _ivc_period_selector(action, kind, year, sub):
+    """A shared period-selector form (kind / year / sub) for the report pages. GET form so
+    the report is bookmarkable. Returns the HTML (labels localized + escaped)."""
+    import datetime as _dt
+    yr = _dt.date.today().year
+    kinds = "".join(
+        f'<option value="{k}" {"selected" if kind==k else ""}>{esc(_t(lbl))}</option>'
+        for k, lbl in (("month", "Month"), ("quarter", "Quarter"), ("year", "Year")))
+    years = "".join(
+        f'<option value="{y}" {"selected" if int(year)==y else ""}>{y}</option>'
+        for y in range(yr - 6, yr + 2))
+    months = "".join(
+        f'<option value="{m}" {"selected" if str(sub)==str(m) else ""}>{m:02d}</option>'
+        for m in range(1, 13))
+    quarters = "".join(
+        f'<option value="{q}" {"selected" if str(sub)==str(q) else ""}>Q{q}</option>'
+        for q in range(1, 5))
+    # both month + quarter sub-selectors are rendered; CSP-safe JS in /app.js toggles them
+    # by the chosen kind. Without JS both are submitted and the unused one is ignored.
+    return (
+        f'<form method="get" action="{esc(action)}" class="f ivc-period" '
+        'style="margin-bottom:10px;align-items:flex-end">'
+        f'<label>{esc(_t("Period type"))}<select name="kind" data-ivc-kind>{kinds}</select></label>'
+        f'<label>{esc(_t("Year"))}<select name="year">{years}</select></label>'
+        f'<label data-ivc-sub="month">{esc(_t("Month"))}<select name="sub">{months}</select></label>'
+        f'<label data-ivc-sub="quarter">{esc(_t("Quarter"))}<select name="subq">{quarters}</select></label>'
+        f'<button>{esc(_t("Show"))}</button>'
+        '</form>')
+
+
+def _ivc_resolve_window():
+    """Resolve the request's period to (kind, year, sub_effective, start, end, label) using
+    the right sub-field (sub for month, subq for quarter). Returns the tuple or raises
+    ValueError (the route surfaces a clear banner)."""
+    import invoicing_reports as ivr
+    kind, year, sub = _ivc_period_from_request()
+    if kind == "quarter":
+        subq = request.args.get("subq")
+        if subq and str(subq).strip():
+            sub = subq
+    start, end, label = ivr.period_window(kind, year, sub)
+    return kind, year, sub, start, end, label
+
+
+def _ivc_reports_nav(active):
+    """The cross-report nav bar (links to the four reports), highlighting the active one."""
+    items = (("vat", "/invoicing/reports/vat", "Output VAT (PVN)"),
+             ("rev", "/invoicing/reports/revenue", "Sales / revenue"),
+             ("stm", "/invoicing/reports/statement", "Customer statements"),
+             ("ar", "/invoicing/reports/aging", "AR aging"))
+    parts = []
+    for key, href, lbl in items:
+        cls = "btn on" if key == active else "btn"
+        parts.append(f'<a class="{cls}" href="{href}">{esc(_t(lbl))}</a>')
+    return '<div class="card"><div class="f">' + " ".join(parts) + '</div></div>'
+
+
+@app.route("/invoicing/reports")
+def invoicing_reports_home():
+    """The Invoicing-reports landing: links to the four read-only reports."""
+    intro = esc(_t("Read-only reports over your issued invoices, lines, payments and "
+                   "credit notes. Amounts are EUR; revenue and output VAT are on a NET "
+                   "(VAT-excluded) basis (a gross column is labelled where shown)."))
+    body = (f'<div class="card"><h2>{esc(_t("Invoicing reports"))}</h2>'
+            f'<p class="note">{intro}</p></div>' + _ivc_reports_nav(None))
+    return page(body, "ivcr")
+
+
+@app.route("/invoicing/reports/vat")
+def invoicing_reports_vat():
+    """Output-VAT (PVN) report for a chosen period: taxable net + VAT per rate, with
+    reverse-charge / 0% shown separately and credit notes subtracted. Read-only."""
+    import invoicing_reports as ivr
+    try:
+        kind, year, sub, start, end, label = _ivc_resolve_window()
+    except ValueError as e:
+        return page(_ivc_banner(False, str(e)) + _ivc_reports_nav("vat"), "ivcr")
+    try:
+        rep = ivr.vat_output_report(start, end, label=label)
+    except Exception as e:
+        _log_exc("invoicing reports: vat", e)
+        rep = {"label": label, "start": start, "end": end, "rows": [],
+               "net_total": 0.0, "vat_total": 0.0}
+    rows = []
+    for r in rep["rows"]:
+        rows.append([esc(ivr._vat_row_label(r, _t)), _eur(r["net"]), _eur(r["vat"])])
+    rows.append([f'<b>{esc(_t("Total output VAT"))}</b>',
+                 f'<b>{_eur(rep["net_total"])}</b>', f'<b>{_eur(rep["vat_total"])}</b>'])
+    table = tbl([_t("VAT rate"), _t("Taxable net"), _t("Output VAT")], rows)
+    sel = _ivc_period_selector("/invoicing/reports/vat", kind, year, sub)
+    exp = (f'<a class="btn" href="/invoicing/reports/vat.xlsx?{esc(request.query_string.decode())}">'
+           f'{esc(_t("Excel"))}</a> '
+           f'<a class="btn" href="/invoicing/reports/vat.pdf?{esc(request.query_string.decode())}">'
+           f'{esc(_t("PDF"))}</a>')
+    note = esc(_t("Tax point = issue date; drafts excluded; credit notes reduce output "
+                  "VAT. Reverse-charge and 0%/exempt supplies carry no output VAT but are "
+                  "reportable. EUR, NET (taxable) basis."))
+    body = (_ivc_reports_nav("vat")
+            + f'<div class="card"><h2>{esc(_t("Output VAT report (PVN)"))} — {esc(label)}</h2>'
+            + f'<p class="note">{note}</p>' + sel + table
+            + f'<p style="margin-top:8px">{exp}</p></div>')
+    return page(body, "ivcr")
+
+
+@app.route("/invoicing/reports/vat.xlsx")
+def invoicing_reports_vat_xlsx():
+    import io, invoicing_reports as ivr
+    try:
+        _k, _y, _s, start, end, label = _ivc_resolve_window()
+    except ValueError as e:
+        return page(_ivc_banner(False, str(e)), "ivcr")
+    rep = ivr.vat_output_report(start, end, label=label)
+    data = ivr.vat_output_workbook(rep)
+    return send_file(io.BytesIO(data), as_attachment=True,
+                     download_name=f"VAT_Output_{label}.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.route("/invoicing/reports/vat.pdf")
+def invoicing_reports_vat_pdf():
+    import io, i18n, invoicing_reports as ivr
+    try:
+        _k, _y, _s, start, end, label = _ivc_resolve_window()
+    except ValueError as e:
+        return page(_ivc_banner(False, str(e)), "ivcr")
+    rep = ivr.vat_output_report(start, end, label=label)
+    data = ivr.vat_output_pdf(rep, lang=i18n.current_lang())
+    if not data:
+        return page(_ivc_banner(False, _t("Could not render the PDF.")), "ivcr"), 500
+    return send_file(io.BytesIO(data), as_attachment=True,
+                     download_name=f"VAT_Output_{label}.pdf", mimetype="application/pdf")
+
+
+@app.route("/invoicing/reports/revenue")
+def invoicing_reports_revenue():
+    """Sales / revenue report: NET revenue by month / customer / service for a period."""
+    import invoicing_reports as ivr
+    try:
+        kind, year, sub, start, end, label = _ivc_resolve_window()
+    except ValueError as e:
+        return page(_ivc_banner(False, str(e)) + _ivc_reports_nav("rev"), "ivcr")
+    try:
+        rep = ivr.revenue_report(start, end, label=label)
+    except Exception as e:
+        _log_exc("invoicing reports: revenue", e)
+        rep = {"label": label, "start": start, "end": end, "by_month": [],
+               "by_customer": [], "by_service": [], "net_total": 0.0,
+               "invoice_count": 0, "credit_count": 0}
+    mrows = [[esc(m["month"]), _eur(m["net"]), str(m["invoices"]), str(m["credits"])]
+             for m in rep["by_month"]]
+    mrows.append([f'<b>{esc(_t("Total"))}</b>', f'<b>{_eur(rep["net_total"])}</b>',
+                  f'<b>{rep["invoice_count"]}</b>', f'<b>{rep["credit_count"]}</b>'])
+    crows = [[esc(c["customer"]), _eur(c["net"]), str(c["invoices"]), str(c["credits"])]
+             for c in rep["by_customer"]]
+    srows = [[esc(s["service"]), _eur(s["net"]), str(s["lines"])]
+             for s in rep["by_service"]]
+    sel = _ivc_period_selector("/invoicing/reports/revenue", kind, year, sub)
+    qs = esc(request.query_string.decode())
+    exp = (f'<a class="btn" href="/invoicing/reports/revenue.xlsx?{qs}">{esc(_t("Excel"))}</a> '
+           f'<a class="btn" href="/invoicing/reports/revenue.pdf?{qs}">{esc(_t("PDF"))}</a>')
+    note = esc(_t("NET (VAT-excluded) EUR; tax point = issue date; drafts excluded; "
+                  "credit notes subtracted."))
+    body = (_ivc_reports_nav("rev")
+            + f'<div class="card"><h2>{esc(_t("Sales / revenue report"))} — {esc(label)}</h2>'
+            + f'<p class="note">{note}</p>' + sel
+            + f'<h3>{esc(_t("Revenue by month"))}</h3>'
+            + tbl([_t("Month"), _t("Net"), _t("Invoices"), _t("Credit notes")], mrows)
+            + f'<h3>{esc(_t("Revenue by customer"))}</h3>'
+            + (tbl([_t("Customer"), _t("Net"), _t("Invoices"), _t("Credit notes")], crows)
+               if crows else f'<p class="note">{esc(_t("No data for this period."))}</p>')
+            + f'<h3>{esc(_t("Revenue by service"))}</h3>'
+            + (tbl([_t("Service / description"), _t("Net"), _t("Lines")], srows)
+               if srows else f'<p class="note">{esc(_t("No data for this period."))}</p>')
+            + f'<p style="margin-top:8px">{exp}</p></div>')
+    return page(body, "ivcr")
+
+
+@app.route("/invoicing/reports/revenue.xlsx")
+def invoicing_reports_revenue_xlsx():
+    import io, invoicing_reports as ivr
+    try:
+        _k, _y, _s, start, end, label = _ivc_resolve_window()
+    except ValueError as e:
+        return page(_ivc_banner(False, str(e)), "ivcr")
+    data = ivr.revenue_workbook(ivr.revenue_report(start, end, label=label))
+    return send_file(io.BytesIO(data), as_attachment=True,
+                     download_name=f"Revenue_{label}.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.route("/invoicing/reports/revenue.pdf")
+def invoicing_reports_revenue_pdf():
+    import io, i18n, invoicing_reports as ivr
+    try:
+        _k, _y, _s, start, end, label = _ivc_resolve_window()
+    except ValueError as e:
+        return page(_ivc_banner(False, str(e)), "ivcr")
+    data = ivr.revenue_pdf(ivr.revenue_report(start, end, label=label),
+                           lang=i18n.current_lang())
+    if not data:
+        return page(_ivc_banner(False, _t("Could not render the PDF.")), "ivcr"), 500
+    return send_file(io.BytesIO(data), as_attachment=True,
+                     download_name=f"Revenue_{label}.pdf", mimetype="application/pdf")
+
+
+@app.route("/invoicing/reports/statement")
+def invoicing_reports_statement():
+    """Customer statement of account: pick a customer + date range; a ledger of invoices
+    (debits) / credit notes + payments (credits) with a running + opening/closing balance.
+    Can be emailed to the customer (reuses the Phase-4 email path)."""
+    import datetime as _dt, invoicing, invoicing_reports as ivr
+    custs = invoicing.list_customers()
+    cust_id = (request.args.get("customer_id") or "").strip()
+    today = _dt.date.today()
+    start = (request.args.get("start") or "").strip() or f"{today.year}-01-01"
+    end = (request.args.get("end") or "").strip() or today.isoformat()
+    opts = "".join(
+        f'<option value="{int(c["id"])}" {"selected" if str(c["id"])==cust_id else ""}>'
+        f'{esc(c["name"])}</option>' for c in custs)
+    sel = (
+        '<form method="get" action="/invoicing/reports/statement" class="f" '
+        'style="margin-bottom:10px;align-items:flex-end">'
+        f'<label>{esc(_t("Customer"))}<select name="customer_id" required>'
+        f'<option value="">—</option>{opts}</select></label>'
+        f'<label>{esc(_t("From"))}<input type="date" name="start" value="{esc(start)}"></label>'
+        f'<label>{esc(_t("To"))}<input type="date" name="end" value="{esc(end)}"></label>'
+        f'<button>{esc(_t("Show"))}</button>'
+        '</form>')
+    body = _ivc_reports_nav("stm") + f'<div class="card"><h2>{esc(_t("Statement of account"))}</h2>' + sel
+    if not cust_id:
+        body += (f'<p class="note">{esc(_t("Choose a customer and a date range."))}</p></div>')
+        return page(body, "ivcr")
+    try:
+        rep = ivr.customer_statement(int(cust_id), start, end,
+                                     label=f"{start} … {end}")
+    except Exception as e:
+        _log_exc("invoicing reports: statement", e)
+        return page(body + _ivc_banner(False, _t("Could not build the statement.")) + '</div>', "ivcr")
+    rows = []
+    for ln in rep["lines"]:
+        rows.append([esc(ln["date"]), esc(_t(ln["type"])), esc(ln["ref"]),
+                     _eur(ln["debit"]) if ln["debit"] else "—",
+                     _eur(ln["credit"]) if ln["credit"] else "—",
+                     _eur(ln["balance"])])
+    table = (tbl([_t("Date"), _t("Type"), _t("Reference"), _t("Debit"), _t("Credit"),
+                  _t("Balance")], rows) if rows
+             else f'<p class="note">{esc(_t("No entries in this date range."))}</p>')
+    qs = esc(request.query_string.decode())
+    exp = (f'<a class="btn" href="/invoicing/reports/statement.xlsx?{qs}">{esc(_t("Excel"))}</a> '
+           f'<a class="btn" href="/invoicing/reports/statement.pdf?{qs}">{esc(_t("PDF"))}</a>')
+    email_form = (
+        '<form method="post" action="/invoicing/reports/statement/email" class="f" '
+        'style="display:inline-block;margin-left:8px">' + _csrf_input()
+        + f'<input type="hidden" name="customer_id" value="{esc(cust_id)}">'
+        + f'<input type="hidden" name="start" value="{esc(start)}">'
+        + f'<input type="hidden" name="end" value="{esc(end)}">'
+        + f'<button>{esc(_t("Email statement to customer"))}</button></form>')
+    _basis = _t("GROSS EUR. Debit = invoice; credit = credit note / payment.")
+    head = (f'<p class="note">{esc(_basis)}</p>'
+            f'<p><b>{esc(_t("Opening balance"))}:</b> {_eur(rep["opening_balance"])} · '
+            f'<b>{esc(_t("Closing balance"))}:</b> {_eur(rep["closing_balance"])} · '
+            f'<b>{esc(_t("Total outstanding"))}:</b> {_eur(rep["outstanding_total"])}</p>')
+    body += head + table + f'<p style="margin-top:8px">{exp}{email_form}</p></div>'
+    return page(body, "ivcr")
+
+
+@app.route("/invoicing/reports/statement.xlsx")
+def invoicing_reports_statement_xlsx():
+    import datetime as _dt, io, invoicing_reports as ivr
+    cid = (request.args.get("customer_id") or "").strip()
+    if not cid:
+        return page(_ivc_banner(False, _t("Choose a customer and a date range.")), "ivcr")
+    today = _dt.date.today()
+    start = (request.args.get("start") or "").strip() or f"{today.year}-01-01"
+    end = (request.args.get("end") or "").strip() or today.isoformat()
+    rep = ivr.customer_statement(int(cid), start, end, label=f"{start} … {end}")
+    data = ivr.customer_statement_workbook(rep)
+    name = (rep.get("customer", {}).get("name") or "customer")
+    safe = "".join(ch if ch.isalnum() else "_" for ch in name)[:40]
+    return send_file(io.BytesIO(data), as_attachment=True,
+                     download_name=f"Statement_{safe}_{start}_{end}.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.route("/invoicing/reports/statement.pdf")
+def invoicing_reports_statement_pdf():
+    import datetime as _dt, io, i18n, invoicing_reports as ivr
+    cid = (request.args.get("customer_id") or "").strip()
+    if not cid:
+        return page(_ivc_banner(False, _t("Choose a customer and a date range.")), "ivcr")
+    today = _dt.date.today()
+    start = (request.args.get("start") or "").strip() or f"{today.year}-01-01"
+    end = (request.args.get("end") or "").strip() or today.isoformat()
+    rep = ivr.customer_statement(int(cid), start, end, label=f"{start} … {end}")
+    data = ivr.customer_statement_pdf(rep, lang=i18n.current_lang())
+    if not data:
+        return page(_ivc_banner(False, _t("Could not render the PDF.")), "ivcr"), 500
+    name = (rep.get("customer", {}).get("name") or "customer")
+    safe = "".join(ch if ch.isalnum() else "_" for ch in name)[:40]
+    return send_file(io.BytesIO(data), as_attachment=True,
+                     download_name=f"Statement_{safe}_{start}_{end}.pdf",
+                     mimetype="application/pdf")
+
+
+@app.route("/invoicing/reports/statement/email", methods=["POST"])
+def invoicing_reports_statement_email():
+    """Email a customer statement of account (PDF) to the customer. Reuses notify's SMTP
+    transport (the Phase-4 email seam). Admin-only, CSRF, audited. Best-effort."""
+    import datetime as _dt, i18n, invoicing, invoicing_reports as ivr, notify
+    f = request.form
+    cid = (f.get("customer_id") or "").strip()
+    if not cid:
+        return page(_ivc_banner(False, _t("Choose a customer and a date range.")), "ivcr")
+    today = _dt.date.today()
+    start = (f.get("start") or "").strip() or f"{today.year}-01-01"
+    end = (f.get("end") or "").strip() or today.isoformat()
+    cust = invoicing.get_customer(int(cid)) or {}
+    to = (cust.get("email") or "").strip()
+    if not to:
+        return page(_ivc_banner(False, _t("The customer has no email address."))
+                    + f'<p><a href="/invoicing/reports/statement?customer_id={esc(cid)}">'
+                    f'{esc(_t("Back"))}</a></p>', "ivcr")
+    rep = ivr.customer_statement(int(cid), start, end, label=f"{start} … {end}")
+    try:
+        pdf = ivr.customer_statement_pdf(rep, lang=i18n.current_lang())
+    except Exception as e:
+        _log_exc("invoicing reports: statement email render", e)
+        pdf = None
+    if not pdf:
+        return page(_ivc_banner(False, _t("Could not render the PDF.")), "ivcr"), 500
+    transport = notify._settings_transport()
+    if transport is None:
+        return page(_ivc_banner(False, _t("Email is not configured (set up the SMTP relay in Admin)."))
+                    + f'<p><a href="/invoicing/reports/statement?customer_id={esc(cid)}">'
+                    f'{esc(_t("Back"))}</a></p>', "ivcr")
+    subject = _t("Statement of account")
+    intro = _t("Please find your statement of account attached.")
+    text = subject + "\n\n" + intro
+    html = f"<p>{esc(subject)}</p><p>{esc(intro)}</p>"
+    safe = "".join(ch if ch.isalnum() else "_" for ch in (cust.get("name") or "customer"))[:40]
+    attachments = [(f"Statement_{safe}_{start}_{end}.pdf", "application/pdf", pdf)]
+    try:
+        transport.send(to, subject, html, text, attachments=attachments)
+    except Exception as e:
+        _log_exc("invoicing reports: statement email send", e)
+        return page(_ivc_banner(False, _t("Could not send the statement.")), "ivcr"), 500
+    return page(_ivc_banner(True, _t("The statement was emailed to the customer."))
+                + f'<p><a href="/invoicing/reports/statement?customer_id={esc(cid)}'
+                f'&start={esc(start)}&end={esc(end)}">{esc(_t("Back"))}</a></p>', "ivcr")
+
+
+@app.route("/invoicing/reports/aging")
+def invoicing_reports_aging():
+    """AR aging by customer (current / 1-30 / 31-60 / 60+) + totals + overdue. Read-only;
+    reuses invoicing.accounts_receivable so the totals tie to the AR view."""
+    import datetime as _dt, invoicing_reports as ivr
+    try:
+        rep = ivr.ar_aging_report(label=_t("Accounts receivable aging"))
+    except Exception as e:
+        _log_exc("invoicing reports: aging", e)
+        rep = {"rows": [], "buckets": {"current": 0, "1-30": 0, "31-60": 0, "60+": 0},
+               "total_outstanding": 0.0, "total_overdue": 0.0,
+               "as_of": _dt.date.today().isoformat()}
+    rows = []
+    for r in rep["rows"]:
+        rows.append([esc(r["customer"]), _eur(r["current"]), _eur(r["b1_30"]),
+                     _eur(r["b31_60"]), _eur(r["b60p"]), _eur(r["total"]), _eur(r["overdue"])])
+    b = rep["buckets"]
+    rows.append([f'<b>{esc(_t("Total"))}</b>', f'<b>{_eur(b["current"])}</b>',
+                 f'<b>{_eur(b["1-30"])}</b>', f'<b>{_eur(b["31-60"])}</b>',
+                 f'<b>{_eur(b["60+"])}</b>', f'<b>{_eur(rep["total_outstanding"])}</b>',
+                 f'<b>{_eur(rep["total_overdue"])}</b>'])
+    table = tbl([_t("Customer"), _t("Current (not due)"), _t("1–30 days"),
+                 _t("31–60 days"), _t("60+ days"), _t("Total outstanding"), _t("Overdue")],
+                rows)
+    exp = ('<a class="btn" href="/invoicing/reports/aging.xlsx">' + esc(_t("Excel")) + '</a> '
+           '<a class="btn" href="/invoicing/reports/aging.pdf">' + esc(_t("PDF")) + '</a>')
+    note = esc(_t("Outstanding EUR (gross − payments − credits). Overdue = past-due "
+                  "buckets (1-30 + 31-60 + 60+). As of today."))
+    body = (_ivc_reports_nav("ar")
+            + f'<div class="card"><h2>{esc(_t("Accounts receivable aging"))}</h2>'
+            + f'<p class="note">{note}</p>' + table
+            + f'<p style="margin-top:8px">{exp}</p></div>')
+    return page(body, "ivcr")
+
+
+@app.route("/invoicing/reports/aging.xlsx")
+def invoicing_reports_aging_xlsx():
+    import io, invoicing_reports as ivr
+    rep = ivr.ar_aging_report()
+    data = ivr.ar_aging_workbook(rep)
+    return send_file(io.BytesIO(data), as_attachment=True,
+                     download_name=f"AR_Aging_{rep['as_of']}.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.route("/invoicing/reports/aging.pdf")
+def invoicing_reports_aging_pdf():
+    import io, i18n, invoicing_reports as ivr
+    rep = ivr.ar_aging_report()
+    data = ivr.ar_aging_pdf(rep, lang=i18n.current_lang())
+    if not data:
+        return page(_ivc_banner(False, _t("Could not render the PDF.")), "ivcr"), 500
+    return send_file(io.BytesIO(data), as_attachment=True,
+                     download_name=f"AR_Aging_{rep['as_of']}.pdf", mimetype="application/pdf")
 
 
 @app.route("/share/<int:link_id>/views")

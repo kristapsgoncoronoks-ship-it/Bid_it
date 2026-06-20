@@ -2543,16 +2543,16 @@ def _pdf_unicode_doc(font_bytes, pages, lines_widths=None):
     return bytes(out)
 
 
-def _invoice_pdf_fallback(invoice_id):
-    """Dependency-free, Latvian-capable PDF: embed a Unicode TTF and draw invoice_text as
-    real glyphs (Type0/Identity-H). Returns PDF bytes, or None if no Unicode font is on
-    the host (we still NEVER fall back to the latin-1 `?` path)."""
-    text = invoice_text(invoice_id)
+def text_to_unicode_pdf(text):
+    """Dependency-free, Latvian-capable PDF from PLAIN TEXT: embed a Unicode TTF and draw
+    each wrapped line as real glyphs (Type0/Identity-H). Returns PDF bytes, or None if no
+    Unicode font is on the host. Shared by the invoice fallback AND the Phase-5 reporting
+    suite's PDF fallback (HTML→text→this), so neither re-implements the glyph machinery."""
     if not text:
         return None
     font_path = _find_fallback_font()
     if not font_path:
-        log.warning("no Unicode TTF for the invoice PDF fallback; cannot render Latvian")
+        log.warning("no Unicode TTF for the PDF fallback; cannot render Latvian")
         return None
     with open(font_path, "rb") as fh:
         font_bytes = fh.read()
@@ -2564,9 +2564,9 @@ def _invoice_pdf_fallback(invoice_id):
     def to_gids(s):
         return [cmap.get(ord(ch), notdef) for ch in s]
 
-    # Lay out the monospace-ish text from invoice_text: wrap, paginate, draw each line as
-    # glyph ids. Using a fixed leading; the embedded font carries the real advances so the
-    # text is proportionally spaced (good enough for the plain fallback).
+    # Lay out the monospace-ish text: wrap, paginate, draw each line as glyph ids. A fixed
+    # leading; the embedded font carries the real advances so the text is proportionally
+    # spaced (good enough for the plain fallback).
     import textwrap
     raw_lines = []
     for para in text.split("\n"):
@@ -2582,6 +2582,13 @@ def _invoice_pdf_fallback(invoice_id):
             y -= leading
         pages.append(runs)
     return _pdf_unicode_doc(font_bytes, pages, lines_widths=(upm, nglyphs, widths))
+
+
+def _invoice_pdf_fallback(invoice_id):
+    """Dependency-free, Latvian-capable PDF: embed a Unicode TTF and draw invoice_text as
+    real glyphs (Type0/Identity-H). Returns PDF bytes, or None if no Unicode font is on
+    the host (we still NEVER fall back to the latin-1 `?` path)."""
+    return text_to_unicode_pdf(invoice_text(invoice_id))
 
 
 def invoice_pdf(invoice_id, lang=None):
