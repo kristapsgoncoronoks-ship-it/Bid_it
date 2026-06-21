@@ -6,8 +6,9 @@ Covers:
   * supplier_master add/remove/list brands; normalized code_for_brand match
     (case/punctuation/spacing-insensitive); all_brand_map.
   * app._resolve_supplier_code consults the alias map (a taught brand resolves to the
-    linked legal-entity code; an unknown brand keeps the old None/fuzzy behavior).
-  * an explicit brand alias BEATS fuzzy group/legal containment.
+    linked legal-entity code; an unknown brand / group name resolves to None — MARKERS
+    ONLY, there is no fuzzy/containment fallback).
+  * VAT registration (strongest) still beats a brand alias pointing elsewhere.
   * tenant scoping (a brand stamped under one tenant isn't seen under another).
   * the review render leads with the LEGAL ENTITY when a brand resolves.
 
@@ -79,10 +80,10 @@ def test_resolve_uses_brand_alias():
     assert app._resolve_supplier_code("Some Brand-New Fuel Card") is None
 
 
-def test_brand_alias_beats_fuzzy_containment():
-    # "Moya" is fuzzily contained in TFC's group_name ("Moya Energy") today.
-    assert app._resolve_supplier_code("Moya") == "TFC"
-    # An EXPLICIT brand link to a DIFFERENT supplier must WIN over the fuzzy match.
+def test_brand_marker_resolves_no_fuzzy_fallback():
+    # "Moya" appears in TFC's text ("TFC by Moya" / group "Moya Energy") but is NOT auto-paired:
+    # there is NO fuzzy/containment fallback. It resolves ONLY once a human links it as a marker.
+    assert app._resolve_supplier_code("Moya") is None
     SM.add_brand("BP", "Moya", actor="tester")
     assert app._resolve_supplier_code("Moya") == "BP"
 

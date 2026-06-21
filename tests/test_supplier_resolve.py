@@ -3,11 +3,14 @@ import app
 
 
 def test_resolves_legal_name_and_brand():
-    # demo suppliers.db has EUROWAG (legal "W.A.G. Issuing Services, a.s.", brand "Eurowag")
-    assert app._resolve_supplier_code("W.A.G. Issuing Services a.s.") == "EUROWAG"
-    assert app._resolve_supplier_code("Eurowag") == "EUROWAG"
+    # demo suppliers.db has EUROWAG (legal "W.A.G. Issuing Services, a.s.", code EUROWAG)
+    assert app._resolve_supplier_code("W.A.G. Issuing Services a.s.") == "EUROWAG"  # exact legal name
+    assert app._resolve_supplier_code("Eurowag") == "EUROWAG"                        # exact code
     assert app._resolve_supplier_code("EUROWAG") == "EUROWAG"
-    assert app._resolve_supplier_code("DKV Mobility") == "DKV"
+    # MARKERS ONLY — no fuzzy/containment. A GROUP name read off an invoice ("DKV Mobility"
+    # is DKV's group_name) is NOT auto-paired; it resolves only once a human links it as a
+    # brand marker (see test_supplier_brands). Otherwise it's left for the processor.
+    assert app._resolve_supplier_code("DKV Mobility") is None
 
 
 def test_unknown_name_returns_none():

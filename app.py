@@ -5082,13 +5082,15 @@ def _vat_shaped(s):
 
 
 def _resolve_supplier_code(name, vat=None):
-    """Resolve a CAPTURED supplier name and/or VAT id to an EXISTING supplier CODE, so a
-    captured legal name ("W.A.G. Issuing Services a.s."), brand ("Eurowag") or VAT id
-    ("CZ29137291") maps to the supplier we already have instead of being treated as unknown.
-    Read-only via dataproduct (the web request never writes suppliers.db). Match order:
-    VAT registration (strongest) -> exact code -> legal_name -> EXPLICIT brand alias
-    (a taught brand→entity link) -> brand/group_name (contains).
-    Returns the code or None; never raises -> None."""
+    """Resolve a CAPTURED supplier name and/or VAT id to an EXISTING supplier CODE using ONLY
+    EXACT, ADMIN-CURATED markers — never a fuzzy guess. Capture reads the legal entity off the
+    invoice; a human decides which supplier it is, and teaches the link as a brand marker. So a
+    captured legal name, brand or VAT maps to a supplier we already have ONLY when it matches
+    exactly. Read-only via dataproduct (the web request never writes suppliers.db). Match order:
+    VAT registration (strongest) -> exact code -> exact legal_name -> EXPLICIT brand alias
+    (a taught brand→entity link). NO fuzzy/containment matching — an unmatched capture is left
+    for the processor to assign (and optionally taught as a brand marker). Returns the code or
+    None; never raises -> None."""
     vat_n = re.sub(r"\s+", "", (vat or "")).upper()
     # A VAT id frequently lands in the NAME field with no separate VAT captured. When the
     # name is itself VAT-shaped and we have no explicit VAT, treat it as the VAT id so the
@@ -5137,18 +5139,12 @@ def _resolve_supplier_code(name, vat=None):
     for r in rows:
         if r["legal_name"] and _norm_name(r["legal_name"]) == name_n:
             return r["code"]
-    # EXPLICIT brand alias (STRONG tier): a taught brand→entity link is AUTHORITATIVE
-    # over the fuzzy containment below, so "Shell" -> "Shell Latvia SIA" wins even when a
-    # different supplier's name happens to contain "shell". The {brand_norm: code} map was
-    # built deterministically (lowest code on a collision).
+    # EXPLICIT brand alias — the ONLY brand tier: a taught brand→entity link (admin-curated
+    # marker). "Shell" -> "Shell Latvia SIA" resolves ONLY because a human linked it. There is
+    # deliberately NO fuzzy/containment fallback: an unrecognised name is left UNMATCHED for the
+    # processor to assign (and optionally teach as a brand marker) rather than auto-paired wrong.
     if name_n in brand_map:
         return brand_map[name_n]
-    # brand / legal-name containment (e.g. "eurowag" within the group "Eurowag / W.A.G.")
-    for r in rows:
-        for field in (r["group_name"], r["legal_name"]):
-            fn = _norm_name(field or "")
-            if fn and len(fn) >= 3 and (name_n in fn or fn in name_n):
-                return r["code"]
     return None
 
 
