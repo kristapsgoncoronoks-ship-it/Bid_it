@@ -5012,6 +5012,46 @@ def _supplier_master_entity(code):
         return {}
 
 
+# A legal-entity name carries a company form; a registration `source` that is just a note
+# ("printed on invoices …", "issuing entity TIN") does NOT — so we only treat `source` as the
+# per-country issuing entity when it looks like a real company name.
+_LEGAL_FORM_RE = re.compile(
+    r"\b(BVBA|BV|a\.s\.|s\.r\.o\.|d\.o\.o\.|UAB|SIA|AS|AG|GmbH|S\.A\.|S\.?p\.?A|s\.r\.l|"
+    r"sp\.?\s*z\s*o\.?o\.?|Oddzia[lł]|Ltd|LLC|OY|Kft|AB|International Trade|payment solutions|"
+    r"placilne|resitve)\b", re.I)
+
+
+def _supplier_country_registration(code, country):
+    """READ-ONLY per-country VAT registration for a supplier from suppliers.db (via
+    dataproduct, ro): {vat_number, entity_name}. A supplier group can ISSUE through a
+    different legal entity per country (e.g. Eurowag: 'W.A.G. payment solutions BE BVBA' in
+    Belgium vs 'W.A.G. Issuing Services, a.s.' in Czechia) — so the captured-entity panel must
+    show the entity for the INVOICE's country, not the group's primary. entity_name is the
+    registration `source` only when it looks like a company name (else None -> caller falls
+    back to the primary legal name). Returns {} for unknown / blank / any read error."""
+    code = (code or "").strip().upper()
+    country = (country or "").strip()
+    if not code or not country:
+        return {}
+    try:
+        import dataproduct
+        con = dataproduct.connect("suppliers")
+        try:
+            r = con.execute("SELECT vat_number, source FROM supplier_vat_registrations "
+                            "WHERE supplier=? AND country=? COLLATE NOCASE",
+                            (code, country)).fetchone()
+        finally:
+            con.close()
+        if r is None:
+            return {}
+        src = (r["source"] or "").strip()
+        name = src if (src and _LEGAL_FORM_RE.search(src)) else None
+        return {"vat_number": (r["vat_number"] or "").strip() or None, "entity_name": name}
+    except Exception as e:
+        _log_exc("supplier country registration lookup", e)
+        return {}
+
+
 def _norm_name(s):
     """Normalise a supplier name for matching: lowercase, drop punctuation, collapse spaces."""
     s = re.sub(r"[^\w\s]", " ", (s or "").lower())
@@ -5729,17 +5769,66 @@ def _captured_entity_html(draft):
     # reviewer expects to see for a known supplier (e.g. E100 -> "E100 International Trade
     # sp. z o.o.", VAT BE…, Warszawa) instead of just the code.
     code = ((draft or {}).get("supplier") or "").strip() if isinstance(draft, dict) else ""
-    master = _supplier_master_entity(code) if (code and _supplier_known(code)) else {}
-    known = bool(master)
-    if master:
-        e = {"legal_name": master.get("legal_name") or e.get("legal_name"),
-             "reg_no": master.get("reg_no") or e.get("reg_no"),
-             "address": master.get("address") or e.get("address"),
-             "country": master.get("country") or e.get("country"),
-             "vat": master.get("vat") or e.get("vat"),
-             "iban": e.get("iban"), "bank": e.get("bank")}
+    known = bool(code and _supplier_known(code))
+    master = _supplier_master_entity(code) if known else {}
+    captured = e                                    # what was read OFF THIS INVOICE
+    # COUNTRY-AWARE issuing entity: a supplier group can issue through a different legal entity
+    # per country (Eurowag), so resolve the entity for THIS invoice's country — not the group
+    # primary. Only when the draft has a single distinct country can we pick one entity.
+    line_countries = sorted({(l.get("country") or "").strip()
+                             for l in (draft or {}).get("lines", []) if isinstance(l, dict)}
+                            - {""})
+    one_country = line_countries[0] if len(line_countries) == 1 else None
+    reg = _supplier_country_registration(code, one_country) if (known and one_country) else {}
+    per_country_issuer = bool(reg.get("entity_name"))   # multi-entity supplier (Eurowag)
+    if known and per_country_issuer:
+        # A DIFFERENT legal entity issues for this country than the group primary — show only
+        # what we know FOR THAT entity (name, country VAT, country). The group's address /
+        # reg-no belong to a different entity, so they are NOT shown here.
+        e = {"legal_name": reg.get("entity_name"), "reg_no": captured.get("reg_no"),
+             "address": captured.get("address"), "country": one_country,
+             "vat": reg.get("vat_number") or captured.get("vat"),
+             "iban": captured.get("iban"), "bank": captured.get("bank")}
+    elif known:
+        # Single legal entity (E100) — the master IS the issuing entity; the per-country
+        # registration (if any) supplies the VAT that matches this invoice's country.
+        e = {"legal_name": master.get("legal_name") or captured.get("legal_name"),
+             "reg_no": master.get("reg_no") or captured.get("reg_no"),
+             "address": master.get("address") or captured.get("address"),
+             "country": master.get("country") or captured.get("country"),
+             "vat": reg.get("vat_number") or master.get("vat") or captured.get("vat"),
+             "iban": captured.get("iban"), "bank": captured.get("bank")}
     if not (e.get("legal_name") or e.get("vat")):
         return ""
+    # SAFETY FLAG: when a recognised supplier's invoice carries a VAT / registered address that
+    # DIFFERS from the master (the per-country registration for this invoice's country), surface
+    # it — it catches both a supplier that changed its details AND a mis-read/wrong-entity
+    # capture. Advisory only: VAT/IBAN changes still never auto-apply; an admin confirms.
+    diffs = []
+    if known:
+        def _nrm(s):
+            return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+        ref_vat = reg.get("vat_number") or master.get("vat")
+        cap_vat = captured.get("vat")
+        if cap_vat and ref_vat and _nrm(cap_vat) != _nrm(ref_vat):
+            where = f" for {esc(one_country)}" if one_country else ""
+            diffs.append(f"VAT on this invoice is <b>{esc(cap_vat)}</b>, but the registered "
+                         f"VAT{where} is <b>{esc(ref_vat)}</b>")
+        cap_addr, mas_addr = captured.get("address"), master.get("address")
+        if cap_addr and mas_addr:
+            na, nb = _nrm(cap_addr), _nrm(mas_addr)
+            if na and nb and na not in nb and nb not in na:
+                diffs.append(f"registered address on this invoice (<b>{esc(cap_addr)}</b>) "
+                             f"differs from the master (<b>{esc(mas_addr)}</b>)")
+    diff_html = ""
+    if diffs:
+        diff_html = ('<div class="card" style="border-left:4px solid #e67e22;'
+                     'background:#fef5e7;margin-top:8px"><b class="warn">⚠ Invoice differs '
+                     'from the master</b><ul style="margin:6px 0 0 18px">'
+                     + "".join(f"<li>{d}</li>" for d in diffs)
+                     + '</ul><div class="note">Showing the master legal entity below. If the '
+                       'supplier really changed, update it on the <a href="/suppliers">'
+                       'Suppliers</a> page (an admin confirms VAT/IBAN changes).</div></div>')
     fields = [("Legal name", e.get("legal_name")),
               ("Company reg. no.", e.get("reg_no")),
               ("Registered address", e.get("address")),
@@ -5772,7 +5861,11 @@ def _captured_entity_html(draft):
                 f'<tbody>{rows}</tbody></table>'
                 '<div class="note">Net EUR, VAT excluded. Advisory breakdown read off the '
                 'invoice summary; the claim is built from the registered line(s) below.</div>')
-    intro = ('Canonical legal entity from the supplier master (kept current from confirmed '
+    intro = (f'Issuing legal entity for {esc(one_country)} (this supplier issues through a '
+             'different entity per country). Bank account (IBAN) and VAT-number changes are '
+             'NEVER auto-applied; they go to an admin for confirmation.'
+             if (known and per_country_issuer) else
+             'Canonical legal entity from the supplier master (kept current from confirmed '
              'invoices). Bank account (IBAN) and VAT-number changes are NEVER auto-applied; '
              'they go to an admin for confirmation.' if known else
              'Read off this invoice as the real legal entity. On confirm, an unknown supplier '
@@ -5780,7 +5873,7 @@ def _captured_entity_html(draft):
              'account (IBAN) and VAT-number changes are NEVER auto-applied; they go to an '
              'admin for confirmation.')
     return ('<div class="card"><h2>Captured supplier — legal entity</h2>'
-            f'<div class="note">{intro}</div>'
+            f'<div class="note">{intro}</div>{diff_html}'
             f'<table style="margin-top:8px"><tbody>{body}</tbody></table>{fuel}</div>')
 
 
