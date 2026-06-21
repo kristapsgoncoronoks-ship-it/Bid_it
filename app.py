@@ -5081,16 +5081,30 @@ def _vat_shaped(s):
         return None
 
 
-def _resolve_supplier_code(name, vat=None):
+def _draft_supply_country(draft):
+    """The single distinct SUPPLY COUNTRY across a draft's lines — the key that country-scoped
+    brand markers and per-country entity resolution use. Returns the country name, or None when
+    the draft has zero or MORE THAN ONE distinct country (don't guess). Pure; never raises."""
+    try:
+        cs = sorted({(l.get("country") or "").strip()
+                     for l in (draft or {}).get("lines", []) if isinstance(l, dict)} - {""})
+        return cs[0] if len(cs) == 1 else None
+    except Exception as e:
+        _log_exc("draft supply country", e)
+        return None
+
+
+def _resolve_supplier_code(name, vat=None, country=None):
     """Resolve a CAPTURED supplier name and/or VAT id to an EXISTING supplier CODE using ONLY
     EXACT, ADMIN-CURATED markers — never a fuzzy guess. Capture reads the legal entity off the
     invoice; a human decides which supplier it is, and teaches the link as a brand marker. So a
     captured legal name, brand or VAT maps to a supplier we already have ONLY when it matches
     exactly. Read-only via dataproduct (the web request never writes suppliers.db). Match order:
-    VAT registration (strongest) -> exact code -> exact legal_name -> EXPLICIT brand alias
-    (a taught brand→entity link). NO fuzzy/containment matching — an unmatched capture is left
-    for the processor to assign (and optionally taught as a brand marker). Returns the code or
-    None; never raises -> None."""
+    VAT registration (strongest) -> exact code -> exact legal_name -> EXPLICIT brand marker
+    (a taught brand→entity link). Brand markers are matched COUNTRY BY COUNTRY (the country of
+    supply): a marker scoped to `country` beats a GLOBAL (any-country) marker; when `country`
+    is unknown, only global markers apply. NO fuzzy/containment matching — an unmatched capture
+    is left for the processor to assign. Returns the code or None; never raises -> None."""
     vat_n = re.sub(r"\s+", "", (vat or "")).upper()
     # A VAT id frequently lands in the NAME field with no separate VAT captured. When the
     # name is itself VAT-shaped and we have no explicit VAT, treat it as the VAT id so the
@@ -5114,14 +5128,20 @@ def _resolve_supplier_code(name, vat=None):
                 if r:
                     return r["supplier"]
             rows = con.execute("SELECT code, legal_name, group_name FROM suppliers").fetchall()
-            # Explicit brand→legal-entity aliases (admin-curated). brand_norm uses the
-            # SAME normalization as _norm_name, so a captured brand keys directly.
+            # Explicit brand→legal-entity markers (admin-curated), matched COUNTRY BY COUNTRY:
+            # a marker scoped to the supply `country` is preferred over a GLOBAL (country='')
+            # one; an unknown country sees only global markers. brand_norm uses the SAME
+            # normalization as _norm_name, so a captured brand keys directly.
+            cn = (country or "").strip()
             try:
-                brand_map = {br["brand_norm"]: br["supplier"] for br in con.execute(
-                    "SELECT brand_norm, supplier FROM supplier_brands "
-                    "ORDER BY supplier").fetchall()}
+                brand_map = {}
+                for br in con.execute(
+                        "SELECT brand_norm, supplier FROM supplier_brands "
+                        "WHERE (LOWER(country)=LOWER(?) OR country='') "
+                        "ORDER BY (country='') ASC, supplier", (cn,)).fetchall():
+                    brand_map.setdefault(br["brand_norm"], br["supplier"])
             except Exception as be:
-                # A pre-migration suppliers.db without the table must degrade, not fail.
+                # A pre-migration suppliers.db without the table/column must degrade, not fail.
                 _log_exc("resolve supplier brand map", be)
                 brand_map = {}
         finally:
@@ -5277,7 +5297,7 @@ def _read_first_notice(draft, period):
         # The review must LEAD WITH THE LEGAL ENTITY (suppliers.legal_name); the captured
         # brand is shown only as secondary context.
         if supplier and not _supplier_known(supplier):
-            resolved = _resolve_supplier_code(supplier, vat)
+            resolved = _resolve_supplier_code(supplier, vat, _draft_supply_country(draft))
             if resolved:
                 draft["supplier"] = resolved          # form prefills the matched code
                 legal = _supplier_legal_name(resolved) or resolved
@@ -5975,9 +5995,10 @@ def _brand_link_html(draft, token, intake_job=None, period=None):
     vat = (draft.get("supplier_vat") or "").strip()
     if not supplier:
         return ""
-    # already a known code, or resolves to one via VAT/legal-name/existing alias -> no
-    # control needed (the read-first notice already led with the legal entity).
-    if _supplier_known(supplier) or _resolve_supplier_code(supplier, vat):
+    country = _draft_supply_country(draft)
+    # already a known code, or resolves to one via VAT/legal-name/existing marker (for THIS
+    # supply country) -> no control needed (the read-first notice already led with the entity).
+    if _supplier_known(supplier) or _resolve_supplier_code(supplier, vat, country):
         return ""
     raw = esc(supplier)
     if session.get("role") != "admin":
@@ -5992,11 +6013,23 @@ def _brand_link_html(draft, token, intake_job=None, period=None):
     opts = _supplier_options_html()
     if not opts:
         return ""
+    # COUNTRY-SCOPED marker: brands are matched country by country (country of supply). When
+    # this draft has a single supply country, default the marker to THAT country (so "Eurowag"
+    # in ES doesn't also claim "Eurowag" in PL); the admin can widen it to any country.
+    if country:
+        scope = (f'<label>applies to <select name="country">'
+                 f'<option value="{esc(country)}">{esc(country)} (this supply country)</option>'
+                 '<option value="">any country (global)</option></select></label>')
+        scope_note = (f' The marker is scoped to <b>{esc(country)}</b> (the supply country read '
+                      'off this invoice) — brands are matched country by country.')
+    else:
+        scope = '<input type="hidden" name="country" value="">'
+        scope_note = ""
     return ('<div class="card" style="border-left:4px solid var(--warn)">'
             '<h2>Link this brand to a legal entity</h2>'
             f'<div class="note" style="margin-top:0">“{raw}” isn’t recognised. Link it to '
             'an existing legal entity so this statement — and every future invoice that '
-            'reads as this brand — resolves automatically.</div>'
+            f'reads as this brand — resolves automatically.{scope_note}</div>'
             '<form method="post" action="/extract/link-brand" class="f" '
             'style="margin-top:8px;align-items:flex-end">'
             + _csrf_input()
@@ -6006,6 +6039,7 @@ def _brand_link_html(draft, token, intake_job=None, period=None):
             + f'<input type="hidden" name="period" value="{esc(period or "")}">'
             + f'<input type="hidden" name="brand" value="{esc(supplier)}">'
             + f'<label>legal entity<select name="code" required>{opts}</select></label>'
+            + scope
             + '<button class="btn">Link</button>'
             + '</form>'
             '<div class="note" style="margin-top:6px">Recorded as a brand alias (audited) '
@@ -6568,7 +6602,8 @@ def extract_confirm():
         _cap = _captured_entity(_confirm_draft)
         _existing_code = (supplier if _supplier_known(supplier)
                           else _resolve_supplier_code(_cap.get("legal_name") or supplier,
-                                                      _cap.get("vat")))
+                                                      _cap.get("vat"),
+                                                      _draft_supply_country(_confirm_draft)))
         sync_banner = _sync_supplier_master(
             _existing_code, _confirm_draft, actor=session.get("user", "system"),
             invoice_ref=stmt_ref)
@@ -6612,13 +6647,15 @@ def extract_link_brand():
                     '<p><a href="/extract">← back to import</a></p>', "ext")
     code = (request.form.get("code") or "").strip().upper()
     brand = (request.form.get("brand") or draft.get("supplier") or "").strip()
+    country = (request.form.get("country") or "").strip()
     flash = ""
     if not code or not brand:
         flash = _toast_el("Pick a legal entity to link this brand to.", "error")
     else:
         try:
             import supplier_master as SM
-            ok = SM.add_brand(code, brand, actor=session.get("user", "system"))
+            ok = SM.add_brand(code, brand, country=country,
+                              actor=session.get("user", "system"))
         except Exception as e:
             _log_exc("extract link-brand", e)
             ok = False
@@ -6628,7 +6665,8 @@ def extract_link_brand():
             draft["supplier"] = code
             _stash_draft(token, draft)
             legal = _supplier_legal_name(code) or code
-            flash = _toast_el(f"Linked “{brand}” → {legal} ({code}).", "success")
+            where = f" for {esc(country)}" if country else " (any country)"
+            flash = _toast_el(f"Linked “{brand}”{where} → {legal} ({code}).", "success")
         else:
             flash = _toast_el(f"Could not link “{brand}” to {code}.", "error")
     if period is None:
@@ -11594,20 +11632,26 @@ def suppliers():
             act = request.form.get("__act")
             code = (request.form.get("code") or "").strip().upper()
             brand = (request.form.get("brand") or "").strip()
+            # Brand markers are scoped by SUPPLY COUNTRY (matched country by country). '' = a
+            # GLOBAL marker (any country). The add form offers the supplier's registered
+            # countries; remove targets the exact (brand, country) marker.
+            country = (request.form.get("country") or "").strip()
             actor = session.get("user", "system")
+            where = f" for {country}" if country else " (any country)"
             if not code or not brand:
                 banner = _toast_el("A supplier code and a brand name are required.", "error")
             elif act == "add_brand":
-                if supplier_master.add_brand(code, brand, actor=actor):
-                    banner = _toast_el(f"Linked brand “{brand}” to {code}. Invoices that read "
-                                       f"as “{brand}” now resolve to this legal entity.", "success")
+                if supplier_master.add_brand(code, brand, country=country, actor=actor):
+                    banner = _toast_el(f"Linked brand “{brand}”{where} to {code}. Invoices that "
+                                       f"read as “{brand}” for that country now resolve to this "
+                                       "legal entity.", "success")
                 else:
                     banner = _toast_el(f"Could not link brand “{brand}” to {code}.", "error")
             else:  # remove_brand
-                if supplier_master.remove_brand(code, brand):
-                    banner = _toast_el(f"Removed brand “{brand}” from {code}.", "success")
+                if supplier_master.remove_brand(code, brand, country=country):
+                    banner = _toast_el(f"Removed brand “{brand}”{where} from {code}.", "success")
                 else:
-                    banner = _toast_el(f"Brand “{brand}” was not linked to {code}.", "error")
+                    banner = _toast_el(f"Brand “{brand}”{where} was not linked to {code}.", "error")
     con = supplier_master.connect()
     cards = []
     for s in con.execute("SELECT * FROM suppliers ORDER BY code"):
@@ -11670,36 +11714,54 @@ def suppliers():
         if brands or _is_admin:
             chips = ""
             for b in brands:
+                bn, bc = b["brand"], (b["country"] or "")
+                # the country scope is shown next to every marker (·BE / ·any) because brands
+                # are matched country by country (country of supply).
+                ctag = (f' <span class="note">· {esc(bc)}</span>' if bc
+                        else ' <span class="note">· any</span>')
                 if _is_admin:
                     chips += (
                         '<span class="chip" style="display:inline-flex;align-items:center;'
-                        'gap:4px;margin:2px">' + str(esc(b))
+                        'gap:4px;margin:2px">' + esc(bn) + ctag
                         + '<form method="post" style="display:inline;margin:0">'
                         + _csrf_input()
                         + '<input type="hidden" name="__act" value="remove_brand">'
                         + f'<input type="hidden" name="code" value="{esc(s["code"])}">'
-                        + f'<input type="hidden" name="brand" value="{esc(b)}">'
+                        + f'<input type="hidden" name="brand" value="{esc(bn)}">'
+                        + f'<input type="hidden" name="country" value="{esc(bc)}">'
                         + '<button title="remove brand" style="background:none;border:none;'
                           'color:var(--bad);cursor:pointer;font-size:14px;padding:0 2px" '
                           'data-noloading>×'
                           '</button></form></span>')
                 else:
-                    chips += f'<span class="chip" style="margin:2px">{esc(b)}</span>'
+                    chips += f'<span class="chip" style="margin:2px">{esc(bn)}{ctag}</span>'
             if not brands:
                 chips = '<span class="note">No brands linked yet.</span>'
             addf = ""
             if _is_admin:
+                # suggest the supplier's registered countries for the scope (free text still
+                # allowed via the datalist; blank = a GLOBAL marker matching any country).
+                reg_countries = sorted({(r["country"] or "").strip()
+                                        for r in vrows if (r["country"] or "").strip()})
+                dl_id = f"brandctry_{esc(s['code'])}"
+                datalist = (f'<datalist id="{dl_id}">'
+                            + "".join(f'<option value="{esc(c)}">' for c in reg_countries)
+                            + '</datalist>')
                 addf = (
-                    '<form method="post" style="margin:8px 0 0;display:flex;gap:4px">'
+                    '<form method="post" style="margin:8px 0 0;display:flex;gap:4px;'
+                    'flex-wrap:wrap">'
                     + _csrf_input()
                     + '<input type="hidden" name="__act" value="add_brand">'
                     + f'<input type="hidden" name="code" value="{esc(s["code"])}">'
                     + '<input name="brand" placeholder="brand read off invoices (e.g. Shell)" '
-                      'style="width:280px" required>'
+                      'style="width:240px" required>'
+                    + f'<input name="country" list="{dl_id}" placeholder="supply country '
+                      '(blank = any)" style="width:200px">'
+                    + datalist
                     + '<button style="font-size:12px;padding:4px 10px">Add brand</button></form>')
             sect += ("<h2 style='margin-top:12px'>Brands "
                      "<span class='note' style='font-weight:normal'>(invoice names that map "
-                     "to this legal entity)</span></h2>"
+                     "to this legal entity, matched per supply country)</span></h2>"
                      f"<div>{chips}</div>{addf}")
         for title, q, cols in (
             ("Bank accounts","SELECT beneficiary, iban, COALESCE(swift,'') s, bank, currency FROM supplier_bank_accounts WHERE supplier=?",("beneficiary","iban","s","bank","currency")),

@@ -31,7 +31,9 @@ def _csrf(client, path="/suppliers"):
 def test_add_list_remove_brand():
     assert SM.add_brand("DKV", "DKV Mobility Card", actor="tester") is True
     assert SM.add_brand("DKV", "Shell Roaming", actor="tester") is True
-    assert SM.brands_for("DKV") == ["DKV Mobility Card", "Shell Roaming"]
+    # brands_for returns {brand, country} dicts (country='' = global / any country)
+    assert [b["brand"] for b in SM.brands_for("DKV")] == ["DKV Mobility Card", "Shell Roaming"]
+    assert all(b["country"] == "" for b in SM.brands_for("DKV"))
     # idempotent on the NORMALIZED key: re-adding the same brand with different casing/
     # spacing does not create a second row (it refreshes the display text in place).
     assert SM.add_brand("DKV", "DKV  Mobility   CARD", actor="tester") is True
@@ -88,6 +90,46 @@ def test_brand_marker_resolves_no_fuzzy_fallback():
     assert app._resolve_supplier_code("Moya") == "BP"
 
 
+# ───────────────────────────────────────── COUNTRY-SCOPED brand markers
+def test_brand_marker_country_scoped():
+    # Markers are matched COUNTRY BY COUNTRY (country of supply): the SAME brand text can map
+    # to different suppliers per country (E100 BE vs PL; Eurowag ES/PL/LT).
+    SM.add_brand("E100", "FuelCardX", country="Belgium", actor="t")
+    SM.add_brand("EUROWAG", "FuelCardX", country="Poland", actor="t")
+    assert SM.code_for_brand("FuelCardX", country="Belgium") == "E100"
+    assert SM.code_for_brand("FuelCardX", country="Poland") == "EUROWAG"
+    # a country with neither a specific nor a global marker -> None (no cross-country leak)
+    assert SM.code_for_brand("FuelCardX", country="Spain") is None
+    assert SM.code_for_brand("FuelCardX") is None     # unknown country -> only global markers
+    # both markers are listed with their country scope
+    pairs = {(b["brand"], b["country"]) for b in SM.brands_for("E100")}
+    assert ("FuelCardX", "Belgium") in pairs
+
+
+def test_global_marker_is_country_fallback():
+    SM.add_brand("DKV", "Shell", actor="t")                    # global (any country)
+    assert SM.code_for_brand("Shell", country="Spain") == "DKV"
+    SM.add_brand("BP", "Shell", country="Spain", actor="t")    # specific beats global in ES
+    assert SM.code_for_brand("Shell", country="Spain") == "BP"
+    assert SM.code_for_brand("Shell", country="France") == "DKV"   # still global elsewhere
+
+
+def test_remove_brand_targets_the_country_marker():
+    SM.add_brand("E100", "FuelCardX", country="Belgium", actor="t")
+    SM.add_brand("E100", "FuelCardX", country="Poland", actor="t")
+    assert SM.remove_brand("E100", "FuelCardX", country="Belgium") is True
+    # only the Belgium marker is gone; Poland remains
+    assert SM.code_for_brand("FuelCardX", country="Belgium") is None
+    assert SM.code_for_brand("FuelCardX", country="Poland") == "E100"
+
+
+def test_resolve_supplier_code_is_country_aware():
+    SM.add_brand("E100", "FuelCardX", country="Belgium", actor="t")
+    assert app._resolve_supplier_code("FuelCardX", None, "Belgium") == "E100"
+    assert app._resolve_supplier_code("FuelCardX", None, "Poland") is None   # wrong country
+    assert app._resolve_supplier_code("FuelCardX") is None                   # unknown country
+
+
 def test_resolve_vat_still_wins_over_brand():
     # VAT is the strongest tier and must beat a brand alias pointing elsewhere.
     # MOEVE has VAT ESA25009192 in the demo DB.
@@ -110,7 +152,7 @@ def test_brand_tenant_scoped(monkeypatch):
     # reading as default does NOT
     monkeypatch.setattr(tenancy, "scope_clause", lambda column="tenant_id": _scope_for("default"))
     assert SM.code_for_brand("TenantBOnly") is None
-    assert "TenantBOnly" not in SM.brands_for("DKV")
+    assert "TenantBOnly" not in [b["brand"] for b in SM.brands_for("DKV")]
 
 
 # ───────────────────────────────────────── review render leads with the legal entity
@@ -145,7 +187,7 @@ def test_suppliers_post_add_and_remove_brand(client):
                                         "code": "DKV", "brand": "Shell"})
     assert r.status_code == 200
     assert "Linked brand" in r.get_data(as_text=True)
-    assert SM.brands_for("DKV") == ["Shell"]
+    assert [b["brand"] for b in SM.brands_for("DKV")] == ["Shell"]
     # the brand chip renders on the page (GET)
     page = client.get("/suppliers").get_data(as_text=True)
     assert "Shell" in page

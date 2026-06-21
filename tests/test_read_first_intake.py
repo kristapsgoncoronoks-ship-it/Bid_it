@@ -186,7 +186,8 @@ def test_vat_in_name_field_not_unmatched(monkeypatch, tmp_path):
     IQ._SCHEMA_READY.clear()
     monkeypatch.setattr(A, "_supplier_known", lambda code: False)
     # force 'unknown' so we exercise the onboard path (not a demo-DB match)
-    monkeypatch.setattr(A, "_resolve_supplier_code", lambda name, vat=None: None)
+    monkeypatch.setattr(A, "_resolve_supplier_code",
+                        lambda name, vat=None, country=None: None)
 
     draft = {"supplier": "LV43603043473", "supplier_vat": "", "statement_ref": "BE95489/5413791",
              "statement_date": "2026-03-31", "lines": []}

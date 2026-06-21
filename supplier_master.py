@@ -394,6 +394,27 @@ def connect():
                 created_at TEXT, created_by TEXT,
                 tenant_id TEXT NOT NULL DEFAULT 'default',
                 PRIMARY KEY (tenant_id, supplier, brand_norm))""",
+
+            # ── BRAND markers gain a per-(supply) COUNTRY scope (append-only, END) ──────
+            # Brand markers are matched COUNTRY BY COUNTRY (country of supply): the SAME brand
+            # may resolve to a supplier only for the countries an admin approved (E100 in BE
+            # vs PL; Eurowag in ES/PL/LT). country='' = a GLOBAL marker (matches ANY supply
+            # country) and is the back-compat default for rows created before this column.
+            # Re-key so country is part of the PK and the same (supplier, brand) can exist
+            # once PER country (mirrors the rekey twins above).
+            "ALTER TABLE supplier_brands ADD COLUMN country TEXT NOT NULL DEFAULT ''",
+            """CREATE TABLE IF NOT EXISTS supplier_brands__rekey (
+                supplier TEXT, brand TEXT, brand_norm TEXT,
+                country TEXT NOT NULL DEFAULT '',
+                created_at TEXT, created_by TEXT,
+                tenant_id TEXT NOT NULL DEFAULT 'default',
+                PRIMARY KEY (tenant_id, supplier, brand_norm, country))""",
+            """INSERT INTO supplier_brands__rekey
+                (supplier, brand, brand_norm, country, created_at, created_by, tenant_id)
+                SELECT supplier, brand, brand_norm, country, created_at, created_by, tenant_id
+                FROM supplier_brands""",
+            "DROP TABLE supplier_brands",
+            "ALTER TABLE supplier_brands__rekey RENAME TO supplier_brands",
         ])
         audit.install_audit(con, ['suppliers', 'supplier_vat_registrations', 'supplier_bank_accounts',
                                   'supplier_products', 'supplier_invoices', 'supplier_discounts',
@@ -612,13 +633,23 @@ def _norm_brand(s):
     return re.sub(r"\s+", " ", s).strip()
 
 
-def add_brand(code, brand, actor=None):
-    """Link a BRAND name to a legal-entity supplier CODE (admin-curated master data).
-    Idempotent (the (tenant, supplier, brand_norm) PK upserts), audited via the bound
-    actor, tenant-stamped. Returns True when a link exists after the call, False on a
-    blank code/brand or any error (never raises -> the admin sees a banner, not a 500)."""
+def _norm_country(c):
+    """Canonical form of a brand marker's SUPPLY-COUNTRY scope: trimmed (empty = GLOBAL =
+    any country). Matching is case-insensitive; admins pick from the supplier's registered
+    country names so spelling stays consistent. Pure; never raises."""
+    return (c or "").strip()
+
+
+def add_brand(code, brand, country="", actor=None):
+    """Link a BRAND name to a legal-entity supplier CODE, OPTIONALLY scoped to a SUPPLY
+    COUNTRY (admin-curated marker). country='' = a GLOBAL marker (matches any supply
+    country); a country-scoped marker is compared ONLY for that country of supply, so the
+    same brand can map per country (E100 in BE vs PL). Idempotent (the (tenant, supplier,
+    brand_norm, country) PK upserts), audited, tenant-stamped. Returns True when a link
+    exists after the call, False on a blank code/brand or any error (never raises)."""
     code = (code or "").strip().upper()
     brand = (brand or "").strip()
+    country = _norm_country(country)
     bn = _norm_brand(brand)
     if not code or not bn:
         return False
@@ -629,11 +660,11 @@ def add_brand(code, brand, actor=None):
             audit.set_actor(con, actor)
         tid = tenancy.queue_tenant()
         con.execute("""INSERT INTO supplier_brands
-                         (supplier, brand, brand_norm, created_at, created_by, tenant_id)
-                       VALUES (?,?,?,datetime('now'),?,?)
-                       ON CONFLICT(tenant_id, supplier, brand_norm) DO UPDATE SET
+                         (supplier, brand, brand_norm, country, created_at, created_by, tenant_id)
+                       VALUES (?,?,?,?,datetime('now'),?,?)
+                       ON CONFLICT(tenant_id, supplier, brand_norm, country) DO UPDATE SET
                          brand=excluded.brand""",
-                    (code, brand, bn, actor, tid))
+                    (code, brand, bn, country, actor, tid))
         con.commit()
         return True
     except Exception as e:
@@ -644,12 +675,14 @@ def add_brand(code, brand, actor=None):
             con.close()
 
 
-def remove_brand(code, brand):
-    """Unlink a BRAND from a supplier CODE (matched on the normalized brand, so the same
-    spelling the UI shows removes it). Audited (DELETE trigger), tenant-scoped. Returns
-    True when a row was deleted, False otherwise; never raises -> False."""
+def remove_brand(code, brand, country=""):
+    """Unlink a BRAND from a supplier CODE for a given country scope (matched on the
+    normalized brand + country, so the exact marker the UI shows is removed). country='' =
+    the global marker. Audited (DELETE trigger), tenant-scoped. Returns True when a row was
+    deleted, False otherwise; never raises -> False."""
     code = (code or "").strip().upper()
     bn = _norm_brand(brand)
+    country = _norm_country(country)
     if not code or not bn:
         return False
     con = None
@@ -657,8 +690,8 @@ def remove_brand(code, brand):
         con = connect()
         frag, params = tenancy.scope_clause()
         cur = con.execute(
-            "DELETE FROM supplier_brands WHERE supplier=? AND brand_norm=?" + frag,
-            [code, bn, *params])
+            "DELETE FROM supplier_brands WHERE supplier=? AND brand_norm=? "
+            "AND LOWER(country)=LOWER(?)" + frag, [code, bn, country, *params])
         con.commit()
         return (cur.rowcount or 0) > 0
     except Exception as e:
@@ -670,8 +703,9 @@ def remove_brand(code, brand):
 
 
 def brands_for(code, con=None):
-    """Every BRAND linked to a supplier CODE, in display order (brand text). Tenant-
-    scoped (OFF inert). Returns a list of brand strings; never raises -> []."""
+    """Every BRAND marker linked to a supplier CODE, in display order. Tenant-scoped (OFF
+    inert). Returns a list of {"brand", "country"} dicts (country='' = global/any country);
+    never raises -> []."""
     code = (code or "").strip().upper()
     if not code:
         return []
@@ -681,9 +715,9 @@ def brands_for(code, con=None):
             con = connect()
         frag, params = tenancy.scope_clause()
         rows = con.execute(
-            "SELECT brand FROM supplier_brands WHERE supplier=?" + frag
-            + " ORDER BY brand", [code, *params]).fetchall()
-        return [r["brand"] for r in rows]
+            "SELECT brand, country FROM supplier_brands WHERE supplier=?" + frag
+            + " ORDER BY brand, country", [code, *params]).fetchall()
+        return [{"brand": r["brand"], "country": r["country"] or ""} for r in rows]
     except Exception as e:
         applog.get("supplier_master").warning("brands_for failed: %s", e)
         return []
@@ -692,22 +726,26 @@ def brands_for(code, con=None):
             con.close()
 
 
-def code_for_brand(brand, con=None):
-    """Resolve a BRAND name to the linked legal-entity supplier CODE, or None. Matches on
-    the normalized brand (case/punctuation/spacing-insensitive). Deterministic when a
-    brand is linked to more than one supplier: lowest code wins. Tenant-scoped (OFF
-    inert). Never raises -> None."""
+def code_for_brand(brand, country=None, con=None):
+    """Resolve a BRAND name (for a given SUPPLY COUNTRY) to the linked legal-entity supplier
+    CODE, or None. Matches the normalized brand and PREFERS a marker scoped to this country
+    of supply, falling back to a GLOBAL marker (country=''). Deterministic on collisions:
+    country-specific beats global, then lowest code wins. Tenant-scoped (OFF inert). Never
+    raises -> None."""
     bn = _norm_brand(brand)
     if not bn:
         return None
+    cn = _norm_country(country)
     own = con is None
     try:
         if own:
             con = connect()
         frag, params = tenancy.scope_clause()
         r = con.execute(
-            "SELECT supplier FROM supplier_brands WHERE brand_norm=?" + frag
-            + " ORDER BY supplier LIMIT 1", [bn, *params]).fetchone()
+            "SELECT supplier FROM supplier_brands WHERE brand_norm=? "
+            "AND (LOWER(country)=LOWER(?) OR country='')" + frag
+            + " ORDER BY (country='') ASC, supplier LIMIT 1",
+            [bn, cn, *params]).fetchone()
         return r["supplier"] if r else None
     except Exception as e:
         applog.get("supplier_master").warning("code_for_brand failed: %s", e)
@@ -717,21 +755,24 @@ def code_for_brand(brand, con=None):
             con.close()
 
 
-def all_brand_map(con=None):
-    """Bulk {brand_norm: supplier_code} for the resolver (one read, no per-brand query).
-    Deterministic on collisions: lowest code wins (matches code_for_brand). Tenant-scoped
-    (OFF inert). Never raises -> {}."""
+def all_brand_map(country=None, con=None):
+    """Bulk {brand_norm: supplier_code} for the resolver (one read, no per-brand query), for
+    a given SUPPLY COUNTRY. Country-specific markers beat GLOBAL (country='') ones, then
+    lowest code wins (matches code_for_brand). When country is None/'', only global markers
+    apply. Tenant-scoped (OFF inert). Never raises -> {}."""
+    cn = _norm_country(country)
     own = con is None
     try:
         if own:
             con = connect()
         frag, params = tenancy.scope_clause()
         rows = con.execute(
-            "SELECT brand_norm, supplier FROM supplier_brands WHERE 1=1" + frag
-            + " ORDER BY supplier", params).fetchall()
+            "SELECT brand_norm, supplier FROM supplier_brands "
+            "WHERE (LOWER(country)=LOWER(?) OR country='')" + frag
+            + " ORDER BY (country='') ASC, supplier", [cn, *params]).fetchall()
         out = {}
         for r in rows:
-            out.setdefault(r["brand_norm"], r["supplier"])   # first (lowest code) wins
+            out.setdefault(r["brand_norm"], r["supplier"])   # specific-first, then lowest code
         return out
     except Exception as e:
         applog.get("supplier_master").warning("all_brand_map failed: %s", e)
