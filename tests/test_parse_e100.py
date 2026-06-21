@@ -113,6 +113,25 @@ def test_parse_e100_carries_product_breakdown():
     assert names["Diesel euro"]["net"] == 12297.12 and names["Diesel euro"]["vat"] == 2582.39
 
 
+def test_e100_seller_vat_anchored_to_name_not_buyer():
+    # The SELLER VAT is anchored to the E100 NAME, so the buyer's VAT — which can appear FIRST
+    # and with no detectable buyer-keyword label (different language / unextracted label) — is
+    # never mistaken for it. Regression: a real invoice showed the client's LV id as supplier.
+    txt = ('"eks Auto" SIA, Iecavnieki, Latvija TVA-NR / PVN: LV43603043473\n'
+           'E100 International Trade sp. z o.o. ul. Pory 78/7 Warszawa TVA-NR / PVN: BE0676647155\n')
+    assert EX._e100_seller_vat(txt) == "BE0676647155"
+    # the generic heuristic alone WOULD have grabbed the buyer's id here (documents the trap)
+    assert EX._seller_identity(txt)[1] == "LV43603043473"
+
+
+def test_parse_e100_buyer_vat_first_layout_keeps_seller_vat():
+    # End-to-end: even when the buyer VAT is printed before the seller block and its label is
+    # not recognised, parse_e100 captures the SELLER's VAT (BE…), not the client's (LV…).
+    txt = E100_TEXT.replace("Client / Pircējs\n", "")   # drop the buyer label entirely
+    d = EX.parse_e100([("BE95489.pdf", txt)])
+    assert d is not None and d["supplier_vat"] == "BE0676647155"
+
+
 def test_parse_e100_multi_country_does_not_guess():
     # if the annexe shows >1 station country, the parser must NOT guess a single country
     txt = E100_TEXT.replace(

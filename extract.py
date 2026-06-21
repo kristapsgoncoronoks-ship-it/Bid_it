@@ -352,6 +352,20 @@ _E100_SUMROW = re.compile(
     r"([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*$", re.M)
 
 
+def _e100_seller_vat(joined):
+    """E100's SELLER VAT, anchored to the seller NAME ('E100 International Trade …') — the
+    VAT-id printed right after it. This is robust against the BUYER's VAT, which repeats on
+    every annexe page ('Rēķina pielikums … TVA-NR / PVN: <buyer VAT>') and otherwise fools a
+    generic buyer/seller heuristic (it grabbed the client's LV id on some layouts). Falls back
+    to the generic seller/buyer heuristic only when the name isn't followed by a VAT-id. Pure;
+    never raises (the fallback already swallows its own errors)."""
+    for mk in re.finditer(re.escape(_E100_MARKER), joined):
+        mv = _VATID_RE.search(joined[mk.end():mk.end() + 240])
+        if mv:
+            return mv.group(1)
+    return _seller_identity(joined)[1]
+
+
 def parse_e100(texts):
     """Deterministic parser for E100 International Trade fuel invoices (page-1 product
     summary + per-transaction annexe). Returns a draft dict, or None when this isn't an
@@ -391,7 +405,7 @@ def parse_e100(texts):
     cc = None if multi else (next(iter(prefixes)) if len(prefixes) == 1 else inv_prefix)
     country = _E100_COUNTRY.get(cc) if cc else None
 
-    _, svat = _seller_identity(joined)              # seller VAT for registration recognition
+    svat = _e100_seller_vat(joined)                 # SELLER VAT, anchored to the E100 name
     breakdown = "; ".join(
         f"{n} (code {c}): net {money.f2(nt):,.2f} / VAT {money.f2(vt):,.2f}"
         for n, c, _q, nt, vt in prods)
