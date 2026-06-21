@@ -5838,12 +5838,20 @@ def _captured_entity_html(draft):
     per_country_issuer = bool(reg.get("entity_name"))   # multi-entity supplier (Eurowag)
     if read_off_invoice:
         # READ OFF THIS INVOICE — show the seller exactly as printed (W.A.G. payment solutions
-        # BE BVBA for a BE invoice, not the Czech group primary). The per-country registration
-        # only fills a VAT the invoice itself didn't carry.
-        e = {"legal_name": inv_name, "reg_no": captured.get("reg_no"),
-             "address": captured.get("address"),
-             "country": captured.get("country") or one_country,
-             "vat": captured.get("vat") or reg.get("vat_number"),
+        # BE BVBA for a BE invoice, not the Czech group primary). When the invoice entity IS the
+        # supplier's PRIMARY entity (a single-entity supplier like E100), fill the gaps the
+        # invoice didn't carry (reg-no / address / country) from the master — but NEVER for a
+        # per-country seller, whose group-primary master fields would be the wrong entity's.
+        fill = (master if (known and master
+                           and _norm_name(inv_name) == _norm_name(master.get("legal_name") or ""))
+                else {})
+        e = {"legal_name": inv_name,
+             "reg_no": captured.get("reg_no") or fill.get("reg_no"),
+             "address": captured.get("address") or fill.get("address"),
+             # for the PRIMARY entity, the entity's home country (master) is more correct than
+             # the invoice's supply country; for a per-country seller, use the supply country.
+             "country": fill.get("country") or captured.get("country") or one_country,
+             "vat": captured.get("vat") or reg.get("vat_number") or fill.get("vat"),
              "iban": captured.get("iban"), "bank": captured.get("bank")}
     elif known and per_country_issuer:
         # Nothing read off the invoice, but a DIFFERENT legal entity issues for this country

@@ -444,6 +444,18 @@ def _e100_seller_vat(joined):
     return _seller_identity(joined)[1]
 
 
+def _e100_seller_name(joined):
+    """E100's SELLER legal name, anchored to the E100 entity itself ('E100 International Trade
+    sp. z o.o.') — so the BUYER's name is NEVER mistaken for it, regardless of how adjacent the
+    'Client / Pircējs' and 'Vendeur / Pārdevējs' headers sit in the extracted text. Returns the
+    name, or None when the marker isn't present. Pure; never raises."""
+    try:
+        m = re.search(r"E100 International Trade(?:\s+sp\.\s*z\s*o\.o\.?)?", joined)
+        return re.sub(r"\s+", " ", m.group(0)).strip() if m else None
+    except Exception:
+        return None
+
+
 def parse_e100(texts):
     """Deterministic parser for E100 International Trade fuel invoices (page-1 product
     summary + per-transaction annexe). Returns a draft dict, or None when this isn't an
@@ -484,7 +496,7 @@ def parse_e100(texts):
     country = _E100_COUNTRY.get(cc) if cc else None
 
     svat = _e100_seller_vat(joined)                 # SELLER VAT, anchored to the E100 name
-    sname, _ = _seller_identity(joined)             # SELLER legal name read off the invoice
+    sname = _e100_seller_name(joined)               # SELLER name, anchored (never the buyer)
     breakdown = "; ".join(
         f"{n} (code {c}): net {money.f2(nt):,.2f} / VAT {money.f2(vt):,.2f}"
         for n, c, _q, nt, vt in prods)

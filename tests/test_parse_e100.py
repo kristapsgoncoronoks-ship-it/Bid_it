@@ -124,6 +124,26 @@ def test_e100_seller_vat_anchored_to_name_not_buyer():
     assert EX._seller_identity(txt)[1] == "LV43603043473"
 
 
+def test_e100_seller_name_is_never_the_buyer():
+    # The SELLER legal name is anchored to the E100 entity, so the CLIENT ("Iecavnieks Auto")
+    # is NEVER captured as the supplier — even when the 'Client / Pircējs' and 'Vendeur /
+    # Pārdevējs' headers sit adjacent and the buyer name is printed first (the real layout that
+    # made the generic heuristic grab the buyer).
+    txt = ('Facture / Rēķins Nr BE95489/5413791\nBE\n'
+           'Client / Pircējs\nVendeur / Pārdevējs\n'
+           'SIA "Iecavnieks Auto"\nE100 International Trade sp. z o.o.\n'
+           'TVA-NR / PVN: LV43603043473\nTVA-NR / PVN: BE0676647155\n')
+    assert EX._e100_seller_name(txt) == "E100 International Trade sp. z o.o."
+    assert EX._seller_identity(txt)[0] == 'SIA "Iecavnieks Auto"'   # documents the buyer trap
+
+
+def test_parse_e100_legal_name_is_seller_not_client():
+    # End-to-end: supplier_legal_name is E100 (the seller), not the client.
+    d = EX.parse_e100([("BE95489.pdf", E100_TEXT)])
+    assert d["supplier_legal_name"] == "E100 International Trade sp. z o.o."
+    assert d["customer"] == 'SIA "Iecavnieks Auto"'                 # client kept separate
+
+
 def test_parse_e100_buyer_vat_first_layout_keeps_seller_vat():
     # End-to-end: even when the buyer VAT is printed before the seller block and its label is
     # not recognised, parse_e100 captures the SELLER's VAT (BE…), not the client's (LV…).
