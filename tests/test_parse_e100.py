@@ -45,15 +45,19 @@ def test_parse_e100_happy_path():
     assert d["statement_date"] == "2026-03-31"
     assert d["currency"] == "EUR"
     assert d["customer"] == 'SIA "Iecavnieks Auto"'
-    # ONE envelope line per (invoice, country) — the Eurowag granularity
-    assert len(d["lines"]) == 1
-    ln = d["lines"][0]
-    assert ln["invoice_no"] == "BE95489/5413791"
-    assert ln["country"] == "Belgium"               # derived from the BE… station prefixes
-    assert ln["net"] == 13110.21                     # 813.09 + 12297.12
-    assert ln["vat"] == 2753.14                      # 170.75 + 2582.39
-    # the product breakdown is preserved in the note (advisory context)
-    assert "AdBlue" in d["notes"] and "Diesel euro" in d["notes"]
+    # ONE claim line PER PRODUCT (line-by-line fuel detail), each with its own net/VAT
+    assert len(d["lines"]) == 2
+    by_prod = {ln["product"]: ln for ln in d["lines"]}
+    adblue = by_prod["AdBlue (41)"]
+    diesel = by_prod["Diesel euro (27)"]
+    assert adblue["net"] == 813.09 and adblue["vat"] == 170.75
+    assert diesel["net"] == 12297.12 and diesel["vat"] == 2582.39
+    # every line carries the real invoice number as the identifiable prefix, country derived
+    assert adblue["invoice_no"] == "BE95489/5413791 #41"
+    assert diesel["invoice_no"] == "BE95489/5413791 #27"
+    assert all(ln["country"] == "Belgium" for ln in d["lines"])
+    # the line sum still ties out to the document total
+    assert round(sum(ln["net"] + ln["vat"] for ln in d["lines"]), 2) == 15863.35
 
 
 def test_parse_e100_ties_out_to_document_total():

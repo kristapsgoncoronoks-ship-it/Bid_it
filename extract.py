@@ -374,8 +374,6 @@ def parse_e100(texts):
                       _num(r.group(3)), _num(r.group(7)), _num(r.group(9))))
     if not prods:
         return None
-    net = money.fsum(p[3] for p in prods)
-    vat = money.fsum(p[4] for p in prods)
 
     # Independent document total for the tie-out gate: the largest amount on the
     # "Total / Kopā …" line (the gross). Tolerant of space thousands separators.
@@ -408,11 +406,18 @@ def parse_e100(texts):
 
     products = [{"name": n, "code": c, "qty": q, "net": nt, "vat": vt}
                 for n, c, q, nt, vt in prods]
+    # ONE claim line PER PRODUCT (line-by-line fuel detail): each carries its own net/VAT and
+    # a product-qualified invoice ref ("<inv> #<code>") so the invoice registry — keyed on
+    # invoice_no — keeps them as distinct, individually-checkable lines instead of collapsing
+    # them. The real invoice number stays the identifiable prefix; the line sum still ties out
+    # to the stated document total. A single-product invoice yields a single line.
+    lines = [{"invoice_no": (f"{inv_no} #{c}" if inv_no else None),
+              "date": date, "country": country, "currency": "EUR",
+              "net": nt, "vat": vt, "product": f"{n} ({c})", "_source": "E100 summary"}
+             for n, c, q, nt, vt in prods]
     draft = {"supplier": "E100", "supplier_vat": svat, "statement_ref": inv_no,
              "statement_date": date, "currency": _detect_currency(joined),
-             "customer": customer, "products": products,
-             "lines": [{"invoice_no": inv_no, "date": date, "country": country,
-                        "currency": "EUR", "net": net, "vat": vat, "_source": "E100 summary"}],
+             "customer": customer, "products": products, "lines": lines,
              "notes": note, "backend": "parser", "confidence": conf}
     if stated is not None:
         draft["coversheet_total"] = stated
