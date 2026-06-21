@@ -324,6 +324,99 @@ def parse_eurowag(texts):
             "notes": "deterministic parser (Eurowag) - verify country & dates",
             "backend": "parser", "confidence": "medium"}
 
+
+# E100 -------------------------------------------------------------------------------------
+# E100 issues ONE country-specific invoice: its number and every station code carry the SAME
+# 2-letter country prefix (BE…/PL…/DE…). Page 1 is a per-PRODUCT summary with explicit NET
+# ("Montant hors TVA") and VAT columns; the following pages are a per-transaction annexe. We
+# read the clean page-1 summary for the authoritative net/VAT, cross-check it against the
+# stated document total (tie-out), and derive the single refund country from the station
+# prefixes (cross-checked against the invoice-number prefix). One registry line per (invoice,
+# country) — the same granularity as the Eurowag parser. If the station prefixes are NOT
+# uniform (a multi-country statement, which E100 does not issue today) we DON'T guess the
+# country: the line is emitted with country=None and a loud note so the operator assigns it.
+_E100_MARKER = "E100 International Trade"
+
+_E100_COUNTRY = {
+    "BE": "Belgium", "PL": "Poland", "DE": "Germany", "FR": "France", "NL": "Netherlands",
+    "LT": "Lithuania", "LV": "Latvia", "EE": "Estonia", "AT": "Austria", "IT": "Italy",
+    "ES": "Spain", "CZ": "Czech Republic", "SK": "Slovakia", "HU": "Hungary",
+    "RO": "Romania", "SI": "Slovenia", "HR": "Croatia", "LU": "Luxembourg",
+    "DK": "Denmark", "SE": "Sweden", "FI": "Finland", "PT": "Portugal", "NO": "Norway",
+}
+
+# A page-1 SUMMARY row: "<LP> <product> <code> l <qty> <prix_brut> <remise> <prix_net>
+# <NET> <tva%> <TVA> <gross>" — 8 decimals after the unit. NET = group 7, TVA = group 9.
+_E100_SUMROW = re.compile(
+    r"^\s*\d+\s+(.+?)\s+(\d+)\s+[lL]\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+"
+    r"([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*$", re.M)
+
+
+def parse_e100(texts):
+    """Deterministic parser for E100 International Trade fuel invoices (page-1 product
+    summary + per-transaction annexe). Returns a draft dict, or None when this isn't an
+    E100 invoice / its summary layout isn't recognised (let the AI/generic path try)."""
+    joined = "\n".join(t for _, t in texts)
+    if _E100_MARKER not in joined:
+        return None
+
+    m = re.search(r"\bNr\.?\s+([A-Z]{2}\d{2,}[/\-]\d{2,})", joined)
+    inv_no = m.group(1) if m else None
+    m = re.search(r"(\d{4}-\d{2}-\d{2})\s*-\s*Date\s*/\s*Datums", joined)
+    date = m.group(1) if m else None
+    m = re.search(r"Client\s*/\s*Pirc[ēe]j\w*\s*\n\s*([^\n]+)", joined)
+    customer = re.sub(r"\s+", " ", m.group(1)).strip() if m else None
+
+    # Per-product summary -> authoritative net/VAT + a human-readable breakdown.
+    prods = []
+    for r in _E100_SUMROW.finditer(joined):
+        prods.append((re.sub(r"\s+", " ", r.group(1)).strip(), r.group(2),
+                      _num(r.group(3)), _num(r.group(7)), _num(r.group(9))))
+    if not prods:
+        return None
+    net = money.fsum(p[3] for p in prods)
+    vat = money.fsum(p[4] for p in prods)
+
+    # Independent document total for the tie-out gate: the largest amount on the
+    # "Total / Kopā …" line (the gross). Tolerant of space thousands separators.
+    stated = None
+    mt = re.search(r"Total\s*/\s*Kop[aā][^\n]*", joined)
+    if mt:
+        amts = [_num(x) for x in re.findall(r"\d[\d ]*\.\d{2}", mt.group(0))]
+        stated = max(amts) if amts else None
+
+    # Single refund country from the station-code prefixes (BE167, PL1042 …), cross-checked
+    # against the invoice-number prefix. Mixed prefixes -> don't guess (operator assigns).
+    prefixes = set(re.findall(r"\d{2}:\d{2}\s+([A-Z]{2})\d", joined))
+    inv_prefix = inv_no[:2] if (inv_no and inv_no[:2].isalpha()) else None
+    multi = len(prefixes) > 1
+    cc = None if multi else (next(iter(prefixes)) if len(prefixes) == 1 else inv_prefix)
+    country = _E100_COUNTRY.get(cc) if cc else None
+
+    _, svat = _seller_identity(joined)              # seller VAT for registration recognition
+    breakdown = "; ".join(
+        f"{n} (code {c}): net {money.f2(nt):,.2f} / VAT {money.f2(vt):,.2f}"
+        for n, c, _q, nt, vt in prods)
+    note = f"deterministic parser (E100) — products: {breakdown}"
+    conf = "medium"
+    if multi:
+        note += (" | MULTIPLE supply countries detected in the annexe — set the country per "
+                 "line before confirming (net/VAT above is the whole-invoice total)")
+        conf = "low"
+    elif not country:
+        note += " | could not derive the supply country — set it before confirming"
+
+    draft = {"supplier": "E100", "supplier_vat": svat, "statement_ref": inv_no,
+             "statement_date": date, "currency": _detect_currency(joined),
+             "customer": customer,
+             "lines": [{"invoice_no": inv_no, "date": date, "country": country,
+                        "currency": "EUR", "net": net, "vat": vat, "_source": "E100 summary"}],
+             "notes": note, "backend": "parser", "confidence": conf}
+    if stated is not None:
+        draft["coversheet_total"] = stated
+    return draft
+
+
 # PARSER REGISTRY - add one function per recurring PDF-only supplier here.
 # Each takes [(name, text)] and returns a draft dict (or None if not its supplier).
 # Recognised suppliers extract for free, offline; everything else falls to AI/manual.
@@ -333,7 +426,7 @@ def parse_eurowag(texts):
 #       ... regex the totals ...
 #       return {"supplier": "<CODE>", "statement_ref": ..., "lines": [...],
 #               "backend": "parser", "confidence": "medium", ...}
-PARSERS = [parse_eurowag]
+PARSERS = [parse_eurowag, parse_e100]
 
 
 # ---------------------------------------------------------------- AI backends
