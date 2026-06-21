@@ -273,6 +273,32 @@ def _num(s):
     try: return money.f2(float(s))
     except (TypeError, ValueError): return 0.0
 
+# Legal-form tokens that END a Eurowag seller name in the footer ("… BE BVBA", "…, a.s.",
+# "… LT, UAB", "… Sweden AB", "… d.o.o."). Longer/!ambiguous forms first so the non-greedy
+# capture stops at the RIGHT token (BVBA before BV).
+_EW_LEGAL_FORM = r"(?:BVBA|GmbH|UAB|SIA|s\.r\.o\.|d\.o\.o\.|a\.s\.|S\.A\.|AB|SE|BV)"
+
+
+def _eurowag_seller(t):
+    """(name, vat) of the SELLER read off a Eurowag country-invoice footer
+    ("Pārdevējs / Verkoper: <NAME …legal form>, <address>, … PVN reg. Nr. …: <VAT>"). The
+    seller is the LOCAL issuing entity for that country (W.A.G. payment solutions BE BVBA in
+    BE; W.A.G. payment solutions, a.s. in AT/DE/FR/IT/PL; … LT, UAB in LT; … Sweden AB in SE)
+    — NOT the Czech "W.A.G. Issuing Services, a.s." FACTORING entity that the receivables are
+    ceded to. Returns (None, None) when no footer is present. Never raises."""
+    try:
+        m = re.search(r"P[āa]rdev[ēe]j\w*\s*/[^:]*:\s*(.+?" + _EW_LEGAL_FORM + r")(?=[\s,]|$)", t)
+        if not m:
+            return (None, None)
+        name = re.sub(r"\s+", " ", m.group(1)).strip()
+        seg = t[m.start():m.start() + 500]
+        mv = re.search(r"PVN reg\. Nr\.[^:]*:\s*([A-Z]{2}[A-Z0-9]{6,13})", seg)
+        return (name, mv.group(1) if mv else None)
+    except Exception as e:
+        log.warning("eurowag seller parse failed: %s", e)
+        return (None, None)
+
+
 def parse_eurowag(texts):
     """Deterministic parser for Eurowag/W.A.G. coversheet + country invoices.
     texts: list of (name, extracted_text). Returns a draft dict or None if not Eurowag."""
@@ -311,18 +337,40 @@ def parse_eurowag(texts):
         country = None
         mcn = re.search(r"Izpildes valsts[^\n/]*/?[^\n]*?([A-ZÀ-Ž][a-zà-ž]+)\s*$", t, re.M)
         if mcn: country = mcn.group(1)
-        lines.append({"invoice_no": inv.group(1) if inv else None,
-                      "date": None, "country": country,
-                      "currency": "EUR", "net": net, "vat": vat, "_source": name})
+        # SELLER read OFF THIS country invoice (the local issuing legal entity), per line.
+        sname, svat = _eurowag_seller(t)
+        ln = {"invoice_no": inv.group(1) if inv else None,
+              "date": None, "country": country,
+              "currency": "EUR", "net": net, "vat": vat, "_source": name}
+        if sname:
+            ln["supplier_name"] = sname
+            ln["supplier_is_line_specific"] = True
+        if svat:
+            ln["supplier_vat"] = svat
+        lines.append(ln)
     NAT = {"België":"Belgium","Belgique":"Belgium","Deutschland":"Germany","Österreich":"Austria",
            "France":"France","Italia":"Italy","Polska":"Poland","Sverige":"Sweden",
            "Slovenija":"Slovenia","Lietuva":"Lithuania","Latvija":"Latvia","Latvia":"Latvia"}
     for ln in lines:
         if ln["country"] in NAT: ln["country"] = NAT[ln["country"]]
-    return {"supplier": "EUROWAG", "statement_ref": ref, "statement_date": None,
-            "currency": "EUR", "customer": customer, "lines": lines,
-            "notes": "deterministic parser (Eurowag) - verify country & dates",
-            "backend": "parser", "confidence": "medium"}
+    draft = {"supplier": "EUROWAG", "statement_ref": ref, "statement_date": None,
+             "currency": "EUR", "customer": customer, "lines": lines,
+             "notes": "deterministic parser (Eurowag) - verify country & dates",
+             "backend": "parser", "confidence": "medium"}
+    # When every country invoice in the batch is from ONE seller (the common single-country
+    # case), surface the invoice-read legal entity at the draft level so the captured-entity
+    # panel LEADS WITH THE SELLER PRINTED ON THE INVOICE, not the master's group primary.
+    sellers = {(ln.get("supplier_name"), ln.get("supplier_vat"))
+               for ln in lines if ln.get("supplier_name")}
+    if len(sellers) == 1:
+        nm, vt = next(iter(sellers))
+        draft["supplier_legal_name"] = nm
+        if vt:
+            draft["supplier_vat"] = vt
+        ctrys = {ln.get("country") for ln in lines if ln.get("country")}
+        if len(ctrys) == 1:
+            draft["supplier_country"] = next(iter(ctrys))
+    return draft
 
 
 # E100 -------------------------------------------------------------------------------------
@@ -406,6 +454,7 @@ def parse_e100(texts):
     country = _E100_COUNTRY.get(cc) if cc else None
 
     svat = _e100_seller_vat(joined)                 # SELLER VAT, anchored to the E100 name
+    sname, _ = _seller_identity(joined)             # SELLER legal name read off the invoice
     breakdown = "; ".join(
         f"{n} (code {c}): net {money.f2(nt):,.2f} / VAT {money.f2(vt):,.2f}"
         for n, c, _q, nt, vt in prods)
@@ -433,6 +482,10 @@ def parse_e100(texts):
              "statement_date": date, "currency": _detect_currency(joined),
              "customer": customer, "products": products, "lines": lines,
              "notes": note, "backend": "parser", "confidence": conf}
+    if sname:
+        draft["supplier_legal_name"] = sname        # lead the panel with the invoice's seller
+    if country:
+        draft["supplier_country"] = country
     if stated is not None:
         draft["coversheet_total"] = stated
     return draft
