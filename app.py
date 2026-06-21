@@ -5281,6 +5281,26 @@ def _sync_supplier_master(supplier_code, draft, actor, invoice_ref=None):
         return ""
 
 
+def _attach_audit_snapshot(con, ent, sup, inv, pdf_bytes, draft, period, country):
+    """Vault an AUDIT COPY of the original invoice PDF with the SUPPLIER details boxed RED and
+    the CLIENT details boxed BLUE (kind='audit_snapshot'), linked to the same invoice — for
+    internal audit & compliance. Best-effort: never raises into the confirm path; does nothing
+    if nothing could be highlighted (e.g. a non-PDF intake). Returns True when one was stored."""
+    try:
+        import audit_snapshot, vat_refund as VR
+        sup_s, cli_s = audit_snapshot.strings_from_draft(draft)
+        annotated = audit_snapshot.build(pdf_bytes, sup_s, cli_s)
+        if not annotated:
+            return False
+        ok, _ = VR.attach_document(con, ent, sup, inv, file_bytes=annotated,
+                                   filename=f"{inv}_audit.pdf", kind="audit_snapshot",
+                                   country=country, period=period)
+        return bool(ok)
+    except Exception as e:
+        _log_exc("audit snapshot attach", e)
+        return False
+
+
 def _read_first_notice(draft, period):
     """Surface what read-first extraction AUTO-DETECTED (supplier, statement ref/date,
     derived period) and, for an UNKNOWN supplier, either enqueue an auto-onboard job (when
@@ -6620,21 +6640,32 @@ def extract_confirm():
     # attach source PDFs to the vault against their invoice refs
     attached = 0
     if _os.path.exists(tmpf):
+        import hashlib as _hl
         pdfs = pickle.load(open(tmpf, "rb"))
         fcon = VR.connect()
         ent = customer or supplier
         by_name = {nm: b for nm, b in pdfs}
+        snapped = set()                        # one audit snapshot per PHYSICAL pdf
         for i in range(n):
             inv = request.form.get(f"inv_{i}", "").strip()
             src = request.form.get(f"src_{i}", "")
             # match the line's source PDF if the name was carried; else attach all to first
             cand = next((b for nm, b in pdfs if inv and inv[:8] in nm), None)
             if inv and cand:
+                ctry_i = request.form.get(f"ctry_{i}", "").strip() or None
                 ok, _ = VR.attach_document(fcon, ent, supplier, inv, file_bytes=cand,
                                            filename=f"{inv}.pdf", kind="original_pdf",
-                                           country=request.form.get(f"ctry_{i}", "").strip() or None,
-                                           period=period)
-                if ok: attached += 1
+                                           country=ctry_i, period=period)
+                if ok:
+                    attached += 1
+                    # AUDIT SNAPSHOT: a duplicate of the original with supplier (red) / client
+                    # (blue) details boxed — for internal audit & compliance. Best-effort, one
+                    # per physical PDF, never blocks the confirm.
+                    h = _hl.sha256(cand).hexdigest()
+                    if h not in snapped:
+                        snapped.add(h)
+                        _attach_audit_snapshot(fcon, ent, supplier, inv, cand,
+                                               _confirm_draft, period, ctry_i)
         fcon.close()
         _os.unlink(tmpf)
     _drop_draft()
