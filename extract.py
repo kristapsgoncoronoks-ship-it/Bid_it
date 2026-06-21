@@ -406,9 +406,11 @@ def parse_e100(texts):
     elif not country:
         note += " | could not derive the supply country — set it before confirming"
 
+    products = [{"name": n, "code": c, "qty": q, "net": nt, "vat": vt}
+                for n, c, q, nt, vt in prods]
     draft = {"supplier": "E100", "supplier_vat": svat, "statement_ref": inv_no,
              "statement_date": date, "currency": _detect_currency(joined),
-             "customer": customer,
+             "customer": customer, "products": products,
              "lines": [{"invoice_no": inv_no, "date": date, "country": country,
                         "currency": "EUR", "net": net, "vat": vat, "_source": "E100 summary"}],
              "notes": note, "backend": "parser", "confidence": conf}
@@ -1067,10 +1069,22 @@ def _plain_draft(texts, files, backend, filename, strict, ocr_used=False):
     except Exception as e:
         log.warning("auto-classification skipped (advisory) for %s: %s", filename, e)
 
+    # DETERMINISTIC-FIRST: try the per-supplier parsers BEFORE any AI path. A recognised
+    # layout (Eurowag/E100/…) must be parsed deterministically and must NEVER be handed to
+    # the AI vision-capture model (which can mis-read e.g. the buyer vs the seller). Only an
+    # UNRECOGNISED plain PDF (no parser match) falls through to vision capture / text AI /
+    # generic. Skipped only in explicit manual mode (backend 'none').
+    parser_draft = None
+    if backend != "none":
+        for p in PARSERS:
+            parser_draft = p(texts)
+            if parser_draft:
+                break
+
     capture_failed_reason = None
     try:
         import vision_capture
-        if vision_capture.enabled():
+        if parser_draft is None and vision_capture.enabled():
             # DLP gate (OPT-IN, default permissive): refuse to send the page images to the
             # external vision provider when the just-scanned label EXCEEDS the admin policy.
             dlp_block = None
@@ -1108,12 +1122,8 @@ def _plain_draft(texts, files, backend, filename, strict, ocr_used=False):
         log.warning("vision capture path failed (%s) — falling back to the existing path", e)
         capture_failed_reason = f"vision capture path failed: {e}"
 
-    draft = None
+    draft = parser_draft                           # deterministic-first result (computed above)
     fallback_note = "no parser matched and no AI backend configured - enter manually"
-    if backend in ("auto", "parser"):
-        for p in PARSERS:
-            draft = p(texts)
-            if draft: break
     if draft is None and backend in ("auto", "claude", "openai", "azure"):
         be = backend if backend in _AI else os.environ.get("AI_BACKEND", "")
         if be in _AI:

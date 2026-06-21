@@ -79,6 +79,36 @@ def test_parse_e100_registered_via_parser_backend():
     assert d["lines"][0]["country"] == "Belgium"
 
 
+def test_e100_parser_runs_before_vision_capture(monkeypatch):
+    # DETERMINISTIC-FIRST: a recognised supplier must use its parser even when AI vision
+    # capture is ENABLED — the vision model must never be reached for a known layout.
+    import vision_capture
+    monkeypatch.setattr(vision_capture, "enabled", lambda: True)
+
+    def _boom(*a, **k):
+        raise AssertionError("vision capture must NOT run when a parser matches")
+    monkeypatch.setattr(vision_capture, "capture", _boom)
+    d = EX._plain_draft([("BE95489.pdf", E100_TEXT)], [("BE95489.pdf", b"%PDF")],
+                        "auto", "BE95489.pdf", False)
+    assert d["backend"] == "parser" and d["supplier"] == "E100"
+    assert d["supplier_vat"] == "BE0676647155"
+
+
+def test_e100_parser_runs_under_ai_backend():
+    # Even with an explicit AI backend selected, the deterministic parser runs FIRST (no AI
+    # call is made for a recognised supplier) — so the seller VAT is captured, not the buyer.
+    d = EX._plain_draft([("BE95489.pdf", E100_TEXT)], [("BE95489.pdf", b"%PDF")],
+                        "claude", "BE95489.pdf", False)
+    assert d["backend"] == "parser" and d["supplier_vat"] == "BE0676647155"
+
+
+def test_parse_e100_carries_product_breakdown():
+    d = EX.parse_e100([("BE95489.pdf", E100_TEXT)])
+    names = {p["name"]: p for p in d["products"]}
+    assert names["AdBlue"]["net"] == 813.09 and names["AdBlue"]["code"] == "41"
+    assert names["Diesel euro"]["net"] == 12297.12 and names["Diesel euro"]["vat"] == 2582.39
+
+
 def test_parse_e100_multi_country_does_not_guess():
     # if the annexe shows >1 station country, the parser must NOT guess a single country
     txt = E100_TEXT.replace(

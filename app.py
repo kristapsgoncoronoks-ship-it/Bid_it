@@ -4981,6 +4981,37 @@ def _supplier_legal_name(code):
         return None
 
 
+def _supplier_master_entity(code):
+    """READ-ONLY canonical legal entity for a KNOWN supplier code from suppliers.db (via
+    dataproduct, mode=ro): {legal_name, address, country, reg_no, vat}. The VAT is the
+    supplier's registered VAT id (first by country). Used to lead the captured-entity panel
+    with the canonical legal entity for a recognised supplier, rather than the bare code.
+    Returns {} for an unknown code / blank / any read error (never raises)."""
+    code = (code or "").strip().upper()
+    if not code:
+        return {}
+    try:
+        import dataproduct
+        con = dataproduct.connect("suppliers")
+        try:
+            r = con.execute("SELECT legal_name, address, home_country, company_reg "
+                            "FROM suppliers WHERE code=?", (code,)).fetchone()
+            v = con.execute("SELECT vat_number FROM supplier_vat_registrations "
+                            "WHERE supplier=? ORDER BY country LIMIT 1", (code,)).fetchone()
+        finally:
+            con.close()
+        if r is None:
+            return {}
+        return {"legal_name": (r["legal_name"] or "").strip() or None,
+                "address": (r["address"] or "").strip() or None,
+                "country": (r["home_country"] or "").strip() or None,
+                "reg_no": (r["company_reg"] or "").strip() or None,
+                "vat": (v["vat_number"].strip() if v and v["vat_number"] else None)}
+    except Exception as e:
+        _log_exc("supplier master entity lookup", e)
+        return {}
+
+
 def _norm_name(s):
     """Normalise a supplier name for matching: lowercase, drop punctuation, collapse spaces."""
     s = re.sub(r"[^\w\s]", " ", (s or "").lower())
@@ -5692,6 +5723,21 @@ def _captured_entity_html(draft):
     except Exception as ex:
         _log_exc("captured entity html", ex)
         return ""
+    # For a RECOGNISED supplier, LEAD WITH THE CANONICAL LEGAL ENTITY (suppliers.db) rather
+    # than the bare matched code: show the real legal name, registered VAT, address, country
+    # and reg-no. The captured invoice values fill any gap the master lacks. This is what a
+    # reviewer expects to see for a known supplier (e.g. E100 -> "E100 International Trade
+    # sp. z o.o.", VAT BE…, Warszawa) instead of just the code.
+    code = ((draft or {}).get("supplier") or "").strip() if isinstance(draft, dict) else ""
+    master = _supplier_master_entity(code) if (code and _supplier_known(code)) else {}
+    known = bool(master)
+    if master:
+        e = {"legal_name": master.get("legal_name") or e.get("legal_name"),
+             "reg_no": master.get("reg_no") or e.get("reg_no"),
+             "address": master.get("address") or e.get("address"),
+             "country": master.get("country") or e.get("country"),
+             "vat": master.get("vat") or e.get("vat"),
+             "iban": e.get("iban"), "bank": e.get("bank")}
     if not (e.get("legal_name") or e.get("vat")):
         return ""
     fields = [("Legal name", e.get("legal_name")),
@@ -5707,12 +5753,35 @@ def _captured_entity_html(draft):
         f'<tr><td style="color:var(--mut);width:170px">{esc(label)}</td>'
         f'<td>{_cell(val)}</td></tr>'
         for label, val in fields)
+    # FUEL / PRODUCTS supplied — surfaced alongside the legal entity so the panel shows WHO
+    # supplied and WHAT (net EUR, VAT excluded). Derived from the parser's product breakdown;
+    # omitted when none was captured (e.g. a header-only AI draft).
+    fuel = ""
+    prods = (draft or {}).get("products") if isinstance(draft, dict) else None
+    if prods:
+        rows = "".join(
+            f'<tr><td>{esc(p.get("name") or "—")}</td>'
+            f'<td class="r note">{esc(str(p.get("code") or ""))}</td>'
+            f'<td class="r">{money.f2(p.get("qty") or 0):,.0f} L</td>'
+            f'<td class="r">{money.f2(p.get("net") or 0):,.2f}</td>'
+            f'<td class="r">{money.f2(p.get("vat") or 0):,.2f}</td></tr>'
+            for p in prods if isinstance(p, dict))
+        fuel = ('<table style="margin-top:10px"><thead><tr>'
+                '<th>Fuel / product</th><th class="r">Code</th><th class="r">Qty</th>'
+                '<th class="r">Net €</th><th class="r">VAT €</th></tr></thead>'
+                f'<tbody>{rows}</tbody></table>'
+                '<div class="note">Net EUR, VAT excluded. Advisory breakdown read off the '
+                'invoice summary; the claim is built from the registered line(s) below.</div>')
+    intro = ('Canonical legal entity from the supplier master (kept current from confirmed '
+             'invoices). Bank account (IBAN) and VAT-number changes are NEVER auto-applied; '
+             'they go to an admin for confirmation.' if known else
+             'Read off this invoice as the real legal entity. On confirm, an unknown supplier '
+             'is added (provisional) and a known one\'s details are kept up to date — bank '
+             'account (IBAN) and VAT-number changes are NEVER auto-applied; they go to an '
+             'admin for confirmation.')
     return ('<div class="card"><h2>Captured supplier — legal entity</h2>'
-            '<div class="note">Read off this invoice as the real legal entity. On confirm, an '
-            'unknown supplier is added (provisional) and a known one\'s details are kept up to '
-            'date — bank account (IBAN) and VAT-number changes are NEVER auto-applied; they go '
-            'to an admin for confirmation.</div>'
-            f'<table style="margin-top:8px"><tbody>{body}</tbody></table></div>')
+            f'<div class="note">{intro}</div>'
+            f'<table style="margin-top:8px"><tbody>{body}</tbody></table>{fuel}</div>')
 
 
 # ============================ REVIEW COCKPIT (Build 2) ========================
