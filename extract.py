@@ -280,23 +280,42 @@ _EW_LEGAL_FORM = r"(?:BVBA|GmbH|UAB|SIA|s\.r\.o\.|d\.o\.o\.|a\.s\.|S\.A\.|AB|SE|
 
 
 def _eurowag_seller(t):
-    """(name, vat) of the SELLER read off a Eurowag country-invoice footer
-    ("Pārdevējs / Verkoper: <NAME …legal form>, <address>, … PVN reg. Nr. …: <VAT>"). The
-    seller is the LOCAL issuing entity for that country (W.A.G. payment solutions BE BVBA in
-    BE; W.A.G. payment solutions, a.s. in AT/DE/FR/IT/PL; … LT, UAB in LT; … Sweden AB in SE)
-    — NOT the Czech "W.A.G. Issuing Services, a.s." FACTORING entity that the receivables are
-    ceded to. Returns (None, None) when no footer is present. Never raises."""
+    """The SELLER legal entity read off a Eurowag country-invoice footer
+    ("Pārdevējs / Verkoper: <NAME …legal form>, <address>, Uzņēmuma ID …: <reg>, PVN reg.
+    Nr. …: <VAT>"). The seller is the LOCAL issuing entity for that country (W.A.G. payment
+    solutions BE BVBA in BE; … a.s. in AT/DE/FR/IT/PL; … LT, UAB in LT; … Sweden AB in SE) —
+    NOT the Czech "W.A.G. Issuing Services, a.s." FACTORING entity the receivables are ceded
+    to. Returns {name, vat, reg_no, address} (missing keys absent), or {}. Never raises."""
     try:
         m = re.search(r"P[āa]rdev[ēe]j\w*\s*/[^:]*:\s*(.+?" + _EW_LEGAL_FORM + r")(?=[\s,]|$)", t)
         if not m:
-            return (None, None)
-        name = re.sub(r"\s+", " ", m.group(1)).strip()
-        seg = t[m.start():m.start() + 500]
+            return {}
+        out = {"name": re.sub(r"\s+", " ", m.group(1)).strip()}
+        seg = t[m.end():m.end() + 400]                       # the rest of the footer line
         mv = re.search(r"PVN reg\. Nr\.[^:]*:\s*([A-Z]{2}[A-Z0-9]{6,13})", seg)
-        return (name, mv.group(1) if mv else None)
+        if mv:
+            out["vat"] = mv.group(1)
+        mr = re.search(r"Uzņēmuma ID[^:]*:\s*([0-9][0-9 ]{4,})", seg)
+        if mr:
+            out["reg_no"] = mr.group(1).strip()
+        ma = re.match(r"\s*,\s*(.+?)\s*,?\s*Uzņēmuma ID", seg)
+        if ma:
+            out["address"] = re.sub(r"\s+", " ", ma.group(1)).strip()
+        return out
     except Exception as e:
         log.warning("eurowag seller parse failed: %s", e)
-        return (None, None)
+        return {}
+
+
+def _eurowag_date(t):
+    """Invoice ISSUE date (YYYY-MM-DD) off a Eurowag invoice ("Izsniegšanas datums / Datum
+    van afgifte 31.05.2026"), or None. Never raises."""
+    try:
+        md = re.search(r"(?:Izsniegšanas datums|Datum van afgifte)\D*?"
+                       r"(\d{2})\.(\d{2})\.(\d{4})", t)
+        return f"{md.group(3)}-{md.group(2)}-{md.group(1)}" if md else None
+    except Exception:
+        return None
 
 
 def parse_eurowag(texts):
@@ -338,15 +357,16 @@ def parse_eurowag(texts):
         mcn = re.search(r"Izpildes valsts[^\n/]*/?[^\n]*?([A-ZÀ-Ž][a-zà-ž]+)\s*$", t, re.M)
         if mcn: country = mcn.group(1)
         # SELLER read OFF THIS country invoice (the local issuing legal entity), per line.
-        sname, svat = _eurowag_seller(t)
+        seller = _eurowag_seller(t)
         ln = {"invoice_no": inv.group(1) if inv else None,
-              "date": None, "country": country,
+              "date": _eurowag_date(t), "country": country,
               "currency": "EUR", "net": net, "vat": vat, "_source": name}
-        if sname:
-            ln["supplier_name"] = sname
+        if seller.get("name"):
+            ln["supplier_name"] = seller["name"]
             ln["supplier_is_line_specific"] = True
-        if svat:
-            ln["supplier_vat"] = svat
+        if seller.get("vat"):
+            ln["supplier_vat"] = seller["vat"]
+        ln["_seller"] = seller                       # carried for the draft-level roll-up
         lines.append(ln)
     NAT = {"België":"Belgium","Belgique":"Belgium","Deutschland":"Germany","Österreich":"Austria",
            "France":"France","Italia":"Italy","Polska":"Poland","Sverige":"Sweden",
@@ -358,18 +378,28 @@ def parse_eurowag(texts):
              "notes": "deterministic parser (Eurowag) - verify country & dates",
              "backend": "parser", "confidence": "medium"}
     # When every country invoice in the batch is from ONE seller (the common single-country
-    # case), surface the invoice-read legal entity at the draft level so the captured-entity
-    # panel LEADS WITH THE SELLER PRINTED ON THE INVOICE, not the master's group primary.
+    # case), surface the FULL invoice-read legal entity at the draft level so the captured-
+    # entity panel LEADS WITH THE SELLER PRINTED ON THE INVOICE (name, VAT, reg-no, address),
+    # not the master's group primary.
     sellers = {(ln.get("supplier_name"), ln.get("supplier_vat"))
                for ln in lines if ln.get("supplier_name")}
     if len(sellers) == 1:
-        nm, vt = next(iter(sellers))
-        draft["supplier_legal_name"] = nm
-        if vt:
-            draft["supplier_vat"] = vt
+        s0 = next(ln["_seller"] for ln in lines if ln.get("_seller", {}).get("name"))
+        draft["supplier_legal_name"] = s0["name"]
+        if s0.get("vat"):
+            draft["supplier_vat"] = s0["vat"]
+        if s0.get("address"):
+            draft["supplier_address"] = s0["address"]
+        if s0.get("reg_no"):
+            draft["supplier_reg_no"] = s0["reg_no"]
         ctrys = {ln.get("country") for ln in lines if ln.get("country")}
         if len(ctrys) == 1:
             draft["supplier_country"] = next(iter(ctrys))
+    dates = {ln.get("date") for ln in lines if ln.get("date")}
+    if len(dates) == 1:
+        draft["statement_date"] = next(iter(dates))
+    for ln in lines:                                 # drop the internal roll-up helper
+        ln.pop("_seller", None)
     return draft
 
 

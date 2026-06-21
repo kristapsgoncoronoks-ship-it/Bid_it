@@ -5298,14 +5298,24 @@ def _read_first_notice(draft, period):
             vs = _vat_shaped(supplier)
             if vs:
                 vat = vs
+        # LEAD WITH THE LEGAL ENTITY read off the invoice (never the supplier code/brand). The
+        # supplier link is only a SUGGESTION a processor confirms — we never assert it here.
+        inv_entity = (draft.get("supplier_legal_name") or "").strip()
+        known_now = bool(supplier and _supplier_known(supplier))
+        entity = (inv_entity or (_supplier_legal_name(supplier) if known_now else "")
+                  or supplier or "—")
         detected = ('<div class="card"><b class="ok">Auto-detected from the document</b>'
-                    '<div class="note">These were read for you; the fields below are '
-                    'editable overrides.</div><ul style="margin:6px 0 0 18px">'
-                    f'<li>supplier: <b>{esc(supplier or "—")}</b>'
+                    '<div class="note">Read off the invoice. The supplier link is a '
+                    'SUGGESTION — a processor confirms or changes it below.</div>'
+                    '<ul style="margin:6px 0 0 18px">'
+                    f'<li>legal entity: <b>{esc(entity)}</b>'
                     + (f' (VAT {esc(vat)})' if vat else "") + '</li>'
                     f'<li>statement ref: <b>{esc(draft.get("statement_ref") or "—")}</b></li>'
                     f'<li>statement date: <b>{esc(draft.get("statement_date") or "—")}</b></li>'
-                    f'<li>period (derived): <b>{esc(period or "—")}</b></li></ul></div>')
+                    f'<li>period (derived): <b>{esc(period or "—")}</b></li>'
+                    + (f'<li>suggested supplier: <b>{esc(supplier)}</b> '
+                       '<span class="note">(confirm below)</span></li>' if known_now else "")
+                    + '</ul></div>')
         # The raw value the PDF carried (often a BRAND, e.g. "Shell") — kept as secondary
         # context so the operator can see what was read even after we lead with the entity.
         raw_captured = supplier
@@ -5327,15 +5337,16 @@ def _read_first_notice(draft, period):
                         'statement against it now. Manage brand→entity links on the '
                         '<a href="/suppliers">Suppliers</a> page.</div></div>')
         if not supplier or _supplier_known(supplier):
-            # Already a known code (or nothing captured). When it's a known supplier, lead
-            # with its LEGAL ENTITY too, so the canonical identity is what the user sees.
-            if supplier and _supplier_known(supplier):
+            # Already a known code (or nothing captured). The detected panel already LEADS with
+            # the invoice-read legal entity; only add a secondary note when nothing was read off
+            # the invoice (then the master's canonical name is the best we have to show).
+            if supplier and _supplier_known(supplier) and not inv_entity:
                 legal = _supplier_legal_name(supplier)
                 if legal and _norm_name(legal) != _norm_name(supplier):
-                    detected += ('<div class="card"><b class="ok">Supplier — legal entity'
-                                 '</b><div class="note">Legal entity: '
-                                 f'<b>{esc(legal)}</b> (code <b>{esc(supplier)}</b>).'
-                                 '</div></div>')
+                    detected += ('<div class="card"><b class="ok">Suggested supplier — legal '
+                                 'entity</b><div class="note">Legal entity: '
+                                 f'<b>{esc(legal)}</b> (suggested supplier code '
+                                 f'<b>{esc(supplier)}</b> — confirm below).</div></div>')
             return detected
         # UNKNOWN supplier — onboard only when a VAT id yields a country (never guess).
         country = SM.country_from_vat(vat) if vat else None
@@ -5866,12 +5877,16 @@ def _captured_entity_html(draft):
             where = f" for {esc(one_country)}" if one_country else ""
             diffs.append(f"VAT on this invoice is <b>{esc(cap_vat)}</b>, but the registered "
                          f"VAT{where} is <b>{esc(ref_vat)}</b>")
-        cap_addr, mas_addr = captured.get("address"), master.get("address")
-        if cap_addr and mas_addr:
-            na, nb = _nrm(cap_addr), _nrm(mas_addr)
-            if na and nb and na not in nb and nb not in na:
-                diffs.append(f"registered address on this invoice (<b>{esc(cap_addr)}</b>) "
-                             f"differs from the master (<b>{esc(mas_addr)}</b>)")
+        # Address diff is only meaningful for a SINGLE-entity supplier: a per-country seller's
+        # address (read off the invoice) naturally differs from the group primary's, so don't
+        # raise noise for it.
+        if not read_off_invoice and not per_country_issuer:
+            cap_addr, mas_addr = captured.get("address"), master.get("address")
+            if cap_addr and mas_addr:
+                na, nb = _nrm(cap_addr), _nrm(mas_addr)
+                if na and nb and na not in nb and nb not in na:
+                    diffs.append(f"registered address on this invoice (<b>{esc(cap_addr)}</b>) "
+                                 f"differs from the master (<b>{esc(mas_addr)}</b>)")
     diff_html = ""
     if diffs:
         diff_html = ('<div class="card" style="border-left:4px solid #e67e22;'
