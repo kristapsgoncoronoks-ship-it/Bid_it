@@ -5026,9 +5026,10 @@ def _supplier_country_registration(code, country):
     dataproduct, ro): {vat_number, entity_name}. A supplier group can ISSUE through a
     different legal entity per country (e.g. Eurowag: 'W.A.G. payment solutions BE BVBA' in
     Belgium vs 'W.A.G. Issuing Services, a.s.' in Czechia) — so the captured-entity panel must
-    show the entity for the INVOICE's country, not the group's primary. entity_name is the
-    registration `source` only when it looks like a company name (else None -> caller falls
-    back to the primary legal name). Returns {} for unknown / blank / any read error."""
+    show the entity for the INVOICE's country, not the group's primary. entity_name comes from
+    the dedicated `entity_name` column (where learned/curated per-country entities land), else
+    falls back to the legacy `source` when that looks like a company name (else None -> caller
+    falls back to the primary legal name). Returns {} for unknown / blank / any read error."""
     code = (code or "").strip().upper()
     country = (country or "").strip()
     if not code or not country:
@@ -5037,15 +5038,25 @@ def _supplier_country_registration(code, country):
         import dataproduct
         con = dataproduct.connect("suppliers")
         try:
-            r = con.execute("SELECT vat_number, source FROM supplier_vat_registrations "
-                            "WHERE supplier=? AND country=? COLLATE NOCASE",
-                            (code, country)).fetchone()
+            # entity_name is added by a runtime migration; a read-only view of an un-migrated
+            # DB (e.g. the demo blob) may not have it yet — fall back to source-only then.
+            try:
+                r = con.execute("SELECT vat_number, source, entity_name "
+                                "FROM supplier_vat_registrations "
+                                "WHERE supplier=? AND country=? COLLATE NOCASE",
+                                (code, country)).fetchone()
+            except sqlite3.OperationalError:
+                r = con.execute("SELECT vat_number, source FROM supplier_vat_registrations "
+                                "WHERE supplier=? AND country=? COLLATE NOCASE",
+                                (code, country)).fetchone()
         finally:
             con.close()
         if r is None:
             return {}
+        ent = (r["entity_name"].strip() if "entity_name" in r.keys() and r["entity_name"]
+               else "")
         src = (r["source"] or "").strip()
-        name = src if (src and _LEGAL_FORM_RE.search(src)) else None
+        name = ent or (src if (src and _LEGAL_FORM_RE.search(src)) else None)
         return {"vat_number": (r["vat_number"] or "").strip() or None, "entity_name": name}
     except Exception as e:
         _log_exc("supplier country registration lookup", e)
@@ -5246,6 +5257,13 @@ def _sync_supplier_master(supplier_code, draft, actor, invoice_ref=None):
         updated = res.get("updated") or []
         pending = res.get("pending") or []
         bits = ""
+        if res.get("entity_country"):
+            bits += (f'<div class="card"><b class="ok">Learned the {esc(res["entity_country"])} '
+                     f'issuing entity for {esc(supplier_code)}</b><div class="note">The legal '
+                     'entity read off this invoice was recorded as this supplier’s '
+                     f'{esc(res["entity_country"])} per-country entity (it lands on the VAT '
+                     'claim). It’s marked unverified until an admin confirms it on the '
+                     '<a href="/suppliers">Suppliers</a> page.</div></div>')
         if updated:
             bits += (f'<div class="card"><b class="ok">Supplier {esc(supplier_code)} '
                      f'updated ({esc(", ".join(updated))})</b><div class="note">AI-verified '

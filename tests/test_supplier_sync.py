@@ -44,6 +44,29 @@ def test_plan_new_supplier():
     assert p["high_risk_changes"] == {}
 
 
+def test_apply_existing_learns_per_country_entity():
+    # 'Learn the entity from invoices': a captured Belgian seller for a multi-country group
+    # (Eurowag, home CZ) SEEDS the Belgium per-country entity + VAT so it lands on the VAT
+    # claim — and does NOT overwrite the group PRIMARY legal_name, nor queue a spurious VAT
+    # change from the per-country VAT.
+    _seed()
+    cap = {"legal_name": "W.A.G. payment solutions BE BVBA", "country": "Belgium",
+           "vat": "BE0648861506"}
+    res = SS.apply(cap, "EUROWAG", actor="t", verified=True, invoice_ref="BE1")
+    assert res.get("entity_country") == "Belgium"
+    assert res.get("pending") == []                       # no bogus VAT 'change' queued
+    assert "legal_name" not in (res.get("updated") or [])  # group primary not churned
+    # get_issuer for Belgium now returns the BELGIAN entity + VAT (was the Czech fallback)
+    name, vat, _ = SM.get_issuer("EUROWAG", "Belgium")
+    assert name == "W.A.G. payment solutions BE BVBA"
+    assert vat == "BE0648861506"
+    # the group PRIMARY legal_name is unchanged
+    con = SM.connect()
+    prim = con.execute("SELECT legal_name FROM suppliers WHERE code='EUROWAG'").fetchone()[0]
+    con.close()
+    assert prim == "W.A.G. Issuing Services, a.s."
+
+
 def test_plan_safe_field_change():
     _seed()
     ex = _existing("TFC")

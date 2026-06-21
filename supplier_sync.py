@@ -328,7 +328,14 @@ def _apply_new(captured, actor, gate_ok, invoice_ref):
 
 def _apply_existing(captured, code, actor, gate_ok, invoice_ref):
     """Auto-apply SAFE field updates (when the gate is met) and queue HIGH-RISK changes
-    (IBAN/VAT) as pending change requests — NEVER touching the stored bank account / VAT."""
+    (IBAN/VAT) as pending change requests — NEVER touching the stored bank account / VAT.
+
+    PER-COUNTRY LEARNING (the 'learn the entity from invoices' loop): when the invoice's SUPPLY
+    country differs from the supplier's home country (a group like Eurowag issuing through a
+    LOCAL legal entity per country), the captured seller is that country's issuing entity. It
+    SEEDS the supply country's VAT registration (entity_name + VAT, source='capture' — which
+    never clobbers a curated value), and is NOT treated as a change to the GROUP PRIMARY
+    legal_name / home VAT (so a Belgian Eurowag seller never overwrites the Czech primary)."""
     con = SM.connect()
     audit.set_actor(con, actor or "system")
     try:
@@ -336,7 +343,34 @@ def _apply_existing(captured, code, actor, gate_ok, invoice_ref):
         existing = load_existing(code, con=con)
         if existing is None:
             return {"skipped": f"supplier {code} not found"}
+
+        # Is this a PER-COUNTRY seller (supply country != home country)? Prefer the captured
+        # VAT prefix, else the captured country name -> ISO.
+        supply_country = _s(captured.get("country"))                 # a NAME, e.g. "Belgium"
+        home_iso = (_s(existing.get("home_country")) or "").upper()
+        cap_iso = (SM.country_from_vat(captured.get("vat"))
+                   or _country_to_iso(supply_country) or "").upper()
+        per_country = bool(gate_ok and supply_country and cap_iso
+                           and home_iso and cap_iso != home_iso)
+        seeded_country = None
+        if per_country:
+            c_name = _s(captured.get("legal_name"))
+            c_vat = _s(captured.get("vat"))
+            if c_name or c_vat:
+                # key by the supply-country NAME — the same key get_issuer / the claim build use
+                SM.set_vat_registration(code, supply_country, c_vat or None,
+                                        source="capture", entity_name=c_name or None)
+                seeded_country = supply_country
+
         p = plan(captured, existing)
+        if per_country:
+            # the captured seller is a PER-COUNTRY entity, not the group primary — never churn
+            # the primary legal_name/address or queue a spurious home-VAT change from it.
+            for k in ("legal_name", "address"):
+                p["safe_updates"].pop(k, None)
+            for k in ("vat", "company_reg"):
+                p["high_risk_changes"].pop(k, None)
+
         updated = []
         # SAFE fields: auto-apply only when verified / high-confidence.
         if gate_ok and p["safe_updates"]:
@@ -346,7 +380,7 @@ def _apply_existing(captured, code, actor, gate_ok, invoice_ref):
                             [new, code, *params])
                 updated.append(field)
             con.commit()
-            # keep the per-country entity_name in step with a legal_name change (capture
+            # keep the HOME-country entity_name in step with a primary legal_name change (capture
             # source; manual edits still win via set_vat_registration precedence)
             if "legal_name" in p["safe_updates"]:
                 home = (existing.get("home_country") or "").strip()
@@ -360,10 +394,14 @@ def _apply_existing(captured, code, actor, gate_ok, invoice_ref):
         for field, (old, new) in p["high_risk_changes"].items():
             _queue_change(con, code, field, old, new, invoice_ref, actor)
             pending.append(field)
-        if updated or pending:
-            log.info("supplier_sync: %s — %d safe update(s), %d pending high-risk",
-                     code, len(updated), len(pending))
-        return {"updated": updated, "pending": pending}
+        if updated or pending or seeded_country:
+            log.info("supplier_sync: %s — %d safe update(s), %d pending high-risk, "
+                     "per-country entity: %s", code, len(updated), len(pending),
+                     seeded_country or "-")
+        res = {"updated": updated, "pending": pending}
+        if seeded_country:
+            res["entity_country"] = seeded_country
+        return res
     finally:
         audit.reset_actor(con)
         con.close()
