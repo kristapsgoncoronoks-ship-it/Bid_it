@@ -11895,8 +11895,14 @@ def _pending_changes_card(standalone=False):
                    '<form method="post" action="/supplier-changes" style="display:inline">'
                    + common + '<button name="__act" value="reject" '
                    'style="background:var(--mut)">Reject</button></form>')
+        # Show the LEGAL ENTITY (not the bare supplier code/prefix) — the code is secondary.
+        sup_code = r.get("supplier") or ""
+        legal = _supplier_legal_name(sup_code) or sup_code
+        sup_cell = f'<b>{esc(legal)}</b>'
+        if _norm_name(legal) != _norm_name(sup_code):
+            sup_cell += f'<div class="note">{esc(sup_code)}</div>'
         rows.append([
-            f'<td><b>{esc(r.get("supplier") or "")}</b></td>',
+            f'<td>{sup_cell}</td>',
             f'<td>{esc((r.get("field") or "").upper())}</td>',
             f'<td class="note">{esc(r.get("old_value") or "—")}</td>',
             f'<td><b>{esc(r.get("new_value") or "")}</b></td>',
@@ -11932,8 +11938,10 @@ def supplier_changes():
             if act == "approve":
                 res = SS.approve_change(rid, actor=actor)
                 if "applied" in res:
+                    sup = res.get("supplier") or ""
                     banner = (f'<div class="card"><b class="ok">Change approved and applied '
-                              f'to {esc(res.get("supplier") or "")} ({esc(res["applied"])}).</b></div>')
+                              f'to {esc(_supplier_legal_name(sup) or sup)} '
+                              f'({esc(res["applied"])}).</b></div>')
                 else:
                     banner = (f'<div class="card"><b class="bad">Could not approve: '
                               f'{esc(res.get("skipped") or "unknown")}.</b></div>')
