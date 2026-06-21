@@ -11864,6 +11864,33 @@ def suppliers():
     return page(body, "sup")
 
 
+def _change_source_docs(supplier, invoice_ref):
+    """Vaulted invoice document(s) for a pending change's (supplier, invoice_ref) so an admin
+    can VISUALLY verify the proposed value against the SOURCE PDF before approving. READ-ONLY
+    via vat_refund. Matches the change ref exactly or as a prefix of the document ref (the
+    statement ref vs per-line refs like 'BE95489/5413791 #41'), and vice-versa. Returns
+    [(id, filename), ...] newest-first; [] when none / on any error."""
+    sup = (supplier or "").strip()
+    ref = (invoice_ref or "").strip()
+    if not sup or not ref:
+        return []
+    try:
+        import vat_refund as VR
+        con = VR.connect()
+        try:
+            rows = con.execute(
+                "SELECT id, filename FROM invoice_documents "
+                "WHERE supplier=? AND (invoice_ref=? OR invoice_ref LIKE ? "
+                "OR ? LIKE invoice_ref || '%') ORDER BY id DESC",
+                (sup, ref, ref + " %", ref)).fetchall()
+        finally:
+            con.close()
+        return [(r["id"], r["filename"]) for r in rows]
+    except Exception as e:
+        _log_exc("change source docs lookup", e)
+        return []
+
+
 def _pending_changes_card(standalone=False):
     """Admin surface for PENDING high-risk supplier change requests (IBAN / VAT changes
     detected from a capture, which are NEVER auto-applied). Lists supplier · field · old →
@@ -11901,12 +11928,25 @@ def _pending_changes_card(standalone=False):
         sup_cell = f'<b>{esc(legal)}</b>'
         if _norm_name(legal) != _norm_name(sup_code):
             sup_cell += f'<div class="note">{esc(sup_code)}</div>'
+        # VISUAL CONTROL: link the SOURCE invoice PDF(s) so the admin can verify the proposed
+        # value against the document before approving (opens inline in a new tab).
+        ref = r.get("invoice_ref") or ""
+        docs = _change_source_docs(sup_code, ref)
+        if docs:
+            links = " ".join(
+                f'<a href="/doc/{esc(str(did))}?inline=1" target="_blank" rel="noopener">'
+                f'view{("&nbsp;" + str(i + 1)) if len(docs) > 1 else ""}</a>'
+                for i, (did, _fn) in enumerate(docs))
+            inv_cell = f'{esc(ref)}<div class="note">source: {links}</div>'
+        else:
+            inv_cell = (f'{esc(ref)}<div class="note">no source PDF on file</div>'
+                        if ref else '<span class="note">—</span>')
         rows.append([
             f'<td>{sup_cell}</td>',
             f'<td>{esc((r.get("field") or "").upper())}</td>',
             f'<td class="note">{esc(r.get("old_value") or "—")}</td>',
             f'<td><b>{esc(r.get("new_value") or "")}</b></td>',
-            f'<td class="note">{esc(r.get("invoice_ref") or "")}</td>',
+            f'<td>{inv_cell}</td>',
             f'<td class="note">{esc(r.get("created_at") or "")}</td>',
             f'<td>{act}</td>'])
     return ('<div class="card" style="border-left:4px solid var(--bad)">'
@@ -11914,8 +11954,10 @@ def _pending_changes_card(standalone=False):
             '<div class="note">A captured invoice proposed a change to a HIGH-RISK field '
             '(bank account / IBAN or VAT number). These are NEVER auto-applied — AI '
             'verification confirms the capture matches the invoice, not that the invoice is '
-            'legitimate, so a swapped IBAN/VAT would otherwise slip through. Approve to apply '
-            'it to the supplier master (audited); Reject to discard.</div>'
+            'legitimate, so a swapped IBAN/VAT would otherwise slip through. <b>Open the source '
+            'invoice (the “view” link under Invoice) to visually verify the proposed value '
+            'before approving.</b> Approve to apply it to the supplier master (audited); Reject '
+            'to discard.</div>'
             + tbl(["Supplier", "Field", "Old", "New (proposed)", "Invoice", "Detected", ""], rows)
             + '</div>')
 
@@ -14206,6 +14248,12 @@ def doc_download(doc_id):
                     'unreadable.</b><div class="note">The record exists but its stored file '
                     'could not be read — run “Check document integrity” in Admin.</div></div>',
                     ""), 404
+    # inline=1 streams the PDF for IN-BROWSER viewing (visual verification), not a download.
+    if request.args.get("inline") == "1":
+        return Response(data, mimetype="application/pdf",
+                        headers={"Content-Disposition":
+                                 f'inline; filename="{d["filename"]}"',
+                                 "X-Content-Type-Options": "nosniff"})
     return send_file(io.BytesIO(data), as_attachment=True, download_name=d["filename"])
 
 
