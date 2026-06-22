@@ -172,8 +172,11 @@ def web_conf(tmp_path, monkeypatch):
     and stub the AI review backend ON so the route reaches the trust gate."""
     import confidence, auth
     monkeypatch.setattr(confidence, "DB", str(tmp_path / "confidence.db"))
+    # stub get_setting: ai_review backend ON; keep the company-onboarding gate OFF (it would
+    # otherwise default ON and redirect /extract); everything else returns its default.
     monkeypatch.setattr(auth, "get_setting",
-                        lambda k, d=None: "claude" if k == "ai_review_backend" else d)
+                        lambda k, d=None: ("claude" if k == "ai_review_backend"
+                                           else "off" if k == "require_company_profile" else d))
     return confidence
 
 

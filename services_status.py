@@ -212,6 +212,21 @@ def services():
                 "status": ("active" if sc_on else "off"),
                 "reason": ("On" if sc_on else "Switched off"), "fix": ""})
 
+    # Company onboarding gate — require the operating company's own legal entity (issuer
+    # profile) to be registered before the service can be used at all. ON by default.
+    cg_on = str(_get("require_company_profile", "on")).lower() not in ("off", "0", "false",
+                                                                       "no", "")
+    out.append({"key": "company_profile_gate",
+                "title": "Require company profile before use",
+                "what": "Locks the whole service until your company’s own legal entity (legal "
+                        "name, registered address, VAT number) is set under Invoicing → Issuer "
+                        "profile. Mandatory company identity for every invoice (EU Art. 226). "
+                        "Default ON.",
+                "toggleable": True, "setting": "require_company_profile",
+                "on": cg_on,
+                "status": ("active" if cg_on else "off"),
+                "reason": ("Enforced" if cg_on else "Switched off"), "fix": ""})
+
     # ---- Info-only status lines (not switches) ----------------------------------------
     out.append({"key": "pdf_rendering", "title": "PDF reading (poppler)",
                 "what": "The tool that turns PDF pages into images so the AI can read them and "

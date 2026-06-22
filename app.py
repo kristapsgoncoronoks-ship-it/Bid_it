@@ -1693,6 +1693,28 @@ _ENDPOINT_MODULE = {ep: k for k, (_lbl, eps) in MODULES.items() for ep in eps}
 def module_enabled(key):
     return _auth.get_setting(f"module_{key}", "on") != "off"
 
+# COMPANY ONBOARDING GATE — the operating company's OWN legal entity (the issuer profile:
+# legal name + address + VAT number, EU 2006/112/EC Art. 226) must be registered before the
+# service can be used at all. ON by default; an admin can turn it off in Admin if truly needed.
+def _company_profile_required():
+    return (_auth.get_setting("require_company_profile", "on") or "on").lower() \
+        not in ("off", "0", "false", "no", "")
+
+def _issuer_ready():
+    """Is the company (issuer) profile complete (name/address/VAT)? Fails OPEN (True) on any
+    error so a read glitch can never brick the whole app."""
+    try:
+        import invoicing
+        return invoicing.issuer_complete()
+    except Exception as e:
+        _log_exc("issuer-ready check", e)
+        return True
+
+# Endpoints reachable WHILE the company profile is still incomplete (so an admin can complete
+# it, and anyone can sign out / switch language / view their account).
+_ONBOARDING_EXEMPT = {"invoicing_issuer", "invoicing_issuer_save", "logout",
+                      "set_language", "account"}
+
 def enabled_modules():
     return {k for k in MODULES if module_enabled(k)}
 
@@ -1869,6 +1891,19 @@ def _guard():
                 request.form.get("_csrf") or "", sess_tok):
             return page('<div class="card"><h2>Invalid or missing CSRF token</h2>'
                         '<p>Please reload the page and try again.</p></div>', ""), 400
+    # COMPANY ONBOARDING GATE: until the operating company's own legal entity is registered
+    # (name/address/VAT), the service is unusable. An admin is routed to complete it; anyone
+    # else is told to wait. Exempt endpoints let them complete it / sign out / switch language.
+    if (request.endpoint not in _ONBOARDING_EXEMPT
+            and _company_profile_required() and not _issuer_ready()):
+        if role == "admin":
+            return redirect("/invoicing/issuer")
+        return page('<div class="card"><h2>Company profile not set up yet</h2>'
+                    '<div class="note">Before this service can be used, an administrator must '
+                    'register your company’s legal entity — legal name, registered address and '
+                    'VAT number (required on every invoice, EU 2006/112/EC Art. 226). Please '
+                    'ask an administrator to complete it under <b>Invoicing → Issuer '
+                    'profile</b>.</div></div>', ""), 403
     # VAT-refund module is admin-only, whatever capabilities a processor may hold.
     if request.endpoint in ADMIN_ONLY and role != "admin":
         return page(FORBIDDEN, ""), 403
@@ -15424,10 +15459,16 @@ def invoicing_issuer():
     def _v(k):
         return esc(iss.get(k) or "")
     complete = invoicing.issuer_complete(iss)
+    gated = (not complete) and _company_profile_required()
     warn = ('' if complete else
             '<div class="card" style="border-left:4px solid var(--bad)">'
-            '<b class="bad">Incomplete.</b> The legal name, address and VAT number are '
-            'mandatory before you can issue an invoice.</div>')
+            + ('<b class="bad">Register your company to start.</b> The service is locked until '
+               'your company’s legal entity is registered — fill in the legal name, registered '
+               'address and VAT number below and Save. This is a one-time step required on '
+               'every invoice (EU 2006/112/EC Art. 226).' if gated else
+               '<b class="bad">Incomplete.</b> The legal name, address and VAT number are '
+               'mandatory before you can issue an invoice.')
+            + '</div>')
     # PHASE 7: logo + brand colour. The logo is an uploaded image stored in invoicing.db;
     # show whether one is set + a remove option.
     _logo_mime, _logo_bytes = invoicing.get_issuer_logo()

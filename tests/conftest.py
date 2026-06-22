@@ -131,7 +131,7 @@ _RUNTIME_SETTING_PREFIXES = ("module_", "ai_", "multitenant",
                              "dokobit_", "invoice_fee_vat_pct", "invoice_issuer_",
                              "trust_cloudflare", "cloudflare_only",
                              "cloudflare_ip_ranges", "cloudflare_trusted_proxies",
-                             "twofa_email_enabled")
+                             "twofa_email_enabled", "require_company_profile")
 
 
 def _is_runtime_setting(key):
@@ -169,6 +169,10 @@ def _isolate_app_settings(admin_session):
     con.execute("DELETE FROM role_permissions")
     con.executemany("INSERT INTO role_permissions (role, perm, allowed) VALUES ('processor',?,1)",
                     [(p,) for p in auth.PERMISSIONS])
+    # The company-onboarding gate is ON by default in the product; tests don't seed an issuer
+    # profile, so disable it here (a dedicated test exercises the gate explicitly).
+    con.execute("INSERT OR REPLACE INTO app_settings (key, value) "
+                "VALUES ('require_company_profile','0')")
     con.commit(); con.close()
     try:
         yield
