@@ -1462,3 +1462,23 @@ def test_cannot_change_company_after_issue(inv):
     inv.issue(d["id"])
     ok, err = inv.set_invoice_issuer(d["id"], a)
     assert ok is False and "issued" in err
+
+
+def test_logo_is_per_company(inv):
+    import base64
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+    a, _ = inv.add_issuer(dict(label="Alpha", name="Alpha OU", address="Tallinn",
+                               vat_number="EE1", series="A"))
+    b, _ = inv.add_issuer(dict(label="Beta", name="Beta SIA", address="Riga",
+                               vat_number="LV2", series="B"))
+    # a logo set on company A is NOT visible on company B
+    mime, _e = inv.set_issuer_logo(png, issuer_id=a)
+    assert mime == "image/png"
+    assert inv.get_issuer_logo(a)[0] == "image/png"
+    assert inv.get_issuer_logo(b) == (None, None)
+    assert inv.logo_data_uri(a).startswith("data:image/png;base64,")
+    assert inv.logo_data_uri(b) == ""
+    # clearing A leaves B untouched (B never had one)
+    inv.set_issuer_logo(None, issuer_id=a)
+    assert inv.get_issuer_logo(a) == (None, None)

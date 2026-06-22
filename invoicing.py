@@ -454,6 +454,10 @@ _MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS ix_issuers_tenant ON issuers(tenant_id, id)",
     # The company an invoice is issued FROM (NULL = legacy single-issuer / settings issuer).
     "ALTER TABLE invoices ADD COLUMN issuer_id INTEGER",
+    # PER-COMPANY LOGO: each registered company carries its own header logo (bytes + mime).
+    # The legacy global issuer_logo table remains the fallback for the settings issuer.
+    "ALTER TABLE issuers ADD COLUMN logo_mime TEXT",
+    "ALTER TABLE issuers ADD COLUMN logo_data BLOB",
 ]
 
 _AUDITED_TABLES = ["bill_customers", "invoices", "invoice_lines",
@@ -540,10 +544,19 @@ def _seed_issuers_from_settings(con):
         vals = {k: iss.get(k) or "" for k in ISSUER_KEYS}
         vals["label"] = iss.get("name") or "Company 1"
         cols = list(_ISSUER_FIELDS)
-        con.execute(
+        cur = con.execute(
             f"INSERT INTO issuers ({','.join(cols)}, created_by, tenant_id) "
             f"VALUES ({','.join('?' for _ in cols)}, ?, ?)",
             [*(vals.get(c, "") for c in cols), "migration", tenancy.queue_tenant()])
+        # carry the legacy GLOBAL logo onto the migrated company so its branding survives
+        try:
+            lmime, ldata = get_issuer_logo()
+            if ldata and lmime:
+                frag, tp = tenancy.scope_clause()
+                con.execute("UPDATE issuers SET logo_mime=?, logo_data=? WHERE id=?" + frag,
+                            [lmime, sqlite3.Binary(ldata), cur.lastrowid, *tp])
+        except Exception as le:
+            log.warning("seed issuer logo copy failed (best-effort): %s", le)
         con.commit()
     except Exception as e:
         log.warning("seed issuers from settings failed (best-effort): %s", e)
@@ -739,16 +752,22 @@ def _sniff_image_mime(data):
     return None
 
 
-def set_issuer_logo(data, *, mime=None, updated_by=None):
-    """Store (or, with data=None/empty, CLEAR) the issuer logo image. Validates the size cap
-    and that the bytes are a real PNG/JPEG (sniffed, not trusted from the upload). Returns
+def set_issuer_logo(data, *, issuer_id=None, mime=None, updated_by=None):
+    """Store (or, with data=None/empty, CLEAR) the logo image — for a SPECIFIC company when
+    `issuer_id` is given (stored on its issuers row), else the legacy GLOBAL issuer logo.
+    Validates the size cap and that the bytes are a real PNG/JPEG (sniffed). Returns
     (mime, "") on success / ("", "") on clear / (None, error). Never raises."""
     tenant = tenancy.write_tenant()
     try:
         if not data:
             con = connect()
             try:
-                con.execute("DELETE FROM issuer_logo WHERE tenant_id=?", (tenant,))
+                if issuer_id:
+                    frag, tp = tenancy.scope_clause()
+                    con.execute("UPDATE issuers SET logo_mime=NULL, logo_data=NULL "
+                                "WHERE id=?" + frag, [int(issuer_id), *tp])
+                else:
+                    con.execute("DELETE FROM issuer_logo WHERE tenant_id=?", (tenant,))
                 con.commit()
             finally:
                 con.close()
@@ -762,14 +781,19 @@ def set_issuer_logo(data, *, mime=None, updated_by=None):
         use_mime = sniffed   # trust the magic bytes, never the client-supplied mime
         con = connect()
         try:
-            con.execute(
-                "INSERT INTO issuer_logo (tenant_id, mime, data, updated_at, updated_by) "
-                "VALUES (?,?,?,?,?) "
-                "ON CONFLICT(tenant_id) DO UPDATE SET mime=excluded.mime, "
-                "data=excluded.data, updated_at=excluded.updated_at, "
-                "updated_by=excluded.updated_by",
-                (tenant, use_mime, sqlite3.Binary(data),
-                 datetime.datetime.utcnow().isoformat(timespec="seconds"), updated_by))
+            if issuer_id:
+                frag, tp = tenancy.scope_clause()
+                con.execute("UPDATE issuers SET logo_mime=?, logo_data=? WHERE id=?" + frag,
+                            [use_mime, sqlite3.Binary(data), int(issuer_id), *tp])
+            else:
+                con.execute(
+                    "INSERT INTO issuer_logo (tenant_id, mime, data, updated_at, updated_by) "
+                    "VALUES (?,?,?,?,?) "
+                    "ON CONFLICT(tenant_id) DO UPDATE SET mime=excluded.mime, "
+                    "data=excluded.data, updated_at=excluded.updated_at, "
+                    "updated_by=excluded.updated_by",
+                    (tenant, use_mime, sqlite3.Binary(data),
+                     datetime.datetime.utcnow().isoformat(timespec="seconds"), updated_by))
             con.commit()
         finally:
             con.close()
@@ -779,15 +803,21 @@ def set_issuer_logo(data, *, mime=None, updated_by=None):
         return None, f"could not store the logo ({str(e)[:80]})"
 
 
-def get_issuer_logo():
-    """The stored issuer logo as (mime, bytes), or (None, None) when none is set. Tenant-
-    scoped. Read path — never raises -> (None, None)."""
-    frag, tp = tenancy.scope_clause()
+def get_issuer_logo(issuer_id=None):
+    """The stored logo as (mime, bytes), or (None, None). For a SPECIFIC company when
+    `issuer_id` is given (its own logo only — no cross-company fallback), else the legacy
+    GLOBAL issuer logo. Read path — never raises -> (None, None)."""
     try:
         con = connect()
         try:
-            row = con.execute("SELECT mime, data FROM issuer_logo WHERE 1=1" + frag,
-                              tp).fetchone()
+            if issuer_id:
+                frag, tp = tenancy.scope_clause()
+                row = con.execute("SELECT logo_mime AS mime, logo_data AS data FROM issuers "
+                                  "WHERE id=?" + frag, [int(issuer_id), *tp]).fetchone()
+            else:
+                frag, tp = tenancy.scope_clause()
+                row = con.execute("SELECT mime, data FROM issuer_logo WHERE 1=1" + frag,
+                                  tp).fetchone()
         finally:
             con.close()
         if not row or not row["data"]:
@@ -798,11 +828,12 @@ def get_issuer_logo():
         return None, None
 
 
-def logo_data_uri():
-    """The issuer logo as an embeddable `data:` URI for the HTML→PDF header, or "" when no
-    logo is set / it can't be read. NEVER raises (a bad logo degrades to no image)."""
+def logo_data_uri(issuer_id=None):
+    """The logo (a SPECIFIC company's when issuer_id is given, else the global) as an
+    embeddable `data:` URI for the HTML→PDF header, or "" when none / unreadable. NEVER
+    raises (a bad logo degrades to no image)."""
     try:
-        mime, data = get_issuer_logo()
+        mime, data = get_issuer_logo(issuer_id)
         if not data or not mime:
             return ""
         import base64
@@ -3106,7 +3137,7 @@ def invoice_html(invoice_id, lang=None):
     P.append("<div class='head'><div class='issuer'>")
     # PHASE 7: the issuer LOGO IMAGE (data: URI), shown above the text header. A missing/
     # corrupt logo degrades to no image (the legacy text header still renders).
-    _logo = logo_data_uri()
+    _logo = logo_data_uri(inv.get("issuer_id"))
     if _logo:
         P.append(f"<div class='logoimg'><img src='{_h(_logo)}' alt=''></div>")
     if issuer.get("logo_text"):

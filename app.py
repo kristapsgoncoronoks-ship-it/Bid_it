@@ -15500,11 +15500,13 @@ def invoicing_issuer():
                  + (tbl(["Company", "VAT", "Series", "Status", ""], crows) if crows
                     else '<p class="note">No companies yet — add your first one below.</p>')
                  + '</div>')
-    # PHASE 7: logo + brand colour (shared header branding).
-    _logo_mime, _logo_bytes = invoicing.get_issuer_logo()
-    logo_status = (f'<p class="note ok">{esc(_t("A logo is set"))} ({esc(_logo_mime or "")}).</p>'
-                   if _logo_bytes else
-                   f'<p class="note">{esc(_t("No logo set."))}</p>')
+    # PER-COMPANY logo + brand colour. When editing a company, show ITS own logo; when adding
+    # a new one, there's no company yet (the upload lands on it once created).
+    _logo_mime, _logo_bytes = (invoicing.get_issuer_logo(editing["id"]) if editing
+                               else (None, None))
+    logo_status = (f'<p class="note ok">{esc(_t("This company has a logo"))} '
+                   f'({esc(_logo_mime or "")}).</p>' if _logo_bytes else
+                   f'<p class="note">{esc(_t("No logo for this company yet."))}</p>')
     brand = invoicing._safe_color(iss.get("brand_color")) or invoicing.DEFAULT_BRAND_COLOR
     _title = _t("Edit company") if editing else _t("Add a company")
     form = (
@@ -15605,22 +15607,26 @@ def invoicing_companies_save():
     vals = {k: f.get(k, "") for k in (("label",) + invoicing.ISSUER_KEYS)}
     iid = (f.get("id") or "").strip()
     actor = session.get("user")
+    company_id = None
     if iid.isdigit():
         ok, err = invoicing.update_issuer(int(iid), vals, updated_by=actor)
         msg = _t("Company updated.") if ok else err
+        company_id = int(iid)
     else:
         nid, err = invoicing.add_issuer(vals, created_by=actor)
         ok = nid is not None
         msg = _t("Company added.") if ok else err
-    # the shared logo/brand (best-effort, same handling as the legacy save)
+        company_id = nid
+    # this company's OWN logo (best-effort) — each company has a separate logo
     try:
-        if f.get("logo_remove") == "on":
-            invoicing.set_issuer_logo(None, updated_by=actor)
-        else:
+        if company_id and f.get("logo_remove") == "on":
+            invoicing.set_issuer_logo(None, issuer_id=company_id, updated_by=actor)
+        elif company_id:
             up = request.files.get("logo")
             if up and (up.filename or "").strip():
                 data = up.read(invoicing.LOGO_MAX_BYTES + 1)
-                _m, lerr = invoicing.set_issuer_logo(data, mime=up.mimetype, updated_by=actor)
+                _m, lerr = invoicing.set_issuer_logo(
+                    data, issuer_id=company_id, mime=up.mimetype, updated_by=actor)
                 if lerr:
                     ok = False
                     msg = lerr
