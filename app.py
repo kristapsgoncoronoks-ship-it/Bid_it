@@ -1517,7 +1517,9 @@ ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "api_r
               # customers): legal documents over client + customer PII, so the whole
               # surface is admin-only (consistent with the VAT/CRM module).
               "invoicing_home", "invoicing_customers", "invoicing_customer_save",
-              "invoicing_issuer", "invoicing_issuer_save", "invoicing_compose",
+              "invoicing_issuer", "invoicing_issuer_save",
+              "invoicing_companies_save", "invoicing_companies_delete",
+              "invoicing_compose",
               "invoicing_create", "invoicing_line_add", "invoicing_line_remove",
               "invoicing_line_discount", "invoicing_convert", "invoicing_lines_save",
               "invoicing_fields_save", "invoicing_issue", "invoicing_pdf",
@@ -1663,7 +1665,9 @@ MODULES = {
                     "export_receivables", "export_evidence"}),
     "invoicing":  ("Invoicing — issue sales invoices to your own customers (admin only)",
                    {"invoicing_home", "invoicing_customers", "invoicing_customer_save",
-                    "invoicing_issuer", "invoicing_issuer_save", "invoicing_compose",
+                    "invoicing_issuer", "invoicing_issuer_save",
+                    "invoicing_companies_save", "invoicing_companies_delete",
+                    "invoicing_compose",
                     "invoicing_create", "invoicing_line_add", "invoicing_line_remove",
                     "invoicing_line_discount", "invoicing_convert", "invoicing_lines_save",
                     "invoicing_fields_save", "invoicing_issue", "invoicing_pdf",
@@ -1701,19 +1705,21 @@ def _company_profile_required():
         not in ("off", "0", "false", "no", "")
 
 def _issuer_ready():
-    """Is the company (issuer) profile complete (name/address/VAT)? Fails OPEN (True) on any
-    error so a read glitch can never brick the whole app."""
+    """Is AT LEAST ONE company (issuer) profile complete (name/address/VAT)? Fails OPEN (True)
+    on any error so a read glitch can never brick the whole app."""
     try:
         import invoicing
-        return invoicing.issuer_complete()
+        return invoicing.any_issuer_complete()
     except Exception as e:
         _log_exc("issuer-ready check", e)
         return True
 
 # Endpoints reachable WHILE the company profile is still incomplete (so an admin can complete
 # it, and anyone can sign out / switch language / view their account).
-_ONBOARDING_EXEMPT = {"invoicing_issuer", "invoicing_issuer_save", "logout",
-                      "set_language", "account"}
+_ONBOARDING_EXEMPT = {"invoicing_issuer", "invoicing_issuer_save",
+                      "invoicing_companies_save", "invoicing_companies_delete",
+                      "admin",            # so an admin can always reach settings / the gate toggle
+                      "logout", "set_language", "account"}
 
 def enabled_modules():
     return {k for k in MODULES if module_enabled(k)}
@@ -15451,39 +15457,66 @@ def invoicing_customer_save():
 
 @app.route("/invoicing/issuer")
 def invoicing_issuer():
-    """Configure the issuer profile (the client's OWN legal entity = the invoice
-    SUPPLIER). Admin-configured settings."""
+    """Manage the COMPANIES you issue invoices from (the invoice SUPPLIER / legal entity).
+    Lists every registered company and lets you add / edit / remove them; each keeps its own
+    numbering series. ?edit=<id> loads one into the form."""
     import invoicing
-    iss = invoicing.get_issuer()
+    companies = invoicing.list_issuers()
+    eid = (request.args.get("edit") or "").strip()
+    editing = invoicing.get_issuer_record(eid) if eid.isdigit() else None
+    iss = editing or {}
 
     def _v(k):
         return esc(iss.get(k) or "")
-    complete = invoicing.issuer_complete(iss)
-    gated = (not complete) and _company_profile_required()
-    warn = ('' if complete else
+    ready = invoicing.any_issuer_complete()
+    gated = (not ready) and _company_profile_required()
+    warn = ('' if ready else
             '<div class="card" style="border-left:4px solid var(--bad)">'
-            + ('<b class="bad">Register your company to start.</b> The service is locked until '
-               'your company’s legal entity is registered — fill in the legal name, registered '
-               'address and VAT number below and Save. This is a one-time step required on '
-               'every invoice (EU 2006/112/EC Art. 226).' if gated else
+            + ('<b class="bad">Register a company to start.</b> The service is locked until at '
+               'least one of your companies is registered — fill in the legal name, registered '
+               'address and VAT number below and Save (EU 2006/112/EC Art. 226).' if gated else
                '<b class="bad">Incomplete.</b> The legal name, address and VAT number are '
                'mandatory before you can issue an invoice.')
             + '</div>')
-    # PHASE 7: logo + brand colour. The logo is an uploaded image stored in invoicing.db;
-    # show whether one is set + a remove option.
+    # The list of registered companies, each with edit / delete.
+    crows = []
+    for c in companies:
+        ok = invoicing.issuer_complete(c)
+        dele = ('<form method="post" action="/invoicing/companies/delete" '
+                'style="display:inline" onsubmit="return confirm(\'Remove this company?\')">'
+                + _csrf_input() + f'<input type="hidden" name="id" value="{c["id"]}">'
+                '<button style="background:var(--mut)">Delete</button></form>')
+        crows.append([
+            f'<td><b>{esc(c.get("label") or c.get("name") or "")}</b><br>'
+            f'<span class="note">{esc(c.get("name") or "")}</span></td>',
+            f'<td>{esc(c.get("vat_number") or "—")}</td>',
+            f'<td>{esc(c.get("series") or "")}</td>',
+            f'<td>{"<span class=ok>ready</span>" if ok else "<span class=bad>incomplete</span>"}</td>',
+            f'<td><a href="/invoicing/issuer?edit={c["id"]}">Edit</a> &nbsp; {dele}</td>'])
+    list_card = ('<div class="card"><h2>Your companies (issuers)</h2>'
+                 '<p class="note">Every company you issue invoices from. Each has its OWN '
+                 'numbering series so each legal entity keeps an independent, gap-free sequence. '
+                 'You choose the company when you create an invoice.</p>'
+                 + (tbl(["Company", "VAT", "Series", "Status", ""], crows) if crows
+                    else '<p class="note">No companies yet — add your first one below.</p>')
+                 + '</div>')
+    # PHASE 7: logo + brand colour (shared header branding).
     _logo_mime, _logo_bytes = invoicing.get_issuer_logo()
     logo_status = (f'<p class="note ok">{esc(_t("A logo is set"))} ({esc(_logo_mime or "")}).</p>'
                    if _logo_bytes else
                    f'<p class="note">{esc(_t("No logo set."))}</p>')
     brand = invoicing._safe_color(iss.get("brand_color")) or invoicing.DEFAULT_BRAND_COLOR
+    _title = _t("Edit company") if editing else _t("Add a company")
     form = (
-        f'<div class="card"><h2>{esc(_t("Issuer profile"))}</h2>'
-        '<p class="note">This is your legal entity as it appears on the invoice as the '
-        'supplier. The legal name, address and VAT number are mandatory (EU VAT Dir. '
-        '2006/112/EC Art. 226). Multi-tenant note: a per-tenant issuer profile is a later '
-        'phase; today this is one global profile.</p>'
-        '<form method="post" action="/invoicing/issuer/save" class="f" '
+        f'<div class="card"><h2>{esc(_title)}</h2>'
+        '<p class="note">This legal entity appears on the invoice as the supplier. The legal '
+        'name, address and VAT number are mandatory (EU VAT Dir. 2006/112/EC Art. 226). Give '
+        'each company its OWN number series (two companies must never share one).</p>'
+        '<form method="post" action="/invoicing/companies/save" class="f" '
         'enctype="multipart/form-data">' + _csrf_input()
+        + (f'<input type="hidden" name="id" value="{editing["id"]}">' if editing else '')
+        + f'<label style="flex:1 1 100%">{esc(_t("Display name (for the picker)"))}'
+          f'<input name="label" value="{_v("label")}" placeholder="e.g. Fleet Fuel OÜ"></label>'
         + f'<label style="flex:1 1 100%">{esc(_t("Legal name"))}<input name="name" value="{_v("name")}"></label>'
         + f'<label style="flex:1 1 100%">{esc(_t("Address"))}<input name="address" value="{_v("address")}"></label>'
         + f'<label>{esc(_t("City"))}<input name="city" value="{_v("city")}"></label>'
@@ -15513,14 +15546,16 @@ def invoicing_issuer():
           '<input name="logo" type="file" accept="image/png,image/jpeg"></label>'
         + (f'<label>{esc(_t("Remove logo"))} <input type="checkbox" name="logo_remove"></label>'
            if _logo_bytes else '')
-        + f'<div style="margin-top:8px"><button>{esc(_t("Save issuer profile"))}</button></div>'
+        + f'<div style="margin-top:8px"><button>{esc(_t("Save company"))}</button>'
+        + (f' &nbsp; <a href="/invoicing/issuer" class="note">{esc(_t("cancel edit"))}</a>'
+           if editing else '') + '</div>'
         + logo_status
         + '<p class="note">Number format placeholders: '
           '<code>{series}</code>, <code>{year}</code>, <code>{seq:06d}</code>. '
           'The logo + brand colour appear on the invoice header (the designed HTML/PDF). '
           'A missing logo never breaks PDF generation.</p>'
         '</form></div>')
-    return page(warn + form, "ivci")
+    return page(warn + list_card + form, "ivci")
 
 
 @app.route("/invoicing/issuer/save", methods=["POST"])
@@ -15559,6 +15594,50 @@ def invoicing_issuer_save():
         msgs.append(_t("Could not save the logo."))
     banner = _ivc_banner(ok, " ".join(str(m) for m in msgs))
     return page(banner + f'<p><a href="/invoicing/issuer">{esc(_t("Back to issuer profile"))}</a></p>',
+                "ivci")
+
+
+@app.route("/invoicing/companies/save", methods=["POST"])
+def invoicing_companies_save():
+    """Add a new company OR update an existing one in the issuer registry."""
+    import invoicing
+    f = request.form
+    vals = {k: f.get(k, "") for k in (("label",) + invoicing.ISSUER_KEYS)}
+    iid = (f.get("id") or "").strip()
+    actor = session.get("user")
+    if iid.isdigit():
+        ok, err = invoicing.update_issuer(int(iid), vals, updated_by=actor)
+        msg = _t("Company updated.") if ok else err
+    else:
+        nid, err = invoicing.add_issuer(vals, created_by=actor)
+        ok = nid is not None
+        msg = _t("Company added.") if ok else err
+    # the shared logo/brand (best-effort, same handling as the legacy save)
+    try:
+        if f.get("logo_remove") == "on":
+            invoicing.set_issuer_logo(None, updated_by=actor)
+        else:
+            up = request.files.get("logo")
+            if up and (up.filename or "").strip():
+                data = up.read(invoicing.LOGO_MAX_BYTES + 1)
+                _m, lerr = invoicing.set_issuer_logo(data, mime=up.mimetype, updated_by=actor)
+                if lerr:
+                    ok = False
+                    msg = lerr
+    except Exception as e:
+        _log_exc("invoicing: company logo", e)
+    banner = _ivc_banner(ok, str(msg))
+    return page(banner + f'<p><a href="/invoicing/issuer">{esc(_t("Back to companies"))}</a></p>',
+                "ivci")
+
+
+@app.route("/invoicing/companies/delete", methods=["POST"])
+def invoicing_companies_delete():
+    """Remove a company from the registry (refused when an invoice references it)."""
+    import invoicing
+    ok, err = invoicing.delete_issuer((request.form.get("id") or "").strip())
+    banner = _ivc_banner(ok, _t("Company removed.") if ok else err)
+    return page(banner + f'<p><a href="/invoicing/issuer">{esc(_t("Back to companies"))}</a></p>',
                 "ivci")
 
 
@@ -15611,6 +15690,13 @@ def invoicing_compose(invoice_id=None):
               f'<option value="invoice">{esc(_t("Invoice"))}</option>'
               f'<option value="proforma">{esc(_t("Proforma invoice"))}</option>'
               f'<option value="quote">{esc(_t("Quote"))}</option></select></label>'
+            + (f'<label style="flex:1 1 100%">{esc(_t("Issuing company"))}'
+               '<select name="issuer_id" required>'
+               f'<option value="">{esc(_t("— choose the company —"))}</option>'
+               + "".join(f'<option value="{c["id"]}">'
+                         f'{esc(c.get("label") or c.get("name") or "")}</option>'
+                         for c in invoicing.list_issuers())
+               + '</select></label>')
             + f'<label style="flex:1 1 100%">{esc(_t("Customer"))}{cust_select}</label>'
             + inline_cust
             + f'<label>{esc(_t("Currency"))}<input name="currency" value="EUR" style="width:90px"></label>'
@@ -16069,6 +16155,16 @@ def invoicing_create():
             cid = int(f.get("customer_id") or "0")
         except (TypeError, ValueError):
             cid = 0
+    # The user explicitly chooses which of their companies issues this invoice. Require it
+    # when more than one is registered; auto-use the only one when there's exactly one.
+    iid = (f.get("issuer_id") or "").strip()
+    companies = invoicing.list_issuers()
+    if not iid.isdigit():
+        if len(companies) == 1:
+            iid = str(companies[0]["id"])
+        else:
+            return page(_ivc_banner(False, _t("Choose which company issues this invoice."))
+                        + f'<p><a href="/invoicing/compose">{esc(_t("Back"))}</a></p>', "ivc")
     inv, err = invoicing.create_draft(customer_id=cid or None,
                                       currency=(f.get("currency") or "EUR"),
                                       doc_type=doc_type,
@@ -16076,6 +16172,7 @@ def invoicing_create():
     if err or not inv:
         return page(_ivc_banner(False, err or _t("Could not start the draft."))
                     + f'<p><a href="/invoicing/compose">{esc(_t("Back"))}</a></p>', "ivc")
+    invoicing.set_invoice_issuer(int(inv["id"]), int(iid))   # best-effort; editable on compose
     return redirect(f"/invoicing/compose/{int(inv['id'])}")
 
 

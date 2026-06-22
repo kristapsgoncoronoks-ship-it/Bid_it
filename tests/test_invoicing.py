@@ -187,7 +187,7 @@ def test_issue_refused_when_incomplete(inv):
     draft, _ = inv.create_draft(customer_id=c["id"], reverse_charge=False)
     inv.add_line(draft["id"], description="x", quantity=1, unit_price_net=1, vat_rate=0.21)
     out, err = inv.issue(draft["id"])
-    assert out is None and "issuer profile" in err
+    assert out is None and "profile is incomplete" in err
 
     _set_issuer(inv)
     # no lines -> refuse
@@ -1412,3 +1412,53 @@ def test_i18n_phase4_labels_have_lv(inv):
         assert i18n.t(en) == en                       # default (en) unchanged
         assert i18n.has(en, "lv"), f"missing LV translation for {en!r}"
         assert i18n.t(en, "lv") != en, f"LV translation equals EN for {en!r}"
+
+
+# ───────────────────────────────── MULTIPLE ISSUER COMPANIES (registry + per-invoice pick)
+def test_multi_issuer_registry_crud_and_gate(inv):
+    assert inv.any_issuer_complete() is False            # empty registry, no settings issuer
+    a, _ = inv.add_issuer(dict(label="Alpha OU", name="Alpha OU",
+                               address="Tallinn, EE", vat_number="EE100", series="ALPHA"))
+    b, _ = inv.add_issuer(dict(label="Beta SIA", name="Beta SIA",
+                               address="Riga, LV", vat_number="LV200", series="BETA"))
+    assert {r["label"] for r in inv.list_issuers()} == {"Alpha OU", "Beta SIA"}
+    assert inv.any_issuer_complete() is True             # the gate is satisfied now
+    # a company in use can't be deleted; an unused one can
+    assert inv.get_issuer_record(b)["series"] == "BETA"
+
+
+def test_invoice_numbers_from_its_chosen_company(inv):
+    a, _ = inv.add_issuer(dict(label="Alpha OU", name="Alpha OU", address="Tallinn",
+                               vat_number="EE100", series="ALPHA"))
+    b, _ = inv.add_issuer(dict(label="Beta SIA", name="Beta SIA", address="Riga",
+                               vat_number="LV200", series="BETA"))
+    cust, _ = inv.add_customer("Kunde GmbH", country="DE", vat_number="DE9",
+                               address="Berlin")
+    # an invoice from company Beta numbers from the BETA series and snapshots Beta
+    d1, _ = inv.create_draft(customer_id=cust["id"], reverse_charge=False)
+    inv.add_line(d1["id"], description="svc", quantity=1, unit_price_net=100, vat_rate=0.21)
+    ok, err = inv.set_invoice_issuer(d1["id"], b)
+    assert ok, err
+    out, err = inv.issue(d1["id"])
+    assert out is not None, err
+    assert out["number"].startswith("BETA-")
+    import json
+    assert json.loads(out["issuer_snapshot"])["name"] == "Beta SIA"
+    # a second invoice from company Alpha numbers from ALPHA, an INDEPENDENT sequence
+    d2, _ = inv.create_draft(customer_id=cust["id"], reverse_charge=False)
+    inv.add_line(d2["id"], description="svc", quantity=1, unit_price_net=50, vat_rate=0.21)
+    inv.set_invoice_issuer(d2["id"], a)
+    out2, err2 = inv.issue(d2["id"])
+    assert out2 is not None and out2["number"].startswith("ALPHA-")
+
+
+def test_cannot_change_company_after_issue(inv):
+    a, _ = inv.add_issuer(dict(label="Alpha OU", name="Alpha OU", address="Tallinn",
+                               vat_number="EE100", series="ALPHA"))
+    cust, _ = inv.add_customer("K", country="DE", vat_number="DE9", address="Berlin")
+    d, _ = inv.create_draft(customer_id=cust["id"], reverse_charge=False)
+    inv.add_line(d["id"], description="x", quantity=1, unit_price_net=10, vat_rate=0.21)
+    inv.set_invoice_issuer(d["id"], a)
+    inv.issue(d["id"])
+    ok, err = inv.set_invoice_issuer(d["id"], a)
+    assert ok is False and "issued" in err

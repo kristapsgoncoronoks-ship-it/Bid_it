@@ -420,6 +420,40 @@ _MIGRATIONS = [
     "ALTER TABLE bill_customers ADD COLUMN city TEXT",
     "ALTER TABLE bill_customers ADD COLUMN postal_code TEXT",
     "ALTER TABLE bill_customers ADD COLUMN country_code TEXT",
+    # PHASE 9 — MULTIPLE ISSUER COMPANIES ------------------------------------
+    # The operating user can issue invoices from more than ONE of their own legal entities.
+    # Each row is a full issuer profile (same fields as the legacy singleton ISSUER_KEYS) and
+    # carries its OWN numbering series, so each legal entity keeps an independent gap-free
+    # sequence (two companies must never share a series). `label` is a short human name for the
+    # picker. An invoice references its chosen company via invoices.issuer_id; the issuer is
+    # still SNAPSHOTTED at issue, so editing/removing a company never rewrites a filed invoice.
+    """CREATE TABLE IF NOT EXISTS issuers (
+        id              INTEGER PRIMARY KEY,
+        label           TEXT,
+        name            TEXT,
+        address         TEXT,
+        vat_number      TEXT,
+        reg_no          TEXT,
+        iban            TEXT,
+        bank            TEXT,
+        city            TEXT,
+        postal_code     TEXT,
+        country_code    TEXT,
+        series          TEXT,
+        credit_series   TEXT,
+        proforma_series TEXT,
+        quote_series    TEXT,
+        number_format   TEXT,
+        payment_terms_days TEXT,
+        logo_text       TEXT,
+        brand_color     TEXT,
+        created_at      TEXT DEFAULT CURRENT_TIMESTAMP,
+        created_by      TEXT,
+        tenant_id       TEXT NOT NULL DEFAULT 'default'
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_issuers_tenant ON issuers(tenant_id, id)",
+    # The company an invoice is issued FROM (NULL = legacy single-issuer / settings issuer).
+    "ALTER TABLE invoices ADD COLUMN issuer_id INTEGER",
 ]
 
 _AUDITED_TABLES = ["bill_customers", "invoices", "invoice_lines",
@@ -483,6 +517,208 @@ def issuer_complete(issuer=None):
     *present* on the entity, but name/address/VAT are."""
     iss = issuer or get_issuer()
     return all((iss.get(k) or "").strip() for k in ("name", "address", "vat_number"))
+
+
+# ===================================================== MULTIPLE ISSUER COMPANIES (registry)
+# The `issuers` table is the multi-company store; each row is a full issuer profile with its
+# OWN numbering series. The legacy singleton (get_issuer/set_issuer over app_settings) stays
+# as a fallback for invoices with no chosen company (issuer_id NULL).
+_ISSUER_FIELDS = ("label",) + ISSUER_KEYS
+
+
+def _seed_issuers_from_settings(con):
+    """One-time migration: if the registry is empty but the legacy settings issuer carries a
+    legal name, copy it in as the first company so existing config isn't lost. Best-effort."""
+    try:
+        frag, params = tenancy.scope_clause()
+        n = con.execute("SELECT COUNT(*) FROM issuers WHERE 1=1" + frag, params).fetchone()[0]
+        if n:
+            return
+        iss = get_issuer()
+        if not (iss.get("name") or "").strip():
+            return
+        vals = {k: iss.get(k) or "" for k in ISSUER_KEYS}
+        vals["label"] = iss.get("name") or "Company 1"
+        cols = list(_ISSUER_FIELDS)
+        con.execute(
+            f"INSERT INTO issuers ({','.join(cols)}, created_by, tenant_id) "
+            f"VALUES ({','.join('?' for _ in cols)}, ?, ?)",
+            [*(vals.get(c, "") for c in cols), "migration", tenancy.queue_tenant()])
+        con.commit()
+    except Exception as e:
+        log.warning("seed issuers from settings failed (best-effort): %s", e)
+
+
+def list_issuers():
+    """All registered issuer companies (oldest first) as dicts with numbering defaults filled,
+    for the picker / management page. Never raises -> []."""
+    try:
+        con = connect()
+        try:
+            _seed_issuers_from_settings(con)
+            frag, params = tenancy.scope_clause()
+            rows = con.execute("SELECT * FROM issuers WHERE 1=1" + frag + " ORDER BY id",
+                               params).fetchall()
+        finally:
+            con.close()
+        return [_issuer_row(r) for r in rows]
+    except Exception as e:
+        log.warning("list_issuers failed: %s", e)
+        return []
+
+
+def _issuer_row(r):
+    """A DB row -> issuer dict with the SAME numbering/format defaults get_issuer() applies."""
+    d = {k: (r[k] if k in r.keys() else None) or "" for k in (("id",) + _ISSUER_FIELDS)}
+    d["id"] = r["id"]
+    d["series"] = d.get("series") or DEFAULT_SERIES
+    d["credit_series"] = d.get("credit_series") or DEFAULT_CREDIT_SERIES
+    d["proforma_series"] = d.get("proforma_series") or DEFAULT_PROFORMA_SERIES
+    d["quote_series"] = d.get("quote_series") or DEFAULT_QUOTE_SERIES
+    d["number_format"] = d.get("number_format") or DEFAULT_NUMBER_FORMAT
+    d["payment_terms_days"] = d.get("payment_terms_days") or str(DEFAULT_PAYMENT_TERMS_DAYS)
+    d["brand_color"] = d.get("brand_color") or DEFAULT_BRAND_COLOR
+    return d
+
+
+def get_issuer_record(issuer_id):
+    """One registered company by id (with numbering defaults), or None. Never raises."""
+    if not issuer_id:
+        return None
+    try:
+        con = connect()
+        try:
+            frag, params = tenancy.scope_clause()
+            r = con.execute("SELECT * FROM issuers WHERE id=?" + frag,
+                            [int(issuer_id), *params]).fetchone()
+        finally:
+            con.close()
+        return _issuer_row(r) if r else None
+    except Exception as e:
+        log.warning("get_issuer_record(%s) failed: %s", issuer_id, e)
+        return None
+
+
+def add_issuer(values, created_by=None):
+    """Create a company in the registry. `values` is keyed by _ISSUER_FIELDS (label + the
+    ISSUER_KEYS). Returns (id, "") or (None, error)."""
+    label = (values.get("label") or values.get("name") or "").strip()
+    if not (values.get("name") or "").strip():
+        return None, "the company's legal name is required"
+    try:
+        con = connect()
+        if created_by:
+            audit.set_actor(con, created_by)
+        try:
+            cols = list(_ISSUER_FIELDS)
+            vals = {c: str(values.get(c) or "") for c in cols}
+            vals["label"] = label or vals.get("name")
+            cur = con.execute(
+                f"INSERT INTO issuers ({','.join(cols)}, created_by, tenant_id) "
+                f"VALUES ({','.join('?' for _ in cols)}, ?, ?)",
+                [*(vals[c] for c in cols), created_by or "", tenancy.queue_tenant()])
+            con.commit()
+            return cur.lastrowid, ""
+        finally:
+            con.close()
+    except Exception as e:
+        log.warning("add_issuer failed: %s", e)
+        return None, f"could not add the company ({str(e)[:80]})"
+
+
+def update_issuer(issuer_id, values, updated_by=None):
+    """Update a registered company's fields. Returns (True, "") or (False, error)."""
+    if not (values.get("name") or "").strip():
+        return False, "the company's legal name is required"
+    try:
+        con = connect()
+        if updated_by:
+            audit.set_actor(con, updated_by)
+        try:
+            cols = [c for c in _ISSUER_FIELDS if c in values]
+            if "name" in values and "label" not in values:
+                cols = cols + ["label"]
+                values = {**values, "label": (values.get("label")
+                                              or values.get("name"))}
+            frag, params = tenancy.scope_clause()
+            con.execute(
+                f"UPDATE issuers SET {','.join(c + '=?' for c in cols)} WHERE id=?" + frag,
+                [*(str(values.get(c) or "") for c in cols), int(issuer_id), *params])
+            con.commit()
+            return True, ""
+        finally:
+            con.close()
+    except Exception as e:
+        log.warning("update_issuer(%s) failed: %s", issuer_id, e)
+        return False, f"could not update the company ({str(e)[:80]})"
+
+
+def delete_issuer(issuer_id):
+    """Remove a company — only when NO invoice references it (a snapshot already protects
+    issued ones, but we keep the registry honest). Returns (True, "") or (False, error)."""
+    try:
+        con = connect()
+        try:
+            frag, params = tenancy.scope_clause()
+            used = con.execute("SELECT COUNT(*) FROM invoices WHERE issuer_id=?" + frag,
+                               [int(issuer_id), *params]).fetchone()[0]
+            if used:
+                return False, (f"this company is used by {used} invoice(s) — it can't be "
+                               "deleted (kept for the audit trail)")
+            con.execute("DELETE FROM issuers WHERE id=?" + frag, [int(issuer_id), *params])
+            con.commit()
+            return True, ""
+        finally:
+            con.close()
+    except Exception as e:
+        log.warning("delete_issuer(%s) failed: %s", issuer_id, e)
+        return False, f"could not delete the company ({str(e)[:80]})"
+
+
+def any_issuer_complete():
+    """True iff AT LEAST ONE issuer (a registry company OR the legacy settings issuer) carries
+    the mandatory name/address/VAT — the onboarding gate's readiness check. Never raises."""
+    try:
+        if issuer_complete():
+            return True
+        return any(issuer_complete(c) for c in list_issuers())
+    except Exception as e:
+        log.warning("any_issuer_complete failed: %s", e)
+        return True            # fail OPEN — never brick the app on a read glitch
+
+
+def issuer_for_invoice(inv):
+    """The issuer dict to USE for an invoice: its chosen registry company (issuer_id) when set,
+    else the legacy settings issuer. `inv` is an invoice dict (or None)."""
+    iid = (inv or {}).get("issuer_id")
+    rec = get_issuer_record(iid) if iid else None
+    return rec or get_issuer()
+
+
+def set_invoice_issuer(invoice_id, issuer_id):
+    """Set the issuing company on a DRAFT invoice. Returns (True,"") or (False,error)."""
+    try:
+        rec = get_issuer_record(issuer_id)
+        if not rec:
+            return False, "unknown company"
+        con = connect()
+        try:
+            frag, params = tenancy.scope_clause()
+            r = con.execute("SELECT status FROM invoices WHERE id=?" + frag,
+                            [int(invoice_id), *params]).fetchone()
+            if not r:
+                return False, "invoice not found"
+            if r["status"] != STATUS_DRAFT:
+                return False, "an issued invoice's company can't be changed"
+            con.execute("UPDATE invoices SET issuer_id=? WHERE id=?" + frag,
+                        [int(issuer_id), int(invoice_id), *params])
+            con.commit()
+            return True, ""
+        finally:
+            con.close()
+    except Exception as e:
+        log.warning("set_invoice_issuer(%s,%s) failed: %s", invoice_id, issuer_id, e)
+        return False, f"could not set the company ({str(e)[:80]})"
 
 
 # ============================================================ PHASE 7: issuer LOGO / branding
@@ -1427,9 +1663,14 @@ def validate_for_issue(invoice_id):
         return "invoice not found"
     if inv["status"] != STATUS_DRAFT:
         return "invoice is already issued"
-    if not issuer_complete():
-        return ("the issuer profile is incomplete — set the legal name, address and VAT "
-                "number in the issuer settings before issuing")
+    # The issuing COMPANY: the invoice's chosen one (issuer_id), else the legacy settings
+    # issuer. With multiple companies registered, one MUST be chosen on the invoice.
+    if (inv.get("issuer_id") is None and not issuer_complete()
+            and len(list_issuers()) > 0):
+        return "choose the company that issues this invoice before issuing"
+    if not issuer_complete(issuer_for_invoice(inv)):
+        return ("the issuing company's profile is incomplete — set its legal name, address "
+                "and VAT number before issuing")
     cust = get_customer(inv["customer_id"]) if inv["customer_id"] else None
     if not cust:
         return "choose a customer to bill before issuing"
@@ -1484,7 +1725,8 @@ def issue(invoice_id, *, issued_by=None, issue_date=None):
     err = validate_for_issue(invoice_id)
     if err:
         return None, err
-    issuer = get_issuer()
+    # Number from & snapshot the invoice's CHOSEN company (issuer_id), else the legacy issuer.
+    issuer = issuer_for_invoice(get_invoice(invoice_id))
     # Each document type numbers from its OWN gap-free series so the counters never collide:
     #   - CREDIT NOTE -> credit_series  (default 'KR')
     #   - PROFORMA    -> proforma_series (default 'PROF') — a NON-LEGAL series; a proforma
@@ -2550,9 +2792,9 @@ def _invoice_view(invoice_id):
         try:
             issuer = json.loads(inv["issuer_snapshot"])
         except Exception:
-            issuer = get_issuer()
+            issuer = issuer_for_invoice(inv)
     else:
-        issuer = get_issuer()
+        issuer = issuer_for_invoice(inv)        # draft preview = the chosen company
     if issued and inv.get("customer_snapshot"):
         try:
             customer = json.loads(inv["customer_snapshot"])
