@@ -3199,6 +3199,144 @@ def _home_kpis(is_admin, mods):
             '</div>')
 
 
+def _home_value_snapshot(is_admin, mods):
+    """Client-value snapshot for the first screen.
+
+    Presentation-only aggregation over canonical sources. Each source is isolated
+    so a broken module degrades the card instead of breaking the landing page.
+    """
+    if not ("analytics" in mods or (is_admin and "vat" in mods)):
+        return ""
+
+    period = None
+    vat_captured = avoidable_overpay = contract_recovery = total_addressable = None
+    anomalies = None
+    if "analytics" in mods:
+        try:
+            con = DB()
+            try:
+                periods = q_periods(con)
+                period = periods[0] if periods else None
+                if period:
+                    k = q_kpis(con, period)
+                    vat_captured = k["vat"] or 0
+                    avoidable_overpay = q_savings(con, period)["total"]
+            finally:
+                con.close()
+        except Exception as e:
+            _log_exc("home value snapshot: analytics", e)
+        try:
+            import savings_intel
+            s = savings_intel.summary(period)
+            period = period or s.get("period")
+            contract_recovery = s.get("recoverable_contract_eur")
+            total_addressable = s.get("total_addressable_eur")
+            anomalies = s.get("anomaly_count")
+        except Exception as e:
+            _log_exc("home value snapshot: savings_intel", e)
+            if total_addressable is None and avoidable_overpay is not None:
+                total_addressable = avoidable_overpay
+
+    outstanding = ready_claims = blocked_claims = deadline_risks = None
+    if is_admin and "vat" in mods:
+        year = (period or str(_dt.date.today().year))[:4]
+        if not year.isdigit():
+            year = str(_dt.date.today().year)
+        _VR = None
+        try:
+            import vat_refund as _VR
+            _recs, summary = _VR.recovery_report(year)
+            outstanding = summary.get("outstanding")
+        except Exception as e:
+            _log_exc("home value snapshot: recovery", e)
+        try:
+            if _VR is None:
+                import vat_refund as _VR
+            ov = _VR.claims_overview(year)
+            to_submit = ov.get("to_submit", [])
+            ready_claims = sum(1 for c in to_submit if c.get("ready"))
+            blocked_claims = sum(1 for c in to_submit if not c.get("ready"))
+        except Exception as e:
+            _log_exc("home value snapshot: readiness", e)
+        try:
+            if _VR is None:
+                import vat_refund as _VR
+            deadline_risks = len(_VR.approaching_deadlines(within_days=90))
+        except Exception as e:
+            _log_exc("home value snapshot: deadlines", e)
+
+    def kpi(value, label, href=None, tone=""):
+        if value is None:
+            shown = "-"
+        elif isinstance(value, (int, float)):
+            is_money = ("EUR" in label or "VAT" in label or
+                        "overpay" in label.lower() or "recovery" in label.lower())
+            shown = _eur(value) if is_money else f"{value:,}"
+        else:
+            shown = esc(str(value))
+        cls = f" {tone}" if tone else ""
+        inner = f'<div class="v">{shown}</div><div class="l">{esc(label)}</div>'
+        if href:
+            return f'<a class="kpi link{cls}" href="{esc(href)}">{inner}</a>'
+        return f'<div class="kpi{cls}">{inner}</div>'
+
+    cards = []
+    if vat_captured is not None:
+        cards.append(kpi(vat_captured, f"VAT captured in {period}", "/entities"))
+    if outstanding is not None:
+        cards.append(kpi(outstanding, "Recoverable VAT outstanding", "/recovery"))
+    if total_addressable is not None:
+        cards.append(kpi(total_addressable, "Total addressable EUR", "/intel", "bad"))
+    if avoidable_overpay is not None:
+        cards.append(kpi(avoidable_overpay, "Avoidable overpay EUR", "/savings", "bad"))
+    if contract_recovery is not None:
+        cards.append(kpi(contract_recovery, "Contract recovery EUR", "/intel", "ok"))
+    if ready_claims is not None:
+        cards.append(kpi(ready_claims, "Claims ready to file", "/readiness", "ok"))
+    if blocked_claims is not None:
+        cards.append(kpi(blocked_claims, "Blocked claims", "/readiness", "warn"))
+    if deadline_risks is not None:
+        cards.append(kpi(deadline_risks, "Deadline risks in 90 days", "/readiness",
+                         "bad" if deadline_risks else "ok"))
+    if anomalies is not None:
+        cards.append(kpi(anomalies, "Anomalies to review", "/anomalies",
+                         "warn" if anomalies else "ok"))
+
+    if not cards:
+        cards.append('<div class="kpi"><div class="v">-</div>'
+                     '<div class="l">Load a pilot invoice batch to calculate money at stake.</div></div>')
+    note = ("Latest loaded period: " + esc(period)) if period else "No transaction period loaded yet."
+    return ('<div class="card"><h2>Client value snapshot</h2>'
+            '<div class="note">The first-screen answer to: how much money is recoverable, '
+            'what is blocked, and what needs action. Figures reuse the same VAT, savings, '
+            'and recovery engines used by the detailed pages.</div>'
+            f'<div class="note">{note}</div>'
+            f'<div class="kpis metrics">{"".join(cards)}</div></div>')
+
+
+def _home_pilot_workflow(is_admin, mods, perms):
+    """Sales/demo workflow card: one clear path from files to money evidence."""
+    if "intake" not in mods or "data_import" not in perms:
+        return ""
+    steps = [
+        ("1", "Upload 3 months", "Drop supplier PDFs, XML, ZIPs, or statements.", "/extract"),
+        ("2", "Review captures", "Confirm only exceptions and evidence gaps.", "/queue"),
+        ("3", "See money at stake", "VAT, overpay, contract recovery, and anomalies.", "/intel"),
+        ("4", "Export evidence", "Readiness, accounting, and recovery packs.", "/exports"),
+    ]
+    if is_admin and "vat" in mods:
+        steps[1] = ("2", "Check readiness", "Ready, missing docs, thresholds, deadlines.", "/readiness")
+    tiles = "".join(
+        f'<a class="atile act" href="{esc(href)}"><span class="an">{esc(n)}</span>'
+        f'<span class="al"><b>{esc(title)}</b><br>{esc(desc)}</span>'
+        '<span class="ag">Open</span></a>'
+        for n, title, desc, href in steps)
+    return ('<div class="card"><h2>3-month pilot workflow</h2>'
+            '<div class="note">Use this as the client demo: upload the last quarter, '
+            'show the money, then export the evidence needed to recover it.</div>'
+            f'<div class="atiles">{tiles}</div></div>')
+
+
 @app.route("/")
 def home():
     """The home ACTION CENTER — "what needs me today" for a small accounting/fleet team.
@@ -3225,7 +3363,9 @@ def home():
         '<p class="note">All clear — nothing is waiting on you right now. 🎉</p></div>')
 
     # 2) Headline KPIs — recoverable VAT outstanding + claims-by-status (admin + VAT on).
+    value = _home_value_snapshot(is_admin, mods)
     kpis = _home_kpis(is_admin, mods)
+    pilot = _home_pilot_workflow(is_admin, mods, perms)
 
     # 3) Section navigation, moved BELOW the action center as "Jump to…".
     # (icon, title, one-line desc, href, show?) — only sections the user can reach.
@@ -3258,7 +3398,7 @@ def home():
     nav = (f'<div class="card"><h2>🧭 Jump to…</h2></div>'
            f'<div class="tiles">{tiles}</div>')
 
-    body = attention_card + kpis + nav
+    body = attention_card + value + kpis + pilot + nav
     return page(body, "home")
 
 @app.route("/analytics")

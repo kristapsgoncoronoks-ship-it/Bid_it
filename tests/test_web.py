@@ -416,14 +416,16 @@ def test_savings_page_renders_chart(client):
 
 
 def test_home_landing_page(client):
-    # The landing page is now an ACTION CENTER: a "needs attention" row + the headline
-    # recoverable-VAT KPIs, then the section nav ("Jump to…"). The section tiles are
-    # preserved (navigation isn't removed), but no analytics tables live here.
+    # The landing page is now an ACTION CENTER with an ROI-first value snapshot,
+    # then the section nav ("Jump to..."). The section tiles are preserved
+    # (navigation isn't removed), but no analytics tables live here.
     html = client.get("/").get_data(as_text=True)
     assert "Needs attention" in html            # the action center
+    assert "Client value snapshot" in html       # money-at-stake first screen
+    assert "Avoidable overpay EUR" in html       # value headline, not a table
+    assert "3-month pilot workflow" in html      # guided client-demo path
     assert "Jump to" in html                     # section nav preserved, moved below
     assert 'href="/analytics"' in html          # links to the analytics dashboard
-    assert "Avoidable overpay" not in html      # analytics KPI moved off the landing page
 
 
 def test_analytics_dashboard_no_worklist(client):

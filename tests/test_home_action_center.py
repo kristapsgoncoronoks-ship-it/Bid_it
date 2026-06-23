@@ -34,6 +34,10 @@ def _processor_client(admin_session):
 def test_home_is_action_center_for_admin(client):
     html = client.get("/").get_data(as_text=True)
     assert "Needs attention" in html                 # the action row
+    assert "Client value snapshot" in html            # ROI-first product framing
+    assert "3-month pilot workflow" in html           # guided sales/demo path
+    assert "Total addressable EUR" in html            # savings + recovery headline
+    assert "Upload 3 months" in html
     assert "Jump to" in html                          # section nav preserved
     assert 'class="atiles"' in html                   # the action-tile grid
     assert "Invoices awaiting review" in html         # the intake review tile
@@ -61,6 +65,8 @@ def test_admin_only_tiles_hidden_from_processor(client, admin_session):
     assert "Pending supplier changes" not in proc_html
     assert "Recent errors" not in proc_html
     assert "Recoverable VAT outstanding" not in proc_html
+    assert "Client value snapshot" in proc_html
+    assert "3-month pilot workflow" in proc_html
     # but DOES see its own work tile
     assert "Invoices awaiting review" in proc_html
 
