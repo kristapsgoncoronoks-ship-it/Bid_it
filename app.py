@@ -1434,6 +1434,7 @@ PERM_BY_ENDPOINT = {
     "doc_mining_page": "data_import", "imports": "data_import", "files_archive": "data_import",
     "invoice_ctrl":    "invoice_control", "contracts": "invoice_control",
     "vat":             "vat_claims", "api_vat": "vat_claims", "readiness": "vat_claims",
+    "recovery_dashboard_page": "vat_claims",
     "api_recovery":    "vat_claims",   # JSON twin of the admin-only recovery page
     "receivables":     "vat_claims", "export_receivables": "exports",
     "financing":       "vat_claims",   # embedded-finance origination (advisory, NullProvider)
@@ -1495,6 +1496,7 @@ PERM_BY_ENDPOINT = {
 # The VAT-refund module (claims, readiness, recovery/fees + their exports/API) is
 # restricted to admins regardless of any processor capability.
 ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "api_recovery",
+              "recovery_dashboard_page",
               "receivables", "financing", "recon",
               "export_vat", "export_readiness", "export_fees", "export_fee",
               "export_receivables", "export_evidence",
@@ -1659,7 +1661,8 @@ MODULES = {
                    {"share_links_page", "share_create", "share_views_page", "share_revoke",
                     "rooms_page", "room_page", "room_qa_page", "room_engagement_page"}),
     "vat":        ("VAT refunds — claims, readiness, recovery & fees (admin only)",
-                   {"vat", "api_vat", "readiness", "recovery", "api_recovery",
+                   {"vat", "api_vat", "readiness", "recovery_dashboard_page",
+                    "readiness", "recovery", "api_recovery",
                     "receivables", "financing", "recon",
                     "export_vat", "export_readiness", "export_fees", "export_fee",
                     "export_receivables", "export_evidence"}),
@@ -2864,9 +2867,10 @@ button[disabled].btn,button.btn:disabled{opacity:.55;cursor:not-allowed;pointer-
   {% if 'pricing' in perms %}<a href="/pricing" class="{{'on' if page=='pri'}}">Pricing intel</a>
   <a href="/reliability" class="{{'on' if page=='rel'}}">Reliability</a>{% endif %}
 </span></div></div>{% endif %}
-<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ent','vat','rdy','rec','rcv','fin','rcn','fx'] else ''}}"><span class="ic">💶</span>{{ t('VAT & Recovery') }}</span><div class="mdrop"><span>
+<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ent','vat','rdy','rec','rcv','fin','rcn','fx','rcd'] else ''}}"><span class="ic">💶</span>{{ t('VAT & Recovery') }}</span><div class="mdrop"><span>
   <a href="/entities" class="{{'on' if page=='ent'}}">Entities &amp; VAT</a>
-  {% if is_admin and 'vat' in modules %}<a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
+  {% if is_admin and 'vat' in modules %}<a href="/recovery-dashboard" class="{{'on' if page=='rcd'}}">💶 Recovery dashboard</a>
+  <a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
   <a href="/readiness" class="{{'on' if page=='rdy'}}">Claims readiness</a>
   <a href="/recovery" class="{{'on' if page=='rec'}}">Recovery &amp; fees</a>
   <a href="/receivables" class="{{'on' if page=='rcv'}}">Receivables &amp; forecast</a>
@@ -9514,6 +9518,104 @@ def recovery():
               'arrives (3A) advance to 4/4A, issue the fee invoice, then close (5). Age over 120 '
               'days flagged red.</div></div>')
     return page(body, "rec")
+
+@app.route("/recovery-dashboard")
+def recovery_dashboard_page():
+    """CASH-RECOVERY ROI dashboard — the value-first view: how much money we can recover for
+    the client (claimable VAT, in-flight, recovered, supplier overcharges) and every claim's
+    readiness state. Reads the CANONICAL vat_refund.recovery_dashboard + contract_audit; no
+    figure is forked. NET EUR (VAT excluded) basis; filing deadline = 30 Sep of year+1."""
+    import vat_refund as VR
+    import datetime
+    year = (request.args.get("year") or str(datetime.date.today().year)).strip()
+    d = VR.recovery_dashboard(year)
+    b = d["buckets"]
+
+    # supplier overcharges (best-effort — needs contract/benchmark data; €0 when none on file).
+    overcharge_eur, overcharge_n = 0.0, 0
+    try:
+        import contract_audit
+        _flags, _osum = contract_audit.audit()
+        overcharge_eur = float(_osum.get("total_recover", 0) or 0)
+        overcharge_n = int(_osum.get("flags", 0) or 0)
+    except Exception as e:
+        _log_exc("recovery dashboard overcharges", e)
+
+    def _eur(x):
+        return f"€{(x or 0):,.0f}"
+    dtr = d["days_to_refund"]
+    drisk = d["deadline_risk"]
+    # the total cash story = claimable now + in-flight + overcharges (excludes already-paid).
+    opportunity = (d["claimable_eur"] or 0) + (d["awaiting_eur"] or 0) + overcharge_eur
+    hero = (
+        '<div class="card" style="border-left:4px solid #1a7f37;background:#f3fbf5">'
+        f'<h2 style="margin:0">Cash to recover — {esc(year)}</h2>'
+        f'<div style="font-size:34px;font-weight:700;color:#1a7f37;margin:4px 0">{_eur(opportunity)}</div>'
+        '<div class="note">Recoverable VAT in flight + claimable now + supplier overcharges '
+        'found. NET EUR, VAT excluded. “You pay only when money is recovered.”</div></div>')
+    north = ('<div class="kpis">'
+             + f'<div class="kpi"><div class="v ok">{_eur(d["recovered_eur"])}</div>'
+               '<div class="l">recovered (paid)</div></div>'
+             + f'<div class="kpi"><div class="v">{_eur(d["claimable_eur"])}</div>'
+               '<div class="l">claimable now</div></div>'
+             + f'<div class="kpi"><div class="v">{_eur(d["awaiting_eur"])}</div>'
+               '<div class="l">awaiting refund</div></div>'
+             + f'<div class="kpi"><div class="v">{_eur(overcharge_eur)}</div>'
+               f'<div class="l">overcharges found{f" ({overcharge_n})" if overcharge_n else ""}</div></div>'
+             + f'<div class="kpi"><div class="v {"bad" if drisk["n"] else "ok"}">{drisk["n"]}</div>'
+               '<div class="l">deadline risk</div></div>'
+             + f'<div class="kpi"><div class="v">{f"{dtr:.0f}d" if dtr is not None else "—"}</div>'
+               '<div class="l">median days to refund</div></div></div>')
+
+    # the six readiness states, value-ordered, each linking to where you act on it.
+    _link = {"ready": "/readiness", "deadline": "/readiness", "missing": "/readiness",
+             "below": "/readiness", "submitted": "/readiness", "paid": "/recovery"}
+    _cls = {"ready": "ok", "deadline": "bad", "missing": "", "below": "",
+            "submitted": "", "paid": "ok"}
+    rows = []
+    for s in VR.RECOVERY_STATES:
+        bk = b[s]
+        rows.append([
+            f'<td><b class="{_cls[s]}">{esc(VR.RECOVERY_STATE_LABELS[s])}</b></td>',
+            f'<td class="r">{bk["n"]}</td>',
+            f'<td class="r">{_eur(bk["eur"])}</td>',
+            f'<td><a href="{_link[s]}?year={esc(year)}">open →</a></td>'])
+    ready_now = b["ready"]["n"] + b["deadline"]["n"]
+    cta = ''
+    if ready_now:
+        cta = ('<div class="card" style="border-left:4px solid #0e5fa8">'
+               f'<b class="ok">{ready_now} claim(s) ready to file now</b> — submit to recover '
+               f'<b>{_eur(d["claimable_eur"])}</b>. '
+               f'<a href="/vat?year={esc(year)}">Go to VAT refunds →</a></div>')
+    drisk_note = ''
+    if drisk["n"]:
+        drisk_note = ('<div class="card" style="border-left:4px solid var(--bad)">'
+                      f'<b class="bad">⚠ {drisk["n"]} claim(s) within {VR.DEADLINE_RISK_DAYS} days '
+                      f'of the filing deadline</b> ({_eur(drisk["eur"])} at risk). File them '
+                      'before 30 Sep of the following year or the refund is lost. '
+                      f'<a href="/readiness?year={esc(year)}">Review →</a></div>')
+    overcharge_card = ''
+    if overcharge_eur:
+        overcharge_card = ('<div class="card"><h2>Supplier overcharges</h2>'
+                           f'<div class="note">{overcharge_n} line(s) breach a contracted '
+                           f'discount/ceiling — <b>{_eur(overcharge_eur)}</b> recoverable from '
+                           'suppliers. <a href="/contracts">Open the contract audit →</a></div></div>')
+    body = (f'<form class="f" method="get"><label>Year<input name="year" value="{esc(year)}" '
+            'style="width:80px"></label>'
+            f'<a href="/readiness?year={esc(year)}" style="align-self:end;padding:8px 12px;'
+            'font-size:13px">Claim readiness detail →</a></form>'
+            + hero + north + cta + drisk_note
+            + '<div class="card"><h2>Claims by readiness</h2>'
+            + tbl(["State", "Claims", "VAT EUR", ""], rows)
+            + '<div class="note"><b>Ready</b> = passes every checklist gate, period ended, above '
+              'threshold — file now. <b>Deadline risk</b> = claimable but inside '
+              f'{VR.DEADLINE_RISK_DAYS} days of the 30-Sep cutoff. <b>Missing documents</b> = '
+              'blocked on docs/checklist. <b>Below threshold</b> = under the statutory minimum '
+              '(accumulate to annual). <b>Submitted</b> = with the tax authority. <b>Paid</b> = '
+              'recovered.</div></div>'
+            + overcharge_card)
+    return page(body, "rcd")
+
 
 @app.route("/readiness")
 def readiness():

@@ -1763,6 +1763,88 @@ def claims_overview(year):
     con.close()
     return {"to_submit": to_submit, "open": open_claims}
 
+
+# Days inside the 2008/9/EC filing deadline (30 Sep, year+1) that count a not-yet-submitted
+# claim as AT RISK on the cash-recovery dashboard.
+DEADLINE_RISK_DAYS = 60
+
+# The six cash-recovery readiness states (order = the value/urgency funnel).
+RECOVERY_STATES = ("ready", "deadline", "missing", "below", "submitted", "paid")
+RECOVERY_STATE_LABELS = {
+    "ready": "Ready to submit", "deadline": "Deadline risk",
+    "missing": "Missing documents", "below": "Below threshold",
+    "submitted": "Submitted — awaiting refund", "paid": "Paid (recovered)"}
+
+
+def recovery_dashboard(year):
+    """Cash-recovery ROI summary for `year` — the value-first dashboard's data. Buckets EVERY
+    claim into the six readiness states (RECOVERY_STATES) and totals the north-star euros, built
+    on the CANONICAL claims_overview + recovery_report (never forks the queries). Returns a dict
+    {year, buckets:{state:{n,eur}}, recovered_eur, awaiting_eur, claimable_eur, deadline_risk:{n,
+    eur}, days_to_refund, n_claims}. Never raises -> a safe empty shape."""
+    import datetime
+    empty = {"year": str(year),
+             "buckets": {s: {"n": 0, "eur": 0.0} for s in RECOVERY_STATES},
+             "recovered_eur": 0.0, "awaiting_eur": 0.0, "claimable_eur": 0.0,
+             "deadline_risk": {"n": 0, "eur": 0.0}, "days_to_refund": None, "n_claims": 0}
+    try:
+        ov = claims_overview(str(year))
+        recs, summ = recovery_report(str(year))
+        b = {s: {"n": 0, "eur": 0.0} for s in RECOVERY_STATES}
+
+        def _add(state, eur):
+            b[state]["n"] += 1
+            b[state]["eur"] += float(eur or 0)
+
+        for c in ov.get("to_submit", []):
+            v = (c.get("verdict") or "").upper()
+            dd = c.get("deadline_days")
+            if v.startswith("DEFER") or v.startswith("BELOW"):
+                state = "below"                       # under the statutory minimum (yet)
+            elif isinstance(dd, int) and dd <= DEADLINE_RISK_DAYS:
+                state = "deadline"                    # claimable but the filing window is closing
+            elif c.get("ready"):
+                state = "ready"
+            else:
+                state = "missing"                     # blocked on docs / checklist
+            _add(state, c.get("vat_eur"))
+        for c in ov.get("open", []):
+            _add("submitted", c.get("vat_eur"))       # in the tax authority's hands
+
+        # PAID claims are excluded from claims_overview — take them from the recovery report.
+        paid_n, days = 0, []
+        for r in recs:
+            if r.get("paid_date") or (r.get("status_code") or "").upper() == "3A":
+                paid_n += 1
+                sd, pd = r.get("submitted_date"), r.get("paid_date")
+                if sd and pd:
+                    try:
+                        days.append((datetime.date.fromisoformat(pd)
+                                     - datetime.date.fromisoformat(sd)).days)
+                    except ValueError:
+                        pass
+        b["paid"]["n"] = paid_n
+        b["paid"]["eur"] = float(summ.get("paid", 0) or 0)
+
+        days_to_refund = None
+        if days:
+            days.sort()
+            mid = len(days) // 2
+            days_to_refund = (days[mid] if len(days) % 2
+                              else (days[mid - 1] + days[mid]) / 2)
+        claimable = b["ready"]["eur"] + b["deadline"]["eur"]
+        n_claims = sum(b[s]["n"] for s in RECOVERY_STATES)
+        return {"year": str(year), "buckets": b,
+                "recovered_eur": float(summ.get("paid", 0) or 0),
+                "awaiting_eur": float(summ.get("outstanding", 0) or 0),
+                "claimable_eur": claimable,
+                "deadline_risk": dict(b["deadline"]),
+                "days_to_refund": days_to_refund, "n_claims": n_claims}
+    except Exception as e:
+        log.warning("recovery_dashboard(%s) failed: %s", year, e)
+        return empty
+
+
 def claim_matrix(con, year, with_portal=True):
     """All streams for the year: per (entity, country) give Q1..Q4 + YEAR VAT, currency, status.
     `con` is the claims connection; transactions are read from the analytics DB.
