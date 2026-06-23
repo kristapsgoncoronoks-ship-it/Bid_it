@@ -338,6 +338,7 @@ multi-network dataset and removes the manual upload burden.* (See `docs/STRATEGY
    % auto-captured, hours/close, ARR, financing €).
 
 ### Cash-recovery product pivot (current focus — north star: € recovered · € overcharges · days-to-refund · deadline misses = 0)
+> Cited deep-research backing for the sequencing below: **[docs/RESEARCH.md](RESEARCH.md)** (market · ViDA/e-invoicing · competitors · receivable financing · security).
 The active product direction is to present the platform as a **cash-recovery product, not a general expense tool**. Shipped first:
 - **Cash-recovery ROI dashboard** (`vat_refund.recovery_dashboard` → `/recovery-dashboard`): the value-first surface — recoverable VAT (in flight / claimable now), supplier overcharges, € recovered, deadline risk, days-to-refund, over the six claim-readiness states (Ready · Deadline risk · Missing documents · Below threshold · Submitted · Paid). Built on the canonical `claims_overview`+`recovery_report`.
 - **Capture reads the legal entity off the invoice** (per-country seller; marker-only matching; detection leads with the entity) + **per-country entity learning** so the right entity lands on the claim.
