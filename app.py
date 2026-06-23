@@ -1436,6 +1436,7 @@ PERM_BY_ENDPOINT = {
     "vat":             "vat_claims", "api_vat": "vat_claims", "readiness": "vat_claims",
     "recovery_dashboard_page": "vat_claims",
     "overcharges": "vat_claims", "overcharges_packet": "vat_claims",
+    "email_intake_page": "data_import",
     "api_recovery":    "vat_claims",   # JSON twin of the admin-only recovery page
     "receivables":     "vat_claims", "export_receivables": "exports",
     "financing":       "vat_claims",   # embedded-finance origination (advisory, NullProvider)
@@ -1498,6 +1499,7 @@ PERM_BY_ENDPOINT = {
 # restricted to admins regardless of any processor capability.
 ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "api_recovery",
               "recovery_dashboard_page", "overcharges", "overcharges_packet",
+              "email_intake_page",          # configures mailbox credentials -> admin only
               "receivables", "financing", "recon",
               "export_vat", "export_readiness", "export_fees", "export_fee",
               "export_receivables", "export_evidence",
@@ -1648,7 +1650,7 @@ MODULES = {
                     "extract_ai_verify", "extract_ai_correct", "extract_capture_download",
                     "extract_capture_file_download", "extract_folder", "extract_folder_file",
                     "extract_capture_excel", "extract_review_pdf", "extract_link_brand",
-                    "intake_queue_page", "intake_review",
+                    "intake_queue_page", "intake_review", "email_intake_page",
                     "imports", "files_archive", "doc_mining_page", "data_manager"}),
     "compliance": ("Compliance — invoice control, contract audit, documents",
                    {"invoice_ctrl", "contracts", "documents", "doc_download", "doc_assistant",
@@ -2837,9 +2839,10 @@ button[disabled].btn,button.btn:disabled{opacity:.55;cursor:not-allowed;pointer-
 </style></head><body>
 <header><b>🚛 ⛽ Fleet Fuel</b>
 <a href="/" class="{{'on' if page=='home'}}"><span class="ic">🏠</span>{{ t('Home') }}</a>
-{% if 'intake' in modules and 'data_import' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ext','queue','imp','fil','min'] else ''}}"><span class="ic">📥</span>{{ t('Intake') }}</span><div class="mdrop"><span>
+{% if 'intake' in modules and 'data_import' in perms %}<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ext','queue','imp','fil','min','eml'] else ''}}"><span class="ic">📥</span>{{ t('Intake') }}</span><div class="mdrop"><span>
   <a href="/extract" class="{{'on' if page=='ext'}}">Import batch</a>
   <a href="/queue" class="{{'on' if page=='queue'}}">Waiting room</a>
+  {% if is_admin %}<a href="/email-intake" class="{{'on' if page=='eml'}}">Email inbox</a>{% endif %}
   <a href="/imports" class="{{'on' if page=='imp'}}">Import log</a>
   <a href="/files" class="{{'on' if page=='fil'}}">File archive</a>
   <a href="/mining" class="{{'on' if page=='min'}}">Doc mining</a>
@@ -8167,7 +8170,71 @@ def imports():
         _log_exc("imports reliability card", e)
     return page(body, "imp")
 
-@app.route("/files", methods=["GET", "POST"])
+
+@app.route("/email-intake", methods=["GET", "POST"])
+def email_intake_page():
+    """Configure the supplier-invoice EMAIL inbox (IMAP) and run an on-demand fetch. Attachments
+    (PDF / e-invoice XML / ZIP) are enqueued into the SAME intake queue as a manual upload.
+    Admin-only (mailbox credentials); the password is sealed via keyvault."""
+    import email_intake as EI
+    banner = ""
+    if request.method == "POST":
+        act = request.form.get("__act")
+        actor = session.get("user", "system")
+        if act == "save":
+            vals = {"enabled": "on" if request.form.get("enabled") == "on" else "off",
+                    "host": request.form.get("host", ""), "port": request.form.get("port", ""),
+                    "user": request.form.get("user", ""),
+                    "folder": request.form.get("folder", ""),
+                    "ssl": "on" if request.form.get("ssl") == "on" else "off"}
+            ok, err = EI.set_config(vals, password=(request.form.get("password") or None),
+                                    clear_password=(request.form.get("clear_pw") == "on"),
+                                    actor=actor)
+            banner = (f'<div class="card"><b class="{"ok" if ok else "bad"}">'
+                      f'{esc("Mailbox settings saved." if ok else err)}</b></div>')
+        elif act == "fetch":
+            res = EI.poll(user=f"email:{actor}")
+            if "skipped" in res:
+                banner = (f'<div class="card"><b class="bad">Fetch skipped: '
+                          f'{esc(res["skipped"])}</b></div>')
+            else:
+                banner = ('<div class="card"><b class="ok">Fetched '
+                          f'{res["messages"]} message(s): {res["enqueued"]} new invoice(s) '
+                          f'queued, {res.get("duplicates", 0)} duplicate(s), {res["skipped"]} '
+                          f'skipped, {res["errors"]} error(s).</b> '
+                          '<a href="/queue">Open the waiting room →</a></div>')
+    c = EI.config()
+
+    def _v(k):
+        return esc(str(c.get(k) or ""))
+    ck = lambda b: " checked" if b else ""
+    form = (
+        '<div class="card"><h2>Supplier-invoice email inbox</h2>'
+        '<p class="note">Poll an IMAP mailbox suppliers email invoices to. Attachments '
+        '(PDF, e-invoice XML, hybrid Factur-X/ZUGFeRD PDF, ZIP) are queued into the same '
+        'waiting room as a manual upload — same capture, dedup and review. The password is '
+        'stored sealed (envelope-encrypted). Runs on demand here; an automatic schedule can be '
+        'enabled later.</p>'
+        '<form method="post" class="f">' + _csrf_input()
+        + '<input type="hidden" name="__act" value="save">'
+        + f'<label>Enabled <input type="checkbox" name="enabled"{ck(c["enabled"])}></label>'
+        + f'<label style="flex:1 1 260px">IMAP host<input name="host" value="{_v("host")}" '
+          'placeholder="imap.example.com"></label>'
+        + f'<label>Port<input name="port" value="{_v("port")}" style="width:90px"></label>'
+        + f'<label>Use SSL <input type="checkbox" name="ssl"{ck(c["ssl"])}></label>'
+        + f'<label style="flex:1 1 260px">Username<input name="user" value="{_v("user")}"></label>'
+        + f'<label>Folder<input name="folder" value="{_v("folder")}" style="width:120px"></label>'
+        + f'<label style="flex:1 1 260px">Password<input type="password" name="password" '
+          f'placeholder="{esc("•••• (set)" if c["has_password"] else "not set")}"></label>'
+        + (f'<label>Clear password <input type="checkbox" name="clear_pw"></label>'
+           if c["has_password"] else '')
+        + f'<div style="margin-top:8px"><button>{esc(_t("Save mailbox settings"))}</button></div>'
+        '</form></div>'
+        '<form method="post" style="margin-top:10px">' + _csrf_input()
+        + '<input type="hidden" name="__act" value="fetch">'
+        '<button>Fetch invoices now</button> '
+        '<span class="note">pulls unread messages and queues their attachments</span></form>')
+    return page(banner + form, "eml")
 def files_archive():
     """The permanent file archive (data lake): uploaded files and AI-processed outputs.
     Files are kept forever — removed only by an explicit delete here or when integrity
