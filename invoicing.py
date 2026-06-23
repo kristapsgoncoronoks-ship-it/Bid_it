@@ -612,9 +612,75 @@ def get_issuer_record(issuer_id):
         return None
 
 
+def _series_slug(s, cap=12):
+    """A SERIES-safe code from a company name/label: uppercase alphanumerics, common company
+    forms dropped, capped. Empty -> 'INV'."""
+    import re
+    raw = re.sub(r"[^0-9A-Za-z ]", " ", (s or "")).upper()
+    drop = {"OU", "OY", "AS", "SIA", "UAB", "GMBH", "AG", "SE", "SA", "SARL", "BV", "NV",
+            "LTD", "PLC", "KG", "AB", "OOO", "ZOO", "SP", "SPZOO", "THE", "AND"}
+    tokens = [t for t in raw.split() if t not in drop and len(t) > 1]
+    code = re.sub(r"[^0-9A-Z]", "", "".join(tokens) or raw)
+    return code[:cap] or "INV"
+
+
+def _used_series(con):
+    """All series strings already in use across every issuer (all four series columns) for the
+    bound tenant — so an auto-generated series never collides with an existing one."""
+    used = set()
+    try:
+        frag, params = tenancy.scope_clause()
+        for r in con.execute("SELECT series, credit_series, proforma_series, quote_series "
+                             "FROM issuers WHERE 1=1" + frag, params):
+            for k in ("series", "credit_series", "proforma_series", "quote_series"):
+                v = (r[k] or "").strip()
+                if v:
+                    used.add(v.upper())
+    except Exception as e:
+        log.warning("used_series read failed: %s", e)
+    return used
+
+
+def _autofill_numbering(values, con):
+    """Fill BLANK numbering / format / payment-terms fields with sensible defaults so a company
+    can be registered with just name+address+VAT. Each generated SERIES is UNIQUE per company
+    (two legal entities must never share a gap-free sequence): derived from the company name,
+    de-duplicated against existing series. User-supplied values are left untouched. Returns a
+    new dict."""
+    v = dict(values)
+    used = _used_series(con)
+
+    def _unique(cand):
+        cand = (cand or "INV").upper()
+        if cand not in used:
+            used.add(cand)
+            return cand
+        i = 2
+        while f"{cand}{i}" in used:
+            i += 1
+        used.add(f"{cand}{i}")
+        return f"{cand}{i}"
+
+    base = _series_slug(v.get("label") or v.get("name"))
+    eff = (v.get("series") or "").strip() or _unique(base)
+    v["series"] = eff
+    if not (v.get("credit_series") or "").strip():
+        v["credit_series"] = _unique(eff + "CR")
+    if not (v.get("proforma_series") or "").strip():
+        v["proforma_series"] = _unique(eff + "PF")
+    if not (v.get("quote_series") or "").strip():
+        v["quote_series"] = _unique(eff + "QT")
+    if not (v.get("number_format") or "").strip():
+        v["number_format"] = DEFAULT_NUMBER_FORMAT
+    if not str(v.get("payment_terms_days") or "").strip():
+        v["payment_terms_days"] = str(DEFAULT_PAYMENT_TERMS_DAYS)
+    return v
+
+
 def add_issuer(values, created_by=None):
     """Create a company in the registry. `values` is keyed by _ISSUER_FIELDS (label + the
-    ISSUER_KEYS). Returns (id, "") or (None, error)."""
+    ISSUER_KEYS). BLANK numbering/format/terms fields are auto-filled (a unique-per-company
+    series + sensible defaults). Returns (id, "") or (None, error)."""
     label = (values.get("label") or values.get("name") or "").strip()
     if not (values.get("name") or "").strip():
         return None, "the company's legal name is required"
@@ -623,6 +689,7 @@ def add_issuer(values, created_by=None):
         if created_by:
             audit.set_actor(con, created_by)
         try:
+            values = _autofill_numbering(values, con)   # generate unique series / defaults
             cols = list(_ISSUER_FIELDS)
             vals = {c: str(values.get(c) or "") for c in cols}
             vals["label"] = label or vals.get("name")

@@ -1482,3 +1482,28 @@ def test_logo_is_per_company(inv):
     # clearing A leaves B untouched (B never had one)
     inv.set_issuer_logo(None, issuer_id=a)
     assert inv.get_issuer_logo(a) == (None, None)
+
+
+def test_company_numbering_autofilled_unique_when_blank(inv):
+    # registering with ONLY name/address/VAT auto-fills a UNIQUE series + sensible defaults
+    a, _ = inv.add_issuer(dict(label="Fleet Fuel OÜ", name="Fleet Fuel OÜ",
+                               address="Tallinn", vat_number="EE1"))
+    b, _ = inv.add_issuer(dict(name="Fleet Fuel OÜ", address="Riga", vat_number="LV2"))  # same name
+    ra, rb = inv.get_issuer_record(a), inv.get_issuer_record(b)
+    # generated, non-empty, and the two companies do NOT share any series
+    assert ra["series"] and rb["series"] and ra["series"] != rb["series"]
+    all_series = [ra[k] for k in ("series", "credit_series", "proforma_series", "quote_series")] \
+        + [rb[k] for k in ("series", "credit_series", "proforma_series", "quote_series")]
+    assert len(all_series) == len(set(all_series)), "series must be unique across companies"
+    assert ra["number_format"] == inv.DEFAULT_NUMBER_FORMAT
+    assert ra["payment_terms_days"] == str(inv.DEFAULT_PAYMENT_TERMS_DAYS)
+    assert ra["series"] == "FLEETFUEL"          # 'OÜ' company-form dropped
+
+
+def test_company_user_supplied_series_respected(inv):
+    d, _ = inv.add_issuer(dict(name="Custom Co", address="X", vat_number="EE9",
+                               series="MYSER", payment_terms_days="30"))
+    r = inv.get_issuer_record(d)
+    assert r["series"] == "MYSER" and r["payment_terms_days"] == "30"
+    # blanks alongside a supplied series are still auto-filled, derived from it
+    assert r["credit_series"].startswith("MYSER")
