@@ -1436,6 +1436,7 @@ PERM_BY_ENDPOINT = {
     "vat":             "vat_claims", "api_vat": "vat_claims", "readiness": "vat_claims",
     "recovery_dashboard_page": "vat_claims",
     "overcharges": "vat_claims", "overcharges_packet": "vat_claims",
+    "entitlement": "vat_claims",
     "email_intake_page": "data_import",
     "api_recovery":    "vat_claims",   # JSON twin of the admin-only recovery page
     "receivables":     "vat_claims", "export_receivables": "exports",
@@ -1498,7 +1499,7 @@ PERM_BY_ENDPOINT = {
 # The VAT-refund module (claims, readiness, recovery/fees + their exports/API) is
 # restricted to admins regardless of any processor capability.
 ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "api_recovery",
-              "recovery_dashboard_page", "overcharges", "overcharges_packet",
+              "recovery_dashboard_page", "overcharges", "overcharges_packet", "entitlement",
               "email_intake_page",          # configures mailbox credentials -> admin only
               "receivables", "financing", "recon",
               "export_vat", "export_readiness", "export_fees", "export_fee",
@@ -1665,7 +1666,7 @@ MODULES = {
                     "rooms_page", "room_page", "room_qa_page", "room_engagement_page"}),
     "vat":        ("VAT refunds — claims, readiness, recovery & fees (admin only)",
                    {"vat", "api_vat", "readiness", "recovery_dashboard_page",
-                    "overcharges", "overcharges_packet",
+                    "overcharges", "overcharges_packet", "entitlement",
                     "readiness", "recovery", "api_recovery",
                     "receivables", "financing", "recon",
                     "export_vat", "export_readiness", "export_fees", "export_fee",
@@ -2872,12 +2873,13 @@ button[disabled].btn,button.btn:disabled{opacity:.55;cursor:not-allowed;pointer-
   {% if 'pricing' in perms %}<a href="/pricing" class="{{'on' if page=='pri'}}">Pricing intel</a>
   <a href="/reliability" class="{{'on' if page=='rel'}}">Reliability</a>{% endif %}
 </span></div></div>{% endif %}
-<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ent','vat','rdy','rec','rcv','fin','rcn','fx','rcd','ovc'] else ''}}"><span class="ic">💶</span>{{ t('VAT & Recovery') }}</span><div class="mdrop"><span>
+<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ent','vat','rdy','rec','rcv','fin','rcn','fx','rcd','ovc','ent2'] else ''}}"><span class="ic">💶</span>{{ t('VAT & Recovery') }}</span><div class="mdrop"><span>
   <a href="/entities" class="{{'on' if page=='ent'}}">Entities &amp; VAT</a>
   {% if is_admin and 'vat' in modules %}<a href="/recovery-dashboard" class="{{'on' if page=='rcd'}}">💶 Recovery dashboard</a>
   <a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
   <a href="/readiness" class="{{'on' if page=='rdy'}}">Claims readiness</a>
   <a href="/overcharges" class="{{'on' if page=='ovc'}}">Overcharge claim-back</a>
+  <a href="/entitlement" class="{{'on' if page=='ent2'}}">VAT recoverability</a>
   <a href="/recovery" class="{{'on' if page=='rec'}}">Recovery &amp; fees</a>
   <a href="/receivables" class="{{'on' if page=='rcv'}}">Receivables &amp; forecast</a>
   <a href="/financing" class="{{'on' if page=='fin'}}">Embedded finance</a>
@@ -9729,6 +9731,64 @@ def recovery():
               'days flagged red.</div></div>')
     return page(body, "rec")
 
+@app.route("/entitlement", methods=["GET", "POST"])
+def entitlement():
+    """PER-COUNTRY VAT RECOVERABILITY (deductibility) config + the fuel-card entitlement rule.
+    A refund country may let you deduct only part of the input VAT; over-claiming gets refused,
+    so the claimable figure must reflect each country's recoverable %. Advisory; default 100%."""
+    import vat_entitlement as VE
+    import datetime
+    banner = ""
+    if request.method == "POST":
+        ok, err = VE.set_recoverable_pct(request.form.get("country", ""),
+                                         request.form.get("pct") or None,
+                                         actor=session.get("user", "system"))
+        banner = (f'<div class="card"><b class="{"ok" if ok else "bad"}">'
+                  f'{esc("Recoverable % saved." if ok else err)}</b></div>')
+    year = (request.args.get("year") or str(datetime.date.today().year)).strip()
+    summ = VE.recoverable_summary(year)
+    rows = []
+    for ctry, pct, hint in VE.country_table():
+        cls = "bad" if pct < 100 else "note"
+        form = ('<form method="post" style="display:inline">' + _csrf_input()
+                + f'<input type="hidden" name="country" value="{esc(ctry)}">'
+                + f'<input name="pct" value="{pct:g}" style="width:70px" inputmode="decimal"> '
+                '<button>Save</button></form>')
+        rows.append([f'<td><b>{esc(ctry)}</b></td>',
+                     f'<td class="r {cls}">{pct:g}%</td>',
+                     f'<td>{form}</td>',
+                     f'<td class="note">{esc(hint)}</td>'])
+    haircut = summ["haircut_eur"]
+    summary_card = ''
+    if haircut > 0:
+        crows = [[f'<td>{esc(b["country"] or "—")}</td>',
+                  f'<td class="r">€{b["gross"]:,.0f}</td>',
+                  f'<td class="r note">{b["pct"]:g}%</td>',
+                  f'<td class="r">€{b["recoverable"]:,.0f}</td>',
+                  f'<td class="r bad">€{b["haircut"]:,.0f}</td>']
+                 for b in summ["by_country"] if b["haircut"] > 0]
+        summary_card = ('<div class="card" style="border-left:4px solid #e67e22"><h2>'
+                        f'Deductibility impact — {esc(year)}</h2>'
+                        '<div class="note">Per-country recoverability applied to the year\'s '
+                        f'claimable VAT: <b>€{summ["gross_eur"]:,.0f}</b> gross → '
+                        f'<b class="ok">€{summ["recoverable_eur"]:,.0f}</b> recoverable '
+                        f'(<b class="bad">€{haircut:,.0f}</b> not recoverable). Reflecting this '
+                        'keeps a claim from being over-stated and refused.</div>'
+                        + tbl(["Country", "Gross VAT", "Rec. %", "Recoverable", "Haircut"], crows)
+                        + '</div>')
+    body = (banner + summary_card
+            + '<div class="card"><h2>Per-country VAT recoverability</h2>'
+            '<div class="note">How much of the input VAT each refund country lets you DEDUCT. '
+            'Commercial road-transport diesel/toll generally recovers in full (100%), but some '
+            'countries restrict it — set the rate where it applies. <b>Advisory: verify each '
+            'rate for your fleet\'s vehicle class.</b></div>'
+            + tbl(["Country", "Recoverable %", "Set", "Caveat (verify)"], rows)
+            + '</div>'
+            + f'<div class="card"><h2>Entitlement</h2><div class="note">{esc(VE.ENTITLEMENT_NOTE)}'
+            '</div></div>')
+    return page(body, "ent2")
+
+
 @app.route("/overcharges", methods=["GET", "POST"])
 def overcharges():
     """SUPPLIER OVERCHARGE CLAIM-BACK: the detected contract-audit overcharges per supplier×
@@ -9919,6 +9979,21 @@ def recovery_dashboard_page():
                       f'of the filing deadline</b> ({_eur(drisk["eur"])} at risk). File them '
                       'before 30 Sep of the following year or the refund is lost. '
                       f'<a href="/readiness?year={esc(year)}">Review →</a></div>')
+    # per-country deductibility haircut (advisory) — flag when a configured recoverable % < 100
+    # reduces the claimable VAT, so the claim isn't over-stated and refused.
+    entitlement_note = ''
+    try:
+        import vat_entitlement as _VE
+        _hair = _VE.recoverable_summary(year)["haircut_eur"]
+        if _hair > 0:
+            entitlement_note = ('<div class="card" style="border-left:4px solid #e67e22">'
+                                f'<b class="warn">€{_hair:,.0f} of claimable VAT is NOT '
+                                'recoverable</b> under your per-country deductibility settings — '
+                                'reflect it so a claim isn’t over-stated. '
+                                f'<a href="/entitlement?year={esc(year)}">Review recoverability '
+                                '→</a></div>')
+    except Exception as e:
+        _log_exc("recovery dashboard entitlement", e)
     overcharge_card = ''
     if overcharge_eur or overcharge_recovered:
         rec_bit = (f' · <b class="ok">{_eur(overcharge_recovered)}</b> already recovered'
@@ -9948,7 +10023,7 @@ def recovery_dashboard_page():
             'style="width:80px"></label>'
             f'<a href="/readiness?year={esc(year)}" style="align-self:end;padding:8px 12px;'
             'font-size:13px">Claim readiness detail →</a></form>'
-            + hero + north + cta + drisk_note
+            + hero + north + cta + drisk_note + entitlement_note
             + '<div class="card"><h2>Claims by readiness</h2>'
             + tbl(["State", "Claims", "VAT EUR", ""], rows)
             + '<div class="note"><b>Ready</b> = passes every checklist gate, period ended, above '
