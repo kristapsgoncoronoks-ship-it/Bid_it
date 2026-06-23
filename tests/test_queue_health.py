@@ -2,6 +2,7 @@
 DLQ size (terminal failed/held jobs needing a human redrive), the oldest-pending-job
 age SLO (a stalled/starved-worker alarm), and the sampled DLQ growth-rate history."""
 import datetime
+import itertools
 import importlib
 import time
 
@@ -18,9 +19,12 @@ def iq(tmp_path, monkeypatch):
     return waiting_room
 
 
+_sha_counter = itertools.count()
+
+
 def _insert(iq, status, uploaded_at=None, sha=None):
     """Insert a bare intake_jobs row directly (no extractor needed); returns its id."""
-    sha = sha or f"sha-{status}-{time.time_ns()}"
+    sha = sha or f"sha-{status}-{next(_sha_counter)}"
     con = iq.connect()
     cur = con.execute(
         "INSERT INTO intake_jobs (sha256, filename, status, uploaded_at) VALUES (?,?,?,?)",

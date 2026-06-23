@@ -2,6 +2,7 @@
 scorecard (success/retry rate, durations, top failure reason) and the overall
 failure-reason histogram. Read-only analytics over intake_jobs; must never raise."""
 import importlib
+import itertools
 import json
 import time
 
@@ -18,10 +19,13 @@ def iq(tmp_path, monkeypatch):
     return waiting_room
 
 
+_sha_counter = itertools.count()
+
+
 def _insert(iq, status, backend=None, attempts=0, started_at=None, finished_at=None,
             error=None, draft=None, sha=None):
     """Insert a bare intake_jobs row directly; returns its id."""
-    sha = sha or f"sha-{status}-{backend}-{time.time_ns()}"
+    sha = sha or f"sha-{status}-{backend}-{next(_sha_counter)}"
     con = iq.connect()
     cur = con.execute(
         "INSERT INTO intake_jobs (sha256, filename, status, backend, attempts, "
