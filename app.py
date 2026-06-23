@@ -9541,18 +9541,30 @@ def recovery_dashboard_page():
     except Exception as e:
         _log_exc("recovery dashboard overcharges", e)
 
+    # diesel excise-duty refund estimate (a second cash stream; advisory, indicative rates).
+    excise_eur, excise_n = 0.0, 0
+    try:
+        import excise
+        _erep = excise.excise_report()
+        excise_eur = float(_erep["summary"]["recoverable_eur"])
+        excise_n = int(_erep["summary"]["countries"])
+    except Exception as e:
+        _log_exc("recovery dashboard excise", e)
+
     def _eur(x):
         return f"€{(x or 0):,.0f}"
     dtr = d["days_to_refund"]
     drisk = d["deadline_risk"]
-    # the total cash story = claimable now + in-flight + overcharges (excludes already-paid).
-    opportunity = (d["claimable_eur"] or 0) + (d["awaiting_eur"] or 0) + overcharge_eur
+    # the total cash story = claimable now + in-flight + overcharges + excise (excludes paid).
+    opportunity = ((d["claimable_eur"] or 0) + (d["awaiting_eur"] or 0)
+                   + overcharge_eur + excise_eur)
     hero = (
         '<div class="card" style="border-left:4px solid #1a7f37;background:#f3fbf5">'
         f'<h2 style="margin:0">Cash to recover — {esc(year)}</h2>'
         f'<div style="font-size:34px;font-weight:700;color:#1a7f37;margin:4px 0">{_eur(opportunity)}</div>'
-        '<div class="note">Recoverable VAT in flight + claimable now + supplier overcharges '
-        'found. NET EUR, VAT excluded. “You pay only when money is recovered.”</div></div>')
+        '<div class="note">Recoverable VAT in flight + claimable now + supplier overcharges + '
+        'diesel excise-duty refund. NET EUR, VAT excluded. “You pay only when money is '
+        'recovered.”</div></div>')
     north = ('<div class="kpis">'
              + f'<div class="kpi"><div class="v ok">{_eur(d["recovered_eur"])}</div>'
                '<div class="l">recovered (paid)</div></div>'
@@ -9562,6 +9574,8 @@ def recovery_dashboard_page():
                '<div class="l">awaiting refund</div></div>'
              + f'<div class="kpi"><div class="v">{_eur(overcharge_eur)}</div>'
                f'<div class="l">overcharges found{f" ({overcharge_n})" if overcharge_n else ""}</div></div>'
+             + f'<div class="kpi"><div class="v">{_eur(excise_eur)}</div>'
+               f'<div class="l">excise refund (est.{f", {excise_n} ctry" if excise_n else ""})</div></div>'
              + f'<div class="kpi"><div class="v {"bad" if drisk["n"] else "ok"}">{drisk["n"]}</div>'
                '<div class="l">deadline risk</div></div>'
              + f'<div class="kpi"><div class="v">{f"{dtr:.0f}d" if dtr is not None else "—"}</div>'
@@ -9600,6 +9614,22 @@ def recovery_dashboard_page():
                            f'<div class="note">{overcharge_n} line(s) breach a contracted '
                            f'discount/ceiling — <b>{_eur(overcharge_eur)}</b> recoverable from '
                            'suppliers. <a href="/contracts">Open the contract audit →</a></div></div>')
+    excise_card = ''
+    if excise_eur:
+        erows = []
+        for er in _erep["rows"][:8]:
+            erows.append([f'<td>{esc(er["entity"])}</td><td>{esc(er["country"])}</td>',
+                          f'<td class="r">{er["litres"]:,.0f} L</td>',
+                          f'<td class="r note">€{er["rate_eur_per_1000l"]:,.0f}/1000L</td>',
+                          f'<td class="r">{_eur(er["recoverable_eur"])}</td>'])
+        excise_card = ('<div class="card"><h2>Diesel excise-duty refund (estimate)</h2>'
+                       + tbl(["Entity", "Country", "Diesel", "Rate", "Recoverable EUR"], erows)
+                       + '<div class="note"><b class="warn">⚠ Advisory estimate at INDICATIVE '
+                       'rates.</b> ~7 EU states refund part of the diesel excise to commercial '
+                       'hauliers (BE · FR · IT · SI · HU · ES · HR); the per‑1000‑L rate changes '
+                       'yearly and depends on eligibility (commercial diesel, vehicle ≥ 7.5 t, '
+                       'card‑paid). Set the current statutory rate per country before relying on '
+                       'this figure.</div></div>')
     body = (f'<form class="f" method="get"><label>Year<input name="year" value="{esc(year)}" '
             'style="width:80px"></label>'
             f'<a href="/readiness?year={esc(year)}" style="align-self:end;padding:8px 12px;'
@@ -9613,7 +9643,7 @@ def recovery_dashboard_page():
               'blocked on docs/checklist. <b>Below threshold</b> = under the statutory minimum '
               '(accumulate to annual). <b>Submitted</b> = with the tax authority. <b>Paid</b> = '
               'recovered.</div></div>'
-            + overcharge_card)
+            + overcharge_card + excise_card)
     return page(body, "rcd")
 
 
