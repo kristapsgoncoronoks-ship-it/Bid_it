@@ -19,6 +19,10 @@ several worker processes behind a proxy for a team, with no change of code.
 | **Master data** | Separate SQLite databases — our entities (`customers.db`), suppliers (`suppliers.db`), transactions (`fuel_history.db`), and the **VAT‑refund claim records isolated in their own `vat_claims.db`** so the monthly rebuild can't corrupt them. AI‑processed extraction output is archived in a **data lake** (same storage backends as the PDF vault). |
 | **Engine** | Consolidate → validate (tie‑out to invoice totals) → build monthly master workbook → load history/trend → materialize per‑period dashboard metrics. A **one‑click monthly close** runs the whole chain on the background worker (admin → `/close`); the orchestrator (`engine_close.py`) is restartable and writes one audit trail. |
 | **VAT refunds** *(admin‑only module)* | Claims per **entity × country × period** (Q1–Q4 or annual), 400/50 EUR thresholds, one‑invoice‑one‑submission locks, claim packs. A **controlled status workflow 1A→5**: the pre‑submission stages (1A missing docs · 1B period not ended · 1C/1E ready) are **derived by the system from an adjustable checklist** (contract, customer data, bank account, NACE, trade register, power of attorney) with a **hard period‑end gate**; then 2 submitted → 2B document request → 3 decision → 3A money → 3B rejection / 3D appeal / 3C confiscation (locks kept) → 4/4A invoice fee/credit → 5 closed. Low‑VAT quarters **merge dynamically** into the annual claim. Claims are built **from registered invoices** — every line ties to one invoice, **one row per product code** (Art. 9 codes), nothing synthetic filed; figures stay editable but guarded against accidental change. |
+| **Cash‑recovery dashboard** | The value‑first surface (`/recovery-dashboard`): how much money we can recover, on one screen. A **"cash to recover" hero** (claimable VAT in flight + claimable now + supplier overcharges) and **north‑star KPIs** — € recovered, € claimable now, € awaiting refund, € overcharges found, **deadline‑risk count**, median **days‑to‑refund** — over a **claims‑by‑readiness** table in six states (`Ready` · `Deadline risk` · `Missing documents` · `Below threshold` · `Submitted` · `Paid`). Built on the canonical `vat_refund.recovery_dashboard` (no forked queries); a claim inside **60 days of the 30‑Sep filing cutoff** is flagged at risk (deadline misses → 0). |
+| **Capture reads the legal entity** | Extraction reads the **seller legal entity printed on the invoice** — never the buyer or a factoring entity. The Eurowag parser reads the **per‑country issuing entity** from the footer (a different legal entity issues per country); the E100 parser **anchors** the seller name + VAT to the E100 entity so an adjacent buyer header never wins. Supplier matching is **marker‑only** (admin‑curated brand / VAT registrations, country‑scoped — no fuzzy auto‑pairing); the detection panel **leads with the legal entity** and offers the supplier code as a suggestion a human confirms. Confirming a statement **teaches the master the correct per‑country entity** so the right legal entity lands on the VAT claim. |
+| **Audit snapshot** | For internal audit & compliance, confirming a statement also vaults a **highlighted duplicate** of each invoice PDF — **supplier details boxed in red, client details in blue** (standard PDF annotations; original bytes untouched), viewable from the document list. |
+| **Sales invoicing** *(admin‑only module)* | Issue legally‑compliant sales invoices to your own customers from **more than one of your own companies**: a company registry where each legal entity has its **own gap‑free number series and its own logo**, chosen explicitly per invoice; gap‑free numbering assigned atomically at issue, issuer + customer **snapshotted** (immutable once issued), credit notes / proforma / quotes, EN‑16931 e‑invoice XML + designed PDF. A **company‑onboarding gate** locks the service until at least one company is registered (Art. 226), toggleable in Admin → Services. |
 | **Customer CRM** | The Customers page is a mini‑CRM: onboarding + per‑country activation, the adjustable checklist rules, **document generation from your own templates** ({{placeholders}} filled with customer data; .txt/.html/.md/.docx, optional PDF), document **validity dates** (expired POA re‑blocks claims), fee terms & payout routing. |
 | **Service fees** | % of refunded VAT floored at a per‑declaration minimum; per‑customer/per‑country overrides; rate frozen at submission, charged at payout; fee invoice + settlement. |
 | **Price intelligence** | Competitor NET‑price tracking and margin analysis, a **self‑sourced benchmark** from your own multi‑supplier purchases (best price achieved + avoidable overpay), and a **dynamic client‑portal scraper** (encrypted credentials). |
@@ -157,6 +161,8 @@ fleet_fuel_system/
 ├── invoice_control.py            # receipt control + statement reconciliation/triage
 ├── finance.py bank_recon.py      # advisory embedded-finance origination + open-banking reconciliation seams
 ├── saft.py einvoice_export.py    # OECD-SAF-T-core XML; EN-16931/UBL 2.1 e-invoice XML export + ERP exports hub
+├── invoicing.py                  # sales invoicing: MULTIPLE issuer companies (registry, per-invoice pick, per-company series+logo)
+├── audit_snapshot.py             # compliance highlighted-duplicate of an invoice PDF (supplier RED / client BLUE, pypdf+pikepdf)
 ├── workflow.py                   # advisory approval/routing engine (Tasks/Approvals inbox; never overrides VAT gates)
 ├── confidence.py                 # per-supplier×country trust (governs only the advisory AI review)
 ├── document_vault.py                # vault backends: local / SharePoint / FTP(S)
@@ -272,9 +278,11 @@ for setup see **[docs/MANUAL.md#install-setup-installation](docs/MANUAL.md#insta
                    doc_mining.py (fill INPUT gaps from the vault),
                    bank_recon.py (advisory bank↔refund reconciliation)
         │
-5. PRESENTATION    app.py (Flask: ~25 pages + JSON API + Excel/CSV/SAF-T), pricing_intelligence.py,
-                   reports.py, anomaly.py, saft.py (SAF-T export), finance.py (advisory finance),
-                   confidence.py (advisory-AI trust)
+5. PRESENTATION    app.py (Flask: ~25 pages + JSON API + Excel/CSV/SAF-T; incl. the cash-recovery
+                   ROI dashboard /recovery-dashboard over vat_refund.recovery_dashboard),
+                   pricing_intelligence.py, reports.py, anomaly.py, saft.py (SAF-T export),
+                   invoicing.py (multi-company sales invoicing), audit_snapshot.py (highlighted
+                   invoice duplicate), finance.py (advisory finance), confidence.py (advisory-AI trust)
         │
 6. PLATFORM        auth.py, audit.py, backup.py, tls.py, document_vault.py, db.py,
                    db_tuning.py, process_lock.py, keyvault.py (envelope-encrypted secrets),

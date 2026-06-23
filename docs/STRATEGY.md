@@ -337,6 +337,19 @@ multi-network dataset and removes the manual upload burden.* (See `docs/STRATEGY
 6. **Measure the outcome** — judge each item against the KPIs (€ recovered, days-to-refund,
    % auto-captured, hours/close, ARR, financing €).
 
+### Cash-recovery product pivot (current focus — north star: € recovered · € overcharges · days-to-refund · deadline misses = 0)
+The active product direction is to present the platform as a **cash-recovery product, not a general expense tool**. Shipped first:
+- **Cash-recovery ROI dashboard** (`vat_refund.recovery_dashboard` → `/recovery-dashboard`): the value-first surface — recoverable VAT (in flight / claimable now), supplier overcharges, € recovered, deadline risk, days-to-refund, over the six claim-readiness states (Ready · Deadline risk · Missing documents · Below threshold · Submitted · Paid). Built on the canonical `claims_overview`+`recovery_report`.
+- **Capture reads the legal entity off the invoice** (per-country seller; marker-only matching; detection leads with the entity) + **per-country entity learning** so the right entity lands on the claim.
+- **Audit snapshot** (highlighted supplier/client duplicate) · **multi-company sales invoicing** + **company-onboarding gate**.
+
+Next in order (do these; defer AI chat / broad expense / public benchmark / own finance licence):
+1. **Overcharge evidence-packet + claim-back workflow** — turn `contract_audit` €-overcharges into a supplier claim-back (reuse `evidence_pack`).
+2. **"Upload last quarter → see refund opportunity"** acquisition flow (the best-first-offer landing).
+3. **Capture automation inbound** — email inbox / API-EDI / e-invoice (less manual upload = more value), then portal scraping.
+4. **ERP exports** — Xero / QuickBooks / DATEV on top of the existing Excel / ledger-CSV / SAF-T / e-invoice hub.
+5. **Security before SaaS** — tenant isolation (per-table `scope_clause` phase) · encrypted credentials (done seam) · audit logs · DPA/security docs.
+
 ### Near-term concrete steps (from `#backlog`)
 - Phase 0: D6 worker tier · per-supplier rate-limiter · test coverage · one-click close.
 - Phase 1: API ingestion + portal-scraping (both) on the worker tier · credential-custody hardening.

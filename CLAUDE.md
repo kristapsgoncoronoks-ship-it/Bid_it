@@ -21,8 +21,11 @@ competitor price-competitiveness intelligence, for five Baltic transport entitie
    (data-classification/DLP gate over external AI)
 3. Engine     `consolidate.py`→`validate.py`→`build_master.py`→`history.py`, orchestrated by `engine_close.py`
 4. Compliance `vat_refund.py` (claims, locks), `invoice_control.py` (receipt/triage), `bank_recon.py` (advisory recon)
-5. Presentation `app.py` (Flask, ~25 pages + JSON API + Excel), `pricing_intelligence.py`, `saft.py`, `finance.py`
-               (deepened embedded-finance origination), `einvoice_export.py` (EN-16931/UBL 2.1 export hub),
+5. Presentation `app.py` (Flask, ~25 pages + JSON API + Excel; incl. the **cash-recovery ROI dashboard**
+               `/recovery-dashboard` over `vat_refund.recovery_dashboard`), `pricing_intelligence.py`, `saft.py`,
+               `finance.py` (deepened embedded-finance origination), `einvoice_export.py` (EN-16931/UBL 2.1 export hub),
+               `invoicing.py` (sales-invoicing: MULTIPLE issuer companies, per-invoice pick, per-company numbering+logo),
+               `audit_snapshot.py` (compliance highlighted-duplicate of each invoice PDF — supplier RED / client BLUE),
                `workflow.py` (advisory approval/routing engine), `ai_assistant.py` (advisory chat over derived data);
                document-management + sharing suite `search.py`/`metadata.py`/`versioning.py`/`retention.py`,
                `sharing.py`/`share_watermark.py`/`esign.py`; `mcp_tools.py`+`mcp_server.py` (read-only MCP server)
@@ -116,6 +119,44 @@ Platform floor under all seven: `auth`/`audit`/`backup`/`db`/`db_migrate`/`applo
 - `einvoice_export.py` is the OUTBOUND counterpart to `extract.parse_einvoice`: EN-16931/UBL 2.1
   Invoice XML EXPORT (+ batch ZIP) of REGISTERED invoices, READ-ONLY over `vat_refund.invoice_lines`,
   NET-EUR via `money.f2` — invents no figure, writes no product DB.
+- CAPTURE READS THE LEGAL ENTITY OFF THE INVOICE (the product thesis: the seller PRINTED on the
+  document, never the buyer/client or a factoring entity). `extract.parse_eurowag` reads the per-country
+  seller from the footer (`Pārdevējs / Verkoper: <name…legal form>, <addr>, … PVN reg. Nr. …: <VAT>`)
+  → the local issuing entity per country (BE BVBA, … a.s., LT UAB, …), NOT the Czech "W.A.G. Issuing
+  Services" factoring entity; `parse_e100` anchors the seller name+VAT to the E100 entity itself (so an
+  adjacent buyer header never wins). Supplier matching is MARKER-ONLY (admin-curated brand/VAT
+  registrations, country-scoped) — no fuzzy auto-pairing. The detection panel LEADS WITH the legal
+  entity; the supplier code is a confirm-able SUGGESTION a human marks. The captured-entity panel shows
+  the seller read off the invoice; `_captured_entity_html`/`_supplier_country_registration` resolve the
+  COUNTRY-SPECIFIC entity (multi-entity groups issue a different legal entity per country).
+- PER-COUNTRY ENTITY LEARNING (`supplier_sync._apply_existing`): confirming a statement teaches the
+  master the correct per-country issuing entity — when the invoice's SUPPLY country differs from the
+  supplier's home country, the captured seller SEEDS that country's `supplier_vat_registrations`
+  entity_name+VAT (`set_vat_registration(source='capture')`, never clobbering a curated value) and is
+  NOT treated as a change to the GROUP PRIMARY legal_name / home VAT (so a per-country seller never
+  corrupts a multi-country master, nor queues a spurious home-VAT pending change). `get_issuer` then
+  lands the right entity on the VAT claim. High-risk (IBAN/VAT) changes still queue for admin confirm
+  on `/supplier-changes`, which shows the LEGAL ENTITY and a view-source link to the vaulted PDF.
+- `audit_snapshot.py` builds a compliance DUPLICATE of each invoice PDF at confirm — SUPPLIER details
+  boxed RED, CLIENT details boxed BLUE (PDF `/Square` annotations via pypdf coords + pikepdf; combines
+  tm×cm so boxes are correct on ROTATED pages; matches supplier by VAT/reg/address, NOT the bare name).
+  Vaulted as `invoice_documents` kind=`audit_snapshot`, viewable via `/doc/<id>` (`?inline=1` to view).
+  Best-effort, never blocks confirm; pypdf+pikepdf only (no AGPL/PyMuPDF).
+- COMPANY ONBOARDING GATE (`require_company_profile`, default ON, Admin→Services toggle): the service is
+  locked in `_guard` until ≥1 issuer company is complete (name/address/VAT, Art. 226) — admins routed to
+  `/invoicing/issuer`, others told to wait; the issuer/registry routes + `/admin` are exempt; fails OPEN.
+- MULTIPLE ISSUER COMPANIES (`invoicing.py`): a registry (`issuers` table) — each company has its OWN
+  numbering series (two legal entities never share a gap-free sequence) and its OWN logo (per-company
+  `logo_mime/logo_data`); the legacy singleton settings issuer is auto-seeded as the first company.
+  An invoice carries `issuer_id` (chosen explicitly when created); `issue()`/`validate_for_issue` number
+  from & snapshot the CHOSEN company. CRUD: `list_issuers`/`get_issuer_record`/`add_issuer`/
+  `update_issuer`/`delete_issuer` (delete refused while referenced); `any_issuer_complete` is the gate's
+  readiness check.
+- CASH-RECOVERY ROI DASHBOARD (`vat_refund.recovery_dashboard(year)` → `/recovery-dashboard`): the
+  value-first surface. Buckets EVERY claim into six readiness states (ready/deadline/missing/below/
+  submitted/paid) and totals the north-star euros (recovered, awaiting, claimable, overcharges via
+  `contract_audit`, median days-to-refund) — built on the CANONICAL `claims_overview`+`recovery_report`
+  (never forks a query). `DEADLINE_RISK_DAYS=60` of the 30-Sep filing cutoff = at risk. NET EUR basis.
 - Automated document capture runs OUT-OF-BAND on the worker tier, never in a web request.
   Portal fetch is enqueued as `waiting_room` kind=`fetch` (`KIND_FETCH`); a per-supplier
   rate-limiter / concurrency cap / backoff / circuit-breaker gates it (`supplier_rate_limits`
@@ -173,7 +214,8 @@ runtime dirs (backups/, inbox/, **documents/** = the live vault of client invoic
 captures/, data_lake/), and every app-owned runtime DB — including this session's
 new ones (already in `.gitignore`): `capture_confidence.db`, `classify.db`, `workflow.db`,
 `sharing.db`, `esign.db`, `ai_chat.db`, `search.db`, `metadata.db`, `versions.db`,
-`retention.db`, `finance.db` (vision/verify add no DB beyond `capture_confidence.db`). See `.gitignore`.
+`retention.db`, `finance.db`, `invoicing.db` (sales-invoicing + the issuer-company registry +
+per-company logos). The audit-snapshot adds NO new DB (it vaults into `invoice_documents`). See `.gitignore`.
 Demo fixtures (sample supplier workbooks, demo invoice PDFs) live under `samples/`
 (`samples/supplier_files/`, `samples/documents/`) — cleanly separated from the live
 `documents/` vault; the three demo working DBs (`customers.db`, `suppliers.db`,
@@ -237,7 +279,21 @@ advisory workflow/approval engine (`workflow.py`); EN-16931/UBL 2.1 e-invoice + 
 (`einvoice_export.py`); the deepened embedded-finance origination model (`finance.py`); the advisory
 document chat (`ai_assistant.py`); the nav-IA cleanup (Home · Intake · Documents · Sharing ·
 Analytics · VAT & Recovery · Master data · History · Export · Admin); and a deterministically-green
-test suite (a conftest fixture isolates `app_settings` + `role_permissions` per test). Still open:
+test suite (a conftest fixture isolates `app_settings` + `role_permissions` per test); and THIS
+session — the **cash-recovery product pivot** (north star: € recovered / € overcharges / days-to-refund
+/ deadline misses = 0): capture now READS THE LEGAL ENTITY OFF THE INVOICE (Eurowag per-country seller,
+E100 anchored, marker-only matching, detection leads with the entity) with a PER-COUNTRY ENTITY LEARNING
+loop (`supplier_sync`) so the right entity lands on the claim; the admin pending-changes screen shows the
+legal entity + a view-source link; the compliance **audit snapshot** (`audit_snapshot.py`, supplier-RED /
+client-BLUE highlighted duplicate at confirm); the **company onboarding gate** (`require_company_profile`)
+and **MULTIPLE issuer companies** (`invoicing.py` registry: per-invoice pick, per-company numbering + logo);
+and the **cash-recovery ROI dashboard** (`vat_refund.recovery_dashboard` → `/recovery-dashboard` — six
+readiness states + north-star euros). Still open:
+- **Cash-recovery pivot (continue)** — per `docs/STRATEGY.md`: overcharge evidence-packet + claim-back
+  workflow (turn the `contract_audit` €-overcharges into a supplier claim); the "upload last quarter →
+  see refund opportunity" acquisition flow (the best-first-offer landing); capture-automation inbound
+  (email inbox / API-EDI / e-invoice); ERP exports (Xero/QuickBooks/DATEV); security hardening before
+  multi-client SaaS. DEPRIORITISED for now: AI chat, broad expense management, public benchmark, own finance licence.
 - **Automated document capture (go-live)** — the scaffolding (worker fetch, rate-limiter,
   credential custody, scheduler) has landed; remaining = REAL per-supplier `portal_scraper`
   adapters + live API/e-invoicing inbound, and KMS/OAuth/per-tenant-BYOK custody beyond the
