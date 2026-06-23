@@ -16077,10 +16077,14 @@ def invoicing_issuer():
         + (f' &nbsp; <a href="/invoicing/issuer" class="note">{esc(_t("cancel edit"))}</a>'
            if editing else '') + '</div>'
         + logo_status
-        + '<p class="note">Number format placeholders: '
-          '<code>{series}</code>, <code>{year}</code>, <code>{seq:06d}</code>. '
-          'The logo + brand colour appear on the invoice header (the designed HTML/PDF). '
-          'A missing logo never breaks PDF generation.</p>'
+        + '<p class="note">Number format — <b>default <code>{date}/{seq}</code> → '
+          '<code>230626/1</code></b> (issue date DDMMYY + a gap-free counter). Change it to '
+          'anything you like using: <code>{date}</code> (DDMMYY), <code>{dd}</code> '
+          '<code>{mm}</code> <code>{yy}</code> <code>{yyyy}</code> <code>{yyyymm}</code> '
+          '<code>{yyyymmdd}</code>, <code>{series}</code>, <code>{year}</code>, '
+          '<code>{seq}</code> or zero-padded <code>{seq:06d}</code> — e.g. '
+          '<code>{series}-{yyyy}-{seq:06d}</code> → <code>INV-2026-000001</code>. The counter '
+          'is gap-free per company. The logo + brand colour appear on the invoice header.</p>'
         '</form></div>')
     return page(warn + list_card + form, "ivci")
 

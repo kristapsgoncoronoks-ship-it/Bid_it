@@ -122,14 +122,27 @@ def test_reverse_charge_not_derived_for_b2c(inv):
 
 # ================================================================ gap-free numbering
 def test_sequential_numbering_no_gaps(inv):
+    fmt = "{series}-{year}-{seq:06d}"          # explicit format (default is now {date}/{seq})
     nums = []
     for _ in range(5):
-        n, seq = inv.next_number("INV", 2026)
+        n, seq = inv.next_number("INV", 2026, number_format=fmt)
         nums.append((n, seq))
     seqs = [s for _, s in nums]
     assert seqs == [1, 2, 3, 4, 5], seqs
     assert nums[0][0] == "INV-2026-000001"
     assert nums[4][0] == "INV-2026-000005"
+
+
+def test_default_number_format_is_date_slash_counter(inv):
+    # default = issue date (DDMMYY) + "/" + the gap-free counter, e.g. 230626/1
+    assert inv.DEFAULT_NUMBER_FORMAT == "{date}/{seq}"
+    assert inv._format_number(inv.DEFAULT_NUMBER_FORMAT, "ALPHA", 2026, 1,
+                              date="2026-06-23") == "230626/1"
+    assert inv._format_number(inv.DEFAULT_NUMBER_FORMAT, "ALPHA", 2026, 7,
+                              date="2026-06-23") == "230626/7"
+    # a client can still choose any format using the documented placeholders
+    assert inv._format_number("{series}-{yyyy}-{seq:06d}", "INV", 2026, 1,
+                              date="2026-06-23") == "INV-2026-000001"
 
 
 def test_numbering_independent_per_series_and_year(inv):
@@ -1428,10 +1441,12 @@ def test_multi_issuer_registry_crud_and_gate(inv):
 
 
 def test_invoice_numbers_from_its_chosen_company(inv):
+    # explicit series-bearing format so the per-company sequence is visible in the number
+    # (the default {date}/{seq} omits the series).
     a, _ = inv.add_issuer(dict(label="Alpha OU", name="Alpha OU", address="Tallinn",
-                               vat_number="EE100", series="ALPHA"))
+                               vat_number="EE100", series="ALPHA", number_format="{series}-{seq}"))
     b, _ = inv.add_issuer(dict(label="Beta SIA", name="Beta SIA", address="Riga",
-                               vat_number="LV200", series="BETA"))
+                               vat_number="LV200", series="BETA", number_format="{series}-{seq}"))
     cust, _ = inv.add_customer("Kunde GmbH", country="DE", vat_number="DE9",
                                address="Berlin")
     # an invoice from company Beta numbers from the BETA series and snapshots Beta

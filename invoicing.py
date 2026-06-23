@@ -128,7 +128,10 @@ ISSUER_KEYS = ("name", "address", "vat_number", "reg_no", "iban", "bank",
 SETTING_PREFIX = "invoice_issuer_"
 
 # The number format placeholders: {series}, {year}, {seq} (seq zero-padded to {pad}).
-DEFAULT_NUMBER_FORMAT = "{series}-{year}-{seq:06d}"
+# Default invoice number = issue date (DDMMYY) + "/" + the gap-free counter, e.g. 230626/1.
+# Placeholders: {date}=DDMMYY, {dd} {mm} {yy} {yyyy} {yyyymm} {yyyymmdd}, {series} {year}
+# {seq} {seq:06d}. The COUNTER is gap-free per series/year (the date only stamps the number).
+DEFAULT_NUMBER_FORMAT = "{date}/{seq}"
 DEFAULT_SERIES = "INV"
 # Credit notes number from their OWN series (default 'KR' for kreditrēķins) so their
 # gap-free counter is independent of the invoice series — a credit note can never share a
@@ -1704,20 +1707,36 @@ def _retotal(invoice_id):
 
 
 # ============================================================ gap-free numbering
-def _format_number(fmt, series, year, seq):
-    """Render a number from a format string. Tolerant of a bad/blank format (falls back
-    to the default). The padded sequence is exposed as both {seq} and {seq:06d}."""
+def _format_number(fmt, series, year, seq, date=None):
+    """Render a number from a format string. Placeholders: {series} {year} {seq} (and the
+    zero-padded {seq:06d}) plus DATE parts of the issue date — {date}=DDMMYY, {dd} {mm} {yy}
+    {yyyy} {yyyymm} {yyyymmdd}. Tolerant of a bad/blank format (falls back to the default)."""
+    import datetime
+    d = date
+    if isinstance(d, str):
+        try:
+            d = datetime.date.fromisoformat(d[:10])
+        except ValueError:
+            d = None
+    if not isinstance(d, datetime.date):
+        d = datetime.date.today()
+    parts = dict(series=series, year=year, seq=seq,
+                 date=d.strftime("%d%m%y"), dd=d.strftime("%d"), mm=d.strftime("%m"),
+                 yy=d.strftime("%y"), yyyy=d.strftime("%Y"),
+                 yyyymm=d.strftime("%Y%m"), yyyymmdd=d.strftime("%Y%m%d"))
     fmt = (fmt or DEFAULT_NUMBER_FORMAT).strip() or DEFAULT_NUMBER_FORMAT
     try:
-        return fmt.format(series=series, year=year, seq=seq)
+        return fmt.format(**parts)
     except (KeyError, ValueError, IndexError):
         log.warning("bad invoice number_format %r, using default", fmt)
-        return DEFAULT_NUMBER_FORMAT.format(series=series, year=year, seq=seq)
+        return DEFAULT_NUMBER_FORMAT.format(**parts)
 
 
-def next_number(series, year, *, number_format=None, con=None):
+def next_number(series, year, *, number_format=None, con=None, date=None):
     """Atomically assign the next GAP-FREE sequence for (series, year, current-tenant) and
-    return (formatted_number, seq).
+    return (formatted_number, seq). `date` is the invoice issue date used by the {date} format
+    placeholders (the COUNTER stays per series/year — gap-free — so the date only stamps the
+    number, it does not reset the sequence).
 
     CONCURRENCY: runs inside a single IMMEDIATE (write-locked) transaction — the read of
     `last_no` and its +1 bump are serialised by SQLite's write lock, so two concurrent
@@ -1745,7 +1764,7 @@ def next_number(series, year, *, number_format=None, con=None):
             (series, year, tenant)).fetchone()[0]
         if own:
             con.commit()
-        return _format_number(number_format, series, year, seq), seq
+        return _format_number(number_format, series, year, seq, date=date), seq
     finally:
         if own:
             con.close()
@@ -1886,7 +1905,8 @@ def issue(invoice_id, *, issued_by=None, issue_date=None):
             if row["status"] != STATUS_DRAFT:
                 con.rollback()
                 return None, "invoice is already issued"
-            number, seq = next_number(series, year, number_format=number_format, con=con)
+            number, seq = next_number(series, year, number_format=number_format, con=con,
+                                       date=today)         # {date}=DDMMYY of the issue date
             con.execute(
                 """UPDATE invoices
                    SET number=?, series=?, issue_date=?, due_date=?,
