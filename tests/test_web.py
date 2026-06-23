@@ -13,8 +13,10 @@ def _get_routes():
         if "GET" not in rule.methods or "<" in p:
             continue
         # export_fee needs a claim's query args, export_master needs a generated
-        # workbook on disk; both legitimately 404 without those, so skip the smoke.
-        if rule.endpoint in ("static", "logout", "export_fee", "export_master"):
+        # workbook on disk, overcharges_packet needs supplier+period args; all
+        # legitimately 404 without those, so skip the smoke.
+        if rule.endpoint in ("static", "logout", "export_fee", "export_master",
+                             "overcharges_packet"):
             continue
         # SSO is OFF by default, so these public OIDC routes correctly redirect to
         # /login (no page to render). They have dedicated coverage in test_sso.py.

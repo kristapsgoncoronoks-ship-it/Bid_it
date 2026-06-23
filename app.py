@@ -1435,6 +1435,7 @@ PERM_BY_ENDPOINT = {
     "invoice_ctrl":    "invoice_control", "contracts": "invoice_control",
     "vat":             "vat_claims", "api_vat": "vat_claims", "readiness": "vat_claims",
     "recovery_dashboard_page": "vat_claims",
+    "overcharges": "vat_claims", "overcharges_packet": "vat_claims",
     "api_recovery":    "vat_claims",   # JSON twin of the admin-only recovery page
     "receivables":     "vat_claims", "export_receivables": "exports",
     "financing":       "vat_claims",   # embedded-finance origination (advisory, NullProvider)
@@ -1496,7 +1497,7 @@ PERM_BY_ENDPOINT = {
 # The VAT-refund module (claims, readiness, recovery/fees + their exports/API) is
 # restricted to admins regardless of any processor capability.
 ADMIN_ONLY = {"vat", "vat_unmatched", "api_vat", "readiness", "recovery", "api_recovery",
-              "recovery_dashboard_page",
+              "recovery_dashboard_page", "overcharges", "overcharges_packet",
               "receivables", "financing", "recon",
               "export_vat", "export_readiness", "export_fees", "export_fee",
               "export_receivables", "export_evidence",
@@ -1662,6 +1663,7 @@ MODULES = {
                     "rooms_page", "room_page", "room_qa_page", "room_engagement_page"}),
     "vat":        ("VAT refunds — claims, readiness, recovery & fees (admin only)",
                    {"vat", "api_vat", "readiness", "recovery_dashboard_page",
+                    "overcharges", "overcharges_packet",
                     "readiness", "recovery", "api_recovery",
                     "receivables", "financing", "recon",
                     "export_vat", "export_readiness", "export_fees", "export_fee",
@@ -2867,11 +2869,12 @@ button[disabled].btn,button.btn:disabled{opacity:.55;cursor:not-allowed;pointer-
   {% if 'pricing' in perms %}<a href="/pricing" class="{{'on' if page=='pri'}}">Pricing intel</a>
   <a href="/reliability" class="{{'on' if page=='rel'}}">Reliability</a>{% endif %}
 </span></div></div>{% endif %}
-<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ent','vat','rdy','rec','rcv','fin','rcn','fx','rcd'] else ''}}"><span class="ic">💶</span>{{ t('VAT & Recovery') }}</span><div class="mdrop"><span>
+<div class="menu" tabindex="0"><span class="mlabel {{'on' if page in ['ent','vat','rdy','rec','rcv','fin','rcn','fx','rcd','ovc'] else ''}}"><span class="ic">💶</span>{{ t('VAT & Recovery') }}</span><div class="mdrop"><span>
   <a href="/entities" class="{{'on' if page=='ent'}}">Entities &amp; VAT</a>
   {% if is_admin and 'vat' in modules %}<a href="/recovery-dashboard" class="{{'on' if page=='rcd'}}">💶 Recovery dashboard</a>
   <a href="/vat" class="{{'on' if page=='vat'}}">VAT refunds</a>
   <a href="/readiness" class="{{'on' if page=='rdy'}}">Claims readiness</a>
+  <a href="/overcharges" class="{{'on' if page=='ovc'}}">Overcharge claim-back</a>
   <a href="/recovery" class="{{'on' if page=='rec'}}">Recovery &amp; fees</a>
   <a href="/receivables" class="{{'on' if page=='rcv'}}">Receivables &amp; forecast</a>
   <a href="/financing" class="{{'on' if page=='fin'}}">Embedded finance</a>
@@ -9519,6 +9522,106 @@ def recovery():
               'days flagged red.</div></div>')
     return page(body, "rec")
 
+@app.route("/overcharges", methods=["GET", "POST"])
+def overcharges():
+    """SUPPLIER OVERCHARGE CLAIM-BACK: the detected contract-audit overcharges per supplier×
+    period, with an evidence packet + a claim-back lifecycle (detected → packaged → claimed →
+    recovered / rejected / written off). Drives the north-star "€ overcharges recovered"."""
+    import overcharge as OC
+    banner = ""
+    if request.method == "POST":
+        act = request.form.get("__act")
+        sup = (request.form.get("supplier") or "").strip()
+        per = (request.form.get("period") or "").strip()
+        det = request.form.get("detected_eur")
+        actor = session.get("user", "system")
+        try:
+            det = float(det) if det not in (None, "") else None
+        except (TypeError, ValueError):
+            det = None
+        if act == "status":
+            ok, err = OC.set_status(sup, per, request.form.get("status", ""), actor=actor,
+                                    detected_eur=det)
+            banner = ('<div class="card"><b class="%s">%s</b></div>'
+                      % ("ok" if ok else "bad", esc("Claim updated." if ok else err)))
+        elif act == "recover":
+            ok, err = OC.record_recovery(sup, per, request.form.get("eur", ""), actor=actor,
+                                         detected_eur=det)
+            banner = ('<div class="card"><b class="%s">%s</b></div>'
+                      % ("ok" if ok else "bad",
+                         esc("Recovery recorded." if ok else err)))
+    rows = OC.overview()
+    det_total = sum(r["detected_eur"] for r in rows)
+    rec_total = OC.recovered_total()
+    open_n = sum(1 for r in rows if r["status"] in OC.OPEN_STATUSES)
+    trs = []
+    for r in rows:
+        sup, per = r["supplier"], r["period"]
+        st = r["status"]
+        opts = "".join(
+            f'<option value="{s}"{" selected" if s == st else ""}>{esc(OC.STATUS_LABELS[s])}</option>'
+            for s in OC.STATUSES)
+        common = (_csrf_input()
+                  + f'<input type="hidden" name="supplier" value="{esc(sup)}">'
+                  + f'<input type="hidden" name="period" value="{esc(per)}">'
+                  + f'<input type="hidden" name="detected_eur" value="{r["detected_eur"]:.2f}">')
+        status_form = ('<form method="post" style="display:inline">' + common
+                       + '<input type="hidden" name="__act" value="status">'
+                       + f'<select name="status" onchange="this.form.submit()">{opts}</select>'
+                       '</form>')
+        recover_form = ('<form method="post" style="display:inline">' + common
+                        + '<input type="hidden" name="__act" value="recover">'
+                        '<input name="eur" inputmode="decimal" placeholder="€ recovered" '
+                        'style="width:110px">'
+                        '<button>Record</button></form>')
+        packet = (f'<a href="/overcharges/packet?supplier={esc(sup)}&period={esc(per)}">'
+                  'evidence packet ⬇</a>' if r["flags"] else '<span class="note">—</span>')
+        recv = (f'€{r["recovered_eur"]:,.0f}' if r["recovered_eur"] else
+                '<span class="note">—</span>')
+        trs.append([f'<td><b>{esc(_supplier_legal_name(sup) or sup)}</b>'
+                    f'<div class="note">{esc(sup)} · {esc(per)}</div></td>',
+                    f'<td class="r">€{r["detected_eur"]:,.0f}</td>',
+                    f'<td class="r note">{r["flags"]}</td>',
+                    f'<td>{status_form}</td>',
+                    f'<td class="r">{recv}</td>',
+                    f'<td>{recover_form}</td>',
+                    f'<td>{packet}</td>'])
+    body = (banner
+            + '<div class="kpis">'
+            + f'<div class="kpi"><div class="v">€{det_total:,.0f}</div><div class="l">overcharges found</div></div>'
+            + f'<div class="kpi"><div class="v ok">€{rec_total:,.0f}</div><div class="l">recovered</div></div>'
+            + f'<div class="kpi"><div class="v">{open_n}</div><div class="l">open claim-backs</div></div></div>'
+            + '<div class="card"><h2>Supplier overcharge claim-back</h2>'
+            + '<div class="note">Lines where a supplier charged above a contracted discount/'
+              'ceiling (from the contract audit). Download the <b>evidence packet</b> to send the '
+              'supplier, advance the status as you chase it, and record the cash when recovered. '
+              'NET EUR, VAT excluded. Detection needs supplier discount rules configured on the '
+              '<a href="/contracts">Contracts</a> page.</div>'
+            + (tbl(["Supplier", "Detected EUR", "Lines", "Status", "Recovered", "Record recovery",
+                    "Evidence"], trs) if trs
+               else '<div class="note" style="margin-top:8px">No overcharges detected. Configure '
+                    'supplier discount/ceiling rules on the <a href="/contracts">Contracts</a> '
+                    'page so the audit can find them.</div>')
+            + '</div>')
+    return page(body, "ovc")
+
+
+@app.route("/overcharges/packet")
+def overcharges_packet():
+    """Download the Excel evidence packet for one supplier×period overcharge claim."""
+    import overcharge as OC, io
+    sup = (request.args.get("supplier") or "").strip()
+    per = (request.args.get("period") or "").strip()
+    data = OC.evidence_workbook(sup, per)
+    if not data:
+        return page('<div class="card"><b class="bad">No overcharge lines to package for '
+                    f'{esc(sup)} / {esc(per)}.</b></div>', "ovc"), 404
+    return send_file(io.BytesIO(data),
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                     as_attachment=True,
+                     download_name=f"overcharge_{sup}_{per}.xlsx".replace("/", "-"))
+
+
 @app.route("/recovery-dashboard")
 def recovery_dashboard_page():
     """CASH-RECOVERY ROI dashboard — the value-first view: how much money we can recover for
@@ -9532,12 +9635,13 @@ def recovery_dashboard_page():
     b = d["buckets"]
 
     # supplier overcharges (best-effort — needs contract/benchmark data; €0 when none on file).
-    overcharge_eur, overcharge_n = 0.0, 0
+    overcharge_eur, overcharge_n, overcharge_recovered = 0.0, 0, 0.0
     try:
-        import contract_audit
+        import contract_audit, overcharge as _OC
         _flags, _osum = contract_audit.audit()
         overcharge_eur = float(_osum.get("total_recover", 0) or 0)
         overcharge_n = int(_osum.get("flags", 0) or 0)
+        overcharge_recovered = _OC.recovered_total()
     except Exception as e:
         _log_exc("recovery dashboard overcharges", e)
 
@@ -9609,11 +9713,14 @@ def recovery_dashboard_page():
                       'before 30 Sep of the following year or the refund is lost. '
                       f'<a href="/readiness?year={esc(year)}">Review →</a></div>')
     overcharge_card = ''
-    if overcharge_eur:
+    if overcharge_eur or overcharge_recovered:
+        rec_bit = (f' · <b class="ok">{_eur(overcharge_recovered)}</b> already recovered'
+                   if overcharge_recovered else '')
         overcharge_card = ('<div class="card"><h2>Supplier overcharges</h2>'
                            f'<div class="note">{overcharge_n} line(s) breach a contracted '
                            f'discount/ceiling — <b>{_eur(overcharge_eur)}</b> recoverable from '
-                           'suppliers. <a href="/contracts">Open the contract audit →</a></div></div>')
+                           f'suppliers{rec_bit}. <a href="/overcharges">Open claim-back →</a> · '
+                           '<a href="/contracts">contract audit →</a></div></div>')
     excise_card = ''
     if excise_eur:
         erows = []
