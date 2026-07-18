@@ -49,12 +49,21 @@ to whom, on what, and when — and what looks wrong?"*
 | **DB** | Postgres, async driver (`asyncpg`) | Proven to billions of rows; add read-replicas + partition `invoices`/`line_items` by `org_id`/month later. |
 | **Multi-tenancy** | Row-level `org_id` on every table + enforced in a single query dependency | Shared-schema is cheapest to run; the same code moves to schema-per-tenant or RLS with no API change. |
 | **Auth** | Stateless JWT | No session store; any replica validates a token. |
-| **Ingestion** | Synchronous parse for CSV/JSON | The parser is already isolated behind a service interface → drop in a queue (Celery/Arq + Redis) + object storage (S3) for PDFs/OCR without touching the API. |
+| **Ingestion** | Synchronous parse for PDF/CSV/JSON (PDF: text layer → Tesseract OCR fallback) | The parser is isolated behind a service interface → move OCR to a queue (Celery/Arq + Redis) + object storage (S3) for originals without touching the API. |
 | **Frontend** | SPA + cached queries (TanStack Query) | Static assets on a CDN; server does data only. |
 | **Migrations** | Alembic | Zero-downtime schema evolution. |
 
+### Ingestion & OCR
+`services/parser.py` dispatches by file type. PDFs go through `services/pdf_ocr.py`,
+which tries the embedded **text layer** first (pdfplumber — exact, no OCR) and
+falls back to **Tesseract OCR** (pypdfium2 rasterise → `image_to_data` word boxes
+re-clustered into rows) for scanned/image-only documents. A heuristic parser then
+pulls vendor, invoice number, date, line items, and an inferred VAT rate into a
+draft the user confirms. OCR runs synchronously today; the service boundary is the
+seam to move it onto a queue.
+
 ### Deliberately deferred (documented, not built)
-Object storage for original files, OCR/PDF extraction, background workers, rate
+Object storage for original files, background workers (async OCR), rate
 limiting, refresh-token rotation, RBAC beyond owner/member, audit log, and
 observability (OpenTelemetry). Each has a named seam in the code so it can be
 added without a rewrite.

@@ -6,6 +6,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# System dependency for the OCR fallback (scanned/image-only PDFs).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install deps first for layer caching.
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

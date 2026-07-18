@@ -25,7 +25,7 @@ from app.services.parser import parse_invoice_file
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
 _CENTS = Decimal("0.01")
-_MAX_UPLOAD = 5 * 1024 * 1024  # 5 MB
+_MAX_UPLOAD = 15 * 1024 * 1024  # 15 MB (scanned PDFs run larger)
 
 
 def _q(value: Decimal) -> Decimal:
@@ -191,11 +191,12 @@ async def delete_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
 
 @router.post("/upload", response_model=ParsedInvoiceDraft)
 async def upload_invoice(current: CurrentUser, file: UploadFile):
-    """Parse an uploaded CSV/JSON into a draft. Does NOT persist — the client
-    reviews the draft and POSTs it to `/invoices` to save."""
+    """Parse an uploaded PDF/CSV/JSON into a draft. Does NOT persist — the client
+    reviews the draft and POSTs it to `/invoices` to save. PDFs use the text layer
+    when present and fall back to OCR for scanned documents."""
     content = await file.read()
     if len(content) > _MAX_UPLOAD:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File too large (max 5 MB)")
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File too large (max 15 MB)")
     try:
         return parse_invoice_file(file.filename or "upload", content)
     except ValueError as exc:

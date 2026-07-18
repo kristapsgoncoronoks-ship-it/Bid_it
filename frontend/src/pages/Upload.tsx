@@ -46,16 +46,17 @@ export default function Upload() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Upload an invoice</h1>
         <p className="text-sm text-slate-500">
-          Drop a <code className="rounded bg-slate-100 px-1">.csv</code> or{" "}
+          Drop a <code className="rounded bg-slate-100 px-1">.pdf</code>,{" "}
+          <code className="rounded bg-slate-100 px-1">.csv</code>, or{" "}
           <code className="rounded bg-slate-100 px-1">.json</code> file. We parse it into a draft you confirm.
-          <span className="text-slate-400"> (PDF/OCR extraction is on the roadmap.)</span>
+          <span className="text-slate-400"> Scanned PDFs are read with OCR.</span>
         </p>
       </div>
 
       <label className="card flex cursor-pointer flex-col items-center justify-center border-2 border-dashed border-slate-300 py-10 text-center hover:border-brand-400">
         <input
           type="file"
-          accept=".csv,.json"
+          accept=".pdf,.csv,.json"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -65,7 +66,7 @@ export default function Upload() {
         <div className="text-slate-500">
           {parse.isPending ? "Parsing…" : "Click to choose a file"}
         </div>
-        <div className="mt-1 text-xs text-slate-400">CSV line items or a JSON invoice</div>
+        <div className="mt-1 text-xs text-slate-400">PDF invoice (text or scanned), CSV line items, or a JSON invoice</div>
       </label>
 
       {error && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}

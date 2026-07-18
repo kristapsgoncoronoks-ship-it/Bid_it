@@ -11,7 +11,7 @@ Built as a minimal but scalable production MVP: **FastAPI + PostgreSQL + React**
 ## Features
 
 - 🔐 **Multi-tenant auth** — register an org, JWT login; every row is org-scoped.
-- 📥 **Ingestion** — upload CSV/JSON → a parsed *draft* a human confirms.
+- 📥 **Ingestion** — upload PDF/CSV/JSON → a parsed *draft* a human confirms. PDFs use the embedded text layer, falling back to **Tesseract OCR** for scanned documents.
 - 🧾 **Invoices** — full CRUD with line items, filters, search, pagination.
 - 📊 **Analytics** — KPIs, spend-over-time, top vendors, category & status breakdowns — all aggregated in the database.
 - 🧱 **Scalable foundations** — async SQLAlchemy, stateless API, Alembic migrations, Docker, CI.
@@ -79,9 +79,10 @@ Interactive OpenAPI docs at `/docs`. Endpoint reference in
 
 ## Roadmap (named seams, not yet built)
 
-PDF/OCR extraction + object storage for originals, a background job queue for
-ingestion, refresh-token rotation, richer RBAC, per-tenant data isolation modes,
-and observability. Each has an explicit place to slot in — see ARCHITECTURE.md.
+Object storage for original files, a background job queue for ingestion (OCR is
+synchronous today), refresh-token rotation, richer RBAC, per-tenant data
+isolation modes, and observability. Each has an explicit place to slot in — see
+ARCHITECTURE.md. (PDF text-layer + OCR ingestion is now built.)
 
 ## License
 

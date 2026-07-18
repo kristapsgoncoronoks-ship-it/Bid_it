@@ -127,15 +127,23 @@ def parse_invoice_file(filename: str, content: bytes) -> ParsedInvoiceDraft:
     """Parse `content` into a draft invoice. Raises ValueError on bad input."""
     warnings: list[str] = []
     lower = filename.lower()
+    if lower.endswith(".pdf"):
+        # PDF path (text layer → OCR fallback) returns its own draft + warnings.
+        from app.services import pdf_ocr
+
+        try:
+            return pdf_ocr.parse_pdf(filename, content)
+        except pdf_ocr.OcrUnavailable as exc:
+            raise ValueError(
+                "PDF support is not installed on the server "
+                f"(pdfplumber/pypdfium2/pytesseract + tesseract binary): {exc}"
+            )
     if lower.endswith(".json"):
         draft = _parse_json(content, filename, warnings)
     elif lower.endswith(".csv"):
         draft = _parse_csv(content, filename, warnings)
     else:
-        raise ValueError(
-            "Unsupported file type. Upload .csv or .json "
-            "(PDF/OCR extraction is on the roadmap)."
-        )
+        raise ValueError("Unsupported file type. Upload a .pdf, .csv, or .json file.")
 
     if not draft.line_items:
         warnings.append("No line items were found in the file")
