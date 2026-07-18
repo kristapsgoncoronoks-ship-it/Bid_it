@@ -53,14 +53,24 @@ to whom, on what, and when — and what looks wrong?"*
 | **Frontend** | SPA + cached queries (TanStack Query) | Static assets on a CDN; server does data only. |
 | **Migrations** | Alembic | Zero-downtime schema evolution. |
 
-### Ingestion & OCR
-`services/parser.py` dispatches by file type. PDFs go through `services/pdf_ocr.py`,
-which tries the embedded **text layer** first (pdfplumber — exact, no OCR) and
-falls back to **Tesseract OCR** (pypdfium2 rasterise → `image_to_data` word boxes
-re-clustered into rows) for scanned/image-only documents. A heuristic parser then
-pulls vendor, invoice number, date, line items, and an inferred VAT rate into a
-draft the user confirms. OCR runs synchronously today; the service boundary is the
-seam to move it onto a queue.
+### Ingestion (deterministic-first)
+`services/parser.py` dispatches by file type / content, cheapest-and-most-exact first:
+
+1. **Structured e-invoice XML** (`services/einvoice.py`) — **UBL 2.1** and
+   **UN-CEFACT CII** (EN-16931). Every figure is read from a typed field — no
+   guessing. Hardened with `defusedxml` against XXE/entity attacks; navigation is
+   by local element name so it's robust across schema versions.
+2. **Factur-X / ZUGFeRD hybrid PDFs** — before any OCR, the PDF is probed for an
+   embedded e-invoice XML attachment (`factur-x.xml` etc.); if present it's read
+   via path 1 — exact, no OCR.
+3. **PDF text layer** (`services/pdf_ocr.py`, pdfplumber) — exact when the PDF
+   carries real text.
+4. **Tesseract OCR** — only for scanned/image-only PDFs: pypdfium2 rasterises,
+   then `image_to_data` word boxes are re-clustered into rows so tables survive.
+   A heuristic parser derives fields + an inferred VAT rate.
+
+All paths produce the same confirmable draft. OCR runs synchronously today; the
+service boundary is the seam to move it onto a queue.
 
 ### Deliberately deferred (documented, not built)
 Object storage for original files, background workers (async OCR), rate

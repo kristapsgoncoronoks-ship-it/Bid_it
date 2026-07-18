@@ -127,8 +127,11 @@ def parse_invoice_file(filename: str, content: bytes) -> ParsedInvoiceDraft:
     """Parse `content` into a draft invoice. Raises ValueError on bad input."""
     warnings: list[str] = []
     lower = filename.lower()
+
+    from app.services import einvoice
+
     if lower.endswith(".pdf"):
-        # PDF path (text layer → OCR fallback) returns its own draft + warnings.
+        # PDF path: embedded e-invoice XML (Factur-X) → text layer → OCR fallback.
         from app.services import pdf_ocr
 
         try:
@@ -138,12 +141,15 @@ def parse_invoice_file(filename: str, content: bytes) -> ParsedInvoiceDraft:
                 "PDF support is not installed on the server "
                 f"(pdfplumber/pypdfium2/pytesseract + tesseract binary): {exc}"
             )
+    if lower.endswith(".xml") or (not lower.endswith((".csv", ".json")) and einvoice.looks_like_einvoice(content)):
+        # Structured e-invoice XML (UBL 2.1 / UN-CEFACT CII) — deterministic.
+        return einvoice.parse_xml_bytes(content, filename)
     if lower.endswith(".json"):
         draft = _parse_json(content, filename, warnings)
     elif lower.endswith(".csv"):
         draft = _parse_csv(content, filename, warnings)
     else:
-        raise ValueError("Unsupported file type. Upload a .pdf, .csv, or .json file.")
+        raise ValueError("Unsupported file type. Upload a .pdf, .xml, .csv, or .json file.")
 
     if not draft.line_items:
         warnings.append("No line items were found in the file")

@@ -297,7 +297,25 @@ def _stem(filename: str) -> str:
 
 
 def parse_pdf(filename: str, content: bytes) -> ParsedInvoiceDraft:
-    """Parse a PDF (text layer or OCR) into a draft invoice."""
+    """Parse a PDF into a draft invoice.
+
+    Deterministic-first: if the PDF is a Factur-X/ZUGFeRD hybrid carrying an
+    embedded e-invoice XML, read that exactly (no OCR). Otherwise use the text
+    layer, falling back to OCR for scanned documents.
+    """
+    from app.services import einvoice
+
+    try:
+        embedded = einvoice.extract_embedded_xml(content)
+    except Exception:  # never let attachment probing break the PDF path
+        embedded = None
+    if embedded:
+        result = einvoice.parse_xml_bytes(embedded, filename)
+        result.warnings.insert(
+            0, "Read the e-invoice XML embedded in this PDF (Factur-X/ZUGFeRD) — no OCR needed."
+        )
+        return result
+
     text, method = extract_text(content)
     if not text:
         raise ValueError("Could not read any text from the PDF (empty or unreadable).")
