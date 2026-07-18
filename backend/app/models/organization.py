@@ -24,6 +24,10 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     ai_validation_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     human_validation_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
+    # Commercial tenancy: subscription plan + lifecycle status.
+    plan: Mapped[str] = mapped_column(String(20), default="trial", nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)  # active|suspended|canceled
+
     users: Mapped[list["User"]] = relationship(
         back_populates="organization", cascade="all, delete-orphan"
     )

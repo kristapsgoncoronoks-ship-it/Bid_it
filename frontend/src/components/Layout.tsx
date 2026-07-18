@@ -13,6 +13,8 @@ const NAV = [
   { to: "/review", label: "Review", end: false },
   { to: "/upload", label: "Upload", end: false },
   { to: "/issue", label: "Issue", end: false, module: "issuing" },
+  { to: "/team", label: "Team", end: false },
+  { to: "/billing", label: "Billing", end: false },
   { to: "/settings", label: "Settings", end: false },
 ];
 
@@ -25,6 +27,10 @@ export function Layout() {
   });
   const enabled = new Set((modules.data ?? []).filter((m) => m.enabled).map((m) => m.key));
   const nav = NAV.filter((n) => !n.module || enabled.has(n.module));
+  if (user?.is_platform_admin) {
+    nav.push({ to: "/platform", label: "Platform", end: false });
+  }
+  const suspended = org?.status && org.status !== "active";
 
   return (
     <div className="min-h-screen">
@@ -73,6 +79,11 @@ export function Layout() {
           </div>
         </div>
       </header>
+      {suspended && (
+        <div className="bg-rose-600 px-4 py-2 text-center text-sm font-medium text-white">
+          This workspace is {org?.status}. Some actions are disabled — please contact support or update billing.
+        </div>
+      )}
       <main className="mx-auto max-w-6xl px-4 py-6">
         <Outlet />
       </main>

@@ -3,9 +3,10 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import CurrentUser, DbSession
+from app.models.organization import Organization
 from app.models.user import UserRole
 from app.schemas.module import ModuleOut, ModuleToggle
-from app.services import issuer, modules
+from app.services import issuer, modules, plans
 
 router = APIRouter(prefix="/modules", tags=["modules"])
 
@@ -39,6 +40,15 @@ async def toggle_module(key: str, body: ModuleToggle, current: CurrentUser, db: 
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown module")
     if m.core:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Core modules are always on")
+
+    # Add-on modules are gated by the subscription plan.
+    if body.enabled:
+        org = await db.get(Organization, current.org_id)
+        if not plans.allows_module(org.plan, key):
+            raise HTTPException(
+                status.HTTP_402_PAYMENT_REQUIRED,
+                f"The {m.name} module isn't included in your {plans.plan_for(org.plan).name} plan. Upgrade to enable it.",
+            )
     await modules.set_enabled(db, current.org_id, key, body.enabled)
     return ModuleOut(
         key=m.key, name=m.name, description=m.description, core=m.core,

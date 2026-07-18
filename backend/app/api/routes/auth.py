@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
 from app.core.security import create_access_token, hash_password, verify_password
+from app.models.invitation import Invitation
 from app.models.organization import Organization
 from app.models.user import User, UserRole
 from app.schemas.auth import (
@@ -14,6 +15,8 @@ from app.schemas.auth import (
     RegisterRequest,
     Token,
 )
+from app.schemas.tenancy import AcceptInvite, InvitePreview
+from app.services import team
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -56,6 +59,8 @@ async def login(body: LoginRequest, db: DbSession) -> AuthResponse:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Account is disabled")
 
     org = await db.get(Organization, user.org_id)
+    if org.status != "active" and not user.is_platform_admin:
+        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, f"Workspace is {org.status}. Contact support.")
     return AuthResponse(token=_token_for(user), user=user, organization=org)
 
 
@@ -63,3 +68,24 @@ async def login(body: LoginRequest, db: DbSession) -> AuthResponse:
 async def me(current: CurrentUser, db: DbSession) -> MeOut:
     org = await db.get(Organization, current.org_id)
     return MeOut(user=current, organization=org)
+
+
+@router.get("/invite/{token}", response_model=InvitePreview)
+async def preview_invite(token: str, db: DbSession) -> InvitePreview:
+    inv = await db.scalar(
+        select(Invitation).where(Invitation.token == token, Invitation.accepted.is_(False))
+    )
+    if inv is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Invitation not found or already used")
+    org = await db.get(Organization, inv.org_id)
+    return InvitePreview(email=inv.email, organization_name=org.name, role=inv.role)
+
+
+@router.post("/accept-invite", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
+async def accept_invite(body: AcceptInvite, db: DbSession) -> AuthResponse:
+    result = await team.accept_invitation(db, body.token, body.name, body.password)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Invitation not found or already used")
+    user, org_id = result
+    org = await db.get(Organization, org_id)
+    return AuthResponse(token=_token_for(user), user=user, organization=org)

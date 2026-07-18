@@ -10,7 +10,7 @@ Built as a minimal but scalable production MVP: **FastAPI + PostgreSQL + React**
 
 ## Features
 
-- 🔐 **Multi-tenant auth** — register an org, JWT login; every row is org-scoped.
+- 🔐 **Multi-tenant SaaS** — register an org, JWT login; every row is org-scoped. Team members via **token invitations**, roles, **subscription plans + seat limits**, plan-gated modules, tenant suspension, and a **platform operator** view across tenants.
 - 📥 **Ingestion** — upload structured e-invoice **XML (UBL 2.1 / UN-CEFACT CII)**, PDF, CSV, or JSON → a parsed *draft* a human confirms. Deterministic-first: e-invoice XML (incl. **Factur-X/ZUGFeRD** embedded in hybrid PDFs) is read exactly; other PDFs use the text layer, falling back to **Tesseract OCR** for scans.
 - 🧾 **Invoices** — full CRUD with line items, filters, search, pagination.
 - 📊 **Analytics** — KPIs, spend-over-time, top vendors, category & status breakdowns — all aggregated in the database.

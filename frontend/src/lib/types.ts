@@ -6,11 +6,64 @@ export interface User {
   name: string;
   role: "owner" | "member";
   org_id: string;
+  is_platform_admin?: boolean;
 }
 
 export interface Organization {
   id: string;
   name: string;
+  plan?: string;
+  status?: string;
+}
+
+export interface Member {
+  id: string;
+  email: string;
+  name: string;
+  role: "owner" | "member";
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface Invite {
+  id: string;
+  email: string;
+  role: "owner" | "member";
+  token: string;
+  accepted: boolean;
+  created_at: string;
+}
+
+export interface PlanInfo {
+  key: string;
+  name: string;
+  seats: number;
+  price_eur: number | null;
+  modules: string[];
+  trial: boolean;
+}
+
+export interface BillingInfo {
+  plan: PlanInfo;
+  status: string;
+  seats_used: number;
+  seats_limit: number;
+  available_plans: PlanInfo[];
+}
+
+export interface Tenant {
+  id: string;
+  name: string;
+  plan: string;
+  status: string;
+  seats_used: number;
+  created_at: string;
+}
+
+export interface InvitePreview {
+  email: string;
+  organization_name: string;
+  role: "owner" | "member";
 }
 
 export interface AuthResponse {

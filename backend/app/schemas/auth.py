@@ -26,6 +26,8 @@ class OrganizationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
     name: str
+    plan: str = "trial"
+    status: str = "active"
 
 
 class UserOut(BaseModel):
@@ -35,6 +37,7 @@ class UserOut(BaseModel):
     name: str
     role: UserRole
     org_id: str
+    is_platform_admin: bool = False
 
 
 class MeOut(BaseModel):

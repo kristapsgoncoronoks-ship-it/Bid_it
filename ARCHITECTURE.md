@@ -47,7 +47,7 @@ to whom, on what, and when — and what looks wrong?"*
 |---|---|---|
 | **Backend** | FastAPI (async) | Non-blocking I/O; horizontal stateless replicas behind a load balancer. |
 | **DB** | Postgres, async driver (`asyncpg`) | Proven to billions of rows; add read-replicas + partition `invoices`/`line_items` by `org_id`/month later. |
-| **Multi-tenancy** | Row-level `org_id` on every table + enforced in a single query dependency | Shared-schema is cheapest to run; the same code moves to schema-per-tenant or RLS with no API change. |
+| **Multi-tenancy** | Row-level `org_id` on every table + enforced in a single query dependency; team invitations, subscription plans + seat limits, plan-gated modules, tenant suspension, and a platform-operator view | Shared-schema is cheapest to run; the same code moves to schema-per-tenant or RLS with no API change. The SaaS layer (plans/seats/team/operator) is the commercialization surface. |
 | **Auth** | Stateless JWT | No session store; any replica validates a token. |
 | **Ingestion** | Synchronous parse for PDF/CSV/JSON (PDF: text layer → Tesseract OCR fallback) | The parser is isolated behind a service interface → move OCR to a queue (Celery/Arq + Redis) + object storage (S3) for originals without touching the API. |
 | **Frontend** | SPA + cached queries (TanStack Query) | Static assets on a CDN; server does data only. |
@@ -161,6 +161,11 @@ and are automatically scoped to the caller's organization.
 | GET/PUT | `/issuer` · POST `/issuer/logo` | Company registration details (the seller) |
 | POST/GET | `/issued` · GET `/issued/{id}` | Create / list / view issued invoices |
 | GET | `/issued/{id}/pdf` · `/issued/{id}/xml` | Hybrid Factur-X PDF · standalone EN-16931 XML |
+| GET | `/team/members` · PATCH `/team/members/{id}` | List members · change role / activate |
+| GET/POST | `/team/invites` · DELETE `/team/invites/{id}` | Token invitations |
+| GET | `/auth/invite/{token}` · POST `/auth/accept-invite` | Preview + accept an invite (public) |
+| GET | `/billing` · PUT `/billing/plan` | Plan, seats, status · change plan (owner) |
+| GET | `/platform/tenants` · PATCH `/platform/tenants/{id}` | Operator: list / suspend / re-plan (platform admin) |
 
 Interactive contract: `http://localhost:8000/docs` (OpenAPI).
 

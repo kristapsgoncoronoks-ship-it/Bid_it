@@ -31,5 +31,7 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         SAEnum(UserRole, name="user_role"), default=UserRole.member, nullable=False
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Platform operator (cross-tenant admin). Off for all normal SaaS users.
+    is_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     organization: Mapped["Organization"] = relationship(back_populates="users")

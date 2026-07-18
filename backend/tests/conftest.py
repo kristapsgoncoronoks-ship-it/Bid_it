@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from datetime import date
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.core.database import get_session
@@ -13,39 +14,45 @@ from app.models import Base
 
 
 @pytest_asyncio.fixture
-async def client() -> AsyncGenerator[AsyncClient, None]:
-    # Fresh in-memory DB per test; StaticPool keeps the single connection alive.
+async def _db():
+    """A fresh in-memory DB per test, shared by the HTTP client and db_session."""
     engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    testing_session = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
-
+    sm = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # ASGITransport doesn't run the app lifespan, so seed the bundled ECB rates
-    # here (mirrors what startup does) so FX conversion works in tests.
-    from datetime import date
-
+    # ASGITransport doesn't run the app lifespan, so seed the bundled ECB rates.
     from app.services import fx
 
-    async with testing_session() as session:
+    async with sm() as session:
         await fx.ensure_seed_rates(session, date(2026, 7, 18))
 
+    yield sm
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def client(_db) -> AsyncGenerator[AsyncClient, None]:
     async def _get_test_session():
-        async with testing_session() as session:
+        async with _db() as session:
             yield session
 
     app.dependency_overrides[get_session] = _get_test_session
-
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
-
     app.dependency_overrides.clear()
-    await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def db_session(_db) -> AsyncGenerator[AsyncSession, None]:
+    """A direct session on the same DB the client uses (for test-only setup)."""
+    async with _db() as session:
+        yield session
 
 
 @pytest_asyncio.fixture

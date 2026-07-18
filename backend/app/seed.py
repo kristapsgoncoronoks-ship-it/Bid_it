@@ -62,8 +62,24 @@ async def seed() -> None:
                 name="Demo Owner",
                 hashed_password=hash_password("demo1234"),
                 role=UserRole.owner,
+                is_platform_admin=True,  # so the demo shows the operator view
             )
         )
+        org.plan = "pro"
+
+        # A few extra tenants so the platform operator view isn't lonely.
+        for i, (tname, plan, tstatus) in enumerate([
+            ("Baltic Haulage OÜ", "starter", "active"),
+            ("Nordic Freight AB", "pro", "active"),
+            ("Adria Logistik d.o.o.", "trial", "suspended"),
+        ]):
+            t = Organization(name=tname, plan=plan, status=tstatus)
+            db.add(t)
+            await db.flush()
+            db.add(User(
+                org_id=t.id, email=f"owner{i}@{tname.split()[0].lower()}.test", name="Owner",
+                hashed_password=hash_password("demo1234"), role=UserRole.owner,
+            ))
 
         vendors = []
         for name, country, cat in VENDORS:
