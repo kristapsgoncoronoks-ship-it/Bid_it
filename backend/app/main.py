@@ -22,6 +22,22 @@ async def lifespan(app: FastAPI):
     # create_all is idempotent and keeps local/dev/test zero-setup.
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # Seed the bundled ECB rate snapshot if the cache is empty, so FX conversion
+    # works before the first live refresh. Best-effort — never blocks startup.
+    from datetime import date
+
+    from app.core.database import SessionLocal
+    from app.services import fx
+
+    try:
+        async with SessionLocal() as db:
+            seeded = await fx.ensure_seed_rates(db, date.today())
+            if seeded:
+                log.info("Seeded %d bundled ECB fallback rates", seeded)
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("ECB rate seeding skipped: %s", exc)
+
     log.info("%s %s ready (%s)", settings.app_name, __version__, settings.environment)
     yield
     await engine.dispose()

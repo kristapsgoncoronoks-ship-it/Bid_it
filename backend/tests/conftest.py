@@ -25,6 +25,15 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+    # ASGITransport doesn't run the app lifespan, so seed the bundled ECB rates
+    # here (mirrors what startup does) so FX conversion works in tests.
+    from datetime import date
+
+    from app.services import fx
+
+    async with testing_session() as session:
+        await fx.ensure_seed_rates(session, date(2026, 7, 18))
+
     async def _get_test_session():
         async with testing_session() as session:
             yield session

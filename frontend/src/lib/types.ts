@@ -178,3 +178,53 @@ export interface CombinedBenchmark {
   summary: BenchmarkSummary;
   categories: CategoryBenchmark[];
 }
+
+export interface FxRate {
+  currency: string;
+  rate: string;
+  rate_date: string;
+  approximate: boolean;
+}
+
+export interface FxRates {
+  base: string;
+  as_of: string | null;
+  rates: FxRate[];
+}
+
+export interface FxConvert {
+  amount: string;
+  from_currency: string;
+  to_currency: string;
+  converted: string;
+  rate: string;
+  rate_date: string;
+  approximate: boolean;
+}
+
+export interface FxComparisonRow {
+  invoice_id: string;
+  invoice_number: string;
+  vendor_name: string;
+  currency: string;
+  issue_date: string;
+  total: string;
+  ecb_rate: string | null;
+  ecb_rate_date: string | null;
+  eur_at_ecb: string | null;
+  stated_rate: string | null;
+  eur_at_stated: string | null;
+  markup_eur: string | null;
+  deviation_pct: string | null;
+}
+
+export interface FxComparison {
+  summary: {
+    non_eur_invoices: number;
+    with_stated_rate: number;
+    total_eur_at_ecb: string;
+    total_markup_eur: string;
+    currencies: string[];
+  };
+  rows: FxComparisonRow[];
+}

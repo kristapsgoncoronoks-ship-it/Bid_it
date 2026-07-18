@@ -146,6 +146,10 @@ and are automatically scoped to the caller's organization.
 | GET  | `/analytics/by-status` | Count/amount by invoice status |
 | GET  | `/analytics/supplier-benchmark` | Per-supplier scorecards (independent) |
 | GET  | `/analytics/combined-benchmark` | Cross-supplier price benchmark per category + savings |
+| GET  | `/fx/rates` | Cached ECB reference rates (units per EUR) |
+| GET  | `/fx/convert` | Convert an amount between currencies at ECB |
+| GET  | `/fx/ecb-comparison` | Foreign invoices valued at ECB + stated-rate markup |
+| POST | `/fx/refresh` | Pull live ECB rates into the cache (owner only) |
 
 Interactive contract: `http://localhost:8000/docs` (OpenAPI).
 
@@ -160,6 +164,17 @@ via `/auth/me`). `ProtectedRoute` guards the app shell. Data fetching is
 - **Benchmark** — two tabs: *Combined* (savings headline + per-category
   supplier price tables, cheapest flagged) and *Independent* (per-supplier
   scorecards).
+- **FX** — ECB converter, foreign-invoice-vs-ECB comparison table (markup
+  flagged), and the ECB reference-rate grid.
+
+### FX & ECB rates
+`services/fx.py` caches ECB euro reference rates in `ecb_rates` (units per EUR).
+The request path never hits the network: rates come from the DB, seeded from a
+bundled snapshot on first run and refreshed by `POST /fx/refresh` (pulls the ECB
+feed when the host is reachable, fails gracefully otherwise). `rate_for` uses the
+latest rate on-or-before a date. Non-EUR invoices store `total_eur` + `fx_source`
+(stated rate if the invoice carries one, else ECB); the comparison surfaces the
+EUR markup between a supplier's stated rate and ECB.
 - **Invoices** — filterable, paged table.
 - **Invoice detail** — header + line-item table + status control.
 - **Upload** — drag a CSV/JSON, preview the parsed draft, confirm to persist.

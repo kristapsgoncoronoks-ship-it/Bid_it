@@ -51,6 +51,13 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     tax_amount: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
     total: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
 
+    # FX: rate is foreign-currency units per 1 EUR (ECB convention). `fx_rate` is
+    # the rate stated on the invoice (if any); `total_eur` is the EUR-converted
+    # total; `fx_source` records how it was converted (eur/stated/ecb/unknown).
+    fx_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), nullable=True)
+    total_eur: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    fx_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
     source_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 

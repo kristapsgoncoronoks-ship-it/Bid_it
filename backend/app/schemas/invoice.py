@@ -39,6 +39,9 @@ class InvoiceCreate(BaseModel):
     status: InvoiceStatus = InvoiceStatus.pending
     notes: str | None = None
     source_filename: str | None = None
+    # FX rate stated on the invoice (foreign-currency units per 1 EUR). Optional;
+    # when absent, non-EUR totals are converted at the ECB reference rate.
+    fx_rate: Decimal | None = Field(default=None, gt=0)
     line_items: list[LineItemIn] = Field(default_factory=list)
 
 
@@ -60,6 +63,9 @@ class InvoiceOut(BaseModel):
     subtotal: Decimal
     tax_amount: Decimal
     total: Decimal
+    total_eur: Decimal | None = None
+    fx_rate: Decimal | None = None
+    fx_source: str | None = None
     source_filename: str | None
 
 

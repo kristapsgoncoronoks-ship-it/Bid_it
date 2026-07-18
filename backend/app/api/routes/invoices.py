@@ -20,6 +20,7 @@ from app.schemas.invoice import (
     LineItemOut,
     ParsedInvoiceDraft,
 )
+from app.services import fx
 from app.services.parser import parse_invoice_file
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
@@ -58,6 +59,9 @@ def _detail(inv: Invoice, vendor_name: str) -> InvoiceDetailOut:
         subtotal=inv.subtotal,
         tax_amount=inv.tax_amount,
         total=inv.total,
+        total_eur=inv.total_eur,
+        fx_rate=inv.fx_rate,
+        fx_source=inv.fx_source,
         source_filename=inv.source_filename,
         notes=inv.notes,
         line_items=[LineItemOut.model_validate(li) for li in inv.line_items],
@@ -88,17 +92,26 @@ async def create_invoice(body: InvoiceCreate, current: CurrentUser, db: DbSessio
             )
         )
 
+    total = _q(subtotal + tax_total)
+    currency = body.currency.upper()
+    # Convert to EUR: use the invoice-stated rate if given, else the ECB rate for
+    # the issue date (cached in ecb_rates). EUR invoices are 1:1.
+    total_eur, fx_source = await fx.eur_total(db, total, currency, body.issue_date, body.fx_rate)
+
     invoice = Invoice(
         org_id=current.org_id,
         vendor_id=vendor.id,
         invoice_number=body.invoice_number,
         issue_date=body.issue_date,
         due_date=body.due_date,
-        currency=body.currency.upper(),
+        currency=currency,
         status=body.status,
         subtotal=_q(subtotal),
         tax_amount=_q(tax_total),
-        total=_q(subtotal + tax_total),
+        total=total,
+        total_eur=total_eur,
+        fx_rate=body.fx_rate,
+        fx_source=fx_source,
         notes=body.notes,
         source_filename=body.source_filename,
         line_items=items,

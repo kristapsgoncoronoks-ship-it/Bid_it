@@ -7,6 +7,7 @@ import Invoices from "./pages/Invoices";
 import InvoiceDetail from "./pages/InvoiceDetail";
 import Upload from "./pages/Upload";
 import Benchmark from "./pages/Benchmark";
+import Fx from "./pages/Fx";
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
       >
         <Route path="/" element={<Dashboard />} />
         <Route path="/benchmark" element={<Benchmark />} />
+        <Route path="/fx" element={<Fx />} />
         <Route path="/invoices" element={<Invoices />} />
         <Route path="/invoices/:id" element={<InvoiceDetail />} />
         <Route path="/upload" element={<Upload />} />

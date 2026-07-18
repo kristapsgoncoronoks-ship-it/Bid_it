@@ -121,6 +121,62 @@ async def seed() -> None:
                         line_items=items,
                     )
                 )
+        # --- FX: seed ECB rates + a few foreign-currency invoices ---
+        from app.services import fx
+
+        await fx.ensure_seed_rates(db, today)
+
+        vendor_by_name = {v.name: v for v in vendors}
+        foreign = [
+            ("AWS", "USD", Decimal("12500.00"), date(2026, 5, 15)),
+            ("Slack", "USD", Decimal("4200.00"), date(2026, 4, 10)),
+            ("AWS", "USD", Decimal("9800.00"), date(2026, 6, 5)),
+            ("WeWork", "GBP", Decimal("8600.00"), date(2026, 3, 20)),
+            ("WeWork", "GBP", Decimal("7300.00"), date(2026, 6, 12)),
+            ("Lufthansa", "CHF", Decimal("5400.00"), date(2026, 5, 2)),
+        ]
+        for vname, ccy, amount, issue in foreign:
+            vendor = vendor_by_name.get(vname)
+            if vendor is None:
+                continue
+            resolved = await fx.resolve_rate(db, ccy, issue)
+            if resolved is None:
+                continue
+            # Stated rate ~2.5% WORSE than ECB (a lower rate ⇒ fewer foreign units
+            # per EUR ⇒ more EUR paid) — the classic bank FX markup to recover.
+            stated = (resolved.rate * Decimal("0.975")).quantize(
+                Decimal("0.000001"), rounding=ROUND_HALF_UP
+            )
+            total_eur = _q(amount / stated)
+            count += 1
+            db.add(
+                Invoice(
+                    org_id=org.id,
+                    vendor_id=vendor.id,
+                    invoice_number=f"INV-{2026}-{count:04d}",
+                    issue_date=issue,
+                    due_date=issue + timedelta(days=30),
+                    currency=ccy,
+                    status=InvoiceStatus.paid,
+                    subtotal=amount,
+                    tax_amount=Decimal("0"),
+                    total=amount,
+                    total_eur=total_eur,
+                    fx_rate=stated,
+                    fx_source="stated",
+                    line_items=[
+                        LineItem(
+                            description=f"{vendor.category.title()} service ({ccy})",
+                            category=vendor.category,
+                            quantity=Decimal("1"),
+                            unit_price=amount,
+                            amount=amount,
+                            tax_rate=Decimal("0"),
+                        )
+                    ],
+                )
+            )
+
         await db.commit()
         print(f"Seeded '{org.name}' with {count} invoices across {len(vendors)} vendors.")
         print(f"Login: {DEMO_EMAIL} / demo1234")
