@@ -124,3 +124,57 @@ export interface StatusBucket {
   count: number;
   total: string;
 }
+
+export interface SupplierBenchmark {
+  vendor_id: string;
+  vendor_name: string;
+  country: string | null;
+  invoice_count: number;
+  total_spend: string;
+  total_tax: string;
+  avg_invoice: string;
+  effective_tax_rate: string;
+  paid_ratio: string;
+  category_count: number;
+  first_invoice: string | null;
+  last_invoice: string | null;
+  spend_share: string;
+}
+
+export interface SupplierPricePoint {
+  vendor_id: string;
+  vendor_name: string;
+  unit_price: string;
+  quantity: string;
+  spend: string;
+  deviation_pct: string;
+  overspend_vs_cheapest: string;
+  is_cheapest: boolean;
+}
+
+export interface CategoryBenchmark {
+  category: string;
+  supplier_count: number;
+  total_spend: string;
+  total_quantity: string;
+  combined_avg_unit: string;
+  cheapest_vendor_id: string | null;
+  cheapest_vendor_name: string | null;
+  cheapest_unit: string;
+  savings_opportunity: string;
+  suppliers: SupplierPricePoint[];
+}
+
+export interface BenchmarkSummary {
+  supplier_count: number;
+  total_spend: string;
+  categories_analyzed: number;
+  multi_supplier_categories: number;
+  total_savings_opportunity: string;
+  currency: string;
+}
+
+export interface CombinedBenchmark {
+  summary: BenchmarkSummary;
+  categories: CategoryBenchmark[];
+}

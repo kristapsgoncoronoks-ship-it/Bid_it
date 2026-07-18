@@ -14,6 +14,7 @@ Built as a minimal but scalable production MVP: **FastAPI + PostgreSQL + React**
 - 📥 **Ingestion** — upload structured e-invoice **XML (UBL 2.1 / UN-CEFACT CII)**, PDF, CSV, or JSON → a parsed *draft* a human confirms. Deterministic-first: e-invoice XML (incl. **Factur-X/ZUGFeRD** embedded in hybrid PDFs) is read exactly; other PDFs use the text layer, falling back to **Tesseract OCR** for scans.
 - 🧾 **Invoices** — full CRUD with line items, filters, search, pagination.
 - 📊 **Analytics** — KPIs, spend-over-time, top vendors, category & status breakdowns — all aggregated in the database.
+- 🏷️ **Supplier benchmark** — each supplier scored **independently** (spend, invoices, effective tax, paid ratio) *and* **combined** (cross-supplier effective-unit-price comparison per category, cheapest supplier, €-savings opportunity).
 - 🧱 **Scalable foundations** — async SQLAlchemy, stateless API, Alembic migrations, Docker, CI.
 
 ## Quick start (Docker — one command)

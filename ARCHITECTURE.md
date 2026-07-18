@@ -144,6 +144,8 @@ and are automatically scoped to the caller's organization.
 | GET  | `/analytics/top-vendors` | Spend by vendor |
 | GET  | `/analytics/by-category` | Spend by line-item category |
 | GET  | `/analytics/by-status` | Count/amount by invoice status |
+| GET  | `/analytics/supplier-benchmark` | Per-supplier scorecards (independent) |
+| GET  | `/analytics/combined-benchmark` | Cross-supplier price benchmark per category + savings |
 
 Interactive contract: `http://localhost:8000/docs` (OpenAPI).
 
@@ -155,6 +157,9 @@ via `/auth/me`). `ProtectedRoute` guards the app shell. Data fetching is
 
 - **Dashboard** — KPI row + spend-over-time line chart + top-vendors bar +
   category pie + status breakdown.
+- **Benchmark** — two tabs: *Combined* (savings headline + per-category
+  supplier price tables, cheapest flagged) and *Independent* (per-supplier
+  scorecards).
 - **Invoices** — filterable, paged table.
 - **Invoice detail** — header + line-item table + status control.
 - **Upload** — drag a CSV/JSON, preview the parsed draft, confirm to persist.

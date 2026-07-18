@@ -12,7 +12,8 @@ from app.schemas.analytics import (
     TimeBucket,
     VendorSpend,
 )
-from app.services import analytics
+from app.schemas.benchmark import CombinedBenchmark, SupplierBenchmark
+from app.services import analytics, benchmark
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -54,3 +55,19 @@ async def get_by_status(
     current: CurrentUser, db: DbSession, start: date | None = None, end: date | None = None
 ):
     return await analytics.by_status(db, current.org_id, start, end)
+
+
+@router.get("/supplier-benchmark", response_model=list[SupplierBenchmark])
+async def get_supplier_benchmark(
+    current: CurrentUser, db: DbSession, start: date | None = None, end: date | None = None
+):
+    """Independent per-supplier scorecards."""
+    return await benchmark.supplier_benchmarks(db, current.org_id, start, end)
+
+
+@router.get("/combined-benchmark", response_model=CombinedBenchmark)
+async def get_combined_benchmark(
+    current: CurrentUser, db: DbSession, start: date | None = None, end: date | None = None
+):
+    """Combined cross-supplier price benchmark per category + savings opportunity."""
+    return await benchmark.combined_benchmark(db, current.org_id, start, end)
