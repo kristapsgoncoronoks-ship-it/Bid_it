@@ -67,7 +67,12 @@ to whom, on what, and when — and what looks wrong?"*
    carries real text.
 4. **Tesseract OCR** — only for scanned/image-only PDFs: pypdfium2 rasterises,
    then `image_to_data` word boxes are re-clustered into rows so tables survive.
-   A heuristic parser derives fields + an inferred VAT rate.
+   The row parser is **transaction-table-aware**: it reads *every* line of a
+   multi-row statement (fuel/toll card statements, etc.), masks dates/times so a
+   transaction date isn't mistaken for an amount, keeps the date on the line
+   description, parses money locale-aware (1,234.56 / 1.234,56), and only skips
+   genuine total/summary rows (a station named "Total …" is kept). A heuristic
+   then derives header fields + an inferred VAT rate.
 
 All paths produce the same confirmable draft. OCR runs synchronously today; the
 service boundary is the seam to move it onto a queue.

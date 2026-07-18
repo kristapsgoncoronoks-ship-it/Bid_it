@@ -28,7 +28,31 @@ _OCR_DPI = 300
 # Below this many characters of embedded text, assume the page is scanned.
 _TEXT_LAYER_MIN_CHARS = 25
 
-_AMOUNT_RE = re.compile(r"-?\d[\d,]*\.\d{2}")
+# A monetary token: any number ending in a 2-digit decimal group, either
+# separator, optional sign/parentheses (credits) and thousands separators.
+# e.g. 60.00  1,234.56  1.234,56  -12.00  (9.90)
+_MONEY_RE = re.compile(r"[-(]?\d[\d.,]*[.,]\d{2}\)?")
+# Legacy 2-decimal amount (kept for callers that want the simplest signal).
+_AMOUNT_RE = _MONEY_RE
+
+# Dates and times — masked out before money parsing so a transaction date like
+# 01.06.2026 is never mistaken for the amount 01.06.
+_DATE_RE = re.compile(
+    r"\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{1,2}[./ ][A-Za-z]{3,9}[./ ]\d{2,4})\b"
+)
+_TIME_RE = re.compile(r"\b\d{1,2}:\d{2}(?::\d{2})?\b")
+_LEADING_DATE_RE = re.compile(
+    r"^\s*(\d{4}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b"
+)
+
+# A row is a summary/total row (not a line item) when, after stripping numbers,
+# dates and punctuation, the remaining label is one of these.
+_SUMMARY_LABELS = (
+    "total", "subtotal", "sub total", "grand total", "net total", "gross total",
+    "total due", "total net", "total gross", "amount due", "balance", "balance due",
+    "vat", "tax", "to pay", "invoice total", "total excl", "total incl", "carried forward",
+)
+
 _INVOICE_NO_RE = re.compile(
     r"invoice\s*(?:no\.?|number|nr\.?|#)\s*[:#]?\s*([A-Za-z0-9][A-Za-z0-9\-/]{1,40})",
     re.IGNORECASE,
@@ -40,23 +64,80 @@ _DATE_LABEL_RE = re.compile(
 )
 _CURRENCY = {"€": "EUR", "$": "USD", "£": "GBP"}
 
-# Lines containing these are never treated as line items.
-_SKIP = (
-    "total", "subtotal", "sub-total", "sub total", "vat", "tax", "balance",
-    "amount due", "due", "invoice", "date", "bill to", "ship to", "page",
-    "payment", "iban", "bank", "email", "phone", "reg", "vat no",
-)
-
 
 class OcrUnavailable(RuntimeError):
     """Raised when the PDF/OCR stack (or Tesseract binary) is not installed."""
 
 
 def _num(s: str) -> Decimal:
+    """Normalise a single numeric/money token to Decimal, locale-aware.
+
+    Handles 1,234.56 (US), 1.234,56 (EU), plain 1234.56, negatives and
+    parenthesised credits. The decimal separator is taken to be the *last*
+    '.'/',' when both appear; a lone thousands group (",ddd"/".ddd") is treated
+    as thousands.
+    """
+    tok = s.strip()
+    neg = tok.startswith("-") or tok.startswith("(")
+    tok = tok.strip("()+-").replace(" ", "")
+    if not tok:
+        return Decimal("0")
+    if "." in tok and "," in tok:
+        if tok.rfind(".") > tok.rfind(","):
+            tok = tok.replace(",", "")           # comma = thousands
+        else:
+            tok = tok.replace(".", "").replace(",", ".")  # dot = thousands
+    elif "," in tok:
+        after = tok.rsplit(",", 1)[1]
+        if tok.count(",") == 1 and len(after) != 3:
+            tok = tok.replace(",", ".")          # comma = decimal
+        else:
+            tok = tok.replace(",", "")           # comma = thousands
     try:
-        return Decimal(s.replace(",", ""))
+        value = Decimal(tok)
     except InvalidOperation:
         return Decimal("0")
+    return -value if neg else value
+
+
+def _mask(text: str) -> str:
+    """Blank out dates/times (same length) so their digits aren't read as money."""
+    def blank(m: re.Match) -> str:
+        return " " * (m.end() - m.start())
+
+    return _TIME_RE.sub(blank, _DATE_RE.sub(blank, text))
+
+
+def _split_leading_date(text: str) -> tuple[str, str]:
+    m = _LEADING_DATE_RE.match(text)
+    if not m:
+        return "", text
+    return m.group(1), text[m.end():]
+
+
+def _label_of(text: str) -> str:
+    """The alphabetic label of a row: text minus numbers/dates/punctuation."""
+    stripped = _MONEY_RE.sub(" ", _mask(text))
+    stripped = re.sub(r"[\d%.,:;#()\-/€$£]", " ", stripped)
+    return re.sub(r"\s+", " ", stripped).strip().lower()
+
+
+def _is_summary_row(text: str) -> bool:
+    # A transaction row starts with a date — never a totals row (guards against a
+    # station literally named "Total …" or "Q8" being dropped).
+    if _LEADING_DATE_RE.match(text):
+        return False
+    label = _label_of(text)
+    if not label:
+        return False
+    words = label.split()
+    for s in _SUMMARY_LABELS:
+        sw = s.split()
+        # Label must START with the summary phrase and add at most 2 qualifier
+        # words (e.g. "total excl vat"), so "total lyon est diesel" stays a line.
+        if words[: len(sw)] == sw and (len(words) - len(sw)) <= 2:
+            return True
+    return False
 
 
 def _to_date(value: str) -> date | None:
@@ -166,51 +247,73 @@ def extract_text(content: bytes) -> tuple[str, str]:
 # Heuristic invoice parsing
 # --------------------------------------------------------------------------- #
 def _find_labeled_amount(lines: list[str], keywords: tuple[str, ...], exclude: tuple[str, ...] = ()) -> Decimal | None:
-    for line in lines:
+    # Scan bottom-up (totals sit at the foot) and ignore transaction rows so a
+    # station literally named "Total …" can't be mistaken for the grand total.
+    for line in reversed(lines):
+        if _LEADING_DATE_RE.match(line):
+            continue
         low = line.lower()
         if any(k in low for k in keywords) and not any(x in low for x in exclude):
-            amts = _AMOUNT_RE.findall(line)
+            amts = _MONEY_RE.findall(_mask(line))
             if amts:
                 return _num(amts[-1])
     return None
 
 
+def _parse_row(line: str) -> LineItemIn | None:
+    """Parse ONE reconstructed row into a line item, or None if it isn't one.
+
+    Transaction-aware: a leading date is kept as part of the description (so a
+    fuel/toll statement's date+station+product survives), dates/times inside the
+    row are masked before money parsing, and the rightmost money token is the
+    line amount. Any number left trailing the description is the quantity.
+    """
+    if _is_summary_row(line):
+        return None
+
+    date_prefix, rest = _split_leading_date(line)
+    masked = _mask(rest)
+    money = list(_MONEY_RE.finditer(masked))
+    if not money:
+        return None
+
+    first = money[0].start()
+    desc_core = rest[:first].strip(" .\t-|:#")
+    amounts = [_num(m.group()) for m in money]
+    amount = amounts[-1]
+    unit = amounts[-2] if len(amounts) >= 2 else amount
+
+    qty = Decimal("1")
+    qm = re.search(r"^(.*?)(\d+(?:[.,]\d+)?)\s*$", desc_core)
+    if len(amounts) >= 2 and qm and qm.group(1).strip():
+        desc_core = qm.group(1).strip()
+        qty = _num(qm.group(2))
+
+    description = (f"{date_prefix} {desc_core}".strip() if date_prefix else desc_core).strip()
+    if not description or description.replace(" ", "").isdigit():
+        description = desc_core or date_prefix or "Item"
+
+    if amount <= 0 and qty and unit:
+        amount = qty * unit
+    if amount <= 0:
+        return None
+
+    return LineItemIn(
+        description=description[:500],
+        category="uncategorized",
+        quantity=qty if qty > 0 else Decimal("1"),
+        unit_price=unit if unit > 0 else amount,
+        amount=amount,
+        tax_rate=Decimal("0"),
+    )
+
+
 def _extract_line_items(lines: list[str]) -> list[LineItemIn]:
     items: list[LineItemIn] = []
     for line in lines:
-        low = line.lower()
-        if any(k in low for k in _SKIP):
-            continue
-        amts = _AMOUNT_RE.findall(line)
-        if not amts:
-            continue
-        first_pos = line.find(amts[0])
-        desc = line[:first_pos].strip(" .\t-|")
-        if not desc or desc.isdigit():
-            continue
-
-        amount = _num(amts[-1])
-        unit = _num(amts[-2]) if len(amts) >= 2 else amount
-
-        # A trailing integer on the description is the quantity.
-        qty = Decimal("1")
-        qm = re.search(r"^(.*?)(\d+)\s*$", desc)
-        if len(amts) >= 2 and qm and qm.group(1).strip():
-            desc = qm.group(1).strip()
-            qty = Decimal(qm.group(2))
-
-        if amount <= 0:
-            continue
-        items.append(
-            LineItemIn(
-                description=desc[:500],
-                category="uncategorized",
-                quantity=qty,
-                unit_price=unit,
-                amount=amount,
-                tax_rate=Decimal("0"),
-            )
-        )
+        item = _parse_row(line)
+        if item is not None:
+            items.append(item)
     return items
 
 
