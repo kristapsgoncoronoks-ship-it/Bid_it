@@ -2,6 +2,9 @@
 from app.models.base import Base
 from app.models.fx import EcbRate
 from app.models.invoice import Invoice, InvoiceStatus, LineItem
+from app.models.issued_invoice import IssuedInvoice, IssuedInvoiceLine
+from app.models.issuer import IssuerProfile
+from app.models.module import OrgModule
 from app.models.organization import Organization
 from app.models.user import User, UserRole
 from app.models.vendor import Vendor
@@ -16,4 +19,8 @@ __all__ = [
     "InvoiceStatus",
     "LineItem",
     "EcbRate",
+    "OrgModule",
+    "IssuerProfile",
+    "IssuedInvoice",
+    "IssuedInvoiceLine",
 ]

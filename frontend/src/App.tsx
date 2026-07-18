@@ -10,6 +10,8 @@ import Benchmark from "./pages/Benchmark";
 import Fx from "./pages/Fx";
 import Review from "./pages/Review";
 import Settings from "./pages/Settings";
+import Issuer from "./pages/Issuer";
+import Issue from "./pages/Issue";
 
 export default function App() {
   return (
@@ -29,6 +31,8 @@ export default function App() {
         <Route path="/invoices/:id" element={<InvoiceDetail />} />
         <Route path="/review" element={<Review />} />
         <Route path="/upload" element={<Upload />} />
+        <Route path="/issue" element={<Issue />} />
+        <Route path="/issuer" element={<Issuer />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

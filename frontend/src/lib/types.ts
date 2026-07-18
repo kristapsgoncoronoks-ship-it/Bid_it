@@ -248,3 +248,82 @@ export interface FxComparison {
   };
   rows: FxComparisonRow[];
 }
+
+export interface ModuleInfo {
+  key: string;
+  name: string;
+  description: string;
+  core: boolean;
+  enabled: boolean;
+  requires_issuer: boolean;
+  ready: boolean;
+}
+
+export interface IssuerProfile {
+  legal_name: string | null;
+  trade_name: string | null;
+  vat_number: string | null;
+  registration_number: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  postal_code: string | null;
+  country: string | null;
+  email: string | null;
+  phone: string | null;
+  iban: string | null;
+  bic: string | null;
+  default_currency: string;
+  invoice_prefix: string;
+  next_number: number;
+  payment_terms_days: number;
+  notes: string | null;
+  is_complete: boolean;
+  missing_fields: string[];
+  has_logo: boolean;
+}
+
+export type VatScheme = "standard" | "reverse_charge" | "intra_eu" | "exempt";
+
+export interface IssuedLineInput {
+  description: string;
+  quantity: string;
+  unit?: string;
+  unit_price: string;
+  vat_rate: string;
+}
+
+export interface VatBucket {
+  rate: string;
+  base: string;
+  vat: string;
+}
+
+export interface IssuedInvoice {
+  id: string;
+  number: string;
+  issue_date: string;
+  supply_date: string | null;
+  due_date: string | null;
+  currency: string;
+  buyer_name: string;
+  buyer_vat_number: string | null;
+  vat_scheme: string;
+  note: string | null;
+  subtotal: string;
+  tax_total: string;
+  total: string;
+}
+
+export interface IssuedInvoiceDetail extends IssuedInvoice {
+  lines: {
+    position: number;
+    description: string;
+    quantity: string;
+    unit: string;
+    unit_price: string;
+    vat_rate: string;
+    net_amount: string;
+  }[];
+  vat_breakdown: VatBucket[];
+}

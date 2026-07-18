@@ -157,6 +157,10 @@ and are automatically scoped to the caller's organization.
 | POST | `/fx/refresh` | Pull live ECB rates into the cache (owner only) |
 | GET/PUT | `/settings/validation` | Read / toggle AI + human validation (PUT owner only) |
 | POST | `/invoices/{id}/validate` | Human review: approve / reject |
+| GET | `/modules` · PUT `/modules/{key}` | Module registry + activation (PUT owner only) |
+| GET/PUT | `/issuer` · POST `/issuer/logo` | Company registration details (the seller) |
+| POST/GET | `/issued` · GET `/issued/{id}` | Create / list / view issued invoices |
+| GET | `/issued/{id}/pdf` · `/issued/{id}/xml` | Hybrid Factur-X PDF · standalone EN-16931 XML |
 
 Interactive contract: `http://localhost:8000/docs` (OpenAPI).
 
@@ -173,8 +177,23 @@ via `/auth/me`). `ProtectedRoute` guards the app shell. Data fetching is
   scorecards).
 - **FX** — ECB converter, foreign-invoice-vs-ECB comparison table (markup
   flagged), and the ECB reference-rate grid.
-- **Settings** — toggle AI / human validation (owner only).
+- **Settings** — toggle AI / human validation + activate modules (owner only).
 - **Review** — the human-validation queue (pending + AI-flagged), approve/reject.
+- **Issue** (module-gated) — company details form, new-invoice form, issued list
+  with PDF/XML download.
+
+### Modular platform & EU invoice issuing
+`services/modules.py` is a registry of capabilities: `core` ones are always on;
+add-ons (`issuing`) are activated per-org (`org_modules`). Nav and the issuing
+routes are gated on the module. **Invoice issuing** requires a complete issuer
+profile (`services/issuer.py`, Art. 226 seller identity) before use. Issued
+invoices (`issued_invoices`, separate from received/analysed invoices) get
+sequential numbers per issuer, a per-VAT-rate breakdown (`services/vat.py`,
+incl. reverse-charge / intra-EU / exempt with the required legal note), a frozen
+seller snapshot, an **EN 16931 CII XML** (`services/facturx.py`, the outbound
+twin of `einvoice`), and a **polished PDF with that XML embedded**
+(`services/invoice_pdf.py`, reportlab + pypdf) — a hybrid Factur-X document our
+own `einvoice.extract_embedded_xml` round-trips.
 
 ### Data validation (opt-in)
 Two independent options, OFF by default and turned on per-org by the user

@@ -31,6 +31,18 @@ api.interceptors.response.use(
   },
 );
 
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  const res = await api.get(path, { responseType: "blob" });
+  const url = URL.createObjectURL(res.data as Blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function apiError(e: unknown): string {
   if (axios.isAxiosError(e)) {
     const detail = e.response?.data?.detail;

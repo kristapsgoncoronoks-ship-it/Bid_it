@@ -1,6 +1,10 @@
+import { useQuery } from "@tanstack/react-query";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { api } from "../lib/api";
+import type { ModuleInfo } from "../lib/types";
 
+// `module` marks an item that only shows when that add-on module is enabled.
 const NAV = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/benchmark", label: "Benchmark", end: false },
@@ -8,12 +12,19 @@ const NAV = [
   { to: "/invoices", label: "Invoices", end: false },
   { to: "/review", label: "Review", end: false },
   { to: "/upload", label: "Upload", end: false },
+  { to: "/issue", label: "Issue", end: false, module: "issuing" },
   { to: "/settings", label: "Settings", end: false },
 ];
 
 export function Layout() {
   const { user, org, logout } = useAuth();
   const navigate = useNavigate();
+  const modules = useQuery<ModuleInfo[]>({
+    queryKey: ["modules"],
+    queryFn: async () => (await api.get("/modules")).data,
+  });
+  const enabled = new Set((modules.data ?? []).filter((m) => m.enabled).map((m) => m.key));
+  const nav = NAV.filter((n) => !n.module || enabled.has(n.module));
 
   return (
     <div className="min-h-screen">
@@ -27,7 +38,7 @@ export function Layout() {
               <span className="text-lg font-semibold tracking-tight">InvoiceIQ</span>
             </div>
             <nav className="flex items-center gap-1">
-              {NAV.map((n) => (
+              {nav.map((n) => (
                 <NavLink
                   key={n.to}
                   to={n.to}

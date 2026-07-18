@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
-import type { ValidationSettings } from "../lib/types";
+import type { ModuleInfo, ValidationSettings } from "../lib/types";
 
 export default function Settings() {
   const { user } = useAuth();
@@ -12,11 +13,20 @@ export default function Settings() {
     queryKey: ["settings", "validation"],
     queryFn: async () => (await api.get("/settings/validation")).data,
   });
+  const modules = useQuery<ModuleInfo[]>({
+    queryKey: ["modules"],
+    queryFn: async () => (await api.get("/modules")).data,
+  });
 
   const update = useMutation({
     mutationFn: async (patch: Partial<ValidationSettings>) =>
       (await api.put("/settings/validation", patch)).data,
     onSuccess: (data) => qc.setQueryData(["settings", "validation"], data),
+  });
+  const toggleModule = useMutation({
+    mutationFn: async (v: { key: string; enabled: boolean }) =>
+      (await api.put(`/modules/${v.key}`, { enabled: v.enabled })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["modules"] }),
   });
 
   const s = settings.data;
@@ -63,6 +73,32 @@ export default function Settings() {
         With both on, AI findings are attached to help the reviewer, and the invoice still waits
         for a human. With neither on, invoices save straight through (unvalidated).
       </p>
+
+      <div className="card space-y-1">
+        <h2 className="text-sm font-semibold text-slate-600">Modules</h2>
+        <p className="mb-2 text-sm text-slate-500">Activate the capabilities your workspace needs.</p>
+        {(modules.data ?? []).filter((m) => !m.core).map((m) => (
+          <div key={m.key}>
+            <Toggle
+              title={m.name}
+              desc={m.description}
+              checked={m.enabled}
+              disabled={!isOwner || toggleModule.isPending}
+              onChange={(v) => toggleModule.mutate({ key: m.key, enabled: v })}
+            />
+            {m.enabled && m.requires_issuer && !m.ready && (
+              <div className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                Activated — now{" "}
+                <Link to="/issuer" className="font-medium underline">complete your company registration details</Link>{" "}
+                to start issuing invoices.
+              </div>
+            )}
+          </div>
+        ))}
+        <div className="border-t border-slate-100 pt-2 text-xs text-slate-400">
+          Core modules (analytics, intake, FX, validation) are always on.
+        </div>
+      </div>
     </div>
   );
 }
