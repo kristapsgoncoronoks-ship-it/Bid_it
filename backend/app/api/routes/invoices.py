@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date
+import json
+from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, status
@@ -10,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import CurrentUser, DbSession
 from app.api.routes.vendors import get_or_create_vendor
 from app.models.invoice import Invoice, InvoiceStatus, LineItem
+from app.models.organization import Organization
 from app.models.vendor import Vendor
 from app.schemas.invoice import (
     InvoiceCreate,
@@ -20,7 +22,8 @@ from app.schemas.invoice import (
     LineItemOut,
     ParsedInvoiceDraft,
 )
-from app.services import fx
+from app.schemas.validation import ValidationDecision, ValidationFinding
+from app.services import fx, validation
 from app.services.parser import parse_invoice_file
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
@@ -62,10 +65,23 @@ def _detail(inv: Invoice, vendor_name: str) -> InvoiceDetailOut:
         total_eur=inv.total_eur,
         fx_rate=inv.fx_rate,
         fx_source=inv.fx_source,
+        validation_status=inv.validation_status,
         source_filename=inv.source_filename,
         notes=inv.notes,
         line_items=[LineItemOut.model_validate(li) for li in inv.line_items],
+        validation_findings=_parse_findings(inv.validation_findings),
+        validated_by=inv.validated_by,
+        validated_at=inv.validated_at,
     )
+
+
+def _parse_findings(raw: str | None) -> list[ValidationFinding]:
+    if not raw:
+        return []
+    try:
+        return [ValidationFinding(**x) for x in json.loads(raw)]
+    except (ValueError, TypeError):
+        return []
 
 
 @router.post("", response_model=InvoiceDetailOut, status_code=status.HTTP_201_CREATED)
@@ -116,6 +132,13 @@ async def create_invoice(body: InvoiceCreate, current: CurrentUser, db: DbSessio
         source_filename=body.source_filename,
         line_items=items,
     )
+
+    # Data validation (AI / human) — runs only for the options the org enabled.
+    org = await db.get(Organization, current.org_id)
+    await validation.apply_validation(
+        db, invoice, org.ai_validation_enabled, org.human_validation_enabled, date.today()
+    )
+
     db.add(invoice)
     await db.commit()
     await db.refresh(invoice, attribute_names=["line_items"])
@@ -131,6 +154,7 @@ async def list_invoices(
     start: date | None = None,
     end: date | None = None,
     q: str | None = Query(default=None, description="search invoice number"),
+    validation_status: str | None = Query(default=None, description="none|passed|flagged|pending|approved|rejected"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
 ):
@@ -139,6 +163,8 @@ async def list_invoices(
         filters.append(Invoice.vendor_id == vendor_id)
     if status_:
         filters.append(Invoice.status == status_)
+    if validation_status:
+        filters.append(Invoice.validation_status == validation_status)
     if start:
         filters.append(Invoice.issue_date >= start)
     if end:
@@ -190,6 +216,22 @@ async def update_invoice(
         invoice.due_date = body.due_date
     if body.notes is not None:
         invoice.notes = body.notes
+    await db.commit()
+    await db.refresh(invoice, attribute_names=["line_items"])
+    return _detail(invoice, invoice.vendor.name)
+
+
+@router.post("/{invoice_id}/validate", response_model=InvoiceDetailOut)
+async def human_validate(
+    invoice_id: str, body: ValidationDecision, current: CurrentUser, db: DbSession
+):
+    """Human review gate: approve or reject an invoice pending validation."""
+    invoice = await _load_scoped(db, current.org_id, invoice_id)
+    invoice.validation_status = validation.APPROVED if body.action == "approve" else validation.REJECTED
+    invoice.validated_by = current.email
+    invoice.validated_at = datetime.now(timezone.utc)
+    if body.note:
+        invoice.notes = ((invoice.notes + "\n") if invoice.notes else "") + f"[review] {body.note}"
     await db.commit()
     await db.refresh(invoice, attribute_names=["line_items"])
     return _detail(invoice, invoice.vendor.name)

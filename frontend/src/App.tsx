@@ -8,6 +8,8 @@ import InvoiceDetail from "./pages/InvoiceDetail";
 import Upload from "./pages/Upload";
 import Benchmark from "./pages/Benchmark";
 import Fx from "./pages/Fx";
+import Review from "./pages/Review";
+import Settings from "./pages/Settings";
 
 export default function App() {
   return (
@@ -25,7 +27,9 @@ export default function App() {
         <Route path="/fx" element={<Fx />} />
         <Route path="/invoices" element={<Invoices />} />
         <Route path="/invoices/:id" element={<InvoiceDetail />} />
+        <Route path="/review" element={<Review />} />
         <Route path="/upload" element={<Upload />} />
+        <Route path="/settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

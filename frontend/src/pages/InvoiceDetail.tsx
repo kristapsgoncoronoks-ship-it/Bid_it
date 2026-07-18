@@ -1,7 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
-import { money, shortDate, STATUS_STYLES } from "../lib/format";
+import {
+  money,
+  SEVERITY_STYLES,
+  shortDate,
+  STATUS_STYLES,
+  VALIDATION_LABELS,
+  VALIDATION_STYLES,
+} from "../lib/format";
 import type { InvoiceDetail, InvoiceStatus } from "../lib/types";
 
 const STATUSES: InvoiceStatus[] = ["draft", "pending", "paid", "overdue"];
@@ -16,14 +23,22 @@ export default function InvoiceDetailPage() {
     enabled: !!id,
   });
 
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["invoice", id] });
+    qc.invalidateQueries({ queryKey: ["invoices"] });
+    qc.invalidateQueries({ queryKey: ["analytics"] });
+  };
+
   const setStatus = useMutation({
     mutationFn: async (status: InvoiceStatus) =>
       (await api.patch(`/invoices/${id}`, { status })).data,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["invoice", id] });
-      qc.invalidateQueries({ queryKey: ["invoices"] });
-      qc.invalidateQueries({ queryKey: ["analytics"] });
-    },
+    onSuccess: invalidate,
+  });
+
+  const decide = useMutation({
+    mutationFn: async (action: "approve" | "reject") =>
+      (await api.post(`/invoices/${id}/validate`, { action })).data,
+    onSuccess: invalidate,
   });
 
   if (isLoading || !inv) return <div className="text-slate-400">Loading…</div>;
@@ -71,6 +86,55 @@ export default function InvoiceDetailPage() {
           </div>
         </div>
       </div>
+
+      {inv.validation_status !== "none" && (
+        <div className="card space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-600">Validation</h2>
+            <span className={`badge ${VALIDATION_STYLES[inv.validation_status] ?? ""}`}>
+              {VALIDATION_LABELS[inv.validation_status] ?? inv.validation_status}
+            </span>
+          </div>
+
+          {inv.validation_findings.length > 0 ? (
+            <ul className="space-y-1.5">
+              {inv.validation_findings.map((f, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm">
+                  <span className={`badge ${SEVERITY_STYLES[f.severity] ?? ""}`}>{f.severity}</span>
+                  <span className="text-slate-600">{f.message}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-slate-400">No issues detected by the automated checks.</p>
+          )}
+
+          {(inv.validation_status === "pending" || inv.validation_status === "flagged") && (
+            <div className="flex gap-2 pt-1">
+              <button
+                className="btn bg-emerald-600 text-white hover:bg-emerald-700"
+                disabled={decide.isPending}
+                onClick={() => decide.mutate("approve")}
+              >
+                Approve
+              </button>
+              <button
+                className="btn border border-rose-300 bg-white text-rose-600 hover:bg-rose-50"
+                disabled={decide.isPending}
+                onClick={() => decide.mutate("reject")}
+              >
+                Reject
+              </button>
+            </div>
+          )}
+          {inv.validated_by && (
+            <p className="text-xs text-slate-400">
+              {inv.validation_status} by {inv.validated_by}
+              {inv.validated_at && ` · ${shortDate(inv.validated_at)}`}
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="card overflow-hidden p-0">
         <table className="w-full text-sm">

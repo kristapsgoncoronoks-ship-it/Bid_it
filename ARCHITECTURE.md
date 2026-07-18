@@ -155,6 +155,8 @@ and are automatically scoped to the caller's organization.
 | GET  | `/fx/convert` | Convert an amount between currencies at ECB |
 | GET  | `/fx/ecb-comparison` | Foreign invoices valued at ECB + stated-rate markup |
 | POST | `/fx/refresh` | Pull live ECB rates into the cache (owner only) |
+| GET/PUT | `/settings/validation` | Read / toggle AI + human validation (PUT owner only) |
+| POST | `/invoices/{id}/validate` | Human review: approve / reject |
 
 Interactive contract: `http://localhost:8000/docs` (OpenAPI).
 
@@ -171,6 +173,18 @@ via `/auth/me`). `ProtectedRoute` guards the app shell. Data fetching is
   scorecards).
 - **FX** — ECB converter, foreign-invoice-vs-ECB comparison table (markup
   flagged), and the ECB reference-rate grid.
+- **Settings** — toggle AI / human validation (owner only).
+- **Review** — the human-validation queue (pending + AI-flagged), approve/reject.
+
+### Data validation (opt-in)
+Two independent options, OFF by default and turned on per-org by the user
+(`services/validation.py`). **AI validation** runs an automated rule engine on
+each saved invoice (money consistency, per-line math, duplicates, dates,
+currency, FX-vs-ECB) and records findings — advisory, resolves to `passed` or
+`flagged`. `ai_enrich()` is the seam for a real LLM (default no-op, nothing
+leaves the server). **Human validation** routes the invoice to a review gate
+(`pending`) until a person approves/rejects. With both on, AI findings assist the
+reviewer and the invoice still waits for a human. With neither, status is `none`.
 
 ### FX & ECB rates
 `services/fx.py` caches ECB euro reference rates in `ecb_rates` (units per EUR).

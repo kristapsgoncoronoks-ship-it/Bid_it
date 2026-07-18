@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.invoice import InvoiceStatus
+from app.schemas.validation import ValidationFinding
 
 
 class LineItemIn(BaseModel):
@@ -66,6 +67,7 @@ class InvoiceOut(BaseModel):
     total_eur: Decimal | None = None
     fx_rate: Decimal | None = None
     fx_source: str | None = None
+    validation_status: str = "none"
     source_filename: str | None
 
 
@@ -73,6 +75,9 @@ class InvoiceDetailOut(InvoiceOut):
     vendor_name: str
     notes: str | None
     line_items: list[LineItemOut]
+    validation_findings: list[ValidationFinding] = Field(default_factory=list)
+    validated_by: str | None = None
+    validated_at: datetime | None = None
 
 
 class InvoiceListOut(BaseModel):

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import enum
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Date, ForeignKey, Numeric, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, Text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -60,6 +60,13 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     source_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Data validation. status: none | passed | flagged | pending | approved | rejected.
+    # findings is a JSON array of {severity, code, message, field}.
+    validation_status: Mapped[str] = mapped_column(String(16), default="none", nullable=False, index=True)
+    validation_findings: Mapped[str | None] = mapped_column(Text, nullable=True)
+    validated_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     vendor: Mapped["Vendor"] = relationship(back_populates="invoices")
     line_items: Mapped[list["LineItem"]] = relationship(

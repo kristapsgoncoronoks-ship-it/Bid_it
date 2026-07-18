@@ -16,6 +16,7 @@ Built as a minimal but scalable production MVP: **FastAPI + PostgreSQL + React**
 - 📊 **Analytics** — KPIs, spend-over-time, top vendors, category & status breakdowns — all aggregated in the database.
 - 🏷️ **Supplier benchmark** — each supplier scored **independently** (spend, invoices, effective tax, paid ratio) *and* **combined** (cross-supplier effective-unit-price comparison per category, cheapest supplier, €-savings opportunity).
 - 💱 **FX vs ECB** — foreign-currency invoices converted to EUR at the **ECB reference rate** (cached in-DB, bundled fallback, live-refresh endpoint), with the EUR **markup** surfaced where a supplier billed at its own rate.
+- ✅ **Data validation (opt-in)** — turn on **AI validation** (automated checks: totals, tax, per-line math, duplicates, dates, currency, FX-vs-ECB) and/or **human validation** (a review queue where a person approves/rejects). Both **off by default**, toggled by the user.
 - 🧱 **Scalable foundations** — async SQLAlchemy, stateless API, Alembic migrations, Docker, CI.
 
 ## Quick start (Docker — one command)

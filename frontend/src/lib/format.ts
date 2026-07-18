@@ -36,3 +36,27 @@ export const STATUS_STYLES: Record<string, string> = {
   overdue: "bg-rose-100 text-rose-700",
   draft: "bg-slate-100 text-slate-600",
 };
+
+export const VALIDATION_STYLES: Record<string, string> = {
+  none: "bg-slate-100 text-slate-500",
+  passed: "bg-emerald-100 text-emerald-700",
+  approved: "bg-emerald-100 text-emerald-700",
+  flagged: "bg-rose-100 text-rose-700",
+  rejected: "bg-rose-100 text-rose-700",
+  pending: "bg-amber-100 text-amber-700",
+};
+
+export const VALIDATION_LABELS: Record<string, string> = {
+  none: "no validation",
+  passed: "AI passed",
+  flagged: "flagged",
+  pending: "awaiting review",
+  approved: "approved",
+  rejected: "rejected",
+};
+
+export const SEVERITY_STYLES: Record<string, string> = {
+  error: "bg-rose-100 text-rose-700",
+  warning: "bg-amber-100 text-amber-700",
+  info: "bg-sky-100 text-sky-700",
+};

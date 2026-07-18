@@ -37,6 +37,21 @@ export interface LineItem {
   tax_rate: string;
 }
 
+export type ValidationStatus =
+  | "none" | "passed" | "flagged" | "pending" | "approved" | "rejected";
+
+export interface ValidationFinding {
+  severity: "info" | "warning" | "error";
+  code: string;
+  message: string;
+  field: string | null;
+}
+
+export interface ValidationSettings {
+  ai_validation_enabled: boolean;
+  human_validation_enabled: boolean;
+}
+
 export interface Invoice {
   id: string;
   vendor_id: string;
@@ -48,6 +63,8 @@ export interface Invoice {
   subtotal: string;
   tax_amount: string;
   total: string;
+  total_eur?: string | null;
+  validation_status: ValidationStatus;
   source_filename: string | null;
 }
 
@@ -55,6 +72,9 @@ export interface InvoiceDetail extends Invoice {
   vendor_name: string;
   notes: string | null;
   line_items: LineItem[];
+  validation_findings: ValidationFinding[];
+  validated_by: string | null;
+  validated_at: string | null;
 }
 
 export interface InvoiceList {
