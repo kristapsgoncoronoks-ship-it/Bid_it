@@ -181,6 +181,9 @@ and are automatically scoped to the caller's organization.
 | GET | `/auth/invite/{token}` · POST `/auth/accept-invite` | Preview + accept an invite (public) |
 | GET | `/billing` · PUT `/billing/plan` | Plan, seats, status · change plan (owner) |
 | GET | `/platform/tenants` · PATCH `/platform/tenants/{id}` | Operator: list / suspend / re-plan (platform admin) |
+| POST/GET | `/expenses` · GET `/expenses/{id}` | Create / list / view expense reports (own for members, all for managers) |
+| POST | `/expenses/{id}/submit` · `/decision` | Employee submits · manager approve/reject/reimburse |
+| POST/GET | `/expenses/{id}/items/{iid}/receipt` · GET `/expenses/{id}/pdf` | Receipt upload/view · report PDF |
 
 Interactive contract: `http://localhost:8000/docs` (OpenAPI).
 
@@ -197,6 +200,9 @@ via `/auth/me`). `ProtectedRoute` guards the app shell. Data fetching is
   scorecards).
 - **FX** — ECB converter, foreign-invoice-vs-ECB comparison table (markup
   flagged), and the ECB reference-rate grid.
+- **Expenses** (module-gated) — KPI tiles, new-report form, my reports, and a
+  manager approval queue; a detail page with items, receipts, workflow actions,
+  and PDF.
 - **Settings** — toggle AI / human validation + activate modules (owner only).
 - **Review** — the human-validation queue (pending + AI-flagged), approve/reject.
 - **Issue** (module-gated) — company details form, new-invoice form, issued list

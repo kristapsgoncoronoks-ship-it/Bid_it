@@ -60,3 +60,11 @@ export const SEVERITY_STYLES: Record<string, string> = {
   warning: "bg-amber-100 text-amber-700",
   info: "bg-sky-100 text-sky-700",
 };
+
+export const EXPENSE_STATUS_STYLES: Record<string, string> = {
+  draft: "bg-slate-100 text-slate-600",
+  submitted: "bg-amber-100 text-amber-700",
+  approved: "bg-sky-100 text-sky-700",
+  reimbursed: "bg-emerald-100 text-emerald-700",
+  rejected: "bg-rose-100 text-rose-700",
+};

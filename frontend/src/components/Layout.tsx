@@ -13,6 +13,7 @@ const NAV = [
   { to: "/review", label: "Review", end: false },
   { to: "/upload", label: "Upload", end: false },
   { to: "/issue", label: "Issue", end: false, module: "issuing" },
+  { to: "/expenses", label: "Expenses", end: false, module: "expenses" },
   { to: "/team", label: "Team", end: false },
   { to: "/billing", label: "Billing", end: false },
   { to: "/settings", label: "Settings", end: false },

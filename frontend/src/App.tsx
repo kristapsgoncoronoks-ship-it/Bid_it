@@ -14,6 +14,8 @@ import Issuer from "./pages/Issuer";
 import Issue from "./pages/Issue";
 import Team from "./pages/Team";
 import Billing from "./pages/Billing";
+import Expenses from "./pages/Expenses";
+import ExpenseDetail from "./pages/ExpenseDetail";
 import Platform from "./pages/Platform";
 import AcceptInvite from "./pages/AcceptInvite";
 
@@ -38,6 +40,8 @@ export default function App() {
         <Route path="/upload" element={<Upload />} />
         <Route path="/issue" element={<Issue />} />
         <Route path="/issuer" element={<Issuer />} />
+        <Route path="/expenses" element={<Expenses />} />
+        <Route path="/expenses/:id" element={<ExpenseDetail />} />
         <Route path="/team" element={<Team />} />
         <Route path="/billing" element={<Billing />} />
         <Route path="/platform" element={<Platform />} />

@@ -35,6 +35,12 @@ MODULES: tuple[Module, ...] = (
         "Issue EN 16931-compliant invoices as a PDF with embedded Factur-X XML.",
         core=False, default=False, requires_issuer=True,
     ),
+    Module(
+        "expenses",
+        "Employee expenses",
+        "Employees submit receipted expense reports; managers approve and reimburse.",
+        core=False, default=False,
+    ),
 )
 MODULES_BY_KEY = {m.key: m for m in MODULES}
 

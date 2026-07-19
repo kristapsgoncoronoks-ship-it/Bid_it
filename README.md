@@ -19,6 +19,7 @@ Built as a minimal but scalable production MVP: **FastAPI + PostgreSQL + React**
 - ✅ **Data validation (opt-in)** — turn on **AI validation** (automated checks: totals, tax, per-line math, duplicates, dates, currency, FX-vs-ECB) and/or **human validation** (a review queue where a person approves/rejects). Both **off by default**, toggled by the user.
 - 🧩 **Modular** — capabilities are activatable modules (core ones always on). Activating **Invoice issuing** prompts for your company registration details.
 - 🧾 **EU invoice issuing** — issue **EN 16931 / Directive 2006/112/EC (Art. 226)**-compliant invoices: sequential numbering, per-rate VAT breakdown, reverse-charge / intra-EU / exempt schemes, and a **polished PDF with embedded Factur-X XML** (a hybrid e-invoice our own reader parses back).
+- 🧳 **Employee expenses** — employees submit receipted expense reports (per-employee ownership within the tenant); managers approve/reject/reimburse. Reclaimable VAT + FX-to-EUR (ECB), receipt attachments, and a PDF export.
 - 🧱 **Scalable foundations** — async SQLAlchemy, stateless API, Alembic migrations, Docker, CI.
 
 ## Quick start (Docker — one command)

@@ -66,6 +66,65 @@ export interface InvitePreview {
   role: "owner" | "member";
 }
 
+export const EXPENSE_CATEGORIES = [
+  "travel", "meals", "accommodation", "transport", "supplies", "software", "other",
+] as const;
+export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
+
+export interface ExpenseItemInput {
+  spend_date: string;
+  category: ExpenseCategory;
+  description: string;
+  merchant?: string | null;
+  amount: string;
+  vat_amount: string;
+  payment_method: "personal" | "company_card";
+}
+
+export interface ExpenseItem {
+  id: string;
+  spend_date: string;
+  category: string;
+  description: string;
+  merchant: string | null;
+  amount: string;
+  vat_amount: string;
+  payment_method: string;
+  has_receipt: boolean;
+}
+
+export interface ExpenseReport {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  title: string;
+  status: "draft" | "submitted" | "approved" | "rejected" | "reimbursed";
+  currency: string;
+  total: string;
+  vat_total: string;
+  total_eur: string | null;
+  submitted_at: string | null;
+  created_at: string;
+}
+
+export interface ExpenseReportDetail extends ExpenseReport {
+  note: string | null;
+  decided_at: string | null;
+  decided_by: string | null;
+  decision_note: string | null;
+  items: ExpenseItem[];
+}
+
+export interface ExpenseSummary {
+  my_draft: number;
+  my_submitted: number;
+  my_reimbursable: string;
+  reclaimable_vat: string;
+  pending_approvals: number;
+  by_category: { category: string; total: string }[];
+  currency: string;
+}
+
 export interface AuthResponse {
   token: { access_token: string; token_type: string };
   user: User;

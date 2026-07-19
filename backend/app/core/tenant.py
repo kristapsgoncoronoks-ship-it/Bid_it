@@ -20,6 +20,7 @@ from contextvars import ContextVar, Token
 from sqlalchemy import event
 from sqlalchemy.orm import Session, with_loader_criteria
 
+from app.models.expense import ExpenseReport
 from app.models.invitation import Invitation
 from app.models.invoice import Invoice
 from app.models.issued_invoice import IssuedInvoice
@@ -28,9 +29,11 @@ from app.models.module import OrgModule
 from app.models.user import User
 from app.models.vendor import Vendor
 
-# Every model that carries an `org_id`. Child tables (LineItem, IssuedInvoiceLine)
-# have no org_id and are reached only via an already-scoped parent.
-TENANT_MODELS = (Vendor, Invoice, User, Invitation, IssuedInvoice, OrgModule, IssuerProfile)
+# Every model that carries an `org_id`. Child tables (LineItem, IssuedInvoiceLine,
+# ExpenseItem) have no org_id and are reached only via an already-scoped parent.
+TENANT_MODELS = (
+    Vendor, Invoice, User, Invitation, IssuedInvoice, OrgModule, IssuerProfile, ExpenseReport,
+)
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.
 _current_org: ContextVar[str | None] = ContextVar("current_org", default=None)
