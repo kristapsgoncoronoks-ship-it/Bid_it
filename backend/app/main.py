@@ -10,6 +10,7 @@ from app import __version__
 from app.api.router import api_router
 from app.core.config import settings
 from app.core.database import engine
+from app.core.tenant import TenantScopeMiddleware
 from app.models import Base
 
 logging.basicConfig(level=logging.INFO)
@@ -57,6 +58,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Outermost: bound the tenant-scope ContextVar to each request.
+app.add_middleware(TenantScopeMiddleware)
 
 
 @app.get("/health", tags=["meta"])

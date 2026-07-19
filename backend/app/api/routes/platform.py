@@ -20,6 +20,10 @@ router = APIRouter(prefix="/platform", tags=["platform"])
 async def require_platform_admin(current: User = Depends(get_current_user)) -> User:
     if not current.is_platform_admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Platform operator access required")
+    # Operator reads across tenants → drop the single-tenant scope for this request.
+    from app.core.tenant import set_current_org
+
+    set_current_org(None)
     return current
 
 

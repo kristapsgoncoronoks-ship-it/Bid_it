@@ -47,7 +47,7 @@ to whom, on what, and when — and what looks wrong?"*
 |---|---|---|
 | **Backend** | FastAPI (async) | Non-blocking I/O; horizontal stateless replicas behind a load balancer. |
 | **DB** | Postgres, async driver (`asyncpg`) | Proven to billions of rows; add read-replicas + partition `invoices`/`line_items` by `org_id`/month later. |
-| **Multi-tenancy** | Row-level `org_id` on every table + enforced in a single query dependency; team invitations, subscription plans + seat limits, plan-gated modules, tenant suspension, and a platform-operator view | Shared-schema is cheapest to run; the same code moves to schema-per-tenant or RLS with no API change. The SaaS layer (plans/seats/team/operator) is the commercialization surface. |
+| **Multi-tenancy** | Row-level `org_id` on every table; **two layers** of isolation — explicit per-route filters *and* an ORM `do_orm_execute` guard that auto-scopes every SELECT to the request's org (`app/core/tenant.py`); plus team invitations, plans + seat limits, plan-gated modules, tenant suspension, and a platform-operator view | Shared-schema is cheapest to run; the guard means a single forgotten filter can't leak across tenants. Same code moves to schema-per-tenant or Postgres RLS with no API change. |
 | **Auth** | Stateless JWT | No session store; any replica validates a token. |
 | **Ingestion** | Synchronous parse for PDF/CSV/JSON (PDF: text layer → Tesseract OCR fallback) | The parser is isolated behind a service interface → move OCR to a queue (Celery/Arq + Redis) + object storage (S3) for originals without touching the API. |
 | **Frontend** | SPA + cached queries (TanStack Query) | Static assets on a CDN; server does data only. |
@@ -76,6 +76,21 @@ to whom, on what, and when — and what looks wrong?"*
 
 All paths produce the same confirmable draft. OCR runs synchronously today; the
 service boundary is the seam to move it onto a queue.
+
+### Tenant isolation (defence in depth)
+Two independent layers, so a single mistake can't cause a cross-tenant leak:
+1. **Explicit** — every query filters `org_id == current.org_id` (the routes).
+2. **Automatic** — `app/core/tenant.py` holds the caller's org in a request-scoped
+   `ContextVar` (set in `get_current_user`, bounded per request by a pure-ASGI
+   middleware) and a `do_orm_execute` hook ANDs `org_id == <org>` onto **every**
+   SELECT of a tenant-scoped model. Even a query that forgets to filter returns
+   only the caller's rows (proved in `tests/test_isolation.py`, incl. a
+   concurrency check). Bypassed (context = None) for bootstrap paths
+   (register/login/accept-invite) and platform-operator routes.
+
+Next hardening layer for production: **Postgres Row-Level Security** (a `USING
+(org_id = current_setting('app.current_org')::uuid)` policy per table, with the
+GUC set per transaction) so isolation is enforced at the database itself.
 
 ### Deliberately deferred (documented, not built)
 Object storage for original files, background workers (async OCR), rate
