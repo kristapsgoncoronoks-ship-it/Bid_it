@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from app.api.deps import CurrentUser, DbSession
 from app.schemas.analytics import (
@@ -13,7 +13,7 @@ from app.schemas.analytics import (
     VendorSpend,
 )
 from app.schemas.benchmark import CombinedBenchmark, SupplierBenchmark
-from app.services import analytics, benchmark
+from app.services import analytics, benchmark, explore
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -71,3 +71,45 @@ async def get_combined_benchmark(
 ):
     """Combined cross-supplier price benchmark per category + savings opportunity."""
     return await benchmark.combined_benchmark(db, current.org_id, start, end)
+
+
+@router.get("/fields")
+async def get_explore_fields(current: CurrentUser):
+    """The dimension + measure catalog for the self-service explore builder."""
+    return explore.catalog()
+
+
+@router.get("/explore")
+async def get_explore(
+    current: CurrentUser,
+    db: DbSession,
+    measure: str = Query(default="net"),
+    dim: list[str] = Query(default_factory=list, description="up to 2 dimensions"),
+    start: date | None = None,
+    end: date | None = None,
+    status_: str | None = Query(default=None, alias="status"),
+    category: str | None = None,
+    currency: str | None = None,
+    country: str | None = None,
+    vendor_id: str | None = None,
+    sort: str = "auto",
+    limit: int = Query(default=100, ge=1, le=1000),
+    format: str = Query(default="json", pattern="^(json|csv)$"),
+):
+    """Self-service pivot: pick a measure + up to two dimensions + filters."""
+    q = explore.ExploreQuery(
+        measure=measure, dimensions=dim, start=start, end=end, status=status_,
+        category=category, currency=currency, country=country, vendor_id=vendor_id,
+        sort=sort, limit=limit,
+    )
+    try:
+        result = await explore.run(db, current.org_id, q)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+
+    if format == "csv":
+        return Response(
+            content=explore.to_csv(result), media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="explore.csv"'},
+        )
+    return result

@@ -5,7 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Numeric, String, Text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -28,6 +28,8 @@ Money = Numeric(14, 2)
 
 class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "invoices"
+    # Composite index for the analytics fact scan (tenant + time window).
+    __table_args__ = (Index("ix_invoices_org_issue", "org_id", "issue_date"),)
 
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
@@ -78,6 +80,7 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class LineItem(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "line_items"
+    __table_args__ = (Index("ix_line_items_invoice_category", "invoice_id", "category"),)
 
     invoice_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("invoices.id", ondelete="CASCADE"), nullable=False, index=True

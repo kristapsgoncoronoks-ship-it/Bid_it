@@ -7,6 +7,7 @@ import Invoices from "./pages/Invoices";
 import InvoiceDetail from "./pages/InvoiceDetail";
 import Upload from "./pages/Upload";
 import Benchmark from "./pages/Benchmark";
+import Explore from "./pages/Explore";
 import Fx from "./pages/Fx";
 import Review from "./pages/Review";
 import Settings from "./pages/Settings";
@@ -32,6 +33,7 @@ export default function App() {
         }
       >
         <Route path="/" element={<Dashboard />} />
+        <Route path="/explore" element={<Explore />} />
         <Route path="/benchmark" element={<Benchmark />} />
         <Route path="/fx" element={<Fx />} />
         <Route path="/invoices" element={<Invoices />} />

@@ -257,6 +257,24 @@ export interface StatusBucket {
   total: string;
 }
 
+export interface ExploreField {
+  key: string;
+  label: string;
+  temporal?: boolean;
+  unit?: "money" | "number" | "count";
+}
+
+export interface ExploreCatalog {
+  dimensions: ExploreField[];
+  measures: ExploreField[];
+}
+
+export interface ExploreResult {
+  measure: { key: string; label: string; unit: "money" | "number" | "count" };
+  dimensions: { key: string; label: string; temporal: boolean }[];
+  rows: Record<string, string>[];
+}
+
 export interface SupplierBenchmark {
   vendor_id: string;
   vendor_name: string;

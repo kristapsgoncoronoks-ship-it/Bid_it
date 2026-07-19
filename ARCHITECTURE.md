@@ -164,6 +164,8 @@ and are automatically scoped to the caller's organization.
 | GET  | `/analytics/top-vendors` | Spend by vendor |
 | GET  | `/analytics/by-category` | Spend by line-item category |
 | GET  | `/analytics/by-status` | Count/amount by invoice status |
+| GET  | `/analytics/fields` | Explore catalog: available dimensions + measures |
+| GET  | `/analytics/explore` | Self-service pivot (measure × ≤2 dims × filters); `?format=csv` |
 | GET  | `/analytics/supplier-benchmark` | Per-supplier scorecards (independent) |
 | GET  | `/analytics/combined-benchmark` | Cross-supplier price benchmark per category + savings |
 | GET  | `/fx/rates` | Cached ECB reference rates (units per EUR) |
@@ -195,9 +197,23 @@ via `/auth/me`). `ProtectedRoute` guards the app shell. Data fetching is
 
 - **Dashboard** — KPI row + spend-over-time line chart + top-vendors bar +
   category pie + status breakdown.
+- **Explore** — self-service BI: field pickers (measure, dimension, break-by,
+  chart type, filters), interactive bar/line/pie/stacked chart + pivot table,
+  CSV export.
 - **Benchmark** — two tabs: *Combined* (savings headline + per-category
   supplier price tables, cheapest flagged) and *Independent* (per-supplier
   scorecards).
+
+### Self-service analytics (Explore)
+`services/explore.py` is a Power BI / Tableau-style pivot engine over a single
+**line-item fact grain** (`line_items ⋈ invoices ⋈ vendors`) so measures stay
+additive across any dimension (grouping invoice totals by a line attribute would
+double-count; grouping line amounts never does; invoice counts use
+COUNT DISTINCT). Dimensions and measures come from whitelisted registries (no SQL
+injection); all grouping/aggregation runs in the database over composite indexes
+(`invoices(org_id, issue_date)`, `line_items(invoice_id, category)`). For very
+large tenants the same engine can read a materialised daily rollup with no API
+change. Results power the interactive builder and a CSV export.
 - **FX** — ECB converter, foreign-invoice-vs-ECB comparison table (markup
   flagged), and the ECB reference-rate grid.
 - **Expenses** (module-gated) — KPI tiles, new-report form, my reports, and a
