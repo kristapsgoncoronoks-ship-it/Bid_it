@@ -35,6 +35,7 @@ def item_from(payload) -> ExpenseItem:
         amount=q(payload.amount),
         vat_amount=q(payload.vat_amount),
         payment_method=payload.payment_method,
+        comment=getattr(payload, "comment", None),
     )
 
 

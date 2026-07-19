@@ -1,6 +1,11 @@
 """SQLAlchemy models. Import all so metadata/Alembic sees them."""
 from app.models.base import Base
-from app.models.expense import ExpenseItem, ExpenseReport
+from app.models.expense import (
+    ExpenseComment,
+    ExpenseItem,
+    ExpenseReport,
+    ExpenseTransaction,
+)
 from app.models.fx import EcbRate
 from app.models.invitation import Invitation
 from app.models.invoice import Invoice, InvoiceStatus, LineItem
@@ -28,4 +33,6 @@ __all__ = [
     "Invitation",
     "ExpenseReport",
     "ExpenseItem",
+    "ExpenseTransaction",
+    "ExpenseComment",
 ]

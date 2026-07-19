@@ -194,7 +194,10 @@ and are automatically scoped to the caller's organization.
 | POST/GET | `/expenses` · GET `/expenses/{id}` | Create / list / view expense reports (own for members, all for managers) |
 | POST | `/expenses/{id}/submit` · `/decision` | Employee submits · manager approve/reject/reimburse |
 | POST/GET | `/expenses/{id}/items/{iid}/receipt` · GET `/expenses/{id}/pdf` | Receipt upload/view · report PDF |
-| POST | `/expenses/import/bank-statement` | Read a bank statement (PDF OCR / CSV) → draft expense items |
+| POST | `/expenses/import/bank-statement` | Read a bank statement (PDF OCR / CSV) → available-expenses inbox |
+| GET/DELETE | `/expenses/transactions` · `/transactions/{id}` | Inbox: list / remove available transactions |
+| POST | `/expenses/{id}/items/from-transaction` | Add an inbox transaction to a draft as an entry |
+| GET/POST | `/expenses/{id}/comments` | Report comment thread (employee ↔ approver) |
 
 Interactive contract: `http://localhost:8000/docs` (OpenAPI).
 

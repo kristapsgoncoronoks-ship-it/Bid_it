@@ -10,6 +10,7 @@ import {
   type ExpenseItemInput,
   type ExpenseReport,
   type ExpenseSummary,
+  type ExpenseTransaction,
   type ModuleInfo,
 } from "../lib/types";
 
@@ -61,6 +62,8 @@ export default function Expenses() {
         {isManager && <KpiCard label="To approve" value={s ? String(s.pending_approvals) : "—"} accent="rose" sub="team, awaiting me" />}
       </div>
 
+      <AvailableExpenses enabled={!!enabled} />
+
       <NewReport />
 
       {isManager && (pending.data?.total ?? 0) > 0 && (
@@ -68,6 +71,107 @@ export default function Expenses() {
       )}
 
       <ReportTable title={`My reports (${mine.data?.total ?? 0})`} rows={mine.data?.items ?? []} />
+    </div>
+  );
+}
+
+function AvailableExpenses({ enabled }: { enabled: boolean }) {
+  const qc = useQueryClient();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [title, setTitle] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const txns = useQuery<ExpenseTransaction[]>({
+    queryKey: ["expenses", "transactions"],
+    queryFn: async () => (await api.get("/expenses/transactions")).data,
+    enabled,
+  });
+
+  const importStmt = useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      return (await api.post("/expenses/import/bank-statement", form)).data as { imported: number; method: string };
+    },
+    onSuccess: (d) => { setMsg(`Imported ${d.imported} transaction(s) (${d.method}).`); setError(null); qc.invalidateQueries({ queryKey: ["expenses", "transactions"] }); },
+    onError: (e) => setError(apiError(e)),
+  });
+  const del = useMutation({
+    mutationFn: async (id: string) => api.delete(`/expenses/transactions/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["expenses", "transactions"] }),
+  });
+  const createFrom = useMutation({
+    mutationFn: async () => (await api.post("/expenses", { title: title || "New report", transaction_ids: [...selected] })).data,
+    onSuccess: () => {
+      setSelected(new Set()); setTitle(""); setMsg("Report created from selected transactions.");
+      qc.invalidateQueries({ queryKey: ["expenses"] });
+    },
+    onError: (e) => setError(apiError(e)),
+  });
+
+  const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const rows = txns.data ?? [];
+  const selectedTotal = rows.filter((t) => selected.has(t.id)).reduce((sum, t) => sum + Number(t.amount), 0);
+
+  return (
+    <div className="card space-y-3">
+      <input ref={fileRef} type="file" accept=".pdf,.csv" className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) importStmt.mutate(f); e.target.value = ""; }} />
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-600">Available expenses{rows.length ? ` (${rows.length})` : ""}</h2>
+          <p className="text-xs text-slate-500">Card / bank transactions to add to a report.</p>
+        </div>
+        <button className="btn-ghost" disabled={importStmt.isPending} onClick={() => fileRef.current?.click()}>
+          {importStmt.isPending ? "Reading…" : "Import bank statement"}
+        </button>
+      </div>
+      {msg && <div className="rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-700">{msg}</div>}
+      {error && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
+
+      {rows.length === 0 ? (
+        <div className="py-4 text-center text-sm text-slate-400">No available transactions. Import a statement to get started.</div>
+      ) : (
+        <>
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-3 py-2 w-8"></th>
+                  <th className="px-3 py-2">Date</th>
+                  <th className="px-3 py-2">Description</th>
+                  <th className="px-3 py-2 text-right">Amount</th>
+                  <th className="px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((t) => (
+                  <tr key={t.id} className="border-t border-slate-100">
+                    <td className="px-3 py-2"><input type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} /></td>
+                    <td className="px-3 py-2 text-slate-500">{shortDate(t.txn_date)}</td>
+                    <td className="px-3 py-2">{t.description}</td>
+                    <td className="px-3 py-2 text-right font-medium">{money(t.amount, t.currency)}</td>
+                    <td className="px-3 py-2 text-right"><button className="text-rose-500 hover:underline" onClick={() => del.mutate(t.id)}>remove</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {selected.size > 0 && (
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex-1 min-w-[200px]">
+                <label className="label">Report title</label>
+                <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. May card expenses" />
+              </div>
+              <button className="btn-primary" disabled={createFrom.isPending} onClick={() => createFrom.mutate()}>
+                Create report from {selected.size} · {money(selectedTotal)}
+              </button>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -113,80 +217,29 @@ function ReportTable({ title, rows, showEmployee }: { title: string; rows: Expen
 
 function NewReport() {
   const qc = useQueryClient();
-  const fileRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
   const [currency, setCurrency] = useState("EUR");
   const [items, setItems] = useState<ExpenseItemInput[]>([emptyItem()]);
   const [error, setError] = useState<string | null>(null);
-  const [warnings, setWarnings] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
 
   const create = useMutation({
     mutationFn: async () => (await api.post("/expenses", { title, currency, items })).data,
     onSuccess: () => {
-      setTitle(""); setItems([emptyItem()]); setError(null); setWarnings([]); setOpen(false);
+      setTitle(""); setItems([emptyItem()]); setError(null); setOpen(false);
       qc.invalidateQueries({ queryKey: ["expenses"] });
     },
     onError: (e) => setError(apiError(e)),
   });
 
-  const importStmt = useMutation({
-    mutationFn: async (file: File) => {
-      const form = new FormData();
-      form.append("file", file);
-      return (await api.post("/expenses/import/bank-statement", form)).data as {
-        suggested_items: ExpenseItemInput[]; warnings: string[]; method: string;
-      };
-    },
-    onSuccess: (d, file) => {
-      setItems(d.suggested_items.length ? d.suggested_items : [emptyItem()]);
-      setWarnings([`Read ${d.suggested_items.length} expense(s) from the statement (${d.method}).`, ...d.warnings]);
-      if (!title) setTitle(file.name.replace(/\.[^.]+$/, ""));
-      setError(null);
-      setOpen(true);
-    },
-    onError: (e) => { setError(apiError(e)); setOpen(true); },
-  });
-
   const setItem = (i: number, patch: Partial<ExpenseItemInput>) => setItems(items.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
   const total = items.reduce((s, it) => s + Number(it.amount || 0), 0);
 
-  const hiddenInput = (
-    <input
-      ref={fileRef}
-      type="file"
-      accept=".pdf,.csv"
-      className="hidden"
-      onChange={(e) => { const f = e.target.files?.[0]; if (f) importStmt.mutate(f); e.target.value = ""; }}
-    />
-  );
-
-  if (!open) {
-    return (
-      <div className="flex flex-wrap gap-2">
-        {hiddenInput}
-        <button className="btn-primary" onClick={() => setOpen(true)}>+ New expense report</button>
-        <button className="btn-ghost" disabled={importStmt.isPending} onClick={() => fileRef.current?.click()}>
-          {importStmt.isPending ? "Reading statement…" : "Import bank statement"}
-        </button>
-      </div>
-    );
-  }
+  if (!open) return <button className="btn-primary" onClick={() => setOpen(true)}>+ New expense report (manual)</button>;
 
   return (
     <div className="card space-y-4">
-      {hiddenInput}
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-600">New expense report</h2>
-        <button className="text-sm text-brand-600 hover:underline" disabled={importStmt.isPending} onClick={() => fileRef.current?.click()}>
-          {importStmt.isPending ? "Reading…" : "Import bank statement (PDF/CSV)"}
-        </button>
-      </div>
-      {warnings.length > 0 && (
-        <ul className="rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-700">
-          {warnings.map((w, i) => <li key={i}>• {w}</li>)}
-        </ul>
-      )}
+      <h2 className="text-sm font-semibold text-slate-600">New expense report</h2>
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex-1 min-w-[200px]">
           <label className="label">Title</label>

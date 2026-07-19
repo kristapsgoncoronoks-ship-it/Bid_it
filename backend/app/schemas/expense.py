@@ -18,6 +18,7 @@ class ExpenseItemIn(BaseModel):
     amount: Decimal = Field(ge=0)
     vat_amount: Decimal = Field(default=Decimal("0"), ge=0)
     payment_method: PaymentMethod = "personal"
+    comment: str | None = Field(default=None, max_length=1000)
 
 
 class ExpenseReportCreate(BaseModel):
@@ -25,6 +26,8 @@ class ExpenseReportCreate(BaseModel):
     currency: str = Field(default="EUR", min_length=3, max_length=3)
     note: str | None = Field(default=None, max_length=1000)
     items: list[ExpenseItemIn] = Field(default_factory=list)
+    # Concur-style: build the report from selected inbox transactions.
+    transaction_ids: list[str] = Field(default_factory=list)
 
 
 class ExpenseReportUpdate(BaseModel):
@@ -49,7 +52,46 @@ class ExpenseItemOut(BaseModel):
     amount: Decimal
     vat_amount: Decimal
     payment_method: str
+    comment: str | None = None
     has_receipt: bool = False
+
+
+class ItemFromTransaction(BaseModel):
+    transaction_id: str
+    category: Category = "other"
+    vat_amount: Decimal = Field(default=Decimal("0"), ge=0)
+
+
+class ExpenseCommentIn(BaseModel):
+    body: str = Field(min_length=1, max_length=2000)
+
+
+class ExpenseCommentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    author_name: str
+    body: str
+    created_at: datetime
+
+
+class ExpenseTransactionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    txn_date: date
+    description: str
+    merchant: str | None
+    amount: Decimal
+    currency: str
+    direction: str
+    source: str
+    status: str
+
+
+class BankImportResult(BaseModel):
+    method: str
+    imported: int
+    transactions: list[ExpenseTransactionOut]
+    warnings: list[str] = []
 
 
 class ExpenseReportOut(BaseModel):

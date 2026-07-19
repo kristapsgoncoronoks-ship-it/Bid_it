@@ -1,20 +1,26 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
-from app.models.expense import ExpenseItem, ExpenseReport
+from app.models.expense import (
+    ExpenseComment,
+    ExpenseItem,
+    ExpenseReport,
+    ExpenseTransaction,
+)
 from app.models.user import User, UserRole
 from app.schemas.expense import (
-    BankStatementDraft,
-    BankTransaction,
+    BankImportResult,
     CategoryTotal,
+    ExpenseCommentIn,
+    ExpenseCommentOut,
     ExpenseDecision,
-    ExpenseItemIn,
     ExpenseItemOut,
     ExpenseReportCreate,
     ExpenseReportDetail,
@@ -22,6 +28,8 @@ from app.schemas.expense import (
     ExpenseReportOut,
     ExpenseReportUpdate,
     ExpenseSummary,
+    ExpenseTransactionOut,
+    ItemFromTransaction,
 )
 from app.services import bank_statement, expenses, fx, modules
 
@@ -45,7 +53,8 @@ def _detail(r: ExpenseReport) -> ExpenseReportDetail:
         ExpenseItemOut(
             id=it.id, spend_date=it.spend_date, category=it.category, description=it.description,
             merchant=it.merchant, amount=it.amount, vat_amount=it.vat_amount,
-            payment_method=it.payment_method, has_receipt=it.receipt_data is not None,
+            payment_method=it.payment_method, comment=it.comment,
+            has_receipt=it.receipt_data is not None,
         )
         for it in r.items
     ]
@@ -75,32 +84,60 @@ def _require_owner_editable(r: ExpenseReport, user: User):
         raise HTTPException(status.HTTP_409_CONFLICT, "Only draft reports can be edited")
 
 
+async def _load_available_txns(db: DbSession, org_id: str, user_id: str, ids: list[str]) -> list[ExpenseTransaction]:
+    if not ids:
+        return []
+    rows = list(await db.scalars(
+        select(ExpenseTransaction).where(
+            ExpenseTransaction.id.in_(ids),
+            ExpenseTransaction.org_id == org_id,
+            ExpenseTransaction.employee_id == user_id,
+            ExpenseTransaction.status == "available",
+        )
+    ))
+    if len(rows) != len(set(ids)):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "One or more transactions were not found or already used")
+    return rows
+
+
+def _item_from_txn(t: ExpenseTransaction, category: str = "other", vat=Decimal("0")) -> ExpenseItem:
+    return ExpenseItem(
+        spend_date=t.txn_date, category=category, description=t.description[:300],
+        merchant=t.merchant, amount=expenses.q(t.amount), vat_amount=expenses.q(vat),
+        payment_method="company_card" if t.source in ("bank_statement", "card") else "personal",
+    )
+
+
 @router.post("", response_model=ExpenseReportDetail, status_code=status.HTTP_201_CREATED)
 async def create_report(body: ExpenseReportCreate, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     items = [expenses.item_from(i) for i in body.items]
+
+    # Concur-style: also build entries from selected inbox transactions.
+    txns = await _load_available_txns(db, current.org_id, current.id, body.transaction_ids)
+    txn_items = [_item_from_txn(t) for t in txns]
+    items += txn_items
+
     total, vat = expenses.compute_totals(items)
     report = ExpenseReport(
-        org_id=current.org_id,
-        employee_id=current.id,
-        employee_name=current.name,
-        title=body.title,
-        currency=body.currency.upper(),
-        note=body.note,
-        total=total,
-        vat_total=vat,
-        items=items,
+        org_id=current.org_id, employee_id=current.id, employee_name=current.name,
+        title=body.title, currency=body.currency.upper(), note=body.note,
+        total=total, vat_total=vat, items=items,
     )
     db.add(report)
+    await db.flush()
+    for t, it in zip(txns, txn_items):
+        t.status = "assigned"
+        t.item_id = it.id
     await db.commit()
     await db.refresh(report, attribute_names=["items"])
     return _detail(report)
 
 
-@router.post("/import/bank-statement", response_model=BankStatementDraft)
+@router.post("/import/bank-statement", response_model=BankImportResult)
 async def import_bank_statement(current: CurrentUser, db: DbSession, file: UploadFile):
-    """Read transactions from a bank statement (PDF via OCR, or CSV) and return a
-    DRAFT of expense items (the debits) to review — nothing is saved."""
+    """Read a bank statement (PDF via OCR, or CSV) and drop the transactions into
+    the employee's 'available expenses' inbox (SAP Concur style)."""
     await _guard(db, current.org_id)
     content = await file.read()
     if len(content) > 15 * 1024 * 1024:
@@ -112,20 +149,53 @@ async def import_bank_statement(current: CurrentUser, db: DbSession, file: Uploa
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
 
-    suggested = [
-        ExpenseItemIn(
-            spend_date=t.date, category="other", description=t.description[:300],
-            merchant=None, amount=t.amount, vat_amount=0, payment_method="personal",
+    created: list[ExpenseTransaction] = []
+    for t in result.transactions:
+        if t.direction != "debit":
+            continue  # only outflows are expensable
+        txn = ExpenseTransaction(
+            org_id=current.org_id, employee_id=current.id, txn_date=t.date,
+            description=t.description[:300], merchant=None, amount=expenses.q(t.amount),
+            currency="EUR", direction="debit", source="bank_statement", status="available",
         )
-        for t in result.transactions if t.direction == "debit"
-    ]
-    return BankStatementDraft(
+        db.add(txn)
+        created.append(txn)
+    await db.commit()
+    for t in created:
+        await db.refresh(t)
+
+    return BankImportResult(
         method=result.method,
-        transactions=[BankTransaction(date=t.date, description=t.description, amount=t.amount,
-                                      direction=t.direction, balance=t.balance) for t in result.transactions],
-        suggested_items=suggested,
-        warnings=result.warnings + ([f"{len(suggested)} debit(s) suggested as expenses; credits excluded."] if suggested else []),
+        imported=len(created),
+        transactions=[ExpenseTransactionOut.model_validate(t) for t in created],
+        warnings=result.warnings + [f"{len(created)} transaction(s) added to your available expenses; credits excluded."],
     )
+
+
+@router.get("/transactions", response_model=list[ExpenseTransactionOut])
+async def list_transactions(current: CurrentUser, db: DbSession, status_: str = Query(default="available", alias="status")):
+    """The employee's 'available expenses' inbox."""
+    await _guard(db, current.org_id)
+    rows = await db.scalars(
+        select(ExpenseTransaction)
+        .where(ExpenseTransaction.employee_id == current.id, ExpenseTransaction.status == status_)
+        .order_by(ExpenseTransaction.txn_date.desc())
+    )
+    return [ExpenseTransactionOut.model_validate(t) for t in rows]
+
+
+@router.delete("/transactions/{txn_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_transaction(txn_id: str, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    t = await db.scalar(
+        select(ExpenseTransaction).where(ExpenseTransaction.id == txn_id, ExpenseTransaction.employee_id == current.id)
+    )
+    if t is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Transaction not found")
+    if t.status != "available":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Transaction is already on a report")
+    await db.delete(t)
+    await db.commit()
 
 
 @router.get("", response_model=ExpenseReportListOut)
@@ -269,6 +339,52 @@ async def delete_report(report_id: str, current: CurrentUser, db: DbSession):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only your own draft reports can be deleted")
     await db.delete(r)
     await db.commit()
+
+
+@router.post("/{report_id}/items/from-transaction", response_model=ExpenseReportDetail)
+async def add_item_from_transaction(report_id: str, body: ItemFromTransaction, current: CurrentUser, db: DbSession):
+    """Add an inbox transaction to a draft report as an expense entry."""
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_owner_editable(r, current)
+    txns = await _load_available_txns(db, current.org_id, current.id, [body.transaction_id])
+    txn = txns[0]
+    item = _item_from_txn(txn, body.category, body.vat_amount)
+    r.items.append(item)
+    r.total, r.vat_total = expenses.compute_totals(r.items)
+    await db.flush()
+    txn.status = "assigned"
+    txn.item_id = item.id
+    await db.commit()
+    await db.refresh(r, attribute_names=["items"])
+    return _detail(r)
+
+
+@router.get("/{report_id}/comments", response_model=list[ExpenseCommentOut])
+async def list_comments(report_id: str, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_view(r, current)
+    rows = await db.scalars(
+        select(ExpenseComment).where(ExpenseComment.report_id == report_id).order_by(ExpenseComment.created_at)
+    )
+    return [ExpenseCommentOut.model_validate(c) for c in rows]
+
+
+@router.post("/{report_id}/comments", response_model=ExpenseCommentOut, status_code=status.HTTP_201_CREATED)
+async def add_comment(report_id: str, body: ExpenseCommentIn, current: CurrentUser, db: DbSession):
+    """Comment on a report — the employee↔approver thread (either side can post)."""
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_view(r, current)
+    c = ExpenseComment(
+        org_id=current.org_id, report_id=report_id,
+        author_id=current.id, author_name=current.name, body=body.body,
+    )
+    db.add(c)
+    await db.commit()
+    await db.refresh(c)
+    return ExpenseCommentOut.model_validate(c)
 
 
 @router.post("/{report_id}/items/{item_id}/receipt", response_model=ExpenseReportDetail)

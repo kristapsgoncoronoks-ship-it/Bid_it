@@ -90,7 +90,27 @@ export interface ExpenseItem {
   amount: string;
   vat_amount: string;
   payment_method: string;
+  comment: string | null;
   has_receipt: boolean;
+}
+
+export interface ExpenseTransaction {
+  id: string;
+  txn_date: string;
+  description: string;
+  merchant: string | null;
+  amount: string;
+  currency: string;
+  direction: string;
+  source: string;
+  status: string;
+}
+
+export interface ExpenseComment {
+  id: string;
+  author_name: string;
+  body: string;
+  created_at: string;
 }
 
 export interface ExpenseReport {

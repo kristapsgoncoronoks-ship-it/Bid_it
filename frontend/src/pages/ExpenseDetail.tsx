@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError, downloadFile } from "../lib/api";
 import { EXPENSE_STATUS_STYLES, money, shortDate } from "../lib/format";
-import type { ExpenseReportDetail } from "../lib/types";
+import type { ExpenseComment, ExpenseReportDetail } from "../lib/types";
 
 export default function ExpenseDetail() {
   const { id } = useParams<{ id: string }>();
@@ -118,7 +118,10 @@ export default function ExpenseDetail() {
               <tr key={it.id} className="border-b border-slate-100 last:border-0">
                 <td className="px-4 py-3 text-slate-500">{shortDate(it.spend_date)}</td>
                 <td className="px-4 py-3"><span className="badge bg-slate-100 text-slate-600">{it.category}</span></td>
-                <td className="px-4 py-3">{it.description}</td>
+                <td className="px-4 py-3">
+                  {it.description}
+                  {it.comment && <div className="text-xs italic text-slate-400">“{it.comment}”</div>}
+                </td>
                 <td className="px-4 py-3 text-slate-500">{it.merchant || "—"}</td>
                 <td className="px-4 py-3 text-right text-slate-500">{money(it.vat_amount, r.currency)}</td>
                 <td className="px-4 py-3 text-right font-medium">{money(it.amount, r.currency)}</td>
@@ -135,6 +138,52 @@ export default function ExpenseDetail() {
             ))}
           </tbody>
         </table>
+      </div>
+
+      <CommentThread reportId={id!} />
+    </div>
+  );
+}
+
+function CommentThread({ reportId }: { reportId: string }) {
+  const qc = useQueryClient();
+  const [body, setBody] = useState("");
+  const comments = useQuery<ExpenseComment[]>({
+    queryKey: ["expense", reportId, "comments"],
+    queryFn: async () => (await api.get(`/expenses/${reportId}/comments`)).data,
+  });
+  const post = useMutation({
+    mutationFn: async () => (await api.post(`/expenses/${reportId}/comments`, { body })).data,
+    onSuccess: () => { setBody(""); qc.invalidateQueries({ queryKey: ["expense", reportId, "comments"] }); },
+    onError: (e) => alert(apiError(e)),
+  });
+
+  return (
+    <div className="card space-y-3">
+      <h2 className="text-sm font-semibold text-slate-600">Comments</h2>
+      <div className="space-y-3">
+        {comments.data?.length === 0 && <p className="text-sm text-slate-400">No comments yet.</p>}
+        {comments.data?.map((c) => (
+          <div key={c.id} className="flex gap-3">
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand-100 text-xs font-semibold text-brand-700">
+              {c.author_name.slice(0, 2).toUpperCase()}
+            </div>
+            <div className="flex-1 rounded-lg bg-slate-50 px-3 py-2">
+              <div className="text-xs text-slate-400">{c.author_name} · {shortDate(c.created_at)}</div>
+              <div className="text-sm text-slate-700 whitespace-pre-wrap">{c.body}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input
+          className="input flex-1"
+          placeholder="Add a comment…"
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && body.trim()) post.mutate(); }}
+        />
+        <button className="btn-primary" disabled={!body.trim() || post.isPending} onClick={() => post.mutate()}>Post</button>
       </div>
     </div>
   );
