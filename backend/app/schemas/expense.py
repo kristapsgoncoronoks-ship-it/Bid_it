@@ -85,6 +85,21 @@ class CategoryTotal(BaseModel):
     total: Decimal
 
 
+class BankTransaction(BaseModel):
+    date: date
+    description: str
+    amount: Decimal
+    direction: Literal["debit", "credit"]
+    balance: Decimal | None = None
+
+
+class BankStatementDraft(BaseModel):
+    method: str                       # text-layer | ocr | csv
+    transactions: list[BankTransaction]
+    suggested_items: list[ExpenseItemIn]   # debits → draft expense items
+    warnings: list[str] = []
+
+
 class ExpenseSummary(BaseModel):
     my_draft: int
     my_submitted: int

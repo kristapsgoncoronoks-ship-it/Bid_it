@@ -10,8 +10,11 @@ from app.api.deps import CurrentUser, DbSession
 from app.models.expense import ExpenseItem, ExpenseReport
 from app.models.user import User, UserRole
 from app.schemas.expense import (
+    BankStatementDraft,
+    BankTransaction,
     CategoryTotal,
     ExpenseDecision,
+    ExpenseItemIn,
     ExpenseItemOut,
     ExpenseReportCreate,
     ExpenseReportDetail,
@@ -20,7 +23,7 @@ from app.schemas.expense import (
     ExpenseReportUpdate,
     ExpenseSummary,
 )
-from app.services import expenses, fx, modules
+from app.services import bank_statement, expenses, fx, modules
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
 
@@ -92,6 +95,37 @@ async def create_report(body: ExpenseReportCreate, current: CurrentUser, db: DbS
     await db.commit()
     await db.refresh(report, attribute_names=["items"])
     return _detail(report)
+
+
+@router.post("/import/bank-statement", response_model=BankStatementDraft)
+async def import_bank_statement(current: CurrentUser, db: DbSession, file: UploadFile):
+    """Read transactions from a bank statement (PDF via OCR, or CSV) and return a
+    DRAFT of expense items (the debits) to review — nothing is saved."""
+    await _guard(db, current.org_id)
+    content = await file.read()
+    if len(content) > 15 * 1024 * 1024:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Statement too large (max 15 MB)")
+    try:
+        result = bank_statement.parse(file.filename or "statement", content)
+    except bank_statement.pdf_ocr.OcrUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"OCR unavailable: {exc}")
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+
+    suggested = [
+        ExpenseItemIn(
+            spend_date=t.date, category="other", description=t.description[:300],
+            merchant=None, amount=t.amount, vat_amount=0, payment_method="personal",
+        )
+        for t in result.transactions if t.direction == "debit"
+    ]
+    return BankStatementDraft(
+        method=result.method,
+        transactions=[BankTransaction(date=t.date, description=t.description, amount=t.amount,
+                                      direction=t.direction, balance=t.balance) for t in result.transactions],
+        suggested_items=suggested,
+        warnings=result.warnings + ([f"{len(suggested)} debit(s) suggested as expenses; credits excluded."] if suggested else []),
+    )
 
 
 @router.get("", response_model=ExpenseReportListOut)

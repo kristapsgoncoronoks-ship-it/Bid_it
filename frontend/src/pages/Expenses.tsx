@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { KpiCard } from "../components/KpiCard";
 import { useAuth } from "../auth/AuthContext";
@@ -113,31 +113,80 @@ function ReportTable({ title, rows, showEmployee }: { title: string; rows: Expen
 
 function NewReport() {
   const qc = useQueryClient();
+  const fileRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
   const [currency, setCurrency] = useState("EUR");
   const [items, setItems] = useState<ExpenseItemInput[]>([emptyItem()]);
   const [error, setError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
 
   const create = useMutation({
     mutationFn: async () => (await api.post("/expenses", { title, currency, items })).data,
     onSuccess: () => {
-      setTitle(""); setItems([emptyItem()]); setError(null); setOpen(false);
+      setTitle(""); setItems([emptyItem()]); setError(null); setWarnings([]); setOpen(false);
       qc.invalidateQueries({ queryKey: ["expenses"] });
     },
     onError: (e) => setError(apiError(e)),
   });
 
+  const importStmt = useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      return (await api.post("/expenses/import/bank-statement", form)).data as {
+        suggested_items: ExpenseItemInput[]; warnings: string[]; method: string;
+      };
+    },
+    onSuccess: (d, file) => {
+      setItems(d.suggested_items.length ? d.suggested_items : [emptyItem()]);
+      setWarnings([`Read ${d.suggested_items.length} expense(s) from the statement (${d.method}).`, ...d.warnings]);
+      if (!title) setTitle(file.name.replace(/\.[^.]+$/, ""));
+      setError(null);
+      setOpen(true);
+    },
+    onError: (e) => { setError(apiError(e)); setOpen(true); },
+  });
+
   const setItem = (i: number, patch: Partial<ExpenseItemInput>) => setItems(items.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
   const total = items.reduce((s, it) => s + Number(it.amount || 0), 0);
 
+  const hiddenInput = (
+    <input
+      ref={fileRef}
+      type="file"
+      accept=".pdf,.csv"
+      className="hidden"
+      onChange={(e) => { const f = e.target.files?.[0]; if (f) importStmt.mutate(f); e.target.value = ""; }}
+    />
+  );
+
   if (!open) {
-    return <button className="btn-primary" onClick={() => setOpen(true)}>+ New expense report</button>;
+    return (
+      <div className="flex flex-wrap gap-2">
+        {hiddenInput}
+        <button className="btn-primary" onClick={() => setOpen(true)}>+ New expense report</button>
+        <button className="btn-ghost" disabled={importStmt.isPending} onClick={() => fileRef.current?.click()}>
+          {importStmt.isPending ? "Reading statement…" : "Import bank statement"}
+        </button>
+      </div>
+    );
   }
 
   return (
     <div className="card space-y-4">
-      <h2 className="text-sm font-semibold text-slate-600">New expense report</h2>
+      {hiddenInput}
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-slate-600">New expense report</h2>
+        <button className="text-sm text-brand-600 hover:underline" disabled={importStmt.isPending} onClick={() => fileRef.current?.click()}>
+          {importStmt.isPending ? "Reading…" : "Import bank statement (PDF/CSV)"}
+        </button>
+      </div>
+      {warnings.length > 0 && (
+        <ul className="rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-700">
+          {warnings.map((w, i) => <li key={i}>• {w}</li>)}
+        </ul>
+      )}
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex-1 min-w-[200px]">
           <label className="label">Title</label>

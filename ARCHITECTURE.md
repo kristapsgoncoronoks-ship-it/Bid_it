@@ -77,6 +77,14 @@ to whom, on what, and when — and what looks wrong?"*
 All paths produce the same confirmable draft. OCR runs synchronously today; the
 service boundary is the seam to move it onto a queue.
 
+**Bank-statement reader** (`services/bank_statement.py`) — a *separate* parser
+for the expenses module, built on the **same** engine (`pdf_ocr` primitives:
+text-layer→OCR, date masking, row reconstruction, locale-aware money). It adds
+the statement-specific step of telling the transaction **amount** from the
+trailing **running-balance** column via a balance-delta check
+(`balance[i]-balance[i-1] ≈ ±amount[i]`, sign → debit/credit). CSV exports parse
+directly. Output is a draft of expense items (the debits) the employee confirms.
+
 ### Tenant isolation (defence in depth)
 Two independent layers, so a single mistake can't cause a cross-tenant leak:
 1. **Explicit** — every query filters `org_id == current.org_id` (the routes).
@@ -186,6 +194,7 @@ and are automatically scoped to the caller's organization.
 | POST/GET | `/expenses` · GET `/expenses/{id}` | Create / list / view expense reports (own for members, all for managers) |
 | POST | `/expenses/{id}/submit` · `/decision` | Employee submits · manager approve/reject/reimburse |
 | POST/GET | `/expenses/{id}/items/{iid}/receipt` · GET `/expenses/{id}/pdf` | Receipt upload/view · report PDF |
+| POST | `/expenses/import/bank-statement` | Read a bank statement (PDF OCR / CSV) → draft expense items |
 
 Interactive contract: `http://localhost:8000/docs` (OpenAPI).
 
