@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     inbound_email_domain: str = Field(default="in.invoiceiq.app")
     inbound_email_secret: str | None = Field(default=None)
 
+    # --- TLS / proxy hardening (Cloudflare + nginx origin) ---
+    # Emit HSTS on HTTPS responses. Enable in production once TLS is live and the
+    # domain always serves HTTPS (turning it on prematurely can lock out http dev).
+    hsts_enabled: bool = Field(default=False)
+    hsts_max_age: int = Field(default=63072000)  # 2 years
+
     # --- File security (uploads & email attachments) ---
     max_upload_mb: int = Field(default=15)
     # Optional ClamAV daemon for malware scanning. When enabled, a scan failure

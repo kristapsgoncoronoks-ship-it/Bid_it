@@ -10,6 +10,7 @@ from app import __version__
 from app.api.router import api_router
 from app.core.config import settings
 from app.core.database import engine
+from app.core.security_headers import SecurityHeadersMiddleware
 from app.core.tenant import TenantScopeMiddleware
 from app.models import Base
 
@@ -60,6 +61,8 @@ app.add_middleware(
 )
 # Outermost: bound the tenant-scope ContextVar to each request.
 app.add_middleware(TenantScopeMiddleware)
+# Security response headers (HSTS on HTTPS, nosniff, frame-deny, referrer policy).
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 @app.get("/health", tags=["meta"])

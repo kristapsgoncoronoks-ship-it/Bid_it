@@ -83,6 +83,15 @@ Backend reads env vars (see `backend/.env.example`): `DATABASE_URL`,
 `SECRET_KEY` (**set in production**), `ACCESS_TOKEN_EXPIRE_MINUTES`,
 `CORS_ORIGINS`. Frontend reads `VITE_API_BASE_URL` (empty = same origin).
 
+## TLS / SSL + Cloudflare
+
+Production runs behind Cloudflare with the nginx container as the TLS origin —
+Cloudflare Origin Certificate (SSL mode *Full (Strict)*), real-visitor-IP
+restoration from `CF-Connecting-IP`, HSTS + security headers, and the backend
+made proxy-aware. One command with the prod override
+(`docker compose -f docker-compose.yml -f docker-compose.prod.yml up`). Full
+walkthrough: **[docs/DEPLOY-TLS.md](./docs/DEPLOY-TLS.md)**.
+
 ## API
 
 Interactive OpenAPI docs at `/docs`. Endpoint reference in
