@@ -2,17 +2,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { KpiCard } from "../components/KpiCard";
+import { ModuleInactive } from "../components/ModuleGate";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
 import { EXPENSE_STATUS_STYLES, money, shortDate } from "../lib/format";
 import { isAdminOrAbove } from "../lib/roles";
+import { useModules } from "../lib/useModules";
 import {
   EXPENSE_CATEGORIES,
   type ExpenseItemInput,
   type ExpenseReport,
   type ExpenseSummary,
   type ExpenseTransaction,
-  type ModuleInfo,
 } from "../lib/types";
 
 const emptyItem = (): ExpenseItemInput => ({
@@ -27,25 +28,22 @@ const emptyItem = (): ExpenseItemInput => ({
 export default function Expenses() {
   const { user } = useAuth();
   const isManager = isAdminOrAbove(user);
-  const modules = useQuery<ModuleInfo[]>({ queryKey: ["modules"], queryFn: async () => (await api.get("/modules")).data });
-  const enabled = modules.data?.find((m) => m.key === "expenses")?.enabled;
+  const modules = useModules();
+  const enabled = modules.isEnabled("expenses");
 
-  const summary = useQuery<ExpenseSummary>({ queryKey: ["expenses", "summary"], queryFn: async () => (await api.get("/expenses/summary")).data, enabled: !!enabled });
-  const mine = useQuery<{ items: ExpenseReport[]; total: number }>({ queryKey: ["expenses", "mine"], queryFn: async () => (await api.get("/expenses?mine=true")).data, enabled: !!enabled });
+  const summary = useQuery<ExpenseSummary>({ queryKey: ["expenses", "summary"], queryFn: async () => (await api.get("/expenses/summary")).data, enabled });
+  const mine = useQuery<{ items: ExpenseReport[]; total: number }>({ queryKey: ["expenses", "mine"], queryFn: async () => (await api.get("/expenses?mine=true")).data, enabled });
   const pending = useQuery<{ items: ExpenseReport[]; total: number }>({
     queryKey: ["expenses", "pending"],
     queryFn: async () => (await api.get("/expenses?status=submitted")).data,
-    enabled: !!enabled && isManager,
+    enabled: enabled && isManager,
   });
 
   if (modules.data && !enabled) {
     return (
       <div className="space-y-4">
         <h1 className="text-2xl font-semibold tracking-tight">Expenses</h1>
-        <div className="card text-sm text-slate-600">
-          The employee expenses module isn't active. Activate it in{" "}
-          <Link to="/settings" className="font-medium underline">Settings → Modules</Link>.
-        </div>
+        <ModuleInactive name="employee expenses" />
       </div>
     );
   }

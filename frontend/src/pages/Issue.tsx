@@ -3,7 +3,8 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, apiError, downloadFile } from "../lib/api";
 import { money, shortDate } from "../lib/format";
-import type { IssuedInvoice, IssuedLineInput, IssuerProfile, ModuleInfo, VatScheme } from "../lib/types";
+import { useModules } from "../lib/useModules";
+import type { IssuedInvoice, IssuedLineInput, IssuerProfile, VatScheme } from "../lib/types";
 
 const SCHEMES: { value: VatScheme; label: string }[] = [
   { value: "standard", label: "Standard VAT" },
@@ -16,15 +17,14 @@ const emptyLine = (): IssuedLineInput => ({ description: "", quantity: "1", unit
 
 export default function Issue() {
   const qc = useQueryClient();
-  const modules = useQuery<ModuleInfo[]>({ queryKey: ["modules"], queryFn: async () => (await api.get("/modules")).data });
+  const modules = useModules();
   const issuer = useQuery<IssuerProfile>({ queryKey: ["issuer"], queryFn: async () => (await api.get("/issuer")).data });
   const list = useQuery<{ items: IssuedInvoice[]; total: number }>({
     queryKey: ["issued"],
     queryFn: async () => (await api.get("/issued")).data,
   });
 
-  const issuing = modules.data?.find((m) => m.key === "issuing");
-  const enabled = !!issuing?.enabled;
+  const enabled = modules.isEnabled("issuing");
   const ready = !!issuer.data?.is_complete;
 
   if (modules.data && !enabled) {

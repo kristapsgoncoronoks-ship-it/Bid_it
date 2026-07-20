@@ -4,7 +4,8 @@ import { useAuth } from "../auth/AuthContext";
 import { SettingRow } from "../components/SettingRow";
 import { api, apiError } from "../lib/api";
 import { isAdminOrAbove } from "../lib/roles";
-import type { ModuleInfo, ValidationSettings } from "../lib/types";
+import { useModules } from "../lib/useModules";
+import type { ValidationSettings } from "../lib/types";
 
 export default function Settings() {
   const { user } = useAuth();
@@ -15,10 +16,7 @@ export default function Settings() {
     queryKey: ["settings", "validation"],
     queryFn: async () => (await api.get("/settings/validation")).data,
   });
-  const modules = useQuery<ModuleInfo[]>({
-    queryKey: ["modules"],
-    queryFn: async () => (await api.get("/modules")).data,
-  });
+  const modules = useModules();
 
   const update = useMutation({
     mutationFn: async (patch: Partial<ValidationSettings>) =>
