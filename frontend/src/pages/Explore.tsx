@@ -5,10 +5,9 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { api, downloadFile } from "../lib/api";
-import { compactMoney, money } from "../lib/format";
+import { CHART_PALETTE as PALETTE, compactMoney, money } from "../lib/format";
 import type { ExploreCatalog, ExploreResult } from "../lib/types";
 
-const PALETTE = ["#3b6ef2", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#64748b", "#14b8a6", "#f97316"];
 type ChartType = "bar" | "line" | "pie" | "stacked" | "table";
 
 export default function Explore() {

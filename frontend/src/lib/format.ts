@@ -77,6 +77,21 @@ export const METHOD_STYLES: Record<string, string> = {
   json: "bg-slate-100 text-slate-600",
 };
 
+// Categorical chart palette (was duplicated in Charts, Dashboard, Explore).
+export const CHART_PALETTE = [
+  "#3b6ef2", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6",
+  "#06b6d4", "#ec4899", "#64748b", "#14b8a6", "#f97316",
+];
+
+// Email-intake inbound review statuses.
+export const INBOUND_STATUS_STYLES: Record<string, string> = {
+  pending: "bg-amber-100 text-amber-700",
+  confirmed: "bg-emerald-100 text-emerald-700",
+  failed: "bg-rose-100 text-rose-700",
+  rejected: "bg-rose-100 text-rose-700",
+  discarded: "bg-slate-100 text-slate-500",
+};
+
 export const SEVERITY_STYLES: Record<string, string> = {
   error: "bg-rose-100 text-rose-700",
   warning: "bg-amber-100 text-amber-700",

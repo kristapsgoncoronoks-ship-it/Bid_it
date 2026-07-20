@@ -12,10 +12,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { compactMoney, money, monthLabel } from "../lib/format";
+import { CHART_PALETTE as PALETTE, compactMoney, money, monthLabel } from "../lib/format";
 import type { BudgetTrendPoint, CategorySpend, TimeBucket, VendorSpend } from "../lib/types";
-
-const PALETTE = ["#3b6ef2", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#64748b"];
 
 export function SpendChart({ data }: { data: TimeBucket[] }) {
   const rows = data.map((d) => ({ ...d, label: monthLabel(d.period), value: Number(d.total) }));

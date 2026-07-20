@@ -5,17 +5,9 @@ import { useAuth } from "../auth/AuthContext";
 import { Field } from "../components/Field";
 import { useToast } from "../components/Toast";
 import { api, apiError, downloadFile } from "../lib/api";
-import { METHOD_STYLES, methodLabel, money, shortDate } from "../lib/format";
+import { INBOUND_STATUS_STYLES as STATUS_STYLES, METHOD_STYLES, methodLabel, money, shortDate } from "../lib/format";
 import { isAdminOrAbove } from "../lib/roles";
 import type { EmailSettings, InboundInvoiceDetail, InboundList } from "../lib/types";
-
-const STATUS_STYLES: Record<string, string> = {
-  pending: "bg-amber-100 text-amber-700",
-  confirmed: "bg-emerald-100 text-emerald-700",
-  failed: "bg-rose-100 text-rose-700",
-  rejected: "bg-rose-100 text-rose-700",
-  discarded: "bg-slate-100 text-slate-500",
-};
 
 export default function EmailIntake() {
   const { user } = useAuth();

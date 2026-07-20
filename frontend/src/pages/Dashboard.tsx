@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CategoryPie, SpendChart, VendorBar } from "../components/Charts";
 import { KpiCard } from "../components/KpiCard";
 import { api } from "../lib/api";
-import { money, STATUS_STYLES } from "../lib/format";
+import { CHART_PALETTE as PALETTE, money, STATUS_STYLES } from "../lib/format";
 import type {
   CategorySpend,
   StatusBucket,
@@ -18,7 +18,6 @@ function useAnalytics<T>(path: string, key: string) {
   });
 }
 
-const PALETTE = ["#3b6ef2", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#64748b"];
 
 export default function Dashboard() {
   const summary = useAnalytics<Summary>("summary", "summary");
