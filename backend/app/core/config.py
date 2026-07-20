@@ -42,6 +42,21 @@ class Settings(BaseSettings):
     inbound_email_domain: str = Field(default="in.invoiceiq.app")
     inbound_email_secret: str | None = Field(default=None)
 
+    # --- Outbound email (invoice delivery + payment reminders) ---
+    # When smtp_host is set, messages are RELAYED via SMTP; otherwise every send
+    # is still RECORDED to the outbox (demo/no-relay) and never fails a request.
+    smtp_host: str | None = Field(default=None)
+    smtp_port: int = Field(default=587)
+    smtp_user: str | None = Field(default=None)
+    smtp_password: str | None = Field(default=None)
+    smtp_starttls: bool = Field(default=True)
+    # Default From address; falls back to the issuer's billing email when unset.
+    smtp_from: str = Field(default="billing@invoiceiq.app")
+
+    @property
+    def smtp_enabled(self) -> bool:
+        return bool(self.smtp_host)
+
     # --- TLS / proxy hardening (Cloudflare + nginx origin) ---
     # Emit HSTS on HTTPS responses. Enable in production once TLS is live and the
     # domain always serves HTTPS (turning it on prematurely can lock out http dev).

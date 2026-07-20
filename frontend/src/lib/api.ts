@@ -43,6 +43,16 @@ export async function downloadFile(path: string, filename: string): Promise<void
   URL.revokeObjectURL(url);
 }
 
+// Open an authenticated file (e.g. a PDF) in a new browser tab. A raw <a href>
+// can't carry the JWT header, so fetch the blob via axios and open an object URL.
+export async function openFile(path: string): Promise<void> {
+  const res = await api.get(path, { responseType: "blob" });
+  const url = URL.createObjectURL(res.data as Blob);
+  window.open(url, "_blank", "noopener");
+  // Revoke a little later so the new tab has time to load it.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 export function apiError(e: unknown): string {
   if (axios.isAxiosError(e)) {
     const detail = e.response?.data?.detail;

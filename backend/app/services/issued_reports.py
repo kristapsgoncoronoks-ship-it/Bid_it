@@ -140,6 +140,7 @@ class ReceivablesReport:
     aging: list[AgingBucket]
     total_outstanding: Decimal
     overdue_outstanding: Decimal
+    penalty_accrued: Decimal        # advisory late-payment interest on overdue
     avg_days_to_pay: float | None   # DSO proxy over settled invoices
 
 
@@ -190,8 +191,9 @@ async def receivables(db, org_id, currency, start, end, today: date | None = Non
 
     total_out = _sum(st.outstanding_of(inv) for inv in rows)
     overdue_out = money.q2(sb[st.OVERDUE]["outstanding"])
+    penalty = _sum(st.penalty_of(inv, today) for inv in rows)
     avg = round(sum(days_to_pay) / len(days_to_pay), 1) if days_to_pay else None
-    return ReceivablesReport(cur, available, statuses, aging_out, total_out, overdue_out, avg)
+    return ReceivablesReport(cur, available, statuses, aging_out, total_out, overdue_out, penalty, avg)
 
 
 # --- 3. Partners / turnover by partner ------------------------------------------

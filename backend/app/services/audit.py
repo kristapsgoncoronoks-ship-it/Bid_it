@@ -33,6 +33,8 @@ class A:
     INVOICE_DELETE = "invoice.delete"
     INVOICE_VALIDATE = "invoice.validate"
     ISSUED_PAYMENT = "issued.payment"
+    ISSUED_SENT = "issued.sent"
+    ISSUED_REMINDER = "issued.reminder"
     DOC_DOWNLOAD = "document.download"
     INBOUND_CONFIRM = "inbound.confirm"
     MODULE_TOGGLE = "module.toggle"
@@ -85,6 +87,10 @@ async def record(
             meta=meta_json, at_ms=at_ms, prev_hash=prev_hash, hash=h,
         )
         db.add(event)
+        # Flush so a SECOND record() in the same transaction (e.g. a bulk action)
+        # sees this event when it computes the next seq — otherwise both would
+        # claim the same seq and collide on (org_id, seq).
+        await db.flush()
         return event
     except Exception as exc:  # never break the operation being audited
         log.warning("audit.record failed for %s: %s", action, exc)

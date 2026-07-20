@@ -1,10 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { api, apiError, downloadFile } from "../lib/api";
+import { api, apiError, downloadFile, openFile } from "../lib/api";
 import { ISSUED_STATUS_LABELS, ISSUED_STATUS_STYLES, money, shortDate } from "../lib/format";
 import { useModules } from "../lib/useModules";
-import type { IssuedInvoice, IssuedLineInput, IssuerProfile, Paginated, VatScheme } from "../lib/types";
+import type {
+  BulkReminderResult, IssuedInvoice, IssuedLineInput, IssuerProfile,
+  Paginated, SendResult, VatScheme,
+} from "../lib/types";
 
 const SCHEMES: { value: VatScheme; label: string }[] = [
   { value: "standard", label: "Standard VAT" },
@@ -57,7 +60,14 @@ export default function Issue() {
         </div>
       </div>
 
-      <NewInvoice onCreated={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
+      <div className="flex flex-wrap items-center gap-3">
+        <BulkActions />
+      </div>
+
+      <NewInvoice
+        onCreated={() => qc.invalidateQueries({ queryKey: ["issued"] })}
+        defaultPenalty={issuer.data?.default_penalty_rate ?? null}
+      />
 
       <div>
         <h2 className="mb-2 text-sm font-semibold text-slate-600">Issued ({list.data?.total ?? 0})</h2>
@@ -72,21 +82,31 @@ export default function Issue() {
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3 text-right">Total</th>
                 <th className="px-4 py-3 text-right">Payment</th>
-                <th className="px-4 py-3 text-right">Download</th>
+                <th className="px-4 py-3 text-right">Send</th>
+                <th className="px-4 py-3 text-right">PDF / XML</th>
               </tr>
             </thead>
             <tbody>
               {list.data?.items.map((inv) => (
                 <tr key={inv.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                   <td className="px-4 py-3 font-medium">{inv.number}</td>
-                  <td className="px-4 py-3">{inv.buyer_name}</td>
+                  <td className="px-4 py-3">
+                    {inv.buyer_name}
+                    {inv.buyer_email && <div className="text-xs text-slate-400">{inv.buyer_email}</div>}
+                  </td>
                   <td className="px-4 py-3 text-slate-500">{shortDate(inv.issue_date)}</td>
                   <td className="px-4 py-3 text-slate-500">{shortDate(inv.due_date)}</td>
                   <td className="px-4 py-3">
                     <span className={`badge ${ISSUED_STATUS_STYLES[inv.status] ?? "bg-slate-100 text-slate-600"}`}>
                       {ISSUED_STATUS_LABELS[inv.status] ?? inv.status}
                     </span>
-                    {Number(inv.outstanding) > 0 && Number(inv.amount_paid) > 0 && (
+                    {inv.status === "overdue" && (
+                      <div className="mt-0.5 text-xs text-rose-500">
+                        {inv.days_overdue}d overdue
+                        {Number(inv.penalty_accrued) > 0 && <> · +{money(inv.penalty_accrued, inv.currency)} interest</>}
+                      </div>
+                    )}
+                    {inv.status !== "overdue" && Number(inv.outstanding) > 0 && Number(inv.amount_paid) > 0 && (
                       <div className="mt-0.5 text-xs text-slate-400">{money(inv.outstanding, inv.currency)} left</div>
                     )}
                   </td>
@@ -95,10 +115,17 @@ export default function Issue() {
                     <PaymentAction inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
                   </td>
                   <td className="px-4 py-3 text-right">
+                    <SendActions inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
+                  </td>
+                  <td className="px-4 py-3 text-right whitespace-nowrap">
+                    <button className="text-brand-600 hover:underline" onClick={() => openFile(`/issued/${inv.id}/pdf?inline=1`)}>
+                      View
+                    </button>
+                    <span className="mx-1.5 text-slate-300">·</span>
                     <button className="text-brand-600 hover:underline" onClick={() => downloadFile(`/issued/${inv.id}/pdf`, `${inv.number}.pdf`)}>
                       PDF
                     </button>
-                    <span className="mx-2 text-slate-300">·</span>
+                    <span className="mx-1.5 text-slate-300">·</span>
                     <button className="text-brand-600 hover:underline" onClick={() => downloadFile(`/issued/${inv.id}/xml`, `${inv.number}.xml`)}>
                       XML
                     </button>
@@ -107,13 +134,107 @@ export default function Issue() {
               ))}
               {list.data && list.data.items.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-400">No invoices issued yet.</td>
+                  <td colSpan={9} className="px-4 py-8 text-center text-slate-400">No invoices issued yet.</td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Bulk collections: download every invoice PDF in a period, and send reminders
+// to all overdue invoices that have a customer email.
+function BulkActions() {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const zip = useMutation({
+    mutationFn: async () => {
+      const q = new URLSearchParams();
+      if (from) q.set("from", from);
+      if (to) q.set("to", to);
+      await downloadFile(`/issued/export.zip?${q.toString()}`, `invoices_${from || "all"}_${to || "all"}.zip`);
+    },
+    onError: (e) => setMsg(apiError(e)),
+  });
+
+  const remind = useMutation({
+    mutationFn: async () => (await api.post("/issued/reminders/run")).data as BulkReminderResult,
+    onSuccess: (r) => setMsg(
+      `Sent ${r.sent} reminder${r.sent === 1 ? "" : "s"}` +
+      (r.skipped_no_email ? ` · ${r.skipped_no_email} skipped (no email)` : "")
+    ),
+    onError: (e) => setMsg(apiError(e)),
+  });
+
+  return (
+    <div className="card flex w-full flex-wrap items-end gap-3">
+      <div>
+        <label className="label">Period from</label>
+        <input type="date" className="input" value={from} onChange={(e) => setFrom(e.target.value)} />
+      </div>
+      <div>
+        <label className="label">to</label>
+        <input type="date" className="input" value={to} onChange={(e) => setTo(e.target.value)} />
+      </div>
+      <button className="btn-ghost" disabled={zip.isPending} onClick={() => { setMsg(null); zip.mutate(); }}>
+        {zip.isPending ? "Preparing…" : "Download PDFs (ZIP)"}
+      </button>
+      <button className="btn-ghost" disabled={remind.isPending} onClick={() => { setMsg(null); remind.mutate(); }}>
+        {remind.isPending ? "Sending…" : "Remind all overdue"}
+      </button>
+      {msg && <span className="text-sm text-slate-500">{msg}</span>}
+    </div>
+  );
+}
+
+// Per-invoice delivery: email the invoice PDF, or send a payment reminder.
+function SendActions({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void }) {
+  const [note, setNote] = useState<string | null>(null);
+
+  const email = useMutation({
+    mutationFn: async () => (await api.post(`/issued/${inv.id}/send`, {})).data as SendResult,
+    onSuccess: (r) => { setNote(r.delivered ? "Emailed" : "Queued"); onDone(); },
+    onError: (e) => setNote(apiError(e)),
+  });
+  const remind = useMutation({
+    mutationFn: async () => (await api.post(`/issued/${inv.id}/reminder`, {})).data as SendResult,
+    onSuccess: (r) => { setNote(r.delivered ? "Reminded" : "Queued"); onDone(); },
+    onError: (e) => setNote(apiError(e)),
+  });
+
+  const noEmail = !inv.buyer_email;
+  const paid = inv.status === "paid";
+
+  return (
+    <div className="flex flex-col items-end gap-0.5">
+      <div className="flex items-center gap-2">
+        <button
+          className="text-brand-600 hover:underline disabled:text-slate-300 disabled:no-underline"
+          disabled={email.isPending || noEmail}
+          title={noEmail ? "Add a customer email first" : "Email the invoice PDF"}
+          onClick={() => email.mutate()}
+        >
+          Email
+        </button>
+        <span className="text-slate-300">·</span>
+        <button
+          className="text-amber-600 hover:underline disabled:text-slate-300 disabled:no-underline"
+          disabled={remind.isPending || noEmail || paid}
+          title={paid ? "Already paid" : noEmail ? "Add a customer email first" : "Send a payment reminder"}
+          onClick={() => remind.mutate()}
+        >
+          Remind
+        </button>
+      </div>
+      {inv.reminder_count > 0 && (
+        <span className="text-xs text-slate-400">{inv.reminder_count} reminder{inv.reminder_count === 1 ? "" : "s"} sent</span>
+      )}
+      {note && <span className="text-xs text-emerald-600">{note}</span>}
     </div>
   );
 }
@@ -127,20 +248,30 @@ function Gate({ children }: { children: React.ReactNode }) {
   );
 }
 
-function NewInvoice({ onCreated }: { onCreated: () => void }) {
-  const [buyer, setBuyer] = useState({ buyer_name: "", buyer_vat_number: "", buyer_address_line1: "", buyer_postal_code: "", buyer_city: "", buyer_country: "" });
+const emptyBuyer = { buyer_name: "", buyer_email: "", buyer_vat_number: "", buyer_address_line1: "", buyer_postal_code: "", buyer_city: "", buyer_country: "" };
+
+function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defaultPenalty: string | null }) {
+  const [buyer, setBuyer] = useState({ ...emptyBuyer });
   const [scheme, setScheme] = useState<VatScheme>("standard");
+  const [penalty, setPenalty] = useState("");
   const [lines, setLines] = useState<IssuedLineInput[]>([emptyLine()]);
   const [error, setError] = useState<string | null>(null);
 
   const create = useMutation({
     mutationFn: async () => {
-      const payload = { ...buyer, vat_scheme: scheme, lines };
+      const payload: Record<string, unknown> = {
+        ...buyer,
+        buyer_email: buyer.buyer_email || null,
+        vat_scheme: scheme,
+        lines,
+      };
+      if (penalty.trim() !== "") payload.penalty_rate = penalty;
       return (await api.post("/issued", payload)).data;
     },
     onSuccess: () => {
-      setBuyer({ buyer_name: "", buyer_vat_number: "", buyer_address_line1: "", buyer_postal_code: "", buyer_city: "", buyer_country: "" });
+      setBuyer({ ...emptyBuyer });
       setLines([emptyLine()]);
+      setPenalty("");
       setError(null);
       onCreated();
     },
@@ -164,6 +295,7 @@ function NewInvoice({ onCreated }: { onCreated: () => void }) {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Field label="Customer name" v={buyer.buyer_name} on={(v) => setBuyer({ ...buyer, buyer_name: v })} span2 />
         <Field label="Customer VAT no." v={buyer.buyer_vat_number} on={(v) => setBuyer({ ...buyer, buyer_vat_number: v })} />
+        <Field label="Customer email" v={buyer.buyer_email} on={(v) => setBuyer({ ...buyer, buyer_email: v })} span2 />
         <Field label="Address" v={buyer.buyer_address_line1} on={(v) => setBuyer({ ...buyer, buyer_address_line1: v })} span2 />
         <Field label="Postcode" v={buyer.buyer_postal_code} on={(v) => setBuyer({ ...buyer, buyer_postal_code: v })} />
         <Field label="City" v={buyer.buyer_city} on={(v) => setBuyer({ ...buyer, buyer_city: v })} />
@@ -173,6 +305,14 @@ function NewInvoice({ onCreated }: { onCreated: () => void }) {
           <select className="input" value={scheme} onChange={(e) => setScheme(e.target.value as VatScheme)}>
             {SCHEMES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
+        </div>
+        <div>
+          <label className="label">Late-payment interest (% p.a.)</label>
+          <input
+            className="input" inputMode="decimal" value={penalty}
+            placeholder={defaultPenalty ? `default ${Number(defaultPenalty)}%` : "none"}
+            onChange={(e) => setPenalty(e.target.value)}
+          />
         </div>
       </div>
 

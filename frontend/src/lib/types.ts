@@ -554,6 +554,7 @@ export interface IssuerProfile {
   invoice_prefix: string;
   next_number: number;
   payment_terms_days: number;
+  default_penalty_rate: string | null;
   notes: string | null;
   is_complete: boolean;
   missing_fields: string[];
@@ -592,10 +593,38 @@ export interface IssuedInvoice {
   subtotal: string;
   tax_total: string;
   total: string;
+  buyer_email: string | null;
   amount_paid: string;
   paid_date: string | null;
   status: IssuedStatus;
   outstanding: string;
+  penalty_rate: string | null;
+  penalty_accrued: string;
+  days_overdue: number;
+  reminder_count: number;
+  last_reminder_at: string | null;
+}
+
+export interface EmailMessage {
+  id: string;
+  invoice_id: string | null;
+  kind: "invoice" | "reminder";
+  to_email: string;
+  subject: string;
+  status: "recorded" | "sent" | "failed";
+  error: string | null;
+  created_at: string;
+}
+
+export interface SendResult {
+  message: EmailMessage;
+  delivered: boolean;
+}
+
+export interface BulkReminderResult {
+  sent: number;
+  skipped_no_email: number;
+  messages: EmailMessage[];
 }
 
 // --- Issuing reports ---
@@ -618,6 +647,7 @@ export interface IssuedReceivablesReport {
   aging: { label: string; count: number; outstanding: string }[];
   total_outstanding: string;
   overdue_outstanding: string;
+  penalty_accrued: string;
   avg_days_to_pay: number | null;
 }
 

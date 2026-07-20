@@ -177,9 +177,10 @@ function ReceivablesTab({ params }: { params: Record<string, string> }) {
   };
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi label="Total outstanding" value={money(d.total_outstanding, d.currency)} />
         <Kpi label="Overdue" value={money(d.overdue_outstanding, d.currency)} sub="past due date" />
+        <Kpi label="Late interest accrued" value={money(d.penalty_accrued, d.currency)} sub="on marked invoices" />
         <Kpi label="Avg days to pay" value={d.avg_days_to_pay == null ? "—" : `${d.avg_days_to_pay} days`} sub="settled invoices" />
       </div>
 

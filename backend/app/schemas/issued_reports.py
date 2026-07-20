@@ -46,6 +46,7 @@ class ReceivablesReportOut(BaseModel):
     aging: list[AgingBucketOut]
     total_outstanding: Decimal
     overdue_outstanding: Decimal
+    penalty_accrued: Decimal
     avg_days_to_pay: float | None
 
 

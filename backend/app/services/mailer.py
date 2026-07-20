@@ -1,0 +1,129 @@
+"""Outbound email — invoice delivery and payment reminders.
+
+Every send is RECORDED to the `email_messages` outbox first, so there is an
+auditable sent-mail history whether or not an SMTP relay is configured. When
+`settings.smtp_host` is set the message is also delivered over SMTP (in a
+threadpool, off the event loop); otherwise it stays 'recorded'. A delivery
+failure is captured on the row (status='failed') and NEVER raised — sending an
+invoice must not 500 the request. No secrets are stored; only the text body.
+"""
+from __future__ import annotations
+
+import logging
+import smtplib
+from datetime import datetime, timezone
+from email.message import EmailMessage as MimeEmail
+
+from fastapi.concurrency import run_in_threadpool
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
+from app.models.email_message import EmailMessage
+
+log = logging.getLogger("invoiceiq.mailer")
+
+
+def _smtp_send(from_email: str, to_email: str, subject: str, body: str,
+               attachment: tuple[str, bytes] | None) -> None:
+    msg = MimeEmail()
+    msg["From"] = from_email
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg.set_content(body)
+    if attachment is not None:
+        name, data = attachment
+        msg.add_attachment(data, maintype="application", subtype="pdf", filename=name)
+
+    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as s:
+        if settings.smtp_starttls:
+            s.starttls()
+        if settings.smtp_user:
+            s.login(settings.smtp_user, settings.smtp_password or "")
+        s.send_message(msg)
+
+
+async def send(
+    db: AsyncSession,
+    org_id: str,
+    *,
+    kind: str,
+    to_email: str,
+    subject: str,
+    body: str,
+    from_email: str | None = None,
+    invoice_id: str | None = None,
+    attachment: tuple[str, bytes] | None = None,
+) -> EmailMessage:
+    """Record (and, if SMTP is configured, deliver) one message. Never raises."""
+    row = EmailMessage(
+        org_id=org_id, invoice_id=invoice_id, kind=kind,
+        to_email=to_email, subject=subject, body=body, status="recorded",
+    )
+    sender = from_email or settings.smtp_from
+    if settings.smtp_enabled:
+        try:
+            await run_in_threadpool(_smtp_send, sender, to_email, subject, body, attachment)
+            row.status = "sent"
+            row.sent_at = datetime.now(timezone.utc)
+        except Exception as exc:  # delivery must never break the operation
+            log.warning("SMTP send to %s failed: %s", to_email, exc)
+            row.status = "failed"
+            row.error = str(exc)[:500]
+    db.add(row)
+    return row
+
+
+async def list_messages(db: AsyncSession, org_id: str, *, invoice_id: str | None = None,
+                        limit: int = 100) -> list[EmailMessage]:
+    stmt = select(EmailMessage).where(EmailMessage.org_id == org_id)
+    if invoice_id:
+        stmt = stmt.where(EmailMessage.invoice_id == invoice_id)
+    return list(await db.scalars(stmt.order_by(EmailMessage.created_at.desc()).limit(limit)))
+
+
+# --- Message templates ---------------------------------------------------------
+
+def _fmt(amount, currency: str) -> str:
+    return f"{currency} {amount:,.2f}"
+
+
+def invoice_email(*, seller_name: str, number: str, buyer_name: str, total,
+                  currency: str, due_date) -> tuple[str, str]:
+    subject = f"Invoice {number} from {seller_name}"
+    due = f" It is due on {due_date.isoformat()}." if due_date else ""
+    body = (
+        f"Dear {buyer_name},\n\n"
+        f"Please find attached invoice {number} for {_fmt(total, currency)}.{due}\n\n"
+        f"Thank you for your business.\n\n"
+        f"Kind regards,\n{seller_name}"
+    )
+    return subject, body
+
+
+def reminder_email(*, seller_name: str, number: str, buyer_name: str, currency: str,
+                   outstanding, days_overdue: int, penalty, due_date, penalty_rate) -> tuple[str, str]:
+    total_due = outstanding + penalty
+    subject = f"Payment reminder: invoice {number} ({days_overdue} days overdue)"
+    lines = [
+        f"Dear {buyer_name},",
+        "",
+        f"Our records show invoice {number} remains unpaid and is now {days_overdue} "
+        f"day(s) past its due date"
+        + (f" of {due_date.isoformat()}" if due_date else "") + ".",
+        "",
+        f"Outstanding balance: {_fmt(outstanding, currency)}",
+    ]
+    if penalty and penalty > 0:
+        lines.append(
+            f"Late-payment interest ({penalty_rate}% p.a.): {_fmt(penalty, currency)}"
+        )
+        lines.append(f"Total now due: {_fmt(total_due, currency)}")
+    lines += [
+        "",
+        "Please arrange payment at your earliest convenience. If you have already "
+        "paid, kindly disregard this notice.",
+        "",
+        f"Kind regards,\n{seller_name}",
+    ]
+    return subject, "\n".join(lines)

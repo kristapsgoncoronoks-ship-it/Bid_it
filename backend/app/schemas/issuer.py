@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -20,6 +22,7 @@ class IssuerProfileIn(BaseModel):
     default_currency: str | None = Field(default=None, min_length=3, max_length=3)
     invoice_prefix: str | None = Field(default=None, max_length=16)
     payment_terms_days: int | None = Field(default=None, ge=0, le=365)
+    default_penalty_rate: Decimal | None = Field(default=None, ge=0, le=100)
     notes: str | None = None
 
 
@@ -42,6 +45,7 @@ class IssuerProfileOut(BaseModel):
     invoice_prefix: str
     next_number: int
     payment_terms_days: int
+    default_penalty_rate: Decimal | None = None
     notes: str | None
     is_complete: bool = False
     missing_fields: list[str] = []

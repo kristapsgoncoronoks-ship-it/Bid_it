@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, LargeBinary, String, Text
+from decimal import Decimal
+
+from sqlalchemy import ForeignKey, LargeBinary, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -41,6 +43,8 @@ class IssuerProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     invoice_prefix: Mapped[str] = mapped_column(String(16), default="INV-", nullable=False)
     next_number: Mapped[int] = mapped_column(default=1, nullable=False)
     payment_terms_days: Mapped[int] = mapped_column(default=14, nullable=False)
+    # Default late-payment interest (% p.a.) new invoices inherit; None = no penalty.
+    default_penalty_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
 
     logo_mime: Mapped[str | None] = mapped_column(String(40), nullable=True)
     logo_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)

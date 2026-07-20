@@ -9,6 +9,7 @@ from app.models.expense import (
     ExpenseTransaction,
 )
 from app.models.email_intake import EmailIntake, InboundInvoice
+from app.models.email_message import EmailMessage
 from app.models.fx import EcbRate
 from app.models.invitation import Invitation
 from app.models.invoice import Invoice, InvoiceStatus, LineItem
@@ -33,6 +34,7 @@ __all__ = [
     "EcbRate",
     "EmailIntake",
     "InboundInvoice",
+    "EmailMessage",
     "BudgetTarget",
     "OrgModule",
     "IssuerProfile",

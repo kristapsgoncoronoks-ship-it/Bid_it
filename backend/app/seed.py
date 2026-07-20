@@ -231,15 +231,16 @@ async def _seed_issued(db, org_id: str, rng: random.Random) -> int:
     profile.iban = "EE471000001020145685"
     profile.bic = "EEUHEE2X"
     profile.payment_terms_days = 30
+    profile.default_penalty_rate = Decimal("8")  # 8% p.a. default late-payment interest
     await db.flush()
     await modules_svc.set_enabled(db, org_id, "issuing", True)
 
     partners = [
-        ("Meridian Freight OÜ", "EE100111222", "EE"),
-        ("Baltic Cold Chain AS", "EE100333444", "EE"),
-        ("Vilnius Logistics UAB", "LT100555666", "LT"),
-        ("Riga Port Services SIA", "LV40103777888", "LV"),
-        ("Helsinki Haul Oy", "FI29999999", "FI"),
+        ("Meridian Freight OÜ", "EE100111222", "EE", "ap@meridianfreight.test"),
+        ("Baltic Cold Chain AS", "EE100333444", "EE", "invoices@balticcold.test"),
+        ("Vilnius Logistics UAB", "LT100555666", "LT", "finance@vilniuslog.test"),
+        ("Riga Port Services SIA", "LV40103777888", "LV", "ap@rigaport.test"),
+        ("Helsinki Haul Oy", "FI29999999", "FI", "laskut@helsinkihaul.test"),
     ]
     today = date(2026, 7, 1)
     schemes = ["standard", "standard", "standard", "reverse_charge", "intra_eu"]
@@ -247,7 +248,7 @@ async def _seed_issued(db, org_id: str, rng: random.Random) -> int:
     for m in range(6):  # ~6 months of history
         month_start = today - timedelta(days=30 * m)
         for _ in range(rng.randint(2, 4)):
-            name, vat_no, country = rng.choice(partners)
+            name, vat_no, country, buyer_email = rng.choice(partners)
             scheme = rng.choice(schemes)
             n_lines = rng.randint(1, 3)
             raw = [{
@@ -276,7 +277,8 @@ async def _seed_issued(db, org_id: str, rng: random.Random) -> int:
 
             db.add(IssuedInvoice(
                 org_id=org_id, number=number, issue_date=issue, due_date=due, currency="EUR",
-                buyer_name=name, buyer_vat_number=vat_no, buyer_country=country,
+                buyer_name=name, buyer_email=buyer_email, buyer_vat_number=vat_no, buyer_country=country,
+                penalty_rate=profile.default_penalty_rate,  # inherit the 8% p.a. default
                 seller_json=json.dumps(issuer_svc.seller_snapshot(profile)),
                 vat_scheme=scheme, note=vat_svc.SCHEME_NOTES.get(scheme),
                 subtotal=result.subtotal, tax_total=result.tax_total, total=result.total,

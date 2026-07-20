@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import zipfile
 from datetime import date, timedelta
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
@@ -13,12 +14,17 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import CurrentUser, DbSession
 from app.models.issued_invoice import IssuedInvoice, IssuedInvoiceLine
 from app.schemas.issued import (
+    BulkReminderResult,
+    EmailMessageOut,
     IssuedInvoiceCreate,
     IssuedInvoiceDetail,
     IssuedInvoiceListOut,
     IssuedInvoiceOut,
     IssuedLineOut,
     PaymentUpdate,
+    ReminderRequest,
+    SendRequest,
+    SendResult,
     VatBucketOut,
 )
 from app.schemas.issued_reports import (
@@ -34,6 +40,7 @@ from app.services import (
     issued_reports,
     issued_status,
     issuer,
+    mailer,
     modules,
     vat,
 )
@@ -64,6 +71,8 @@ def _vat_of(inv: IssuedInvoice) -> vat.VatResult:
 def _with_status(out: IssuedInvoiceOut, inv: IssuedInvoice) -> IssuedInvoiceOut:
     out.status = issued_status.status_of(inv)
     out.outstanding = issued_status.outstanding_of(inv)
+    out.penalty_accrued = issued_status.penalty_of(inv)
+    out.days_overdue = issued_status.days_overdue_of(inv)
     return out
 
 
@@ -93,6 +102,8 @@ async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbS
     profile.next_number += 1
 
     note = body.note or vat.SCHEME_NOTES.get(body.vat_scheme)
+    # An explicit penalty_rate wins; otherwise inherit the issuer default (may be None).
+    penalty_rate = body.penalty_rate if body.penalty_rate is not None else profile.default_penalty_rate
 
     inv = IssuedInvoice(
         org_id=current.org_id,
@@ -102,6 +113,8 @@ async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbS
         due_date=due_date,
         currency=currency,
         buyer_name=body.buyer_name,
+        buyer_email=body.buyer_email,
+        penalty_rate=penalty_rate,
         buyer_vat_number=body.buyer_vat_number,
         buyer_address_line1=body.buyer_address_line1,
         buyer_city=body.buyer_city,
@@ -163,11 +176,6 @@ async def _load(db: DbSession, org_id: str, invoice_id: str) -> IssuedInvoice:
     return inv
 
 
-@router.get("/{invoice_id}", response_model=IssuedInvoiceDetail)
-async def get_issued(invoice_id: str, current: CurrentUser, db: DbSession):
-    return _detail(await _load(db, current.org_id, invoice_id))
-
-
 @router.patch("/{invoice_id}/payment", response_model=IssuedInvoiceDetail)
 async def record_payment(invoice_id: str, body: PaymentUpdate, current: CurrentUser, db: DbSession):
     """Record a payment against an issued invoice (drives the paid/overdue report)."""
@@ -199,22 +207,181 @@ async def get_issued_xml(invoice_id: str, current: CurrentUser, db: DbSession):
     )
 
 
-@router.get("/{invoice_id}/pdf")
-async def get_issued_pdf(invoice_id: str, current: CurrentUser, db: DbSession):
-    inv = await _load(db, current.org_id, invoice_id)
+async def _render_pdf(db: DbSession, org_id: str, inv: IssuedInvoice) -> bytes:
+    """Build the EN-16931 PDF (with embedded Factur-X XML) for one invoice."""
     seller = json.loads(inv.seller_json)
     result = _vat_of(inv)
     xml = facturx.build_cii(inv, seller, result)
-    profile = await issuer.get_or_create(db, current.org_id)
+    profile = await issuer.get_or_create(db, org_id)
     logo = (profile.logo_mime, profile.logo_data) if profile.logo_data else None
+    return await run_in_threadpool(invoice_pdf.build_pdf, inv, seller, result, xml, logo)
+
+
+@router.get("/{invoice_id}/pdf")
+async def get_issued_pdf(
+    invoice_id: str, current: CurrentUser, db: DbSession,
+    inline: bool = Query(default=False),
+):
+    """Download the invoice PDF, or view it inline in the browser (`?inline=1`)."""
+    inv = await _load(db, current.org_id, invoice_id)
     try:
-        pdf = await run_in_threadpool(invoice_pdf.build_pdf, inv, seller, result, xml, logo)
+        pdf = await _render_pdf(db, current.org_id, inv)
     except invoice_pdf.PdfUnavailable as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"PDF generation unavailable: {e}")
+    disposition = "inline" if inline else "attachment"
     return Response(
         content=pdf, media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{inv.number}.pdf"'},
+        headers={
+            "Content-Disposition": f'{disposition}; filename="{inv.number}.pdf"',
+            "X-Content-Type-Options": "nosniff",
+        },
     )
+
+
+@router.get("/export.zip")
+async def export_period_zip(
+    current: CurrentUser, db: DbSession,
+    date_from: date | None = Query(default=None, alias="from"),
+    date_to: date | None = Query(default=None, alias="to"),
+    status_filter: str | None = Query(default=None, alias="status"),
+):
+    """Download a ZIP of every issued-invoice PDF in a period (max 500)."""
+    await modules.require_enabled(db, current.org_id, "issuing")
+    stmt = (
+        select(IssuedInvoice)
+        .where(IssuedInvoice.org_id == current.org_id)
+        .options(selectinload(IssuedInvoice.lines))
+        .order_by(IssuedInvoice.issue_date)
+    )
+    if date_from is not None:
+        stmt = stmt.where(IssuedInvoice.issue_date >= date_from)
+    if date_to is not None:
+        stmt = stmt.where(IssuedInvoice.issue_date <= date_to)
+    invoices = list(await db.scalars(stmt.limit(500)))
+    if status_filter:
+        invoices = [i for i in invoices if issued_status.status_of(i) == status_filter]
+    if not invoices:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No issued invoices match this period")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for inv in invoices:
+            try:
+                pdf = await _render_pdf(db, current.org_id, inv)
+            except invoice_pdf.PdfUnavailable as e:
+                raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"PDF generation unavailable: {e}")
+            zf.writestr(f"{inv.number}.pdf", pdf)
+    span = f"{date_from or 'all'}_{date_to or 'all'}"
+    return Response(
+        content=buf.getvalue(), media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="invoices_{span}.zip"'},
+    )
+
+
+# --------------------------------------------------------------------------------
+# Email delivery + payment reminders (SMTP when configured, else recorded to the
+# outbox). Reminders include any accrued late-payment penalty.
+# --------------------------------------------------------------------------------
+
+def _seller_name(inv: IssuedInvoice) -> str:
+    seller = json.loads(inv.seller_json)
+    return seller.get("legal_name") or seller.get("trade_name") or "Us"
+
+
+@router.post("/{invoice_id}/send", response_model=SendResult)
+async def send_invoice(invoice_id: str, body: SendRequest, current: CurrentUser, db: DbSession):
+    """Email the invoice PDF to the buyer (or an override recipient)."""
+    await modules.require_enabled(db, current.org_id, "issuing")
+    inv = await _load(db, current.org_id, invoice_id)
+    recipient = (body.to_email or inv.buyer_email)
+    if not recipient:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No recipient: set a customer email on the invoice or pass one.")
+    try:
+        pdf = await _render_pdf(db, current.org_id, inv)
+    except invoice_pdf.PdfUnavailable as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"PDF generation unavailable: {e}")
+
+    subject, text = mailer.invoice_email(
+        seller_name=_seller_name(inv), number=inv.number, buyer_name=inv.buyer_name,
+        total=inv.total, currency=inv.currency, due_date=inv.due_date,
+    )
+    msg = await mailer.send(
+        db, current.org_id, kind="invoice", to_email=recipient, subject=subject, body=text,
+        invoice_id=inv.id, attachment=(f"{inv.number}.pdf", pdf),
+    )
+    await audit.record(db, audit.A.ISSUED_SENT, target_type="issued_invoice", target_id=inv.id,
+                       meta={"number": inv.number, "to": recipient, "status": msg.status})
+    await db.commit()
+    await db.refresh(msg)
+    return SendResult(message=EmailMessageOut.model_validate(msg), delivered=msg.status == "sent")
+
+
+@router.post("/{invoice_id}/reminder", response_model=SendResult)
+async def send_reminder(invoice_id: str, body: ReminderRequest, current: CurrentUser, db: DbSession):
+    """Send a payment reminder (with any accrued penalty) for an overdue invoice."""
+    await modules.require_enabled(db, current.org_id, "issuing")
+    inv = await _load(db, current.org_id, invoice_id)
+    recipient = (body.to_email or inv.buyer_email)
+    if not recipient:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No recipient: set a customer email on the invoice or pass one.")
+    if issued_status.status_of(inv) == issued_status.PAID:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invoice is already paid")
+
+    msg = await _do_reminder(db, current.org_id, inv, recipient)
+    await db.commit()
+    await db.refresh(msg)
+    return SendResult(message=EmailMessageOut.model_validate(msg), delivered=msg.status == "sent")
+
+
+async def _do_reminder(db: DbSession, org_id: str, inv: IssuedInvoice, recipient: str):
+    subject, text = mailer.reminder_email(
+        seller_name=_seller_name(inv), number=inv.number, buyer_name=inv.buyer_name,
+        currency=inv.currency, outstanding=issued_status.outstanding_of(inv),
+        days_overdue=issued_status.days_overdue_of(inv), penalty=issued_status.penalty_of(inv),
+        due_date=inv.due_date, penalty_rate=inv.penalty_rate,
+    )
+    msg = await mailer.send(db, org_id, kind="reminder", to_email=recipient, subject=subject,
+                            body=text, invoice_id=inv.id)
+    inv.reminder_count = (inv.reminder_count or 0) + 1
+    inv.last_reminder_at = date.today()
+    await audit.record(db, audit.A.ISSUED_REMINDER, target_type="issued_invoice", target_id=inv.id,
+                       meta={"number": inv.number, "to": recipient, "days_overdue": issued_status.days_overdue_of(inv)})
+    return msg
+
+
+@router.post("/reminders/run", response_model=BulkReminderResult)
+async def run_overdue_reminders(current: CurrentUser, db: DbSession):
+    """Send a reminder for every overdue invoice that has a customer email."""
+    await modules.require_enabled(db, current.org_id, "issuing")
+    rows = list(await db.scalars(
+        select(IssuedInvoice)
+        .where(IssuedInvoice.org_id == current.org_id)
+        .options(selectinload(IssuedInvoice.lines))
+    ))
+    overdue = [i for i in rows if issued_status.status_of(i) == issued_status.OVERDUE]
+    sent, skipped, messages = 0, 0, []
+    for inv in overdue:
+        if not inv.buyer_email:
+            skipped += 1
+            continue
+        msg = await _do_reminder(db, current.org_id, inv, inv.buyer_email)
+        messages.append(msg)
+        sent += 1
+    await db.commit()
+    for m in messages:
+        await db.refresh(m)
+    return BulkReminderResult(
+        sent=sent, skipped_no_email=skipped,
+        messages=[EmailMessageOut.model_validate(m) for m in messages],
+    )
+
+
+@router.get("/emails", response_model=list[EmailMessageOut])
+async def list_emails(current: CurrentUser, db: DbSession):
+    """The outbound-mail history (invoices sent + reminders) for this workspace."""
+    await modules.require_enabled(db, current.org_id, "issuing")
+    rows = await mailer.list_messages(db, current.org_id)
+    return [EmailMessageOut.model_validate(m) for m in rows]
 
 
 # --------------------------------------------------------------------------------
@@ -310,3 +477,10 @@ async def report_vat(
             [[r.rate, r.base, r.vat] for r in rep.by_rate],
         )
     return rep
+
+
+# Registered LAST: this single-segment dynamic route must not shadow the static
+# ones above (/export.zip, /emails, /reports/*).
+@router.get("/{invoice_id}", response_model=IssuedInvoiceDetail)
+async def get_issued(invoice_id: str, current: CurrentUser, db: DbSession):
+    return _detail(await _load(db, current.org_id, invoice_id))

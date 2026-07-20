@@ -22,6 +22,7 @@ const FIELDS: { key: keyof IssuerProfile; label: string; required?: boolean; hal
   { key: "iban", label: "IBAN", half: true },
   { key: "bic", label: "BIC", half: true },
   { key: "invoice_prefix", label: "Invoice number prefix", half: true },
+  { key: "default_penalty_rate", label: "Default late-payment interest (% p.a.)", half: true },
 ];
 
 export default function Issuer() {
@@ -45,7 +46,12 @@ export default function Issuer() {
   }, [profile.data]);
 
   const save = useMutation({
-    mutationFn: async () => (await api.put("/issuer", form)).data,
+    mutationFn: async () => {
+      // An empty penalty field means "no default" — send null, not "" (Decimal).
+      const payload: Record<string, unknown> = { ...form };
+      payload.default_penalty_rate = form.default_penalty_rate?.trim() ? form.default_penalty_rate : null;
+      return (await api.put("/issuer", payload)).data;
+    },
     onSuccess: (data) => {
       qc.setQueryData(["issuer"], data);
       qc.invalidateQueries({ queryKey: ["modules"] });

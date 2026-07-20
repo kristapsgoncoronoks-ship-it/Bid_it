@@ -35,6 +35,7 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     # Buyer (Art. 226)
     buyer_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    buyer_email: Mapped[str | None] = mapped_column(String(255), nullable=True)  # for delivery/reminders
     buyer_vat_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
     buyer_address_line1: Mapped[str | None] = mapped_column(String(200), nullable=True)
     buyer_city: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -57,6 +58,14 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # overdue when still owed past due_date, otherwise open. See issued_reports.
     amount_paid: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
     paid_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    # Late-payment interest. Only invoices that CARRY a rate accrue a penalty; the
+    # accrued figure is advisory (computed, never added to `total`). See issued_status.
+    penalty_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)  # % per annum
+
+    # Dunning: how many reminders sent and when the last went out.
+    reminder_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    last_reminder_at: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     lines: Mapped[list["IssuedInvoiceLine"]] = relationship(
         back_populates="invoice", cascade="all, delete-orphan", order_by="IssuedInvoiceLine.position"

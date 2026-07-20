@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session, with_loader_criteria
 from app.models.audit import AuditEvent
 from app.models.budget import BudgetTarget
 from app.models.email_intake import EmailIntake, InboundInvoice
+from app.models.email_message import EmailMessage
 from app.models.expense import ExpenseComment, ExpenseReport, ExpenseTransaction
 from app.models.invitation import Invitation
 from app.models.invoice import Invoice
@@ -37,7 +38,7 @@ from app.models.vendor import Vendor
 TENANT_MODELS = (
     Vendor, Invoice, User, Invitation, IssuedInvoice, OrgModule, IssuerProfile,
     ExpenseReport, ExpenseTransaction, ExpenseComment, EmailIntake, InboundInvoice,
-    BudgetTarget, AuditEvent,
+    BudgetTarget, AuditEvent, EmailMessage,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.

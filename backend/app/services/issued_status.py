@@ -45,3 +45,28 @@ def status_of(inv: IssuedInvoice, today: date | None = None) -> str:
     if paid > _ZERO:
         return PARTIAL
     return OPEN
+
+
+def days_overdue_of(inv: IssuedInvoice, today: date | None = None) -> int:
+    """Whole days past the due date (0 if not yet due or no due date)."""
+    today = today or date.today()
+    if inv.due_date is None or inv.due_date >= today:
+        return 0
+    return (today - inv.due_date).days
+
+
+def penalty_of(inv: IssuedInvoice, today: date | None = None) -> Decimal:
+    """Accrued late-payment interest (ADVISORY — never added to the stored total).
+
+    Only invoices that CARRY a `penalty_rate` accrue. Simple interest on the
+    still-owed balance: outstanding × rate%/year × days_overdue/365 (ACT/365).
+    Zero unless the invoice is overdue with a balance and a rate set.
+    """
+    rate = inv.penalty_rate
+    if not rate or Decimal(rate) <= _ZERO:
+        return _ZERO
+    outstanding = outstanding_of(inv)
+    days = days_overdue_of(inv, today)
+    if outstanding <= _ZERO or days <= 0:
+        return _ZERO
+    return money.q2(outstanding * Decimal(rate) / Decimal(100) * Decimal(days) / Decimal(365))

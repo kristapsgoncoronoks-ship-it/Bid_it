@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 VatScheme = Literal["standard", "reverse_charge", "intra_eu", "exempt"]
 
@@ -19,6 +19,7 @@ class IssuedLineIn(BaseModel):
 
 class IssuedInvoiceCreate(BaseModel):
     buyer_name: str = Field(min_length=1, max_length=200)
+    buyer_email: EmailStr | None = None
     buyer_vat_number: str | None = Field(default=None, max_length=32)
     buyer_address_line1: str | None = Field(default=None, max_length=200)
     buyer_city: str | None = Field(default=None, max_length=120)
@@ -31,6 +32,8 @@ class IssuedInvoiceCreate(BaseModel):
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     vat_scheme: VatScheme = "standard"
     note: str | None = Field(default=None, max_length=1000)
+    # Late-payment interest (% p.a.); omit to inherit the issuer default (if any).
+    penalty_rate: Decimal | None = Field(default=None, ge=0, le=100)
     lines: list[IssuedLineIn] = Field(min_length=1)
 
 
@@ -63,6 +66,7 @@ class IssuedInvoiceOut(BaseModel):
     buyer_vat_number: str | None
     vat_scheme: str
     note: str | None
+    buyer_email: str | None = None
     subtotal: Decimal
     tax_total: Decimal
     total: Decimal
@@ -70,12 +74,50 @@ class IssuedInvoiceOut(BaseModel):
     paid_date: date | None = None
     status: str = "open"            # derived: paid | partial | open | overdue
     outstanding: Decimal = Decimal("0")
+    penalty_rate: Decimal | None = None
+    penalty_accrued: Decimal = Decimal("0")   # advisory late interest
+    days_overdue: int = 0
+    reminder_count: int = 0
+    last_reminder_at: date | None = None
 
 
 class PaymentUpdate(BaseModel):
     """Record a payment against an issued invoice (accounts-receivable)."""
     amount_paid: Decimal = Field(ge=0)
     paid_date: date | None = None
+
+
+class SendRequest(BaseModel):
+    """Email an issued invoice (PDF attached). Recipient defaults to buyer_email."""
+    to_email: EmailStr | None = None
+
+
+class ReminderRequest(BaseModel):
+    """Send a payment reminder for an overdue invoice."""
+    to_email: EmailStr | None = None
+
+
+class EmailMessageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    invoice_id: str | None
+    kind: str
+    to_email: str
+    subject: str
+    status: str
+    error: str | None
+    created_at: datetime
+
+
+class SendResult(BaseModel):
+    message: EmailMessageOut
+    delivered: bool          # True when relayed via SMTP; False when only recorded
+
+
+class BulkReminderResult(BaseModel):
+    sent: int
+    skipped_no_email: int
+    messages: list[EmailMessageOut]
 
 
 class IssuedInvoiceDetail(IssuedInvoiceOut):
