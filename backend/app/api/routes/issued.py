@@ -49,6 +49,7 @@ from app.services import (
     modules,
     partners,
     vat,
+    webhooks,
 )
 
 router = APIRouter(prefix="/issued", tags=["issuing"])
@@ -162,6 +163,10 @@ async def create_credit_note(invoice_id: str, body: CreditNoteCreate, current: C
         db, audit.A.ISSUED_CREDIT_NOTE, target_type="issued_invoice", target_id=cn.id,
         meta={"number": cn.number, "corrects": original.number, "amount": str(cn.total)},
     )
+    await webhooks.emit(db, current.org_id, "issued.credit_note", {
+        "id": cn.id, "number": cn.number, "corrects": original.number,
+        "amount": str(cn.total), "currency": cn.currency,
+    })
     await db.commit()
     await db.refresh(cn, attribute_names=["lines"])
     return _detail(cn)
@@ -220,6 +225,11 @@ async def record_payment(invoice_id: str, body: PaymentUpdate, current: CurrentU
         db, audit.A.ISSUED_PAYMENT, target_type="issued_invoice", target_id=inv.id,
         meta={"number": inv.number, "amount_paid": str(inv.amount_paid), "status": issued_status.status_of(inv)},
     )
+    await webhooks.emit(db, current.org_id, "issued.payment", {
+        "id": inv.id, "number": inv.number, "amount_paid": str(inv.amount_paid),
+        "outstanding": str(issued_status.outstanding_of(inv)), "status": issued_status.status_of(inv),
+        "currency": inv.currency,
+    })
     await db.commit()
     await db.refresh(inv, attribute_names=["lines"])
     return _detail(inv)

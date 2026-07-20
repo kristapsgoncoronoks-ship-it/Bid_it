@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { SettingRow } from "../components/SettingRow";
@@ -6,7 +7,9 @@ import { useToast } from "../components/Toast";
 import { api, apiError } from "../lib/api";
 import { isAdminOrAbove } from "../lib/roles";
 import { useModules } from "../lib/useModules";
-import type { ValidationSettings } from "../lib/types";
+import type {
+  ValidationSettings, WebhookCreated, WebhookDelivery, WebhookEndpoint,
+} from "../lib/types";
 
 export default function Settings() {
   const { user } = useAuth();
@@ -114,6 +117,134 @@ export default function Settings() {
       </section>
 
       {canEdit && <BackgroundJobs />}
+      {canEdit && <Webhooks />}
+    </div>
+  );
+}
+
+const WEBHOOK_STATUS_STYLES: Record<string, string> = {
+  pending: "bg-slate-100 text-slate-600",
+  delivered: "bg-emerald-100 text-emerald-700",
+  failed: "bg-rose-100 text-rose-700",
+};
+
+// Admin surface for outbound webhooks: register signed HTTP endpoints, send a
+// test ping, and see recent delivery outcomes. The signing secret is shown once.
+function Webhooks() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [url, setUrl] = useState("");
+  const [events, setEvents] = useState("*");
+  const [secret, setSecret] = useState<string | null>(null);
+
+  const endpoints = useQuery<WebhookEndpoint[]>({
+    queryKey: ["webhooks"],
+    queryFn: async () => (await api.get("/webhooks")).data,
+  });
+
+  const create = useMutation({
+    mutationFn: async () => (await api.post("/webhooks", { url, events })).data as WebhookCreated,
+    onSuccess: (w) => {
+      setSecret(w.secret);
+      setUrl("");
+      qc.invalidateQueries({ queryKey: ["webhooks"] });
+    },
+    onError: (e) => toast.error(apiError(e)),
+  });
+  const ping = useMutation({
+    mutationFn: async (id: string) => (await api.post(`/webhooks/${id}/ping`)).data,
+    onSuccess: () => toast.success("Test event enqueued"),
+    onError: (e) => toast.error(apiError(e)),
+  });
+  const remove = useMutation({
+    mutationFn: async (id: string) => api.delete(`/webhooks/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["webhooks"] }),
+  });
+
+  return (
+    <section className="space-y-2">
+      <div className="px-1">
+        <h2 className="text-sm font-semibold text-slate-600">Webhooks</h2>
+        <p className="text-sm text-slate-500">
+          POST events (invoice created, payment recorded, expense approved…) to your systems.
+          Each request is signed with the endpoint's secret (header <code>X-InvoiceIQ-Signature</code>).
+        </p>
+      </div>
+
+      <div className="card space-y-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex-1">
+            <label className="label" htmlFor="wh-url">Endpoint URL</label>
+            <input id="wh-url" className="input" placeholder="https://your-app.example/webhooks/invoiceiq"
+              value={url} onChange={(e) => setUrl(e.target.value)} />
+          </div>
+          <div>
+            <label className="label" htmlFor="wh-events">Events</label>
+            <input id="wh-events" className="input w-40" value={events} onChange={(e) => setEvents(e.target.value)} />
+          </div>
+          <button className="btn-primary" disabled={create.isPending || !url} onClick={() => create.mutate()}>
+            {create.isPending ? "Adding…" : "Add endpoint"}
+          </button>
+        </div>
+        {secret && (
+          <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            Signing secret (shown once — store it now): <code className="font-mono">{secret}</code>
+          </div>
+        )}
+
+        {(endpoints.data?.length ?? 0) > 0 && (
+          <div className="divide-y divide-slate-100">
+            {endpoints.data!.map((ep) => (
+              <WebhookRow key={ep.id} ep={ep}
+                onPing={() => ping.mutate(ep.id)}
+                onDelete={() => { if (window.confirm("Delete this webhook endpoint?")) remove.mutate(ep.id); }} />
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function WebhookRow({ ep, onPing, onDelete }: { ep: WebhookEndpoint; onPing: () => void; onDelete: () => void }) {
+  const [open, setOpen] = useState(false);
+  const deliveries = useQuery<WebhookDelivery[]>({
+    queryKey: ["webhooks", ep.id, "deliveries"],
+    queryFn: async () => (await api.get(`/webhooks/${ep.id}/deliveries?limit=10`)).data,
+    enabled: open,
+    refetchInterval: open ? 4000 : false,
+  });
+
+  return (
+    <div className="py-3">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className={`badge ${ep.active ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+          {ep.active ? "active" : "paused"}
+        </span>
+        <span className="font-mono text-xs text-slate-600 truncate">{ep.url}</span>
+        <span className="text-xs text-slate-400">· {ep.events}</span>
+        <div className="ml-auto flex items-center gap-2">
+          <button className="text-brand-600 hover:underline" onClick={() => setOpen((o) => !o)}>
+            {open ? "hide" : "deliveries"}
+          </button>
+          <span className="text-slate-300">·</span>
+          <button className="text-brand-600 hover:underline" onClick={onPing}>ping</button>
+          <span className="text-slate-300">·</span>
+          <button className="text-rose-500 hover:underline" onClick={onDelete}>delete</button>
+        </div>
+      </div>
+      {open && (
+        <div className="mt-2 space-y-1">
+          {deliveries.data?.length ? deliveries.data.map((d) => (
+            <div key={d.id} className="flex items-center gap-2 rounded bg-slate-50 px-2 py-1 text-xs">
+              <span className={`badge ${WEBHOOK_STATUS_STYLES[d.status] ?? ""}`}>{d.status}</span>
+              <span className="font-mono text-slate-600">{d.event_type}</span>
+              <span className="text-slate-400">{d.response_code ?? "—"}</span>
+              <span className="ml-auto text-slate-400">{d.attempts} attempt{d.attempts === 1 ? "" : "s"}</span>
+            </div>
+          )) : <p className="text-xs text-slate-400">No deliveries yet.</p>}
+        </div>
+      )}
     </div>
   );
 }

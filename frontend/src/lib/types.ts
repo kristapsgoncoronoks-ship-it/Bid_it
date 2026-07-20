@@ -743,6 +743,30 @@ export interface GenerateResult {
   numbers: string[];
 }
 
+export interface WebhookEndpoint {
+  id: string;
+  url: string;
+  events: string;
+  description: string | null;
+  active: boolean;
+  created_at: string;
+}
+
+export interface WebhookCreated extends WebhookEndpoint {
+  secret: string;
+}
+
+export interface WebhookDelivery {
+  id: string;
+  event_type: string;
+  status: "pending" | "delivered" | "failed";
+  attempts: number;
+  response_code: number | null;
+  last_error: string | null;
+  created_at: string;
+  delivered_at: string | null;
+}
+
 // --- Issuing reports ---
 export interface IssuedSummaryReport {
   currency: string;

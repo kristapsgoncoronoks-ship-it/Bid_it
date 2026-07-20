@@ -26,7 +26,7 @@ from app.schemas.invoice import (
 from app.schemas.validation import ValidationDecision, ValidationFinding
 from app.core.dimensions import DIMENSION_KEYS
 from app.core.money import q2 as _q
-from app.services import access, audit, filesec, fx, validation
+from app.services import access, audit, filesec, fx, validation, webhooks
 from app.services.parser import parse_invoice_file
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
@@ -163,6 +163,10 @@ async def create_invoice(body: InvoiceCreate, current: CurrentUser, db: DbSessio
     invoice, vendor_name = await persist_invoice(db, current.org_id, body)
     await audit.record(db, audit.A.INVOICE_CREATE, target_type="invoice", target_id=invoice.id,
                        meta={"number": invoice.invoice_number, "total": str(invoice.total), "currency": invoice.currency})
+    await webhooks.emit(db, current.org_id, "invoice.created", {
+        "id": invoice.id, "invoice_number": invoice.invoice_number, "vendor_name": vendor_name,
+        "total": str(invoice.total), "currency": invoice.currency, "status": invoice.status.value,
+    })
     await db.commit()
     return _detail(invoice, vendor_name)
 
@@ -274,10 +278,12 @@ async def delete_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
 
 
 @router.post("/upload", response_model=ParsedInvoiceDraft)
-async def upload_invoice(current: CurrentUser, file: UploadFile):
+async def upload_invoice(current: CurrentUser, db: DbSession, file: UploadFile):
     """Parse an uploaded PDF/CSV/JSON into a draft. Does NOT persist — the client
     reviews the draft and POSTs it to `/invoices` to save. PDFs use the text layer
     when present and fall back to OCR for scanned documents."""
+    # Metered usage: the acting role's monthly upload limit (0 = unlimited).
+    await access.enforce_upload_quota(db, current.org_id, current.role)
     content = await file.read()
     if len(content) > _MAX_UPLOAD:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File too large (max 15 MB)")
@@ -289,6 +295,8 @@ async def upload_invoice(current: CurrentUser, file: UploadFile):
     try:
         # OCR/PDF parsing is CPU-bound — run it in a threadpool so the event loop
         # isn't blocked while one upload is parsed.
-        return await run_in_threadpool(parse_invoice_file, file.filename or "upload", content)
+        draft = await run_in_threadpool(parse_invoice_file, file.filename or "upload", content)
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+    await access.record_usage(db, current.org_id, "upload")
+    return draft

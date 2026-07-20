@@ -33,8 +33,10 @@ from app.models.issuer import IssuerProfile
 from app.models.module import OrgModule
 from app.models.partner import Partner, PartnerDocument
 from app.models.recurring_invoice import RecurringInvoice
+from app.models.usage import UsageCounter
 from app.models.user import User
 from app.models.vendor import Vendor
+from app.models.webhook import WebhookDelivery, WebhookEndpoint
 
 # Every model that carries an `org_id`. Child tables (LineItem, IssuedInvoiceLine,
 # ExpenseItem) have no org_id and are reached only via an already-scoped parent.
@@ -42,7 +44,7 @@ TENANT_MODELS = (
     Vendor, Invoice, User, Invitation, IssuedInvoice, OrgModule, IssuerProfile,
     ExpenseReport, ExpenseTransaction, ExpenseComment, EmailIntake, InboundInvoice,
     BudgetTarget, AuditEvent, EmailMessage, Partner, PartnerDocument, RecurringInvoice,
-    Job,
+    Job, UsageCounter, WebhookEndpoint, WebhookDelivery,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.

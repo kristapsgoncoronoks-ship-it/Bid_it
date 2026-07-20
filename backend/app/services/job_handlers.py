@@ -8,7 +8,7 @@ set of known kinds.
 from __future__ import annotations
 
 from app.models.job import Job
-from app.services import dunning, jobs, recurring
+from app.services import dunning, jobs, recurring, webhooks
 
 RECURRING_GENERATE = "recurring.generate"
 DUNNING_RUN = "dunning.run"
@@ -26,6 +26,12 @@ async def _dunning_run(db, payload: dict, job: Job) -> dict:
     """Send a reminder for every overdue invoice for the job's tenant."""
     res = await dunning.run_overdue(db, job.org_id)
     return {"sent": res.sent, "skipped_no_email": res.skipped_no_email}
+
+
+@jobs.handler(webhooks.WEBHOOK_DELIVER)
+async def _webhook_deliver(db, payload: dict, job: Job) -> dict:
+    """Deliver one recorded webhook event (signed POST; retries via the queue)."""
+    return await webhooks.deliver(db, payload["delivery_id"])
 
 
 # Kinds an authenticated user is allowed to enqueue via the API (safe, tenant

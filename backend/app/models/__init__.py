@@ -21,8 +21,10 @@ from app.models.organization import Organization
 from app.models.partner import Partner, PartnerDocument
 from app.models.recurring_invoice import RecurringInvoice
 from app.models.role_policy import RolePolicy
+from app.models.usage import UsageCounter
 from app.models.user import User, UserRole
 from app.models.vendor import Vendor
+from app.models.webhook import WebhookDelivery, WebhookEndpoint
 
 __all__ = [
     "Base",
@@ -53,4 +55,7 @@ __all__ = [
     "ExpenseItem",
     "ExpenseTransaction",
     "ExpenseComment",
+    "UsageCounter",
+    "WebhookEndpoint",
+    "WebhookDelivery",
 ]

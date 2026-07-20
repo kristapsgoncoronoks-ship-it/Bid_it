@@ -38,7 +38,7 @@ from app.schemas.expense import (
     ItemFromTransaction,
     MatchTransaction,
 )
-from app.services import audit, bank_statement, expenses, filesec, fx, modules
+from app.services import audit, bank_statement, expenses, filesec, fx, modules, webhooks
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
 
@@ -343,6 +343,10 @@ async def submit_report(report_id: str, current: CurrentUser, db: DbSession):
     else:
         eur, _resolved = await fx.to_eur(db, r.total, r.currency, date.today())
         r.total_eur = eur
+    await webhooks.emit(db, current.org_id, "expense.submitted", {
+        "id": r.id, "title": r.title, "employee_name": r.employee_name,
+        "total": str(r.total), "currency": r.currency,
+    })
     await db.commit()
     await db.refresh(r, attribute_names=["items"])
     return _detail(r)
@@ -368,6 +372,11 @@ async def decide(report_id: str, body: ExpenseDecision, current: CurrentUser, db
     r.decided_at = expenses.now()
     r.decided_by = current.email
     r.decision_note = body.note
+    if body.action in ("approve", "reject"):
+        await webhooks.emit(db, current.org_id, f"expense.{r.status}", {
+            "id": r.id, "title": r.title, "employee_name": r.employee_name,
+            "total": str(r.total), "currency": r.currency, "decided_by": r.decided_by,
+        })
     await db.commit()
     await db.refresh(r, attribute_names=["items"])
     return _detail(r)
