@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from contextvars import ContextVar, Token
 
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.orm import Session, with_loader_criteria
 
 from app.models.audit import AuditEvent
@@ -86,6 +86,51 @@ def _apply_tenant_scope(orm_execute_state) -> None:
             for model in TENANT_MODELS
         ]
     )
+
+
+# --------------------------------------------------------------------------- #
+# Postgres Row-Level Security backstop (ADR-0004, defence layer 3)
+#
+# The ORM guard above scopes SELECTs the app issues; RLS enforces isolation at
+# the DATABASE, so even a raw query, a bug above the ORM, or an unregistered
+# model cannot cross tenants. RLS reads the current org from a per-transaction
+# GUC, `app.current_org`, which we keep in sync with the ContextVar here.
+#
+# Policy contract (see the migration): when `app.current_org` is UNSET the policy
+# passes all rows — matching the app's "org is None ⇒ intentionally unscoped"
+# semantics for bootstrap / platform-operator / worker-claim paths. When it is
+# SET, rows are restricted to that org. The scoped path (a normal authenticated
+# request) always sets it, so that is where RLS bites.
+# --------------------------------------------------------------------------- #
+
+# `set_config(name, value, is_local=true)` == `SET LOCAL`: scoped to the current
+# transaction and auto-reset on commit/rollback, so it is safe under pooling.
+_RLS_SET = text("SELECT set_config('app.current_org', :org, true)")
+
+
+@event.listens_for(Session, "after_begin")
+def _sync_rls_org(session, transaction, connection) -> None:
+    """On each new transaction, mirror the ContextVar org into the DB GUC so RLS
+    restricts to it. Postgres-only; a no-op elsewhere. Covers worker jobs and any
+    post-commit transaction within a request (where the org is already known)."""
+    if connection.dialect.name != "postgresql":
+        return
+    org = _current_org.get()
+    if org is not None:
+        connection.execute(_RLS_SET, {"org": org})
+
+
+async def apply_db_tenant(db) -> None:
+    """Explicitly set the RLS GUC on the CURRENT transaction (Postgres-only).
+
+    Needed once per request after the caller is authenticated: the request's first
+    transaction typically begins during the unscoped user lookup (org not yet
+    known), so `after_begin` set nothing — this closes that gap for the rest of
+    that transaction. Idempotent with the event hook."""
+    org = _current_org.get()
+    if org is None or db.bind is None or db.bind.dialect.name != "postgresql":
+        return
+    await db.execute(_RLS_SET, {"org": org})
 
 
 class TenantScopeMiddleware:

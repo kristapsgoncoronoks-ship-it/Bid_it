@@ -1,6 +1,6 @@
 # ADR-0004 — Shared-schema tenant isolation with an ORM guard (+ RLS)
 
-**Status:** Accepted (RLS layer: Proposed)
+**Status:** Accepted (all three layers implemented; RLS enforced on Postgres)
 
 ## Context
 Multi-tenant financial data. A cross-tenant leak is an existential, GDPR-reportable event. We need strong isolation at low operational cost, with room to harden.
@@ -9,9 +9,9 @@ Multi-tenant financial data. A cross-tenant leak is an existential, GDPR-reporta
 **Shared schema, row-level `org_id`** on every tenant table, with **defence in depth**:
 1. Explicit per-route `org_id` filters.
 2. An ORM `do_orm_execute` guard that ANDs `org_id == current_org` onto every SELECT touching a **registered** tenant model (`TENANT_MODELS`), via `with_loader_criteria`. Context is set from the authenticated user's DB row, never client input.
-3. **(Proposed, Phase 2)** Postgres **RLS** policies as a database-level backstop.
+3. Postgres **RLS** policies as a database-level backstop (Phase 2, implemented). Every tenant table has `ENABLE`/`FORCE ROW LEVEL SECURITY` + a `tenant_isolation` policy keyed on the per-transaction GUC `app.current_org`, which the app mirrors from its tenant ContextVar (`after_begin` hook + an explicit set in `get_current_user`). GUC unset ⇒ policy passes (bootstrap/operator/worker, matching the app guard); GUC set ⇒ rows restricted. `FORCE` makes it apply even to the table-owner app role. Verified against real Postgres: a raw query bypassing the ORM guard sees only the scoped tenant, and a cross-tenant insert is refused by `WITH CHECK`.
 
-Mandatory rule: any table with `org_id` must be registered; a CI test fails otherwise.
+Mandatory rules (both CI-enforced): any table with `org_id` must be registered in `TENANT_MODELS`, and must appear in the RLS migration's table list — a test fails otherwise. **The app must run as a non-superuser** (superusers bypass RLS even with `FORCE`).
 
 ## Alternatives considered
 - **Schema-per-tenant** — stronger isolation, but migration/ops complexity explodes with tenant count; connection/catalog bloat.
@@ -26,4 +26,4 @@ Shared-schema is cheapest to run and migrate; the ORM guard means a *forgotten f
 - Raw SQL or a child-table query with user input could bypass → forbidden by rule; RLS closes the residual gap.
 
 ## Revisit when
-An Enterprise customer requires physical isolation (→ DB-per-tenant option), or a scale/blast-radius analysis favours schema-per-tenant. RLS moves from Proposed to Accepted in Phase 2 regardless.
+An Enterprise customer requires physical isolation (→ DB-per-tenant option), or a scale/blast-radius analysis favours schema-per-tenant.

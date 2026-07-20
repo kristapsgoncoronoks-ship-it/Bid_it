@@ -33,6 +33,51 @@ jobs:
           alembic check
       - run: python -m pytest -q
 
+  # Postgres-specific gate: migrations + RLS can only be verified against a real
+  # Postgres (the main suite runs on SQLite). Catches Postgres-only migration
+  # bugs and proves row-level security blocks cross-tenant at the DB layer.
+  postgres:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Create a NON-superuser app role + database (RLS must apply to it)
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -c "CREATE ROLE appuser LOGIN PASSWORD 'apppw' NOSUPERUSER;"
+          psql -h localhost -U postgres -c "CREATE DATABASE invoiceiq OWNER appuser;"
+      - name: Migrations apply cleanly on Postgres (catches Postgres-only bugs)
+        env:
+          DATABASE_URL: postgresql+asyncpg://appuser:apppw@localhost:5432/invoiceiq
+        run: alembic upgrade head
+      - name: Row-level-security enforcement tests
+        env:
+          RLS_TEST_DATABASE_URL: postgresql+asyncpg://appuser:apppw@localhost:5432/invoiceiq
+        run: python -m pytest tests/test_rls.py -q
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

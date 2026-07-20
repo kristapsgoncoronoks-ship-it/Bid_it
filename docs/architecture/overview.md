@@ -251,8 +251,8 @@ Ordered to de-risk the platform before scaling product. Each phase is shippable 
 **Phase 1 complete.**
 
 **Phase 2 — Multi-tenant safety at the DB layer**
-7. Introduce **Postgres RLS** as belt-and-braces behind the app guard (defence in depth; no API change) (ADR-0004).
-8. Backup/restore drills + integrity-manifest verification automated (see [deployment.md](./deployment.md)).
+7. ✅ **Postgres RLS** behind the app guard (defence in depth; no API change): `FORCE` RLS + a `tenant_isolation` policy on all 22 tenant tables keyed on the `app.current_org` GUC; a Postgres CI job runs migrations + the RLS enforcement tests (SQLite can't). Verified against real Postgres (ADR-0004). *Also surfaced + fixed a latent Postgres-only migration bug (boolean literal) that SQLite CI had masked.*
+8. Backup/restore drills + integrity-manifest verification automated (see [deployment.md](./deployment.md)) — **next**.
 
 **Phase 3 — Commercial + integration surface**
 9. Wire billing provider (merchant-of-record) to the existing plan/metering model (ADR-0013).

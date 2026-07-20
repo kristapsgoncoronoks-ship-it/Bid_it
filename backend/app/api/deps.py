@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session
 from app.core.security import decode_access_token
-from app.core.tenant import set_current_actor, set_current_org
+from app.core.tenant import apply_db_tenant, set_current_actor, set_current_org
 from app.models.user import User
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -43,6 +43,9 @@ async def get_current_user(
     # Activate defence-in-depth tenant scoping + audit attribution for this request.
     set_current_org(user.org_id)
     set_current_actor(user.id, user.email)
+    # Pin the Postgres RLS GUC for this request's current transaction (no-op on
+    # SQLite / when unscoped). The event hook re-applies it on later transactions.
+    await apply_db_tenant(db)
     return user
 
 

@@ -46,7 +46,7 @@ Everything left of the app boundary is **untrusted**: request bodies, tokens, up
 
 1. **Explicit per-route filters** — every query filters `org_id == current_org`. First line of defence.
 2. **ORM guard (defence in depth)** — a `do_orm_execute` hook ANDs `org_id == current_org` onto **every SELECT** touching a registered tenant model, via `with_loader_criteria`. A *forgotten* filter cannot leak.
-3. **Postgres RLS (planned, Phase 2)** — row-level security policies at the database as belt-and-braces, so even a raw query or a bug above the ORM is contained.
+3. **Postgres RLS (implemented, Phase 2)** — every tenant table has `FORCE ROW LEVEL SECURITY` + a `tenant_isolation` policy keyed on the per-transaction GUC `app.current_org` (mirrored from the tenant ContextVar). Even a raw query, a bug above the ORM, or an unregistered model is contained *at the database*. GUC unset ⇒ bypass (bootstrap/operator/worker); set ⇒ restricted. Verified against real Postgres (a raw cross-tenant select returns nothing; a cross-tenant insert is refused). **The app must run as a non-superuser** — superusers bypass RLS even with `FORCE`.
 
 **Context establishment**
 - A request-scoped `ContextVar` holds the current org. It is set **from the authenticated user's DB row** (`user.org_id`) in `get_current_user` — never from client input or a token claim.

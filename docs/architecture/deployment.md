@@ -54,6 +54,7 @@ graph TB
 - **Key settings:** `ENVIRONMENT`, `DATABASE_URL`, `SECRET_KEY`, `CORS_ORIGINS`, `LOG_JSON`, `METRICS_ENABLED`, DB pool sizing (`DB_POOL_SIZE/MAX_OVERFLOW/TIMEOUT`), object-storage + KMS coordinates (as introduced).
 - **Secrets** (SECRET_KEY, DB creds, provider keys, KEK) come from the platform secret store (k8s Secrets / cloud secret manager), mounted as env. Application-level stored secrets use **envelope encryption** (see [security-boundaries](./security-boundaries.md#5-secrets--key-management-adr-0016)).
 - **`is_production` gates dangerous conveniences** (auto-create-all, verbose errors). Production fails loud on missing required secrets.
+- **Database role:** the app must connect as a **non-superuser** role. Postgres RLS (the tenant-isolation backstop) is bypassed by superusers even with `FORCE ROW LEVEL SECURITY`, so running the app as a superuser silently disables the DB-level isolation. Provision a dedicated least-privilege role that owns (or is granted on) the app tables and nothing more.
 
 ---
 

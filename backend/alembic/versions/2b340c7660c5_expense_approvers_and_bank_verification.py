@@ -28,8 +28,10 @@ def upgrade() -> None:
 
     # Preserve existing behaviour: everyone who could approve before (admins and
     # sysadmins) stays an approver. Owners/admins can refine the list afterwards.
+    # Use a real boolean literal: SQLite is typeless and accepts `1`, but Postgres
+    # rejects an integer for a boolean column. (Portable across both dialects.)
     op.execute(
-        "UPDATE users SET is_expense_approver = 1 WHERE role IN ('admin', 'sysadmin')"
+        "UPDATE users SET is_expense_approver = true WHERE role IN ('admin', 'sysadmin')"
     )
     # ### end Alembic commands ###
 
