@@ -121,3 +121,19 @@ async def test_pdf_export(auth_client, client):
     assert pdf.status_code == 200
     assert pdf.headers["content-type"] == "application/pdf"
     assert pdf.content[:5] == b"%PDF-"
+
+
+@pytest.mark.asyncio
+async def test_pdf_export_with_unicode_title(auth_client, client):
+    # A title with non-latin-1 characters (em dash) must not break the
+    # Content-Disposition header — an ASCII filename + RFC 5987 filename* are set.
+    pytest.importorskip("reportlab")
+    await _activate(auth_client)
+    emp = await _member(auth_client, client, "emp2@corp.io")
+    rid = (await client.post("/api/v1/expenses", json=_payload(title="Berlin sales trip — March"),
+                             headers=_h(emp))).json()["id"]
+    pdf = await client.get(f"/api/v1/expenses/{rid}/pdf", headers=_h(emp))
+    assert pdf.status_code == 200
+    assert pdf.content[:5] == b"%PDF-"
+    cd = pdf.headers["content-disposition"]
+    assert "filename=" in cd and "filename*=UTF-8''" in cd

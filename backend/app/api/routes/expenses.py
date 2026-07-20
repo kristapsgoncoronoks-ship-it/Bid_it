@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import re
 from datetime import date
 from decimal import Decimal
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, Response, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
@@ -446,6 +448,13 @@ async def report_pdf(report_id: str, current: CurrentUser, db: DbSession):
         pdf = await run_in_threadpool(expenses.build_pdf, r)
     except expenses.PdfUnavailable as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"PDF generation unavailable: {e}")
-    fname = f"expense-{r.title[:40].strip().replace(' ', '_')}.pdf"
+    # HTTP headers are latin-1 only, but titles can contain any Unicode (e.g. an
+    # em dash). Provide an ASCII-safe `filename` plus an RFC 5987 UTF-8 `filename*`.
+    stem = r.title[:40].strip()
+    ascii_name = re.sub(r"[^A-Za-z0-9_.-]", "_", stem.replace(" ", "_")) or "report"
+    disposition = (
+        f'attachment; filename="expense-{ascii_name}.pdf"; '
+        f"filename*=UTF-8''{quote(f'expense-{stem}.pdf')}"
+    )
     return Response(content=pdf, media_type="application/pdf",
-                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+                    headers={"Content-Disposition": disposition})
