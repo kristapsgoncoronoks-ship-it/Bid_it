@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useToast } from "../components/Toast";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
 import { shortDate } from "../lib/format";
@@ -9,6 +10,7 @@ import type { Invite, Member, UserRoleName } from "../lib/types";
 export default function Team() {
   const { user } = useAuth();
   const qc = useQueryClient();
+  const toast = useToast();
   const canManage = isSysadmin(user);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<UserRoleName>("user");
@@ -33,6 +35,7 @@ export default function Team() {
   const revoke = useMutation({
     mutationFn: async (id: string) => api.delete(`/team/invites/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["team", "invites"] }),
+    onError: (e) => toast.error(apiError(e)),
   });
   const patch = useMutation({
     mutationFn: async (v: { id: string; body: Partial<Member> }) => (await api.patch(`/team/members/${v.id}`, v.body)).data,

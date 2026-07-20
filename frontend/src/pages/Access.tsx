@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { useToast } from "../components/Toast";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
 import { isSysadmin } from "../lib/roles";
@@ -75,6 +76,7 @@ export default function Access() {
 
 function MatrixRow({ policy, canEdit }: { policy: RolePolicy; canEdit: boolean }) {
   const qc = useQueryClient();
+  const toast = useToast();
   const [inv, setInv] = useState(String(policy.monthly_invoice_limit));
   const [up, setUp] = useState(String(policy.monthly_upload_limit));
   useEffect(() => { setInv(String(policy.monthly_invoice_limit)); setUp(String(policy.monthly_upload_limit)); },
@@ -88,7 +90,7 @@ function MatrixRow({ policy, canEdit }: { policy: RolePolicy; canEdit: boolean }
         monthly_upload_limit: Number(up) || 0,
       })).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["access"] }),
-    onError: (e) => alert(apiError(e)),
+    onError: (e) => toast.error(apiError(e)),
   });
 
   const limitLabel = (v: string) => (Number(v) === 0 ? "unlimited" : v);

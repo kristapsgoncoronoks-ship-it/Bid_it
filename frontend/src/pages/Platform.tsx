@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Navigate } from "react-router-dom";
+import { useToast } from "../components/Toast";
 import { useAuth } from "../auth/AuthContext";
-import { api } from "../lib/api";
+import { api, apiError } from "../lib/api";
 import { shortDate } from "../lib/format";
 import type { Tenant } from "../lib/types";
 
@@ -11,6 +12,7 @@ const STATUSES = ["active", "suspended", "canceled"];
 export default function Platform() {
   const { user } = useAuth();
   const qc = useQueryClient();
+  const toast = useToast();
 
   const tenants = useQuery<Tenant[]>({
     queryKey: ["platform", "tenants"],
@@ -21,6 +23,7 @@ export default function Platform() {
   const patch = useMutation({
     mutationFn: async (v: { id: string; body: Partial<Tenant> }) => (await api.patch(`/platform/tenants/${v.id}`, v.body)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["platform", "tenants"] }),
+    onError: (e) => toast.error(apiError(e)),
   });
 
   if (user && !user.is_platform_admin) return <Navigate to="/" replace />;

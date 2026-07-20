@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { useToast } from "../components/Toast";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError, downloadFile } from "../lib/api";
 import { EXPENSE_STATUS_STYLES, money, shortDate } from "../lib/format";
@@ -11,6 +12,7 @@ export default function ExpenseDetail() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const qc = useQueryClient();
+  const toast = useToast();
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
   const uploadItemId = useRef<string | null>(null);
@@ -28,7 +30,7 @@ export default function ExpenseDetail() {
   const act = useMutation({
     mutationFn: async (p: { path: string; body?: unknown }) => (await api.post(`/expenses/${id}/${p.path}`, p.body ?? {})).data,
     onSuccess: invalidate,
-    onError: (e) => alert(apiError(e)),
+    onError: (e) => toast.error(apiError(e)),
   });
   const del = useMutation({
     mutationFn: async () => api.delete(`/expenses/${id}`),
@@ -41,7 +43,7 @@ export default function ExpenseDetail() {
       return (await api.post(`/expenses/${id}/items/${v.itemId}/receipt`, form)).data;
     },
     onSuccess: invalidate,
-    onError: (e) => alert(apiError(e)),
+    onError: (e) => toast.error(apiError(e)),
   });
 
   if (isLoading || !r) return <div className="text-slate-400">Loading…</div>;
@@ -148,6 +150,7 @@ export default function ExpenseDetail() {
 
 function CommentThread({ reportId }: { reportId: string }) {
   const qc = useQueryClient();
+  const toast = useToast();
   const [body, setBody] = useState("");
   const comments = useQuery<ExpenseComment[]>({
     queryKey: ["expense", reportId, "comments"],
@@ -156,7 +159,7 @@ function CommentThread({ reportId }: { reportId: string }) {
   const post = useMutation({
     mutationFn: async () => (await api.post(`/expenses/${reportId}/comments`, { body })).data,
     onSuccess: () => { setBody(""); qc.invalidateQueries({ queryKey: ["expense", reportId, "comments"] }); },
-    onError: (e) => alert(apiError(e)),
+    onError: (e) => toast.error(apiError(e)),
   });
 
   return (

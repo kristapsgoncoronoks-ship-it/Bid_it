@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { useToast } from "../components/Toast";
 import { api, apiError, downloadFile } from "../lib/api";
 import { METHOD_STYLES, methodLabel, money, shortDate } from "../lib/format";
 import { isAdminOrAbove } from "../lib/roles";
@@ -18,6 +19,7 @@ const STATUS_STYLES: Record<string, string> = {
 export default function EmailIntake() {
   const { user } = useAuth();
   const qc = useQueryClient();
+  const toast = useToast();
   const [selected, setSelected] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -33,7 +35,7 @@ export default function EmailIntake() {
   const rotate = useMutation({
     mutationFn: async () => (await api.post("/email/settings/rotate")).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["email-settings"] }),
-    onError: (e) => alert(apiError(e)),
+    onError: (e) => toast.error(apiError(e)),
   });
 
   const copy = () => {
@@ -134,6 +136,7 @@ export default function EmailIntake() {
 
 function InboundDetail({ id, onDone }: { id: string; onDone: () => void }) {
   const qc = useQueryClient();
+  const toast = useToast();
   const navigate = useNavigate();
   const { data: row, isLoading } = useQuery<InboundInvoiceDetail>({
     queryKey: ["email-inbox", id],
@@ -147,17 +150,17 @@ function InboundDetail({ id, onDone }: { id: string; onDone: () => void }) {
   const confirm_ = useMutation({
     mutationFn: async () => (await api.post(`/email/inbox/${id}/confirm`, {})).data,
     onSuccess: (inv: { id: string }) => { invalidate(); navigate(`/invoices/${inv.id}`); },
-    onError: (e) => alert(apiError(e)),
+    onError: (e) => toast.error(apiError(e)),
   });
   const discard = useMutation({
     mutationFn: async () => (await api.post(`/email/inbox/${id}/discard`)).data,
     onSuccess: () => { invalidate(); onDone(); },
-    onError: (e) => alert(apiError(e)),
+    onError: (e) => toast.error(apiError(e)),
   });
   const del = useMutation({
     mutationFn: async () => api.delete(`/email/inbox/${id}`),
     onSuccess: () => { invalidate(); onDone(); },
-    onError: (e) => alert(apiError(e)),
+    onError: (e) => toast.error(apiError(e)),
   });
 
   if (isLoading || !row) return <div className="card text-sm text-slate-400">Loading…</div>;

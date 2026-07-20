@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { BudgetTrendChart } from "../components/Charts";
 import { KpiCard } from "../components/KpiCard";
+import { useToast } from "../components/Toast";
 import { api, apiError } from "../lib/api";
 import { money } from "../lib/format";
 import type { BudgetOverview, BudgetRow } from "../lib/types";
@@ -13,6 +14,7 @@ function thisMonth(): string {
 
 export default function Budget() {
   const qc = useQueryClient();
+  const toast = useToast();
   const [month, setMonth] = useState(thisMonth());
   const [newCat, setNewCat] = useState("");
   const [newLimit, setNewLimit] = useState("");
@@ -28,12 +30,12 @@ export default function Budget() {
     mutationFn: async (v: { category: string; monthly_limit: string }) =>
       (await api.put("/budget/targets", v)).data,
     onSuccess: invalidate,
-    onError: (e) => alert(apiError(e)),
+    onError: (e) => toast.error(apiError(e)),
   });
   const removeTarget = useMutation({
     mutationFn: async (category: string) => api.delete(`/budget/targets/${encodeURIComponent(category)}`),
     onSuccess: invalidate,
-    onError: (e) => alert(apiError(e)),
+    onError: (e) => toast.error(apiError(e)),
   });
 
   const overAccent = data?.over_budget ? "rose" : "emerald";

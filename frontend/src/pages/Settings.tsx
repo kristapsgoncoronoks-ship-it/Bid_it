@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { SettingRow } from "../components/SettingRow";
+import { useToast } from "../components/Toast";
 import { api, apiError } from "../lib/api";
 import { isAdminOrAbove } from "../lib/roles";
 import { useModules } from "../lib/useModules";
@@ -10,6 +11,7 @@ import type { ValidationSettings } from "../lib/types";
 export default function Settings() {
   const { user } = useAuth();
   const qc = useQueryClient();
+  const toast = useToast();
   const canEdit = isAdminOrAbove(user);
 
   const settings = useQuery<ValidationSettings>({
@@ -27,6 +29,7 @@ export default function Settings() {
     mutationFn: async (v: { key: string; enabled: boolean }) =>
       (await api.put(`/modules/${v.key}`, { enabled: v.enabled })).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["modules"] }),
+    onError: (e) => toast.error(apiError(e)),
   });
 
   const s = settings.data;
