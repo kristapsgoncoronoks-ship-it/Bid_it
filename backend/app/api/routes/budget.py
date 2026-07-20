@@ -10,8 +10,7 @@ router = APIRouter(prefix="/budget", tags=["budget"])
 
 
 async def _guard(db: DbSession, org_id: str):
-    if not await modules.is_enabled(db, org_id, "budget"):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "The monthly budgeting module is not activated.")
+    await modules.require_enabled(db, org_id, "budget")
 
 
 @router.get("/overview", response_model=BudgetOverview)

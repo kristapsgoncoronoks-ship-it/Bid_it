@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -81,6 +82,15 @@ async def is_enabled(db: AsyncSession, org_id: str, key: str) -> bool:
         select(OrgModule.enabled).where(OrgModule.org_id == org_id, OrgModule.key == key)
     )
     return row if row is not None else m.default
+
+
+async def require_enabled(db: AsyncSession, org_id: str, key: str) -> None:
+    """Raise 403 if the module isn't active. The shared module-gate used by the
+    feature routes (was a copy-pasted `_guard` in each)."""
+    if not await is_enabled(db, org_id, key):
+        m = MODULES_BY_KEY.get(key)
+        name = m.name if m else key
+        raise HTTPException(status.HTTP_403_FORBIDDEN, f"The {name} module is not activated.")
 
 
 async def set_enabled(db: AsyncSession, org_id: str, key: str, enabled: bool) -> None:

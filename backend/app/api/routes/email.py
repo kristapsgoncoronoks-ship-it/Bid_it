@@ -29,8 +29,7 @@ router = APIRouter(prefix="/email", tags=["email intake"])
 
 
 async def _guard(db: DbSession, org_id: str):
-    if not await modules.is_enabled(db, org_id, "email_intake"):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "The email invoice intake module is not activated.")
+    await modules.require_enabled(db, org_id, "email_intake")
 
 
 # --------------------------------------------------------------------------- #

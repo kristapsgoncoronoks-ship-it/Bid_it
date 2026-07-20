@@ -39,8 +39,7 @@ router = APIRouter(prefix="/expenses", tags=["expenses"])
 
 
 async def _guard(db: DbSession, org_id: str):
-    if not await modules.is_enabled(db, org_id, "expenses"):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "The employee expenses module is not activated.")
+    await modules.require_enabled(db, org_id, "expenses")
 
 
 def _is_manager(user: User) -> bool:

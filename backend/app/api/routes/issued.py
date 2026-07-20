@@ -24,8 +24,7 @@ router = APIRouter(prefix="/issued", tags=["issuing"])
 
 
 async def _guard(db: DbSession, org_id: str):
-    if not await modules.is_enabled(db, org_id, "issuing"):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "The invoice issuing module is not activated.")
+    await modules.require_enabled(db, org_id, "issuing")
     profile = await issuer.get_or_create(db, org_id)
     missing = issuer.missing_fields(profile)
     if missing:
