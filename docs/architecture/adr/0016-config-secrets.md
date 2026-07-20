@@ -1,0 +1,24 @@
+# ADR-0016 — Env config + envelope-encrypted secrets (KMS-backed)
+
+**Status:** Accepted
+
+## Context
+Deployments differ only by configuration; secrets (signing key, DB creds, provider keys, stored portal credentials) must never be committed or logged, and must be rotatable and residency-safe.
+
+## Selected approach
+**12-factor configuration** — every deployment value from the environment (`core/config.Settings`), `.env` for local only. Secrets injected from the platform secret store (k8s Secrets / cloud secret manager). **Application-stored secrets** (portal credentials) use **envelope encryption**: per-secret AES-256-GCM DEK wrapped by a KEK, AAD-bound to context, KEK provider pluggable (`local`/`env`/BYOK → KMS/HSM target). **GCM auth failures raise; plaintext secrets/IBANs are never logged.**
+
+## Alternatives considered
+- **Secrets in config files / DB plaintext** — unacceptable; leak on backup/log.
+- **A single symmetric app key for all secrets** — no per-secret isolation, hard rotation, one key compromises all.
+- **Vault (HashiCorp) from day one** — strong, but an extra system to run pre-scale; the pluggable KEK provider reaches it later.
+
+## Why appropriate
+Env config keeps the image environment-agnostic; envelope encryption gives per-secret isolation + rotatable KEK + BYOK for tenants who need it (so we can't bulk-decrypt one tenant's secrets); KMS-backing is a config change, not a rewrite.
+
+## Risks
+- KEK loss/rotation on a populated store → documented re-wrap migration; KMS-managed lifecycle.
+- Misconfigured provider → fail-loud on missing keys in production.
+
+## Revisit when
+Multi-region/BYOK-per-tenant requirements arrive (move KEK to per-tenant KMS keys), or a dedicated secrets manager (Vault) is warranted operationally.
