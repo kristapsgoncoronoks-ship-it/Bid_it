@@ -102,8 +102,13 @@ def _transactions_from_rows(rows: list[dict], warnings: list[str]) -> list[Txn]:
         else:
             balance = None
             amount = amts[-1]
-            # A negative / parenthesised token is money out.
-            direction = "debit" if amount < 0 else "debit"  # default outflow; user reviews
+            # No running-balance column and no reliable sign → default to an
+            # outflow, so the row still appears in the reviewable 'available
+            # expenses' inbox (only debits are expensable). The user confirms or
+            # discards. Sign-based guessing would be worse here: unsigned positive
+            # amounts (the norm on such statements) would look like credits and
+            # silently vanish from the inbox.
+            direction = "debit"
         txns.append(
             Txn(date=r["date"], description=r["description"][:300],
                 amount=abs(amount).quantize(_CENTS), direction=direction, balance=balance)
