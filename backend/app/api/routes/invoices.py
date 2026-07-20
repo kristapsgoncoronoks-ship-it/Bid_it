@@ -24,6 +24,7 @@ from app.schemas.invoice import (
     ParsedInvoiceDraft,
 )
 from app.schemas.validation import ValidationDecision, ValidationFinding
+from app.core.dimensions import DIMENSION_KEYS
 from app.core.money import q2 as _q
 from app.services import access, audit, filesec, fx, validation
 from app.services.parser import parse_invoice_file
@@ -65,6 +66,11 @@ def _detail(inv: Invoice, vendor_name: str) -> InvoiceDetailOut:
         validation_status=inv.validation_status,
         source_filename=inv.source_filename,
         notes=inv.notes,
+        cost_center=inv.cost_center,
+        department=inv.department,
+        project=inv.project,
+        vehicle=inv.vehicle,
+        property_ref=inv.property_ref,
         line_items=[LineItemOut.model_validate(li) for li in inv.line_items],
         validation_findings=_parse_findings(inv.validation_findings),
         validated_by=inv.validated_by,
@@ -130,6 +136,11 @@ async def persist_invoice(db: DbSession, org_id: str, body: InvoiceCreate) -> tu
         fx_source=fx_source,
         notes=body.notes,
         source_filename=body.source_filename,
+        cost_center=body.cost_center,
+        department=body.department,
+        project=body.project,
+        vehicle=body.vehicle,
+        property_ref=body.property_ref,
         line_items=items,
     )
 
@@ -227,6 +238,11 @@ async def update_invoice(
         invoice.due_date = body.due_date
     if body.notes is not None:
         invoice.notes = body.notes
+    # Cost dimensions: apply only those explicitly present in the request (a
+    # provided null clears the tag; an absent field is left unchanged).
+    for key in DIMENSION_KEYS:
+        if key in body.model_fields_set:
+            setattr(invoice, key, getattr(body, key))
     await db.commit()
     await db.refresh(invoice, attribute_names=["line_items"])
     return _detail(invoice, invoice.vendor.name)

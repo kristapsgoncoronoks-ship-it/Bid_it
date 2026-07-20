@@ -5,8 +5,10 @@ from datetime import date
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from app.api.deps import CurrentUser, DbSession
+from app.core.dimensions import DIMENSIONS, is_dimension
 from app.schemas.analytics import (
     CategorySpend,
+    DimensionBreakdown,
     StatusBucket,
     SummaryOut,
     TimeBucket,
@@ -48,6 +50,23 @@ async def get_by_category(
     current: CurrentUser, db: DbSession, start: date | None = None, end: date | None = None
 ):
     return await analytics.by_category(db, current.org_id, start, end)
+
+
+@router.get("/dimensions")
+async def get_dimensions(current: CurrentUser):
+    """The cost-allocation dimensions available to slice spend by."""
+    return [{"key": k, "label": v} for k, v in DIMENSIONS.items()]
+
+
+@router.get("/by-dimension", response_model=DimensionBreakdown)
+async def get_by_dimension(
+    current: CurrentUser, db: DbSession,
+    dimension: str = Query(..., description="cost_center | department | project | vehicle | property_ref"),
+    start: date | None = None, end: date | None = None,
+):
+    if not is_dimension(dimension):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown dimension '{dimension}'")
+    return await analytics.by_dimension(db, current.org_id, dimension, start, end)
 
 
 @router.get("/by-status", response_model=list[StatusBucket])

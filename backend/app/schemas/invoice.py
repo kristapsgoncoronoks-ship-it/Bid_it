@@ -6,6 +6,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.invoice import InvoiceStatus
+from app.schemas.dimensions import DimensionFields
 from app.schemas.validation import ValidationFinding
 
 
@@ -29,7 +30,7 @@ class LineItemOut(BaseModel):
     tax_rate: Decimal
 
 
-class InvoiceCreate(BaseModel):
+class InvoiceCreate(DimensionFields):
     # Either an existing vendor_id or a vendor_name (created/looked up on the fly).
     vendor_id: str | None = None
     vendor_name: str | None = Field(default=None, max_length=200)
@@ -46,13 +47,13 @@ class InvoiceCreate(BaseModel):
     line_items: list[LineItemIn] = Field(default_factory=list)
 
 
-class InvoiceUpdate(BaseModel):
+class InvoiceUpdate(DimensionFields):
     status: InvoiceStatus | None = None
     due_date: date | None = None
     notes: str | None = None
 
 
-class InvoiceOut(BaseModel):
+class InvoiceOut(DimensionFields):
     model_config = ConfigDict(from_attributes=True)
     id: str
     vendor_id: str

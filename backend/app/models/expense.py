@@ -64,6 +64,14 @@ class ExpenseItem(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     vat_amount: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)  # reclaimable
     payment_method: Mapped[str] = mapped_column(String(20), default="personal", nullable=False)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)  # business purpose (Concur-style)
+
+    # Cost-allocation dimensions (see app.core.dimensions) — e.g. tag fuel to a
+    # vehicle, a site visit to a property, billable time to a project.
+    cost_center: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    department: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    project: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    vehicle: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    property_ref: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     # Bank-statement verification: a human-readable reference to the matched bank/
     # card transaction. Non-null ⇒ this entry is reconciled against the statement.
     bank_reference: Mapped[str | None] = mapped_column(String(300), nullable=True)

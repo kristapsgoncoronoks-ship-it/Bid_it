@@ -234,7 +234,24 @@ export interface ValidationSettings {
   human_validation_enabled: boolean;
 }
 
-export interface Invoice {
+// Cost-allocation dimensions shared by invoices and expense items.
+export interface Dimensions {
+  cost_center: string | null;
+  department: string | null;
+  project: string | null;
+  vehicle: string | null;
+  property_ref: string | null;
+}
+
+export const DIMENSION_LABELS: Record<keyof Dimensions, string> = {
+  cost_center: "Cost center",
+  department: "Department",
+  project: "Project",
+  vehicle: "Vehicle",
+  property_ref: "Property",
+};
+
+export interface Invoice extends Dimensions {
   id: string;
   vendor_id: string;
   invoice_number: string;
@@ -264,6 +281,19 @@ export interface InvoiceList {
   total: number;
   page: number;
   page_size: number;
+}
+
+export interface DimensionSpend {
+  value: string;
+  total: string;
+  invoice_count: number;
+}
+
+export interface DimensionBreakdown {
+  dimension: string;
+  label: string;
+  rows: DimensionSpend[];
+  total: string;
 }
 
 export interface LineItemInput {

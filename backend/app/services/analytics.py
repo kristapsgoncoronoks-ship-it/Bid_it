@@ -13,15 +13,20 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.dimensions import DIMENSIONS, is_dimension
 from app.models.invoice import Invoice, InvoiceStatus, LineItem
 from app.models.vendor import Vendor
 from app.schemas.analytics import (
     CategorySpend,
+    DimensionBreakdown,
+    DimensionSpend,
     StatusBucket,
     SummaryOut,
     TimeBucket,
     VendorSpend,
 )
+
+_UNASSIGNED = "(unassigned)"
 
 _ZERO = Decimal("0")
 
@@ -135,6 +140,31 @@ async def by_category(
     ).group_by(LineItem.category).order_by(total.desc())
     rows = (await db.execute(stmt)).all()
     return [CategorySpend(category=r[0], total=Decimal(r[1] or 0)) for r in rows]
+
+
+async def by_dimension(
+    db: AsyncSession, org_id: str, dimension: str, start: date | None, end: date | None
+) -> DimensionBreakdown:
+    """Group invoice spend by a cost-allocation dimension (cost_center, vehicle, …).
+
+    Untagged invoices roll up under "(unassigned)" so the breakdown always sums
+    to the tenant's total spend for the window.
+    """
+    if not is_dimension(dimension):
+        raise ValueError(f"unknown dimension '{dimension}'")
+    col = getattr(Invoice, dimension)
+    total = func.coalesce(func.sum(Invoice.total), 0).label("total")
+    stmt = _scope(
+        select(col, total, func.count(Invoice.id)), org_id, start, end
+    ).group_by(col).order_by(total.desc())
+    rows = (await db.execute(stmt)).all()
+
+    out = [
+        DimensionSpend(value=(r[0] or _UNASSIGNED), total=Decimal(r[1] or 0), invoice_count=r[2])
+        for r in rows
+    ]
+    grand = sum((r.total for r in out), start=_ZERO)
+    return DimensionBreakdown(dimension=dimension, label=DIMENSIONS[dimension], rows=out, total=grand)
 
 
 async def by_status(

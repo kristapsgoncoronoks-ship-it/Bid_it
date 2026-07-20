@@ -67,6 +67,14 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     source_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Cost-allocation dimensions (free-text tags; see app.core.dimensions). Any
+    # combination may be set; each is independently filterable/groupable.
+    cost_center: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    department: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    project: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    vehicle: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    property_ref: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+
     # Data validation. status: none | passed | flagged | pending | approved | rejected.
     # findings is a JSON array of {severity, code, message, field}.
     validation_status: Mapped[str] = mapped_column(String(16), default="none", nullable=False, index=True)

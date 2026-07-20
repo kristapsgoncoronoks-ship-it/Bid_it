@@ -17,6 +17,7 @@ from app.models.expense import (
     ExpenseReport,
     ExpenseTransaction,
 )
+from app.core.dimensions import DIMENSION_KEYS
 from app.core.roles import is_admin_or_above
 from app.models.user import User
 from app.schemas.expense import (
@@ -60,16 +61,15 @@ def _can_oversee(user: User) -> bool:
 
 def _detail(r: ExpenseReport) -> ExpenseReportDetail:
     d = ExpenseReportDetail.model_validate(r)
-    d.items = [
-        ExpenseItemOut(
-            id=it.id, spend_date=it.spend_date, category=it.category, description=it.description,
-            merchant=it.merchant, amount=it.amount, vat_amount=it.vat_amount,
-            payment_method=it.payment_method, comment=it.comment,
-            has_receipt=it.receipt_data is not None,
-            verified=it.bank_reference is not None, bank_reference=it.bank_reference,
-        )
-        for it in r.items
-    ]
+    items = []
+    for it in r.items:
+        # from_attributes carries the dimension tags + base fields; the two
+        # derived flags are computed here.
+        out = ExpenseItemOut.model_validate(it)
+        out.has_receipt = it.receipt_data is not None
+        out.verified = it.bank_reference is not None
+        items.append(out)
+    d.items = items
     return d
 
 
@@ -442,6 +442,10 @@ async def update_item(report_id: str, item_id: str, body: ExpenseItemPatch, curr
         item.comment = body.comment
     if body.category is not None:
         item.category = body.category
+    # Cost dimensions: apply only fields explicitly present (a null clears a tag).
+    for key in DIMENSION_KEYS:
+        if key in body.model_fields_set:
+            setattr(item, key, getattr(body, key))
     await db.commit()
     await db.refresh(r, attribute_names=["items"])
     return _detail(r)

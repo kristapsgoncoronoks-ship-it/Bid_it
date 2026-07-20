@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { Field } from "../components/Field";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
@@ -10,7 +11,7 @@ import {
   VALIDATION_LABELS,
   VALIDATION_STYLES,
 } from "../lib/format";
-import type { InvoiceDetail, InvoiceStatus } from "../lib/types";
+import { DIMENSION_LABELS, type Dimensions, type InvoiceDetail, type InvoiceStatus } from "../lib/types";
 
 const STATUSES: InvoiceStatus[] = ["draft", "pending", "paid", "overdue"];
 
@@ -87,6 +88,8 @@ export default function InvoiceDetailPage() {
           </div>
         </div>
       </div>
+
+      <CostAllocation inv={inv} onSaved={invalidate} />
 
       {inv.validation_status !== "none" && (
         <div className="card space-y-3">
@@ -167,6 +170,56 @@ export default function InvoiceDetailPage() {
       </div>
 
       {inv.notes && <div className="card text-sm text-slate-600">{inv.notes}</div>}
+    </div>
+  );
+}
+
+// Editable cost-allocation tags (cost center, department, project, vehicle,
+// property). Saved via PATCH; only changed fields are sent.
+function CostAllocation({ inv, onSaved }: { inv: InvoiceDetail; onSaved: () => void }) {
+  const keys = Object.keys(DIMENSION_LABELS) as (keyof Dimensions)[];
+  const [draft, setDraft] = useState<Record<string, string>>(
+    Object.fromEntries(keys.map((k) => [k, inv[k] ?? ""])),
+  );
+
+  const dirty = keys.filter((k) => (draft[k] ?? "") !== (inv[k] ?? ""));
+  const save = useMutation({
+    mutationFn: async () => {
+      const patch: Record<string, string | null> = {};
+      for (const k of dirty) patch[k] = draft[k].trim() === "" ? null : draft[k].trim();
+      return (await api.patch(`/invoices/${inv.id}`, patch)).data;
+    },
+    onSuccess: onSaved,
+  });
+
+  return (
+    <div className="card space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-600">Cost allocation</h2>
+          <p className="text-xs text-slate-400">Tag this invoice to a cost object for reporting. Leave blank if not applicable.</p>
+        </div>
+        <button
+          className="btn-primary"
+          disabled={dirty.length === 0 || save.isPending}
+          onClick={() => save.mutate()}
+        >
+          {save.isPending ? "Saving…" : dirty.length ? `Save (${dirty.length})` : "Saved"}
+        </button>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {keys.map((k) => (
+          <div key={k}>
+            <label className="label">{DIMENSION_LABELS[k]}</label>
+            <input
+              className="input"
+              value={draft[k]}
+              placeholder="—"
+              onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
+            />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

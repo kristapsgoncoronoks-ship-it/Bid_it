@@ -22,6 +22,8 @@ def compute_totals(items: list) -> tuple[Decimal, Decimal]:
 
 
 def item_from(payload) -> ExpenseItem:
+    from app.core.dimensions import DIMENSION_KEYS
+
     return ExpenseItem(
         spend_date=payload.spend_date,
         category=payload.category,
@@ -31,6 +33,7 @@ def item_from(payload) -> ExpenseItem:
         vat_amount=q(payload.vat_amount),
         payment_method=payload.payment_method,
         comment=getattr(payload, "comment", None),
+        **{k: getattr(payload, k, None) for k in DIMENSION_KEYS},
     )
 
 

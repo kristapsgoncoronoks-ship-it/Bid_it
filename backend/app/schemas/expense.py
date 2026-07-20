@@ -6,11 +6,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.dimensions import DimensionFields
+
 Category = Literal["travel", "meals", "accommodation", "transport", "supplies", "software", "other"]
 PaymentMethod = Literal["personal", "company_card"]
 
 
-class ExpenseItemIn(BaseModel):
+class ExpenseItemIn(DimensionFields):
     spend_date: date
     category: Category = "other"
     description: str = Field(min_length=1, max_length=300)
@@ -42,7 +44,7 @@ class ExpenseDecision(BaseModel):
     note: str | None = Field(default=None, max_length=1000)
 
 
-class ExpenseItemOut(BaseModel):
+class ExpenseItemOut(DimensionFields):
     model_config = ConfigDict(from_attributes=True)
     id: str
     spend_date: date
@@ -58,8 +60,8 @@ class ExpenseItemOut(BaseModel):
     bank_reference: str | None = None
 
 
-class ExpenseItemPatch(BaseModel):
-    """Edit a draft item's business purpose (and optionally category)."""
+class ExpenseItemPatch(DimensionFields):
+    """Edit a draft item's business purpose, category, and cost dimensions."""
     comment: str | None = Field(default=None, max_length=1000)
     category: Category | None = None
 
