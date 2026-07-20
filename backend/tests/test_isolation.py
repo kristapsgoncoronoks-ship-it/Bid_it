@@ -128,16 +128,33 @@ async def test_fresh_registrant_sees_no_other_company_data(client):
 
 @pytest.mark.asyncio
 async def test_same_company_name_registration_does_not_take_over(client):
+    # The user's exact scenario: two accounts, DIFFERENT emails, SAME company name.
+    # Isolation is keyed on org_id (a fresh UUID per registration), never the name,
+    # so the second account sees none of the first's REPORTS or data.
     a_tok, a_org = await _register(client, "Acme Corp", "first@acme-a.io")
     await client.post("/api/v1/invoices", json=_http_inv(1), headers=_h(a_tok))
     await client.post("/api/v1/invoices", json=_http_inv(2), headers=_h(a_tok))
+    a_inv_id = (await client.post("/api/v1/invoices", json=_http_inv(3), headers=_h(a_tok))).json()["id"]
+    await client.put("/api/v1/modules/expenses", json={"enabled": True}, headers=_h(a_tok))
+    a_report_id = (await client.post("/api/v1/expenses", json={"title": "A report", "items": [
+        {"spend_date": "2026-05-01", "category": "meals", "description": "Lunch", "amount": "80.00", "vat_amount": "0"}]},
+        headers=_h(a_tok))).json()["id"]
 
     # Registering the SAME name (different email) creates a NEW, isolated company.
     dup_tok, dup_org = await _register(client, "Acme Corp", "impostor@acme-b.io")
     assert dup_org != a_org
+
+    # The second "Acme Corp" sees ZERO of the first's invoices, expenses, analytics.
     assert (await client.get("/api/v1/invoices", headers=_h(dup_tok))).json()["total"] == 0
+    await client.put("/api/v1/modules/expenses", json={"enabled": True}, headers=_h(dup_tok))
+    assert (await client.get("/api/v1/expenses", headers=_h(dup_tok))).json()["total"] == 0
+    assert float((await client.get("/api/v1/analytics/summary", headers=_h(dup_tok))).json()["total_spend"]) == 0.0
+    # …and cannot reach the first company's rows even by their exact ids.
+    assert (await client.get(f"/api/v1/invoices/{a_inv_id}", headers=_h(dup_tok))).status_code == 404
+    assert (await client.get(f"/api/v1/expenses/{a_report_id}", headers=_h(dup_tok))).status_code == 404
+
     # A still owns all of its data.
-    assert (await client.get("/api/v1/invoices", headers=_h(a_tok))).json()["total"] == 2
+    assert (await client.get("/api/v1/invoices", headers=_h(a_tok))).json()["total"] == 3
 
 
 @pytest.mark.asyncio
