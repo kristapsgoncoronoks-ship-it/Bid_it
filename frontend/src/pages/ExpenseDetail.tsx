@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { Field } from "../components/Field";
 import { useToast } from "../components/Toast";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError, downloadFile } from "../lib/api";
@@ -189,15 +190,6 @@ function CommentThread({ reportId }: { reportId: string }) {
         />
         <button className="btn-primary" disabled={!body.trim() || post.isPending} onClick={() => post.mutate()}>Post</button>
       </div>
-    </div>
-  );
-}
-
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-xs uppercase tracking-wide text-slate-400">{label}</dt>
-      <dd className="mt-0.5 font-medium text-slate-700">{value}</dd>
     </div>
   );
 }

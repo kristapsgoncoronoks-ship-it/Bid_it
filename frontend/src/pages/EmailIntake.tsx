@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { Field } from "../components/Field";
 import { useToast } from "../components/Toast";
 import { api, apiError, downloadFile } from "../lib/api";
 import { METHOD_STYLES, methodLabel, money, shortDate } from "../lib/format";
@@ -269,15 +270,6 @@ function InboundDetail({ id, onDone }: { id: string; onDone: () => void }) {
           Delete
         </button>
       </div>
-    </div>
-  );
-}
-
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-xs uppercase tracking-wide text-slate-400">{label}</dt>
-      <dd className="mt-0.5 font-medium text-slate-700">{value}</dd>
     </div>
   );
 }

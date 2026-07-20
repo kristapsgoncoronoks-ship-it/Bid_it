@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Field } from "../components/Field";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import {
@@ -166,15 +167,6 @@ export default function InvoiceDetailPage() {
       </div>
 
       {inv.notes && <div className="card text-sm text-slate-600">{inv.notes}</div>}
-    </div>
-  );
-}
-
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-xs uppercase tracking-wide text-slate-400">{label}</dt>
-      <dd className="mt-0.5 font-medium text-slate-700">{value}</dd>
     </div>
   );
 }
