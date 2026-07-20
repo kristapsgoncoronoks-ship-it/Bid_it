@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
@@ -265,6 +266,8 @@ async def upload_invoice(current: CurrentUser, file: UploadFile):
     except filesec.FileRejected as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
     try:
-        return parse_invoice_file(file.filename or "upload", content)
+        # OCR/PDF parsing is CPU-bound — run it in a threadpool so the event loop
+        # isn't blocked while one upload is parsed.
+        return await run_in_threadpool(parse_invoice_file, file.filename or "upload", content)
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))

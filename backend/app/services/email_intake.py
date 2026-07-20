@@ -13,6 +13,7 @@ import hashlib
 import secrets
 from datetime import datetime, timezone
 
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -121,7 +122,8 @@ async def process_attachment(
     # Passed the security gate → safe to retain the original and parse it.
     row.file_data = content
     try:
-        draft = parse_invoice_file(filename or "attachment", content)
+        # CPU-bound OCR/parse off the event loop (the webhook loops attachments).
+        draft = await run_in_threadpool(parse_invoice_file, filename or "attachment", content)
         row.draft_json = draft.model_dump_json()
         # Record HOW it was read (e-invoice-xml | text-layer | ocr | csv | json)
         # so the review inbox shows the extraction method, not just the file type.

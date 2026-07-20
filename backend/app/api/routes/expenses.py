@@ -4,6 +4,7 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query, Response, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
@@ -148,7 +149,7 @@ async def import_bank_statement(current: CurrentUser, db: DbSession, file: Uploa
     except filesec.FileRejected as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
     try:
-        result = bank_statement.parse(file.filename or "statement", content)
+        result = await run_in_threadpool(bank_statement.parse, file.filename or "statement", content)
     except bank_statement.pdf_ocr.OcrUnavailable as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"OCR unavailable: {exc}")
     except ValueError as exc:
@@ -440,7 +441,7 @@ async def report_pdf(report_id: str, current: CurrentUser, db: DbSession):
     r = await _load(db, current.org_id, report_id)
     _require_view(r, current)
     try:
-        pdf = expenses.build_pdf(r)
+        pdf = await run_in_threadpool(expenses.build_pdf, r)
     except expenses.PdfUnavailable as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"PDF generation unavailable: {e}")
     fname = f"expense-{r.title[:40].strip().replace(' ', '_')}.pdf"

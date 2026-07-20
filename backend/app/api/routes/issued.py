@@ -4,6 +4,7 @@ import json
 from datetime import date, timedelta
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
@@ -159,7 +160,7 @@ async def get_issued_pdf(invoice_id: str, current: CurrentUser, db: DbSession):
     profile = await issuer.get_or_create(db, current.org_id)
     logo = (profile.logo_mime, profile.logo_data) if profile.logo_data else None
     try:
-        pdf = invoice_pdf.build_pdf(inv, seller, result, xml, logo)
+        pdf = await run_in_threadpool(invoice_pdf.build_pdf, inv, seller, result, xml, logo)
     except invoice_pdf.PdfUnavailable as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"PDF generation unavailable: {e}")
     return Response(
