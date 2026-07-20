@@ -26,15 +26,15 @@ LIMIT_DEFAULTS: dict[UserRole, tuple[int, int]] = {
     UserRole.user_free: (10, 20),
     UserRole.user: (1000, 2000),
     UserRole.admin: (0, 0),
-    UserRole.sysadmin: (0, 0),
+    UserRole.owner: (0, 0),
 }
 
 # Display metadata for the matrix UI.
 ROLE_META: dict[UserRole, dict] = {
     UserRole.user_free: {"label": "User-free", "paid": False, "desc": "Non-paying user — limited access."},
     UserRole.user: {"label": "User", "paid": True, "desc": "Paying user."},
-    UserRole.admin: {"label": "Admin", "paid": True, "desc": "Access to the admin panel."},
-    UserRole.sysadmin: {"label": "Sysadmin", "paid": True, "desc": "All privileges incl. user-rights management."},
+    UserRole.admin: {"label": "Admin", "paid": True, "desc": "Business administration within the company."},
+    UserRole.owner: {"label": "Owner", "paid": True, "desc": "The company's primary user — full administration of their company."},
 }
 
 

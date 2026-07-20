@@ -4,14 +4,14 @@ import { useToast } from "../components/Toast";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
 import { shortDate } from "../lib/format";
-import { ASSIGNABLE_ROLES, ROLE_LABELS, isSysadmin } from "../lib/roles";
+import { ASSIGNABLE_ROLES, ROLE_LABELS, isOwner } from "../lib/roles";
 import type { Invite, Member, UserRoleName } from "../lib/types";
 
 export default function Team() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const toast = useToast();
-  const canManage = isSysadmin(user);
+  const canManage = isOwner(user);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<UserRoleName>("user");
   const [error, setError] = useState<string | null>(null);

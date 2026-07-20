@@ -71,7 +71,7 @@ async def seed() -> None:
                 email=DEMO_EMAIL,
                 name="Demo Owner",
                 hashed_password=hash_password("demo1234"),
-                role=UserRole.sysadmin,
+                role=UserRole.owner,
                 is_platform_admin=True,  # so the demo shows the operator view
                 is_expense_approver=True,  # the owner approves expenses by default
             )
@@ -85,7 +85,7 @@ async def seed() -> None:
             await db.flush()
             db.add(User(
                 org_id=t.id, email=f"owner{i}@{tname.split()[0].lower()}.test", name="Owner",
-                hashed_password=hash_password("demo1234"), role=UserRole.sysadmin,
+                hashed_password=hash_password("demo1234"), role=UserRole.owner,
                 is_expense_approver=True,
             ))
 

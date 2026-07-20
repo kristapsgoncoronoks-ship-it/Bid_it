@@ -7,7 +7,7 @@ export interface Paginated<T> {
 }
 
 // The four user groups (low → high privilege).
-export type UserRoleName = "user_free" | "user" | "admin" | "sysadmin";
+export type UserRoleName = "user_free" | "user" | "admin" | "owner";
 
 export interface RolePolicy {
   role: UserRoleName;

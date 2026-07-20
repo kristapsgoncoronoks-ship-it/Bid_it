@@ -19,10 +19,10 @@ async def list_members(db: AsyncSession, org_id: str) -> list[User]:
     return list(rows)
 
 
-async def sysadmin_count(db: AsyncSession, org_id: str) -> int:
+async def owner_count(db: AsyncSession, org_id: str) -> int:
     return await db.scalar(
         select(func.count(User.id)).where(
-            User.org_id == org_id, User.role == UserRole.sysadmin, User.is_active.is_(True)
+            User.org_id == org_id, User.role == UserRole.owner, User.is_active.is_(True)
         )
     ) or 0
 

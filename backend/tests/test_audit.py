@@ -51,7 +51,7 @@ async def test_verify_ok_then_detects_tampering(auth_client, db_session):
 
 
 @pytest.mark.asyncio
-async def test_audit_is_sysadmin_only(auth_client, client):
+async def test_audit_is_owner_only(auth_client, client):
     # A plain user cannot read the trail.
     inv = await auth_client.post("/api/v1/team/invites", json={"email": "u@acme.io", "role": "user"})
     token = inv.json()["token"]

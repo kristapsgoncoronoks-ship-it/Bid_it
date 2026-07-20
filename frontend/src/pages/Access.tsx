@@ -3,12 +3,14 @@ import { useEffect, useState } from "react";
 import { useToast } from "../components/Toast";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
-import { isSysadmin } from "../lib/roles";
+import { isPlatformOperator } from "../lib/roles";
 import type { RolePolicy, Usage } from "../lib/types";
 
 export default function Access() {
   const { user } = useAuth();
-  const canEdit = isSysadmin(user);
+  // The matrix is a GLOBAL, cross-company setting — only a platform operator may
+  // edit it. A company owner administers their own company but not system limits.
+  const canEdit = isPlatformOperator(user);
 
   const matrix = useQuery<RolePolicy[]>({
     queryKey: ["access", "matrix"],
@@ -25,7 +27,7 @@ export default function Access() {
         <h1 className="text-2xl font-semibold tracking-tight">Access & limits matrix</h1>
         <p className="text-sm text-slate-500">
           The four user groups and their monthly usage limits. Free and paying users are capped here;
-          admins and sysadmins are unlimited. <span className="text-slate-400">A limit of 0 means unlimited.</span>
+          admins and owners are unlimited. <span className="text-slate-400">A limit of 0 means unlimited.</span>
         </p>
       </div>
 
@@ -49,7 +51,7 @@ export default function Access() {
 
       {!canEdit && (
         <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
-          You can view the matrix, but only a sysadmin can change the limits.
+          These limits are set platform-wide. You can view them, but only a platform operator can change them.
         </div>
       )}
 

@@ -14,17 +14,21 @@ if TYPE_CHECKING:
 
 
 class UserRole(str, enum.Enum):
-    """Four platform user groups, low → high privilege.
+    """Four per-company user groups, low → high privilege. These are ALWAYS scoped
+    to the user's own company (tenant) — no company role grants any cross-company
+    or system-wide privilege. Platform-operator access is a separate flag
+    (`is_platform_admin`), never a company role.
 
     - user_free : non-paying user; limited access, usage limits from the matrix
     - user      : paying user; usage limits from the matrix
-    - admin     : access to the admin panel (business administration)
-    - sysadmin  : all privileges, including user-rights management + the matrix
+    - admin     : business administration WITHIN the company (the admin panel)
+    - owner     : the company's primary user — full administration of THEIR company
+                  (user management, roles, settings). Not a system administrator.
     """
     user_free = "user_free"
     user = "user"
     admin = "admin"
-    sysadmin = "sysadmin"
+    owner = "owner"
 
 
 class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):

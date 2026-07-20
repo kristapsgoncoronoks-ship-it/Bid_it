@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { isSysadmin } from "../lib/roles";
+import { isOwner } from "../lib/roles";
 import { useModules } from "../lib/useModules";
 
 // `module` marks an item that only shows when that add-on module is enabled.
@@ -19,8 +19,8 @@ const NAV = [
   { to: "/partners", label: "Partners", end: false, module: "issuing" },
   { to: "/expenses", label: "Expenses", end: false, module: "expenses" },
   { to: "/team", label: "Team", end: false },
-  { to: "/access", label: "Access", end: false, sysadmin: true },
-  { to: "/audit", label: "Audit log", end: false, sysadmin: true },
+  { to: "/access", label: "Access", end: false, owner: true },
+  { to: "/audit", label: "Audit log", end: false, owner: true },
   { to: "/billing", label: "Billing", end: false },
   { to: "/settings", label: "Settings", end: false },
 ];
@@ -29,7 +29,7 @@ export function Layout() {
   const { user, org, logout } = useAuth();
   const navigate = useNavigate();
   const { isEnabled } = useModules();
-  const nav = NAV.filter((n) => (!n.module || isEnabled(n.module)) && (!("sysadmin" in n && n.sysadmin) || isSysadmin(user)));
+  const nav = NAV.filter((n) => (!n.module || isEnabled(n.module)) && (!("owner" in n && n.owner) || isOwner(user)));
   if (user?.is_platform_admin) {
     nav.push({ to: "/platform", label: "Platform", end: false });
   }

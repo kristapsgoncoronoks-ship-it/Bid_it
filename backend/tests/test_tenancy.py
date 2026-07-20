@@ -85,7 +85,7 @@ async def test_downgrade_disables_addon_and_guards_seats(auth_client):
 
 
 @pytest.mark.asyncio
-async def test_last_sysadmin_cannot_be_demoted(auth_client):
+async def test_last_owner_cannot_be_demoted(auth_client):
     me = (await auth_client.get("/api/v1/auth/me")).json()
     r = await auth_client.patch(f"/api/v1/team/members/{me['user']['id']}", json={"role": "user"})
     assert r.status_code == 400

@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
-from app.core.roles import is_sysadmin
+from app.core.roles import is_owner
 from app.models.organization import Organization
 from app.models.user import User, UserRole
 from app.schemas.tenancy import (
@@ -18,10 +18,11 @@ from app.services import audit, plans, team
 router = APIRouter(prefix="/team", tags=["team"])
 
 
-def _sysadmin_only(current: User):
-    # User-rights management (invites + roles + activation) is sysadmin-only.
-    if not is_sysadmin(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a sysadmin can manage users and roles")
+def _owner_only(current: User):
+    # User-rights management (invites + roles + activation) is owner-only, and
+    # only within the caller's own company.
+    if not is_owner(current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the company owner can manage users and roles")
 
 
 @router.get("/members", response_model=list[MemberOut])
@@ -31,17 +32,17 @@ async def members(current: CurrentUser, db: DbSession):
 
 @router.patch("/members/{user_id}", response_model=MemberOut)
 async def update_member(user_id: str, body: MemberUpdate, current: CurrentUser, db: DbSession):
-    _sysadmin_only(current)
+    _owner_only(current)
     member = await team.get_member(db, current.org_id, user_id)
     if member is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Member not found")
 
-    # Never allow the last active sysadmin to be demoted or deactivated.
-    demoting = body.role is not None and member.role == UserRole.sysadmin and body.role != UserRole.sysadmin
+    # Never allow the last active owner to be demoted or deactivated.
+    demoting = body.role is not None and member.role == UserRole.owner and body.role != UserRole.owner
     deactivating = body.is_active is False and member.is_active
-    if (demoting or deactivating) and member.role == UserRole.sysadmin:
-        if await team.sysadmin_count(db, current.org_id) <= 1:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "The workspace must keep at least one active sysadmin")
+    if (demoting or deactivating) and member.role == UserRole.owner:
+        if await team.owner_count(db, current.org_id) <= 1:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "The company must keep at least one active owner")
 
     if body.role is not None:
         member.role = body.role
@@ -68,13 +69,13 @@ async def update_member(user_id: str, body: MemberUpdate, current: CurrentUser, 
 
 @router.get("/invites", response_model=list[InviteOut])
 async def list_invites(current: CurrentUser, db: DbSession):
-    _sysadmin_only(current)
+    _owner_only(current)
     return await team.list_invitations(db, current.org_id)
 
 
 @router.post("/invites", response_model=InviteOut, status_code=status.HTTP_201_CREATED)
 async def create_invite(body: InviteCreate, current: CurrentUser, db: DbSession):
-    _sysadmin_only(current)
+    _owner_only(current)
     org = await db.get(Organization, current.org_id)
 
     # Seat limit (active users + outstanding invites) vs the plan.
@@ -98,7 +99,7 @@ async def create_invite(body: InviteCreate, current: CurrentUser, db: DbSession)
 
 @router.delete("/invites/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_invite(invite_id: str, current: CurrentUser, db: DbSession):
-    _sysadmin_only(current)
+    _owner_only(current)
     from app.models.invitation import Invitation
 
     inv = await db.scalar(

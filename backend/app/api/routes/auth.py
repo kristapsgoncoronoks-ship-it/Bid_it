@@ -40,7 +40,7 @@ async def register(body: RegisterRequest, db: DbSession) -> AuthResponse:
         email=body.email.lower(),
         name=body.name,
         hashed_password=hash_password(body.password),
-        role=UserRole.sysadmin,   # the first user of a new workspace owns it
+        role=UserRole.owner,   # the first user is the OWNER of THIS company only
         is_expense_approver=True,  # the owner is an expense approver by default
     )
     db.add(user)
