@@ -6,6 +6,18 @@ import { defineConfig } from "vite";
 // to the API via VITE_API_BASE_URL.
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      output: {
+        // Split heavy, rarely-changing deps into their own cacheable chunks so
+        // the main bundle stays small and charts load only where needed.
+        manualChunks: {
+          recharts: ["recharts"],
+          vendor: ["react", "react-dom", "react-router-dom", "@tanstack/react-query", "axios"],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {
