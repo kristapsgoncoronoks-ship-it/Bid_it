@@ -20,6 +20,7 @@ from contextvars import ContextVar, Token
 from sqlalchemy import event
 from sqlalchemy.orm import Session, with_loader_criteria
 
+from app.models.audit import AuditEvent
 from app.models.budget import BudgetTarget
 from app.models.email_intake import EmailIntake, InboundInvoice
 from app.models.expense import ExpenseComment, ExpenseReport, ExpenseTransaction
@@ -36,11 +37,13 @@ from app.models.vendor import Vendor
 TENANT_MODELS = (
     Vendor, Invoice, User, Invitation, IssuedInvoice, OrgModule, IssuerProfile,
     ExpenseReport, ExpenseTransaction, ExpenseComment, EmailIntake, InboundInvoice,
-    BudgetTarget,
+    BudgetTarget, AuditEvent,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.
 _current_org: ContextVar[str | None] = ContextVar("current_org", default=None)
+# The acting user (id, email) for audit attribution; (None, None) = system/anon.
+_current_actor: ContextVar[tuple[str | None, str | None]] = ContextVar("current_actor", default=(None, None))
 
 
 def set_current_org(org_id: str | None) -> Token:
@@ -53,6 +56,14 @@ def get_current_org() -> str | None:
 
 def reset_current_org(token: Token) -> None:
     _current_org.reset(token)
+
+
+def set_current_actor(actor_id: str | None, actor_email: str | None) -> None:
+    _current_actor.set((actor_id, actor_email))
+
+
+def get_current_actor() -> tuple[str | None, str | None]:
+    return _current_actor.get()
 
 
 @event.listens_for(Session, "do_orm_execute")
@@ -85,7 +96,9 @@ class TenantScopeMiddleware:
             await self.app(scope, receive, send)
             return
         token = _current_org.set(None)
+        actor_token = _current_actor.set((None, None))
         try:
             await self.app(scope, receive, send)
         finally:
             _current_org.reset(token)
+            _current_actor.reset(actor_token)

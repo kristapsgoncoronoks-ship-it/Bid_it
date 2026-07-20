@@ -33,7 +33,7 @@ from app.schemas.expense import (
     ExpenseTransactionOut,
     ItemFromTransaction,
 )
-from app.services import bank_statement, expenses, filesec, fx, modules
+from app.services import audit, bank_statement, expenses, filesec, fx, modules
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
 
@@ -426,6 +426,9 @@ async def get_receipt(report_id: str, item_id: str, current: CurrentUser, db: Db
     item = next((i for i in r.items if i.id == item_id), None)
     if item is None or not item.receipt_data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Receipt not found")
+    await audit.record(db, audit.A.DOC_DOWNLOAD, target_type="receipt", target_id=item_id,
+                       meta={"report_id": report_id})
+    await db.commit()
     # Serve inert: force download and stop MIME sniffing.
     return Response(
         content=item.receipt_data,

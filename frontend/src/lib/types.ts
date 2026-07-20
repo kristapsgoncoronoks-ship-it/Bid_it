@@ -26,6 +26,25 @@ export interface Usage {
   unlimited: boolean;
 }
 
+// Immutable, hash-chained audit trail (sysadmin-only).
+export interface AuditEvent {
+  id: string;
+  seq: number;
+  actor_email: string | null;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  meta: Record<string, unknown> | null;
+  at: string;
+}
+
+export interface ChainStatus {
+  ok: boolean;
+  events: number;
+  broken_at_seq: number | null;
+  detail: string | null;
+}
+
 export interface User {
   id: string;
   email: string;

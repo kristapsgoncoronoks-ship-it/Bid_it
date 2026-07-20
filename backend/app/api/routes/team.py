@@ -13,7 +13,7 @@ from app.schemas.tenancy import (
     MemberOut,
     MemberUpdate,
 )
-from app.services import plans, team
+from app.services import audit, plans, team
 
 router = APIRouter(prefix="/team", tags=["team"])
 
@@ -45,8 +45,13 @@ async def update_member(user_id: str, body: MemberUpdate, current: CurrentUser, 
 
     if body.role is not None:
         member.role = body.role
+        await audit.record(db, audit.A.ROLE_CHANGE, target_type="user", target_id=member.id,
+                           meta={"email": member.email, "role": body.role.value})
     if body.is_active is not None:
         member.is_active = body.is_active
+        if not body.is_active:
+            await audit.record(db, audit.A.USER_DEACTIVATE, target_type="user", target_id=member.id,
+                               meta={"email": member.email})
     await db.commit()
     await db.refresh(member)
     return member
@@ -75,7 +80,11 @@ async def create_invite(body: InviteCreate, current: CurrentUser, db: DbSession)
     if await db.scalar(select(User).where(User.email == email)):
         raise HTTPException(status.HTTP_409_CONFLICT, "A user with that email already exists")
 
-    return await team.create_invitation(db, current.org_id, email, body.role, current.email)
+    inv = await team.create_invitation(db, current.org_id, email, body.role, current.email)
+    await audit.record(db, audit.A.INVITE_CREATE, target_type="invitation", target_id=inv.id,
+                       meta={"email": email, "role": body.role.value})
+    await db.commit()
+    return inv
 
 
 @router.delete("/invites/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)

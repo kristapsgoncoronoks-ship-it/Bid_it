@@ -6,7 +6,7 @@ from app.api.deps import CurrentUser, DbSession
 from app.models.organization import Organization
 from app.core.roles import is_admin_or_above
 from app.schemas.module import ModuleOut, ModuleToggle
-from app.services import issuer, modules, plans
+from app.services import audit, issuer, modules, plans
 
 router = APIRouter(prefix="/modules", tags=["modules"])
 
@@ -50,6 +50,9 @@ async def toggle_module(key: str, body: ModuleToggle, current: CurrentUser, db: 
                 f"The {m.name} module isn't included in your {plans.plan_for(org.plan).name} plan. Upgrade to enable it.",
             )
     await modules.set_enabled(db, current.org_id, key, body.enabled)
+    await audit.record(db, audit.A.MODULE_TOGGLE, target_type="module", target_id=key,
+                       meta={"enabled": body.enabled})
+    await db.commit()
     return ModuleOut(
         key=m.key, name=m.name, description=m.description, core=m.core,
         enabled=body.enabled, requires_issuer=m.requires_issuer,

@@ -1,4 +1,5 @@
 """SQLAlchemy models. Import all so metadata/Alembic sees them."""
+from app.models.audit import AuditEvent
 from app.models.base import Base
 from app.models.budget import BudgetTarget
 from app.models.expense import (
@@ -21,6 +22,7 @@ from app.models.vendor import Vendor
 
 __all__ = [
     "Base",
+    "AuditEvent",
     "Organization",
     "User",
     "UserRole",

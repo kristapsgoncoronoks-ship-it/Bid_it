@@ -25,7 +25,7 @@ from app.schemas.invoice import (
 )
 from app.schemas.validation import ValidationDecision, ValidationFinding
 from app.core.money import q2 as _q
-from app.services import access, filesec, fx, validation
+from app.services import access, audit, filesec, fx, validation
 from app.services.parser import parse_invoice_file
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
@@ -150,6 +150,9 @@ async def create_invoice(body: InvoiceCreate, current: CurrentUser, db: DbSessio
     # System-matrix usage limit for the caller's access level.
     await access.enforce_invoice_quota(db, current.org_id, current.role)
     invoice, vendor_name = await persist_invoice(db, current.org_id, body)
+    await audit.record(db, audit.A.INVOICE_CREATE, target_type="invoice", target_id=invoice.id,
+                       meta={"number": invoice.invoice_number, "total": str(invoice.total), "currency": invoice.currency})
+    await db.commit()
     return _detail(invoice, vendor_name)
 
 
@@ -248,6 +251,8 @@ async def human_validate(
 @router.delete("/{invoice_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
     invoice = await _load_scoped(db, current.org_id, invoice_id)
+    await audit.record(db, audit.A.INVOICE_DELETE, target_type="invoice", target_id=invoice_id,
+                       meta={"number": invoice.invoice_number})
     await db.delete(invoice)
     await db.commit()
 

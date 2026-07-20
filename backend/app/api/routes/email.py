@@ -23,7 +23,7 @@ from app.schemas.email_intake import (
     InboundResult,
 )
 from app.schemas.invoice import InvoiceDetailOut, ParsedInvoiceDraft
-from app.services import access, email_intake, modules
+from app.services import access, audit, email_intake, modules
 
 router = APIRouter(prefix="/email", tags=["email intake"])
 
@@ -181,6 +181,8 @@ async def confirm_inbound(inbound_id: str, body: InboundConfirm, current: Curren
     invoice, vendor_name = await persist_invoice(db, current.org_id, draft)
     row.invoice_id = invoice.id
     row.status = "confirmed"
+    await audit.record(db, audit.A.INBOUND_CONFIRM, target_type="invoice", target_id=invoice.id,
+                       meta={"inbound_id": inbound_id, "number": invoice.invoice_number})
     await db.commit()
     return _detail(invoice, vendor_name)
 
@@ -211,6 +213,9 @@ async def download_file(inbound_id: str, current: CurrentUser, db: DbSession):
     row = await _load(db, current.org_id, inbound_id)
     if not row.file_data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No stored file for this attachment")
+    await audit.record(db, audit.A.DOC_DOWNLOAD, target_type="inbound_invoice", target_id=inbound_id,
+                       meta={"filename": row.filename})
+    await db.commit()
     fname = (row.filename or "attachment").replace('"', "")
     # Serve inert: force download, never inline, and stop MIME sniffing.
     return Response(

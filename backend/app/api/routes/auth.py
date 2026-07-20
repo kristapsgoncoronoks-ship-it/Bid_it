@@ -16,7 +16,7 @@ from app.schemas.auth import (
     Token,
 )
 from app.schemas.tenancy import AcceptInvite, InvitePreview
-from app.services import team
+from app.services import audit, team
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -47,6 +47,9 @@ async def register(body: RegisterRequest, db: DbSession) -> AuthResponse:
     await db.refresh(user)
     await db.refresh(org)
 
+    await audit.record(db, audit.A.REGISTER, org_id=org.id, actor=(user.id, user.email),
+                       target_type="organization", target_id=org.id)
+    await db.commit()
     return AuthResponse(token=_token_for(user), user=user, organization=org)
 
 
@@ -61,6 +64,8 @@ async def login(body: LoginRequest, db: DbSession) -> AuthResponse:
     org = await db.get(Organization, user.org_id)
     if org.status != "active" and not user.is_platform_admin:
         raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, f"Workspace is {org.status}. Contact support.")
+    await audit.record(db, audit.A.LOGIN, org_id=user.org_id, actor=(user.id, user.email))
+    await db.commit()
     return AuthResponse(token=_token_for(user), user=user, organization=org)
 
 
