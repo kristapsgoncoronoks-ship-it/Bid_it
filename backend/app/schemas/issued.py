@@ -18,6 +18,8 @@ class IssuedLineIn(BaseModel):
 
 
 class IssuedInvoiceCreate(BaseModel):
+    # Optional link to a Partner — when set, its pre-invoicing workflow is enforced.
+    partner_id: str | None = None
     buyer_name: str = Field(min_length=1, max_length=200)
     buyer_email: EmailStr | None = None
     buyer_vat_number: str | None = Field(default=None, max_length=32)
@@ -58,6 +60,8 @@ class IssuedInvoiceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
     number: str
+    kind: str = "standard"          # standard | penalty
+    partner_id: str | None = None
     issue_date: date
     supply_date: date | None
     due_date: date | None

@@ -6,7 +6,7 @@ import { ISSUED_STATUS_LABELS, ISSUED_STATUS_STYLES, money, shortDate } from "..
 import { useModules } from "../lib/useModules";
 import type {
   BulkReminderResult, IssuedInvoice, IssuedLineInput, IssuerProfile,
-  Paginated, SendResult, VatScheme,
+  Paginated, Partner, SendResult, VatScheme,
 } from "../lib/types";
 
 const SCHEMES: { value: VatScheme; label: string }[] = [
@@ -89,7 +89,10 @@ export default function Issue() {
             <tbody>
               {list.data?.items.map((inv) => (
                 <tr key={inv.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                  <td className="px-4 py-3 font-medium">{inv.number}</td>
+                  <td className="px-4 py-3 font-medium">
+                    {inv.number}
+                    {inv.kind === "penalty" && <span className="badge ml-2 bg-rose-100 text-rose-700">Penalty</span>}
+                  </td>
                   <td className="px-4 py-3">
                     {inv.buyer_name}
                     {inv.buyer_email && <div className="text-xs text-slate-400">{inv.buyer_email}</div>}
@@ -254,8 +257,29 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
   const [buyer, setBuyer] = useState({ ...emptyBuyer });
   const [scheme, setScheme] = useState<VatScheme>("standard");
   const [penalty, setPenalty] = useState("");
+  const [partnerId, setPartnerId] = useState("");
   const [lines, setLines] = useState<IssuedLineInput[]>([emptyLine()]);
   const [error, setError] = useState<string | null>(null);
+
+  const partners = useQuery<Partner[]>({
+    queryKey: ["partners"],
+    queryFn: async () => (await api.get("/partners")).data,
+  });
+  const selectedPartner = partners.data?.find((p) => p.id === partnerId);
+
+  const pickPartner = (id: string) => {
+    setPartnerId(id);
+    const p = partners.data?.find((x) => x.id === id);
+    if (p) {
+      setBuyer({
+        ...emptyBuyer,
+        buyer_name: p.name, buyer_email: p.email ?? "", buyer_vat_number: p.vat_number ?? "",
+        buyer_address_line1: p.address_line1 ?? "", buyer_city: p.city ?? "",
+        buyer_postal_code: p.postal_code ?? "", buyer_country: p.country ?? "",
+      });
+      if (p.penalty_rate) setPenalty(p.penalty_rate);
+    }
+  };
 
   const create = useMutation({
     mutationFn: async () => {
@@ -265,6 +289,7 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
         vat_scheme: scheme,
         lines,
       };
+      if (partnerId) payload.partner_id = partnerId;
       if (penalty.trim() !== "") payload.penalty_rate = penalty;
       return (await api.post("/issued", payload)).data;
     },
@@ -272,6 +297,7 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
       setBuyer({ ...emptyBuyer });
       setLines([emptyLine()]);
       setPenalty("");
+      setPartnerId("");
       setError(null);
       onCreated();
     },
@@ -291,6 +317,22 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
   return (
     <div className="card space-y-4">
       <h2 className="text-sm font-semibold text-slate-600">New invoice</h2>
+
+      {(partners.data?.length ?? 0) > 0 && (
+        <div>
+          <label className="label">Partner (optional)</label>
+          <select className="input sm:w-1/2" value={partnerId} onChange={(e) => pickPartner(e.target.value)}>
+            <option value="">— One-off customer —</option>
+            {partners.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          {selectedPartner && (selectedPartner.requires_contract || selectedPartner.requires_acceptance) && (
+            <p className="mt-1 text-xs text-amber-600">
+              This partner has a pre-invoicing workflow. Issuing is blocked until its documents are signed —{" "}
+              <Link to="/partners" className="underline">manage on Partners</Link>.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Field label="Customer name" v={buyer.buyer_name} on={(v) => setBuyer({ ...buyer, buyer_name: v })} span2 />

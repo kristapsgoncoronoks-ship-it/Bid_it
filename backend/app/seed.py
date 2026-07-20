@@ -201,10 +201,13 @@ async def seed() -> None:
 
         # --- Issued invoices (accounts-receivable) so the issuing reports have data ---
         issued = await _seed_issued(db, org.id, rng)
+        # --- Partners with pre-invoicing workflow + penalty invoicing ---
+        partner_ct = await _seed_partners(db, org.id)
 
         await db.commit()
         print(f"Seeded '{org.name}' with {count} invoices across {len(vendors)} vendors.")
         print(f"Issued {issued} outbound invoices (paid/overdue/open mix).")
+        print(f"Created {partner_ct} partners (workflow + penalty demo).")
         print(f"Login: {DEMO_EMAIL} / demo1234")
 
 
@@ -293,6 +296,64 @@ async def _seed_issued(db, org_id: str, rng: random.Random) -> int:
             ))
             count += 1
     return count
+
+
+async def _seed_partners(db, org_id: str) -> int:
+    """Two partners demonstrating the pre-invoicing workflow + penalty invoicing:
+    one fully signed with overdue invoices (penalty-ready), one awaiting signature."""
+    import json
+    from datetime import date, timedelta
+
+    from app.models.issued_invoice import IssuedInvoice, IssuedInvoiceLine
+    from app.models.partner import Partner, PartnerDocument
+    from app.services import issuer as issuer_svc
+
+    profile = await issuer_svc.get_or_create(db, org_id)
+
+    # Partner A — contract + acceptance both signed → ready; penalty enabled.
+    ready = Partner(
+        org_id=org_id, name="Northwind Traders GmbH", email="ap@northwind.test",
+        vat_number="DE311111111", country="DE",
+        requires_contract=True, requires_acceptance=True,
+        penalty_enabled=True, penalty_rate=Decimal("12"),
+    )
+    db.add(ready)
+    await db.flush()
+    db.add(PartnerDocument(org_id=org_id, partner_id=ready.id, kind="contract",
+                           title="Framework agreement 2026", status="signed",
+                           signed_by="J. Schmidt", signed_date=date(2026, 1, 15)))
+    db.add(PartnerDocument(org_id=org_id, partner_id=ready.id, kind="acceptance_act",
+                           title="Acceptance act — Q1 delivery", status="signed",
+                           signed_by="J. Schmidt", signed_date=date(2026, 2, 1)))
+
+    # Two overdue invoices linked to Partner A so a penalty invoice can be generated.
+    for i, amount in enumerate([Decimal("4200.00"), Decimal("2600.00")], start=1):
+        profile.next_number += 1
+        number = f"{profile.invoice_prefix}2026-P{profile.next_number:03d}"
+        issue = date(2026, 1, 10 + i)
+        db.add(IssuedInvoice(
+            org_id=org_id, partner_id=ready.id, kind="standard", number=number,
+            issue_date=issue, due_date=issue + timedelta(days=30), currency="EUR",
+            buyer_name=ready.name, buyer_email=ready.email, buyer_vat_number=ready.vat_number,
+            buyer_country=ready.country, penalty_rate=Decimal("12"),
+            seller_json=json.dumps(issuer_svc.seller_snapshot(profile)),
+            vat_scheme="standard", subtotal=amount, tax_total=Decimal("0"), total=amount,
+            lines=[IssuedInvoiceLine(position=1, description="Freight forwarding", quantity=Decimal("1"),
+                                     unit="C62", unit_price=amount, vat_rate=Decimal("0"), net_amount=amount)],
+        ))
+
+    # Partner B — documents added but UNSIGNED → invoicing blocked (shows the gate).
+    pending = Partner(
+        org_id=org_id, name="Contoso Baltic SIA", email="finance@contoso.test",
+        vat_number="LV40199999999", country="LV",
+        requires_contract=True, requires_acceptance=True,
+        penalty_enabled=False,
+    )
+    db.add(pending)
+    await db.flush()
+    db.add(PartnerDocument(org_id=org_id, partner_id=pending.id, kind="contract",
+                           title="Framework agreement (draft)", status="draft"))
+    return 2
 
 
 if __name__ == "__main__":

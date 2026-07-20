@@ -42,6 +42,7 @@ from app.services import (
     issuer,
     mailer,
     modules,
+    partners,
     vat,
 )
 
@@ -93,6 +94,21 @@ def _detail(inv: IssuedInvoice) -> IssuedInvoiceDetail:
 async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbSession):
     profile = await _guard(db, current.org_id)
 
+    # If linked to a partner, enforce its pre-invoicing workflow (contract /
+    # acceptance act must be signed) and inherit the partner's penalty rate.
+    partner = None
+    if body.partner_id:
+        partner = await partners.get_partner(db, current.org_id, body.partner_id)
+        if partner is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Partner not found")
+        missing = partners.missing_signed(partner)
+        if missing:
+            labels = ", ".join(partners.DOC_LABELS.get(k, k) for k in missing)
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"Cannot issue to {partner.name}: awaiting signed {labels}.",
+            )
+
     result = vat.compute([li.model_dump() for li in body.lines], body.vat_scheme)
     issue_date = body.issue_date or date.today()
     due_date = body.due_date or (issue_date + timedelta(days=profile.payment_terms_days))
@@ -102,11 +118,16 @@ async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbS
     profile.next_number += 1
 
     note = body.note or vat.SCHEME_NOTES.get(body.vat_scheme)
-    # An explicit penalty_rate wins; otherwise inherit the issuer default (may be None).
-    penalty_rate = body.penalty_rate if body.penalty_rate is not None else profile.default_penalty_rate
+    # Penalty rate precedence: explicit > partner default > issuer default.
+    penalty_rate = body.penalty_rate
+    if penalty_rate is None and partner is not None:
+        penalty_rate = partner.penalty_rate
+    if penalty_rate is None:
+        penalty_rate = profile.default_penalty_rate
 
     inv = IssuedInvoice(
         org_id=current.org_id,
+        partner_id=partner.id if partner else None,
         number=number,
         issue_date=issue_date,
         supply_date=body.supply_date,

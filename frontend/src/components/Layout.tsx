@@ -16,6 +16,7 @@ const NAV = [
   { to: "/budget", label: "Budget", end: false, module: "budget" },
   { to: "/issue", label: "Issue", end: true, module: "issuing" },
   { to: "/issue/reports", label: "Invoice reports", end: false, module: "issuing" },
+  { to: "/partners", label: "Partners", end: false, module: "issuing" },
   { to: "/expenses", label: "Expenses", end: false, module: "expenses" },
   { to: "/team", label: "Team", end: false },
   { to: "/access", label: "Access", end: false, sysadmin: true },

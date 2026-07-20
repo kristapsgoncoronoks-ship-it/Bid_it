@@ -30,6 +30,7 @@ from app.models.invoice import Invoice
 from app.models.issued_invoice import IssuedInvoice
 from app.models.issuer import IssuerProfile
 from app.models.module import OrgModule
+from app.models.partner import Partner, PartnerDocument
 from app.models.user import User
 from app.models.vendor import Vendor
 
@@ -38,7 +39,7 @@ from app.models.vendor import Vendor
 TENANT_MODELS = (
     Vendor, Invoice, User, Invitation, IssuedInvoice, OrgModule, IssuerProfile,
     ExpenseReport, ExpenseTransaction, ExpenseComment, EmailIntake, InboundInvoice,
-    BudgetTarget, AuditEvent, EmailMessage,
+    BudgetTarget, AuditEvent, EmailMessage, Partner, PartnerDocument,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.

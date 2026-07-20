@@ -579,9 +579,64 @@ export interface VatBucket {
 
 export type IssuedStatus = "paid" | "partial" | "open" | "overdue";
 
+// --- Partners (counterparties) with a pre-invoicing document workflow ---
+export type PartnerDocKind = "contract" | "acceptance_act";
+
+export interface PartnerDocument {
+  id: string;
+  kind: PartnerDocKind;
+  title: string;
+  reference: string | null;
+  status: "draft" | "signed";
+  signed_by: string | null;
+  signed_date: string | null;
+  note: string | null;
+}
+
+export interface PartnerReadiness {
+  ready: boolean;
+  required: string[];
+  signed: string[];
+  missing: string[];
+}
+
+export interface Partner {
+  id: string;
+  name: string;
+  email: string | null;
+  vat_number: string | null;
+  address_line1: string | null;
+  city: string | null;
+  postal_code: string | null;
+  country: string | null;
+  requires_contract: boolean;
+  requires_acceptance: boolean;
+  penalty_enabled: boolean;
+  penalty_rate: string | null;
+  is_active: boolean;
+}
+
+export interface PartnerDetail extends Partner {
+  documents: PartnerDocument[];
+  readiness: PartnerReadiness;
+  has_signed_contract: boolean;
+}
+
+export interface PenaltySummary {
+  currency: string;
+  total_penalty: string;
+  total_outstanding: string;
+  max_days_overdue: number;
+  lines: { invoice_id: string; number: string; days_overdue: number; outstanding: string; penalty: string }[];
+  can_generate: boolean;
+  blocked_reason: string | null;
+}
+
 export interface IssuedInvoice {
   id: string;
   number: string;
+  kind: "standard" | "penalty";
+  partner_id: string | null;
   issue_date: string;
   supply_date: string | null;
   due_date: string | null;

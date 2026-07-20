@@ -26,6 +26,13 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # Optional link to a Partner (counterparty). When set, the partner's
+    # pre-invoicing workflow gates issuance. `kind` distinguishes a normal
+    # invoice from a penalty (late-interest) invoice.
+    partner_id: Mapped[str | None] = mapped_column(
+        GUID(), ForeignKey("partners.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(12), default="standard", nullable=False)  # standard | penalty
 
     number: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
     issue_date: Mapped[date] = mapped_column(Date, nullable=False)
