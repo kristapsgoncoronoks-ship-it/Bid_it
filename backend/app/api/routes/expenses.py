@@ -26,6 +26,7 @@ from app.schemas.expense import (
     ExpenseCommentOut,
     ExpenseDecision,
     ExpenseItemOut,
+    ExpenseItemPatch,
     ExpenseReportCreate,
     ExpenseReportDetail,
     ExpenseReportListOut,
@@ -308,6 +309,16 @@ async def submit_report(report_id: str, current: CurrentUser, db: DbSession):
     if not r.items:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Add at least one expense before submitting")
 
+    # Compliance gate: every entry must carry a business purpose AND an attached
+    # document copy (receipt) before the report can be submitted.
+    incomplete = expenses.incomplete_items(r)
+    if incomplete:
+        detail = "; ".join(f"{it.description} (needs {', '.join(missing)})" for it, missing in incomplete)
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"Each expense must have a business purpose and an attached receipt. Missing — {detail}",
+        )
+
     r.status = "submitted"
     r.submitted_at = expenses.now()
     if r.currency.upper() == "EUR":
@@ -395,6 +406,24 @@ async def add_comment(report_id: str, body: ExpenseCommentIn, current: CurrentUs
     await db.commit()
     await db.refresh(c)
     return ExpenseCommentOut.model_validate(c)
+
+
+@router.patch("/{report_id}/items/{item_id}", response_model=ExpenseReportDetail)
+async def update_item(report_id: str, item_id: str, body: ExpenseItemPatch, current: CurrentUser, db: DbSession):
+    """Edit a draft item's business purpose (comment) / category."""
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_owner_editable(r, current)
+    item = next((i for i in r.items if i.id == item_id), None)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    if body.comment is not None:
+        item.comment = body.comment
+    if body.category is not None:
+        item.category = body.category
+    await db.commit()
+    await db.refresh(r, attribute_names=["items"])
+    return _detail(r)
 
 
 @router.post("/{report_id}/items/{item_id}/receipt", response_model=ExpenseReportDetail)

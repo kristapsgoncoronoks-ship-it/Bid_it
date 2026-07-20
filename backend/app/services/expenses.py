@@ -38,6 +38,22 @@ def now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def item_missing(item: ExpenseItem) -> list[str]:
+    """Compliance requirements every expense entry must carry before submission:
+    a business-purpose comment and an attached document copy (receipt)."""
+    missing = []
+    if not (item.comment and item.comment.strip()):
+        missing.append("business purpose")
+    if item.receipt_data is None:
+        missing.append("receipt")
+    return missing
+
+
+def incomplete_items(report: ExpenseReport) -> list[tuple[ExpenseItem, list[str]]]:
+    """Every item that is not yet submission-ready, with what it's missing."""
+    return [(it, m) for it in report.items if (m := item_missing(it))]
+
+
 # --------------------------------------------------------------------------- #
 # PDF export
 # --------------------------------------------------------------------------- #

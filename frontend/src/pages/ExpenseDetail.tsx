@@ -46,13 +46,30 @@ export default function ExpenseDetail() {
     onSuccess: invalidate,
     onError: (e) => toast.error(apiError(e)),
   });
+  const patchItem = useMutation({
+    mutationFn: async (v: { itemId: string; comment: string }) =>
+      (await api.patch(`/expenses/${id}/items/${v.itemId}`, { comment: v.comment })).data,
+    onSuccess: invalidate,
+    onError: (e) => toast.error(apiError(e)),
+  });
 
   if (isLoading || !r) return <div className="text-slate-400">Loading…</div>;
 
   const isManager = isAdminOrAbove(user);
   const isOwnerOfReport = r.employee_id === user?.id;
-  const canSubmit = isOwnerOfReport && r.status === "draft";
+  const isDraft = r.status === "draft";
+  const canSubmit = isOwnerOfReport && isDraft;
   const canDecide = isManager && (r.status === "submitted" || r.status === "approved");
+
+  // Compliance: every entry needs a business purpose AND an attached receipt.
+  const itemMissing = (it: ExpenseReportDetail["items"][number]) => {
+    const m: string[] = [];
+    if (!it.comment || !it.comment.trim()) m.push("business purpose");
+    if (!it.has_receipt) m.push("receipt");
+    return m;
+  };
+  const incompleteCount = r.items.filter((it) => itemMissing(it).length > 0).length;
+  const readyToSubmit = r.items.length > 0 && incompleteCount === 0;
 
   return (
     <div className="space-y-6">
@@ -75,8 +92,24 @@ export default function ExpenseDetail() {
           {r.decided_by && <Field label={r.status} value={`${r.decided_by}`} />}
         </dl>
 
+        {canSubmit && incompleteCount > 0 && (
+          <div className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            {incompleteCount} of {r.items.length} expense{r.items.length === 1 ? "" : "s"} still
+            {" "}need a business purpose and/or a receipt before you can submit.
+          </div>
+        )}
+
         <div className="mt-4 flex flex-wrap gap-2">
-          {canSubmit && <button className="btn-primary" onClick={() => act.mutate({ path: "submit" })}>Submit for approval</button>}
+          {canSubmit && (
+            <button
+              className="btn-primary disabled:opacity-50"
+              disabled={!readyToSubmit || act.isPending}
+              title={readyToSubmit ? "" : "Add a business purpose and receipt to every expense first"}
+              onClick={() => act.mutate({ path: "submit" })}
+            >
+              Submit for approval
+            </button>
+          )}
           {canSubmit && <button className="btn-ghost text-rose-600" onClick={() => del.mutate()}>Delete draft</button>}
           {isManager && r.status === "submitted" && (
             <>
@@ -111,41 +144,73 @@ export default function ExpenseDetail() {
               <th className="px-4 py-3">Date</th>
               <th className="px-4 py-3">Category</th>
               <th className="px-4 py-3">Description</th>
-              <th className="px-4 py-3">Merchant</th>
+              <th className="px-4 py-3">Business purpose</th>
               <th className="px-4 py-3 text-right">VAT</th>
               <th className="px-4 py-3 text-right">Amount</th>
               <th className="px-4 py-3">Receipt</th>
             </tr>
           </thead>
           <tbody>
-            {r.items.map((it) => (
-              <tr key={it.id} className="border-b border-slate-100 last:border-0">
+            {r.items.map((it) => {
+              const missing = itemMissing(it);
+              return (
+              <tr key={it.id} className="border-b border-slate-100 last:border-0 align-top">
                 <td className="px-4 py-3 text-slate-500">{shortDate(it.spend_date)}</td>
                 <td className="px-4 py-3"><span className="badge bg-slate-100 text-slate-600">{it.category}</span></td>
                 <td className="px-4 py-3">
                   {it.description}
-                  {it.comment && <div className="text-xs italic text-slate-400">“{it.comment}”</div>}
+                  {it.merchant && <div className="text-xs text-slate-400">{it.merchant}</div>}
                 </td>
-                <td className="px-4 py-3 text-slate-500">{it.merchant || "—"}</td>
+                <td className="px-4 py-3 min-w-[220px]">
+                  {canSubmit ? (
+                    <BusinessPurpose
+                      value={it.comment ?? ""}
+                      onSave={(v) => patchItem.mutate({ itemId: it.id, comment: v })}
+                    />
+                  ) : it.comment ? (
+                    <span className="text-slate-600">{it.comment}</span>
+                  ) : (
+                    <span className="text-rose-500">— missing —</span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-right text-slate-500">{money(it.vat_amount, r.currency)}</td>
                 <td className="px-4 py-3 text-right font-medium">{money(it.amount, r.currency)}</td>
                 <td className="px-4 py-3">
                   {it.has_receipt ? (
                     <button className="text-brand-600 hover:underline" onClick={() => downloadFile(`/expenses/${id}/items/${it.id}/receipt`, `receipt-${it.id}`)}>view</button>
                   ) : canSubmit ? (
-                    <button className="text-slate-500 hover:underline" onClick={() => { uploadItemId.current = it.id; fileRef.current?.click(); }}>attach</button>
+                    <button className="font-medium text-rose-600 hover:underline" onClick={() => { uploadItemId.current = it.id; fileRef.current?.click(); }}>attach</button>
                   ) : (
-                    <span className="text-slate-300">—</span>
+                    <span className="text-rose-400">missing</span>
+                  )}
+                  {canSubmit && missing.length > 0 && (
+                    <div className="mt-1 text-xs text-amber-600">needs {missing.join(" + ")}</div>
                   )}
                 </td>
               </tr>
-            ))}
+            );})}
           </tbody>
         </table>
       </div>
 
       <CommentThread reportId={id!} />
     </div>
+  );
+}
+
+// Inline-editable business purpose for a draft expense item. Saves on blur/Enter.
+function BusinessPurpose({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+  const [text, setText] = useState(value);
+  const dirty = text.trim() !== value.trim();
+  return (
+    <input
+      className={`input py-1 text-sm ${!value.trim() ? "border-rose-300 bg-rose-50 placeholder:text-rose-400" : ""}`}
+      placeholder="Why was this spent? (required)"
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => dirty && onSave(text.trim())}
+      onKeyDown={(e) => { if (e.key === "Enter") { (e.target as HTMLInputElement).blur(); } }}
+    />
   );
 }
 

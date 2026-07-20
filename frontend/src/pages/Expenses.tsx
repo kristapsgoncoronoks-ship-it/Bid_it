@@ -24,6 +24,7 @@ const emptyItem = (): ExpenseItemInput => ({
   amount: "0",
   vat_amount: "0",
   payment_method: "personal",
+  comment: "",
 });
 
 export default function Expenses() {
@@ -258,6 +259,7 @@ function NewReport() {
               <th className="px-2 py-2 w-32">Date</th>
               <th className="px-2 py-2 w-32">Category</th>
               <th className="px-2 py-2">Description</th>
+              <th className="px-2 py-2">Business purpose</th>
               <th className="px-2 py-2 w-28">Amount</th>
               <th className="px-2 py-2 w-24">VAT</th>
               <th className="px-2 py-2"></th>
@@ -273,6 +275,7 @@ function NewReport() {
                   </select>
                 </td>
                 <td className="px-2 py-1"><input className="input" value={it.description} onChange={(e) => setItem(i, { description: e.target.value })} /></td>
+                <td className="px-2 py-1"><input className="input" placeholder="Why was this spent?" value={it.comment ?? ""} onChange={(e) => setItem(i, { comment: e.target.value })} /></td>
                 <td className="px-2 py-1"><input className="input" value={it.amount} onChange={(e) => setItem(i, { amount: e.target.value })} /></td>
                 <td className="px-2 py-1"><input className="input" value={it.vat_amount} onChange={(e) => setItem(i, { vat_amount: e.target.value })} /></td>
                 <td className="px-2 py-1 text-right">
@@ -284,6 +287,11 @@ function NewReport() {
         </table>
       </div>
       <button className="btn-ghost" onClick={() => setItems([...items, emptyItem()])}>+ Add expense</button>
+
+      <p className="text-xs text-slate-400">
+        Each expense needs a business purpose and an attached receipt before the report can be submitted —
+        open the saved draft to attach receipts.
+      </p>
 
       {error && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
 

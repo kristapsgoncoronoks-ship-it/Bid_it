@@ -56,6 +56,12 @@ class ExpenseItemOut(BaseModel):
     has_receipt: bool = False
 
 
+class ExpenseItemPatch(BaseModel):
+    """Edit a draft item's business purpose (and optionally category)."""
+    comment: str | None = Field(default=None, max_length=1000)
+    category: Category | None = None
+
+
 class ItemFromTransaction(BaseModel):
     transaction_id: str
     category: Category = "other"

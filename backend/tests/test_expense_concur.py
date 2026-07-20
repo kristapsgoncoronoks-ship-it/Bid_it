@@ -90,10 +90,16 @@ async def test_item_comment_and_receipt(auth_client, client):
 async def test_comment_thread_between_employee_and_manager(auth_client, client):
     await _activate(auth_client)
     emp = await _member(auth_client, client, "emp@corp.io")
-    rid = (await client.post("/api/v1/expenses", json={"title": "Trip", "items": [
-        {"spend_date": "2026-05-01", "category": "meals", "description": "Dinner", "amount": "42.00", "vat_amount": "0"}]},
-        headers=_h(emp))).json()["id"]
-    await client.post(f"/api/v1/expenses/{rid}/submit", headers=_h(emp))
+    rep = (await client.post("/api/v1/expenses", json={"title": "Trip", "items": [
+        {"spend_date": "2026-05-01", "category": "meals", "description": "Dinner", "amount": "42.00",
+         "vat_amount": "0", "comment": "Team dinner"}]},
+        headers=_h(emp))).json()
+    rid, iid = rep["id"], rep["items"][0]["id"]
+    # Business purpose set above; attach a receipt so the report can be submitted.
+    await client.post(f"/api/v1/expenses/{rid}/items/{iid}/receipt",
+                      files={"file": ("r.pdf", io.BytesIO(b"%PDF-1.4 receipt"), "application/pdf")}, headers=_h(emp))
+    sub = await client.post(f"/api/v1/expenses/{rid}/submit", headers=_h(emp))
+    assert sub.status_code == 200, sub.text
 
     # employee comments
     c1 = await client.post(f"/api/v1/expenses/{rid}/comments", json={"body": "Receipt attached, please approve"}, headers=_h(emp))

@@ -124,6 +124,7 @@ export interface ExpenseItemInput {
   amount: string;
   vat_amount: string;
   payment_method: "personal" | "company_card";
+  comment?: string;   // business purpose
 }
 
 export interface ExpenseItem {
