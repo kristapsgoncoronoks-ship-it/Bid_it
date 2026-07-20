@@ -30,6 +30,7 @@ async def _db():
 
     async with sm() as session:
         await fx.ensure_seed_rates(session, date(2026, 7, 18))
+        await fx.ensure_european_coverage(session, date(2026, 7, 18))
 
     yield sm
     await engine.dispose()

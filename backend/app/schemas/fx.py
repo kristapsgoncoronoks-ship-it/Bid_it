@@ -19,6 +19,21 @@ class RatesResponse(BaseModel):
     rates: list[RateOut]
 
 
+class CurrencyOut(BaseModel):
+    code: str
+    name: str
+    ecb: bool                     # published in the ECB reference feed
+    rate: Decimal | None          # units per 1 EUR (None if uncached)
+    rate_date: date | None
+    indicative: bool              # True = not an official ECB rate
+
+
+class CurrenciesResponse(BaseModel):
+    base: str = "EUR"
+    region: str = "europe"
+    currencies: list[CurrencyOut]
+
+
 class ConvertResponse(BaseModel):
     amount: Decimal
     from_currency: str

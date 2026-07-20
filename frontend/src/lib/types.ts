@@ -383,6 +383,21 @@ export interface FxRates {
   rates: FxRate[];
 }
 
+export interface FxCurrency {
+  code: string;
+  name: string;
+  ecb: boolean;
+  rate: string | null;
+  rate_date: string | null;
+  indicative: boolean;
+}
+
+export interface FxCurrencies {
+  base: string;
+  region: string;
+  currencies: FxCurrency[];
+}
+
 export interface FxConvert {
   amount: string;
   from_currency: string;

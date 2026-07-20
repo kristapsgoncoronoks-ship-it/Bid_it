@@ -37,6 +37,10 @@ async def lifespan(app: FastAPI):
             seeded = await fx.ensure_seed_rates(db, date.today())
             if seeded:
                 log.info("Seeded %d bundled ECB fallback rates", seeded)
+            # Guarantee full European-currency coverage (incl. the non-ECB ones).
+            covered = await fx.ensure_european_coverage(db, date.today())
+            if covered:
+                log.info("Seeded %d indicative rows for European currencies", covered)
     except Exception as exc:  # pragma: no cover - defensive
         log.warning("ECB rate seeding skipped: %s", exc)
 

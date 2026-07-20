@@ -29,14 +29,70 @@ ECB_90D_URL = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist-90d.xml"
 
 _CENTS = Decimal("0.01")
 
-# Bundled ECB reference snapshot (EUR base), used when the live feed is
-# unreachable so the platform is never dead in the water.
+# --------------------------------------------------------------------------- #
+# European currency registry — every European currency, valued against the EUR.
+# `ecb=True` currencies are published in the ECB daily reference feed (kept live
+# by refresh_from_ecb). `ecb=False` currencies are NOT in the ECB feed (Balkans,
+# Eastern-Europe/Caucasus neighbours); we carry an INDICATIVE EUR rate for them so
+# the module still converts every European currency — flagged approximate.
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class Currency:
+    code: str
+    name: str
+    ecb: bool  # published in the ECB reference feed
+
+
+EUROPEAN_CURRENCIES: tuple[Currency, ...] = (
+    Currency("EUR", "Euro", True),
+    # EU / EEA / EFTA + UK — all in the ECB reference feed.
+    Currency("BGN", "Bulgarian lev", True),
+    Currency("CZK", "Czech koruna", True),
+    Currency("DKK", "Danish krone", True),
+    Currency("GBP", "Pound sterling", True),
+    Currency("HUF", "Hungarian forint", True),
+    Currency("PLN", "Polish złoty", True),
+    Currency("RON", "Romanian leu", True),
+    Currency("SEK", "Swedish krona", True),
+    Currency("CHF", "Swiss franc", True),
+    Currency("ISK", "Icelandic króna", True),
+    Currency("NOK", "Norwegian krone", True),
+    Currency("TRY", "Turkish lira", True),
+    # Wider Europe — NOT in the ECB feed → indicative EUR rate.
+    Currency("RSD", "Serbian dinar", False),
+    Currency("BAM", "Bosnia-Herzegovina convertible mark", False),
+    Currency("MKD", "Macedonian denar", False),
+    Currency("ALL", "Albanian lek", False),
+    Currency("MDL", "Moldovan leu", False),
+    Currency("UAH", "Ukrainian hryvnia", False),
+    Currency("GEL", "Georgian lari", False),
+    Currency("AMD", "Armenian dram", False),
+    Currency("AZN", "Azerbaijani manat", False),
+    Currency("BYN", "Belarusian ruble", False),
+    Currency("RUB", "Russian ruble", False),
+    Currency("GIP", "Gibraltar pound", False),
+)
+EUROPEAN_BY_CODE: dict[str, Currency] = {c.code: c for c in EUROPEAN_CURRENCIES}
+# Currencies whose cached rate is indicative (never an official ECB reference).
+NON_ECB_EUROPEAN: frozenset[str] = frozenset(c.code for c in EUROPEAN_CURRENCIES if not c.ecb)
+
+# Bundled snapshot (units per 1 EUR), used when the live ECB feed is unreachable
+# AND as the standing indicative rate for the non-ECB European currencies. Values
+# are approximate; the ECB refresh overwrites the ecb=True ones with live rates.
 FALLBACK_RATES: dict[str, Decimal] = {
-    "USD": Decimal("1.0850"), "GBP": Decimal("0.8550"), "CHF": Decimal("0.9500"),
-    "PLN": Decimal("4.3000"), "SEK": Decimal("11.2000"), "NOK": Decimal("11.5000"),
-    "DKK": Decimal("7.4600"), "CZK": Decimal("25.3000"), "JPY": Decimal("170.00"),
-    "CAD": Decimal("1.4800"), "AUD": Decimal("1.6300"), "RON": Decimal("4.9700"),
-    "HUF": Decimal("395.00"), "BGN": Decimal("1.9558"),
+    # European — ECB-published
+    "GBP": Decimal("0.8550"), "CHF": Decimal("0.9500"), "PLN": Decimal("4.3000"),
+    "SEK": Decimal("11.2000"), "NOK": Decimal("11.5000"), "DKK": Decimal("7.4600"),
+    "CZK": Decimal("25.3000"), "RON": Decimal("4.9700"), "HUF": Decimal("395.00"),
+    "BGN": Decimal("1.9558"), "ISK": Decimal("150.00"), "TRY": Decimal("40.000"),
+    # European — indicative (not in the ECB feed)
+    "RSD": Decimal("117.00"), "BAM": Decimal("1.9558"), "MKD": Decimal("61.500"),
+    "ALL": Decimal("98.000"), "MDL": Decimal("19.500"), "UAH": Decimal("45.000"),
+    "GEL": Decimal("3.0500"), "AMD": Decimal("430.00"), "AZN": Decimal("1.8500"),
+    "BYN": Decimal("3.6000"), "RUB": Decimal("100.00"), "GIP": Decimal("0.8550"),
+    # A few global majors, so non-EU trade still converts.
+    "USD": Decimal("1.0850"), "JPY": Decimal("170.00"), "CAD": Decimal("1.4800"),
+    "AUD": Decimal("1.6300"),
 }
 FALLBACK_START = date(2025, 1, 1)
 
@@ -98,10 +154,32 @@ async def ensure_seed_rates(db: AsyncSession, today: date) -> int:
     return await load_rates(db, rows)
 
 
+async def ensure_european_coverage(db: AsyncSession, today: date) -> int:
+    """Guarantee every European currency has a cached rate. Idempotent and
+    ADDITIVE — seeds only currencies with no row at all (so it never clobbers
+    live ECB data), across recent months so historical invoices resolve. Runs on
+    every boot, so installs that already hold ECB rates still gain the non-ECB
+    European currencies."""
+    existing = set(await db.scalars(select(EcbRate.currency).distinct()))
+    missing = [
+        c.code for c in EUROPEAN_CURRENCIES
+        if c.code != "EUR" and c.code not in existing and c.code in FALLBACK_RATES
+    ]
+    if not missing:
+        return 0
+    rows: list[tuple[date, str, Decimal]] = []
+    for d in _month_starts(FALLBACK_START, today):
+        for ccy in missing:
+            rows.append((d, ccy, FALLBACK_RATES[ccy]))
+    return await load_rates(db, rows)
+
+
 async def resolve_rate(db: AsyncSession, currency: str, on_date: date) -> Resolved | None:
     currency = currency.upper()
     if currency == "EUR":
         return Resolved(Decimal(1), on_date, False)
+    # A non-ECB European currency is ALWAYS indicative, never an official rate.
+    indicative = currency in NON_ECB_EUROPEAN
     # Latest rate on-or-before the requested date.
     row = await db.scalar(
         select(EcbRate)
@@ -110,7 +188,7 @@ async def resolve_rate(db: AsyncSession, currency: str, on_date: date) -> Resolv
         .limit(1)
     )
     if row is not None:
-        return Resolved(Decimal(row.rate), row.rate_date, False)
+        return Resolved(Decimal(row.rate), row.rate_date, indicative)
     # Date precedes all cached rates → use the earliest, flag approximate.
     row = await db.scalar(
         select(EcbRate).where(EcbRate.currency == currency).order_by(EcbRate.rate_date.asc()).limit(1)
@@ -118,6 +196,22 @@ async def resolve_rate(db: AsyncSession, currency: str, on_date: date) -> Resolv
     if row is not None:
         return Resolved(Decimal(row.rate), row.rate_date, True)
     return None
+
+
+async def supported_currencies(db: AsyncSession, as_of: date) -> list[dict]:
+    """Every European currency vs EUR, with its current cached rate (if any)."""
+    out: list[dict] = []
+    for c in EUROPEAN_CURRENCIES:
+        r = await resolve_rate(db, c.code, as_of)
+        out.append({
+            "code": c.code,
+            "name": c.name,
+            "ecb": c.ecb,
+            "rate": (r.rate if r else None),
+            "rate_date": (r.rate_date if r else None),
+            "indicative": (r.approximate if r else not c.ecb),
+        })
+    return out
 
 
 async def rate_for(db: AsyncSession, currency: str, on_date: date) -> Decimal | None:

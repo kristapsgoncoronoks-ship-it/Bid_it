@@ -11,6 +11,8 @@ from app.models.fx import EcbRate
 from app.core.roles import is_admin_or_above
 from app.schemas.fx import (
     ConvertResponse,
+    CurrenciesResponse,
+    CurrencyOut,
     FxComparison,
     RateOut,
     RatesResponse,
@@ -42,6 +44,18 @@ async def get_rates(
     return RatesResponse(base="EUR", as_of=latest_used, rates=rates)
 
 
+@router.get("/currencies", response_model=CurrenciesResponse)
+async def currencies(
+    current: CurrentUser,
+    db: DbSession,
+    on: date | None = Query(default=None, description="as-of date (default today)"),
+):
+    """Every European currency the module runs against the euro, with its current
+    rate. ECB-published currencies carry official rates; the rest are indicative."""
+    rows = await fx.supported_currencies(db, on or date.today())
+    return CurrenciesResponse(currencies=[CurrencyOut(**r) for r in rows])
+
+
 @router.get("/convert", response_model=ConvertResponse)
 async def convert(
     current: CurrentUser,
@@ -58,7 +72,7 @@ async def convert(
     r_to = await fx.resolve_rate(db, to, as_of)
     if r_from is None or r_to is None:
         missing = frm if r_from is None else to
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No ECB rate available for {missing}")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No rate available for {missing}")
 
     eur = amount / r_from.rate
     converted = (eur * r_to.rate).quantize(_CENTS, rounding=ROUND_HALF_UP)
