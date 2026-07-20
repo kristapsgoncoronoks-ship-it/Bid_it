@@ -21,11 +21,24 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     environment: str = Field(default="development")
 
+    # --- Observability ---
+    # Emit one structured JSON log line per request (ship to Loki/CloudWatch/etc).
+    # Defaults on in production, off (human-readable) elsewhere — see main.py.
+    log_json: bool | None = Field(default=None)
+    # Expose Prometheus metrics at /metrics (only if prometheus-client installed).
+    metrics_enabled: bool = Field(default=True)
+
     # --- Database ---
     # Async SQLAlchemy URL. Postgres in prod, SQLite for zero-setup local/dev/test.
     #   postgres:  postgresql+asyncpg://user:pass@host:5432/invoiceiq
     #   sqlite:    sqlite+aiosqlite:///./invoiceiq.db
     database_url: str = Field(default="sqlite+aiosqlite:///./invoiceiq.db")
+    # Connection pool (Postgres). Size per worker process; total connections =
+    # workers × replicas × (pool_size + max_overflow) must stay under Postgres
+    # max_connections. Ignored for SQLite.
+    db_pool_size: int = Field(default=10)
+    db_max_overflow: int = Field(default=10)
+    db_pool_timeout: int = Field(default=30)
 
     # --- Auth ---
     # MUST be overridden in production (openssl rand -hex 32).
@@ -84,6 +97,15 @@ class Settings(BaseSettings):
     @property
     def is_sqlite(self) -> bool:
         return self.database_url.startswith("sqlite")
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment == "production"
+
+    @property
+    def structured_logs(self) -> bool:
+        # Explicit override wins; otherwise JSON logs in production only.
+        return self.log_json if self.log_json is not None else self.is_production
 
 
 @lru_cache

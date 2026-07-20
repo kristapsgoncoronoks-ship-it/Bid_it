@@ -9,6 +9,7 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U invoiceiq"]
       interval: 5s
@@ -25,6 +26,23 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    restart: unless-stopped
+    # Production owns the schema via Alembic — apply migrations, then serve.
+    # (docker-compose.prod.yml replaces this with the proxy-headers variant.)
+    command:
+      - sh
+      - -c
+      - >-
+        alembic upgrade head &&
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-4}
+    # Readiness (DB reachable) gates the container healthy, so `frontend` only
+    # starts once the API can actually serve traffic.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     ports:
       - "8000:8000"
 
@@ -34,7 +52,9 @@ services:
       args:
         VITE_API_BASE_URL: ""
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
     ports:
       - "8080:80"
 

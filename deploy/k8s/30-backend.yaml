@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: invoiceiq
+  labels: { app: invoiceiq, component: backend }
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: invoiceiq, component: backend }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }   # zero-downtime rollout
+  template:
+    metadata:
+      labels: { app: invoiceiq, component: backend }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: backend
+          image: ghcr.io/OWNER/REPO/backend:VERSION   # set by your deploy tooling
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef: { name: invoiceiq-config }
+            - secretRef: { name: invoiceiq-secrets }
+          # Liveness: restart a wedged process. Readiness: pull from the LB when
+          # the DB is unreachable. Startup: give slow first-boot time before the
+          # liveness clock starts.
+          startupProbe:
+            httpGet: { path: /health, port: 8000 }
+            failureThreshold: 30
+            periodSeconds: 2
+          livenessProbe:
+            httpGet: { path: /health, port: 8000 }
+            periodSeconds: 15
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet: { path: /health/ready, port: 8000 }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          # Graceful shutdown: stop taking traffic, drain in-flight requests.
+          lifecycle:
+            preStop: { exec: { command: ["sleep", "5"] } }
+          resources:
+            requests: { cpu: "250m", memory: "384Mi" }
+            limits: { cpu: "1000m", memory: "768Mi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: invoiceiq
+spec:
+  selector: { app: invoiceiq, component: backend }
+  ports:
+    - { name: http, port: 8000, targetPort: 8000 }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: backend
+  namespace: invoiceiq
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: backend }
+  minReplicas: 3
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }
+---
+# Keep at least 2 backends available during voluntary disruptions (node drains).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend
+  namespace: invoiceiq
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: { app: invoiceiq, component: backend }

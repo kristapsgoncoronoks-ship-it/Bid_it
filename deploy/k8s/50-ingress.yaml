@@ -1,0 +1,33 @@
+# Routes the public host: /api/* → backend, everything else → the SPA. TLS is
+# terminated here (cert-manager issues the certificate). If Cloudflare sits in
+# front, use "Full (Strict)" so the edge→ingress hop is also encrypted.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: invoiceiq
+  namespace: invoiceiq
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "20m"    # invoice/receipt uploads
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["app.example.com"]
+      secretName: invoiceiq-tls
+  rules:
+    - host: app.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port: { number: 8000 }
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port: { number: 80 }

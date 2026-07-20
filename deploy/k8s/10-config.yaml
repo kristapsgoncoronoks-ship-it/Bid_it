@@ -1,0 +1,31 @@
+# Non-secret configuration for the backend.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: invoiceiq-config
+  namespace: invoiceiq
+data:
+  ENVIRONMENT: "production"
+  HSTS_ENABLED: "true"
+  LOG_JSON: "true"
+  WEB_CONCURRENCY: "4"
+  DB_POOL_SIZE: "10"
+  DB_MAX_OVERFLOW: "10"
+  # Public origin(s) of the SPA — must match where users load the app.
+  CORS_ORIGINS: "https://app.example.com"
+---
+# SECRETS — this is an EXAMPLE with placeholder values. Do NOT commit real
+# secrets. Create the real Secret out-of-band, e.g.:
+#   kubectl -n invoiceiq create secret generic invoiceiq-secrets \
+#     --from-literal=SECRET_KEY="$(openssl rand -hex 32)" \
+#     --from-literal=DATABASE_URL="postgresql+asyncpg://user:pass@db-host:5432/invoiceiq"
+# or manage it with a sealed-secret / external-secrets operator.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: invoiceiq-secrets
+  namespace: invoiceiq
+type: Opaque
+stringData:
+  SECRET_KEY: "REPLACE_WITH_openssl_rand_hex_32"
+  DATABASE_URL: "postgresql+asyncpg://invoiceiq:REPLACE@postgres:5432/invoiceiq"

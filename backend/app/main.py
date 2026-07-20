@@ -5,16 +5,22 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app import __version__
 from app.api.router import api_router
 from app.core.config import settings
 from app.core.database import engine
+from app.core.observability import (
+    RequestContextMiddleware,
+    configure_logging,
+    setup_metrics,
+)
 from app.core.security_headers import SecurityHeadersMiddleware
 from app.core.tenant import TenantScopeMiddleware
 from app.models import Base
 
-logging.basicConfig(level=logging.INFO)
+configure_logging(settings.structured_logs)
 log = logging.getLogger("invoiceiq")
 
 
@@ -71,11 +77,37 @@ app.add_middleware(
 app.add_middleware(TenantScopeMiddleware)
 # Security response headers (HSTS on HTTPS, nosniff, frame-deny, referrer policy).
 app.add_middleware(SecurityHeadersMiddleware)
+# First to see the request / last to see the response: request-id + access log.
+app.add_middleware(RequestContextMiddleware)
+
+# Prometheus /metrics + per-request instrumentation (only if the lib is present).
+if settings.metrics_enabled and setup_metrics(app):
+    log.info("Prometheus metrics enabled at /metrics")
 
 
 @app.get("/health", tags=["meta"])
 async def health() -> dict:
+    """Liveness: the process is up. Cheap — no I/O. Used by load balancers / k8s
+    livenessProbe to decide whether to restart the container."""
     return {"status": "ok", "version": __version__, "app": settings.app_name}
+
+
+@app.get("/health/ready", tags=["meta"])
+async def ready():
+    """Readiness: the app can serve traffic (the database is reachable). Used by
+    k8s readinessProbe / the LB to decide whether to route traffic here. Returns
+    503 when the DB is unreachable so the replica is pulled from rotation."""
+    from fastapi import Response
+
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        return {"status": "ready"}
+    except Exception as exc:  # DB down / starting up → not ready
+        log.warning("readiness check failed: %s", exc)
+        return Response(
+            content='{"status":"not-ready"}', status_code=503, media_type="application/json"
+        )
 
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
