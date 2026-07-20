@@ -22,6 +22,15 @@ from app.core.security import hash_password
 
 DEMO_EMAIL = "demo@invoiceiq.app"
 
+# Extra tenants (name, plan, status) so the platform operator view isn't lonely.
+EXTRA_TENANTS = [
+    ("Baltic Haulage OÜ", "starter", "active"),
+    ("Nordic Freight AB", "pro", "active"),
+    ("Adria Logistik d.o.o.", "trial", "suspended"),
+]
+# Every organization name this seed owns — cleared on reset so re-seeding is idempotent.
+DEMO_ORG_NAMES = ["Demo Logistics Ltd", *(t[0] for t in EXTRA_TENANTS)]
+
 VENDORS = [
     ("AWS", "US", "cloud"),
     ("Shell Fleet", "NL", "fuel"),
@@ -45,11 +54,12 @@ async def seed() -> None:
         await conn.run_sync(Base.metadata.create_all)
 
     async with SessionLocal() as db:
-        # Reset demo org
-        existing = await db.scalar(select(User).where(User.email == DEMO_EMAIL))
-        if existing:
-            await db.execute(delete(Organization).where(Organization.id == existing.org_id))
-            await db.commit()
+        # Reset every org this seed owns. Deleting the org cascades to its rows
+        # (FK ON); the explicit user delete also clears any orphan left by an
+        # older run that predates FK enforcement, so re-seeding is idempotent.
+        await db.execute(delete(Organization).where(Organization.name.in_(DEMO_ORG_NAMES)))
+        await db.execute(delete(User).where(User.email == DEMO_EMAIL))
+        await db.commit()
 
         org = Organization(name="Demo Logistics Ltd")
         db.add(org)
@@ -68,11 +78,7 @@ async def seed() -> None:
         org.plan = "pro"
 
         # A few extra tenants so the platform operator view isn't lonely.
-        for i, (tname, plan, tstatus) in enumerate([
-            ("Baltic Haulage OÜ", "starter", "active"),
-            ("Nordic Freight AB", "pro", "active"),
-            ("Adria Logistik d.o.o.", "trial", "suspended"),
-        ]):
+        for i, (tname, plan, tstatus) in enumerate(EXTRA_TENANTS):
             t = Organization(name=tname, plan=plan, status=tstatus)
             db.add(t)
             await db.flush()
@@ -193,9 +199,98 @@ async def seed() -> None:
                 )
             )
 
+        # --- Issued invoices (accounts-receivable) so the issuing reports have data ---
+        issued = await _seed_issued(db, org.id, rng)
+
         await db.commit()
         print(f"Seeded '{org.name}' with {count} invoices across {len(vendors)} vendors.")
+        print(f"Issued {issued} outbound invoices (paid/overdue/open mix).")
         print(f"Login: {DEMO_EMAIL} / demo1234")
+
+
+async def _seed_issued(db, org_id: str, rng: random.Random) -> int:
+    """Create a spread of ISSUED invoices — several partners, a paid/overdue/open
+    mix — plus a complete issuer profile and the enabled issuing module, so the
+    invoice-reports surface is populated in the demo."""
+    import json
+
+    from app.models.issued_invoice import IssuedInvoice, IssuedInvoiceLine
+    from app.services import issuer as issuer_svc
+    from app.services import modules as modules_svc
+    from app.services import vat as vat_svc
+
+    profile = await issuer_svc.get_or_create(db, org_id)
+    profile.legal_name = "Demo Logistics Ltd"
+    profile.vat_number = "EE100200300"
+    profile.registration_number = "EE-16000000"
+    profile.address_line1 = "Tartu mnt 10"
+    profile.city = "Tallinn"
+    profile.postal_code = "10145"
+    profile.country = "EE"
+    profile.email = "billing@demologistics.test"
+    profile.iban = "EE471000001020145685"
+    profile.bic = "EEUHEE2X"
+    profile.payment_terms_days = 30
+    await db.flush()
+    await modules_svc.set_enabled(db, org_id, "issuing", True)
+
+    partners = [
+        ("Meridian Freight OÜ", "EE100111222", "EE"),
+        ("Baltic Cold Chain AS", "EE100333444", "EE"),
+        ("Vilnius Logistics UAB", "LT100555666", "LT"),
+        ("Riga Port Services SIA", "LV40103777888", "LV"),
+        ("Helsinki Haul Oy", "FI29999999", "FI"),
+    ]
+    today = date(2026, 7, 1)
+    schemes = ["standard", "standard", "standard", "reverse_charge", "intra_eu"]
+    count = 0
+    for m in range(6):  # ~6 months of history
+        month_start = today - timedelta(days=30 * m)
+        for _ in range(rng.randint(2, 4)):
+            name, vat_no, country = rng.choice(partners)
+            scheme = rng.choice(schemes)
+            n_lines = rng.randint(1, 3)
+            raw = [{
+                "description": rng.choice(["Freight forwarding", "Warehousing", "Customs brokerage", "Last-mile delivery"]),
+                "quantity": Decimal(rng.randint(1, 12)),
+                "unit": "C62",
+                "unit_price": _q(Decimal(rng.uniform(80, 1200))),
+                "vat_rate": Decimal("22") if scheme == "standard" else Decimal("0"),
+            } for _ in range(n_lines)]
+            result = vat_svc.compute(raw, scheme)
+
+            issue = month_start - timedelta(days=rng.randint(0, 18))
+            due = issue + timedelta(days=30)
+            number = f"{profile.invoice_prefix}{issue.year}-{profile.next_number:04d}"
+            profile.next_number += 1
+
+            # Settlement: older invoices mostly paid; recent ones open; some overdue.
+            amount_paid = Decimal("0")
+            paid_date = None
+            roll = rng.random()
+            if due < today and roll < 0.7:                       # paid
+                amount_paid = result.total
+                paid_date = due - timedelta(days=rng.randint(-5, 20))
+            elif roll < 0.85 and result.total > 0:               # partial
+                amount_paid = _q(result.total * Decimal("0.4"))
+
+            db.add(IssuedInvoice(
+                org_id=org_id, number=number, issue_date=issue, due_date=due, currency="EUR",
+                buyer_name=name, buyer_vat_number=vat_no, buyer_country=country,
+                seller_json=json.dumps(issuer_svc.seller_snapshot(profile)),
+                vat_scheme=scheme, note=vat_svc.SCHEME_NOTES.get(scheme),
+                subtotal=result.subtotal, tax_total=result.tax_total, total=result.total,
+                amount_paid=amount_paid, paid_date=paid_date,
+                lines=[
+                    IssuedInvoiceLine(
+                        position=i + 1, description=li["description"], quantity=li["quantity"],
+                        unit=li["unit"], unit_price=li["unit_price"], vat_rate=li["vat_rate"],
+                        net_amount=li["net_amount"],
+                    ) for i, li in enumerate(result.lines)
+                ],
+            ))
+            count += 1
+    return count
 
 
 if __name__ == "__main__":

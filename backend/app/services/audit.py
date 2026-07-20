@@ -32,6 +32,7 @@ class A:
     INVOICE_CREATE = "invoice.create"
     INVOICE_DELETE = "invoice.delete"
     INVOICE_VALIDATE = "invoice.validate"
+    ISSUED_PAYMENT = "issued.payment"
     DOC_DOWNLOAD = "document.download"
     INBOUND_CONFIRM = "inbound.confirm"
     MODULE_TOGGLE = "module.toggle"

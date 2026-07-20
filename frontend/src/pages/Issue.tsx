@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, apiError, downloadFile } from "../lib/api";
-import { money, shortDate } from "../lib/format";
+import { ISSUED_STATUS_LABELS, ISSUED_STATUS_STYLES, money, shortDate } from "../lib/format";
 import { useModules } from "../lib/useModules";
 import type { IssuedInvoice, IssuedLineInput, IssuerProfile, Paginated, VatScheme } from "../lib/types";
 
@@ -51,7 +51,10 @@ export default function Issue() {
           <h1 className="text-2xl font-semibold tracking-tight">Issue invoices</h1>
           <p className="text-sm text-slate-500">EN 16931-compliant PDF with embedded Factur-X XML.</p>
         </div>
-        <Link to="/issuer" className="btn-ghost">Company details</Link>
+        <div className="flex gap-2">
+          <Link to="/issue/reports" className="btn-ghost">Reports</Link>
+          <Link to="/issuer" className="btn-ghost">Company details</Link>
+        </div>
       </div>
 
       <NewInvoice onCreated={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
@@ -65,7 +68,10 @@ export default function Issue() {
                 <th className="px-4 py-3">Number</th>
                 <th className="px-4 py-3">Buyer</th>
                 <th className="px-4 py-3">Issued</th>
+                <th className="px-4 py-3">Due</th>
+                <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3 text-right">Total</th>
+                <th className="px-4 py-3 text-right">Payment</th>
                 <th className="px-4 py-3 text-right">Download</th>
               </tr>
             </thead>
@@ -75,7 +81,19 @@ export default function Issue() {
                   <td className="px-4 py-3 font-medium">{inv.number}</td>
                   <td className="px-4 py-3">{inv.buyer_name}</td>
                   <td className="px-4 py-3 text-slate-500">{shortDate(inv.issue_date)}</td>
+                  <td className="px-4 py-3 text-slate-500">{shortDate(inv.due_date)}</td>
+                  <td className="px-4 py-3">
+                    <span className={`badge ${ISSUED_STATUS_STYLES[inv.status] ?? "bg-slate-100 text-slate-600"}`}>
+                      {ISSUED_STATUS_LABELS[inv.status] ?? inv.status}
+                    </span>
+                    {Number(inv.outstanding) > 0 && Number(inv.amount_paid) > 0 && (
+                      <div className="mt-0.5 text-xs text-slate-400">{money(inv.outstanding, inv.currency)} left</div>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-right font-medium">{money(inv.total, inv.currency)}</td>
+                  <td className="px-4 py-3 text-right">
+                    <PaymentAction inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
+                  </td>
                   <td className="px-4 py-3 text-right">
                     <button className="text-brand-600 hover:underline" onClick={() => downloadFile(`/issued/${inv.id}/pdf`, `${inv.number}.pdf`)}>
                       PDF
@@ -89,7 +107,7 @@ export default function Issue() {
               ))}
               {list.data && list.data.items.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-slate-400">No invoices issued yet.</td>
+                  <td colSpan={8} className="px-4 py-8 text-center text-slate-400">No invoices issued yet.</td>
                 </tr>
               )}
             </tbody>
@@ -209,6 +227,63 @@ function Field({ label, v, on, span2 }: { label: string; v: string; on: (v: stri
     <div className={span2 ? "sm:col-span-2" : ""}>
       <label className="label">{label}</label>
       <input className="input" value={v} onChange={(e) => on(e.target.value)} />
+    </div>
+  );
+}
+
+// Inline accounts-receivable action: mark fully paid in one click, or open a
+// small editor to record a partial / dated payment.
+function PaymentAction({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState(inv.amount_paid);
+  const [paidDate, setPaidDate] = useState(inv.paid_date ?? "");
+  const [error, setError] = useState<string | null>(null);
+
+  const pay = useMutation({
+    mutationFn: async (payload: { amount_paid: string; paid_date?: string | null }) =>
+      (await api.patch(`/issued/${inv.id}/payment`, payload)).data,
+    onSuccess: () => { setOpen(false); setError(null); onDone(); },
+    onError: (e) => setError(apiError(e)),
+  });
+
+  if (inv.status === "paid") {
+    return <span className="text-xs text-emerald-600">{inv.paid_date ? `Paid ${shortDate(inv.paid_date)}` : "Paid"}</span>;
+  }
+
+  if (!open) {
+    return (
+      <div className="flex items-center justify-end gap-2">
+        <button
+          className="text-emerald-600 hover:underline"
+          disabled={pay.isPending}
+          onClick={() => pay.mutate({ amount_paid: inv.total, paid_date: new Date().toISOString().slice(0, 10) })}
+        >
+          Mark paid
+        </button>
+        <span className="text-slate-300">·</span>
+        <button className="text-brand-600 hover:underline" onClick={() => setOpen(true)}>Record…</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex items-center gap-1">
+        <input
+          className="input w-24 py-1 text-right" inputMode="decimal" value={amount}
+          onChange={(e) => setAmount(e.target.value)} placeholder="amount"
+        />
+        <input className="input w-32 py-1" type="date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} />
+        <button
+          className="btn-primary py-1 text-xs"
+          disabled={pay.isPending}
+          onClick={() => pay.mutate({ amount_paid: amount || "0", paid_date: paidDate || null })}
+        >
+          Save
+        </button>
+        <button className="text-slate-400 hover:underline" onClick={() => setOpen(false)}>cancel</button>
+      </div>
+      {error && <span className="text-xs text-rose-500">{error}</span>}
     </div>
   );
 }

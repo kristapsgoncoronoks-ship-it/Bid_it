@@ -576,6 +576,8 @@ export interface VatBucket {
   vat: string;
 }
 
+export type IssuedStatus = "paid" | "partial" | "open" | "overdue";
+
 export interface IssuedInvoice {
   id: string;
   number: string;
@@ -590,6 +592,51 @@ export interface IssuedInvoice {
   subtotal: string;
   tax_total: string;
   total: string;
+  amount_paid: string;
+  paid_date: string | null;
+  status: IssuedStatus;
+  outstanding: string;
+}
+
+// --- Issuing reports ---
+export interface IssuedSummaryReport {
+  currency: string;
+  available_currencies: string[];
+  count: number;
+  net: string;
+  vat: string;
+  gross: string;
+  collected: string;
+  outstanding: string;
+  series: { period: string; net: string; gross: string; count: number }[];
+}
+
+export interface IssuedReceivablesReport {
+  currency: string;
+  available_currencies: string[];
+  statuses: { status: IssuedStatus; label: string; count: number; gross: string; outstanding: string }[];
+  aging: { label: string; count: number; outstanding: string }[];
+  total_outstanding: string;
+  overdue_outstanding: string;
+  avg_days_to_pay: number | null;
+}
+
+export interface IssuedPartnerReport {
+  currency: string;
+  available_currencies: string[];
+  partners: {
+    partner: string; vat_number: string | null; count: number;
+    net: string; vat: string; gross: string; outstanding: string; last_invoice: string | null;
+  }[];
+}
+
+export interface IssuedVatReport {
+  currency: string;
+  available_currencies: string[];
+  by_rate: { rate: string; base: string; vat: string }[];
+  by_scheme: { scheme: string; net: string; vat: string }[];
+  total_net: string;
+  total_vat: string;
 }
 
 export interface IssuedInvoiceDetail extends IssuedInvoice {

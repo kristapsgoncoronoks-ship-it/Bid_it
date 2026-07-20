@@ -18,6 +18,7 @@ const Review = lazy(() => import("./pages/Review"));
 const Settings = lazy(() => import("./pages/Settings"));
 const Issuer = lazy(() => import("./pages/Issuer"));
 const Issue = lazy(() => import("./pages/Issue"));
+const IssuedReports = lazy(() => import("./pages/IssuedReports"));
 const Team = lazy(() => import("./pages/Team"));
 const Billing = lazy(() => import("./pages/Billing"));
 const Expenses = lazy(() => import("./pages/Expenses"));
@@ -60,6 +61,7 @@ export default function App() {
                 <Route path="/email" element={<EmailIntake />} />
                 <Route path="/budget" element={<Budget />} />
                 <Route path="/issue" element={<Issue />} />
+                <Route path="/issue/reports" element={<IssuedReports />} />
                 <Route path="/issuer" element={<Issuer />} />
                 <Route path="/expenses" element={<Expenses />} />
                 <Route path="/expenses/:id" element={<ExpenseDetail />} />

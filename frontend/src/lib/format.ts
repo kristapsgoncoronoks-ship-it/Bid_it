@@ -37,6 +37,18 @@ export const STATUS_STYLES: Record<string, string> = {
   draft: "bg-slate-100 text-slate-600",
 };
 
+// Accounts-receivable status for issued invoices.
+export const ISSUED_STATUS_STYLES: Record<string, string> = {
+  paid: "bg-emerald-100 text-emerald-700",
+  partial: "bg-sky-100 text-sky-700",
+  open: "bg-slate-100 text-slate-600",
+  overdue: "bg-rose-100 text-rose-700",
+};
+
+export const ISSUED_STATUS_LABELS: Record<string, string> = {
+  paid: "Paid", partial: "Partially paid", open: "Open", overdue: "Overdue",
+};
+
 export const VALIDATION_STYLES: Record<string, string> = {
   none: "bg-slate-100 text-slate-500",
   passed: "bg-emerald-100 text-emerald-700",

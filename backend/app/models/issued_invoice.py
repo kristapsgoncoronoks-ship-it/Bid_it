@@ -52,6 +52,12 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     tax_total: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
     total: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
 
+    # Accounts-receivable settlement. Payment status is DERIVED (never stored):
+    # paid when amount_paid >= total, partial when 0 < amount_paid < total,
+    # overdue when still owed past due_date, otherwise open. See issued_reports.
+    amount_paid: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
+    paid_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+
     lines: Mapped[list["IssuedInvoiceLine"]] = relationship(
         back_populates="invoice", cascade="all, delete-orphan", order_by="IssuedInvoiceLine.position"
     )

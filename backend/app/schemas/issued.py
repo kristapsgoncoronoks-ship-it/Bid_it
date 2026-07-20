@@ -66,6 +66,16 @@ class IssuedInvoiceOut(BaseModel):
     subtotal: Decimal
     tax_total: Decimal
     total: Decimal
+    amount_paid: Decimal = Decimal("0")
+    paid_date: date | None = None
+    status: str = "open"            # derived: paid | partial | open | overdue
+    outstanding: Decimal = Decimal("0")
+
+
+class PaymentUpdate(BaseModel):
+    """Record a payment against an issued invoice (accounts-receivable)."""
+    amount_paid: Decimal = Field(ge=0)
+    paid_date: date | None = None
 
 
 class IssuedInvoiceDetail(IssuedInvoiceOut):

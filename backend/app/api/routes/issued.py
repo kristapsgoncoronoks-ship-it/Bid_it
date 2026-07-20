@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
 from datetime import date, timedelta
 
@@ -16,9 +18,25 @@ from app.schemas.issued import (
     IssuedInvoiceListOut,
     IssuedInvoiceOut,
     IssuedLineOut,
+    PaymentUpdate,
     VatBucketOut,
 )
-from app.services import facturx, invoice_pdf, issuer, modules, vat
+from app.schemas.issued_reports import (
+    PartnerReportOut,
+    ReceivablesReportOut,
+    SummaryReportOut,
+    VatReportOut,
+)
+from app.services import (
+    audit,
+    facturx,
+    invoice_pdf,
+    issued_reports,
+    issued_status,
+    issuer,
+    modules,
+    vat,
+)
 
 router = APIRouter(prefix="/issued", tags=["issuing"])
 
@@ -43,9 +61,20 @@ def _vat_of(inv: IssuedInvoice) -> vat.VatResult:
     return vat.compute(raw, inv.vat_scheme)
 
 
+def _with_status(out: IssuedInvoiceOut, inv: IssuedInvoice) -> IssuedInvoiceOut:
+    out.status = issued_status.status_of(inv)
+    out.outstanding = issued_status.outstanding_of(inv)
+    return out
+
+
+def _out(inv: IssuedInvoice) -> IssuedInvoiceOut:
+    return _with_status(IssuedInvoiceOut.model_validate(inv), inv)
+
+
 def _detail(inv: IssuedInvoice) -> IssuedInvoiceDetail:
     result = _vat_of(inv)
     d = IssuedInvoiceDetail.model_validate(inv)
+    _with_status(d, inv)
     d.lines = [IssuedLineOut.model_validate(li) for li in inv.lines]
     d.vat_breakdown = [VatBucketOut(rate=b.rate, base=b.base, vat=b.vat) for b in result.breakdown]
     return d
@@ -120,7 +149,7 @@ async def list_issued(
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
-    return IssuedInvoiceListOut(items=[IssuedInvoiceOut.model_validate(r) for r in rows], total=total or 0)
+    return IssuedInvoiceListOut(items=[_out(r) for r in rows], total=total or 0)
 
 
 async def _load(db: DbSession, org_id: str, invoice_id: str) -> IssuedInvoice:
@@ -137,6 +166,26 @@ async def _load(db: DbSession, org_id: str, invoice_id: str) -> IssuedInvoice:
 @router.get("/{invoice_id}", response_model=IssuedInvoiceDetail)
 async def get_issued(invoice_id: str, current: CurrentUser, db: DbSession):
     return _detail(await _load(db, current.org_id, invoice_id))
+
+
+@router.patch("/{invoice_id}/payment", response_model=IssuedInvoiceDetail)
+async def record_payment(invoice_id: str, body: PaymentUpdate, current: CurrentUser, db: DbSession):
+    """Record a payment against an issued invoice (drives the paid/overdue report)."""
+    await modules.require_enabled(db, current.org_id, "issuing")
+    inv = await _load(db, current.org_id, invoice_id)
+    if body.amount_paid > inv.total:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Amount paid cannot exceed the invoice total")
+    inv.amount_paid = body.amount_paid
+    # A payment date is required to settle; clear it when the balance is un-paid.
+    fully = body.amount_paid >= inv.total and inv.total > 0
+    inv.paid_date = (body.paid_date or date.today()) if fully else (body.paid_date if body.amount_paid > 0 else None)
+    await audit.record(
+        db, audit.A.ISSUED_PAYMENT, target_type="issued_invoice", target_id=inv.id,
+        meta={"number": inv.number, "amount_paid": str(inv.amount_paid), "status": issued_status.status_of(inv)},
+    )
+    await db.commit()
+    await db.refresh(inv, attribute_names=["lines"])
+    return _detail(inv)
 
 
 @router.get("/{invoice_id}/xml")
@@ -166,3 +215,98 @@ async def get_issued_pdf(invoice_id: str, current: CurrentUser, db: DbSession):
         content=pdf, media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{inv.number}.pdf"'},
     )
+
+
+# --------------------------------------------------------------------------------
+# Reports (read-only, tenant-scoped, single-currency). Each endpoint returns JSON
+# by default or a CSV download when `?format=csv`. NET = VAT-exclusive subtotal.
+# --------------------------------------------------------------------------------
+
+def _csv(filename: str, header: list[str], rows: list[list]) -> Response:
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(header)
+    for r in rows:
+        w.writerow(r)
+    return Response(
+        content=buf.getvalue(), media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/reports/summary", response_model=SummaryReportOut)
+async def report_summary(
+    current: CurrentUser, db: DbSession,
+    date_from: date | None = Query(default=None, alias="from"),
+    date_to: date | None = Query(default=None, alias="to"),
+    currency: str | None = Query(default=None, min_length=3, max_length=3),
+    format: str = Query(default="json", pattern="^(json|csv)$"),
+):
+    await modules.require_enabled(db, current.org_id, "issuing")
+    rep = await issued_reports.summary(db, current.org_id, currency, date_from, date_to)
+    if format == "csv":
+        return _csv(
+            "issued-summary.csv",
+            ["period", "invoices", f"net_{rep.currency}", f"gross_{rep.currency}"],
+            [[p.period, p.count, p.net, p.gross] for p in rep.series],
+        )
+    return rep
+
+
+@router.get("/reports/receivables", response_model=ReceivablesReportOut)
+async def report_receivables(
+    current: CurrentUser, db: DbSession,
+    date_from: date | None = Query(default=None, alias="from"),
+    date_to: date | None = Query(default=None, alias="to"),
+    currency: str | None = Query(default=None, min_length=3, max_length=3),
+    format: str = Query(default="json", pattern="^(json|csv)$"),
+):
+    await modules.require_enabled(db, current.org_id, "issuing")
+    rep = await issued_reports.receivables(db, current.org_id, currency, date_from, date_to)
+    if format == "csv":
+        return _csv(
+            "issued-receivables.csv",
+            ["status", "invoices", f"gross_{rep.currency}", f"outstanding_{rep.currency}"],
+            [[s.label, s.count, s.gross, s.outstanding] for s in rep.statuses],
+        )
+    return rep
+
+
+@router.get("/reports/partners", response_model=PartnerReportOut)
+async def report_partners(
+    current: CurrentUser, db: DbSession,
+    date_from: date | None = Query(default=None, alias="from"),
+    date_to: date | None = Query(default=None, alias="to"),
+    currency: str | None = Query(default=None, min_length=3, max_length=3),
+    format: str = Query(default="json", pattern="^(json|csv)$"),
+):
+    await modules.require_enabled(db, current.org_id, "issuing")
+    rep = await issued_reports.by_partner(db, current.org_id, currency, date_from, date_to)
+    if format == "csv":
+        return _csv(
+            "issued-partners.csv",
+            ["partner", "vat_number", "invoices", f"net_{rep.currency}", f"vat_{rep.currency}",
+             f"gross_{rep.currency}", f"outstanding_{rep.currency}", "last_invoice"],
+            [[p.partner, p.vat_number or "", p.count, p.net, p.vat, p.gross, p.outstanding,
+              p.last_invoice.isoformat() if p.last_invoice else ""] for p in rep.partners],
+        )
+    return rep
+
+
+@router.get("/reports/vat", response_model=VatReportOut)
+async def report_vat(
+    current: CurrentUser, db: DbSession,
+    date_from: date | None = Query(default=None, alias="from"),
+    date_to: date | None = Query(default=None, alias="to"),
+    currency: str | None = Query(default=None, min_length=3, max_length=3),
+    format: str = Query(default="json", pattern="^(json|csv)$"),
+):
+    await modules.require_enabled(db, current.org_id, "issuing")
+    rep = await issued_reports.vat_summary(db, current.org_id, currency, date_from, date_to)
+    if format == "csv":
+        return _csv(
+            "issued-vat.csv",
+            ["vat_rate", f"base_{rep.currency}", f"vat_{rep.currency}"],
+            [[r.rate, r.base, r.vat] for r in rep.by_rate],
+        )
+    return rep
