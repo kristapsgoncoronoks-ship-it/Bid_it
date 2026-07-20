@@ -193,11 +193,50 @@ async def resolve_rate(db: AsyncSession, currency: str, on_date: date) -> Resolv
     return None
 
 
+async def load_rate_series(db: AsyncSession, currencies: set[str]) -> dict[str, list[tuple[date, Decimal]]]:
+    """All cached rates for `currencies` in ONE query, newest-first per currency.
+
+    Feeds `resolve_from` so callers that resolve many (currency, date) pairs make
+    a single round-trip instead of one query per pair (kills the N+1)."""
+    codes = {c.upper() for c in currencies if c and c.upper() != "EUR"}
+    if not codes:
+        return {}
+    rows = await db.execute(
+        select(EcbRate.currency, EcbRate.rate_date, EcbRate.rate)
+        .where(EcbRate.currency.in_(codes))
+        .order_by(EcbRate.currency, EcbRate.rate_date.desc())
+    )
+    out: dict[str, list[tuple[date, Decimal]]] = {}
+    for ccy, rate_date, rate in rows:
+        out.setdefault(ccy, []).append((rate_date, Decimal(rate)))
+    return out
+
+
+def resolve_from(series_by_ccy: dict[str, list[tuple[date, Decimal]]], currency: str, on_date: date) -> Resolved | None:
+    """Pure equivalent of `resolve_rate` over rows preloaded by `load_rate_series`.
+
+    Same rule: latest rate on-or-before the date; else the earliest (approximate).
+    Non-ECB European currencies are always flagged indicative."""
+    currency = currency.upper()
+    if currency == "EUR":
+        return Resolved(Decimal(1), on_date, False)
+    series = series_by_ccy.get(currency)  # newest-first
+    if not series:
+        return None
+    indicative = currency in NON_ECB_EUROPEAN
+    for rate_date, rate in series:
+        if rate_date <= on_date:
+            return Resolved(rate, rate_date, indicative)
+    rate_date, rate = series[-1]  # earliest cached → outside the window
+    return Resolved(rate, rate_date, True)
+
+
 async def supported_currencies(db: AsyncSession, as_of: date) -> list[dict]:
     """Every European currency vs EUR, with its current cached rate (if any)."""
+    series = await load_rate_series(db, {c.code for c in EUROPEAN_CURRENCIES})
     out: list[dict] = []
     for c in EUROPEAN_CURRENCIES:
-        r = await resolve_rate(db, c.code, as_of)
+        r = resolve_from(series, c.code, as_of)
         out.append({
             "code": c.code,
             "name": c.name,
@@ -307,15 +346,17 @@ async def ecb_comparison(db: AsyncSession, org_id: str, start: date | None, end:
         stmt = stmt.where(Invoice.issue_date <= end)
     records = (await db.execute(stmt)).all()
 
+    # Preload every needed currency's rates in one query (no per-invoice N+1).
+    currencies: set[str] = {inv.currency for inv, _ in records}
+    series = await load_rate_series(db, currencies)
+
     rows: list[dict] = []
     total_ecb = Decimal("0")
     total_markup = Decimal("0")
     with_stated = 0
-    currencies: set[str] = set()
 
     for inv, vendor_name in records:
-        currencies.add(inv.currency)
-        resolved = await resolve_rate(db, inv.currency, inv.issue_date)
+        resolved = resolve_from(series, inv.currency, inv.issue_date)
         ecb_rate = resolved.rate if resolved else None
         ecb_date = resolved.rate_date if resolved else None
         eur_at_ecb = _q(inv.total / ecb_rate) if ecb_rate else None

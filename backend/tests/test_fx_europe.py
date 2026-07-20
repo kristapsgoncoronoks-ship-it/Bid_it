@@ -61,3 +61,21 @@ async def test_coverage_backfills_missing_currency(db_session):
     # Re-running coverage is a no-op (idempotent, additive).
     added = await fx.ensure_european_coverage(db_session, date(2026, 7, 18))
     assert added == 0
+
+
+@pytest.mark.asyncio
+async def test_bulk_resolver_matches_single(db_session):
+    """resolve_from (preloaded) must be identical to resolve_rate (per-query)."""
+    from datetime import date
+
+    codes = ["PLN", "RSD", "CHF", "EUR", "UAH"]
+    series = await fx.load_rate_series(db_session, set(codes))
+    for c in codes:
+        for d in (date(2026, 7, 1), date(2019, 1, 1), date(2026, 12, 31)):
+            single = await fx.resolve_rate(db_session, c, d)
+            bulk = fx.resolve_from(series, c, d)
+            assert (single is None) == (bulk is None), f"{c} {d}"
+            if single is not None:
+                assert single.rate == bulk.rate
+                assert single.rate_date == bulk.rate_date
+                assert single.approximate == bulk.approximate

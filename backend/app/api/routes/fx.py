@@ -32,10 +32,11 @@ async def get_rates(
 ):
     as_of = on or date.today()
     currencies = list(await db.scalars(select(EcbRate.currency).distinct().order_by(EcbRate.currency)))
+    series = await fx.load_rate_series(db, set(currencies))  # one query, not one per currency
     rates: list[RateOut] = []
     latest_used: date | None = None
     for ccy in currencies:
-        r = await fx.resolve_rate(db, ccy, as_of)
+        r = fx.resolve_from(series, ccy, as_of)
         if r is None:
             continue
         rates.append(RateOut(currency=ccy, rate=r.rate, rate_date=r.rate_date, approximate=r.approximate))
