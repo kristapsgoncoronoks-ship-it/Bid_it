@@ -26,6 +26,11 @@ reportlab==4.2.5
 # defusedxml hardens parsing of attacker-supplied XML (XXE / billion-laughs).
 defusedxml==0.7.1
 
+# Malware scanning of uploads/attachments (OPTIONAL). filesec imports `clamd`
+# lazily and only when clamav_enabled=true; without it, type validation + EICAR
+# detection still apply. Install alongside a running clamd daemon to enable AV.
+# clamd==1.0.2
+
 # dev / test
 pytest==8.3.4
 pytest-asyncio==0.25.0

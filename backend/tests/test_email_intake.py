@@ -58,7 +58,7 @@ async def test_inbound_creates_pending_and_confirm_creates_invoice(auth_client, 
         "attachments": [_att("invoice.csv", CSV)],
     })
     assert r.status_code == 200, r.text
-    assert r.json() == {"received": 1, "pending": 1, "failed": 0}
+    assert r.json() == {"received": 1, "pending": 1, "failed": 0, "rejected": 0}
 
     inbox = (await auth_client.get("/api/v1/email/inbox")).json()
     assert inbox["total"] == 1
@@ -103,12 +103,13 @@ async def test_inbound_by_token_and_multiple_attachments(auth_client, client):
         "attachments": [_att("a.csv", CSV), _att("b.json", JSON), _att("bad.txt", "not an invoice")],
     })
     assert r.status_code == 200, r.text
-    assert r.json() == {"received": 3, "pending": 2, "failed": 1}
+    # bad.txt is an unsupported type → blocked by the security gate (rejected).
+    assert r.json() == {"received": 3, "pending": 2, "failed": 0, "rejected": 1}
 
-    failed = (await auth_client.get("/api/v1/email/inbox?status=failed")).json()
-    assert failed["total"] == 1
-    assert failed["items"][0]["filename"] == "bad.txt"
-    assert failed["items"][0]["error"]
+    rejected = (await auth_client.get("/api/v1/email/inbox?status=rejected")).json()
+    assert rejected["total"] == 1
+    assert rejected["items"][0]["filename"] == "bad.txt"
+    assert rejected["items"][0]["error"]
 
 
 @pytest.mark.asyncio
@@ -251,3 +252,59 @@ async def test_emailed_scanned_pdf_is_processed_by_ocr(auth_client, client):
     conf = await auth_client.post(f"/api/v1/email/inbox/{row['id']}/confirm", json={})
     assert conf.status_code == 201, conf.text
     assert conf.json()["invoice_number"] == "INV-OCR-77"
+
+
+@pytest.mark.asyncio
+async def test_emailed_malware_is_quarantined(auth_client, client):
+    """An attachment carrying the EICAR test signature is blocked, marked
+    rejected, and its bytes are NOT stored."""
+    from app.services import filesec
+
+    await _activate(auth_client)
+    token = _token(await _address(auth_client))
+    payload = b"%PDF-1.4 " + filesec.EICAR + b" trailer"
+    att = {"filename": "invoice.pdf", "content_type": "application/pdf",
+           "content_base64": base64.b64encode(payload).decode()}
+
+    r = await client.post("/api/v1/email/inbound", json={"token": token, "attachments": [att]})
+    assert r.status_code == 200, r.text
+    assert r.json()["rejected"] == 1 and r.json()["pending"] == 0
+
+    row = (await auth_client.get("/api/v1/email/inbox?status=rejected")).json()["items"][0]
+    assert "malware" in row["error"].lower()
+    detail = (await auth_client.get(f"/api/v1/email/inbox/{row['id']}")).json()
+    assert detail["has_file"] is False              # bytes were dropped
+    assert detail["draft"] is None
+    # Cannot confirm a quarantined file into an invoice.
+    conf = await auth_client.post(f"/api/v1/email/inbox/{row['id']}/confirm", json={})
+    assert conf.status_code == 422
+    # The download endpoint has nothing to serve.
+    dl = await auth_client.get(f"/api/v1/email/inbox/{row['id']}/file")
+    assert dl.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_emailed_executable_disguised_as_pdf_is_rejected(auth_client, client):
+    await _activate(auth_client)
+    token = _token(await _address(auth_client))
+    exe = b"MZ\x90\x00" + b"\x00" * 128           # PE executable renamed .pdf
+    att = {"filename": "invoice.pdf", "content_base64": base64.b64encode(exe).decode()}
+    r = await client.post("/api/v1/email/inbound", json={"token": token, "attachments": [att]})
+    assert r.json()["rejected"] == 1
+
+
+@pytest.mark.asyncio
+async def test_upload_endpoint_rejects_malware_and_disguised_files(auth_client):
+    from app.services import filesec
+
+    # EICAR in a PDF upload.
+    payload = b"%PDF-1.4 " + filesec.EICAR
+    files = {"file": ("invoice.pdf", payload, "application/pdf")}
+    r = await auth_client.post("/api/v1/invoices/upload", files=files)
+    assert r.status_code == 415
+
+    # HTML/script disguised as a PDF.
+    html = b"<!DOCTYPE html><html><script>alert(1)</script></html>"
+    files = {"file": ("invoice.pdf", html, "application/pdf")}
+    r = await auth_client.post("/api/v1/invoices/upload", files=files)
+    assert r.status_code == 415

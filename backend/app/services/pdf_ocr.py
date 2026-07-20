@@ -27,6 +27,9 @@ from app.schemas.invoice import InvoiceCreate, LineItemIn, ParsedInvoiceDraft
 _OCR_DPI = 300
 # Below this many characters of embedded text, assume the page is scanned.
 _TEXT_LAYER_MIN_CHARS = 25
+# Hard cap on pages we rasterise/OCR — bounds CPU/memory against a maliciously
+# huge or decompression-bomb PDF (an invoice is a handful of pages, not 10,000).
+_MAX_OCR_PAGES = 50
 
 # A monetary token: any number ending in a 2-digit decimal group, either
 # separator, optional sign/parentheses (credits) and thousands separators.
@@ -218,7 +221,7 @@ def _ocr(content: bytes) -> str:
     try:
         out: list[str] = []
         scale = _OCR_DPI / 72.0
-        for i in range(len(pdf)):
+        for i in range(min(len(pdf), _MAX_OCR_PAGES)):  # cap pages (DoS guard)
             page = pdf[i]
             bitmap = page.render(scale=scale)
             image = bitmap.to_pil()

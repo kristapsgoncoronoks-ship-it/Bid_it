@@ -18,9 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.email_intake import EmailIntake, InboundInvoice
+from app.services import filesec
 from app.services.parser import parse_invoice_file
-
-_MAX_ATTACHMENT = 15 * 1024 * 1024  # 15 MB, matching the upload cap
 
 
 def _new_token() -> str:
@@ -92,7 +91,11 @@ async def process_attachment(
 ) -> InboundInvoice:
     """Parse one email attachment into a review-inbox row (best-effort). A parse
     failure is recorded as a `failed` row (with the reason), never raised — one
-    bad attachment must not drop the rest of the message."""
+    bad attachment must not drop the rest of the message.
+
+    Security gate FIRST: a malicious attachment (malware, executable, script
+    disguised as an invoice, wrong type) is marked `rejected` with the reason and
+    its bytes are NOT stored — never parsed, never OCR'd, never vaulted."""
     sha = hashlib.sha256(content).hexdigest()
     row = InboundInvoice(
         org_id=org_id,
@@ -104,21 +107,28 @@ async def process_attachment(
         size=len(content),
         sha256=sha,
         method=_method_for(filename or ""),
-        file_data=content,
+        file_data=None,
     )
-    if len(content) > _MAX_ATTACHMENT:
+    try:
+        filesec.check(filename or "attachment", content, allowed=filesec.INVOICE_KINDS)
+    except filesec.FileRejected as exc:
+        # Quarantine: keep the metadata for the audit trail, drop the bytes.
+        row.status = "rejected"
+        row.error = str(exc)
+        db.add(row)
+        return row
+
+    # Passed the security gate → safe to retain the original and parse it.
+    row.file_data = content
+    try:
+        draft = parse_invoice_file(filename or "attachment", content)
+        row.draft_json = draft.model_dump_json()
+        # Record HOW it was read (e-invoice-xml | text-layer | ocr | csv | json)
+        # so the review inbox shows the extraction method, not just the file type.
+        row.method = draft.method if draft.method and draft.method != "unknown" else row.method
+        row.status = "pending"
+    except ValueError as exc:
         row.status = "failed"
-        row.error = "Attachment exceeds the 15 MB limit"
-    else:
-        try:
-            draft = parse_invoice_file(filename or "attachment", content)
-            row.draft_json = draft.model_dump_json()
-            # Record HOW it was read (e-invoice-xml | text-layer | ocr | csv | json)
-            # so the review inbox shows the extraction method, not just the file type.
-            row.method = draft.method if draft.method and draft.method != "unknown" else row.method
-            row.status = "pending"
-        except ValueError as exc:
-            row.status = "failed"
-            row.error = str(exc)
+        row.error = str(exc)
     db.add(row)
     return row

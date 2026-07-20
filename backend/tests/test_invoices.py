@@ -107,4 +107,5 @@ async def test_upload_csv_returns_draft(auth_client):
 async def test_upload_rejects_unknown_type(auth_client):
     files = {"file": ("x.txt", io.BytesIO(b"nope"), "text/plain")}
     r = await auth_client.post("/api/v1/invoices/upload", files=files)
-    assert r.status_code == 422
+    # The security gate blocks unsupported/unrecognised types (415).
+    assert r.status_code == 415

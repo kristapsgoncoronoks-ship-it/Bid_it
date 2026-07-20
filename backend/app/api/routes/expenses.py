@@ -31,11 +31,9 @@ from app.schemas.expense import (
     ExpenseTransactionOut,
     ItemFromTransaction,
 )
-from app.services import bank_statement, expenses, fx, modules
+from app.services import bank_statement, expenses, filesec, fx, modules
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
-
-_ALLOWED_RECEIPT = {"image/png": b"\x89PNG", "image/jpeg": b"\xff\xd8\xff", "application/pdf": b"%PDF"}
 
 
 async def _guard(db: DbSession, org_id: str):
@@ -142,6 +140,11 @@ async def import_bank_statement(current: CurrentUser, db: DbSession, file: Uploa
     content = await file.read()
     if len(content) > 15 * 1024 * 1024:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Statement too large (max 15 MB)")
+    # Security gate before any parsing/OCR of the (untrusted) statement.
+    try:
+        filesec.check(file.filename or "statement", content, allowed=frozenset({"pdf", "csv"}))
+    except filesec.FileRejected as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
     try:
         result = bank_statement.parse(file.filename or "statement", content)
     except bank_statement.pdf_ocr.OcrUnavailable as exc:
@@ -398,11 +401,12 @@ async def upload_receipt(report_id: str, item_id: str, current: CurrentUser, db:
     content = await file.read()
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Receipt too large (max 5 MB)")
-    mime = file.content_type or "application/pdf"
-    magic = _ALLOWED_RECEIPT.get(mime)
-    if magic is None or not content.startswith(magic):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Receipt must be a PNG, JPEG, or PDF")
-    item.receipt_mime = mime
+    # Security gate: validate the real type (PNG/JPEG/PDF) + malware-scan.
+    try:
+        kind = filesec.check(file.filename or "receipt", content, allowed=filesec.RECEIPT_KINDS)
+    except filesec.FileRejected as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
+    item.receipt_mime = {"png": "image/png", "jpeg": "image/jpeg", "pdf": "application/pdf"}[kind]
     item.receipt_data = content
     await db.commit()
     await db.refresh(r, attribute_names=["items"])
@@ -417,7 +421,12 @@ async def get_receipt(report_id: str, item_id: str, current: CurrentUser, db: Db
     item = next((i for i in r.items if i.id == item_id), None)
     if item is None or not item.receipt_data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Receipt not found")
-    return Response(content=item.receipt_data, media_type=item.receipt_mime or "application/octet-stream")
+    # Serve inert: force download and stop MIME sniffing.
+    return Response(
+        content=item.receipt_data,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": "attachment", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.get("/{report_id}/pdf")

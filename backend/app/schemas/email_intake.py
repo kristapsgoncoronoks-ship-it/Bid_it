@@ -39,6 +39,7 @@ class InboundResult(BaseModel):
     received: int
     pending: int
     failed: int
+    rejected: int = 0   # blocked by the security gate (malware / bad type)
 
 
 class InboundInvoiceOut(BaseModel):

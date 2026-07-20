@@ -60,7 +60,7 @@ async def inbound(
     if not await modules.is_enabled(db, org_id, "email_intake"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Email invoice intake is not activated for this workspace")
 
-    pending = failed = 0
+    pending = failed = rejected = 0
     scope = set_current_org(org_id)
     try:
         for att in body.attachments:
@@ -73,7 +73,9 @@ async def inbound(
                 from_addr=body.from_addr, subject=body.subject,
                 filename=att.filename, content_type=att.content_type, content=content,
             )
-            if row.status == "failed":
+            if row.status == "rejected":
+                rejected += 1
+            elif row.status == "failed":
                 failed += 1
             else:
                 pending += 1
@@ -81,7 +83,7 @@ async def inbound(
     finally:
         reset_current_org(scope)
 
-    return InboundResult(received=len(body.attachments), pending=pending, failed=failed)
+    return InboundResult(received=len(body.attachments), pending=pending, failed=failed, rejected=rejected)
 
 
 # --------------------------------------------------------------------------- #
@@ -206,9 +208,13 @@ async def download_file(inbound_id: str, current: CurrentUser, db: DbSession):
     row = await _load(db, current.org_id, inbound_id)
     if not row.file_data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No stored file for this attachment")
-    fname = row.filename or "attachment"
+    fname = (row.filename or "attachment").replace('"', "")
+    # Serve inert: force download, never inline, and stop MIME sniffing.
     return Response(
         content=row.file_data,
-        media_type=row.content_type or "application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{fname}"',
+            "X-Content-Type-Options": "nosniff",
+        },
     )

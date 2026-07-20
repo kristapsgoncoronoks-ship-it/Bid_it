@@ -23,7 +23,7 @@ from app.schemas.invoice import (
     ParsedInvoiceDraft,
 )
 from app.schemas.validation import ValidationDecision, ValidationFinding
-from app.services import fx, validation
+from app.services import filesec, fx, validation
 from app.services.parser import parse_invoice_file
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
@@ -261,6 +261,11 @@ async def upload_invoice(current: CurrentUser, file: UploadFile):
     content = await file.read()
     if len(content) > _MAX_UPLOAD:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File too large (max 15 MB)")
+    # Security gate: type-validate + malware-scan before any parsing/OCR.
+    try:
+        filesec.check(file.filename or "upload", content, allowed=filesec.INVOICE_KINDS)
+    except filesec.FileRejected as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
     try:
         return parse_invoice_file(file.filename or "upload", content)
     except ValueError as exc:

@@ -417,7 +417,7 @@ export interface EmailSettings {
   total: number;
 }
 
-export type InboundStatus = "pending" | "confirmed" | "failed" | "discarded";
+export type InboundStatus = "pending" | "confirmed" | "failed" | "discarded" | "rejected";
 
 export interface InboundInvoice {
   id: string;

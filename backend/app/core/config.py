@@ -42,6 +42,16 @@ class Settings(BaseSettings):
     inbound_email_domain: str = Field(default="in.invoiceiq.app")
     inbound_email_secret: str | None = Field(default=None)
 
+    # --- File security (uploads & email attachments) ---
+    max_upload_mb: int = Field(default=15)
+    # Optional ClamAV daemon for malware scanning. When enabled, a scan failure
+    # fails CLOSED (the file is rejected). When disabled (default), type
+    # validation + EICAR detection still apply.
+    clamav_enabled: bool = Field(default=False)
+    clamav_host: str = Field(default="127.0.0.1")
+    clamav_port: int = Field(default=3310)
+    clamav_unix_socket: str | None = Field(default=None)
+
     # --- CORS ---
     # Comma-separated list of allowed origins for the SPA.
     cors_origins: str = "http://localhost:5173,http://localhost:3000"

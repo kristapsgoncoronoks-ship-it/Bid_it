@@ -10,6 +10,7 @@ const STATUS_STYLES: Record<string, string> = {
   pending: "bg-amber-100 text-amber-700",
   confirmed: "bg-emerald-100 text-emerald-700",
   failed: "bg-rose-100 text-rose-700",
+  rejected: "bg-rose-100 text-rose-700",
   discarded: "bg-slate-100 text-slate-500",
 };
 
@@ -101,8 +102,8 @@ export default function EmailIntake() {
                         <div className="truncate text-xs text-slate-400">
                           {it.from_addr || "unknown sender"} · {shortDate(it.received_at)}
                         </div>
-                        {it.status !== "failed" && it.method && it.method !== "unknown" && (
-                          <span className={`badge mt-1 ${METHOD_STYLES[it.method] ?? "bg-slate-100 text-slate-600"}`}>
+                        {(it.status === "pending" || it.status === "confirmed") && it.method && it.method !== "unknown" && METHOD_STYLES[it.method] && (
+                          <span className={`badge mt-1 ${METHOD_STYLES[it.method]}`}>
                             {methodLabel(it.method)}
                           </span>
                         )}
@@ -175,8 +176,8 @@ function InboundDetail({ id, onDone }: { id: string; onDone: () => void }) {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {row.method && row.method !== "unknown" && row.status !== "failed" && (
-            <span className={`badge ${METHOD_STYLES[row.method] ?? "bg-slate-100 text-slate-600"}`}>
+          {(row.status === "pending" || row.status === "confirmed") && row.method && METHOD_STYLES[row.method] && (
+            <span className={`badge ${METHOD_STYLES[row.method]}`}>
               {methodLabel(row.method)}
             </span>
           )}
@@ -188,6 +189,12 @@ function InboundDetail({ id, onDone }: { id: string; onDone: () => void }) {
         <button className="text-sm text-brand-600 hover:underline" onClick={() => downloadFile(`/email/inbox/${id}/file`, row.filename)}>
           Download original attachment
         </button>
+      )}
+
+      {row.status === "rejected" && (
+        <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">
+          🛡️ Blocked by the security scan — {row.error}. The file was quarantined and not stored.
+        </div>
       )}
 
       {row.status === "failed" && (
@@ -251,7 +258,7 @@ function InboundDetail({ id, onDone }: { id: string; onDone: () => void }) {
             {confirm_.isPending ? "Confirming…" : "Confirm as invoice"}
           </button>
         )}
-        {(row.status === "pending" || row.status === "failed") && (
+        {(row.status === "pending" || row.status === "failed" || row.status === "rejected") && (
           <button className="btn-ghost" onClick={() => discard.mutate()}>Discard</button>
         )}
         <button className="btn-ghost text-rose-600" onClick={() => { if (confirm("Delete this inbound email permanently?")) del.mutate(); }}>
