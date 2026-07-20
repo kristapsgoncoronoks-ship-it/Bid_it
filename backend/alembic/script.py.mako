@@ -8,6 +8,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+import app.models.base  # portable GUID type used by every table
 ${imports if imports else ""}
 
 revision: str = ${repr(up_revision)}

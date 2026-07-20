@@ -83,6 +83,14 @@ Backend reads env vars (see `backend/.env.example`): `DATABASE_URL`,
 `SECRET_KEY` (**set in production**), `ACCESS_TOKEN_EXPIRE_MINUTES`,
 `CORS_ORIGINS`. Frontend reads `VITE_API_BASE_URL` (empty = same origin).
 
+## Database migrations
+
+Dev/test create tables directly (zero-setup). **Production owns schema evolution
+through Alembic** — `create_all` is skipped when `ENVIRONMENT=production`, and the
+prod compose runs `alembic upgrade head` before booting the API. To evolve the
+schema: change the models, then `make migration m="add x"` (autogenerate) and
+review the file; deploys apply it automatically. Apply manually with `make migrate`.
+
 ## TLS / SSL + Cloudflare
 
 Production runs behind Cloudflare with the nginx container as the TLS origin —

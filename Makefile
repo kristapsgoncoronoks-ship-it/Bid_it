@@ -1,4 +1,4 @@
-.PHONY: help install backend frontend seed test build up down logs fmt
+.PHONY: help install backend frontend seed test build up down logs fmt migrate migration
 
 help:
 	@echo "InvoiceIQ — dev commands"
@@ -23,6 +23,12 @@ frontend:
 
 seed:
 	cd backend && . .venv/bin/activate && python -m app.seed
+
+migrate:            ## apply DB migrations (production schema source of truth)
+	cd backend && . .venv/bin/activate && alembic upgrade head
+
+migration:          ## autogenerate a migration: make migration m="add x"
+	cd backend && . .venv/bin/activate && alembic revision --autogenerate -m "$(m)"
 
 test:
 	cd backend && . .venv/bin/activate && python -m pytest -q

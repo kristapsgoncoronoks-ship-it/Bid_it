@@ -18,20 +18,15 @@ services:
       SECRET_KEY: ${SECRET_KEY:?set a strong SECRET_KEY}
       CORS_ORIGINS: ${APP_ORIGIN:?set APP_ORIGIN, e.g. https://app.example.com}
       INBOUND_EMAIL_SECRET: ${INBOUND_EMAIL_SECRET:-}
-    # Honour X-Forwarded-Proto/For from the nginx origin so the app knows it is
-    # HTTPS and sees the real client IP. Trust the internal proxy only.
+    # Apply DB migrations, then start uvicorn. Honours X-Forwarded-Proto/For from
+    # the nginx origin so the app knows it is HTTPS and sees the real client IP.
     command:
-      - uvicorn
-      - app.main:app
-      - --host
-      - "0.0.0.0"
-      - --port
-      - "8000"
-      - --workers
-      - "4"
-      - --proxy-headers
-      - --forwarded-allow-ips
-      - "*"
+      - sh
+      - -c
+      - >-
+        alembic upgrade head &&
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+        --proxy-headers --forwarded-allow-ips '*'
     # Not published to the host — only nginx reaches it on the compose network.
     ports: []
 

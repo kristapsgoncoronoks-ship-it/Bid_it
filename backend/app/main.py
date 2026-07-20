@@ -20,10 +20,14 @@ log = logging.getLogger("invoiceiq")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create tables if missing. In production Alembic owns schema evolution;
-    # create_all is idempotent and keeps local/dev/test zero-setup.
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Dev/test: create tables directly for zero-setup. Production owns schema
+    # evolution through Alembic (`alembic upgrade head`, run before boot), so we
+    # do NOT create_all there — it would race the migrations' version tracking.
+    if settings.environment != "production":
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    else:
+        log.info("Production: schema is managed by Alembic (run `alembic upgrade head`)")
 
     # Seed the bundled ECB rate snapshot if the cache is empty, so FX conversion
     # works before the first live refresh. Best-effort — never blocks startup.
