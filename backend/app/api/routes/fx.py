@@ -7,8 +7,9 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
-from app.models.fx import EcbRate
+from app.core.money import CENTS as _CENTS
 from app.core.roles import is_admin_or_above
+from app.models.fx import EcbRate
 from app.schemas.fx import (
     ConvertResponse,
     CurrenciesResponse,
@@ -21,7 +22,6 @@ from app.schemas.fx import (
 from app.services import fx
 
 router = APIRouter(prefix="/fx", tags=["fx"])
-_CENTS = Decimal("0.01")
 
 
 @router.get("/rates", response_model=RatesResponse)

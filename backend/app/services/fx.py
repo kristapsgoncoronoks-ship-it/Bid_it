@@ -17,17 +17,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, timedelta
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.money import q as _q
 from app.models.fx import EcbRate
 
 ECB_DAILY_URL = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
 ECB_90D_URL = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist-90d.xml"
-
-_CENTS = Decimal("0.01")
 
 # --------------------------------------------------------------------------- #
 # European currency registry — every European currency, valued against the EUR.
@@ -102,10 +101,6 @@ class Resolved:
     rate: Decimal
     rate_date: date
     approximate: bool  # True when we had to reach outside the on-or-before window
-
-
-def _q(v: Decimal, exp: Decimal = _CENTS) -> Decimal:
-    return v.quantize(exp, rounding=ROUND_HALF_UP)
 
 
 # --------------------------------------------------------------------------- #

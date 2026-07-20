@@ -18,14 +18,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.money import q2
 from app.models.budget import BudgetTarget
 from app.models.invoice import Invoice, LineItem
-
-_CENTS = Decimal("0.01")
-
-
-def q2(value: Decimal) -> Decimal:
-    return value.quantize(_CENTS, rounding=ROUND_HALF_UP)
 
 
 def month_bounds(year: int, month: int) -> tuple[date, date]:

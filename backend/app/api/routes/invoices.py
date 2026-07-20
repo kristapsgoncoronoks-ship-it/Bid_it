@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime, timezone
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, status
 from sqlalchemy import func, select
@@ -23,17 +23,13 @@ from app.schemas.invoice import (
     ParsedInvoiceDraft,
 )
 from app.schemas.validation import ValidationDecision, ValidationFinding
+from app.core.money import q2 as _q
 from app.services import access, filesec, fx, validation
 from app.services.parser import parse_invoice_file
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
-_CENTS = Decimal("0.01")
 _MAX_UPLOAD = 15 * 1024 * 1024  # 15 MB (scanned PDFs run larger)
-
-
-def _q(value: Decimal) -> Decimal:
-    return value.quantize(_CENTS, rounding=ROUND_HALF_UP)
 
 
 async def _resolve_vendor(db: DbSession, org_id: str, body: InvoiceCreate) -> Vendor:

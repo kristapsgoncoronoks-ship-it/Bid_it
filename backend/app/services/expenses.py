@@ -9,15 +9,10 @@ from __future__ import annotations
 
 import io
 from datetime import date, datetime, timezone
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 
+from app.core.money import q2 as q
 from app.models.expense import ExpenseItem, ExpenseReport
-
-_CENTS = Decimal("0.01")
-
-
-def q(v: Decimal) -> Decimal:
-    return Decimal(v).quantize(_CENTS, rounding=ROUND_HALF_UP)
 
 
 def compute_totals(items: list) -> tuple[Decimal, Decimal]:

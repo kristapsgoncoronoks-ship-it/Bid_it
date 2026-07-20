@@ -17,11 +17,12 @@ All aggregation happens in the database; per-category math is finished in Python
 from __future__ import annotations
 
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 
 from sqlalchemy import Select, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.money import q as _q
 from app.models.invoice import Invoice, InvoiceStatus, LineItem
 from app.models.vendor import Vendor
 from app.schemas.benchmark import (
@@ -33,12 +34,7 @@ from app.schemas.benchmark import (
 )
 
 _ZERO = Decimal("0")
-_CENTS = Decimal("0.01")
 _PCT = Decimal("0.1")
-
-
-def _q(v: Decimal, exp: Decimal = _CENTS) -> Decimal:
-    return v.quantize(exp, rounding=ROUND_HALF_UP)
 
 
 def _scope(stmt: Select, org_id: str, start: date | None, end: date | None) -> Select:

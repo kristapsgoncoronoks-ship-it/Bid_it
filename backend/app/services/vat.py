@@ -7,9 +7,9 @@ exempt schemes the effective VAT is zero and a legal note is required.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 
-_CENTS = Decimal("0.01")
+from app.core.money import q2 as q
 
 # Schemes where the supplier charges no VAT and must state the reason.
 ZERO_VAT_SCHEMES = {"reverse_charge", "intra_eu", "exempt"}
@@ -21,8 +21,6 @@ SCHEME_NOTES = {
 }
 
 
-def q(v: Decimal) -> Decimal:
-    return v.quantize(_CENTS, rounding=ROUND_HALF_UP)
 
 
 @dataclass
