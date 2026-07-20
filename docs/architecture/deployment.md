@@ -73,6 +73,7 @@ graph TB
 | Webhook delivery success | deliveries table | < 99% |
 | DB pool saturation | metrics | sustained near max |
 | Backup freshness + integrity | backup job | stale or manifest mismatch |
+| Deterministic capture rate | `invoiceiq_documents_parsed_total{method}` | drops below target (rising AI/manual share) |
 
 ---
 

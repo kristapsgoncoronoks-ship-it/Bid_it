@@ -124,7 +124,23 @@ def _stem(filename: str) -> str:
 
 
 def parse_invoice_file(filename: str, content: bytes) -> ParsedInvoiceDraft:
-    """Parse `content` into a draft invoice. Raises ValueError on bad input."""
+    """Parse `content` into a draft invoice. Raises ValueError on bad input.
+
+    This is the single choke point every extraction path funnels through, so it
+    is also where we record the deterministic-capture-rate metric (by method).
+    """
+    from app.core import metrics
+
+    try:
+        result = _dispatch_parse(filename, content)
+    except ValueError:
+        metrics.record_parse("failed")
+        raise
+    metrics.record_parse(result.method)
+    return result
+
+
+def _dispatch_parse(filename: str, content: bytes) -> ParsedInvoiceDraft:
     warnings: list[str] = []
     lower = filename.lower()
 

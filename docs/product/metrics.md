@@ -105,7 +105,9 @@ Principles: **tenant-scoped** (every event carries `org_id`, never PII in proper
 ### Derived metrics (computed, not tracked)
 - **FRV / activation** = `invoice.confirmed` ≥10 AND (`dashboard.viewed` OR `export.performed`) within 14d.
 - **WART** = weekly tenants with ≥N `invoice.confirmed` AND a value action.
-- **Deterministic capture rate** = `invoice.confirmed` where parse_method ∈ {xml,text} / all confirmed.
+- **Deterministic capture rate** — instrumented as the Prometheus counter `invoiceiq_documents_parsed_total{method}` (recorded at the single parse choke point, exposed on `/metrics`). PromQL:
+  `sum(invoiceiq_documents_parsed_total{method=~"e-invoice-xml|text-layer|csv|json"}) / sum(invoiceiq_documents_parsed_total)`
+  (the deterministic method set is `core.metrics.DETERMINISTIC_METHODS`; `ocr` is no-AI but lower-confidence, `ai`/`failed` are excluded).
 - **Correction rate** = confirmed-with-edits / confirmed (needs a `was_edited` flag on confirm).
 
 ### Instrumentation notes

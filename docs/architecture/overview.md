@@ -246,7 +246,9 @@ Ordered to de-risk the platform before scaling product. Each phase is shippable 
 **Phase 1 — Storage & extraction correctness**
 4. ✅ Migrate document bytes (receipts, logos, email attachments) to **object storage** (`core/storage.py` local/s3/memory + `services/documents.py`); DB keeps sha256 + size; legacy blobs read via dual-read; MinIO wired into `docker-compose` (ADR-0008).
 5. ✅ Move **bulk/non-interactive** parse/OCR to the worker tier: email attachments are stored + `queued`, an `email.extract` job parses out-of-band (retryable, off the API tier). Interactive single-file upload stays synchronous **by design** (ADR-0009).
-6. Deterministic-first parser coverage metrics wired to observability.
+6. ✅ Deterministic-capture-rate metric wired to observability: `parse_invoice_file` (the single parse choke point) records `invoiceiq_documents_parsed_total{method}` in the default Prometheus registry, exposed on `/metrics` (`core/metrics.py`).
+
+**Phase 1 complete.**
 
 **Phase 2 — Multi-tenant safety at the DB layer**
 7. Introduce **Postgres RLS** as belt-and-braces behind the app guard (defence in depth; no API change) (ADR-0004).
