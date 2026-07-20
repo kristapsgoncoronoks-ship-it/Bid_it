@@ -47,6 +47,12 @@ MODULES: tuple[Module, ...] = (
         "Forward invoices to a dedicated address; attachments are auto-parsed into a review inbox.",
         core=False, default=False,
     ),
+    Module(
+        "budget",
+        "Monthly budgeting",
+        "Set a monthly limit per category and track received-invoice spend against it (household / personal budgeting).",
+        core=False, default=False,
+    ),
 )
 MODULES_BY_KEY = {m.key: m for m in MODULES}
 

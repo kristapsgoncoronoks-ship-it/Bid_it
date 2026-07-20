@@ -25,10 +25,10 @@ class Plan:
 
 
 PLANS: dict[str, Plan] = {
-    "trial": Plan("trial", "Trial", seats=3, price_eur=0, modules=frozenset({"issuing", "expenses", "email_intake"}), trial=True),
-    "starter": Plan("starter", "Starter", seats=2, price_eur=29, modules=frozenset({"expenses"})),
-    "pro": Plan("pro", "Pro", seats=10, price_eur=99, modules=frozenset({"issuing", "expenses", "email_intake"})),
-    "enterprise": Plan("enterprise", "Enterprise", seats=200, price_eur=None, modules=frozenset({"issuing", "expenses", "email_intake"})),
+    "trial": Plan("trial", "Trial", seats=3, price_eur=0, modules=frozenset({"issuing", "expenses", "email_intake", "budget"}), trial=True),
+    "starter": Plan("starter", "Starter", seats=2, price_eur=29, modules=frozenset({"expenses", "budget"})),
+    "pro": Plan("pro", "Pro", seats=10, price_eur=99, modules=frozenset({"issuing", "expenses", "email_intake", "budget"})),
+    "enterprise": Plan("enterprise", "Enterprise", seats=200, price_eur=None, modules=frozenset({"issuing", "expenses", "email_intake", "budget"})),
 }
 DEFAULT_PLAN = "trial"
 

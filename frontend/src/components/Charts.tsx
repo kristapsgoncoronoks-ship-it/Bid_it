@@ -13,7 +13,7 @@ import {
   YAxis,
 } from "recharts";
 import { compactMoney, money, monthLabel } from "../lib/format";
-import type { CategorySpend, TimeBucket, VendorSpend } from "../lib/types";
+import type { BudgetTrendPoint, CategorySpend, TimeBucket, VendorSpend } from "../lib/types";
 
 const PALETTE = ["#3b6ef2", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#64748b"];
 
@@ -27,6 +27,22 @@ export function SpendChart({ data }: { data: TimeBucket[] }) {
         <YAxis tickFormatter={(v) => compactMoney(v)} tick={{ fontSize: 12, fill: "#94a3b8" }} width={60} />
         <Tooltip formatter={(v: number) => money(v)} />
         <Line type="monotone" dataKey="value" stroke="#3b6ef2" strokeWidth={2.5} dot={{ r: 3 }} />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+export function BudgetTrendChart({ data }: { data: BudgetTrendPoint[] }) {
+  const rows = data.map((d) => ({ label: monthLabel(d.month), actual: Number(d.actual), budget: Number(d.budget) }));
+  return (
+    <ResponsiveContainer width="100%" height={260}>
+      <LineChart data={rows} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
+        <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#94a3b8" }} />
+        <YAxis tickFormatter={(v) => compactMoney(v)} tick={{ fontSize: 12, fill: "#94a3b8" }} width={60} />
+        <Tooltip formatter={(v: number) => money(v)} />
+        <Line type="monotone" dataKey="actual" name="Actual" stroke="#3b6ef2" strokeWidth={2.5} dot={{ r: 3 }} />
+        <Line type="monotone" dataKey="budget" name="Budget" stroke="#94a3b8" strokeDasharray="5 4" strokeWidth={2} dot={false} />
       </LineChart>
     </ResponsiveContainer>
   );

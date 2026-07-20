@@ -443,6 +443,38 @@ export interface InboundList {
   total: number;
 }
 
+export interface BudgetTarget {
+  category: string;
+  monthly_limit: string;
+}
+
+export interface BudgetRow {
+  category: string;
+  budget: string;
+  actual: string;
+  remaining: string;
+  pct: number | null;
+  over: boolean;
+  untargeted: boolean;
+}
+
+export interface BudgetTrendPoint {
+  month: string;
+  actual: string;
+  budget: string;
+}
+
+export interface BudgetOverview {
+  month: string;
+  currency: string;
+  total_budget: string;
+  total_actual: string;
+  total_remaining: string;
+  over_budget: boolean;
+  rows: BudgetRow[];
+  trend: BudgetTrendPoint[];
+}
+
 export interface IssuerProfile {
   legal_name: string | null;
   trade_name: string | null;
