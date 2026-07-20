@@ -64,7 +64,7 @@ async def create_invite(body: InviteCreate, current: CurrentUser, db: DbSession)
     org = await db.get(Organization, current.org_id)
 
     # Seat limit (active users + outstanding invites) vs the plan.
-    outstanding = len(await team.list_invitations(db, current.org_id))
+    outstanding = await team.open_invitation_count(db, current.org_id)
     if (await plans.active_seats(db, current.org_id)) + outstanding >= plans.plan_for(org.plan).seats:
         raise HTTPException(
             status.HTTP_402_PAYMENT_REQUIRED,

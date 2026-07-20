@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import secrets
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password
@@ -20,8 +20,19 @@ async def list_members(db: AsyncSession, org_id: str) -> list[User]:
 
 
 async def sysadmin_count(db: AsyncSession, org_id: str) -> int:
-    members = await list_members(db, org_id)
-    return sum(1 for m in members if m.role == UserRole.sysadmin and m.is_active)
+    return await db.scalar(
+        select(func.count(User.id)).where(
+            User.org_id == org_id, User.role == UserRole.sysadmin, User.is_active.is_(True)
+        )
+    ) or 0
+
+
+async def open_invitation_count(db: AsyncSession, org_id: str) -> int:
+    return await db.scalar(
+        select(func.count(Invitation.id)).where(
+            Invitation.org_id == org_id, Invitation.accepted.is_(False)
+        )
+    ) or 0
 
 
 async def create_invitation(db: AsyncSession, org_id: str, email: str, role: UserRole, invited_by: str) -> Invitation:
