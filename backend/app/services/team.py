@@ -27,6 +27,14 @@ async def sysadmin_count(db: AsyncSession, org_id: str) -> int:
     ) or 0
 
 
+async def approver_count(db: AsyncSession, org_id: str) -> int:
+    return await db.scalar(
+        select(func.count(User.id)).where(
+            User.org_id == org_id, User.is_expense_approver.is_(True), User.is_active.is_(True)
+        )
+    ) or 0
+
+
 async def open_invitation_count(db: AsyncSession, org_id: str) -> int:
     return await db.scalar(
         select(func.count(Invitation.id)).where(

@@ -96,6 +96,7 @@ export default function Team() {
             <tr>
               <th className="px-4 py-3">Member</th>
               <th className="px-4 py-3">Role</th>
+              <th className="px-4 py-3">Expense approver</th>
               <th className="px-4 py-3">Joined</th>
               <th className="px-4 py-3">Status</th>
               {canManage && <th className="px-4 py-3"></th>}
@@ -115,6 +116,23 @@ export default function Team() {
                     </select>
                   ) : (
                     <span className="badge bg-slate-100 text-slate-600">{ROLE_LABELS[m.role]}</span>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  {canManage ? (
+                    <button
+                      role="switch"
+                      aria-checked={m.is_expense_approver}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition ${m.is_expense_approver ? "bg-brand-500" : "bg-slate-300"}`}
+                      onClick={() => patch.mutate({ id: m.id, body: { is_expense_approver: !m.is_expense_approver } })}
+                      title={m.is_expense_approver ? "Can approve expenses" : "Not an approver"}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${m.is_expense_approver ? "translate-x-4" : "translate-x-0.5"}`} />
+                    </button>
+                  ) : (
+                    <span className={`badge ${m.is_expense_approver ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                      {m.is_expense_approver ? "approver" : "—"}
+                    </span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-slate-500">{shortDate(m.created_at)}</td>

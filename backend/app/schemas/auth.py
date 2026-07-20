@@ -38,6 +38,7 @@ class UserOut(BaseModel):
     role: UserRole
     org_id: str
     is_platform_admin: bool = False
+    is_expense_approver: bool = False
 
 
 class MeOut(BaseModel):

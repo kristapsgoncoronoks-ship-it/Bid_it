@@ -52,6 +52,15 @@ async def update_member(user_id: str, body: MemberUpdate, current: CurrentUser, 
         if not body.is_active:
             await audit.record(db, audit.A.USER_DEACTIVATE, target_type="user", target_id=member.id,
                                meta={"email": member.email})
+    if body.is_expense_approver is not None:
+        # Keep at least one approver so expense reports can always be decided.
+        if not body.is_expense_approver and member.is_expense_approver:
+            if await team.approver_count(db, current.org_id) <= 1:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                    "The workspace must keep at least one expense approver")
+        member.is_expense_approver = body.is_expense_approver
+        await audit.record(db, audit.A.APPROVER_CHANGE, target_type="user", target_id=member.id,
+                           meta={"email": member.email, "approver": body.is_expense_approver})
     await db.commit()
     await db.refresh(member)
     return member

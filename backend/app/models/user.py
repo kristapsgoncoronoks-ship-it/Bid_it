@@ -45,5 +45,8 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # Platform operator (cross-tenant admin). Off for all normal SaaS users.
     is_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Designated expense approver — may approve/reject/reimburse expense reports.
+    # The workspace owner (first-registered user) is one by default and appoints others.
+    is_expense_approver: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     organization: Mapped["Organization"] = relationship(back_populates="users")

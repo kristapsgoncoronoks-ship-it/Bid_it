@@ -52,6 +52,7 @@ export interface User {
   role: UserRoleName;
   org_id: string;
   is_platform_admin?: boolean;
+  is_expense_approver?: boolean;
 }
 
 export interface Organization {
@@ -67,6 +68,7 @@ export interface Member {
   name: string;
   role: UserRoleName;
   is_active: boolean;
+  is_expense_approver: boolean;
   created_at: string;
 }
 
@@ -138,6 +140,8 @@ export interface ExpenseItem {
   payment_method: string;
   comment: string | null;
   has_receipt: boolean;
+  verified: boolean;
+  bank_reference: string | null;
 }
 
 export interface ExpenseTransaction {

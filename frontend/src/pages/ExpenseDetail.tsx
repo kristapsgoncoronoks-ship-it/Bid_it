@@ -6,8 +6,7 @@ import { useToast } from "../components/Toast";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError, downloadFile } from "../lib/api";
 import { EXPENSE_STATUS_STYLES, money, shortDate } from "../lib/format";
-import type { ExpenseComment, ExpenseReportDetail } from "../lib/types";
-import { isAdminOrAbove } from "../lib/roles";
+import type { ExpenseComment, ExpenseReportDetail, ExpenseTransaction } from "../lib/types";
 
 export default function ExpenseDetail() {
   const { id } = useParams<{ id: string }>();
@@ -52,14 +51,27 @@ export default function ExpenseDetail() {
     onSuccess: invalidate,
     onError: (e) => toast.error(apiError(e)),
   });
+  const match = useMutation({
+    mutationFn: async (v: { itemId: string; transactionId: string }) =>
+      (await api.post(`/expenses/${id}/items/${v.itemId}/match`, { transaction_id: v.transactionId })).data,
+    onSuccess: invalidate,
+    onError: (e) => toast.error(apiError(e)),
+  });
+  const unmatch = useMutation({
+    mutationFn: async (itemId: string) => (await api.delete(`/expenses/${id}/items/${itemId}/match`)).data,
+    onSuccess: invalidate,
+    onError: (e) => toast.error(apiError(e)),
+  });
 
   if (isLoading || !r) return <div className="text-slate-400">Loading…</div>;
 
-  const isManager = isAdminOrAbove(user);
+  const isApprover = !!user?.is_expense_approver;
   const isOwnerOfReport = r.employee_id === user?.id;
   const isDraft = r.status === "draft";
   const canSubmit = isOwnerOfReport && isDraft;
-  const canDecide = isManager && (r.status === "submitted" || r.status === "approved");
+  // Segregation of duties: an approver can't decide on their own report.
+  const canDecide = isApprover && !isOwnerOfReport && (r.status === "submitted" || r.status === "approved");
+  const verifiedCount = r.items.filter((it) => it.verified).length;
 
   // Compliance: every entry needs a business purpose AND an attached receipt.
   const itemMissing = (it: ExpenseReportDetail["items"][number]) => {
@@ -88,9 +100,15 @@ export default function ExpenseDetail() {
         </div>
         <dl className="mt-4 grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
           <Field label="Reclaimable VAT" value={money(r.vat_total, r.currency)} />
+          <Field label="Verified vs bank" value={`${verifiedCount} / ${r.items.length}`} />
           {r.total_eur && r.currency !== "EUR" && <Field label="Total (EUR, ECB)" value={money(r.total_eur)} />}
           {r.decided_by && <Field label={r.status} value={`${r.decided_by}`} />}
         </dl>
+        {!isDraft && verifiedCount < r.items.length && (
+          <div className="mt-2 text-xs text-amber-600">
+            {r.items.length - verifiedCount} item(s) are not reconciled against a bank statement.
+          </div>
+        )}
 
         {canSubmit && incompleteCount > 0 && (
           <div className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
@@ -111,14 +129,17 @@ export default function ExpenseDetail() {
             </button>
           )}
           {canSubmit && <button className="btn-ghost text-rose-600" onClick={() => del.mutate()}>Delete draft</button>}
-          {isManager && r.status === "submitted" && (
+          {canDecide && r.status === "submitted" && (
             <>
               <button className="btn bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => act.mutate({ path: "decision", body: { action: "approve" } })}>Approve</button>
               <button className="btn border border-rose-300 bg-white text-rose-600 hover:bg-rose-50" onClick={() => act.mutate({ path: "decision", body: { action: "reject" } })}>Reject</button>
             </>
           )}
-          {isManager && r.status === "approved" && (
+          {canDecide && r.status === "approved" && (
             <button className="btn bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => act.mutate({ path: "decision", body: { action: "reimburse" } })}>Mark reimbursed</button>
+          )}
+          {isApprover && isOwnerOfReport && r.status === "submitted" && (
+            <span className="self-center text-xs text-slate-400">Another approver must review your own report.</span>
           )}
           <button className="btn-ghost" onClick={() => downloadFile(`/expenses/${id}/pdf`, `expense-${r.title}.pdf`)}>Download PDF</button>
           {!canDecide && !canSubmit && r.status !== "draft" && <span className="self-center text-xs text-slate-400">No actions available.</span>}
@@ -147,6 +168,7 @@ export default function ExpenseDetail() {
               <th className="px-4 py-3">Business purpose</th>
               <th className="px-4 py-3 text-right">VAT</th>
               <th className="px-4 py-3 text-right">Amount</th>
+              <th className="px-4 py-3">Bank</th>
               <th className="px-4 py-3">Receipt</th>
             </tr>
           </thead>
@@ -175,6 +197,25 @@ export default function ExpenseDetail() {
                 </td>
                 <td className="px-4 py-3 text-right text-slate-500">{money(it.vat_amount, r.currency)}</td>
                 <td className="px-4 py-3 text-right font-medium">{money(it.amount, r.currency)}</td>
+                <td className="px-4 py-3 min-w-[180px]">
+                  {it.verified ? (
+                    <div>
+                      <span className="badge bg-emerald-100 text-emerald-700">✓ verified</span>
+                      {it.bank_reference && <div className="mt-0.5 text-xs text-slate-400">{it.bank_reference}</div>}
+                      {canSubmit && (
+                        <button className="mt-0.5 block text-xs text-slate-400 hover:underline" onClick={() => unmatch.mutate(it.id)}>unmatch</button>
+                      )}
+                    </div>
+                  ) : canSubmit ? (
+                    <BankMatch
+                      reportId={id!}
+                      item={it}
+                      onMatch={(txnId) => match.mutate({ itemId: it.id, transactionId: txnId })}
+                    />
+                  ) : (
+                    <span className="text-amber-500">unverified</span>
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   {it.has_receipt ? (
                     <button className="text-brand-600 hover:underline" onClick={() => downloadFile(`/expenses/${id}/items/${it.id}/receipt`, `receipt-${it.id}`)}>view</button>
@@ -194,6 +235,40 @@ export default function ExpenseDetail() {
       </div>
 
       <CommentThread reportId={id!} />
+    </div>
+  );
+}
+
+// Reconcile a draft item against a bank/card statement line. Fetches candidate
+// transactions (same amount) on demand and lets the employee pick one.
+function BankMatch({ reportId, item, onMatch }:
+  { reportId: string; item: ExpenseReportDetail["items"][number]; onMatch: (txnId: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const candidates = useQuery<ExpenseTransaction[]>({
+    queryKey: ["match-candidates", reportId, item.id],
+    queryFn: async () => (await api.get(`/expenses/${reportId}/items/${item.id}/match-candidates`)).data,
+    enabled: open,
+  });
+
+  if (!open) {
+    return <button className="text-brand-600 hover:underline" onClick={() => setOpen(true)}>match to bank</button>;
+  }
+  return (
+    <div className="space-y-1">
+      {candidates.isLoading && <span className="text-xs text-slate-400">Searching…</span>}
+      {candidates.data?.length === 0 && (
+        <span className="text-xs text-amber-600">No matching statement line.</span>
+      )}
+      {candidates.data?.map((t) => (
+        <button
+          key={t.id}
+          className="block w-full rounded border border-slate-200 px-2 py-1 text-left text-xs hover:bg-slate-50"
+          onClick={() => onMatch(t.id)}
+        >
+          {shortDate(t.txn_date)} · {t.merchant || t.description} · {money(t.amount, t.currency)}
+        </button>
+      ))}
+      <button className="text-xs text-slate-400 hover:underline" onClick={() => setOpen(false)}>cancel</button>
     </div>
   );
 }

@@ -42,6 +42,7 @@ class A:
     INBOUND_CONFIRM = "inbound.confirm"
     MODULE_TOGGLE = "module.toggle"
     ROLE_CHANGE = "user.role_change"
+    APPROVER_CHANGE = "user.approver_change"
     USER_DEACTIVATE = "user.deactivate"
     INVITE_CREATE = "user.invite"
 

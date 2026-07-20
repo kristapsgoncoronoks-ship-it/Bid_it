@@ -54,12 +54,19 @@ class ExpenseItemOut(BaseModel):
     payment_method: str
     comment: str | None = None
     has_receipt: bool = False
+    verified: bool = False              # reconciled against a bank/card transaction
+    bank_reference: str | None = None
 
 
 class ExpenseItemPatch(BaseModel):
     """Edit a draft item's business purpose (and optionally category)."""
     comment: str | None = Field(default=None, max_length=1000)
     category: Category | None = None
+
+
+class MatchTransaction(BaseModel):
+    """Reconcile a draft expense item against a bank/card statement transaction."""
+    transaction_id: str
 
 
 class ItemFromTransaction(BaseModel):

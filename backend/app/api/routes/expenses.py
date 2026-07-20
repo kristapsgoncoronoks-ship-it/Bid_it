@@ -35,6 +35,7 @@ from app.schemas.expense import (
     ExpenseSummary,
     ExpenseTransactionOut,
     ItemFromTransaction,
+    MatchTransaction,
 )
 from app.services import audit, bank_statement, expenses, filesec, fx, modules
 
@@ -45,9 +46,16 @@ async def _guard(db: DbSession, org_id: str):
     await modules.require_enabled(db, org_id, "expenses")
 
 
-def _is_manager(user: User) -> bool:
-    # Managers (admin/sysadmin) approve and reimburse expense reports.
-    return is_admin_or_above(user)
+def _is_approver(user: User) -> bool:
+    # Designated expense approvers may approve/reject/reimburse. The owner
+    # (first-registered user) is one by default; others are appointed on /team.
+    return bool(getattr(user, "is_expense_approver", False))
+
+
+def _can_oversee(user: User) -> bool:
+    # See every report in the tenant + the pending-approvals queue: approvers,
+    # plus admins for oversight.
+    return _is_approver(user) or is_admin_or_above(user)
 
 
 def _detail(r: ExpenseReport) -> ExpenseReportDetail:
@@ -58,6 +66,7 @@ def _detail(r: ExpenseReport) -> ExpenseReportDetail:
             merchant=it.merchant, amount=it.amount, vat_amount=it.vat_amount,
             payment_method=it.payment_method, comment=it.comment,
             has_receipt=it.receipt_data is not None,
+            verified=it.bank_reference is not None, bank_reference=it.bank_reference,
         )
         for it in r.items
     ]
@@ -76,7 +85,7 @@ async def _load(db: DbSession, org_id: str, report_id: str) -> ExpenseReport:
 
 
 def _require_view(r: ExpenseReport, user: User):
-    if not _is_manager(user) and r.employee_id != user.id:
+    if not _can_oversee(user) and r.employee_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Expense report not found")
 
 
@@ -103,11 +112,19 @@ async def _load_available_txns(db: DbSession, org_id: str, user_id: str, ids: li
     return rows
 
 
+def _txn_reference(t: ExpenseTransaction) -> str:
+    """Human-readable statement reference stored on a reconciled item."""
+    who = t.merchant or t.description[:60]
+    return f"{t.txn_date.isoformat()} · {who} · {t.currency} {expenses.q(t.amount)}"
+
+
 def _item_from_txn(t: ExpenseTransaction, category: str = "other", vat=Decimal("0")) -> ExpenseItem:
+    # Built from a statement line ⇒ already verified against the bank statement.
     return ExpenseItem(
         spend_date=t.txn_date, category=category, description=t.description[:300],
         merchant=t.merchant, amount=expenses.q(t.amount), vat_amount=expenses.q(vat),
         payment_method="company_card" if t.source in ("bank_statement", "card") else "personal",
+        bank_reference=_txn_reference(t),
     )
 
 
@@ -218,7 +235,7 @@ async def list_reports(
 ):
     await _guard(db, current.org_id)
     filters = [ExpenseReport.org_id == current.org_id]
-    if not _is_manager(current) or mine:
+    if not _can_oversee(current) or mine:
         filters.append(ExpenseReport.employee_id == current.id)
     elif employee_id:
         filters.append(ExpenseReport.employee_id == employee_id)
@@ -247,7 +264,7 @@ async def summary(current: CurrentUser, db: DbSession):
         select(func.coalesce(func.sum(ExpenseReport.vat_total), 0)).where(mine)
     ) or 0
     pending = 0
-    if _is_manager(current):
+    if _can_oversee(current):
         pending = await db.scalar(
             select(func.count()).where(ExpenseReport.org_id == current.org_id, ExpenseReport.status == "submitted")
         ) or 0
@@ -334,9 +351,13 @@ async def submit_report(report_id: str, current: CurrentUser, db: DbSession):
 @router.post("/{report_id}/decision", response_model=ExpenseReportDetail)
 async def decide(report_id: str, body: ExpenseDecision, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
-    if not _is_manager(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a manager (owner) can approve expenses")
+    if not _is_approver(current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a designated expense approver can decide on expenses")
     r = await _load(db, current.org_id, report_id)
+
+    # Segregation of duties: an approver cannot decide on their own report.
+    if r.employee_id == current.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You cannot approve your own expense report")
 
     if body.action in ("approve", "reject") and r.status != "submitted":
         raise HTTPException(status.HTTP_409_CONFLICT, "Only submitted reports can be approved or rejected")
@@ -421,6 +442,80 @@ async def update_item(report_id: str, item_id: str, body: ExpenseItemPatch, curr
         item.comment = body.comment
     if body.category is not None:
         item.category = body.category
+    await db.commit()
+    await db.refresh(r, attribute_names=["items"])
+    return _detail(r)
+
+
+# Amount tolerance (in currency units) when matching an item to a statement line.
+_MATCH_TOLERANCE = Decimal("0.01")
+
+
+@router.get("/{report_id}/items/{item_id}/match-candidates", response_model=list[ExpenseTransactionOut])
+async def match_candidates(report_id: str, item_id: str, current: CurrentUser, db: DbSession):
+    """Available bank/card statement lines that plausibly match this item (same
+    amount, within a few days), for reconciliation."""
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_owner_editable(r, current)
+    item = next((i for i in r.items if i.id == item_id), None)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    rows = list(await db.scalars(
+        select(ExpenseTransaction).where(
+            ExpenseTransaction.org_id == current.org_id,
+            ExpenseTransaction.employee_id == current.id,
+            ExpenseTransaction.status == "available",
+        )
+    ))
+    amt = Decimal(item.amount)
+    cands = [t for t in rows if abs(Decimal(t.amount) - amt) <= _MATCH_TOLERANCE]
+    cands.sort(key=lambda t: abs((t.txn_date - item.spend_date).days))
+    return [ExpenseTransactionOut.model_validate(t) for t in cands[:10]]
+
+
+@router.post("/{report_id}/items/{item_id}/match", response_model=ExpenseReportDetail)
+async def match_item(report_id: str, item_id: str, body: MatchTransaction, current: CurrentUser, db: DbSession):
+    """Reconcile a draft item against a bank/card statement transaction."""
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_owner_editable(r, current)
+    item = next((i for i in r.items if i.id == item_id), None)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    txns = await _load_available_txns(db, current.org_id, current.id, [body.transaction_id])
+    txn = txns[0]
+    if abs(Decimal(txn.amount) - Decimal(item.amount)) > _MATCH_TOLERANCE:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"Amounts don't match: entry is {item.amount}, statement line is {txn.amount}.",
+        )
+    item.bank_reference = _txn_reference(txn)
+    txn.status = "assigned"
+    txn.item_id = item.id
+    await db.commit()
+    await db.refresh(r, attribute_names=["items"])
+    return _detail(r)
+
+
+@router.delete("/{report_id}/items/{item_id}/match", response_model=ExpenseReportDetail)
+async def unmatch_item(report_id: str, item_id: str, current: CurrentUser, db: DbSession):
+    """Undo a bank-statement reconciliation, returning the line to the inbox."""
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_owner_editable(r, current)
+    item = next((i for i in r.items if i.id == item_id), None)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    txn = await db.scalar(
+        select(ExpenseTransaction).where(
+            ExpenseTransaction.item_id == item_id, ExpenseTransaction.org_id == current.org_id
+        )
+    )
+    if txn is not None:
+        txn.status = "available"
+        txn.item_id = None
+    item.bank_reference = None
     await db.commit()
     await db.refresh(r, attribute_names=["items"])
     return _detail(r)

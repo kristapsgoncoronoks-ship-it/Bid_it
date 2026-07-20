@@ -63,7 +63,10 @@ class ExpenseItem(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     amount: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)      # gross
     vat_amount: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)  # reclaimable
     payment_method: Mapped[str] = mapped_column(String(20), default="personal", nullable=False)
-    comment: Mapped[str | None] = mapped_column(Text, nullable=True)  # per-entry note (Concur-style)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)  # business purpose (Concur-style)
+    # Bank-statement verification: a human-readable reference to the matched bank/
+    # card transaction. Non-null ⇒ this entry is reconciled against the statement.
+    bank_reference: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
     receipt_mime: Mapped[str | None] = mapped_column(String(60), nullable=True)
     receipt_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)

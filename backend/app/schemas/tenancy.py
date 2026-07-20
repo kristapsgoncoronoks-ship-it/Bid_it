@@ -15,12 +15,14 @@ class MemberOut(BaseModel):
     name: str
     role: UserRole
     is_active: bool
+    is_expense_approver: bool = False
     created_at: datetime
 
 
 class MemberUpdate(BaseModel):
     role: UserRole | None = None
     is_active: bool | None = None
+    is_expense_approver: bool | None = None
 
 
 class InviteCreate(BaseModel):

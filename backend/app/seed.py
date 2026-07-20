@@ -73,6 +73,7 @@ async def seed() -> None:
                 hashed_password=hash_password("demo1234"),
                 role=UserRole.sysadmin,
                 is_platform_admin=True,  # so the demo shows the operator view
+                is_expense_approver=True,  # the owner approves expenses by default
             )
         )
         org.plan = "pro"
@@ -85,6 +86,7 @@ async def seed() -> None:
             db.add(User(
                 org_id=t.id, email=f"owner{i}@{tname.split()[0].lower()}.test", name="Owner",
                 hashed_password=hash_password("demo1234"), role=UserRole.sysadmin,
+                is_expense_approver=True,
             ))
 
         vendors = []
