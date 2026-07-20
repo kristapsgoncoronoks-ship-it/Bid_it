@@ -28,8 +28,12 @@ Money = Numeric(14, 2)
 
 class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "invoices"
-    # Composite index for the analytics fact scan (tenant + time window).
-    __table_args__ = (Index("ix_invoices_org_issue", "org_id", "issue_date"),)
+    __table_args__ = (
+        # Analytics fact scan (tenant + time window).
+        Index("ix_invoices_org_issue", "org_id", "issue_date"),
+        # Foreign-currency scans (fx.ecb_comparison, explore currency filter).
+        Index("ix_invoices_org_currency", "org_id", "currency"),
+    )
 
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Date, ForeignKey, Numeric, String, Text
+from sqlalchemy import Date, ForeignKey, Index, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -20,6 +20,8 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """
 
     __tablename__ = "issued_invoices"
+    # Listing/ordering issued invoices by date within a tenant.
+    __table_args__ = (Index("ix_issued_org_issue", "org_id", "issue_date"),)
 
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True

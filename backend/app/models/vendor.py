@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -16,6 +16,8 @@ class Vendor(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "vendors"
     __table_args__ = (
         UniqueConstraint("org_id", "name", name="uq_vendor_org_name"),
+        # Country breakdowns in the explore pivot (tenant-scoped).
+        Index("ix_vendors_org_country", "org_id", "country"),
     )
 
     org_id: Mapped[str] = mapped_column(
