@@ -82,9 +82,9 @@ graph TB
 
 - **Database:** managed Postgres with **point-in-time recovery** (WAL) + daily snapshots; retention aligned to statutory needs.
 - **Object storage:** **versioned** buckets with lifecycle rules; deletes are soft within the retention window.
-- **Application backup/integrity:** `backup.snapshot/verify/restore/harden` writes signed archives with a **SHA-256 MANIFEST** over the data DBs + document store + audit; `verify_documents` re-hashes the live store against recorded hashes (quick incremental + deep full passes). Any integrity failure → error log + red banner.
-- **Restore drills:** a scheduled, tested restore into a scratch environment (Phase 2) — *an untested backup is not a backup.*
-- **RPO/RTO targets (v1):** RPO ≤ 5 min (PITR); RTO ≤ 4 h (documented runbook). Multi-region DR is an Enterprise commitment (revisit when sold).
+- **Application-level integrity verification:** document bytes are content-addressed (sha256). `integrity.verify_documents` re-hashes every stored document reference (receipts, logos, email attachments) against its recorded sha256 to catch silent corruption, a lost object, or DB↔storage drift that a backup alone won't surface. Available on demand (admin: `POST /integrity/documents/verify`) and as a tenant-scoped background job (`integrity.verify_documents`). The **audit chain** is separately verifiable (`/audit/verify`). *These are backups of trust, not of bytes — the bytes are backed up by PITR + object versioning above.*
+- **Restore runbook (RTO path):** (1) provision a new DB from the latest PITR/snapshot in-region; (2) point the app at it (DATABASE_URL) — object storage is unchanged (versioned, durable); (3) run `alembic upgrade head` if needed; (4) run `integrity.verify_documents` per tenant + `/audit/verify` to confirm the restored state is consistent with the object store; (5) resume traffic once `/health/ready` passes. **Drill this quarterly** into a scratch environment — *an untested backup is not a backup.*
+- **RPO/RTO targets (v1):** RPO ≤ 5 min (PITR); RTO ≤ 4 h (runbook above). Multi-region DR is an Enterprise commitment (revisit when sold).
 
 ---
 

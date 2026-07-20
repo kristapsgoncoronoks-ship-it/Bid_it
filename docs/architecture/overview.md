@@ -252,7 +252,9 @@ Ordered to de-risk the platform before scaling product. Each phase is shippable 
 
 **Phase 2 — Multi-tenant safety at the DB layer**
 7. ✅ **Postgres RLS** behind the app guard (defence in depth; no API change): `FORCE` RLS + a `tenant_isolation` policy on all 22 tenant tables keyed on the `app.current_org` GUC; a Postgres CI job runs migrations + the RLS enforcement tests (SQLite can't). Verified against real Postgres (ADR-0004). *Also surfaced + fixed a latent Postgres-only migration bug (boolean literal) that SQLite CI had masked.*
-8. Backup/restore drills + integrity-manifest verification automated (see [deployment.md](./deployment.md)) — **next**.
+8. ✅ **Integrity verification** — `integrity.verify_documents` re-hashes every content-addressed document (receipts/logos/email attachments) against its recorded sha256 to catch corruption/loss; admin endpoint + background job. Restore runbook documented (bytes are backed by PITR + object versioning; this verifies trust). ([deployment.md](./deployment.md))
+
+**Phase 2 complete.**
 
 **Phase 3 — Commercial + integration surface**
 9. Wire billing provider (merchant-of-record) to the existing plan/metering model (ADR-0013).

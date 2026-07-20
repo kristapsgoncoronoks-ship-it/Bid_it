@@ -767,6 +767,13 @@ export interface WebhookDelivery {
   delivered_at: string | null;
 }
 
+export interface IntegrityReport {
+  checked: number;
+  ok: number;
+  healthy: boolean;
+  issues: { kind: string; entity_id: string; problem: string; detail: string }[];
+}
+
 // --- Issuing reports ---
 export interface IssuedSummaryReport {
   currency: string;

@@ -8,10 +8,11 @@ set of known kinds.
 from __future__ import annotations
 
 from app.models.job import Job
-from app.services import dunning, email_intake, jobs, recurring, webhooks
+from app.services import dunning, email_intake, integrity, jobs, recurring, webhooks
 
 RECURRING_GENERATE = "recurring.generate"
 DUNNING_RUN = "dunning.run"
+INTEGRITY_VERIFY = "integrity.verify_documents"
 
 
 @jobs.handler(RECURRING_GENERATE)
@@ -40,6 +41,15 @@ async def _email_extract(db, payload: dict, job: Job) -> dict:
     return await email_intake.extract_inbound(db, payload["inbound_id"])
 
 
+@jobs.handler(INTEGRITY_VERIFY)
+async def _integrity_verify(db, payload: dict, job: Job) -> dict:
+    """Re-hash the tenant's stored documents against their recorded sha256."""
+    report = await integrity.verify_documents(db, job.org_id)
+    # A failure is loud (surfaces as a job result an operator/admin can see).
+    return {"checked": report.checked, "ok": report.ok, "issues": len(report.issues),
+            "healthy": report.healthy}
+
+
 # Kinds an authenticated user is allowed to enqueue via the API (safe, tenant
 # -scoped periodic work). Other kinds can only be created internally.
-USER_ENQUEUEABLE = (RECURRING_GENERATE, DUNNING_RUN)
+USER_ENQUEUEABLE = (RECURRING_GENERATE, DUNNING_RUN, INTEGRITY_VERIFY)

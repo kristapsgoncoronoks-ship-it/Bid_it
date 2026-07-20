@@ -8,7 +8,7 @@ import { api, apiError } from "../lib/api";
 import { isAdminOrAbove } from "../lib/roles";
 import { useModules } from "../lib/useModules";
 import type {
-  ValidationSettings, WebhookCreated, WebhookDelivery, WebhookEndpoint,
+  IntegrityReport, ValidationSettings, WebhookCreated, WebhookDelivery, WebhookEndpoint,
 } from "../lib/types";
 
 export default function Settings() {
@@ -118,7 +118,55 @@ export default function Settings() {
 
       {canEdit && <BackgroundJobs />}
       {canEdit && <Webhooks />}
+      {canEdit && <IntegrityCheck />}
     </div>
+  );
+}
+
+// Admin: re-hash stored documents (receipts, logos, email attachments) against
+// their recorded sha256 to detect corruption or loss.
+function IntegrityCheck() {
+  const toast = useToast();
+  const verify = useMutation({
+    mutationFn: async () => (await api.post("/integrity/documents/verify")).data as IntegrityReport,
+    onError: (e) => toast.error(apiError(e)),
+  });
+  const r = verify.data;
+
+  return (
+    <section className="space-y-2">
+      <div className="px-1">
+        <h2 className="text-sm font-semibold text-slate-600">Data integrity</h2>
+        <p className="text-sm text-slate-500">
+          Re-hash every stored document against its recorded checksum to detect silent corruption or a lost file.
+        </p>
+      </div>
+      <div className="card space-y-3">
+        <button className="btn-ghost" disabled={verify.isPending} onClick={() => verify.mutate()}>
+          {verify.isPending ? "Verifying…" : "Verify stored documents"}
+        </button>
+        {r && (
+          <div className="space-y-2">
+            <div className={`rounded-lg px-3 py-2 text-sm ${r.healthy ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+              {r.healthy
+                ? `All ${r.ok} document${r.ok === 1 ? "" : "s"} verified — no corruption or loss.`
+                : `${r.issues.length} problem${r.issues.length === 1 ? "" : "s"} found across ${r.checked} document${r.checked === 1 ? "" : "s"}.`}
+            </div>
+            {r.issues.length > 0 && (
+              <ul className="space-y-1 text-xs">
+                {r.issues.map((i, idx) => (
+                  <li key={idx} className="flex items-center gap-2 rounded bg-slate-50 px-2 py-1">
+                    <span className="badge bg-rose-100 text-rose-700">{i.problem}</span>
+                    <span className="font-mono text-slate-600">{i.kind}</span>
+                    <span className="text-slate-400">{i.detail}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
