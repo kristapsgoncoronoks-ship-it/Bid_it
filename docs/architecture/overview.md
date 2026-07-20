@@ -238,10 +238,10 @@ Boundary rule: **routers are thin** (validate, authorize, call a service, serial
 
 Ordered to de-risk the platform before scaling product. Each phase is shippable and reversible.
 
-**Phase 0 — Harden the foundation (now)**
-1. Enforce "every tenant table registered in `TENANT_MODELS`" with a failing CI test if a model with `org_id` is missing.
-2. Add a CI check that migrations run clean from an empty DB + that model metadata == migration head (drift guard).
-3. Document + test the money/FX/VAT invariants as a golden-file suite.
+**Phase 0 — Harden the foundation** ✅ *shipped*
+1. ✅ Enforce "every tenant table registered in `TENANT_MODELS`" — `tests/test_tenant_registration.py` fails the build if a model with `org_id` is unregistered (or a registration is stale/duplicated).
+2. ✅ Migrations run clean from an empty DB + downgrade→upgrade round-trip, and the migrated schema matches the models (table/column parity) — `tests/test_migrations.py` (complements CI `alembic check`).
+3. ✅ Money/FX/VAT invariants locked as a golden-file suite — `tests/test_money_invariants.py` (Decimal HALF_UP, VAT scheme correctness + notes, FX provenance, no mixed-currency aggregation).
 
 **Phase 1 — Storage & extraction correctness**
 4. Migrate document bytes (receipts, logos, vault) to **object storage**; DB keeps sha256 + metadata (ADR-0008).
