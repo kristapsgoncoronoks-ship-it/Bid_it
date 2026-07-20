@@ -15,6 +15,7 @@ from app.models.issued_invoice import IssuedInvoice, IssuedInvoiceLine
 from app.models.issuer import IssuerProfile
 from app.models.module import OrgModule
 from app.models.organization import Organization
+from app.models.role_policy import RolePolicy
 from app.models.user import User, UserRole
 from app.models.vendor import Vendor
 
@@ -36,6 +37,7 @@ __all__ = [
     "IssuedInvoice",
     "IssuedInvoiceLine",
     "Invitation",
+    "RolePolicy",
     "ExpenseReport",
     "ExpenseItem",
     "ExpenseTransaction",

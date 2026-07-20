@@ -19,7 +19,7 @@ async def test_billing_defaults_trial(auth_client):
 @pytest.mark.asyncio
 async def test_invite_accept_creates_member_in_same_tenant(auth_client, client):
     # owner invites a member
-    inv = await auth_client.post("/api/v1/team/invites", json={"email": "colleague@acme.io", "role": "member"})
+    inv = await auth_client.post("/api/v1/team/invites", json={"email": "colleague@acme.io", "role": "user"})
     assert inv.status_code == 201, inv.text
     token = inv.json()["token"]
 
@@ -85,9 +85,9 @@ async def test_downgrade_disables_addon_and_guards_seats(auth_client):
 
 
 @pytest.mark.asyncio
-async def test_last_owner_cannot_be_demoted(auth_client):
+async def test_last_sysadmin_cannot_be_demoted(auth_client):
     me = (await auth_client.get("/api/v1/auth/me")).json()
-    r = await auth_client.patch(f"/api/v1/team/members/{me['user']['id']}", json={"role": "member"})
+    r = await auth_client.patch(f"/api/v1/team/members/{me['user']['id']}", json={"role": "user"})
     assert r.status_code == 400
 
 

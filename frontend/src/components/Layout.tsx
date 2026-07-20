@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { api } from "../lib/api";
+import { isSysadmin } from "../lib/roles";
 import type { ModuleInfo } from "../lib/types";
 
 // `module` marks an item that only shows when that add-on module is enabled.
@@ -18,6 +19,7 @@ const NAV = [
   { to: "/issue", label: "Issue", end: false, module: "issuing" },
   { to: "/expenses", label: "Expenses", end: false, module: "expenses" },
   { to: "/team", label: "Team", end: false },
+  { to: "/access", label: "Access", end: false, sysadmin: true },
   { to: "/billing", label: "Billing", end: false },
   { to: "/settings", label: "Settings", end: false },
 ];
@@ -30,7 +32,7 @@ export function Layout() {
     queryFn: async () => (await api.get("/modules")).data,
   });
   const enabled = new Set((modules.data ?? []).filter((m) => m.enabled).map((m) => m.key));
-  const nav = NAV.filter((n) => !n.module || enabled.has(n.module));
+  const nav = NAV.filter((n) => (!n.module || enabled.has(n.module)) && (!("sysadmin" in n && n.sysadmin) || isSysadmin(user)));
   if (user?.is_platform_admin) {
     nav.push({ to: "/platform", label: "Platform", end: false });
   }

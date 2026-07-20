@@ -14,7 +14,7 @@ async def test_register_login_me(client):
     )
     assert r.status_code == 201, r.text
     data = r.json()
-    assert data["user"]["role"] == "owner"
+    assert data["user"]["role"] == "sysadmin"
     assert data["organization"]["name"] == "Acme"
 
     # duplicate email rejected

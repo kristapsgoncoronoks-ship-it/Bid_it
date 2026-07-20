@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
 from app.models.fx import EcbRate
-from app.models.user import UserRole
+from app.core.roles import is_admin_or_above
 from app.schemas.fx import (
     ConvertResponse,
     FxComparison,
@@ -87,6 +87,6 @@ async def ecb_comparison(
 @router.post("/refresh", response_model=RefreshResult)
 async def refresh(current: CurrentUser, db: DbSession, history: bool = True):
     """Pull the latest ECB reference rates into the cache (owner only)."""
-    if current.role != UserRole.owner:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the workspace owner can refresh rates")
+    if not is_admin_or_above(current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can refresh rates")
     return await fx.refresh_from_ecb(db, history=history)

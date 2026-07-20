@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import CurrentUser, DbSession
 from app.models.organization import Organization
-from app.models.user import UserRole
+from app.core.roles import is_admin_or_above
 from app.schemas.tenancy import BillingOut, PlanChange, PlanOut
 from app.services import modules as modules_svc
 from app.services import plans
@@ -34,8 +34,8 @@ async def get_billing(current: CurrentUser, db: DbSession):
 
 @router.put("/plan", response_model=BillingOut)
 async def change_plan(body: PlanChange, current: CurrentUser, db: DbSession):
-    if current.role != UserRole.owner:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the workspace owner can change the plan")
+    if not is_admin_or_above(current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can change the plan")
     if body.plan not in plans.PLANS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown plan")
 

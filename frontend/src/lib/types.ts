@@ -1,10 +1,30 @@
 export type InvoiceStatus = "draft" | "pending" | "paid" | "overdue";
 
+// The four user groups (low → high privilege).
+export type UserRoleName = "user_free" | "user" | "admin" | "sysadmin";
+
+export interface RolePolicy {
+  role: UserRoleName;
+  label: string;
+  paid: boolean;
+  description: string;
+  monthly_invoice_limit: number; // 0 = unlimited
+  monthly_upload_limit: number;
+}
+
+export interface Usage {
+  role: UserRoleName;
+  invoices_used: number;
+  invoice_limit: number;
+  invoices_remaining: number | null;
+  unlimited: boolean;
+}
+
 export interface User {
   id: string;
   email: string;
   name: string;
-  role: "owner" | "member";
+  role: UserRoleName;
   org_id: string;
   is_platform_admin?: boolean;
 }
@@ -20,7 +40,7 @@ export interface Member {
   id: string;
   email: string;
   name: string;
-  role: "owner" | "member";
+  role: UserRoleName;
   is_active: boolean;
   created_at: string;
 }
@@ -28,7 +48,7 @@ export interface Member {
 export interface Invite {
   id: string;
   email: string;
-  role: "owner" | "member";
+  role: UserRoleName;
   token: string;
   accepted: boolean;
   created_at: string;
@@ -63,7 +83,7 @@ export interface Tenant {
 export interface InvitePreview {
   email: string;
   organization_name: string;
-  role: "owner" | "member";
+  role: UserRoleName;
 }
 
 export const EXPENSE_CATEGORIES = [

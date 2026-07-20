@@ -14,8 +14,17 @@ if TYPE_CHECKING:
 
 
 class UserRole(str, enum.Enum):
-    owner = "owner"
-    member = "member"
+    """Four platform user groups, low → high privilege.
+
+    - user_free : non-paying user; limited access, usage limits from the matrix
+    - user      : paying user; usage limits from the matrix
+    - admin     : access to the admin panel (business administration)
+    - sysadmin  : all privileges, including user-rights management + the matrix
+    """
+    user_free = "user_free"
+    user = "user"
+    admin = "admin"
+    sysadmin = "sysadmin"
 
 
 class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -27,8 +36,11 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Stored as a portable VARCHAR (native_enum=False) so the role set can evolve
+    # without a Postgres ENUM migration.
     role: Mapped[UserRole] = mapped_column(
-        SAEnum(UserRole, name="user_role"), default=UserRole.member, nullable=False
+        SAEnum(UserRole, name="user_role", native_enum=False, length=20),
+        default=UserRole.user, nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # Platform operator (cross-tenant admin). Off for all normal SaaS users.

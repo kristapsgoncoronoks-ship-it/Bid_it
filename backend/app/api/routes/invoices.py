@@ -23,7 +23,7 @@ from app.schemas.invoice import (
     ParsedInvoiceDraft,
 )
 from app.schemas.validation import ValidationDecision, ValidationFinding
-from app.services import filesec, fx, validation
+from app.services import access, filesec, fx, validation
 from app.services.parser import parse_invoice_file
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
@@ -150,6 +150,8 @@ async def persist_invoice(db: DbSession, org_id: str, body: InvoiceCreate) -> tu
 
 @router.post("", response_model=InvoiceDetailOut, status_code=status.HTTP_201_CREATED)
 async def create_invoice(body: InvoiceCreate, current: CurrentUser, db: DbSession):
+    # System-matrix usage limit for the caller's access level.
+    await access.enforce_invoice_quota(db, current.org_id, current.role)
     invoice, vendor_name = await persist_invoice(db, current.org_id, body)
     return _detail(invoice, vendor_name)
 

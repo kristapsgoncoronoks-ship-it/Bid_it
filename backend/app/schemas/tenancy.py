@@ -25,7 +25,7 @@ class MemberUpdate(BaseModel):
 
 class InviteCreate(BaseModel):
     email: EmailStr
-    role: UserRole = UserRole.member
+    role: UserRole = UserRole.user
 
 
 class InviteOut(BaseModel):

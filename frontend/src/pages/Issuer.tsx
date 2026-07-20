@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
 import type { IssuerProfile } from "../lib/types";
+import { isAdminOrAbove } from "../lib/roles";
 
 const FIELDS: { key: keyof IssuerProfile; label: string; required?: boolean; half?: boolean }[] = [
   { key: "legal_name", label: "Legal company name", required: true },
@@ -26,7 +27,7 @@ const FIELDS: { key: keyof IssuerProfile; label: string; required?: boolean; hal
 export default function Issuer() {
   const { user } = useAuth();
   const qc = useQueryClient();
-  const isOwner = user?.role === "owner";
+  const isOwner = isAdminOrAbove(user);
   const [form, setForm] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
 

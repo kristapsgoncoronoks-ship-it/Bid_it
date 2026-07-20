@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Response, UploadFile, status
 
 from app.api.deps import CurrentUser, DbSession
-from app.models.user import UserRole
+from app.core.roles import is_admin_or_above
 from app.schemas.issuer import IssuerProfileIn, IssuerProfileOut
 from app.services import issuer
 
@@ -27,8 +27,8 @@ async def get_issuer(current: CurrentUser, db: DbSession):
 
 @router.put("", response_model=IssuerProfileOut)
 async def update_issuer(body: IssuerProfileIn, current: CurrentUser, db: DbSession):
-    if current.role != UserRole.owner:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the workspace owner can edit company details")
+    if not is_admin_or_above(current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can edit company details")
     profile = await issuer.get_or_create(db, current.org_id)
     for field, value in body.model_dump(exclude_unset=True).items():
         if field in ("country", "default_currency") and value:
@@ -41,8 +41,8 @@ async def update_issuer(body: IssuerProfileIn, current: CurrentUser, db: DbSessi
 
 @router.post("/logo", response_model=IssuerProfileOut)
 async def upload_logo(current: CurrentUser, db: DbSession, file: UploadFile):
-    if current.role != UserRole.owner:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the workspace owner can edit company details")
+    if not is_admin_or_above(current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can edit company details")
     content = await file.read()
     if len(content) > 2 * 1024 * 1024:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Logo too large (max 2 MB)")

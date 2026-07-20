@@ -14,7 +14,8 @@ from app.models.expense import (
     ExpenseReport,
     ExpenseTransaction,
 )
-from app.models.user import User, UserRole
+from app.core.roles import is_admin_or_above
+from app.models.user import User
 from app.schemas.expense import (
     BankImportResult,
     CategoryTotal,
@@ -42,7 +43,8 @@ async def _guard(db: DbSession, org_id: str):
 
 
 def _is_manager(user: User) -> bool:
-    return user.role == UserRole.owner
+    # Managers (admin/sysadmin) approve and reimburse expense reports.
+    return is_admin_or_above(user)
 
 
 def _detail(r: ExpenseReport) -> ExpenseReportDetail:

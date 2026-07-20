@@ -5,6 +5,7 @@ import { KpiCard } from "../components/KpiCard";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
 import { EXPENSE_STATUS_STYLES, money, shortDate } from "../lib/format";
+import { isAdminOrAbove } from "../lib/roles";
 import {
   EXPENSE_CATEGORIES,
   type ExpenseItemInput,
@@ -25,7 +26,7 @@ const emptyItem = (): ExpenseItemInput => ({
 
 export default function Expenses() {
   const { user } = useAuth();
-  const isManager = user?.role === "owner";
+  const isManager = isAdminOrAbove(user);
   const modules = useQuery<ModuleInfo[]>({ queryKey: ["modules"], queryFn: async () => (await api.get("/modules")).data });
   const enabled = modules.data?.find((m) => m.key === "expenses")?.enabled;
 

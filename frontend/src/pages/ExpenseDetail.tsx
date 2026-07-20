@@ -5,6 +5,7 @@ import { useAuth } from "../auth/AuthContext";
 import { api, apiError, downloadFile } from "../lib/api";
 import { EXPENSE_STATUS_STYLES, money, shortDate } from "../lib/format";
 import type { ExpenseComment, ExpenseReportDetail } from "../lib/types";
+import { isAdminOrAbove } from "../lib/roles";
 
 export default function ExpenseDetail() {
   const { id } = useParams<{ id: string }>();
@@ -45,7 +46,7 @@ export default function ExpenseDetail() {
 
   if (isLoading || !r) return <div className="text-slate-400">Loading…</div>;
 
-  const isManager = user?.role === "owner";
+  const isManager = isAdminOrAbove(user);
   const isOwnerOfReport = r.employee_id === user?.id;
   const canSubmit = isOwnerOfReport && r.status === "draft";
   const canDecide = isManager && (r.status === "submitted" || r.status === "approved");

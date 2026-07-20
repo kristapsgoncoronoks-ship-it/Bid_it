@@ -2,11 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
 import type { BillingInfo } from "../lib/types";
+import { isAdminOrAbove } from "../lib/roles";
 
 export default function Billing() {
   const { user } = useAuth();
   const qc = useQueryClient();
-  const isOwner = user?.role === "owner";
+  const isOwner = isAdminOrAbove(user);
 
   const billing = useQuery<BillingInfo>({ queryKey: ["billing"], queryFn: async () => (await api.get("/billing")).data });
 

@@ -21,7 +21,10 @@ class Invitation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    role: Mapped[UserRole] = mapped_column(SAEnum(UserRole, name="user_role"), default=UserRole.member, nullable=False)
+    role: Mapped[UserRole] = mapped_column(
+        SAEnum(UserRole, name="user_role", native_enum=False, length=20),
+        default=UserRole.user, nullable=False,
+    )
     token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     invited_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
     accepted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

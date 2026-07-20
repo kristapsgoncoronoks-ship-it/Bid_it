@@ -12,7 +12,7 @@ from app.core.config import settings
 from app.core.tenant import reset_current_org, set_current_org
 from app.models.email_intake import InboundInvoice
 from app.models.organization import Organization
-from app.models.user import UserRole
+from app.core.roles import is_admin_or_above
 from app.schemas.email_intake import (
     EmailSettingsOut,
     InboundConfirm,
@@ -23,7 +23,7 @@ from app.schemas.email_intake import (
     InboundResult,
 )
 from app.schemas.invoice import InvoiceDetailOut, ParsedInvoiceDraft
-from app.services import email_intake, modules
+from app.services import access, email_intake, modules
 
 router = APIRouter(prefix="/email", tags=["email intake"])
 
@@ -109,8 +109,8 @@ async def get_settings(current: CurrentUser, db: DbSession):
 @router.post("/settings/rotate", response_model=EmailSettingsOut)
 async def rotate_address(current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
-    if current.role != UserRole.owner:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the workspace owner can rotate the inbound address")
+    if not is_admin_or_above(current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can rotate the inbound address")
     intake = await email_intake.rotate(db, current.org_id)
     return EmailSettingsOut(address=email_intake.address_for(intake.token), domain=settings.inbound_email_domain)
 
@@ -165,6 +165,7 @@ async def confirm_inbound(inbound_id: str, body: InboundConfirm, current: Curren
     """Confirm a parsed inbound invoice into a real Invoice — using the same
     persistence path as a manual upload. Accepts an edited draft override."""
     await _guard(db, current.org_id)
+    await access.enforce_invoice_quota(db, current.org_id, current.role)
     row = await _load(db, current.org_id, inbound_id)
     if row.status == "confirmed":
         raise HTTPException(status.HTTP_409_CONFLICT, "This invoice was already confirmed")

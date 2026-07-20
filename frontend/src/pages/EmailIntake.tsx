@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError, downloadFile } from "../lib/api";
 import { METHOD_STYLES, methodLabel, money, shortDate } from "../lib/format";
+import { isAdminOrAbove } from "../lib/roles";
 import type { EmailSettings, InboundInvoiceDetail, InboundList } from "../lib/types";
 
 const STATUS_STYLES: Record<string, string> = {
@@ -59,7 +60,7 @@ export default function EmailIntake() {
             {settings.data?.address ?? "…"}
           </code>
           <button className="btn-ghost" onClick={copy}>{copied ? "Copied!" : "Copy"}</button>
-          {user?.role === "owner" && (
+          {isAdminOrAbove(user) && (
             <button
               className="btn-ghost text-rose-600"
               onClick={() => { if (confirm("Rotate the inbound address? The old one will stop working.")) rotate.mutate(); }}

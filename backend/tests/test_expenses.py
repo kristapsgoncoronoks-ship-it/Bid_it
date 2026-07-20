@@ -18,7 +18,7 @@ async def _activate(auth_client):
 
 
 async def _member(auth_client, client, email, name="Employee"):
-    inv = await auth_client.post("/api/v1/team/invites", json={"email": email, "role": "member"})
+    inv = await auth_client.post("/api/v1/team/invites", json={"email": email, "role": "user"})
     token = inv.json()["token"]
     acc = await client.post("/api/v1/auth/accept-invite", json={"token": token, "name": name, "password": "supersecret"})
     return acc.json()["token"]["access_token"]

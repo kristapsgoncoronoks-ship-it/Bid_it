@@ -3,11 +3,12 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
 import type { ModuleInfo, ValidationSettings } from "../lib/types";
+import { isAdminOrAbove } from "../lib/roles";
 
 export default function Settings() {
   const { user } = useAuth();
   const qc = useQueryClient();
-  const isOwner = user?.role === "owner";
+  const isOwner = isAdminOrAbove(user);
 
   const settings = useQuery<ValidationSettings>({
     queryKey: ["settings", "validation"],

@@ -19,6 +19,7 @@ import Expenses from "./pages/Expenses";
 import ExpenseDetail from "./pages/ExpenseDetail";
 import EmailIntake from "./pages/EmailIntake";
 import Budget from "./pages/Budget";
+import Access from "./pages/Access";
 import Platform from "./pages/Platform";
 import AcceptInvite from "./pages/AcceptInvite";
 
@@ -49,6 +50,7 @@ export default function App() {
         <Route path="/expenses" element={<Expenses />} />
         <Route path="/expenses/:id" element={<ExpenseDetail />} />
         <Route path="/team" element={<Team />} />
+        <Route path="/access" element={<Access />} />
         <Route path="/billing" element={<Billing />} />
         <Route path="/platform" element={<Platform />} />
         <Route path="/settings" element={<Settings />} />

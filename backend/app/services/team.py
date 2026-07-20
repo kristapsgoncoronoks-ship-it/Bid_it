@@ -19,9 +19,9 @@ async def list_members(db: AsyncSession, org_id: str) -> list[User]:
     return list(rows)
 
 
-async def owner_count(db: AsyncSession, org_id: str) -> int:
+async def sysadmin_count(db: AsyncSession, org_id: str) -> int:
     members = await list_members(db, org_id)
-    return sum(1 for m in members if m.role == UserRole.owner and m.is_active)
+    return sum(1 for m in members if m.role == UserRole.sysadmin and m.is_active)
 
 
 async def create_invitation(db: AsyncSession, org_id: str, email: str, role: UserRole, invited_by: str) -> Invitation:
