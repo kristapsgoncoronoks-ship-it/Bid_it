@@ -258,7 +258,7 @@ Ordered to de-risk the platform before scaling product. Each phase is shippable 
 
 **Phase 3 — Commercial + integration surface**
 9. Wire billing provider (merchant-of-record) to the existing plan/metering model (ADR-0013).
-10. SAF-T / ERP exporters behind the export hub (read-only, formula-injection-safe).
+10. 🟡 **ERP exporters** behind the export hub (read-only, formula-injection-safe): generic accounting CSV + Xero (Bills) + QuickBooks (Bills) shipped (`erp_export.py`, `GET /export/accounting`). DATEV (needs the German SKR framework + EXTF spec) and country-profiled SAF-T deferred as config-gated builds.
 11. Public/first-party API versioning + rate limits + docs (ADR-0015).
 
 **Phase 4 — Enterprise readiness**

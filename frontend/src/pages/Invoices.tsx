@@ -1,14 +1,23 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../lib/api";
+import { useAuth } from "../auth/AuthContext";
+import { api, downloadFile } from "../lib/api";
 import { money, shortDate, STATUS_STYLES } from "../lib/format";
+import { isAdminOrAbove } from "../lib/roles";
 import type { InvoiceList, InvoiceStatus } from "../lib/types";
 
 const STATUSES: (InvoiceStatus | "")[] = ["", "pending", "paid", "overdue", "draft"];
 const PAGE_SIZE = 20;
 
+const EXPORTS: { fmt: string; label: string }[] = [
+  { fmt: "generic", label: "Accounting CSV" },
+  { fmt: "xero", label: "Xero" },
+  { fmt: "quickbooks", label: "QuickBooks" },
+];
+
 export default function Invoices() {
+  const { user } = useAuth();
   const [status, setStatus] = useState<string>("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
@@ -29,7 +38,24 @@ export default function Invoices() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">Invoices</h1>
-        <Link to="/upload" className="btn-primary">Upload invoice</Link>
+        <div className="flex items-center gap-2">
+          {isAdminOrAbove(user) && (
+            <div className="flex items-center gap-1 text-sm">
+              <span className="text-slate-400">Export:</span>
+              {EXPORTS.map((e) => (
+                <button
+                  key={e.fmt}
+                  className="btn-ghost py-1"
+                  title={`Export the invoice ledger for ${e.label}`}
+                  onClick={() => downloadFile(`/export/accounting?fmt=${e.fmt}`, `invoices-${e.fmt}.csv`)}
+                >
+                  {e.label}
+                </button>
+              ))}
+            </div>
+          )}
+          <Link to="/upload" className="btn-primary">Upload invoice</Link>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
