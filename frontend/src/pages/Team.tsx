@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useToast } from "../components/Toast";
+import { Switch } from "../components/Switch";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
 import { shortDate } from "../lib/format";
 import { ASSIGNABLE_ROLES, ROLE_LABELS, isOwner } from "../lib/roles";
+import { Badge, Button, Card, DataTable, EmptyState, type Column } from "../components/ui";
 import type { Invite, Member, UserRoleName } from "../lib/types";
 
 export default function Team() {
@@ -45,6 +47,64 @@ export default function Team() {
 
   const inviteLink = (t: string) => `${location.origin}/accept-invite?token=${t}`;
 
+  const columns: Column<Member>[] = [
+    {
+      key: "member", header: "Member",
+      cell: (m) => (
+        <div>
+          <div className="font-medium">{m.name}</div>
+          <div className="text-xs text-slate-400">{m.email}</div>
+        </div>
+      ),
+    },
+    {
+      key: "role", header: "Role",
+      cell: (m) =>
+        canManage && m.id !== user?.id ? (
+          <select
+            aria-label={`Role for ${m.email}`}
+            className="input w-32 py-1 text-xs"
+            value={m.role}
+            onChange={(e) => patch.mutate({ id: m.id, body: { role: e.target.value as UserRoleName } })}
+          >
+            {ASSIGNABLE_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+          </select>
+        ) : (
+          <Badge tone="neutral">{ROLE_LABELS[m.role]}</Badge>
+        ),
+    },
+    {
+      key: "approver", header: "Expense approver",
+      cell: (m) =>
+        canManage ? (
+          <Switch
+            size="sm"
+            checked={m.is_expense_approver}
+            onChange={() => patch.mutate({ id: m.id, body: { is_expense_approver: !m.is_expense_approver } })}
+            label={`Toggle expense approver for ${m.email}`}
+          />
+        ) : (
+          <Badge tone={m.is_expense_approver ? "success" : "neutral"}>{m.is_expense_approver ? "approver" : "—"}</Badge>
+        ),
+    },
+    { key: "joined", header: "Joined", cell: (m) => <span className="text-slate-500">{shortDate(m.created_at)}</span> },
+    {
+      key: "status", header: "Status",
+      cell: (m) => <Badge tone={m.is_active ? "success" : "neutral"}>{m.is_active ? "active" : "disabled"}</Badge>,
+    },
+    ...(canManage
+      ? [{
+          key: "actions", header: "", align: "right" as const,
+          cell: (m: Member) =>
+            m.id !== user?.id ? (
+              <Button variant="ghost" size="sm" onClick={() => patch.mutate({ id: m.id, body: { is_active: !m.is_active } })}>
+                {m.is_active ? "Disable" : "Enable"}
+              </Button>
+            ) : null,
+        }]
+      : []),
+  ];
+
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
@@ -55,106 +115,50 @@ export default function Team() {
       {error && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
 
       {canManage && (
-        <div className="card space-y-3">
-          <h2 className="text-sm font-semibold text-slate-600">Invite a member</h2>
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="flex-1">
-              <label className="label">Email</label>
-              <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" />
+        <Card title="Invite a member">
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex-1">
+                <label className="label" htmlFor="invite-email">Email</label>
+                <input id="invite-email" className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" />
+              </div>
+              <div>
+                <label className="label" htmlFor="invite-role">Role</label>
+                <select id="invite-role" className="input w-36" value={role} onChange={(e) => setRole(e.target.value as UserRoleName)}>
+                  {ASSIGNABLE_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+                </select>
+              </div>
+              <Button loading={invite.isPending} disabled={!email} onClick={() => invite.mutate()}>
+                Create invite
+              </Button>
             </div>
-            <div>
-              <label className="label">Role</label>
-              <select className="input w-36" value={role} onChange={(e) => setRole(e.target.value as UserRoleName)}>
-                {ASSIGNABLE_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
-              </select>
-            </div>
-            <button className="btn-primary" disabled={invite.isPending || !email} onClick={() => invite.mutate()}>
-              {invite.isPending ? "Inviting…" : "Create invite"}
-            </button>
-          </div>
 
-          {(invites.data ?? []).length > 0 && (
-            <div className="space-y-2 border-t border-slate-100 pt-3">
-              <div className="text-xs font-medium uppercase text-slate-400">Pending invites</div>
-              {invites.data!.map((iv) => (
-                <div key={iv.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm">
-                  <span className="font-medium">{iv.email}</span>
-                  <span className="badge bg-slate-200 text-slate-600">{ROLE_LABELS[iv.role]}</span>
-                  <input readOnly value={inviteLink(iv.token)} className="input flex-1 min-w-[200px] text-xs" onFocus={(e) => e.target.select()} />
-                  <button className="text-brand-600 hover:underline" onClick={() => navigator.clipboard?.writeText(inviteLink(iv.token))}>copy</button>
-                  <button className="text-rose-500 hover:underline" onClick={() => revoke.mutate(iv.id)}>revoke</button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+            {(invites.data ?? []).length > 0 && (
+              <div className="space-y-2 border-t border-slate-100 pt-3">
+                <div className="text-xs font-medium uppercase text-slate-400">Pending invites</div>
+                {invites.data!.map((iv) => (
+                  <div key={iv.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                    <span className="font-medium">{iv.email}</span>
+                    <Badge tone="neutral">{ROLE_LABELS[iv.role]}</Badge>
+                    <input readOnly value={inviteLink(iv.token)} className="input flex-1 min-w-[200px] text-xs" onFocus={(e) => e.target.select()} />
+                    <button className="text-brand-600 hover:underline" onClick={() => navigator.clipboard?.writeText(inviteLink(iv.token))}>copy</button>
+                    <button className="text-rose-500 hover:underline" onClick={() => revoke.mutate(iv.id)}>revoke</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Card>
       )}
 
-      <div className="card overflow-x-auto p-0">
-        <table className="w-full text-sm">
-          <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="px-4 py-3">Member</th>
-              <th className="px-4 py-3">Role</th>
-              <th className="px-4 py-3">Expense approver</th>
-              <th className="px-4 py-3">Joined</th>
-              <th className="px-4 py-3">Status</th>
-              {canManage && <th className="px-4 py-3"></th>}
-            </tr>
-          </thead>
-          <tbody>
-            {members.data?.map((m) => (
-              <tr key={m.id} className="border-b border-slate-100 last:border-0">
-                <td className="px-4 py-3">
-                  <div className="font-medium">{m.name}</div>
-                  <div className="text-xs text-slate-400">{m.email}</div>
-                </td>
-                <td className="px-4 py-3">
-                  {canManage && m.id !== user?.id ? (
-                    <select className="input w-32 py-1 text-xs" value={m.role} onChange={(e) => patch.mutate({ id: m.id, body: { role: e.target.value as UserRoleName } })}>
-                      {ASSIGNABLE_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
-                    </select>
-                  ) : (
-                    <span className="badge bg-slate-100 text-slate-600">{ROLE_LABELS[m.role]}</span>
-                  )}
-                </td>
-                <td className="px-4 py-3">
-                  {canManage ? (
-                    <button
-                      role="switch"
-                      aria-checked={m.is_expense_approver}
-                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition ${m.is_expense_approver ? "bg-brand-500" : "bg-slate-300"}`}
-                      onClick={() => patch.mutate({ id: m.id, body: { is_expense_approver: !m.is_expense_approver } })}
-                      title={m.is_expense_approver ? "Can approve expenses" : "Not an approver"}
-                    >
-                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${m.is_expense_approver ? "translate-x-4" : "translate-x-0.5"}`} />
-                    </button>
-                  ) : (
-                    <span className={`badge ${m.is_expense_approver ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                      {m.is_expense_approver ? "approver" : "—"}
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-slate-500">{shortDate(m.created_at)}</td>
-                <td className="px-4 py-3">
-                  <span className={`badge ${m.is_active ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                    {m.is_active ? "active" : "disabled"}
-                  </span>
-                </td>
-                {canManage && (
-                  <td className="px-4 py-3 text-right">
-                    {m.id !== user?.id && (
-                      <button className="text-slate-500 hover:underline" onClick={() => patch.mutate({ id: m.id, body: { is_active: !m.is_active } })}>
-                        {m.is_active ? "disable" : "enable"}
-                      </button>
-                    )}
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        caption="Workspace members"
+        columns={columns}
+        rows={members.data}
+        rowKey={(m) => m.id}
+        loading={members.isLoading}
+        empty={<EmptyState title="No members yet" description="Invite teammates to collaborate in this workspace." />}
+      />
     </div>
   );
 }
