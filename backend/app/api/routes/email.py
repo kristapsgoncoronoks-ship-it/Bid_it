@@ -132,6 +132,8 @@ async def list_inbox(
     current: CurrentUser,
     db: DbSession,
     status_: str | None = Query(default=None, alias="status"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=500),
 ):
     await _guard(db, current.org_id)
     filters = [InboundInvoice.org_id == current.org_id]
@@ -140,6 +142,7 @@ async def list_inbox(
     total = await db.scalar(select(func.count(InboundInvoice.id)).where(*filters)) or 0
     rows = await db.scalars(
         select(InboundInvoice).where(*filters).order_by(InboundInvoice.received_at.desc())
+        .offset((page - 1) * page_size).limit(page_size)
     )
     return InboundListOut(items=[InboundInvoiceOut.model_validate(r) for r in rows], total=total)
 

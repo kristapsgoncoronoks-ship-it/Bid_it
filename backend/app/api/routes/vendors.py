@@ -24,8 +24,10 @@ async def get_or_create_vendor(db: DbSession, org_id: str, name: str) -> Vendor:
 
 @router.get("", response_model=list[VendorOut])
 async def list_vendors(current: CurrentUser, db: DbSession) -> list[Vendor]:
+    # Vendors feed pickers/filters; a defensive cap bounds the response without
+    # loading an unbounded tenant table into memory.
     rows = await db.scalars(
-        select(Vendor).where(Vendor.org_id == current.org_id).order_by(Vendor.name)
+        select(Vendor).where(Vendor.org_id == current.org_id).order_by(Vendor.name).limit(1000)
     )
     return list(rows)
 

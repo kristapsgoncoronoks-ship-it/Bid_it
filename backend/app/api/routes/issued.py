@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import date, timedelta
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
@@ -104,7 +104,12 @@ async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbS
 
 
 @router.get("", response_model=IssuedInvoiceListOut)
-async def list_issued(current: CurrentUser, db: DbSession):
+async def list_issued(
+    current: CurrentUser,
+    db: DbSession,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=500),
+):
     total = await db.scalar(
         select(func.count(IssuedInvoice.id)).where(IssuedInvoice.org_id == current.org_id)
     )
@@ -112,6 +117,8 @@ async def list_issued(current: CurrentUser, db: DbSession):
         select(IssuedInvoice)
         .where(IssuedInvoice.org_id == current.org_id)
         .order_by(IssuedInvoice.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
     )
     return IssuedInvoiceListOut(items=[IssuedInvoiceOut.model_validate(r) for r in rows], total=total or 0)
 

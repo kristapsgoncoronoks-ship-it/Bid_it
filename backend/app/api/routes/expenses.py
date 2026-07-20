@@ -210,6 +210,8 @@ async def list_reports(
     status_: str | None = Query(default=None, alias="status"),
     mine: bool = False,
     employee_id: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=500),
 ):
     await _guard(db, current.org_id)
     filters = [ExpenseReport.org_id == current.org_id]
@@ -223,6 +225,7 @@ async def list_reports(
     total = await db.scalar(select(func.count(ExpenseReport.id)).where(*filters))
     rows = await db.scalars(
         select(ExpenseReport).where(*filters).order_by(ExpenseReport.created_at.desc())
+        .offset((page - 1) * page_size).limit(page_size)
     )
     return ExpenseReportListOut(items=[ExpenseReportOut.model_validate(r) for r in rows], total=total or 0)
 
