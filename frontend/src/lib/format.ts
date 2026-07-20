@@ -55,6 +55,28 @@ export const VALIDATION_LABELS: Record<string, string> = {
   rejected: "rejected",
 };
 
+// How an invoice was extracted — shown on received/uploaded invoices.
+export const METHOD_LABELS: Record<string, string> = {
+  "e-invoice-xml": "E-invoice XML (exact)",
+  "text-layer": "PDF text layer",
+  ocr: "OCR (scanned)",
+  csv: "CSV",
+  json: "JSON",
+  unknown: "—",
+};
+
+export function methodLabel(method: string | null | undefined): string {
+  return METHOD_LABELS[method ?? "unknown"] ?? method ?? "—";
+}
+
+export const METHOD_STYLES: Record<string, string> = {
+  ocr: "bg-violet-100 text-violet-700",
+  "text-layer": "bg-sky-100 text-sky-700",
+  "e-invoice-xml": "bg-emerald-100 text-emerald-700",
+  csv: "bg-slate-100 text-slate-600",
+  json: "bg-slate-100 text-slate-600",
+};
+
 export const SEVERITY_STYLES: Record<string, string> = {
   error: "bg-rose-100 text-rose-700",
   warning: "bg-amber-100 text-amber-700",

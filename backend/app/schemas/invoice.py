@@ -91,3 +91,5 @@ class ParsedInvoiceDraft(BaseModel):
     """Result of parsing an uploaded file — a *draft* the user confirms."""
     draft: InvoiceCreate
     warnings: list[str] = Field(default_factory=list)
+    # How the invoice was read: e-invoice-xml | text-layer | ocr | csv | json.
+    method: str = "unknown"

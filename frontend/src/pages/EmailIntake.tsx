@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError, downloadFile } from "../lib/api";
-import { money, shortDate } from "../lib/format";
+import { METHOD_STYLES, methodLabel, money, shortDate } from "../lib/format";
 import type { EmailSettings, InboundInvoiceDetail, InboundList } from "../lib/types";
 
 const STATUS_STYLES: Record<string, string> = {
@@ -101,6 +101,11 @@ export default function EmailIntake() {
                         <div className="truncate text-xs text-slate-400">
                           {it.from_addr || "unknown sender"} · {shortDate(it.received_at)}
                         </div>
+                        {it.status !== "failed" && it.method && it.method !== "unknown" && (
+                          <span className={`badge mt-1 ${METHOD_STYLES[it.method] ?? "bg-slate-100 text-slate-600"}`}>
+                            {methodLabel(it.method)}
+                          </span>
+                        )}
                       </div>
                       <span className={`badge shrink-0 ${STATUS_STYLES[it.status] ?? ""}`}>{it.status}</span>
                     </button>
@@ -169,7 +174,14 @@ function InboundDetail({ id, onDone }: { id: string; onDone: () => void }) {
             {row.subject || "(no subject)"} · from {row.from_addr || "unknown"} · {shortDate(row.received_at)}
           </p>
         </div>
-        <span className={`badge ${STATUS_STYLES[row.status] ?? ""}`}>{row.status}</span>
+        <div className="flex shrink-0 items-center gap-2">
+          {row.method && row.method !== "unknown" && row.status !== "failed" && (
+            <span className={`badge ${METHOD_STYLES[row.method] ?? "bg-slate-100 text-slate-600"}`}>
+              {methodLabel(row.method)}
+            </span>
+          )}
+          <span className={`badge ${STATUS_STYLES[row.status] ?? ""}`}>{row.status}</span>
+        </div>
       </div>
 
       {row.has_file && (

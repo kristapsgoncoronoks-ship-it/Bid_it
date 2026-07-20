@@ -1,5 +1,7 @@
 """Email invoice intake: inbound webhook → review inbox → confirm into an invoice."""
 import base64
+import io
+import shutil
 
 import pytest
 
@@ -64,6 +66,7 @@ async def test_inbound_creates_pending_and_confirm_creates_invoice(auth_client, 
     assert row["status"] == "pending"
     assert row["from_addr"] == "supplier@globex.io"
     assert row["invoice_id"] is None
+    assert row["method"] == "csv"   # the real extraction method, not the file extension
 
     detail = (await auth_client.get(f"/api/v1/email/inbox/{row['id']}")).json()
     assert detail["draft"]["draft"]["invoice_number"] == "INV-EMAIL-1"
@@ -176,3 +179,75 @@ async def test_tenant_isolation(auth_client, client):
     inbox_b2 = (await client.get("/api/v1/email/inbox", headers=hb)).json()
     assert inbox_b2["total"] == 1
     assert inbox_b2["items"][0]["filename"] == "b.json"
+
+
+def _scanned_pdf_bytes() -> bytes:
+    """An image-only PDF (no text layer) → forces the OCR path on intake."""
+    from PIL import Image, ImageDraw, ImageFont
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    lines = [
+        "Nordic Fuel AB",
+        "INVOICE",
+        "Invoice Number: INV-OCR-77",
+        "Invoice Date: 2026-06-14",
+        "Diesel delivery            1     1450.00     1450.00",
+        "Total                                        1450.00",
+    ]
+    W, H = 1240, 1754
+    img = Image.new("RGB", (W, H), "white")
+    d = ImageDraw.Draw(img)
+    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
+    y = 90
+    for ln in lines:
+        d.text((70, y), ln, fill="black", font=font)
+        y += 60
+    png = io.BytesIO()
+    img.save(png, format="PNG")
+    png.seek(0)
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(W, H))
+    c.drawImage(ImageReader(png), 0, 0, width=W, height=H)
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+@pytest.mark.skipif(shutil.which("tesseract") is None, reason="tesseract binary not installed")
+@pytest.mark.asyncio
+async def test_emailed_scanned_pdf_is_processed_by_ocr(auth_client, client):
+    """A scanned (image-only) PDF emailed in is read by OCR, and the inbox records
+    that method — so a received invoice with no text layer still processes."""
+    pytest.importorskip("pdfplumber")
+    pytest.importorskip("pypdfium2")
+    pytest.importorskip("pytesseract")
+    pytest.importorskip("reportlab")
+    pytest.importorskip("PIL")
+
+    await _activate(auth_client)
+    token = _token(await _address(auth_client))
+    pdf_b64 = base64.b64encode(_scanned_pdf_bytes()).decode()
+
+    r = await client.post("/api/v1/email/inbound", json={
+        "token": token,
+        "from": "billing@nordicfuel.io",
+        "attachments": [{"filename": "scan.pdf", "content_type": "application/pdf", "content_base64": pdf_b64}],
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["pending"] == 1
+
+    inbox = (await auth_client.get("/api/v1/email/inbox")).json()
+    row = inbox["items"][0]
+    assert row["method"] == "ocr"          # read via the OCR fallback, not the text layer
+
+    detail = (await auth_client.get(f"/api/v1/email/inbox/{row['id']}")).json()
+    assert detail["method"] == "ocr"
+    assert detail["draft"]["method"] == "ocr"
+    assert detail["draft"]["draft"]["invoice_number"] == "INV-OCR-77"
+
+    # And it confirms into a real invoice like any other received invoice.
+    conf = await auth_client.post(f"/api/v1/email/inbox/{row['id']}/confirm", json={})
+    assert conf.status_code == 201, conf.text
+    assert conf.json()["invoice_number"] == "INV-OCR-77"

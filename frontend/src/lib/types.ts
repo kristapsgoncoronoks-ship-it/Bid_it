@@ -241,6 +241,7 @@ export interface InvoiceCreate {
 export interface ParsedDraft {
   draft: InvoiceCreate;
   warnings: string[];
+  method?: string;
 }
 
 export interface Summary {

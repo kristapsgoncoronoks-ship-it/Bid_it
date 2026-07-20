@@ -391,7 +391,7 @@ def parse_invoice_text(text: str, filename: str, method: str) -> ParsedInvoiceDr
         source_filename=filename,
         line_items=items,
     )
-    return ParsedInvoiceDraft(draft=draft, warnings=warnings)
+    return ParsedInvoiceDraft(draft=draft, warnings=warnings, method=method)
 
 
 def _stem(filename: str) -> str:

@@ -2,13 +2,14 @@ import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, apiError } from "../lib/api";
-import { money } from "../lib/format";
+import { METHOD_STYLES, methodLabel, money } from "../lib/format";
 import type { InvoiceCreate, InvoiceDetail, ParsedDraft } from "../lib/types";
 
 export default function Upload() {
   const navigate = useNavigate();
   const [draft, setDraft] = useState<InvoiceCreate | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [method, setMethod] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const parse = useMutation({
@@ -20,6 +21,7 @@ export default function Upload() {
     onSuccess: (data) => {
       setDraft(data.draft);
       setWarnings(data.warnings);
+      setMethod(data.method ?? null);
       setError(null);
     },
     onError: (e) => setError(apiError(e)),
@@ -82,7 +84,14 @@ export default function Upload() {
 
       {draft && (
         <div className="card space-y-4">
-          <h2 className="text-sm font-semibold text-slate-600">Review draft</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-600">Review draft</h2>
+            {method && method !== "unknown" && (
+              <span className={`badge ${METHOD_STYLES[method] ?? "bg-slate-100 text-slate-600"}`}>
+                Read via {methodLabel(method)}
+              </span>
+            )}
+          </div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <div>
               <label className="label">Vendor</label>

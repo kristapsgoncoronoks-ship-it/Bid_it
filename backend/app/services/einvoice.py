@@ -237,7 +237,7 @@ def _draft(
         source_filename=filename,
         line_items=lines,
     )
-    return ParsedInvoiceDraft(draft=draft, warnings=warnings)
+    return ParsedInvoiceDraft(draft=draft, warnings=warnings, method="e-invoice-xml")
 
 
 def _stem(filename: str) -> str:

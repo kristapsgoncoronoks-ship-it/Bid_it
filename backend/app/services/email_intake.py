@@ -113,6 +113,9 @@ async def process_attachment(
         try:
             draft = parse_invoice_file(filename or "attachment", content)
             row.draft_json = draft.model_dump_json()
+            # Record HOW it was read (e-invoice-xml | text-layer | ocr | csv | json)
+            # so the review inbox shows the extraction method, not just the file type.
+            row.method = draft.method if draft.method and draft.method != "unknown" else row.method
             row.status = "pending"
         except ValueError as exc:
             row.status = "failed"

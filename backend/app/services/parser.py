@@ -146,11 +146,13 @@ def parse_invoice_file(filename: str, content: bytes) -> ParsedInvoiceDraft:
         return einvoice.parse_xml_bytes(content, filename)
     if lower.endswith(".json"):
         draft = _parse_json(content, filename, warnings)
+        method = "json"
     elif lower.endswith(".csv"):
         draft = _parse_csv(content, filename, warnings)
+        method = "csv"
     else:
         raise ValueError("Unsupported file type. Upload a .pdf, .xml, .csv, or .json file.")
 
     if not draft.line_items:
         warnings.append("No line items were found in the file")
-    return ParsedInvoiceDraft(draft=draft, warnings=warnings)
+    return ParsedInvoiceDraft(draft=draft, warnings=warnings, method=method)
