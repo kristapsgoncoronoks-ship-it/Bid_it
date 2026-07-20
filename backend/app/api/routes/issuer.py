@@ -5,11 +5,12 @@ from fastapi import APIRouter, HTTPException, Response, UploadFile, status
 from app.api.deps import CurrentUser, DbSession
 from app.core.roles import is_admin_or_above
 from app.schemas.issuer import IssuerProfileIn, IssuerProfileOut
-from app.services import issuer
+from app.services import filesec, issuer
 
 router = APIRouter(prefix="/issuer", tags=["issuer"])
 
-_ALLOWED_LOGO = {"image/png": b"\x89PNG", "image/jpeg": b"\xff\xd8\xff"}
+_LOGO_KINDS = frozenset({"png", "jpeg"})
+_LOGO_MIME = {"png": "image/png", "jpeg": "image/jpeg"}
 
 
 def _out(profile) -> IssuerProfileOut:
@@ -46,12 +47,13 @@ async def upload_logo(current: CurrentUser, db: DbSession, file: UploadFile):
     content = await file.read()
     if len(content) > 2 * 1024 * 1024:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Logo too large (max 2 MB)")
-    mime = file.content_type or "image/png"
-    magic = _ALLOWED_LOGO.get(mime)
-    if magic is None or not content.startswith(magic):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Logo must be a PNG or JPEG image")
+    # Security gate: real PNG/JPEG type + malware scan (same gate as every upload).
+    try:
+        kind = filesec.check(file.filename or "logo", content, allowed=_LOGO_KINDS)
+    except filesec.FileRejected as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
     profile = await issuer.get_or_create(db, current.org_id)
-    profile.logo_mime = mime
+    profile.logo_mime = _LOGO_MIME[kind]
     profile.logo_data = content
     await db.commit()
     await db.refresh(profile)
@@ -63,4 +65,8 @@ async def get_logo(current: CurrentUser, db: DbSession):
     profile = await issuer.get_or_create(db, current.org_id)
     if not profile.logo_data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No logo set")
-    return Response(content=profile.logo_data, media_type=profile.logo_mime or "image/png")
+    return Response(
+        content=profile.logo_data,
+        media_type=profile.logo_mime or "image/png",
+        headers={"X-Content-Type-Options": "nosniff"},
+    )

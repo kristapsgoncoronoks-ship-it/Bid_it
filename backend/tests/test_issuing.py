@@ -129,3 +129,29 @@ async def test_standalone_xml_endpoint(auth_client):
     assert x.status_code == 200
     assert b"CrossIndustryInvoice" in x.content
     assert b"NL123456789B01" in x.content  # seller VAT present
+
+
+# Minimal valid 1x1 PNG (signature + IHDR + IEND).
+_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+@pytest.mark.asyncio
+async def test_logo_upload_is_scanned(auth_client):
+    from app.services import filesec
+
+    # A valid PNG is accepted.
+    ok = await auth_client.post("/api/v1/issuer/logo", files={"file": ("logo.png", _PNG, "image/png")})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["has_logo"] is True
+
+    # A PNG carrying the EICAR signature is blocked by the security gate.
+    infected = _PNG + filesec.EICAR
+    bad = await auth_client.post("/api/v1/issuer/logo", files={"file": ("logo.png", infected, "image/png")})
+    assert bad.status_code == 415
+
+    # A PDF disguised as a logo is refused (logos are image-only).
+    pdf = await auth_client.post("/api/v1/issuer/logo", files={"file": ("logo.png", b"%PDF-1.4 x", "application/pdf")})
+    assert pdf.status_code == 415
