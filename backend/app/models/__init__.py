@@ -6,6 +6,7 @@ from app.models.expense import (
     ExpenseReport,
     ExpenseTransaction,
 )
+from app.models.email_intake import EmailIntake, InboundInvoice
 from app.models.fx import EcbRate
 from app.models.invitation import Invitation
 from app.models.invoice import Invoice, InvoiceStatus, LineItem
@@ -26,6 +27,8 @@ __all__ = [
     "InvoiceStatus",
     "LineItem",
     "EcbRate",
+    "EmailIntake",
+    "InboundInvoice",
     "OrgModule",
     "IssuerProfile",
     "IssuedInvoice",

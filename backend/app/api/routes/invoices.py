@@ -84,9 +84,12 @@ def _parse_findings(raw: str | None) -> list[ValidationFinding]:
         return []
 
 
-@router.post("", response_model=InvoiceDetailOut, status_code=status.HTTP_201_CREATED)
-async def create_invoice(body: InvoiceCreate, current: CurrentUser, db: DbSession):
-    vendor = await _resolve_vendor(db, current.org_id, body)
+async def persist_invoice(db: DbSession, org_id: str, body: InvoiceCreate) -> tuple[Invoice, str]:
+    """Create and persist an invoice from a draft (vendor resolve → line math →
+    FX-to-EUR → validation). Shared by the manual create route and the email-intake
+    confirm route so an emailed invoice is saved *identically* to an uploaded one.
+    Returns the refreshed invoice and its vendor name."""
+    vendor = await _resolve_vendor(db, org_id, body)
 
     subtotal = Decimal("0")
     tax_total = Decimal("0")
@@ -115,7 +118,7 @@ async def create_invoice(body: InvoiceCreate, current: CurrentUser, db: DbSessio
     total_eur, fx_source = await fx.eur_total(db, total, currency, body.issue_date, body.fx_rate)
 
     invoice = Invoice(
-        org_id=current.org_id,
+        org_id=org_id,
         vendor_id=vendor.id,
         invoice_number=body.invoice_number,
         issue_date=body.issue_date,
@@ -134,7 +137,7 @@ async def create_invoice(body: InvoiceCreate, current: CurrentUser, db: DbSessio
     )
 
     # Data validation (AI / human) — runs only for the options the org enabled.
-    org = await db.get(Organization, current.org_id)
+    org = await db.get(Organization, org_id)
     await validation.apply_validation(
         db, invoice, org.ai_validation_enabled, org.human_validation_enabled, date.today()
     )
@@ -142,7 +145,13 @@ async def create_invoice(body: InvoiceCreate, current: CurrentUser, db: DbSessio
     db.add(invoice)
     await db.commit()
     await db.refresh(invoice, attribute_names=["line_items"])
-    return _detail(invoice, vendor.name)
+    return invoice, vendor.name
+
+
+@router.post("", response_model=InvoiceDetailOut, status_code=status.HTTP_201_CREATED)
+async def create_invoice(body: InvoiceCreate, current: CurrentUser, db: DbSession):
+    invoice, vendor_name = await persist_invoice(db, current.org_id, body)
+    return _detail(invoice, vendor_name)
 
 
 @router.get("", response_model=InvoiceListOut)

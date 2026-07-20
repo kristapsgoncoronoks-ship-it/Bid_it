@@ -33,6 +33,15 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24  # 24h
 
+    # --- Email invoice intake ---
+    # Domain for per-org inbound addresses (`<token>@<domain>`). An email provider's
+    # inbound-parse webhook (SendGrid/Mailgun/Postmark) posts attachments to
+    # `POST /email/inbound`. When `inbound_email_secret` is set, that webhook must
+    # present the matching secret (header `X-Inbound-Secret` or a `secret` field);
+    # when unset, the endpoint is open (dev convenience).
+    inbound_email_domain: str = Field(default="in.invoiceiq.app")
+    inbound_email_secret: str | None = Field(default=None)
+
     # --- CORS ---
     # Comma-separated list of allowed origins for the SPA.
     cors_origins: str = "http://localhost:5173,http://localhost:3000"

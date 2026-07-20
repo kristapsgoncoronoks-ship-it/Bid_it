@@ -41,6 +41,12 @@ MODULES: tuple[Module, ...] = (
         "Employees submit receipted expense reports; managers approve and reimburse.",
         core=False, default=False,
     ),
+    Module(
+        "email_intake",
+        "Email invoice intake",
+        "Forward invoices to a dedicated address; attachments are auto-parsed into a review inbox.",
+        core=False, default=False,
+    ),
 )
 MODULES_BY_KEY = {m.key: m for m in MODULES}
 

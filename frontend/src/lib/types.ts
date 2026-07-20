@@ -409,6 +409,40 @@ export interface ModuleInfo {
   ready: boolean;
 }
 
+export interface EmailSettings {
+  address: string;
+  domain: string;
+  pending: number;
+  total: number;
+}
+
+export type InboundStatus = "pending" | "confirmed" | "failed" | "discarded";
+
+export interface InboundInvoice {
+  id: string;
+  from_addr: string | null;
+  subject: string | null;
+  received_at: string;
+  filename: string;
+  content_type: string | null;
+  size: number;
+  status: InboundStatus;
+  method: string | null;
+  error: string | null;
+  invoice_id: string | null;
+  created_at: string;
+}
+
+export interface InboundInvoiceDetail extends InboundInvoice {
+  draft: ParsedDraft | null;
+  has_file: boolean;
+}
+
+export interface InboundList {
+  items: InboundInvoice[];
+  total: number;
+}
+
 export interface IssuerProfile {
   legal_name: string | null;
   trade_name: string | null;

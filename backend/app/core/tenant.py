@@ -20,6 +20,7 @@ from contextvars import ContextVar, Token
 from sqlalchemy import event
 from sqlalchemy.orm import Session, with_loader_criteria
 
+from app.models.email_intake import EmailIntake, InboundInvoice
 from app.models.expense import ExpenseComment, ExpenseReport, ExpenseTransaction
 from app.models.invitation import Invitation
 from app.models.invoice import Invoice
@@ -33,7 +34,7 @@ from app.models.vendor import Vendor
 # ExpenseItem) have no org_id and are reached only via an already-scoped parent.
 TENANT_MODELS = (
     Vendor, Invoice, User, Invitation, IssuedInvoice, OrgModule, IssuerProfile,
-    ExpenseReport, ExpenseTransaction, ExpenseComment,
+    ExpenseReport, ExpenseTransaction, ExpenseComment, EmailIntake, InboundInvoice,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.

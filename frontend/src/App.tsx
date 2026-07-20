@@ -17,6 +17,7 @@ import Team from "./pages/Team";
 import Billing from "./pages/Billing";
 import Expenses from "./pages/Expenses";
 import ExpenseDetail from "./pages/ExpenseDetail";
+import EmailIntake from "./pages/EmailIntake";
 import Platform from "./pages/Platform";
 import AcceptInvite from "./pages/AcceptInvite";
 
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="/invoices/:id" element={<InvoiceDetail />} />
         <Route path="/review" element={<Review />} />
         <Route path="/upload" element={<Upload />} />
+        <Route path="/email" element={<EmailIntake />} />
         <Route path="/issue" element={<Issue />} />
         <Route path="/issuer" element={<Issuer />} />
         <Route path="/expenses" element={<Expenses />} />
