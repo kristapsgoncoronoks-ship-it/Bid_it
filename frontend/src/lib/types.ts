@@ -1,5 +1,11 @@
 export type InvoiceStatus = "draft" | "pending" | "paid" | "overdue";
 
+// Shape of every paginated list endpoint ({ items, total }).
+export interface Paginated<T> {
+  items: T[];
+  total: number;
+}
+
 // The four user groups (low → high privilege).
 export type UserRoleName = "user_free" | "user" | "admin" | "sysadmin";
 

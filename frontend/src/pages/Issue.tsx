@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { api, apiError, downloadFile } from "../lib/api";
 import { money, shortDate } from "../lib/format";
 import { useModules } from "../lib/useModules";
-import type { IssuedInvoice, IssuedLineInput, IssuerProfile, VatScheme } from "../lib/types";
+import type { IssuedInvoice, IssuedLineInput, IssuerProfile, Paginated, VatScheme } from "../lib/types";
 
 const SCHEMES: { value: VatScheme; label: string }[] = [
   { value: "standard", label: "Standard VAT" },
@@ -19,7 +19,7 @@ export default function Issue() {
   const qc = useQueryClient();
   const modules = useModules();
   const issuer = useQuery<IssuerProfile>({ queryKey: ["issuer"], queryFn: async () => (await api.get("/issuer")).data });
-  const list = useQuery<{ items: IssuedInvoice[]; total: number }>({
+  const list = useQuery<Paginated<IssuedInvoice>>({
     queryKey: ["issued"],
     queryFn: async () => (await api.get("/issued")).data,
   });

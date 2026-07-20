@@ -14,6 +14,7 @@ import {
   type ExpenseReport,
   type ExpenseSummary,
   type ExpenseTransaction,
+  type Paginated,
 } from "../lib/types";
 
 const emptyItem = (): ExpenseItemInput => ({
@@ -32,8 +33,8 @@ export default function Expenses() {
   const enabled = modules.isEnabled("expenses");
 
   const summary = useQuery<ExpenseSummary>({ queryKey: ["expenses", "summary"], queryFn: async () => (await api.get("/expenses/summary")).data, enabled });
-  const mine = useQuery<{ items: ExpenseReport[]; total: number }>({ queryKey: ["expenses", "mine"], queryFn: async () => (await api.get("/expenses?mine=true")).data, enabled });
-  const pending = useQuery<{ items: ExpenseReport[]; total: number }>({
+  const mine = useQuery<Paginated<ExpenseReport>>({ queryKey: ["expenses", "mine"], queryFn: async () => (await api.get("/expenses?mine=true")).data, enabled });
+  const pending = useQuery<Paginated<ExpenseReport>>({
     queryKey: ["expenses", "pending"],
     queryFn: async () => (await api.get("/expenses?status=submitted")).data,
     enabled: enabled && isManager,
