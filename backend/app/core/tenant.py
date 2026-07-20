@@ -28,6 +28,7 @@ from app.models.expense import ExpenseComment, ExpenseReport, ExpenseTransaction
 from app.models.invitation import Invitation
 from app.models.invoice import Invoice
 from app.models.issued_invoice import IssuedInvoice
+from app.models.job import Job
 from app.models.issuer import IssuerProfile
 from app.models.module import OrgModule
 from app.models.partner import Partner, PartnerDocument
@@ -41,6 +42,7 @@ TENANT_MODELS = (
     Vendor, Invoice, User, Invitation, IssuedInvoice, OrgModule, IssuerProfile,
     ExpenseReport, ExpenseTransaction, ExpenseComment, EmailIntake, InboundInvoice,
     BudgetTarget, AuditEvent, EmailMessage, Partner, PartnerDocument, RecurringInvoice,
+    Job,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.

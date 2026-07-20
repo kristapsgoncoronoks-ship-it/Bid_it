@@ -2,8 +2,8 @@ from fastapi import APIRouter
 
 from app.api.routes import (
     access, analytics, audit, auth, billing, budget, email, expenses, fx,
-    invoices, issued, issuer, modules, partners, platform, recurring, settings,
-    team, vendors,
+    invoices, issued, issuer, jobs, modules, partners, platform, recurring,
+    settings, team, vendors,
 )
 
 api_router = APIRouter()
@@ -28,3 +28,4 @@ api_router.include_router(email.router)
 api_router.include_router(budget.router)
 api_router.include_router(access.router)
 api_router.include_router(audit.router)
+api_router.include_router(jobs.router)

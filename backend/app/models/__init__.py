@@ -13,6 +13,7 @@ from app.models.email_message import EmailMessage
 from app.models.fx import EcbRate
 from app.models.invitation import Invitation
 from app.models.invoice import Invoice, InvoiceStatus, LineItem
+from app.models.job import Job
 from app.models.issued_invoice import IssuedInvoice, IssuedInvoiceLine
 from app.models.issuer import IssuerProfile
 from app.models.module import OrgModule
@@ -33,6 +34,7 @@ __all__ = [
     "Invoice",
     "InvoiceStatus",
     "LineItem",
+    "Job",
     "EcbRate",
     "EmailIntake",
     "InboundInvoice",

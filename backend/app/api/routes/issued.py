@@ -38,6 +38,7 @@ from app.schemas.issued_reports import (
 )
 from app.services import (
     audit,
+    dunning,
     facturx,
     invoice_pdf,
     issued_reports,
@@ -362,45 +363,20 @@ async def send_reminder(invoice_id: str, body: ReminderRequest, current: Current
 
 
 async def _do_reminder(db: DbSession, org_id: str, inv: IssuedInvoice, recipient: str):
-    subject, text = mailer.reminder_email(
-        seller_name=_seller_name(inv), number=inv.number, buyer_name=inv.buyer_name,
-        currency=inv.currency, outstanding=issued_status.outstanding_of(inv),
-        days_overdue=issued_status.days_overdue_of(inv), penalty=issued_status.penalty_of(inv),
-        due_date=inv.due_date, penalty_rate=inv.penalty_rate,
-    )
-    msg = await mailer.send(db, org_id, kind="reminder", to_email=recipient, subject=subject,
-                            body=text, invoice_id=inv.id)
-    inv.reminder_count = (inv.reminder_count or 0) + 1
-    inv.last_reminder_at = date.today()
-    await audit.record(db, audit.A.ISSUED_REMINDER, target_type="issued_invoice", target_id=inv.id,
-                       meta={"number": inv.number, "to": recipient, "days_overdue": issued_status.days_overdue_of(inv)})
-    return msg
+    return await dunning.send_reminder(db, org_id, inv, recipient)
 
 
 @router.post("/reminders/run", response_model=BulkReminderResult)
 async def run_overdue_reminders(current: CurrentUser, db: DbSession):
     """Send a reminder for every overdue invoice that has a customer email."""
     await modules.require_enabled(db, current.org_id, "issuing")
-    rows = list(await db.scalars(
-        select(IssuedInvoice)
-        .where(IssuedInvoice.org_id == current.org_id)
-        .options(selectinload(IssuedInvoice.lines))
-    ))
-    overdue = [i for i in rows if issued_status.status_of(i) == issued_status.OVERDUE]
-    sent, skipped, messages = 0, 0, []
-    for inv in overdue:
-        if not inv.buyer_email:
-            skipped += 1
-            continue
-        msg = await _do_reminder(db, current.org_id, inv, inv.buyer_email)
-        messages.append(msg)
-        sent += 1
+    res = await dunning.run_overdue(db, current.org_id)
     await db.commit()
-    for m in messages:
+    for m in res.messages:
         await db.refresh(m)
     return BulkReminderResult(
-        sent=sent, skipped_no_email=skipped,
-        messages=[EmailMessageOut.model_validate(m) for m in messages],
+        sent=res.sent, skipped_no_email=res.skipped_no_email,
+        messages=[EmailMessageOut.model_validate(m) for m in res.messages],
     )
 
 

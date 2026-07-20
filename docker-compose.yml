@@ -46,6 +46,22 @@ services:
     ports:
       - "8000:8000"
 
+  # Durable background worker: drains the job queue (recurring-invoice generation,
+  # overdue reminders) and enqueues the daily periodic jobs. Shares the backend
+  # image; runs the worker entrypoint instead of the web server. Scale with
+  # `docker compose up --scale worker=N` — the claim is atomic, so it's safe.
+  worker:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://invoiceiq:invoiceiq@db:5432/invoiceiq
+      SECRET_KEY: ${SECRET_KEY:-dev-insecure-change-me}
+      ENVIRONMENT: production
+    depends_on:
+      backend:
+        condition: service_healthy   # backend applies migrations first
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+
   frontend:
     build:
       context: ./frontend
