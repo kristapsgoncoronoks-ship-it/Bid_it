@@ -37,6 +37,12 @@ def _sum(values) -> Decimal:
     return money.q2(total)
 
 
+def _signed(inv: IssuedInvoice, value) -> Decimal:
+    """A credit note SUBTRACTS from turnover; an invoice adds."""
+    v = Decimal(value or _ZERO)
+    return -v if st.is_credit_note(inv) else v
+
+
 async def _pick_currency(db: AsyncSession, org_id: str, currency: str | None) -> tuple[str, list[str]]:
     """Resolve the report currency and list the currencies present for the tenant."""
     rows = list(await db.execute(
@@ -93,21 +99,25 @@ async def summary(db, org_id, currency, start, end) -> SummaryReport:
     buckets: dict[str, dict] = defaultdict(lambda: {"net": _ZERO, "gross": _ZERO, "count": 0})
     for inv in rows:
         b = buckets[inv.issue_date.strftime("%Y-%m")]
-        b["net"] += Decimal(inv.subtotal)
-        b["gross"] += Decimal(inv.total)
-        b["count"] += 1
+        # Turnover is NET of credit notes; count is invoices only (credit notes
+        # are corrections, not sales).
+        b["net"] += _signed(inv, inv.subtotal)
+        b["gross"] += _signed(inv, inv.total)
+        if not st.is_credit_note(inv):
+            b["count"] += 1
 
     series = [
         TimePoint(period=p, net=money.q2(b["net"]), gross=money.q2(b["gross"]), count=b["count"])
         for p, b in sorted(buckets.items())
     ]
+    invoices_only = [inv for inv in rows if not st.is_credit_note(inv)]
     return SummaryReport(
         currency=cur,
         available_currencies=available,
-        count=len(rows),
-        net=_sum(inv.subtotal for inv in rows),
-        vat=_sum(inv.tax_total for inv in rows),
-        gross=_sum(inv.total for inv in rows),
+        count=len(invoices_only),
+        net=_sum(_signed(inv, inv.subtotal) for inv in rows),
+        vat=_sum(_signed(inv, inv.tax_total) for inv in rows),
+        gross=_sum(_signed(inv, inv.total) for inv in rows),
         collected=_sum(inv.amount_paid for inv in rows),
         outstanding=_sum(st.outstanding_of(inv) for inv in rows),
         series=series,
@@ -149,13 +159,18 @@ async def receivables(db, org_id, currency, start, end, today: date | None = Non
     cur, available = await _pick_currency(db, org_id, currency)
     rows = await _rows(db, org_id, cur, start, end)
 
-    order = [st.PAID, st.PARTIAL, st.OPEN, st.OVERDUE]
+    order = [st.PAID, st.PARTIAL, st.OPEN, st.OVERDUE, st.CREDITED]
     sb: dict[str, dict] = {s: {"count": 0, "gross": _ZERO, "outstanding": _ZERO} for s in order}
     aging: dict[str, dict] = {lbl: {"count": 0, "outstanding": _ZERO} for _, lbl in _AGING}
     aging[_AGING_OVER] = {"count": 0, "outstanding": _ZERO}
 
     days_to_pay: list[int] = []
     for inv in rows:
+        # Credit notes are corrections, not receivables — they never appear in the
+        # paid/overdue/aging buckets. Their effect is already netted into each
+        # corrected invoice's outstanding balance via `credited_total`.
+        if st.is_credit_note(inv):
+            continue
         status = st.status_of(inv, today)
         out = st.outstanding_of(inv)
         s = sb[status]
@@ -228,10 +243,11 @@ async def by_partner(db, org_id, currency, start, end) -> PartnerReport:
     for inv in rows:
         key = (inv.buyer_name, inv.buyer_vat_number)
         a = agg[key]
-        a["count"] += 1
-        a["net"] += Decimal(inv.subtotal)
-        a["vat"] += Decimal(inv.tax_total)
-        a["gross"] += Decimal(inv.total)
+        if not st.is_credit_note(inv):
+            a["count"] += 1
+        a["net"] += _signed(inv, inv.subtotal)
+        a["vat"] += _signed(inv, inv.tax_total)
+        a["gross"] += _signed(inv, inv.total)
         a["outstanding"] += st.outstanding_of(inv)
         if a["last"] is None or inv.issue_date > a["last"]:
             a["last"] = inv.issue_date
@@ -278,11 +294,11 @@ async def vat_summary(db, org_id, currency, start, end) -> VatReport:
     # Line-level net grouped by (scheme, rate). VAT only accrues on the standard
     # scheme; reverse-charge / intra-EU / exempt carry a rate on the line but 0 tax.
     stmt = (
-        select(IssuedInvoice.vat_scheme, IssuedInvoiceLine.vat_rate,
+        select(IssuedInvoice.vat_scheme, IssuedInvoice.doc_type, IssuedInvoiceLine.vat_rate,
                func.coalesce(func.sum(IssuedInvoiceLine.net_amount), 0))
         .join(IssuedInvoice, IssuedInvoiceLine.invoice_id == IssuedInvoice.id)
         .where(IssuedInvoice.org_id == org_id, IssuedInvoice.currency == cur)
-        .group_by(IssuedInvoice.vat_scheme, IssuedInvoiceLine.vat_rate)
+        .group_by(IssuedInvoice.vat_scheme, IssuedInvoice.doc_type, IssuedInvoiceLine.vat_rate)
     )
     if start is not None:
         stmt = stmt.where(IssuedInvoice.issue_date >= start)
@@ -291,8 +307,11 @@ async def vat_summary(db, org_id, currency, start, end) -> VatReport:
 
     by_rate: dict[Decimal, dict] = defaultdict(lambda: {"base": _ZERO, "vat": _ZERO})
     by_scheme: dict[str, dict] = defaultdict(lambda: {"net": _ZERO, "vat": _ZERO})
-    for scheme, rate, net in await db.execute(stmt):
+    for scheme, doc_type, rate, net in await db.execute(stmt):
         net = Decimal(net or _ZERO)
+        # A credit note reduces the output-VAT base and the VAT owed.
+        if doc_type == "credit_note":
+            net = -net
         vat = money.q2(net * Decimal(rate) / Decimal(100)) if scheme == "standard" else _ZERO
         by_rate[Decimal(rate)]["base"] += net
         by_rate[Decimal(rate)]["vat"] += vat

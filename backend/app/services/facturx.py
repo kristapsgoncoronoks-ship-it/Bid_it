@@ -22,6 +22,7 @@ register_namespace("udt", UDT)
 # EN 16931 (Factur-X "EN 16931" / Comfort) guideline id.
 EN16931_GUIDELINE = "urn:cen.eu:en16931:2017"
 INVOICE_TYPE_CODE = "380"  # commercial invoice
+CREDIT_NOTE_TYPE_CODE = "381"  # credit note (UNTDID 1001)
 
 
 def _rsm(tag: str) -> str:
@@ -82,7 +83,9 @@ def build_cii(invoice, seller: dict, vat: VatResult) -> bytes:
     # --- header ---
     doc = SubElement(root, _rsm("ExchangedDocument"))
     _t(doc, _ram("ID"), invoice.number)
-    _t(doc, _ram("TypeCode"), INVOICE_TYPE_CODE)
+    # 380 = commercial invoice, 381 = credit note (UNTDID 1001).
+    is_credit = getattr(invoice, "doc_type", "invoice") == "credit_note"
+    _t(doc, _ram("TypeCode"), CREDIT_NOTE_TYPE_CODE if is_credit else INVOICE_TYPE_CODE)
     idt = SubElement(doc, _ram("IssueDateTime"))
     _t(idt, _udt("DateTimeString"), _date(invoice.issue_date), format="102")
     if invoice.note:

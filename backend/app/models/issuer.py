@@ -42,6 +42,9 @@ class IssuerProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     default_currency: Mapped[str] = mapped_column(String(3), default="EUR", nullable=False)
     invoice_prefix: Mapped[str] = mapped_column(String(16), default="INV-", nullable=False)
     next_number: Mapped[int] = mapped_column(default=1, nullable=False)
+    # Credit notes carry their OWN gap-free series (accounting best practice).
+    credit_note_prefix: Mapped[str] = mapped_column(String(16), default="CN-", nullable=False)
+    next_credit_number: Mapped[int] = mapped_column(default=1, nullable=False)
     payment_terms_days: Mapped[int] = mapped_column(default=14, nullable=False)
     # Default late-payment interest (% p.a.) new invoices inherit; None = no penalty.
     default_penalty_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)

@@ -15,31 +15,58 @@ from app.models.issued_invoice import IssuedInvoice
 _ZERO = Decimal("0")
 
 # Canonical statuses. `partial` is a distinct state but rolls up under "not paid"
-# for the paid/unpaid/overdue view.
+# for the paid/unpaid/overdue view. A CREDIT NOTE is its own document (not a
+# receivable); an invoice fully cancelled by credit notes reads as CREDITED.
 PAID = "paid"
 PARTIAL = "partial"
 OPEN = "open"
 OVERDUE = "overdue"
+CREDITED = "credited"
+CREDIT_NOTE = "credit_note"
 
 STATUS_LABELS = {
     PAID: "Paid",
     PARTIAL: "Partially paid",
     OPEN: "Open",
     OVERDUE: "Overdue",
+    CREDITED: "Credited",
+    CREDIT_NOTE: "Credit note",
 }
 
 
+def is_credit_note(inv: IssuedInvoice) -> bool:
+    return getattr(inv, "doc_type", "invoice") == "credit_note"
+
+
+def effective_total(inv: IssuedInvoice) -> Decimal:
+    """The invoice total net of any credit notes applied against it. For a credit
+    note itself this is just its own total (it is never a receivable)."""
+    if is_credit_note(inv):
+        return money.q2(Decimal(inv.total))
+    return money.q2(Decimal(inv.total) - Decimal(getattr(inv, "credited_total", None) or _ZERO))
+
+
 def outstanding_of(inv: IssuedInvoice) -> Decimal:
-    """Amount still owed (never negative)."""
-    return money.q2(max(_ZERO, Decimal(inv.total) - Decimal(inv.amount_paid or _ZERO)))
+    """Amount still owed (never negative). A credit note owes nothing."""
+    if is_credit_note(inv):
+        return money.q2(_ZERO)
+    return money.q2(max(_ZERO, effective_total(inv) - Decimal(inv.amount_paid or _ZERO)))
 
 
 def status_of(inv: IssuedInvoice, today: date | None = None) -> str:
     today = today or date.today()
+    if is_credit_note(inv):
+        return CREDIT_NOTE
     paid = Decimal(inv.amount_paid or _ZERO)
-    total = Decimal(inv.total)
-    if total > _ZERO and paid >= total:
+    eff = effective_total(inv)
+    credited = Decimal(getattr(inv, "credited_total", None) or _ZERO)
+    # Fully cancelled by credit notes (and nothing left to collect).
+    if credited > _ZERO and eff <= _ZERO and paid <= _ZERO:
+        return CREDITED
+    if eff > _ZERO and paid >= eff:
         return PAID
+    if eff <= _ZERO and paid > _ZERO:
+        return PAID  # over-credited but already settled — treat as done
     if inv.due_date is not None and inv.due_date < today:
         return OVERDUE
     if paid > _ZERO:

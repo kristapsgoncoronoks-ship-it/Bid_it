@@ -34,6 +34,19 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     kind: Mapped[str] = mapped_column(String(12), default="standard", nullable=False)  # standard | penalty
 
+    # Document type: a normal receivable invoice, or a CREDIT NOTE that corrects
+    # (reduces) one. A credit note carries its own gap-free number series, links
+    # to the invoice it corrects, and REDUCES that invoice's outstanding balance
+    # (applied via `credited_total` on the corrected invoice) and the tenant's
+    # reported turnover. Both document types are immutable once created.
+    doc_type: Mapped[str] = mapped_column(String(12), default="invoice", nullable=False)  # invoice | credit_note
+    corrected_invoice_id: Mapped[str | None] = mapped_column(
+        GUID(), ForeignKey("issued_invoices.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # Sum of credit notes applied AGAINST this invoice (only meaningful on an
+    # invoice). Effective amount owed = total − credited_total − amount_paid.
+    credited_total: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
+
     number: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
     issue_date: Mapped[date] = mapped_column(Date, nullable=False)
     supply_date: Mapped[date | None] = mapped_column(Date, nullable=True)

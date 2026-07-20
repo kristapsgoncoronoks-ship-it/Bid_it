@@ -43,10 +43,13 @@ export const ISSUED_STATUS_STYLES: Record<string, string> = {
   partial: "bg-sky-100 text-sky-700",
   open: "bg-slate-100 text-slate-600",
   overdue: "bg-rose-100 text-rose-700",
+  credited: "bg-violet-100 text-violet-700",
+  credit_note: "bg-violet-100 text-violet-700",
 };
 
 export const ISSUED_STATUS_LABELS: Record<string, string> = {
   paid: "Paid", partial: "Partially paid", open: "Open", overdue: "Overdue",
+  credited: "Credited", credit_note: "Credit note",
 };
 
 export const VALIDATION_STYLES: Record<string, string> = {

@@ -2,7 +2,8 @@ from fastapi import APIRouter
 
 from app.api.routes import (
     access, analytics, audit, auth, billing, budget, email, expenses, fx,
-    invoices, issued, issuer, modules, partners, platform, settings, team, vendors,
+    invoices, issued, issuer, modules, partners, platform, recurring, settings,
+    team, vendors,
 )
 
 api_router = APIRouter()
@@ -14,6 +15,9 @@ api_router.include_router(fx.router)
 api_router.include_router(settings.router)
 api_router.include_router(modules.router)
 api_router.include_router(issuer.router)
+# Recurring BEFORE issued: `/issued/recurring*` must not be shadowed by the
+# `/issued/{invoice_id}` catch-all in the issued router.
+api_router.include_router(recurring.router)
 api_router.include_router(issued.router)
 api_router.include_router(partners.router)
 api_router.include_router(team.router)

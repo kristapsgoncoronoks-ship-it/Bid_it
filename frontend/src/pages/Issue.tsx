@@ -5,8 +5,8 @@ import { api, apiError, downloadFile, openFile } from "../lib/api";
 import { ISSUED_STATUS_LABELS, ISSUED_STATUS_STYLES, money, shortDate } from "../lib/format";
 import { useModules } from "../lib/useModules";
 import type {
-  BulkReminderResult, IssuedInvoice, IssuedLineInput, IssuerProfile,
-  Paginated, Partner, SendResult, VatScheme,
+  BulkReminderResult, GenerateResult, IssuedInvoice, IssuedLineInput, IssuerProfile,
+  Paginated, Partner, RecurringFrequency, RecurringSchedule, SendResult, VatScheme,
 } from "../lib/types";
 
 const SCHEMES: { value: VatScheme; label: string }[] = [
@@ -69,6 +69,8 @@ export default function Issue() {
         defaultPenalty={issuer.data?.default_penalty_rate ?? null}
       />
 
+      <RecurringSchedules onGenerated={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
+
       <div>
         <h2 className="mb-2 text-sm font-semibold text-slate-600">Issued ({list.data?.total ?? 0})</h2>
         <div className="card overflow-x-auto p-0">
@@ -92,6 +94,10 @@ export default function Issue() {
                   <td className="px-4 py-3 font-medium">
                     {inv.number}
                     {inv.kind === "penalty" && <span className="badge ml-2 bg-rose-100 text-rose-700">Penalty</span>}
+                    {inv.doc_type === "credit_note" && <span className="badge ml-2 bg-violet-100 text-violet-700">Credit note</span>}
+                    {inv.doc_type !== "credit_note" && Number(inv.credited_total) > 0 && (
+                      <div className="text-xs text-violet-500">−{money(inv.credited_total, inv.currency)} credited</div>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     {inv.buyer_name}
@@ -115,10 +121,21 @@ export default function Issue() {
                   </td>
                   <td className="px-4 py-3 text-right font-medium">{money(inv.total, inv.currency)}</td>
                   <td className="px-4 py-3 text-right">
-                    <PaymentAction inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
+                    {inv.doc_type === "credit_note" ? (
+                      <span className="text-xs text-slate-400">—</span>
+                    ) : (
+                      <div className="flex flex-col items-end gap-1">
+                        <PaymentAction inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
+                        <CreditAction inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <SendActions inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
+                    {inv.doc_type === "credit_note" ? (
+                      <span className="text-xs text-slate-400">—</span>
+                    ) : (
+                      <SendActions inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
                     <button className="text-brand-600 hover:underline" onClick={() => openFile(`/issued/${inv.id}/pdf?inline=1`)}>
@@ -238,6 +255,37 @@ function SendActions({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void }
         <span className="text-xs text-slate-400">{inv.reminder_count} reminder{inv.reminder_count === 1 ? "" : "s"} sent</span>
       )}
       {note && <span className="text-xs text-emerald-600">{note}</span>}
+    </div>
+  );
+}
+
+// Issue a FULL credit note against an invoice (one click + confirm). Partial
+// credits are available via the API; the common case here is a full cancellation.
+function CreditAction({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void }) {
+  const [note, setNote] = useState<string | null>(null);
+  const fullyCredited = Number(inv.credited_total) >= Number(inv.total) && Number(inv.total) > 0;
+
+  const credit = useMutation({
+    mutationFn: async () => (await api.post(`/issued/${inv.id}/credit-note`, {})).data,
+    onSuccess: (cn: IssuedInvoice) => { setNote(`Credited (${cn.number})`); onDone(); },
+    onError: (e) => setNote(apiError(e)),
+  });
+
+  if (fullyCredited) return <span className="text-xs text-violet-500">Fully credited</span>;
+
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        className="text-xs text-violet-600 hover:underline disabled:text-slate-300 disabled:no-underline"
+        disabled={credit.isPending}
+        title="Issue a credit note cancelling the remaining amount of this invoice"
+        onClick={() => {
+          if (window.confirm(`Issue a credit note for the remaining balance of ${inv.number}?`)) credit.mutate();
+        }}
+      >
+        Credit
+      </button>
+      {note && <span className="text-xs text-slate-500">{note}</span>}
     </div>
   );
 }
@@ -398,6 +446,221 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
           onClick={() => create.mutate()}
         >
           {create.isPending ? "Issuing…" : "Issue invoice"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const FREQUENCIES: { value: RecurringFrequency; label: string }[] = [
+  { value: "weekly", label: "Weekly" },
+  { value: "monthly", label: "Monthly" },
+  { value: "quarterly", label: "Quarterly" },
+  { value: "yearly", label: "Yearly" },
+];
+
+// Recurring-invoice schedules: a template + cadence that generates real invoices.
+// "Run due now" materialises every invoice that has reached its date.
+function RecurringSchedules({ onGenerated }: { onGenerated: () => void }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const list = useQuery<RecurringSchedule[]>({
+    queryKey: ["recurring"],
+    queryFn: async () => (await api.get("/issued/recurring")).data,
+  });
+
+  const run = useMutation({
+    mutationFn: async () => (await api.post("/issued/recurring/run")).data as GenerateResult,
+    onSuccess: (r) => {
+      setMsg(r.generated ? `Generated ${r.generated} invoice${r.generated === 1 ? "" : "s"}: ${r.numbers.join(", ")}` : "Nothing due right now.");
+      qc.invalidateQueries({ queryKey: ["recurring"] });
+      onGenerated();
+    },
+    onError: (e) => setMsg(apiError(e)),
+  });
+
+  const toggle = useMutation({
+    mutationFn: async (v: { id: string; active: boolean }) => (await api.patch(`/issued/recurring/${v.id}`, { active: v.active })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["recurring"] }),
+  });
+  const remove = useMutation({
+    mutationFn: async (id: string) => api.delete(`/issued/recurring/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["recurring"] }),
+  });
+
+  return (
+    <div className="card space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-600">Recurring schedules</h2>
+          <p className="text-xs text-slate-400">Generate invoices automatically on a cadence (retainers, subscriptions, rent).</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button className="btn-ghost" disabled={run.isPending} onClick={() => { setMsg(null); run.mutate(); }}>
+            {run.isPending ? "Running…" : "Run due now"}
+          </button>
+          <button className="btn-primary" onClick={() => setOpen((o) => !o)}>{open ? "Close" : "New schedule"}</button>
+        </div>
+      </div>
+
+      {msg && <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">{msg}</div>}
+
+      {open && <NewRecurring onCreated={() => { setOpen(false); qc.invalidateQueries({ queryKey: ["recurring"] }); }} />}
+
+      {(list.data?.length ?? 0) > 0 && (
+        <div className="overflow-x-auto rounded-lg border border-slate-200">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-3 py-2">Schedule</th>
+                <th className="px-3 py-2">Cadence</th>
+                <th className="px-3 py-2">Next run</th>
+                <th className="px-3 py-2">Generated</th>
+                <th className="px-3 py-2">State</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.data!.map((s) => (
+                <tr key={s.id} className="border-t border-slate-100">
+                  <td className="px-3 py-2 font-medium">{s.title || "Untitled schedule"}</td>
+                  <td className="px-3 py-2 text-slate-500">
+                    Every {s.interval > 1 ? `${s.interval} ` : ""}{s.frequency.replace(/ly$/, s.interval > 1 ? "s" : "")}
+                  </td>
+                  <td className="px-3 py-2 text-slate-500">{shortDate(s.next_run_date)}</td>
+                  <td className="px-3 py-2 text-slate-500">{s.generated_count}</td>
+                  <td className="px-3 py-2">
+                    <span className={`badge ${s.active ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                      {s.active ? "active" : "paused"}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                    <button className="text-brand-600 hover:underline" onClick={() => toggle.mutate({ id: s.id, active: !s.active })}>
+                      {s.active ? "pause" : "resume"}
+                    </button>
+                    <span className="mx-1.5 text-slate-300">·</span>
+                    <button
+                      className="text-rose-500 hover:underline"
+                      onClick={() => { if (window.confirm("Delete this schedule? Invoices already generated are kept.")) remove.mutate(s.id); }}
+                    >
+                      delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NewRecurring({ onCreated }: { onCreated: () => void }) {
+  const [title, setTitle] = useState("");
+  const [buyerName, setBuyerName] = useState("");
+  const [buyerEmail, setBuyerEmail] = useState("");
+  const [scheme, setScheme] = useState<VatScheme>("standard");
+  const [frequency, setFrequency] = useState<RecurringFrequency>("monthly");
+  const [interval, setInterval] = useState("1");
+  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [endDate, setEndDate] = useState("");
+  const [lines, setLines] = useState<IssuedLineInput[]>([emptyLine()]);
+  const [error, setError] = useState<string | null>(null);
+
+  const zero = scheme !== "standard";
+  const setLine = (i: number, patch: Partial<IssuedLineInput>) =>
+    setLines(lines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+
+  const create = useMutation({
+    mutationFn: async () => {
+      const payload = {
+        template: { buyer_name: buyerName, buyer_email: buyerEmail || null, vat_scheme: scheme, lines },
+        frequency,
+        interval: Number(interval) || 1,
+        start_date: startDate,
+        end_date: endDate || null,
+        title: title || null,
+      };
+      return (await api.post("/issued/recurring", payload)).data;
+    },
+    onSuccess: onCreated,
+    onError: (e) => setError(apiError(e)),
+  });
+
+  return (
+    <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <Field label="Schedule title" v={title} on={setTitle} span2 />
+        <div>
+          <label className="label">Frequency</label>
+          <select className="input" value={frequency} onChange={(e) => setFrequency(e.target.value as RecurringFrequency)}>
+            {FREQUENCIES.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </select>
+        </div>
+        <Field label="Customer name" v={buyerName} on={setBuyerName} span2 />
+        <Field label="Customer email" v={buyerEmail} on={setBuyerEmail} />
+        <div>
+          <label className="label">Every N periods</label>
+          <input className="input" inputMode="numeric" value={interval} onChange={(e) => setInterval(e.target.value)} />
+        </div>
+        <div>
+          <label className="label">Start date</label>
+          <input className="input" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        </div>
+        <div>
+          <label className="label">End date (optional)</label>
+          <input className="input" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+        </div>
+        <div>
+          <label className="label">VAT scheme</label>
+          <select className="input" value={scheme} onChange={(e) => setScheme(e.target.value as VatScheme)}>
+            {SCHEMES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+            <tr>
+              <th className="px-3 py-2">Description</th>
+              <th className="px-3 py-2 w-20">Qty</th>
+              <th className="px-3 py-2 w-28">Unit price</th>
+              <th className="px-3 py-2 w-20">VAT %</th>
+              <th className="px-3 py-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((l, i) => (
+              <tr key={i} className="border-t border-slate-100">
+                <td className="px-3 py-2"><input className="input" value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} /></td>
+                <td className="px-3 py-2"><input className="input" value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} /></td>
+                <td className="px-3 py-2"><input className="input" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} /></td>
+                <td className="px-3 py-2"><input className="input" value={l.vat_rate} disabled={zero} onChange={(e) => setLine(i, { vat_rate: e.target.value })} /></td>
+                <td className="px-3 py-2 text-right">
+                  {lines.length > 1 && (
+                    <button className="text-rose-500 hover:underline" onClick={() => setLines(lines.filter((_, idx) => idx !== i))}>remove</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <button className="btn-ghost" onClick={() => setLines([...lines, emptyLine()])}>+ Add line</button>
+
+      {error && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
+
+      <div className="flex justify-end">
+        <button
+          className="btn-primary"
+          disabled={create.isPending || !buyerName || lines.some((l) => !l.description)}
+          onClick={() => create.mutate()}
+        >
+          {create.isPending ? "Creating…" : "Create schedule"}
         </button>
       </div>
     </div>

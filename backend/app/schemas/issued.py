@@ -61,6 +61,9 @@ class IssuedInvoiceOut(BaseModel):
     id: str
     number: str
     kind: str = "standard"          # standard | penalty
+    doc_type: str = "invoice"       # invoice | credit_note
+    corrected_invoice_id: str | None = None
+    credited_total: Decimal = Decimal("0")   # sum of credit notes applied to this invoice
     partner_id: str | None = None
     issue_date: date
     supply_date: date | None
@@ -89,6 +92,19 @@ class PaymentUpdate(BaseModel):
     """Record a payment against an issued invoice (accounts-receivable)."""
     amount_paid: Decimal = Field(ge=0)
     paid_date: date | None = None
+
+
+class CreditNoteCreate(BaseModel):
+    """Issue a credit note against an existing invoice.
+
+    Omit `lines` to credit the WHOLE remaining (un-credited) invoice; pass lines to
+    credit specific amounts (a partial credit). The credited total may not exceed
+    the invoice's still-un-credited amount.
+    """
+    lines: list[IssuedLineIn] | None = None
+    issue_date: date | None = None
+    reason: str | None = Field(default=None, max_length=1000)
+
 
 
 class SendRequest(BaseModel):

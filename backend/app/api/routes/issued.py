@@ -4,7 +4,8 @@ import csv
 import io
 import json
 import zipfile
-from datetime import date, timedelta
+from datetime import date
+from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
@@ -12,9 +13,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
-from app.models.issued_invoice import IssuedInvoice, IssuedInvoiceLine
+from app.core import money
+from app.models.issued_invoice import IssuedInvoice
 from app.schemas.issued import (
     BulkReminderResult,
+    CreditNoteCreate,
     EmailMessageOut,
     IssuedInvoiceCreate,
     IssuedInvoiceDetail,
@@ -38,6 +41,7 @@ from app.services import (
     facturx,
     invoice_pdf,
     issued_reports,
+    issued_service,
     issued_status,
     issuer,
     mailer,
@@ -109,61 +113,57 @@ async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbS
                 f"Cannot issue to {partner.name}: awaiting signed {labels}.",
             )
 
-    result = vat.compute([li.model_dump() for li in body.lines], body.vat_scheme)
-    issue_date = body.issue_date or date.today()
-    due_date = body.due_date or (issue_date + timedelta(days=profile.payment_terms_days))
-    currency = (body.currency or profile.default_currency or "EUR").upper()
-
-    number = f"{profile.invoice_prefix}{issue_date.year}-{profile.next_number:04d}"
-    profile.next_number += 1
-
-    note = body.note or vat.SCHEME_NOTES.get(body.vat_scheme)
-    # Penalty rate precedence: explicit > partner default > issuer default.
-    penalty_rate = body.penalty_rate
-    if penalty_rate is None and partner is not None:
-        penalty_rate = partner.penalty_rate
-    if penalty_rate is None:
-        penalty_rate = profile.default_penalty_rate
-
-    inv = IssuedInvoice(
-        org_id=current.org_id,
-        partner_id=partner.id if partner else None,
-        number=number,
-        issue_date=issue_date,
-        supply_date=body.supply_date,
-        due_date=due_date,
-        currency=currency,
-        buyer_name=body.buyer_name,
-        buyer_email=body.buyer_email,
-        penalty_rate=penalty_rate,
-        buyer_vat_number=body.buyer_vat_number,
-        buyer_address_line1=body.buyer_address_line1,
-        buyer_city=body.buyer_city,
-        buyer_postal_code=body.buyer_postal_code,
-        buyer_country=body.buyer_country.upper() if body.buyer_country else None,
-        seller_json=json.dumps(issuer.seller_snapshot(profile)),
-        vat_scheme=body.vat_scheme,
-        note=note,
-        subtotal=result.subtotal,
-        tax_total=result.tax_total,
-        total=result.total,
-        lines=[
-            IssuedInvoiceLine(
-                position=i + 1,
-                description=li["description"],
-                quantity=li["quantity"],
-                unit=li["unit"],
-                unit_price=li["unit_price"],
-                vat_rate=li["vat_rate"],
-                net_amount=li["net_amount"],
-            )
-            for i, li in enumerate(result.lines)
-        ],
-    )
+    inv = issued_service.build_invoice(profile, body, org_id=current.org_id, partner=partner)
     db.add(inv)
     await db.commit()
     await db.refresh(inv, attribute_names=["lines"])
     return _detail(inv)
+
+
+@router.post("/{invoice_id}/credit-note", response_model=IssuedInvoiceDetail,
+             status_code=status.HTTP_201_CREATED)
+async def create_credit_note(invoice_id: str, body: CreditNoteCreate, current: CurrentUser, db: DbSession):
+    """Issue a credit note that corrects (reduces) an existing invoice.
+
+    Omit `lines` to credit the whole remaining amount; pass lines for a partial
+    credit. A credit note gets its own number series, reduces the corrected
+    invoice's outstanding balance, and lowers reported turnover.
+    """
+    profile = await _guard(db, current.org_id)
+    original = await _load(db, current.org_id, invoice_id)
+    if issued_status.is_credit_note(original):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot credit a credit note.")
+
+    # Determine the lines being credited (full remaining, or the caller's lines).
+    if body.lines is None:
+        remaining = money.q2(Decimal(original.total) - issued_service.already_credited(original))
+        if remaining <= Decimal("0"):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "This invoice is already fully credited.")
+        raw_lines = issued_service.credit_note_lines_for_full(original)
+    else:
+        raw_lines = [li.model_dump() for li in body.lines]
+
+    cn = issued_service.build_credit_note(
+        profile, original, raw_lines, org_id=current.org_id,
+        issue_date=body.issue_date, note=body.reason,
+    )
+    # Enforce: total credited (existing + this) may not exceed the invoiced total.
+    new_credited = issued_service.already_credited(original) + Decimal(cn.total)
+    if new_credited > Decimal(original.total) + Decimal("0.001"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Credit ({cn.total}) exceeds the invoice's un-credited amount "
+            f"({money.q2(Decimal(original.total) - issued_service.already_credited(original))}).",
+        )
+    original.credited_total = money.q2(new_credited)
+    db.add(cn)
+    await audit.record(
+        db, audit.A.ISSUED_CREDIT_NOTE, target_type="issued_invoice", target_id=cn.id,
+        meta={"number": cn.number, "corrects": original.number, "amount": str(cn.total)},
+    )
+    await db.commit()
+    await db.refresh(cn, attribute_names=["lines"])
+    return _detail(cn)
 
 
 @router.get("", response_model=IssuedInvoiceListOut)
@@ -202,11 +202,18 @@ async def record_payment(invoice_id: str, body: PaymentUpdate, current: CurrentU
     """Record a payment against an issued invoice (drives the paid/overdue report)."""
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id)
-    if body.amount_paid > inv.total:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Amount paid cannot exceed the invoice total")
+    if issued_status.is_credit_note(inv):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A credit note is not a receivable — no payment applies.")
+    # Payment is capped at the amount actually owed (invoice total net of credits).
+    effective = issued_status.effective_total(inv)
+    if body.amount_paid > effective:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Amount paid cannot exceed the amount owed ({effective}) after credit notes.",
+        )
     inv.amount_paid = body.amount_paid
     # A payment date is required to settle; clear it when the balance is un-paid.
-    fully = body.amount_paid >= inv.total and inv.total > 0
+    fully = body.amount_paid >= effective and effective > 0
     inv.paid_date = (body.paid_date or date.today()) if fully else (body.paid_date if body.amount_paid > 0 else None)
     await audit.record(
         db, audit.A.ISSUED_PAYMENT, target_type="issued_invoice", target_id=inv.id,

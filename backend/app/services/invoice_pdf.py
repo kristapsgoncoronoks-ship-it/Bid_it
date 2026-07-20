@@ -47,9 +47,13 @@ def build_pdf(invoice, seller: dict, vat: VatResult, xml_bytes: bytes, logo: tup
     h_lbl = ParagraphStyle("hlbl", parent=styles["Normal"], fontSize=8, leading=10, textColor=colors.HexColor(_MUTED), spaceAfter=1)
     title = ParagraphStyle("title", parent=styles["Title"], fontSize=22, textColor=colors.HexColor(_BRAND), alignment=2)
 
+    is_credit = getattr(invoice, "doc_type", "invoice") == "credit_note"
+    heading = "CREDIT NOTE" if is_credit else "INVOICE"
+
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=18 * mm, bottomMargin=16 * mm,
-                            leftMargin=16 * mm, rightMargin=16 * mm, title=f"Invoice {invoice.number}")
+                            leftMargin=16 * mm, rightMargin=16 * mm,
+                            title=f"{heading.title()} {invoice.number}")
     story: list = []
 
     seller_lines = "<br/>".join(filter(None, [
@@ -62,7 +66,7 @@ def build_pdf(invoice, seller: dict, vat: VatResult, xml_bytes: bytes, logo: tup
     ]))
 
     meta = Table([
-        [Paragraph("INVOICE", title)],
+        [Paragraph(heading, title)],
         [Paragraph(f"<b>{invoice.number}</b>", ParagraphStyle('n', parent=body, alignment=2))],
         [Paragraph(f"Issue date: {invoice.issue_date}", ParagraphStyle('d', parent=small, alignment=2))],
         [Paragraph(f"Due date: {invoice.due_date}" if invoice.due_date else "", ParagraphStyle('d2', parent=small, alignment=2))],

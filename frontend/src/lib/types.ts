@@ -582,7 +582,7 @@ export interface VatBucket {
   vat: string;
 }
 
-export type IssuedStatus = "paid" | "partial" | "open" | "overdue";
+export type IssuedStatus = "paid" | "partial" | "open" | "overdue" | "credited" | "credit_note";
 
 // --- Partners (counterparties) with a pre-invoicing document workflow ---
 export type PartnerDocKind = "contract" | "acceptance_act";
@@ -641,6 +641,9 @@ export interface IssuedInvoice {
   id: string;
   number: string;
   kind: "standard" | "penalty";
+  doc_type: "invoice" | "credit_note";
+  corrected_invoice_id: string | null;
+  credited_total: string;
   partner_id: string | null;
   issue_date: string;
   supply_date: string | null;
@@ -685,6 +688,29 @@ export interface BulkReminderResult {
   sent: number;
   skipped_no_email: number;
   messages: EmailMessage[];
+}
+
+export type RecurringFrequency = "weekly" | "monthly" | "quarterly" | "yearly";
+
+export interface RecurringSchedule {
+  id: string;
+  title: string | null;
+  partner_id: string | null;
+  frequency: RecurringFrequency;
+  interval: number;
+  start_date: string;
+  next_run_date: string;
+  end_date: string | null;
+  active: boolean;
+  payment_terms_days: number | null;
+  last_generated_at: string | null;
+  generated_count: number;
+  created_at: string;
+}
+
+export interface GenerateResult {
+  generated: number;
+  numbers: string[];
 }
 
 // --- Issuing reports ---
