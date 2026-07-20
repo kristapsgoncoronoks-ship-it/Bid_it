@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from datetime import date
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -34,6 +35,16 @@ async def _db():
 
     yield sm
     await engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def _storage():
+    """Give every test an isolated in-memory object-storage backend (no disk)."""
+    from app.core import storage
+
+    storage.set_storage(storage.MemoryStorage())
+    yield
+    storage.reset_storage()
 
 
 @pytest_asyncio.fixture

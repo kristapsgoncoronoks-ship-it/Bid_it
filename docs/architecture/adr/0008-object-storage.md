@@ -1,6 +1,6 @@
 # ADR-0008 — S3-compatible object storage for documents
 
-**Status:** Proposed (target state; migration in delivery Phase 1)
+**Status:** Accepted (implemented for new writes; legacy in-DB blobs read via dual-read until a contract migration drops the `*_data` columns)
 
 ## Context
 Original invoice PDFs, receipts, and logos are large binary blobs. Some currently live in Postgres (`LargeBinary`) or local disk. Blob-in-DB bloats the primary, slows backups, and doesn't scale; local disk isn't durable or multi-replica-safe.

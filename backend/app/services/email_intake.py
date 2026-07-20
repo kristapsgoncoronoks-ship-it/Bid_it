@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.email_intake import EmailIntake, InboundInvoice
-from app.services import filesec
+from app.services import documents, filesec
 from app.services.parser import parse_invoice_file
 
 
@@ -119,8 +119,10 @@ async def process_attachment(
         db.add(row)
         return row
 
-    # Passed the security gate → safe to retain the original and parse it.
-    row.file_data = content
+    # Passed the security gate → safe to retain the original and parse it. Bytes
+    # go to object storage (keyed by the sha256 already recorded), not the DB.
+    await documents.store(documents.EMAIL_ATTACHMENTS, org_id, content, row.content_type)
+    row.file_data = None
     try:
         # CPU-bound OCR/parse off the event loop (the webhook loops attachments).
         draft = await run_in_threadpool(parse_invoice_file, filename or "attachment", content)

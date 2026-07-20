@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from sqlalchemy import ForeignKey, LargeBinary, Numeric, String, Text
+from sqlalchemy import ForeignKey, Integer, LargeBinary, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -50,5 +50,8 @@ class IssuerProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     default_penalty_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
 
     logo_mime: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # Object-storage reference (ADR-0008); `logo_data` is a legacy read fallback.
+    logo_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    logo_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     logo_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)  # footer / legal notes

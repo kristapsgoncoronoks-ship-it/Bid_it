@@ -40,6 +40,15 @@ class Settings(BaseSettings):
     db_max_overflow: int = Field(default=10)
     db_pool_timeout: int = Field(default=30)
 
+    # --- Object storage (document bytes; ADR-0008) ---
+    # backend: local (filesystem, default) | s3 (S3-compatible incl. MinIO) | memory (tests).
+    storage_backend: str = Field(default="local")
+    storage_local_path: str = Field(default="./var/storage")
+    storage_s3_bucket: str = Field(default="invoiceiq-documents")
+    storage_s3_endpoint_url: str = Field(default="")   # e.g. http://minio:9000 for MinIO; blank = AWS
+    storage_s3_region: str = Field(default="")
+    storage_s3_prefix: str = Field(default="")         # optional key prefix within the bucket
+
     # --- Auth ---
     # MUST be overridden in production (openssl rand -hex 32).
     secret_key: str = Field(default="dev-insecure-change-me")

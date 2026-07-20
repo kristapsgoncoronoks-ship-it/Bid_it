@@ -244,7 +244,7 @@ Ordered to de-risk the platform before scaling product. Each phase is shippable 
 3. ✅ Money/FX/VAT invariants locked as a golden-file suite — `tests/test_money_invariants.py` (Decimal HALF_UP, VAT scheme correctness + notes, FX provenance, no mixed-currency aggregation).
 
 **Phase 1 — Storage & extraction correctness**
-4. Migrate document bytes (receipts, logos, vault) to **object storage**; DB keeps sha256 + metadata (ADR-0008).
+4. ✅ Migrate document bytes (receipts, logos, email attachments) to **object storage** (`core/storage.py` local/s3/memory + `services/documents.py`); DB keeps sha256 + size; legacy blobs read via dual-read; MinIO wired into `docker-compose` (ADR-0008).
 5. Move all parse/OCR to the worker tier behind the queue; API only enqueues (ADR-0009).
 6. Deterministic-first parser coverage metrics wired to observability.
 

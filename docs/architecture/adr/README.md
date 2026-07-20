@@ -20,7 +20,7 @@ Status values: **Accepted** (in effect), **Proposed** (agreed direction, not yet
 | [0005](./0005-authentication-jwt.md) | Stateless JWT authentication | Accepted |
 | [0006](./0006-authorization-model.md) | Roles + permission matrix + module gating | Accepted |
 | [0007](./0007-background-jobs.md) | DB-backed durable job queue over Celery/Redis | Accepted |
-| [0008](./0008-object-storage.md) | S3-compatible object storage for documents | Proposed |
+| [0008](./0008-object-storage.md) | S3-compatible object storage for documents | Accepted |
 | [0009](./0009-extraction-pipeline.md) | Deterministic-first extraction, opt-in AI | Accepted |
 | [0010](./0010-money-tax-fx.md) | Decimal money + ECB FX provenance + VAT engine | Accepted |
 | [0011](./0011-idempotency-concurrency.md) | Idempotency keys + guarded/optimistic concurrency | Accepted |

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, LargeBinary, Numeric, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, LargeBinary, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -77,6 +77,11 @@ class ExpenseItem(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     bank_reference: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
     receipt_mime: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    # Object-storage reference (ADR-0008). New receipts store bytes in object
+    # storage keyed by sha256; `receipt_data` remains only as a legacy read
+    # fallback for rows written before the migration and is set NULL on new writes.
+    receipt_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    receipt_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     receipt_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
 
     report: Mapped["ExpenseReport"] = relationship(back_populates="items")

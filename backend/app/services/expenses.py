@@ -47,7 +47,7 @@ def item_missing(item: ExpenseItem) -> list[str]:
     missing = []
     if not (item.comment and item.comment.strip()):
         missing.append("business purpose")
-    if item.receipt_data is None:
+    if item.receipt_sha256 is None and item.receipt_data is None:
         missing.append("receipt")
     return missing
 

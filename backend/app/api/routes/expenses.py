@@ -38,7 +38,7 @@ from app.schemas.expense import (
     ItemFromTransaction,
     MatchTransaction,
 )
-from app.services import audit, bank_statement, expenses, filesec, fx, modules, webhooks
+from app.services import audit, bank_statement, documents, expenses, filesec, fx, modules, webhooks
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
 
@@ -66,7 +66,7 @@ def _detail(r: ExpenseReport) -> ExpenseReportDetail:
         # from_attributes carries the dimension tags + base fields; the two
         # derived flags are computed here.
         out = ExpenseItemOut.model_validate(it)
-        out.has_receipt = it.receipt_data is not None
+        out.has_receipt = it.receipt_sha256 is not None or it.receipt_data is not None
         out.verified = it.bank_reference is not None
         items.append(out)
     d.items = items
@@ -550,8 +550,12 @@ async def upload_receipt(report_id: str, item_id: str, current: CurrentUser, db:
         kind = filesec.check(file.filename or "receipt", content, allowed=filesec.RECEIPT_KINDS)
     except filesec.FileRejected as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
-    item.receipt_mime = {"png": "image/png", "jpeg": "image/jpeg", "pdf": "application/pdf"}[kind]
-    item.receipt_data = content
+    mime = {"png": "image/png", "jpeg": "image/jpeg", "pdf": "application/pdf"}[kind]
+    sha, size = await documents.store(documents.RECEIPTS, current.org_id, content, mime)
+    item.receipt_mime = mime
+    item.receipt_sha256 = sha
+    item.receipt_size = size
+    item.receipt_data = None  # bytes now live in object storage
     await db.commit()
     await db.refresh(r, attribute_names=["items"])
     return _detail(r)
@@ -563,14 +567,17 @@ async def get_receipt(report_id: str, item_id: str, current: CurrentUser, db: Db
     r = await _load(db, current.org_id, report_id)
     _require_view(r, current)
     item = next((i for i in r.items if i.id == item_id), None)
-    if item is None or not item.receipt_data:
+    if item is None or not (item.receipt_sha256 or item.receipt_data):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Receipt not found")
+    content = await documents.load(
+        documents.RECEIPTS, current.org_id, item.receipt_sha256, legacy=item.receipt_data
+    )
     await audit.record(db, audit.A.DOC_DOWNLOAD, target_type="receipt", target_id=item_id,
                        meta={"report_id": report_id})
     await db.commit()
     # Serve inert: force download and stop MIME sniffing.
     return Response(
-        content=item.receipt_data,
+        content=content,
         media_type="application/octet-stream",
         headers={"Content-Disposition": "attachment", "X-Content-Type-Options": "nosniff"},
     )

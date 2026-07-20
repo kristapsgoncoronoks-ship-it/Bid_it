@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Response, UploadFile, status
 from app.api.deps import CurrentUser, DbSession
 from app.core.roles import is_admin_or_above
 from app.schemas.issuer import IssuerProfileIn, IssuerProfileOut
-from app.services import filesec, issuer
+from app.services import documents, filesec, issuer
 
 router = APIRouter(prefix="/issuer", tags=["issuer"])
 
@@ -17,7 +17,7 @@ def _out(profile) -> IssuerProfileOut:
     data = IssuerProfileOut.model_validate(profile)
     data.missing_fields = issuer.missing_fields(profile)
     data.is_complete = not data.missing_fields
-    data.has_logo = profile.logo_data is not None
+    data.has_logo = profile.logo_sha256 is not None or profile.logo_data is not None
     return data
 
 
@@ -53,8 +53,11 @@ async def upload_logo(current: CurrentUser, db: DbSession, file: UploadFile):
     except filesec.FileRejected as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
     profile = await issuer.get_or_create(db, current.org_id)
+    sha, size = await documents.store(documents.LOGOS, current.org_id, content, _LOGO_MIME[kind])
     profile.logo_mime = _LOGO_MIME[kind]
-    profile.logo_data = content
+    profile.logo_sha256 = sha
+    profile.logo_size = size
+    profile.logo_data = None  # bytes now live in object storage, not the DB
     await db.commit()
     await db.refresh(profile)
     return _out(profile)
@@ -63,10 +66,13 @@ async def upload_logo(current: CurrentUser, db: DbSession, file: UploadFile):
 @router.get("/logo")
 async def get_logo(current: CurrentUser, db: DbSession):
     profile = await issuer.get_or_create(db, current.org_id)
-    if not profile.logo_data:
+    if not (profile.logo_sha256 or profile.logo_data):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No logo set")
+    content = await documents.load(
+        documents.LOGOS, current.org_id, profile.logo_sha256, legacy=profile.logo_data
+    )
     return Response(
-        content=profile.logo_data,
+        content=content,
         media_type=profile.logo_mime or "image/png",
         headers={"X-Content-Type-Options": "nosniff"},
     )

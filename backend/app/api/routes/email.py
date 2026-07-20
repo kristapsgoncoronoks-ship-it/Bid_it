@@ -23,7 +23,7 @@ from app.schemas.email_intake import (
     InboundResult,
 )
 from app.schemas.invoice import InvoiceDetailOut, ParsedInvoiceDraft
-from app.services import access, audit, email_intake, modules
+from app.services import access, audit, documents, email_intake, modules
 
 router = APIRouter(prefix="/email", tags=["email intake"])
 
@@ -158,7 +158,9 @@ async def get_inbound(inbound_id: str, current: CurrentUser, db: DbSession):
             draft = None
     detail = InboundInvoiceDetail.model_validate(row)
     detail.draft = draft
-    detail.has_file = row.file_data is not None
+    # A rejected (quarantined) attachment carries a sha256 for the audit trail but
+    # its bytes were never retained — so it has no downloadable file.
+    detail.has_file = row.status != "rejected" and (row.sha256 is not None or row.file_data is not None)
     return detail
 
 
@@ -211,15 +213,18 @@ async def delete_inbound(inbound_id: str, current: CurrentUser, db: DbSession):
 async def download_file(inbound_id: str, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     row = await _load(db, current.org_id, inbound_id)
-    if not row.file_data:
+    if row.status == "rejected" or not (row.sha256 or row.file_data):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No stored file for this attachment")
+    content = await documents.load(
+        documents.EMAIL_ATTACHMENTS, current.org_id, row.sha256, legacy=row.file_data
+    )
     await audit.record(db, audit.A.DOC_DOWNLOAD, target_type="inbound_invoice", target_id=inbound_id,
                        meta={"filename": row.filename})
     await db.commit()
     fname = (row.filename or "attachment").replace('"', "")
     # Serve inert: force download, never inline, and stop MIME sniffing.
     return Response(
-        content=row.file_data,
+        content=content,
         media_type="application/octet-stream",
         headers={
             "Content-Disposition": f'attachment; filename="{fname}"',

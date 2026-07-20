@@ -14,6 +14,10 @@ bcrypt==4.0.1
 python-multipart==0.0.20
 email-validator==2.2.0
 
+# Object storage for document bytes (ADR-0008). Imported lazily and only when
+# STORAGE_BACKEND=s3; the default local/memory backends need nothing extra.
+boto3==1.35.90
+
 # PDF ingestion + OCR. Text-layer extraction needs only pdfplumber; the OCR
 # fallback also needs the system `tesseract-ocr` binary on PATH (see Dockerfile).
 pdfplumber==0.11.4
