@@ -52,3 +52,12 @@ export function apiError(e: unknown): string {
   }
   return "Unexpected error";
 }
+
+// True for genuine failures the user should be told about globally: no response
+// (network/offline) or a 5xx. 4xx are business responses handled per-page (auth,
+// validation, module gating) and must NOT raise a global toast.
+export function isUnexpectedError(e: unknown): boolean {
+  if (!axios.isAxiosError(e)) return true;
+  const status = e.response?.status;
+  return status === undefined || status >= 500;
+}
