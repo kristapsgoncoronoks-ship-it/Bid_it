@@ -107,7 +107,7 @@ flowchart TD
 **Rules**
 - The **original bytes are what gets vaulted** (esp. hybrid Factur-X PDFs), hashed for dedup + integrity.
 - **Structured formats never fall to AI.** AI belongs to post-extraction *assistance*, not capture of a figure a deterministic path can read.
-- Parse/OCR run on the **worker tier** (CPU isolation), not inline (target state; see delivery Phase 1).
+- **Email/bulk** parse/OCR runs on the **worker tier** (CPU isolation): the webhook stores bytes + enqueues `email.extract`, the worker parses out-of-band. Interactive single-file upload parses synchronously off the event loop by design (see ADR-0009).
 - **A human confirms** every draft before it becomes a booked record.
 
 ---

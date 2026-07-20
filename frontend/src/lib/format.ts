@@ -100,6 +100,7 @@ export const CHART_PALETTE = [
 
 // Email-intake inbound review statuses.
 export const INBOUND_STATUS_STYLES: Record<string, string> = {
+  queued: "bg-sky-100 text-sky-700",       // stored, awaiting worker extraction
   pending: "bg-amber-100 text-amber-700",
   confirmed: "bg-emerald-100 text-emerald-700",
   failed: "bg-rose-100 text-rose-700",

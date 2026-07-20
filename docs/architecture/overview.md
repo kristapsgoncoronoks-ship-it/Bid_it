@@ -245,7 +245,7 @@ Ordered to de-risk the platform before scaling product. Each phase is shippable 
 
 **Phase 1 — Storage & extraction correctness**
 4. ✅ Migrate document bytes (receipts, logos, email attachments) to **object storage** (`core/storage.py` local/s3/memory + `services/documents.py`); DB keeps sha256 + size; legacy blobs read via dual-read; MinIO wired into `docker-compose` (ADR-0008).
-5. Move all parse/OCR to the worker tier behind the queue; API only enqueues (ADR-0009).
+5. ✅ Move **bulk/non-interactive** parse/OCR to the worker tier: email attachments are stored + `queued`, an `email.extract` job parses out-of-band (retryable, off the API tier). Interactive single-file upload stays synchronous **by design** (ADR-0009).
 6. Deterministic-first parser coverage metrics wired to observability.
 
 **Phase 2 — Multi-tenant safety at the DB layer**

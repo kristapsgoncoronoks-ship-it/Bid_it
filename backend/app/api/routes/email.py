@@ -59,7 +59,7 @@ async def inbound(
     if not await modules.is_enabled(db, org_id, "email_intake"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Email invoice intake is not activated for this workspace")
 
-    pending = failed = rejected = 0
+    queued = rejected = 0
     scope = set_current_org(org_id)
     try:
         for att in body.attachments:
@@ -74,15 +74,14 @@ async def inbound(
             )
             if row.status == "rejected":
                 rejected += 1
-            elif row.status == "failed":
-                failed += 1
             else:
-                pending += 1
+                queued += 1
+        # Rows + their extract jobs commit together; the worker parses out-of-band.
         await db.commit()
     finally:
         reset_current_org(scope)
 
-    return InboundResult(received=len(body.attachments), pending=pending, failed=failed, rejected=rejected)
+    return InboundResult(received=len(body.attachments), queued=queued, rejected=rejected)
 
 
 # --------------------------------------------------------------------------- #

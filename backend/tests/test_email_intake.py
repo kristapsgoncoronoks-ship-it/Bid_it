@@ -39,6 +39,16 @@ def _token(address: str) -> str:
     return address.split("@", 1)[0]
 
 
+async def _drain_extraction(db_session) -> int:
+    """Run the worker until the queue is empty (parses queued attachments)."""
+    from app.services import jobs
+
+    n = 0
+    while await jobs.run_once(db_session, "test-worker") is not None:
+        n += 1
+    return n
+
+
 @pytest.mark.asyncio
 async def test_settings_module_gated(auth_client):
     r = await auth_client.get("/api/v1/email/settings")
@@ -46,7 +56,7 @@ async def test_settings_module_gated(auth_client):
 
 
 @pytest.mark.asyncio
-async def test_inbound_creates_pending_and_confirm_creates_invoice(auth_client, client):
+async def test_inbound_creates_pending_and_confirm_creates_invoice(auth_client, client, db_session):
     await _activate(auth_client)
     address = await _address(auth_client)
 
@@ -58,7 +68,14 @@ async def test_inbound_creates_pending_and_confirm_creates_invoice(auth_client, 
         "attachments": [_att("invoice.csv", CSV)],
     })
     assert r.status_code == 200, r.text
-    assert r.json() == {"received": 1, "pending": 1, "failed": 0, "rejected": 0}
+    # The webhook returns fast: the attachment is QUEUED, parsing runs on the worker.
+    assert r.json() == {"received": 1, "queued": 1, "rejected": 0}
+
+    inbox = (await auth_client.get("/api/v1/email/inbox")).json()
+    assert inbox["items"][0]["status"] == "queued"  # awaiting extraction
+
+    # The worker parses it into a review draft (out-of-band).
+    assert await _drain_extraction(db_session) == 1
 
     inbox = (await auth_client.get("/api/v1/email/inbox")).json()
     assert inbox["total"] == 1
@@ -94,7 +111,7 @@ async def test_inbound_creates_pending_and_confirm_creates_invoice(auth_client, 
 
 
 @pytest.mark.asyncio
-async def test_inbound_by_token_and_multiple_attachments(auth_client, client):
+async def test_inbound_by_token_and_multiple_attachments(auth_client, client, db_session):
     await _activate(auth_client)
     token = _token(await _address(auth_client))
 
@@ -104,12 +121,18 @@ async def test_inbound_by_token_and_multiple_attachments(auth_client, client):
     })
     assert r.status_code == 200, r.text
     # bad.txt is an unsupported type → blocked by the security gate (rejected).
-    assert r.json() == {"received": 3, "pending": 2, "failed": 0, "rejected": 1}
+    # The two valid ones are queued for the worker.
+    assert r.json() == {"received": 3, "queued": 2, "rejected": 1}
 
     rejected = (await auth_client.get("/api/v1/email/inbox?status=rejected")).json()
     assert rejected["total"] == 1
     assert rejected["items"][0]["filename"] == "bad.txt"
     assert rejected["items"][0]["error"]
+
+    # After the worker runs, both valid attachments are parsed drafts.
+    assert await _drain_extraction(db_session) == 2
+    pending = (await auth_client.get("/api/v1/email/inbox?status=pending")).json()
+    assert pending["total"] == 2
 
 
 @pytest.mark.asyncio
@@ -218,7 +241,7 @@ def _scanned_pdf_bytes() -> bytes:
 
 @pytest.mark.skipif(shutil.which("tesseract") is None, reason="tesseract binary not installed")
 @pytest.mark.asyncio
-async def test_emailed_scanned_pdf_is_processed_by_ocr(auth_client, client):
+async def test_emailed_scanned_pdf_is_processed_by_ocr(auth_client, client, db_session):
     """A scanned (image-only) PDF emailed in is read by OCR, and the inbox records
     that method — so a received invoice with no text layer still processes."""
     pytest.importorskip("pdfplumber")
@@ -237,7 +260,10 @@ async def test_emailed_scanned_pdf_is_processed_by_ocr(auth_client, client):
         "attachments": [{"filename": "scan.pdf", "content_type": "application/pdf", "content_base64": pdf_b64}],
     })
     assert r.status_code == 200, r.text
-    assert r.json()["pending"] == 1
+    assert r.json()["queued"] == 1
+
+    # The worker performs the OCR extraction off the API tier.
+    assert await _drain_extraction(db_session) == 1
 
     inbox = (await auth_client.get("/api/v1/email/inbox")).json()
     row = inbox["items"][0]
@@ -268,7 +294,7 @@ async def test_emailed_malware_is_quarantined(auth_client, client):
 
     r = await client.post("/api/v1/email/inbound", json={"token": token, "attachments": [att]})
     assert r.status_code == 200, r.text
-    assert r.json()["rejected"] == 1 and r.json()["pending"] == 0
+    assert r.json()["rejected"] == 1 and r.json()["queued"] == 0
 
     row = (await auth_client.get("/api/v1/email/inbox?status=rejected")).json()["items"][0]
     assert "malware" in row["error"].lower()

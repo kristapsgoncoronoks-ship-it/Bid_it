@@ -8,7 +8,7 @@ set of known kinds.
 from __future__ import annotations
 
 from app.models.job import Job
-from app.services import dunning, jobs, recurring, webhooks
+from app.services import dunning, email_intake, jobs, recurring, webhooks
 
 RECURRING_GENERATE = "recurring.generate"
 DUNNING_RUN = "dunning.run"
@@ -32,6 +32,12 @@ async def _dunning_run(db, payload: dict, job: Job) -> dict:
 async def _webhook_deliver(db, payload: dict, job: Job) -> dict:
     """Deliver one recorded webhook event (signed POST; retries via the queue)."""
     return await webhooks.deliver(db, payload["delivery_id"])
+
+
+@jobs.handler(email_intake.EXTRACT_KIND)
+async def _email_extract(db, payload: dict, job: Job) -> dict:
+    """Parse one queued inbound email attachment off the API tier (ADR-0009)."""
+    return await email_intake.extract_inbound(db, payload["inbound_id"])
 
 
 # Kinds an authenticated user is allowed to enqueue via the API (safe, tenant

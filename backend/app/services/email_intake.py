@@ -19,7 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.email_intake import EmailIntake, InboundInvoice
-from app.services import documents, filesec
+from app.services import documents, filesec, jobs
+
+# Job kind for out-of-band attachment extraction (registered in job_handlers).
+EXTRACT_KIND = "email.extract"
 from app.services.parser import parse_invoice_file
 
 
@@ -119,20 +122,49 @@ async def process_attachment(
         db.add(row)
         return row
 
-    # Passed the security gate → safe to retain the original and parse it. Bytes
-    # go to object storage (keyed by the sha256 already recorded), not the DB.
+    # Passed the security gate → retain the original in object storage (keyed by
+    # the sha256 already recorded), then hand extraction to the worker tier so a
+    # burst of attachments never ties up the API with OCR (ADR-0009). The row is
+    # QUEUED here; the worker parses it into a review draft (or marks it failed).
     await documents.store(documents.EMAIL_ATTACHMENTS, org_id, content, row.content_type)
     row.file_data = None
+    row.status = "queued"
+    db.add(row)
+    await db.flush()  # assign row.id before enqueuing the extract job
+    await jobs.enqueue(
+        db, EXTRACT_KIND, {"inbound_id": row.id}, org_id=org_id,
+        idempotency_key=f"extract:{row.id}", commit=False,
+    )
+    return row
+
+
+async def extract_inbound(db: AsyncSession, inbound_id: str) -> dict:
+    """Worker-side extraction of one queued inbound attachment (idempotent).
+
+    Loads the stored bytes, runs the deterministic-first parser, and updates the
+    review-inbox row to `pending` (a draft awaits review) or `failed` (with the
+    reason). Runs in the job's tenant scope, off the API tier."""
+    row = await db.scalar(select(InboundInvoice).where(InboundInvoice.id == inbound_id))
+    if row is None:
+        return {"skipped": "row gone"}
+    if row.status not in ("queued", "failed"):
+        return {"skipped": f"status={row.status}"}  # already parsed/confirmed
+
+    content = await documents.load(documents.EMAIL_ATTACHMENTS, row.org_id, row.sha256, legacy=row.file_data)
+    if content is None:
+        row.status = "failed"
+        row.error = "stored attachment missing"
+        await db.commit()
+        return {"status": "failed", "reason": "missing bytes"}
+
     try:
-        # CPU-bound OCR/parse off the event loop (the webhook loops attachments).
-        draft = await run_in_threadpool(parse_invoice_file, filename or "attachment", content)
+        draft = await run_in_threadpool(parse_invoice_file, row.filename or "attachment", content)
         row.draft_json = draft.model_dump_json()
-        # Record HOW it was read (e-invoice-xml | text-layer | ocr | csv | json)
-        # so the review inbox shows the extraction method, not just the file type.
         row.method = draft.method if draft.method and draft.method != "unknown" else row.method
         row.status = "pending"
+        row.error = None
     except ValueError as exc:
         row.status = "failed"
         row.error = str(exc)
-    db.add(row)
-    return row
+    await db.commit()
+    return {"status": row.status, "method": row.method}

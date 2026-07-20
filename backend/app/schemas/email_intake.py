@@ -37,8 +37,10 @@ class InboundEmailIn(BaseModel):
 
 class InboundResult(BaseModel):
     received: int
-    pending: int
-    failed: int
+    # Accepted for extraction (bytes stored, an extract job enqueued). Parsing
+    # runs on the worker tier, so the parsed/failed outcome appears in the inbox
+    # afterwards, not in this synchronous webhook response.
+    queued: int
     rejected: int = 0   # blocked by the security gate (malware / bad type)
 
 
