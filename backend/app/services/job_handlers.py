@@ -29,6 +29,7 @@ EVERYPAY_CHARGE = "everypay.charge_mit"
 RETENTION_PURGE = "retention.purge"
 USAGE_REPORT = "billing.report_usage"
 COSTING_BACKFILL = "costing.backfill_links"
+INTEGRITY_LEDGER = "integrity.verify_ledger"
 
 
 @jobs.handler(USAGE_REPORT)
@@ -85,11 +86,7 @@ async def _costing_backfill(db, payload: dict, job: Job) -> dict:
     }
 
 
-@jobs.handler(INTEGRITY_VERIFY)
-async def _integrity_verify(db, payload: dict, job: Job) -> dict:
-    """Re-hash the tenant's stored documents against their recorded sha256."""
-    report = await integrity.verify_documents(db, job.org_id)
-    # A failure is loud (surfaces as a job result an operator/admin can see).
+def _report_dict(report) -> dict:
     return {
         "checked": report.checked,
         "ok": report.ok,
@@ -98,6 +95,25 @@ async def _integrity_verify(db, payload: dict, job: Job) -> dict:
     }
 
 
+@jobs.handler(INTEGRITY_VERIFY)
+async def _integrity_verify(db, payload: dict, job: Job) -> dict:
+    """Re-hash the tenant's stored documents against their recorded sha256."""
+    return _report_dict(await integrity.verify_documents(db, job.org_id))
+
+
+@jobs.handler(INTEGRITY_LEDGER)
+async def _integrity_ledger(db, payload: dict, job: Job) -> dict:
+    """Verify the tenant's AR-ledger invariants (amount_paid == SUM(payments);
+    receipts not over-allocated)."""
+    return _report_dict(await integrity.verify_ledger(db, job.org_id))
+
+
 # Kinds an authenticated user is allowed to enqueue via the API (safe, tenant
 # -scoped periodic work). Other kinds can only be created internally.
-USER_ENQUEUEABLE = (RECURRING_GENERATE, DUNNING_RUN, INTEGRITY_VERIFY, COSTING_BACKFILL)
+USER_ENQUEUEABLE = (
+    RECURRING_GENERATE,
+    DUNNING_RUN,
+    INTEGRITY_VERIFY,
+    INTEGRITY_LEDGER,
+    COSTING_BACKFILL,
+)

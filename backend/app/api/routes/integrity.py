@@ -20,6 +20,22 @@ async def verify_documents(current: CurrentUser, db: DbSession):
     if not is_admin_or_above(current):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can run integrity checks")
     report = await integrity.verify_documents(db, current.org_id)
+    return _report_out(report)
+
+
+@router.post("/ledger/verify", response_model=IntegrityReportOut)
+async def verify_ledger(current: CurrentUser, db: DbSession):
+    """Verify the accounts-receivable ledger invariants — each issued invoice's
+    amount_paid equals the sum of its payment entries, and no receipt is
+    over-allocated. Admin-only; also available as the `integrity.verify_ledger`
+    background job (POST /jobs)."""
+    if not is_admin_or_above(current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can run integrity checks")
+    report = await integrity.verify_ledger(db, current.org_id)
+    return _report_out(report)
+
+
+def _report_out(report) -> IntegrityReportOut:
     return IntegrityReportOut(
         checked=report.checked,
         ok=report.ok,

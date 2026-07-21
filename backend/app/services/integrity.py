@@ -15,15 +15,21 @@ object is a finding, not an exception.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import storage
+from app.core import money, storage
 from app.models.email_intake import InboundInvoice
 from app.models.expense import ExpenseItem, ExpenseReport
+from app.models.issued_invoice import IssuedInvoice
 from app.models.issuer import IssuerProfile
+from app.models.payment import Payment
+from app.models.receipt import Receipt
 from app.services import documents
+
+_ZERO = Decimal("0")
 
 
 @dataclass
@@ -99,5 +105,59 @@ async def verify_documents(db: AsyncSession, org_id: str) -> IntegrityReport:
         )
     ):
         await _check(report, "email_attachment", row_id, documents.EMAIL_ATTACHMENTS, org_id, sha)
+
+    return report
+
+
+async def _ledger_sum(db: AsyncSession, org_id: str, column, value) -> Decimal:
+    total = await db.scalar(
+        select(func.coalesce(func.sum(Payment.amount), 0)).where(
+            Payment.org_id == org_id, column == value
+        )
+    )
+    return money.q2(Decimal(total or 0))
+
+
+async def verify_ledger(db: AsyncSession, org_id: str) -> IntegrityReport:
+    """Verify the accounts-receivable ledger invariants for one tenant (Slices
+    3c/5c): every issued invoice's `amount_paid` cache equals the SUM of its
+    payment-ledger entries, and no receipt is allocated beyond the amount received.
+    Never raises — a broken invariant is a finding, not an exception."""
+    report = IntegrityReport()
+
+    # 1) amount_paid cache == SUM(payments.amount) per issued invoice.
+    invoices = list(await db.scalars(select(IssuedInvoice).where(IssuedInvoice.org_id == org_id)))
+    for inv in invoices:
+        report.checked += 1
+        ledger = await _ledger_sum(db, org_id, Payment.issued_invoice_id, inv.id)
+        cache = money.q2(Decimal(inv.amount_paid or _ZERO))
+        if ledger != cache:
+            report.issues.append(
+                DocIssue(
+                    "invoice_ledger",
+                    inv.id,
+                    "mismatch",
+                    f"amount_paid {cache} != ledger sum {ledger}",
+                )
+            )
+        else:
+            report.ok += 1
+
+    # 2) SUM(allocations) <= receipt.amount per receipt.
+    receipts = list(await db.scalars(select(Receipt).where(Receipt.org_id == org_id)))
+    for r in receipts:
+        report.checked += 1
+        allocated = await _ledger_sum(db, org_id, Payment.receipt_id, r.id)
+        if allocated > money.q2(Decimal(r.amount)):
+            report.issues.append(
+                DocIssue(
+                    "receipt_allocation",
+                    r.id,
+                    "over_allocated",
+                    f"allocated {allocated} > received {money.q2(Decimal(r.amount))}",
+                )
+            )
+        else:
+            report.ok += 1
 
     return report
