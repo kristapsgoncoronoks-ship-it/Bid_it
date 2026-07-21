@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Date, ForeignKey, Index, Numeric, String, Text
+from sqlalchemy import Date, ForeignKey, Index, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -20,8 +20,12 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """
 
     __tablename__ = "issued_invoices"
-    # Listing/ordering issued invoices by date within a tenant.
-    __table_args__ = (Index("ix_issued_org_issue", "org_id", "issue_date"),)
+    __table_args__ = (
+        # Listing/ordering issued invoices by date within a tenant.
+        Index("ix_issued_org_issue", "org_id", "issue_date"),
+        # Target for the composite FK from the payment ledger (tenant-safe refs).
+        UniqueConstraint("org_id", "id", name="uq_issued_invoices_org_id"),
+    )
 
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True

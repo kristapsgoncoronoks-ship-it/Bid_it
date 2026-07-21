@@ -89,10 +89,25 @@ class IssuedInvoiceOut(BaseModel):
 
 
 class PaymentUpdate(BaseModel):
-    """Record a payment against an issued invoice (accounts-receivable)."""
+    """Record a payment against an issued invoice (accounts-receivable). The value
+    is the new CUMULATIVE amount paid; the ledger records the change."""
 
     amount_paid: Decimal = Field(ge=0)
     paid_date: date | None = None
+
+
+class PaymentOut(BaseModel):
+    """One entry in an invoice's payment ledger (history)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    amount: Decimal  # signed: + receipt, - correction/refund
+    paid_on: date
+    method: str
+    reference: str | None = None
+    note: str | None = None
+    created_at: datetime
 
 
 class CreditNoteCreate(BaseModel):

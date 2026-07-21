@@ -226,14 +226,17 @@ async def seed() -> None:
         # --- Cost-allocation master data (Slice 1) ---
         costing_ct = await _seed_costing(db, org.id)
         # --- Slice 2: resolve the invoices' free-text tags to master links ---
-        from app.services import costing
+        from app.services import costing, payments
 
         await db.flush()  # SessionLocal has autoflush off; make invoices visible
         linked = await costing.backfill_invoice_links(db, org.id)
+        # --- Slice 3c: seed the AR payment ledger from the settled invoices ---
+        ledger = await payments.backfill_ledger(db, org.id)
 
         await db.commit()
         print(f"Seeded '{org.name}' with {count} invoices across {len(vendors)} vendors.")
         print(f"Issued {issued} outbound invoices (paid/overdue/open mix).")
+        print(f"Seeded {ledger} AR payment-ledger entries (Slice 3c).")
         print(f"Created {partner_ct} partners (workflow + penalty demo).")
         print(
             f"Created {costing_ct} cost-allocation master records (departments/cost-centers/projects)."

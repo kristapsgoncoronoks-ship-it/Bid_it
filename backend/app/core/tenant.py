@@ -35,6 +35,7 @@ from app.models.issuer import IssuerProfile
 from app.models.job import Job
 from app.models.module import OrgModule
 from app.models.partner import Partner, PartnerDocument
+from app.models.payment import Payment
 from app.models.recurring_invoice import RecurringInvoice
 from app.models.retention import LegalHold, RetentionPolicy
 from app.models.sso import SsoConnection
@@ -67,6 +68,7 @@ TENANT_MODELS = (
     Partner,
     PartnerDocument,
     RecurringInvoice,
+    Payment,
     Job,
     UsageCounter,
     WebhookEndpoint,

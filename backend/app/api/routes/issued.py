@@ -24,6 +24,7 @@ from app.schemas.issued import (
     IssuedInvoiceListOut,
     IssuedInvoiceOut,
     IssuedLineOut,
+    PaymentOut,
     PaymentUpdate,
     ReminderRequest,
     SendRequest,
@@ -49,6 +50,7 @@ from app.services import (
     mailer,
     modules,
     partners,
+    payments,
     vat,
     webhooks,
 )
@@ -248,13 +250,15 @@ async def record_payment(invoice_id: str, body: PaymentUpdate, current: CurrentU
             status.HTTP_400_BAD_REQUEST,
             f"Amount paid cannot exceed the amount owed ({effective}) after credit notes.",
         )
-    inv.amount_paid = body.amount_paid
-    # A payment date is required to settle; clear it when the balance is un-paid.
-    fully = body.amount_paid >= effective and effective > 0
-    inv.paid_date = (
-        (body.paid_date or date.today())
-        if fully
-        else (body.paid_date if body.amount_paid > 0 else None)
+    # Record the change in the payment ledger and refresh the derived cache
+    # (amount_paid / paid_date). SUM(payments) stays equal to amount_paid.
+    await payments.set_cumulative(
+        db,
+        current.org_id,
+        inv,
+        new_total=body.amount_paid,
+        effective=effective,
+        paid_date=body.paid_date,
     )
     await audit.record(
         db,
@@ -283,6 +287,14 @@ async def record_payment(invoice_id: str, body: PaymentUpdate, current: CurrentU
     await db.commit()
     await db.refresh(inv, attribute_names=["lines"])
     return _detail(inv)
+
+
+@router.get("/{invoice_id}/payments", response_model=list[PaymentOut])
+async def list_payments(invoice_id: str, current: CurrentUser, db: DbSession):
+    """The payment ledger (settlement history) for one issued invoice."""
+    await modules.require_enabled(db, current.org_id, "issuing")
+    await _load(db, current.org_id, invoice_id)  # tenant-scoped existence check
+    return await payments.list_for(db, current.org_id, invoice_id)
 
 
 @router.get("/{invoice_id}/xml")

@@ -23,6 +23,7 @@ from app.models.job import Job
 from app.models.module import OrgModule
 from app.models.organization import Organization
 from app.models.partner import Partner, PartnerDocument
+from app.models.payment import Payment
 from app.models.recurring_invoice import RecurringInvoice
 from app.models.retention import LegalHold, RetentionPolicy
 from app.models.role_policy import RolePolicy
@@ -66,6 +67,7 @@ __all__ = [
     "WebhookDelivery",
     "ProcessedStripeEvent",
     "BillingPayment",
+    "Payment",
     "RetentionPolicy",
     "LegalHold",
     "SsoConnection",
