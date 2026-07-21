@@ -35,6 +35,18 @@ async def verify_ledger(current: CurrentUser, db: DbSession):
     return _report_out(report)
 
 
+@router.post("/versions/verify", response_model=IntegrityReportOut)
+async def verify_versions(current: CurrentUser, db: DbSession):
+    """Verify the document-version chain — every single-file slot (issuer logo,
+    expense receipt) has exactly one current version, its sha matches the live
+    pointer, and no file lacks a history. Admin-only; also available as the
+    `integrity.verify_versions` background job (POST /jobs)."""
+    if not is_admin_or_above(current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can run integrity checks")
+    report = await integrity.verify_versions(db, current.org_id)
+    return _report_out(report)
+
+
 def _report_out(report) -> IntegrityReportOut:
     return IntegrityReportOut(
         checked=report.checked,

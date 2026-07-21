@@ -30,6 +30,7 @@ RETENTION_PURGE = "retention.purge"
 USAGE_REPORT = "billing.report_usage"
 COSTING_BACKFILL = "costing.backfill_links"
 INTEGRITY_LEDGER = "integrity.verify_ledger"
+INTEGRITY_VERSIONS = "integrity.verify_versions"
 
 
 @jobs.handler(USAGE_REPORT)
@@ -108,6 +109,13 @@ async def _integrity_ledger(db, payload: dict, job: Job) -> dict:
     return _report_dict(await integrity.verify_ledger(db, job.org_id))
 
 
+@jobs.handler(INTEGRITY_VERSIONS)
+async def _integrity_versions(db, payload: dict, job: Job) -> dict:
+    """Verify the tenant's document-version chain (one current per slot; current
+    sha matches the owner cache; no file without a history)."""
+    return _report_dict(await integrity.verify_versions(db, job.org_id))
+
+
 # Kinds an authenticated user is allowed to enqueue via the API (safe, tenant
 # -scoped periodic work). Other kinds can only be created internally.
 USER_ENQUEUEABLE = (
@@ -115,5 +123,6 @@ USER_ENQUEUEABLE = (
     DUNNING_RUN,
     INTEGRITY_VERIFY,
     INTEGRITY_LEDGER,
+    INTEGRITY_VERSIONS,
     COSTING_BACKFILL,
 )

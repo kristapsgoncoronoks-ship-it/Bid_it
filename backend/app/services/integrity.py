@@ -21,6 +21,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import money, storage
+from app.models.document_version import (
+    OWNER_EXPENSE_RECEIPT,
+    OWNER_ISSUER_LOGO,
+    DocumentVersion,
+)
 from app.models.email_intake import InboundInvoice
 from app.models.expense import ExpenseItem, ExpenseReport
 from app.models.issued_invoice import IssuedInvoice
@@ -159,5 +164,78 @@ async def verify_ledger(db: AsyncSession, org_id: str) -> IntegrityReport:
             )
         else:
             report.ok += 1
+
+    return report
+
+
+async def verify_versions(db: AsyncSession, org_id: str) -> IntegrityReport:
+    """Verify the document-version chain invariants for one tenant (Slice 5g):
+    every single-file slot has EXACTLY ONE current version, that current version's
+    sha matches the owner's `*_sha256` cache, and every owner holding a file has a
+    version slot. A drift here means the history and the live pointer disagree —
+    exactly the audit gap this table exists to close. Never raises."""
+    report = IntegrityReport()
+
+    # The live pointer each slot's current version must agree with.
+    expected: dict[tuple[str, str], str] = {}
+    for pid, sha in await db.execute(
+        select(IssuerProfile.id, IssuerProfile.logo_sha256).where(
+            IssuerProfile.org_id == org_id, IssuerProfile.logo_sha256.is_not(None)
+        )
+    ):
+        expected[(OWNER_ISSUER_LOGO, pid)] = sha
+    for item_id, sha in await db.execute(
+        select(ExpenseItem.id, ExpenseItem.receipt_sha256)
+        .join(ExpenseReport, ExpenseReport.id == ExpenseItem.report_id)
+        .where(ExpenseReport.org_id == org_id, ExpenseItem.receipt_sha256.is_not(None))
+    ):
+        expected[(OWNER_EXPENSE_RECEIPT, item_id)] = sha
+
+    # Group every version row by its slot.
+    slots: dict[tuple[str, str], list[DocumentVersion]] = {}
+    for v in await db.scalars(select(DocumentVersion).where(DocumentVersion.org_id == org_id)):
+        slots.setdefault((v.owner_type, v.owner_id), []).append(v)
+
+    # 1) Exactly one current per slot; the current sha matches the owner cache.
+    for slot, versions in slots.items():
+        report.checked += 1
+        currents = [v for v in versions if v.is_current]
+        if len(currents) != 1:
+            report.issues.append(
+                DocIssue(
+                    "document_version",
+                    slot[1],
+                    "current_count",
+                    f"{slot[0]}: {len(currents)} current versions (expected 1)",
+                )
+            )
+            continue
+        cur = currents[0]
+        exp = expected.get(slot)
+        if exp is not None and cur.sha256 != exp:
+            report.issues.append(
+                DocIssue(
+                    "document_version",
+                    slot[1],
+                    "mismatch",
+                    f"{slot[0]}: current v{cur.version} sha {cur.sha256[:12]}… "
+                    f"!= owner cache {exp[:12]}…",
+                )
+            )
+        else:
+            report.ok += 1
+
+    # 2) Every owner that holds a file must have a version slot.
+    for slot in expected:
+        if slot not in slots:
+            report.checked += 1
+            report.issues.append(
+                DocIssue(
+                    "document_version",
+                    slot[1],
+                    "missing",
+                    f"{slot[0]}: owner has a stored file but no version history",
+                )
+            )
 
     return report
