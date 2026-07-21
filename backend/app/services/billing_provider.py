@@ -86,6 +86,8 @@ class BillingProvider(Protocol):
 
     async def charge_mit(self, *, token: str, amount_eur: float, order_reference: str) -> PaymentStatus: ...
 
+    async def report_usage(self, *, customer_id: str, meter_event: str, quantity: int, identifier: str) -> None: ...
+
 
 class NullProvider:
     """No billing provider configured — money operations are unavailable."""
@@ -110,6 +112,9 @@ class NullProvider:
         raise BillingError("Billing is not configured.")
 
     async def charge_mit(self, *, token, amount_eur, order_reference):
+        raise BillingError("Billing is not configured.")
+
+    async def report_usage(self, *, customer_id, meter_event, quantity, identifier):
         raise BillingError("Billing is not configured.")
 
 
@@ -188,6 +193,19 @@ class StripeProvider:
 
     async def charge_mit(self, *, token, amount_eur, order_reference):
         raise BillingError("Stripe recurring is provider-managed (no MIT charge here).")
+
+    async def report_usage(self, *, customer_id, meter_event, quantity, identifier):
+        """Send a Stripe Billing Meter event for metered/overage pricing. The
+        `identifier` dedupes retries within Stripe's window (belt-and-braces with
+        our own reported-delta bookkeeping)."""
+        try:
+            self._stripe.billing.MeterEvent.create(
+                event_name=meter_event,
+                identifier=identifier,
+                payload={"stripe_customer_id": customer_id, "value": str(quantity)},
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise BillingError(f"Stripe meter event failed: {exc}") from exc
 
 
 def reduce_stripe_event(event: dict) -> SubscriptionEvent:
@@ -328,6 +346,9 @@ class EveryPayProvider:
         body.update({"token": token, "token_agreement": "recurring"})
         data = await self._post("/payments/mit", body)
         return _everypay_status(data)
+
+    async def report_usage(self, *, customer_id, meter_event, quantity, identifier):
+        raise BillingError("EveryPay has no metered-usage API (flat card charges only).")
 
 
 def _everypay_status(data: dict) -> PaymentStatus:

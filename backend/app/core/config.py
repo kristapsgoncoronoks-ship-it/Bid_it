@@ -111,6 +111,9 @@ class Settings(BaseSettings):
     stripe_webhook_secret: str | None = Field(default=None)
     stripe_price_starter: str | None = Field(default=None)
     stripe_price_pro: str | None = Field(default=None)
+    # Metered usage/overage: map an internal meter to a Stripe Billing Meter
+    # `event_name`. Unset → that metric is not reported to Stripe.
+    stripe_meter_upload: str | None = Field(default=None)
 
     # EveryPay (https://every-pay.com). Test base: https://igw-demo.every-pay.com/api/v4
     # Live base: https://pay.every-pay.eu/api/v4. HTTP Basic (api_username/secret).
@@ -155,6 +158,9 @@ class Settings(BaseSettings):
 
     def stripe_price_for(self, plan_key: str) -> str | None:
         return {"starter": self.stripe_price_starter, "pro": self.stripe_price_pro}.get(plan_key)
+
+    def stripe_meter_for(self, metric: str) -> str | None:
+        return {"upload": self.stripe_meter_upload}.get(metric)
 
     # --- Rate limiting (ADR-0015) ---
     # First-line abuse + brute-force guard. PER-PROCESS fixed-window counters, so

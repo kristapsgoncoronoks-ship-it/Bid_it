@@ -13,8 +13,9 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.organization import Organization
-from app.services import billing, job_handlers, jobs, retention
+from app.services import billing, billing_usage, job_handlers, jobs, retention
 
 # The jobs enqueued for every active tenant, once per day.
 DAILY_KINDS = (job_handlers.RECURRING_GENERATE, job_handlers.DUNNING_RUN)
@@ -54,6 +55,17 @@ async def enqueue_daily(db: AsyncSession, *, today: date | None = None) -> int:
         await jobs.enqueue(db, kind, {}, org_id=org_id, idempotency_key=key)
         if not before:
             created += 1
+
+    # Metered-usage reporting: only when Stripe is the active provider, for
+    # subscribed tenants (idempotent per org per day; the handler reports deltas).
+    if settings.active_billing_provider == "stripe":
+        for org_id in await billing_usage.orgs_with_stripe(db):
+            kind = job_handlers.USAGE_REPORT
+            key = f"{kind}:{today.isoformat()}"
+            before = await _live_exists(db, org_id, kind, key)
+            await jobs.enqueue(db, kind, {}, org_id=org_id, idempotency_key=key)
+            if not before:
+                created += 1
     return created
 
 

@@ -24,3 +24,6 @@ class UsageCounter(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     period: Mapped[str] = mapped_column(String(7), nullable=False)   # YYYY-MM
     metric: Mapped[str] = mapped_column(String(40), nullable=False)  # e.g. "upload"
     count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # How much of `count` has already been reported to the billing provider
+    # (Stripe metered/overage). Delta to report = count - reported (ADR-0013).
+    reported: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

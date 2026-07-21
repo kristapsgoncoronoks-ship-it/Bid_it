@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from app.models.job import Job
 from app.services import (
-    billing, dunning, email_intake, integrity, jobs, recurring, retention, webhooks,
+    billing, billing_usage, dunning, email_intake, integrity, jobs, recurring, retention,
+    webhooks,
 )
 
 RECURRING_GENERATE = "recurring.generate"
@@ -17,6 +18,13 @@ DUNNING_RUN = "dunning.run"
 INTEGRITY_VERIFY = "integrity.verify_documents"
 EVERYPAY_CHARGE = "everypay.charge_mit"
 RETENTION_PURGE = "retention.purge"
+USAGE_REPORT = "billing.report_usage"
+
+
+@jobs.handler(USAGE_REPORT)
+async def _usage_report(db, payload: dict, job: Job) -> dict:
+    """Report the tenant's unreported metered usage to Stripe (idempotent delta)."""
+    return {"reported": await billing_usage.report_org_usage(db, job.org_id)}
 
 
 @jobs.handler(EVERYPAY_CHARGE)
