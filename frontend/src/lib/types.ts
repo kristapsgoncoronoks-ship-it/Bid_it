@@ -96,6 +96,8 @@ export interface BillingInfo {
   seats_used: number;
   seats_limit: number;
   available_plans: PlanInfo[];
+  billing_enabled: boolean;
+  has_subscription: boolean;
 }
 
 export interface Tenant {

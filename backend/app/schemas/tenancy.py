@@ -68,10 +68,26 @@ class BillingOut(BaseModel):
     seats_used: int
     seats_limit: int
     available_plans: list[PlanOut]
+    # True when a real payment provider (Stripe) is connected → the UI routes
+    # paid changes through Checkout/Portal instead of the in-app switch.
+    billing_enabled: bool = False
+    has_subscription: bool = False
 
 
 class PlanChange(BaseModel):
     plan: str
+
+
+class CheckoutStart(BaseModel):
+    plan: str
+
+
+class CheckoutOut(BaseModel):
+    url: str
+
+
+class PortalOut(BaseModel):
+    url: str
 
 
 # --- platform operator ---

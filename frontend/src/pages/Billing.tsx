@@ -19,17 +19,55 @@ export default function Billing() {
     },
   });
 
+  // When Stripe is connected, a paid plan starts a hosted Checkout session and
+  // the "manage" button opens the Customer Portal; both redirect to Stripe.
+  const checkout = useMutation({
+    mutationFn: async (plan: string) => (await api.post("/billing/checkout", { plan })).data as { url: string },
+    onSuccess: (data) => {
+      window.location.href = data.url;
+    },
+  });
+  const portal = useMutation({
+    mutationFn: async () => (await api.post("/billing/portal", {})).data as { url: string },
+    onSuccess: (data) => {
+      window.location.href = data.url;
+    },
+  });
+
   const b = billing.data;
   const seatPct = b ? Math.min(100, Math.round((b.seats_used / b.seats_limit) * 100)) : 0;
+  const stripeOn = !!b?.billing_enabled;
+  const busy = change.isPending || checkout.isPending || portal.isPending;
+
+  function choosePlan(planKey: string, priceEur: number | null) {
+    // Paid plan + Stripe connected → Checkout. Otherwise the in-app switch.
+    if (stripeOn && priceEur) checkout.mutate(planKey);
+    else change.mutate(planKey);
+  }
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Plan &amp; billing</h1>
-        <p className="text-sm text-slate-500">Prices are indicative — nothing is charged until billing is connected.</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Plan &amp; billing</h1>
+          <p className="text-sm text-slate-500">
+            {stripeOn
+              ? "Secure payments handled by Stripe. Paid plans start a checkout session."
+              : "Prices are indicative — nothing is charged until billing is connected."}
+          </p>
+        </div>
+        {stripeOn && b?.has_subscription && isOwner && (
+          <button className="btn-ghost" disabled={busy} onClick={() => portal.mutate()}>
+            Manage billing
+          </button>
+        )}
       </div>
 
-      {change.isError && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{apiError(change.error)}</div>}
+      {(change.isError || checkout.isError || portal.isError) && (
+        <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">
+          {apiError(change.error || checkout.error || portal.error)}
+        </div>
+      )}
 
       {b && (
         <div className="card">
@@ -67,10 +105,14 @@ export default function Billing() {
               </ul>
               <button
                 className={`mt-4 ${current ? "btn-ghost" : "btn-primary"}`}
-                disabled={current || !isOwner || change.isPending}
-                onClick={() => change.mutate(p.key)}
+                disabled={current || !isOwner || busy}
+                onClick={() => choosePlan(p.key, p.price_eur)}
               >
-                {current ? "Current plan" : `Switch to ${p.name}`}
+                {current
+                  ? "Current plan"
+                  : stripeOn && p.price_eur
+                    ? `Subscribe to ${p.name}`
+                    : `Switch to ${p.name}`}
               </button>
             </div>
           );

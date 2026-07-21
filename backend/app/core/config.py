@@ -95,6 +95,28 @@ class Settings(BaseSettings):
     clamav_port: int = Field(default=3310)
     clamav_unix_socket: str | None = Field(default=None)
 
+    # --- Billing (Stripe; ADR-0013) ---
+    # When `stripe_secret_key` is set, real subscriptions flow through Stripe
+    # Checkout + Customer Portal and the signed webhook is the AUTHORITY for a
+    # tenant's plan/status. Unset (default) → the NullProvider: the in-app plan
+    # switch stays available for dev but NOTHING charges anyone.
+    stripe_secret_key: str | None = Field(default=None)
+    stripe_webhook_secret: str | None = Field(default=None)
+    # Stripe Price IDs per paid plan key (create these in the Stripe dashboard).
+    stripe_price_starter: str | None = Field(default=None)
+    stripe_price_pro: str | None = Field(default=None)
+    # Where Stripe redirects the browser back to after checkout / portal.
+    billing_success_url: str = Field(default="http://localhost:5173/billing?checkout=success")
+    billing_cancel_url: str = Field(default="http://localhost:5173/billing?checkout=cancel")
+    billing_portal_return_url: str = Field(default="http://localhost:5173/billing")
+
+    @property
+    def billing_enabled(self) -> bool:
+        return bool(self.stripe_secret_key)
+
+    def stripe_price_for(self, plan_key: str) -> str | None:
+        return {"starter": self.stripe_price_starter, "pro": self.stripe_price_pro}.get(plan_key)
+
     # --- Rate limiting (ADR-0015) ---
     # First-line abuse + brute-force guard. PER-PROCESS fixed-window counters, so
     # with N replicas the effective global ceiling is N × the limit (documented

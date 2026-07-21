@@ -28,6 +28,13 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     plan: Mapped[str] = mapped_column(String(20), default="trial", nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)  # active|suspended|canceled
 
+    # Stripe linkage (ADR-0013). Set on first checkout; the signed webhook is the
+    # authority for plan/status thereafter. Null until a tenant subscribes.
+    stripe_customer_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True, index=True
+    )
+    stripe_subscription_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
     users: Mapped[list["User"]] = relationship(
         back_populates="organization", cascade="all, delete-orphan"
     )

@@ -30,6 +30,11 @@ reportlab==4.2.5
 # defusedxml hardens parsing of attacker-supplied XML (XXE / billion-laughs).
 defusedxml==0.7.1
 
+# Billing (ADR-0013). Imported LAZILY only when a Stripe secret key is set;
+# without it the app runs on the NullProvider and nothing charges. Uncomment (or
+# `pip install stripe`) on any deployment that turns billing on.
+# stripe==11.4.1
+
 # Malware scanning of uploads/attachments (OPTIONAL). filesec imports `clamd`
 # lazily and only when clamav_enabled=true; without it, type validation + EICAR
 # detection still apply. Install alongside a running clamd daemon to enable AV.

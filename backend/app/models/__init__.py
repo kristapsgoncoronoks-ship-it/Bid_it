@@ -1,6 +1,7 @@
 """SQLAlchemy models. Import all so metadata/Alembic sees them."""
 from app.models.audit import AuditEvent
 from app.models.base import Base
+from app.models.billing_event import ProcessedStripeEvent
 from app.models.budget import BudgetTarget
 from app.models.expense import (
     ExpenseComment,
@@ -58,4 +59,5 @@ __all__ = [
     "UsageCounter",
     "WebhookEndpoint",
     "WebhookDelivery",
+    "ProcessedStripeEvent",
 ]
