@@ -11,11 +11,40 @@ import hashlib
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.extraction_field import ExtractionField
 from app.models.extraction_run import ExtractionRun
 
 
 def sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+async def record_fields(db: AsyncSession, org_id: str, run_id: str, fields) -> None:
+    """Persist per-field provenance for a run (Slice 5f). `fields` are the parser's
+    FieldProvenance items. Commits (the run already exists)."""
+    for f in fields:
+        db.add(
+            ExtractionField(
+                org_id=org_id,
+                extraction_run_id=run_id,
+                field=f.field,
+                value=(f.value[:500] if f.value else None),
+                status=f.status,
+                confidence=f.confidence,
+            )
+        )
+    if fields:
+        await db.commit()
+
+
+async def fields_for_run(db: AsyncSession, org_id: str, run_id: str) -> list[ExtractionField]:
+    return list(
+        await db.scalars(
+            select(ExtractionField)
+            .where(ExtractionField.org_id == org_id, ExtractionField.extraction_run_id == run_id)
+            .order_by(ExtractionField.field.asc())
+        )
+    )
 
 
 async def record(

@@ -18,6 +18,7 @@ from app.models.organization import Organization
 from app.models.vendor import Vendor
 from app.schemas.invoice import (
     ExtractionRunOut,
+    FieldProvenanceOut,
     InvoiceCreate,
     InvoiceDetailOut,
     InvoiceListOut,
@@ -260,9 +261,17 @@ async def get_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
 
 @router.get("/{invoice_id}/extraction", response_model=list[ExtractionRunOut])
 async def invoice_extraction(invoice_id: str, current: CurrentUser, db: DbSession):
-    """The capture lineage (how this invoice was read) — Slice 5b."""
+    """The capture lineage (how this invoice was read) — Slice 5b — with each
+    run's per-field provenance (Slice 5f)."""
     await _load_scoped(db, current.org_id, invoice_id)  # tenant-scoped existence check
-    return await extraction.list_for_invoice(db, current.org_id, invoice_id)
+    runs = await extraction.list_for_invoice(db, current.org_id, invoice_id)
+    out: list[ExtractionRunOut] = []
+    for run in runs:
+        fields = await extraction.fields_for_run(db, current.org_id, run.id)
+        run_out = ExtractionRunOut.model_validate(run)
+        run_out.fields = [FieldProvenanceOut.model_validate(f) for f in fields]
+        out.append(run_out)
+    return out
 
 
 @router.patch("/{invoice_id}", response_model=InvoiceDetailOut)
@@ -363,6 +372,8 @@ async def upload_invoice(current: CurrentUser, db: DbSession, file: UploadFile):
         warning_count=len(draft.warnings),
         note=(draft.warnings[0] if draft.warnings else None),
     )
+    # Per-field provenance (Slice 5f), linked to the run.
+    await extraction.record_fields(db, current.org_id, run.id, draft.fields)
     # Set it INSIDE the draft (the client saves `draft.draft`) and on the envelope.
     draft.draft.extraction_run_id = run.id
     draft.extraction_run_id = run.id

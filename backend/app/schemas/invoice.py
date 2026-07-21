@@ -91,6 +91,17 @@ class InvoiceListOut(BaseModel):
     page_size: int
 
 
+class FieldProvenance(BaseModel):
+    """Per-field capture provenance (Slice 5f): how a top-level invoice field was
+    obtained. `status`: extracted (read from the source) | defaulted (filled in) |
+    missing (absent, no default). `confidence` is reserved for OCR/AI paths."""
+
+    field: str
+    value: str | None = None
+    status: str = "extracted"
+    confidence: Decimal | None = None
+
+
 class ParsedInvoiceDraft(BaseModel):
     """Result of parsing an uploaded file — a *draft* the user confirms."""
 
@@ -100,6 +111,17 @@ class ParsedInvoiceDraft(BaseModel):
     method: str = "unknown"
     # Slice 5b: the recorded capture run; echo it back on save to link the lineage.
     extraction_run_id: str | None = None
+    # Slice 5f: per-field provenance (populated by the deterministic parsers).
+    fields: list[FieldProvenance] = Field(default_factory=list)
+
+
+class FieldProvenanceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    field: str
+    value: str | None = None
+    status: str
+    confidence: Decimal | None = None
 
 
 class ExtractionRunOut(BaseModel):
@@ -116,3 +138,4 @@ class ExtractionRunOut(BaseModel):
     warning_count: int
     note: str | None = None
     created_at: datetime
+    fields: list[FieldProvenanceOut] = []

@@ -15,9 +15,50 @@ import json
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
-from app.schemas.invoice import InvoiceCreate, LineItemIn, ParsedInvoiceDraft
+from app.schemas.invoice import FieldProvenance, InvoiceCreate, LineItemIn, ParsedInvoiceDraft
 
 _LINE_COLS = {"description", "category", "quantity", "unit_price", "amount", "tax_rate"}
+
+
+def _provenance(source: dict, draft: InvoiceCreate) -> list[FieldProvenance]:
+    """Per-field capture provenance for the top-level fields (Slice 5f). `source`
+    is the raw provided data; the status says whether each field was read from it,
+    filled with a default, or is missing."""
+    src = {str(k).strip().lower(): v for k, v in source.items()}
+
+    def has(*keys: str) -> bool:
+        return any(src.get(k) not in (None, "") for k in keys)
+
+    def status(present: bool, has_default: bool) -> str:
+        return "extracted" if present else ("defaulted" if has_default else "missing")
+
+    return [
+        FieldProvenance(
+            field="invoice_number",
+            value=draft.invoice_number,
+            status=status(has("invoice_number"), True),  # defaults to the filename stem
+        ),
+        FieldProvenance(
+            field="vendor_name",
+            value=draft.vendor_name,
+            status=status(has("vendor_name", "vendor"), False),  # no default
+        ),
+        FieldProvenance(
+            field="issue_date",
+            value=draft.issue_date.isoformat(),
+            status=status(_to_date(src.get("issue_date")) is not None, True),  # defaults to today
+        ),
+        FieldProvenance(
+            field="due_date",
+            value=draft.due_date.isoformat() if draft.due_date else None,
+            status=status(_to_date(src.get("due_date")) is not None, False),
+        ),
+        FieldProvenance(
+            field="currency",
+            value=draft.currency,
+            status=status(has("currency"), True),  # defaults to EUR
+        ),
+    ]
 
 
 def _to_decimal(value, default: str = "0") -> Decimal:
@@ -57,7 +98,9 @@ def _line_from(raw: dict) -> LineItemIn:
     )
 
 
-def _parse_json(content: bytes, filename: str, warnings: list[str]) -> InvoiceCreate:
+def _parse_json(
+    content: bytes, filename: str, warnings: list[str]
+) -> tuple[InvoiceCreate, list[FieldProvenance]]:
     data = json.loads(content.decode("utf-8"))
     if not isinstance(data, dict):
         raise ValueError("JSON invoice must be an object")
@@ -67,7 +110,7 @@ def _parse_json(content: bytes, filename: str, warnings: list[str]) -> InvoiceCr
     if data.get("issue_date") and _to_date(data.get("issue_date")) is None:
         warnings.append("Could not parse issue_date; defaulted to today")
 
-    return InvoiceCreate(
+    draft = InvoiceCreate(
         vendor_name=(data.get("vendor_name") or data.get("vendor") or None),
         vendor_id=data.get("vendor_id"),
         invoice_number=str(data.get("invoice_number") or _stem(filename)),
@@ -78,9 +121,12 @@ def _parse_json(content: bytes, filename: str, warnings: list[str]) -> InvoiceCr
         source_filename=filename,
         line_items=lines,
     )
+    return draft, _provenance(data, draft)
 
 
-def _parse_csv(content: bytes, filename: str, warnings: list[str]) -> InvoiceCreate:
+def _parse_csv(
+    content: bytes, filename: str, warnings: list[str]
+) -> tuple[InvoiceCreate, list[FieldProvenance]]:
     text = content.decode("utf-8-sig")
     reader = csv.DictReader(io.StringIO(text))
     if reader.fieldnames is None:
@@ -106,7 +152,7 @@ def _parse_csv(content: bytes, filename: str, warnings: list[str]) -> InvoiceCre
     if not vendor_name:
         warnings.append("No vendor column; set the vendor before saving")
 
-    return InvoiceCreate(
+    draft = InvoiceCreate(
         vendor_name=vendor_name or None,
         invoice_number=str(first.get("invoice_number") or _stem(filename)),
         issue_date=issue,
@@ -115,6 +161,7 @@ def _parse_csv(content: bytes, filename: str, warnings: list[str]) -> InvoiceCre
         source_filename=filename,
         line_items=lines,
     )
+    return draft, _provenance(first, draft)
 
 
 def _stem(filename: str) -> str:
@@ -162,14 +209,14 @@ def _dispatch_parse(filename: str, content: bytes) -> ParsedInvoiceDraft:
         # Structured e-invoice XML (UBL 2.1 / UN-CEFACT CII) — deterministic.
         return einvoice.parse_xml_bytes(content, filename)
     if lower.endswith(".json"):
-        draft = _parse_json(content, filename, warnings)
+        draft, fields = _parse_json(content, filename, warnings)
         method = "json"
     elif lower.endswith(".csv"):
-        draft = _parse_csv(content, filename, warnings)
+        draft, fields = _parse_csv(content, filename, warnings)
         method = "csv"
     else:
         raise ValueError("Unsupported file type. Upload a .pdf, .xml, .csv, or .json file.")
 
     if not draft.line_items:
         warnings.append("No line items were found in the file")
-    return ParsedInvoiceDraft(draft=draft, warnings=warnings, method=method)
+    return ParsedInvoiceDraft(draft=draft, warnings=warnings, method=method, fields=fields)

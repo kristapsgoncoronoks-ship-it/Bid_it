@@ -16,7 +16,15 @@ is simply not FK-checked).
 
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, ForeignKeyConstraint, Index, Integer, String, Text
+from sqlalchemy import (
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -31,6 +39,8 @@ class ExtractionRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="fk_extraction_runs_invoice",
             ondelete="CASCADE",
         ),
+        # Composite-FK target for extraction_fields (Slice 5f).
+        UniqueConstraint("org_id", "id", name="uq_extraction_runs_org_id"),
         Index("ix_extraction_runs_org_invoice", "org_id", "invoice_id"),
         Index("ix_extraction_runs_org_created", "org_id", "created_at"),
     )

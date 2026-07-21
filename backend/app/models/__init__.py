@@ -16,6 +16,7 @@ from app.models.expense import (
     ExpenseReport,
     ExpenseTransaction,
 )
+from app.models.extraction_field import ExtractionField
 from app.models.extraction_run import ExtractionRun
 from app.models.fx import EcbRate
 from app.models.invitation import Invitation
@@ -76,6 +77,7 @@ __all__ = [
     "TaxCode",
     "Currency",
     "ExtractionRun",
+    "ExtractionField",
     "Receipt",
     "Document",
     "RetentionPolicy",
