@@ -13,8 +13,6 @@ assertion isolates the TENANT check, not a module gate.
 Companion narrative: docs/security/cross-tenant-isolation-report.md
 """
 
-import io
-
 import pytest
 
 _PNG = (
