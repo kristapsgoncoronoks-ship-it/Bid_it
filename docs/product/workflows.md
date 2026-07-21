@@ -164,4 +164,4 @@ stateDiagram-v2
 | W5 Reconcile & export | ✅ CSV/Excel, 🟡 SAF-T/ERP | ERP export is Should |
 | W6 Issuing loop | ✅ | issue + credit notes + recurring + reminders shipped |
 | W7 Automate & integrate | ✅ webhooks, 🟡 API ingest | webhooks + queue shipped |
-| W8 Govern | ✅ audit/jobs/metering, ⬜ retention | retention + legal hold to build |
+| W8 Govern | ✅ audit/jobs/metering, ✅ retention + legal hold + GDPR erasure + audit export | SSO (OIDC+SCIM) ✅, SAML scaffold 🟡; residency seam ✅ |

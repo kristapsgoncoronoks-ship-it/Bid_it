@@ -27,8 +27,8 @@
 
 | ID | Risk | Impact | Likelihood | Score | Owner | Mitigation |
 |---|---|---|---|---|---|---|
-| R1 | **Cross-tenant data leak** (GDPR Art. 33/34 breach; existential for a fintech-adjacent SaaS). | 5 | 2 | **10** | Eng/Security | Defence-in-depth isolation (row + ORM guard) ✅; **every new table registered in tenant scope**; automated cross-tenant test in CI ✅; Postgres RLS as belt-and-braces (Later); pen test before enterprise. |
-| R2 | **Retention vs. GDPR-erasure conflict** — deleting a legally-retained invoice, or failing to erase when required. | 4 | 3 | **12** | Product/Legal | Retention + legal hold (F-G9); erasure **respects** statutory retention and surfaces the conflict; per-country retention config; counsel sign-off (Q7). |
+| R1 | **Cross-tenant data leak** (GDPR Art. 33/34 breach; existential for a fintech-adjacent SaaS). | 5 | 2 | **10** | Eng/Security | Defence-in-depth isolation (row + ORM guard) ✅; **every new table registered in tenant scope** (CI-enforced) ✅; automated cross-tenant test in CI ✅; **Postgres RLS belt-and-braces shipped** ✅ (a Postgres CI job runs the RLS enforcement tests); pen test before enterprise. |
+| R2 | **Retention vs. GDPR-erasure conflict** — deleting a legally-retained invoice, or failing to erase when required. | 4 | 3 | **12** | Product/Legal | **Shipped** ✅: retention + legal hold (F-G9) and GDPR erasure (F-G10) that **respects** statutory retention and *surfaces* the conflict (audit + issued invoices retained and reported, never silently deleted); per-country retention config; counsel sign-off (Q7). |
 | R3 | **Data residency violation** via a non-EU AI/OCR/analytics sub-processor. | 4 | 3 | **12** | Eng/Legal | EU-region default; AI pipeline opt-in/default-off/derived-data-only; documented sub-processor list + SCCs; prefer EU-hosted models (Q9/Q10). |
 | R4 | **Mis-stated compliance** (claiming SOC 2/e-invoice conformance we don't hold). | 4 | 2 | 8 | Product | Only claim what's certified; roadmap SOC 2/ISO for Enterprise; validate EN-16931 output against real receivers. |
 | R5 | **Inadvertent regulated activity** if finance/banking features slip in. | 5 | 1 | 5 | Product/Legal | Hard product boundary: no money movement in v1; any such feature via licensed partner + legal gate. |
@@ -49,7 +49,7 @@
 | ID | Risk | Impact | Likelihood | Score | Owner | Mitigation |
 |---|---|---|---|---|---|---|
 | R12 | **Money/VAT/FX miscalculation** erodes trust and creates liability. | 5 | 2 | 10 | Eng | Decimal-only money ✅; ECB provenance ✅; sampled correctness audit; regression tests. |
-| R13 | **Silent job/webhook loss** (missed recurring invoice, undelivered event). | 3 | 2 | 6 | Eng | Durable queue with retry/backoff/dead-letter ✅; DLQ alerting; delivery log ✅. |
+| R13 | **Silent job/webhook loss** (missed recurring invoice, undelivered event). | 3 | 2 | 6 | Eng | Durable queue with retry/backoff/dead-letter ✅; **DLQ alerting + queue-lag SLO shipped** ✅ (`/health/queue` 503-when-degraded + Prometheus gauges); delivery log ✅. |
 | R14 | **Malicious upload** (malware, zip-bomb, XXE, formula injection in exports). | 4 | 2 | 8 | Security | Single-choke-point scan + type validation ✅; zip caps/slip neutralised; formula-injection-safe exports; inert doc serving under strict CSP ✅; sandbox the parse worker. |
 | R15 | **Scaling limits** at high per-tenant volume (dashboard latency, parse throughput). | 3 | 3 | 9 | Eng | Indexed aggregation ✅; worker lanes ✅; load-test; Postgres tuning; caching where safe. |
 | R16 | **AI dependency / cost / hallucination** if capture leans on external models. | 3 | 3 | 9 | Eng | Deterministic-first; AI advisory + opt-in; DLP gate over external AI; verify against source. |

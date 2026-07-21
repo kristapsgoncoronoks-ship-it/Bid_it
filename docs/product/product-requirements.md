@@ -1,6 +1,6 @@
 # InvoiceIQ — Product Requirements Document
 
-> **Status:** Draft v1 · Owner: Product · Last updated: 2026-07-20
+> **Status:** v1.1 (build status reconciled) · Owner: Product · Last updated: 2026-07-22
 > **Companion docs:** [personas](./personas.md) · [workflows](./workflows.md) · [pricing](./pricing-hypothesis.md) · [metrics](./metrics.md) · [risks](./risks.md)
 >
 > This PRD converts the product context into an **implementable and sellable** definition. It is deliberately opinionated about cutting scope. Legend for build status against the current codebase: ✅ built · 🟡 partial · ⬜ not built.
@@ -40,7 +40,7 @@ Ranked by *fit for the wedge* (ease to sell v1), not by TAM.
 2. **Multi-entity SMEs (10–250 employees)** — transport/logistics, property management, construction, professional services. Multiple fuel cards / suppliers / legal entities; today they reconcile in spreadsheets. Strong fit for dimensions (vehicle/property/project) and VAT-across-entities.
 3. **Finance-team-of-one SMEs (5–50 employees)** — a single bookkeeper/office manager drowning in PDFs and email attachments. Buys for time saved and "no more missed invoices."
 
-**De-prioritised for v1:** micro/sole-traders (low ACV, served by Xero/QuickBooks natively) and large enterprises (long sales cycle, need SSO/SOC 2/DPA we don't have yet — Enterprise scope later).
+**De-prioritised for v1:** micro/sole-traders (low ACV, served by Xero/QuickBooks natively) and large enterprises (long sales cycle). *Enterprise groundwork is now largely built — SSO (OIDC+SCIM), retention + legal hold, GDPR erasure, audit export, residency seam, encrypted secrets — leaving SOC 2 certification + DPA + a real-IdP go-live as the remaining gates.*
 
 ---
 
@@ -82,7 +82,7 @@ Grouped by capability. Each line tagged with MoSCoW for **v1 (the sellable wedge
 - **F-A3** OCR fallback for scanned PDFs — **Must** 🟡
 - **F-A4** Email-in intake (dedicated address; attachments → review queue) — **Should** 🟡
 - **F-A5** API ingest endpoint (token-gated) for automation/n8n — **Should** 🟡
-- **F-A6** Supplier-portal credentialed capture — **Later** ⬜ (biggest build; needs credential vault ✅ scaffold + per-supplier adapters)
+- **F-A6** Supplier-portal credentialed capture — **Later** ⬜ (biggest build; credential vault ✅ real — `core/keyvault` AES-256-GCM sealing; still needs per-supplier adapters)
 
 ### B. Review, validation & approval
 - **F-B1** Human review/confirm of every parsed draft — **Must** ✅
@@ -126,9 +126,15 @@ Grouped by capability. Each line tagged with MoSCoW for **v1 (the sellable wedge
 - **F-G4** Immutable, hash-chained audit log — **Must** ✅
 - **F-G5** Durable background job queue + worker — **Must** ✅
 - **F-G6** Usage metering + per-plan limits — **Must** ✅
-- **F-G7** Subscription plans + module gating — **Must** ✅ (billing provider ⬜)
-- **F-G8** SSO / SAML / SCIM — **Later (Enterprise)** ⬜
-- **F-G9** Configurable data retention + legal hold — **Should** ⬜ (compliance-critical, see §9)
+- **F-G7** Subscription plans + module gating — **Must** ✅ (billing provider ✅ — Stripe + EveryPay behind one seam; usage metering; go-live gated on keys + VAT process)
+- **F-G8** SSO / SAML / SCIM — **Later (Enterprise)** 🟡 (OIDC login + JIT + group→role mapping ✅; SCIM 2.0 provisioning ✅; SAML SP scaffold ✅, assertion validation ⬜ — needs a vetted XML-DSig lib + real IdP)
+- **F-G9** Configurable data retention + legal hold — **Should** ✅ (per-category windows + legal hold; daily + on-demand purge; audited)
+- **F-G10** GDPR right-to-erasure (DSAR) respecting statutory retention — **Should** ✅ (pseudonymise/redact/delete; retains statutory + audit; hashed-subject audit)
+- **F-G11** Audit-log export (CSV/JSON, chain re-verifiable) for auditors — **Should** ✅
+- **F-G12** Data residency / region-pinning (app seam + enforcement backstop) — **Later (Enterprise)** 🟡 (per-tenant region + fail-closed 421 backstop ✅; multi-region data plane = deployment ⬜)
+- **F-G13** Secret encryption at rest (AES-256-GCM; sealed OAuth secrets) — **Must** ✅ (production KEK provider decision ⬜)
+- **F-G14** API rate limiting / brute-force guard — **Should** ✅ (per-process; global shared-store limit = scale path)
+- **F-G15** Background-queue SLO probe + dead-letter alerting — **Should** ✅ (`/health/queue` 503-when-degraded + Prometheus gauges)
 
 ---
 
@@ -181,10 +187,10 @@ Grouped by capability. Each line tagged with MoSCoW for **v1 (the sellable wedge
 Capture (F-A1/2/3), review + core validation (F-B1/2/3), classification + dashboards + dimensions (F-C1/2/3), FX + VAT + multi-entity (F-D1/2/3), CSV/Excel export (F-F1), platform + security + metering + plans (all F-G Must). Outbound issuing (F-E1/2/3/4) shipped as an **attach module** because it's already built and differentiates — but the MVP *sale* stands on AP capture + analytics.
 
 ### Post-MVP
-Email intake GA + API ingest (F-A4/5), anomaly detection (F-B4), approval routing (F-B5), SAF-T/ERP export (F-F2, F-E5), retention + legal hold (F-G9), employee expenses module GA.
+Email intake GA + API ingest (F-A4/5), anomaly detection (F-B4), approval routing (F-B5), SAF-T/ERP export (F-F2, F-E5 — Xero/QuickBooks/generic ✅, DATEV/SAF-T ⬜), retention + legal hold (F-G9 ✅), employee expenses module GA.
 
 ### Enterprise
-SSO/SAML/SCIM (F-G8), configurable data residency, custom retention & legal hold, DPA + SOC 2 Type II + ISO 27001, audit exports, priority SLA, sandbox, higher/again-custom limits, dedicated support, 2-way ERP sync, portal-capture adapters.
+*Groundwork largely built this cycle:* SSO — OIDC + SCIM ✅, SAML scaffold 🟡 (F-G8); data residency seam ✅ (F-G12); retention + legal hold ✅ + GDPR erasure ✅ (F-G9/10); audit exports ✅ (F-G11); encrypted secrets ✅ (F-G13). *Remaining:* SAML assertion validation + real-IdP go-live, multi-region data plane, **DPA + SOC 2 Type II + ISO 27001**, priority SLA, sandbox, higher/custom limits, dedicated support, 2-way ERP sync, portal-capture adapters.
 
 ---
 
@@ -207,7 +213,7 @@ SSO/SAML/SCIM (F-G8), configurable data residency, custom retention & legal hold
 ### Financial-document retention assumptions
 - **Invoices are legal records with statutory retention.** Retention periods vary by member state and document type — commonly **7 years**, up to **10 years** (e.g. property-related in some states) and **10 years for company books** in DE/AT/FR. UK VAT records ~6 years.
 - **Assumption for v1:** default retention **10 years**, tenant-configurable per legal requirement, with **legal hold** (suspends deletion) and immutability during the window. Deletion (incl. GDPR erasure) must **respect statutory retention** — erasure of a legally-retained invoice is refused/deferred, and that conflict is surfaced, not silently resolved.
-- Retention config + legal hold (F-G9) is **Should for MVP-adjacent** because selling to accountants/regulated SMEs will surface it fast.
+- Retention config + legal hold (F-G9) is **Should for MVP-adjacent** because selling to accountants/regulated SMEs will surface it fast. **✅ Built** — per-category windows + legal hold + GDPR-erasure-respecting-retention (F-G9/F-G10, ADR-0019/0020). The **10-year default** is a config value to set per deployment; the *conflict-surfacing* erasure behaviour is implemented (statutory + audit records retained and reported, never silently deleted).
 
 ---
 
@@ -219,13 +225,13 @@ Consolidated from §5. This is the build/sell order.
 Multi-channel capture (upload/CSV/XML + OCR) · human review · duplicate + missing-field + tax checks · classify + dimensions · spend dashboards · FX + VAT + multi-entity · CSV/Excel export · tenant isolation · invitation-only join · roles · audit log · job queue · usage metering + plan limits · plans + module gating (billing provider wiring) · EU hosting.
 
 **Should (fast-follow; needed to expand the deal / land accountants)**
-Email-in intake GA · API ingest · anomaly detection · outbound issuing module (issue + credit notes + recurring + reminders) · SAF-T/ledger + ERP export · outbound webhooks · per-country VAT · retention + legal hold · accountant multi-client console.
+Email-in intake GA · API ingest · anomaly detection · outbound issuing module ✅ (issue + credit notes + recurring + reminders) · ledger + ERP export ✅ (Xero/QuickBooks/generic; SAF-T/DATEV ⬜) · outbound webhooks ✅ · per-country VAT · retention + legal hold ✅ · audit-log export ✅ · rate limiting ✅ · queue SLO probe ✅ · accountant multi-client console.
 
 **Could (differentiators, not blockers)**
-Approval routing · advisory AI validation/capture (opt-in) · explore/ad-hoc · document management overlays (search/metadata/versioning) · e-sign/sharing.
+Approval routing · advisory AI validation/capture (opt-in) · explore/ad-hoc ✅ · document management overlays (search/metadata/versioning) · e-sign/sharing.
 
 **Later (needs partner, licence, or scale)**
-Supplier-portal capture adapters · SSO/SAML/SCIM · configurable residency · SOC 2/ISO · embedded finance · open-banking recon/pay · public benchmark · tax filing · 2-way ERP sync · self-host.
+Supplier-portal capture adapters (credential vault ✅) · SSO/SAML/SCIM 🟡 (OIDC + SCIM ✅, SAML scaffold) · configurable residency 🟡 (app seam ✅, multi-region infra ⬜) · encrypted secrets ✅ · GDPR erasure ✅ · SOC 2/ISO ⬜ · embedded finance · open-banking recon/pay · public benchmark · tax filing · 2-way ERP sync · self-host.
 
 ---
 

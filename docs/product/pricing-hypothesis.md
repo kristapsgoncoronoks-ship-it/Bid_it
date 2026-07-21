@@ -30,7 +30,7 @@
 | Metric | Used for | Instrumented? |
 |---|---|---|
 | Documents processed / month | Primary allowance + overage | ✅ |
-| Uploads / month | Fair-use guard on parsing/OCR cost | ✅ |
+| Uploads / month | Fair-use guard on parsing/OCR cost | ✅ **reported to Stripe** (metered overage: idempotent `count − reported` deltas as Billing Meter events; `billing.report_usage`) |
 | Active seats | Per-seat line on team/partner plans | ✅ |
 | Issued invoices / month | Fair-use on the issuing module | 🟡 (issued invoices countable) |
 | Legal entities | Business/Enterprise gating | ✅ |
