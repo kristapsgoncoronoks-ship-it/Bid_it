@@ -1,6 +1,6 @@
 # InvoiceIQ — Architecture Overview
 
-> **Status:** Draft v1 · Owner: Tech Lead · Last updated: 2026-07-20
+> **Status:** v2 (post-build review) · Owner: Tech Lead · Last updated: 2026-07-22
 > **Audience:** engineers, reviewers, future maintainers (5-year horizon).
 > **Companion docs:** [domain-modules](./domain-modules.md) · [data-flows](./data-flows.md) · [security-boundaries](./security-boundaries.md) · [deployment](./deployment.md) · [ADRs](./adr/)
 > **Product context:** [../product/product-requirements.md](../product/product-requirements.md)
@@ -82,6 +82,34 @@ The product context and PRD are ambitious. As the long-term owner I am flagging 
 - **Shared-schema multitenancy:** we trade the hard isolation of schema/DB-per-tenant for cost and operability, and buy back safety with the ORM guard (+ Postgres RLS as belt-and-braces — now implemented, ADR-0004).
 - **Deterministic-first extraction:** we trade "magic" AISlurp for accuracy, cost control, and residency safety.
 
+### 1.7 Post-build critical review (what building it actually taught me)
+
+The design in this document is no longer aspirational — Phases 0–4 are built (RLS,
+retention, GDPR erasure, SSO/SCIM/SAML, residency, dual-provider billing, secret
+vault, queue-health). Owning it for five years means being honest about what
+implementation *revealed* that the design didn't foresee. These are the things I
+would tell my successor.
+
+**Financial-data assumptions that got sharper (or riskier) in the build:**
+- **Seller-of-record VAT is now a real liability, not a footnote.** Choosing Stripe/EveryPay direct (ADR-0013) means *we* owe EU VAT registration + remittance. Stripe Tax calculates; it does **not** file. This is the single most dangerous *operational* assumption in the codebase — it can't be fixed in code, and shipping billing without the finance/legal process behind it would be negligent. **Guardrail:** billing stays dark until the VAT process exists; documented in `docs/DECISIONS-NEEDED.md §2`.
+- **"Erasure" collides with "immutable audit + statutory retention" — by design, not by accident.** GDPR Art. 17 vs Art. 17(3)(b) vs the hash-chained audit chain is a genuine three-way tension. We resolved it by **pseudonymising, not deleting**, and *reporting* what we retain (ADR-0020). The risk is a future engineer "completing" erasure by hard-deleting a user row and silently breaking the audit chain + FK integrity. **Guardrail:** `audit_events` and `issued_invoices` are hard-excluded from both purge and erasure; a test should assert this stays true.
+- **Metered billing needed an idempotency watermark we didn't originally model.** Reporting usage to Stripe is *at-least-once*; without `usage_counters.reported` we'd double-bill on any retry. The lesson: every new external write path needs its idempotency story designed in, not bolted on.
+
+**Tenant-isolation lessons from adding RLS + machine principals:**
+- **RLS surfaced a latent bug SQLite masked** (an int-for-boolean literal in a migration). Dual-DB (SQLite dev / Postgres prod) is a real correctness hazard: **the Postgres CI job is now load-bearing, not optional.**
+- **Non-user principals broke the "current is always a real user row" assumption.** SCIM and the billing webhook authenticate as a *machine*, not a user — they set tenant scope explicitly and must never be routed through `get_current_user`. This is also exactly why **scoped API keys are deferred** (ADR-0015): retrofitting a synthetic principal into routes that assume `current.id` is an FK is a landmine, not a feature.
+- **The RLS coverage guard must union across migrations.** Each new tenant table adds its own policy in its own migration; the test that asserts "every tenant model has an RLS policy" now aggregates across all migration files. A single-file assumption would silently stop protecting new tables.
+
+**Security lessons:**
+- **We were storing an OAuth client secret in plaintext** until the secret-vault work. The lesson generalises: *any* stored-and-reused secret (unlike a hashed password) needs sealing from day one — the `keyvault` seam now exists so the next one isn't plaintext-by-default.
+- **SSO is the one place a fake is a vulnerability, not a stub.** We built OIDC/SCIM to a *fixtures boundary* and **refused to hand-roll SAML assertion validation** (XML signature-wrapping). Drawing that line explicitly — 501 at the ACS, documented — is the responsible call; the pressure to "just make SSO work" is exactly how auth bypasses ship.
+
+**Complexity we correctly did *not* build (and the temptation to revisit):**
+- Distributed (Redis) rate limiting, materialised fat-tenant dashboards, a shared-store global limiter, per-secret DEK envelope, multi-region data plane — all **scale-gated**. Building them now would be speculative complexity against metrics that aren't hurting. The register (`DECISIONS-NEEDED.md`) keeps them visible without building them.
+- The honest risk here is the opposite of over-building: **a boundary marked "return to finish" can rot.** SSO/SAML, DATEV/SAF-T, and billing go-live all need an external input; if that input never comes, we have *scaffolding pretending to be a feature*. The guardrail is that each is behind a config flag or returns a clear "not enabled" — none of them *look* live until they are.
+
+**Net:** the architecture held up under real implementation with no rewrites — the module boundaries, the durable queue, the tenant guard, and Decimal-money all absorbed the enterprise surface cleanly. The residual five-year risks are **operational/organisational** (VAT process, KEK custody, the dual-DB CI discipline, finishing the deferred boundaries) far more than they are structural.
+
 ---
 
 ## 2. C4 Level 1 — System context
@@ -148,6 +176,15 @@ graph TB
     KMS[[KMS / key vault<br/>envelope keys]]
   end
 
+  subgraph Federated["Per-tenant external identity"]
+    IDP[IdP<br/>Okta / Entra / Keycloak<br/>OIDC · SCIM · SAML]
+  end
+
+  subgraph Providers["Billing providers"]
+    STR[Stripe<br/>Checkout · Portal · webhook · meter]
+    EP[EveryPay<br/>hosted page · MIT recurring]
+  end
+
   SPA --> LB --> API
   API <--> PG
   API --> OBJ
@@ -157,6 +194,12 @@ graph TB
   WRK --> KMS
   API -->|enqueue| PG
   WRK -->|deliver webhooks / email| EXT[External services]
+  IDP -->|OIDC callback / SCIM| API
+  API -->|token exchange / JWKS| IDP
+  API <-->|Checkout / verify| STR
+  API <-->|hosted pay / verify| EP
+  STR -->|signed webhook| API
+  WRK -->|MIT charge / usage meter| STR & EP
   API -->|metrics / logs| OBS[[Observability<br/>Prometheus + logs + traces]]
   WRK --> OBS
 ```
@@ -298,7 +341,13 @@ Scored **Impact (1–5) × Likelihood (1–5)**. Product/market risks live in [.
 | T9 | External vendor outage (billing/AI/SMTP) | 3 | 3 | 9 | provider-abstracted seams, queue-buffered, graceful degradation | vendor SLA breach |
 | T10 | Single-region outage | 4 | 2 | 8 | backups + documented DR; multi-region is Enterprise | residency/DR commitment sold |
 | T11 | Migration lock / long-running DDL downtime | 3 | 2 | 6 | batched migrations, `db_migrate` idempotent steps, off-peak | table > tens of millions of rows |
-| T12 | Public API misuse / no rate limits | 3 | 3 | 9 | token scopes, rate limits, quotas (ADR-0015) | public API GA |
+| T12 | Public API misuse / no rate limits | 3 | 3 | 9 | per-process rate limiting shipped (ADR-0015); token scopes/quotas at GA | public API GA |
+| T13 | Seller-of-record EU VAT not remitted/filed | 5 | 3 | 15 | billing dark until the finance/legal VAT process exists; Stripe Tax for calc; `DECISIONS-NEEDED.md §2` | before charging any live customer |
+| T14 | SSO auth bypass (esp. hand-rolled SAML) | 5 | 2 | 10 | OIDC/SCIM proven with fixtures; SAML ACS returns 501 until a vetted XML-DSig lib + real IdP; no unvalidated assertion path | pinning a SAML library; real-IdP go-live |
+| T15 | Dual-DB (SQLite dev / Postgres prod) correctness drift | 4 | 3 | 12 | Postgres CI job is load-bearing; RLS + migration tests run on real Postgres | any Postgres-only feature (RLS, types) |
+| T16 | KEK loss / mismanagement → unrecoverable sealed secrets | 4 | 2 | 8 | `keyvault` seam; local/BYOK now, cloud-KMS path documented; rotation = re-seal | production KEK-provider decision; multi-region |
+| T17 | Deferred "return to finish" boundary rots into fake-live | 3 | 3 | 9 | each boundary is flag-gated / returns "not enabled"; tracked in `DECISIONS-NEEDED.md` | any GA claim on SSO/SAML/billing/DATEV |
+| T18 | Region-enforcement misconfig serves wrong jurisdiction | 4 | 2 | 8 | off by default; fail-closed 421 backstop behind LB routing; `service_region` per deployment (ADR-0022) | standing up a 2nd region |
 
 ---
 
@@ -318,12 +367,17 @@ Bid_it/
 │   │   ├── core/                  # Cross-cutting, domain-free
 │   │   │   ├── config.py          # 12-factor settings
 │   │   │   ├── database.py        # engine + session factory
-│   │   │   ├── tenant.py          # ContextVar + ORM guard + middleware
+│   │   │   ├── tenant.py          # ContextVar + ORM guard + middleware + RLS GUC
+│   │   │   ├── residency.py       # region-pinning enforcement backstop
 │   │   │   ├── security.py        # JWT + password hashing
 │   │   │   ├── security_headers.py# CSP + nosniff
+│   │   │   ├── ratelimit.py       # fixed-window abuse/brute-force guard
+│   │   │   ├── keyvault.py        # AES-256-GCM secret sealing (KEK)
+│   │   │   ├── storage.py         # object-storage abstraction (local/s3/memory)
 │   │   │   ├── money.py           # Decimal quantization
 │   │   │   ├── dimensions.py      # cost-allocation dimension catalog
 │   │   │   ├── roles.py           # role hierarchy helpers
+│   │   │   ├── metrics.py         # domain Prometheus metrics
 │   │   │   └── observability.py   # logging + request-id + metrics
 │   │   ├── models/                # SQLAlchemy models (one file per aggregate)
 │   │   ├── schemas/               # Pydantic v2 request/response models
@@ -345,7 +399,7 @@ Bid_it/
 └── ARCHITECTURE.md                # lightweight intro (superseded by docs/architecture)
 ```
 
-**Target additions (as phases land):** `app/core/storage.py` (object-storage abstraction), `app/core/flags.py` (flag reads), `app/services/export/` (ERP/SAF-T exporters), `infra/` (IaC — Terraform), `docs/architecture/adr/` growth.
+**Landed since v1:** `core/storage.py`, `core/keyvault.py`, `core/ratelimit.py`, `core/residency.py`, `core/metrics.py`; services for `oidc`/`scim`/`saml`/`sso_config`, `retention`/`privacy`, `billing_provider`/`billing_usage`, `audit_export`, `queue_health`, `integrity`, `documents`, `erp_export`. **Still target:** `app/services/export/` package split for country-profiled SAF-T/DATEV, `infra/` (IaC — Terraform), a per-secret-DEK envelope + cloud-KMS provider behind the `keyvault` seam.
 
 ---
 

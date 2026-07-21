@@ -20,13 +20,21 @@
 graph TB
   subgraph Platform["Platform floor (shared, always-on)"]
     AUTH[Auth & Identity]
-    TEN[Tenancy]
-    AUD[Audit]
-    JOBS[Jobs & Scheduler]
+    TEN[Tenancy + residency]
+    AUD[Audit + export]
+    JOBS[Jobs & Scheduler + queue-health]
     METER[Metering & Plans]
     NOTIF[Notifications]
-    CFG[Config & Secrets]
+    CFG[Config & Secrets<br/>keyvault]
     OBS[Observability]
+    RL[Rate limiting]
+  end
+
+  subgraph Ent["Enterprise & Compliance"]
+    SSO[SSO — OIDC/SCIM/SAML]
+    RET[Retention + legal hold]
+    DSAR[GDPR erasure]
+    BILL[Subscription billing<br/>Stripe · EveryPay · usage]
   end
 
   subgraph Intake["Capture & Intake"]
@@ -75,12 +83,21 @@ graph TB
   AR --> Money
   AR --> Record
   Exp --> Money
+  Ent -.governs.- Record
+  Ent -.governs.- AR
   Platform -.underpins.- Intake
   Platform -.underpins.- Record
   Platform -.underpins.- Insight
   Platform -.underpins.- AR
   Platform -.underpins.- Exp
+  Platform -.underpins.- Ent
 ```
+
+**Enterprise & Compliance** is a distinct band because these modules *govern* the
+record/AR data rather than produce it: SSO federates identity into Auth; retention
+and GDPR erasure act on tenant data with statutory guardrails; billing gates
+entitlements. They depend only on the platform floor + the data they act on, never
+sideways into a domain's internals.
 
 ---
 
@@ -91,11 +108,17 @@ Legend: **Owns** = writes + schema authority. **Reads** = consumes read-only. Is
 | Module | Owns (tables) | Key services | Reads from | Notes |
 |---|---|---|---|---|
 | **Auth & Identity** | `users`, `invitations`, `role_policies` | `security`, `roles`, `team`, `access` | — | Platform actor identity; `is_platform_admin` is *not* a company role. |
-| **Tenancy** | `organizations` (+ registry) | `core/tenant` | users | Owns the isolation guard + org lifecycle/plan. |
-| **Audit** | `audit_events` | `audit` | current actor/org | Append-only, hash-chained. Never edited. |
-| **Jobs & Scheduler** | `jobs` | `jobs`, `scheduler`, `job_handlers`, `worker` | all (as handlers) | Durable queue; handlers run in tenant scope. |
-| **Metering & Plans** | `usage_counters`, `role_policies` (limits) | `access`, `plans`, `modules` | invoices (count) | Enforces quotas; module gating. |
+| **SSO (Enterprise)** | `sso_connections` | `oidc`, `scim`, `saml`, `sso_config` | users, orgs | Per-tenant OIDC/SCIM/SAML; JIT provisions into Auth; client secret **sealed** (keyvault). |
+| **Tenancy + residency** | `organizations` (incl. `region`) | `core/tenant`, `core/residency` | users | Owns the isolation guard, org lifecycle/plan, and the region-pinning backstop. |
+| **Audit** | `audit_events` | `audit`, `audit_export` | current actor/org | Append-only, hash-chained. Never edited; CSV/JSON export re-verifiable offline. |
+| **Jobs & Scheduler** | `jobs` | `jobs`, `scheduler`, `job_handlers`, `worker`, `queue_health` | all (as handlers) | Durable queue; handlers run in tenant scope; `/health/queue` SLO probe. |
+| **Metering & Plans** | `usage_counters` (incl. `reported`), `role_policies` (limits) | `access`, `plans`, `modules` | invoices (count) | Enforces quotas; module gating; `reported` watermark for metered billing. |
+| **Subscription billing** | `billing_payments`, `processed_stripe_events` | `billing`, `billing_provider`, `billing_usage` | orgs, usage_counters | Stripe + EveryPay behind one seam; webhook/verify is the authority; idempotent. |
+| **Retention & legal hold** | `retention_policies`, `legal_holds` | `retention` | all tenant tables | Purges past-window data unless on hold; audited; excludes audit + issued invoices. |
+| **GDPR erasure (DSAR)** | — (acts on Auth/expenses/intake) | `privacy` | users, expenses, inbound | Pseudonymise/redact/delete; retains statutory + audit; hashed-subject audit. |
+| **Secret vault** | — (pure) | `core/keyvault` | — | AES-256-GCM seal/unseal; KEK local/BYOK; seals the SSO client secret at rest. |
 | **Notifications** | `webhook_endpoints`, `webhook_deliveries`, `email_messages` | `webhooks`, `mailer`, `dunning` | issued/expenses events | Delivery via the queue. |
+| **Document storage** | — (sha refs on owning rows) | `documents`, `core/storage`, `integrity` | object storage | S3/local/memory backends; content-addressed; re-hash integrity verify. |
 | **Upload / Ingest** | — (stateless) | `filesec`, upload routes, API ingest | plans (quota) | Produces drafts; persists nothing until confirm. |
 | **Email intake** | `email_intake`, `inbound_invoices` | `email_intake` | parser | Attachments → review queue. |
 | **Extraction** | — (stateless) | `parser`, `einvoice`, `facturx`, `pdf_ocr` | object storage | Deterministic-first; opt-in AI seam. |
@@ -166,4 +189,7 @@ Everything else (auth, tenancy, invoices, money) stays in the core monolith. **W
 | Analytics | `analytics`, `budget` | `analytics`, `explore`, `budget` |
 | Issuing (AR) | `issued`, `recurring`, `issuer`, `partners` | `issued_service`, `recurring`, `dunning`, `facturx`, `invoice_pdf` |
 | Expenses | `expenses` | `expenses`, `bank_statement` |
-| Platform | `jobs`, `webhooks`, `modules`, `billing`, `platform`, `settings`, `audit` | `jobs`, `scheduler`, `webhooks`, `mailer`, `plans`, `modules`, `audit` |
+| Exports | `export` | `erp_export`, `saft` |
+| Enterprise SSO | `sso`, `scim`, `auth` (`/sso/*`) | `oidc`, `scim`, `saml`, `sso_config`, `core/keyvault` |
+| Compliance | `retention`, `privacy`, `audit` (`/export`) | `retention`, `privacy`, `audit_export` |
+| Platform | `jobs`, `webhooks`, `modules`, `billing`, `platform`, `settings`, `audit`, `integrity` | `jobs`, `scheduler`, `queue_health`, `webhooks`, `mailer`, `plans`, `modules`, `audit`, `billing_provider`, `billing_usage`, `integrity` |

@@ -180,7 +180,42 @@ flowchart LR
 
 ---
 
-## 8. Data-flow invariants (must hold on every path)
+## 8. Enterprise & compliance flows (SSO · billing · lifecycle)
+
+These surfaces reuse the same request/job spine above; the additions are **an
+external authority** (an IdP, a billing provider) and a **fail-closed rule** at
+the point of trust.
+
+**SSO login (OIDC) — the IdP is the authority; we never trust the redirect.**
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Browser
+  participant API as API (unauthenticated route)
+  participant IDP as Tenant IdP
+  C->>API: GET /auth/sso/{slug}/authorize
+  API->>API: PKCE + nonce + signed stateless `state`
+  API-->>C: 302 → IdP (authorize URL)
+  C->>IDP: authenticate (MFA at the IdP)
+  IDP-->>C: 302 → /auth/sso/callback?code&state
+  C->>API: callback
+  API->>IDP: exchange code (server-to-server) + fetch JWKS
+  API->>API: validate ID token (RS256, iss/aud/exp, nonce)<br/>JIT match/create in-org; group→role map
+  API-->>C: 302 → SPA with our internal JWT (fragment)
+```
+*Machine principals* (SCIM, the Stripe webhook) authenticate as a **token/signature, not a user** — they set tenant scope explicitly and never pass through `get_current_user`. SCIM deactivation is a **soft** delete (row kept). ID-token/assertion validation **fails closed**; SAML assertion consumption returns **501** until a vetted library + real IdP land.
+
+**Billing — the provider event is the authority, applied idempotently.**
+- Stripe: Checkout → **signed webhook** → `apply_subscription_event` (plan/status), deduped by `processed_stripe_events`.
+- EveryPay: hosted page → **server-side verify** (never the browser redirect) via `billing_payments` → same applier; recurring is a merchant-initiated (MIT) **queue job**.
+- Metered usage: a daily job reports `count − reported` deltas (watermark → no double-count).
+
+**Data-lifecycle (retention purge / GDPR erasure) — job-driven, gated, audited.**
+Both run through the standard job/handler path (§2) under tenant scope, are **blocked by an active legal hold**, **exclude** `audit_events` + `issued_invoices`, delete associated object bytes, and write an audit event (erasure logs a *hashed* subject id — never the cleartext email).
+
+---
+
+## 9. Data-flow invariants (must hold on every path)
 
 1. Tenant scope is set from the server-side user row before any query, and reset after the request.
 2. Domain change + its audit event + its enqueued side effects **commit atomically or not at all**.
