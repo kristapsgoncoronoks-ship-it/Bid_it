@@ -8,8 +8,8 @@ import { api, apiError } from "../lib/api";
 import { isAdminOrAbove } from "../lib/roles";
 import { useModules } from "../lib/useModules";
 import type {
-  IntegrityReport, RetentionInfo, ValidationSettings, WebhookCreated, WebhookDelivery,
-  WebhookEndpoint,
+  ErasureReport, IntegrityReport, RetentionInfo, ValidationSettings, WebhookCreated,
+  WebhookDelivery, WebhookEndpoint,
 } from "../lib/types";
 
 export default function Settings() {
@@ -121,7 +121,93 @@ export default function Settings() {
       {canEdit && <Webhooks />}
       {canEdit && <IntegrityCheck />}
       {canEdit && <RetentionPanel />}
+      {canEdit && <ErasurePanel />}
     </div>
+  );
+}
+
+// Admin: GDPR right-to-erasure (DSAR). Preview classifies every personal-data
+// location; erase performs the erasable ones and reports what is retained
+// (statutory / integrity) or blocked by a legal hold.
+function ErasurePanel() {
+  const toast = useToast();
+  const [email, setEmail] = useState("");
+  const [report, setReport] = useState<ErasureReport | null>(null);
+
+  const preview = useMutation({
+    mutationFn: async () => (await api.post("/privacy/erasure/preview", { email })).data as ErasureReport,
+    onSuccess: setReport,
+    onError: (e) => toast.error(apiError(e)),
+  });
+  const erase = useMutation({
+    mutationFn: async () => (await api.post("/privacy/erasure", { email })).data as ErasureReport,
+    onSuccess: (r) => {
+      setReport(r);
+      toast.success(r.executed ? "Erasure completed." : "Erasure blocked by an active legal hold.");
+    },
+    onError: (e) => toast.error(apiError(e)),
+  });
+
+  const badge = (a: string) =>
+    a === "erase" ? "bg-rose-100 text-rose-700"
+    : a === "retain" ? "bg-slate-100 text-slate-600"
+    : "bg-amber-100 text-amber-700";
+
+  return (
+    <section className="space-y-2">
+      <div className="px-1">
+        <h2 className="text-sm font-semibold text-slate-600">Right to erasure (GDPR)</h2>
+        <p className="text-sm text-slate-500">
+          Erase a person's personal data by email. Statutory records (issued tax invoices) and the
+          tamper-evident audit trail are kept by law and reported, not deleted; a legal hold suspends erasure.
+        </p>
+      </div>
+      <div className="card space-y-3">
+        <div className="flex items-center gap-2">
+          <input
+            className="input flex-1"
+            type="email"
+            placeholder="person@example.com"
+            value={email}
+            onChange={(e) => { setEmail(e.target.value); setReport(null); }}
+          />
+          <button className="btn-ghost" disabled={!email.trim() || preview.isPending} onClick={() => preview.mutate()}>
+            Preview
+          </button>
+          <button
+            className="btn-primary"
+            disabled={!report || report.executed || preview.isPending || erase.isPending}
+            onClick={() => { if (window.confirm(`Permanently erase personal data for ${email}? This cannot be undone.`)) erase.mutate(); }}
+          >
+            Erase
+          </button>
+        </div>
+
+        {report?.on_hold && (
+          <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            A legal hold is active — erasure is suspended until it is released.
+          </div>
+        )}
+
+        {report && (
+          <div className="space-y-1">
+            {report.locations.map((l) => (
+              <div key={l.key} className="flex items-start justify-between gap-3 border-b border-slate-100 py-1.5 text-sm last:border-0">
+                <div>
+                  <span className="font-medium text-slate-700">{l.label}</span>
+                  <span className="ml-2 text-xs text-slate-400">{l.matched} match{l.matched === 1 ? "" : "es"}</span>
+                  {l.reason && <div className="text-xs text-slate-400">{l.reason}</div>}
+                </div>
+                <span className={`badge ${badge(l.action)}`}>{l.action}</span>
+              </div>
+            ))}
+            {report.executed && (
+              <div className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">Erasure completed and audited.</div>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 

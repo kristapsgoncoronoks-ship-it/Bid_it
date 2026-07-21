@@ -124,6 +124,21 @@ export interface RetentionInfo {
   holds: LegalHold[];
 }
 
+export interface ErasureLocation {
+  key: string;
+  label: string;
+  matched: number;
+  action: "erase" | "retain" | "blocked";
+  reason: string | null;
+}
+
+export interface ErasureReport {
+  email: string;
+  on_hold: boolean;
+  executed: boolean;
+  locations: ErasureLocation[];
+}
+
 export interface Tenant {
   id: string;
   name: string;
