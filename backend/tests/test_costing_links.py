@@ -204,6 +204,72 @@ async def test_backfill_runs_via_job_handler(auth_client, db_session):
     assert i.cost_center_id is not None
 
 
+# --- Slice 3a: write-path link resolution (invoice create/update) ----------
+
+
+def _api_invoice(number="W-1", **dims):
+    return {
+        "vendor_name": "AWS",
+        "invoice_number": number,
+        "issue_date": "2026-01-15",
+        "currency": "EUR",
+        "status": "pending",
+        "line_items": [
+            {
+                "description": "Compute",
+                "category": "cloud",
+                "quantity": "1",
+                "unit_price": "100.00",
+                "tax_rate": "21",
+            }
+        ],
+        **dims,
+    }
+
+
+@pytest.mark.asyncio
+async def test_write_path_links_on_create(auth_client, db_session):
+    org_id = await _org(db_session)
+    cc = await costing.create_cost_center(db_session, org_id, code="CC-1000", name="Fleet")
+    await db_session.commit()
+
+    r = await auth_client.post("/api/v1/invoices", json=_api_invoice("W-1", cost_center="cc-1000"))
+    assert r.status_code == 201, r.text
+    inv = await db_session.scalar(select(Invoice).where(Invoice.invoice_number == "W-1"))
+    assert inv.cost_center_id == cc.id  # resolved at write time, no backfill needed
+
+
+@pytest.mark.asyncio
+async def test_write_path_unmatched_tag_stays_null(auth_client, db_session):
+    r = await auth_client.post("/api/v1/invoices", json=_api_invoice("W-2", cost_center="NOPE"))
+    assert r.status_code == 201, r.text
+    inv = await db_session.scalar(select(Invoice).where(Invoice.invoice_number == "W-2"))
+    assert inv.cost_center == "NOPE" and inv.cost_center_id is None
+
+
+@pytest.mark.asyncio
+async def test_write_path_patch_updates_and_clears_link(auth_client, db_session):
+    org_id = await _org(db_session)
+    a = await costing.create_cost_center(db_session, org_id, code="CC-A", name="Alpha")
+    b = await costing.create_cost_center(db_session, org_id, code="CC-B", name="Beta")
+    await db_session.commit()
+
+    r = await auth_client.post("/api/v1/invoices", json=_api_invoice("W-3", cost_center="CC-A"))
+    inv_id = r.json()["id"]
+    inv = await db_session.scalar(select(Invoice).where(Invoice.id == inv_id))
+    assert inv.cost_center_id == a.id
+
+    # Re-tag → link follows.
+    await auth_client.patch(f"/api/v1/invoices/{inv_id}", json={"cost_center": "CC-B"})
+    await db_session.refresh(inv)
+    assert inv.cost_center_id == b.id
+
+    # Clear the tag → link is nulled.
+    await auth_client.patch(f"/api/v1/invoices/{inv_id}", json={"cost_center": None})
+    await db_session.refresh(inv)
+    assert inv.cost_center is None and inv.cost_center_id is None
+
+
 # --- Slice 2b: expense_items org_id + links --------------------------------
 
 

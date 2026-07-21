@@ -26,7 +26,7 @@ from app.schemas.invoice import (
     ParsedInvoiceDraft,
 )
 from app.schemas.validation import ValidationDecision, ValidationFinding
-from app.services import access, audit, filesec, fx, validation, webhooks
+from app.services import access, audit, costing, filesec, fx, validation, webhooks
 from app.services.parser import parse_invoice_file
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
@@ -143,6 +143,8 @@ async def persist_invoice(db: DbSession, org_id: str, body: InvoiceCreate) -> tu
         property_ref=body.property_ref,
         line_items=items,
     )
+    # Link the cost-allocation tags to master data at write time (Slice 3a).
+    await costing.apply_links(db, org_id, invoice, DIMENSION_KEYS)
 
     # Data validation (AI / human) — runs only for the options the org enabled.
     org = await db.get(Organization, org_id)
@@ -262,9 +264,11 @@ async def update_invoice(invoice_id: str, body: InvoiceUpdate, current: CurrentU
         invoice.notes = body.notes
     # Cost dimensions: apply only those explicitly present in the request (a
     # provided null clears the tag; an absent field is left unchanged).
-    for key in DIMENSION_KEYS:
-        if key in body.model_fields_set:
-            setattr(invoice, key, getattr(body, key))
+    changed = [key for key in DIMENSION_KEYS if key in body.model_fields_set]
+    for key in changed:
+        setattr(invoice, key, getattr(body, key))
+    # Re-resolve the master link only for the dimensions that changed (Slice 3a).
+    await costing.apply_links(db, current.org_id, invoice, changed)
     await db.commit()
     await db.refresh(invoice, attribute_names=["line_items"])
     return _detail(invoice, invoice.vendor.name)

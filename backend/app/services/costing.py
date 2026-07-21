@@ -168,6 +168,41 @@ _LINKABLE = (
     ("department", "department_id", Department),
     ("project", "project_id", Project),
 )
+_MASTER_BY_DIM = {dim: master for dim, _, master in _LINKABLE}
+_FK_BY_DIM = {dim: fk for dim, fk, _ in _LINKABLE}
+
+
+async def resolve_link_id(
+    db: AsyncSession, org_id: str, dimension: str, value: str | None
+) -> str | None:
+    """Resolve ONE free-text dimension value to its master-row id — by code then
+    name, case-insensitively. Returns None when the value is empty, the dimension
+    has no master table (vehicle/property_ref), or nothing matches (invents
+    nothing). This is the write-path counterpart of the backfill: same matching."""
+    master = _MASTER_BY_DIM.get(dimension)
+    if master is None or not value or not value.strip():
+        return None
+    v = value.strip().lower()
+    hit = await db.scalar(
+        select(master.id).where(master.org_id == org_id, func.lower(master.code) == v)
+    )
+    if hit is not None:
+        return hit
+    return await db.scalar(
+        select(master.id).where(master.org_id == org_id, func.lower(master.name) == v)
+    )
+
+
+async def apply_links(db: AsyncSession, org_id: str, obj, dimensions) -> None:
+    """Set `obj.<dim>_id` from the object's current free-text `obj.<dim>` for each
+    given dimension (non-linkable dimensions are ignored). Use at invoice/expense
+    create+update so a new/edited tag is linked immediately, not only on the next
+    backfill sweep. A cleared or unmatched tag sets the link back to None."""
+    for dim in dimensions:
+        fk = _FK_BY_DIM.get(dim)
+        if fk is None:
+            continue
+        setattr(obj, fk, await resolve_link_id(db, org_id, dim, getattr(obj, dim)))
 
 
 async def _code_name_index(db: AsyncSession, model, org_id: str) -> dict[str, str]:
