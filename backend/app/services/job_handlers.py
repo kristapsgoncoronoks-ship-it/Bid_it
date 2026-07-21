@@ -8,18 +8,27 @@ set of known kinds.
 from __future__ import annotations
 
 from app.models.job import Job
-from app.services import billing, dunning, email_intake, integrity, jobs, recurring, webhooks
+from app.services import (
+    billing, dunning, email_intake, integrity, jobs, recurring, retention, webhooks,
+)
 
 RECURRING_GENERATE = "recurring.generate"
 DUNNING_RUN = "dunning.run"
 INTEGRITY_VERIFY = "integrity.verify_documents"
 EVERYPAY_CHARGE = "everypay.charge_mit"
+RETENTION_PURGE = "retention.purge"
 
 
 @jobs.handler(EVERYPAY_CHARGE)
 async def _everypay_charge(db, payload: dict, job: Job) -> dict:
     """Charge one tenant's recurring EveryPay MIT for the current period."""
     return await billing.charge_renewal(db, job.org_id)
+
+
+@jobs.handler(RETENTION_PURGE)
+async def _retention_purge(db, payload: dict, job: Job) -> dict:
+    """Purge one tenant's records past their retention window (unless on hold)."""
+    return await retention.purge(db, job.org_id)
 
 
 @jobs.handler(RECURRING_GENERATE)

@@ -101,6 +101,29 @@ export interface BillingInfo {
   has_subscription: boolean;
 }
 
+export interface RetentionCategory {
+  key: string;
+  label: string;
+  retain_days: number | null;
+  purgeable_now: number;
+}
+
+export interface LegalHold {
+  id: string;
+  reason: string;
+  active: boolean;
+  placed_by: string | null;
+  released_by: string | null;
+  released_at: string | null;
+  created_at: string;
+}
+
+export interface RetentionInfo {
+  categories: RetentionCategory[];
+  on_hold: boolean;
+  holds: LegalHold[];
+}
+
 export interface Tenant {
   id: string;
   name: string;

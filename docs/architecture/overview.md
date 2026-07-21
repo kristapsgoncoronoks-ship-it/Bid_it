@@ -262,7 +262,7 @@ Ordered to de-risk the platform before scaling product. Each phase is shippable 
 11. 🟡 **Rate limiting** — a per-process fixed-window abuse guard shipped (`core/ratelimit.py`, `RateLimitMiddleware`): a strict IP-keyed tier on `/auth/*` (brute-force / credential-stuffing) and a general per-token/IP tier, both env-tunable (`RATE_LIMIT_*`), returning `429` + `Retry-After`; health/metrics probes exempt. Honest scope: per-replica, so a precise *global* limit remains the shared-store (Redis) scale path. API-key auth + versioning + published OpenAPI docs still open (ADR-0015).
 
 **Phase 4 — Enterprise readiness**
-12. SSO/SAML/SCIM; region-pinning; retention + legal hold; SOC 2/ISO controls; audit exports.
+12. 🟡 **Data retention + legal hold** shipped (ADR-0019): per-(tenant, category) keep-N-days policies (opt-in, safe by default) with a daily `retention.purge` queue job + on-demand admin run; **legal hold** suspends all purging (preservation > minimization); explicit child+object-byte deletion; every action audited; `audit_events` + `issued_invoices` deliberately excluded. Still open in Phase 4: SSO/SAML/SCIM (needs an IdP to prove), region-pinning, SOC 2/ISO controls, audit exports.
 
 Guiding rule: **no phase introduces a new stateful service unless a metric forces it.**
 

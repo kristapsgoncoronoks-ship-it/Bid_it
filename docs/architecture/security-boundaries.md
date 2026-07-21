@@ -119,7 +119,7 @@ Attacker-controlled PDFs/ZIPs are a top threat. Defence in depth at a single cho
 - **EU-region hosting** by default (app, DB, object storage, backups). No personal data leaves the EU/EEA without adequacy/SCCs; sub-processors documented.
 - **Encryption:** TLS in transit; encryption at rest for DB + object storage; envelope encryption for application secrets.
 - **PII minimisation:** collect only what the job needs; mask bank data in analytics; short-lived logs without secrets.
-- **Retention & erasure** (Phase 4): documents retained per statutory period (default 10y, tenant-configurable) with **legal hold**; GDPR erasure **respects** statutory retention and surfaces the conflict rather than silently deleting a legally-required invoice.
+- **Retention & erasure** (Phase 4, ADR-0019, shipped): per-(tenant, category) **retention windows** — opt-in, *no default* (absence = keep forever), so nothing is deleted until an admin sets a window; a daily + on-demand purge removes rows **and** their object-storage bytes and is audited. A **legal hold** suspends all purging (preservation overrides minimization). `audit_events` (the tamper-evident record) and `issued_invoices` (statutory accounting retention + gap-free numbering) are deliberately **not** purgeable. Still open: GDPR *erasure* requests that respect statutory retention and surface the conflict rather than silently deleting a legally-required record; per-matter (per-record) holds.
 
 ---
 

@@ -8,7 +8,8 @@ import { api, apiError } from "../lib/api";
 import { isAdminOrAbove } from "../lib/roles";
 import { useModules } from "../lib/useModules";
 import type {
-  IntegrityReport, ValidationSettings, WebhookCreated, WebhookDelivery, WebhookEndpoint,
+  IntegrityReport, RetentionInfo, ValidationSettings, WebhookCreated, WebhookDelivery,
+  WebhookEndpoint,
 } from "../lib/types";
 
 export default function Settings() {
@@ -119,7 +120,130 @@ export default function Settings() {
       {canEdit && <BackgroundJobs />}
       {canEdit && <Webhooks />}
       {canEdit && <IntegrityCheck />}
+      {canEdit && <RetentionPanel />}
     </div>
+  );
+}
+
+// Admin: data-retention windows per category + legal hold. Retention is opt-in
+// (blank = keep forever); a legal hold suspends all purging.
+function RetentionPanel() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [reason, setReason] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+
+  const info = useQuery<RetentionInfo>({
+    queryKey: ["retention"],
+    queryFn: async () => (await api.get("/retention")).data,
+  });
+
+  const setPolicy = useMutation({
+    mutationFn: async (v: { category: string; retain_days: number }) =>
+      (await api.put("/retention/policy", v)).data as RetentionInfo,
+    onSuccess: (d) => qc.setQueryData(["retention"], d),
+    onError: (e) => toast.error(apiError(e)),
+  });
+  const placeHold = useMutation({
+    mutationFn: async () => (await api.post("/retention/holds", { reason })).data,
+    onSuccess: () => { setReason(""); qc.invalidateQueries({ queryKey: ["retention"] }); },
+    onError: (e) => toast.error(apiError(e)),
+  });
+  const releaseHold = useMutation({
+    mutationFn: async (id: string) => (await api.post(`/retention/holds/${id}/release`)).data as RetentionInfo,
+    onSuccess: (d) => qc.setQueryData(["retention"], d),
+    onError: (e) => toast.error(apiError(e)),
+  });
+  const purge = useMutation({
+    mutationFn: async () => (await api.post("/retention/purge")).data as { held: boolean; purged: Record<string, number> },
+    onSuccess: (r) => {
+      const total = Object.values(r.purged).reduce((a, b) => a + b, 0);
+      toast.success(r.held ? "Purge blocked by an active legal hold." : `Purge complete — ${total} record(s) removed.`);
+      qc.invalidateQueries({ queryKey: ["retention"] });
+    },
+    onError: (e) => toast.error(apiError(e)),
+  });
+
+  const d = info.data;
+  const busy = setPolicy.isPending || placeHold.isPending || releaseHold.isPending || purge.isPending;
+
+  return (
+    <section className="space-y-2">
+      <div className="px-1">
+        <h2 className="text-sm font-semibold text-slate-600">Data retention &amp; legal hold</h2>
+        <p className="text-sm text-slate-500">
+          Automatically delete records older than a set number of days (measured from when they entered the
+          system). Leave blank to keep forever. A legal hold suspends all deletion.
+        </p>
+      </div>
+
+      {d?.on_hold && (
+        <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+          A legal hold is active — automatic and manual purges are suspended until it is released.
+        </div>
+      )}
+
+      <div className="card space-y-3">
+        {d?.categories.map((c) => (
+          <div key={c.key} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2 last:border-0 last:pb-0">
+            <div>
+              <div className="text-sm font-medium text-slate-700">{c.label}</div>
+              <div className="text-xs text-slate-400">
+                {c.retain_days ? `Keep ${c.retain_days} days` : "Kept forever"}
+                {c.retain_days ? ` · ${c.purgeable_now} record(s) purgeable now` : ""}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={0}
+                className="input w-28"
+                placeholder="days"
+                value={drafts[c.key] ?? (c.retain_days ?? "")}
+                onChange={(e) => setDrafts((p) => ({ ...p, [c.key]: e.target.value }))}
+              />
+              <button
+                className="btn-ghost py-1"
+                disabled={busy}
+                onClick={() => setPolicy.mutate({ category: c.key, retain_days: Number(drafts[c.key] ?? c.retain_days ?? 0) })}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        ))}
+        <button className="btn-ghost" disabled={busy || d?.on_hold} onClick={() => purge.mutate()}>
+          Run purge now
+        </button>
+      </div>
+
+      <div className="card space-y-3">
+        <div className="text-sm font-medium text-slate-700">Legal holds</div>
+        {d && d.holds.length === 0 && <p className="text-xs text-slate-400">No active holds.</p>}
+        {d?.holds.map((h) => (
+          <div key={h.id} className="flex items-center justify-between gap-2 text-sm">
+            <div>
+              <span className="badge bg-amber-100 text-amber-700">active</span>{" "}
+              <span className="text-slate-600">{h.reason}</span>
+            </div>
+            <button className="btn-ghost py-1" disabled={busy} onClick={() => releaseHold.mutate(h.id)}>
+              Release
+            </button>
+          </div>
+        ))}
+        <div className="flex items-center gap-2">
+          <input
+            className="input flex-1"
+            placeholder="Reason for the hold (e.g. litigation ref)"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+          <button className="btn-primary py-1" disabled={busy || !reason.trim()} onClick={() => placeHold.mutate()}>
+            Place hold
+          </button>
+        </div>
+      </div>
+    </section>
   );
 }
 

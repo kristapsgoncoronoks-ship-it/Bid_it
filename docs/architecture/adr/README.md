@@ -31,5 +31,6 @@ Status values: **Accepted** (in effect), **Proposed** (agreed direction, not yet
 | [0016](./0016-config-secrets.md) | Env config + envelope-encrypted secrets (KMS) | Accepted |
 | [0017](./0017-feature-flags.md) | DB-backed feature flags (modules + settings) | Accepted |
 | [0018](./0018-notifications.md) | Notifications via webhooks + email on the queue | Accepted |
+| [0019](./0019-retention-legal-hold.md) | Data retention windows + legal hold | Accepted |
 
 **To add an ADR:** copy the shape above, take the next number, link it here. Never edit an Accepted ADR's decision in place — supersede it with a new one and mark the old one Superseded.

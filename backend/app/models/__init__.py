@@ -22,6 +22,7 @@ from app.models.module import OrgModule
 from app.models.organization import Organization
 from app.models.partner import Partner, PartnerDocument
 from app.models.recurring_invoice import RecurringInvoice
+from app.models.retention import LegalHold, RetentionPolicy
 from app.models.role_policy import RolePolicy
 from app.models.usage import UsageCounter
 from app.models.user import User, UserRole
@@ -62,4 +63,6 @@ __all__ = [
     "WebhookDelivery",
     "ProcessedStripeEvent",
     "BillingPayment",
+    "RetentionPolicy",
+    "LegalHold",
 ]

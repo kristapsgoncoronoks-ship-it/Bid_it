@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.organization import Organization
-from app.services import billing, job_handlers, jobs
+from app.services import billing, job_handlers, jobs, retention
 
 # The jobs enqueued for every active tenant, once per day.
 DAILY_KINDS = (job_handlers.RECURRING_GENERATE, job_handlers.DUNNING_RUN)
@@ -40,6 +40,15 @@ async def enqueue_daily(db: AsyncSession, *, today: date | None = None) -> int:
     # due today (idempotent per org per due-day).
     for org_id in await billing.orgs_due_for_charge(db, today=today):
         kind = job_handlers.EVERYPAY_CHARGE
+        key = f"{kind}:{today.isoformat()}"
+        before = await _live_exists(db, org_id, kind, key)
+        await jobs.enqueue(db, kind, {}, org_id=org_id, idempotency_key=key)
+        if not before:
+            created += 1
+
+    # Retention purge: only for tenants that have configured a policy.
+    for org_id in await retention.orgs_with_policy(db):
+        kind = job_handlers.RETENTION_PURGE
         key = f"{kind}:{today.isoformat()}"
         before = await _live_exists(db, org_id, kind, key)
         await jobs.enqueue(db, kind, {}, org_id=org_id, idempotency_key=key)
