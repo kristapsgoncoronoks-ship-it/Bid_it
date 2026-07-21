@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import logging
 import secrets
+import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
@@ -22,7 +24,7 @@ from app.schemas.auth import (
     Token,
 )
 from app.schemas.tenancy import AcceptInvite, InvitePreview
-from app.services import audit, oidc, sso_config, team
+from app.services import audit, oidc, saml, sso_config, team
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 log = logging.getLogger("invoiceiq.auth")
@@ -133,6 +135,55 @@ async def sso_callback(db: DbSession, code: str | None = None, state: str | None
     token = create_access_token(user.id, {"org": org.id})
     return RedirectResponse(f"{settings.sso_post_login_url}#access_token={token}",
                             status_code=status.HTTP_302_FOUND)
+
+
+# --- SAML (SP request side + metadata; ADR-0021) ---------------------------
+
+def _saml_ids(slug: str) -> tuple[str, str]:
+    base = settings.api_public_base_url.rstrip("/")
+    sp_entity_id = f"{base}/saml/{slug}"
+    acs_url = f"{base}{settings.api_v1_prefix}/auth/sso/saml/acs"
+    return sp_entity_id, acs_url
+
+
+@router.get("/sso/{slug}/saml/metadata", include_in_schema=False)
+async def saml_metadata(slug: str, db: DbSession):
+    """Our SP metadata XML — the customer registers this with their IdP."""
+    conn = await sso_config.get_by_slug(db, slug)
+    if conn is None or conn.protocol != "saml":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No SAML connection for this workspace")
+    sp_entity_id, acs_url = _saml_ids(slug)
+    return Response(saml.sp_metadata_xml(sp_entity_id=sp_entity_id, acs_url=acs_url),
+                    media_type="application/xml")
+
+
+@router.get("/sso/{slug}/saml/login", include_in_schema=False)
+async def saml_login(slug: str, db: DbSession):
+    """SP-initiated SAML login: redirect to the IdP with a fresh AuthnRequest."""
+    conn = await sso_config.get_by_slug(db, slug)
+    if conn is None or not conn.enabled or conn.protocol != "saml":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "SAML SSO is not enabled for this workspace")
+    if not conn.saml_sso_url:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "SAML connection is not fully configured")
+    sp_entity_id, acs_url = _saml_ids(slug)
+    xml = saml.build_authn_request(
+        request_id="_" + uuid.uuid4().hex,
+        issue_instant=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        sp_entity_id=sp_entity_id, acs_url=acs_url, idp_sso_url=conn.saml_sso_url,
+    )
+    url = saml.redirect_binding_url(conn.saml_sso_url, xml, relay_state=slug)
+    return RedirectResponse(url, status_code=status.HTTP_302_FOUND)
+
+
+@router.post("/sso/saml/acs", include_in_schema=False)
+async def saml_acs():
+    """Assertion Consumer Service — the DELIBERATE boundary (ADR-0021). Validating
+    a signed SAML assertion needs a vetted XML-DSig library + a real IdP; we
+    refuse rather than ship an unvalidated (bypassable) path."""
+    try:
+        saml.consume_assertion()
+    except saml.SamlNotReady as exc:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, str(exc))
 
 
 @router.get("/invite/{token}", response_model=InvitePreview)

@@ -38,3 +38,6 @@ class SsoConnectionUpdate(BaseModel):
     jit_enabled: bool | None = None
     default_role: str | None = Field(default=None, pattern=r"^(user|processor|admin)$")
     saml_metadata_url: str | None = None
+    saml_sso_url: str | None = None
+    saml_idp_entity_id: str | None = None
+    saml_idp_cert: str | None = None

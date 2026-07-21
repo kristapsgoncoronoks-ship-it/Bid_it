@@ -43,5 +43,9 @@ class SsoConnection(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     scim_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     scim_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
-    # SAML (scaffold — not yet wired; see ADR-0021).
+    # SAML (SP request side + config; assertion CONSUMPTION is the finish item —
+    # needs a vetted XML-DSig library + real IdP metadata, see ADR-0021).
     saml_metadata_url: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    saml_sso_url: Mapped[str | None] = mapped_column(String(400), nullable=True)       # IdP SSO endpoint
+    saml_idp_entity_id: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    saml_idp_cert: Mapped[str | None] = mapped_column(String(4000), nullable=True)     # IdP signing cert (PEM/base64)
