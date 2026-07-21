@@ -29,7 +29,7 @@ The **safe, offline-provable half** is implemented in `services/saml.py`: `build
 **The boundary — assertion consumption (`POST /auth/sso/saml/acs`)** is deliberately **NOT** implemented: `saml.consume_assertion()` raises `SamlNotReady` and the route returns **501**. Validating a signed SAML `Response` (XML-DSig signature, exclusive canonicalization, **signature-wrapping** defences, conditions/audience/NotOnOrAfter) with hand-rolled code is an authentication bypass, and **no vetted XML-DSig library is installed** (no pysaml2/xmlsec/lxml). Finishing it requires pinning that library + a real IdP's metadata — the final "return to finish" step. No unvalidated assertion path ships.
 
 ## Security notes / risks
-- **Client secret at rest:** stored on `sso_connections` for the multi-tenant config; **MUST move to the envelope-encrypted secret store (ADR-0016) before GA** — tracked here.
+- **Client secret at rest:** **sealed with AES-256-GCM** (`keyvault.py`, ADR-0016) — written encrypted by `sso_config`, unsealed on use, never returned by the API. The remaining decision is the **production KEK provider** (env/BYOK vs cloud KMS), tracked in docs/DECISIONS-NEEDED.md §5.
 - **Open-redirect / token leak:** the callback only ever redirects to our configured `sso_post_login_url`; the token rides the fragment (not sent to servers/logs).
 - **Cross-tenant takeover:** JIT refuses an email already owned by another workspace; domain allow-listing further constrains it.
 - **Replay:** nonce is required and checked; `state` is signed + short-TTL.

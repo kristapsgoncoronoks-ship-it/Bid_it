@@ -175,6 +175,13 @@ class Settings(BaseSettings):
     def stripe_meter_for(self, metric: str) -> str | None:
         return {"upload": self.stripe_meter_upload}.get(metric)
 
+    # --- Secret encryption (ADR-0016) ---
+    # KEK for app-level secret sealing (keyvault.py). `local` (default) derives
+    # the key from `secret_key`; set `kek_key` (base64 32 bytes, BYOK) for
+    # production, or wire a cloud KMS behind the keyvault seam later.
+    kek_provider: str = Field(default="local")   # local | env(BYOK) | (future) kms
+    kek_key: str | None = Field(default=None)     # base64-encoded 32-byte KEK
+
     # --- Data residency / region-pinning (ADR-0022) ---
     # `service_region` is THIS deployment's data plane (e.g. "eu", "us"). New
     # tenants are pinned to `default_tenant_region` (defaults to service_region).

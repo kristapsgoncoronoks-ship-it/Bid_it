@@ -29,13 +29,14 @@ from jose import JWTError, jwt
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import keyvault
 from app.core.config import settings
 from app.core.roles import ROLE_RANK
 from app.core.security import hash_password
 from app.models.organization import Organization
 from app.models.sso import SsoConnection
 from app.models.user import User, UserRole
-from app.services import audit
+from app.services import audit, sso_config
 
 log = logging.getLogger("invoiceiq.oidc")
 
@@ -204,9 +205,12 @@ async def finish_login(db: AsyncSession, connection: SsoConnection, *, code: str
         raise SsoError("connection is not fully configured")
 
     disco = await discover(connection.issuer)
+    # The stored client secret is sealed at rest (ADR-0016); read it tolerant of a
+    # plaintext value written before sealing was applied.
+    client_secret = keyvault.read_secret(connection.client_secret, aad=sso_config.CLIENT_SECRET_AAD)
     tokens = await exchange_code(
         disco["token_endpoint"], code=code, redirect_uri=settings.sso_redirect_uri,
-        client_id=connection.client_id, client_secret=connection.client_secret,
+        client_id=connection.client_id, client_secret=client_secret,
         code_verifier=code_verifier,
     )
     id_token = tokens.get("id_token")

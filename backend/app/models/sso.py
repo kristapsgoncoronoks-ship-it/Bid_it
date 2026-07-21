@@ -14,9 +14,10 @@ class SsoConnection(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     (scaffolded — see ADR-0021). JIT provisioning creates a user in THIS org on
     first successful login, with `default_role`.
 
-    Security note: `client_secret` is stored here for the multi-tenant config.
-    Before GA it MUST move to the envelope-encrypted secret store (ADR-0016);
-    tracked as a finish-line item in ADR-0021.
+    Security note: `client_secret` is **sealed at rest** (AES-256-GCM via
+    `keyvault.py`, ADR-0016) — written encrypted by `sso_config`, read back with
+    `keyvault.read_secret`. The production KEK provider (env/BYOK vs cloud KMS) is
+    a deployment decision (see docs/DECISIONS-NEEDED.md §5).
     """
 
     __tablename__ = "sso_connections"

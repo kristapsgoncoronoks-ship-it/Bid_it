@@ -5,7 +5,11 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import keyvault
 from app.models.sso import SsoConnection
+
+# AAD binding for the SSO OAuth client secret (ADR-0016).
+CLIENT_SECRET_AAD = "sso:client_secret"
 
 _EDITABLE = (
     "slug", "protocol", "enabled", "issuer", "client_id", "client_secret",
@@ -27,6 +31,9 @@ async def get_by_slug(db: AsyncSession, slug: str) -> SsoConnection | None:
 async def upsert_connection(db: AsyncSession, org_id: str, fields: dict) -> SsoConnection:
     conn = await get_connection(db, org_id)
     data = {k: v for k, v in fields.items() if k in _EDITABLE and v is not None}
+    # Encrypt the OAuth client secret at rest (ADR-0016) — never store plaintext.
+    if data.get("client_secret"):
+        data["client_secret"] = keyvault.seal(data["client_secret"], aad=CLIENT_SECRET_AAD)
     if conn is None:
         conn = SsoConnection(org_id=org_id, **data)
         db.add(conn)

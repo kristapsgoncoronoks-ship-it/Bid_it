@@ -20,5 +20,10 @@ Env config keeps the image environment-agnostic; envelope encryption gives per-s
 - KEK loss/rotation on a populated store → documented re-wrap migration; KMS-managed lifecycle.
 - Misconfigured provider → fail-loud on missing keys in production.
 
+## Implementation status
+**Shipped:** `core/keyvault.py` — app-level secret sealing with **AES-256-GCM**, a random 96-bit nonce per seal, and **AAD binding** (a ciphertext can't be lifted between fields); GCM auth failures **raise** `KeyvaultError` (never silently return ""). KEK provider is pluggable: `local` (derived from `secret_key`, default) or **BYOK** (`kek_key`, base64 32 bytes). First consumer: the **SSO OAuth client secret is sealed at rest** (`sso_config` seals on write, `oidc` unseals on use, the API never returns it). Tests cover roundtrip, AAD binding, tamper + wrong-key rejection, BYOK, and the SSO integration.
+
+**Deferred (the fuller design above):** a **per-secret DEK** wrapped by the KEK (true envelope) and a **cloud-KMS** provider — this module is the seam that swaps in. The production KEK-provider choice is a deployment decision (docs/DECISIONS-NEEDED.md §5). Today's single-KEK GCM is honest and sufficient for the current secret surface.
+
 ## Revisit when
 Multi-region/BYOK-per-tenant requirements arrive (move KEK to per-tenant KMS keys), or a dedicated secrets manager (Vault) is warranted operationally.
