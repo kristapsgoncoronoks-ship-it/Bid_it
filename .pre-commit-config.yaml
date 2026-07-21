@@ -1,0 +1,28 @@
+# Pre-commit hooks — the same gates CI runs, but on `git commit` so problems are
+# caught before they leave your machine. Install once:  pre-commit install
+# Run on everything:  pre-commit run --all-files
+#
+# We pin ruff (lint + format) as the enforced backend gate. mypy is intentionally
+# NOT a commit hook (it needs the full venv + is slower) — run `make typecheck`.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.22
+    hooks:
+      - id: ruff
+        name: ruff (lint, autofix)
+        args: [--fix]
+        files: ^backend/
+      - id: ruff-format
+        name: ruff (format)
+        files: ^backend/
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: check-case-conflict

@@ -1,0 +1,34 @@
+# Automated dependency-update PRs. Weekly, grouped, capped so the queue stays
+# reviewable. Engineering rule: security patches merge on green CI; minor/patch
+# bumps are batched; majors are read for breaking changes before merge (see
+# docs/architecture/engineering-rules.md § Dependency updates).
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      backend-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      frontend-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: weekly

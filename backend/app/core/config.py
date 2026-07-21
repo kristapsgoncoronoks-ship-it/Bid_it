@@ -3,18 +3,19 @@
 Twelve-factor: every deployment-specific value comes from the environment. The
 defaults are safe for local development only.
 """
+
 from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+INSECURE_SECRET_KEY = "dev-insecure-change-me"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # --- App ---
     app_name: str = "InvoiceIQ"
@@ -45,13 +46,15 @@ class Settings(BaseSettings):
     storage_backend: str = Field(default="local")
     storage_local_path: str = Field(default="./var/storage")
     storage_s3_bucket: str = Field(default="invoiceiq-documents")
-    storage_s3_endpoint_url: str = Field(default="")   # e.g. http://minio:9000 for MinIO; blank = AWS
+    storage_s3_endpoint_url: str = Field(
+        default=""
+    )  # e.g. http://minio:9000 for MinIO; blank = AWS
     storage_s3_region: str = Field(default="")
-    storage_s3_prefix: str = Field(default="")         # optional key prefix within the bucket
+    storage_s3_prefix: str = Field(default="")  # optional key prefix within the bucket
 
     # --- Auth ---
     # MUST be overridden in production (openssl rand -hex 32).
-    secret_key: str = Field(default="dev-insecure-change-me")
+    secret_key: str = Field(default=INSECURE_SECRET_KEY)
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24  # 24h
 
@@ -179,8 +182,8 @@ class Settings(BaseSettings):
     # KEK for app-level secret sealing (keyvault.py). `local` (default) derives
     # the key from `secret_key`; set `kek_key` (base64 32 bytes, BYOK) for
     # production, or wire a cloud KMS behind the keyvault seam later.
-    kek_provider: str = Field(default="local")   # local | env(BYOK) | (future) kms
-    kek_key: str | None = Field(default=None)     # base64-encoded 32-byte KEK
+    kek_provider: str = Field(default="local")  # local | env(BYOK) | (future) kms
+    kek_key: str | None = Field(default=None)  # base64-encoded 32-byte KEK
 
     # --- Data residency / region-pinning (ADR-0022) ---
     # `service_region` is THIS deployment's data plane (e.g. "eu", "us"). New
@@ -201,8 +204,8 @@ class Settings(BaseSettings):
     # The queue is "degraded" when the oldest ready-but-unprocessed job is older
     # than this (worker falling behind), or the dead-letter depth exceeds the
     # threshold. Surfaced on /health/queue (503 when breached) + /metrics.
-    queue_slo_max_pending_age_seconds: int = Field(default=900)   # 15 min
-    queue_dlq_alert_threshold: int = Field(default=0)             # any dead job alerts
+    queue_slo_max_pending_age_seconds: int = Field(default=900)  # 15 min
+    queue_dlq_alert_threshold: int = Field(default=0)  # any dead job alerts
 
     # --- Rate limiting (ADR-0015) ---
     # First-line abuse + brute-force guard. PER-PROCESS fixed-window counters, so
@@ -210,8 +213,8 @@ class Settings(BaseSettings):
     # tradeoff; a precise global limit is the shared-store scale path). Set a
     # limit <= 0 to disable that tier. `/auth/*` gets the stricter tier.
     rate_limit_enabled: bool = Field(default=True)
-    rate_limit_per_min: int = Field(default=300)       # general API, per token/IP
-    rate_limit_auth_per_min: int = Field(default=20)   # /auth/*, per client IP
+    rate_limit_per_min: int = Field(default=300)  # general API, per token/IP
+    rate_limit_auth_per_min: int = Field(default=20)  # /auth/*, per client IP
 
     # --- CORS ---
     # Comma-separated list of allowed origins for the SPA.
@@ -233,6 +236,27 @@ class Settings(BaseSettings):
     def structured_logs(self) -> bool:
         # Explicit override wins; otherwise JSON logs in production only.
         return self.log_json if self.log_json is not None else self.is_production
+
+    @model_validator(mode="after")
+    def _validate_production(self) -> Settings:
+        """Fail fast when a production deployment still carries an insecure/dev
+        default. Dev and test (environment != 'production') are unaffected, so
+        zero-config local startup keeps working. This turns a silent security
+        footgun (booting prod with the dev signing key) into a boot-time crash."""
+        if self.environment != "production":
+            return self
+        problems: list[str] = []
+        if self.secret_key == INSECURE_SECRET_KEY:
+            problems.append("secret_key is still the insecure dev default (set SECRET_KEY)")
+        if self.is_sqlite:
+            problems.append("database_url points at SQLite (set a Postgres DATABASE_URL)")
+        if self.kek_provider == "env" and not self.kek_key:
+            problems.append("kek_provider=env but kek_key is unset (set KEK_KEY, base64 32 bytes)")
+        if "*" in self.cors_origin_list:
+            problems.append("cors_origins allows '*' with credentials (set explicit origins)")
+        if problems:
+            raise ValueError("Insecure production configuration:\n  - " + "\n  - ".join(problems))
+        return self
 
 
 @lru_cache

@@ -13,6 +13,7 @@ from app import __version__
 from app.api.router import api_router
 from app.core.config import settings
 from app.core.database import engine, get_session
+from app.core.errors import AppError
 from app.core.observability import (
     RequestContextMiddleware,
     configure_logging,
@@ -22,7 +23,8 @@ from app.core.ratelimit import RateLimitMiddleware
 from app.core.security_headers import SecurityHeadersMiddleware
 from app.core.tenant import TenantScopeMiddleware
 from app.models import Base
-from app.services.scim import ERROR_SCHEMA as SCIM_ERROR_SCHEMA, ScimError
+from app.services.scim import ERROR_SCHEMA as SCIM_ERROR_SCHEMA
+from app.services.scim import ScimError
 
 configure_logging(settings.structured_logs)
 log = logging.getLogger("invoiceiq")
@@ -98,8 +100,30 @@ async def _scim_error_handler(request, exc: ScimError):
     from fastapi.responses import JSONResponse
 
     return JSONResponse(
-        status_code=exc.status, media_type="application/scim+json",
+        status_code=exc.status,
+        media_type="application/scim+json",
         content={"schemas": [SCIM_ERROR_SCHEMA], "detail": exc.detail, "status": str(exc.status)},
+    )
+
+
+@app.exception_handler(AppError)
+async def _app_error_handler(request, exc: AppError):
+    """Map a framework-agnostic service error (app.core.errors) to the API's error
+    shape — {"detail", "code"}. The X-Request-ID header is added by the middleware."""
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(status_code=exc.status, content={"detail": exc.message, "code": exc.code})
+
+
+@app.exception_handler(Exception)
+async def _unhandled_error_handler(request, exc: Exception):
+    """Last-resort 500: never leak an internal message or a bare text body. The
+    exception is already logged with the request id by RequestContextMiddleware;
+    the client gets a stable JSON envelope + the X-Request-ID header to quote."""
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        status_code=500, content={"detail": "Internal server error", "code": "internal_error"}
     )
 
 
@@ -143,7 +167,8 @@ async def queue_health(db: Annotated[AsyncSession, Depends(get_session)]):
     h = await qh.snapshot(db)
     body = {
         "status": "ok" if h.slo_ok else "degraded",
-        "dead": h.dead, "pending": h.pending,
+        "dead": h.dead,
+        "pending": h.pending,
         "oldest_pending_seconds": h.oldest_pending_seconds,
         "by_status": h.counts,
     }

@@ -77,6 +77,13 @@ frontend/   React + Vite + TS SPA (TanStack Query, Recharts, Tailwind)
 docker-compose.yml   postgres + backend + frontend
 ```
 
+The full foundation reference — file structure, env-var table, commands, boundary
+tests, health-check demo — is **[docs/architecture/foundation.md](./docs/architecture/foundation.md)**.
+The rules for changing the codebase (naming, boundaries, errors, secrets,
+migrations, tests, PRs, deps) are **[docs/architecture/engineering-rules.md](./docs/architecture/engineering-rules.md)**.
+Run the whole CI gate locally with `make check` (lint + typecheck + tests);
+`pre-commit install` runs lint + format on every commit.
+
 ## Configuration
 
 Backend reads env vars (see `backend/.env.example`): `DATABASE_URL`,
