@@ -48,8 +48,7 @@ async def _check(report: IntegrityReport, kind: str, entity_id: str, prefix: str
                  org_id: str, sha256: str) -> None:
     report.checked += 1
     try:
-        # legacy=None: verify the STORAGE object specifically (no DB-blob fallback).
-        data = await documents.load(prefix, org_id, sha256, legacy=None)
+        data = await documents.load(prefix, org_id, sha256)
     except storage.StorageError:
         report.issues.append(DocIssue(kind, entity_id, "missing", "object not found in storage"))
         return

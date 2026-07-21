@@ -52,11 +52,9 @@ async def test_documents_store_and_load_roundtrip():
 
 
 @pytest.mark.asyncio
-async def test_documents_load_falls_back_to_legacy_blob():
-    # A pre-migration row with no sha256 but bytes still in the DB column.
-    legacy = b"old bytes"
-    loaded = await documents.load(documents.RECEIPTS, "org-9", None, legacy=legacy)
-    assert loaded == legacy
+async def test_documents_load_returns_none_without_reference():
+    # No sha256 reference → nothing to load (the legacy in-DB blob was dropped).
+    assert await documents.load(documents.RECEIPTS, "org-9", None) is None
 
 
 # --- End-to-end: bytes go to storage, NOT the database -------------------------
@@ -88,7 +86,6 @@ async def test_logo_bytes_leave_the_database(auth_client, db_session):
     row = await db_session.scalar(select(IssuerProfile))
     assert row.logo_sha256 == storage.sha256_hex(_PNG)
     assert row.logo_size == len(_PNG)
-    assert row.logo_data is None  # bytes are in object storage, not the DB
 
     # And the serve endpoint reads them back from storage.
     got = await auth_client.get("/api/v1/issuer/logo")
@@ -119,7 +116,6 @@ async def test_receipt_bytes_leave_the_database(auth_client, db_session):
 
     item = await db_session.scalar(select(ExpenseItem).where(ExpenseItem.id == item_id))
     assert item.receipt_sha256 == storage.sha256_hex(_PNG)
-    assert item.receipt_data is None
 
     got = await auth_client.get(f"/api/v1/expenses/{report['id']}/items/{item_id}/receipt")
     assert got.status_code == 200 and got.content == _PNG

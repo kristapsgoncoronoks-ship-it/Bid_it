@@ -66,7 +66,7 @@ def _detail(r: ExpenseReport) -> ExpenseReportDetail:
         # from_attributes carries the dimension tags + base fields; the two
         # derived flags are computed here.
         out = ExpenseItemOut.model_validate(it)
-        out.has_receipt = it.receipt_sha256 is not None or it.receipt_data is not None
+        out.has_receipt = it.receipt_sha256 is not None
         out.verified = it.bank_reference is not None
         items.append(out)
     d.items = items
@@ -555,7 +555,6 @@ async def upload_receipt(report_id: str, item_id: str, current: CurrentUser, db:
     item.receipt_mime = mime
     item.receipt_sha256 = sha
     item.receipt_size = size
-    item.receipt_data = None  # bytes now live in object storage
     await db.commit()
     await db.refresh(r, attribute_names=["items"])
     return _detail(r)
@@ -567,11 +566,9 @@ async def get_receipt(report_id: str, item_id: str, current: CurrentUser, db: Db
     r = await _load(db, current.org_id, report_id)
     _require_view(r, current)
     item = next((i for i in r.items if i.id == item_id), None)
-    if item is None or not (item.receipt_sha256 or item.receipt_data):
+    if item is None or not item.receipt_sha256:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Receipt not found")
-    content = await documents.load(
-        documents.RECEIPTS, current.org_id, item.receipt_sha256, legacy=item.receipt_data
-    )
+    content = await documents.load(documents.RECEIPTS, current.org_id, item.receipt_sha256)
     await audit.record(db, audit.A.DOC_DOWNLOAD, target_type="receipt", target_id=item_id,
                        meta={"report_id": report_id})
     await db.commit()

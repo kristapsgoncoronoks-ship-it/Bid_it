@@ -111,7 +111,6 @@ async def process_attachment(
         size=len(content),
         sha256=sha,
         method=_method_for(filename or ""),
-        file_data=None,
     )
     try:
         filesec.check(filename or "attachment", content, allowed=filesec.INVOICE_KINDS)
@@ -127,7 +126,6 @@ async def process_attachment(
     # burst of attachments never ties up the API with OCR (ADR-0009). The row is
     # QUEUED here; the worker parses it into a review draft (or marks it failed).
     await documents.store(documents.EMAIL_ATTACHMENTS, org_id, content, row.content_type)
-    row.file_data = None
     row.status = "queued"
     db.add(row)
     await db.flush()  # assign row.id before enqueuing the extract job
@@ -150,7 +148,7 @@ async def extract_inbound(db: AsyncSession, inbound_id: str) -> dict:
     if row.status not in ("queued", "failed"):
         return {"skipped": f"status={row.status}"}  # already parsed/confirmed
 
-    content = await documents.load(documents.EMAIL_ATTACHMENTS, row.org_id, row.sha256, legacy=row.file_data)
+    content = await documents.load(documents.EMAIL_ATTACHMENTS, row.org_id, row.sha256)
     if content is None:
         row.status = "failed"
         row.error = "stored attachment missing"

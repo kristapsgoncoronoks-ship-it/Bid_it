@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -46,7 +46,6 @@ class InboundInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     draft_json: Mapped[str | None] = mapped_column(Text, nullable=True)     # ParsedInvoiceDraft JSON
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    file_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)  # original attachment
 
     invoice_id: Mapped[str | None] = mapped_column(
         GUID(), ForeignKey("invoices.id", ondelete="SET NULL"), nullable=True

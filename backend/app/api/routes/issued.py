@@ -254,10 +254,8 @@ async def _render_pdf(db: DbSession, org_id: str, inv: IssuedInvoice) -> bytes:
     xml = facturx.build_cii(inv, seller, result)
     profile = await issuer.get_or_create(db, org_id)
     logo = None
-    if profile.logo_sha256 or profile.logo_data:
-        logo_bytes = await documents.load(
-            documents.LOGOS, org_id, profile.logo_sha256, legacy=profile.logo_data
-        )
+    if profile.logo_sha256:
+        logo_bytes = await documents.load(documents.LOGOS, org_id, profile.logo_sha256)
         if logo_bytes:
             logo = (profile.logo_mime, logo_bytes)
     return await run_in_threadpool(invoice_pdf.build_pdf, inv, seller, result, xml, logo)

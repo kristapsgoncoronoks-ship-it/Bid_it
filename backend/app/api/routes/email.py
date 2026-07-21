@@ -159,7 +159,7 @@ async def get_inbound(inbound_id: str, current: CurrentUser, db: DbSession):
     detail.draft = draft
     # A rejected (quarantined) attachment carries a sha256 for the audit trail but
     # its bytes were never retained — so it has no downloadable file.
-    detail.has_file = row.status != "rejected" and (row.sha256 is not None or row.file_data is not None)
+    detail.has_file = row.status != "rejected" and row.sha256 is not None
     return detail
 
 
@@ -212,11 +212,9 @@ async def delete_inbound(inbound_id: str, current: CurrentUser, db: DbSession):
 async def download_file(inbound_id: str, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     row = await _load(db, current.org_id, inbound_id)
-    if row.status == "rejected" or not (row.sha256 or row.file_data):
+    if row.status == "rejected" or not row.sha256:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No stored file for this attachment")
-    content = await documents.load(
-        documents.EMAIL_ATTACHMENTS, current.org_id, row.sha256, legacy=row.file_data
-    )
+    content = await documents.load(documents.EMAIL_ATTACHMENTS, current.org_id, row.sha256)
     await audit.record(db, audit.A.DOC_DOWNLOAD, target_type="inbound_invoice", target_id=inbound_id,
                        meta={"filename": row.filename})
     await db.commit()
