@@ -1,0 +1,115 @@
+"""Tenant currency-catalog service (Slice 5a).
+
+CRUD-lite over the per-tenant currency registry: a duplicate-code guard, an
+active/archived flag with optimistic concurrency, a `resolve` lookup, and an
+idempotent standard seed. Tenant-scoped by the caller's `org_id`; the ORM guard +
+RLS are the belt-and-braces. Codes are archived, never hard-deleted.
+"""
+
+from __future__ import annotations
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.currency import Currency
+
+
+class CurrencyError(Exception):
+    """Business-rule violation (duplicate code, stale write)."""
+
+
+class ConcurrencyError(CurrencyError):
+    """Optimistic-concurrency conflict: the row changed since it was read."""
+
+
+# (code, name, symbol, decimal_places) — a compact, realistic default set (the
+# euro-area home currency plus the majors the FX layer already handles).
+_STANDARD: tuple[tuple[str, str, str | None, int], ...] = (
+    ("EUR", "Euro", "€", 2),
+    ("USD", "US Dollar", "$", 2),
+    ("GBP", "Pound Sterling", "£", 2),
+    ("CHF", "Swiss Franc", None, 2),
+    ("SEK", "Swedish Krona", None, 2),
+    ("NOK", "Norwegian Krone", None, 2),
+    ("DKK", "Danish Krone", None, 2),
+    ("PLN", "Polish Zloty", None, 2),
+    ("JPY", "Japanese Yen", "¥", 0),
+)
+
+
+async def _code_taken(db: AsyncSession, org_id: str, code: str) -> bool:
+    return bool(
+        await db.scalar(
+            select(Currency.id).where(Currency.org_id == org_id, Currency.code == code.upper())
+        )
+    )
+
+
+async def create(
+    db: AsyncSession,
+    org_id: str,
+    *,
+    code: str,
+    name: str,
+    symbol: str | None = None,
+    decimal_places: int = 2,
+) -> Currency:
+    code = code.upper()
+    if await _code_taken(db, org_id, code):
+        raise CurrencyError(f"currency '{code}' already exists")
+    cur = Currency(
+        org_id=org_id, code=code, name=name, symbol=symbol, decimal_places=decimal_places
+    )
+    db.add(cur)
+    await db.commit()
+    await db.refresh(cur)
+    return cur
+
+
+async def list_currencies(
+    db: AsyncSession, org_id: str, *, include_inactive: bool = False
+) -> list[Currency]:
+    stmt = select(Currency).where(Currency.org_id == org_id)
+    if not include_inactive:
+        stmt = stmt.where(Currency.active.is_(True))
+    return list(await db.scalars(stmt.order_by(Currency.code.asc())))
+
+
+async def resolve(db: AsyncSession, org_id: str, code: str) -> Currency | None:
+    """Look up ONE currency by code (any status)."""
+    if not code or not code.strip():
+        return None
+    return await db.scalar(
+        select(Currency).where(Currency.org_id == org_id, Currency.code == code.strip().upper())
+    )
+
+
+async def set_active(
+    db: AsyncSession, org_id: str, code_id: str, *, active: bool, expected_version: int
+) -> Currency:
+    row = await db.scalar(select(Currency).where(Currency.org_id == org_id, Currency.id == code_id))
+    if row is None:
+        raise CurrencyError("currency not found")
+    if row.version != expected_version:
+        raise ConcurrencyError(
+            f"stale write: expected version {expected_version}, current is {row.version}"
+        )
+    row.active = active
+    row.version += 1
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+async def seed_standard(db: AsyncSession, org_id: str) -> int:
+    """Seed the default currency set for a tenant; skips any code already present
+    (idempotent). Commits once. Returns how many were created."""
+    made = 0
+    for code, name, symbol, dp in _STANDARD:
+        if await _code_taken(db, org_id, code):
+            continue
+        db.add(Currency(org_id=org_id, code=code, name=name, symbol=symbol, decimal_places=dp))
+        made += 1
+    if made:
+        await db.commit()
+    return made

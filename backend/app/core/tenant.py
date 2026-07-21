@@ -25,6 +25,7 @@ from app.models.audit import AuditEvent
 from app.models.billing_payment import BillingPayment
 from app.models.budget import BudgetTarget
 from app.models.costing import CostCenter, Department, Project
+from app.models.currency import Currency
 from app.models.email_intake import EmailIntake, InboundInvoice
 from app.models.email_message import EmailMessage
 from app.models.expense import ExpenseComment, ExpenseItem, ExpenseReport, ExpenseTransaction
@@ -82,6 +83,7 @@ TENANT_MODELS = (
     CostCenter,
     Project,
     TaxCode,
+    Currency,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.

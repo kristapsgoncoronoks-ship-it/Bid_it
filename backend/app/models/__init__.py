@@ -6,6 +6,7 @@ from app.models.billing_event import ProcessedStripeEvent
 from app.models.billing_payment import BillingPayment
 from app.models.budget import BudgetTarget
 from app.models.costing import CostCenter, Department, Project
+from app.models.currency import Currency
 from app.models.email_intake import EmailIntake, InboundInvoice
 from app.models.email_message import EmailMessage
 from app.models.expense import (
@@ -70,6 +71,7 @@ __all__ = [
     "BillingPayment",
     "Payment",
     "TaxCode",
+    "Currency",
     "RetentionPolicy",
     "LegalHold",
     "SsoConnection",
