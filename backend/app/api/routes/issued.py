@@ -51,6 +51,7 @@ from app.services import (
     modules,
     partners,
     payments,
+    tax_codes,
     vat,
     webhooks,
 )
@@ -123,6 +124,18 @@ async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbS
                 status.HTTP_409_CONFLICT,
                 f"Cannot issue to {partner.name}: awaiting signed {labels}.",
             )
+
+    # Resolve any line tax-code to its catalogue rate (Slice 4b): the code drives
+    # vat_rate; the canonical code is snapshotted onto the line.
+    for li in body.lines:
+        if li.tax_code:
+            tc = await tax_codes.resolve(db, current.org_id, li.tax_code)
+            if tc is None or not tc.active:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST, f"Unknown or inactive tax code '{li.tax_code}'"
+                )
+            li.vat_rate = tc.rate
+            li.tax_code = tc.code
 
     inv = issued_service.build_invoice(profile, body, org_id=current.org_id, partner=partner)
     db.add(inv)

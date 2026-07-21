@@ -15,6 +15,8 @@ class IssuedLineIn(BaseModel):
     unit: str = Field(default="C62", max_length=8)
     unit_price: Decimal = Field(ge=0)
     vat_rate: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+    # Optional tax-code catalogue reference; when set, its rate overrides vat_rate.
+    tax_code: str | None = Field(default=None, max_length=24)
 
 
 class IssuedInvoiceCreate(BaseModel):
@@ -54,6 +56,7 @@ class IssuedLineOut(BaseModel):
     unit_price: Decimal
     vat_rate: Decimal
     net_amount: Decimal
+    tax_code: str | None = None
 
 
 class IssuedInvoiceOut(BaseModel):

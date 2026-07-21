@@ -119,5 +119,9 @@ class IssuedInvoiceLine(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     unit_price: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
     vat_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0"), nullable=False)
     net_amount: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
+    # Slice 4b: SNAPSHOT of the tax-code catalogue entry chosen at issue time (the
+    # code drives `vat_rate` on creation). A label, not a live FK — an issued
+    # invoice is immutable, so a later catalogue edit must not change it.
+    tax_code: Mapped[str | None] = mapped_column(String(24), nullable=True)
 
     invoice: Mapped[IssuedInvoice] = relationship(back_populates="lines")

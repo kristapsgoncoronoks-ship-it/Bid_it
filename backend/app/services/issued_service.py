@@ -91,8 +91,11 @@ def build_invoice(
                 unit_price=li["unit_price"],
                 vat_rate=li["vat_rate"],
                 net_amount=li["net_amount"],
+                # Carry the chosen catalogue code through as a snapshot label
+                # (result.lines is 1:1 with body.lines, in order).
+                tax_code=src.tax_code,
             )
-            for i, li in enumerate(result.lines)
+            for i, (li, src) in enumerate(zip(result.lines, body.lines, strict=False))
         ],
     )
 
