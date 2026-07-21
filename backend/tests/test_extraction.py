@@ -23,9 +23,9 @@ _CSV = (
 
 
 @pytest.mark.asyncio
-async def test_upload_records_run_and_save_links_it(auth_client):
+async def test_upload_records_run_and_save_links_it(auth_client, parse_upload):
     files = {"file": ("lines.csv", io.BytesIO(_CSV.encode()), "text/csv")}
-    up = (await auth_client.post("/api/v1/invoices/upload", files=files)).json()
+    up = await parse_upload(auth_client, files)
     assert up["method"] == "csv"
     run_id = up["extraction_run_id"]
     assert run_id and up["draft"]["extraction_run_id"] == run_id
@@ -68,11 +68,20 @@ async def test_manual_invoice_has_no_lineage(auth_client):
 
 @pytest.mark.asyncio
 async def test_failed_parse_records_failed_run(auth_client, db_session):
-    # A .csv with a header but no usable columns → parser raises → 422 + failed run.
+    # A .csv with a header but no usable columns → the worker's parse raises →
+    # the run is marked failed (visible provenance), surfaced on the poll.
+    from app.services import jobs
+
     bad = "foo,bar\n1,2\n"
     files = {"file": ("bad.csv", io.BytesIO(bad.encode()), "text/csv")}
     r = await auth_client.post("/api/v1/invoices/upload", files=files)
-    assert r.status_code == 422
+    assert r.status_code == 202
+    run_id = r.json()["extraction_run_id"]
+    for _ in range(30):
+        if await jobs.run_once(db_session, "tw") is None:
+            break
+    res = (await auth_client.get(f"/api/v1/invoices/upload/{run_id}")).json()
+    assert res["status"] == "failed" and res["error"]
     run = await db_session.scalar(select(ExtractionRun).where(ExtractionRun.method == "failed"))
     assert run is not None and run.status == "failed" and run.invoice_id is None
     assert run.source_filename == "bad.csv" and run.note

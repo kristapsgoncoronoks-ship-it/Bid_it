@@ -72,3 +72,4 @@ async def delete(prefix: str, org_id: str, sha256: str | None) -> None:
 RECEIPTS = "receipts"
 LOGOS = "logos"
 EMAIL_ATTACHMENTS = "email-attachments"
+UPLOADS = "uploads"  # UI direct uploads, persisted so the worker can parse off-tier

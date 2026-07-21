@@ -115,6 +115,25 @@ class ParsedInvoiceDraft(BaseModel):
     fields: list[FieldProvenance] = Field(default_factory=list)
 
 
+class UploadAccepted(BaseModel):
+    """202 response to a direct upload — the parse/OCR is queued on the worker
+    tier (Stage B). Poll GET /invoices/upload/{extraction_run_id} for the draft."""
+
+    extraction_run_id: str
+    status: str = "queued"  # queued | running
+
+
+class ExtractionResult(BaseModel):
+    """Poll response for an async upload capture. `draft` is populated once
+    `status == "parsed"`; `error` carries the reason when `status == "failed"`."""
+
+    extraction_run_id: str
+    status: str  # queued | running | parsed | failed
+    method: str | None = None
+    draft: ParsedInvoiceDraft | None = None
+    error: str | None = None
+
+
 class FieldProvenanceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

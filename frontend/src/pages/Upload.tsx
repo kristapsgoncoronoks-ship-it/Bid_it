@@ -3,7 +3,15 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, apiError } from "../lib/api";
 import { METHOD_STYLES, methodLabel, money } from "../lib/format";
-import type { InvoiceCreate, InvoiceDetail, ParsedDraft } from "../lib/types";
+import type {
+  ExtractionResult,
+  InvoiceCreate,
+  InvoiceDetail,
+  ParsedDraft,
+  UploadAccepted,
+} from "../lib/types";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export default function Upload() {
   const navigate = useNavigate();
@@ -12,11 +20,22 @@ export default function Upload() {
   const [method, setMethod] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // The parse/OCR now runs on the worker tier: upload returns 202 + a run id,
+  // then we poll until the draft is ready (or the parse fails).
   const parse = useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async (file: File): Promise<ParsedDraft> => {
       const form = new FormData();
       form.append("file", file);
-      return (await api.post<ParsedDraft>("/invoices/upload", form)).data;
+      const accepted = (await api.post<UploadAccepted>("/invoices/upload", form)).data;
+      const runId = accepted.extraction_run_id;
+      // Poll for the result — backoff a little, cap the wait.
+      for (let attempt = 0; attempt < 60; attempt++) {
+        await sleep(attempt < 5 ? 500 : 1500);
+        const res = (await api.get<ExtractionResult>(`/invoices/upload/${runId}`)).data;
+        if (res.status === "parsed" && res.draft) return res.draft;
+        if (res.status === "failed") throw new Error(res.error || "Could not read the document");
+      }
+      throw new Error("Still processing — check back shortly.");
     },
     onSuccess: (data) => {
       setDraft(data.draft);
@@ -67,7 +86,7 @@ export default function Upload() {
           }}
         />
         <div className="text-slate-500">
-          {parse.isPending ? "Parsing…" : "Click to choose a file"}
+          {parse.isPending ? "Processing… (reading on the server)" : "Click to choose a file"}
         </div>
         <div className="mt-1 text-xs text-slate-400">PDF (text/scanned/Factur-X), e-invoice XML (UBL/CII), CSV, or JSON</div>
       </label>

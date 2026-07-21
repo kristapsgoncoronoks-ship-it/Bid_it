@@ -39,7 +39,7 @@ spec:
       containers:
         - name: worker
           image: ghcr.io/OWNER/REPO/backend:VERSION
-          command: ["python", "-m", "app.worker", "--kinds", "email.extract"]
+          command: ["python", "-m", "app.worker", "--kinds", "email.extract,upload.extract"]
           envFrom:
             - configMapRef: { name: invoiceiq-config }
             - secretRef: { name: invoiceiq-secrets }
@@ -83,7 +83,7 @@ spec:
       containers:
         - name: worker
           image: ghcr.io/OWNER/REPO/backend:VERSION
-          command: ["python", "-m", "app.worker", "--exclude", "email.extract"]
+          command: ["python", "-m", "app.worker", "--exclude", "email.extract,upload.extract"]
           envFrom:
             - configMapRef: { name: invoiceiq-config }
             - secretRef: { name: invoiceiq-secrets }

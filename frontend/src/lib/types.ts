@@ -382,6 +382,20 @@ export interface ParsedDraft {
   method?: string;
 }
 
+// Async direct-upload capture (Stage B): the parse/OCR runs on the worker tier.
+export interface UploadAccepted {
+  extraction_run_id: string;
+  status: string; // queued | running
+}
+
+export interface ExtractionResult {
+  extraction_run_id: string;
+  status: "queued" | "running" | "parsed" | "failed";
+  method?: string | null;
+  draft?: ParsedDraft | null;
+  error?: string | null;
+}
+
 export interface Summary {
   total_invoices: number;
   total_spend: string;

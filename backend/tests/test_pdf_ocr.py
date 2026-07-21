@@ -77,11 +77,10 @@ def _scanned_pdf() -> bytes:
 
 
 @pytest.mark.asyncio
-async def test_pdf_text_layer_upload_and_save(auth_client):
+async def test_pdf_text_layer_upload_and_save(auth_client, parse_upload):
     files = {"file": ("invoice.pdf", io.BytesIO(_text_pdf()), "application/pdf")}
-    r = await auth_client.post("/api/v1/invoices/upload", files=files)
-    assert r.status_code == 200, r.text
-    draft = r.json()["draft"]
+    up = await parse_upload(auth_client, files)
+    draft = up["draft"]
     assert draft["invoice_number"] == "INV-2026-0042"
     assert draft["issue_date"] == "2026-03-15"
     assert len(draft["line_items"]) == 2

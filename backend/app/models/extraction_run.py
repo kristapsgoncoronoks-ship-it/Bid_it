@@ -61,3 +61,7 @@ class ExtractionRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )  # line items parsed
     warning_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)  # first warning / error message
+    # Async direct-upload capture (Stage B): the serialized ParsedInvoiceDraft the
+    # worker produced, so the client can fetch it after the parse runs OFF the API
+    # tier. NULL for a synchronous/email run or one still queued.
+    draft_json: Mapped[str | None] = mapped_column(Text, nullable=True)

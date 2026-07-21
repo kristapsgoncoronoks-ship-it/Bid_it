@@ -13,12 +13,12 @@ def _prov(fields):
 
 
 @pytest.mark.asyncio
-async def test_csv_provenance_extracted_defaulted_missing(auth_client):
+async def test_csv_provenance_extracted_defaulted_missing(auth_client, parse_upload):
     # invoice_number + issue_date present; vendor + currency + due_date absent.
     csv = "description,quantity,unit_price,tax_rate,invoice_number,issue_date\n"
     csv += "Fuel,10,1.50,21,INV-CSV-1,2026-02-01\n"
     files = {"file": ("lines.csv", io.BytesIO(csv.encode()), "text/csv")}
-    up = (await auth_client.post("/api/v1/invoices/upload", files=files)).json()
+    up = await parse_upload(auth_client, files)
     p = _prov(up["fields"])
     assert p["invoice_number"] == "extracted"
     assert p["issue_date"] == "extracted"
@@ -28,7 +28,7 @@ async def test_csv_provenance_extracted_defaulted_missing(auth_client):
 
 
 @pytest.mark.asyncio
-async def test_json_provenance_and_surfaced_on_invoice(auth_client):
+async def test_json_provenance_and_surfaced_on_invoice(auth_client, parse_upload):
     payload = {
         "invoice_number": "J-1",
         "vendor_name": "AWS",
@@ -38,7 +38,7 @@ async def test_json_provenance_and_surfaced_on_invoice(auth_client):
         ],
     }  # issue_date + due_date absent
     files = {"file": ("inv.json", io.BytesIO(json.dumps(payload).encode()), "application/json")}
-    up = (await auth_client.post("/api/v1/invoices/upload", files=files)).json()
+    up = await parse_upload(auth_client, files)
     p = _prov(up["fields"])
     assert p["vendor_name"] == "extracted" and p["currency"] == "extracted"
     assert p["issue_date"] == "defaulted"  # defaulted to today

@@ -69,20 +69,18 @@ and never starve — or be starved by — the light periodic jobs. A lane-less w
 
 | Lane | Command | Profile |
 |---|---|---|
-| `worker-extract` | `--kinds email.extract` | CPU-heavy OCR; larger CPU limit, scale for ingestion bursts |
-| `worker-general` | `--exclude email.extract` | light periodic work; small footprint |
+| `worker-extract` | `--kinds email.extract,upload.extract` | CPU-heavy OCR; larger CPU limit, scale for ingestion bursts |
+| `worker-general` | `--exclude email.extract,upload.extract` | light periodic work; small footprint |
 
 The two are complementary — together they cover every kind, so no job is orphaned.
 
-**What's isolated today vs. not.** Email-attachment extraction already runs as a queue
-job (`email.extract`) → it moves onto `worker-extract` immediately. But **direct-upload
-OCR** (`/invoices/upload`) and **PDF/Excel generation** (invoice & expense PDFs) still run
-**inline on the web tier** in a threadpool — they consume web-pod CPU, so a burst of large
-uploads or exports can degrade interactive latency. Fully isolating them is a follow-up:
-give them their own kinds (`upload.extract`, `report.render`), enqueue instead of running
-inline (the upload UX becomes async: "processing" → poll/notify), then route them to the
-extract/docs lanes here. That change touches the frontend contract, so it's gated on a
-product decision — the lane machinery is already in place to receive them.
+**What's isolated today vs. not.** Both extraction paths now run on the worker tier:
+email-attachment extraction (`email.extract`) and **direct-upload OCR** (`upload.extract`,
+Stage B) — the upload endpoint stores the file, queues the parse, and returns 202; the
+client polls `GET /invoices/upload/{id}` for the draft, so no OCR runs in a web request.
+Both land on `worker-extract`. **Still inline on the web tier:** PDF/Excel generation
+(invoice & expense PDFs). Moving that off is the same recipe — a `report.render` kind + an
+async "generating → download" flow — and the extract/docs lanes here are ready to receive it.
 
 ## Analytics at scale
 

@@ -177,12 +177,12 @@ async def test_upload_quota_enforced(auth_client, db_session):
     await db_session.execute(_update(User).where(User.org_id == org).values(role=UserRole.user))
     await db_session.commit()
 
-    # A tiny valid CSV upload counts as one upload.
+    # A tiny valid CSV upload counts as one upload (accepted → queued for parse).
     csv = b"description,amount\nCoffee,3.50\n"
     r1 = await auth_client.post(
         "/api/v1/invoices/upload", files={"file": ("a.csv", csv, "text/csv")}
     )
-    assert r1.status_code == 200, r1.text
+    assert r1.status_code == 202, r1.text
 
     # The second upload hits the limit.
     r2 = await auth_client.post(

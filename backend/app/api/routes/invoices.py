@@ -5,7 +5,6 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, status
-from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
@@ -17,6 +16,7 @@ from app.models.invoice import Invoice, InvoiceStatus, LineItem
 from app.models.organization import Organization
 from app.models.vendor import Vendor
 from app.schemas.invoice import (
+    ExtractionResult,
     ExtractionRunOut,
     FieldProvenanceOut,
     InvoiceCreate,
@@ -26,10 +26,21 @@ from app.schemas.invoice import (
     InvoiceUpdate,
     LineItemOut,
     ParsedInvoiceDraft,
+    UploadAccepted,
 )
 from app.schemas.validation import ValidationDecision, ValidationFinding
-from app.services import access, audit, costing, extraction, filesec, fx, validation, webhooks
-from app.services.parser import parse_invoice_file
+from app.services import (
+    access,
+    audit,
+    costing,
+    documents,
+    extraction,
+    filesec,
+    fx,
+    jobs,
+    validation,
+    webhooks,
+)
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
@@ -327,55 +338,62 @@ async def delete_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
     await db.commit()
 
 
-@router.post("/upload", response_model=ParsedInvoiceDraft)
+@router.post("/upload", response_model=UploadAccepted, status_code=status.HTTP_202_ACCEPTED)
 async def upload_invoice(current: CurrentUser, db: DbSession, file: UploadFile):
-    """Parse an uploaded PDF/CSV/JSON into a draft. Does NOT persist — the client
-    reviews the draft and POSTs it to `/invoices` to save. PDFs use the text layer
-    when present and fall back to OCR for scanned documents."""
+    """Accept an uploaded PDF/XML/CSV/JSON and QUEUE it for parsing (Stage B).
+
+    The security scan runs inline (a bad file is rejected immediately), but the
+    CPU-heavy parse/OCR runs on the WORKER tier — so a burst of large uploads
+    never ties up the API. Returns 202 + an `extraction_run_id`; poll
+    GET /invoices/upload/{extraction_run_id} for the draft, then POST it to
+    /invoices to save."""
     # Metered usage: the acting role's monthly upload limit (0 = unlimited).
     await access.enforce_upload_quota(db, current.org_id, current.role)
     content = await file.read()
     if len(content) > _MAX_UPLOAD:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File too large (max 15 MB)")
-    # Security gate: type-validate + malware-scan before any parsing/OCR.
+    # Security gate: type-validate + malware-scan BEFORE storing or queuing.
     try:
         filesec.check(file.filename or "upload", content, allowed=filesec.INVOICE_KINDS)
     except filesec.FileRejected as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
     sha = extraction.sha256_hex(content)
-    try:
-        # OCR/PDF parsing is CPU-bound — run it in a threadpool so the event loop
-        # isn't blocked while one upload is parsed.
-        draft = await run_in_threadpool(parse_invoice_file, file.filename or "upload", content)
-    except ValueError as exc:
-        # Record the failed capture attempt too (visible provenance), then reject.
-        await extraction.record(
-            db,
-            current.org_id,
-            filename=file.filename,
-            sha256=sha,
-            method="failed",
-            status="failed",
-            note=str(exc),
-        )
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
-    # Record the capture run (server-authoritative) and echo its id on the draft so
-    # saving the reviewed draft links the lineage to the invoice (Slice 5b).
-    run = await extraction.record(
-        db,
+    # Persist the original so the worker can parse it off-tier, then queue a run.
+    await documents.store(
+        documents.UPLOADS,
         current.org_id,
+        content,
+        file.content_type,
+        db=db,
         filename=file.filename,
-        sha256=sha,
-        method=draft.method,
-        status="parsed",
-        field_count=len(draft.draft.line_items),
-        warning_count=len(draft.warnings),
-        note=(draft.warnings[0] if draft.warnings else None),
+        uploaded_by=current.email,
     )
-    # Per-field provenance (Slice 5f), linked to the run.
-    await extraction.record_fields(db, current.org_id, run.id, draft.fields)
-    # Set it INSIDE the draft (the client saves `draft.draft`) and on the envelope.
-    draft.draft.extraction_run_id = run.id
-    draft.extraction_run_id = run.id
+    run = await extraction.start_capture(db, current.org_id, filename=file.filename, sha256=sha)
+    await jobs.enqueue(
+        db,
+        extraction.UPLOAD_EXTRACT_KIND,
+        {"run_id": run.id},
+        org_id=current.org_id,
+        idempotency_key=f"upload-extract:{run.id}",
+    )
     await access.record_usage(db, current.org_id, "upload")
-    return draft
+    return UploadAccepted(extraction_run_id=run.id, status=run.status)
+
+
+@router.get("/upload/{run_id}", response_model=ExtractionResult)
+async def upload_status(run_id: str, current: CurrentUser, db: DbSession):
+    """Poll an async upload capture. While queued/running, `draft` is null; once
+    parsed it carries the reviewable `ParsedInvoiceDraft`; on failure, `error`."""
+    run = await extraction.get_capture(db, current.org_id, run_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Upload not found")
+    draft = None
+    if run.status == "parsed" and run.draft_json:
+        draft = ParsedInvoiceDraft.model_validate_json(run.draft_json)
+    return ExtractionResult(
+        extraction_run_id=run.id,
+        status=run.status,
+        method=(run.method if run.method not in (None, "pending") else None),
+        draft=draft,
+        error=(run.note if run.status == "failed" else None),
+    )

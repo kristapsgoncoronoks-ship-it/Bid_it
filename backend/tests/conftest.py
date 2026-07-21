@@ -78,6 +78,32 @@ async def db_session(_db) -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
+@pytest.fixture
+def parse_upload(db_session: AsyncSession):
+    """Drive the async direct-upload flow (Stage B) end to end: POST the file
+    (202 + a run id), drain the queue so the `upload.extract` job parses it on the
+    (in-process) worker, then poll the result. Returns the inner ParsedInvoiceDraft
+    — shape-identical to the old synchronous /invoices/upload response — so a test
+    reads `up["draft"]`, `up["method"]`, `up["fields"]` exactly as before."""
+
+    async def _do(auth_client: AsyncClient, files: dict) -> dict:
+        from app.services import jobs
+
+        r = await auth_client.post("/api/v1/invoices/upload", files=files)
+        assert r.status_code == 202, r.text
+        run_id = r.json()["extraction_run_id"]
+        for _ in range(30):  # drain until this upload's parse job has run
+            if await jobs.run_once(db_session, "test-worker") is None:
+                break
+        res = await auth_client.get(f"/api/v1/invoices/upload/{run_id}")
+        assert res.status_code == 200, res.text
+        body = res.json()
+        assert body["status"] == "parsed", body
+        return body["draft"]
+
+    return _do
+
+
 @pytest_asyncio.fixture
 async def auth_client(client: AsyncClient) -> AsyncClient:
     """A client with a registered org + bearer token already attached."""

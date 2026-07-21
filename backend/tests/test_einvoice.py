@@ -110,11 +110,10 @@ def test_reject_non_einvoice_xml():
 
 
 @pytest.mark.asyncio
-async def test_ubl_upload_and_save(auth_client):
+async def test_ubl_upload_and_save(auth_client, parse_upload):
     files = {"file": ("invoice.xml", io.BytesIO(UBL.encode()), "application/xml")}
-    r = await auth_client.post("/api/v1/invoices/upload", files=files)
-    assert r.status_code == 200, r.text
-    draft = r.json()["draft"]
+    up = await parse_upload(auth_client, files)
+    draft = up["draft"]
     saved = await auth_client.post("/api/v1/invoices", json=draft)
     assert saved.status_code == 201, saved.text
     body = saved.json()

@@ -15,6 +15,7 @@ from app.services import (
     costing,
     dunning,
     email_intake,
+    extraction,
     integrity,
     jobs,
     recurring,
@@ -75,6 +76,13 @@ async def _webhook_deliver(db, payload: dict, job: Job) -> dict:
 async def _email_extract(db, payload: dict, job: Job) -> dict:
     """Parse one queued inbound email attachment off the API tier (ADR-0009)."""
     return await email_intake.extract_inbound(db, payload["inbound_id"])
+
+
+@jobs.handler(extraction.UPLOAD_EXTRACT_KIND)
+async def _upload_extract(db, payload: dict, job: Job) -> dict:
+    """Parse one queued UI direct upload off the API tier (Stage B). Keeps
+    CPU-heavy OCR out of the web request path."""
+    return await extraction.extract_upload(db, payload["run_id"])
 
 
 @jobs.handler(COSTING_BACKFILL)

@@ -112,14 +112,13 @@ async def test_tenant_isolation(client):
 
 
 @pytest.mark.asyncio
-async def test_upload_csv_returns_draft(auth_client):
+async def test_upload_csv_returns_draft(auth_client, parse_upload):
     csv = "description,category,quantity,unit_price,tax_rate,vendor,invoice_number,issue_date\n"
     csv += "Fuel,fuel,10,1.50,21,Shell,INV-CSV-1,2026-02-01\n"
     csv += "Toll,fuel,2,5.00,21,Shell,INV-CSV-1,2026-02-01\n"
     files = {"file": ("lines.csv", io.BytesIO(csv.encode()), "text/csv")}
-    r = await auth_client.post("/api/v1/invoices/upload", files=files)
-    assert r.status_code == 200, r.text
-    draft = r.json()["draft"]
+    up = await parse_upload(auth_client, files)
+    draft = up["draft"]
     assert draft["vendor_name"] == "Shell"
     assert draft["invoice_number"] == "INV-CSV-1"
     assert len(draft["line_items"]) == 2

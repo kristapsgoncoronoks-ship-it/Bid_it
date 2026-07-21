@@ -60,6 +60,7 @@ export function apiError(e: unknown): string {
     if (Array.isArray(detail) && detail[0]?.msg) return detail[0].msg;
     return e.message;
   }
+  if (e instanceof Error && e.message) return e.message;
   return "Unexpected error";
 }
 
