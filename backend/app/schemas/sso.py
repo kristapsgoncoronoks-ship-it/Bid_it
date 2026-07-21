@@ -16,6 +16,9 @@ class SsoConnectionOut(BaseModel):
     allowed_domain: str | None = None
     jit_enabled: bool = True
     default_role: str = "user"
+    groups_claim: str = "groups"
+    role_mappings: dict[str, str] = Field(default_factory=dict)
+    role_sync: bool = False
     saml_metadata_url: str | None = None
     has_client_secret: bool = False
     scim_enabled: bool = False
@@ -36,7 +39,10 @@ class SsoConnectionUpdate(BaseModel):
     client_secret: str | None = None
     allowed_domain: str | None = None
     jit_enabled: bool | None = None
-    default_role: str | None = Field(default=None, pattern=r"^(user|processor|admin)$")
+    default_role: str | None = Field(default=None, pattern=r"^(user_free|user|admin)$")
+    groups_claim: str | None = Field(default=None, min_length=1, max_length=64)
+    role_mappings: dict[str, str] | None = None   # {idp_group: role}
+    role_sync: bool | None = None
     saml_metadata_url: str | None = None
     saml_sso_url: str | None = None
     saml_idp_entity_id: str | None = None

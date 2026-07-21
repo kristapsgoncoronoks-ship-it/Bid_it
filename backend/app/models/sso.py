@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, ForeignKey, String
+from sqlalchemy import Boolean, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -37,6 +37,14 @@ class SsoConnection(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     allowed_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)  # restrict emails to this domain
     jit_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     default_role: Mapped[str] = mapped_column(String(20), default="user", nullable=False)
+
+    # IdP group → role mapping (ADR-0021): JSON {"<idp_group>": "<role>"} read from
+    # the ID token's `groups_claim`. When `role_sync` is on, an existing user's
+    # role is re-synced from their groups on each login (IdP authoritative); owner
+    # is never granted or demoted via SSO.
+    groups_claim: Mapped[str] = mapped_column(String(64), default="groups", nullable=False)
+    role_mappings: Mapped[str | None] = mapped_column(Text, nullable=True)   # JSON object
+    role_sync: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # SCIM 2.0 provisioning (ADR-0021): the tenant's IdP authenticates with a
     # bearer token (only its sha256 is stored; the plaintext is shown once).

@@ -11,6 +11,7 @@ _EDITABLE = (
     "slug", "protocol", "enabled", "issuer", "client_id", "client_secret",
     "allowed_domain", "jit_enabled", "default_role", "saml_metadata_url",
     "saml_sso_url", "saml_idp_entity_id", "saml_idp_cert",
+    "groups_claim", "role_mappings", "role_sync",
 )
 
 

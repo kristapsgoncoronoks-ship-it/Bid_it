@@ -14,7 +14,7 @@ We build and land the first half with full test evidence; the second half is the
 
 ## OIDC — implemented (this increment)
 Authorization-code flow with **PKCE** and a **stateless, signed `state`** (JWT under the app key — no session store):
-- `services/oidc.py`: `pkce_pair`, `build_authorize_url`, `sign_state`/`read_state`, and **`validate_id_token`** (RS256 via the IdP JWKS, issuer, audience, expiry, **nonce**) — all pure. `discover` / `exchange_code` / `fetch_jwks` are the injectable network seams. `finish_login` orchestrates + **JIT-provisions** (match by email in the connection's org; create with `default_role` if enabled; **reject an email that belongs to another workspace**; enforce an optional `allowed_domain`). JIT users get an **unusable password** so password login is refused.
+- `services/oidc.py`: `pkce_pair`, `build_authorize_url`, `sign_state`/`read_state`, and **`validate_id_token`** (RS256 via the IdP JWKS, issuer, audience, expiry, **nonce**) — all pure. `discover` / `exchange_code` / `fetch_jwks` are the injectable network seams. `finish_login` orchestrates + **JIT-provisions** (match by email in the connection's org; create with `default_role` if enabled; **reject an email that belongs to another workspace**; enforce an optional `allowed_domain`). JIT users get an **unusable password** so password login is refused. **IdP group → role mapping**: `role_from_groups` (pure) maps the ID token's `groups_claim` to a role via the connection's `role_mappings` (highest-ranked wins; `owner` and unknown roles are ignored). JIT uses the mapped role (else `default_role`); with `role_sync` on, an existing user's role is re-synced from their groups each login (IdP authoritative), **never granting or demoting `owner`**.
 - Routes: public `GET /auth/sso/{slug}/authorize` (302 → IdP) and `GET /auth/sso/callback` (verify → JIT → 302 to the SPA with the internal token in the fragment; any failure → the login page). Admin `GET/PUT/DELETE /sso/connection` (client secret write-only, never returned). Frontend: SSO login affordance, `/sso/callback` page, admin config panel.
 - Model/migration: `sso_connections` (tenant-scoped, RLS).
 - **Tests (21):** ID-token validation (1 accept + 6 rejections incl. wrong-key), PKCE/state, authorize-URL, JIT (create/match/cross-org/domain/jit-off), routes (authorize 302, callback issues token, error redirect), admin config + secret protection.
@@ -35,4 +35,4 @@ The **safe, offline-provable half** is implemented in `services/saml.py`: `build
 - **Replay:** nonce is required and checked; `state` is signed + short-TTL.
 
 ## Revisit when
-Finishing against a real IdP (OIDC seams + SCIM dialects + SAML), moving the client secret to the KMS-backed store, or adding IdP-group→role mapping and SP-initiated logout.
+Finishing against a real IdP (OIDC seams + SCIM dialects + SAML), moving the client secret to the KMS-backed store, or adding SP-initiated logout. *(IdP-group→role mapping — shipped.)*
