@@ -351,3 +351,53 @@ async def test_job_backfills_both_invoices_and_expense_items(auth_client, db_ses
     result = json.loads(job.result_json)
     assert result["invoices"]["cost_center"] == 1
     assert result["expense_items"]["cost_center"] == 1
+
+
+# --- Slice 3b: write-path link resolution (expense create/update) ----------
+
+
+async def _activate_expenses(auth_client):
+    r = await auth_client.put("/api/v1/modules/expenses", json={"enabled": True})
+    assert r.status_code == 200, r.text
+
+
+def _api_expense(cost_center=None):
+    item = {
+        "spend_date": "2026-05-01",
+        "category": "travel",
+        "description": "Fuel",
+        "amount": "50.00",
+        "vat_amount": "0",
+    }
+    if cost_center is not None:
+        item["cost_center"] = cost_center
+    return {"title": "Trip", "currency": "EUR", "items": [item]}
+
+
+@pytest.mark.asyncio
+async def test_expense_write_path_links_on_create(auth_client, db_session):
+    org_id = await _org(db_session)
+    cc = await costing.create_cost_center(db_session, org_id, code="CC-1000", name="Fleet")
+    await db_session.commit()
+    await _activate_expenses(auth_client)
+
+    r = await auth_client.post("/api/v1/expenses", json=_api_expense(cost_center="cc-1000"))
+    assert r.status_code == 201, r.text
+    item = await db_session.scalar(select(ExpenseItem))
+    assert item.cost_center_id == cc.id  # resolved at write time
+
+
+@pytest.mark.asyncio
+async def test_expense_write_path_patch_item_link(auth_client, db_session):
+    org_id = await _org(db_session)
+    a = await costing.create_cost_center(db_session, org_id, code="CC-A", name="Alpha")
+    await db_session.commit()
+    await _activate_expenses(auth_client)
+
+    rep = (await auth_client.post("/api/v1/expenses", json=_api_expense())).json()
+    item_id = rep["items"][0]["id"]
+    await auth_client.patch(
+        f"/api/v1/expenses/{rep['id']}/items/{item_id}", json={"cost_center": "CC-A"}
+    )
+    item = await db_session.scalar(select(ExpenseItem).where(ExpenseItem.id == item_id))
+    assert item.cost_center_id == a.id

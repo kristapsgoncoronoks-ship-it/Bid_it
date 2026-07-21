@@ -38,13 +38,30 @@ from app.schemas.expense import (
     ItemFromTransaction,
     MatchTransaction,
 )
-from app.services import audit, bank_statement, documents, expenses, filesec, fx, modules, webhooks
+from app.services import (
+    audit,
+    bank_statement,
+    costing,
+    documents,
+    expenses,
+    filesec,
+    fx,
+    modules,
+    webhooks,
+)
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
 
 
 async def _guard(db: DbSession, org_id: str):
     await modules.require_enabled(db, org_id, "expenses")
+
+
+async def _link_items(db: DbSession, org_id: str, items, dimensions=DIMENSION_KEYS) -> None:
+    """Resolve each item's cost-allocation tags to master links at write time
+    (Slice 3b — the expense-side twin of the invoice write-path resolution)."""
+    for it in items:
+        await costing.apply_links(db, org_id, it, dimensions)
 
 
 def _is_approver(user: User) -> bool:
@@ -147,6 +164,7 @@ async def create_report(body: ExpenseReportCreate, current: CurrentUser, db: DbS
     txns = await _load_available_txns(db, current.org_id, current.id, body.transaction_ids)
     txn_items = [_item_from_txn(t) for t in txns]
     items += txn_items
+    await _link_items(db, current.org_id, items)
 
     total, vat = expenses.compute_totals(items)
     report = ExpenseReport(
@@ -367,6 +385,7 @@ async def update_report(
         r.items.clear()
         for i in body.items:
             r.items.append(expenses.item_from(i))
+        await _link_items(db, current.org_id, r.items)
         r.total, r.vat_total = expenses.compute_totals(r.items)
     await db.commit()
     await db.refresh(r, attribute_names=["items"])
@@ -487,6 +506,7 @@ async def add_item_from_transaction(
     txn = txns[0]
     item = _item_from_txn(txn, body.category, body.vat_amount)
     r.items.append(item)
+    await _link_items(db, current.org_id, [item])
     r.total, r.vat_total = expenses.compute_totals(r.items)
     await db.flush()
     txn.status = "assigned"
@@ -546,9 +566,11 @@ async def update_item(
     if body.category is not None:
         item.category = body.category
     # Cost dimensions: apply only fields explicitly present (a null clears a tag).
-    for key in DIMENSION_KEYS:
-        if key in body.model_fields_set:
-            setattr(item, key, getattr(body, key))
+    changed = [key for key in DIMENSION_KEYS if key in body.model_fields_set]
+    for key in changed:
+        setattr(item, key, getattr(body, key))
+    # Re-resolve the master link only for the dimensions that changed (Slice 3b).
+    await _link_items(db, current.org_id, [item], changed)
     await db.commit()
     await db.refresh(r, attribute_names=["items"])
     return _detail(r)
