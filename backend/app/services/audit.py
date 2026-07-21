@@ -144,3 +144,22 @@ async def list_events(
         .offset((page - 1) * page_size).limit(page_size)
     ))
     return rows, total
+
+
+async def export_events(
+    db: AsyncSession, org_id: str, *, action: str | None = None,
+    since_ms: int | None = None, until_ms: int | None = None,
+) -> list[AuditEvent]:
+    """Every matching event in CHRONOLOGICAL order (ascending seq) — the natural
+    order for an evidence export and for independently re-verifying the hash
+    chain. Optional action + inclusive time-window (epoch ms) filters."""
+    filters = [AuditEvent.org_id == org_id]
+    if action:
+        filters.append(AuditEvent.action == action)
+    if since_ms is not None:
+        filters.append(AuditEvent.at_ms >= since_ms)
+    if until_ms is not None:
+        filters.append(AuditEvent.at_ms <= until_ms)
+    return list(await db.scalars(
+        select(AuditEvent).where(*filters).order_by(AuditEvent.seq.asc())
+    ))

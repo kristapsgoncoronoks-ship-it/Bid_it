@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { api } from "../lib/api";
+import { api, downloadFile } from "../lib/api";
 import { Badge, Button, Card, DataTable, EmptyState, type Column, type Tone } from "../components/ui";
 import type { AuditEvent, ChainStatus, Paginated } from "../lib/types";
 
@@ -105,6 +105,12 @@ export default function Audit() {
             {verify.data && !verify.data.ok && verify.data.detail && (
               <span className="text-xs text-rose-600">{verify.data.detail}</span>
             )}
+            <Button variant="secondary" size="sm" onClick={() => downloadFile("/audit/export?fmt=csv", "audit-log.csv")}>
+              Export CSV
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => downloadFile("/audit/export?fmt=json", "audit-log.json")}>
+              Export JSON
+            </Button>
             <Button variant="primary" size="sm" loading={verify.isPending} onClick={() => verify.mutate()}>
               Verify integrity
             </Button>

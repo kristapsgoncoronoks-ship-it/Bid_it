@@ -1,16 +1,29 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from app.api.deps import CurrentUser, DbSession
 from app.core.roles import is_owner
 from app.schemas.audit import AuditEventOut, AuditListOut, ChainStatusOut
-from app.services import audit
+from app.services import audit, audit_export
 
 router = APIRouter(prefix="/audit", tags=["audit"])
+
+
+def _day_bounds_ms(from_: str | None, to: str | None) -> tuple[int | None, int | None]:
+    """Parse inclusive YYYY-MM-DD bounds → (since_ms, until_ms) in UTC epoch ms."""
+    def _ms(d: date, end: bool) -> int:
+        t = time.max if end else time.min
+        return int(datetime.combine(d, t, tzinfo=timezone.utc).timestamp() * 1000)
+    try:
+        since = _ms(date.fromisoformat(from_), False) if from_ else None
+        until = _ms(date.fromisoformat(to), True) if to else None
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "from/to must be ISO dates (YYYY-MM-DD)")
+    return since, until
 
 
 def _require_owner(current):
@@ -51,3 +64,32 @@ async def verify(current: CurrentUser, db: DbSession):
     _require_owner(current)
     s = await audit.verify_chain(db, current.org_id)
     return ChainStatusOut(ok=s.ok, events=s.events, broken_at_seq=s.broken_at_seq, detail=s.detail)
+
+
+@router.get("/export")
+async def export_audit(
+    current: CurrentUser,
+    db: DbSession,
+    fmt: str = Query("csv"),
+    action: str | None = Query(default=None),
+    from_: str | None = Query(default=None, alias="from"),
+    to: str | None = Query(default=None),
+):
+    """Download the tenant's audit trail (CSV or JSON) for auditors. Includes the
+    seq/prev_hash/hash columns so the chain can be re-verified independently."""
+    _require_owner(current)
+    if fmt not in audit_export.FORMATS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            f"Unknown format '{fmt}'. Available: {', '.join(audit_export.FORMATS)}.")
+    since_ms, until_ms = _day_bounds_ms(from_, to)
+    events = await audit.export_events(db, current.org_id, action=action, since_ms=since_ms, until_ms=until_ms)
+    chain = await audit.verify_chain(db, current.org_id)
+    filename, text, media_type = audit_export.render(fmt, events, chain, org_id=current.org_id)
+    return Response(
+        content=text, media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Audit-Chain-Verified": "true" if chain.ok else "false",
+            "X-Audit-Event-Count": str(len(events)),
+        },
+    )
