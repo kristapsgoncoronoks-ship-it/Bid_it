@@ -14,6 +14,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -42,6 +43,9 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_invoices_org_issue", "org_id", "issue_date"),
         # Foreign-currency scans (fx.ecb_comparison, explore currency filter).
         Index("ix_invoices_org_currency", "org_id", "currency"),
+        # Composite-FK target for child tables that link tenant-safely (extraction
+        # lineage; future line-level refs).
+        UniqueConstraint("org_id", "id", name="uq_invoices_org_id"),
         # Slice 2: normalised links to cost-allocation master data. Composite FK
         # (org_id, *_id) → master(org_id, id) makes a cross-tenant link
         # structurally impossible (same guard as cost_centers → departments).

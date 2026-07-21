@@ -29,6 +29,7 @@ from app.models.currency import Currency
 from app.models.email_intake import EmailIntake, InboundInvoice
 from app.models.email_message import EmailMessage
 from app.models.expense import ExpenseComment, ExpenseItem, ExpenseReport, ExpenseTransaction
+from app.models.extraction_run import ExtractionRun
 from app.models.invitation import Invitation
 from app.models.invoice import Invoice
 from app.models.issued_invoice import IssuedInvoice
@@ -84,6 +85,7 @@ TENANT_MODELS = (
     Project,
     TaxCode,
     Currency,
+    ExtractionRun,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.

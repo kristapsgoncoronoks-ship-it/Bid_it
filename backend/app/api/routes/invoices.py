@@ -17,6 +17,7 @@ from app.models.invoice import Invoice, InvoiceStatus, LineItem
 from app.models.organization import Organization
 from app.models.vendor import Vendor
 from app.schemas.invoice import (
+    ExtractionRunOut,
     InvoiceCreate,
     InvoiceDetailOut,
     InvoiceListOut,
@@ -26,7 +27,7 @@ from app.schemas.invoice import (
     ParsedInvoiceDraft,
 )
 from app.schemas.validation import ValidationDecision, ValidationFinding
-from app.services import access, audit, costing, filesec, fx, validation, webhooks
+from app.services import access, audit, costing, extraction, filesec, fx, validation, webhooks
 from app.services.parser import parse_invoice_file
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
@@ -153,6 +154,10 @@ async def persist_invoice(db: DbSession, org_id: str, body: InvoiceCreate) -> tu
     )
 
     db.add(invoice)
+    await db.flush()  # the invoice row must exist before the lineage FK is set
+    # Slice 5b: link the capture run this invoice was saved from (if any).
+    if body.extraction_run_id:
+        await extraction.link_to_invoice(db, org_id, body.extraction_run_id, invoice.id)
     await db.commit()
     await db.refresh(invoice, attribute_names=["line_items"])
     return invoice, vendor.name
@@ -253,6 +258,13 @@ async def get_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
     return _detail(invoice, invoice.vendor.name)
 
 
+@router.get("/{invoice_id}/extraction", response_model=list[ExtractionRunOut])
+async def invoice_extraction(invoice_id: str, current: CurrentUser, db: DbSession):
+    """The capture lineage (how this invoice was read) — Slice 5b."""
+    await _load_scoped(db, current.org_id, invoice_id)  # tenant-scoped existence check
+    return await extraction.list_for_invoice(db, current.org_id, invoice_id)
+
+
 @router.patch("/{invoice_id}", response_model=InvoiceDetailOut)
 async def update_invoice(invoice_id: str, body: InvoiceUpdate, current: CurrentUser, db: DbSession):
     invoice = await _load_scoped(db, current.org_id, invoice_id)
@@ -321,11 +333,38 @@ async def upload_invoice(current: CurrentUser, db: DbSession, file: UploadFile):
         filesec.check(file.filename or "upload", content, allowed=filesec.INVOICE_KINDS)
     except filesec.FileRejected as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
+    sha = extraction.sha256_hex(content)
     try:
         # OCR/PDF parsing is CPU-bound — run it in a threadpool so the event loop
         # isn't blocked while one upload is parsed.
         draft = await run_in_threadpool(parse_invoice_file, file.filename or "upload", content)
     except ValueError as exc:
+        # Record the failed capture attempt too (visible provenance), then reject.
+        await extraction.record(
+            db,
+            current.org_id,
+            filename=file.filename,
+            sha256=sha,
+            method="failed",
+            status="failed",
+            note=str(exc),
+        )
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+    # Record the capture run (server-authoritative) and echo its id on the draft so
+    # saving the reviewed draft links the lineage to the invoice (Slice 5b).
+    run = await extraction.record(
+        db,
+        current.org_id,
+        filename=file.filename,
+        sha256=sha,
+        method=draft.method,
+        status="parsed",
+        field_count=len(draft.draft.line_items),
+        warning_count=len(draft.warnings),
+        note=(draft.warnings[0] if draft.warnings else None),
+    )
+    # Set it INSIDE the draft (the client saves `draft.draft`) and on the envelope.
+    draft.draft.extraction_run_id = run.id
+    draft.extraction_run_id = run.id
     await access.record_usage(db, current.org_id, "upload")
     return draft

@@ -44,6 +44,9 @@ class InvoiceCreate(DimensionFields):
     # FX rate stated on the invoice (foreign-currency units per 1 EUR). Optional;
     # when absent, non-EUR totals are converted at the ECB reference rate.
     fx_rate: Decimal | None = Field(default=None, gt=0)
+    # Slice 5b: the capture run this invoice was saved from (from the upload
+    # draft); linked to the invoice on save. Absent for a manually-entered invoice.
+    extraction_run_id: str | None = None
     line_items: list[LineItemIn] = Field(default_factory=list)
 
 
@@ -95,3 +98,21 @@ class ParsedInvoiceDraft(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     # How the invoice was read: e-invoice-xml | text-layer | ocr | csv | json.
     method: str = "unknown"
+    # Slice 5b: the recorded capture run; echo it back on save to link the lineage.
+    extraction_run_id: str | None = None
+
+
+class ExtractionRunOut(BaseModel):
+    """A capture-lineage entry — how a received invoice was read."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    method: str
+    status: str
+    source_filename: str | None = None
+    source_sha256: str | None = None
+    field_count: int
+    warning_count: int
+    note: str | None = None
+    created_at: datetime

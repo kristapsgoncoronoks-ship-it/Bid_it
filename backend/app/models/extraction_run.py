@@ -1,0 +1,53 @@
+"""Extraction lineage for received invoices (Slice 5b of the data model).
+
+One row per capture attempt at the `parse_invoice_file` choke point: HOW an
+uploaded document was read (method), whether it parsed, the source (filename +
+content sha256), and how many line items / warnings it produced. Created at
+UPLOAD time (server-authoritative — the client can't forge it) with no invoice
+yet; LINKED to the invoice when the reviewed draft is saved. A run whose
+`invoice_id` stays NULL is a parse that was never saved (an abandoned upload or a
+failed parse) — itself useful provenance.
+
+Tenant-scoped (org_id + RLS + ORM guard). The link is a composite FK
+`(org_id, invoice_id) → invoices(org_id, id)` — cross-tenant-safe — with ON
+DELETE CASCADE, so an invoice's lineage is removed with it (a NULL invoice_id row
+is simply not FK-checked).
+"""
+
+from __future__ import annotations
+
+from sqlalchemy import ForeignKey, ForeignKeyConstraint, Index, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
+
+
+class ExtractionRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "extraction_runs"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["org_id", "invoice_id"],
+            ["invoices.org_id", "invoices.id"],
+            name="fk_extraction_runs_invoice",
+            ondelete="CASCADE",
+        ),
+        Index("ix_extraction_runs_org_invoice", "org_id", "invoice_id"),
+        Index("ix_extraction_runs_org_created", "org_id", "created_at"),
+    )
+
+    org_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    invoice_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)
+    source_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # e-invoice-xml | text-layer | ocr | csv | json | unknown | failed
+    method: Mapped[str] = mapped_column(String(24), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(12), default="parsed", nullable=False
+    )  # parsed|saved|failed
+    field_count: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False
+    )  # line items parsed
+    warning_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)  # first warning / error message
