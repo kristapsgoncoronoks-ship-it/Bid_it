@@ -58,6 +58,32 @@ The daily scheduler (`app/services/scheduler.py`) enqueues per-tenant jobs — r
 - Keep the worker tier **separate from web** (it already is — `35-worker.yaml`) so a slow OCR/PDF job never steals a web request's CPU.
 - If AI vision-capture is ever enabled (default off), it becomes the dominant per-document cost and wants its own worker pool.
 
+### Worker lanes — isolating the heavy modules
+
+The queue supports **lanes**: a worker started with `--kinds <a,b>` (or `--exclude <a,b>`)
+leases only those kinds, so a resource-heavy module can run on its own dedicated pool
+and never starve — or be starved by — the light periodic jobs. A lane-less worker
+(`35-worker.yaml`) drains everything; that's the simple default.
+
+`36-worker-lanes.yaml` splits the pool in two, applied *instead of* `35-worker.yaml`:
+
+| Lane | Command | Profile |
+|---|---|---|
+| `worker-extract` | `--kinds email.extract` | CPU-heavy OCR; larger CPU limit, scale for ingestion bursts |
+| `worker-general` | `--exclude email.extract` | light periodic work; small footprint |
+
+The two are complementary — together they cover every kind, so no job is orphaned.
+
+**What's isolated today vs. not.** Email-attachment extraction already runs as a queue
+job (`email.extract`) → it moves onto `worker-extract` immediately. But **direct-upload
+OCR** (`/invoices/upload`) and **PDF/Excel generation** (invoice & expense PDFs) still run
+**inline on the web tier** in a threadpool — they consume web-pod CPU, so a burst of large
+uploads or exports can degrade interactive latency. Fully isolating them is a follow-up:
+give them their own kinds (`upload.extract`, `report.render`), enqueue instead of running
+inline (the upload UX becomes async: "processing" → poll/notify), then route them to the
+extract/docs lanes here. That change touches the frontend contract, so it's gated on a
+product decision — the lane machinery is already in place to receive them.
+
 ## Analytics at scale
 
 Reporting/dashboard queries grow with row count. At 1,000 tenants route read-heavy analytics to a **read replica** (a second `DATABASE_URL` for report endpoints), and confirm composite indexes cover the tenant-scoped filters the dashboards issue. Web-transaction latency stays flat; only the analytical scans grow.

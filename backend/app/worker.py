@@ -38,7 +38,15 @@ def _worker_id() -> str:
     return f"{socket.gethostname()}:{os.getpid()}"
 
 
-async def run_forever(poll_interval: float = IDLE_SLEEP_SECONDS) -> None:
+async def run_forever(
+    poll_interval: float = IDLE_SLEEP_SECONDS,
+    *,
+    kinds: tuple[str, ...] | None = None,
+    exclude: tuple[str, ...] | None = None,
+) -> None:
+    """Drain the queue forever. `kinds`/`exclude` scope this worker to a LANE so a
+    resource-heavy kind (OCR, PDF generation) can run on its own dedicated pool
+    without starving light jobs — a lane-less worker (both None) drains all."""
     worker_id = _worker_id()
     stop = asyncio.Event()
 
@@ -53,7 +61,8 @@ async def run_forever(poll_interval: float = IDLE_SLEEP_SECONDS) -> None:
         except NotImplementedError:  # pragma: no cover — e.g. Windows
             pass
 
-    log.info("worker %s started; handlers=%s", worker_id, jobs.registered_kinds())
+    lane = f"kinds={kinds}" if kinds else (f"exclude={exclude}" if exclude else "all")
+    log.info("worker %s started; lane=%s; handlers=%s", worker_id, lane, jobs.registered_kinds())
     tick = 0
     last_scheduled: date | None = None
     while not stop.is_set():
@@ -82,7 +91,7 @@ async def run_forever(poll_interval: float = IDLE_SLEEP_SECONDS) -> None:
                 # Drain everything currently ready before sleeping.
                 processed = 0
                 while not stop.is_set():
-                    job = await jobs.run_once(db, worker_id)
+                    job = await jobs.run_once(db, worker_id, kinds=kinds, exclude=exclude)
                     if job is None:
                         break
                     processed += 1
@@ -106,11 +115,32 @@ def main() -> None:
         default=IDLE_SLEEP_SECONDS,
         help="seconds to sleep when the queue is empty",
     )
+    parser.add_argument(
+        "--kinds",
+        default="",
+        help="comma-separated job kinds this worker handles (a LANE). "
+        "Empty = every kind. e.g. --kinds email.extract",
+    )
+    parser.add_argument(
+        "--exclude",
+        default="",
+        help="comma-separated job kinds this worker SKIPS (the complement lane). "
+        "e.g. --exclude email.extract for the light/general pool",
+    )
     args = parser.parse_args()
+
+    def _split(v: str) -> tuple[str, ...] | None:
+        parts = tuple(k.strip() for k in v.split(",") if k.strip())
+        return parts or None
+
+    kinds, exclude = _split(args.kinds), _split(args.exclude)
+    if kinds and exclude:
+        parser.error("pass --kinds OR --exclude, not both")
+
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
-    asyncio.run(run_forever(args.poll))
+    asyncio.run(run_forever(args.poll, kinds=kinds, exclude=exclude))
 
 
 if __name__ == "__main__":

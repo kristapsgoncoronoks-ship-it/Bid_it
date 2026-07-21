@@ -244,3 +244,59 @@ async def test_jobs_api_enqueue_requires_admin(auth_client, client, db_session):
 
     r = await auth_client.post("/api/v1/jobs", json={"kind": "dunning.run"})
     assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_lane_kinds_only_claims_matching(auth_client, db_session):
+    """A worker scoped with `kinds` leases only that lane; other kinds are left
+    for another pool (resource isolation for OCR/heavy modules)."""
+    org = await _org(db_session)
+
+    @jobs.handler("email.extract")
+    async def _extract(db, payload, job):
+        return {"lane": "extract"}
+
+    @jobs.handler("dunning.run")
+    async def _dunning(db, payload, job):
+        return {"lane": "general"}
+
+    await jobs.enqueue(db_session, "dunning.run", {}, org_id=org)
+    await jobs.enqueue(db_session, "email.extract", {}, org_id=org)
+
+    # The extract lane only ever claims email.extract, even though dunning is
+    # older/ready — it is invisible to this worker.
+    job = await jobs.run_once(db_session, "extract-worker", kinds=("email.extract",))
+    assert job is not None and job.kind == "email.extract"
+    # Nothing else in this lane.
+    assert await jobs.run_once(db_session, "extract-worker", kinds=("email.extract",)) is None
+    # The dunning job is still queued for the general pool.
+    remaining = await db_session.scalar(
+        select(Job.status).where(Job.kind == "dunning.run", Job.org_id == org)
+    )
+    assert remaining == jobmodel.QUEUED
+
+
+@pytest.mark.asyncio
+async def test_lane_exclude_skips_kind(auth_client, db_session):
+    """The complementary lane (`exclude`) drains everything BUT the heavy kind."""
+    org = await _org(db_session)
+
+    @jobs.handler("email.extract")
+    async def _extract(db, payload, job):
+        return {}
+
+    @jobs.handler("dunning.run")
+    async def _dunning(db, payload, job):
+        return {}
+
+    await jobs.enqueue(db_session, "email.extract", {}, org_id=org)
+    await jobs.enqueue(db_session, "dunning.run", {}, org_id=org)
+
+    job = await jobs.run_once(db_session, "general", exclude=("email.extract",))
+    assert job is not None and job.kind == "dunning.run"
+    # email.extract is never claimed by the general lane.
+    assert await jobs.run_once(db_session, "general", exclude=("email.extract",)) is None
+    left = await db_session.scalar(
+        select(Job.status).where(Job.kind == "email.extract", Job.org_id == org)
+    )
+    assert left == jobmodel.QUEUED

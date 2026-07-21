@@ -119,21 +119,38 @@ async def enqueue(
     return job
 
 
-async def claim(db: AsyncSession, worker_id: str, *, now: datetime | None = None) -> Job | None:
+async def claim(
+    db: AsyncSession,
+    worker_id: str,
+    *,
+    kinds: tuple[str, ...] | None = None,
+    exclude: tuple[str, ...] | None = None,
+    now: datetime | None = None,
+) -> Job | None:
     """Atomically lease the oldest ready job to `worker_id`, or return None.
 
     Uses an optimistic guarded UPDATE (WHERE status='queued') so two workers
     that pick the same candidate can't both win — the loser's UPDATE matches
     zero rows and it tries the next candidate. Portable across SQLite/Postgres.
+
+    `kinds` / `exclude` scope a worker to a LANE (resource isolation): a worker
+    started with `kinds=('email.extract',)` only leases OCR jobs, so a heavy
+    lane can run on its own pool and never starve (or be starved by) another. A
+    worker with neither filter drains every kind — the default, unchanged.
     """
     now = _now(now)
     for _ in range(10):  # bounded retries against contention
-        candidate = await db.scalar(
+        stmt = (
             select(Job.id)
             .where(Job.status == jobmodel.QUEUED, Job.run_after <= now)
             .order_by(Job.run_after.asc(), Job.created_at.asc())
             .limit(1)
         )
+        if kinds:
+            stmt = stmt.where(Job.kind.in_(kinds))
+        if exclude:
+            stmt = stmt.where(Job.kind.not_in(exclude))
+        candidate = await db.scalar(stmt)
         if candidate is None:
             return None
         result = await db.execute(
@@ -176,10 +193,18 @@ async def _fail(db: AsyncSession, job: Job, error: str, *, now: datetime | None 
     await db.commit()
 
 
-async def run_once(db: AsyncSession, worker_id: str, *, now: datetime | None = None) -> Job | None:
+async def run_once(
+    db: AsyncSession,
+    worker_id: str,
+    *,
+    kinds: tuple[str, ...] | None = None,
+    exclude: tuple[str, ...] | None = None,
+    now: datetime | None = None,
+) -> Job | None:
     """Claim and process a single job. Returns the job (in its terminal/retry
-    state) or None if the queue was empty."""
-    job = await claim(db, worker_id, now=now)
+    state) or None if the queue was empty. `kinds`/`exclude` scope the lane
+    (see `claim`)."""
+    job = await claim(db, worker_id, kinds=kinds, exclude=exclude, now=now)
     if job is None:
         return None
 
