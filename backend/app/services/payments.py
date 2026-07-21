@@ -80,6 +80,37 @@ async def set_cumulative(
     return entry
 
 
+async def add_receipt_allocation(
+    db: AsyncSession,
+    org_id: str,
+    inv: IssuedInvoice,
+    *,
+    amount: Decimal,
+    effective: Decimal,
+    receipt_id: str,
+    paid_on: date,
+    method: str = "bank_transfer",
+    reference: str | None = None,
+) -> Payment:
+    """Add a receipt allocation as a ledger entry (increment) and refresh the
+    invoice's amount_paid cache. The caller enforces the caps (amount <= the
+    invoice's outstanding AND <= the receipt's unallocated balance)."""
+    amount = money.q2(Decimal(amount))
+    entry = Payment(
+        org_id=org_id,
+        issued_invoice_id=inv.id,
+        amount=amount,
+        paid_on=paid_on,
+        method=method,
+        reference=reference,
+        receipt_id=receipt_id,
+    )
+    db.add(entry)
+    inv.amount_paid = money.q2(Decimal(inv.amount_paid or _ZERO) + amount)
+    inv.paid_date = _derive_paid_date(inv.amount_paid, effective, paid_on)
+    return entry
+
+
 async def backfill_ledger(db: AsyncSession, org_id: str) -> int:
     """Seed a 'migrated' ledger entry for any settled issued invoice that has none
     yet (for the demo seed or a store predating the ledger). Idempotent; commits

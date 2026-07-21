@@ -38,6 +38,7 @@ from app.models.job import Job
 from app.models.module import OrgModule
 from app.models.partner import Partner, PartnerDocument
 from app.models.payment import Payment
+from app.models.receipt import Receipt
 from app.models.recurring_invoice import RecurringInvoice
 from app.models.retention import LegalHold, RetentionPolicy
 from app.models.sso import SsoConnection
@@ -86,6 +87,7 @@ TENANT_MODELS = (
     TaxCode,
     Currency,
     ExtractionRun,
+    Receipt,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.

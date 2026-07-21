@@ -45,7 +45,17 @@ class Payment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="fk_payments_issued_invoice",
             ondelete="CASCADE",
         ),
+        # Slice 5c: the receipt this entry was allocated from (a bank transfer may
+        # settle several invoices). Composite FK → tenant-safe. CASCADE is nominal
+        # (receipts aren't hard-deleted outside an org purge, where both cascade).
+        ForeignKeyConstraint(
+            ["org_id", "receipt_id"],
+            ["receipts.org_id", "receipts.id"],
+            name="fk_payments_receipt",
+            ondelete="CASCADE",
+        ),
         Index("ix_payments_org_invoice", "org_id", "issued_invoice_id"),
+        Index("ix_payments_org_receipt", "org_id", "receipt_id"),
     )
 
     org_id: Mapped[str] = mapped_column(
@@ -58,3 +68,6 @@ class Payment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     method: Mapped[str] = mapped_column(String(20), default="bank_transfer", nullable=False)
     reference: Mapped[str | None] = mapped_column(String(140), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Set when this entry is a receipt allocation (Slice 5c); NULL for a direct
+    # cumulative payment recorded via PATCH /payment.
+    receipt_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)

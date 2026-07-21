@@ -21,6 +21,7 @@ from app.api.routes import (
     partners,
     platform,
     privacy,
+    receipts,
     recurring,
     retention,
     scim,
@@ -47,6 +48,7 @@ api_router.include_router(issuer.router)
 # `/issued/{invoice_id}` catch-all in the issued router.
 api_router.include_router(recurring.router)
 api_router.include_router(issued.router)
+api_router.include_router(receipts.router)
 api_router.include_router(partners.router)
 api_router.include_router(team.router)
 api_router.include_router(billing.router)
