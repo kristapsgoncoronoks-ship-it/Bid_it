@@ -240,9 +240,10 @@ Machine principals (SCIM, billing webhook) set tenant scope explicitly and never
 
 Migrations are the production schema source of truth; append-only, run before serve, fail-closed. Verified by the drift guard (model == migrated schema) + the clean-from-empty test.
 
-- **Slice 1 (this change, `a1c2e3f4b5d6`):** departments, cost_centers, projects + composite FK + RLS. **Additive, no data change** to existing tables.
-- **Slice 2:** nullable `*_id` FK columns on `invoices`/`expense_items` (composite FK to the master tables) + backfill-by-code job + read-through; deprecate free-text later.
-- **Slice 3+:** `currencies`/`tax_codes` reference tables; `payments`/`payment_allocations` extracted from inline AR fields; `documents`/`document_versions`/`extraction_runs`/`extraction_fields`; approvals; polymorphic attachments/comments/notifications.
+- **Slice 1 (`a1c2e3f4b5d6`, shipped):** departments, cost_centers, projects + composite FK + RLS. **Additive, no data change** to existing tables.
+- **Slice 2 (`c1981328d6b3`, shipped):** nullable `cost_center_id`/`department_id`/`project_id` on `invoices` (composite FK `(org_id, *_id) → master(org_id, id)`), backfill job `costing.backfill_links` (resolves free-text tag → master by code then name, unmatched stays null, idempotent), dual-read. Free-text columns retained; deprecation is a later slice.
+  - **Slice 2b (deferred):** the same links on `expense_items`. Blocked on `expense_items` carrying no `org_id` (it's tenant-scoped transitively via `report_id`); needs an `org_id` denormalisation + backfill first before the composite tenant-safe FK can apply. Tracked, not yet built.
+- **Slice 3+:** `currencies`/`tax_codes` reference tables; `payments`/`payment_allocations` extracted from inline AR fields; `documents`/`document_versions`/`extraction_runs`/`extraction_fields`; approvals; polymorphic attachments/comments/notifications. Write-path link resolution (link on invoice create/update, not only backfill) also lands here.
 
 Each slice: additive first, dual-read during transition, contract-migrate (drop old) only after the new path is proven — the same pattern used to move blob bytes to object storage.
 

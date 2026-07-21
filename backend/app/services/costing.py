@@ -151,3 +151,68 @@ def _check_version(row, expected: int) -> None:
         raise ConcurrencyError(
             f"stale write: expected version {expected}, current is {row.version}"
         )
+
+
+# --- Slice 2: backfill free-text dimensions → master-table links ------------
+#
+# Invoices carry both the legacy free-text tag (`cost_center`) and the new FK
+# (`cost_center_id`). This resolves the tag to a master row by CODE (then NAME),
+# case-insensitively, for rows not yet linked — the dual-read transition step.
+# It matches against masters of ANY status (a historical link to an archived
+# master is valid), invents nothing (an unmatched tag stays NULL), and is
+# idempotent (re-running only touches still-unlinked rows).
+
+# (free-text column, FK column, master model) for the three linkable dimensions.
+_LINKABLE = (
+    ("cost_center", "cost_center_id", CostCenter),
+    ("department", "department_id", Department),
+    ("project", "project_id", Project),
+)
+
+
+async def _code_name_index(db: AsyncSession, model, org_id: str) -> dict[str, str]:
+    """{lower(code|name): id} for one org's master rows — code wins on collision."""
+    rows = (
+        await db.execute(select(model.code, model.name, model.id).where(model.org_id == org_id))
+    ).all()
+    by_name: dict[str, str] = {}
+    by_code: dict[str, str] = {}
+    for code, name, mid in rows:
+        by_code.setdefault(code.lower(), mid)
+        by_name.setdefault(name.lower(), mid)
+    return {**by_name, **by_code}  # code entries override name entries
+
+
+async def backfill_invoice_links(db: AsyncSession, org_id: str) -> dict[str, int]:
+    """Link each unlinked invoice dimension tag to its master row. Returns the
+    count newly linked per dimension. Tenant-scoped; commits once."""
+    from sqlalchemy import and_, or_
+
+    from app.models.invoice import Invoice
+
+    counts = {dim: 0 for dim, _, _ in _LINKABLE}
+    indexes = {dim: await _code_name_index(db, model, org_id) for dim, _, model in _LINKABLE}
+
+    unlinked = or_(
+        *[
+            and_(getattr(Invoice, dim).is_not(None), getattr(Invoice, fk).is_(None))
+            for dim, fk, _ in _LINKABLE
+        ]
+    )
+    invoices = list(await db.scalars(select(Invoice).where(Invoice.org_id == org_id, unlinked)))
+
+    for inv in invoices:
+        for dim, fk, _ in _LINKABLE:
+            if getattr(inv, fk) is not None:
+                continue
+            tag = getattr(inv, dim)
+            if not tag:
+                continue
+            mid = indexes[dim].get(tag.strip().lower())
+            if mid is not None:
+                setattr(inv, fk, mid)
+                counts[dim] += 1
+
+    if any(counts.values()):
+        await db.commit()
+    return counts

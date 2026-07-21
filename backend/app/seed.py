@@ -49,6 +49,12 @@ def _q(v: Decimal) -> Decimal:
     return v.quantize(_CENTS, rounding=ROUND_HALF_UP)
 
 
+# Codes that MATCH the cost-allocation master seeded in `_seed_costing`, so the
+# Slice-2 backfill resolves the demo invoices' free-text tags to real links.
+_DEMO_CC_CODES = ("CC-1000", "CC-1100", "CC-2000", "CC-3000")
+_DEMO_DEPT_CODES = ("OPS", "FIN", "SALES")
+
+
 async def seed() -> None:
     rng = random.Random(42)  # deterministic demo data
     async with engine.begin() as conn:
@@ -150,6 +156,10 @@ async def seed() -> None:
                         subtotal=_q(subtotal),
                         tax_amount=_q(tax_total),
                         total=_q(subtotal + tax_total),
+                        # Free-text cost-allocation tags (the master-table links are
+                        # resolved from these by the Slice-2 backfill below).
+                        cost_center=_DEMO_CC_CODES[count % len(_DEMO_CC_CODES)],
+                        department=_DEMO_DEPT_CODES[count % len(_DEMO_DEPT_CODES)],
                         line_items=items,
                     )
                 )
@@ -215,6 +225,11 @@ async def seed() -> None:
         partner_ct = await _seed_partners(db, org.id)
         # --- Cost-allocation master data (Slice 1) ---
         costing_ct = await _seed_costing(db, org.id)
+        # --- Slice 2: resolve the invoices' free-text tags to master links ---
+        from app.services import costing
+
+        await db.flush()  # SessionLocal has autoflush off; make invoices visible
+        linked = await costing.backfill_invoice_links(db, org.id)
 
         await db.commit()
         print(f"Seeded '{org.name}' with {count} invoices across {len(vendors)} vendors.")
@@ -222,6 +237,10 @@ async def seed() -> None:
         print(f"Created {partner_ct} partners (workflow + penalty demo).")
         print(
             f"Created {costing_ct} cost-allocation master records (departments/cost-centers/projects)."
+        )
+        print(
+            f"Linked invoices to master data (Slice 2 backfill): "
+            f"{linked['cost_center']} cost-center, {linked['department']} department."
         )
         print(f"Login: {DEMO_EMAIL} / demo1234")
 

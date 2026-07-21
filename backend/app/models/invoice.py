@@ -5,7 +5,16 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, Numeric, String, Text
+from sqlalchemy import (
+    Date,
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    Numeric,
+    String,
+    Text,
+)
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -33,6 +42,33 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_invoices_org_issue", "org_id", "issue_date"),
         # Foreign-currency scans (fx.ecb_comparison, explore currency filter).
         Index("ix_invoices_org_currency", "org_id", "currency"),
+        # Slice 2: normalised links to cost-allocation master data. Composite FK
+        # (org_id, *_id) → master(org_id, id) makes a cross-tenant link
+        # structurally impossible (same guard as cost_centers → departments).
+        # ON DELETE SET NULL is nominal only — master rows are archived, never
+        # hard-deleted, so it never actually fires (see services/costing).
+        ForeignKeyConstraint(
+            ["org_id", "cost_center_id"],
+            ["cost_centers.org_id", "cost_centers.id"],
+            name="fk_invoices_cost_center",
+            ondelete="SET NULL",
+        ),
+        ForeignKeyConstraint(
+            ["org_id", "department_id"],
+            ["departments.org_id", "departments.id"],
+            name="fk_invoices_department",
+            ondelete="SET NULL",
+        ),
+        ForeignKeyConstraint(
+            ["org_id", "project_id"],
+            ["projects.org_id", "projects.id"],
+            name="fk_invoices_project",
+            ondelete="SET NULL",
+        ),
+        # Rollup scans: "every invoice allocated to master row X".
+        Index("ix_invoices_org_cost_center", "org_id", "cost_center_id"),
+        Index("ix_invoices_org_department", "org_id", "department_id"),
+        Index("ix_invoices_org_project", "org_id", "project_id"),
     )
 
     org_id: Mapped[str] = mapped_column(
@@ -74,6 +110,14 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     project: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     vehicle: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     property_ref: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+
+    # Slice 2: normalised links to the cost-allocation master tables (nullable
+    # during the dual-read transition; the free-text tags above are the fallback
+    # until a later slice deprecates them). Only the three dimensions that have a
+    # master table are linked — vehicle/property_ref stay free-text for now.
+    cost_center_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)
+    department_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)
+    project_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)
 
     # Data validation. status: none | passed | flagged | pending | approved | rejected.
     # findings is a JSON array of {severity, code, message, field}.

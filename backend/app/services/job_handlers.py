@@ -12,6 +12,7 @@ from app.models.job import Job
 from app.services import (
     billing,
     billing_usage,
+    costing,
     dunning,
     email_intake,
     integrity,
@@ -27,6 +28,7 @@ INTEGRITY_VERIFY = "integrity.verify_documents"
 EVERYPAY_CHARGE = "everypay.charge_mit"
 RETENTION_PURGE = "retention.purge"
 USAGE_REPORT = "billing.report_usage"
+COSTING_BACKFILL = "costing.backfill_links"
 
 
 @jobs.handler(USAGE_REPORT)
@@ -73,6 +75,13 @@ async def _email_extract(db, payload: dict, job: Job) -> dict:
     return await email_intake.extract_inbound(db, payload["inbound_id"])
 
 
+@jobs.handler(COSTING_BACKFILL)
+async def _costing_backfill(db, payload: dict, job: Job) -> dict:
+    """Link this tenant's free-text invoice dimensions to cost-allocation master
+    rows (dual-read backfill, idempotent)."""
+    return await costing.backfill_invoice_links(db, job.org_id)
+
+
 @jobs.handler(INTEGRITY_VERIFY)
 async def _integrity_verify(db, payload: dict, job: Job) -> dict:
     """Re-hash the tenant's stored documents against their recorded sha256."""
@@ -88,4 +97,4 @@ async def _integrity_verify(db, payload: dict, job: Job) -> dict:
 
 # Kinds an authenticated user is allowed to enqueue via the API (safe, tenant
 # -scoped periodic work). Other kinds can only be created internally.
-USER_ENQUEUEABLE = (RECURRING_GENERATE, DUNNING_RUN, INTEGRITY_VERIFY)
+USER_ENQUEUEABLE = (RECURRING_GENERATE, DUNNING_RUN, INTEGRITY_VERIFY, COSTING_BACKFILL)
