@@ -13,10 +13,11 @@ given date. So EUR→FX multiplies, FX→EUR divides. EUR is implicit (rate 1).
 weekends/holidays); if the date precedes all cached rates it falls back to the
 earliest available and marks the result approximate.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import select
@@ -27,6 +28,7 @@ from app.models.fx import EcbRate
 
 ECB_DAILY_URL = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
 ECB_90D_URL = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist-90d.xml"
+
 
 # --------------------------------------------------------------------------- #
 # European currency registry — every European currency, valued against the EUR.
@@ -80,17 +82,35 @@ NON_ECB_EUROPEAN: frozenset[str] = frozenset(c.code for c in EUROPEAN_CURRENCIES
 # are approximate; the ECB refresh overwrites the ecb=True ones with live rates.
 FALLBACK_RATES: dict[str, Decimal] = {
     # European — ECB-published
-    "GBP": Decimal("0.8550"), "CHF": Decimal("0.9500"), "PLN": Decimal("4.3000"),
-    "SEK": Decimal("11.2000"), "NOK": Decimal("11.5000"), "DKK": Decimal("7.4600"),
-    "CZK": Decimal("25.3000"), "RON": Decimal("4.9700"), "HUF": Decimal("395.00"),
-    "BGN": Decimal("1.9558"), "ISK": Decimal("150.00"), "TRY": Decimal("40.000"),
+    "GBP": Decimal("0.8550"),
+    "CHF": Decimal("0.9500"),
+    "PLN": Decimal("4.3000"),
+    "SEK": Decimal("11.2000"),
+    "NOK": Decimal("11.5000"),
+    "DKK": Decimal("7.4600"),
+    "CZK": Decimal("25.3000"),
+    "RON": Decimal("4.9700"),
+    "HUF": Decimal("395.00"),
+    "BGN": Decimal("1.9558"),
+    "ISK": Decimal("150.00"),
+    "TRY": Decimal("40.000"),
     # European — indicative (not in the ECB feed)
-    "RSD": Decimal("117.00"), "BAM": Decimal("1.9558"), "MKD": Decimal("61.500"),
-    "ALL": Decimal("98.000"), "MDL": Decimal("19.500"), "UAH": Decimal("45.000"),
-    "GEL": Decimal("3.0500"), "AMD": Decimal("430.00"), "AZN": Decimal("1.8500"),
-    "BYN": Decimal("3.6000"), "RUB": Decimal("100.00"), "GIP": Decimal("0.8550"),
+    "RSD": Decimal("117.00"),
+    "BAM": Decimal("1.9558"),
+    "MKD": Decimal("61.500"),
+    "ALL": Decimal("98.000"),
+    "MDL": Decimal("19.500"),
+    "UAH": Decimal("45.000"),
+    "GEL": Decimal("3.0500"),
+    "AMD": Decimal("430.00"),
+    "AZN": Decimal("1.8500"),
+    "BYN": Decimal("3.6000"),
+    "RUB": Decimal("100.00"),
+    "GIP": Decimal("0.8550"),
     # A few global majors, so non-EU trade still converts.
-    "USD": Decimal("1.0850"), "JPY": Decimal("170.00"), "CAD": Decimal("1.4800"),
+    "USD": Decimal("1.0850"),
+    "JPY": Decimal("170.00"),
+    "CAD": Decimal("1.4800"),
     "AUD": Decimal("1.6300"),
 }
 FALLBACK_START = date(2025, 1, 1)
@@ -157,7 +177,8 @@ async def ensure_european_coverage(db: AsyncSession, today: date) -> int:
     European currencies."""
     existing = set(await db.scalars(select(EcbRate.currency).distinct()))
     missing = [
-        c.code for c in EUROPEAN_CURRENCIES
+        c.code
+        for c in EUROPEAN_CURRENCIES
         if c.code != "EUR" and c.code not in existing and c.code in FALLBACK_RATES
     ]
     if not missing:
@@ -186,14 +207,19 @@ async def resolve_rate(db: AsyncSession, currency: str, on_date: date) -> Resolv
         return Resolved(Decimal(row.rate), row.rate_date, indicative)
     # Date precedes all cached rates → use the earliest, flag approximate.
     row = await db.scalar(
-        select(EcbRate).where(EcbRate.currency == currency).order_by(EcbRate.rate_date.asc()).limit(1)
+        select(EcbRate)
+        .where(EcbRate.currency == currency)
+        .order_by(EcbRate.rate_date.asc())
+        .limit(1)
     )
     if row is not None:
         return Resolved(Decimal(row.rate), row.rate_date, True)
     return None
 
 
-async def load_rate_series(db: AsyncSession, currencies: set[str]) -> dict[str, list[tuple[date, Decimal]]]:
+async def load_rate_series(
+    db: AsyncSession, currencies: set[str]
+) -> dict[str, list[tuple[date, Decimal]]]:
     """All cached rates for `currencies` in ONE query, newest-first per currency.
 
     Feeds `resolve_from` so callers that resolve many (currency, date) pairs make
@@ -212,7 +238,9 @@ async def load_rate_series(db: AsyncSession, currencies: set[str]) -> dict[str, 
     return out
 
 
-def resolve_from(series_by_ccy: dict[str, list[tuple[date, Decimal]]], currency: str, on_date: date) -> Resolved | None:
+def resolve_from(
+    series_by_ccy: dict[str, list[tuple[date, Decimal]]], currency: str, on_date: date
+) -> Resolved | None:
     """Pure equivalent of `resolve_rate` over rows preloaded by `load_rate_series`.
 
     Same rule: latest rate on-or-before the date; else the earliest (approximate).
@@ -237,14 +265,16 @@ async def supported_currencies(db: AsyncSession, as_of: date) -> list[dict]:
     out: list[dict] = []
     for c in EUROPEAN_CURRENCIES:
         r = resolve_from(series, c.code, as_of)
-        out.append({
-            "code": c.code,
-            "name": c.name,
-            "ecb": c.ecb,
-            "rate": (r.rate if r else None),
-            "rate_date": (r.rate_date if r else None),
-            "indicative": (r.approximate if r else not c.ecb),
-        })
+        out.append(
+            {
+                "code": c.code,
+                "name": c.name,
+                "ecb": c.ecb,
+                "rate": (r.rate if r else None),
+                "rate_date": (r.rate_date if r else None),
+                "indicative": (r.approximate if r else not c.ecb),
+            }
+        )
     return out
 
 
@@ -324,13 +354,20 @@ async def refresh_from_ecb(db: AsyncSession, history: bool = True) -> dict:
         return {"ok": False, "written": 0, "error": f"{type(exc).__name__}: {exc}", "source": url}
     written = await load_rates(db, rows)
     latest = await db.scalar(select(EcbRate.rate_date).order_by(EcbRate.rate_date.desc()).limit(1))
-    return {"ok": True, "written": written, "latest_date": str(latest) if latest else None, "source": url}
+    return {
+        "ok": True,
+        "written": written,
+        "latest_date": str(latest) if latest else None,
+        "source": url,
+    }
 
 
 # --------------------------------------------------------------------------- #
 # ECB comparison over a tenant's foreign-currency invoices
 # --------------------------------------------------------------------------- #
-async def ecb_comparison(db: AsyncSession, org_id: str, start: date | None, end: date | None) -> dict:
+async def ecb_comparison(
+    db: AsyncSession, org_id: str, start: date | None, end: date | None
+) -> dict:
     from app.models.invoice import Invoice
     from app.models.vendor import Vendor
 

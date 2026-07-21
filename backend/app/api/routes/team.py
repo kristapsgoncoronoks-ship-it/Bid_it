@@ -22,7 +22,9 @@ def _owner_only(current: User):
     # User-rights management (invites + roles + activation) is owner-only, and
     # only within the caller's own company.
     if not is_owner(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the company owner can manage users and roles")
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Only the company owner can manage users and roles"
+        )
 
 
 @router.get("/members", response_model=list[MemberOut])
@@ -38,30 +40,51 @@ async def update_member(user_id: str, body: MemberUpdate, current: CurrentUser, 
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Member not found")
 
     # Never allow the last active owner to be demoted or deactivated.
-    demoting = body.role is not None and member.role == UserRole.owner and body.role != UserRole.owner
+    demoting = (
+        body.role is not None and member.role == UserRole.owner and body.role != UserRole.owner
+    )
     deactivating = body.is_active is False and member.is_active
     if (demoting or deactivating) and member.role == UserRole.owner:
         if await team.owner_count(db, current.org_id) <= 1:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "The company must keep at least one active owner")
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "The company must keep at least one active owner"
+            )
 
     if body.role is not None:
         member.role = body.role
-        await audit.record(db, audit.A.ROLE_CHANGE, target_type="user", target_id=member.id,
-                           meta={"email": member.email, "role": body.role.value})
+        await audit.record(
+            db,
+            audit.A.ROLE_CHANGE,
+            target_type="user",
+            target_id=member.id,
+            meta={"email": member.email, "role": body.role.value},
+        )
     if body.is_active is not None:
         member.is_active = body.is_active
         if not body.is_active:
-            await audit.record(db, audit.A.USER_DEACTIVATE, target_type="user", target_id=member.id,
-                               meta={"email": member.email})
+            await audit.record(
+                db,
+                audit.A.USER_DEACTIVATE,
+                target_type="user",
+                target_id=member.id,
+                meta={"email": member.email},
+            )
     if body.is_expense_approver is not None:
         # Keep at least one approver so expense reports can always be decided.
         if not body.is_expense_approver and member.is_expense_approver:
             if await team.approver_count(db, current.org_id) <= 1:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST,
-                                    "The workspace must keep at least one expense approver")
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    "The workspace must keep at least one expense approver",
+                )
         member.is_expense_approver = body.is_expense_approver
-        await audit.record(db, audit.A.APPROVER_CHANGE, target_type="user", target_id=member.id,
-                           meta={"email": member.email, "approver": body.is_expense_approver})
+        await audit.record(
+            db,
+            audit.A.APPROVER_CHANGE,
+            target_type="user",
+            target_id=member.id,
+            meta={"email": member.email, "approver": body.is_expense_approver},
+        )
     await db.commit()
     await db.refresh(member)
     return member
@@ -80,7 +103,9 @@ async def create_invite(body: InviteCreate, current: CurrentUser, db: DbSession)
 
     # Seat limit (active users + outstanding invites) vs the plan.
     outstanding = await team.open_invitation_count(db, current.org_id)
-    if (await plans.active_seats(db, current.org_id)) + outstanding >= plans.plan_for(org.plan).seats:
+    if (await plans.active_seats(db, current.org_id)) + outstanding >= plans.plan_for(
+        org.plan
+    ).seats:
         raise HTTPException(
             status.HTTP_402_PAYMENT_REQUIRED,
             f"Seat limit reached for the {plans.plan_for(org.plan).name} plan. Upgrade to add more members.",
@@ -91,8 +116,13 @@ async def create_invite(body: InviteCreate, current: CurrentUser, db: DbSession)
         raise HTTPException(status.HTTP_409_CONFLICT, "A user with that email already exists")
 
     inv = await team.create_invitation(db, current.org_id, email, body.role, current.email)
-    await audit.record(db, audit.A.INVITE_CREATE, target_type="invitation", target_id=inv.id,
-                       meta={"email": email, "role": body.role.value})
+    await audit.record(
+        db,
+        audit.A.INVITE_CREATE,
+        target_type="invitation",
+        target_id=inv.id,
+        meta={"email": email, "role": body.role.value},
+    )
     await db.commit()
     return inv
 

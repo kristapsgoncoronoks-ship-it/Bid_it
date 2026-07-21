@@ -1,5 +1,6 @@
 """Multi-tenant SaaS: team/invites, plans + seats, module-by-plan gating,
 suspension, and the platform operator view."""
+
 import pytest
 from sqlalchemy import select
 
@@ -19,7 +20,9 @@ async def test_billing_defaults_trial(auth_client):
 @pytest.mark.asyncio
 async def test_invite_accept_creates_member_in_same_tenant(auth_client, client):
     # owner invites a member
-    inv = await auth_client.post("/api/v1/team/invites", json={"email": "colleague@acme.io", "role": "user"})
+    inv = await auth_client.post(
+        "/api/v1/team/invites", json={"email": "colleague@acme.io", "role": "user"}
+    )
     assert inv.status_code == 201, inv.text
     token = inv.json()["token"]
 
@@ -29,8 +32,10 @@ async def test_invite_accept_creates_member_in_same_tenant(auth_client, client):
     assert prev.json()["email"] == "colleague@acme.io"
 
     # accept → new user, logged in, in the SAME org
-    acc = await client.post("/api/v1/auth/accept-invite", json={
-        "token": token, "name": "Colleague", "password": "supersecret"})
+    acc = await client.post(
+        "/api/v1/auth/accept-invite",
+        json={"token": token, "name": "Colleague", "password": "supersecret"},
+    )
     assert acc.status_code == 201, acc.text
     new_token = acc.json()["token"]["access_token"]
     assert acc.json()["organization"]["name"] == "Acme"
@@ -46,8 +51,9 @@ async def test_invite_accept_creates_member_in_same_tenant(auth_client, client):
     assert {m["email"] for m in members} == {"owner@acme.io", "colleague@acme.io"}
 
     # invite can't be reused
-    again = await client.post("/api/v1/auth/accept-invite", json={
-        "token": token, "name": "X", "password": "supersecret"})
+    again = await client.post(
+        "/api/v1/auth/accept-invite", json={"token": token, "name": "X", "password": "supersecret"}
+    )
     assert again.status_code == 404
 
 
@@ -100,7 +106,9 @@ async def test_suspended_org_blocks_login(auth_client, client, db_session):
     org.status = "suspended"
     await db_session.commit()
 
-    r = await client.post("/api/v1/auth/login", json={"email": "owner@acme.io", "password": "supersecret"})
+    r = await client.post(
+        "/api/v1/auth/login", json={"email": "owner@acme.io", "password": "supersecret"}
+    )
     assert r.status_code == 402
 
 
@@ -119,6 +127,8 @@ async def test_platform_admin_lists_and_suspends_tenants(auth_client, client, db
     assert any(t["name"] == "Acme" for t in tenants.json())
     tid = tenants.json()[0]["id"]
 
-    upd = await auth_client.patch(f"/api/v1/platform/tenants/{tid}", json={"status": "suspended", "plan": "pro"})
+    upd = await auth_client.patch(
+        f"/api/v1/platform/tenants/{tid}", json={"status": "suspended", "plan": "pro"}
+    )
     assert upd.status_code == 200
     assert upd.json()["status"] == "suspended" and upd.json()["plan"] == "pro"

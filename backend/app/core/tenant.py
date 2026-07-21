@@ -13,6 +13,7 @@ Scoping is bypassed (context = None) for:
   • bootstrap / unauthenticated paths (register, login, accept-invite),
   • platform-operator routes that intentionally read across tenants.
 """
+
 from __future__ import annotations
 
 from contextvars import ContextVar, Token
@@ -30,8 +31,8 @@ from app.models.expense import ExpenseComment, ExpenseReport, ExpenseTransaction
 from app.models.invitation import Invitation
 from app.models.invoice import Invoice
 from app.models.issued_invoice import IssuedInvoice
-from app.models.job import Job
 from app.models.issuer import IssuerProfile
+from app.models.job import Job
 from app.models.module import OrgModule
 from app.models.partner import Partner, PartnerDocument
 from app.models.recurring_invoice import RecurringInvoice
@@ -45,17 +46,43 @@ from app.models.webhook import WebhookDelivery, WebhookEndpoint
 # Every model that carries an `org_id`. Child tables (LineItem, IssuedInvoiceLine,
 # ExpenseItem) have no org_id and are reached only via an already-scoped parent.
 TENANT_MODELS = (
-    Vendor, Invoice, User, Invitation, IssuedInvoice, OrgModule, IssuerProfile,
-    ExpenseReport, ExpenseTransaction, ExpenseComment, EmailIntake, InboundInvoice,
-    BudgetTarget, AuditEvent, EmailMessage, Partner, PartnerDocument, RecurringInvoice,
-    Job, UsageCounter, WebhookEndpoint, WebhookDelivery, BillingPayment,
-    RetentionPolicy, LegalHold, SsoConnection, Department, CostCenter, Project,
+    Vendor,
+    Invoice,
+    User,
+    Invitation,
+    IssuedInvoice,
+    OrgModule,
+    IssuerProfile,
+    ExpenseReport,
+    ExpenseTransaction,
+    ExpenseComment,
+    EmailIntake,
+    InboundInvoice,
+    BudgetTarget,
+    AuditEvent,
+    EmailMessage,
+    Partner,
+    PartnerDocument,
+    RecurringInvoice,
+    Job,
+    UsageCounter,
+    WebhookEndpoint,
+    WebhookDelivery,
+    BillingPayment,
+    RetentionPolicy,
+    LegalHold,
+    SsoConnection,
+    Department,
+    CostCenter,
+    Project,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.
 _current_org: ContextVar[str | None] = ContextVar("current_org", default=None)
 # The acting user (id, email) for audit attribution; (None, None) = system/anon.
-_current_actor: ContextVar[tuple[str | None, str | None]] = ContextVar("current_actor", default=(None, None))
+_current_actor: ContextVar[tuple[str | None, str | None]] = ContextVar(
+    "current_actor", default=(None, None)
+)
 
 
 def set_current_org(org_id: str | None) -> Token:

@@ -12,6 +12,7 @@ Output is a *draft* set of expense items (the debits/outflows) that the employee
 reviews before saving — the same advisory, human-confirmed pattern as invoices.
 CSV statements (the common bank export) are parsed directly.
 """
+
 from __future__ import annotations
 
 import csv
@@ -30,14 +31,14 @@ _BALANCE_TOL = Decimal("0.02")
 class Txn:
     date: date
     description: str
-    amount: Decimal            # positive magnitude
-    direction: str             # "debit" (money out) | "credit" (money in)
+    amount: Decimal  # positive magnitude
+    direction: str  # "debit" (money out) | "credit" (money in)
     balance: Decimal | None = None
 
 
 @dataclass
 class StatementResult:
-    method: str                # text-layer | ocr | csv
+    method: str  # text-layer | ocr | csv
     transactions: list[Txn]
     warnings: list[str] = field(default_factory=list)
 
@@ -110,12 +111,19 @@ def _transactions_from_rows(rows: list[dict], warnings: list[str]) -> list[Txn]:
             # silently vanish from the inbox.
             direction = "debit"
         txns.append(
-            Txn(date=r["date"], description=r["description"][:300],
-                amount=abs(amount).quantize(_CENTS), direction=direction, balance=balance)
+            Txn(
+                date=r["date"],
+                description=r["description"][:300],
+                amount=abs(amount).quantize(_CENTS),
+                direction=direction,
+                balance=balance,
+            )
         )
 
     if not has_balance:
-        warnings.append("No running-balance column detected — amounts taken as-is; verify debit/credit.")
+        warnings.append(
+            "No running-balance column detected — amounts taken as-is; verify debit/credit."
+        )
     return txns
 
 
@@ -170,7 +178,14 @@ def _parse_csv(content: bytes, warnings: list[str]) -> list[Txn]:
                 continue
         if amount == 0:
             continue
-        txns.append(Txn(date=d, description=(desc or "Transaction")[:300], amount=amount.quantize(_CENTS), direction=direction))
+        txns.append(
+            Txn(
+                date=d,
+                description=(desc or "Transaction")[:300],
+                amount=amount.quantize(_CENTS),
+                direction=direction,
+            )
+        )
     return txns
 
 
@@ -181,7 +196,9 @@ def parse(filename: str, content: bytes) -> StatementResult:
     warnings: list[str] = []
     lower = filename.lower()
     if lower.endswith(".csv"):
-        return StatementResult(method="csv", transactions=_parse_csv(content, warnings), warnings=warnings)
+        return StatementResult(
+            method="csv", transactions=_parse_csv(content, warnings), warnings=warnings
+        )
     if lower.endswith(".pdf"):
         text, method = pdf_ocr.extract_text(content)
         if not text:
@@ -189,5 +206,7 @@ def parse(filename: str, content: bytes) -> StatementResult:
         rows = _rows_from_text(text)
         if not rows:
             raise ValueError("No transaction rows recognised in the statement.")
-        return StatementResult(method=method, transactions=_transactions_from_rows(rows, warnings), warnings=warnings)
+        return StatementResult(
+            method=method, transactions=_transactions_from_rows(rows, warnings), warnings=warnings
+        )
     raise ValueError("Unsupported file type. Upload a .pdf or .csv bank statement.")

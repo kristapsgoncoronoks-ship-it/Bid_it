@@ -8,7 +8,7 @@ class RolePolicyOut(BaseModel):
     label: str
     paid: bool
     description: str
-    monthly_invoice_limit: int   # 0 = unlimited
+    monthly_invoice_limit: int  # 0 = unlimited
     monthly_upload_limit: int
 
 

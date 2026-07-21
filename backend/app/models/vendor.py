@@ -28,7 +28,7 @@ class Vendor(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     country: Mapped[str | None] = mapped_column(String(2), nullable=True)
     category: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
-    organization: Mapped["Organization"] = relationship(back_populates="vendors")
-    invoices: Mapped[list["Invoice"]] = relationship(
+    organization: Mapped[Organization] = relationship(back_populates="vendors")
+    invoices: Mapped[list[Invoice]] = relationship(
         back_populates="vendor", cascade="all, delete-orphan"
     )

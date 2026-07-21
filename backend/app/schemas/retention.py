@@ -8,8 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 class RetentionCategoryOut(BaseModel):
     key: str
     label: str
-    retain_days: int | None = None       # None = keep forever (no policy)
-    purgeable_now: int = 0               # rows this policy would purge today
+    retain_days: int | None = None  # None = keep forever (no policy)
+    purgeable_now: int = 0  # rows this policy would purge today
 
 
 class LegalHoldOut(BaseModel):
@@ -32,7 +32,7 @@ class RetentionOut(BaseModel):
 class PolicyUpdate(BaseModel):
     category: str
     # 0 (or negative) removes the policy = keep forever again.
-    retain_days: int = Field(ge=0, le=36525)   # up to ~100 years
+    retain_days: int = Field(ge=0, le=36525)  # up to ~100 years
 
 
 class HoldCreate(BaseModel):

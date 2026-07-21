@@ -21,7 +21,11 @@ async def verify_documents(current: CurrentUser, db: DbSession):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can run integrity checks")
     report = await integrity.verify_documents(db, current.org_id)
     return IntegrityReportOut(
-        checked=report.checked, ok=report.ok, healthy=report.healthy,
-        issues=[DocIssueOut(kind=i.kind, entity_id=i.entity_id, problem=i.problem, detail=i.detail)
-                for i in report.issues],
+        checked=report.checked,
+        ok=report.ok,
+        healthy=report.healthy,
+        issues=[
+            DocIssueOut(kind=i.kind, entity_id=i.entity_id, problem=i.problem, detail=i.detail)
+            for i in report.issues
+        ],
     )

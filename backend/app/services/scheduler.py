@@ -6,6 +6,7 @@ still yields exactly one job per org per day — the queue's idempotency does th
 de-duplication. This keeps scheduling stateless: no cron row to drift, and any
 worker can safely run it.
 """
+
 from __future__ import annotations
 
 from datetime import date

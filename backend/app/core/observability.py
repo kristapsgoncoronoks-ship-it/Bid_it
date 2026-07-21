@@ -10,6 +10,7 @@
   counters/histograms — but ONLY if `prometheus-client` is installed, so the
   test/dev environment needs no extra dependency.
 """
+
 from __future__ import annotations
 
 import json
@@ -37,10 +38,29 @@ class _JsonFormatter(logging.Formatter):
             payload["exc"] = self.formatException(record.exc_info)
         # Merge structured extras attached via `logger.info(..., extra={...})`.
         for k, v in getattr(record, "__dict__", {}).items():
-            if k in ("args", "msg", "levelname", "name", "exc_info", "exc_text",
-                     "stack_info", "created", "msecs", "relativeCreated", "levelno",
-                     "pathname", "filename", "module", "funcName", "lineno", "thread",
-                     "threadName", "processName", "process", "taskName"):
+            if k in (
+                "args",
+                "msg",
+                "levelname",
+                "name",
+                "exc_info",
+                "exc_text",
+                "stack_info",
+                "created",
+                "msecs",
+                "relativeCreated",
+                "levelno",
+                "pathname",
+                "filename",
+                "module",
+                "funcName",
+                "lineno",
+                "thread",
+                "threadName",
+                "processName",
+                "process",
+                "taskName",
+            ):
                 continue
             payload.setdefault(k, v)
         return json.dumps(payload, default=str)

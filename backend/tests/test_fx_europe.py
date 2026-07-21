@@ -1,4 +1,5 @@
 """The FX module runs every European currency against the euro."""
+
 import pytest
 
 from app.services import fx
@@ -15,8 +16,28 @@ async def test_currencies_endpoint_lists_all_european(auth_client):
     assert body["base"] == "EUR" and body["region"] == "europe"
     codes = {c["code"] for c in body["currencies"]}
     # EU/EEA + UK + wider Europe are all present.
-    for c in ["EUR", "PLN", "SEK", "DKK", "CHF", "GBP", "RON", "BGN", "HUF", "CZK",
-              "NOK", "ISK", "TRY", "RSD", "UAH", "BAM", "MKD", "ALL", "MDL", "GEL"]:
+    for c in [
+        "EUR",
+        "PLN",
+        "SEK",
+        "DKK",
+        "CHF",
+        "GBP",
+        "RON",
+        "BGN",
+        "HUF",
+        "CZK",
+        "NOK",
+        "ISK",
+        "TRY",
+        "RSD",
+        "UAH",
+        "BAM",
+        "MKD",
+        "ALL",
+        "MDL",
+        "GEL",
+    ]:
         assert c in codes, f"{c} missing"
 
 
@@ -53,6 +74,7 @@ async def test_coverage_backfills_missing_currency(db_session):
     from datetime import date
 
     from sqlalchemy import select
+
     from app.models.fx import EcbRate
 
     # RSD is not in the ECB feed; coverage must have seeded an indicative rate.

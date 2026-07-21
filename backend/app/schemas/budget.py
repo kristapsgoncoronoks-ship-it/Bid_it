@@ -21,9 +21,9 @@ class BudgetRow(BaseModel):
     budget: Decimal
     actual: Decimal
     remaining: Decimal
-    pct: int | None            # actual as % of budget (None when no budget set)
+    pct: int | None  # actual as % of budget (None when no budget set)
     over: bool
-    untargeted: bool           # spend in a category with no budget target
+    untargeted: bool  # spend in a category with no budget target
 
 
 class BudgetTrendPoint(BaseModel):

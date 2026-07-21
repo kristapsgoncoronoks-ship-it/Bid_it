@@ -5,6 +5,7 @@ mapping is tested directly. Covers: provider selection, the start-checkout →
 persist-payment path, server-side confirm (idempotent), the return/callback
 routes, and recurring MIT charges.
 """
+
 import pytest
 from sqlalchemy import select
 
@@ -39,7 +40,9 @@ class FakeEveryPay:
 
     async def start_checkout(self, *, org_id, plan_key, amount_eur, order_reference, customer_id):
         self.started.append(order_reference)
-        return CheckoutSession(url=f"https://igw-demo.every-pay.com/lp/{plan_key}", reference=f"ep_{order_reference}")
+        return CheckoutSession(
+            url=f"https://igw-demo.every-pay.com/lp/{plan_key}", reference=f"ep_{order_reference}"
+        )
 
     async def create_portal_url(self, *, customer_id):
         raise AssertionError("no portal")
@@ -68,6 +71,7 @@ def _everypay_settings(monkeypatch):
 
 
 # --- selection + pure mapping ----------------------------------------------
+
 
 def test_provider_selects_everypay(monkeypatch):
     _everypay_settings(monkeypatch)
@@ -99,21 +103,33 @@ def test_none_when_unconfigured(monkeypatch):
     assert isinstance(get_billing_provider(), NullProvider)
 
 
-@pytest.mark.parametrize("raw,expected", [
-    ("settled", "settled"), ("authorized", "settled"), ("failed", "failed"),
-    ("abandoned", "failed"), ("voided", "failed"), ("initial", "pending"),
-    ("waiting_for_sca", "pending"), ("something_new", "pending"),
-])
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("settled", "settled"),
+        ("authorized", "settled"),
+        ("failed", "failed"),
+        ("abandoned", "failed"),
+        ("voided", "failed"),
+        ("initial", "pending"),
+        ("waiting_for_sca", "pending"),
+        ("something_new", "pending"),
+    ],
+)
 def test_status_mapping(raw, expected):
     assert _everypay_status({"payment_state": raw}).state == expected
 
 
 def test_status_reads_token():
     assert _everypay_status({"payment_state": "settled", "token": "tok_9"}).token == "tok_9"
-    assert _everypay_status({"payment_state": "settled", "cc_details": {"token": "tok_cc"}}).token == "tok_cc"
+    assert (
+        _everypay_status({"payment_state": "settled", "cc_details": {"token": "tok_cc"}}).token
+        == "tok_cc"
+    )
 
 
 # --- checkout persists a payment -------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_checkout_persists_billing_payment(auth_client, db_session, monkeypatch):
@@ -140,12 +156,20 @@ async def test_portal_unavailable_for_everypay(auth_client, monkeypatch):
 
 # --- confirm (verify server-side) ------------------------------------------
 
+
 async def _seed_payment(db_session, *, reference="ep_ref1", plan="pro", state="initial"):
     org = await db_session.scalar(select(Organization))
-    db_session.add(BillingPayment(
-        org_id=org.id, provider="everypay", reference=reference,
-        order_reference="ord1", plan_key=plan, amount_eur=99.0, state=state,
-    ))
+    db_session.add(
+        BillingPayment(
+            org_id=org.id,
+            provider="everypay",
+            reference=reference,
+            order_reference="ord1",
+            plan_key=plan,
+            amount_eur=99.0,
+            state=state,
+        )
+    )
     await db_session.commit()
     return org
 
@@ -163,7 +187,9 @@ async def test_confirm_settles_and_applies_plan(auth_client, db_session, monkeyp
     assert org.status == "active"
     assert org.everypay_token == "tok_abc"
     assert org.everypay_next_charge is not None
-    pay = await db_session.scalar(select(BillingPayment).where(BillingPayment.reference == "ep_ref1"))
+    pay = await db_session.scalar(
+        select(BillingPayment).where(BillingPayment.reference == "ep_ref1")
+    )
     assert pay.state == "settled"
 
 
@@ -186,8 +212,10 @@ async def test_confirm_failed_payment(auth_client, db_session, monkeypatch):
 
     assert await billing_svc.confirm_redirect_payment(db_session, "ep_ref1") is False
     await db_session.refresh(org)
-    assert org.plan == "trial"      # unchanged
-    pay = await db_session.scalar(select(BillingPayment).where(BillingPayment.reference == "ep_ref1"))
+    assert org.plan == "trial"  # unchanged
+    pay = await db_session.scalar(
+        select(BillingPayment).where(BillingPayment.reference == "ep_ref1")
+    )
     assert pay.state == "failed"
 
 
@@ -200,14 +228,16 @@ async def test_confirm_unknown_reference(auth_client, db_session, monkeypatch):
 
 # --- return + callback routes ----------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_return_route_verifies_and_redirects(auth_client, db_session, monkeypatch):
     _everypay_settings(monkeypatch)
     set_billing_provider(FakeEveryPay(verify=PaymentStatus("settled", "tok_r")))
     org = await _seed_payment(db_session, reference="ep_ret")
 
-    r = await auth_client.get("/api/v1/billing/everypay/return?payment_reference=ep_ret",
-                              follow_redirects=False)
+    r = await auth_client.get(
+        "/api/v1/billing/everypay/return?payment_reference=ep_ret", follow_redirects=False
+    )
     assert r.status_code == 303
     assert "checkout=success" in r.headers["location"]
     await db_session.refresh(org)
@@ -227,6 +257,7 @@ async def test_callback_route_applies(auth_client, db_session, monkeypatch):
 
 # --- recurring MIT ---------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_charge_renewal_settles_and_advances(auth_client, db_session, monkeypatch):
     from datetime import date
@@ -242,7 +273,7 @@ async def test_charge_renewal_settles_and_advances(auth_client, db_session, monk
     res = await billing_svc.charge_renewal(db_session, org.id, today=date(2026, 7, 1))
     assert res["charged"] is True
     await db_session.refresh(org)
-    assert org.everypay_next_charge == date(2026, 8, 1)   # advanced one month
+    assert org.everypay_next_charge == date(2026, 8, 1)  # advanced one month
     assert org.status == "active"
 
 
@@ -262,7 +293,7 @@ async def test_charge_renewal_declined_suspends(auth_client, db_session, monkeyp
     assert res["charged"] is False
     await db_session.refresh(org)
     assert org.status == "suspended"
-    assert org.everypay_next_charge == date(2026, 7, 1)   # NOT advanced
+    assert org.everypay_next_charge == date(2026, 7, 1)  # NOT advanced
 
 
 @pytest.mark.asyncio
@@ -291,7 +322,7 @@ async def test_charge_renewal_skips_non_paid_plan(auth_client, db_session, monke
     _everypay_settings(monkeypatch)
     set_billing_provider(FakeEveryPay())
     org = await db_session.scalar(select(Organization))
-    org.plan = "trial"           # price_eur == 0
+    org.plan = "trial"  # price_eur == 0
     org.everypay_token = "tok_live"
     org.everypay_next_charge = date(2026, 7, 1)
     await db_session.commit()

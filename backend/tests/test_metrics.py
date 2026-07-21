@@ -1,5 +1,6 @@
 """Deterministic-capture-rate metric (Phase 1.6): every parse is counted by
 method so the dashboard can compute the share read without AI/manual entry."""
+
 import pytest
 
 _CSV = (

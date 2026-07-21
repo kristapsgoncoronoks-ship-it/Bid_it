@@ -11,6 +11,7 @@ Tenant-scoped: `verify_documents(db, org_id)` checks one tenant. A full sweep ru
 one job per org (see the scheduler / jobs). Never raises — a failure to read an
 object is a finding, not an exception.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -27,9 +28,9 @@ from app.services import documents
 
 @dataclass
 class DocIssue:
-    kind: str        # receipt | logo | email_attachment
+    kind: str  # receipt | logo | email_attachment
     entity_id: str
-    problem: str     # missing | mismatch | error
+    problem: str  # missing | mismatch | error
     detail: str = ""
 
 
@@ -44,8 +45,9 @@ class IntegrityReport:
         return not self.issues
 
 
-async def _check(report: IntegrityReport, kind: str, entity_id: str, prefix: str,
-                 org_id: str, sha256: str) -> None:
+async def _check(
+    report: IntegrityReport, kind: str, entity_id: str, prefix: str, org_id: str, sha256: str
+) -> None:
     report.checked += 1
     try:
         data = await documents.load(prefix, org_id, sha256)
@@ -60,8 +62,9 @@ async def _check(report: IntegrityReport, kind: str, entity_id: str, prefix: str
         return
     actual = storage.sha256_hex(data)
     if actual != sha256:
-        report.issues.append(DocIssue(kind, entity_id, "mismatch",
-                                      f"expected {sha256[:12]}…, got {actual[:12]}…"))
+        report.issues.append(
+            DocIssue(kind, entity_id, "mismatch", f"expected {sha256[:12]}…, got {actual[:12]}…")
+        )
     else:
         report.ok += 1
 
@@ -81,17 +84,19 @@ async def verify_documents(db: AsyncSession, org_id: str) -> IntegrityReport:
 
     # Logos.
     for profile_id, sha in await db.execute(
-        select(IssuerProfile.id, IssuerProfile.logo_sha256)
-        .where(IssuerProfile.org_id == org_id, IssuerProfile.logo_sha256.is_not(None))
+        select(IssuerProfile.id, IssuerProfile.logo_sha256).where(
+            IssuerProfile.org_id == org_id, IssuerProfile.logo_sha256.is_not(None)
+        )
     ):
         await _check(report, "logo", profile_id, documents.LOGOS, org_id, sha)
 
     # Inbound email attachments (retained rows only — rejected ones store no bytes).
     for row_id, sha in await db.execute(
-        select(InboundInvoice.id, InboundInvoice.sha256)
-        .where(InboundInvoice.org_id == org_id,
-               InboundInvoice.sha256.is_not(None),
-               InboundInvoice.status != "rejected")
+        select(InboundInvoice.id, InboundInvoice.sha256).where(
+            InboundInvoice.org_id == org_id,
+            InboundInvoice.sha256.is_not(None),
+            InboundInvoice.status != "rejected",
+        )
     ):
         await _check(report, "email_attachment", row_id, documents.EMAIL_ATTACHMENTS, org_id, sha)
 

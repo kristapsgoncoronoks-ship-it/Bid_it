@@ -13,12 +13,13 @@ Scale: all grouping/aggregation runs in the DB; the fact join is indexed
 (org_id+issue_date, invoice_id+category). For very large tenants the same engine
 can read a materialised daily rollup with no API change.
 """
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Callable
 
 from sqlalchemy import ColumnElement, Integer, String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,11 +62,16 @@ def _quarter():
         # 'YYYY-Q<n>' — quarter number derived from the month.
         qnum = (cast(func.strftime("%m", Invoice.issue_date), Integer) + 2) / 3
         return func.strftime("%Y", Invoice.issue_date) + "-Q" + cast(cast(qnum, Integer), String)
-    return func.to_char(Invoice.issue_date, "YYYY") + "-Q" + func.to_char(func.extract("quarter", Invoice.issue_date), "FM9")
+    return (
+        func.to_char(Invoice.issue_date, "YYYY")
+        + "-Q"
+        + func.to_char(func.extract("quarter", Invoice.issue_date), "FM9")
+    )
 
 
 DIMENSIONS: dict[str, Dimension] = {
-    d.key: d for d in [
+    d.key: d
+    for d in [
         Dimension("vendor", "Vendor", lambda: Vendor.name),
         Dimension("country", "Vendor country", lambda: func.coalesce(Vendor.country, "—")),
         Dimension("category", "Category", lambda: LineItem.category),
@@ -82,11 +88,21 @@ _net = lambda: func.coalesce(func.sum(LineItem.amount), 0)  # noqa: E731
 _tax = lambda: func.coalesce(func.sum(LineItem.amount * LineItem.tax_rate / 100), 0)  # noqa: E731
 
 MEASURES: dict[str, Measure] = {
-    m.key: m for m in [
+    m.key: m
+    for m in [
         Measure("net", "Net spend", _net, "money"),
         Measure("tax", "Tax", _tax, "money"),
-        Measure("gross", "Gross spend", lambda: func.coalesce(func.sum(LineItem.amount + LineItem.amount * LineItem.tax_rate / 100), 0), "money"),
-        Measure("quantity", "Quantity", lambda: func.coalesce(func.sum(LineItem.quantity), 0), "number"),
+        Measure(
+            "gross",
+            "Gross spend",
+            lambda: func.coalesce(
+                func.sum(LineItem.amount + LineItem.amount * LineItem.tax_rate / 100), 0
+            ),
+            "money",
+        ),
+        Measure(
+            "quantity", "Quantity", lambda: func.coalesce(func.sum(LineItem.quantity), 0), "number"
+        ),
         Measure("lines", "Line items", lambda: func.count(LineItem.id), "count"),
         Measure("invoices", "Invoices", lambda: func.count(func.distinct(Invoice.id)), "count"),
     ]
@@ -95,7 +111,9 @@ MEASURES: dict[str, Measure] = {
 
 def catalog() -> dict:
     return {
-        "dimensions": [{"key": d.key, "label": d.label, "temporal": d.temporal} for d in DIMENSIONS.values()],
+        "dimensions": [
+            {"key": d.key, "label": d.label, "temporal": d.temporal} for d in DIMENSIONS.values()
+        ],
         "measures": [{"key": m.key, "label": m.label, "unit": m.unit} for m in MEASURES.values()],
     }
 
@@ -111,7 +129,7 @@ class ExploreQuery:
     currency: str | None = None
     country: str | None = None
     vendor_id: str | None = None
-    sort: str = "auto"        # auto | value_desc | value_asc | dim
+    sort: str = "auto"  # auto | value_desc | value_asc | dim
     limit: int = 100
 
 
@@ -183,7 +201,9 @@ async def run(db: AsyncSession, org_id: str, q: ExploreQuery) -> dict:
         rec = {}
         for i, spec in enumerate(dim_specs):
             val = r[i]
-            rec[spec.key] = val.value if hasattr(val, "value") else (str(val) if val is not None else "—")
+            rec[spec.key] = (
+                val.value if hasattr(val, "value") else (str(val) if val is not None else "—")
+            )
         rec["value"] = _fmt(r[len(dim_specs)], measure.unit)
         out_rows.append(rec)
 

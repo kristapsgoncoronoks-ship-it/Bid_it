@@ -1,4 +1,5 @@
 """Credit notes: a linked, negative-turnover correction of an issued invoice."""
+
 import pytest
 
 ISSUER = {
@@ -27,7 +28,9 @@ INVOICE = {
 
 async def _activate(auth_client):
     assert (await auth_client.put("/api/v1/issuer", json=ISSUER)).status_code == 200
-    assert (await auth_client.put("/api/v1/modules/issuing", json={"enabled": True})).status_code == 200
+    assert (
+        await auth_client.put("/api/v1/modules/issuing", json={"enabled": True})
+    ).status_code == 200
 
 
 async def _make_invoice(auth_client) -> dict:
@@ -47,18 +50,21 @@ async def test_full_credit_note_cancels_invoice(auth_client):
     assert r.status_code == 201, r.text
     cn = r.json()
     assert cn["doc_type"] == "credit_note"
-    assert cn["number"] == "CN-2026-0001"          # own series
+    assert cn["number"] == "CN-2026-0001"  # own series
     assert cn["corrected_invoice_id"] == inv["id"]
     assert cn["total"] == "291.50"
     assert cn["status"] == "credit_note"
-    assert cn["outstanding"] == "0.00"             # a credit note owes nothing
-    assert inv["number"] in cn["note"]             # default note references the invoice
+    assert cn["outstanding"] == "0.00"  # a credit note owes nothing
+    assert inv["number"] in cn["note"]  # default note references the invoice
 
     # A custom reason overrides the note.
-    r2 = await auth_client.post(f"/api/v1/issued", json=INVOICE)
+    r2 = await auth_client.post("/api/v1/issued", json=INVOICE)
     inv2 = r2.json()
-    cn2 = (await auth_client.post(f"/api/v1/issued/{inv2['id']}/credit-note",
-                                  json={"reason": "Order cancelled"})).json()
+    cn2 = (
+        await auth_client.post(
+            f"/api/v1/issued/{inv2['id']}/credit-note", json={"reason": "Order cancelled"}
+        )
+    ).json()
     assert cn2["note"] == "Order cancelled"
 
     # The corrected invoice is now fully credited → nothing outstanding.
@@ -74,7 +80,16 @@ async def test_partial_credit_note_reduces_outstanding(auth_client):
     inv = await _make_invoice(auth_client)
 
     # Credit only the 50.00 support line (+7% = 53.50).
-    body = {"lines": [{"description": "Support refund", "quantity": "1", "unit_price": "50.00", "vat_rate": "7"}]}
+    body = {
+        "lines": [
+            {
+                "description": "Support refund",
+                "quantity": "1",
+                "unit_price": "50.00",
+                "vat_rate": "7",
+            }
+        ]
+    }
     cn = (await auth_client.post(f"/api/v1/issued/{inv['id']}/credit-note", json=body)).json()
     assert cn["total"] == "53.50"
 
@@ -90,7 +105,9 @@ async def test_cannot_over_credit(auth_client):
     await _activate(auth_client)
     inv = await _make_invoice(auth_client)
     # First full credit succeeds.
-    assert (await auth_client.post(f"/api/v1/issued/{inv['id']}/credit-note", json={})).status_code == 201
+    assert (
+        await auth_client.post(f"/api/v1/issued/{inv['id']}/credit-note", json={})
+    ).status_code == 201
     # A second credit has nothing left to credit.
     r = await auth_client.post(f"/api/v1/issued/{inv['id']}/credit-note", json={})
     assert r.status_code == 400
@@ -102,7 +119,11 @@ async def test_partial_credit_over_remaining_rejected(auth_client):
     await _activate(auth_client)
     inv = await _make_invoice(auth_client)
     # Try to credit more than the invoice total.
-    body = {"lines": [{"description": "Too much", "quantity": "1", "unit_price": "10000.00", "vat_rate": "0"}]}
+    body = {
+        "lines": [
+            {"description": "Too much", "quantity": "1", "unit_price": "10000.00", "vat_rate": "0"}
+        ]
+    }
     r = await auth_client.post(f"/api/v1/issued/{inv['id']}/credit-note", json=body)
     assert r.status_code == 400
     assert "exceeds" in r.json()["detail"]
@@ -123,16 +144,29 @@ async def test_payment_capped_at_credited_total(auth_client):
     await _activate(auth_client)
     inv = await _make_invoice(auth_client)
     # Credit the support line (53.50) → owed becomes 238.00.
-    body = {"lines": [{"description": "Support refund", "quantity": "1", "unit_price": "50.00", "vat_rate": "7"}]}
+    body = {
+        "lines": [
+            {
+                "description": "Support refund",
+                "quantity": "1",
+                "unit_price": "50.00",
+                "vat_rate": "7",
+            }
+        ]
+    }
     await auth_client.post(f"/api/v1/issued/{inv['id']}/credit-note", json=body)
 
     # Paying the full original 291.50 is now refused.
-    over = await auth_client.patch(f"/api/v1/issued/{inv['id']}/payment", json={"amount_paid": "291.50"})
+    over = await auth_client.patch(
+        f"/api/v1/issued/{inv['id']}/payment", json={"amount_paid": "291.50"}
+    )
     assert over.status_code == 400
     assert "owed" in over.json()["detail"]
 
     # Paying the effective 238.00 settles it.
-    ok = await auth_client.patch(f"/api/v1/issued/{inv['id']}/payment", json={"amount_paid": "238.00"})
+    ok = await auth_client.patch(
+        f"/api/v1/issued/{inv['id']}/payment", json={"amount_paid": "238.00"}
+    )
     assert ok.status_code == 200
     assert ok.json()["status"] == "paid"
 

@@ -1,5 +1,6 @@
 """Document-integrity verification (Phase 2.8): re-hash stored documents against
 their recorded sha256 to detect corruption or loss."""
+
 import pytest
 
 from app.core import storage
@@ -11,15 +12,22 @@ _PNG = (
 )
 
 ISSUER = {
-    "legal_name": "InvoiceIQ Demo BV", "vat_number": "NL123456789B01",
-    "registration_number": "NL-KVK-12345678", "address_line1": "Keizersgracht 1",
-    "city": "Amsterdam", "postal_code": "1015 CJ", "country": "NL", "email": "b@i.test",
+    "legal_name": "InvoiceIQ Demo BV",
+    "vat_number": "NL123456789B01",
+    "registration_number": "NL-KVK-12345678",
+    "address_line1": "Keizersgracht 1",
+    "city": "Amsterdam",
+    "postal_code": "1015 CJ",
+    "country": "NL",
+    "email": "b@i.test",
 }
 
 
 async def _upload_logo(auth_client) -> None:
     assert (await auth_client.put("/api/v1/issuer", json=ISSUER)).status_code == 200
-    up = await auth_client.post("/api/v1/issuer/logo", files={"file": ("logo.png", _PNG, "image/png")})
+    up = await auth_client.post(
+        "/api/v1/issuer/logo", files={"file": ("logo.png", _PNG, "image/png")}
+    )
     assert up.status_code == 200
 
 
@@ -88,9 +96,7 @@ async def test_verify_requires_admin(auth_client, db_session):
 
 @pytest.mark.asyncio
 async def test_integrity_job_is_enqueueable_and_runs(auth_client, db_session):
-    from sqlalchemy import select
 
-    from app.models.organization import Organization
     from app.services import jobs
 
     await _upload_logo(auth_client)
@@ -98,9 +104,9 @@ async def test_integrity_job_is_enqueueable_and_runs(auth_client, db_session):
     r = await auth_client.post("/api/v1/jobs", json={"kind": "integrity.verify_documents"})
     assert r.status_code == 201, r.text
 
-    org = await db_session.scalar(select(Organization.id))
     job = await jobs.run_once(db_session, "w")
     assert job is not None and job.status == "succeeded"
     import json as _json
+
     result = _json.loads(job.result_json)
     assert result["checked"] == 1 and result["healthy"] is True

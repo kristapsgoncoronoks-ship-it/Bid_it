@@ -1,5 +1,6 @@
 """Object-storage abstraction (ADR-0008): the backends behave identically, keys
 are content-addressed, and document bytes leave the database on write."""
+
 import hashlib
 
 import pytest
@@ -65,9 +66,14 @@ _PNG = (
 )
 
 ISSUER = {
-    "legal_name": "InvoiceIQ Demo BV", "vat_number": "NL123456789B01",
-    "registration_number": "NL-KVK-12345678", "address_line1": "Keizersgracht 1",
-    "city": "Amsterdam", "postal_code": "1015 CJ", "country": "NL", "email": "b@i.test",
+    "legal_name": "InvoiceIQ Demo BV",
+    "vat_number": "NL123456789B01",
+    "registration_number": "NL-KVK-12345678",
+    "address_line1": "Keizersgracht 1",
+    "city": "Amsterdam",
+    "postal_code": "1015 CJ",
+    "country": "NL",
+    "email": "b@i.test",
 }
 
 
@@ -78,7 +84,9 @@ async def test_logo_bytes_leave_the_database(auth_client, db_session):
     from app.models.issuer import IssuerProfile
 
     assert (await auth_client.put("/api/v1/issuer", json=ISSUER)).status_code == 200
-    up = await auth_client.post("/api/v1/issuer/logo", files={"file": ("logo.png", _PNG, "image/png")})
+    up = await auth_client.post(
+        "/api/v1/issuer/logo", files={"file": ("logo.png", _PNG, "image/png")}
+    )
     assert up.status_code == 200
     assert up.json()["has_logo"] is True
 
@@ -100,12 +108,21 @@ async def test_receipt_bytes_leave_the_database(auth_client, db_session):
     from app.models.expense import ExpenseItem
 
     await auth_client.put("/api/v1/modules/expenses", json={"enabled": True})
-    rep = await auth_client.post("/api/v1/expenses", json={
-        "title": "T", "items": [{
-            "spend_date": "2026-05-05", "category": "travel", "description": "Taxi",
-            "amount": "20.00", "comment": "client visit",
-        }],
-    })
+    rep = await auth_client.post(
+        "/api/v1/expenses",
+        json={
+            "title": "T",
+            "items": [
+                {
+                    "spend_date": "2026-05-05",
+                    "category": "travel",
+                    "description": "Taxi",
+                    "amount": "20.00",
+                    "comment": "client visit",
+                }
+            ],
+        },
+    )
     report = rep.json()
     item_id = report["items"][0]["id"]
     up = await auth_client.post(

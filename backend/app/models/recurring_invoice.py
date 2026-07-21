@@ -38,13 +38,19 @@ class RecurringInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     template_json: Mapped[str] = mapped_column(Text, nullable=False)
 
     # Cadence: every `interval` × `frequency`. Payment terms optional override.
-    frequency: Mapped[str] = mapped_column(String(10), default="monthly", nullable=False)  # weekly|monthly|quarterly|yearly
-    interval: Mapped[int] = mapped_column(Integer, default=1, nullable=False)               # every N periods
-    payment_terms_days: Mapped[int | None] = mapped_column(Integer, nullable=True)          # None → issuer default
+    frequency: Mapped[str] = mapped_column(
+        String(10), default="monthly", nullable=False
+    )  # weekly|monthly|quarterly|yearly
+    interval: Mapped[int] = mapped_column(Integer, default=1, nullable=False)  # every N periods
+    payment_terms_days: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )  # None → issuer default
 
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     next_run_date: Mapped[date] = mapped_column(Date, nullable=False)
-    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)   # inclusive; None → open-ended
+    end_date: Mapped[date | None] = mapped_column(
+        Date, nullable=True
+    )  # inclusive; None → open-ended
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     last_generated_at: Mapped[date | None] = mapped_column(Date, nullable=True)

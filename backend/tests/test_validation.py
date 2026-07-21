@@ -1,13 +1,23 @@
 """Opt-in data validation: AI (automated) and human review, both off by default."""
+
 import pytest
 
 
 def _payload(number="V-1", unit="100.00", qty="1", tax="0", status="pending"):
     return {
-        "vendor_name": "Acme", "invoice_number": number, "issue_date": "2026-03-01",
-        "currency": "EUR", "status": status,
+        "vendor_name": "Acme",
+        "invoice_number": number,
+        "issue_date": "2026-03-01",
+        "currency": "EUR",
+        "status": status,
         "line_items": [
-            {"description": "svc", "category": "c", "quantity": qty, "unit_price": unit, "tax_rate": tax},
+            {
+                "description": "svc",
+                "category": "c",
+                "quantity": qty,
+                "unit_price": unit,
+                "tax_rate": tax,
+            },
         ],
     }
 
@@ -44,10 +54,18 @@ async def test_ai_flags_duplicate_and_line_math(auth_client):
     await auth_client.post("/api/v1/invoices", json=_payload("DUP-1"))
     # same vendor + number → duplicate (error); qty×unit mismatch → warning
     bad = {
-        "vendor_name": "Acme", "invoice_number": "DUP-1", "issue_date": "2026-03-01",
+        "vendor_name": "Acme",
+        "invoice_number": "DUP-1",
+        "issue_date": "2026-03-01",
         "line_items": [
-            {"description": "x", "category": "c", "quantity": "3", "unit_price": "100.00",
-             "amount": "250.00", "tax_rate": "0"},
+            {
+                "description": "x",
+                "category": "c",
+                "quantity": "3",
+                "unit_price": "100.00",
+                "amount": "250.00",
+                "tax_rate": "0",
+            },
         ],
     }
     inv = (await auth_client.post("/api/v1/invoices", json=bad)).json()
@@ -67,9 +85,12 @@ async def test_human_review_gate_and_approve(auth_client):
     queue = (await auth_client.get("/api/v1/invoices?validation_status=pending")).json()
     assert queue["total"] == 1
 
-    approved = (await auth_client.post(
-        f"/api/v1/invoices/{inv['id']}/validate", json={"action": "approve", "note": "looks good"}
-    )).json()
+    approved = (
+        await auth_client.post(
+            f"/api/v1/invoices/{inv['id']}/validate",
+            json={"action": "approve", "note": "looks good"},
+        )
+    ).json()
     assert approved["validation_status"] == "approved"
     assert approved["validated_by"] == "owner@acme.io"
 
@@ -84,19 +105,28 @@ async def test_both_on_ai_findings_plus_human_gate(auth_client):
     assert inv["validation_status"] == "pending"
     assert any(f["code"] == "future_date" for f in inv["validation_findings"])
 
-    rejected = (await auth_client.post(
-        f"/api/v1/invoices/{inv['id']}/validate", json={"action": "reject"}
-    )).json()
+    rejected = (
+        await auth_client.post(f"/api/v1/invoices/{inv['id']}/validate", json={"action": "reject"})
+    ).json()
     assert rejected["validation_status"] == "rejected"
 
 
 @pytest.mark.asyncio
 async def test_settings_owner_only(client):
     # a fresh org owner can change settings; verify PUT works for owner
-    r = await client.post("/api/v1/auth/register", json={
-        "organization_name": "Z", "name": "z", "email": "z@zed.io", "password": "supersecret"})
+    r = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "organization_name": "Z",
+            "name": "z",
+            "email": "z@zed.io",
+            "password": "supersecret",
+        },
+    )
     tok = r.json()["token"]["access_token"]
     h = {"Authorization": f"Bearer {tok}"}
-    upd = await client.put("/api/v1/settings/validation", json={"ai_validation_enabled": True}, headers=h)
+    upd = await client.put(
+        "/api/v1/settings/validation", json={"ai_validation_enabled": True}, headers=h
+    )
     assert upd.status_code == 200
     assert upd.json()["ai_validation_enabled"] is True

@@ -31,7 +31,9 @@ async def get_rates(
     on: date | None = Query(default=None, description="as-of date (default today)"),
 ):
     as_of = on or date.today()
-    currencies = list(await db.scalars(select(EcbRate.currency).distinct().order_by(EcbRate.currency)))
+    currencies = list(
+        await db.scalars(select(EcbRate.currency).distinct().order_by(EcbRate.currency))
+    )
     series = await fx.load_rate_series(db, set(currencies))  # one query, not one per currency
     rates: list[RateOut] = []
     latest_used: date | None = None
@@ -39,7 +41,9 @@ async def get_rates(
         r = fx.resolve_from(series, ccy, as_of)
         if r is None:
             continue
-        rates.append(RateOut(currency=ccy, rate=r.rate, rate_date=r.rate_date, approximate=r.approximate))
+        rates.append(
+            RateOut(currency=ccy, rate=r.rate, rate_date=r.rate_date, approximate=r.approximate)
+        )
         if latest_used is None or r.rate_date > latest_used:
             latest_used = r.rate_date
     return RatesResponse(base="EUR", as_of=latest_used, rates=rates)

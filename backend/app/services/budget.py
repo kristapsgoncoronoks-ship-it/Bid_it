@@ -7,6 +7,7 @@ the invoice's ECB rate (`total_eur/total` ratio) so multi-currency bills compare
 cleanly. A `BudgetTarget` sets a recurring monthly limit per category; the
 summary compares target vs actual for a chosen month.
 """
+
 from __future__ import annotations
 
 import calendar
@@ -64,7 +65,9 @@ async def list_targets(db: AsyncSession, org_id: str) -> list[BudgetTarget]:
     return list(rows)
 
 
-async def set_target(db: AsyncSession, org_id: str, category: str, monthly_limit: Decimal) -> BudgetTarget:
+async def set_target(
+    db: AsyncSession, org_id: str, category: str, monthly_limit: Decimal
+) -> BudgetTarget:
     category = category.strip()[:80].lower() or "uncategorized"
     row = await db.scalar(
         select(BudgetTarget).where(BudgetTarget.org_id == org_id, BudgetTarget.category == category)
@@ -81,7 +84,9 @@ async def set_target(db: AsyncSession, org_id: str, category: str, monthly_limit
 
 async def delete_target(db: AsyncSession, org_id: str, category: str) -> bool:
     row = await db.scalar(
-        select(BudgetTarget).where(BudgetTarget.org_id == org_id, BudgetTarget.category == category.lower())
+        select(BudgetTarget).where(
+            BudgetTarget.org_id == org_id, BudgetTarget.category == category.lower()
+        )
     )
     if row is None:
         return False
@@ -93,7 +98,9 @@ async def delete_target(db: AsyncSession, org_id: str, category: str) -> bool:
 # --------------------------------------------------------------------------- #
 # Actuals + summary
 # --------------------------------------------------------------------------- #
-async def actuals_for_month(db: AsyncSession, org_id: str, start: date, end: date) -> dict[str, Decimal]:
+async def actuals_for_month(
+    db: AsyncSession, org_id: str, start: date, end: date
+) -> dict[str, Decimal]:
     stmt = (
         select(LineItem.category, _gross_eur())
         .select_from(LineItem)
@@ -105,7 +112,9 @@ async def actuals_for_month(db: AsyncSession, org_id: str, start: date, end: dat
     return {(c or "uncategorized"): q2(Decimal(str(v or 0))) for c, v in rows}
 
 
-async def trend(db: AsyncSession, org_id: str, months: list[str], budget_total: Decimal) -> list[dict]:
+async def trend(
+    db: AsyncSession, org_id: str, months: list[str], budget_total: Decimal
+) -> list[dict]:
     """Actual EUR spend per month for the given YYYY-MM list, paired with the
     (flat) monthly budget total for a plan-vs-actual line."""
     if not months:
@@ -161,16 +170,22 @@ async def overview(db: AsyncSession, org_id: str, year: int, month: int) -> dict
         budget_total += budget
         actual_total += actual
         remaining = q2(budget - actual)
-        pct = int((actual / budget * 100).to_integral_value(rounding=ROUND_HALF_UP)) if budget > 0 else None
-        rows.append({
-            "category": cat,
-            "budget": str(budget),
-            "actual": str(actual),
-            "remaining": str(remaining),
-            "pct": pct,
-            "over": budget > 0 and actual > budget,
-            "untargeted": cat not in targets,
-        })
+        pct = (
+            int((actual / budget * 100).to_integral_value(rounding=ROUND_HALF_UP))
+            if budget > 0
+            else None
+        )
+        rows.append(
+            {
+                "category": cat,
+                "budget": str(budget),
+                "actual": str(actual),
+                "remaining": str(remaining),
+                "pct": pct,
+                "over": budget > 0 and actual > budget,
+                "untargeted": cat not in targets,
+            }
+        )
 
     budget_total = q2(budget_total)
     actual_total = q2(actual_total)

@@ -1,5 +1,6 @@
 """Modular activation + EU-compliant invoice issuing (EN 16931) with a PDF that
 carries embedded Factur-X XML."""
+
 from decimal import Decimal
 
 import pytest
@@ -143,15 +144,21 @@ async def test_logo_upload_is_scanned(auth_client):
     from app.services import filesec
 
     # A valid PNG is accepted.
-    ok = await auth_client.post("/api/v1/issuer/logo", files={"file": ("logo.png", _PNG, "image/png")})
+    ok = await auth_client.post(
+        "/api/v1/issuer/logo", files={"file": ("logo.png", _PNG, "image/png")}
+    )
     assert ok.status_code == 200, ok.text
     assert ok.json()["has_logo"] is True
 
     # A PNG carrying the EICAR signature is blocked by the security gate.
     infected = _PNG + filesec.EICAR
-    bad = await auth_client.post("/api/v1/issuer/logo", files={"file": ("logo.png", infected, "image/png")})
+    bad = await auth_client.post(
+        "/api/v1/issuer/logo", files={"file": ("logo.png", infected, "image/png")}
+    )
     assert bad.status_code == 415
 
     # A PDF disguised as a logo is refused (logos are image-only).
-    pdf = await auth_client.post("/api/v1/issuer/logo", files={"file": ("logo.png", b"%PDF-1.4 x", "application/pdf")})
+    pdf = await auth_client.post(
+        "/api/v1/issuer/logo", files={"file": ("logo.png", b"%PDF-1.4 x", "application/pdf")}
+    )
     assert pdf.status_code == 415

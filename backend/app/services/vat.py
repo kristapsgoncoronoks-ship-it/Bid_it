@@ -4,6 +4,7 @@ Groups lines by VAT rate into a breakdown (taxable base + VAT per rate), which i
 exactly what a compliant invoice must show. For reverse-charge / intra-EU /
 exempt schemes the effective VAT is zero and a legal note is required.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -21,8 +22,6 @@ SCHEME_NOTES = {
 }
 
 
-
-
 @dataclass
 class RateBucket:
     rate: Decimal
@@ -32,9 +31,9 @@ class RateBucket:
 
 @dataclass
 class VatResult:
-    lines: list[dict]          # normalised lines with net_amount
+    lines: list[dict]  # normalised lines with net_amount
     breakdown: list[RateBucket]
-    subtotal: Decimal          # taxable base total
+    subtotal: Decimal  # taxable base total
     tax_total: Decimal
     total: Decimal
 

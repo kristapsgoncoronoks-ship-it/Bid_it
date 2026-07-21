@@ -25,6 +25,7 @@ class UserRole(str, enum.Enum):
     - owner     : the company's primary user — full administration of THEIR company
                   (user management, roles, settings). Not a system administrator.
     """
+
     user_free = "user_free"
     user = "user"
     admin = "admin"
@@ -44,7 +45,8 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # without a Postgres ENUM migration.
     role: Mapped[UserRole] = mapped_column(
         SAEnum(UserRole, name="user_role", native_enum=False, length=20),
-        default=UserRole.user, nullable=False,
+        default=UserRole.user,
+        nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # Platform operator (cross-tenant admin). Off for all normal SaaS users.
@@ -53,4 +55,4 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # The workspace owner (first-registered user) is one by default and appoints others.
     is_expense_approver: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    organization: Mapped["Organization"] = relationship(back_populates="users")
+    organization: Mapped[Organization] = relationship(back_populates="users")

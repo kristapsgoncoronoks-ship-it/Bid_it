@@ -10,6 +10,7 @@ They also assert (dialect-independently) that every tenant table is listed in th
 RLS migration, so a new tenant table without an RLS policy fails the build — the
 same belt-and-braces as the TENANT_MODELS registration guard.
 """
+
 from __future__ import annotations
 
 import os
@@ -22,7 +23,9 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.core.tenant import TENANT_MODELS
 
 RLS_URL = os.environ.get("RLS_TEST_DATABASE_URL")
-pg_only = pytest.mark.skipif(not RLS_URL, reason="set RLS_TEST_DATABASE_URL (a Postgres URL) to run RLS tests")
+pg_only = pytest.mark.skipif(
+    not RLS_URL, reason="set RLS_TEST_DATABASE_URL (a Postgres URL) to run RLS tests"
+)
 
 
 def _rls_migration_tables() -> set[str]:
@@ -66,32 +69,45 @@ async def test_rls_blocks_cross_tenant_raw_query():
     try:
         async with engine.begin() as conn:
             for oid, name in ((org_a, "A"), (org_b, "B")):
-                await conn.execute(text(
-                    "INSERT INTO organizations (id, name, ai_validation_enabled, "
-                    "human_validation_enabled, plan, status, created_at, updated_at) "
-                    "VALUES (:id, :n, false, false, 'trial', 'active', now(), now())"
-                ), {"id": oid, "n": f"Org {name}"})
-                await conn.execute(text(
-                    "INSERT INTO vendors (id, org_id, name, created_at, updated_at) "
-                    "VALUES (:id, :org, :n, now(), now())"
-                ), {"id": str(uuid.uuid4()), "org": oid, "n": f"Vendor {name}"})
+                await conn.execute(
+                    text(
+                        "INSERT INTO organizations (id, name, ai_validation_enabled, "
+                        "human_validation_enabled, plan, status, created_at, updated_at) "
+                        "VALUES (:id, :n, false, false, 'trial', 'active', now(), now())"
+                    ),
+                    {"id": oid, "n": f"Org {name}"},
+                )
+                await conn.execute(
+                    text(
+                        "INSERT INTO vendors (id, org_id, name, created_at, updated_at) "
+                        "VALUES (:id, :org, :n, now(), now())"
+                    ),
+                    {"id": str(uuid.uuid4()), "org": oid, "n": f"Vendor {name}"},
+                )
 
         # Scoped to A: a raw select returns only A's vendor.
         async with engine.connect() as conn:
-            await conn.execute(text("SELECT set_config('app.current_org', :o, false)"), {"o": org_a})
+            await conn.execute(
+                text("SELECT set_config('app.current_org', :o, false)"), {"o": org_a}
+            )
             names = (await conn.execute(text("SELECT name FROM vendors"))).scalars().all()
             assert names == ["Vendor A"], names
 
             # WITH CHECK blocks writing into another tenant while scoped to A.
             with pytest.raises(Exception):
-                await conn.execute(text(
-                    "INSERT INTO vendors (id, org_id, name, created_at, updated_at) "
-                    "VALUES (:id, :org, 'Sneaky', now(), now())"
-                ), {"id": str(uuid.uuid4()), "org": org_b})
+                await conn.execute(
+                    text(
+                        "INSERT INTO vendors (id, org_id, name, created_at, updated_at) "
+                        "VALUES (:id, :org, 'Sneaky', now(), now())"
+                    ),
+                    {"id": str(uuid.uuid4()), "org": org_b},
+                )
 
         # Scoped to B: only B's vendor.
         async with engine.connect() as conn:
-            await conn.execute(text("SELECT set_config('app.current_org', :o, false)"), {"o": org_b})
+            await conn.execute(
+                text("SELECT set_config('app.current_org', :o, false)"), {"o": org_b}
+            )
             names = (await conn.execute(text("SELECT name FROM vendors"))).scalars().all()
             assert names == ["Vendor B"], names
     finally:

@@ -1,18 +1,27 @@
 """Supplier benchmarking — independent scorecards and combined price benchmark."""
+
 import pytest
 
 
 async def _invoice(auth_client, vendor, number, category, qty, unit, status="paid"):
-    return await auth_client.post("/api/v1/invoices", json={
-        "vendor_name": vendor,
-        "invoice_number": number,
-        "issue_date": "2026-01-10",
-        "status": status,
-        "line_items": [
-            {"description": f"{category} item", "category": category,
-             "quantity": qty, "unit_price": unit, "tax_rate": "0"},
-        ],
-    })
+    return await auth_client.post(
+        "/api/v1/invoices",
+        json={
+            "vendor_name": vendor,
+            "invoice_number": number,
+            "issue_date": "2026-01-10",
+            "status": status,
+            "line_items": [
+                {
+                    "description": f"{category} item",
+                    "category": category,
+                    "quantity": qty,
+                    "unit_price": unit,
+                    "tax_rate": "0",
+                },
+            ],
+        },
+    )
 
 
 async def _scenario(auth_client):
@@ -63,7 +72,7 @@ async def test_combined_benchmark_prices_and_savings(auth_client):
     cats = {c["category"]: c for c in data["categories"]}
     fuel = cats["fuel"]
     assert fuel["supplier_count"] == 2
-    assert fuel["combined_avg_unit"] == "1.7500"   # 35 / 20
+    assert fuel["combined_avg_unit"] == "1.7500"  # 35 / 20
     assert fuel["cheapest_vendor_name"] == "Beta"
     assert fuel["cheapest_unit"] == "1.5000"
     assert fuel["savings_opportunity"] == "5.00"

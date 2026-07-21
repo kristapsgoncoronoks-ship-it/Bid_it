@@ -2,15 +2,24 @@ import pytest
 
 
 async def _make(auth_client, vendor, number, date_, unit, status="paid"):
-    return await auth_client.post("/api/v1/invoices", json={
-        "vendor_name": vendor,
-        "invoice_number": number,
-        "issue_date": date_,
-        "status": status,
-        "line_items": [
-            {"description": "svc", "category": "cloud", "quantity": "1", "unit_price": unit, "tax_rate": "0"},
-        ],
-    })
+    return await auth_client.post(
+        "/api/v1/invoices",
+        json={
+            "vendor_name": vendor,
+            "invoice_number": number,
+            "issue_date": date_,
+            "status": status,
+            "line_items": [
+                {
+                    "description": "svc",
+                    "category": "cloud",
+                    "quantity": "1",
+                    "unit_price": unit,
+                    "tax_rate": "0",
+                },
+            ],
+        },
+    )
 
 
 @pytest.mark.asyncio
@@ -39,7 +48,10 @@ async def test_summary_and_breakdowns(auth_client):
     assert cat[0]["category"] == "cloud"
     assert cat[0]["total"] == "350.00"
 
-    st = {b["status"]: b["total"] for b in (await auth_client.get("/api/v1/analytics/by-status")).json()}
+    st = {
+        b["status"]: b["total"]
+        for b in (await auth_client.get("/api/v1/analytics/by-status")).json()
+    }
     assert st["paid"] == "100.00"
     assert st["pending"] == "200.00"
     assert st["overdue"] == "50.00"

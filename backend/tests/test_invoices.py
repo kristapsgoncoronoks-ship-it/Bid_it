@@ -11,8 +11,20 @@ def _invoice_payload(number="INV-1"):
         "currency": "EUR",
         "status": "pending",
         "line_items": [
-            {"description": "Compute", "category": "cloud", "quantity": "2", "unit_price": "100.00", "tax_rate": "21"},
-            {"description": "Storage", "category": "cloud", "quantity": "1", "unit_price": "50.00", "tax_rate": "21"},
+            {
+                "description": "Compute",
+                "category": "cloud",
+                "quantity": "2",
+                "unit_price": "100.00",
+                "tax_rate": "21",
+            },
+            {
+                "description": "Storage",
+                "category": "cloud",
+                "quantity": "1",
+                "unit_price": "50.00",
+                "tax_rate": "21",
+            },
         ],
     }
 
@@ -67,16 +79,31 @@ async def test_delete_invoice(auth_client):
 @pytest.mark.asyncio
 async def test_tenant_isolation(client):
     # Org A
-    ra = await client.post("/api/v1/auth/register", json={
-        "organization_name": "A", "name": "a", "email": "a@acme-a.io", "password": "supersecret"})
+    ra = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "organization_name": "A",
+            "name": "a",
+            "email": "a@acme-a.io",
+            "password": "supersecret",
+        },
+    )
     ta = ra.json()["token"]["access_token"]
-    made = await client.post("/api/v1/invoices", json=_invoice_payload(),
-                             headers={"Authorization": f"Bearer {ta}"})
+    made = await client.post(
+        "/api/v1/invoices", json=_invoice_payload(), headers={"Authorization": f"Bearer {ta}"}
+    )
     inv_id = made.json()["id"]
 
     # Org B must not see or fetch A's invoice
-    rb = await client.post("/api/v1/auth/register", json={
-        "organization_name": "B", "name": "b", "email": "b@acme-b.io", "password": "supersecret"})
+    rb = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "organization_name": "B",
+            "name": "b",
+            "email": "b@acme-b.io",
+            "password": "supersecret",
+        },
+    )
     tb = rb.json()["token"]["access_token"]
     hb = {"Authorization": f"Bearer {tb}"}
 

@@ -12,6 +12,7 @@ vs. migrations via alembic) with the SQLAlchemy inspector, rather than relying o
 Alembic autogenerate reflection (which is noisy on SQLite). This is deterministic
 and dialect-robust for the table/column parity that matters most.
 """
+
 from __future__ import annotations
 
 import os
@@ -32,7 +33,11 @@ def _run_alembic(args: list[str], db_url_async: str) -> subprocess.CompletedProc
     env = {**os.environ, "DATABASE_URL": db_url_async}
     return subprocess.run(
         [sys.executable, "-m", "alembic", *args],
-        cwd=BACKEND_DIR, env=env, capture_output=True, text=True, timeout=120,
+        cwd=BACKEND_DIR,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
 
 

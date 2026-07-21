@@ -77,13 +77,15 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     # Data validation. status: none | passed | flagged | pending | approved | rejected.
     # findings is a JSON array of {severity, code, message, field}.
-    validation_status: Mapped[str] = mapped_column(String(16), default="none", nullable=False, index=True)
+    validation_status: Mapped[str] = mapped_column(
+        String(16), default="none", nullable=False, index=True
+    )
     validation_findings: Mapped[str | None] = mapped_column(Text, nullable=True)
     validated_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
     validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    vendor: Mapped["Vendor"] = relationship(back_populates="invoices")
-    line_items: Mapped[list["LineItem"]] = relationship(
+    vendor: Mapped[Vendor] = relationship(back_populates="invoices")
+    line_items: Mapped[list[LineItem]] = relationship(
         back_populates="invoice",
         cascade="all, delete-orphan",
         order_by="LineItem.created_at",
@@ -98,10 +100,12 @@ class LineItem(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         GUID(), ForeignKey("invoices.id", ondelete="CASCADE"), nullable=False, index=True
     )
     description: Mapped[str] = mapped_column(String(500), nullable=False)
-    category: Mapped[str] = mapped_column(String(80), default="uncategorized", nullable=False, index=True)
+    category: Mapped[str] = mapped_column(
+        String(80), default="uncategorized", nullable=False, index=True
+    )
     quantity: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=Decimal("1"), nullable=False)
     unit_price: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
     tax_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0"), nullable=False)
 
-    invoice: Mapped["Invoice"] = relationship(back_populates="line_items")
+    invoice: Mapped[Invoice] = relationship(back_populates="line_items")

@@ -1,6 +1,7 @@
 """Durable job queue: enqueue, atomic claim, retries with backoff, dead-letter,
 idempotency, stale-lease reclaim, and tenant isolation."""
-from datetime import datetime, timedelta, timezone
+
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -49,8 +50,12 @@ async def test_enqueue_claim_run_success(auth_client, db_session):
 @pytest.mark.asyncio
 async def test_idempotency_key_dedupes(auth_client, db_session):
     org = await _org(db_session)
-    a = await jobs.enqueue(db_session, "recurring.generate", {}, org_id=org, idempotency_key="daily")
-    b = await jobs.enqueue(db_session, "recurring.generate", {}, org_id=org, idempotency_key="daily")
+    a = await jobs.enqueue(
+        db_session, "recurring.generate", {}, org_id=org, idempotency_key="daily"
+    )
+    b = await jobs.enqueue(
+        db_session, "recurring.generate", {}, org_id=org, idempotency_key="daily"
+    )
     assert a.id == b.id
     count = await db_session.scalar(
         select(jobs.Job.id).where(Job.org_id == org, Job.idempotency_key == "daily")
@@ -68,7 +73,7 @@ async def test_failure_retries_with_backoff_then_dead(auth_client, db_session):
     async def _boom(db, payload, job):
         raise RuntimeError("kaboom")
 
-    now = datetime(2026, 7, 20, 12, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 7, 20, 12, 0, 0, tzinfo=UTC)
     await jobs.enqueue(db_session, "test.boom", {}, org_id=org, max_attempts=2, run_after=now)
 
     job = await jobs.run_once(db_session, "w1", now=now)
@@ -114,8 +119,8 @@ async def test_claim_is_exclusive(auth_client, db_session):
     j2 = await jobs.claim(db_session, "w2")
     j3 = await jobs.claim(db_session, "w3")
     assert j1 is not None and j2 is not None
-    assert j1.id != j2.id           # distinct jobs
-    assert j3 is None               # only two were queued
+    assert j1.id != j2.id  # distinct jobs
+    assert j3 is None  # only two were queued
 
 
 @pytest.mark.asyncio
@@ -124,7 +129,7 @@ async def test_reclaim_stale_lease(auth_client, db_session):
     j = await jobs.enqueue(db_session, "recurring.generate", {}, org_id=org)
     # Simulate a crashed worker: claimed long ago, still 'running'.
     claimed = await jobs.claim(db_session, "dead-worker")
-    claimed.locked_at = datetime.now(timezone.utc) - timedelta(seconds=jobs.STALE_LEASE_SECONDS + 60)
+    claimed.locked_at = datetime.now(UTC) - timedelta(seconds=jobs.STALE_LEASE_SECONDS + 60)
     await db_session.commit()
 
     reclaimed = await jobs.reclaim_stale(db_session)
@@ -138,16 +143,36 @@ async def test_recurring_handler_generates_invoices(auth_client, db_session):
     """The real recurring.generate handler emits invoices when run via the queue."""
     # Activate issuing + a due schedule through the API.
     issuer = {
-        "legal_name": "InvoiceIQ Demo BV", "vat_number": "NL123456789B01",
-        "registration_number": "NL-KVK-12345678", "address_line1": "Keizersgracht 1",
-        "city": "Amsterdam", "postal_code": "1015 CJ", "country": "NL", "email": "b@i.test",
+        "legal_name": "InvoiceIQ Demo BV",
+        "vat_number": "NL123456789B01",
+        "registration_number": "NL-KVK-12345678",
+        "address_line1": "Keizersgracht 1",
+        "city": "Amsterdam",
+        "postal_code": "1015 CJ",
+        "country": "NL",
+        "email": "b@i.test",
     }
     assert (await auth_client.put("/api/v1/issuer", json=issuer)).status_code == 200
     await auth_client.put("/api/v1/modules/issuing", json={"enabled": True})
-    await auth_client.post("/api/v1/issued/recurring", json={
-        "template": {"buyer_name": "Initech", "lines": [{"description": "Retainer", "quantity": "1", "unit_price": "100", "vat_rate": "21"}]},
-        "frequency": "monthly", "start_date": "2020-01-01", "end_date": "2020-01-15",
-    })
+    await auth_client.post(
+        "/api/v1/issued/recurring",
+        json={
+            "template": {
+                "buyer_name": "Initech",
+                "lines": [
+                    {
+                        "description": "Retainer",
+                        "quantity": "1",
+                        "unit_price": "100",
+                        "vat_rate": "21",
+                    }
+                ],
+            },
+            "frequency": "monthly",
+            "start_date": "2020-01-01",
+            "end_date": "2020-01-15",
+        },
+    )
 
     org = await _org(db_session)
     await jobs.enqueue(db_session, "recurring.generate", {}, org_id=org)
@@ -173,9 +198,15 @@ async def test_jobs_api_enqueue_list_and_isolation(auth_client, client):
     assert any(j["id"] == job_id for j in lst)
 
     # A second tenant sees none of it.
-    reg = await client.post("/api/v1/auth/register", json={
-        "organization_name": "Other Co", "name": "O", "email": "o@o.io", "password": "supersecret2",
-    })
+    reg = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "organization_name": "Other Co",
+            "name": "O",
+            "email": "o@o.io",
+            "password": "supersecret2",
+        },
+    )
     client.headers["Authorization"] = f"Bearer {reg.json()['token']['access_token']}"
     assert (await client.get("/api/v1/jobs")).json() == []
     assert (await client.get(f"/api/v1/jobs/{job_id}")).status_code == 404
@@ -201,8 +232,9 @@ async def test_scheduler_enqueues_daily_jobs_idempotently(auth_client, db_sessio
 async def test_jobs_api_enqueue_requires_admin(auth_client, client, db_session):
     """A read-only user cannot enqueue jobs."""
     # Invite + accept a low-privilege user in the same org via direct role set.
-    from app.models.user import User, UserRole
     from sqlalchemy import update as _update
+
+    from app.models.user import User, UserRole
 
     # Downgrade a freshly-registered second account is complex; instead assert the
     # allowlist + admin gate by flipping the current user's role to 'user'.

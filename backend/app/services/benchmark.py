@@ -14,6 +14,7 @@ Comparisons are indicative — quantities are only loosely comparable across
 different products in the same category — and are advisory, never a gate.
 All aggregation happens in the database; per-category math is finished in Python.
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -76,13 +77,14 @@ async def supplier_benchmarks(
 
     # Category counts per vendor (separate join through line_items).
     cat_stmt = _scope(
-        select(Invoice.vendor_id, func.count(func.distinct(LineItem.category)))
-        .join(LineItem, LineItem.invoice_id == Invoice.id),
+        select(Invoice.vendor_id, func.count(func.distinct(LineItem.category))).join(
+            LineItem, LineItem.invoice_id == Invoice.id
+        ),
         org_id,
         start,
         end,
     ).group_by(Invoice.vendor_id)
-    cat_counts = {vid: n for vid, n in (await db.execute(cat_stmt)).all()}
+    cat_counts = dict((await db.execute(cat_stmt)).all())
 
     grand_total = sum((Decimal(r[4] or 0) for r in rows), start=_ZERO)
 
@@ -154,9 +156,7 @@ async def combined_benchmark(
     for category, entries in by_cat.items():
         # Effective unit price per supplier (skip suppliers with zero quantity).
         priced = [
-            (vid, vname, spend, qty, spend / qty)
-            for (vid, vname, spend, qty) in entries
-            if qty > 0
+            (vid, vname, spend, qty, spend / qty) for (vid, vname, spend, qty) in entries if qty > 0
         ]
         cat_spend = sum((e[2] for e in entries), start=_ZERO)
         cat_qty = sum((e[3] for e in entries), start=_ZERO)
@@ -164,17 +164,21 @@ async def combined_benchmark(
         if not priced:
             continue
 
-        combined_avg = (sum((e[2] for e in priced), start=_ZERO) / sum((e[3] for e in priced), start=_ZERO))
+        combined_avg = sum((e[2] for e in priced), start=_ZERO) / sum(
+            (e[3] for e in priced), start=_ZERO
+        )
         cheapest = min(priced, key=lambda e: e[4])
         cheapest_unit = cheapest[4]
 
         suppliers: list[SupplierPricePoint] = []
         cat_savings = _ZERO
-        for (vid, vname, spend, qty, unit) in sorted(priced, key=lambda e: e[4]):
+        for vid, vname, spend, qty, unit in sorted(priced, key=lambda e: e[4]):
             overspend = (unit - cheapest_unit) * qty
             overspend = _q(overspend) if overspend > 0 else _q(_ZERO)
             cat_savings += overspend
-            deviation = _q((unit - combined_avg) / combined_avg * 100, _PCT) if combined_avg > 0 else _ZERO
+            deviation = (
+                _q((unit - combined_avg) / combined_avg * 100, _PCT) if combined_avg > 0 else _ZERO
+            )
             suppliers.append(
                 SupplierPricePoint(
                     vendor_id=vid,

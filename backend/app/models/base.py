@@ -1,8 +1,9 @@
 """Declarative base, a portable GUID type, and shared mixins."""
+
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import CHAR, DateTime, String, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -42,7 +43,7 @@ def new_uuid() -> str:
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Base(DeclarativeBase):

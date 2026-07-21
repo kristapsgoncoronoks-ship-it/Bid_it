@@ -17,12 +17,19 @@ Design principles demonstrated here (see docs/architecture/data-model.md):
 - **Optimistic concurrency:** `version` is bumped on every update; a stale write
   is rejected (see `services/costing.update_*`).
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime
 
 from sqlalchemy import (
-    Date, DateTime, ForeignKey, ForeignKeyConstraint, Index, Integer, String,
+    Date,
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    Integer,
+    String,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -44,7 +51,9 @@ class Department(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     code: Mapped[str] = mapped_column(String(40), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)  # active|archived
+    status: Mapped[str] = mapped_column(
+        String(16), default="active", nullable=False
+    )  # active|archived
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
@@ -56,8 +65,10 @@ class CostCenter(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UniqueConstraint("org_id", "id", name="uq_cost_centers_org_id"),
         # Cross-tenant-safe reference: the department MUST belong to the same org.
         ForeignKeyConstraint(
-            ["org_id", "department_id"], ["departments.org_id", "departments.id"],
-            name="fk_cost_centers_department", ondelete="SET NULL",
+            ["org_id", "department_id"],
+            ["departments.org_id", "departments.id"],
+            name="fk_cost_centers_department",
+            ondelete="SET NULL",
         ),
         Index("ix_cost_centers_org_status", "org_id", "status"),
         Index("ix_cost_centers_org_department", "org_id", "department_id"),
@@ -70,7 +81,9 @@ class CostCenter(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     # Optional roll-up to a department (same org, enforced by the composite FK).
     department_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)
-    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)  # active|archived
+    status: Mapped[str] = mapped_column(
+        String(16), default="active", nullable=False
+    )  # active|archived
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
@@ -88,7 +101,9 @@ class Project(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     code: Mapped[str] = mapped_column(String(40), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)  # active|closed|archived
+    status: Mapped[str] = mapped_column(
+        String(16), default="active", nullable=False
+    )  # active|closed|archived
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

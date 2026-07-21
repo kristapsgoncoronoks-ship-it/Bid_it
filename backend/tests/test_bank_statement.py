@@ -3,6 +3,7 @@
 The critical behaviour: the transaction AMOUNT is read, not the running BALANCE,
 and only debits (outflows) land in the inbox.
 """
+
 import io
 
 import pytest
@@ -15,7 +16,9 @@ async def _activate(auth_client):
 
 @pytest.mark.asyncio
 async def test_module_gated(auth_client):
-    files = {"file": ("s.csv", io.BytesIO(b"Date,Description,Amount\n2026-05-01,x,-1.00\n"), "text/csv")}
+    files = {
+        "file": ("s.csv", io.BytesIO(b"Date,Description,Amount\n2026-05-01,x,-1.00\n"), "text/csv")
+    }
     r = await auth_client.post("/api/v1/expenses/import/bank-statement", files=files)
     assert r.status_code == 403
 
@@ -57,9 +60,10 @@ async def test_csv_signed_amount(auth_client):
 
 def _statement_pdf() -> bytes:
     from reportlab.pdfgen import canvas
+
     ROWS = [
         ("2026-05-01", "Amazon Web Services", "120.00", "4880.00"),
-        ("2026-05-03", "Client refund", "300.00", "5180.00"),   # credit (balance up) → excluded
+        ("2026-05-03", "Client refund", "300.00", "5180.00"),  # credit (balance up) → excluded
         ("2026-05-05", "Hotel Berlin", "89.50", "5090.50"),
         ("2026-05-07", "Lufthansa flight", "410.00", "4680.50"),
         ("2026-05-09", "Office supplies", "63.20", "4617.30"),

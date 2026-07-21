@@ -30,7 +30,9 @@ async def overview(
 @router.get("/targets", response_model=list[BudgetTargetOut])
 async def list_targets(current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
-    return [BudgetTargetOut.model_validate(t) for t in await budget.list_targets(db, current.org_id)]
+    return [
+        BudgetTargetOut.model_validate(t) for t in await budget.list_targets(db, current.org_id)
+    ]
 
 
 @router.put("/targets", response_model=BudgetTargetOut)

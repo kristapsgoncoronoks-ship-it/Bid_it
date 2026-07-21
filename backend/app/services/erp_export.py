@@ -14,6 +14,7 @@ DATEV (Buchungsstapel/EXTF) is intentionally NOT here yet: it requires the Germa
 SKR account framework + the EXTF header spec and per-account tax keys, so it is a
 separate, config-gated build rather than a guessed template.
 """
+
 from __future__ import annotations
 
 import csv
@@ -29,8 +30,8 @@ from sqlalchemy.orm import selectinload
 from app.models.invoice import Invoice
 
 # Default chart mappings (constants for now; can become per-org settings later).
-DEFAULT_XERO_ACCOUNT = "400"        # e.g. a general expenses/purchases account
-DEFAULT_XERO_TAX_TYPE = "NONE"      # importer remaps to the org's tax rate
+DEFAULT_XERO_ACCOUNT = "400"  # e.g. a general expenses/purchases account
+DEFAULT_XERO_TAX_TYPE = "NONE"  # importer remaps to the org's tax rate
 DEFAULT_QBO_ACCOUNT = "Accounts Payable"
 
 # Formats the export hub offers.
@@ -56,10 +57,14 @@ class LedgerRow:
     status: str
 
 
-async def ledger(db: AsyncSession, org_id: str, start: date | None, end: date | None) -> list[LedgerRow]:
+async def ledger(
+    db: AsyncSession, org_id: str, start: date | None, end: date | None
+) -> list[LedgerRow]:
     stmt = (
-        select(Invoice).options(selectinload(Invoice.vendor))
-        .where(Invoice.org_id == org_id).order_by(Invoice.issue_date, Invoice.invoice_number)
+        select(Invoice)
+        .options(selectinload(Invoice.vendor))
+        .where(Invoice.org_id == org_id)
+        .order_by(Invoice.issue_date, Invoice.invoice_number)
     )
     if start is not None:
         stmt = stmt.where(Invoice.issue_date >= start)
@@ -69,10 +74,19 @@ async def ledger(db: AsyncSession, org_id: str, start: date | None, end: date | 
     return [
         LedgerRow(
             supplier=(inv.vendor.name if inv.vendor else ""),
-            number=inv.invoice_number, issue_date=inv.issue_date, due_date=inv.due_date,
-            currency=inv.currency, subtotal=inv.subtotal, tax=inv.tax_amount, total=inv.total,
-            total_eur=inv.total_eur, cost_center=inv.cost_center, department=inv.department,
-            project=inv.project, vehicle=inv.vehicle, property_ref=inv.property_ref,
+            number=inv.invoice_number,
+            issue_date=inv.issue_date,
+            due_date=inv.due_date,
+            currency=inv.currency,
+            subtotal=inv.subtotal,
+            tax=inv.tax_amount,
+            total=inv.total,
+            total_eur=inv.total_eur,
+            cost_center=inv.cost_center,
+            department=inv.department,
+            project=inv.project,
+            vehicle=inv.vehicle,
+            property_ref=inv.property_ref,
             status=inv.status.value if hasattr(inv.status, "value") else str(inv.status),
         )
         for inv in rows
@@ -80,6 +94,7 @@ async def ledger(db: AsyncSession, org_id: str, start: date | None, end: date | 
 
 
 # --- CSV safety --------------------------------------------------------------- #
+
 
 def _safe(value) -> str:
     """Neutralise CSV/Excel formula injection: prefix a leading formula trigger
@@ -105,42 +120,117 @@ def _iso(d: date | None) -> str:
 
 # --- Format renderers --------------------------------------------------------- #
 
+
 def _generic(rows: list[LedgerRow]) -> str:
-    header = ["Date", "Due Date", "Supplier", "Invoice Number", "Currency",
-              "Net", "VAT", "Gross", "Net EUR", "Cost Center", "Department",
-              "Project", "Vehicle", "Property", "Status"]
-    return _csv(header, [
-        [_iso(r.issue_date), _iso(r.due_date), r.supplier, r.number, r.currency,
-         r.subtotal, r.tax, r.total, (r.total_eur if r.total_eur is not None else ""),
-         r.cost_center, r.department, r.project, r.vehicle, r.property_ref, r.status]
-        for r in rows
-    ])
+    header = [
+        "Date",
+        "Due Date",
+        "Supplier",
+        "Invoice Number",
+        "Currency",
+        "Net",
+        "VAT",
+        "Gross",
+        "Net EUR",
+        "Cost Center",
+        "Department",
+        "Project",
+        "Vehicle",
+        "Property",
+        "Status",
+    ]
+    return _csv(
+        header,
+        [
+            [
+                _iso(r.issue_date),
+                _iso(r.due_date),
+                r.supplier,
+                r.number,
+                r.currency,
+                r.subtotal,
+                r.tax,
+                r.total,
+                (r.total_eur if r.total_eur is not None else ""),
+                r.cost_center,
+                r.department,
+                r.project,
+                r.vehicle,
+                r.property_ref,
+                r.status,
+            ]
+            for r in rows
+        ],
+    )
 
 
 def _xero(rows: list[LedgerRow]) -> str:
     # Xero "Bills" import columns (* = required). One line per bill at NET; the
     # importer applies tax via TaxType and posts to AccountCode.
-    header = ["*ContactName", "*InvoiceNumber", "*InvoiceDate", "*DueDate",
-              "*Description", "*Quantity", "*UnitAmount", "*AccountCode",
-              "*TaxType", "Currency", "TrackingName1", "TrackingOption1"]
-    return _csv(header, [
-        [r.supplier, r.number, _iso(r.issue_date), _iso(r.due_date),
-         f"Invoice {r.number}", "1", r.subtotal, DEFAULT_XERO_ACCOUNT,
-         DEFAULT_XERO_TAX_TYPE, r.currency,
-         ("Cost Center" if r.cost_center else ""), (r.cost_center or "")]
-        for r in rows
-    ])
+    header = [
+        "*ContactName",
+        "*InvoiceNumber",
+        "*InvoiceDate",
+        "*DueDate",
+        "*Description",
+        "*Quantity",
+        "*UnitAmount",
+        "*AccountCode",
+        "*TaxType",
+        "Currency",
+        "TrackingName1",
+        "TrackingOption1",
+    ]
+    return _csv(
+        header,
+        [
+            [
+                r.supplier,
+                r.number,
+                _iso(r.issue_date),
+                _iso(r.due_date),
+                f"Invoice {r.number}",
+                "1",
+                r.subtotal,
+                DEFAULT_XERO_ACCOUNT,
+                DEFAULT_XERO_TAX_TYPE,
+                r.currency,
+                ("Cost Center" if r.cost_center else ""),
+                (r.cost_center or ""),
+            ]
+            for r in rows
+        ],
+    )
 
 
 def _quickbooks(rows: list[LedgerRow]) -> str:
     # QuickBooks Online "Bills" import columns (gross amount + memo).
-    header = ["Supplier", "Bill No", "Bill Date", "Due Date", "Account",
-              "Amount", "Currency", "Memo"]
-    return _csv(header, [
-        [r.supplier, r.number, _iso(r.issue_date), _iso(r.due_date),
-         DEFAULT_QBO_ACCOUNT, r.total, r.currency, f"Invoice {r.number}"]
-        for r in rows
-    ])
+    header = [
+        "Supplier",
+        "Bill No",
+        "Bill Date",
+        "Due Date",
+        "Account",
+        "Amount",
+        "Currency",
+        "Memo",
+    ]
+    return _csv(
+        header,
+        [
+            [
+                r.supplier,
+                r.number,
+                _iso(r.issue_date),
+                _iso(r.due_date),
+                DEFAULT_QBO_ACCOUNT,
+                r.total,
+                r.currency,
+                f"Invoice {r.number}",
+            ]
+            for r in rows
+        ],
+    )
 
 
 _RENDERERS = {"generic": _generic, "xero": _xero, "quickbooks": _quickbooks}

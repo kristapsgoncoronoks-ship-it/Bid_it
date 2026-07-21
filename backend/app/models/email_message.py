@@ -27,11 +27,13 @@ class EmailMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Which issued invoice this concerns (nullable for future non-invoice mail).
     invoice_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
-    kind: Mapped[str] = mapped_column(String(20), nullable=False)      # invoice | reminder
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)  # invoice | reminder
     to_email: Mapped[str] = mapped_column(String(255), nullable=False)
     subject: Mapped[str] = mapped_column(String(300), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
 
-    status: Mapped[str] = mapped_column(String(12), default="recorded", nullable=False)  # recorded|sent|failed
+    status: Mapped[str] = mapped_column(
+        String(12), default="recorded", nullable=False
+    )  # recorded|sent|failed
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

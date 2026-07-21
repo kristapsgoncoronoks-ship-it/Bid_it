@@ -1,6 +1,7 @@
 """Data retention + legal hold (Phase 4, ADR-0019): policies, preview, purge,
 legal-hold gating, object-byte cleanup, audit, scheduler, and route gating."""
-from datetime import date, datetime, timezone
+
+from datetime import UTC, date, datetime
 
 import pytest
 from sqlalchemy import func, select
@@ -13,8 +14,8 @@ from app.models.organization import Organization
 from app.models.vendor import Vendor
 from app.services import documents, retention
 
-OLD = datetime(2026, 1, 1, tzinfo=timezone.utc)
-RECENT = datetime(2026, 7, 20, tzinfo=timezone.utc)
+OLD = datetime(2026, 1, 1, tzinfo=UTC)
+RECENT = datetime(2026, 7, 20, tzinfo=UTC)
 TODAY = date(2026, 7, 21)
 
 
@@ -29,8 +30,11 @@ async def _invoice(db, org_id, number, created_at):
         db.add(vendor)
         await db.flush()
     inv = Invoice(
-        org_id=org_id, vendor_id=vendor.id, invoice_number=number,
-        issue_date=date(2026, 1, 1), created_at=created_at,
+        org_id=org_id,
+        vendor_id=vendor.id,
+        invoice_number=number,
+        issue_date=date(2026, 1, 1),
+        created_at=created_at,
     )
     db.add(inv)
     await db.flush()
@@ -39,8 +43,12 @@ async def _invoice(db, org_id, number, created_at):
 
 async def _inbound(db, org_id, created_at, *, sha=None):
     row = InboundInvoice(
-        org_id=org_id, received_at=created_at, filename="a.pdf",
-        status="pending", sha256=sha, created_at=created_at,
+        org_id=org_id,
+        received_at=created_at,
+        filename="a.pdf",
+        status="pending",
+        sha256=sha,
+        created_at=created_at,
     )
     db.add(row)
     await db.flush()
@@ -48,6 +56,7 @@ async def _inbound(db, org_id, created_at, *, sha=None):
 
 
 # --- policies --------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_set_get_policy(auth_client, db_session):
@@ -67,6 +76,7 @@ async def test_unknown_category_rejected(auth_client, db_session):
 
 
 # --- preview + purge -------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_purge_deletes_old_keeps_recent(auth_client, db_session):
@@ -91,12 +101,20 @@ async def test_purge_removes_children_and_object_bytes(auth_client, db_session):
     org_id = await _org_id(db_session)
     # An old expense report with an item whose receipt lives in object storage.
     sha, _ = await documents.store(documents.RECEIPTS, org_id, b"receipt-bytes", "application/pdf")
-    report = ExpenseReport(org_id=org_id, employee_id="e1", employee_name="E",
-                           title="Trip", created_at=OLD)
+    report = ExpenseReport(
+        org_id=org_id, employee_id="e1", employee_name="E", title="Trip", created_at=OLD
+    )
     db_session.add(report)
     await db_session.flush()
-    db_session.add(ExpenseItem(report_id=report.id, spend_date=date(2026, 1, 1),
-                               description="Fuel", receipt_sha256=sha, created_at=OLD))
+    db_session.add(
+        ExpenseItem(
+            report_id=report.id,
+            spend_date=date(2026, 1, 1),
+            description="Fuel",
+            receipt_sha256=sha,
+            created_at=OLD,
+        )
+    )
     await db_session.commit()
     await retention.set_policy(db_session, org_id, "expenses", 30)
 
@@ -107,7 +125,8 @@ async def test_purge_removes_children_and_object_bytes(auth_client, db_session):
     assert await db_session.scalar(select(func.count()).select_from(ExpenseItem)) == 0
     assert await db_session.scalar(select(func.count()).select_from(ExpenseReport)) == 0
     from app.core import storage
-    with pytest.raises(storage.StorageError):   # bytes purged → object gone
+
+    with pytest.raises(storage.StorageError):  # bytes purged → object gone
         await documents.load(documents.RECEIPTS, org_id, sha)
 
 
@@ -119,11 +138,14 @@ async def test_purge_is_audited(auth_client, db_session):
     await retention.set_policy(db_session, org_id, "invoices", 30)
     await retention.purge(db_session, org_id, today=TODAY)
 
-    actions = list(await db_session.scalars(select(AuditEvent.action).where(AuditEvent.org_id == org_id)))
+    actions = list(
+        await db_session.scalars(select(AuditEvent.action).where(AuditEvent.org_id == org_id))
+    )
     assert "retention.purge" in actions
 
 
 # --- legal hold ------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_legal_hold_blocks_purge(auth_client, db_session):
@@ -131,15 +153,19 @@ async def test_legal_hold_blocks_purge(auth_client, db_session):
     await _invoice(db_session, org_id, "OLD", OLD)
     await db_session.commit()
     await retention.set_policy(db_session, org_id, "invoices", 30)
-    hold = await retention.place_hold(db_session, org_id, reason="Litigation X", actor_email="a@a.io")
+    hold = await retention.place_hold(
+        db_session, org_id, reason="Litigation X", actor_email="a@a.io"
+    )
 
     assert await retention.is_on_hold(db_session, org_id) is True
     prev = await retention.preview(db_session, org_id, today=TODAY)
-    assert prev.on_hold is True and prev.counts["invoices"] == 1   # counted but blocked
+    assert prev.on_hold is True and prev.counts["invoices"] == 1  # counted but blocked
 
     res = await retention.purge(db_session, org_id, today=TODAY)
     assert res == {"held": True, "purged": {}}
-    assert await db_session.scalar(select(func.count()).select_from(Invoice)) == 1  # nothing deleted
+    assert (
+        await db_session.scalar(select(func.count()).select_from(Invoice)) == 1
+    )  # nothing deleted
 
     # Release → purge proceeds.
     assert await retention.release_hold(db_session, org_id, hold.id, actor_email="a@a.io") is True
@@ -154,6 +180,7 @@ async def test_release_unknown_hold(auth_client, db_session):
 
 
 # --- scheduler -------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_scheduler_enqueues_purge_only_with_policy(auth_client, db_session):
@@ -174,6 +201,7 @@ async def test_scheduler_enqueues_purge_only_with_policy(auth_client, db_session
 
 # --- routes ----------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_routes_full_cycle(auth_client, db_session):
     org_id = await _org_id(db_session)
@@ -181,7 +209,9 @@ async def test_routes_full_cycle(auth_client, db_session):
     await db_session.commit()
 
     # Set a policy via the API.
-    r = await auth_client.put("/api/v1/retention/policy", json={"category": "invoices", "retain_days": 30})
+    r = await auth_client.put(
+        "/api/v1/retention/policy", json={"category": "invoices", "retain_days": 30}
+    )
     assert r.status_code == 200
     body = r.json()
     inv_cat = next(c for c in body["categories"] if c["key"] == "invoices")
@@ -214,5 +244,7 @@ async def test_routes_require_admin(auth_client, db_session):
 
 @pytest.mark.asyncio
 async def test_bad_category_rejected_by_route(auth_client):
-    r = await auth_client.put("/api/v1/retention/policy", json={"category": "nope", "retain_days": 30})
+    r = await auth_client.put(
+        "/api/v1/retention/policy", json={"category": "nope", "retain_days": 30}
+    )
     assert r.status_code == 400

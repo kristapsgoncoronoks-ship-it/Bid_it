@@ -3,8 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import CurrentUser, DbSession
-from app.models.organization import Organization
 from app.core.roles import is_admin_or_above
+from app.models.organization import Organization
 from app.schemas.validation import ValidationSettings, ValidationSettingsUpdate
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -24,7 +24,9 @@ async def update_validation_settings(
     body: ValidationSettingsUpdate, current: CurrentUser, db: DbSession
 ):
     if not is_admin_or_above(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can change validation settings")
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Only an admin can change validation settings"
+        )
     org = await db.get(Organization, current.org_id)
     if body.ai_validation_enabled is not None:
         org.ai_validation_enabled = body.ai_validation_enabled

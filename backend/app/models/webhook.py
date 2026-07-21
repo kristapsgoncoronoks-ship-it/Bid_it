@@ -27,7 +27,7 @@ class WebhookEndpoint(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
     url: Mapped[str] = mapped_column(String(500), nullable=False)
-    secret: Mapped[str] = mapped_column(String(80), nullable=False)   # signing key
+    secret: Mapped[str] = mapped_column(String(80), nullable=False)  # signing key
     events: Mapped[str] = mapped_column(String(500), default="*", nullable=False)
     description: Mapped[str | None] = mapped_column(String(200), nullable=True)
     active: Mapped[bool] = mapped_column(default=True, nullable=False)

@@ -18,9 +18,7 @@ class EcbRate(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     """
 
     __tablename__ = "ecb_rates"
-    __table_args__ = (
-        UniqueConstraint("rate_date", "currency", name="uq_ecb_rate_date_ccy"),
-    )
+    __table_args__ = (UniqueConstraint("rate_date", "currency", name="uq_ecb_rate_date_ccy"),)
 
     rate_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, index=True)

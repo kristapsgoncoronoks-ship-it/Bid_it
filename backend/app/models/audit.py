@@ -28,14 +28,16 @@ class AuditEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     seq: Mapped[int] = mapped_column(Integer, nullable=False)
 
-    actor_id: Mapped[str | None] = mapped_column(String(36), nullable=True)   # None = system
+    actor_id: Mapped[str | None] = mapped_column(String(36), nullable=True)  # None = system
     actor_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    action: Mapped[str] = mapped_column(String(64), nullable=False)           # e.g. invoice.create
+    action: Mapped[str] = mapped_column(String(64), nullable=False)  # e.g. invoice.create
     target_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
     target_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    meta: Mapped[str | None] = mapped_column(Text, nullable=True)             # small JSON, no secrets
+    meta: Mapped[str | None] = mapped_column(Text, nullable=True)  # small JSON, no secrets
 
-    at_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)  # epoch ms, exact round-trip (hashed)
+    at_ms: Mapped[int] = mapped_column(
+        BigInteger, nullable=False
+    )  # epoch ms, exact round-trip (hashed)
     prev_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     hash: Mapped[str] = mapped_column(String(64), nullable=False)

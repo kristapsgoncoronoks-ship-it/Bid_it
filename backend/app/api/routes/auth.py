@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import RedirectResponse, Response
@@ -50,7 +50,7 @@ async def register(body: RegisterRequest, db: DbSession) -> AuthResponse:
         email=body.email.lower(),
         name=body.name,
         hashed_password=hash_password(body.password),
-        role=UserRole.owner,   # the first user is the OWNER of THIS company only
+        role=UserRole.owner,  # the first user is the OWNER of THIS company only
         is_expense_approver=True,  # the owner is an expense approver by default
     )
     db.add(user)
@@ -58,8 +58,14 @@ async def register(body: RegisterRequest, db: DbSession) -> AuthResponse:
     await db.refresh(user)
     await db.refresh(org)
 
-    await audit.record(db, audit.A.REGISTER, org_id=org.id, actor=(user.id, user.email),
-                       target_type="organization", target_id=org.id)
+    await audit.record(
+        db,
+        audit.A.REGISTER,
+        org_id=org.id,
+        actor=(user.id, user.email),
+        target_type="organization",
+        target_id=org.id,
+    )
     await db.commit()
     return AuthResponse(token=_token_for(user), user=user, organization=org)
 
@@ -73,9 +79,11 @@ async def login(body: LoginRequest, db: DbSession) -> AuthResponse:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Account is disabled")
 
     org = await db.get(Organization, user.org_id)
-    residency.assert_region(org)   # refuse a wrong-region login (backstop; LB routes)
+    residency.assert_region(org)  # refuse a wrong-region login (backstop; LB routes)
     if org.status != "active" and not user.is_platform_admin:
-        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, f"Workspace is {org.status}. Contact support.")
+        raise HTTPException(
+            status.HTTP_402_PAYMENT_REQUIRED, f"Workspace is {org.status}. Contact support."
+        )
     await audit.record(db, audit.A.LOGIN, org_id=user.org_id, actor=(user.id, user.email))
     await db.commit()
     return AuthResponse(token=_token_for(user), user=user, organization=org)
@@ -89,8 +97,11 @@ async def me(current: CurrentUser, db: DbSession) -> MeOut:
 
 # --- SSO (OIDC) login (ADR-0021) -------------------------------------------
 
+
 def _sso_error_redirect() -> RedirectResponse:
-    return RedirectResponse(f"{settings.sso_error_url}?sso_error=1", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(
+        f"{settings.sso_error_url}?sso_error=1", status_code=status.HTTP_302_FOUND
+    )
 
 
 @router.get("/sso/{slug}/authorize", include_in_schema=False)
@@ -106,8 +117,12 @@ async def sso_authorize(slug: str, db: DbSession):
         nonce = secrets.token_urlsafe(16)
         state = oidc.sign_state(conn.id, nonce, verifier)
         url = oidc.build_authorize_url(
-            disco["authorization_endpoint"], client_id=conn.client_id or "",
-            redirect_uri=settings.sso_redirect_uri, state=state, nonce=nonce, code_challenge=challenge,
+            disco["authorization_endpoint"],
+            client_id=conn.client_id or "",
+            redirect_uri=settings.sso_redirect_uri,
+            state=state,
+            nonce=nonce,
+            code_challenge=challenge,
         )
     except Exception as exc:  # noqa: BLE001 - IdP unreachable / misconfigured
         log.warning("SSO authorize failed for %s: %s", slug, exc)
@@ -116,8 +131,9 @@ async def sso_authorize(slug: str, db: DbSession):
 
 
 @router.get("/sso/callback", include_in_schema=False)
-async def sso_callback(db: DbSession, code: str | None = None, state: str | None = None,
-                       error: str | None = None):
+async def sso_callback(
+    db: DbSession, code: str | None = None, state: str | None = None, error: str | None = None
+):
     """OIDC redirect back: validate + JIT-provision, then bounce to the SPA with
     our internal token in the URL fragment. Any failure → the SPA login page."""
     if error or not code or not state:
@@ -127,7 +143,9 @@ async def sso_callback(db: DbSession, code: str | None = None, state: str | None
         conn = await db.get(SsoConnection, st["conn"])
         if conn is None or not conn.enabled:
             raise oidc.SsoError("connection unavailable")
-        user, org = await oidc.finish_login(db, conn, code=code, nonce=st["nonce"], code_verifier=st["cv"])
+        user, org = await oidc.finish_login(
+            db, conn, code=code, nonce=st["nonce"], code_verifier=st["cv"]
+        )
     except oidc.SsoError as exc:
         log.warning("SSO callback rejected: %s", exc)
         return _sso_error_redirect()
@@ -135,11 +153,13 @@ async def sso_callback(db: DbSession, code: str | None = None, state: str | None
         log.exception("SSO callback error")
         return _sso_error_redirect()
     token = create_access_token(user.id, {"org": org.id})
-    return RedirectResponse(f"{settings.sso_post_login_url}#access_token={token}",
-                            status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(
+        f"{settings.sso_post_login_url}#access_token={token}", status_code=status.HTTP_302_FOUND
+    )
 
 
 # --- SAML (SP request side + metadata; ADR-0021) ---------------------------
+
 
 def _saml_ids(slug: str) -> tuple[str, str]:
     base = settings.api_public_base_url.rstrip("/")
@@ -155,8 +175,10 @@ async def saml_metadata(slug: str, db: DbSession):
     if conn is None or conn.protocol != "saml":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No SAML connection for this workspace")
     sp_entity_id, acs_url = _saml_ids(slug)
-    return Response(saml.sp_metadata_xml(sp_entity_id=sp_entity_id, acs_url=acs_url),
-                    media_type="application/xml")
+    return Response(
+        saml.sp_metadata_xml(sp_entity_id=sp_entity_id, acs_url=acs_url),
+        media_type="application/xml",
+    )
 
 
 @router.get("/sso/{slug}/saml/login", include_in_schema=False)
@@ -170,8 +192,10 @@ async def saml_login(slug: str, db: DbSession):
     sp_entity_id, acs_url = _saml_ids(slug)
     xml = saml.build_authn_request(
         request_id="_" + uuid.uuid4().hex,
-        issue_instant=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        sp_entity_id=sp_entity_id, acs_url=acs_url, idp_sso_url=conn.saml_sso_url,
+        issue_instant=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        sp_entity_id=sp_entity_id,
+        acs_url=acs_url,
+        idp_sso_url=conn.saml_sso_url,
     )
     url = saml.redirect_binding_url(conn.saml_sso_url, xml, relay_state=slug)
     return RedirectResponse(url, status_code=status.HTTP_302_FOUND)

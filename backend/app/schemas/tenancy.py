@@ -71,7 +71,7 @@ class BillingOut(BaseModel):
     # True when a real payment provider is connected → the UI routes paid changes
     # through the provider's hosted flow instead of the in-app switch.
     billing_enabled: bool = False
-    billing_provider: str = "none"   # stripe | everypay | none
+    billing_provider: str = "none"  # stripe | everypay | none
     has_subscription: bool = False
 
 

@@ -1,9 +1,33 @@
 from fastapi import APIRouter
 
 from app.api.routes import (
-    access, analytics, audit, auth, billing, budget, email, expenses, fx,
-    export, invoices, issued, issuer, integrity, jobs, modules, partners,
-    platform, privacy, recurring, retention, scim, settings, sso, team, vendors, webhooks,
+    access,
+    analytics,
+    audit,
+    auth,
+    billing,
+    budget,
+    email,
+    expenses,
+    export,
+    fx,
+    integrity,
+    invoices,
+    issued,
+    issuer,
+    jobs,
+    modules,
+    partners,
+    platform,
+    privacy,
+    recurring,
+    retention,
+    scim,
+    settings,
+    sso,
+    team,
+    vendors,
+    webhooks,
 )
 
 api_router = APIRouter()

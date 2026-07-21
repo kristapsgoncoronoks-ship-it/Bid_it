@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 class RateOut(BaseModel):
     currency: str
-    rate: Decimal        # units per 1 EUR
+    rate: Decimal  # units per 1 EUR
     rate_date: date
     approximate: bool
 
@@ -22,10 +22,10 @@ class RatesResponse(BaseModel):
 class CurrencyOut(BaseModel):
     code: str
     name: str
-    ecb: bool                     # published in the ECB reference feed
-    rate: Decimal | None          # units per 1 EUR (None if uncached)
+    ecb: bool  # published in the ECB reference feed
+    rate: Decimal | None  # units per 1 EUR (None if uncached)
     rate_date: date | None
-    indicative: bool              # True = not an official ECB rate
+    indicative: bool  # True = not an official ECB rate
 
 
 class CurrenciesResponse(BaseModel):
@@ -39,7 +39,7 @@ class ConvertResponse(BaseModel):
     from_currency: str
     to_currency: str
     converted: Decimal
-    rate: Decimal        # effective from→to rate applied
+    rate: Decimal  # effective from→to rate applied
     rate_date: date
     approximate: bool
 
@@ -64,8 +64,8 @@ class FxComparisonRow(BaseModel):
     eur_at_ecb: Decimal | None
     stated_rate: Decimal | None
     eur_at_stated: Decimal | None
-    markup_eur: Decimal | None      # eur_at_stated - eur_at_ecb (positive = overpaid vs ECB)
-    deviation_pct: Decimal | None   # (stated - ecb) / ecb * 100
+    markup_eur: Decimal | None  # eur_at_stated - eur_at_ecb (positive = overpaid vs ECB)
+    deviation_pct: Decimal | None  # (stated - ecb) / ecb * 100
 
 
 class FxComparisonSummary(BaseModel):

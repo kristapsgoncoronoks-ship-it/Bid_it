@@ -32,7 +32,8 @@ async def list_event_types(current: CurrentUser):
 @router.get("", response_model=list[WebhookOut])
 async def list_endpoints(current: CurrentUser, db: DbSession):
     rows = await db.scalars(
-        select(WebhookEndpoint).where(WebhookEndpoint.org_id == current.org_id)
+        select(WebhookEndpoint)
+        .where(WebhookEndpoint.org_id == current.org_id)
         .order_by(WebhookEndpoint.created_at.desc())
     )
     return [WebhookOut.model_validate(r) for r in rows]
@@ -43,8 +44,12 @@ async def create_endpoint(body: WebhookCreate, current: CurrentUser, db: DbSessi
     """Register an endpoint. The signing secret is returned ONCE here."""
     _require_admin(current)
     ep = WebhookEndpoint(
-        org_id=current.org_id, url=body.url, events=body.events or "*",
-        description=body.description, secret=webhooks.new_secret(), active=True,
+        org_id=current.org_id,
+        url=body.url,
+        events=body.events or "*",
+        description=body.description,
+        secret=webhooks.new_secret(),
+        active=True,
     )
     db.add(ep)
     await db.commit()
@@ -64,7 +69,9 @@ async def _load(db: DbSession, org_id: str, endpoint_id: str) -> WebhookEndpoint
 
 
 @router.patch("/{endpoint_id}", response_model=WebhookOut)
-async def update_endpoint(endpoint_id: str, body: WebhookUpdate, current: CurrentUser, db: DbSession):
+async def update_endpoint(
+    endpoint_id: str, body: WebhookUpdate, current: CurrentUser, db: DbSession
+):
     _require_admin(current)
     ep = await _load(db, current.org_id, endpoint_id)
     for field in ("url", "events", "description", "active"):
@@ -96,14 +103,19 @@ async def ping_endpoint(endpoint_id: str, current: CurrentUser, db: DbSession):
 
 @router.get("/{endpoint_id}/deliveries", response_model=list[WebhookDeliveryOut])
 async def list_deliveries(
-    endpoint_id: str, current: CurrentUser, db: DbSession,
+    endpoint_id: str,
+    current: CurrentUser,
+    db: DbSession,
     limit: int = Query(default=50, ge=1, le=200),
 ):
     await _load(db, current.org_id, endpoint_id)
     rows = await db.scalars(
-        select(WebhookDelivery).where(
+        select(WebhookDelivery)
+        .where(
             WebhookDelivery.endpoint_id == endpoint_id,
             WebhookDelivery.org_id == current.org_id,
-        ).order_by(WebhookDelivery.created_at.desc()).limit(limit)
+        )
+        .order_by(WebhookDelivery.created_at.desc())
+        .limit(limit)
     )
     return [WebhookDeliveryOut.model_validate(r) for r in rows]

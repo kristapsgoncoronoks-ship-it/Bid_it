@@ -7,11 +7,12 @@ as a manual upload and lands in a per-org review inbox as an `InboundInvoice`. A
 user reviews the parsed draft and confirms it into a real `Invoice` — nothing is
 persisted as an invoice without that human confirm (deterministic-first, review-gated).
 """
+
 from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
@@ -20,10 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.email_intake import EmailIntake, InboundInvoice
 from app.services import documents, filesec, jobs
+from app.services.parser import parse_invoice_file
 
 # Job kind for out-of-band attachment extraction (registered in job_handlers).
 EXTRACT_KIND = "email.extract"
-from app.services.parser import parse_invoice_file
 
 
 def _new_token() -> str:
@@ -105,7 +106,7 @@ async def process_attachment(
         org_id=org_id,
         from_addr=(from_addr or None) and from_addr[:320],
         subject=(subject or None) and subject[:500],
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
         filename=(filename or "attachment")[:300],
         content_type=(content_type or None) and content_type[:120],
         size=len(content),
@@ -130,8 +131,12 @@ async def process_attachment(
     db.add(row)
     await db.flush()  # assign row.id before enqueuing the extract job
     await jobs.enqueue(
-        db, EXTRACT_KIND, {"inbound_id": row.id}, org_id=org_id,
-        idempotency_key=f"extract:{row.id}", commit=False,
+        db,
+        EXTRACT_KIND,
+        {"inbound_id": row.id},
+        org_id=org_id,
+        idempotency_key=f"extract:{row.id}",
+        commit=False,
     )
     return row
 

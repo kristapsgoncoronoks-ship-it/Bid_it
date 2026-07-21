@@ -9,6 +9,7 @@ audit attribution + foreign keys survive.
 Provable offline (it's a REST API we serve); the remaining real-IdP work is
 paging/PATCH-dialect quirks (Okta vs Entra) — the ADR-0021 finish item.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -65,6 +66,7 @@ async def set_token(db: AsyncSession, org_id: str) -> str:
 
 # --- resource mapping ------------------------------------------------------
 
+
 def to_scim(user: User) -> dict:
     return {
         "schemas": [USER_SCHEMA],
@@ -92,12 +94,15 @@ def _email_from(resource: dict) -> str | None:
     email = resource.get("userName")
     if not email:
         emails = resource.get("emails") or []
-        primary = next((e for e in emails if e.get("primary")), None) or (emails[0] if emails else None)
+        primary = next((e for e in emails if e.get("primary")), None) or (
+            emails[0] if emails else None
+        )
         email = primary.get("value") if primary else None
     return email.strip().lower() if email else None
 
 
 # --- CRUD ------------------------------------------------------------------
+
 
 async def create_user(db: AsyncSession, org_id: str, resource: dict, *, default_role: str) -> User:
     email = _email_from(resource)
@@ -112,9 +117,14 @@ async def create_user(db: AsyncSession, org_id: str, resource: dict, *, default_
         await db.commit()
         return existing
     role = default_role if default_role in UserRole.__members__ else UserRole.user.value
-    user = User(org_id=org_id, email=email, name=_name_from(resource, email),
-                hashed_password=hash_password(_UNUSABLE_PASSWORD),
-                role=UserRole(role), is_active=resource.get("active", True))
+    user = User(
+        org_id=org_id,
+        email=email,
+        name=_name_from(resource, email),
+        hashed_password=hash_password(_UNUSABLE_PASSWORD),
+        role=UserRole(role),
+        is_active=resource.get("active", True),
+    )
     db.add(user)
     await db.commit()
     await db.refresh(user)
@@ -128,16 +138,22 @@ async def get_user(db: AsyncSession, org_id: str, user_id: str) -> User:
     return user
 
 
-async def list_users(db: AsyncSession, org_id: str, *, email_filter: str | None,
-                     start_index: int, count: int) -> tuple[list[User], int]:
+async def list_users(
+    db: AsyncSession, org_id: str, *, email_filter: str | None, start_index: int, count: int
+) -> tuple[list[User], int]:
     where = [User.org_id == org_id]
     if email_filter:
         where.append(func.lower(User.email) == email_filter.lower())
     total = int(await db.scalar(select(func.count()).select_from(User).where(*where)) or 0)
-    rows = list(await db.scalars(
-        select(User).where(*where).order_by(User.created_at.asc())
-        .offset(max(0, start_index - 1)).limit(count)
-    ))
+    rows = list(
+        await db.scalars(
+            select(User)
+            .where(*where)
+            .order_by(User.created_at.asc())
+            .offset(max(0, start_index - 1))
+            .limit(count)
+        )
+    )
     return rows, total
 
 
@@ -164,7 +180,7 @@ async def patch_user(db: AsyncSession, org_id: str, user_id: str, body: dict) ->
         value = op.get("value")
         if path == "active":
             user.is_active = _as_bool(value)
-        elif isinstance(value, dict) and "active" in value:   # pathless replace
+        elif isinstance(value, dict) and "active" in value:  # pathless replace
             user.is_active = _as_bool(value["active"])
         elif path in ("name.formatted", "displayname"):
             user.name = str(value)[:200]

@@ -9,6 +9,7 @@ until the queue is empty, then sleeps briefly. Multiple workers are safe — the
 claim is atomic, so a job runs on exactly one worker at a time. The worker runs
 UNSCOPED (no tenant context); each job is dispatched inside its own tenant scope.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -17,12 +18,14 @@ import logging
 import os
 import signal
 import socket
-
 from datetime import date
 
 from app.core.database import SessionLocal
-from app.services import job_handlers  # noqa: F401 — registers the handlers
-from app.services import jobs, scheduler
+from app.services import (
+    job_handlers,  # noqa: F401 — registers the handlers
+    jobs,
+    scheduler,
+)
 
 log = logging.getLogger("invoiceiq.worker")
 
@@ -72,6 +75,7 @@ async def run_forever(poll_interval: float = IDLE_SLEEP_SECONDS) -> None:
                 # so /metrics stays warm even when the API tier is idle.
                 try:
                     from app.services import queue_health
+
                     await queue_health.snapshot(db)
                 except Exception:  # noqa: BLE001 — never let metrics break the loop
                     pass
@@ -89,17 +93,23 @@ async def run_forever(poll_interval: float = IDLE_SLEEP_SECONDS) -> None:
         if processed == 0:
             try:
                 await asyncio.wait_for(stop.wait(), timeout=poll_interval)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
     log.info("worker %s stopped", worker_id)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="InvoiceIQ background worker")
-    parser.add_argument("--poll", type=float, default=IDLE_SLEEP_SECONDS,
-                        help="seconds to sleep when the queue is empty")
+    parser.add_argument(
+        "--poll",
+        type=float,
+        default=IDLE_SLEEP_SECONDS,
+        help="seconds to sleep when the queue is empty",
+    )
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
     asyncio.run(run_forever(args.poll))
 
 

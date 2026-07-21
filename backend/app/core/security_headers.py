@@ -9,6 +9,7 @@ is enabled — a **Strict-Transport-Security** header so browsers refuse plain H
 Pure-ASGI so it composes with the tenant-scope middleware and adds no per-request
 Python object overhead beyond a header rewrite.
 """
+
 from __future__ import annotations
 
 from app.core.config import settings
@@ -41,10 +42,12 @@ class SecurityHeadersMiddleware:
 
         add = list(_STATIC_HEADERS)
         if settings.hsts_enabled and _is_https(scope):
-            add.append((
-                b"strict-transport-security",
-                f"max-age={settings.hsts_max_age}; includeSubDomains; preload".encode(),
-            ))
+            add.append(
+                (
+                    b"strict-transport-security",
+                    f"max-age={settings.hsts_max_age}; includeSubDomains; preload".encode(),
+                )
+            )
 
         async def send_wrapper(message):
             if message["type"] == "http.response.start":

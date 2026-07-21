@@ -5,11 +5,19 @@ on any particular domain. `app.main` imports this at startup; the worker imports
 it too, so both the API (which enqueues) and the worker (which runs) agree on the
 set of known kinds.
 """
+
 from __future__ import annotations
 
 from app.models.job import Job
 from app.services import (
-    billing, billing_usage, dunning, email_intake, integrity, jobs, recurring, retention,
+    billing,
+    billing_usage,
+    dunning,
+    email_intake,
+    integrity,
+    jobs,
+    recurring,
+    retention,
     webhooks,
 )
 
@@ -70,8 +78,12 @@ async def _integrity_verify(db, payload: dict, job: Job) -> dict:
     """Re-hash the tenant's stored documents against their recorded sha256."""
     report = await integrity.verify_documents(db, job.org_id)
     # A failure is loud (surfaces as a job result an operator/admin can see).
-    return {"checked": report.checked, "ok": report.ok, "issues": len(report.issues),
-            "healthy": report.healthy}
+    return {
+        "checked": report.checked,
+        "ok": report.ok,
+        "issues": len(report.issues),
+        "healthy": report.healthy,
+    }
 
 
 # Kinds an authenticated user is allowed to enqueue via the API (safe, tenant

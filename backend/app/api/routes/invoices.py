@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, status
@@ -11,6 +11,8 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
 from app.api.routes.vendors import get_or_create_vendor
+from app.core.dimensions import DIMENSION_KEYS
+from app.core.money import q2 as _q
 from app.models.invoice import Invoice, InvoiceStatus, LineItem
 from app.models.organization import Organization
 from app.models.vendor import Vendor
@@ -24,8 +26,6 @@ from app.schemas.invoice import (
     ParsedInvoiceDraft,
 )
 from app.schemas.validation import ValidationDecision, ValidationFinding
-from app.core.dimensions import DIMENSION_KEYS
-from app.core.money import q2 as _q
 from app.services import access, audit, filesec, fx, validation, webhooks
 from app.services.parser import parse_invoice_file
 
@@ -161,12 +161,30 @@ async def create_invoice(body: InvoiceCreate, current: CurrentUser, db: DbSessio
     # System-matrix usage limit for the caller's access level.
     await access.enforce_invoice_quota(db, current.org_id, current.role)
     invoice, vendor_name = await persist_invoice(db, current.org_id, body)
-    await audit.record(db, audit.A.INVOICE_CREATE, target_type="invoice", target_id=invoice.id,
-                       meta={"number": invoice.invoice_number, "total": str(invoice.total), "currency": invoice.currency})
-    await webhooks.emit(db, current.org_id, "invoice.created", {
-        "id": invoice.id, "invoice_number": invoice.invoice_number, "vendor_name": vendor_name,
-        "total": str(invoice.total), "currency": invoice.currency, "status": invoice.status.value,
-    })
+    await audit.record(
+        db,
+        audit.A.INVOICE_CREATE,
+        target_type="invoice",
+        target_id=invoice.id,
+        meta={
+            "number": invoice.invoice_number,
+            "total": str(invoice.total),
+            "currency": invoice.currency,
+        },
+    )
+    await webhooks.emit(
+        db,
+        current.org_id,
+        "invoice.created",
+        {
+            "id": invoice.id,
+            "invoice_number": invoice.invoice_number,
+            "vendor_name": vendor_name,
+            "total": str(invoice.total),
+            "currency": invoice.currency,
+            "status": invoice.status.value,
+        },
+    )
     await db.commit()
     return _detail(invoice, vendor_name)
 
@@ -180,7 +198,9 @@ async def list_invoices(
     start: date | None = None,
     end: date | None = None,
     q: str | None = Query(default=None, description="search invoice number"),
-    validation_status: str | None = Query(default=None, description="none|passed|flagged|pending|approved|rejected"),
+    validation_status: str | None = Query(
+        default=None, description="none|passed|flagged|pending|approved|rejected"
+    ),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
 ):
@@ -232,9 +252,7 @@ async def get_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
 
 
 @router.patch("/{invoice_id}", response_model=InvoiceDetailOut)
-async def update_invoice(
-    invoice_id: str, body: InvoiceUpdate, current: CurrentUser, db: DbSession
-):
+async def update_invoice(invoice_id: str, body: InvoiceUpdate, current: CurrentUser, db: DbSession):
     invoice = await _load_scoped(db, current.org_id, invoice_id)
     if body.status is not None:
         invoice.status = body.status
@@ -258,9 +276,11 @@ async def human_validate(
 ):
     """Human review gate: approve or reject an invoice pending validation."""
     invoice = await _load_scoped(db, current.org_id, invoice_id)
-    invoice.validation_status = validation.APPROVED if body.action == "approve" else validation.REJECTED
+    invoice.validation_status = (
+        validation.APPROVED if body.action == "approve" else validation.REJECTED
+    )
     invoice.validated_by = current.email
-    invoice.validated_at = datetime.now(timezone.utc)
+    invoice.validated_at = datetime.now(UTC)
     if body.note:
         invoice.notes = ((invoice.notes + "\n") if invoice.notes else "") + f"[review] {body.note}"
     await db.commit()
@@ -271,8 +291,13 @@ async def human_validate(
 @router.delete("/{invoice_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
     invoice = await _load_scoped(db, current.org_id, invoice_id)
-    await audit.record(db, audit.A.INVOICE_DELETE, target_type="invoice", target_id=invoice_id,
-                       meta={"number": invoice.invoice_number})
+    await audit.record(
+        db,
+        audit.A.INVOICE_DELETE,
+        target_type="invoice",
+        target_id=invoice_id,
+        meta={"number": invoice.invoice_number},
+    )
     await db.delete(invoice)
     await db.commit()
 

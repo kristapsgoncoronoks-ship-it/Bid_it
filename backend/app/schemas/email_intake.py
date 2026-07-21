@@ -41,7 +41,7 @@ class InboundResult(BaseModel):
     # runs on the worker tier, so the parsed/failed outcome appears in the inbox
     # afterwards, not in this synchronous webhook response.
     queued: int
-    rejected: int = 0   # blocked by the security gate (malware / bad type)
+    rejected: int = 0  # blocked by the security gate (malware / bad type)
 
 
 class InboundInvoiceOut(BaseModel):

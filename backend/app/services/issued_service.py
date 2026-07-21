@@ -4,6 +4,7 @@ Extracted so the create route AND the recurring-invoice generator produce a byte
 -identical invoice from the same numbering/VAT/penalty rules — there is exactly
 one place that assigns an invoice number and snapshots the seller.
 """
+
 from __future__ import annotations
 
 import json

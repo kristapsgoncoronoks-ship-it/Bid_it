@@ -12,9 +12,7 @@ router = APIRouter(prefix="/vendors", tags=["vendors"])
 
 async def get_or_create_vendor(db: DbSession, org_id: str, name: str) -> Vendor:
     name = name.strip()
-    vendor = await db.scalar(
-        select(Vendor).where(Vendor.org_id == org_id, Vendor.name == name)
-    )
+    vendor = await db.scalar(select(Vendor).where(Vendor.org_id == org_id, Vendor.name == name))
     if vendor is None:
         vendor = Vendor(org_id=org_id, name=name)
         db.add(vendor)

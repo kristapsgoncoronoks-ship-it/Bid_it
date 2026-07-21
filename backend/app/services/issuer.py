@@ -1,4 +1,5 @@
 """Issuer profile: the org's own company registration details (the SELLER)."""
+
 from __future__ import annotations
 
 from sqlalchemy import select

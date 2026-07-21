@@ -11,8 +11,8 @@ from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin, utc
 QUEUED = "queued"
 RUNNING = "running"
 SUCCEEDED = "succeeded"
-FAILED = "failed"     # a transient failure that will be retried
-DEAD = "dead"         # exhausted retries — the dead-letter state
+FAILED = "failed"  # a transient failure that will be retried
+DEAD = "dead"  # exhausted retries — the dead-letter state
 TERMINAL = (SUCCEEDED, DEAD)
 
 
@@ -45,7 +45,9 @@ class Job(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     max_attempts: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
 
-    run_after: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    run_after: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     locked_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 

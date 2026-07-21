@@ -19,7 +19,8 @@ def _require_admin(current: CurrentUser) -> None:
 
 @router.get("", response_model=list[JobOut])
 async def list_jobs(
-    current: CurrentUser, db: DbSession,
+    current: CurrentUser,
+    db: DbSession,
     status_filter: str | None = Query(default=None, alias="status"),
     limit: int = Query(default=100, ge=1, le=500),
 ):
@@ -42,7 +43,11 @@ async def enqueue_job(body: JobEnqueue, current: CurrentUser, db: DbSession):
             f"Allowed: {', '.join(job_handlers.USER_ENQUEUEABLE)}.",
         )
     job = await jobs.enqueue(
-        db, body.kind, body.payload, org_id=current.org_id, idempotency_key=body.idempotency_key,
+        db,
+        body.kind,
+        body.payload,
+        org_id=current.org_id,
+        idempotency_key=body.idempotency_key,
     )
     return JobOut.model_validate(job)
 

@@ -16,14 +16,14 @@ class RetentionPolicy(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     unique; setting `retain_days <= 0` removes the policy (disables purging)."""
 
     __tablename__ = "retention_policies"
-    __table_args__ = (
-        UniqueConstraint("org_id", "category", name="uq_retention_org_category"),
-    )
+    __table_args__ = (UniqueConstraint("org_id", "category", name="uq_retention_org_category"),)
 
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    category: Mapped[str] = mapped_column(String(40), nullable=False)   # invoices | expenses | email_intake
+    category: Mapped[str] = mapped_column(
+        String(40), nullable=False
+    )  # invoices | expenses | email_intake
     retain_days: Mapped[int] = mapped_column(Integer, nullable=False)
 
 

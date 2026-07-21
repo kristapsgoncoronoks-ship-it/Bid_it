@@ -1,4 +1,5 @@
 """File-security gate: type validation, disguised-content + malware rejection."""
+
 import pytest
 
 from app.services import filesec
@@ -17,11 +18,11 @@ def test_accepts_valid_kinds():
 
 
 def test_rejects_executable_disguised_as_pdf():
-    exe = b"MZ\x90\x00" + b"\x00" * 64          # Windows PE header
+    exe = b"MZ\x90\x00" + b"\x00" * 64  # Windows PE header
     with pytest.raises(filesec.FileRejected):
         filesec.check("invoice.pdf", exe)
 
-    elf = b"\x7fELF" + b"\x00" * 64             # Linux ELF
+    elf = b"\x7fELF" + b"\x00" * 64  # Linux ELF
     with pytest.raises(filesec.FileRejected):
         filesec.check("invoice.pdf", elf)
 
@@ -34,16 +35,16 @@ def test_rejects_html_script_disguised_as_pdf():
 
 def test_rejects_zip_and_office_macro_carriers():
     with pytest.raises(filesec.FileRejected):
-        filesec.check("invoice.pdf", b"PK\x03\x04" + b"\x00" * 32)     # zip/xlsx/docx
+        filesec.check("invoice.pdf", b"PK\x03\x04" + b"\x00" * 32)  # zip/xlsx/docx
     with pytest.raises(filesec.FileRejected):
         filesec.check("book.pdf", b"\xd0\xcf\x11\xe0" + b"\x00" * 32)  # legacy OLE (macros)
 
 
 def test_rejects_wrong_extension_and_shebang():
     with pytest.raises(filesec.FileRejected):
-        filesec.check("run.exe", b"anything")                 # not an allowed kind
+        filesec.check("run.exe", b"anything")  # not an allowed kind
     with pytest.raises(filesec.FileRejected):
-        filesec.check("x.csv", b"#!/bin/sh\nrm -rf /\n")       # shebang script
+        filesec.check("x.csv", b"#!/bin/sh\nrm -rf /\n")  # shebang script
 
 
 def test_rejects_eicar_malware_signature():

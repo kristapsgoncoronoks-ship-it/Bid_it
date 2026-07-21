@@ -16,20 +16,21 @@ counted by `method`, so the dashboard computes
 i.e. the share of documents read WITHOUT AI or manual entry. `ocr` is no-AI but
 lower-confidence; `ai` and `failed` are explicitly not deterministic.
 """
+
 from __future__ import annotations
 
 try:
     from prometheus_client import Counter, Gauge
 
-    _DOCUMENTS_PARSED: "Counter | None" = Counter(
+    _DOCUMENTS_PARSED: Counter | None = Counter(
         "invoiceiq_documents_parsed_total",
         "Documents parsed, labelled by extraction method",
         ["method"],
     )
     # Background-queue health (set from queue_health.snapshot; refreshed by the
     # worker each loop so /metrics stays warm even without an endpoint hit).
-    _JOBS: "Gauge | None" = Gauge("invoiceiq_jobs", "Background job count by status", ["status"])
-    _OLDEST_PENDING: "Gauge | None" = Gauge(
+    _JOBS: Gauge | None = Gauge("invoiceiq_jobs", "Background job count by status", ["status"])
+    _OLDEST_PENDING: Gauge | None = Gauge(
         "invoiceiq_jobs_oldest_pending_seconds",
         "Age of the oldest ready-but-unprocessed job (queue-lag SLO signal)",
     )

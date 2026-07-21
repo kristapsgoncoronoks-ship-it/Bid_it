@@ -5,6 +5,7 @@ result is a hybrid e-invoice (readable by people and by machines — including o
 own `einvoice.extract_embedded_xml`). Not a strict PDF/A-3 (colour profile / XMP
 conformance is a hardening step), but a functional embedded-XML hybrid.
 """
+
 from __future__ import annotations
 
 import io
@@ -26,99 +27,184 @@ def _money(v, ccy: str) -> str:
     return f"{Decimal(v):,.2f} {ccy}"
 
 
-def build_pdf(invoice, seller: dict, vat: VatResult, xml_bytes: bytes, logo: tuple[str, bytes] | None) -> bytes:
+def build_pdf(
+    invoice, seller: dict, vat: VatResult, xml_bytes: bytes, logo: tuple[str, bytes] | None
+) -> bytes:
     try:
+        from pypdf import PdfReader, PdfWriter
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.lib.units import mm
-        from reportlab.lib.utils import ImageReader
         from reportlab.platypus import (
-            Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle, Image,
+            Image,
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
         )
-        from pypdf import PdfReader, PdfWriter
     except ImportError as e:  # pragma: no cover
         raise PdfUnavailable(str(e))
 
     ccy = invoice.currency
     styles = getSampleStyleSheet()
-    small = ParagraphStyle("small", parent=styles["Normal"], fontSize=8.5, leading=11, textColor=colors.HexColor(_MUTED))
-    body = ParagraphStyle("body", parent=styles["Normal"], fontSize=9.5, leading=12, textColor=colors.HexColor(_INK))
-    h_lbl = ParagraphStyle("hlbl", parent=styles["Normal"], fontSize=8, leading=10, textColor=colors.HexColor(_MUTED), spaceAfter=1)
-    title = ParagraphStyle("title", parent=styles["Title"], fontSize=22, textColor=colors.HexColor(_BRAND), alignment=2)
+    small = ParagraphStyle(
+        "small",
+        parent=styles["Normal"],
+        fontSize=8.5,
+        leading=11,
+        textColor=colors.HexColor(_MUTED),
+    )
+    body = ParagraphStyle(
+        "body", parent=styles["Normal"], fontSize=9.5, leading=12, textColor=colors.HexColor(_INK)
+    )
+    h_lbl = ParagraphStyle(
+        "hlbl",
+        parent=styles["Normal"],
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor(_MUTED),
+        spaceAfter=1,
+    )
+    title = ParagraphStyle(
+        "title", parent=styles["Title"], fontSize=22, textColor=colors.HexColor(_BRAND), alignment=2
+    )
 
     is_credit = getattr(invoice, "doc_type", "invoice") == "credit_note"
     heading = "CREDIT NOTE" if is_credit else "INVOICE"
 
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=18 * mm, bottomMargin=16 * mm,
-                            leftMargin=16 * mm, rightMargin=16 * mm,
-                            title=f"{heading.title()} {invoice.number}")
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        topMargin=18 * mm,
+        bottomMargin=16 * mm,
+        leftMargin=16 * mm,
+        rightMargin=16 * mm,
+        title=f"{heading.title()} {invoice.number}",
+    )
     story: list = []
 
-    seller_lines = "<br/>".join(filter(None, [
-        f"<b>{seller.get('legal_name') or ''}</b>",
-        seller.get("address_line1"), seller.get("address_line2"),
-        " ".join(filter(None, [seller.get("postal_code"), seller.get("city")])),
-        (seller.get("country") or ""),
-        f"VAT: {seller.get('vat_number')}" if seller.get("vat_number") else None,
-        f"Reg: {seller.get('registration_number')}" if seller.get("registration_number") else None,
-    ]))
+    seller_lines = "<br/>".join(
+        filter(
+            None,
+            [
+                f"<b>{seller.get('legal_name') or ''}</b>",
+                seller.get("address_line1"),
+                seller.get("address_line2"),
+                " ".join(filter(None, [seller.get("postal_code"), seller.get("city")])),
+                (seller.get("country") or ""),
+                f"VAT: {seller.get('vat_number')}" if seller.get("vat_number") else None,
+                f"Reg: {seller.get('registration_number')}"
+                if seller.get("registration_number")
+                else None,
+            ],
+        )
+    )
 
-    meta = Table([
-        [Paragraph(heading, title)],
-        [Paragraph(f"<b>{invoice.number}</b>", ParagraphStyle('n', parent=body, alignment=2))],
-        [Paragraph(f"Issue date: {invoice.issue_date}", ParagraphStyle('d', parent=small, alignment=2))],
-        [Paragraph(f"Due date: {invoice.due_date}" if invoice.due_date else "", ParagraphStyle('d2', parent=small, alignment=2))],
-    ], colWidths=[70 * mm])
-    meta.setStyle(TableStyle([("ALIGN", (0, 0), (-1, -1), "RIGHT"), ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 1)]))
+    meta = Table(
+        [
+            [Paragraph(heading, title)],
+            [Paragraph(f"<b>{invoice.number}</b>", ParagraphStyle("n", parent=body, alignment=2))],
+            [
+                Paragraph(
+                    f"Issue date: {invoice.issue_date}",
+                    ParagraphStyle("d", parent=small, alignment=2),
+                )
+            ],
+            [
+                Paragraph(
+                    f"Due date: {invoice.due_date}" if invoice.due_date else "",
+                    ParagraphStyle("d2", parent=small, alignment=2),
+                )
+            ],
+        ],
+        colWidths=[70 * mm],
+    )
+    meta.setStyle(
+        TableStyle(
+            [
+                ("ALIGN", (0, 0), (-1, -1), "RIGHT"),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+            ]
+        )
+    )
 
     left_cells: list = []
     if logo is not None:
         try:
-            left_cells.append(Image(io.BytesIO(logo[1]), width=40 * mm, height=16 * mm, kind="proportional"))
+            left_cells.append(
+                Image(io.BytesIO(logo[1]), width=40 * mm, height=16 * mm, kind="proportional")
+            )
             left_cells.append(Spacer(1, 4))
         except Exception:
             pass
     left_cells.append(Paragraph(seller_lines, body))
     left = Table([[c] for c in left_cells], colWidths=[95 * mm])
-    left.setStyle(TableStyle([("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0), ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
+    left.setStyle(
+        TableStyle(
+            [
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
 
     header = Table([[left, meta]], colWidths=[100 * mm, 78 * mm])
     header.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
     story += [header, Spacer(1, 14)]
 
-    buyer_lines = "<br/>".join(filter(None, [
-        f"<b>{invoice.buyer_name}</b>",
-        invoice.buyer_address_line1,
-        " ".join(filter(None, [invoice.buyer_postal_code, invoice.buyer_city])),
-        invoice.buyer_country,
-        f"VAT: {invoice.buyer_vat_number}" if invoice.buyer_vat_number else None,
-    ]))
-    bill = Table([[Paragraph("BILL TO", h_lbl)], [Paragraph(buyer_lines, body)]], colWidths=[95 * mm])
+    buyer_lines = "<br/>".join(
+        filter(
+            None,
+            [
+                f"<b>{invoice.buyer_name}</b>",
+                invoice.buyer_address_line1,
+                " ".join(filter(None, [invoice.buyer_postal_code, invoice.buyer_city])),
+                invoice.buyer_country,
+                f"VAT: {invoice.buyer_vat_number}" if invoice.buyer_vat_number else None,
+            ],
+        )
+    )
+    bill = Table(
+        [[Paragraph("BILL TO", h_lbl)], [Paragraph(buyer_lines, body)]], colWidths=[95 * mm]
+    )
     bill.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0)]))
     story += [bill, Spacer(1, 12)]
 
     # Line items
     rows = [["#", "Description", "Qty", "Unit price", "VAT %", "Net"]]
     for i, li in enumerate(vat.lines, start=1):
-        rows.append([
-            str(i), Paragraph(li["description"], body),
-            f"{Decimal(li['quantity']):g}", _money(li["unit_price"], ccy),
-            f"{Decimal(li['vat_rate']):g}%", _money(li["net_amount"], ccy),
-        ])
+        rows.append(
+            [
+                str(i),
+                Paragraph(li["description"], body),
+                f"{Decimal(li['quantity']):g}",
+                _money(li["unit_price"], ccy),
+                f"{Decimal(li['vat_rate']):g}%",
+                _money(li["net_amount"], ccy),
+            ]
+        )
     tbl = Table(rows, colWidths=[8 * mm, 82 * mm, 16 * mm, 26 * mm, 16 * mm, 30 * mm], repeatRows=1)
-    tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(_BRAND)),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LINEBELOW", (0, 1), (-1, -1), 0.4, colors.HexColor(_LINE)),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8fafc")]),
-        ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-    ]))
+    tbl.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(_BRAND)),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LINEBELOW", (0, 1), (-1, -1), 0.4, colors.HexColor(_LINE)),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8fafc")]),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
     story += [tbl, Spacer(1, 10)]
 
     # Totals + VAT breakdown side by side
@@ -126,23 +212,38 @@ def build_pdf(invoice, seller: dict, vat: VatResult, xml_bytes: bytes, logo: tup
     for b in vat.breakdown:
         vat_rows.append([f"{Decimal(b.rate):g}%", _money(b.base, ccy), _money(b.vat, ccy)])
     vat_tbl = Table(vat_rows, colWidths=[20 * mm, 28 * mm, 28 * mm])
-    vat_tbl.setStyle(TableStyle([
-        ("FONTSIZE", (0, 0), (-1, -1), 8.5), ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor(_MUTED)),
-        ("ALIGN", (1, 0), (-1, -1), "RIGHT"), ("LINEBELOW", (0, 0), (-1, 0), 0.4, colors.HexColor(_LINE)),
-    ]))
+    vat_tbl.setStyle(
+        TableStyle(
+            [
+                ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+                ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor(_MUTED)),
+                ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+                ("LINEBELOW", (0, 0), (-1, 0), 0.4, colors.HexColor(_LINE)),
+            ]
+        )
+    )
 
-    totals = Table([
-        ["Subtotal", _money(vat.subtotal, ccy)],
-        ["VAT", _money(vat.tax_total, ccy)],
-        ["Total", _money(vat.total, ccy)],
-    ], colWidths=[30 * mm, 40 * mm])
-    totals.setStyle(TableStyle([
-        ("ALIGN", (1, 0), (1, -1), "RIGHT"), ("FONTSIZE", (0, 0), (-1, -1), 10),
-        ("LINEABOVE", (0, 2), (-1, 2), 0.6, colors.HexColor(_INK)),
-        ("FONTNAME", (0, 2), (-1, 2), "Helvetica-Bold"),
-        ("TEXTCOLOR", (0, 2), (-1, 2), colors.HexColor(_BRAND)),
-        ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-    ]))
+    totals = Table(
+        [
+            ["Subtotal", _money(vat.subtotal, ccy)],
+            ["VAT", _money(vat.tax_total, ccy)],
+            ["Total", _money(vat.total, ccy)],
+        ],
+        colWidths=[30 * mm, 40 * mm],
+    )
+    totals.setStyle(
+        TableStyle(
+            [
+                ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+                ("FONTSIZE", (0, 0), (-1, -1), 10),
+                ("LINEABOVE", (0, 2), (-1, 2), 0.6, colors.HexColor(_INK)),
+                ("FONTNAME", (0, 2), (-1, 2), "Helvetica-Bold"),
+                ("TEXTCOLOR", (0, 2), (-1, 2), colors.HexColor(_BRAND)),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ]
+        )
+    )
     summary = Table([[vat_tbl, totals]], colWidths=[90 * mm, 88 * mm])
     summary.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
     story += [summary, Spacer(1, 14)]
@@ -153,14 +254,19 @@ def build_pdf(invoice, seller: dict, vat: VatResult, xml_bytes: bytes, logo: tup
 
     pay = []
     if seller.get("iban"):
-        pay.append(f"IBAN: {seller['iban']}" + (f"  ·  BIC: {seller['bic']}" if seller.get("bic") else ""))
+        pay.append(
+            f"IBAN: {seller['iban']}" + (f"  ·  BIC: {seller['bic']}" if seller.get("bic") else "")
+        )
     if seller.get("email"):
         pay.append(f"Contact: {seller['email']}")
     if seller.get("notes"):
         pay.append(seller["notes"])
     if pay:
         story += [Paragraph("<br/>".join(pay), small)]
-    story += [Spacer(1, 8), Paragraph("Invoice compliant with EN 16931 · Factur-X XML embedded.", small)]
+    story += [
+        Spacer(1, 8),
+        Paragraph("Invoice compliant with EN 16931 · Factur-X XML embedded.", small),
+    ]
 
     doc.build(story)
     pdf_bytes = buf.getvalue()

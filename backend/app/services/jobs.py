@@ -16,12 +16,13 @@ Handlers register with @handler("kind") and receive (db, payload, job). The job
 runs INSIDE its tenant's scope (org context is set around dispatch) so handler
 queries and audit attribution are tenant-correct.
 """
+
 from __future__ import annotations
 
 import json
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
@@ -45,9 +46,11 @@ _HANDLERS: dict[str, Handler] = {}
 
 def handler(kind: str) -> Callable[[Handler], Handler]:
     """Register the coroutine that processes jobs of `kind`."""
+
     def deco(fn: Handler) -> Handler:
         _HANDLERS[kind] = fn
         return fn
+
     return deco
 
 
@@ -56,7 +59,7 @@ def registered_kinds() -> tuple[str, ...]:
 
 
 def _now(now: datetime | None = None) -> datetime:
-    return now or datetime.now(timezone.utc)
+    return now or datetime.now(UTC)
 
 
 def _backoff(attempts: int) -> int:
@@ -79,7 +82,8 @@ async def enqueue(
     if idempotency_key is not None:
         existing = await db.scalar(
             select(Job).where(
-                Job.org_id == org_id, Job.kind == kind,
+                Job.org_id == org_id,
+                Job.kind == kind,
                 Job.idempotency_key == idempotency_key,
                 Job.status.in_((jobmodel.QUEUED, jobmodel.RUNNING)),
             )
@@ -88,10 +92,13 @@ async def enqueue(
             return existing
 
     job = Job(
-        org_id=org_id, kind=kind,
+        org_id=org_id,
+        kind=kind,
         payload_json=json.dumps(payload or {}),
         idempotency_key=idempotency_key,
-        status=jobmodel.QUEUED, attempts=0, max_attempts=max_attempts,
+        status=jobmodel.QUEUED,
+        attempts=0,
+        max_attempts=max_attempts,
         run_after=run_after or _now(),
     )
     db.add(job)
@@ -122,16 +129,23 @@ async def claim(db: AsyncSession, worker_id: str, *, now: datetime | None = None
     now = _now(now)
     for _ in range(10):  # bounded retries against contention
         candidate = await db.scalar(
-            select(Job.id).where(Job.status == jobmodel.QUEUED, Job.run_after <= now)
-            .order_by(Job.run_after.asc(), Job.created_at.asc()).limit(1)
+            select(Job.id)
+            .where(Job.status == jobmodel.QUEUED, Job.run_after <= now)
+            .order_by(Job.run_after.asc(), Job.created_at.asc())
+            .limit(1)
         )
         if candidate is None:
             return None
         result = await db.execute(
             update(Job)
             .where(Job.id == candidate, Job.status == jobmodel.QUEUED)
-            .values(status=jobmodel.RUNNING, attempts=Job.attempts + 1,
-                    locked_at=now, locked_by=worker_id, updated_at=now)
+            .values(
+                status=jobmodel.RUNNING,
+                attempts=Job.attempts + 1,
+                locked_at=now,
+                locked_by=worker_id,
+                updated_at=now,
+            )
         )
         if result.rowcount == 1:
             await db.commit()
@@ -204,8 +218,7 @@ async def reclaim_stale(db: AsyncSession, *, now: datetime | None = None) -> int
     cutoff = now - timedelta(seconds=STALE_LEASE_SECONDS)
     result = await db.execute(
         update(Job)
-        .where(Job.status == jobmodel.RUNNING,
-               or_(Job.locked_at.is_(None), Job.locked_at < cutoff))
+        .where(Job.status == jobmodel.RUNNING, or_(Job.locked_at.is_(None), Job.locked_at < cutoff))
         .values(status=jobmodel.QUEUED, locked_at=None, locked_by=None, updated_at=now)
     )
     await db.commit()

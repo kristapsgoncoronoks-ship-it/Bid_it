@@ -1,7 +1,8 @@
 """Password hashing and JWT creation/validation."""
+
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from jose import JWTError, jwt
@@ -22,7 +23,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(subject: str, extra: dict[str, Any] | None = None) -> str:
     """Create a signed JWT. `subject` is the user id; `extra` adds claims (e.g. org)."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload: dict[str, Any] = {
         "sub": subject,
         "iat": now,
@@ -35,8 +36,6 @@ def create_access_token(subject: str, extra: dict[str, Any] | None = None) -> st
 
 def decode_access_token(token: str) -> dict[str, Any] | None:
     try:
-        return jwt.decode(
-            token, settings.secret_key, algorithms=[settings.jwt_algorithm]
-        )
+        return jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
     except JWTError:
         return None

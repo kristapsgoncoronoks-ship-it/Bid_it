@@ -14,6 +14,7 @@ lazily so the rest of the app runs without them installed.
 System dependency: the Tesseract binary (`tesseract-ocr`) must be on PATH for
 the OCR fallback. The text-layer path needs only Python packages.
 """
+
 from __future__ import annotations
 
 import io
@@ -44,16 +45,30 @@ _DATE_RE = re.compile(
     r"\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{1,2}[./ ][A-Za-z]{3,9}[./ ]\d{2,4})\b"
 )
 _TIME_RE = re.compile(r"\b\d{1,2}:\d{2}(?::\d{2})?\b")
-_LEADING_DATE_RE = re.compile(
-    r"^\s*(\d{4}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b"
-)
+_LEADING_DATE_RE = re.compile(r"^\s*(\d{4}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b")
 
 # A row is a summary/total row (not a line item) when, after stripping numbers,
 # dates and punctuation, the remaining label is one of these.
 _SUMMARY_LABELS = (
-    "total", "subtotal", "sub total", "grand total", "net total", "gross total",
-    "total due", "total net", "total gross", "amount due", "balance", "balance due",
-    "vat", "tax", "to pay", "invoice total", "total excl", "total incl", "carried forward",
+    "total",
+    "subtotal",
+    "sub total",
+    "grand total",
+    "net total",
+    "gross total",
+    "total due",
+    "total net",
+    "total gross",
+    "amount due",
+    "balance",
+    "balance due",
+    "vat",
+    "tax",
+    "to pay",
+    "invoice total",
+    "total excl",
+    "total incl",
+    "carried forward",
 )
 
 _INVOICE_NO_RE = re.compile(
@@ -87,15 +102,15 @@ def _num(s: str) -> Decimal:
         return Decimal("0")
     if "." in tok and "," in tok:
         if tok.rfind(".") > tok.rfind(","):
-            tok = tok.replace(",", "")           # comma = thousands
+            tok = tok.replace(",", "")  # comma = thousands
         else:
             tok = tok.replace(".", "").replace(",", ".")  # dot = thousands
     elif "," in tok:
         after = tok.rsplit(",", 1)[1]
         if tok.count(",") == 1 and len(after) != 3:
-            tok = tok.replace(",", ".")          # comma = decimal
+            tok = tok.replace(",", ".")  # comma = decimal
         else:
-            tok = tok.replace(",", "")           # comma = thousands
+            tok = tok.replace(",", "")  # comma = thousands
     try:
         value = Decimal(tok)
     except InvalidOperation:
@@ -105,6 +120,7 @@ def _num(s: str) -> Decimal:
 
 def _mask(text: str) -> str:
     """Blank out dates/times (same length) so their digits aren't read as money."""
+
     def blank(m: re.Match) -> str:
         return " " * (m.end() - m.start())
 
@@ -115,7 +131,7 @@ def _split_leading_date(text: str) -> tuple[str, str]:
     m = _LEADING_DATE_RE.match(text)
     if not m:
         return "", text
-    return m.group(1), text[m.end():]
+    return m.group(1), text[m.end() :]
 
 
 def _label_of(text: str) -> str:
@@ -146,8 +162,14 @@ def _is_summary_row(text: str) -> bool:
 def _to_date(value: str) -> date | None:
     value = value.strip()
     for fmt in (
-        "%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y", "%m/%d/%Y",
-        "%d %b %Y", "%d %B %Y", "%d.%m.%y", "%d/%m/%y",
+        "%Y-%m-%d",
+        "%d.%m.%Y",
+        "%d/%m/%Y",
+        "%m/%d/%Y",
+        "%d %b %Y",
+        "%d %B %Y",
+        "%d.%m.%y",
+        "%d/%m/%y",
     ):
         try:
             return datetime.strptime(value, fmt).date()
@@ -185,7 +207,9 @@ def _reconstruct_lines(data: dict) -> str:
             conf = -1.0
         if not text or conf < 0:
             continue
-        words.append({"x": data["left"][i], "y": data["top"][i], "h": data["height"][i], "text": text})
+        words.append(
+            {"x": data["left"][i], "y": data["top"][i], "h": data["height"][i], "text": text}
+        )
 
     if not words:
         return ""
@@ -249,7 +273,9 @@ def extract_text(content: bytes) -> tuple[str, str]:
 # --------------------------------------------------------------------------- #
 # Heuristic invoice parsing
 # --------------------------------------------------------------------------- #
-def _find_labeled_amount(lines: list[str], keywords: tuple[str, ...], exclude: tuple[str, ...] = ()) -> Decimal | None:
+def _find_labeled_amount(
+    lines: list[str], keywords: tuple[str, ...], exclude: tuple[str, ...] = ()
+) -> Decimal | None:
     # Scan bottom-up (totals sit at the foot) and ignore transaction rows so a
     # station literally named "Total …" can't be mistaken for the grand total.
     for line in reversed(lines):
@@ -330,7 +356,11 @@ def parse_invoice_text(text: str, filename: str, method: str) -> ParsedInvoiceDr
 
     # Vendor: first line that looks like a name.
     vendor = next(
-        (ln for ln in lines if len(ln) > 2 and any(c.isalpha() for c in ln) and "invoice" not in ln.lower()),
+        (
+            ln
+            for ln in lines
+            if len(ln) > 2 and any(c.isalpha() for c in ln) and "invoice" not in ln.lower()
+        ),
         None,
     )
 
@@ -357,7 +387,11 @@ def parse_invoice_text(text: str, filename: str, method: str) -> ParsedInvoiceDr
 
     subtotal = _find_labeled_amount(lines, ("subtotal", "sub-total", "sub total"))
     tax = _find_labeled_amount(lines, ("vat", "tax"))
-    total = _find_labeled_amount(lines, ("total", "amount due", "balance due"), exclude=("subtotal", "sub-total", "sub total"))
+    total = _find_labeled_amount(
+        lines,
+        ("total", "amount due", "balance due"),
+        exclude=("subtotal", "sub-total", "sub total"),
+    )
 
     # If we found a subtotal + tax, infer one VAT rate and apply it to the lines
     # so the saved invoice's recomputed tax matches the document.
@@ -365,7 +399,9 @@ def parse_invoice_text(text: str, filename: str, method: str) -> ParsedInvoiceDr
         rate = (tax / subtotal * Decimal("100")).quantize(Decimal("0.01"))
         if rate <= 100:
             items = [li.model_copy(update={"tax_rate": rate}) for li in items]
-            warnings.append(f"Applied inferred VAT rate {rate}% to all lines (subtotal {subtotal}, tax {tax}).")
+            warnings.append(
+                f"Applied inferred VAT rate {rate}% to all lines (subtotal {subtotal}, tax {tax})."
+            )
 
     if not items:
         if total:
@@ -384,7 +420,9 @@ def parse_invoice_text(text: str, filename: str, method: str) -> ParsedInvoiceDr
             warnings.append("No line items or total detected — enter them manually.")
 
     if total is not None:
-        warnings.append(f"Document total on page: {currency} {total} — reconcile against the parsed lines.")
+        warnings.append(
+            f"Document total on page: {currency} {total} — reconcile against the parsed lines."
+        )
 
     draft = InvoiceCreate(
         vendor_name=vendor,

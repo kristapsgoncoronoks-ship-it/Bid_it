@@ -4,6 +4,7 @@ Payment status is never stored — it is computed from `total`, `amount_paid`,
 and `due_date` so it can never drift out of sync with the amounts. Defined once
 here and reused by the list/detail serializer and every report.
 """
+
 from __future__ import annotations
 
 from datetime import date

@@ -8,13 +8,14 @@ Recording is best-effort: an audit failure must never break the user's operation
 but it is logged loudly. The event is added to the caller's session and commits
 atomically with the operation it describes.
 """
+
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,13 +52,30 @@ class A:
     INVITE_CREATE = "user.invite"
 
 
-def _hash(prev_hash: str | None, seq: int, org_id: str, actor_id: str | None,
-          action: str, target_type: str | None, target_id: str | None,
-          at_ms: int, meta_json: str | None) -> str:
-    payload = "|".join([
-        prev_hash or "", str(seq), org_id, actor_id or "", action,
-        target_type or "", target_id or "", str(at_ms), meta_json or "",
-    ])
+def _hash(
+    prev_hash: str | None,
+    seq: int,
+    org_id: str,
+    actor_id: str | None,
+    action: str,
+    target_type: str | None,
+    target_id: str | None,
+    at_ms: int,
+    meta_json: str | None,
+) -> str:
+    payload = "|".join(
+        [
+            prev_hash or "",
+            str(seq),
+            org_id,
+            actor_id or "",
+            action,
+            target_type or "",
+            target_id or "",
+            str(at_ms),
+            meta_json or "",
+        ]
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -81,18 +99,29 @@ async def record(
         actor_id, actor_email = actor if actor is not None else get_current_actor()
 
         latest = await db.scalar(
-            select(AuditEvent).where(AuditEvent.org_id == org).order_by(AuditEvent.seq.desc()).limit(1)
+            select(AuditEvent)
+            .where(AuditEvent.org_id == org)
+            .order_by(AuditEvent.seq.desc())
+            .limit(1)
         )
         seq = (latest.seq + 1) if latest else 1
         prev_hash = latest.hash if latest else None
-        at_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        at_ms = int(datetime.now(UTC).timestamp() * 1000)
         meta_json = json.dumps(meta, sort_keys=True, separators=(",", ":")) if meta else None
         h = _hash(prev_hash, seq, org, actor_id, action, target_type, target_id, at_ms, meta_json)
 
         event = AuditEvent(
-            org_id=org, seq=seq, actor_id=actor_id, actor_email=actor_email,
-            action=action, target_type=target_type, target_id=target_id,
-            meta=meta_json, at_ms=at_ms, prev_hash=prev_hash, hash=h,
+            org_id=org,
+            seq=seq,
+            actor_id=actor_id,
+            actor_email=actor_email,
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
+            meta=meta_json,
+            at_ms=at_ms,
+            prev_hash=prev_hash,
+            hash=h,
         )
         db.add(event)
         # Flush so a SECOND record() in the same transaction (e.g. a bulk action)
@@ -115,16 +144,29 @@ class ChainStatus:
 
 async def verify_chain(db: AsyncSession, org_id: str) -> ChainStatus:
     """Recompute the hash chain for a tenant and report the first break."""
-    rows = list(await db.scalars(
-        select(AuditEvent).where(AuditEvent.org_id == org_id).order_by(AuditEvent.seq.asc())
-    ))
+    rows = list(
+        await db.scalars(
+            select(AuditEvent).where(AuditEvent.org_id == org_id).order_by(AuditEvent.seq.asc())
+        )
+    )
     prev = None
     for e in rows:
         expected_prev = prev.hash if prev else None
         if e.prev_hash != expected_prev:
-            return ChainStatus(False, len(rows), e.seq, "prev_hash does not link to the previous event")
-        recomputed = _hash(e.prev_hash, e.seq, e.org_id, e.actor_id, e.action,
-                           e.target_type, e.target_id, e.at_ms, e.meta)
+            return ChainStatus(
+                False, len(rows), e.seq, "prev_hash does not link to the previous event"
+            )
+        recomputed = _hash(
+            e.prev_hash,
+            e.seq,
+            e.org_id,
+            e.actor_id,
+            e.action,
+            e.target_type,
+            e.target_id,
+            e.at_ms,
+            e.meta,
+        )
         if recomputed != e.hash:
             return ChainStatus(False, len(rows), e.seq, "event hash does not match its contents")
         prev = e
@@ -132,23 +174,36 @@ async def verify_chain(db: AsyncSession, org_id: str) -> ChainStatus:
 
 
 async def list_events(
-    db: AsyncSession, org_id: str, *, action: str | None = None,
-    page: int = 1, page_size: int = 50,
+    db: AsyncSession,
+    org_id: str,
+    *,
+    action: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
 ) -> tuple[list[AuditEvent], int]:
     filters = [AuditEvent.org_id == org_id]
     if action:
         filters.append(AuditEvent.action == action)
     total = await db.scalar(select(func.count(AuditEvent.id)).where(*filters)) or 0
-    rows = list(await db.scalars(
-        select(AuditEvent).where(*filters).order_by(AuditEvent.seq.desc())
-        .offset((page - 1) * page_size).limit(page_size)
-    ))
+    rows = list(
+        await db.scalars(
+            select(AuditEvent)
+            .where(*filters)
+            .order_by(AuditEvent.seq.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    )
     return rows, total
 
 
 async def export_events(
-    db: AsyncSession, org_id: str, *, action: str | None = None,
-    since_ms: int | None = None, until_ms: int | None = None,
+    db: AsyncSession,
+    org_id: str,
+    *,
+    action: str | None = None,
+    since_ms: int | None = None,
+    until_ms: int | None = None,
 ) -> list[AuditEvent]:
     """Every matching event in CHRONOLOGICAL order (ascending seq) — the natural
     order for an evidence export and for independently re-verifying the hash
@@ -160,6 +215,4 @@ async def export_events(
         filters.append(AuditEvent.at_ms >= since_ms)
     if until_ms is not None:
         filters.append(AuditEvent.at_ms <= until_ms)
-    return list(await db.scalars(
-        select(AuditEvent).where(*filters).order_by(AuditEvent.seq.asc())
-    ))
+    return list(await db.scalars(select(AuditEvent).where(*filters).order_by(AuditEvent.seq.asc())))

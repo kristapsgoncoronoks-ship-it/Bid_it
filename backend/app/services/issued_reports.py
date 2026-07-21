@@ -9,6 +9,7 @@ Issued-invoice volume per tenant is modest, so the row set is fetched once and
 aggregated in Python — this keeps the `today`-relative status/aging logic in a
 single place (`issued_status`) instead of duplicating it in portable SQL.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -43,22 +44,27 @@ def _signed(inv: IssuedInvoice, value) -> Decimal:
     return -v if st.is_credit_note(inv) else v
 
 
-async def _pick_currency(db: AsyncSession, org_id: str, currency: str | None) -> tuple[str, list[str]]:
+async def _pick_currency(
+    db: AsyncSession, org_id: str, currency: str | None
+) -> tuple[str, list[str]]:
     """Resolve the report currency and list the currencies present for the tenant."""
-    rows = list(await db.execute(
-        select(IssuedInvoice.currency, func.count(IssuedInvoice.id))
-        .where(IssuedInvoice.org_id == org_id)
-        .group_by(IssuedInvoice.currency)
-        .order_by(func.count(IssuedInvoice.id).desc())
-    ))
+    rows = list(
+        await db.execute(
+            select(IssuedInvoice.currency, func.count(IssuedInvoice.id))
+            .where(IssuedInvoice.org_id == org_id)
+            .group_by(IssuedInvoice.currency)
+            .order_by(func.count(IssuedInvoice.id).desc())
+        )
+    )
     available = sorted(c for c, _ in rows)
     if currency:
         return currency.upper(), available
     return (rows[0][0] if rows else "EUR"), available
 
 
-async def _rows(db: AsyncSession, org_id: str, currency: str,
-                start: date | None, end: date | None) -> list[IssuedInvoice]:
+async def _rows(
+    db: AsyncSession, org_id: str, currency: str, start: date | None, end: date | None
+) -> list[IssuedInvoice]:
     stmt = select(IssuedInvoice).where(
         IssuedInvoice.org_id == org_id, IssuedInvoice.currency == currency
     )
@@ -71,9 +77,10 @@ async def _rows(db: AsyncSession, org_id: str, currency: str,
 
 # --- 1. Summary + turnover trend ------------------------------------------------
 
+
 @dataclass
 class TimePoint:
-    period: str          # YYYY-MM
+    period: str  # YYYY-MM
     net: Decimal
     gross: Decimal
     count: int
@@ -84,9 +91,9 @@ class SummaryReport:
     currency: str
     available_currencies: list[str]
     count: int
-    net: Decimal         # subtotal (VAT-exclusive)
+    net: Decimal  # subtotal (VAT-exclusive)
     vat: Decimal
-    gross: Decimal       # total (VAT-inclusive)
+    gross: Decimal  # total (VAT-inclusive)
     collected: Decimal
     outstanding: Decimal
     series: list[TimePoint] = field(default_factory=list)
@@ -126,6 +133,7 @@ async def summary(db, org_id, currency, start, end) -> SummaryReport:
 
 # --- 2. Receivables: paid / unpaid / overdue + aging + DSO ----------------------
 
+
 @dataclass
 class StatusBucket:
     status: str
@@ -150,11 +158,13 @@ class ReceivablesReport:
     aging: list[AgingBucket]
     total_outstanding: Decimal
     overdue_outstanding: Decimal
-    penalty_accrued: Decimal        # advisory late-payment interest on overdue
-    avg_days_to_pay: float | None   # DSO proxy over settled invoices
+    penalty_accrued: Decimal  # advisory late-payment interest on overdue
+    avg_days_to_pay: float | None  # DSO proxy over settled invoices
 
 
-async def receivables(db, org_id, currency, start, end, today: date | None = None) -> ReceivablesReport:
+async def receivables(
+    db, org_id, currency, start, end, today: date | None = None
+) -> ReceivablesReport:
     today = today or date.today()
     cur, available = await _pick_currency(db, org_id, currency)
     rows = await _rows(db, org_id, cur, start, end)
@@ -194,24 +204,39 @@ async def receivables(db, org_id, currency, start, end, today: date | None = Non
             days_to_pay.append((inv.paid_date - inv.issue_date).days)
 
     statuses = [
-        StatusBucket(status=s, label=st.STATUS_LABELS[s], count=sb[s]["count"],
-                     gross=money.q2(sb[s]["gross"]), outstanding=money.q2(sb[s]["outstanding"]))
+        StatusBucket(
+            status=s,
+            label=st.STATUS_LABELS[s],
+            count=sb[s]["count"],
+            gross=money.q2(sb[s]["gross"]),
+            outstanding=money.q2(sb[s]["outstanding"]),
+        )
         for s in order
     ]
     aging_out = [
-        AgingBucket(label=lbl, count=aging[lbl]["count"], outstanding=money.q2(aging[lbl]["outstanding"]))
+        AgingBucket(
+            label=lbl, count=aging[lbl]["count"], outstanding=money.q2(aging[lbl]["outstanding"])
+        )
         for _, lbl in _AGING
-    ] + [AgingBucket(label=_AGING_OVER, count=aging[_AGING_OVER]["count"],
-                     outstanding=money.q2(aging[_AGING_OVER]["outstanding"]))]
+    ] + [
+        AgingBucket(
+            label=_AGING_OVER,
+            count=aging[_AGING_OVER]["count"],
+            outstanding=money.q2(aging[_AGING_OVER]["outstanding"]),
+        )
+    ]
 
     total_out = _sum(st.outstanding_of(inv) for inv in rows)
     overdue_out = money.q2(sb[st.OVERDUE]["outstanding"])
     penalty = _sum(st.penalty_of(inv, today) for inv in rows)
     avg = round(sum(days_to_pay) / len(days_to_pay), 1) if days_to_pay else None
-    return ReceivablesReport(cur, available, statuses, aging_out, total_out, overdue_out, penalty, avg)
+    return ReceivablesReport(
+        cur, available, statuses, aging_out, total_out, overdue_out, penalty, avg
+    )
 
 
 # --- 3. Partners / turnover by partner ------------------------------------------
+
 
 @dataclass
 class PartnerRow:
@@ -238,8 +263,15 @@ async def by_partner(db, org_id, currency, start, end) -> PartnerReport:
 
     # Group by (name, vat) so two customers sharing a name but not a VAT id stay apart.
     agg: dict[tuple, dict] = defaultdict(
-        lambda: {"count": 0, "net": _ZERO, "vat": _ZERO, "gross": _ZERO,
-                 "outstanding": _ZERO, "last": None})
+        lambda: {
+            "count": 0,
+            "net": _ZERO,
+            "vat": _ZERO,
+            "gross": _ZERO,
+            "outstanding": _ZERO,
+            "last": None,
+        }
+    )
     for inv in rows:
         key = (inv.buyer_name, inv.buyer_vat_number)
         a = agg[key]
@@ -253,9 +285,16 @@ async def by_partner(db, org_id, currency, start, end) -> PartnerReport:
             a["last"] = inv.issue_date
 
     partners = [
-        PartnerRow(partner=name, vat_number=vat, count=a["count"],
-                   net=money.q2(a["net"]), vat=money.q2(a["vat"]), gross=money.q2(a["gross"]),
-                   outstanding=money.q2(a["outstanding"]), last_invoice=a["last"])
+        PartnerRow(
+            partner=name,
+            vat_number=vat,
+            count=a["count"],
+            net=money.q2(a["net"]),
+            vat=money.q2(a["vat"]),
+            gross=money.q2(a["gross"]),
+            outstanding=money.q2(a["outstanding"]),
+            last_invoice=a["last"],
+        )
         for (name, vat), a in agg.items()
     ]
     partners.sort(key=lambda p: p.gross, reverse=True)
@@ -263,6 +302,7 @@ async def by_partner(db, org_id, currency, start, end) -> PartnerReport:
 
 
 # --- 4. Output-VAT summary (by rate + by scheme) --------------------------------
+
 
 @dataclass
 class VatRateRow:
@@ -294,8 +334,12 @@ async def vat_summary(db, org_id, currency, start, end) -> VatReport:
     # Line-level net grouped by (scheme, rate). VAT only accrues on the standard
     # scheme; reverse-charge / intra-EU / exempt carry a rate on the line but 0 tax.
     stmt = (
-        select(IssuedInvoice.vat_scheme, IssuedInvoice.doc_type, IssuedInvoiceLine.vat_rate,
-               func.coalesce(func.sum(IssuedInvoiceLine.net_amount), 0))
+        select(
+            IssuedInvoice.vat_scheme,
+            IssuedInvoice.doc_type,
+            IssuedInvoiceLine.vat_rate,
+            func.coalesce(func.sum(IssuedInvoiceLine.net_amount), 0),
+        )
         .join(IssuedInvoice, IssuedInvoiceLine.invoice_id == IssuedInvoice.id)
         .where(IssuedInvoice.org_id == org_id, IssuedInvoice.currency == cur)
         .group_by(IssuedInvoice.vat_scheme, IssuedInvoice.doc_type, IssuedInvoiceLine.vat_rate)
@@ -327,7 +371,10 @@ async def vat_summary(db, org_id, currency, start, end) -> VatReport:
         for s, v in sorted(by_scheme.items())
     ]
     return VatReport(
-        cur, available, rate_rows, scheme_rows,
+        cur,
+        available,
+        rate_rows,
+        scheme_rows,
         total_net=_sum(r.base for r in rate_rows),
         total_vat=_sum(r.vat for r in rate_rows),
     )

@@ -2,6 +2,7 @@
 (AuthnRequest, redirect binding, SP metadata) + the deliberate assertion-
 consumption boundary. Assertion VALIDATION is intentionally not implemented — it
 needs a vetted XML-DSig library + a real IdP (the documented finish line)."""
+
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -11,13 +12,16 @@ from app.models.organization import Organization
 from app.models.sso import SsoConnection
 from app.services import saml
 
-
 # --- pure builders ---------------------------------------------------------
+
 
 def test_authn_request_structure():
     xml = saml.build_authn_request(
-        request_id="_abc", issue_instant="2026-07-21T00:00:00Z", sp_entity_id="https://sp/acme",
-        acs_url="https://sp/acs", idp_sso_url="https://idp/sso",
+        request_id="_abc",
+        issue_instant="2026-07-21T00:00:00Z",
+        sp_entity_id="https://sp/acme",
+        acs_url="https://sp/acs",
+        idp_sso_url="https://idp/sso",
     )
     assert "<samlp:AuthnRequest" in xml and 'ID="_abc"' in xml and 'Version="2.0"' in xml
     assert "<saml:Issuer>https://sp/acme</saml:Issuer>" in xml
@@ -26,8 +30,11 @@ def test_authn_request_structure():
 
 def test_redirect_binding_roundtrip():
     xml = saml.build_authn_request(
-        request_id="_r", issue_instant="2026-07-21T00:00:00Z", sp_entity_id="sp",
-        acs_url="acs", idp_sso_url="https://idp/sso",
+        request_id="_r",
+        issue_instant="2026-07-21T00:00:00Z",
+        sp_entity_id="sp",
+        acs_url="acs",
+        idp_sso_url="https://idp/sso",
     )
     url = saml.redirect_binding_url("https://idp/sso", xml, relay_state="acme")
     q = parse_qs(urlparse(url).query)
@@ -39,7 +46,7 @@ def test_redirect_binding_roundtrip():
 def test_sp_metadata_structure():
     md = saml.sp_metadata_xml(sp_entity_id="https://sp/acme", acs_url="https://sp/acs")
     assert 'entityID="https://sp/acme"' in md
-    assert "WantAssertionsSigned=\"true\"" in md
+    assert 'WantAssertionsSigned="true"' in md
     assert 'Location="https://sp/acs"' in md
 
 
@@ -50,9 +57,16 @@ def test_consume_assertion_is_the_boundary():
 
 # --- routes ----------------------------------------------------------------
 
+
 async def _saml_conn(db, org_id, **over):
-    fields = dict(org_id=org_id, slug="acme", protocol="saml", enabled=True,
-                  default_role="user", saml_sso_url="https://idp.example.com/sso")
+    fields = dict(
+        org_id=org_id,
+        slug="acme",
+        protocol="saml",
+        enabled=True,
+        default_role="user",
+        saml_sso_url="https://idp.example.com/sso",
+    )
     fields.update(over)
     c = SsoConnection(**fields)
     db.add(c)

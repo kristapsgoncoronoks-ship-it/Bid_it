@@ -4,6 +4,7 @@ Retention windows are opt-in per category (absence = keep forever). A legal hold
 suspends all purging while active. `POST /retention/purge` runs a purge on demand
 (the scheduler runs it daily); both honour the hold and are audited.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
@@ -11,8 +12,12 @@ from fastapi import APIRouter, HTTPException, status
 from app.api.deps import CurrentUser, DbSession
 from app.core.roles import is_admin_or_above
 from app.schemas.retention import (
-    HoldCreate, LegalHoldOut, PolicyUpdate, PurgeResult,
-    RetentionCategoryOut, RetentionOut,
+    HoldCreate,
+    LegalHoldOut,
+    PolicyUpdate,
+    PurgeResult,
+    RetentionCategoryOut,
+    RetentionOut,
 )
 from app.services import retention as svc
 
@@ -29,7 +34,8 @@ async def _snapshot(db, org_id: str) -> RetentionOut:
     prev = await svc.preview(db, org_id)
     cats = [
         RetentionCategoryOut(
-            key=c.key, label=c.label,
+            key=c.key,
+            label=c.label,
             retain_days=policies.get(c.key),
             purgeable_now=prev.counts.get(c.key, 0),
         )

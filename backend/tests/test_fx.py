@@ -4,6 +4,7 @@ The bundled fallback seeds a small wobble per month; 2026-06-01 lands on factor
 1.0, so USD there is exactly the base 1.0850 — which makes the arithmetic below
 exact and easy to verify.
 """
+
 import pytest
 
 
@@ -15,7 +16,13 @@ def _usd_invoice(number, unit, fx_rate=None, issue="2026-06-01"):
         "currency": "USD",
         "status": "pending",
         "line_items": [
-            {"description": "svc", "category": "cloud", "quantity": "1", "unit_price": unit, "tax_rate": "0"},
+            {
+                "description": "svc",
+                "category": "cloud",
+                "quantity": "1",
+                "unit_price": unit,
+                "tax_rate": "0",
+            },
         ],
     }
     if fx_rate is not None:
@@ -31,7 +38,9 @@ async def test_rates_and_convert(auth_client):
     assert ccys["USD"]["rate"] == "1.085000"  # 2026-06-01 on-or-before, factor 1.0
 
     # 108.50 USD → 100.00 EUR at 1.0850
-    conv = (await auth_client.get("/api/v1/fx/convert?amount=108.50&from=USD&to=EUR&on=2026-06-10")).json()
+    conv = (
+        await auth_client.get("/api/v1/fx/convert?amount=108.50&from=USD&to=EUR&on=2026-06-10")
+    ).json()
     assert conv["converted"] == "100.00"
     assert conv["to_currency"] == "EUR"
 
@@ -42,11 +51,24 @@ async def test_rates_and_convert(auth_client):
 
 @pytest.mark.asyncio
 async def test_eur_invoice_is_1to1(auth_client):
-    r = await auth_client.post("/api/v1/invoices", json={
-        "vendor_name": "Acme", "invoice_number": "E-1", "issue_date": "2026-06-01",
-        "currency": "EUR", "line_items": [
-            {"description": "x", "category": "c", "quantity": "1", "unit_price": "100.00", "tax_rate": "0"}],
-    })
+    r = await auth_client.post(
+        "/api/v1/invoices",
+        json={
+            "vendor_name": "Acme",
+            "invoice_number": "E-1",
+            "issue_date": "2026-06-01",
+            "currency": "EUR",
+            "line_items": [
+                {
+                    "description": "x",
+                    "category": "c",
+                    "quantity": "1",
+                    "unit_price": "100.00",
+                    "tax_rate": "0",
+                }
+            ],
+        },
+    )
     inv = r.json()
     assert inv["total_eur"] == "100.00"
     assert inv["fx_source"] == "eur"
@@ -66,7 +88,9 @@ async def test_foreign_invoice_converts_at_ecb(auth_client):
 @pytest.mark.asyncio
 async def test_stated_rate_markup_vs_ecb(auth_client):
     # Supplier stated a punitive 1.00 rate; ECB is 1.0850.
-    await auth_client.post("/api/v1/invoices", json=_usd_invoice("U-STATED", "108.50", fx_rate="1.00"))
+    await auth_client.post(
+        "/api/v1/invoices", json=_usd_invoice("U-STATED", "108.50", fx_rate="1.00")
+    )
 
     data = (await auth_client.get("/api/v1/fx/ecb-comparison")).json()
     s = data["summary"]

@@ -107,5 +107,5 @@ class PenaltySummaryOut(BaseModel):
     total_outstanding: Decimal
     max_days_overdue: int
     lines: list[PenaltyLineOut]
-    can_generate: bool          # penalty enabled + contract signed + penalty > 0
+    can_generate: bool  # penalty enabled + contract signed + penalty > 0
     blocked_reason: str | None = None

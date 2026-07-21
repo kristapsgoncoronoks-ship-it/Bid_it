@@ -18,17 +18,18 @@ Design:
 - `issued_invoices` is deliberately NOT purgeable: gap-free numbering + the
   audit snapshot make ledger deletion a separate, carefully-gated decision.
 """
+
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.expense import ExpenseComment, ExpenseItem, ExpenseReport
 from app.models.email_intake import InboundInvoice
+from app.models.expense import ExpenseComment, ExpenseItem, ExpenseReport
 from app.models.invoice import Invoice, LineItem
 from app.models.retention import LegalHold, RetentionPolicy
 from app.services import audit, documents
@@ -47,25 +48,32 @@ class Category:
 
 CATEGORIES: dict[str, Category] = {
     "invoices": Category(
-        "invoices", "Received invoices", Invoice,
+        "invoices",
+        "Received invoices",
+        Invoice,
         children=((LineItem, LineItem.invoice_id),),
     ),
     "expenses": Category(
-        "expenses", "Expense reports & receipts", ExpenseReport,
+        "expenses",
+        "Expense reports & receipts",
+        ExpenseReport,
         children=((ExpenseItem, ExpenseItem.report_id), (ExpenseComment, ExpenseComment.report_id)),
     ),
     "email_intake": Category(
-        "email_intake", "Inbound email attachments", InboundInvoice,
+        "email_intake",
+        "Inbound email attachments",
+        InboundInvoice,
     ),
 }
 
 
 def _cutoff(today: date, retain_days: int) -> datetime:
     """UTC-midnight boundary: records created strictly before this are purgeable."""
-    return datetime.combine(today - timedelta(days=retain_days), time.min, tzinfo=timezone.utc)
+    return datetime.combine(today - timedelta(days=retain_days), time.min, tzinfo=UTC)
 
 
 # --- policies --------------------------------------------------------------
+
 
 async def get_policies(db: AsyncSession, org_id: str) -> dict[str, int]:
     rows = await db.scalars(select(RetentionPolicy).where(RetentionPolicy.org_id == org_id))
@@ -88,18 +96,26 @@ async def set_policy(db: AsyncSession, org_id: str, category: str, retain_days: 
         existing.retain_days = retain_days
     else:
         db.add(RetentionPolicy(org_id=org_id, category=category, retain_days=retain_days))
-    await audit.record(db, "retention.policy_set", org_id=org_id,
-                       meta={"category": category, "retain_days": retain_days})
+    await audit.record(
+        db,
+        "retention.policy_set",
+        org_id=org_id,
+        meta={"category": category, "retain_days": retain_days},
+    )
     await db.commit()
 
 
 # --- legal holds -----------------------------------------------------------
 
+
 async def active_holds(db: AsyncSession, org_id: str) -> list[LegalHold]:
-    return list(await db.scalars(
-        select(LegalHold).where(LegalHold.org_id == org_id, LegalHold.active.is_(True))
-        .order_by(LegalHold.created_at.desc())
-    ))
+    return list(
+        await db.scalars(
+            select(LegalHold)
+            .where(LegalHold.org_id == org_id, LegalHold.active.is_(True))
+            .order_by(LegalHold.created_at.desc())
+        )
+    )
 
 
 async def is_on_hold(db: AsyncSession, org_id: str) -> bool:
@@ -109,18 +125,28 @@ async def is_on_hold(db: AsyncSession, org_id: str) -> bool:
     return found is not None
 
 
-async def place_hold(db: AsyncSession, org_id: str, *, reason: str, actor_email: str | None) -> LegalHold:
+async def place_hold(
+    db: AsyncSession, org_id: str, *, reason: str, actor_email: str | None
+) -> LegalHold:
     hold = LegalHold(org_id=org_id, reason=reason, active=True, placed_by=actor_email)
     db.add(hold)
     await db.flush()
-    await audit.record(db, "retention.hold_placed", org_id=org_id,
-                       target_type="legal_hold", target_id=hold.id, meta={"reason": reason})
+    await audit.record(
+        db,
+        "retention.hold_placed",
+        org_id=org_id,
+        target_type="legal_hold",
+        target_id=hold.id,
+        meta={"reason": reason},
+    )
     await db.commit()
     await db.refresh(hold)
     return hold
 
 
-async def release_hold(db: AsyncSession, org_id: str, hold_id: str, *, actor_email: str | None) -> bool:
+async def release_hold(
+    db: AsyncSession, org_id: str, hold_id: str, *, actor_email: str | None
+) -> bool:
     hold = await db.scalar(
         select(LegalHold).where(LegalHold.org_id == org_id, LegalHold.id == hold_id)
     )
@@ -128,19 +154,25 @@ async def release_hold(db: AsyncSession, org_id: str, hold_id: str, *, actor_ema
         return False
     hold.active = False
     hold.released_by = actor_email
-    hold.released_at = datetime.now(timezone.utc)
-    await audit.record(db, "retention.hold_released", org_id=org_id,
-                       target_type="legal_hold", target_id=hold.id)
+    hold.released_at = datetime.now(UTC)
+    await audit.record(
+        db, "retention.hold_released", org_id=org_id, target_type="legal_hold", target_id=hold.id
+    )
     await db.commit()
     return True
 
 
 # --- preview + purge -------------------------------------------------------
 
-async def _purgeable_ids(db: AsyncSession, org_id: str, cat: Category, cutoff: datetime) -> list[str]:
-    return list(await db.scalars(
-        select(cat.model.id).where(cat.model.org_id == org_id, cat.model.created_at < cutoff)
-    ))
+
+async def _purgeable_ids(
+    db: AsyncSession, org_id: str, cat: Category, cutoff: datetime
+) -> list[str]:
+    return list(
+        await db.scalars(
+            select(cat.model.id).where(cat.model.org_id == org_id, cat.model.created_at < cutoff)
+        )
+    )
 
 
 @dataclass
@@ -158,15 +190,17 @@ async def preview(db: AsyncSession, org_id: str, *, today: date | None = None) -
     for key, retain_days in policies.items():
         cat = CATEGORIES[key]
         n = await db.scalar(
-            select(func.count()).select_from(cat.model).where(
-                cat.model.org_id == org_id, cat.model.created_at < _cutoff(today, retain_days)
-            )
+            select(func.count())
+            .select_from(cat.model)
+            .where(cat.model.org_id == org_id, cat.model.created_at < _cutoff(today, retain_days))
         )
         counts[key] = int(n or 0)
     return PurgePreview(on_hold=await is_on_hold(db, org_id), counts=counts)
 
 
-async def _delete_object_bytes(org_id: str, cat: Category, db: AsyncSession, ids: list[str]) -> None:
+async def _delete_object_bytes(
+    org_id: str, cat: Category, db: AsyncSession, ids: list[str]
+) -> None:
     """Best-effort removal of object-storage bytes tied to the purged rows."""
     try:
         if cat.key == "expenses":

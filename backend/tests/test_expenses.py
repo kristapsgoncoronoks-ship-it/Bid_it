@@ -1,13 +1,27 @@
 """Employee expense reports: workflow, per-employee ownership, VAT/EUR, PDF."""
+
 import pytest
 
 
 def _payload(title="Berlin trip", ccy="EUR"):
     return {
-        "title": title, "currency": ccy,
+        "title": title,
+        "currency": ccy,
         "items": [
-            {"spend_date": "2026-05-01", "category": "travel", "description": "Flight", "amount": "300.00", "vat_amount": "0"},
-            {"spend_date": "2026-05-02", "category": "meals", "description": "Dinner", "amount": "45.00", "vat_amount": "7.50"},
+            {
+                "spend_date": "2026-05-01",
+                "category": "travel",
+                "description": "Flight",
+                "amount": "300.00",
+                "vat_amount": "0",
+            },
+            {
+                "spend_date": "2026-05-02",
+                "category": "meals",
+                "description": "Dinner",
+                "amount": "45.00",
+                "vat_amount": "7.50",
+            },
         ],
     }
 
@@ -20,7 +34,9 @@ async def _activate(auth_client):
 async def _member(auth_client, client, email, name="Employee"):
     inv = await auth_client.post("/api/v1/team/invites", json={"email": email, "role": "user"})
     token = inv.json()["token"]
-    acc = await client.post("/api/v1/auth/accept-invite", json={"token": token, "name": name, "password": "supersecret"})
+    acc = await client.post(
+        "/api/v1/auth/accept-invite", json={"token": token, "name": name, "password": "supersecret"}
+    )
     return acc.json()["token"]["access_token"]
 
 
@@ -40,10 +56,16 @@ async def _complete(client, rid, headers):
     submitted (the compliance gate requires both on every entry)."""
     rep = (await client.get(f"/api/v1/expenses/{rid}", headers=headers)).json()
     for it in rep["items"]:
-        await client.patch(f"/api/v1/expenses/{rid}/items/{it['id']}",
-                           json={"comment": "Client meeting"}, headers=headers)
-        await client.post(f"/api/v1/expenses/{rid}/items/{it['id']}/receipt",
-                          files={"file": ("receipt.png", _PNG, "image/png")}, headers=headers)
+        await client.patch(
+            f"/api/v1/expenses/{rid}/items/{it['id']}",
+            json={"comment": "Client meeting"},
+            headers=headers,
+        )
+        await client.post(
+            f"/api/v1/expenses/{rid}/items/{it['id']}/receipt",
+            files={"file": ("receipt.png", _PNG, "image/png")},
+            headers=headers,
+        )
 
 
 @pytest.mark.asyncio
@@ -99,10 +121,16 @@ async def test_approval_workflow(auth_client, client):
     await client.post(f"/api/v1/expenses/{rid}/submit", headers=_h(emp))
 
     # employee cannot approve their own
-    assert (await client.post(f"/api/v1/expenses/{rid}/decision", json={"action": "approve"}, headers=_h(emp))).status_code == 403
+    assert (
+        await client.post(
+            f"/api/v1/expenses/{rid}/decision", json={"action": "approve"}, headers=_h(emp)
+        )
+    ).status_code == 403
 
     # manager approves, then reimburses
-    ap = await auth_client.post(f"/api/v1/expenses/{rid}/decision", json={"action": "approve", "note": "ok"})
+    ap = await auth_client.post(
+        f"/api/v1/expenses/{rid}/decision", json={"action": "approve", "note": "ok"}
+    )
     assert ap.status_code == 200 and ap.json()["status"] == "approved"
     assert ap.json()["decided_by"] == "owner@acme.io"
 
@@ -129,16 +157,25 @@ async def test_submit_requires_business_purpose_and_receipt(auth_client, client)
 
     # Add business purposes on both items; still missing receipts → blocked.
     for it in rep["items"]:
-        await client.patch(f"/api/v1/expenses/{rid}/items/{it['id']}",
-                           json={"comment": "Q2 client visit"}, headers=_h(emp))
+        await client.patch(
+            f"/api/v1/expenses/{rid}/items/{it['id']}",
+            json={"comment": "Q2 client visit"},
+            headers=_h(emp),
+        )
     r2 = await client.post(f"/api/v1/expenses/{rid}/submit", headers=_h(emp))
     assert r2.status_code == 422
-    assert "needs receipt" in r2.json()["detail"] and "needs business purpose" not in r2.json()["detail"]
+    assert (
+        "needs receipt" in r2.json()["detail"]
+        and "needs business purpose" not in r2.json()["detail"]
+    )
 
     # Attach receipts on both → now it submits.
     for it in rep["items"]:
-        await client.post(f"/api/v1/expenses/{rid}/items/{it['id']}/receipt",
-                          files={"file": ("r.png", _PNG, "image/png")}, headers=_h(emp))
+        await client.post(
+            f"/api/v1/expenses/{rid}/items/{it['id']}/receipt",
+            files={"file": ("r.png", _PNG, "image/png")},
+            headers=_h(emp),
+        )
     ok = await client.post(f"/api/v1/expenses/{rid}/submit", headers=_h(emp))
     assert ok.status_code == 200, ok.text
 
@@ -158,12 +195,18 @@ async def test_update_item_only_owner_and_draft(auth_client, client):
     rid, iid = rep["id"], rep["items"][0]["id"]
 
     # A different employee can't edit this item (not their report).
-    assert (await client.patch(f"/api/v1/expenses/{rid}/items/{iid}",
-            json={"comment": "x"}, headers=_h(other))).status_code == 403
+    assert (
+        await client.patch(
+            f"/api/v1/expenses/{rid}/items/{iid}", json={"comment": "x"}, headers=_h(other)
+        )
+    ).status_code == 403
 
     # Owner edits business purpose + category.
-    patched = await client.patch(f"/api/v1/expenses/{rid}/items/{iid}",
-                                 json={"comment": "Sales trip", "category": "accommodation"}, headers=_h(emp))
+    patched = await client.patch(
+        f"/api/v1/expenses/{rid}/items/{iid}",
+        json={"comment": "Sales trip", "category": "accommodation"},
+        headers=_h(emp),
+    )
     assert patched.status_code == 200
     it = next(i for i in patched.json()["items"] if i["id"] == iid)
     assert it["comment"] == "Sales trip" and it["category"] == "accommodation"
@@ -173,7 +216,9 @@ async def test_update_item_only_owner_and_draft(auth_client, client):
 async def test_foreign_currency_eur_and_summary(auth_client, client):
     await _activate(auth_client)
     emp = await _member(auth_client, client, "emp@corp.io")
-    rid = (await client.post("/api/v1/expenses", json=_payload("US trip", "USD"), headers=_h(emp))).json()["id"]
+    rid = (
+        await client.post("/api/v1/expenses", json=_payload("US trip", "USD"), headers=_h(emp))
+    ).json()["id"]
     await _complete(client, rid, _h(emp))
     sub = await client.post(f"/api/v1/expenses/{rid}/submit", headers=_h(emp))
     assert sub.json()["total_eur"] is not None
@@ -205,8 +250,11 @@ async def test_pdf_export_with_unicode_title(auth_client, client):
     pytest.importorskip("reportlab")
     await _activate(auth_client)
     emp = await _member(auth_client, client, "emp2@corp.io")
-    rid = (await client.post("/api/v1/expenses", json=_payload(title="Berlin sales trip — March"),
-                             headers=_h(emp))).json()["id"]
+    rid = (
+        await client.post(
+            "/api/v1/expenses", json=_payload(title="Berlin sales trip — March"), headers=_h(emp)
+        )
+    ).json()["id"]
     pdf = await client.get(f"/api/v1/expenses/{rid}/pdf", headers=_h(emp))
     assert pdf.status_code == 200
     assert pdf.content[:5] == b"%PDF-"

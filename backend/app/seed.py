@@ -3,6 +3,7 @@
 Run: `python -m app.seed`  (idempotent — clears the demo org first).
 Login: demo@invoiceiq.app / demo1234
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -10,15 +11,15 @@ import random
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 
 from app.core.database import SessionLocal, engine
+from app.core.security import hash_password
 from app.models import Base
 from app.models.invoice import Invoice, InvoiceStatus, LineItem
 from app.models.organization import Organization
 from app.models.user import User, UserRole
 from app.models.vendor import Vendor
-from app.core.security import hash_password
 
 DEMO_EMAIL = "demo@invoiceiq.app"
 
@@ -83,11 +84,16 @@ async def seed() -> None:
             t = Organization(name=tname, plan=plan, status=tstatus)
             db.add(t)
             await db.flush()
-            db.add(User(
-                org_id=t.id, email=f"owner{i}@{tname.split()[0].lower()}.test", name="Owner",
-                hashed_password=hash_password("demo1234"), role=UserRole.owner,
-                is_expense_approver=True,
-            ))
+            db.add(
+                User(
+                    org_id=t.id,
+                    email=f"owner{i}@{tname.split()[0].lower()}.test",
+                    name="Owner",
+                    hashed_password=hash_password("demo1234"),
+                    role=UserRole.owner,
+                    is_expense_approver=True,
+                )
+            )
 
         vendors = []
         for name, country, cat in VENDORS:
@@ -117,7 +123,9 @@ async def seed() -> None:
                     items.append(
                         LineItem(
                             description=f"{vendor.category.title()} service",
-                            category=rng.choice(CATEGORIES) if rng.random() < 0.3 else vendor.category,
+                            category=rng.choice(CATEGORIES)
+                            if rng.random() < 0.3
+                            else vendor.category,
                             quantity=qty,
                             unit_price=unit,
                             amount=amount,
@@ -212,7 +220,9 @@ async def seed() -> None:
         print(f"Seeded '{org.name}' with {count} invoices across {len(vendors)} vendors.")
         print(f"Issued {issued} outbound invoices (paid/overdue/open mix).")
         print(f"Created {partner_ct} partners (workflow + penalty demo).")
-        print(f"Created {costing_ct} cost-allocation master records (departments/cost-centers/projects).")
+        print(
+            f"Created {costing_ct} cost-allocation master records (departments/cost-centers/projects)."
+        )
         print(f"Login: {DEMO_EMAIL} / demo1234")
 
 
@@ -222,7 +232,9 @@ async def _seed_costing(db, org_id: str) -> int:
     from app.models.costing import CostCenter, Department, Project
 
     deps = {
-        "OPS": "Operations", "FIN": "Finance", "SALES": "Sales & Marketing",
+        "OPS": "Operations",
+        "FIN": "Finance",
+        "SALES": "Sales & Marketing",
     }
     dep_ids: dict[str, str] = {}
     for code, name in deps.items():
@@ -295,13 +307,23 @@ async def _seed_issued(db, org_id: str, rng: random.Random) -> int:
             name, vat_no, country, buyer_email = rng.choice(partners)
             scheme = rng.choice(schemes)
             n_lines = rng.randint(1, 3)
-            raw = [{
-                "description": rng.choice(["Freight forwarding", "Warehousing", "Customs brokerage", "Last-mile delivery"]),
-                "quantity": Decimal(rng.randint(1, 12)),
-                "unit": "C62",
-                "unit_price": _q(Decimal(rng.uniform(80, 1200))),
-                "vat_rate": Decimal("22") if scheme == "standard" else Decimal("0"),
-            } for _ in range(n_lines)]
+            raw = [
+                {
+                    "description": rng.choice(
+                        [
+                            "Freight forwarding",
+                            "Warehousing",
+                            "Customs brokerage",
+                            "Last-mile delivery",
+                        ]
+                    ),
+                    "quantity": Decimal(rng.randint(1, 12)),
+                    "unit": "C62",
+                    "unit_price": _q(Decimal(rng.uniform(80, 1200))),
+                    "vat_rate": Decimal("22") if scheme == "standard" else Decimal("0"),
+                }
+                for _ in range(n_lines)
+            ]
             result = vat_svc.compute(raw, scheme)
 
             issue = month_start - timedelta(days=rng.randint(0, 18))
@@ -313,28 +335,46 @@ async def _seed_issued(db, org_id: str, rng: random.Random) -> int:
             amount_paid = Decimal("0")
             paid_date = None
             roll = rng.random()
-            if due < today and roll < 0.7:                       # paid
+            if due < today and roll < 0.7:  # paid
                 amount_paid = result.total
                 paid_date = due - timedelta(days=rng.randint(-5, 20))
-            elif roll < 0.85 and result.total > 0:               # partial
+            elif roll < 0.85 and result.total > 0:  # partial
                 amount_paid = _q(result.total * Decimal("0.4"))
 
-            db.add(IssuedInvoice(
-                org_id=org_id, number=number, issue_date=issue, due_date=due, currency="EUR",
-                buyer_name=name, buyer_email=buyer_email, buyer_vat_number=vat_no, buyer_country=country,
-                penalty_rate=profile.default_penalty_rate,  # inherit the 8% p.a. default
-                seller_json=json.dumps(issuer_svc.seller_snapshot(profile)),
-                vat_scheme=scheme, note=vat_svc.SCHEME_NOTES.get(scheme),
-                subtotal=result.subtotal, tax_total=result.tax_total, total=result.total,
-                amount_paid=amount_paid, paid_date=paid_date,
-                lines=[
-                    IssuedInvoiceLine(
-                        position=i + 1, description=li["description"], quantity=li["quantity"],
-                        unit=li["unit"], unit_price=li["unit_price"], vat_rate=li["vat_rate"],
-                        net_amount=li["net_amount"],
-                    ) for i, li in enumerate(result.lines)
-                ],
-            ))
+            db.add(
+                IssuedInvoice(
+                    org_id=org_id,
+                    number=number,
+                    issue_date=issue,
+                    due_date=due,
+                    currency="EUR",
+                    buyer_name=name,
+                    buyer_email=buyer_email,
+                    buyer_vat_number=vat_no,
+                    buyer_country=country,
+                    penalty_rate=profile.default_penalty_rate,  # inherit the 8% p.a. default
+                    seller_json=json.dumps(issuer_svc.seller_snapshot(profile)),
+                    vat_scheme=scheme,
+                    note=vat_svc.SCHEME_NOTES.get(scheme),
+                    subtotal=result.subtotal,
+                    tax_total=result.tax_total,
+                    total=result.total,
+                    amount_paid=amount_paid,
+                    paid_date=paid_date,
+                    lines=[
+                        IssuedInvoiceLine(
+                            position=i + 1,
+                            description=li["description"],
+                            quantity=li["quantity"],
+                            unit=li["unit"],
+                            unit_price=li["unit_price"],
+                            vat_rate=li["vat_rate"],
+                            net_amount=li["net_amount"],
+                        )
+                        for i, li in enumerate(result.lines)
+                    ],
+                )
+            )
             count += 1
     return count
 
@@ -353,47 +393,101 @@ async def _seed_partners(db, org_id: str) -> int:
 
     # Partner A — contract + acceptance both signed → ready; penalty enabled.
     ready = Partner(
-        org_id=org_id, name="Northwind Traders GmbH", email="ap@northwind.test",
-        vat_number="DE311111111", country="DE",
-        requires_contract=True, requires_acceptance=True,
-        penalty_enabled=True, penalty_rate=Decimal("12"),
+        org_id=org_id,
+        name="Northwind Traders GmbH",
+        email="ap@northwind.test",
+        vat_number="DE311111111",
+        country="DE",
+        requires_contract=True,
+        requires_acceptance=True,
+        penalty_enabled=True,
+        penalty_rate=Decimal("12"),
     )
     db.add(ready)
     await db.flush()
-    db.add(PartnerDocument(org_id=org_id, partner_id=ready.id, kind="contract",
-                           title="Framework agreement 2026", status="signed",
-                           signed_by="J. Schmidt", signed_date=date(2026, 1, 15)))
-    db.add(PartnerDocument(org_id=org_id, partner_id=ready.id, kind="acceptance_act",
-                           title="Acceptance act — Q1 delivery", status="signed",
-                           signed_by="J. Schmidt", signed_date=date(2026, 2, 1)))
+    db.add(
+        PartnerDocument(
+            org_id=org_id,
+            partner_id=ready.id,
+            kind="contract",
+            title="Framework agreement 2026",
+            status="signed",
+            signed_by="J. Schmidt",
+            signed_date=date(2026, 1, 15),
+        )
+    )
+    db.add(
+        PartnerDocument(
+            org_id=org_id,
+            partner_id=ready.id,
+            kind="acceptance_act",
+            title="Acceptance act — Q1 delivery",
+            status="signed",
+            signed_by="J. Schmidt",
+            signed_date=date(2026, 2, 1),
+        )
+    )
 
     # Two overdue invoices linked to Partner A so a penalty invoice can be generated.
     for i, amount in enumerate([Decimal("4200.00"), Decimal("2600.00")], start=1):
         profile.next_number += 1
         number = f"{profile.invoice_prefix}2026-P{profile.next_number:03d}"
         issue = date(2026, 1, 10 + i)
-        db.add(IssuedInvoice(
-            org_id=org_id, partner_id=ready.id, kind="standard", number=number,
-            issue_date=issue, due_date=issue + timedelta(days=30), currency="EUR",
-            buyer_name=ready.name, buyer_email=ready.email, buyer_vat_number=ready.vat_number,
-            buyer_country=ready.country, penalty_rate=Decimal("12"),
-            seller_json=json.dumps(issuer_svc.seller_snapshot(profile)),
-            vat_scheme="standard", subtotal=amount, tax_total=Decimal("0"), total=amount,
-            lines=[IssuedInvoiceLine(position=1, description="Freight forwarding", quantity=Decimal("1"),
-                                     unit="C62", unit_price=amount, vat_rate=Decimal("0"), net_amount=amount)],
-        ))
+        db.add(
+            IssuedInvoice(
+                org_id=org_id,
+                partner_id=ready.id,
+                kind="standard",
+                number=number,
+                issue_date=issue,
+                due_date=issue + timedelta(days=30),
+                currency="EUR",
+                buyer_name=ready.name,
+                buyer_email=ready.email,
+                buyer_vat_number=ready.vat_number,
+                buyer_country=ready.country,
+                penalty_rate=Decimal("12"),
+                seller_json=json.dumps(issuer_svc.seller_snapshot(profile)),
+                vat_scheme="standard",
+                subtotal=amount,
+                tax_total=Decimal("0"),
+                total=amount,
+                lines=[
+                    IssuedInvoiceLine(
+                        position=1,
+                        description="Freight forwarding",
+                        quantity=Decimal("1"),
+                        unit="C62",
+                        unit_price=amount,
+                        vat_rate=Decimal("0"),
+                        net_amount=amount,
+                    )
+                ],
+            )
+        )
 
     # Partner B — documents added but UNSIGNED → invoicing blocked (shows the gate).
     pending = Partner(
-        org_id=org_id, name="Contoso Baltic SIA", email="finance@contoso.test",
-        vat_number="LV40199999999", country="LV",
-        requires_contract=True, requires_acceptance=True,
+        org_id=org_id,
+        name="Contoso Baltic SIA",
+        email="finance@contoso.test",
+        vat_number="LV40199999999",
+        country="LV",
+        requires_contract=True,
+        requires_acceptance=True,
         penalty_enabled=False,
     )
     db.add(pending)
     await db.flush()
-    db.add(PartnerDocument(org_id=org_id, partner_id=pending.id, kind="contract",
-                           title="Framework agreement (draft)", status="draft"))
+    db.add(
+        PartnerDocument(
+            org_id=org_id,
+            partner_id=pending.id,
+            kind="contract",
+            title="Framework agreement (draft)",
+            status="draft",
+        )
+    )
     return 2
 
 

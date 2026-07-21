@@ -1,4 +1,5 @@
 """Security response headers + HSTS behaviour behind a TLS proxy."""
+
 import pytest
 
 from app.core.config import settings

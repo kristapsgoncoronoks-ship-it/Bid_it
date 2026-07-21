@@ -18,11 +18,11 @@ class SupplierBenchmark(BaseModel):
     total_tax: Decimal
     avg_invoice: Decimal
     effective_tax_rate: Decimal  # tax / subtotal, percent
-    paid_ratio: Decimal          # paid total / total, 0..1
+    paid_ratio: Decimal  # paid total / total, 0..1
     category_count: int
     first_invoice: date | None
     last_invoice: date | None
-    spend_share: Decimal         # this supplier's share of total spend, percent
+    spend_share: Decimal  # this supplier's share of total spend, percent
 
 
 # --------------------------------------------------------------------------- #
@@ -31,10 +31,10 @@ class SupplierBenchmark(BaseModel):
 class SupplierPricePoint(BaseModel):
     vendor_id: str
     vendor_name: str
-    unit_price: Decimal          # effective: spend / quantity within the category
+    unit_price: Decimal  # effective: spend / quantity within the category
     quantity: Decimal
     spend: Decimal
-    deviation_pct: Decimal       # vs the combined average unit price, percent
+    deviation_pct: Decimal  # vs the combined average unit price, percent
     overspend_vs_cheapest: Decimal  # (unit - cheapest_unit) * qty, floored at 0
     is_cheapest: bool
 

@@ -3,6 +3,7 @@
 Strictly gated to `is_platform_admin`. Returns tenant METADATA only (never any
 tenant's invoice data) and can suspend/reactivate or re-plan a tenant.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -35,10 +36,16 @@ async def list_tenants(db: DbSession, _: User = Depends(require_platform_admin))
     orgs = await db.scalars(select(Organization).order_by(Organization.created_at.desc()))
     out = []
     for org in orgs:
-        out.append(TenantOut(
-            id=org.id, name=org.name, plan=org.plan, status=org.status,
-            seats_used=await plans.active_seats(db, org.id), created_at=org.created_at,
-        ))
+        out.append(
+            TenantOut(
+                id=org.id,
+                name=org.name,
+                plan=org.plan,
+                status=org.status,
+                seats_used=await plans.active_seats(db, org.id),
+                created_at=org.created_at,
+            )
+        )
     return out
 
 
@@ -59,6 +66,10 @@ async def update_tenant(
         org.plan = body.plan
     await db.commit()
     return TenantOut(
-        id=org.id, name=org.name, plan=org.plan, status=org.status,
-        seats_used=await plans.active_seats(db, org.id), created_at=org.created_at,
+        id=org.id,
+        name=org.name,
+        plan=org.plan,
+        status=org.status,
+        seats_used=await plans.active_seats(db, org.id),
+        created_at=org.created_at,
     )

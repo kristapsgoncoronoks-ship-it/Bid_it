@@ -4,10 +4,11 @@ This is the outbound counterpart to `einvoice._parse_cii`: the XML produced here
 round-trips through our own reader and through other Factur-X consumers. It is
 embedded into the invoice PDF (see `invoice_pdf.py`) to make a hybrid document.
 """
+
 from __future__ import annotations
 
 from decimal import Decimal
-from xml.etree.ElementTree import Element, SubElement, tostring, register_namespace
+from xml.etree.ElementTree import Element, SubElement, register_namespace, tostring
 
 from app.services.vat import VatResult
 
@@ -52,7 +53,9 @@ def _date(d) -> str:
     return d.strftime("%Y%m%d")
 
 
-def _party(parent: Element, role_tag: str, *, name, vat, line1, line2, city, postal, country) -> Element:
+def _party(
+    parent: Element, role_tag: str, *, name, vat, line1, line2, city, postal, country
+) -> Element:
     party = SubElement(parent, _ram(role_tag))
     _t(party, _ram("Name"), name)
     addr = SubElement(party, _ram("PostalTradeAddress"))
@@ -117,16 +120,26 @@ def build_cii(invoice, seller: dict, vat: VatResult) -> bytes:
     # --- seller / buyer ---
     hagr = SubElement(txn, _ram("ApplicableHeaderTradeAgreement"))
     _party(
-        hagr, "SellerTradeParty",
-        name=seller.get("legal_name"), vat=seller.get("vat_number"),
-        line1=seller.get("address_line1"), line2=seller.get("address_line2"),
-        city=seller.get("city"), postal=seller.get("postal_code"), country=seller.get("country"),
+        hagr,
+        "SellerTradeParty",
+        name=seller.get("legal_name"),
+        vat=seller.get("vat_number"),
+        line1=seller.get("address_line1"),
+        line2=seller.get("address_line2"),
+        city=seller.get("city"),
+        postal=seller.get("postal_code"),
+        country=seller.get("country"),
     )
     _party(
-        hagr, "BuyerTradeParty",
-        name=invoice.buyer_name, vat=invoice.buyer_vat_number,
-        line1=invoice.buyer_address_line1, line2=None,
-        city=invoice.buyer_city, postal=invoice.buyer_postal_code, country=invoice.buyer_country,
+        hagr,
+        "BuyerTradeParty",
+        name=invoice.buyer_name,
+        vat=invoice.buyer_vat_number,
+        line1=invoice.buyer_address_line1,
+        line2=None,
+        city=invoice.buyer_city,
+        postal=invoice.buyer_postal_code,
+        country=invoice.buyer_country,
     )
 
     hdel = SubElement(txn, _ram("ApplicableHeaderTradeDelivery"))

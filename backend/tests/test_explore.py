@@ -1,14 +1,27 @@
 """Self-service pivot engine (Power BI / Tableau-style explore)."""
+
 import pytest
 
 
 async def _mk(auth_client, vendor, number, date_, category, unit, qty="1", tax="0", status="paid"):
-    return await auth_client.post("/api/v1/invoices", json={
-        "vendor_name": vendor, "invoice_number": number, "issue_date": date_, "status": status,
-        "line_items": [
-            {"description": "svc", "category": category, "quantity": qty, "unit_price": unit, "tax_rate": tax},
-        ],
-    })
+    return await auth_client.post(
+        "/api/v1/invoices",
+        json={
+            "vendor_name": vendor,
+            "invoice_number": number,
+            "issue_date": date_,
+            "status": status,
+            "line_items": [
+                {
+                    "description": "svc",
+                    "category": category,
+                    "quantity": qty,
+                    "unit_price": unit,
+                    "tax_rate": tax,
+                },
+            ],
+        },
+    )
 
 
 @pytest.mark.asyncio
@@ -41,7 +54,9 @@ async def test_two_dimensions_and_measures(auth_client):
     await _mk(auth_client, "AWS", "A2", "2026-02-10", "cloud", "200.00", qty="1", tax="21")
 
     # month × category, net measure
-    r = (await auth_client.get("/api/v1/analytics/explore?measure=net&dim=month&dim=category")).json()
+    r = (
+        await auth_client.get("/api/v1/analytics/explore?measure=net&dim=month&dim=category")
+    ).json()
     assert [d["key"] for d in r["dimensions"]] == ["month", "category"]
     by_month = {row["month"]: row["value"] for row in r["rows"]}
     assert by_month["2026-01"] == "200.00"  # 2 * 100
@@ -66,10 +81,14 @@ async def test_filters_and_csv(auth_client):
     await _mk(auth_client, "AWS", "A2", "2026-03-10", "cloud", "200.00", status="pending")
 
     # date filter
-    r = (await auth_client.get("/api/v1/analytics/explore?measure=net&dim=vendor&start=2026-02-01")).json()
+    r = (
+        await auth_client.get("/api/v1/analytics/explore?measure=net&dim=vendor&start=2026-02-01")
+    ).json()
     assert r["rows"][0]["value"] == "200.00"
     # status filter
-    r = (await auth_client.get("/api/v1/analytics/explore?measure=net&dim=vendor&status=paid")).json()
+    r = (
+        await auth_client.get("/api/v1/analytics/explore?measure=net&dim=vendor&status=paid")
+    ).json()
     assert r["rows"][0]["value"] == "100.00"
 
     # CSV export

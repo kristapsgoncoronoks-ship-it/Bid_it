@@ -20,6 +20,7 @@ entity-expansion / billion-laughs), and served files go out inert
 (`Content-Disposition: attachment` + `X-Content-Type-Options: nosniff`), never
 executed. Sandbox/resource isolation of the OCR worker is a deployment concern.
 """
+
 from __future__ import annotations
 
 import io
@@ -31,38 +32,46 @@ log = logging.getLogger("invoiceiq.filesec")
 
 # The standard EICAR anti-malware test string — harmless, but every scanner (and
 # this gate) must flag it. Lets us prove the scan path works with no AV daemon.
-EICAR = (
-    b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
-)
+EICAR = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
 
 # Kinds this platform accepts, grouped by intake surface.
 INVOICE_KINDS = frozenset({"pdf", "xml", "csv", "json"})
 RECEIPT_KINDS = frozenset({"pdf", "png", "jpeg"})
 
 _EXT_KIND = {
-    "pdf": "pdf", "xml": "xml", "csv": "csv", "json": "json",
-    "png": "png", "jpg": "jpeg", "jpeg": "jpeg",
+    "pdf": "pdf",
+    "xml": "xml",
+    "csv": "csv",
+    "json": "json",
+    "png": "png",
+    "jpg": "jpeg",
+    "jpeg": "jpeg",
 }
 
 # Binary signatures we NEVER accept, regardless of the claimed extension —
 # executables, archives and other active-content containers.
 _DANGEROUS_MAGICS: tuple[bytes, ...] = (
-    b"MZ",                      # DOS/Windows PE (.exe/.dll)
-    b"\x7fELF",                 # Linux ELF
-    b"\xca\xfe\xba\xbe",        # Mach-O fat / Java class
-    b"\xcf\xfa\xed\xfe",        # Mach-O 64-bit
-    b"\xce\xfa\xed\xfe",        # Mach-O 32-bit
-    b"PK\x03\x04",             # zip / xlsx / docx / jar (macro & script carrier)
-    b"Rar!",                    # RAR archive
-    b"\x1f\x8b",               # gzip
-    b"7z\xbc\xaf\x27\x1c",     # 7-zip
-    b"#!",                      # shebang script
-    b"\xd0\xcf\x11\xe0",        # legacy OLE (old Office w/ macros)
+    b"MZ",  # DOS/Windows PE (.exe/.dll)
+    b"\x7fELF",  # Linux ELF
+    b"\xca\xfe\xba\xbe",  # Mach-O fat / Java class
+    b"\xcf\xfa\xed\xfe",  # Mach-O 64-bit
+    b"\xce\xfa\xed\xfe",  # Mach-O 32-bit
+    b"PK\x03\x04",  # zip / xlsx / docx / jar (macro & script carrier)
+    b"Rar!",  # RAR archive
+    b"\x1f\x8b",  # gzip
+    b"7z\xbc\xaf\x27\x1c",  # 7-zip
+    b"#!",  # shebang script
+    b"\xd0\xcf\x11\xe0",  # legacy OLE (old Office w/ macros)
 )
 
 # Active-content markers (a "document" that is really a web/script payload).
 _SCRIPT_MARKERS: tuple[bytes, ...] = (
-    b"<!doctype html", b"<html", b"<script", b"<?php", b"<%", b"<jsp:",
+    b"<!doctype html",
+    b"<html",
+    b"<script",
+    b"<?php",
+    b"<%",
+    b"<jsp:",
 )
 
 
@@ -91,7 +100,9 @@ def _kind_by_magic(content: bytes) -> str | None:
     if content.startswith(b"\xff\xd8\xff"):
         return "jpeg"
     stripped = content.lstrip()[:64].lower()
-    if stripped.startswith(b"<?xml") or (stripped.startswith(b"<") and not _looks_scripted(content)):
+    if stripped.startswith(b"<?xml") or (
+        stripped.startswith(b"<") and not _looks_scripted(content)
+    ):
         return "xml"
     if stripped[:1] in (b"{", b"["):
         return "json"
@@ -108,7 +119,9 @@ def validate(filename: str, content: bytes, allowed: frozenset[str] = INVOICE_KI
     if not content:
         raise FileRejected("Empty file")
     if len(content) > _max_bytes():
-        raise FileRejected(f"File too large (max {settings.max_upload_mb if hasattr(settings, 'max_upload_mb') else 15} MB)")
+        raise FileRejected(
+            f"File too large (max {settings.max_upload_mb if hasattr(settings, 'max_upload_mb') else 15} MB)"
+        )
 
     # Universal: reject executables / archives / active content up front.
     if content.startswith(_DANGEROUS_MAGICS):
@@ -117,7 +130,9 @@ def validate(filename: str, content: bytes, allowed: frozenset[str] = INVOICE_KI
     # Resolve the claimed kind (extension first, then content sniff).
     kind = _EXT_KIND.get(_ext_of(filename)) or _kind_by_magic(content)
     if kind is None or kind not in allowed:
-        raise FileRejected("Unsupported or unrecognised file type — allowed: " + ", ".join(sorted(allowed)))
+        raise FileRejected(
+            "Unsupported or unrecognised file type — allowed: " + ", ".join(sorted(allowed))
+        )
 
     # Per-kind content check: the bytes must actually BE the claimed kind, so a
     # renamed HTML/script/binary can't slip through on a trusted extension.
@@ -162,6 +177,7 @@ def scan_malware(content: bytes) -> None:
 
     try:
         import clamd
+
         if getattr(settings, "clamav_unix_socket", None):
             cd = clamd.ClamdUnixSocket(settings.clamav_unix_socket)
         else:

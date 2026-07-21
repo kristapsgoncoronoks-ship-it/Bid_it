@@ -5,19 +5,27 @@ order, INCLUDING the `seq`/`prev_hash`/`hash` columns so an auditor can
 independently re-verify the chain offline. CSV cells are formula-injection-safe.
 Read-only; invents nothing.
 """
+
 from __future__ import annotations
 
 import csv
 import io
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.models.audit import AuditEvent
 from app.services.audit import ChainStatus
 
 CSV_HEADER = [
-    "seq", "timestamp_utc", "actor_email", "action", "target_type",
-    "target_id", "meta", "prev_hash", "hash",
+    "seq",
+    "timestamp_utc",
+    "actor_email",
+    "action",
+    "target_type",
+    "target_id",
+    "meta",
+    "prev_hash",
+    "hash",
 ]
 
 
@@ -31,7 +39,7 @@ def _safe(value) -> str:
 
 
 def _iso(at_ms: int) -> str:
-    return datetime.fromtimestamp(at_ms / 1000, tz=timezone.utc).isoformat()
+    return datetime.fromtimestamp(at_ms / 1000, tz=UTC).isoformat()
 
 
 def _meta_obj(raw: str | None):
@@ -48,10 +56,22 @@ def to_csv(events: list[AuditEvent]) -> str:
     w = csv.writer(buf)
     w.writerow(CSV_HEADER)
     for e in events:
-        w.writerow([_safe(c) for c in (
-            e.seq, _iso(e.at_ms), e.actor_email, e.action, e.target_type,
-            e.target_id, e.meta or "", e.prev_hash or "", e.hash,
-        )])
+        w.writerow(
+            [
+                _safe(c)
+                for c in (
+                    e.seq,
+                    _iso(e.at_ms),
+                    e.actor_email,
+                    e.action,
+                    e.target_type,
+                    e.target_id,
+                    e.meta or "",
+                    e.prev_hash or "",
+                    e.hash,
+                )
+            ]
+        )
     return buf.getvalue()
 
 
@@ -84,14 +104,20 @@ def to_json(events: list[AuditEvent], chain: ChainStatus, *, org_id: str, genera
     return json.dumps(doc, indent=2, sort_keys=False)
 
 
-def render(fmt: str, events: list[AuditEvent], chain: ChainStatus, *, org_id: str) -> tuple[str, str, str]:
+def render(
+    fmt: str, events: list[AuditEvent], chain: ChainStatus, *, org_id: str
+) -> tuple[str, str, str]:
     """Return (filename, text, media_type) for `fmt` in {"csv","json"}."""
-    generated_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-    stamp = datetime.fromtimestamp(generated_ms / 1000, tz=timezone.utc).strftime("%Y%m%d")
+    generated_ms = int(datetime.now(UTC).timestamp() * 1000)
+    stamp = datetime.fromtimestamp(generated_ms / 1000, tz=UTC).strftime("%Y%m%d")
     if fmt == "csv":
         return f"audit-log-{stamp}.csv", to_csv(events), "text/csv"
     if fmt == "json":
-        return f"audit-log-{stamp}.json", to_json(events, chain, org_id=org_id, generated_ms=generated_ms), "application/json"
+        return (
+            f"audit-log-{stamp}.json",
+            to_json(events, chain, org_id=org_id, generated_ms=generated_ms),
+            "application/json",
+        )
     raise ValueError(f"unknown export format '{fmt}'")
 
 

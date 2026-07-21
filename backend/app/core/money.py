@@ -4,6 +4,7 @@ Amounts are quantized ROUND_HALF_UP so the rounding rule for currency lives in a
 single place instead of being re-declared per module. Storage columns stay
 Numeric(14, 2). Use `q2` for cents and `q(value, exp)` for another precision.
 """
+
 from __future__ import annotations
 
 from decimal import ROUND_HALF_UP, Decimal

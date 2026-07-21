@@ -2,6 +2,7 @@
 tenant-scoped. Preview classifies every personal-data location; execute performs
 the erasable ones and reports what was deliberately retained (statutory /
 integrity) or blocked by a legal hold."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
@@ -21,9 +22,19 @@ def _require_admin(current) -> None:
 
 def _out(rep) -> ErasureReportOut:
     return ErasureReportOut(
-        email=rep.email, on_hold=rep.on_hold, executed=rep.executed,
-        locations=[ErasureLocationOut(key=l.key, label=l.label, matched=l.matched,
-                                      action=l.action, reason=l.reason) for l in rep.locations],
+        email=rep.email,
+        on_hold=rep.on_hold,
+        executed=rep.executed,
+        locations=[
+            ErasureLocationOut(
+                key=loc.key,
+                label=loc.label,
+                matched=loc.matched,
+                action=loc.action,
+                reason=loc.reason,
+            )
+            for loc in rep.locations
+        ],
     )
 
 

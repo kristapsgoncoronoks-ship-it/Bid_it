@@ -1,5 +1,6 @@
 """Rate limiting (Phase 3.11 / ADR-0015): fixed-window unit behaviour + the
 middleware's 429 on an auth brute-force burst."""
+
 import pytest
 
 from app.core import ratelimit
@@ -11,8 +12,8 @@ def test_allows_up_to_limit_then_blocks():
     now = 1000.0
     assert lim.allow("k", now=now) == (True, 0)
     assert lim.allow("k", now=now)[0] is True
-    assert lim.allow("k", now=now)[0] is True     # 3rd — still allowed
-    allowed, retry = lim.allow("k", now=now)       # 4th — over the limit
+    assert lim.allow("k", now=now)[0] is True  # 3rd — still allowed
+    allowed, retry = lim.allow("k", now=now)  # 4th — over the limit
     assert allowed is False
     assert 0 < retry <= 61
 
@@ -20,14 +21,14 @@ def test_allows_up_to_limit_then_blocks():
 def test_window_resets_after_it_elapses():
     lim = FixedWindowLimiter(limit=1, window_seconds=60)
     assert lim.allow("k", now=100.0)[0] is True
-    assert lim.allow("k", now=100.0)[0] is False   # blocked within the window
-    assert lim.allow("k", now=161.0)[0] is True    # new window → allowed again
+    assert lim.allow("k", now=100.0)[0] is False  # blocked within the window
+    assert lim.allow("k", now=161.0)[0] is True  # new window → allowed again
 
 
 def test_keys_are_independent():
     lim = FixedWindowLimiter(limit=1, window_seconds=60)
     assert lim.allow("a", now=100.0)[0] is True
-    assert lim.allow("b", now=100.0)[0] is True    # different key, own budget
+    assert lim.allow("b", now=100.0)[0] is True  # different key, own budget
     assert lim.allow("a", now=100.0)[0] is False
 
 
@@ -43,14 +44,14 @@ def test_prune_keeps_map_bounded():
     for i in range(10_050):
         lim.allow(f"stale-{i}", now=0.0)
     lim.allow("fresh", now=1000.0)
-    assert len(lim._hits) < 100      # stale keys pruned, only recent survive
+    assert len(lim._hits) < 100  # stale keys pruned, only recent survive
 
 
 @pytest.mark.asyncio
 async def test_auth_brute_force_returns_429(client):
     """A burst of failed logins from one client trips the strict auth tier."""
     original = ratelimit.auth_limiter.limit
-    ratelimit.auth_limiter.limit = 3          # tighten for a short, deterministic burst
+    ratelimit.auth_limiter.limit = 3  # tighten for a short, deterministic burst
     try:
         codes = []
         for _ in range(5):

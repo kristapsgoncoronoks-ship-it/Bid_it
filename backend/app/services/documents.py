@@ -10,6 +10,7 @@ blob columns and their dual-read fallback were dropped once the migration window
 closed (ADR-0008). `prefix` names the document class (`receipts`, `logos`,
 `email-attachments`).
 """
+
 from __future__ import annotations
 
 from fastapi.concurrency import run_in_threadpool
@@ -17,7 +18,9 @@ from fastapi.concurrency import run_in_threadpool
 from app.core import storage
 
 
-async def store(prefix: str, org_id: str, data: bytes, content_type: str | None = None) -> tuple[str, int]:
+async def store(
+    prefix: str, org_id: str, data: bytes, content_type: str | None = None
+) -> tuple[str, int]:
     """Persist bytes; return (sha256, size). Idempotent — same bytes ⇒ same key."""
     sha = storage.sha256_hex(data)
     key = storage.content_key(prefix, org_id, sha)

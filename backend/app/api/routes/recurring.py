@@ -37,9 +37,15 @@ async def create_schedule(body: RecurringCreate, current: CurrentUser, db: DbSes
         if p is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Partner not found")
     rec = await recurring.create(
-        db, current.org_id, body=body.template, frequency=body.frequency,
-        interval=body.interval, start_date=body.start_date, end_date=body.end_date,
-        title=body.title, payment_terms_days=body.payment_terms_days,
+        db,
+        current.org_id,
+        body=body.template,
+        frequency=body.frequency,
+        interval=body.interval,
+        start_date=body.start_date,
+        end_date=body.end_date,
+        title=body.title,
+        payment_terms_days=body.payment_terms_days,
     )
     return RecurringOut.model_validate(rec)
 
@@ -74,13 +80,25 @@ async def update_schedule(rec_id: str, body: RecurringUpdate, current: CurrentUs
     rec = await recurring.get(db, current.org_id, rec_id)
     if rec is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Schedule not found")
-    for field in ("active", "frequency", "interval", "next_run_date", "end_date",
-                  "title", "payment_terms_days"):
+    for field in (
+        "active",
+        "frequency",
+        "interval",
+        "next_run_date",
+        "end_date",
+        "title",
+        "payment_terms_days",
+    ):
         val = getattr(body, field)
         if val is not None:
             setattr(rec, field, val)
-    await audit.record(db, audit.A.RECURRING_UPDATE, target_type="recurring_invoice",
-                       target_id=rec.id, meta={"active": rec.active})
+    await audit.record(
+        db,
+        audit.A.RECURRING_UPDATE,
+        target_type="recurring_invoice",
+        target_id=rec.id,
+        meta={"active": rec.active},
+    )
     await db.commit()
     await db.refresh(rec)
     return RecurringOut.model_validate(rec)

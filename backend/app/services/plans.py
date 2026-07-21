@@ -4,6 +4,7 @@ Core modules are always available; add-on modules (e.g. `issuing`) are gated by
 plan. Seat limits cap how many active users a tenant can have. Prices are
 indicative — nothing charges anyone until billing is wired to a provider.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -19,16 +20,37 @@ class Plan:
     key: str
     name: str
     seats: int
-    price_eur: int | None            # None = "contact us"
+    price_eur: int | None  # None = "contact us"
     modules: frozenset[str] = field(default_factory=frozenset)  # add-on modules unlocked
     trial: bool = False
 
 
 PLANS: dict[str, Plan] = {
-    "trial": Plan("trial", "Trial", seats=3, price_eur=0, modules=frozenset({"issuing", "expenses", "email_intake", "budget"}), trial=True),
-    "starter": Plan("starter", "Starter", seats=2, price_eur=29, modules=frozenset({"expenses", "budget"})),
-    "pro": Plan("pro", "Pro", seats=10, price_eur=99, modules=frozenset({"issuing", "expenses", "email_intake", "budget"})),
-    "enterprise": Plan("enterprise", "Enterprise", seats=200, price_eur=None, modules=frozenset({"issuing", "expenses", "email_intake", "budget"})),
+    "trial": Plan(
+        "trial",
+        "Trial",
+        seats=3,
+        price_eur=0,
+        modules=frozenset({"issuing", "expenses", "email_intake", "budget"}),
+        trial=True,
+    ),
+    "starter": Plan(
+        "starter", "Starter", seats=2, price_eur=29, modules=frozenset({"expenses", "budget"})
+    ),
+    "pro": Plan(
+        "pro",
+        "Pro",
+        seats=10,
+        price_eur=99,
+        modules=frozenset({"issuing", "expenses", "email_intake", "budget"}),
+    ),
+    "enterprise": Plan(
+        "enterprise",
+        "Enterprise",
+        seats=200,
+        price_eur=None,
+        modules=frozenset({"issuing", "expenses", "email_intake", "budget"}),
+    ),
 }
 DEFAULT_PLAN = "trial"
 
@@ -42,9 +64,12 @@ def allows_module(plan_key: str | None, module_key: str) -> bool:
 
 
 async def active_seats(db: AsyncSession, org_id: str) -> int:
-    return await db.scalar(
-        select(func.count(User.id)).where(User.org_id == org_id, User.is_active.is_(True))
-    ) or 0
+    return (
+        await db.scalar(
+            select(func.count(User.id)).where(User.org_id == org_id, User.is_active.is_(True))
+        )
+        or 0
+    )
 
 
 async def seats_available(db: AsyncSession, org_id: str, plan_key: str | None) -> bool:

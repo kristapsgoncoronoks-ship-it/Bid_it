@@ -8,11 +8,16 @@ from fastapi.responses import RedirectResponse
 
 from app.api.deps import CurrentUser, DbSession
 from app.core.config import settings
+from app.core.roles import is_admin_or_above
 from app.models.billing_payment import BillingPayment
 from app.models.organization import Organization
-from app.core.roles import is_admin_or_above
 from app.schemas.tenancy import (
-    BillingOut, CheckoutOut, CheckoutStart, PlanChange, PlanOut, PortalOut,
+    BillingOut,
+    CheckoutOut,
+    CheckoutStart,
+    PlanChange,
+    PlanOut,
+    PortalOut,
 )
 from app.services import billing as billing_svc
 from app.services import modules as modules_svc
@@ -25,8 +30,12 @@ log = logging.getLogger("invoiceiq.billing")
 
 def _plan_out(p) -> PlanOut:
     return PlanOut(
-        key=p.key, name=p.name, seats=p.seats, price_eur=p.price_eur,
-        modules=sorted(p.modules), trial=p.trial,
+        key=p.key,
+        name=p.name,
+        seats=p.seats,
+        price_eur=p.price_eur,
+        modules=sorted(p.modules),
+        trial=p.trial,
     )
 
 
@@ -89,9 +98,7 @@ async def _ensure_customer(db, org: Organization, current) -> str:
     if org.stripe_customer_id:
         return org.stripe_customer_id
     provider = get_billing_provider()
-    customer_id = await provider.ensure_customer(
-        org_id=org.id, name=org.name, email=current.email
-    )
+    customer_id = await provider.ensure_customer(org_id=org.id, name=org.name, email=current.email)
     org.stripe_customer_id = customer_id
     await db.commit()
     return customer_id
@@ -113,28 +120,41 @@ async def start_checkout(body: CheckoutStart, current: CurrentUser, db: DbSessio
     if target is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown plan")
     if not target.price_eur:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "That plan is not purchasable via checkout")
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "That plan is not purchasable via checkout"
+        )
 
     provider = get_billing_provider()
     org = await db.get(Organization, current.org_id)
     order_reference = f"iiq-{org.id[:8]}-{body.plan}-{uuid.uuid4().hex[:10]}"
     try:
         # Subscription providers (Stripe) need a customer; redirect ones don't.
-        customer_id = await _ensure_customer(db, org, current) if provider.kind == "subscription" else None
+        customer_id = (
+            await _ensure_customer(db, org, current) if provider.kind == "subscription" else None
+        )
         session = await provider.start_checkout(
-            org_id=org.id, plan_key=body.plan, amount_eur=float(target.price_eur),
-            order_reference=order_reference, customer_id=customer_id,
+            org_id=org.id,
+            plan_key=body.plan,
+            amount_eur=float(target.price_eur),
+            order_reference=order_reference,
+            customer_id=customer_id,
         )
     except BillingError as exc:
         log.warning("checkout failed for org %s: %s", current.org_id, exc)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc))
 
     if provider.kind == "redirect" and session.reference:
-        db.add(BillingPayment(
-            org_id=org.id, provider=provider.name, reference=session.reference,
-            order_reference=order_reference, plan_key=body.plan,
-            amount_eur=float(target.price_eur), state="initial",
-        ))
+        db.add(
+            BillingPayment(
+                org_id=org.id,
+                provider=provider.name,
+                reference=session.reference,
+                order_reference=order_reference,
+                plan_key=body.plan,
+                amount_eur=float(target.price_eur),
+                state="initial",
+            )
+        )
         await db.commit()
     return CheckoutOut(url=session.url)
 
@@ -148,7 +168,9 @@ async def open_portal(current: CurrentUser, db: DbSession):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can manage billing")
     provider = get_billing_provider()
     if provider.kind != "subscription":
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This payment method has no customer portal")
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "This payment method has no customer portal"
+        )
 
     org = await db.get(Organization, current.org_id)
     if not org.stripe_customer_id:

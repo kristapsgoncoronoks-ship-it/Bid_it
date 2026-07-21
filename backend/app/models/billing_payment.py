@@ -24,7 +24,7 @@ class BillingPayment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    provider: Mapped[str] = mapped_column(String(20), nullable=False)      # e.g. "everypay"
+    provider: Mapped[str] = mapped_column(String(20), nullable=False)  # e.g. "everypay"
     reference: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
     order_reference: Mapped[str] = mapped_column(String(64), nullable=False)
     plan_key: Mapped[str] = mapped_column(String(20), nullable=False)

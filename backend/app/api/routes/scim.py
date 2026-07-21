@@ -1,5 +1,6 @@
 """SCIM 2.0 provisioning endpoints (ADR-0021). Authenticated by a per-connection
 bearer token (NOT a user session); tenant-scoped to that connection's org."""
+
 from __future__ import annotations
 
 import re
@@ -20,7 +21,8 @@ _FILTER = re.compile(r'userName\s+eq\s+"([^"]+)"', re.IGNORECASE)
 
 def _err(status_code: int, detail: str) -> JSONResponse:
     return JSONResponse(
-        status_code=status_code, media_type=_SCIM_CT,
+        status_code=status_code,
+        media_type=_SCIM_CT,
         content={"schemas": [scim.ERROR_SCHEMA], "detail": detail, "status": str(status_code)},
     )
 
@@ -37,7 +39,7 @@ async def require_scim(request: Request, db: DbSession) -> SsoConnection:
         # Signal via exception the middleware won't wrap; the routes below catch
         # ScimError, but auth must short-circuit — raise a tagged error.
         raise scim.ScimError(status.HTTP_401_UNAUTHORIZED, "Invalid SCIM token")
-    set_current_org(conn.org_id)      # scope RLS + tenant guard to this connection's org
+    set_current_org(conn.org_id)  # scope RLS + tenant guard to this connection's org
     await apply_db_tenant(db)
     return conn
 
@@ -53,17 +55,23 @@ async def create_user(request: Request, conn: ScimConn, db: DbSession):
 
 
 @router.get("/Users")
-async def list_users(conn: ScimConn, db: DbSession, filter: str | None = None,
-                     startIndex: int = 1, count: int = 100):
+async def list_users(
+    conn: ScimConn, db: DbSession, filter: str | None = None, startIndex: int = 1, count: int = 100
+):
     m = _FILTER.search(filter) if filter else None
     email = m.group(1) if m else None
-    rows, total = await scim.list_users(db, conn.org_id, email_filter=email,
-                                        start_index=startIndex, count=count)
-    return _json({
-        "schemas": [scim.LIST_SCHEMA], "totalResults": total,
-        "startIndex": startIndex, "itemsPerPage": len(rows),
-        "Resources": [scim.to_scim(u) for u in rows],
-    })
+    rows, total = await scim.list_users(
+        db, conn.org_id, email_filter=email, start_index=startIndex, count=count
+    )
+    return _json(
+        {
+            "schemas": [scim.LIST_SCHEMA],
+            "totalResults": total,
+            "startIndex": startIndex,
+            "itemsPerPage": len(rows),
+            "Resources": [scim.to_scim(u) for u in rows],
+        }
+    )
 
 
 @router.get("/Users/{user_id}")
@@ -85,5 +93,5 @@ async def patch_user(user_id: str, request: Request, conn: ScimConn, db: DbSessi
 
 @router.delete("/Users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(user_id: str, conn: ScimConn, db: DbSession):
-    await scim.deactivate_user(db, conn.org_id, user_id)   # soft-delete (deactivate)
+    await scim.deactivate_user(db, conn.org_id, user_id)  # soft-delete (deactivate)
     return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)

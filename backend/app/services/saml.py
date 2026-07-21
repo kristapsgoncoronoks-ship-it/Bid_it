@@ -12,6 +12,7 @@ validator here would be an authentication bypass. `consume_assertion` raises
 `SamlNotReady`: finishing it requires a vetted XML-DSig library (pysaml2 / xmlsec)
 and a real IdP's metadata — the ADR-0021 boundary. No unvalidated path ships.
 """
+
 from __future__ import annotations
 
 import base64
@@ -35,8 +36,9 @@ class SamlNotReady(SamlError):
     """SAML assertion consumption is not yet available on this build (ADR-0021)."""
 
 
-def build_authn_request(*, request_id: str, issue_instant: str, sp_entity_id: str,
-                        acs_url: str, idp_sso_url: str) -> str:
+def build_authn_request(
+    *, request_id: str, issue_instant: str, sp_entity_id: str, acs_url: str, idp_sso_url: str
+) -> str:
     """The SP-initiated `<samlp:AuthnRequest>` XML (unsigned; redirect binding
     signs at the query-string layer when required)."""
     return (
@@ -45,13 +47,15 @@ def build_authn_request(*, request_id: str, issue_instant: str, sp_entity_id: st
         f'Destination="{escape(idp_sso_url)}" '
         f'ProtocolBinding="{_BINDING_POST}" '
         f'AssertionConsumerServiceURL="{escape(acs_url)}">'
-        f'<saml:Issuer>{escape(sp_entity_id)}</saml:Issuer>'
+        f"<saml:Issuer>{escape(sp_entity_id)}</saml:Issuer>"
         f'<samlp:NameIDPolicy Format="{_NAMEID_EMAIL}" AllowCreate="true"/>'
-        f'</samlp:AuthnRequest>'
+        f"</samlp:AuthnRequest>"
     )
 
 
-def redirect_binding_url(idp_sso_url: str, authn_request_xml: str, *, relay_state: str | None = None) -> str:
+def redirect_binding_url(
+    idp_sso_url: str, authn_request_xml: str, *, relay_state: str | None = None
+) -> str:
     """Encode an AuthnRequest for the HTTP-Redirect binding: raw-DEFLATE, base64,
     URL-encode as `SAMLRequest` (+ optional RelayState)."""
     deflated = _deflate(authn_request_xml.encode())
@@ -73,10 +77,10 @@ def sp_metadata_xml(*, sp_entity_id: str, acs_url: str) -> str:
         f'<md:EntityDescriptor xmlns:md="{_NS_MD}" entityID="{escape(sp_entity_id)}">'
         f'<md:SPSSODescriptor AuthnRequestsSigned="false" WantAssertionsSigned="true" '
         f'protocolSupportEnumeration="{_NS_SAMLP}">'
-        f'<md:NameIDFormat>{_NAMEID_EMAIL}</md:NameIDFormat>'
+        f"<md:NameIDFormat>{_NAMEID_EMAIL}</md:NameIDFormat>"
         f'<md:AssertionConsumerService Binding="{_BINDING_POST}" '
         f'Location="{escape(acs_url)}" index="0" isDefault="true"/>'
-        f'</md:SPSSODescriptor></md:EntityDescriptor>'
+        f"</md:SPSSODescriptor></md:EntityDescriptor>"
     )
 
 
@@ -91,7 +95,7 @@ def consume_assertion(*args, **kwargs):
 
 
 def _deflate(data: bytes) -> bytes:
-    c = zlib.compressobj(9, zlib.DEFLATED, -zlib.MAX_WBITS)   # raw DEFLATE (no zlib header)
+    c = zlib.compressobj(9, zlib.DEFLATED, -zlib.MAX_WBITS)  # raw DEFLATE (no zlib header)
     return c.compress(data) + c.flush()
 
 

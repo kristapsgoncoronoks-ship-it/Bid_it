@@ -9,9 +9,10 @@ Enforcement gates **invoice creation** (counted off the invoices table) and
 row of its own). Both compare the acting role's monthly limit to the tenant's
 current-month usage.
 """
+
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -34,10 +35,22 @@ LIMIT_DEFAULTS: dict[UserRole, tuple[int, int]] = {
 
 # Display metadata for the matrix UI.
 ROLE_META: dict[UserRole, dict] = {
-    UserRole.user_free: {"label": "User-free", "paid": False, "desc": "Non-paying user — limited access."},
+    UserRole.user_free: {
+        "label": "User-free",
+        "paid": False,
+        "desc": "Non-paying user — limited access.",
+    },
     UserRole.user: {"label": "User", "paid": True, "desc": "Paying user."},
-    UserRole.admin: {"label": "Admin", "paid": True, "desc": "Business administration within the company."},
-    UserRole.owner: {"label": "Owner", "paid": True, "desc": "The company's primary user — full administration of their company."},
+    UserRole.admin: {
+        "label": "Admin",
+        "paid": True,
+        "desc": "Business administration within the company.",
+    },
+    UserRole.owner: {
+        "label": "Owner",
+        "paid": True,
+        "desc": "The company's primary user — full administration of their company.",
+    },
 }
 
 
@@ -58,18 +71,22 @@ async def matrix(db: AsyncSession) -> list[dict]:
     for role in ASSIGNABLE_ROLES:
         p = await _get_or_seed(db, role)
         meta = ROLE_META[role]
-        out.append({
-            "role": role.value,
-            "label": meta["label"],
-            "paid": meta["paid"],
-            "description": meta["desc"],
-            "monthly_invoice_limit": p.monthly_invoice_limit,
-            "monthly_upload_limit": p.monthly_upload_limit,
-        })
+        out.append(
+            {
+                "role": role.value,
+                "label": meta["label"],
+                "paid": meta["paid"],
+                "description": meta["desc"],
+                "monthly_invoice_limit": p.monthly_invoice_limit,
+                "monthly_upload_limit": p.monthly_upload_limit,
+            }
+        )
     return out
 
 
-async def set_limits(db: AsyncSession, role: UserRole, invoice_limit: int, upload_limit: int) -> dict:
+async def set_limits(
+    db: AsyncSession, role: UserRole, invoice_limit: int, upload_limit: int
+) -> dict:
     p = await _get_or_seed(db, role)
     p.monthly_invoice_limit = max(0, int(invoice_limit))
     p.monthly_upload_limit = max(0, int(upload_limit))
@@ -77,14 +94,18 @@ async def set_limits(db: AsyncSession, role: UserRole, invoice_limit: int, uploa
     await db.refresh(p)
     meta = ROLE_META[role]
     return {
-        "role": role.value, "label": meta["label"], "paid": meta["paid"], "description": meta["desc"],
-        "monthly_invoice_limit": p.monthly_invoice_limit, "monthly_upload_limit": p.monthly_upload_limit,
+        "role": role.value,
+        "label": meta["label"],
+        "paid": meta["paid"],
+        "description": meta["desc"],
+        "monthly_invoice_limit": p.monthly_invoice_limit,
+        "monthly_upload_limit": p.monthly_upload_limit,
     }
 
 
 def _month_start() -> datetime:
     today = date.today()
-    return datetime(today.year, today.month, 1, tzinfo=timezone.utc)
+    return datetime(today.year, today.month, 1, tzinfo=UTC)
 
 
 async def invoice_limit_for(db: AsyncSession, role: UserRole) -> int:
@@ -92,11 +113,14 @@ async def invoice_limit_for(db: AsyncSession, role: UserRole) -> int:
 
 
 async def invoices_this_month(db: AsyncSession, org_id: str) -> int:
-    return await db.scalar(
-        select(func.count(Invoice.id)).where(
-            Invoice.org_id == org_id, Invoice.created_at >= _month_start()
+    return (
+        await db.scalar(
+            select(func.count(Invoice.id)).where(
+                Invoice.org_id == org_id, Invoice.created_at >= _month_start()
+            )
         )
-    ) or 0
+        or 0
+    )
 
 
 async def enforce_invoice_quota(db: AsyncSession, org_id: str, role: UserRole) -> None:
@@ -115,6 +139,7 @@ async def enforce_invoice_quota(db: AsyncSession, org_id: str, role: UserRole) -
 
 # --- Metered usage (uploads) ----------------------------------------------------
 
+
 def _period() -> str:
     today = date.today()
     return f"{today.year:04d}-{today.month:02d}"
@@ -123,7 +148,8 @@ def _period() -> str:
 async def usage_count(db: AsyncSession, org_id: str, metric: str) -> int:
     row = await db.scalar(
         select(UsageCounter.count).where(
-            UsageCounter.org_id == org_id, UsageCounter.period == _period(),
+            UsageCounter.org_id == org_id,
+            UsageCounter.period == _period(),
             UsageCounter.metric == metric,
         )
     )
@@ -134,7 +160,8 @@ async def record_usage(db: AsyncSession, org_id: str, metric: str, n: int = 1) -
     """Increment this month's counter for `metric` (create the row if needed)."""
     counter = await db.scalar(
         select(UsageCounter).where(
-            UsageCounter.org_id == org_id, UsageCounter.period == _period(),
+            UsageCounter.org_id == org_id,
+            UsageCounter.period == _period(),
             UsageCounter.metric == metric,
         )
     )
@@ -147,7 +174,8 @@ async def record_usage(db: AsyncSession, org_id: str, metric: str, n: int = 1) -
             await db.rollback()
             counter = await db.scalar(
                 select(UsageCounter).where(
-                    UsageCounter.org_id == org_id, UsageCounter.period == _period(),
+                    UsageCounter.org_id == org_id,
+                    UsageCounter.period == _period(),
                     UsageCounter.metric == metric,
                 )
             )

@@ -9,6 +9,7 @@ modules) so it is unit-testable with a fabricated event and no SDK. Idempotency
 (ADR-0011) is enforced via the `processed_stripe_events` ledger (used for both
 providers — a generic billing-event ledger despite the historical name).
 """
+
 from __future__ import annotations
 
 import logging
@@ -68,7 +69,9 @@ async def apply_subscription_event(db: AsyncSession, event: SubscriptionEvent) -
         select(Organization).where(Organization.stripe_customer_id == event.customer_id)
     )
     if org is None:
-        log.warning("stripe event %s references unknown customer %s", event.event_id, event.customer_id)
+        log.warning(
+            "stripe event %s references unknown customer %s", event.event_id, event.customer_id
+        )
         await db.commit()
         return False
 
@@ -136,6 +139,7 @@ async def _reconcile_modules(db: AsyncSession, org: Organization) -> None:
 
 # --- EveryPay redirect confirmation (server-side verify) -------------------
 
+
 async def confirm_redirect_payment(db: AsyncSession, reference: str) -> bool:
     """Verify a redirect-flow payment with the provider and apply the plan.
 
@@ -176,7 +180,7 @@ async def confirm_redirect_payment(db: AsyncSession, reference: str) -> bool:
             pay.state = "settled"
             await db.commit()
             return True
-        pay.state = "failed"       # failed | voided | abandoned
+        pay.state = "failed"  # failed | voided | abandoned
         await db.commit()
         return False
     finally:
@@ -185,18 +189,21 @@ async def confirm_redirect_payment(db: AsyncSession, reference: str) -> bool:
 
 # --- EveryPay recurring (merchant-initiated charges) -----------------------
 
+
 async def orgs_due_for_charge(db: AsyncSession, *, today: date) -> list[str]:
     """Ids of EveryPay-subscribed tenants whose next paid charge is due today.
 
     Runs UNSCOPED (worker/scheduler context) so it sees every tenant. Non-paid
     plans are filtered out — only a plan with a price is charged."""
-    orgs = list(await db.scalars(
-        select(Organization).where(
-            Organization.everypay_token.is_not(None),
-            Organization.everypay_next_charge.is_not(None),
-            Organization.everypay_next_charge <= today,
+    orgs = list(
+        await db.scalars(
+            select(Organization).where(
+                Organization.everypay_token.is_not(None),
+                Organization.everypay_next_charge.is_not(None),
+                Organization.everypay_next_charge <= today,
+            )
         )
-    ))
+    )
     return [o.id for o in orgs if plans.plan_for(o.plan).price_eur]
 
 
@@ -217,11 +224,14 @@ async def charge_renewal(db: AsyncSession, org_id: str, *, today: date | None = 
 
     tok = set_current_org(org.id)
     try:
-        if not await record_event_once(db, f"everypay:mit:{org_id}:{today.isoformat()}", "everypay.mit"):
+        if not await record_event_once(
+            db, f"everypay:mit:{org_id}:{today.isoformat()}", "everypay.mit"
+        ):
             return {"charged": False, "reason": "duplicate"}
         provider = get_billing_provider()
         status = await provider.charge_mit(
-            token=org.everypay_token, amount_eur=plan.price_eur,
+            token=org.everypay_token,
+            amount_eur=plan.price_eur,
             order_reference=f"{org_id[:8]}-{org.plan}-{today.isoformat()}",
         )
         if status.state == "settled":

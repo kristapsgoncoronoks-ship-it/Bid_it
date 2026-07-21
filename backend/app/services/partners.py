@@ -9,6 +9,7 @@ Penalty invoicing bills accrued late-payment interest aggregated across a
 partner's OVERDUE invoices. It is opt-in per partner and — per policy — may only
 be generated once a contract is signed.
 """
+
 from __future__ import annotations
 
 import json
@@ -22,8 +23,9 @@ from sqlalchemy.orm import selectinload
 
 from app.core import money
 from app.models.issued_invoice import IssuedInvoice, IssuedInvoiceLine
-from app.models.partner import Partner, PartnerDocument
-from app.services import issued_status, issuer as issuer_svc
+from app.models.partner import Partner
+from app.services import issued_status
+from app.services import issuer as issuer_svc
 
 CONTRACT = "contract"
 ACCEPTANCE = "acceptance_act"
@@ -74,8 +76,10 @@ def readiness(p: Partner) -> Readiness:
     signed = _signed_kinds(p)
     req = required_kinds(p)
     return Readiness(
-        ready=is_ready(p), required=req,
-        signed=[k for k in req if k in signed], missing=missing_signed(p),
+        ready=is_ready(p),
+        required=req,
+        signed=[k for k in req if k in signed],
+        missing=missing_signed(p),
     )
 
 
@@ -88,6 +92,7 @@ async def get_partner(db: AsyncSession, org_id: str, partner_id: str) -> Partner
 
 
 # --- Penalty invoicing ---------------------------------------------------------
+
 
 @dataclass
 class PenaltyLine:
@@ -107,8 +112,9 @@ class PenaltySummary:
     lines: list[PenaltyLine] = field(default_factory=list)
 
 
-async def penalty_summary(db: AsyncSession, org_id: str, partner_id: str,
-                          today: date | None = None) -> PenaltySummary:
+async def penalty_summary(
+    db: AsyncSession, org_id: str, partner_id: str, today: date | None = None
+) -> PenaltySummary:
     """Accrued late-payment interest across a partner's OVERDUE invoices.
 
     Overdue days and penalty are computed per invoice, then aggregated by partner.
@@ -116,13 +122,15 @@ async def penalty_summary(db: AsyncSession, org_id: str, partner_id: str,
     compounds on interest.
     """
     today = today or date.today()
-    rows = list(await db.scalars(
-        select(IssuedInvoice).where(
-            IssuedInvoice.org_id == org_id,
-            IssuedInvoice.partner_id == partner_id,
-            IssuedInvoice.kind == "standard",
+    rows = list(
+        await db.scalars(
+            select(IssuedInvoice).where(
+                IssuedInvoice.org_id == org_id,
+                IssuedInvoice.partner_id == partner_id,
+                IssuedInvoice.kind == "standard",
+            )
         )
-    ))
+    )
     lines: list[PenaltyLine] = []
     total_pen, total_out, max_days = _ZERO, _ZERO, 0
     currency = "EUR"
@@ -146,15 +154,18 @@ class PenaltyBlocked(Exception):
     """Raised when a penalty invoice cannot be generated (policy/state)."""
 
 
-async def generate_penalty_invoice(db: AsyncSession, org_id: str, partner: Partner,
-                                   today: date | None = None) -> IssuedInvoice:
+async def generate_penalty_invoice(
+    db: AsyncSession, org_id: str, partner: Partner, today: date | None = None
+) -> IssuedInvoice:
     """Create a penalty (late-interest) invoice for a partner. Requires the
     partner to allow penalties AND to have a signed contract."""
     today = today or date.today()
     if not partner.penalty_enabled:
         raise PenaltyBlocked("Penalty invoicing is not enabled for this partner.")
     if not has_signed_contract(partner):
-        raise PenaltyBlocked("A signed contract is required before a penalty invoice can be generated.")
+        raise PenaltyBlocked(
+            "A signed contract is required before a penalty invoice can be generated."
+        )
 
     summary = await penalty_summary(db, org_id, partner.id, today)
     if summary.total_penalty <= _ZERO:
@@ -164,7 +175,9 @@ async def generate_penalty_invoice(db: AsyncSession, org_id: str, partner: Partn
     number = f"{profile.invoice_prefix}{today.year}-{profile.next_number:04d}"
     profile.next_number += 1
 
-    detail = "; ".join(f"{ln.number} ({ln.days_overdue}d, {summary.currency} {ln.penalty})" for ln in summary.lines)
+    detail = "; ".join(
+        f"{ln.number} ({ln.days_overdue}d, {summary.currency} {ln.penalty})" for ln in summary.lines
+    )
     note = f"Late-payment interest on overdue invoices: {detail}."
 
     inv = IssuedInvoice(
@@ -188,15 +201,17 @@ async def generate_penalty_invoice(db: AsyncSession, org_id: str, partner: Partn
         subtotal=summary.total_penalty,
         tax_total=_ZERO,
         total=summary.total_penalty,
-        lines=[IssuedInvoiceLine(
-            position=1,
-            description=f"Late-payment interest on {len(summary.lines)} overdue invoice(s)",
-            quantity=Decimal("1"),
-            unit="C62",
-            unit_price=summary.total_penalty,
-            vat_rate=_ZERO,
-            net_amount=summary.total_penalty,
-        )],
+        lines=[
+            IssuedInvoiceLine(
+                position=1,
+                description=f"Late-payment interest on {len(summary.lines)} overdue invoice(s)",
+                quantity=Decimal("1"),
+                unit="C62",
+                unit_price=summary.total_penalty,
+                vat_rate=_ZERO,
+                net_amount=summary.total_penalty,
+            )
+        ],
     )
     db.add(inv)
     return inv

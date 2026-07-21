@@ -47,8 +47,10 @@ class Partner(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
 
-    documents: Mapped[list["PartnerDocument"]] = relationship(
-        back_populates="partner", cascade="all, delete-orphan", order_by="PartnerDocument.created_at",
+    documents: Mapped[list[PartnerDocument]] = relationship(
+        back_populates="partner",
+        cascade="all, delete-orphan",
+        order_by="PartnerDocument.created_at",
     )
 
 
@@ -69,12 +71,14 @@ class PartnerDocument(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     partner_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("partners.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    kind: Mapped[str] = mapped_column(String(20), nullable=False)   # contract | acceptance_act
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)  # contract | acceptance_act
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     reference: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    status: Mapped[str] = mapped_column(String(12), default="draft", nullable=False)  # draft | signed
+    status: Mapped[str] = mapped_column(
+        String(12), default="draft", nullable=False
+    )  # draft | signed
     signed_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
     signed_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    partner: Mapped["Partner"] = relationship(back_populates="documents")
+    partner: Mapped[Partner] = relationship(back_populates="documents")

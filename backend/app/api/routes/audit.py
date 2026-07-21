@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, time, timezone
+from datetime import UTC, date, datetime, time
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
@@ -15,9 +15,11 @@ router = APIRouter(prefix="/audit", tags=["audit"])
 
 def _day_bounds_ms(from_: str | None, to: str | None) -> tuple[int | None, int | None]:
     """Parse inclusive YYYY-MM-DD bounds → (since_ms, until_ms) in UTC epoch ms."""
+
     def _ms(d: date, end: bool) -> int:
         t = time.max if end else time.min
-        return int(datetime.combine(d, t, tzinfo=timezone.utc).timestamp() * 1000)
+        return int(datetime.combine(d, t, tzinfo=UTC).timestamp() * 1000)
+
     try:
         since = _ms(date.fromisoformat(from_), False) if from_ else None
         until = _ms(date.fromisoformat(to), True) if to else None
@@ -28,7 +30,9 @@ def _day_bounds_ms(from_: str | None, to: str | None) -> tuple[int | None, int |
 
 def _require_owner(current):
     if not is_owner(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the company owner can view the audit trail")
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Only the company owner can view the audit trail"
+        )
 
 
 def _out(e) -> AuditEventOut:
@@ -39,9 +43,14 @@ def _out(e) -> AuditEventOut:
         except ValueError:
             meta = None
     return AuditEventOut(
-        id=e.id, seq=e.seq, actor_email=e.actor_email, action=e.action,
-        target_type=e.target_type, target_id=e.target_id, meta=meta,
-        at=datetime.fromtimestamp(e.at_ms / 1000, tz=timezone.utc),
+        id=e.id,
+        seq=e.seq,
+        actor_email=e.actor_email,
+        action=e.action,
+        target_type=e.target_type,
+        target_id=e.target_id,
+        meta=meta,
+        at=datetime.fromtimestamp(e.at_ms / 1000, tz=UTC),
     )
 
 
@@ -54,7 +63,9 @@ async def list_audit(
     page_size: int = Query(default=50, ge=1, le=200),
 ):
     _require_owner(current)
-    rows, total = await audit.list_events(db, current.org_id, action=action, page=page, page_size=page_size)
+    rows, total = await audit.list_events(
+        db, current.org_id, action=action, page=page, page_size=page_size
+    )
     return AuditListOut(items=[_out(e) for e in rows], total=total)
 
 
@@ -79,14 +90,19 @@ async def export_audit(
     seq/prev_hash/hash columns so the chain can be re-verified independently."""
     _require_owner(current)
     if fmt not in audit_export.FORMATS:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST,
-                            f"Unknown format '{fmt}'. Available: {', '.join(audit_export.FORMATS)}.")
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Unknown format '{fmt}'. Available: {', '.join(audit_export.FORMATS)}.",
+        )
     since_ms, until_ms = _day_bounds_ms(from_, to)
-    events = await audit.export_events(db, current.org_id, action=action, since_ms=since_ms, until_ms=until_ms)
+    events = await audit.export_events(
+        db, current.org_id, action=action, since_ms=since_ms, until_ms=until_ms
+    )
     chain = await audit.verify_chain(db, current.org_id)
     filename, text, media_type = audit_export.render(fmt, events, chain, org_id=current.org_id)
     return Response(
-        content=text, media_type=media_type,
+        content=text,
+        media_type=media_type,
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "X-Audit-Chain-Verified": "true" if chain.ok else "false",

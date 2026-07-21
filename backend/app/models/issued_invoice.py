@@ -32,14 +32,18 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     partner_id: Mapped[str | None] = mapped_column(
         GUID(), ForeignKey("partners.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    kind: Mapped[str] = mapped_column(String(12), default="standard", nullable=False)  # standard | penalty
+    kind: Mapped[str] = mapped_column(
+        String(12), default="standard", nullable=False
+    )  # standard | penalty
 
     # Document type: a normal receivable invoice, or a CREDIT NOTE that corrects
     # (reduces) one. A credit note carries its own gap-free number series, links
     # to the invoice it corrects, and REDUCES that invoice's outstanding balance
     # (applied via `credited_total` on the corrected invoice) and the tenant's
     # reported turnover. Both document types are immutable once created.
-    doc_type: Mapped[str] = mapped_column(String(12), default="invoice", nullable=False)  # invoice | credit_note
+    doc_type: Mapped[str] = mapped_column(
+        String(12), default="invoice", nullable=False
+    )  # invoice | credit_note
     corrected_invoice_id: Mapped[str | None] = mapped_column(
         GUID(), ForeignKey("issued_invoices.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -55,7 +59,9 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     # Buyer (Art. 226)
     buyer_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    buyer_email: Mapped[str | None] = mapped_column(String(255), nullable=True)  # for delivery/reminders
+    buyer_email: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )  # for delivery/reminders
     buyer_vat_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
     buyer_address_line1: Mapped[str | None] = mapped_column(String(200), nullable=True)
     buyer_city: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -81,14 +87,18 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     # Late-payment interest. Only invoices that CARRY a rate accrue a penalty; the
     # accrued figure is advisory (computed, never added to `total`). See issued_status.
-    penalty_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)  # % per annum
+    penalty_rate: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )  # % per annum
 
     # Dunning: how many reminders sent and when the last went out.
     reminder_count: Mapped[int] = mapped_column(default=0, nullable=False)
     last_reminder_at: Mapped[date | None] = mapped_column(Date, nullable=True)
 
-    lines: Mapped[list["IssuedInvoiceLine"]] = relationship(
-        back_populates="invoice", cascade="all, delete-orphan", order_by="IssuedInvoiceLine.position"
+    lines: Mapped[list[IssuedInvoiceLine]] = relationship(
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+        order_by="IssuedInvoiceLine.position",
     )
 
 
@@ -106,4 +116,4 @@ class IssuedInvoiceLine(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     vat_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0"), nullable=False)
     net_amount: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
 
-    invoice: Mapped["IssuedInvoice"] = relationship(back_populates="lines")
+    invoice: Mapped[IssuedInvoice] = relationship(back_populates="lines")

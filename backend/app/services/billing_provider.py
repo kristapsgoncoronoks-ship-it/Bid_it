@@ -16,13 +16,14 @@ nothing charges, the in-app plan switch stays for dev/demo.
 Networked SDKs/clients are imported LAZILY inside each provider so the module is
 import-safe with no billing configured (tests, no-billing deploys).
 """
+
 from __future__ import annotations
 
 import base64
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Protocol
 
 from app.core.config import settings
@@ -67,15 +68,20 @@ class SubscriptionEvent:
 
 
 class BillingProvider(Protocol):
-    kind: str          # subscription | redirect | none
-    name: str          # stripe | everypay | none
+    kind: str  # subscription | redirect | none
+    name: str  # stripe | everypay | none
     enabled: bool
 
     async def ensure_customer(self, *, org_id: str, name: str, email: str | None) -> str: ...
 
     async def start_checkout(
-        self, *, org_id: str, plan_key: str, amount_eur: float,
-        order_reference: str, customer_id: str | None,
+        self,
+        *,
+        org_id: str,
+        plan_key: str,
+        amount_eur: float,
+        order_reference: str,
+        customer_id: str | None,
     ) -> CheckoutSession: ...
 
     async def create_portal_url(self, *, customer_id: str) -> str: ...
@@ -84,9 +90,13 @@ class BillingProvider(Protocol):
 
     async def verify_payment(self, *, reference: str, order_reference: str) -> PaymentStatus: ...
 
-    async def charge_mit(self, *, token: str, amount_eur: float, order_reference: str) -> PaymentStatus: ...
+    async def charge_mit(
+        self, *, token: str, amount_eur: float, order_reference: str
+    ) -> PaymentStatus: ...
 
-    async def report_usage(self, *, customer_id: str, meter_event: str, quantity: int, identifier: str) -> None: ...
+    async def report_usage(
+        self, *, customer_id: str, meter_event: str, quantity: int, identifier: str
+    ) -> None: ...
 
 
 class NullProvider:
@@ -121,9 +131,14 @@ class NullProvider:
 # --- Stripe (subscription) -------------------------------------------------
 
 _STRIPE_STATUS = {
-    "active": "active", "trialing": "active", "past_due": "suspended",
-    "unpaid": "suspended", "incomplete": "suspended",
-    "incomplete_expired": "canceled", "canceled": "canceled", "paused": "suspended",
+    "active": "active",
+    "trialing": "active",
+    "past_due": "suspended",
+    "unpaid": "suspended",
+    "incomplete": "suspended",
+    "incomplete_expired": "canceled",
+    "canceled": "canceled",
+    "paused": "suspended",
 }
 
 
@@ -146,7 +161,9 @@ class StripeProvider:
 
     async def ensure_customer(self, *, org_id, name, email):
         try:
-            customer = self._stripe.Customer.create(name=name, email=email, metadata={"org_id": org_id})
+            customer = self._stripe.Customer.create(
+                name=name, email=email, metadata={"org_id": org_id}
+            )
             return customer.id
         except Exception as exc:  # noqa: BLE001
             raise BillingError(f"Stripe customer creation failed: {exc}") from exc
@@ -157,7 +174,8 @@ class StripeProvider:
             raise BillingError(f"No Stripe price configured for plan '{plan_key}'.")
         try:
             session = self._stripe.checkout.Session.create(
-                mode="subscription", customer=customer_id,
+                mode="subscription",
+                customer=customer_id,
                 line_items=[{"price": price_id, "quantity": 1}],
                 success_url=settings.billing_success_url,
                 cancel_url=settings.billing_cancel_url,
@@ -228,8 +246,12 @@ def reduce_stripe_event(event: dict) -> SubscriptionEvent:
         plan_key = (obj.get("metadata") or {}).get("plan_key")
 
     return SubscriptionEvent(
-        event_id=event.get("id", ""), event_type=etype, customer_id=customer_id,
-        subscription_id=subscription_id, plan_key=plan_key, status=status,
+        event_id=event.get("id", ""),
+        event_type=etype,
+        customer_id=customer_id,
+        subscription_id=subscription_id,
+        plan_key=plan_key,
+        status=status,
     )
 
 
@@ -247,11 +269,17 @@ def _plan_from_subscription_items(sub_obj: dict) -> str | None:
 
 # EveryPay payment_state → our vocabulary. `settled` is the only success.
 _EVERYPAY_STATE = {
-    "settled": "settled", "authorized": "settled",
-    "failed": "failed", "voided": "failed", "abandoned": "failed",
-    "chargebacked": "failed", "refunded": "failed",
-    "initial": "pending", "waiting_for_sca": "pending",
-    "sending_to_processor": "pending", "waiting_for_3ds_response": "pending",
+    "settled": "settled",
+    "authorized": "settled",
+    "failed": "failed",
+    "voided": "failed",
+    "abandoned": "failed",
+    "chargebacked": "failed",
+    "refunded": "failed",
+    "initial": "pending",
+    "waiting_for_sca": "pending",
+    "sending_to_processor": "pending",
+    "waiting_for_3ds_response": "pending",
 }
 
 
@@ -266,7 +294,9 @@ class EveryPayProvider:
 
     def __init__(self) -> None:
         if not settings.everypay_configured:
-            raise BillingError("EveryPayProvider requires everypay_api_username/secret/account_name.")
+            raise BillingError(
+                "EveryPayProvider requires everypay_api_username/secret/account_name."
+            )
         self._base = settings.everypay_api_base_url.rstrip("/")
         self._username = settings.everypay_api_username
         self._secret = settings.everypay_api_secret
@@ -287,7 +317,7 @@ class EveryPayProvider:
             "amount": f"{amount_eur:.2f}",
             "order_reference": order_reference,
             "nonce": _nonce(order_reference),
-            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S%z"),
         }
 
     async def _post(self, path: str, body: dict) -> dict:
@@ -295,36 +325,46 @@ class EveryPayProvider:
 
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:
-                resp = await client.post(f"{self._base}{path}", json=body, headers=self._auth_header())
+                resp = await client.post(
+                    f"{self._base}{path}", json=body, headers=self._auth_header()
+                )
         except Exception as exc:  # noqa: BLE001 - network
             raise BillingError(f"EveryPay request failed: {exc}") from exc
         if resp.status_code >= 400:
-            raise BillingError(f"EveryPay {path} returned HTTP {resp.status_code}: {resp.text[:200]}")
+            raise BillingError(
+                f"EveryPay {path} returned HTTP {resp.status_code}: {resp.text[:200]}"
+            )
         return resp.json()
 
     async def start_checkout(self, *, org_id, plan_key, amount_eur, order_reference, customer_id):
         body = self._base_body(amount_eur=amount_eur, order_reference=order_reference)
-        body.update({
-            "customer_url": f"{settings.api_public_base_url.rstrip('/')}"
-                            f"{settings.api_v1_prefix}/billing/everypay/return",
-            "callback_url": f"{settings.api_public_base_url.rstrip('/')}"
-                            f"{settings.api_v1_prefix}/billing/everypay/callback",
-            # Tokenise this first (customer-initiated) payment for later MIT charges.
-            "request_token": True,
-            "token_agreement": "recurring",
-        })
+        body.update(
+            {
+                "customer_url": f"{settings.api_public_base_url.rstrip('/')}"
+                f"{settings.api_v1_prefix}/billing/everypay/return",
+                "callback_url": f"{settings.api_public_base_url.rstrip('/')}"
+                f"{settings.api_v1_prefix}/billing/everypay/callback",
+                # Tokenise this first (customer-initiated) payment for later MIT charges.
+                "request_token": True,
+                "token_agreement": "recurring",
+            }
+        )
         data = await self._post("/payments/oneoff", body)
         link = data.get("payment_link")
         reference = data.get("payment_reference")
         if not link or not reference:
-            raise BillingError(f"EveryPay oneoff missing payment_link/reference: {json.dumps(data)[:200]}")
+            raise BillingError(
+                f"EveryPay oneoff missing payment_link/reference: {json.dumps(data)[:200]}"
+            )
         return CheckoutSession(url=link, reference=reference)
 
     async def create_portal_url(self, *, customer_id):
         raise BillingError("EveryPay has no customer portal.")
 
     def parse_webhook(self, payload, signature):
-        raise BillingError("EveryPay confirmation is via payment verification, not a signed webhook.")
+        raise BillingError(
+            "EveryPay confirmation is via payment verification, not a signed webhook."
+        )
 
     async def verify_payment(self, *, reference, order_reference):
         import httpx
@@ -364,7 +404,7 @@ def _nonce(seed: str) -> str:
     """A unique-per-request nonce. EveryPay requires uniqueness, not secrecy;
     derive it from the order reference + wall clock so retries differ. (Scripts
     can't use Math.random; a hash of order_ref+timestamp is unique enough.)"""
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+    stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S%f")
     return hashlib.sha256(f"{seed}:{stamp}".encode()).hexdigest()[:32]
 
 

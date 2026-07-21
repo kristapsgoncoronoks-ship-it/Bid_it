@@ -30,12 +30,16 @@ class SsoConnection(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # OIDC.
-    issuer: Mapped[str | None] = mapped_column(String(400), nullable=True)      # discovery base URL
+    issuer: Mapped[str | None] = mapped_column(String(400), nullable=True)  # discovery base URL
     client_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    client_secret: Mapped[str | None] = mapped_column(String(512), nullable=True)  # TODO: secret store (ADR-0016)
+    client_secret: Mapped[str | None] = mapped_column(
+        String(512), nullable=True
+    )  # TODO: secret store (ADR-0016)
 
     # Provisioning policy.
-    allowed_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)  # restrict emails to this domain
+    allowed_domain: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )  # restrict emails to this domain
     jit_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     default_role: Mapped[str] = mapped_column(String(20), default="user", nullable=False)
 
@@ -44,7 +48,7 @@ class SsoConnection(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # role is re-synced from their groups on each login (IdP authoritative); owner
     # is never granted or demoted via SSO.
     groups_claim: Mapped[str] = mapped_column(String(64), default="groups", nullable=False)
-    role_mappings: Mapped[str | None] = mapped_column(Text, nullable=True)   # JSON object
+    role_mappings: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON object
     role_sync: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # SCIM 2.0 provisioning (ADR-0021): the tenant's IdP authenticates with a
@@ -55,6 +59,8 @@ class SsoConnection(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # SAML (SP request side + config; assertion CONSUMPTION is the finish item —
     # needs a vetted XML-DSig library + real IdP metadata, see ADR-0021).
     saml_metadata_url: Mapped[str | None] = mapped_column(String(400), nullable=True)
-    saml_sso_url: Mapped[str | None] = mapped_column(String(400), nullable=True)       # IdP SSO endpoint
+    saml_sso_url: Mapped[str | None] = mapped_column(String(400), nullable=True)  # IdP SSO endpoint
     saml_idp_entity_id: Mapped[str | None] = mapped_column(String(400), nullable=True)
-    saml_idp_cert: Mapped[str | None] = mapped_column(String(4000), nullable=True)     # IdP signing cert (PEM/base64)
+    saml_idp_cert: Mapped[str | None] = mapped_column(
+        String(4000), nullable=True
+    )  # IdP signing cert (PEM/base64)

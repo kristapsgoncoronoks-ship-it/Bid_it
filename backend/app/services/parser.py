@@ -6,6 +6,7 @@ next adapter to slot in behind the same `parse_invoice_file` interface — it wo
 push originals to object storage and enqueue a background OCR job, then return the
 same `ParsedInvoiceDraft`.
 """
+
 from __future__ import annotations
 
 import csv
@@ -87,9 +88,7 @@ def _parse_csv(content: bytes, filename: str, warnings: list[str]) -> InvoiceCre
 
     fields = {(f or "").strip().lower() for f in reader.fieldnames}
     if not (fields & _LINE_COLS):
-        raise ValueError(
-            "CSV needs at least one of: " + ", ".join(sorted(_LINE_COLS))
-        )
+        raise ValueError("CSV needs at least one of: " + ", ".join(sorted(_LINE_COLS)))
 
     rows = list(reader)
     if not rows:
@@ -157,7 +156,9 @@ def _dispatch_parse(filename: str, content: bytes) -> ParsedInvoiceDraft:
                 "PDF support is not installed on the server "
                 f"(pdfplumber/pypdfium2/pytesseract + tesseract binary): {exc}"
             )
-    if lower.endswith(".xml") or (not lower.endswith((".csv", ".json")) and einvoice.looks_like_einvoice(content)):
+    if lower.endswith(".xml") or (
+        not lower.endswith((".csv", ".json")) and einvoice.looks_like_einvoice(content)
+    ):
         # Structured e-invoice XML (UBL 2.1 / UN-CEFACT CII) — deterministic.
         return einvoice.parse_xml_bytes(content, filename)
     if lower.endswith(".json"):

@@ -19,19 +19,25 @@ class IssuerProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "issuer_profiles"
 
     org_id: Mapped[str] = mapped_column(
-        GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, unique=True, index=True
+        GUID(),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
     )
 
     legal_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     trade_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    vat_number: Mapped[str | None] = mapped_column(String(32), nullable=True)   # e.g. DE123456789
-    registration_number: Mapped[str | None] = mapped_column(String(64), nullable=True)  # company/trade register
+    vat_number: Mapped[str | None] = mapped_column(String(32), nullable=True)  # e.g. DE123456789
+    registration_number: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )  # company/trade register
 
     address_line1: Mapped[str | None] = mapped_column(String(200), nullable=True)
     address_line2: Mapped[str | None] = mapped_column(String(200), nullable=True)
     city: Mapped[str | None] = mapped_column(String(120), nullable=True)
     postal_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    country: Mapped[str | None] = mapped_column(String(2), nullable=True)       # ISO 3166-1 alpha-2
+    country: Mapped[str | None] = mapped_column(String(2), nullable=True)  # ISO 3166-1 alpha-2
 
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(40), nullable=True)

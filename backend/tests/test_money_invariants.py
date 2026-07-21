@@ -12,6 +12,7 @@ Invariants covered:
       as a real conversion.
   X — reports NEVER sum across currencies (single-currency by construction).
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -26,15 +27,19 @@ from app.services import fx, vat
 # M — Money
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.parametrize("raw,expected", [
-    ("0.005", "0.01"),      # HALF_UP rounds the exact half up
-    ("0.004", "0.00"),
-    ("2.675", "2.68"),      # the classic float trap — exact with Decimal
-    ("2.674", "2.67"),
-    ("-0.005", "-0.01"),    # symmetric HALF_UP away from zero
-    ("10", "10.00"),
-    ("1.999", "2.00"),
-])
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("0.005", "0.01"),  # HALF_UP rounds the exact half up
+        ("0.004", "0.00"),
+        ("2.675", "2.68"),  # the classic float trap — exact with Decimal
+        ("2.674", "2.67"),
+        ("-0.005", "-0.01"),  # symmetric HALF_UP away from zero
+        ("10", "10.00"),
+        ("1.999", "2.00"),
+    ],
+)
 def test_q2_rounds_half_up(raw, expected):
     assert money.q2(Decimal(raw)) == Decimal(expected)
 
@@ -56,6 +61,7 @@ def test_money_never_uses_float():
 # --------------------------------------------------------------------------- #
 # V — VAT engine
 # --------------------------------------------------------------------------- #
+
 
 def _line(desc, qty, price, rate):
     return {"description": desc, "quantity": qty, "unit_price": price, "vat_rate": rate}
@@ -129,7 +135,7 @@ async def test_eur_total_converts_at_ecb_units_per_eur(db_session):
     # Insert a deterministic rate so the golden value is exact and stable.
     await fx.load_rates(db_session, [(_ON, "ZZZ", Decimal("2.0"))])  # 2 ZZZ per EUR
     eur, source = await fx.eur_total(db_session, Decimal("50.00"), "ZZZ", _ON, None)
-    assert eur == Decimal("25.00")   # 50 / 2
+    assert eur == Decimal("25.00")  # 50 / 2
     assert source == "ecb"
 
 
@@ -137,7 +143,7 @@ async def test_eur_total_converts_at_ecb_units_per_eur(db_session):
 async def test_unknown_currency_never_masks_as_a_real_conversion(db_session):
     eur, source = await fx.eur_total(db_session, Decimal("99.99"), "QQQ", _ON, None)
     assert eur is None
-    assert source == "unknown"   # provenance is explicit, never a silent wrong number
+    assert source == "unknown"  # provenance is explicit, never a silent wrong number
 
 
 @pytest.mark.asyncio
@@ -150,6 +156,7 @@ async def test_provenance_source_is_always_a_known_value(db_session):
 # --------------------------------------------------------------------------- #
 # X — No mixed-currency aggregation (reports are single-currency by construction)
 # --------------------------------------------------------------------------- #
+
 
 @pytest.mark.asyncio
 async def test_issued_report_never_sums_across_currencies(db_session):
@@ -165,22 +172,30 @@ async def test_issued_report_never_sums_across_currencies(db_session):
 
     def _inv(number, currency, total):
         return IssuedInvoice(
-            org_id=org.id, number=number, issue_date=_ON, currency=currency,
-            buyer_name="Buyer", seller_json=json.dumps({"legal_name": "Us"}),
-            subtotal=Decimal(total), tax_total=Decimal("0"), total=Decimal(total),
+            org_id=org.id,
+            number=number,
+            issue_date=_ON,
+            currency=currency,
+            buyer_name="Buyer",
+            seller_json=json.dumps({"legal_name": "Us"}),
+            subtotal=Decimal(total),
+            tax_total=Decimal("0"),
+            total=Decimal(total),
         )
 
-    db_session.add_all([
-        _inv("E-1", "EUR", "100.00"),
-        _inv("E-2", "EUR", "50.00"),
-        _inv("U-1", "USD", "999.00"),  # must NOT be summed into the EUR total
-    ])
+    db_session.add_all(
+        [
+            _inv("E-1", "EUR", "100.00"),
+            _inv("E-2", "EUR", "50.00"),
+            _inv("U-1", "USD", "999.00"),  # must NOT be summed into the EUR total
+        ]
+    )
     await db_session.commit()
 
     rep = await issued_reports.summary(db_session, org.id, None, None, None)
     # Picks the most-used currency (EUR) and sums ONLY that currency.
     assert rep.currency == "EUR"
-    assert rep.gross == Decimal("150.00")           # 100 + 50, NOT + 999
-    assert "USD" in rep.available_currencies         # the other currency is surfaced…
+    assert rep.gross == Decimal("150.00")  # 100 + 50, NOT + 999
+    assert "USD" in rep.available_currencies  # the other currency is surfaced…
     assert "EUR" in rep.available_currencies
     # …but never folded into a single cross-currency total.

@@ -1,4 +1,5 @@
 """SSO connection configuration (admin CRUD) — ADR-0021."""
+
 from __future__ import annotations
 
 from sqlalchemy import func, select
@@ -12,10 +13,22 @@ from app.models.sso import SsoConnection
 CLIENT_SECRET_AAD = "sso:client_secret"
 
 _EDITABLE = (
-    "slug", "protocol", "enabled", "issuer", "client_id", "client_secret",
-    "allowed_domain", "jit_enabled", "default_role", "saml_metadata_url",
-    "saml_sso_url", "saml_idp_entity_id", "saml_idp_cert",
-    "groups_claim", "role_mappings", "role_sync",
+    "slug",
+    "protocol",
+    "enabled",
+    "issuer",
+    "client_id",
+    "client_secret",
+    "allowed_domain",
+    "jit_enabled",
+    "default_role",
+    "saml_metadata_url",
+    "saml_sso_url",
+    "saml_idp_entity_id",
+    "saml_idp_cert",
+    "groups_claim",
+    "role_mappings",
+    "role_sync",
 )
 
 
@@ -25,7 +38,9 @@ async def get_connection(db: AsyncSession, org_id: str) -> SsoConnection | None:
 
 async def get_by_slug(db: AsyncSession, slug: str) -> SsoConnection | None:
     """Unscoped lookup for the public login route (no tenant context yet)."""
-    return await db.scalar(select(SsoConnection).where(func.lower(SsoConnection.slug) == slug.lower()))
+    return await db.scalar(
+        select(SsoConnection).where(func.lower(SsoConnection.slug) == slug.lower())
+    )
 
 
 async def upsert_connection(db: AsyncSession, org_id: str, fields: dict) -> SsoConnection:

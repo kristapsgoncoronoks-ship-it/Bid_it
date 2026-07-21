@@ -11,7 +11,7 @@ class ErasureLocationOut(BaseModel):
     key: str
     label: str
     matched: int
-    action: str            # erase | retain | blocked
+    action: str  # erase | retain | blocked
     reason: str | None = None
 
 

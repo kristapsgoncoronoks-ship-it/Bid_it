@@ -5,6 +5,7 @@ worker entrypoint: for every active schedule whose `next_run_date` has arrived i
 materialises a real issued invoice and advances the schedule — in ONE transaction
 per invoice, so a re-run never duplicates an occurrence it has already passed.
 """
+
 from __future__ import annotations
 
 import json
@@ -17,7 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.issued_invoice import IssuedInvoice
 from app.models.recurring_invoice import RecurringInvoice
 from app.schemas.issued import IssuedInvoiceCreate
-from app.services import audit, issued_service, issuer as issuer_svc, partners as partners_svc
+from app.services import audit, issued_service
+from app.services import issuer as issuer_svc
+from app.services import partners as partners_svc
 
 FREQUENCIES = ("weekly", "monthly", "quarterly", "yearly")
 
@@ -73,9 +76,18 @@ class GenerationResult:
     generated: list[tuple[str, str]]  # (recurring_id, invoice_number)
 
 
-async def create(db: AsyncSession, org_id: str, *, body: IssuedInvoiceCreate, frequency: str,
-                 interval: int, start_date: date, end_date: date | None,
-                 title: str | None, payment_terms_days: int | None) -> RecurringInvoice:
+async def create(
+    db: AsyncSession,
+    org_id: str,
+    *,
+    body: IssuedInvoiceCreate,
+    frequency: str,
+    interval: int,
+    start_date: date,
+    end_date: date | None,
+    title: str | None,
+    payment_terms_days: int | None,
+) -> RecurringInvoice:
     rec = RecurringInvoice(
         org_id=org_id,
         partner_id=body.partner_id,
@@ -90,18 +102,26 @@ async def create(db: AsyncSession, org_id: str, *, body: IssuedInvoiceCreate, fr
         active=True,
     )
     db.add(rec)
-    await audit.record(db, audit.A.RECURRING_CREATE, target_type="recurring_invoice", target_id=None,
-                       meta={"title": title or "", "frequency": frequency})
+    await audit.record(
+        db,
+        audit.A.RECURRING_CREATE,
+        target_type="recurring_invoice",
+        target_id=None,
+        meta={"title": title or "", "frequency": frequency},
+    )
     await db.commit()
     await db.refresh(rec)
     return rec
 
 
 async def list_all(db: AsyncSession, org_id: str) -> list[RecurringInvoice]:
-    return list(await db.scalars(
-        select(RecurringInvoice).where(RecurringInvoice.org_id == org_id)
-        .order_by(RecurringInvoice.created_at.desc())
-    ))
+    return list(
+        await db.scalars(
+            select(RecurringInvoice)
+            .where(RecurringInvoice.org_id == org_id)
+            .order_by(RecurringInvoice.created_at.desc())
+        )
+    )
 
 
 async def get(db: AsyncSession, org_id: str, rec_id: str) -> RecurringInvoice | None:
@@ -112,13 +132,19 @@ async def get(db: AsyncSession, org_id: str, rec_id: str) -> RecurringInvoice | 
     )
 
 
-async def _generate_one(db: AsyncSession, rec: RecurringInvoice, profile, on: date) -> IssuedInvoice:
+async def _generate_one(
+    db: AsyncSession, rec: RecurringInvoice, profile, on: date
+) -> IssuedInvoice:
     body = _body_from_template(rec)
     partner = None
     if body.partner_id:
         partner = await partners_svc.get_partner(db, rec.org_id, body.partner_id)
     inv = issued_service.build_invoice(
-        profile, body, org_id=rec.org_id, partner=partner, issue_date=on,
+        profile,
+        body,
+        org_id=rec.org_id,
+        partner=partner,
+        issue_date=on,
         payment_terms_days=rec.payment_terms_days,
     )
     db.add(inv)
@@ -127,16 +153,20 @@ async def _generate_one(db: AsyncSession, rec: RecurringInvoice, profile, on: da
     return inv
 
 
-async def generate_due(db: AsyncSession, org_id: str, *, today: date | None = None) -> GenerationResult:
+async def generate_due(
+    db: AsyncSession, org_id: str, *, today: date | None = None
+) -> GenerationResult:
     """Materialise every occurrence due on/before `today` for this tenant."""
     today = today or date.today()
-    schedules = list(await db.scalars(
-        select(RecurringInvoice).where(
-            RecurringInvoice.org_id == org_id,
-            RecurringInvoice.active.is_(True),
-            RecurringInvoice.next_run_date <= today,
+    schedules = list(
+        await db.scalars(
+            select(RecurringInvoice).where(
+                RecurringInvoice.org_id == org_id,
+                RecurringInvoice.active.is_(True),
+                RecurringInvoice.next_run_date <= today,
+            )
         )
-    ))
+    )
     if not schedules:
         return GenerationResult(generated=[])
 
@@ -144,9 +174,11 @@ async def generate_due(db: AsyncSession, org_id: str, *, today: date | None = No
     generated: list[tuple[str, str]] = []
     for rec in schedules:
         emitted = 0
-        while (rec.next_run_date <= today
-               and (rec.end_date is None or rec.next_run_date <= rec.end_date)
-               and emitted < _CATCHUP_CAP):
+        while (
+            rec.next_run_date <= today
+            and (rec.end_date is None or rec.next_run_date <= rec.end_date)
+            and emitted < _CATCHUP_CAP
+        ):
             inv = await _generate_one(db, rec, profile, rec.next_run_date)
             await db.flush()  # assign number before the next iteration reads it
             generated.append((rec.id, inv.number))
@@ -156,7 +188,12 @@ async def generate_due(db: AsyncSession, org_id: str, *, today: date | None = No
         if rec.end_date is not None and rec.next_run_date > rec.end_date:
             rec.active = False
         if emitted:
-            await audit.record(db, audit.A.RECURRING_GENERATE, target_type="recurring_invoice",
-                               target_id=rec.id, meta={"count": emitted})
+            await audit.record(
+                db,
+                audit.A.RECURRING_GENERATE,
+                target_type="recurring_invoice",
+                target_id=rec.id,
+                meta={"count": emitted},
+            )
     await db.commit()
     return GenerationResult(generated=generated)

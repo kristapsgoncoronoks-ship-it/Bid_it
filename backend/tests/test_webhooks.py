@@ -1,8 +1,10 @@
 """Outbound webhooks: registration, signed delivery via the job queue, retries,
 and the delivery log — plus the metered upload usage limit."""
+
 import hashlib
 import hmac
 import json
+from datetime import UTC
 
 import pytest
 from sqlalchemy import select
@@ -27,10 +29,12 @@ def test_signature_is_hmac_sha256():
 
 @pytest.mark.asyncio
 async def test_register_endpoint_returns_secret_once(auth_client):
-    r = await auth_client.post("/api/v1/webhooks", json={"url": "https://example.test/hook", "events": "*"})
+    r = await auth_client.post(
+        "/api/v1/webhooks", json={"url": "https://example.test/hook", "events": "*"}
+    )
     assert r.status_code == 201, r.text
     body = r.json()
-    assert body["secret"]                       # returned at creation
+    assert body["secret"]  # returned at creation
     assert body["url"] == "https://example.test/hook"
 
     # The list view never exposes the secret.
@@ -48,8 +52,12 @@ async def test_bad_url_rejected(auth_client):
 @pytest.mark.asyncio
 async def test_emit_enqueues_delivery_and_delivers(auth_client, db_session, monkeypatch):
     org = await _org(db_session)
-    ep = (await auth_client.post("/api/v1/webhooks",
-                                 json={"url": "https://example.test/hook", "events": "invoice.created"})).json()
+    ep = (
+        await auth_client.post(
+            "/api/v1/webhooks",
+            json={"url": "https://example.test/hook", "events": "invoice.created"},
+        )
+    ).json()
 
     # Capture what the delivery would POST, and pretend the receiver returns 200.
     captured = {}
@@ -82,7 +90,9 @@ async def test_emit_enqueues_delivery_and_delivers(auth_client, db_session, monk
     assert deliv.response_code == 200
     assert captured["url"] == "https://example.test/hook"
     assert captured["headers"]["X-InvoiceIQ-Event"] == "invoice.created"
-    expected_sig = "sha256=" + hmac.new(ep["secret"].encode(), captured["body"], hashlib.sha256).hexdigest()
+    expected_sig = (
+        "sha256=" + hmac.new(ep["secret"].encode(), captured["body"], hashlib.sha256).hexdigest()
+    )
     assert captured["headers"]["X-InvoiceIQ-Signature"] == expected_sig
     assert json.loads(captured["body"])["data"]["invoice_number"] == "INV-9"
 
@@ -90,7 +100,9 @@ async def test_emit_enqueues_delivery_and_delivers(auth_client, db_session, monk
 @pytest.mark.asyncio
 async def test_delivery_failure_retries_then_dead(auth_client, db_session, monkeypatch):
     org = await _org(db_session)
-    await auth_client.post("/api/v1/webhooks", json={"url": "https://example.test/hook", "events": "*"})
+    await auth_client.post(
+        "/api/v1/webhooks", json={"url": "https://example.test/hook", "events": "*"}
+    )
 
     async def _fail_post(url, body, headers):
         return 500, "server error"
@@ -100,8 +112,9 @@ async def test_delivery_failure_retries_then_dead(auth_client, db_session, monke
     await webhooks.emit(db_session, org, "ping", {"x": 1})
     await db_session.commit()
 
-    from datetime import datetime, timedelta, timezone
-    now = datetime(2026, 7, 20, 12, 0, tzinfo=timezone.utc)
+    from datetime import datetime
+
+    now = datetime(2026, 7, 20, 12, 0, tzinfo=UTC)
     # Force the job's attempt budget down to 1 so it dead-letters fast.
     job = await db_session.scalar(select(jobs.Job).where(jobs.Job.kind == webhooks.WEBHOOK_DELIVER))
     job.max_attempts = 1
@@ -136,9 +149,15 @@ async def test_ping_and_deliveries_log(auth_client, monkeypatch):
 @pytest.mark.asyncio
 async def test_webhooks_tenant_isolated(auth_client, client):
     ep = (await auth_client.post("/api/v1/webhooks", json={"url": "https://a.test/h"})).json()
-    reg = await client.post("/api/v1/auth/register", json={
-        "organization_name": "Other Co", "name": "O", "email": "ow@o.io", "password": "supersecret2",
-    })
+    reg = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "organization_name": "Other Co",
+            "name": "O",
+            "email": "ow@o.io",
+            "password": "supersecret2",
+        },
+    )
     client.headers["Authorization"] = f"Bearer {reg.json()['token']['access_token']}"
     assert (await client.get("/api/v1/webhooks")).json() == []
     assert (await client.get(f"/api/v1/webhooks/{ep['id']}/deliveries")).status_code == 404
@@ -147,9 +166,10 @@ async def test_webhooks_tenant_isolated(auth_client, client):
 @pytest.mark.asyncio
 async def test_upload_quota_enforced(auth_client, db_session):
     """A 'user' role with a monthly upload limit is blocked once it's reached."""
+    from sqlalchemy import update as _update
+
     from app.models.user import User, UserRole
     from app.services import access
-    from sqlalchemy import update as _update
 
     org = await _org(db_session)
     # Set this role's upload limit to 1 and downgrade the caller to a 'user'.
@@ -159,10 +179,14 @@ async def test_upload_quota_enforced(auth_client, db_session):
 
     # A tiny valid CSV upload counts as one upload.
     csv = b"description,amount\nCoffee,3.50\n"
-    r1 = await auth_client.post("/api/v1/invoices/upload", files={"file": ("a.csv", csv, "text/csv")})
+    r1 = await auth_client.post(
+        "/api/v1/invoices/upload", files={"file": ("a.csv", csv, "text/csv")}
+    )
     assert r1.status_code == 200, r1.text
 
     # The second upload hits the limit.
-    r2 = await auth_client.post("/api/v1/invoices/upload", files={"file": ("b.csv", csv, "text/csv")})
+    r2 = await auth_client.post(
+        "/api/v1/invoices/upload", files={"file": ("b.csv", csv, "text/csv")}
+    )
     assert r2.status_code == 402
     assert "upload limit" in r2.json()["detail"].lower()

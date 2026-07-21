@@ -16,6 +16,7 @@ Key management (the KEK):
 Sealed format: ``kv1.<base64(nonce(12) || ciphertext||tag)>``. Never logs
 plaintext; GCM auth failures RAISE `KeyvaultError` (never silently return "").
 """
+
 from __future__ import annotations
 
 import base64
@@ -46,12 +47,13 @@ def _kek() -> bytes:
 
 
 def is_sealed(value: str | None) -> bool:
-    return bool(value) and value.startswith(_PREFIX)
+    return value is not None and value.startswith(_PREFIX)
 
 
 def seal(plaintext: str, *, aad: str = "") -> str:
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     import os
+
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
     nonce = os.urandom(12)
     ct = AESGCM(_kek()).encrypt(nonce, plaintext.encode(), aad.encode())
@@ -64,7 +66,7 @@ def unseal(token: str, *, aad: str = "") -> str:
     if not is_sealed(token):
         raise KeyvaultError("value is not a sealed secret")
     try:
-        blob = base64.b64decode(token[len(_PREFIX):])
+        blob = base64.b64decode(token[len(_PREFIX) :])
         nonce, ct = blob[:12], blob[12:]
         return AESGCM(_kek()).decrypt(nonce, ct, aad.encode()).decode()
     except KeyvaultError:

@@ -15,10 +15,10 @@ cached per process; tests swap it via `set_storage`.
 The methods are synchronous (filesystem/boto3 are blocking); callers on the async
 path wrap them via `services.documents` which uses a threadpool.
 """
+
 from __future__ import annotations
 
 import hashlib
-import shutil
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -110,8 +110,14 @@ class S3Storage:
     """S3-compatible object storage (AWS S3, MinIO). boto3 imported lazily so
     dev/test installs without it still work."""
 
-    def __init__(self, bucket: str, *, endpoint_url: str | None = None,
-                 region: str | None = None, prefix: str = "") -> None:
+    def __init__(
+        self,
+        bucket: str,
+        *,
+        endpoint_url: str | None = None,
+        region: str | None = None,
+        prefix: str = "",
+    ) -> None:
         try:
             import boto3  # noqa: PLC0415 — lazy: only needed for the s3 backend
         except ImportError as e:  # pragma: no cover

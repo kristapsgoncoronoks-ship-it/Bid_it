@@ -56,18 +56,20 @@ class ExpenseItemOut(DimensionFields):
     payment_method: str
     comment: str | None = None
     has_receipt: bool = False
-    verified: bool = False              # reconciled against a bank/card transaction
+    verified: bool = False  # reconciled against a bank/card transaction
     bank_reference: str | None = None
 
 
 class ExpenseItemPatch(DimensionFields):
     """Edit a draft item's business purpose, category, and cost dimensions."""
+
     comment: str | None = Field(default=None, max_length=1000)
     category: Category | None = None
 
 
 class MatchTransaction(BaseModel):
     """Reconcile a draft expense item against a bank/card statement transaction."""
+
     transaction_id: str
 
 
@@ -151,17 +153,17 @@ class BankTransaction(BaseModel):
 
 
 class BankStatementDraft(BaseModel):
-    method: str                       # text-layer | ocr | csv
+    method: str  # text-layer | ocr | csv
     transactions: list[BankTransaction]
-    suggested_items: list[ExpenseItemIn]   # debits → draft expense items
+    suggested_items: list[ExpenseItemIn]  # debits → draft expense items
     warnings: list[str] = []
 
 
 class ExpenseSummary(BaseModel):
     my_draft: int
     my_submitted: int
-    my_reimbursable: Decimal      # approved but not yet reimbursed (mine)
-    reclaimable_vat: Decimal      # my total reclaimable VAT
-    pending_approvals: int        # awaiting my decision (approver only)
+    my_reimbursable: Decimal  # approved but not yet reimbursed (mine)
+    reclaimable_vat: Decimal  # my total reclaimable VAT
+    pending_approvals: int  # awaiting my decision (approver only)
     by_category: list[CategoryTotal]
     currency: str = "EUR"

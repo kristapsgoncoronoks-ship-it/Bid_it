@@ -14,16 +14,16 @@ Flow:
               exchange code → fetch JWKS → validate_id_token → JIT-provision →
               issue our normal internal JWT.
 """
+
 from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import logging
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
-
-import json
 
 from jose import JWTError, jwt
 from sqlalchemy import func, select
@@ -52,6 +52,7 @@ class SsoError(Exception):
 
 # --- PKCE ------------------------------------------------------------------
 
+
 def pkce_pair() -> tuple[str, str]:
     """Return (code_verifier, code_challenge) for PKCE S256."""
     verifier = base64.urlsafe_b64encode(secrets.token_bytes(48)).rstrip(b"=").decode()
@@ -62,13 +63,21 @@ def pkce_pair() -> tuple[str, str]:
 
 # --- stateless, signed `state` --------------------------------------------
 
+
 def sign_state(conn_id: str, nonce: str, code_verifier: str) -> str:
     """Sign the per-login state with our app key (no server-side session store)."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return jwt.encode(
-        {"typ": _STATE_TYP, "conn": conn_id, "nonce": nonce, "cv": code_verifier,
-         "iat": now, "exp": now + timedelta(seconds=_STATE_TTL_SECONDS)},
-        settings.secret_key, algorithm=settings.jwt_algorithm,
+        {
+            "typ": _STATE_TYP,
+            "conn": conn_id,
+            "nonce": nonce,
+            "cv": code_verifier,
+            "iat": now,
+            "exp": now + timedelta(seconds=_STATE_TTL_SECONDS),
+        },
+        settings.secret_key,
+        algorithm=settings.jwt_algorithm,
     )
 
 
@@ -84,13 +93,26 @@ def read_state(state: str) -> dict:
 
 # --- authorize URL ---------------------------------------------------------
 
-def build_authorize_url(authorization_endpoint: str, *, client_id: str, redirect_uri: str,
-                        state: str, nonce: str, code_challenge: str,
-                        scope: str = "openid email profile") -> str:
+
+def build_authorize_url(
+    authorization_endpoint: str,
+    *,
+    client_id: str,
+    redirect_uri: str,
+    state: str,
+    nonce: str,
+    code_challenge: str,
+    scope: str = "openid email profile",
+) -> str:
     q = {
-        "response_type": "code", "client_id": client_id, "redirect_uri": redirect_uri,
-        "scope": scope, "state": state, "nonce": nonce,
-        "code_challenge": code_challenge, "code_challenge_method": "S256",
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "scope": scope,
+        "state": state,
+        "nonce": nonce,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
     }
     sep = "&" if "?" in authorization_endpoint else "?"
     return f"{authorization_endpoint}{sep}{urlencode(q)}"
@@ -98,15 +120,21 @@ def build_authorize_url(authorization_endpoint: str, *, client_id: str, redirect
 
 # --- ID-token validation (pure) -------------------------------------------
 
-def validate_id_token(id_token: str, jwks: dict, *, client_id: str, issuer: str,
-                      nonce: str, now: int | None = None) -> dict:
+
+def validate_id_token(
+    id_token: str, jwks: dict, *, client_id: str, issuer: str, nonce: str, now: int | None = None
+) -> dict:
     """Validate an OIDC ID token against the IdP's JWKS. Raises SsoError on any
     failure (bad signature, wrong issuer/audience, expiry, nonce mismatch)."""
     options = {"verify_at_hash": False}
     try:
         claims = jwt.decode(
-            id_token, jwks, algorithms=["RS256", "RS384", "RS512"],
-            audience=client_id, issuer=issuer, options=options,
+            id_token,
+            jwks,
+            algorithms=["RS256", "RS384", "RS512"],
+            audience=client_id,
+            issuer=issuer,
+            options=options,
         )
     except JWTError as exc:
         raise SsoError(f"ID token failed validation: {exc}") from exc
@@ -118,6 +146,7 @@ def validate_id_token(id_token: str, jwks: dict, *, client_id: str, issuer: str,
 
 
 # --- network seams (injectable; exercised against a real IdP / Keycloak) ---
+
 
 async def discover(issuer: str) -> dict:
     import httpx
@@ -138,13 +167,23 @@ async def fetch_jwks(jwks_uri: str) -> dict:
         return r.json()
 
 
-async def exchange_code(token_endpoint: str, *, code: str, redirect_uri: str,
-                        client_id: str, client_secret: str | None, code_verifier: str) -> dict:
+async def exchange_code(
+    token_endpoint: str,
+    *,
+    code: str,
+    redirect_uri: str,
+    client_id: str,
+    client_secret: str | None,
+    code_verifier: str,
+) -> dict:
     import httpx
 
     data = {
-        "grant_type": "authorization_code", "code": code, "redirect_uri": redirect_uri,
-        "client_id": client_id, "code_verifier": code_verifier,
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "client_id": client_id,
+        "code_verifier": code_verifier,
     }
     if client_secret:
         data["client_secret"] = client_secret
@@ -197,8 +236,10 @@ def role_from_groups(role_mappings: str | None, groups: list[str]) -> str | None
 
 # --- orchestration + JIT provisioning -------------------------------------
 
-async def finish_login(db: AsyncSession, connection: SsoConnection, *, code: str,
-                       nonce: str, code_verifier: str) -> tuple[User, Organization]:
+
+async def finish_login(
+    db: AsyncSession, connection: SsoConnection, *, code: str, nonce: str, code_verifier: str
+) -> tuple[User, Organization]:
     """Complete the callback: exchange the code, validate the ID token, and
     match-or-JIT-provision a user in the connection's org."""
     if not (connection.issuer and connection.client_id):
@@ -209,8 +250,11 @@ async def finish_login(db: AsyncSession, connection: SsoConnection, *, code: str
     # plaintext value written before sealing was applied.
     client_secret = keyvault.read_secret(connection.client_secret, aad=sso_config.CLIENT_SECRET_AAD)
     tokens = await exchange_code(
-        disco["token_endpoint"], code=code, redirect_uri=settings.sso_redirect_uri,
-        client_id=connection.client_id, client_secret=client_secret,
+        disco["token_endpoint"],
+        code=code,
+        redirect_uri=settings.sso_redirect_uri,
+        client_id=connection.client_id,
+        client_secret=client_secret,
         code_verifier=code_verifier,
     )
     id_token = tokens.get("id_token")
@@ -218,27 +262,40 @@ async def finish_login(db: AsyncSession, connection: SsoConnection, *, code: str
         raise SsoError("token response has no id_token")
     jwks = await fetch_jwks(disco["jwks_uri"])
     claims = validate_id_token(
-        id_token, jwks, client_id=connection.client_id, issuer=disco["issuer"], nonce=nonce,
+        id_token,
+        jwks,
+        client_id=connection.client_id,
+        issuer=disco["issuer"],
+        nonce=nonce,
     )
 
     email = claims["email"].strip().lower()
     if connection.allowed_domain and not email.endswith("@" + connection.allowed_domain.lower()):
-        raise SsoError(f"email domain not allowed for this connection")
+        raise SsoError("email domain not allowed for this connection")
     name = claims.get("name") or claims.get("preferred_username") or email
 
     groups = _groups_from_claims(claims, connection.groups_claim or "groups")
     mapped_role = role_from_groups(connection.role_mappings, groups)
 
-    user, org = await _match_or_provision(db, connection, email=email, name=name, mapped_role=mapped_role)
-    await audit.record(db, "sso.login", org_id=org.id, actor=(user.id, user.email),
-                       target_type="user", target_id=user.id,
-                       meta={"provider": connection.slug, "role": user.role.value})
+    user, org = await _match_or_provision(
+        db, connection, email=email, name=name, mapped_role=mapped_role
+    )
+    await audit.record(
+        db,
+        "sso.login",
+        org_id=org.id,
+        actor=(user.id, user.email),
+        target_type="user",
+        target_id=user.id,
+        meta={"provider": connection.slug, "role": user.role.value},
+    )
     await db.commit()
     return user, org
 
 
-async def _match_or_provision(db: AsyncSession, connection: SsoConnection, *, email: str,
-                              name: str, mapped_role: str | None) -> tuple[User, Organization]:
+async def _match_or_provision(
+    db: AsyncSession, connection: SsoConnection, *, email: str, name: str, mapped_role: str | None
+) -> tuple[User, Organization]:
     existing = await db.scalar(select(User).where(func.lower(User.email) == email))
     org = await db.get(Organization, connection.org_id)
     if existing is not None:
@@ -247,19 +304,31 @@ async def _match_or_provision(db: AsyncSession, connection: SsoConnection, *, em
         if not existing.is_active:
             raise SsoError("account is disabled")
         # Role sync (IdP authoritative) — never touches an owner, never grants owner.
-        if (connection.role_sync and mapped_role and existing.role != UserRole.owner
-                and existing.role.value != mapped_role):
+        if (
+            connection.role_sync
+            and mapped_role
+            and existing.role != UserRole.owner
+            and existing.role.value != mapped_role
+        ):
             existing.role = UserRole(mapped_role)
         return existing, org
 
     if not connection.jit_enabled:
         raise SsoError("no matching user and just-in-time provisioning is disabled")
 
-    role = mapped_role or (connection.default_role if connection.default_role in UserRole.__members__
-                           else UserRole.user.value)
-    user = User(org_id=connection.org_id, email=email, name=name[:200],
-                hashed_password=hash_password(_UNUSABLE_PASSWORD),
-                role=UserRole(role), is_active=True)
+    role = mapped_role or (
+        connection.default_role
+        if connection.default_role in UserRole.__members__
+        else UserRole.user.value
+    )
+    user = User(
+        org_id=connection.org_id,
+        email=email,
+        name=name[:200],
+        hashed_password=hash_password(_UNUSABLE_PASSWORD),
+        role=UserRole(role),
+        is_active=True,
+    )
     db.add(user)
     await db.flush()
     return user, org

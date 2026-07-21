@@ -14,6 +14,7 @@ field, so it runs BEFORE the PDF text-layer/OCR heuristics. Parsing uses
 No third-party XML libraries: navigation is by *local* element name, ignoring
 namespace URIs, which keeps it robust across UBL/CII minor versions.
 """
+
 from __future__ import annotations
 
 import io
@@ -130,7 +131,11 @@ def _parse_ubl(root: Element, filename: str) -> ParsedInvoiceDraft:
         amount = _dec(_txt(_direct(line, "LineExtensionAmount")))
 
         item = _direct(line, "Item")
-        desc = (_first_txt(item, "Name") or _first_txt(item, "Description") or "Item") if item is not None else "Item"
+        desc = (
+            (_first_txt(item, "Name") or _first_txt(item, "Description") or "Item")
+            if item is not None
+            else "Item"
+        )
 
         price_el = _direct(line, "Price")
         unit = _dec(_first_txt(price_el, "PriceAmount")) if price_el is not None else Decimal("0")
@@ -148,7 +153,9 @@ def _stated_total_ubl(root: Element) -> Decimal | None:
     total = _first(root, "LegalMonetaryTotal")
     if total is None:
         return None
-    return _dec(_first_txt(total, "PayableAmount") or _first_txt(total, "TaxInclusiveAmount")) or None
+    return (
+        _dec(_first_txt(total, "PayableAmount") or _first_txt(total, "TaxInclusiveAmount")) or None
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -171,7 +178,9 @@ def _parse_cii(root: Element, filename: str) -> ParsedInvoiceDraft:
     vendor = _first_txt(seller, "Name") if seller is not None else None
 
     settlement = _first(txn, "ApplicableHeaderTradeSettlement")
-    currency = (_first_txt(settlement, "InvoiceCurrencyCode") if settlement is not None else None) or "EUR"
+    currency = (
+        _first_txt(settlement, "InvoiceCurrencyCode") if settlement is not None else None
+    ) or "EUR"
 
     lines: list[LineItemIn] = []
     for li in _first_all(txn, "IncludedSupplyChainTradeLineItem"):
@@ -188,7 +197,10 @@ def _parse_cii(root: Element, filename: str) -> ParsedInvoiceDraft:
     if settlement is not None:
         summ = _first(settlement, "SpecifiedTradeSettlementHeaderMonetarySummation")
         if summ is not None:
-            stated_total = _dec(_first_txt(summ, "GrandTotalAmount") or _first_txt(summ, "DuePayableAmount")) or None
+            stated_total = (
+                _dec(_first_txt(summ, "GrandTotalAmount") or _first_txt(summ, "DuePayableAmount"))
+                or None
+            )
 
     return _draft(number, issue, None, currency, vendor, lines, filename, warnings, stated_total)
 
@@ -226,7 +238,9 @@ def _draft(
     if not lines:
         warnings.append("No invoice lines found in the XML.")
     if stated_total is not None:
-        warnings.append(f"Document payable total: {currency} {stated_total} — reconcile against the lines.")
+        warnings.append(
+            f"Document payable total: {currency} {stated_total} — reconcile against the lines."
+        )
 
     draft = InvoiceCreate(
         vendor_name=vendor,
@@ -252,7 +266,12 @@ def looks_like_einvoice(content: bytes) -> bool:
     head = content[:4096].lstrip()
     if not head.startswith(b"<"):
         return False
-    return b"CrossIndustryInvoice" in content[:8192] or b":Invoice-2" in content[:8192] or b"<Invoice" in content[:8192] or b"<CreditNote" in content[:8192]
+    return (
+        b"CrossIndustryInvoice" in content[:8192]
+        or b":Invoice-2" in content[:8192]
+        or b"<Invoice" in content[:8192]
+        or b"<CreditNote" in content[:8192]
+    )
 
 
 def parse_xml_bytes(content: bytes, filename: str) -> ParsedInvoiceDraft:

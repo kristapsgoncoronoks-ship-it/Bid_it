@@ -9,10 +9,9 @@ from sqlalchemy import func, select
 from app.api.deps import CurrentUser, DbSession
 from app.api.routes.invoices import _detail, persist_invoice
 from app.core.config import settings
+from app.core.roles import is_admin_or_above
 from app.core.tenant import reset_current_org, set_current_org
 from app.models.email_intake import InboundInvoice
-from app.models.organization import Organization
-from app.core.roles import is_admin_or_above
 from app.schemas.email_intake import (
     EmailSettingsOut,
     InboundConfirm,
@@ -57,7 +56,9 @@ async def inbound(
 
     # Module gate for the resolved tenant.
     if not await modules.is_enabled(db, org_id, "email_intake"):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Email invoice intake is not activated for this workspace")
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Email invoice intake is not activated for this workspace"
+        )
 
     queued = rejected = 0
     scope = set_current_org(org_id)
@@ -66,11 +67,18 @@ async def inbound(
             try:
                 content = base64.b64decode(att.content_base64, validate=True)
             except (binascii.Error, ValueError):
-                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Attachment {att.filename} is not valid base64")
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    f"Attachment {att.filename} is not valid base64",
+                )
             row = await email_intake.process_attachment(
-                db, org_id,
-                from_addr=body.from_addr, subject=body.subject,
-                filename=att.filename, content_type=att.content_type, content=content,
+                db,
+                org_id,
+                from_addr=body.from_addr,
+                subject=body.subject,
+                filename=att.filename,
+                content_type=att.content_type,
+                content=content,
             )
             if row.status == "rejected":
                 rejected += 1
@@ -91,16 +99,25 @@ async def inbound(
 async def get_settings(current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     intake = await email_intake.get_or_create(db, current.org_id)
-    total = await db.scalar(select(func.count(InboundInvoice.id)).where(InboundInvoice.org_id == current.org_id)) or 0
-    pending = await db.scalar(
-        select(func.count(InboundInvoice.id)).where(
-            InboundInvoice.org_id == current.org_id, InboundInvoice.status == "pending"
+    total = (
+        await db.scalar(
+            select(func.count(InboundInvoice.id)).where(InboundInvoice.org_id == current.org_id)
         )
-    ) or 0
+        or 0
+    )
+    pending = (
+        await db.scalar(
+            select(func.count(InboundInvoice.id)).where(
+                InboundInvoice.org_id == current.org_id, InboundInvoice.status == "pending"
+            )
+        )
+        or 0
+    )
     return EmailSettingsOut(
         address=email_intake.address_for(intake.token),
         domain=settings.inbound_email_domain,
-        pending=pending, total=total,
+        pending=pending,
+        total=total,
     )
 
 
@@ -108,9 +125,13 @@ async def get_settings(current: CurrentUser, db: DbSession):
 async def rotate_address(current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     if not is_admin_or_above(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can rotate the inbound address")
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Only an admin can rotate the inbound address"
+        )
     intake = await email_intake.rotate(db, current.org_id)
-    return EmailSettingsOut(address=email_intake.address_for(intake.token), domain=settings.inbound_email_domain)
+    return EmailSettingsOut(
+        address=email_intake.address_for(intake.token), domain=settings.inbound_email_domain
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -118,7 +139,9 @@ async def rotate_address(current: CurrentUser, db: DbSession):
 # --------------------------------------------------------------------------- #
 async def _load(db: DbSession, org_id: str, inbound_id: str) -> InboundInvoice:
     row = await db.scalar(
-        select(InboundInvoice).where(InboundInvoice.id == inbound_id, InboundInvoice.org_id == org_id)
+        select(InboundInvoice).where(
+            InboundInvoice.id == inbound_id, InboundInvoice.org_id == org_id
+        )
     )
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Inbound invoice not found")
@@ -139,8 +162,11 @@ async def list_inbox(
         filters.append(InboundInvoice.status == status_)
     total = await db.scalar(select(func.count(InboundInvoice.id)).where(*filters)) or 0
     rows = await db.scalars(
-        select(InboundInvoice).where(*filters).order_by(InboundInvoice.received_at.desc())
-        .offset((page - 1) * page_size).limit(page_size)
+        select(InboundInvoice)
+        .where(*filters)
+        .order_by(InboundInvoice.received_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
     )
     return InboundListOut(items=[InboundInvoiceOut.model_validate(r) for r in rows], total=total)
 
@@ -163,8 +189,14 @@ async def get_inbound(inbound_id: str, current: CurrentUser, db: DbSession):
     return detail
 
 
-@router.post("/inbox/{inbound_id}/confirm", response_model=InvoiceDetailOut, status_code=status.HTTP_201_CREATED)
-async def confirm_inbound(inbound_id: str, body: InboundConfirm, current: CurrentUser, db: DbSession):
+@router.post(
+    "/inbox/{inbound_id}/confirm",
+    response_model=InvoiceDetailOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def confirm_inbound(
+    inbound_id: str, body: InboundConfirm, current: CurrentUser, db: DbSession
+):
     """Confirm a parsed inbound invoice into a real Invoice — using the same
     persistence path as a manual upload. Accepts an edited draft override."""
     await _guard(db, current.org_id)
@@ -176,14 +208,22 @@ async def confirm_inbound(inbound_id: str, body: InboundConfirm, current: Curren
     draft = body.draft
     if draft is None:
         if not row.draft_json:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "This attachment has no parsed draft to confirm")
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "This attachment has no parsed draft to confirm",
+            )
         draft = ParsedInvoiceDraft.model_validate_json(row.draft_json).draft
 
     invoice, vendor_name = await persist_invoice(db, current.org_id, draft)
     row.invoice_id = invoice.id
     row.status = "confirmed"
-    await audit.record(db, audit.A.INBOUND_CONFIRM, target_type="invoice", target_id=invoice.id,
-                       meta={"inbound_id": inbound_id, "number": invoice.invoice_number})
+    await audit.record(
+        db,
+        audit.A.INBOUND_CONFIRM,
+        target_type="invoice",
+        target_id=invoice.id,
+        meta={"inbound_id": inbound_id, "number": invoice.invoice_number},
+    )
     await db.commit()
     return _detail(invoice, vendor_name)
 
@@ -215,8 +255,13 @@ async def download_file(inbound_id: str, current: CurrentUser, db: DbSession):
     if row.status == "rejected" or not row.sha256:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No stored file for this attachment")
     content = await documents.load(documents.EMAIL_ATTACHMENTS, current.org_id, row.sha256)
-    await audit.record(db, audit.A.DOC_DOWNLOAD, target_type="inbound_invoice", target_id=inbound_id,
-                       meta={"filename": row.filename})
+    await audit.record(
+        db,
+        audit.A.DOC_DOWNLOAD,
+        target_type="inbound_invoice",
+        target_id=inbound_id,
+        meta={"filename": row.filename},
+    )
     await db.commit()
     fname = (row.filename or "attachment").replace('"', "")
     # Serve inert: force download, never inline, and stop MIME sniffing.

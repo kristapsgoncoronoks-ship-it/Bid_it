@@ -60,10 +60,10 @@ class IssuedInvoiceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
     number: str
-    kind: str = "standard"          # standard | penalty
-    doc_type: str = "invoice"       # invoice | credit_note
+    kind: str = "standard"  # standard | penalty
+    doc_type: str = "invoice"  # invoice | credit_note
     corrected_invoice_id: str | None = None
-    credited_total: Decimal = Decimal("0")   # sum of credit notes applied to this invoice
+    credited_total: Decimal = Decimal("0")  # sum of credit notes applied to this invoice
     partner_id: str | None = None
     issue_date: date
     supply_date: date | None
@@ -79,10 +79,10 @@ class IssuedInvoiceOut(BaseModel):
     total: Decimal
     amount_paid: Decimal = Decimal("0")
     paid_date: date | None = None
-    status: str = "open"            # derived: paid | partial | open | overdue
+    status: str = "open"  # derived: paid | partial | open | overdue
     outstanding: Decimal = Decimal("0")
     penalty_rate: Decimal | None = None
-    penalty_accrued: Decimal = Decimal("0")   # advisory late interest
+    penalty_accrued: Decimal = Decimal("0")  # advisory late interest
     days_overdue: int = 0
     reminder_count: int = 0
     last_reminder_at: date | None = None
@@ -90,6 +90,7 @@ class IssuedInvoiceOut(BaseModel):
 
 class PaymentUpdate(BaseModel):
     """Record a payment against an issued invoice (accounts-receivable)."""
+
     amount_paid: Decimal = Field(ge=0)
     paid_date: date | None = None
 
@@ -101,19 +102,21 @@ class CreditNoteCreate(BaseModel):
     credit specific amounts (a partial credit). The credited total may not exceed
     the invoice's still-un-credited amount.
     """
+
     lines: list[IssuedLineIn] | None = None
     issue_date: date | None = None
     reason: str | None = Field(default=None, max_length=1000)
 
 
-
 class SendRequest(BaseModel):
     """Email an issued invoice (PDF attached). Recipient defaults to buyer_email."""
+
     to_email: EmailStr | None = None
 
 
 class ReminderRequest(BaseModel):
     """Send a payment reminder for an overdue invoice."""
+
     to_email: EmailStr | None = None
 
 
@@ -131,7 +134,7 @@ class EmailMessageOut(BaseModel):
 
 class SendResult(BaseModel):
     message: EmailMessageOut
-    delivered: bool          # True when relayed via SMTP; False when only recorded
+    delivered: bool  # True when relayed via SMTP; False when only recorded
 
 
 class BulkReminderResult(BaseModel):

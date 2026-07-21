@@ -7,11 +7,12 @@ threadpool, off the event loop); otherwise it stays 'recorded'. A delivery
 failure is captured on the row (status='failed') and NEVER raised — sending an
 invoice must not 500 the request. No secrets are stored; only the text body.
 """
+
 from __future__ import annotations
 
 import logging
 import smtplib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.message import EmailMessage as MimeEmail
 
 from fastapi.concurrency import run_in_threadpool
@@ -24,8 +25,9 @@ from app.models.email_message import EmailMessage
 log = logging.getLogger("invoiceiq.mailer")
 
 
-def _smtp_send(from_email: str, to_email: str, subject: str, body: str,
-               attachment: tuple[str, bytes] | None) -> None:
+def _smtp_send(
+    from_email: str, to_email: str, subject: str, body: str, attachment: tuple[str, bytes] | None
+) -> None:
     msg = MimeEmail()
     msg["From"] = from_email
     msg["To"] = to_email
@@ -57,15 +59,20 @@ async def send(
 ) -> EmailMessage:
     """Record (and, if SMTP is configured, deliver) one message. Never raises."""
     row = EmailMessage(
-        org_id=org_id, invoice_id=invoice_id, kind=kind,
-        to_email=to_email, subject=subject, body=body, status="recorded",
+        org_id=org_id,
+        invoice_id=invoice_id,
+        kind=kind,
+        to_email=to_email,
+        subject=subject,
+        body=body,
+        status="recorded",
     )
     sender = from_email or settings.smtp_from
     if settings.smtp_enabled:
         try:
             await run_in_threadpool(_smtp_send, sender, to_email, subject, body, attachment)
             row.status = "sent"
-            row.sent_at = datetime.now(timezone.utc)
+            row.sent_at = datetime.now(UTC)
         except Exception as exc:  # delivery must never break the operation
             log.warning("SMTP send to %s failed: %s", to_email, exc)
             row.status = "failed"
@@ -74,8 +81,9 @@ async def send(
     return row
 
 
-async def list_messages(db: AsyncSession, org_id: str, *, invoice_id: str | None = None,
-                        limit: int = 100) -> list[EmailMessage]:
+async def list_messages(
+    db: AsyncSession, org_id: str, *, invoice_id: str | None = None, limit: int = 100
+) -> list[EmailMessage]:
     stmt = select(EmailMessage).where(EmailMessage.org_id == org_id)
     if invoice_id:
         stmt = stmt.where(EmailMessage.invoice_id == invoice_id)
@@ -84,12 +92,14 @@ async def list_messages(db: AsyncSession, org_id: str, *, invoice_id: str | None
 
 # --- Message templates ---------------------------------------------------------
 
+
 def _fmt(amount, currency: str) -> str:
     return f"{currency} {amount:,.2f}"
 
 
-def invoice_email(*, seller_name: str, number: str, buyer_name: str, total,
-                  currency: str, due_date) -> tuple[str, str]:
+def invoice_email(
+    *, seller_name: str, number: str, buyer_name: str, total, currency: str, due_date
+) -> tuple[str, str]:
     subject = f"Invoice {number} from {seller_name}"
     due = f" It is due on {due_date.isoformat()}." if due_date else ""
     body = (
@@ -101,23 +111,30 @@ def invoice_email(*, seller_name: str, number: str, buyer_name: str, total,
     return subject, body
 
 
-def reminder_email(*, seller_name: str, number: str, buyer_name: str, currency: str,
-                   outstanding, days_overdue: int, penalty, due_date, penalty_rate) -> tuple[str, str]:
+def reminder_email(
+    *,
+    seller_name: str,
+    number: str,
+    buyer_name: str,
+    currency: str,
+    outstanding,
+    days_overdue: int,
+    penalty,
+    due_date,
+    penalty_rate,
+) -> tuple[str, str]:
     total_due = outstanding + penalty
     subject = f"Payment reminder: invoice {number} ({days_overdue} days overdue)"
     lines = [
         f"Dear {buyer_name},",
         "",
         f"Our records show invoice {number} remains unpaid and is now {days_overdue} "
-        f"day(s) past its due date"
-        + (f" of {due_date.isoformat()}" if due_date else "") + ".",
+        f"day(s) past its due date" + (f" of {due_date.isoformat()}" if due_date else "") + ".",
         "",
         f"Outstanding balance: {_fmt(outstanding, currency)}",
     ]
     if penalty and penalty > 0:
-        lines.append(
-            f"Late-payment interest ({penalty_rate}% p.a.): {_fmt(penalty, currency)}"
-        )
+        lines.append(f"Late-payment interest ({penalty_rate}% p.a.): {_fmt(penalty, currency)}")
         lines.append(f"Total now due: {_fmt(total_due, currency)}")
     lines += [
         "",

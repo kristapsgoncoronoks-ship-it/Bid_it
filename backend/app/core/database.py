@@ -3,6 +3,7 @@
 The engine is created once per process. Sessions are handed out per-request by
 the `get_db` dependency (see app/api/deps.py) and always closed.
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
@@ -21,17 +22,21 @@ _connect_args = {"check_same_thread": False} if settings.is_sqlite else {}
 
 # SQLite uses a single file/in-memory handle (no server-side pool tuning); Postgres
 # gets an explicit, bounded connection pool so a replica can't exhaust the server.
-_pool_kwargs: dict = {} if settings.is_sqlite else {
-    "pool_size": settings.db_pool_size,
-    "max_overflow": settings.db_max_overflow,
-    "pool_timeout": settings.db_pool_timeout,
-    "pool_recycle": 1800,  # recycle connections every 30 min (avoid stale sockets)
-}
+_pool_kwargs: dict = (
+    {}
+    if settings.is_sqlite
+    else {
+        "pool_size": settings.db_pool_size,
+        "max_overflow": settings.db_max_overflow,
+        "pool_timeout": settings.db_pool_timeout,
+        "pool_recycle": 1800,  # recycle connections every 30 min (avoid stale sockets)
+    }
+)
 
 engine = create_async_engine(
     settings.database_url,
     echo=False,
-    pool_pre_ping=True,   # detect dropped connections before use (reliability)
+    pool_pre_ping=True,  # detect dropped connections before use (reliability)
     future=True,
     connect_args=_connect_args,
     **_pool_kwargs,
@@ -47,6 +52,7 @@ if settings.is_sqlite:
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
+
 
 SessionLocal = async_sessionmaker(
     bind=engine,

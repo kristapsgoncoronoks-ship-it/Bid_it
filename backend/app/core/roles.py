@@ -13,6 +13,7 @@ cross-company or system-wide power. Platform-operator access (reading/editing
 across tenants, the global limits matrix) is the separate `is_platform_admin`
 flag — never a company role. `is_platform_admin` outranks any company role.
 """
+
 from __future__ import annotations
 
 from app.models.user import UserRole
@@ -26,7 +27,10 @@ ROLE_RANK: dict[UserRole, int] = {
 
 # Roles an owner may assign / that appear in the matrix, low → high.
 ASSIGNABLE_ROLES: tuple[UserRole, ...] = (
-    UserRole.user_free, UserRole.user, UserRole.admin, UserRole.owner,
+    UserRole.user_free,
+    UserRole.user,
+    UserRole.admin,
+    UserRole.owner,
 )
 
 

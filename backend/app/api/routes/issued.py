@@ -69,10 +69,16 @@ async def _guard(db: DbSession, org_id: str):
 
 
 def _vat_of(inv: IssuedInvoice) -> vat.VatResult:
-    raw = [{
-        "description": li.description, "quantity": li.quantity, "unit": li.unit,
-        "unit_price": li.unit_price, "vat_rate": li.vat_rate,
-    } for li in inv.lines]
+    raw = [
+        {
+            "description": li.description,
+            "quantity": li.quantity,
+            "unit": li.unit,
+            "unit_price": li.unit_price,
+            "vat_rate": li.vat_rate,
+        }
+        for li in inv.lines
+    ]
     return vat.compute(raw, inv.vat_scheme)
 
 
@@ -123,9 +129,14 @@ async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbS
     return _detail(inv)
 
 
-@router.post("/{invoice_id}/credit-note", response_model=IssuedInvoiceDetail,
-             status_code=status.HTTP_201_CREATED)
-async def create_credit_note(invoice_id: str, body: CreditNoteCreate, current: CurrentUser, db: DbSession):
+@router.post(
+    "/{invoice_id}/credit-note",
+    response_model=IssuedInvoiceDetail,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_credit_note(
+    invoice_id: str, body: CreditNoteCreate, current: CurrentUser, db: DbSession
+):
     """Issue a credit note that corrects (reduces) an existing invoice.
 
     Omit `lines` to credit the whole remaining amount; pass lines for a partial
@@ -141,14 +152,20 @@ async def create_credit_note(invoice_id: str, body: CreditNoteCreate, current: C
     if body.lines is None:
         remaining = money.q2(Decimal(original.total) - issued_service.already_credited(original))
         if remaining <= Decimal("0"):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "This invoice is already fully credited.")
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "This invoice is already fully credited."
+            )
         raw_lines = issued_service.credit_note_lines_for_full(original)
     else:
         raw_lines = [li.model_dump() for li in body.lines]
 
     cn = issued_service.build_credit_note(
-        profile, original, raw_lines, org_id=current.org_id,
-        issue_date=body.issue_date, note=body.reason,
+        profile,
+        original,
+        raw_lines,
+        org_id=current.org_id,
+        issue_date=body.issue_date,
+        note=body.reason,
     )
     # Enforce: total credited (existing + this) may not exceed the invoiced total.
     new_credited = issued_service.already_credited(original) + Decimal(cn.total)
@@ -161,13 +178,24 @@ async def create_credit_note(invoice_id: str, body: CreditNoteCreate, current: C
     original.credited_total = money.q2(new_credited)
     db.add(cn)
     await audit.record(
-        db, audit.A.ISSUED_CREDIT_NOTE, target_type="issued_invoice", target_id=cn.id,
+        db,
+        audit.A.ISSUED_CREDIT_NOTE,
+        target_type="issued_invoice",
+        target_id=cn.id,
         meta={"number": cn.number, "corrects": original.number, "amount": str(cn.total)},
     )
-    await webhooks.emit(db, current.org_id, "issued.credit_note", {
-        "id": cn.id, "number": cn.number, "corrects": original.number,
-        "amount": str(cn.total), "currency": cn.currency,
-    })
+    await webhooks.emit(
+        db,
+        current.org_id,
+        "issued.credit_note",
+        {
+            "id": cn.id,
+            "number": cn.number,
+            "corrects": original.number,
+            "amount": str(cn.total),
+            "currency": cn.currency,
+        },
+    )
     await db.commit()
     await db.refresh(cn, attribute_names=["lines"])
     return _detail(cn)
@@ -210,7 +238,9 @@ async def record_payment(invoice_id: str, body: PaymentUpdate, current: CurrentU
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id)
     if issued_status.is_credit_note(inv):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A credit note is not a receivable — no payment applies.")
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "A credit note is not a receivable — no payment applies."
+        )
     # Payment is capped at the amount actually owed (invoice total net of credits).
     effective = issued_status.effective_total(inv)
     if body.amount_paid > effective:
@@ -221,16 +251,35 @@ async def record_payment(invoice_id: str, body: PaymentUpdate, current: CurrentU
     inv.amount_paid = body.amount_paid
     # A payment date is required to settle; clear it when the balance is un-paid.
     fully = body.amount_paid >= effective and effective > 0
-    inv.paid_date = (body.paid_date or date.today()) if fully else (body.paid_date if body.amount_paid > 0 else None)
-    await audit.record(
-        db, audit.A.ISSUED_PAYMENT, target_type="issued_invoice", target_id=inv.id,
-        meta={"number": inv.number, "amount_paid": str(inv.amount_paid), "status": issued_status.status_of(inv)},
+    inv.paid_date = (
+        (body.paid_date or date.today())
+        if fully
+        else (body.paid_date if body.amount_paid > 0 else None)
     )
-    await webhooks.emit(db, current.org_id, "issued.payment", {
-        "id": inv.id, "number": inv.number, "amount_paid": str(inv.amount_paid),
-        "outstanding": str(issued_status.outstanding_of(inv)), "status": issued_status.status_of(inv),
-        "currency": inv.currency,
-    })
+    await audit.record(
+        db,
+        audit.A.ISSUED_PAYMENT,
+        target_type="issued_invoice",
+        target_id=inv.id,
+        meta={
+            "number": inv.number,
+            "amount_paid": str(inv.amount_paid),
+            "status": issued_status.status_of(inv),
+        },
+    )
+    await webhooks.emit(
+        db,
+        current.org_id,
+        "issued.payment",
+        {
+            "id": inv.id,
+            "number": inv.number,
+            "amount_paid": str(inv.amount_paid),
+            "outstanding": str(issued_status.outstanding_of(inv)),
+            "status": issued_status.status_of(inv),
+            "currency": inv.currency,
+        },
+    )
     await db.commit()
     await db.refresh(inv, attribute_names=["lines"])
     return _detail(inv)
@@ -242,7 +291,8 @@ async def get_issued_xml(invoice_id: str, current: CurrentUser, db: DbSession):
     seller = json.loads(inv.seller_json)
     xml = facturx.build_cii(inv, seller, _vat_of(inv))
     return Response(
-        content=xml, media_type="application/xml",
+        content=xml,
+        media_type="application/xml",
         headers={"Content-Disposition": f'attachment; filename="{inv.number}.xml"'},
     )
 
@@ -263,7 +313,9 @@ async def _render_pdf(db: DbSession, org_id: str, inv: IssuedInvoice) -> bytes:
 
 @router.get("/{invoice_id}/pdf")
 async def get_issued_pdf(
-    invoice_id: str, current: CurrentUser, db: DbSession,
+    invoice_id: str,
+    current: CurrentUser,
+    db: DbSession,
     inline: bool = Query(default=False),
 ):
     """Download the invoice PDF, or view it inline in the browser (`?inline=1`)."""
@@ -274,7 +326,8 @@ async def get_issued_pdf(
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"PDF generation unavailable: {e}")
     disposition = "inline" if inline else "attachment"
     return Response(
-        content=pdf, media_type="application/pdf",
+        content=pdf,
+        media_type="application/pdf",
         headers={
             "Content-Disposition": f'{disposition}; filename="{inv.number}.pdf"',
             "X-Content-Type-Options": "nosniff",
@@ -284,7 +337,8 @@ async def get_issued_pdf(
 
 @router.get("/export.zip")
 async def export_period_zip(
-    current: CurrentUser, db: DbSession,
+    current: CurrentUser,
+    db: DbSession,
     date_from: date | None = Query(default=None, alias="from"),
     date_to: date | None = Query(default=None, alias="to"),
     status_filter: str | None = Query(default=None, alias="status"),
@@ -313,11 +367,14 @@ async def export_period_zip(
             try:
                 pdf = await _render_pdf(db, current.org_id, inv)
             except invoice_pdf.PdfUnavailable as e:
-                raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"PDF generation unavailable: {e}")
+                raise HTTPException(
+                    status.HTTP_503_SERVICE_UNAVAILABLE, f"PDF generation unavailable: {e}"
+                )
             zf.writestr(f"{inv.number}.pdf", pdf)
     span = f"{date_from or 'all'}_{date_to or 'all'}"
     return Response(
-        content=buf.getvalue(), media_type="application/zip",
+        content=buf.getvalue(),
+        media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="invoices_{span}.zip"'},
     )
 
@@ -326,6 +383,7 @@ async def export_period_zip(
 # Email delivery + payment reminders (SMTP when configured, else recorded to the
 # outbox). Reminders include any accrued late-payment penalty.
 # --------------------------------------------------------------------------------
+
 
 def _seller_name(inv: IssuedInvoice) -> str:
     seller = json.loads(inv.seller_json)
@@ -337,37 +395,60 @@ async def send_invoice(invoice_id: str, body: SendRequest, current: CurrentUser,
     """Email the invoice PDF to the buyer (or an override recipient)."""
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id)
-    recipient = (body.to_email or inv.buyer_email)
+    recipient = body.to_email or inv.buyer_email
     if not recipient:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No recipient: set a customer email on the invoice or pass one.")
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "No recipient: set a customer email on the invoice or pass one.",
+        )
     try:
         pdf = await _render_pdf(db, current.org_id, inv)
     except invoice_pdf.PdfUnavailable as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"PDF generation unavailable: {e}")
 
     subject, text = mailer.invoice_email(
-        seller_name=_seller_name(inv), number=inv.number, buyer_name=inv.buyer_name,
-        total=inv.total, currency=inv.currency, due_date=inv.due_date,
+        seller_name=_seller_name(inv),
+        number=inv.number,
+        buyer_name=inv.buyer_name,
+        total=inv.total,
+        currency=inv.currency,
+        due_date=inv.due_date,
     )
     msg = await mailer.send(
-        db, current.org_id, kind="invoice", to_email=recipient, subject=subject, body=text,
-        invoice_id=inv.id, attachment=(f"{inv.number}.pdf", pdf),
+        db,
+        current.org_id,
+        kind="invoice",
+        to_email=recipient,
+        subject=subject,
+        body=text,
+        invoice_id=inv.id,
+        attachment=(f"{inv.number}.pdf", pdf),
     )
-    await audit.record(db, audit.A.ISSUED_SENT, target_type="issued_invoice", target_id=inv.id,
-                       meta={"number": inv.number, "to": recipient, "status": msg.status})
+    await audit.record(
+        db,
+        audit.A.ISSUED_SENT,
+        target_type="issued_invoice",
+        target_id=inv.id,
+        meta={"number": inv.number, "to": recipient, "status": msg.status},
+    )
     await db.commit()
     await db.refresh(msg)
     return SendResult(message=EmailMessageOut.model_validate(msg), delivered=msg.status == "sent")
 
 
 @router.post("/{invoice_id}/reminder", response_model=SendResult)
-async def send_reminder(invoice_id: str, body: ReminderRequest, current: CurrentUser, db: DbSession):
+async def send_reminder(
+    invoice_id: str, body: ReminderRequest, current: CurrentUser, db: DbSession
+):
     """Send a payment reminder (with any accrued penalty) for an overdue invoice."""
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id)
-    recipient = (body.to_email or inv.buyer_email)
+    recipient = body.to_email or inv.buyer_email
     if not recipient:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No recipient: set a customer email on the invoice or pass one.")
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "No recipient: set a customer email on the invoice or pass one.",
+        )
     if issued_status.status_of(inv) == issued_status.PAID:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invoice is already paid")
 
@@ -390,7 +471,8 @@ async def run_overdue_reminders(current: CurrentUser, db: DbSession):
     for m in res.messages:
         await db.refresh(m)
     return BulkReminderResult(
-        sent=res.sent, skipped_no_email=res.skipped_no_email,
+        sent=res.sent,
+        skipped_no_email=res.skipped_no_email,
         messages=[EmailMessageOut.model_validate(m) for m in res.messages],
     )
 
@@ -408,6 +490,7 @@ async def list_emails(current: CurrentUser, db: DbSession):
 # by default or a CSV download when `?format=csv`. NET = VAT-exclusive subtotal.
 # --------------------------------------------------------------------------------
 
+
 def _csv(filename: str, header: list[str], rows: list[list]) -> Response:
     buf = io.StringIO()
     w = csv.writer(buf)
@@ -415,14 +498,16 @@ def _csv(filename: str, header: list[str], rows: list[list]) -> Response:
     for r in rows:
         w.writerow(r)
     return Response(
-        content=buf.getvalue(), media_type="text/csv",
+        content=buf.getvalue(),
+        media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
 @router.get("/reports/summary", response_model=SummaryReportOut)
 async def report_summary(
-    current: CurrentUser, db: DbSession,
+    current: CurrentUser,
+    db: DbSession,
     date_from: date | None = Query(default=None, alias="from"),
     date_to: date | None = Query(default=None, alias="to"),
     currency: str | None = Query(default=None, min_length=3, max_length=3),
@@ -441,7 +526,8 @@ async def report_summary(
 
 @router.get("/reports/receivables", response_model=ReceivablesReportOut)
 async def report_receivables(
-    current: CurrentUser, db: DbSession,
+    current: CurrentUser,
+    db: DbSession,
     date_from: date | None = Query(default=None, alias="from"),
     date_to: date | None = Query(default=None, alias="to"),
     currency: str | None = Query(default=None, min_length=3, max_length=3),
@@ -460,7 +546,8 @@ async def report_receivables(
 
 @router.get("/reports/partners", response_model=PartnerReportOut)
 async def report_partners(
-    current: CurrentUser, db: DbSession,
+    current: CurrentUser,
+    db: DbSession,
     date_from: date | None = Query(default=None, alias="from"),
     date_to: date | None = Query(default=None, alias="to"),
     currency: str | None = Query(default=None, min_length=3, max_length=3),
@@ -471,17 +558,37 @@ async def report_partners(
     if format == "csv":
         return _csv(
             "issued-partners.csv",
-            ["partner", "vat_number", "invoices", f"net_{rep.currency}", f"vat_{rep.currency}",
-             f"gross_{rep.currency}", f"outstanding_{rep.currency}", "last_invoice"],
-            [[p.partner, p.vat_number or "", p.count, p.net, p.vat, p.gross, p.outstanding,
-              p.last_invoice.isoformat() if p.last_invoice else ""] for p in rep.partners],
+            [
+                "partner",
+                "vat_number",
+                "invoices",
+                f"net_{rep.currency}",
+                f"vat_{rep.currency}",
+                f"gross_{rep.currency}",
+                f"outstanding_{rep.currency}",
+                "last_invoice",
+            ],
+            [
+                [
+                    p.partner,
+                    p.vat_number or "",
+                    p.count,
+                    p.net,
+                    p.vat,
+                    p.gross,
+                    p.outstanding,
+                    p.last_invoice.isoformat() if p.last_invoice else "",
+                ]
+                for p in rep.partners
+            ],
         )
     return rep
 
 
 @router.get("/reports/vat", response_model=VatReportOut)
 async def report_vat(
-    current: CurrentUser, db: DbSession,
+    current: CurrentUser,
+    db: DbSession,
     date_from: date | None = Query(default=None, alias="from"),
     date_to: date | None = Query(default=None, alias="to"),
     currency: str | None = Query(default=None, min_length=3, max_length=3),

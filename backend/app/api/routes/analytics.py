@@ -60,9 +60,13 @@ async def get_dimensions(current: CurrentUser):
 
 @router.get("/by-dimension", response_model=DimensionBreakdown)
 async def get_by_dimension(
-    current: CurrentUser, db: DbSession,
-    dimension: str = Query(..., description="cost_center | department | project | vehicle | property_ref"),
-    start: date | None = None, end: date | None = None,
+    current: CurrentUser,
+    db: DbSession,
+    dimension: str = Query(
+        ..., description="cost_center | department | project | vehicle | property_ref"
+    ),
+    start: date | None = None,
+    end: date | None = None,
 ):
     if not is_dimension(dimension):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown dimension '{dimension}'")
@@ -117,9 +121,17 @@ async def get_explore(
 ):
     """Self-service pivot: pick a measure + up to two dimensions + filters."""
     q = explore.ExploreQuery(
-        measure=measure, dimensions=dim, start=start, end=end, status=status_,
-        category=category, currency=currency, country=country, vendor_id=vendor_id,
-        sort=sort, limit=limit,
+        measure=measure,
+        dimensions=dim,
+        start=start,
+        end=end,
+        status=status_,
+        category=category,
+        currency=currency,
+        country=country,
+        vendor_id=vendor_id,
+        sort=sort,
+        limit=limit,
     )
     try:
         result = await explore.run(db, current.org_id, q)
@@ -128,7 +140,8 @@ async def get_explore(
 
     if format == "csv":
         return Response(
-            content=explore.to_csv(result), media_type="text/csv",
+            content=explore.to_csv(result),
+            media_type="text/csv",
             headers={"Content-Disposition": 'attachment; filename="explore.csv"'},
         )
     return result

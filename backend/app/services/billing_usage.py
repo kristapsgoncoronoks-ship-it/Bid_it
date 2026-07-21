@@ -11,6 +11,7 @@ Only active when the Stripe provider is selected and a meter is mapped for the
 metric (`stripe_meter_<metric>`); otherwise a no-op — EveryPay/None have no
 metered API.
 """
+
 from __future__ import annotations
 
 import logging
@@ -32,12 +33,16 @@ METERED_METRICS = ("upload",)
 
 async def orgs_with_stripe(db: AsyncSession) -> list[str]:
     """Org ids with a Stripe customer (UNSCOPED — scheduler context)."""
-    return list(await db.scalars(
-        select(Organization.id).where(Organization.stripe_customer_id.is_not(None))
-    ))
+    return list(
+        await db.scalars(
+            select(Organization.id).where(Organization.stripe_customer_id.is_not(None))
+        )
+    )
 
 
-async def report_org_usage(db: AsyncSession, org_id: str, *, period: str | None = None) -> dict[str, int]:
+async def report_org_usage(
+    db: AsyncSession, org_id: str, *, period: str | None = None
+) -> dict[str, int]:
     """Report the unreported usage delta for a tenant to Stripe. Returns the
     delta reported per metric ({} when nothing to do / not on Stripe)."""
     provider = get_billing_provider()
@@ -53,10 +58,13 @@ async def report_org_usage(db: AsyncSession, org_id: str, *, period: str | None 
         meter_event = settings.stripe_meter_for(metric)
         if not meter_event:
             continue
-        counter = await db.scalar(select(UsageCounter).where(
-            UsageCounter.org_id == org_id, UsageCounter.period == period,
-            UsageCounter.metric == metric,
-        ))
+        counter = await db.scalar(
+            select(UsageCounter).where(
+                UsageCounter.org_id == org_id,
+                UsageCounter.period == period,
+                UsageCounter.metric == metric,
+            )
+        )
         if counter is None:
             continue
         delta = (counter.count or 0) - (counter.reported or 0)
@@ -64,7 +72,9 @@ async def report_org_usage(db: AsyncSession, org_id: str, *, period: str | None 
             continue
         try:
             await provider.report_usage(
-                customer_id=org.stripe_customer_id, meter_event=meter_event, quantity=delta,
+                customer_id=org.stripe_customer_id,
+                meter_event=meter_event,
+                quantity=delta,
                 identifier=f"{org_id}:{period}:{metric}:{counter.count}",
             )
         except BillingError as exc:  # leave the watermark so a later run retries

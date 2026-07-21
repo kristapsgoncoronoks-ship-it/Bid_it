@@ -27,7 +27,9 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     # Commercial tenancy: subscription plan + lifecycle status.
     plan: Mapped[str] = mapped_column(String(20), default="trial", nullable=False)
-    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)  # active|suspended|canceled
+    status: Mapped[str] = mapped_column(
+        String(20), default="active", nullable=False
+    )  # active|suspended|canceled
 
     # Data residency (ADR-0022): the region this tenant's data is pinned to.
     # Assigned at registration; a regional deployment refuses to serve a tenant
@@ -48,9 +50,9 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     everypay_token: Mapped[str | None] = mapped_column(String(128), nullable=True)
     everypay_next_charge: Mapped[date | None] = mapped_column(Date, nullable=True)
 
-    users: Mapped[list["User"]] = relationship(
+    users: Mapped[list[User]] = relationship(
         back_populates="organization", cascade="all, delete-orphan"
     )
-    vendors: Mapped[list["Vendor"]] = relationship(
+    vendors: Mapped[list[Vendor]] = relationship(
         back_populates="organization", cascade="all, delete-orphan"
     )

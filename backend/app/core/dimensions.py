@@ -8,6 +8,7 @@ managers). Employee is already modelled on expense reports.
 One definition, reused by the models, schemas, and the by-dimension analytics so
 a new dimension is added in exactly one place.
 """
+
 from __future__ import annotations
 
 # attribute/column name → human label. `property_ref` avoids shadowing the

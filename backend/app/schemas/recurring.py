@@ -12,17 +12,19 @@ Frequency = Literal["weekly", "monthly", "quarterly", "yearly"]
 
 class RecurringCreate(BaseModel):
     """Create a recurring-invoice schedule from an invoice template + cadence."""
+
     template: IssuedInvoiceCreate
     frequency: Frequency = "monthly"
-    interval: int = Field(default=1, ge=1, le=52)     # every N periods
+    interval: int = Field(default=1, ge=1, le=52)  # every N periods
     start_date: date
-    end_date: date | None = None                       # inclusive; None → open-ended
+    end_date: date | None = None  # inclusive; None → open-ended
     title: str | None = Field(default=None, max_length=200)
     payment_terms_days: int | None = Field(default=None, ge=0, le=365)
 
 
 class RecurringUpdate(BaseModel):
     """Pause/resume or adjust a schedule. All fields optional."""
+
     active: bool | None = None
     frequency: Frequency | None = None
     interval: int | None = Field(default=None, ge=1, le=52)

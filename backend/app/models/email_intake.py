@@ -42,10 +42,11 @@ class InboundInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     # pending → confirmed | failed | discarded
     status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False, index=True)
-    method: Mapped[str | None] = mapped_column(String(20), nullable=True)   # detected type / parse path
-    draft_json: Mapped[str | None] = mapped_column(Text, nullable=True)     # ParsedInvoiceDraft JSON
+    method: Mapped[str | None] = mapped_column(
+        String(20), nullable=True
+    )  # detected type / parse path
+    draft_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # ParsedInvoiceDraft JSON
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-
 
     invoice_id: Mapped[str | None] = mapped_column(
         GUID(), ForeignKey("invoices.id", ondelete="SET NULL"), nullable=True

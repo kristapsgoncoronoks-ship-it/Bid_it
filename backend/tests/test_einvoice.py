@@ -1,5 +1,6 @@
 """Structured e-invoice XML recognition: UBL 2.1, UN-CEFACT CII, and the
 Factur-X/ZUGFeRD hybrid-PDF embedded-XML path."""
+
 import io
 from decimal import Decimal
 
@@ -125,9 +126,9 @@ async def test_ubl_upload_and_save(auth_client):
 
 def _facturx_pdf(cii_xml: str) -> bytes:
     reportlab = pytest.importorskip("reportlab")  # noqa: F841
+    from pypdf import PdfReader, PdfWriter
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas
-    from pypdf import PdfReader, PdfWriter
 
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)

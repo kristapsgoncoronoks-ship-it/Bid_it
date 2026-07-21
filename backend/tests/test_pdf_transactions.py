@@ -1,5 +1,6 @@
 """OCR/extraction must read EVERY line of a multi-row transaction statement
 (e.g. a fuel/toll card statement), not just simple invoice lines."""
+
 import io
 from decimal import Decimal
 

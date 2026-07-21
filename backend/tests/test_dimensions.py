@@ -1,4 +1,5 @@
 """Cost-allocation dimensions on invoices + expenses, and the by-dimension analytics."""
+
 import pytest
 
 
@@ -7,7 +8,14 @@ async def _invoice(auth_client, number: str, total_lines, **dims) -> dict:
         "vendor_name": "Shell Fleet",
         "invoice_number": number,
         "issue_date": "2026-05-10",
-        "line_items": [{"description": "Diesel", "quantity": "1", "unit_price": str(total_lines), "tax_rate": "0"}],
+        "line_items": [
+            {
+                "description": "Diesel",
+                "quantity": "1",
+                "unit_price": str(total_lines),
+                "tax_rate": "0",
+            }
+        ],
         **dims,
     }
     r = await auth_client.post("/api/v1/invoices", json=body)
@@ -17,7 +25,9 @@ async def _invoice(auth_client, number: str, total_lines, **dims) -> dict:
 
 @pytest.mark.asyncio
 async def test_invoice_carries_dimensions(auth_client):
-    inv = await _invoice(auth_client, "INV-1", "100.00", vehicle="TRUCK-01", project="P-North", cost_center="CC-9")
+    inv = await _invoice(
+        auth_client, "INV-1", "100.00", vehicle="TRUCK-01", project="P-North", cost_center="CC-9"
+    )
     assert inv["vehicle"] == "TRUCK-01"
     assert inv["project"] == "P-North"
     assert inv["cost_center"] == "CC-9"
@@ -82,10 +92,16 @@ async def test_expense_item_dimensions(auth_client):
     await auth_client.put("/api/v1/modules/expenses", json={"enabled": True})
     body = {
         "title": "May fuel",
-        "items": [{
-            "spend_date": "2026-05-05", "category": "transport", "description": "Diesel",
-            "amount": "80.00", "vehicle": "TRUCK-01", "project": "P-North",
-        }],
+        "items": [
+            {
+                "spend_date": "2026-05-05",
+                "category": "transport",
+                "description": "Diesel",
+                "amount": "80.00",
+                "vehicle": "TRUCK-01",
+                "project": "P-North",
+            }
+        ],
     }
     r = await auth_client.post("/api/v1/expenses", json=body)
     assert r.status_code == 201, r.text
@@ -108,11 +124,19 @@ async def test_expense_item_dimensions(auth_client):
 async def test_dimensions_tenant_isolated(auth_client, client):
     await _invoice(auth_client, "SECRET-1", "500.00", vehicle="TRUCK-SECRET")
 
-    reg = await client.post("/api/v1/auth/register", json={
-        "organization_name": "Other Co", "name": "O", "email": "o2@o.io", "password": "supersecret2",
-    })
+    reg = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "organization_name": "Other Co",
+            "name": "O",
+            "email": "o2@o.io",
+            "password": "supersecret2",
+        },
+    )
     client.headers["Authorization"] = f"Bearer {reg.json()['token']['access_token']}"
-    body = (await client.get("/api/v1/analytics/by-dimension", params={"dimension": "vehicle"})).json()
+    body = (
+        await client.get("/api/v1/analytics/by-dimension", params={"dimension": "vehicle"})
+    ).json()
     # The other tenant sees none of the first tenant's tagged spend.
     assert body["rows"] == []
     assert body["total"] == "0"

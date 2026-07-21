@@ -4,6 +4,7 @@ idempotency, and route gating — all without touching the real Stripe SDK.
 The provider seam is injected with a Fake so no network / secret keys are needed;
 the pure `reduce_stripe_event` mapping is tested directly.
 """
+
 import pytest
 from sqlalchemy import select
 
@@ -55,6 +56,7 @@ def _reset_provider():
 
 # --- provider selection ----------------------------------------------------
 
+
 def test_default_provider_is_null_when_unconfigured():
     set_billing_provider(None)
     p = get_billing_provider()
@@ -68,36 +70,58 @@ async def test_null_provider_operations_raise():
     with pytest.raises(BillingError):
         await p.ensure_customer(org_id="o", name="n", email=None)
     with pytest.raises(BillingError):
-        await p.start_checkout(org_id="o", plan_key="pro", amount_eur=99.0,
-                               order_reference="r", customer_id="c")
+        await p.start_checkout(
+            org_id="o", plan_key="pro", amount_eur=99.0, order_reference="r", customer_id="c"
+        )
 
 
 # --- pure event mapping ----------------------------------------------------
 
+
 def test_reduce_checkout_completed():
-    ev = reduce_stripe_event({
-        "id": "evt_1", "type": "checkout.session.completed",
-        "data": {"object": {"customer": "cus_1", "subscription": "sub_1",
-                            "metadata": {"plan_key": "pro"}}},
-    })
+    ev = reduce_stripe_event(
+        {
+            "id": "evt_1",
+            "type": "checkout.session.completed",
+            "data": {
+                "object": {
+                    "customer": "cus_1",
+                    "subscription": "sub_1",
+                    "metadata": {"plan_key": "pro"},
+                }
+            },
+        }
+    )
     assert ev.customer_id == "cus_1" and ev.subscription_id == "sub_1"
     assert ev.plan_key == "pro" and ev.status == "active"
 
 
 def test_reduce_subscription_past_due_is_suspended():
-    ev = reduce_stripe_event({
-        "id": "evt_2", "type": "customer.subscription.updated",
-        "data": {"object": {"id": "sub_1", "customer": "cus_1", "status": "past_due",
-                            "metadata": {"plan_key": "pro"}}},
-    })
+    ev = reduce_stripe_event(
+        {
+            "id": "evt_2",
+            "type": "customer.subscription.updated",
+            "data": {
+                "object": {
+                    "id": "sub_1",
+                    "customer": "cus_1",
+                    "status": "past_due",
+                    "metadata": {"plan_key": "pro"},
+                }
+            },
+        }
+    )
     assert ev.status == "suspended" and ev.plan_key == "pro"
 
 
 def test_reduce_subscription_deleted_is_canceled():
-    ev = reduce_stripe_event({
-        "id": "evt_3", "type": "customer.subscription.deleted",
-        "data": {"object": {"id": "sub_1", "customer": "cus_1", "status": "canceled"}},
-    })
+    ev = reduce_stripe_event(
+        {
+            "id": "evt_3",
+            "type": "customer.subscription.deleted",
+            "data": {"object": {"id": "sub_1", "customer": "cus_1", "status": "canceled"}},
+        }
+    )
     assert ev.status == "canceled"
 
 
@@ -107,6 +131,7 @@ def test_reduce_unknown_event_is_noop():
 
 
 # --- entitlement application + idempotency ---------------------------------
+
 
 async def _org(db_session) -> Organization:
     org = await db_session.scalar(select(Organization))
@@ -118,7 +143,9 @@ async def _org(db_session) -> Organization:
 @pytest.mark.asyncio
 async def test_apply_sets_plan_and_subscription(auth_client, db_session):
     org = await _org(db_session)
-    ev = SubscriptionEvent("evt_a", "checkout.session.completed", "cus_fake123", "sub_9", "pro", "active")
+    ev = SubscriptionEvent(
+        "evt_a", "checkout.session.completed", "cus_fake123", "sub_9", "pro", "active"
+    )
 
     changed = await billing_svc.apply_subscription_event(db_session, ev)
     assert changed is True
@@ -132,7 +159,9 @@ async def test_apply_sets_plan_and_subscription(auth_client, db_session):
 @pytest.mark.asyncio
 async def test_apply_is_idempotent_on_event_id(auth_client, db_session):
     await _org(db_session)
-    ev = SubscriptionEvent("evt_dup", "checkout.session.completed", "cus_fake123", "sub_9", "pro", "active")
+    ev = SubscriptionEvent(
+        "evt_dup", "checkout.session.completed", "cus_fake123", "sub_9", "pro", "active"
+    )
 
     assert await billing_svc.apply_subscription_event(db_session, ev) is True
     # Same event id redelivered → skipped, no second effect.
@@ -142,7 +171,9 @@ async def test_apply_is_idempotent_on_event_id(auth_client, db_session):
 @pytest.mark.asyncio
 async def test_apply_unknown_customer_is_noop(auth_client, db_session):
     await _org(db_session)
-    ev = SubscriptionEvent("evt_u", "customer.subscription.updated", "cus_STRANGER", "sub_1", "pro", "active")
+    ev = SubscriptionEvent(
+        "evt_u", "customer.subscription.updated", "cus_STRANGER", "sub_1", "pro", "active"
+    )
     assert await billing_svc.apply_subscription_event(db_session, ev) is False
 
 
@@ -157,7 +188,9 @@ async def test_downgrade_disables_addon_modules(auth_client, db_session):
     assert "issuing" in await modules_svc.enabled_keys(db_session, org.id)
 
     # Stripe reports a switch to 'starter' (no issuing) → module reconciled off.
-    ev = SubscriptionEvent("evt_dg", "customer.subscription.updated", "cus_fake123", "sub_9", "starter", "active")
+    ev = SubscriptionEvent(
+        "evt_dg", "customer.subscription.updated", "cus_fake123", "sub_9", "starter", "active"
+    )
     assert await billing_svc.apply_subscription_event(db_session, ev) is True
 
     await db_session.refresh(org)
@@ -171,7 +204,9 @@ async def test_cancel_returns_to_default_plan(auth_client, db_session):
     org.plan = "pro"
     await db_session.commit()
 
-    ev = SubscriptionEvent("evt_c", "customer.subscription.deleted", "cus_fake123", "sub_9", None, "canceled")
+    ev = SubscriptionEvent(
+        "evt_c", "customer.subscription.deleted", "cus_fake123", "sub_9", None, "canceled"
+    )
     assert await billing_svc.apply_subscription_event(db_session, ev) is True
 
     await db_session.refresh(org)
@@ -181,14 +216,18 @@ async def test_cancel_returns_to_default_plan(auth_client, db_session):
 
 # --- webhook route ---------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_webhook_applies_verified_event(auth_client, db_session):
     await _org(db_session)
-    ev = SubscriptionEvent("evt_wh", "checkout.session.completed", "cus_fake123", "sub_wh", "pro", "active")
+    ev = SubscriptionEvent(
+        "evt_wh", "checkout.session.completed", "cus_fake123", "sub_wh", "pro", "active"
+    )
     set_billing_provider(FakeProvider(ev))
 
-    r = await auth_client.post("/api/v1/billing/webhook", content=b"{}",
-                               headers={"stripe-signature": "t=1,v1=abc"})
+    r = await auth_client.post(
+        "/api/v1/billing/webhook", content=b"{}", headers={"stripe-signature": "t=1,v1=abc"}
+    )
     assert r.status_code == 200
     assert r.json() == {"received": True, "applied": True}
 
@@ -205,6 +244,7 @@ async def test_webhook_rejects_bad_signature(auth_client):
 
 
 # --- checkout / portal gating ----------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_checkout_503_when_billing_unconfigured(auth_client):

@@ -4,6 +4,7 @@
 `User`. Everything downstream reads `user.org_id`, so no endpoint can
 accidentally serve another tenant's data.
 """
+
 from __future__ import annotations
 
 from typing import Annotated

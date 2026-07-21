@@ -8,6 +8,7 @@ NOT registered would silently bypass the guard — a cross-tenant leak waiting t
 happen. This test fails the build the moment such a model is introduced, so the
 omission is caught in code review, not in production.
 """
+
 from __future__ import annotations
 
 import app.models  # noqa: F401 — importing populates the mapper registry

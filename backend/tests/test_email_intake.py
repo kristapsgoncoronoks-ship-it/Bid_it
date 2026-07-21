@@ -1,4 +1,5 @@
 """Email invoice intake: inbound webhook → review inbox → confirm into an invoice."""
+
 import base64
 import io
 import shutil
@@ -61,12 +62,15 @@ async def test_inbound_creates_pending_and_confirm_creates_invoice(auth_client, 
     address = await _address(auth_client)
 
     # Provider posts the parsed email (no auth) — resolve tenant by the `to` address.
-    r = await client.post("/api/v1/email/inbound", json={
-        "to": f"Accounts <{address}>",
-        "from": "supplier@globex.io",
-        "subject": "Your invoice",
-        "attachments": [_att("invoice.csv", CSV)],
-    })
+    r = await client.post(
+        "/api/v1/email/inbound",
+        json={
+            "to": f"Accounts <{address}>",
+            "from": "supplier@globex.io",
+            "subject": "Your invoice",
+            "attachments": [_att("invoice.csv", CSV)],
+        },
+    )
     assert r.status_code == 200, r.text
     # The webhook returns fast: the attachment is QUEUED, parsing runs on the worker.
     assert r.json() == {"received": 1, "queued": 1, "rejected": 0}
@@ -83,7 +87,7 @@ async def test_inbound_creates_pending_and_confirm_creates_invoice(auth_client, 
     assert row["status"] == "pending"
     assert row["from_addr"] == "supplier@globex.io"
     assert row["invoice_id"] is None
-    assert row["method"] == "csv"   # the real extraction method, not the file extension
+    assert row["method"] == "csv"  # the real extraction method, not the file extension
 
     detail = (await auth_client.get(f"/api/v1/email/inbox/{row['id']}")).json()
     assert detail["draft"]["draft"]["invoice_number"] == "INV-EMAIL-1"
@@ -115,10 +119,17 @@ async def test_inbound_by_token_and_multiple_attachments(auth_client, client, db
     await _activate(auth_client)
     token = _token(await _address(auth_client))
 
-    r = await client.post("/api/v1/email/inbound", json={
-        "token": token,
-        "attachments": [_att("a.csv", CSV), _att("b.json", JSON), _att("bad.txt", "not an invoice")],
-    })
+    r = await client.post(
+        "/api/v1/email/inbound",
+        json={
+            "token": token,
+            "attachments": [
+                _att("a.csv", CSV),
+                _att("b.json", JSON),
+                _att("bad.txt", "not an invoice"),
+            ],
+        },
+    )
     assert r.status_code == 200, r.text
     # bad.txt is an unsupported type → blocked by the security gate (rejected).
     # The two valid ones are queued for the worker.
@@ -138,10 +149,13 @@ async def test_inbound_by_token_and_multiple_attachments(auth_client, client, db
 @pytest.mark.asyncio
 async def test_unknown_token_404(auth_client, client):
     await _activate(auth_client)
-    r = await client.post("/api/v1/email/inbound", json={
-        "token": "deadbeefdeadbeef",
-        "attachments": [_att("a.csv", CSV)],
-    })
+    r = await client.post(
+        "/api/v1/email/inbound",
+        json={
+            "token": "deadbeefdeadbeef",
+            "attachments": [_att("a.csv", CSV)],
+        },
+    )
     assert r.status_code == 404
 
 
@@ -152,9 +166,13 @@ async def test_inbound_rejected_when_module_off(auth_client, client):
     token = _token(await _address(auth_client))
     off = await auth_client.put("/api/v1/modules/email_intake", json={"enabled": False})
     assert off.status_code == 200
-    r = await client.post("/api/v1/email/inbound", json={
-        "token": token, "attachments": [_att("a.csv", CSV)],
-    })
+    r = await client.post(
+        "/api/v1/email/inbound",
+        json={
+            "token": token,
+            "attachments": [_att("a.csv", CSV)],
+        },
+    )
     assert r.status_code == 403
 
 
@@ -167,9 +185,13 @@ async def test_rotate_changes_address(auth_client, client):
     new = _token(rot.json()["address"])
     assert new != old
     # Old token no longer routes.
-    r = await client.post("/api/v1/email/inbound", json={
-        "token": old, "attachments": [_att("a.csv", CSV)],
-    })
+    r = await client.post(
+        "/api/v1/email/inbound",
+        json={
+            "token": old,
+            "attachments": [_att("a.csv", CSV)],
+        },
+    )
     assert r.status_code == 404
 
 
@@ -179,14 +201,24 @@ async def test_tenant_isolation(auth_client, client):
     own tenant only."""
     await _activate(auth_client)
     addr_a = await _address(auth_client)
-    await client.post("/api/v1/email/inbound", json={
-        "to": addr_a, "attachments": [_att("a.csv", CSV)],
-    })
+    await client.post(
+        "/api/v1/email/inbound",
+        json={
+            "to": addr_a,
+            "attachments": [_att("a.csv", CSV)],
+        },
+    )
 
     # A second, independent workspace.
-    reg = await client.post("/api/v1/auth/register", json={
-        "organization_name": "Beta", "name": "Bob", "email": "bob@beta.io", "password": "supersecret",
-    })
+    reg = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "organization_name": "Beta",
+            "name": "Bob",
+            "email": "bob@beta.io",
+            "password": "supersecret",
+        },
+    )
     tok_b = reg.json()["token"]["access_token"]
     hb = {"Authorization": f"Bearer {tok_b}"}
     await client.put("/api/v1/modules/email_intake", json={"enabled": True}, headers=hb)
@@ -197,9 +229,13 @@ async def test_tenant_isolation(auth_client, client):
     # Org B's address routes to Org B, not Org A.
     addr_b = (await client.get("/api/v1/email/settings", headers=hb)).json()["address"]
     assert addr_b != addr_a
-    await client.post("/api/v1/email/inbound", json={
-        "to": addr_b, "attachments": [_att("b.json", JSON)],
-    })
+    await client.post(
+        "/api/v1/email/inbound",
+        json={
+            "to": addr_b,
+            "attachments": [_att("b.json", JSON)],
+        },
+    )
     inbox_b2 = (await client.get("/api/v1/email/inbox", headers=hb)).json()
     assert inbox_b2["total"] == 1
     assert inbox_b2["items"][0]["filename"] == "b.json"
@@ -254,11 +290,20 @@ async def test_emailed_scanned_pdf_is_processed_by_ocr(auth_client, client, db_s
     token = _token(await _address(auth_client))
     pdf_b64 = base64.b64encode(_scanned_pdf_bytes()).decode()
 
-    r = await client.post("/api/v1/email/inbound", json={
-        "token": token,
-        "from": "billing@nordicfuel.io",
-        "attachments": [{"filename": "scan.pdf", "content_type": "application/pdf", "content_base64": pdf_b64}],
-    })
+    r = await client.post(
+        "/api/v1/email/inbound",
+        json={
+            "token": token,
+            "from": "billing@nordicfuel.io",
+            "attachments": [
+                {
+                    "filename": "scan.pdf",
+                    "content_type": "application/pdf",
+                    "content_base64": pdf_b64,
+                }
+            ],
+        },
+    )
     assert r.status_code == 200, r.text
     assert r.json()["queued"] == 1
 
@@ -267,7 +312,7 @@ async def test_emailed_scanned_pdf_is_processed_by_ocr(auth_client, client, db_s
 
     inbox = (await auth_client.get("/api/v1/email/inbox")).json()
     row = inbox["items"][0]
-    assert row["method"] == "ocr"          # read via the OCR fallback, not the text layer
+    assert row["method"] == "ocr"  # read via the OCR fallback, not the text layer
 
     detail = (await auth_client.get(f"/api/v1/email/inbox/{row['id']}")).json()
     assert detail["method"] == "ocr"
@@ -289,8 +334,11 @@ async def test_emailed_malware_is_quarantined(auth_client, client):
     await _activate(auth_client)
     token = _token(await _address(auth_client))
     payload = b"%PDF-1.4 " + filesec.EICAR + b" trailer"
-    att = {"filename": "invoice.pdf", "content_type": "application/pdf",
-           "content_base64": base64.b64encode(payload).decode()}
+    att = {
+        "filename": "invoice.pdf",
+        "content_type": "application/pdf",
+        "content_base64": base64.b64encode(payload).decode(),
+    }
 
     r = await client.post("/api/v1/email/inbound", json={"token": token, "attachments": [att]})
     assert r.status_code == 200, r.text
@@ -299,7 +347,7 @@ async def test_emailed_malware_is_quarantined(auth_client, client):
     row = (await auth_client.get("/api/v1/email/inbox?status=rejected")).json()["items"][0]
     assert "malware" in row["error"].lower()
     detail = (await auth_client.get(f"/api/v1/email/inbox/{row['id']}")).json()
-    assert detail["has_file"] is False              # bytes were dropped
+    assert detail["has_file"] is False  # bytes were dropped
     assert detail["draft"] is None
     # Cannot confirm a quarantined file into an invoice.
     conf = await auth_client.post(f"/api/v1/email/inbox/{row['id']}/confirm", json={})
@@ -313,7 +361,7 @@ async def test_emailed_malware_is_quarantined(auth_client, client):
 async def test_emailed_executable_disguised_as_pdf_is_rejected(auth_client, client):
     await _activate(auth_client)
     token = _token(await _address(auth_client))
-    exe = b"MZ\x90\x00" + b"\x00" * 128           # PE executable renamed .pdf
+    exe = b"MZ\x90\x00" + b"\x00" * 128  # PE executable renamed .pdf
     att = {"filename": "invoice.pdf", "content_base64": base64.b64encode(exe).decode()}
     r = await client.post("/api/v1/email/inbound", json={"token": token, "attachments": [att]})
     assert r.json()["rejected"] == 1

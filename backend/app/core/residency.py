@@ -9,6 +9,7 @@ writing a tenant's data in the wrong jurisdiction.
 Inert unless `enforce_region_pinning` is on (single-region deployments pay
 nothing — the check short-circuits before any work).
 """
+
 from __future__ import annotations
 
 from fastapi import HTTPException, status

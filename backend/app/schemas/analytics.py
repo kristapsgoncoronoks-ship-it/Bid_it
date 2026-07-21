@@ -41,13 +41,14 @@ class StatusBucket(BaseModel):
 
 class DimensionSpend(BaseModel):
     """Spend grouped by a cost-allocation dimension value (invoices)."""
-    value: str          # the tag value, or "(unassigned)" for untagged spend
+
+    value: str  # the tag value, or "(unassigned)" for untagged spend
     total: Decimal
     invoice_count: int
 
 
 class DimensionBreakdown(BaseModel):
-    dimension: str      # the dimension key (cost_center, vehicle, …)
-    label: str          # human label
+    dimension: str  # the dimension key (cost_center, vehicle, …)
+    label: str  # human label
     rows: list[DimensionSpend]
     total: Decimal

@@ -1,4 +1,5 @@
 """Immutable, hash-chained audit trail — attribution, tamper-evidence, access."""
+
 import pytest
 from sqlalchemy import select
 
@@ -7,9 +8,20 @@ from app.models.audit import AuditEvent
 
 def _inv(n):
     return {
-        "vendor_name": "Acme", "invoice_number": f"AUD-{n}", "issue_date": "2026-07-01",
-        "currency": "EUR", "status": "pending",
-        "line_items": [{"description": "x", "category": "c", "quantity": "1", "unit_price": "10", "tax_rate": "0"}],
+        "vendor_name": "Acme",
+        "invoice_number": f"AUD-{n}",
+        "issue_date": "2026-07-01",
+        "currency": "EUR",
+        "status": "pending",
+        "line_items": [
+            {
+                "description": "x",
+                "category": "c",
+                "quantity": "1",
+                "unit_price": "10",
+                "tax_rate": "0",
+            }
+        ],
     }
 
 
@@ -53,9 +65,13 @@ async def test_verify_ok_then_detects_tampering(auth_client, db_session):
 @pytest.mark.asyncio
 async def test_audit_is_owner_only(auth_client, client):
     # A plain user cannot read the trail.
-    inv = await auth_client.post("/api/v1/team/invites", json={"email": "u@acme.io", "role": "user"})
+    inv = await auth_client.post(
+        "/api/v1/team/invites", json={"email": "u@acme.io", "role": "user"}
+    )
     token = inv.json()["token"]
-    acc = await client.post("/api/v1/auth/accept-invite", json={"token": token, "name": "U", "password": "supersecret"})
+    acc = await client.post(
+        "/api/v1/auth/accept-invite", json={"token": token, "name": "U", "password": "supersecret"}
+    )
     utok = acc.json()["token"]["access_token"]
     r = await client.get("/api/v1/audit", headers={"Authorization": f"Bearer {utok}"})
     assert r.status_code == 403
@@ -68,8 +84,12 @@ async def test_document_download_is_logged(auth_client, client):
     addr = (await auth_client.get("/api/v1/email/settings")).json()["address"]
     token = addr.split("@")[0]
     import base64
+
     csv = base64.b64encode(b"vendor,invoice_number,amount\nAcme,DL-1,10.00\n").decode()
-    await client.post("/api/v1/email/inbound", json={"token": token, "attachments": [{"filename": "d.csv", "content_base64": csv}]})
+    await client.post(
+        "/api/v1/email/inbound",
+        json={"token": token, "attachments": [{"filename": "d.csv", "content_base64": csv}]},
+    )
     row = (await auth_client.get("/api/v1/email/inbox")).json()["items"][0]
     dl = await auth_client.get(f"/api/v1/email/inbox/{row['id']}/file")
     assert dl.status_code == 200
@@ -83,8 +103,15 @@ async def test_document_download_is_logged(auth_client, client):
 async def test_audit_is_tenant_scoped(auth_client, client):
     await auth_client.post("/api/v1/invoices", json=_inv(3))
     # A second workspace sees only its own events (just its own register).
-    reg = await client.post("/api/v1/auth/register", json={
-        "organization_name": "Beta", "name": "B", "email": "b@beta.io", "password": "supersecret"})
+    reg = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "organization_name": "Beta",
+            "name": "B",
+            "email": "b@beta.io",
+            "password": "supersecret",
+        },
+    )
     tok = reg.json()["token"]["access_token"]
     other = (await client.get("/api/v1/audit", headers={"Authorization": f"Bearer {tok}"})).json()
     assert all(e["action"] == "auth.register" for e in other["items"])

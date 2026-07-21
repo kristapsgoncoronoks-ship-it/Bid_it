@@ -1,4 +1,5 @@
 """Recurring-invoice schedules + the idempotent generator."""
+
 from datetime import date
 
 import pytest
@@ -19,13 +20,22 @@ ISSUER = {
 TEMPLATE = {
     "buyer_name": "Globex SARL",
     "buyer_email": "ap@globex.example",
-    "lines": [{"description": "Monthly retainer", "quantity": "1", "unit_price": "500.00", "vat_rate": "21"}],
+    "lines": [
+        {
+            "description": "Monthly retainer",
+            "quantity": "1",
+            "unit_price": "500.00",
+            "vat_rate": "21",
+        }
+    ],
 }
 
 
 async def _activate(auth_client):
     assert (await auth_client.put("/api/v1/issuer", json=ISSUER)).status_code == 200
-    assert (await auth_client.put("/api/v1/modules/issuing", json={"enabled": True})).status_code == 200
+    assert (
+        await auth_client.put("/api/v1/modules/issuing", json={"enabled": True})
+    ).status_code == 200
 
 
 def test_advance_month_end_clamps():
@@ -95,7 +105,12 @@ async def test_generation_is_idempotent_and_catches_up(auth_client, db_session):
 async def test_run_endpoint_generates_invoices(auth_client):
     await _activate(auth_client)
     # A schedule whose first run is already due today.
-    body = {"template": TEMPLATE, "frequency": "monthly", "start_date": "2020-01-01", "end_date": "2020-02-15"}
+    body = {
+        "template": TEMPLATE,
+        "frequency": "monthly",
+        "start_date": "2020-01-01",
+        "end_date": "2020-02-15",
+    }
     await auth_client.post("/api/v1/issued/recurring", json=body)
 
     run = await auth_client.post("/api/v1/issued/recurring/run")
@@ -116,7 +131,9 @@ async def test_pause_stops_generation(auth_client):
     rec = (await auth_client.post("/api/v1/issued/recurring", json=body)).json()
 
     # Pause it.
-    patched = await auth_client.patch(f"/api/v1/issued/recurring/{rec['id']}", json={"active": False})
+    patched = await auth_client.patch(
+        f"/api/v1/issued/recurring/{rec['id']}", json={"active": False}
+    )
     assert patched.status_code == 200 and patched.json()["active"] is False
 
     run = await auth_client.post("/api/v1/issued/recurring/run")
@@ -130,9 +147,15 @@ async def test_schedule_is_tenant_isolated(auth_client, client):
     rec = (await auth_client.post("/api/v1/issued/recurring", json=body)).json()
 
     # A second, unrelated workspace.
-    reg = await client.post("/api/v1/auth/register", json={
-        "organization_name": "Other Co", "name": "Other", "email": "other@other.io", "password": "supersecret2",
-    })
+    reg = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "organization_name": "Other Co",
+            "name": "Other",
+            "email": "other@other.io",
+            "password": "supersecret2",
+        },
+    )
     other = reg.json()["token"]["access_token"]
     client.headers["Authorization"] = f"Bearer {other}"
     assert (await client.put("/api/v1/issuer", json=ISSUER)).status_code == 200

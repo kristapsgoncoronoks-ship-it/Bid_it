@@ -14,6 +14,7 @@ path, documented as such. Health/metrics probes are exempt.
 The middleware runs in a single event loop per process, so a check-and-increment
 with no `await` between is atomic — no lock needed.
 """
+
 from __future__ import annotations
 
 import hashlib

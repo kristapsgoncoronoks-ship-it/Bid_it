@@ -3,8 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import CurrentUser, DbSession
-from app.models.organization import Organization
 from app.core.roles import is_admin_or_above
+from app.models.organization import Organization
 from app.schemas.module import ModuleOut, ModuleToggle
 from app.services import audit, issuer, modules, plans
 
@@ -23,11 +23,17 @@ async def list_modules(current: CurrentUser, db: DbSession):
     enabled = await modules.enabled_keys(db, current.org_id)
     out = []
     for m in modules.MODULES:
-        out.append(ModuleOut(
-            key=m.key, name=m.name, description=m.description, core=m.core,
-            enabled=m.key in enabled, requires_issuer=m.requires_issuer,
-            ready=await _ready(db, current.org_id, m),
-        ))
+        out.append(
+            ModuleOut(
+                key=m.key,
+                name=m.name,
+                description=m.description,
+                core=m.core,
+                enabled=m.key in enabled,
+                requires_issuer=m.requires_issuer,
+                ready=await _ready(db, current.org_id, m),
+            )
+        )
     return out
 
 
@@ -50,11 +56,20 @@ async def toggle_module(key: str, body: ModuleToggle, current: CurrentUser, db: 
                 f"The {m.name} module isn't included in your {plans.plan_for(org.plan).name} plan. Upgrade to enable it.",
             )
     await modules.set_enabled(db, current.org_id, key, body.enabled)
-    await audit.record(db, audit.A.MODULE_TOGGLE, target_type="module", target_id=key,
-                       meta={"enabled": body.enabled})
+    await audit.record(
+        db,
+        audit.A.MODULE_TOGGLE,
+        target_type="module",
+        target_id=key,
+        meta={"enabled": body.enabled},
+    )
     await db.commit()
     return ModuleOut(
-        key=m.key, name=m.name, description=m.description, core=m.core,
-        enabled=body.enabled, requires_issuer=m.requires_issuer,
+        key=m.key,
+        name=m.name,
+        description=m.description,
+        core=m.core,
+        enabled=body.enabled,
+        requires_issuer=m.requires_issuer,
         ready=await _ready(db, current.org_id, m),
     )

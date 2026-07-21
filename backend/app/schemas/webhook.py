@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 class WebhookCreate(BaseModel):
     url: str = Field(min_length=1, max_length=500)
-    events: str = Field(default="*", max_length=500)   # "*" or comma-separated types
+    events: str = Field(default="*", max_length=500)  # "*" or comma-separated types
     description: str | None = Field(default=None, max_length=200)
 
     @field_validator("url")

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import enum
-
 from sqlalchemy import Boolean, ForeignKey, String
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
@@ -23,7 +21,8 @@ class Invitation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     role: Mapped[UserRole] = mapped_column(
         SAEnum(UserRole, name="user_role", native_enum=False, length=20),
-        default=UserRole.user, nullable=False,
+        default=UserRole.user,
+        nullable=False,
     )
     token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     invited_by: Mapped[str | None] = mapped_column(String(200), nullable=True)

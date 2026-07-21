@@ -9,6 +9,7 @@ Every request is signed HMAC-SHA256 over the exact body with the endpoint's
 secret (header `X-InvoiceIQ-Signature: sha256=<hex>`), so a receiver can verify
 authenticity. emit() is best-effort and never raises into the caller.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -16,13 +17,13 @@ import hmac
 import json
 import logging
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.webhook import WebhookDelivery, WebhookEndpoint
 from app.models import webhook as wh
+from app.models.webhook import WebhookDelivery, WebhookEndpoint
 
 log = logging.getLogger("invoiceiq.webhooks")
 
@@ -66,24 +67,30 @@ async def emit(db: AsyncSession, org_id: str, event_type: str, data: dict) -> in
     try:
         from app.services import jobs  # local import avoids a cycle
 
-        endpoints = list(await db.scalars(
-            select(WebhookEndpoint).where(
-                WebhookEndpoint.org_id == org_id, WebhookEndpoint.active.is_(True)
+        endpoints = list(
+            await db.scalars(
+                select(WebhookEndpoint).where(
+                    WebhookEndpoint.org_id == org_id, WebhookEndpoint.active.is_(True)
+                )
             )
-        ))
+        )
         enqueued = 0
         for ep in endpoints:
             if not _subscribed(ep, event_type):
                 continue
             payload = {"event": event_type, "data": data}
             delivery = WebhookDelivery(
-                org_id=org_id, endpoint_id=ep.id, event_type=event_type,
-                payload_json=json.dumps(payload, sort_keys=True), status=wh.PENDING,
+                org_id=org_id,
+                endpoint_id=ep.id,
+                event_type=event_type,
+                payload_json=json.dumps(payload, sort_keys=True),
+                status=wh.PENDING,
             )
             db.add(delivery)
             await db.flush()  # assign delivery.id before enqueuing the job
-            await jobs.enqueue(db, WEBHOOK_DELIVER, {"delivery_id": delivery.id},
-                               org_id=org_id, commit=False)
+            await jobs.enqueue(
+                db, WEBHOOK_DELIVER, {"delivery_id": delivery.id}, org_id=org_id, commit=False
+            )
             enqueued += 1
         return enqueued
     except Exception as exc:  # noqa: BLE001 — emit is best-effort
@@ -133,7 +140,7 @@ async def deliver(db: AsyncSession, delivery_id: str) -> dict:
     if 200 <= code < 300:
         delivery.status = wh.DELIVERED
         delivery.last_error = None
-        delivery.delivered_at = datetime.now(timezone.utc)
+        delivery.delivered_at = datetime.now(UTC)
         await db.commit()
         return {"delivered": True, "code": code}
 

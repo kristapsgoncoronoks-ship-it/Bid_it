@@ -3,6 +3,7 @@
 These require the optional PDF/OCR stack; they skip cleanly if it (or the
 tesseract binary) is not installed, so the core suite stays green everywhere.
 """
+
 import io
 import shutil
 from decimal import Decimal
@@ -15,10 +16,10 @@ pytest.importorskip("pypdfium2")
 pytest.importorskip("pytesseract")
 pytest.importorskip("PIL")
 
+from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 from reportlab.lib.pagesizes import A4  # noqa: E402
 from reportlab.lib.utils import ImageReader  # noqa: E402
 from reportlab.pdfgen import canvas  # noqa: E402
-from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
