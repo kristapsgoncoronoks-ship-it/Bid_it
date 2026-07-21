@@ -1,0 +1,36 @@
+# ADR-0021 — Enterprise SSO (OIDC → SCIM → SAML)
+
+**Status:** Accepted — **OIDC implemented**; SCIM + SAML in progress. This ADR is the standing record for the whole identity-federation program and, critically, **where the fixture-proven build stops and a real IdP is required to finish.**
+
+## Context
+Enterprise buyers gate purchase on SSO (central identity, MFA at the IdP, instant offboarding) and, increasingly, SCIM auto-provisioning. Our own auth is email/password → internal JWT (ADR-0005). SSO must layer on **without** changing anything downstream: it resolves a person to a `User` row in the right tenant and then issues our normal JWT. Each tenant brings **its own** IdP, so connection config is per-org.
+
+## Why fixtures, not fake
+SSO is a security handshake; almost all its value is correct interop **and correct rejection** of forged input. So we split each protocol into:
+- **pure, security-critical logic** — proven offline with locally-minted key fixtures (accept a valid token/assertion, reject tampered / wrong-audience / wrong-issuer / expired / replayed), and
+- **thin network seams** — discovery, token exchange, JWKS/metadata fetch — exercised end-to-end against a real IdP / a local **Keycloak** container.
+
+We build and land the first half with full test evidence; the second half is the explicit **"return to finish"** boundary. We do **not** ship an unvalidated assertion path — for auth, a fake is an authentication bypass, not a harmless stub.
+
+## OIDC — implemented (this increment)
+Authorization-code flow with **PKCE** and a **stateless, signed `state`** (JWT under the app key — no session store):
+- `services/oidc.py`: `pkce_pair`, `build_authorize_url`, `sign_state`/`read_state`, and **`validate_id_token`** (RS256 via the IdP JWKS, issuer, audience, expiry, **nonce**) — all pure. `discover` / `exchange_code` / `fetch_jwks` are the injectable network seams. `finish_login` orchestrates + **JIT-provisions** (match by email in the connection's org; create with `default_role` if enabled; **reject an email that belongs to another workspace**; enforce an optional `allowed_domain`). JIT users get an **unusable password** so password login is refused.
+- Routes: public `GET /auth/sso/{slug}/authorize` (302 → IdP) and `GET /auth/sso/callback` (verify → JIT → 302 to the SPA with the internal token in the fragment; any failure → the login page). Admin `GET/PUT/DELETE /sso/connection` (client secret write-only, never returned). Frontend: SSO login affordance, `/sso/callback` page, admin config panel.
+- Model/migration: `sso_connections` (tenant-scoped, RLS).
+- **Tests (21):** ID-token validation (1 accept + 6 rejections incl. wrong-key), PKCE/state, authorize-URL, JIT (create/match/cross-org/domain/jit-off), routes (authorize 302, callback issues token, error redirect), admin config + secret protection.
+- **Return to finish (needs a real IdP / Keycloak):** the live discovery + token-exchange + JWKS HTTP round-trips (the seams above), a smoke test against Keycloak, and refresh-token / `id_token_hint` logout. Not required for the offline security proof; required before GA.
+
+## SCIM — planned (next)
+Token-gated SCIM 2.0 `Users` (+ `Groups`) endpoints the tenant's IdP calls to create/update/**deactivate** users — the offboarding story. Fully buildable and testable offline (it is a REST API we serve); the "finish" part is only real-IdP paging/PATCH-dialect quirks (Okta vs Entra).
+
+## SAML — scaffolded (last)
+`sso_connections.protocol = 'saml'` + a metadata-URL field exist, but **assertion validation is deliberately NOT implemented yet** — a wrong SAML validator (XML signature-wrapping, canonicalization) is a bypass. It needs a vetted library (`pysaml2`) + a real IdP's metadata to build and prove. Documented as the final boundary.
+
+## Security notes / risks
+- **Client secret at rest:** stored on `sso_connections` for the multi-tenant config; **MUST move to the envelope-encrypted secret store (ADR-0016) before GA** — tracked here.
+- **Open-redirect / token leak:** the callback only ever redirects to our configured `sso_post_login_url`; the token rides the fragment (not sent to servers/logs).
+- **Cross-tenant takeover:** JIT refuses an email already owned by another workspace; domain allow-listing further constrains it.
+- **Replay:** nonce is required and checked; `state` is signed + short-TTL.
+
+## Revisit when
+Finishing against a real IdP (OIDC seams + SCIM dialects + SAML), moving the client secret to the KMS-backed store, or adding IdP-group→role mapping and SP-initiated logout.

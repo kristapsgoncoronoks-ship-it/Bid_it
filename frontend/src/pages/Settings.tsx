@@ -8,8 +8,8 @@ import { api, apiError } from "../lib/api";
 import { isAdminOrAbove } from "../lib/roles";
 import { useModules } from "../lib/useModules";
 import type {
-  ErasureReport, IntegrityReport, RetentionInfo, ValidationSettings, WebhookCreated,
-  WebhookDelivery, WebhookEndpoint,
+  ErasureReport, IntegrityReport, RetentionInfo, SsoConnection, ValidationSettings,
+  WebhookCreated, WebhookDelivery, WebhookEndpoint,
 } from "../lib/types";
 
 export default function Settings() {
@@ -122,7 +122,87 @@ export default function Settings() {
       {canEdit && <IntegrityCheck />}
       {canEdit && <RetentionPanel />}
       {canEdit && <ErasurePanel />}
+      {canEdit && <SsoPanel />}
     </div>
+  );
+}
+
+// Admin: OIDC single-sign-on connection (ADR-0021). The client secret is
+// write-only (never returned); SAML is scaffolded but not yet selectable here.
+function SsoPanel() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const conn = useQuery<SsoConnection | null>({
+    queryKey: ["sso"],
+    queryFn: async () => (await api.get("/sso/connection")).data,
+  });
+
+  const [form, setForm] = useState<Record<string, string | boolean>>({});
+  const c = conn.data;
+  const val = (k: string, dflt: string | boolean = "") =>
+    (k in form ? form[k] : (c as any)?.[k] ?? dflt);
+
+  const save = useMutation({
+    mutationFn: async () => (await api.put("/sso/connection", form)).data as SsoConnection,
+    onSuccess: (d) => { qc.setQueryData(["sso"], d); setForm({}); toast.success("SSO connection saved."); },
+    onError: (e) => toast.error(apiError(e)),
+  });
+
+  const field = (k: string, label: string, type = "text", placeholder = "") => (
+    <div>
+      <label className="label">{label}</label>
+      <input
+        className="input" type={type} placeholder={placeholder}
+        value={String(val(k) ?? "")}
+        onChange={(e) => setForm((p) => ({ ...p, [k]: e.target.value }))}
+      />
+    </div>
+  );
+
+  return (
+    <section className="space-y-2">
+      <div className="px-1">
+        <h2 className="text-sm font-semibold text-slate-600">Single sign-on (OIDC)</h2>
+        <p className="text-sm text-slate-500">
+          Let your team sign in with your identity provider (Okta, Entra, Google, Keycloak). Users are
+          provisioned on first login. The client secret is stored write-only and never shown again.
+        </p>
+      </div>
+      <div className="card grid grid-cols-1 gap-3 md:grid-cols-2">
+        {field("slug", "Workspace ID (login URL)", "text", "acme")}
+        {field("issuer", "OIDC issuer URL", "text", "https://idp.example.com")}
+        {field("client_id", "Client ID")}
+        {field("client_secret", c?.has_client_secret ? "Client secret (set — leave blank to keep)" : "Client secret", "password")}
+        {field("allowed_domain", "Restrict to email domain (optional)", "text", "example.com")}
+        <div>
+          <label className="label">Default role for new users</label>
+          <select className="input" value={String(val("default_role", "user"))}
+                  onChange={(e) => setForm((p) => ({ ...p, default_role: e.target.value }))}>
+            <option value="user">user</option>
+            <option value="processor">processor</option>
+            <option value="admin">admin</option>
+          </select>
+        </div>
+        <label className="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" checked={Boolean(val("enabled", false))}
+                 onChange={(e) => setForm((p) => ({ ...p, enabled: e.target.checked }))} />
+          Enabled
+        </label>
+        <label className="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" checked={Boolean(val("jit_enabled", true))}
+                 onChange={(e) => setForm((p) => ({ ...p, jit_enabled: e.target.checked }))} />
+          Just-in-time provisioning
+        </label>
+        <div className="md:col-span-2 flex items-center justify-between">
+          {c?.login_url
+            ? <span className="text-xs text-slate-400">Login URL: <code>{c.login_url}</code></span>
+            : <span />}
+          <button className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>
+            Save connection
+          </button>
+        </div>
+      </div>
+    </section>
   );
 }
 

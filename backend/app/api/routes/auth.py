@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import logging
+import secrets
+
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
+from app.core.config import settings
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.invitation import Invitation
 from app.models.organization import Organization
+from app.models.sso import SsoConnection
 from app.models.user import User, UserRole
 from app.schemas.auth import (
     AuthResponse,
@@ -16,9 +22,10 @@ from app.schemas.auth import (
     Token,
 )
 from app.schemas.tenancy import AcceptInvite, InvitePreview
-from app.services import audit, team
+from app.services import audit, oidc, sso_config, team
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+log = logging.getLogger("invoiceiq.auth")
 
 
 def _token_for(user: User) -> Token:
@@ -74,6 +81,58 @@ async def login(body: LoginRequest, db: DbSession) -> AuthResponse:
 async def me(current: CurrentUser, db: DbSession) -> MeOut:
     org = await db.get(Organization, current.org_id)
     return MeOut(user=current, organization=org)
+
+
+# --- SSO (OIDC) login (ADR-0021) -------------------------------------------
+
+def _sso_error_redirect() -> RedirectResponse:
+    return RedirectResponse(f"{settings.sso_error_url}?sso_error=1", status_code=status.HTTP_302_FOUND)
+
+
+@router.get("/sso/{slug}/authorize", include_in_schema=False)
+async def sso_authorize(slug: str, db: DbSession):
+    """Begin OIDC login: redirect the browser to the tenant's IdP with PKCE +
+    a signed, stateless `state`."""
+    conn = await sso_config.get_by_slug(db, slug)
+    if conn is None or not conn.enabled or conn.protocol != "oidc":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "SSO is not enabled for this workspace")
+    try:
+        disco = await oidc.discover(conn.issuer or "")
+        verifier, challenge = oidc.pkce_pair()
+        nonce = secrets.token_urlsafe(16)
+        state = oidc.sign_state(conn.id, nonce, verifier)
+        url = oidc.build_authorize_url(
+            disco["authorization_endpoint"], client_id=conn.client_id or "",
+            redirect_uri=settings.sso_redirect_uri, state=state, nonce=nonce, code_challenge=challenge,
+        )
+    except Exception as exc:  # noqa: BLE001 - IdP unreachable / misconfigured
+        log.warning("SSO authorize failed for %s: %s", slug, exc)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Identity provider is unreachable")
+    return RedirectResponse(url, status_code=status.HTTP_302_FOUND)
+
+
+@router.get("/sso/callback", include_in_schema=False)
+async def sso_callback(db: DbSession, code: str | None = None, state: str | None = None,
+                       error: str | None = None):
+    """OIDC redirect back: validate + JIT-provision, then bounce to the SPA with
+    our internal token in the URL fragment. Any failure → the SPA login page."""
+    if error or not code or not state:
+        return _sso_error_redirect()
+    try:
+        st = oidc.read_state(state)
+        conn = await db.get(SsoConnection, st["conn"])
+        if conn is None or not conn.enabled:
+            raise oidc.SsoError("connection unavailable")
+        user, org = await oidc.finish_login(db, conn, code=code, nonce=st["nonce"], code_verifier=st["cv"])
+    except oidc.SsoError as exc:
+        log.warning("SSO callback rejected: %s", exc)
+        return _sso_error_redirect()
+    except Exception:  # noqa: BLE001 - never 500 into a browser redirect flow
+        log.exception("SSO callback error")
+        return _sso_error_redirect()
+    token = create_access_token(user.id, {"org": org.id})
+    return RedirectResponse(f"{settings.sso_post_login_url}#access_token={token}",
+                            status_code=status.HTTP_302_FOUND)
 
 
 @router.get("/invite/{token}", response_model=InvitePreview)

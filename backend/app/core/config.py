@@ -126,8 +126,21 @@ class Settings(BaseSettings):
     billing_success_url: str = Field(default="http://localhost:5173/billing?checkout=success")
     billing_cancel_url: str = Field(default="http://localhost:5173/billing?checkout=cancel")
     billing_portal_return_url: str = Field(default="http://localhost:5173/billing")
-    # Public base URL of THIS API (for EveryPay's customer_url / callback_url).
+    # Public base URL of THIS API (for EveryPay's customer_url / callback_url,
+    # and the SSO redirect URI).
     api_public_base_url: str = Field(default="http://localhost:8000")
+
+    # --- SSO (OIDC/SAML; ADR-0021) ---
+    # Where the browser lands after a successful SSO login; the SPA reads the
+    # issued token from the URL fragment there.
+    sso_post_login_url: str = Field(default="http://localhost:5173/sso/callback")
+    # Where to bounce on an SSO error (SPA login page).
+    sso_error_url: str = Field(default="http://localhost:5173/login")
+
+    @property
+    def sso_redirect_uri(self) -> str:
+        """The OIDC redirect/callback URI registered with the IdP."""
+        return f"{self.api_public_base_url.rstrip('/')}{self.api_v1_prefix}/auth/sso/callback"
 
     @property
     def everypay_configured(self) -> bool:

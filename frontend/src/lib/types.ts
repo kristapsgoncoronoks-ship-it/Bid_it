@@ -139,6 +139,20 @@ export interface ErasureReport {
   locations: ErasureLocation[];
 }
 
+export interface SsoConnection {
+  id: string;
+  slug: string;
+  protocol: string;
+  enabled: boolean;
+  issuer: string | null;
+  client_id: string | null;
+  allowed_domain: string | null;
+  jit_enabled: boolean;
+  default_role: string;
+  has_client_secret: boolean;
+  login_url: string | null;
+}
+
 export interface Tenant {
   id: string;
   name: string;

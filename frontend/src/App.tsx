@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { Layout } from "./components/Layout";
 import Login from "./pages/Login";
+import SsoCallback from "./pages/SsoCallback";
 import AcceptInvite from "./pages/AcceptInvite";
 
 // Auth pages load eagerly (first paint); everything behind the app shell is
@@ -38,6 +39,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/sso/callback" element={<SsoCallback />} />
       <Route path="/accept-invite" element={<AcceptInvite />} />
       <Route
         element={

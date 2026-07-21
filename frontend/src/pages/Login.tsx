@@ -13,6 +13,7 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [ssoSlug, setSsoSlug] = useState("");
 
   if (user) return <Navigate to="/" replace />;
 
@@ -89,6 +90,28 @@ export default function Login() {
           >
             {mode === "login" ? "Need an account? Register" : "Have an account? Sign in"}
           </button>
+
+          {mode === "login" && (
+            <div className="mt-5 border-t border-slate-100 pt-4">
+              <label className="label">Single sign-on</label>
+              <div className="flex items-center gap-2">
+                <input
+                  className="input flex-1"
+                  placeholder="workspace ID (e.g. acme)"
+                  value={ssoSlug}
+                  onChange={(e) => setSsoSlug(e.target.value.trim())}
+                />
+                <button
+                  type="button"
+                  className="btn-ghost whitespace-nowrap"
+                  disabled={!ssoSlug}
+                  onClick={() => { window.location.href = `/api/v1/auth/sso/${encodeURIComponent(ssoSlug)}/authorize`; }}
+                >
+                  Continue with SSO
+                </button>
+              </div>
+            </div>
+          )}
         </div>
         {mode === "login" && (
           <p className="mt-4 text-center text-xs text-slate-400">

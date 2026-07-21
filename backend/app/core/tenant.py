@@ -35,6 +35,7 @@ from app.models.module import OrgModule
 from app.models.partner import Partner, PartnerDocument
 from app.models.recurring_invoice import RecurringInvoice
 from app.models.retention import LegalHold, RetentionPolicy
+from app.models.sso import SsoConnection
 from app.models.usage import UsageCounter
 from app.models.user import User
 from app.models.vendor import Vendor
@@ -47,7 +48,7 @@ TENANT_MODELS = (
     ExpenseReport, ExpenseTransaction, ExpenseComment, EmailIntake, InboundInvoice,
     BudgetTarget, AuditEvent, EmailMessage, Partner, PartnerDocument, RecurringInvoice,
     Job, UsageCounter, WebhookEndpoint, WebhookDelivery, BillingPayment,
-    RetentionPolicy, LegalHold,
+    RetentionPolicy, LegalHold, SsoConnection,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.
