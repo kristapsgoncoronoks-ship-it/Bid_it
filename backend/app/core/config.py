@@ -175,6 +175,21 @@ class Settings(BaseSettings):
     def stripe_meter_for(self, metric: str) -> str | None:
         return {"upload": self.stripe_meter_upload}.get(metric)
 
+    # --- Data residency / region-pinning (ADR-0022) ---
+    # `service_region` is THIS deployment's data plane (e.g. "eu", "us"). New
+    # tenants are pinned to `default_tenant_region` (defaults to service_region).
+    # When `enforce_region_pinning` is on, an authenticated request for a tenant
+    # pinned to a DIFFERENT region is refused (421) — a belt-and-braces backstop
+    # behind the load balancer's region routing. Off by default = single-region,
+    # byte-identical behaviour.
+    service_region: str = Field(default="eu")
+    default_tenant_region: str | None = Field(default=None)
+    enforce_region_pinning: bool = Field(default=False)
+
+    @property
+    def tenant_region(self) -> str:
+        return self.default_tenant_region or self.service_region
+
     # --- Background-queue SLO (observability) ---
     # The queue is "degraded" when the oldest ready-but-unprocessed job is older
     # than this (worker falling behind), or the dead-letter depth exceeds the

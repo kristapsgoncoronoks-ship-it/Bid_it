@@ -60,6 +60,7 @@ export interface Organization {
   name: string;
   plan?: string;
   status?: string;
+  region?: string;
 }
 
 export interface Member {

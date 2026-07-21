@@ -12,9 +12,12 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import residency
+from app.core.config import settings
 from app.core.database import get_session
 from app.core.security import decode_access_token
 from app.core.tenant import apply_db_tenant, set_current_actor, set_current_org
+from app.models.organization import Organization
 from app.models.user import User
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -46,6 +49,11 @@ async def get_current_user(
     # Pin the Postgres RLS GUC for this request's current transaction (no-op on
     # SQLite / when unscoped). The event hook re-applies it on later transactions.
     await apply_db_tenant(db)
+    # Data-residency backstop: refuse a tenant pinned to another region (no-op
+    # unless enforcement is on → single-region deployments skip the org fetch).
+    if settings.enforce_region_pinning:
+        org = await db.get(Organization, user.org_id)
+        residency.assert_region(org)
     return user
 
 

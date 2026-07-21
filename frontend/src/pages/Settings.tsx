@@ -13,7 +13,7 @@ import type {
 } from "../lib/types";
 
 export default function Settings() {
-  const { user } = useAuth();
+  const { user, org } = useAuth();
   const qc = useQueryClient();
   const toast = useToast();
   const canEdit = isAdminOrAbove(user);
@@ -41,11 +41,18 @@ export default function Settings() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Admin panel</h1>
-        <p className="text-sm text-slate-500">
-          Manage your workspace — turn capabilities on or off. Changes apply immediately.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Admin panel</h1>
+          <p className="text-sm text-slate-500">
+            Manage your workspace — turn capabilities on or off. Changes apply immediately.
+          </p>
+        </div>
+        {org?.region && (
+          <span className="badge bg-slate-100 text-slate-600" title="Where this workspace's data is stored">
+            Data region: {org.region.toUpperCase()}
+          </span>
+        )}
       </div>
 
       {!canEdit && (

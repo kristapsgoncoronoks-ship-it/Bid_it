@@ -34,5 +34,6 @@ Status values: **Accepted** (in effect), **Proposed** (agreed direction, not yet
 | [0019](./0019-retention-legal-hold.md) | Data retention windows + legal hold | Accepted |
 | [0020](./0020-gdpr-erasure.md) | GDPR right-to-erasure respecting statutory retention | Accepted |
 | [0021](./0021-sso-scim.md) | Enterprise SSO (OIDC → SCIM → SAML), fixtures boundary | Accepted (OIDC + SCIM) |
+| [0022](./0022-data-residency.md) | Data residency / region-pinning (app seam + backstop) | Accepted |
 
 **To add an ADR:** copy the shape above, take the next number, link it here. Never edit an Accepted ADR's decision in place — supersede it with a new one and mark the old one Superseded.

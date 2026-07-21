@@ -10,6 +10,7 @@ from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
+from app.core import residency
 from app.core.config import settings
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.invitation import Invitation
@@ -40,7 +41,7 @@ async def register(body: RegisterRequest, db: DbSession) -> AuthResponse:
     if existing is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered")
 
-    org = Organization(name=body.organization_name)
+    org = Organization(name=body.organization_name, region=settings.tenant_region)
     db.add(org)
     await db.flush()  # assign org.id
 
@@ -72,6 +73,7 @@ async def login(body: LoginRequest, db: DbSession) -> AuthResponse:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Account is disabled")
 
     org = await db.get(Organization, user.org_id)
+    residency.assert_region(org)   # refuse a wrong-region login (backstop; LB routes)
     if org.status != "active" and not user.is_platform_admin:
         raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, f"Workspace is {org.status}. Contact support.")
     await audit.record(db, audit.A.LOGIN, org_id=user.org_id, actor=(user.id, user.email))

@@ -29,6 +29,11 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     plan: Mapped[str] = mapped_column(String(20), default="trial", nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)  # active|suspended|canceled
 
+    # Data residency (ADR-0022): the region this tenant's data is pinned to.
+    # Assigned at registration; a regional deployment refuses to serve a tenant
+    # pinned elsewhere when enforcement is on.
+    region: Mapped[str] = mapped_column(String(20), default="eu", nullable=False)
+
     # Stripe linkage (ADR-0013). Set on first checkout; the signed webhook is the
     # authority for plan/status thereafter. Null until a tenant subscribes.
     stripe_customer_id: Mapped[str | None] = mapped_column(

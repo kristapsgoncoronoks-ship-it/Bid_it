@@ -28,6 +28,7 @@ class OrganizationOut(BaseModel):
     name: str
     plan: str = "trial"
     status: str = "active"
+    region: str = "eu"
 
 
 class UserOut(BaseModel):
