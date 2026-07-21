@@ -205,12 +205,51 @@ async def seed() -> None:
         issued = await _seed_issued(db, org.id, rng)
         # --- Partners with pre-invoicing workflow + penalty invoicing ---
         partner_ct = await _seed_partners(db, org.id)
+        # --- Cost-allocation master data (Slice 1) ---
+        costing_ct = await _seed_costing(db, org.id)
 
         await db.commit()
         print(f"Seeded '{org.name}' with {count} invoices across {len(vendors)} vendors.")
         print(f"Issued {issued} outbound invoices (paid/overdue/open mix).")
         print(f"Created {partner_ct} partners (workflow + penalty demo).")
+        print(f"Created {costing_ct} cost-allocation master records (departments/cost-centers/projects).")
         print(f"Login: {DEMO_EMAIL} / demo1234")
+
+
+async def _seed_costing(db, org_id: str) -> int:
+    """A small, realistic cost-allocation master set for the demo tenant:
+    departments, cost centers rolled up to them, and a couple of projects."""
+    from app.models.costing import CostCenter, Department, Project
+
+    deps = {
+        "OPS": "Operations", "FIN": "Finance", "SALES": "Sales & Marketing",
+    }
+    dep_ids: dict[str, str] = {}
+    for code, name in deps.items():
+        d = Department(org_id=org_id, code=code, name=name)
+        db.add(d)
+        await db.flush()
+        dep_ids[code] = d.id
+
+    cost_centers = [
+        ("CC-1000", "Fleet & Logistics", "OPS"),
+        ("CC-1100", "Warehouse", "OPS"),
+        ("CC-2000", "Accounting", "FIN"),
+        ("CC-3000", "Field Sales", "SALES"),
+    ]
+    for code, name, dep in cost_centers:
+        db.add(CostCenter(org_id=org_id, code=code, name=name, department_id=dep_ids[dep]))
+
+    projects = [
+        ("PRJ-BALTIC", "Baltic Expansion 2026", "active"),
+        ("PRJ-ERP", "ERP Migration", "active"),
+        ("PRJ-2025Q4", "Q4-2025 Cost Review", "closed"),
+    ]
+    for code, name, status in projects:
+        db.add(Project(org_id=org_id, code=code, name=name, status=status))
+
+    await db.flush()
+    return len(deps) + len(cost_centers) + len(projects)
 
 
 async def _seed_issued(db, org_id: str, rng: random.Random) -> int:

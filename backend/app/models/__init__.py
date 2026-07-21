@@ -2,6 +2,7 @@
 from app.models.audit import AuditEvent
 from app.models.base import Base
 from app.models.billing_event import ProcessedStripeEvent
+from app.models.costing import CostCenter, Department, Project
 from app.models.billing_payment import BillingPayment
 from app.models.budget import BudgetTarget
 from app.models.expense import (
@@ -67,4 +68,7 @@ __all__ = [
     "RetentionPolicy",
     "LegalHold",
     "SsoConnection",
+    "Department",
+    "CostCenter",
+    "Project",
 ]
