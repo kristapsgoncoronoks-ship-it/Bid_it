@@ -7,8 +7,8 @@ from fastapi import APIRouter, HTTPException, status
 from app.api.deps import CurrentUser, DbSession
 from app.core.config import settings
 from app.core.roles import is_admin_or_above
-from app.schemas.sso import SsoConnectionOut, SsoConnectionUpdate
-from app.services import sso_config
+from app.schemas.sso import ScimTokenOut, SsoConnectionOut, SsoConnectionUpdate
+from app.services import scim, sso_config
 
 router = APIRouter(prefix="/sso", tags=["sso"])
 
@@ -19,13 +19,14 @@ def _require_admin(current) -> None:
 
 
 def _out(conn) -> SsoConnectionOut:
-    login = f"{settings.api_public_base_url.rstrip('/')}{settings.api_v1_prefix}/auth/sso/{conn.slug}/authorize"
+    base = f"{settings.api_public_base_url.rstrip('/')}{settings.api_v1_prefix}"
     return SsoConnectionOut(
         id=conn.id, slug=conn.slug, protocol=conn.protocol, enabled=conn.enabled,
         issuer=conn.issuer, client_id=conn.client_id, allowed_domain=conn.allowed_domain,
         jit_enabled=conn.jit_enabled, default_role=conn.default_role,
         saml_metadata_url=conn.saml_metadata_url,
-        has_client_secret=bool(conn.client_secret), login_url=login,
+        has_client_secret=bool(conn.client_secret), scim_enabled=conn.scim_enabled,
+        login_url=f"{base}/auth/sso/{conn.slug}/authorize", scim_base_url=f"{base}/scim/v2",
     )
 
 
@@ -54,3 +55,15 @@ async def put_connection(body: SsoConnectionUpdate, current: CurrentUser, db: Db
 async def delete_connection(current: CurrentUser, db: DbSession):
     _require_admin(current)
     await sso_config.delete_connection(db, current.org_id)
+
+
+@router.post("/scim/token", response_model=ScimTokenOut)
+async def rotate_scim_token(current: CurrentUser, db: DbSession):
+    """Enable SCIM and mint a fresh provisioning token (shown ONCE). Regenerating
+    invalidates the previous token."""
+    _require_admin(current)
+    try:
+        token = await scim.set_token(db, current.org_id)
+    except scim.ScimError as exc:
+        raise HTTPException(exc.status, exc.detail)
+    return ScimTokenOut(token=token)

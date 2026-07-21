@@ -38,5 +38,10 @@ class SsoConnection(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     jit_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     default_role: Mapped[str] = mapped_column(String(20), default="user", nullable=False)
 
+    # SCIM 2.0 provisioning (ADR-0021): the tenant's IdP authenticates with a
+    # bearer token (only its sha256 is stored; the plaintext is shown once).
+    scim_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    scim_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+
     # SAML (scaffold — not yet wired; see ADR-0021).
     saml_metadata_url: Mapped[str | None] = mapped_column(String(400), nullable=True)

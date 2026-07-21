@@ -150,7 +150,9 @@ export interface SsoConnection {
   jit_enabled: boolean;
   default_role: string;
   has_client_secret: boolean;
+  scim_enabled: boolean;
   login_url: string | null;
+  scim_base_url: string | null;
 }
 
 export interface Tenant {

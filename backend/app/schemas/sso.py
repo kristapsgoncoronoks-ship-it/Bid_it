@@ -18,7 +18,13 @@ class SsoConnectionOut(BaseModel):
     default_role: str = "user"
     saml_metadata_url: str | None = None
     has_client_secret: bool = False
+    scim_enabled: bool = False
     login_url: str | None = None
+    scim_base_url: str | None = None
+
+
+class ScimTokenOut(BaseModel):
+    token: str   # shown ONCE
 
 
 class SsoConnectionUpdate(BaseModel):

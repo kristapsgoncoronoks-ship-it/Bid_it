@@ -138,7 +138,14 @@ function SsoPanel() {
   });
 
   const [form, setForm] = useState<Record<string, string | boolean>>({});
+  const [tokenOnce, setTokenOnce] = useState<string | null>(null);
   const c = conn.data;
+
+  const scimToken = useMutation({
+    mutationFn: async () => (await api.post("/sso/scim/token")).data as { token: string },
+    onSuccess: (d) => { setTokenOnce(d.token); qc.invalidateQueries({ queryKey: ["sso"] }); },
+    onError: (e) => toast.error(apiError(e)),
+  });
   const val = (k: string, dflt: string | boolean = "") =>
     (k in form ? form[k] : (c as any)?.[k] ?? dflt);
 
@@ -201,6 +208,32 @@ function SsoPanel() {
             Save connection
           </button>
         </div>
+
+        {c?.id && (
+          <div className="md:col-span-2 border-t border-slate-100 pt-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm">
+                <span className="font-medium text-slate-700">SCIM provisioning</span>
+                <span className="ml-2 text-xs text-slate-400">
+                  {c.scim_enabled ? "enabled" : "off"} · your IdP creates/deactivates users automatically
+                </span>
+              </div>
+              <button
+                className="btn-ghost"
+                disabled={scimToken.isPending}
+                onClick={() => scimToken.mutate()}
+              >
+                {c.scim_enabled ? "Regenerate SCIM token" : "Enable SCIM & generate token"}
+              </button>
+            </div>
+            {tokenOnce && (
+              <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                Copy this token now — it is shown only once. Base URL: <code>{c.scim_base_url}</code>
+                <div className="mt-1 break-all font-mono text-slate-700">{tokenOnce}</div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </section>
   );

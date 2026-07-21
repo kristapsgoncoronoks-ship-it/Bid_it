@@ -3,7 +3,7 @@ from fastapi import APIRouter
 from app.api.routes import (
     access, analytics, audit, auth, billing, budget, email, expenses, fx,
     export, invoices, issued, issuer, integrity, jobs, modules, partners,
-    platform, privacy, recurring, retention, settings, sso, team, vendors, webhooks,
+    platform, privacy, recurring, retention, scim, settings, sso, team, vendors, webhooks,
 )
 
 api_router = APIRouter()
@@ -35,3 +35,4 @@ api_router.include_router(export.router)
 api_router.include_router(retention.router)
 api_router.include_router(privacy.router)
 api_router.include_router(sso.router)
+api_router.include_router(scim.router)

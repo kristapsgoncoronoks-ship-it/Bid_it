@@ -20,8 +20,8 @@ Authorization-code flow with **PKCE** and a **stateless, signed `state`** (JWT u
 - **Tests (21):** ID-token validation (1 accept + 6 rejections incl. wrong-key), PKCE/state, authorize-URL, JIT (create/match/cross-org/domain/jit-off), routes (authorize 302, callback issues token, error redirect), admin config + secret protection.
 - **Return to finish (needs a real IdP / Keycloak):** the live discovery + token-exchange + JWKS HTTP round-trips (the seams above), a smoke test against Keycloak, and refresh-token / `id_token_hint` logout. Not required for the offline security proof; required before GA.
 
-## SCIM — planned (next)
-Token-gated SCIM 2.0 `Users` (+ `Groups`) endpoints the tenant's IdP calls to create/update/**deactivate** users — the offboarding story. Fully buildable and testable offline (it is a REST API we serve); the "finish" part is only real-IdP paging/PATCH-dialect quirks (Okta vs Entra).
+## SCIM — implemented
+Token-gated **SCIM 2.0 `Users`** endpoints (`/scim/v2/Users`, POST/GET/PUT/PATCH/DELETE) the tenant's IdP calls to create / update / **deactivate** users — the offboarding story. Authenticated by a per-connection bearer token (only its sha256 stored; minted once via `POST /sso/scim/token`); a dependency resolves the token → connection and scopes the request to that org (tenant guard + RLS). Deactivation (`active=false` via PATCH, or DELETE) is a **soft** delete so audit attribution + FKs survive. `services/scim.py` holds the resource mapping + CRUD; errors render in the SCIM error schema. **Tests (10):** token required/hashed, create/list(filter)/get/replace/patch-deactivate/delete-soft, missing-userName 400, cross-tenant isolation, admin token mint. **Return to finish (needs a real IdP):** `Groups`, and the paging / PATCH-dialect quirks between Okta and Entra.
 
 ## SAML — scaffolded (last)
 `sso_connections.protocol = 'saml'` + a metadata-URL field exist, but **assertion validation is deliberately NOT implemented yet** — a wrong SAML validator (XML signature-wrapping, canonicalization) is a bypass. It needs a vetted library (`pysaml2`) + a real IdP's metadata to build and prove. Documented as the final boundary.

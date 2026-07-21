@@ -20,6 +20,7 @@ from app.core.ratelimit import RateLimitMiddleware
 from app.core.security_headers import SecurityHeadersMiddleware
 from app.core.tenant import TenantScopeMiddleware
 from app.models import Base
+from app.services.scim import ERROR_SCHEMA as SCIM_ERROR_SCHEMA, ScimError
 
 configure_logging(settings.structured_logs)
 log = logging.getLogger("invoiceiq")
@@ -87,6 +88,17 @@ app.add_middleware(RequestContextMiddleware)
 # Prometheus /metrics + per-request instrumentation (only if the lib is present).
 if settings.metrics_enabled and setup_metrics(app):
     log.info("Prometheus metrics enabled at /metrics")
+
+
+@app.exception_handler(ScimError)
+async def _scim_error_handler(request, exc: ScimError):
+    """Render SCIM service errors in the SCIM error schema."""
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        status_code=exc.status, media_type="application/scim+json",
+        content={"schemas": [SCIM_ERROR_SCHEMA], "detail": exc.detail, "status": str(exc.status)},
+    )
 
 
 @app.get("/health", tags=["meta"])
