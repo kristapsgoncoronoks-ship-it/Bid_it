@@ -126,7 +126,14 @@ async def process_attachment(
     # the sha256 already recorded), then hand extraction to the worker tier so a
     # burst of attachments never ties up the API with OCR (ADR-0009). The row is
     # QUEUED here; the worker parses it into a review draft (or marks it failed).
-    await documents.store(documents.EMAIL_ATTACHMENTS, org_id, content, row.content_type)
+    await documents.store(
+        documents.EMAIL_ATTACHMENTS,
+        org_id,
+        content,
+        row.content_type,
+        db=db,
+        filename=getattr(row, "filename", None),
+    )
     row.status = "queued"
     db.add(row)
     await db.flush()  # assign row.id before enqueuing the extract job

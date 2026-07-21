@@ -53,7 +53,15 @@ async def upload_logo(current: CurrentUser, db: DbSession, file: UploadFile):
     except filesec.FileRejected as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
     profile = await issuer.get_or_create(db, current.org_id)
-    sha, size = await documents.store(documents.LOGOS, current.org_id, content, _LOGO_MIME[kind])
+    sha, size = await documents.store(
+        documents.LOGOS,
+        current.org_id,
+        content,
+        _LOGO_MIME[kind],
+        db=db,
+        filename=file.filename,
+        uploaded_by=current.email,
+    )
     profile.logo_mime = _LOGO_MIME[kind]
     profile.logo_sha256 = sha
     profile.logo_size = size

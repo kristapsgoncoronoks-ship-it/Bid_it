@@ -8,6 +8,7 @@ from app.api.routes import (
     billing,
     budget,
     currencies,
+    documents,
     email,
     expenses,
     export,
@@ -61,6 +62,7 @@ api_router.include_router(audit.router)
 api_router.include_router(jobs.router)
 api_router.include_router(webhooks.router)
 api_router.include_router(integrity.router)
+api_router.include_router(documents.router)
 api_router.include_router(export.router)
 api_router.include_router(retention.router)
 api_router.include_router(privacy.router)

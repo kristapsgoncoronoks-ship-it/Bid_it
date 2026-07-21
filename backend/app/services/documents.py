@@ -19,12 +19,36 @@ from app.core import storage
 
 
 async def store(
-    prefix: str, org_id: str, data: bytes, content_type: str | None = None
+    prefix: str,
+    org_id: str,
+    data: bytes,
+    content_type: str | None = None,
+    *,
+    db=None,
+    filename: str | None = None,
+    uploaded_by: str | None = None,
 ) -> tuple[str, int]:
-    """Persist bytes; return (sha256, size). Idempotent — same bytes ⇒ same key."""
+    """Persist bytes; return (sha256, size). Idempotent — same bytes ⇒ same key.
+
+    When a `db` session is passed, the object is also recorded in the document
+    registry (Slice 5d) in that session — the caller's own commit persists it. This
+    is THE choke point for binary writes, so every upload path registers here."""
     sha = storage.sha256_hex(data)
     key = storage.content_key(prefix, org_id, sha)
     await run_in_threadpool(storage.get_storage().put, key, data, content_type)
+    if db is not None:
+        from app.services import document_registry
+
+        await document_registry.register(
+            db,
+            org_id,
+            sha256=sha,
+            size=len(data),
+            kind=prefix,
+            mime=content_type,
+            filename=filename,
+            uploaded_by=uploaded_by,
+        )
     return sha, len(data)
 
 

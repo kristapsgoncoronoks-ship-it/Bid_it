@@ -677,7 +677,15 @@ async def upload_receipt(
     except filesec.FileRejected as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
     mime = {"png": "image/png", "jpeg": "image/jpeg", "pdf": "application/pdf"}[kind]
-    sha, size = await documents.store(documents.RECEIPTS, current.org_id, content, mime)
+    sha, size = await documents.store(
+        documents.RECEIPTS,
+        current.org_id,
+        content,
+        mime,
+        db=db,
+        filename=file.filename,
+        uploaded_by=current.email,
+    )
     item.receipt_mime = mime
     item.receipt_sha256 = sha
     item.receipt_size = size
