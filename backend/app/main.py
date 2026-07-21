@@ -16,6 +16,7 @@ from app.core.observability import (
     configure_logging,
     setup_metrics,
 )
+from app.core.ratelimit import RateLimitMiddleware
 from app.core.security_headers import SecurityHeadersMiddleware
 from app.core.tenant import TenantScopeMiddleware
 from app.models import Base
@@ -77,6 +78,9 @@ app.add_middleware(
 app.add_middleware(TenantScopeMiddleware)
 # Security response headers (HSTS on HTTPS, nosniff, frame-deny, referrer policy).
 app.add_middleware(SecurityHeadersMiddleware)
+# Coarse abuse / brute-force guard (before tenant + route work; after the
+# request-context wrapper so a 429 still gets a request-id + access-log line).
+app.add_middleware(RateLimitMiddleware)
 # First to see the request / last to see the response: request-id + access log.
 app.add_middleware(RequestContextMiddleware)
 

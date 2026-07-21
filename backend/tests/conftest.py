@@ -47,6 +47,17 @@ def _storage():
     storage.reset_storage()
 
 
+@pytest.fixture(autouse=True)
+def _ratelimit():
+    """Rate-limit counters are process-global; clear them around every test so
+    one test's request volume can't spill into another's (order-independent)."""
+    from app.core import ratelimit
+
+    ratelimit.reset_all()
+    yield
+    ratelimit.reset_all()
+
+
 @pytest_asyncio.fixture
 async def client(_db) -> AsyncGenerator[AsyncClient, None]:
     async def _get_test_session():

@@ -259,7 +259,7 @@ Ordered to de-risk the platform before scaling product. Each phase is shippable 
 **Phase 3 — Commercial + integration surface**
 9. Wire billing provider (merchant-of-record) to the existing plan/metering model (ADR-0013).
 10. 🟡 **ERP exporters** behind the export hub (read-only, formula-injection-safe): generic accounting CSV + Xero (Bills) + QuickBooks (Bills) shipped (`erp_export.py`, `GET /export/accounting`). DATEV (needs the German SKR framework + EXTF spec) and country-profiled SAF-T deferred as config-gated builds.
-11. Public/first-party API versioning + rate limits + docs (ADR-0015).
+11. 🟡 **Rate limiting** — a per-process fixed-window abuse guard shipped (`core/ratelimit.py`, `RateLimitMiddleware`): a strict IP-keyed tier on `/auth/*` (brute-force / credential-stuffing) and a general per-token/IP tier, both env-tunable (`RATE_LIMIT_*`), returning `429` + `Retry-After`; health/metrics probes exempt. Honest scope: per-replica, so a precise *global* limit remains the shared-store (Redis) scale path. API-key auth + versioning + published OpenAPI docs still open (ADR-0015).
 
 **Phase 4 — Enterprise readiness**
 12. SSO/SAML/SCIM; region-pinning; retention + legal hold; SOC 2/ISO controls; audit exports.

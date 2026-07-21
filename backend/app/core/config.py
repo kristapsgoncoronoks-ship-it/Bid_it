@@ -95,6 +95,15 @@ class Settings(BaseSettings):
     clamav_port: int = Field(default=3310)
     clamav_unix_socket: str | None = Field(default=None)
 
+    # --- Rate limiting (ADR-0015) ---
+    # First-line abuse + brute-force guard. PER-PROCESS fixed-window counters, so
+    # with N replicas the effective global ceiling is N × the limit (documented
+    # tradeoff; a precise global limit is the shared-store scale path). Set a
+    # limit <= 0 to disable that tier. `/auth/*` gets the stricter tier.
+    rate_limit_enabled: bool = Field(default=True)
+    rate_limit_per_min: int = Field(default=300)       # general API, per token/IP
+    rate_limit_auth_per_min: int = Field(default=20)   # /auth/*, per client IP
+
     # --- CORS ---
     # Comma-separated list of allowed origins for the SPA.
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
