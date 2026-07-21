@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from typing import Annotated
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import __version__
 from app.api.router import api_router
 from app.core.config import settings
-from app.core.database import engine
+from app.core.database import engine, get_session
 from app.core.observability import (
     RequestContextMiddleware,
     configure_logging,
@@ -124,6 +126,30 @@ async def ready():
         return Response(
             content='{"status":"not-ready"}', status_code=503, media_type="application/json"
         )
+
+
+@app.get("/health/queue", tags=["meta"])
+async def queue_health(db: Annotated[AsyncSession, Depends(get_session)]):
+    """Background-queue SLO probe: aggregate job counts + dead-letter depth +
+    oldest-pending age. Returns 503 (degraded) when the SLO is breached so an
+    uptime check pages. Runs unscoped (all tenants); aggregate numbers only — no
+    tenant data. (Deep DB-down liveness is /health/ready's job.)"""
+    import json as _json
+
+    from fastapi import Response
+
+    from app.services import queue_health as qh
+
+    h = await qh.snapshot(db)
+    body = {
+        "status": "ok" if h.slo_ok else "degraded",
+        "dead": h.dead, "pending": h.pending,
+        "oldest_pending_seconds": h.oldest_pending_seconds,
+        "by_status": h.counts,
+    }
+    if not h.slo_ok:
+        return Response(content=_json.dumps(body), status_code=503, media_type="application/json")
+    return body
 
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)

@@ -65,10 +65,10 @@ graph TB
 ## 4. Observability
 
 - **Structured JSON logs** with a **request-id** correlation id (RequestContextMiddleware); logs carry no secrets/PII.
-- **Metrics** via Prometheus (`/metrics`, gated by `METRICS_ENABLED`): request rate/latency, DB pool, **queue depth + job success/DLQ**, **webhook delivery success**, parse method mix, per-tenant usage.
-- **Health probes:** `/health` (liveness), `/health/ready` (readiness: DB `SELECT 1`).
+- **Metrics** via Prometheus (`/metrics`, gated by `METRICS_ENABLED`): request rate/latency, DB pool, webhook delivery success, parse method mix, per-tenant usage, and **queue health** — `invoiceiq_jobs{status}` (counts by state incl. dead-letter) + `invoiceiq_jobs_oldest_pending_seconds` (queue-lag SLO), refreshed by the worker each loop.
+- **Health probes:** `/health` (liveness), `/health/ready` (readiness: DB `SELECT 1`), **`/health/queue`** (background-queue SLO — aggregate counts + dead-letter depth + oldest-pending age; **503 when degraded** so an uptime check pages; thresholds `QUEUE_SLO_MAX_PENDING_AGE_SECONDS` / `QUEUE_DLQ_ALERT_THRESHOLD`).
 - **Tracing (target):** OpenTelemetry spans across API→service→DB and worker handlers; propagate request-id.
-- **Alerting (must-have):** DLQ depth > 0, oldest-pending-job SLO breach, webhook failure spike, readiness failures, backup verification failure, **any cross-tenant test failure in CI blocks release**.
+- **Alerting:** point an uptime check at `/health/queue` (DLQ depth + oldest-pending SLO), plus webhook failure spike, readiness failures, backup verification failure, **any cross-tenant test failure in CI blocks release**.
 
 ### Golden operational signals
 | Signal | Source | Alert |

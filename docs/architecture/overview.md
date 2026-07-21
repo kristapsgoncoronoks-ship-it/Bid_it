@@ -270,6 +270,7 @@ Ordered to de-risk the platform before scaling product. Each phase is shippable 
 17. 🟡 **SAML SP scaffolding** (ADR-0021): the offline-provable request side — `build_authn_request`, HTTP-Redirect binding, SP metadata — plus config + `/auth/sso/{slug}/saml/{metadata,login}` routes. **The boundary:** assertion consumption (`/auth/sso/saml/acs`) deliberately returns **501** — validating a signed SAML Response needs a vetted XML-DSig library (none installed) + a real IdP, the final "return to finish". Still open in Phase 4: SAML assertion validation, region-pinning, SOC 2/ISO controls.
 
 **SSO/SCIM/SAML "return to finish" (needs a real IdP / Keycloak):** the OIDC live discovery/token-exchange/JWKS HTTP; SCIM `Groups` + Okta/Entra dialects; SAML assertion validation via a pinned XML-DSig library; and moving `sso_connections.client_secret` to the encrypted secret store (ADR-0016).
+18. 🟡 **Queue-health observability** shipped: `queue_health.snapshot` (cross-tenant) surfaces dead-letter depth + oldest ready-but-unprocessed age (queue-lag SLO); a **`/health/queue`** probe returns **503 when degraded** (DLQ over threshold or lag past `queue_slo_max_pending_age_seconds`) so an uptime check pages, and Prometheus gauges (`invoiceiq_jobs{status}`, `invoiceiq_jobs_oldest_pending_seconds`) are refreshed by the worker each loop. Still open in Phase 4: region-pinning, SOC 2/ISO controls; fat-tenant dashboard latency + distributed rate limiting remain scale-gated.
 
 Guiding rule: **no phase introduces a new stateful service unless a metric forces it.**
 

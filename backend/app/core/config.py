@@ -175,6 +175,13 @@ class Settings(BaseSettings):
     def stripe_meter_for(self, metric: str) -> str | None:
         return {"upload": self.stripe_meter_upload}.get(metric)
 
+    # --- Background-queue SLO (observability) ---
+    # The queue is "degraded" when the oldest ready-but-unprocessed job is older
+    # than this (worker falling behind), or the dead-letter depth exceeds the
+    # threshold. Surfaced on /health/queue (503 when breached) + /metrics.
+    queue_slo_max_pending_age_seconds: int = Field(default=900)   # 15 min
+    queue_dlq_alert_threshold: int = Field(default=0)             # any dead job alerts
+
     # --- Rate limiting (ADR-0015) ---
     # First-line abuse + brute-force guard. PER-PROCESS fixed-window counters, so
     # with N replicas the effective global ceiling is N × the limit (documented

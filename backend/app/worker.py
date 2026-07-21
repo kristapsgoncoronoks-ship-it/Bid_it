@@ -68,6 +68,13 @@ async def run_forever(poll_interval: float = IDLE_SLEEP_SECONDS) -> None:
                     last_scheduled = today
                     if created:
                         log.info("scheduled %s daily job(s) for %s", created, today)
+                # Refresh the queue-health gauges (dead-letter depth, queue lag)
+                # so /metrics stays warm even when the API tier is idle.
+                try:
+                    from app.services import queue_health
+                    await queue_health.snapshot(db)
+                except Exception:  # noqa: BLE001 — never let metrics break the loop
+                    pass
                 # Drain everything currently ready before sleeping.
                 processed = 0
                 while not stop.is_set():
