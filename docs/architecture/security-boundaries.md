@@ -42,7 +42,7 @@ Everything left of the app boundary is **untrusted**: request bodies, tokens, up
 
 ## 2. Tenant isolation (the primary control)
 
-**Model:** shared-schema, row-level `org_id`, with **two enforced layers** + a planned third. (ADR-0004)
+**Model:** shared-schema, row-level `org_id`, with **three enforced layers** (ORM guard + mandatory `TENANT_MODELS` registration + Postgres RLS). (ADR-0004)
 
 1. **Explicit per-route filters** — every query filters `org_id == current_org`. First line of defence.
 2. **ORM guard (defence in depth)** — a `do_orm_execute` hook ANDs `org_id == current_org` onto **every SELECT** touching a registered tenant model, via `with_loader_criteria`. A *forgotten* filter cannot leak.
@@ -67,7 +67,7 @@ Everything left of the app boundary is **untrusted**: request bodies, tokens, up
 - **Stateless JWT bearer tokens.** Any API replica validates a token with no session store. Login is by **email** (mapped to the internal principal); SSO accounts use email as principal.
 - Passwords hashed with **bcrypt** (passlib). Tokens signed with the app secret (HS256) — **secret from the environment**, never committed.
 - Token carries only the subject (`sub` = user id). All authorization data (role, org) is **re-read from the DB each request** so a revoked/downgraded user takes effect immediately and a token can't assert privileges.
-- **Roadmap (Enterprise):** SSO/SAML + SCIM via an identity provider; JWT remains the internal session token. Refresh-token rotation + short access-token TTL to be formalised before public API GA.
+- **Enterprise SSO (ADR-0021):** **OIDC login + JIT provisioning + IdP-group→role mapping** and **SCIM 2.0 provisioning** are shipped (ID-token validation proven offline with key fixtures); **SAML** SP request-side is scaffolded and assertion consumption is the documented boundary (needs a vetted XML-DSig library + a real IdP). JWT remains the internal session token. Still to formalise before public-API GA: refresh-token rotation + short access-token TTL, and moving `sso_connections.client_secret` to the encrypted secret store.
 
 ---
 
@@ -131,7 +131,7 @@ Attacker-controlled PDFs/ZIPs are a top threat. Defence in depth at a single cho
 | **Spoofing** | Forged token / another user | JWT signature + DB re-read of identity each request |
 | **Tampering** | Edit a booked invoice / audit row | Immutable issued docs + hash-chained audit + integrity hashes |
 | **Repudiation** | "I didn't change that" | Attributed, verifiable audit chain |
-| **Information disclosure** | Cross-tenant read | ORM guard + registration rule + RLS (planned) + tests |
+| **Information disclosure** | Cross-tenant read | ORM guard + registration rule + Postgres RLS + tests |
 | **Denial of service** | Upload floods / zip bombs | Size/decompression caps, rate limits, worker isolation, quotas |
 | **Elevation of privilege** | Company user gains system power | Company roles capped at `owner`; `is_platform_admin` separate + audited |
 

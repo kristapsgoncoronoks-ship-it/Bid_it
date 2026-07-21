@@ -25,7 +25,7 @@ The product context and PRD are ambitious. As the long-term owner I am flagging 
 
 | # | Unclear | Why it blocks architecture | Recommended default |
 |---|---|---|---|
-| U1 | "Support multiple … data residency" — but which regions, and is per-tenant pinning promised? | Determines single-region vs. multi-region topology (a huge cost/complexity fork). | **Single EU region for v1**; region-pinning is an Enterprise feature, designed-for but not built. |
+| U1 | "Support multiple … data residency" — but which regions, and is per-tenant pinning promised? | Determines single-region vs. multi-region topology (a huge cost/complexity fork). | **Single EU region for v1**; the region-pinning app seam (per-tenant `region` + a fail-closed enforcement backstop) is now built (ADR-0022) — the multi-region data plane (region-local DB/storage/backups + LB routing) remains deployment work. |
 | U2 | "Immutable accounting history where required" — *where* exactly? | Immutability has real cost (append-only tables, no deletes). Applying it everywhere is wrong. | Immutability applies to **issued invoices, credit notes, and the audit log** only. Received-invoice drafts remain editable until confirmed. |
 | U3 | "AI extraction" scope — is AI in the *capture* path or advisory? | Puts customer documents through third parties → residency + accuracy + cost risk. | **Deterministic-first**; AI is opt-in, default-off, advisory, DLP-gated. Never the sole source of a booked figure. |
 | U4 | "Search" — over what, and how fuzzy? | Elasticsearch is a large operational commitment. | **Postgres full-text** over documents/metadata first; a dedicated engine only when proven necessary. |
@@ -79,7 +79,7 @@ The product context and PRD are ambitious. As the long-term owner I am flagging 
 
 - **Monolith over microservices:** we trade independent scaling for transactional integrity, one deployable, and low ops cost. This is correct for a small team and financial data that wants ACID.
 - **Postgres for everything (data, queue, search, locks):** we trade specialised-tool ceilings for one datastore to run, back up, and reason about. We accept that some of these get replaced *if and when* a metric forces it.
-- **Shared-schema multitenancy:** we trade the hard isolation of schema/DB-per-tenant for cost and operability, and buy back safety with the ORM guard (+ Postgres RLS as belt-and-braces later).
+- **Shared-schema multitenancy:** we trade the hard isolation of schema/DB-per-tenant for cost and operability, and buy back safety with the ORM guard (+ Postgres RLS as belt-and-braces — now implemented, ADR-0004).
 - **Deterministic-first extraction:** we trade "magic" AISlurp for accuracy, cost control, and residency safety.
 
 ---
@@ -216,7 +216,7 @@ Boundary rule: **routers are thin** (validate, authorize, call a service, serial
 | Architecture style | Modular monolith | [0001](./adr/0001-modular-monolith.md) |
 | Backend stack | FastAPI + async SQLAlchemy 2.0 + Pydantic v2 | [0002](./adr/0002-backend-stack.md) |
 | Datastore | PostgreSQL (single primary + replicas) | [0003](./adr/0003-postgres-primary-datastore.md) |
-| Tenant isolation | Shared-schema row-level + ORM guard (+ RLS later) | [0004](./adr/0004-tenant-isolation.md) |
+| Tenant isolation | Shared-schema row-level + ORM guard + Postgres RLS | [0004](./adr/0004-tenant-isolation.md) |
 | AuthN | Stateless JWT bearer | [0005](./adr/0005-authentication-jwt.md) |
 | AuthZ | Role hierarchy + permission matrix + module gating | [0006](./adr/0006-authorization-model.md) |
 | Background work | DB-backed durable queue + worker | [0007](./adr/0007-background-jobs.md) |
@@ -225,12 +225,16 @@ Boundary rule: **routers are thin** (validate, authorize, call a service, serial
 | Money/tax/FX | Decimal + ECB provenance + VAT engine | [0010](./adr/0010-money-tax-fx.md) |
 | Idempotency/concurrency | Keys + guarded/optimistic updates | [0011](./adr/0011-idempotency-concurrency.md) |
 | Audit | Hash-chained append-only | [0012](./adr/0012-audit-log.md) |
-| Billing | Merchant-of-record + usage metering | [0013](./adr/0013-billing-metering.md) |
+| Billing | Stripe + EveryPay behind one seam; usage metering | [0013](./adr/0013-billing-metering.md) |
 | Search | Postgres full-text first | [0014](./adr/0014-search.md) |
-| API | REST + OpenAPI, versioned | [0015](./adr/0015-api-strategy.md) |
+| API | REST + OpenAPI, versioned; per-process rate limiting | [0015](./adr/0015-api-strategy.md) |
 | Config/secrets | Env + envelope encryption (KMS) | [0016](./adr/0016-config-secrets.md) |
 | Feature flags | DB-backed modules + settings | [0017](./adr/0017-feature-flags.md) |
 | Notifications | Webhooks + email via the queue | [0018](./adr/0018-notifications.md) |
+| Retention | Per-category windows + legal hold | [0019](./adr/0019-retention-legal-hold.md) |
+| GDPR erasure | DSAR respecting statutory retention | [0020](./adr/0020-gdpr-erasure.md) |
+| Enterprise SSO | OIDC + SCIM (built); SAML scaffolded | [0021](./adr/0021-sso-scim.md) |
+| Data residency | Per-tenant region + enforcement backstop | [0022](./adr/0022-data-residency.md) |
 
 ---
 
@@ -265,9 +269,9 @@ Ordered to de-risk the platform before scaling product. Each phase is shippable 
 12. 🟡 **Data retention + legal hold** shipped (ADR-0019): per-(tenant, category) keep-N-days policies (opt-in, safe by default) with a daily `retention.purge` queue job + on-demand admin run; **legal hold** suspends all purging (preservation > minimization); explicit child+object-byte deletion; every action audited; `audit_events` + `issued_invoices` deliberately excluded.
 13. 🟡 **Audit-log export** shipped: owner-gated `GET /audit/export?fmt=csv|json` (+ action/date filters) streams the hash-chained trail **including the seq/prev_hash/hash columns** so an auditor can re-verify the chain offline; formula-injection-safe CSV; chain-verify status in the JSON body + response headers. SOC 2 / ISO evidence.
 14. 🟡 **GDPR right-to-erasure (DSAR)** shipped (ADR-0020): admin-gated erasure keyed by email that **respects the law's limits** — pseudonymises user accounts (row kept for audit/FK integrity), redacts expense author names, deletes inbound-email records + bytes, and **retains + reports** issued tax invoices (statutory, Art. 17(3)(b)) and the audit trail (integrity chain). A legal hold blocks it; a preview classifies every location before execution; the run is audited with a hashed subject reference.
-15. 🟡 **Enterprise SSO — OIDC** implemented (ADR-0021): per-tenant OIDC connection (`sso_connections`), authorization-code + **PKCE** + signed stateless `state`, **ID-token validation** (RS256/JWKS, iss/aud/exp/nonce) proven with locally-minted key fixtures, **JIT provisioning** (match/create in-org, cross-org + domain guards), `/auth/sso/{slug}/authorize` + `/auth/sso/callback` + admin config (secret write-only). **Fixtures boundary (ADR-0021):** the live discovery/token-exchange/JWKS HTTP is exercised against a real IdP / Keycloak — the "return to finish" step. **SCIM** provisioning + **SAML** are next/scaffolded.
+15. 🟡 **Enterprise SSO — OIDC** implemented (ADR-0021): per-tenant OIDC connection (`sso_connections`), authorization-code + **PKCE** + signed stateless `state`, **ID-token validation** (RS256/JWKS, iss/aud/exp/nonce) proven with locally-minted key fixtures, **JIT provisioning** (match/create in-org, cross-org + domain guards), `/auth/sso/{slug}/authorize` + `/auth/sso/callback` + admin config (secret write-only). **Fixtures boundary (ADR-0021):** the live discovery/token-exchange/JWKS HTTP is exercised against a real IdP / Keycloak — the "return to finish" step. **SCIM** provisioning is implemented (item 16); **SAML** is scaffolded (item 17).
 16. 🟡 **SCIM 2.0 provisioning** implemented (ADR-0021): token-gated `/scim/v2/Users` (create/list/get/replace/patch/delete) the tenant's IdP calls to auto-create + **deactivate** users (soft delete → audit/FK integrity survives); per-connection bearer token (sha256 stored, minted once), request scoped to the connection's org. **Return to finish:** SCIM `Groups` + Okta/Entra paging/PATCH dialects.
-17. 🟡 **SAML SP scaffolding** (ADR-0021): the offline-provable request side — `build_authn_request`, HTTP-Redirect binding, SP metadata — plus config + `/auth/sso/{slug}/saml/{metadata,login}` routes. **The boundary:** assertion consumption (`/auth/sso/saml/acs`) deliberately returns **501** — validating a signed SAML Response needs a vetted XML-DSig library (none installed) + a real IdP, the final "return to finish". Still open in Phase 4: SAML assertion validation, region-pinning, SOC 2/ISO controls.
+17. 🟡 **SAML SP scaffolding** (ADR-0021): the offline-provable request side — `build_authn_request`, HTTP-Redirect binding, SP metadata — plus config + `/auth/sso/{slug}/saml/{metadata,login}` routes. **The boundary:** assertion consumption (`/auth/sso/saml/acs`) deliberately returns **501** — validating a signed SAML Response needs a vetted XML-DSig library (none installed) + a real IdP, the final "return to finish". Still open in Phase 4: SAML assertion validation (needs a vetted XML-DSig library + a real IdP), SOC 2/ISO controls.
 
 **SSO/SCIM/SAML "return to finish" (needs a real IdP / Keycloak):** the OIDC live discovery/token-exchange/JWKS HTTP; SCIM `Groups` + Okta/Entra dialects; SAML assertion validation via a pinned XML-DSig library; and moving `sso_connections.client_secret` to the encrypted secret store (ADR-0016).
 18. 🟡 **Queue-health observability** shipped: `queue_health.snapshot` (cross-tenant) surfaces dead-letter depth + oldest ready-but-unprocessed age (queue-lag SLO); a **`/health/queue`** probe returns **503 when degraded** (DLQ over threshold or lag past `queue_slo_max_pending_age_seconds`) so an uptime check pages, and Prometheus gauges (`invoiceiq_jobs{status}`, `invoiceiq_jobs_oldest_pending_seconds`) are refreshed by the worker each loop. Still open in Phase 4: SOC 2/ISO controls; fat-tenant dashboard latency + distributed rate limiting remain scale-gated.
