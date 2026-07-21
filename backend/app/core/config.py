@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     db_pool_size: int = Field(default=10)
     db_max_overflow: int = Field(default=10)
     db_pool_timeout: int = Field(default=30)
+    # Set true when Postgres is reached through PgBouncer in TRANSACTION pooling
+    # mode (the scale-out topology). asyncpg's server-side prepared-statement
+    # cache is incompatible with transaction pooling — a statement prepared on one
+    # server connection isn't visible on the next — so we disable it. Harmless in
+    # session pooling / direct connections; ignored for SQLite.
+    db_pgbouncer: bool = Field(default=False)
 
     # --- Object storage (document bytes; ADR-0008) ---
     # backend: local (filesystem, default) | s3 (S3-compatible incl. MinIO) | memory (tests).

@@ -17,8 +17,24 @@ from sqlalchemy.ext.asyncio import (
 
 from app.core.config import settings
 
-# check_same_thread only matters for SQLite; harmless to omit for Postgres.
-_connect_args = {"check_same_thread": False} if settings.is_sqlite else {}
+
+def build_connect_args(is_sqlite: bool, pgbouncer: bool) -> dict:
+    """DBAPI connect args for the engine.
+
+    - SQLite needs ``check_same_thread=False`` (one handle across the loop).
+    - Behind PgBouncer in TRANSACTION pooling mode, asyncpg's prepared statements
+      break (a statement prepared on one server connection isn't visible on the
+      next), so disable both the asyncpg cache and SQLAlchemy's asyncpg-dialect
+      cache — each statement then stands alone.
+    """
+    if is_sqlite:
+        return {"check_same_thread": False}
+    if pgbouncer:
+        return {"statement_cache_size": 0, "prepared_statement_cache_size": 0}
+    return {}
+
+
+_connect_args = build_connect_args(settings.is_sqlite, settings.db_pgbouncer)
 
 # SQLite uses a single file/in-memory handle (no server-side pool tuning); Postgres
 # gets an explicit, bounded connection pool so a replica can't exhaust the server.

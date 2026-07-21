@@ -45,8 +45,11 @@ spec:
           # Graceful shutdown: stop taking traffic, drain in-flight requests.
           lifecycle:
             preStop: { exec: { command: ["sleep", "5"] } }
+          # 2 uvicorn workers × ~144Mi RSS ≈ 290Mi resident before request buffers
+          # and PDF/Excel generation; request 512Mi so the scheduler reserves real
+          # headroom (the old 384Mi under-provisioned a 2-worker pod).
           resources:
-            requests: { cpu: "250m", memory: "384Mi" }
+            requests: { cpu: "250m", memory: "512Mi" }
             limits: { cpu: "1000m", memory: "768Mi" }
           securityContext:
             allowPrivilegeEscalation: false

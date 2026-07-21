@@ -8,7 +8,10 @@ data:
   ENVIRONMENT: "production"
   HSTS_ENABLED: "true"
   LOG_JSON: "true"
-  WEB_CONCURRENCY: "4"
+  # 2 uvicorn workers per pod matches the 1-core (1000m) CPU limit — 4 GIL-bound
+  # processes on 1 core only contend. Scale horizontally via the HPA, not by
+  # over-subscribing workers within a pod.
+  WEB_CONCURRENCY: "2"
   DB_POOL_SIZE: "10"
   DB_MAX_OVERFLOW: "10"
   # Public origin(s) of the SPA — must match where users load the app.

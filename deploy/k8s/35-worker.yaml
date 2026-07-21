@@ -1,0 +1,55 @@
+# Background worker tier — drains the durable job queue (app/worker.py).
+#
+# This tier scales with TENANT COUNT, not web RPS: the daily scheduler enqueues
+# per-tenant jobs (recurring invoices, dunning, retention purge, usage reporting,
+# integrity sweeps). At ~1,000 tenants that is thousands of jobs per day. The
+# queue is idempotent and the claim is atomic, so running N workers is safe — each
+# job executes on exactly one worker. Size N by how fast the queue must drain.
+#
+# The web tier does NOT need to run the worker; keeping it separate means a slow
+# OCR/PDF job never steals a web request's CPU, and the two scale independently.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: invoiceiq
+  labels: { app: invoiceiq, component: worker }
+spec:
+  replicas: 2                         # raise toward ~4–6 as tenant count grows
+  selector:
+    matchLabels: { app: invoiceiq, component: worker }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: { app: invoiceiq, component: worker }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: worker
+          image: ghcr.io/OWNER/REPO/backend:VERSION   # same image as the backend
+          command: ["python", "-m", "app.worker"]
+          envFrom:
+            - configMapRef: { name: invoiceiq-config }
+            - secretRef: { name: invoiceiq-secrets }
+          # One job at a time per process; workers are I/O- and CPU-mixed (OCR,
+          # PDF/Excel generation). A worker needs a smaller DB footprint than the
+          # web tier — trim its pool via env so it doesn't inflate the connection
+          # budget: e.g. DB_POOL_SIZE=5 / DB_MAX_OVERFLOW=5 (override per tier).
+          resources:
+            requests: { cpu: "250m", memory: "384Mi" }
+            limits: { cpu: "1000m", memory: "768Mi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      terminationGracePeriodSeconds: 30   # let an in-flight job finish on SIGTERM
