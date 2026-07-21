@@ -183,36 +183,49 @@ async def _code_name_index(db: AsyncSession, model, org_id: str) -> dict[str, st
     return {**by_name, **by_code}  # code entries override name entries
 
 
-async def backfill_invoice_links(db: AsyncSession, org_id: str) -> dict[str, int]:
-    """Link each unlinked invoice dimension tag to its master row. Returns the
-    count newly linked per dimension. Tenant-scoped; commits once."""
+async def _backfill_model_links(db: AsyncSession, org_id: str, model) -> dict[str, int]:
+    """Resolve unlinked free-text dimension tags to master rows for one org on one
+    model (Invoice or ExpenseItem — both carry org_id + the same dim columns).
+    Returns the count newly linked per dimension. Commits once if anything linked."""
     from sqlalchemy import and_, or_
 
-    from app.models.invoice import Invoice
-
     counts = {dim: 0 for dim, _, _ in _LINKABLE}
-    indexes = {dim: await _code_name_index(db, model, org_id) for dim, _, model in _LINKABLE}
+    indexes = {dim: await _code_name_index(db, master, org_id) for dim, _, master in _LINKABLE}
 
     unlinked = or_(
         *[
-            and_(getattr(Invoice, dim).is_not(None), getattr(Invoice, fk).is_(None))
+            and_(getattr(model, dim).is_not(None), getattr(model, fk).is_(None))
             for dim, fk, _ in _LINKABLE
         ]
     )
-    invoices = list(await db.scalars(select(Invoice).where(Invoice.org_id == org_id, unlinked)))
+    rows = list(await db.scalars(select(model).where(model.org_id == org_id, unlinked)))
 
-    for inv in invoices:
+    for row in rows:
         for dim, fk, _ in _LINKABLE:
-            if getattr(inv, fk) is not None:
+            if getattr(row, fk) is not None:
                 continue
-            tag = getattr(inv, dim)
+            tag = getattr(row, dim)
             if not tag:
                 continue
             mid = indexes[dim].get(tag.strip().lower())
             if mid is not None:
-                setattr(inv, fk, mid)
+                setattr(row, fk, mid)
                 counts[dim] += 1
 
     if any(counts.values()):
         await db.commit()
     return counts
+
+
+async def backfill_invoice_links(db: AsyncSession, org_id: str) -> dict[str, int]:
+    """Link each unlinked invoice dimension tag to its master row (Slice 2)."""
+    from app.models.invoice import Invoice
+
+    return await _backfill_model_links(db, org_id, Invoice)
+
+
+async def backfill_expense_item_links(db: AsyncSession, org_id: str) -> dict[str, int]:
+    """Link each unlinked expense-item dimension tag to its master row (Slice 2b)."""
+    from app.models.expense import ExpenseItem
+
+    return await _backfill_model_links(db, org_id, ExpenseItem)

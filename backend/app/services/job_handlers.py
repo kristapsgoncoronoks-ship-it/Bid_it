@@ -77,9 +77,12 @@ async def _email_extract(db, payload: dict, job: Job) -> dict:
 
 @jobs.handler(COSTING_BACKFILL)
 async def _costing_backfill(db, payload: dict, job: Job) -> dict:
-    """Link this tenant's free-text invoice dimensions to cost-allocation master
-    rows (dual-read backfill, idempotent)."""
-    return await costing.backfill_invoice_links(db, job.org_id)
+    """Link this tenant's free-text dimensions (invoices + expense items) to
+    cost-allocation master rows (dual-read backfill, idempotent)."""
+    return {
+        "invoices": await costing.backfill_invoice_links(db, job.org_id),
+        "expense_items": await costing.backfill_expense_item_links(db, job.org_id),
+    }
 
 
 @jobs.handler(INTEGRITY_VERIFY)

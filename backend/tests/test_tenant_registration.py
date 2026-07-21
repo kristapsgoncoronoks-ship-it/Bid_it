@@ -16,8 +16,9 @@ from app.core.tenant import TENANT_MODELS
 from app.models.base import Base
 
 # Child tables reached only via an already-scoped parent legitimately have no
-# org_id (line items, issued lines, expense items). They are covered by their
-# parent's scope and are intentionally NOT in TENANT_MODELS.
+# org_id (line items, issued lines). They are covered by their parent's scope
+# and are intentionally NOT in TENANT_MODELS. (expense_items USED to be such a
+# child; Slice 2b denormalised org_id onto it, so it is now registered.)
 _TENANT_COLUMN = "org_id"
 
 

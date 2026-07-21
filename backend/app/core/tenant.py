@@ -27,7 +27,7 @@ from app.models.budget import BudgetTarget
 from app.models.costing import CostCenter, Department, Project
 from app.models.email_intake import EmailIntake, InboundInvoice
 from app.models.email_message import EmailMessage
-from app.models.expense import ExpenseComment, ExpenseReport, ExpenseTransaction
+from app.models.expense import ExpenseComment, ExpenseItem, ExpenseReport, ExpenseTransaction
 from app.models.invitation import Invitation
 from app.models.invoice import Invoice
 from app.models.issued_invoice import IssuedInvoice
@@ -43,8 +43,10 @@ from app.models.user import User
 from app.models.vendor import Vendor
 from app.models.webhook import WebhookDelivery, WebhookEndpoint
 
-# Every model that carries an `org_id`. Child tables (LineItem, IssuedInvoiceLine,
-# ExpenseItem) have no org_id and are reached only via an already-scoped parent.
+# Every model that carries an `org_id`. Remaining child tables (LineItem,
+# IssuedInvoiceLine) have no org_id and are reached only via an already-scoped
+# parent. ExpenseItem now carries a denormalised org_id (Slice 2b) so it is
+# scoped directly here rather than trusting the report join.
 TENANT_MODELS = (
     Vendor,
     Invoice,
@@ -54,6 +56,7 @@ TENANT_MODELS = (
     OrgModule,
     IssuerProfile,
     ExpenseReport,
+    ExpenseItem,
     ExpenseTransaction,
     ExpenseComment,
     EmailIntake,
