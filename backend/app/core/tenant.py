@@ -39,6 +39,7 @@ from app.models.payment import Payment
 from app.models.recurring_invoice import RecurringInvoice
 from app.models.retention import LegalHold, RetentionPolicy
 from app.models.sso import SsoConnection
+from app.models.tax_code import TaxCode
 from app.models.usage import UsageCounter
 from app.models.user import User
 from app.models.vendor import Vendor
@@ -80,6 +81,7 @@ TENANT_MODELS = (
     Department,
     CostCenter,
     Project,
+    TaxCode,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.

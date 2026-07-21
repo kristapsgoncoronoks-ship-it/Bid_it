@@ -28,6 +28,7 @@ from app.models.recurring_invoice import RecurringInvoice
 from app.models.retention import LegalHold, RetentionPolicy
 from app.models.role_policy import RolePolicy
 from app.models.sso import SsoConnection
+from app.models.tax_code import TaxCode
 from app.models.usage import UsageCounter
 from app.models.user import User, UserRole
 from app.models.vendor import Vendor
@@ -68,6 +69,7 @@ __all__ = [
     "ProcessedStripeEvent",
     "BillingPayment",
     "Payment",
+    "TaxCode",
     "RetentionPolicy",
     "LegalHold",
     "SsoConnection",
