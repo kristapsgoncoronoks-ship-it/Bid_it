@@ -5,7 +5,7 @@ from datetime import date
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from app.api.deps import CurrentUser, DbSession
-from app.core.roles import is_admin_or_above
+from app.core import authz
 from app.services import erp_export
 
 router = APIRouter(prefix="/export", tags=["export"])
@@ -37,10 +37,7 @@ async def export_accounting(
 ):
     """Export the received-invoice ledger for a period into an accounting-package
     import file (CSV). NET EUR basis; read-only; formula-injection-safe."""
-    if not is_admin_or_above(current):
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN, "Only an admin can export the accounting ledger"
-        )
+    authz.require(current, authz.Permission.EXPORT_RUN)
     if fmt not in erp_export.FORMATS:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,

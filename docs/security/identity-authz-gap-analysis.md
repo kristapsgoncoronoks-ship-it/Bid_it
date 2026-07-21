@@ -84,8 +84,8 @@ expressed as one central policy.
 
 | Deliverable | State |
 |---|---|
-| Authorization policy matrix | ❌ (needs the 8-role permission grid + a central definition) |
-| Reusable authorization service | 🟡 `core/roles.py` helpers; not a single `authz.require(perm)` service with a permission enum |
+| Authorization policy matrix | ✅ **Slice 2** — `authorization-policy-matrix.md` + `ROLE_PERMISSIONS` (8 roles × capability grid, deny-by-default) |
+| Reusable authorization service | ✅ **Slice 2** — `app/core/authz.py` (`Permission` enum, `require`/`has`/`permissions_for`); `GET /auth/permissions` + `/auth/authz-matrix` |
 | Organization middleware | ✅ `TenantScopeMiddleware` + `deps` |
 | Security-sensitive audit events | ✅ set exists; extend for verification/reset/session-revoke when built |
 | Admin screens for members & roles | 🟡 `Team.tsx` / `Access.tsx` / `Settings.tsx` exist |
@@ -94,10 +94,10 @@ expressed as one central policy.
 
 ## Recommended sequence (each an additive, tested slice)
 
-1. **✅ done this slice** — cross-tenant isolation proof (tests + report).
-2. **Authorization service + policy matrix** — a `Permission` enum + `authz.require`,
-   the 8 roles expressed as a role→permission grid, deny-by-default centralised;
-   migrate route guards onto it. *No schema fork needed.*
+1. **✅ done** — cross-tenant isolation proof (tests + report).
+2. **✅ done** — authorization service + policy matrix (`app/core/authz.py`, 8-role
+   grid, deny-by-default; export guard migrated; `GET /auth/permissions` for the UI).
+   Remaining ad-hoc role guards migrate onto `authz.require` incrementally.
 3. **Email verification + password reset** — a `verification_tokens`/`password_resets`
    table, `notify` email send, endpoints + FE states. Additive.
 4. **Sessions + revocation** — a `sessions` table (or `jti` denylist) so logout,

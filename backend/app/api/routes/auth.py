@@ -10,7 +10,7 @@ from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
-from app.core import residency
+from app.core import authz, residency
 from app.core.config import settings
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.invitation import Invitation
@@ -93,6 +93,23 @@ async def login(body: LoginRequest, db: DbSession) -> AuthResponse:
 async def me(current: CurrentUser, db: DbSession) -> MeOut:
     org = await db.get(Organization, current.org_id)
     return MeOut(user=current, organization=org)
+
+
+@router.get("/permissions")
+async def my_permissions(current: CurrentUser) -> dict:
+    """The caller's resolved business role + effective permissions. The UI uses
+    this to hide what it must not show — but the backend still enforces every
+    permission (this endpoint is advisory, never the gate)."""
+    return {
+        "role": authz.business_role(current).value,
+        "permissions": sorted(p.value for p in authz.permissions_for(current)),
+    }
+
+
+@router.get("/authz-matrix")
+async def authz_matrix(current: CurrentUser) -> dict:
+    """The full role→permission matrix (for the members & roles admin screen)."""
+    return authz.matrix()
 
 
 # --- SSO (OIDC) login (ADR-0021) -------------------------------------------
