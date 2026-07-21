@@ -8,6 +8,7 @@ from app.models.budget import BudgetTarget
 from app.models.costing import CostCenter, Department, Project
 from app.models.currency import Currency
 from app.models.document import Document
+from app.models.document_version import DocumentVersion
 from app.models.email_intake import EmailIntake, InboundInvoice
 from app.models.email_message import EmailMessage
 from app.models.expense import (
@@ -80,6 +81,7 @@ __all__ = [
     "ExtractionField",
     "Receipt",
     "Document",
+    "DocumentVersion",
     "RetentionPolicy",
     "LegalHold",
     "SsoConnection",

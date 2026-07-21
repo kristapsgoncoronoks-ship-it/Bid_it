@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import CurrentUser, DbSession
 from app.core.dimensions import DIMENSION_KEYS
 from app.core.roles import is_admin_or_above
+from app.models.document_version import OWNER_EXPENSE_RECEIPT
 from app.models.expense import (
     ExpenseComment,
     ExpenseItem,
@@ -20,6 +21,7 @@ from app.models.expense import (
     ExpenseTransaction,
 )
 from app.models.user import User
+from app.schemas.document_version import DocumentVersionOut
 from app.schemas.expense import (
     BankImportResult,
     CategoryTotal,
@@ -42,6 +44,7 @@ from app.services import (
     audit,
     bank_statement,
     costing,
+    document_versions,
     documents,
     expenses,
     filesec,
@@ -686,6 +689,17 @@ async def upload_receipt(
         filename=file.filename,
         uploaded_by=current.email,
     )
+    await document_versions.record(
+        db,
+        current.org_id,
+        OWNER_EXPENSE_RECEIPT,
+        item.id,
+        sha256=sha,
+        size=size,
+        mime=mime,
+        filename=file.filename,
+        uploaded_by=current.email,
+    )
     item.receipt_mime = mime
     item.receipt_sha256 = sha
     item.receipt_size = size
@@ -717,6 +731,23 @@ async def get_receipt(report_id: str, item_id: str, current: CurrentUser, db: Db
         media_type="application/octet-stream",
         headers={"Content-Disposition": "attachment", "X-Content-Type-Options": "nosniff"},
     )
+
+
+@router.get(
+    "/{report_id}/items/{item_id}/receipt/versions",
+    response_model=list[DocumentVersionOut],
+)
+async def receipt_versions(report_id: str, item_id: str, current: CurrentUser, db: DbSession):
+    """The supersession history of this item's receipt (newest first) — an audit
+    trail of every file that was uploaded to the slot, including replacements."""
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_view(r, current)
+    item = next((i for i in r.items if i.id == item_id), None)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    rows = await document_versions.history(db, current.org_id, OWNER_EXPENSE_RECEIPT, item_id)
+    return [DocumentVersionOut.model_validate(row) for row in rows]
 
 
 @router.get("/{report_id}/pdf")

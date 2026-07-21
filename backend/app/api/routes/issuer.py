@@ -4,8 +4,10 @@ from fastapi import APIRouter, HTTPException, Response, UploadFile, status
 
 from app.api.deps import CurrentUser, DbSession
 from app.core.roles import is_admin_or_above
+from app.models.document_version import OWNER_ISSUER_LOGO
+from app.schemas.document_version import DocumentVersionOut
 from app.schemas.issuer import IssuerProfileIn, IssuerProfileOut
-from app.services import documents, filesec, issuer
+from app.services import document_versions, documents, filesec, issuer
 
 router = APIRouter(prefix="/issuer", tags=["issuer"])
 
@@ -62,6 +64,17 @@ async def upload_logo(current: CurrentUser, db: DbSession, file: UploadFile):
         filename=file.filename,
         uploaded_by=current.email,
     )
+    await document_versions.record(
+        db,
+        current.org_id,
+        OWNER_ISSUER_LOGO,
+        profile.id,
+        sha256=sha,
+        size=size,
+        mime=_LOGO_MIME[kind],
+        filename=file.filename,
+        uploaded_by=current.email,
+    )
     profile.logo_mime = _LOGO_MIME[kind]
     profile.logo_sha256 = sha
     profile.logo_size = size
@@ -81,3 +94,13 @@ async def get_logo(current: CurrentUser, db: DbSession):
         media_type=profile.logo_mime or "image/png",
         headers={"X-Content-Type-Options": "nosniff"},
     )
+
+
+@router.get("/logo/versions", response_model=list[DocumentVersionOut])
+async def logo_versions(current: CurrentUser, db: DbSession):
+    """The supersession history of this org's logo (newest first)."""
+    if not is_admin_or_above(current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can view company details")
+    profile = await issuer.get_or_create(db, current.org_id)
+    rows = await document_versions.history(db, current.org_id, OWNER_ISSUER_LOGO, profile.id)
+    return [DocumentVersionOut.model_validate(r) for r in rows]
