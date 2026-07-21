@@ -15,7 +15,11 @@ class ProcessedStripeEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     Platform-level (NOT tenant-scoped): the webhook has no authenticated org and
     resolves the tenant from the Stripe customer id. Deliberately keyed by the
-    Stripe event id alone, not org_id, so it is never touched by the tenant guard.
+    event id alone, not org_id, so it is never touched by the tenant guard.
+
+    Despite the historical name this is the GENERIC billing-event ledger: EveryPay
+    also dedupes through it (event ids like `everypay:<reference>` and
+    `everypay:mit:<org>:<date>`).
     """
 
     __tablename__ = "processed_stripe_events"

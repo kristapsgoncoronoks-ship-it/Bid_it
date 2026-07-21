@@ -36,27 +36,31 @@ export default function Billing() {
 
   const b = billing.data;
   const seatPct = b ? Math.min(100, Math.round((b.seats_used / b.seats_limit) * 100)) : 0;
-  const stripeOn = !!b?.billing_enabled;
+  const billingOn = !!b?.billing_enabled;
+  const provider = b?.billing_provider ?? "none";
+  const hasPortal = provider === "stripe";        // EveryPay has no hosted portal
   const busy = change.isPending || checkout.isPending || portal.isPending;
 
   function choosePlan(planKey: string, priceEur: number | null) {
-    // Paid plan + Stripe connected → Checkout. Otherwise the in-app switch.
-    if (stripeOn && priceEur) checkout.mutate(planKey);
+    // Paid plan + a provider connected → hosted checkout. Otherwise in-app switch.
+    if (billingOn && priceEur) checkout.mutate(planKey);
     else change.mutate(planKey);
   }
+
+  const providerBlurb: Record<string, string> = {
+    stripe: "Secure payments handled by Stripe. Paid plans start a checkout session.",
+    everypay: "Secure card payments handled by EveryPay. Paid plans open a hosted payment page.",
+    none: "Prices are indicative — nothing is charged until billing is connected.",
+  };
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Plan &amp; billing</h1>
-          <p className="text-sm text-slate-500">
-            {stripeOn
-              ? "Secure payments handled by Stripe. Paid plans start a checkout session."
-              : "Prices are indicative — nothing is charged until billing is connected."}
-          </p>
+          <p className="text-sm text-slate-500">{providerBlurb[provider] ?? providerBlurb.none}</p>
         </div>
-        {stripeOn && b?.has_subscription && isOwner && (
+        {hasPortal && b?.has_subscription && isOwner && (
           <button className="btn-ghost" disabled={busy} onClick={() => portal.mutate()}>
             Manage billing
           </button>
@@ -110,7 +114,7 @@ export default function Billing() {
               >
                 {current
                   ? "Current plan"
-                  : stripeOn && p.price_eur
+                  : billingOn && p.price_eur
                     ? `Subscribe to ${p.name}`
                     : `Switch to ${p.name}`}
               </button>

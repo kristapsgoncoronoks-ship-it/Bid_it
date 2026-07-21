@@ -26,16 +26,23 @@ pg_only = pytest.mark.skipif(not RLS_URL, reason="set RLS_TEST_DATABASE_URL (a P
 
 
 def _rls_migration_tables() -> set[str]:
-    """Load TENANT_TABLES from the RLS migration file (alembic/versions isn't an
-    importable package, so load it by path)."""
+    """Union `TENANT_TABLES` across every migration that defines it.
+
+    RLS shipped in one migration but later migrations that add a tenant table
+    enable RLS on it and declare their own `TENANT_TABLES`; aggregating keeps the
+    coverage guard correct as the schema grows (alembic/versions isn't an
+    importable package, so each file is loaded by path)."""
     import importlib.util
     from pathlib import Path
 
-    path = Path(__file__).resolve().parent.parent / "alembic" / "versions" / "b2c3d4e5f6a7_row_level_security.py"
-    spec = importlib.util.spec_from_file_location("_rls_mig", path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return set(mod.TENANT_TABLES)
+    versions = Path(__file__).resolve().parent.parent / "alembic" / "versions"
+    tables: set[str] = set()
+    for path in sorted(versions.glob("*.py")):
+        spec = importlib.util.spec_from_file_location(f"_mig_{path.stem}", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        tables.update(getattr(mod, "TENANT_TABLES", ()))
+    return tables
 
 
 def test_rls_migration_covers_every_tenant_table():

@@ -97,6 +97,7 @@ export interface BillingInfo {
   seats_limit: number;
   available_plans: PlanInfo[];
   billing_enabled: boolean;
+  billing_provider: string;
   has_subscription: boolean;
 }
 

@@ -95,24 +95,63 @@ class Settings(BaseSettings):
     clamav_port: int = Field(default=3310)
     clamav_unix_socket: str | None = Field(default=None)
 
-    # --- Billing (Stripe; ADR-0013) ---
-    # When `stripe_secret_key` is set, real subscriptions flow through Stripe
-    # Checkout + Customer Portal and the signed webhook is the AUTHORITY for a
-    # tenant's plan/status. Unset (default) → the NullProvider: the in-app plan
-    # switch stays available for dev but NOTHING charges anyone.
+    # --- Billing (ADR-0013) ---
+    # Two providers behind one seam, selected by `billing_provider`:
+    #   stripe   — subscription platform: Checkout + Portal + signed webhook is
+    #              the authority for plan/status.
+    #   everypay — Baltic (EE/LV/LT) card gateway: hosted payment page, redirect
+    #              back + server-side status verify; recurring via a stored token.
+    #   auto     — pick stripe if a Stripe key is set, else everypay if its creds
+    #              are set, else the NullProvider (nothing charges).
+    #   none     — force the NullProvider.
+    billing_provider: str = Field(default="auto")  # auto | stripe | everypay | none
+
+    # Stripe.
     stripe_secret_key: str | None = Field(default=None)
     stripe_webhook_secret: str | None = Field(default=None)
-    # Stripe Price IDs per paid plan key (create these in the Stripe dashboard).
     stripe_price_starter: str | None = Field(default=None)
     stripe_price_pro: str | None = Field(default=None)
-    # Where Stripe redirects the browser back to after checkout / portal.
+
+    # EveryPay (https://every-pay.com). Test base: https://igw-demo.every-pay.com/api/v4
+    # Live base: https://pay.every-pay.eu/api/v4. HTTP Basic (api_username/secret).
+    everypay_api_username: str | None = Field(default=None)
+    everypay_api_secret: str | None = Field(default=None)
+    everypay_account_name: str | None = Field(default=None)  # processing account, e.g. "EUR3D1"
+    everypay_api_base_url: str = Field(default="https://igw-demo.every-pay.com/api/v4")
+
+    # Where the provider redirects the browser back to after checkout / portal.
     billing_success_url: str = Field(default="http://localhost:5173/billing?checkout=success")
     billing_cancel_url: str = Field(default="http://localhost:5173/billing?checkout=cancel")
     billing_portal_return_url: str = Field(default="http://localhost:5173/billing")
+    # Public base URL of THIS API (for EveryPay's customer_url / callback_url).
+    api_public_base_url: str = Field(default="http://localhost:8000")
+
+    @property
+    def everypay_configured(self) -> bool:
+        return bool(
+            self.everypay_api_username and self.everypay_api_secret and self.everypay_account_name
+        )
+
+    @property
+    def active_billing_provider(self) -> str:
+        """Resolve `billing_provider` to a concrete 'stripe'|'everypay'|'none'."""
+        choice = self.billing_provider
+        if choice == "stripe":
+            return "stripe" if self.stripe_secret_key else "none"
+        if choice == "everypay":
+            return "everypay" if self.everypay_configured else "none"
+        if choice == "none":
+            return "none"
+        # auto
+        if self.stripe_secret_key:
+            return "stripe"
+        if self.everypay_configured:
+            return "everypay"
+        return "none"
 
     @property
     def billing_enabled(self) -> bool:
-        return bool(self.stripe_secret_key)
+        return self.active_billing_provider != "none"
 
     def stripe_price_for(self, plan_key: str) -> str | None:
         return {"starter": self.stripe_price_starter, "pro": self.stripe_price_pro}.get(plan_key)

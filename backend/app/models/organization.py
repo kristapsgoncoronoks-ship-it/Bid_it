@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, String
+from sqlalchemy import Boolean, Date, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -34,6 +35,13 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         String(64), nullable=True, unique=True, index=True
     )
     stripe_subscription_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # EveryPay linkage (ADR-0013). The card token captured on the initial (CIT)
+    # payment, reused for merchant-initiated (MIT) recurring charges; the next
+    # scheduled charge date drives the renewal job. Null unless subscribed via
+    # EveryPay.
+    everypay_token: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    everypay_next_charge: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     users: Mapped[list["User"]] = relationship(
         back_populates="organization", cascade="all, delete-orphan"

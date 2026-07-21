@@ -12,6 +12,7 @@ from app.services import billing as billing_svc
 from app.services import modules as modules_svc
 from app.services.billing_provider import (
     BillingError,
+    CheckoutSession,
     NullProvider,
     SubscriptionEvent,
     get_billing_provider,
@@ -21,8 +22,10 @@ from app.services.billing_provider import (
 
 
 class FakeProvider:
-    """Stand-in billing provider — no SDK, no network."""
+    """Stand-in subscription (Stripe-like) provider — no SDK, no network."""
 
+    kind = "subscription"
+    name = "stripe"
     enabled = True
 
     def __init__(self, event: SubscriptionEvent | None = None):
@@ -32,8 +35,8 @@ class FakeProvider:
     async def ensure_customer(self, *, org_id, name, email):
         return self.customer_id
 
-    async def create_checkout_url(self, *, customer_id, plan_key, org_id):
-        return f"https://checkout.test/{plan_key}"
+    async def start_checkout(self, *, org_id, plan_key, amount_eur, order_reference, customer_id):
+        return CheckoutSession(url=f"https://checkout.test/{plan_key}", reference="cs_test")
 
     async def create_portal_url(self, *, customer_id):
         return "https://portal.test/session"
@@ -65,7 +68,8 @@ async def test_null_provider_operations_raise():
     with pytest.raises(BillingError):
         await p.ensure_customer(org_id="o", name="n", email=None)
     with pytest.raises(BillingError):
-        await p.create_checkout_url(customer_id="c", plan_key="pro", org_id="o")
+        await p.start_checkout(org_id="o", plan_key="pro", amount_eur=99.0,
+                               order_reference="r", customer_id="c")
 
 
 # --- pure event mapping ----------------------------------------------------
