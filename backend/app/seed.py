@@ -108,13 +108,23 @@ async def seed() -> None:
         # straight out"). Mirror what register() does for real signups.
         await db.flush()
         await memberships.ensure(
-            db, org_id=org.id, user_id=owner.id, role=UserRole.owner,
-            is_expense_approver=True, email=owner.email, name=owner.name,
+            db,
+            org_id=org.id,
+            user_id=owner.id,
+            role=UserRole.owner,
+            is_expense_approver=True,
+            email=owner.email,
+            name=owner.name,
         )
         for tid, u in extra_owners:
             await memberships.ensure(
-                db, org_id=tid, user_id=u.id, role=UserRole.owner,
-                is_expense_approver=True, email=u.email, name=u.name,
+                db,
+                org_id=tid,
+                user_id=u.id,
+                role=UserRole.owner,
+                is_expense_approver=True,
+                email=u.email,
+                name=u.name,
             )
 
         vendors = []
