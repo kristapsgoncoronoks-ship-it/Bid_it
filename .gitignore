@@ -30,3 +30,9 @@ frontend/dist/
 # TS incremental build cache
 *.tsbuildinfo
 backend/var/
+
+# Playwright artifacts (also ignored under frontend/.gitignore; guard the root
+# too, since a stray run from the repo root writes here)
+test-results/
+playwright-report/
+blob-report/
