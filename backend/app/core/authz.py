@@ -33,6 +33,7 @@ class Permission(str, enum.Enum):
     INVOICE_READ = "invoice.read"
     INVOICE_WRITE = "invoice.write"
     INVOICE_DELETE = "invoice.delete"
+    INVOICE_APPROVE = "invoice.approve"  # decide an approval step (Phase 08)
     # Expenses
     EXPENSE_READ = "expense.read"
     EXPENSE_WRITE = "expense.write"
@@ -83,6 +84,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             _P.INVOICE_READ,
             _P.INVOICE_WRITE,
             _P.INVOICE_DELETE,
+            _P.INVOICE_APPROVE,
             _P.EXPENSE_READ,
             _P.EXPENSE_WRITE,
             _P.EXPENSE_APPROVE,
@@ -108,9 +110,15 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             _P.EXPORT_RUN,
         }
     ),
-    # Approves expenses; otherwise read-only on the money surfaces.
+    # Approves expenses AND supplier invoices; otherwise read-only on the money surfaces.
     Role.APPROVER: frozenset(
-        {_P.EXPENSE_READ, _P.EXPENSE_APPROVE, _P.INVOICE_READ, _P.REPORT_READ}
+        {
+            _P.EXPENSE_READ,
+            _P.EXPENSE_APPROVE,
+            _P.INVOICE_READ,
+            _P.INVOICE_APPROVE,
+            _P.REPORT_READ,
+        }
     ),
     # Submits their own expenses; reads invoices.
     Role.EMPLOYEE: frozenset({_P.EXPENSE_READ, _P.EXPENSE_WRITE, _P.INVOICE_READ}),

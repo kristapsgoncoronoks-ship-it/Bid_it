@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Index,
+    Integer,
     Numeric,
     String,
     Text,
@@ -30,6 +31,27 @@ class InvoiceStatus(str, enum.Enum):
     pending = "pending"
     paid = "paid"
     overdue = "overdue"
+
+
+class WorkflowState(str, enum.Enum):
+    """The AP review-&-approval lifecycle (see services/invoice_workflow.py, the
+    transition state machine). Runs alongside the legacy aging `status` above,
+    which analytics/payments still read; the two are synced at the paid milestone."""
+
+    uploaded = "uploaded"
+    processing = "processing"
+    review_required = "review_required"
+    draft = "draft"
+    submitted = "submitted"  # "Submitted for Approval"
+    partially_approved = "partially_approved"
+    approved = "approved"
+    rejected = "rejected"
+    scheduled_for_payment = "scheduled_for_payment"
+    partially_paid = "partially_paid"
+    paid = "paid"
+    disputed = "disputed"
+    cancelled = "cancelled"
+    archived = "archived"
 
 
 # 14 digits total, 2 after the decimal — exact money, never float.
@@ -106,6 +128,32 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     source_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # --- AP review & approval lifecycle (Phase 08) ---------------------------
+    # The canonical processing state (see services/invoice_workflow.py). Legacy
+    # `status` above stays for aging/analytics and is synced at the paid milestone.
+    workflow_state: Mapped[WorkflowState] = mapped_column(
+        SAEnum(WorkflowState, name="invoice_workflow_state"),
+        default=WorkflowState.draft,
+        server_default=WorkflowState.draft.value,
+        nullable=False,
+        index=True,
+    )
+    # Optimistic concurrency: bumped on every mutating operation. A reviewer sends
+    # the version they read; a stale write is rejected 409 (invoice_workflow.assert_version).
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    # Record lock: set when the invoice reaches `approved`; cleared by a controlled
+    # correction (reopen → draft). A locked record refuses edits/re-submit.
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    locked_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # The receiving legal entity (our issuer profile) — an approval-policy dimension.
+    legal_entity_id: Mapped[str | None] = mapped_column(GUID(), nullable=True, index=True)
+    # GL account / category assignment at the invoice level (free-text; line items
+    # carry their own `category`).
+    account_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Who submitted for approval (segregation of duties: they cannot approve it).
+    submitted_by: Mapped[str | None] = mapped_column(GUID(), nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Cost-allocation dimensions (free-text tags; see app.core.dimensions). Any
     # combination may be set; each is independently filterable/groupable.

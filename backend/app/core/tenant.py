@@ -21,6 +21,7 @@ from contextvars import ContextVar, Token
 from sqlalchemy import event, text
 from sqlalchemy.orm import Session, with_loader_criteria
 
+from app.models.approval import ApprovalPolicy, ApprovalStep
 from app.models.audit import AuditEvent
 from app.models.billing_payment import BillingPayment
 from app.models.budget import BudgetTarget
@@ -36,6 +37,7 @@ from app.models.extraction_field import ExtractionField
 from app.models.extraction_run import ExtractionRun
 from app.models.invitation import Invitation
 from app.models.invoice import Invoice
+from app.models.invoice_collab import InvoiceAttachment, InvoiceComment
 from app.models.issued_invoice import IssuedInvoice
 from app.models.issuer import IssuerProfile
 from app.models.job import Job
@@ -100,6 +102,10 @@ TENANT_MODELS = (
     Receipt,
     Document,
     DocumentVersion,
+    ApprovalPolicy,
+    ApprovalStep,
+    InvoiceComment,
+    InvoiceAttachment,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.

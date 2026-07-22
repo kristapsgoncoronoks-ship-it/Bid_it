@@ -1,5 +1,6 @@
 """SQLAlchemy models. Import all so metadata/Alembic sees them."""
 
+from app.models.approval import ApprovalPolicy, ApprovalStep
 from app.models.audit import AuditEvent
 from app.models.base import Base
 from app.models.billing_event import ProcessedStripeEvent
@@ -22,7 +23,8 @@ from app.models.extraction_field import ExtractionField
 from app.models.extraction_run import ExtractionRun
 from app.models.fx import EcbRate
 from app.models.invitation import Invitation
-from app.models.invoice import Invoice, InvoiceStatus, LineItem
+from app.models.invoice import Invoice, InvoiceStatus, LineItem, WorkflowState
+from app.models.invoice_collab import InvoiceAttachment, InvoiceComment
 from app.models.issued_invoice import IssuedInvoice, IssuedInvoiceLine
 from app.models.issuer import IssuerProfile
 from app.models.job import Job
@@ -52,7 +54,12 @@ __all__ = [
     "Vendor",
     "Invoice",
     "InvoiceStatus",
+    "WorkflowState",
     "LineItem",
+    "ApprovalPolicy",
+    "ApprovalStep",
+    "InvoiceComment",
+    "InvoiceAttachment",
     "Job",
     "EcbRate",
     "EmailIntake",

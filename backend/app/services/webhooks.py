@@ -30,6 +30,14 @@ log = logging.getLogger("invoiceiq.webhooks")
 # Known event types (documentation + the /webhooks/events catalog).
 EVENT_TYPES = (
     "invoice.created",
+    # AP review & approval lifecycle (Phase 08)
+    "invoice.submitted",
+    "invoice.approved",
+    "invoice.rejected",
+    "invoice.returned",
+    "invoice.reassigned",
+    "invoice.scheduled_for_payment",
+    "invoice.paid",
     "issued.payment",
     "issued.credit_note",
     "expense.submitted",

@@ -73,3 +73,4 @@ RECEIPTS = "receipts"
 LOGOS = "logos"
 EMAIL_ATTACHMENTS = "email-attachments"
 UPLOADS = "uploads"  # UI direct uploads, persisted so the worker can parse off-tier
+INVOICE_ATTACHMENTS = "invoice-attachments"  # internal working docs on an invoice (Phase 08)

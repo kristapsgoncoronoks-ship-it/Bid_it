@@ -47,7 +47,15 @@ def test_role_boundaries():
     assert P.EXPENSE_APPROVE not in acc and P.ISSUED_SEND not in acc  # books, doesn't approve/send
 
     appr = authz.ROLE_PERMISSIONS[Role.APPROVER]
-    assert appr == frozenset({P.EXPENSE_READ, P.EXPENSE_APPROVE, P.INVOICE_READ, P.REPORT_READ})
+    assert appr == frozenset(
+        {
+            P.EXPENSE_READ,
+            P.EXPENSE_APPROVE,
+            P.INVOICE_READ,
+            P.INVOICE_APPROVE,
+            P.REPORT_READ,
+        }
+    )
 
     aud = authz.ROLE_PERMISSIONS[Role.AUDITOR]
     assert P.AUDIT_READ in aud and P.EXPORT_RUN in aud
