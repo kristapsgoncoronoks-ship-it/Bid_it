@@ -4,6 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
@@ -255,4 +256,26 @@ class ReimbursementBatch(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     total_eur: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
+class ExpensePolicy(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """The org's expense-spending rules (Phase 09) — one active policy per tenant.
+    Caps are ADVISORY: they flag out-of-policy items for the approver rather than
+    hard-blocking submission (the business-purpose + receipt compliance gate stays
+    the hard submit gate). Any cap left null is not enforced."""
+
+    __tablename__ = "expense_policies"
+    __table_args__ = (UniqueConstraint("org_id", name="uq_expense_policies_org"),)
+
+    org_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Hard-ish per-item ceiling (any single item above this is flagged).
+    max_item_amount: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    # A receipt is expected on any item above this amount (flag if missing).
+    receipt_required_over: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    # Per-category ceilings as a JSON object {category: max_amount}.
+    category_caps: Mapped[str | None] = mapped_column(Text, nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)

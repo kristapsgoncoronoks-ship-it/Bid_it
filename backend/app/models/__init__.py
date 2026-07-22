@@ -16,6 +16,7 @@ from app.models.email_token import EmailToken
 from app.models.expense import (
     ExpenseComment,
     ExpenseItem,
+    ExpensePolicy,
     ExpenseReport,
     ExpenseTransaction,
     ReimbursementBatch,
@@ -83,6 +84,7 @@ __all__ = [
     "ExpenseTransaction",
     "ExpenseComment",
     "ReimbursementBatch",
+    "ExpensePolicy",
     "UsageCounter",
     "WebhookEndpoint",
     "WebhookDelivery",

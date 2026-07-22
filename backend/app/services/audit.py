@@ -69,6 +69,7 @@ class A:
     REIMBURSE_BATCH = "expense.reimbursement_batch"
     REIMBURSE_PAID = "expense.reimbursement_paid"
     REIMBURSE_CANCEL = "expense.reimbursement_cancel"
+    EXPENSE_POLICY_SET = "expense.policy_set"
     ROLE_CHANGE = "user.role_change"
     APPROVER_CHANGE = "user.approver_change"
     USER_DEACTIVATE = "user.deactivate"

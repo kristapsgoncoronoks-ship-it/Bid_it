@@ -126,12 +126,39 @@ class ExpenseReportOut(BaseModel):
     created_at: datetime
 
 
+class PolicyViolation(BaseModel):
+    item_id: str
+    category: str
+    code: str
+    message: str
+    amount: Decimal
+    limit: Decimal
+
+
+class ExpensePolicyIn(BaseModel):
+    active: bool = True
+    max_item_amount: Decimal | None = None
+    receipt_required_over: Decimal | None = None
+    category_caps: dict[str, Decimal] = Field(default_factory=dict)
+
+
+class ExpensePolicyOut(BaseModel):
+    active: bool
+    max_item_amount: Decimal | None
+    receipt_required_over: Decimal | None
+    category_caps: dict[str, Decimal]
+    version: int
+
+
 class ExpenseReportDetail(ExpenseReportOut):
     note: str | None
     decided_at: datetime | None
     decided_by: str | None
     decision_note: str | None
+    reimbursed_at: datetime | None = None
+    payment_reference: str | None = None
     items: list[ExpenseItemOut]
+    policy_violations: list[PolicyViolation] = []
 
 
 class ExpenseReportListOut(BaseModel):

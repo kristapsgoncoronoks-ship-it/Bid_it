@@ -235,12 +235,22 @@ export interface ExpenseReport {
   created_at: string;
 }
 
+export interface PolicyViolation {
+  item_id: string;
+  category: string;
+  code: string;
+  message: string;
+  amount: string;
+  limit: string;
+}
+
 export interface ExpenseReportDetail extends ExpenseReport {
   note: string | null;
   decided_at: string | null;
   decided_by: string | null;
   decision_note: string | null;
   items: ExpenseItem[];
+  policy_violations?: PolicyViolation[];
 }
 
 export interface ExpenseSummary {

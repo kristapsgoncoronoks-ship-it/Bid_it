@@ -35,6 +35,7 @@ from app.models.email_token import EmailToken
 from app.models.expense import (
     ExpenseComment,
     ExpenseItem,
+    ExpensePolicy,
     ExpenseReport,
     ExpenseTransaction,
     ReimbursementBatch,
@@ -113,6 +114,7 @@ TENANT_MODELS = (
     InvoiceComment,
     InvoiceAttachment,
     ReimbursementBatch,
+    ExpensePolicy,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.

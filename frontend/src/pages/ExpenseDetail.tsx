@@ -87,6 +87,17 @@ export default function ExpenseDetail() {
     <div className="space-y-6">
       <Link to="/expenses" className="text-sm text-brand-600 hover:underline">← Back to expenses</Link>
 
+      {(r.policy_violations?.length ?? 0) > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          <div className="font-medium">⚠ {r.policy_violations!.length} out-of-policy item{r.policy_violations!.length === 1 ? "" : "s"}</div>
+          <ul className="ml-4 list-disc">
+            {r.policy_violations!.map((v, i) => (
+              <li key={i}>{v.category}: {v.message}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="card">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>

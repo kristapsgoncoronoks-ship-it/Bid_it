@@ -30,6 +30,8 @@ from app.schemas.expense import (
     ExpenseDecision,
     ExpenseItemOut,
     ExpenseItemPatch,
+    ExpensePolicyIn,
+    ExpensePolicyOut,
     ExpenseReportCreate,
     ExpenseReportDetail,
     ExpenseReportListOut,
@@ -39,6 +41,7 @@ from app.schemas.expense import (
     ExpenseTransactionOut,
     ItemFromTransaction,
     MatchTransaction,
+    PolicyViolation,
 )
 from app.services import (
     audit,
@@ -46,6 +49,7 @@ from app.services import (
     costing,
     document_versions,
     documents,
+    expense_policy,
     expenses,
     filesec,
     fx,
@@ -362,12 +366,60 @@ async def summary(current: CurrentUser, db: DbSession):
     )
 
 
+def _policy_out(p) -> ExpensePolicyOut:
+    return ExpensePolicyOut(
+        active=p.active if p else False,
+        max_item_amount=p.max_item_amount if p else None,
+        receipt_required_over=p.receipt_required_over if p else None,
+        category_caps=expense_policy.caps_of(p),
+        version=p.version if p else 0,
+    )
+
+
+@router.get("/policy", response_model=ExpensePolicyOut)
+async def get_policy(current: CurrentUser, db: DbSession):
+    """The org's expense spending policy (visible to everyone; edited by admins)."""
+    await _guard(db, current.org_id)
+    return _policy_out(await expense_policy.get(db, current.org_id))
+
+
+@router.put("/policy", response_model=ExpensePolicyOut)
+async def set_policy(body: ExpensePolicyIn, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    if not is_admin_or_above(current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can set the expense policy")
+    p = await expense_policy.upsert(
+        db,
+        current.org_id,
+        active=body.active,
+        max_item_amount=body.max_item_amount,
+        receipt_required_over=body.receipt_required_over,
+        category_caps=body.category_caps,
+    )
+    await audit.record(
+        db,
+        audit.A.EXPENSE_POLICY_SET,
+        target_type="expense_policy",
+        target_id=p.id,
+        meta={"active": p.active},
+    )
+    await db.commit()
+    await db.refresh(p)
+    return _policy_out(p)
+
+
 @router.get("/{report_id}", response_model=ExpenseReportDetail)
 async def get_report(report_id: str, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     r = await _load(db, current.org_id, report_id)
     _require_view(r, current)
-    return _detail(r)
+    detail = _detail(r)
+    # Out-of-policy flags for the reviewer (advisory; never blocks).
+    policy = await expense_policy.get(db, current.org_id)
+    detail.policy_violations = [
+        PolicyViolation(**v) for v in expense_policy.violations(policy, r.items)
+    ]
+    return detail
 
 
 @router.patch("/{report_id}", response_model=ExpenseReportDetail)
