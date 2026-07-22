@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import CurrentUser, DbSession
-from app.core.roles import is_admin_or_above
+from app.core import authz
 from app.schemas.currency import CurrencyActivate, CurrencyCreate, CurrencyOut
 from app.services import currencies
 
@@ -17,8 +17,7 @@ router = APIRouter(prefix="/currencies", tags=["currencies"])
 
 
 def _require_admin(current: CurrentUser) -> None:
-    if not is_admin_or_above(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can manage currencies")
+    authz.require(current, authz.Permission.SETTINGS_MANAGE)
 
 
 @router.get("", response_model=list[CurrencyOut])

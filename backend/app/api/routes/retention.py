@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import CurrentUser, DbSession
-from app.core.roles import is_admin_or_above
+from app.core import authz
 from app.schemas.retention import (
     HoldCreate,
     LegalHoldOut,
@@ -25,8 +25,7 @@ router = APIRouter(prefix="/retention", tags=["retention"])
 
 
 def _require_admin(current) -> None:
-    if not is_admin_or_above(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can manage data retention")
+    authz.require(current, authz.Permission.SETTINGS_MANAGE)
 
 
 async def _snapshot(db, org_id: str) -> RetentionOut:

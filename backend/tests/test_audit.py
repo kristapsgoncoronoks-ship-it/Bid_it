@@ -63,18 +63,32 @@ async def test_verify_ok_then_detects_tampering(auth_client, db_session):
 
 
 @pytest.mark.asyncio
-async def test_audit_is_owner_only(auth_client, client):
-    # A plain user cannot read the trail.
+async def test_audit_requires_audit_read(auth_client, client):
+    # AUDIT_READ (matrix-aligned): a plain user has none → denied; an administrator
+    # holds it → allowed.
     inv = await auth_client.post(
         "/api/v1/team/invites", json={"email": "u@acme.io", "role": "user"}
     )
-    token = inv.json()["token"]
-    acc = await client.post(
-        "/api/v1/auth/accept-invite", json={"token": token, "name": "U", "password": "supersecret"}
-    )
-    utok = acc.json()["token"]["access_token"]
+    utok = (
+        await client.post(
+            "/api/v1/auth/accept-invite",
+            json={"token": inv.json()["token"], "name": "U", "password": "supersecret"},
+        )
+    ).json()["token"]["access_token"]
     r = await client.get("/api/v1/audit", headers={"Authorization": f"Bearer {utok}"})
     assert r.status_code == 403
+
+    inv2 = await auth_client.post(
+        "/api/v1/team/invites", json={"email": "a@acme.io", "role": "admin"}
+    )
+    atok = (
+        await client.post(
+            "/api/v1/auth/accept-invite",
+            json={"token": inv2.json()["token"], "name": "A", "password": "supersecret"},
+        )
+    ).json()["token"]["access_token"]
+    r2 = await client.get("/api/v1/audit", headers={"Authorization": f"Bearer {atok}"})
+    assert r2.status_code == 200
 
 
 @pytest.mark.asyncio

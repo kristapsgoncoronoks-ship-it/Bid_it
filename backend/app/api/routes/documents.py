@@ -6,10 +6,10 @@ only; the bytes are served by each owner's existing download route.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter
 
 from app.api.deps import CurrentUser, DbSession
-from app.core.roles import is_admin_or_above
+from app.core import authz
 from app.schemas.document import DocumentOut
 from app.services import document_registry
 
@@ -18,6 +18,5 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 
 @router.get("", response_model=list[DocumentOut])
 async def list_documents(current: CurrentUser, db: DbSession, kind: str | None = None):
-    if not is_admin_or_above(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can list documents")
+    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     return await document_registry.list_for_org(db, current.org_id, kind=kind)

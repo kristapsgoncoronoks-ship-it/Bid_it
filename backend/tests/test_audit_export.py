@@ -1,5 +1,5 @@
 """Audit-log export (Phase 4): CSV/JSON evidence export with chain columns,
-formula-injection-safe, owner-gated, tenant-scoped, filterable."""
+formula-injection-safe, AUDIT_READ-gated, tenant-scoped, filterable."""
 
 import csv
 import io
@@ -149,13 +149,17 @@ async def test_action_filter(auth_client):
 
 
 @pytest.mark.asyncio
-async def test_export_requires_owner(auth_client, db_session):
-    # Demote the caller below owner → export is refused.
+async def test_export_requires_audit_read(auth_client, db_session):
+    # A read-only member has no AUDIT_READ → export refused.
     user = await db_session.scalar(select(User))
-    user.role = UserRole.admin  # admin, not owner
+    user.role = UserRole.user_free
     await db_session.commit()
-    r = await auth_client.get("/api/v1/audit/export?fmt=csv")
-    assert r.status_code == 403
+    assert (await auth_client.get("/api/v1/audit/export?fmt=csv")).status_code == 403
+
+    # An administrator HOLDS AUDIT_READ → allowed past the guard.
+    user.role = UserRole.admin
+    await db_session.commit()
+    assert (await auth_client.get("/api/v1/audit/export?fmt=csv")).status_code == 200
 
 
 @pytest.mark.asyncio

@@ -295,14 +295,24 @@ async def test_paid_plan_switch_blocked_when_billing_enabled(auth_client, monkey
 
 
 @pytest.mark.asyncio
-async def test_checkout_requires_admin(auth_client, db_session, monkeypatch):
+async def test_checkout_requires_billing_manage(auth_client, db_session, monkeypatch):
+    # BILLING_MANAGE is owner-only (matrix-aligned) — even an administrator is
+    # refused, and so is a plain user.
     from app.core.config import settings
     from app.models.user import User, UserRole
 
     monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
     set_billing_provider(FakeProvider())
     user = await db_session.scalar(select(User))
+
+    user.role = UserRole.admin
+    await db_session.commit()
+    assert (
+        await auth_client.post("/api/v1/billing/checkout", json={"plan": "pro"})
+    ).status_code == 403
+
     user.role = UserRole.user
     await db_session.commit()
-    r = await auth_client.post("/api/v1/billing/checkout", json={"plan": "pro"})
-    assert r.status_code == 403
+    assert (
+        await auth_client.post("/api/v1/billing/checkout", json={"plan": "pro"})
+    ).status_code == 403

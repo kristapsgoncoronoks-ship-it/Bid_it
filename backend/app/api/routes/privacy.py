@@ -5,10 +5,10 @@ integrity) or blocked by a legal hold."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter
 
 from app.api.deps import CurrentUser, DbSession
-from app.core.roles import is_admin_or_above
+from app.core import authz
 from app.schemas.privacy import ErasureLocationOut, ErasureReportOut, ErasureRequest
 from app.services import privacy
 
@@ -16,8 +16,7 @@ router = APIRouter(prefix="/privacy", tags=["privacy"])
 
 
 def _require_admin(current) -> None:
-    if not is_admin_or_above(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can process erasure requests")
+    authz.require(current, authz.Permission.SETTINGS_MANAGE)
 
 
 def _out(rep) -> ErasureReportOut:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Response, UploadFile, status
 
 from app.api.deps import CurrentUser, DbSession
-from app.core.roles import is_admin_or_above
+from app.core import authz
 from app.models.document_version import OWNER_ISSUER_LOGO
 from app.schemas.document_version import DocumentVersionOut
 from app.schemas.issuer import IssuerProfileIn, IssuerProfileOut
@@ -30,8 +30,7 @@ async def get_issuer(current: CurrentUser, db: DbSession):
 
 @router.put("", response_model=IssuerProfileOut)
 async def update_issuer(body: IssuerProfileIn, current: CurrentUser, db: DbSession):
-    if not is_admin_or_above(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can edit company details")
+    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     profile = await issuer.get_or_create(db, current.org_id)
     for field, value in body.model_dump(exclude_unset=True).items():
         if field in ("country", "default_currency") and value:
@@ -44,8 +43,7 @@ async def update_issuer(body: IssuerProfileIn, current: CurrentUser, db: DbSessi
 
 @router.post("/logo", response_model=IssuerProfileOut)
 async def upload_logo(current: CurrentUser, db: DbSession, file: UploadFile):
-    if not is_admin_or_above(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can edit company details")
+    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     content = await file.read()
     if len(content) > 2 * 1024 * 1024:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Logo too large (max 2 MB)")
@@ -99,8 +97,7 @@ async def get_logo(current: CurrentUser, db: DbSession):
 @router.get("/logo/versions", response_model=list[DocumentVersionOut])
 async def logo_versions(current: CurrentUser, db: DbSession):
     """The supersession history of this org's logo (newest first)."""
-    if not is_admin_or_above(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can view company details")
+    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     profile = await issuer.get_or_create(db, current.org_id)
     rows = await document_versions.history(db, current.org_id, OWNER_ISSUER_LOGO, profile.id)
     return [DocumentVersionOut.model_validate(r) for r in rows]

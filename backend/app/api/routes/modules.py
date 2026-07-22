@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import CurrentUser, DbSession
-from app.core.roles import is_admin_or_above
+from app.core import authz
 from app.models.organization import Organization
 from app.schemas.module import ModuleOut, ModuleToggle
 from app.services import audit, issuer, modules, plans
@@ -39,8 +39,7 @@ async def list_modules(current: CurrentUser, db: DbSession):
 
 @router.put("/{key}", response_model=ModuleOut)
 async def toggle_module(key: str, body: ModuleToggle, current: CurrentUser, db: DbSession):
-    if not is_admin_or_above(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can change modules")
+    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     m = modules.MODULES_BY_KEY.get(key)
     if m is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown module")

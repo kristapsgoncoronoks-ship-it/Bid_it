@@ -141,18 +141,30 @@ async def test_admin_is_unlimited(auth_client, client, db_session):
 
 
 @pytest.mark.asyncio
-async def test_admin_cannot_manage_users_but_owner_can(auth_client, client):
+async def test_admin_can_manage_users_but_plain_user_cannot(auth_client, client, db_session):
+    # Matrix-aligned authz: MEMBER_MANAGE is held by OWNER and ADMINISTRATOR, so an
+    # admin can now manage users; EMPLOYEE (plain 'user') cannot.
+    from sqlalchemy import update
+
+    from app.models.user import User, UserRole
+
     admin = await _member(auth_client, client, "admin2@acme.io", "admin")
     # Admin can reach the admin panel (e.g. toggle a module) …
     assert (
         await client.put("/api/v1/modules/expenses", json={"enabled": True}, headers=_h(admin))
     ).status_code == 200
-    # … but cannot manage users/roles (owner-only).
+    # … and now manage users/roles (MEMBER_MANAGE).
     invite = await client.post(
         "/api/v1/team/invites", json={"email": "x@acme.io", "role": "user"}, headers=_h(admin)
     )
-    assert invite.status_code == 403
-    # The company owner can.
-    assert (
-        await auth_client.post("/api/v1/team/invites", json={"email": "y@acme.io", "role": "user"})
-    ).status_code == 201
+    assert invite.status_code == 201
+    # Demote that same account to a plain user → it loses MEMBER_MANAGE (403 at the
+    # authz gate, before any seat check).
+    await db_session.execute(
+        update(User).where(User.email == "admin2@acme.io").values(role=UserRole.user)
+    )
+    await db_session.commit()
+    denied = await client.post(
+        "/api/v1/team/invites", json={"email": "z@acme.io", "role": "user"}, headers=_h(admin)
+    )
+    assert denied.status_code == 403

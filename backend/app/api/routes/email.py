@@ -8,8 +8,8 @@ from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DbSession
 from app.api.routes.invoices import _detail, persist_invoice
+from app.core import authz
 from app.core.config import settings
-from app.core.roles import is_admin_or_above
 from app.core.tenant import reset_current_org, set_current_org
 from app.models.email_intake import InboundInvoice
 from app.schemas.email_intake import (
@@ -124,10 +124,7 @@ async def get_settings(current: CurrentUser, db: DbSession):
 @router.post("/settings/rotate", response_model=EmailSettingsOut)
 async def rotate_address(current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
-    if not is_admin_or_above(current):
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN, "Only an admin can rotate the inbound address"
-        )
+    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     intake = await email_intake.rotate(db, current.org_id)
     return EmailSettingsOut(
         address=email_intake.address_for(intake.token), domain=settings.inbound_email_domain

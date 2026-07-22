@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
-from app.core.roles import is_admin_or_above
+from app.core import authz
 from app.models.job import Job
 from app.schemas.jobs import JobEnqueue, JobOut
 from app.services import job_handlers, jobs
@@ -13,8 +13,7 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
 def _require_admin(current: CurrentUser) -> None:
-    if not is_admin_or_above(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can manage background jobs")
+    authz.require(current, authz.Permission.SETTINGS_MANAGE)
 
 
 @router.get("", response_model=list[JobOut])

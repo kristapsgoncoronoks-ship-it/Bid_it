@@ -126,3 +126,50 @@ expressed as one central policy.
 
 Slice 2 is the highest-value next step: it makes deny-by-default explicit and is
 the backbone the rest of the roles work hangs on.
+
+## Backlog resolution ("finish remaining backlog")
+
+After the 6-slice program landed, three loose items remained. Their disposition:
+
+### 1. Migrate ad-hoc role guards onto `authz.require` — DONE (all guards)
+Every remaining ad-hoc `is_admin_or_above` / `is_owner` route check moved onto the
+single choke point `authz.require(current, Permission.<X>)`, so the **matrix** is
+now authoritative for the whole surface and the eight-role expansion applies
+automatically.
+
+**Configuration endpoints → `SETTINGS_MANAGE` (behavior-preserving).** settings,
+modules, issuer, fx, currencies, tax-codes, documents, integrity, jobs, retention,
+email (rotate), webhooks, sso, privacy. SETTINGS_MANAGE is held by OWNER and
+ADMINISTRATOR and by neither EMPLOYEE nor READ_ONLY — the exact allow/deny set
+`is_admin_or_above` produced. Proven by `tests/test_config_guards_authz.py`
+(ADMINISTRATOR passes; EMPLOYEE + READ_ONLY get 403).
+
+**Three guards realigned to the matrix (deliberate access changes, approved).**
+These endpoints previously diverged from the matrix; they now follow it:
+- **audit** (`/audit`, `/audit/export`): `is_owner` → `AUDIT_READ`. Now readable by
+  OWNER, ADMINISTRATOR (and, post-expansion, FINANCE_MANAGER/AUDITOR) — admins gain
+  audit-log read. Tests: `test_audit_requires_audit_read`,
+  `test_export_requires_audit_read`.
+- **team** (`/team/*`): `is_owner` → `MEMBER_MANAGE` (invites) / `ROLE_ASSIGN`
+  (member+role updates). Admins can now manage users. Test:
+  `test_admin_can_manage_users_but_plain_user_cannot`.
+- **billing** (`/billing/*`): `is_admin_or_above` → `BILLING_MANAGE` (owner-only).
+  Admins **lose** billing management, matching the matrix's "billing stays
+  owner-only." Test: `test_checkout_requires_billing_manage`.
+
+### 2. Hash invitation tokens — NOT DONE (intentional; would break a feature)
+Unlike the email-verification and password-reset tokens (pure single-use login
+secrets, correctly stored as SHA-256 only), the invitation token in this product
+is a **shareable capability link**: the product is "invites share a link — no
+email required," and the Team screen renders a copyable accept-link for *every
+pending invite*. Hashing the stored token would make the pending-invites list
+unable to reveal that link (only the hash is persisted), removing a working,
+deliberate feature. The residual risk is small and already bounded — invitation
+tokens are single-use (`accepted`), expiring (+14d), low-privilege, and
+email-fixed — so they are treated as capability URLs, not login secrets. If the
+product later drops list-visible invite links, hashing becomes the right change.
+
+### 3. Legal-entity model — NOT A GAP
+The "selling legal entity" is already modelled by `issuer_profiles` (the
+multi-issuer registry). A distinct multi-legal-entity-per-org tree is speculative
+until a concrete requirement exists, so it is not built.

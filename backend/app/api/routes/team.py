@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
-from app.core.roles import is_owner
+from app.core import authz
 from app.models.organization import Organization
 from app.models.user import User, UserRole
 from app.schemas.tenancy import (
@@ -16,15 +16,6 @@ from app.schemas.tenancy import (
 from app.services import audit, memberships, plans, team
 
 router = APIRouter(prefix="/team", tags=["team"])
-
-
-def _owner_only(current: User):
-    # User-rights management (invites + roles + activation) is owner-only, and
-    # only within the caller's own company.
-    if not is_owner(current):
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN, "Only the company owner can manage users and roles"
-        )
 
 
 def _member_out(m) -> MemberOut:
@@ -47,7 +38,7 @@ async def members(current: CurrentUser, db: DbSession):
 
 @router.patch("/members/{user_id}", response_model=MemberOut)
 async def update_member(user_id: str, body: MemberUpdate, current: CurrentUser, db: DbSession):
-    _owner_only(current)
+    authz.require(current, authz.Permission.ROLE_ASSIGN)
     m = await team.get_member(db, current.org_id, user_id)  # the membership in this org
     if m is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Member not found")
@@ -113,13 +104,13 @@ async def update_member(user_id: str, body: MemberUpdate, current: CurrentUser, 
 
 @router.get("/invites", response_model=list[InviteOut])
 async def list_invites(current: CurrentUser, db: DbSession):
-    _owner_only(current)
+    authz.require(current, authz.Permission.MEMBER_MANAGE)
     return await team.list_invitations(db, current.org_id)
 
 
 @router.post("/invites", response_model=InviteOut, status_code=status.HTTP_201_CREATED)
 async def create_invite(body: InviteCreate, current: CurrentUser, db: DbSession):
-    _owner_only(current)
+    authz.require(current, authz.Permission.MEMBER_MANAGE)
     org = await db.get(Organization, current.org_id)
 
     # Seat limit (active users + outstanding invites) vs the plan.
@@ -154,7 +145,7 @@ async def create_invite(body: InviteCreate, current: CurrentUser, db: DbSession)
 
 @router.delete("/invites/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_invite(invite_id: str, current: CurrentUser, db: DbSession):
-    _owner_only(current)
+    authz.require(current, authz.Permission.MEMBER_MANAGE)
     from app.models.invitation import Invitation
 
     inv = await db.scalar(

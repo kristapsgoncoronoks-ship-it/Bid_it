@@ -6,8 +6,8 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import CurrentUser, DbSession
+from app.core import authz
 from app.core.config import settings
-from app.core.roles import is_admin_or_above
 from app.schemas.sso import ScimTokenOut, SsoConnectionOut, SsoConnectionUpdate
 from app.services import scim, sso_config
 
@@ -15,8 +15,7 @@ router = APIRouter(prefix="/sso", tags=["sso"])
 
 
 def _require_admin(current) -> None:
-    if not is_admin_or_above(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can manage SSO")
+    authz.require(current, authz.Permission.SETTINGS_MANAGE)
 
 
 def _out(conn) -> SsoConnectionOut:

@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import CurrentUser, DbSession
-from app.core.roles import is_admin_or_above
+from app.core import authz
 from app.schemas.tax_code import TaxCodeActivate, TaxCodeCreate, TaxCodeOut
 from app.services import tax_codes
 
@@ -17,8 +17,7 @@ router = APIRouter(prefix="/tax-codes", tags=["tax-codes"])
 
 
 def _require_admin(current: CurrentUser) -> None:
-    if not is_admin_or_above(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can manage tax codes")
+    authz.require(current, authz.Permission.SETTINGS_MANAGE)
 
 
 @router.get("", response_model=list[TaxCodeOut])

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter
 
 from app.api.deps import CurrentUser, DbSession
-from app.core.roles import is_admin_or_above
+from app.core import authz
 from app.schemas.integrity import DocIssueOut, IntegrityReportOut
 from app.services import integrity
 
@@ -17,8 +17,7 @@ async def verify_documents(current: CurrentUser, db: DbSession):
 
     Synchronous for interactive use; for large tenants enqueue the
     `integrity.verify_documents` background job instead (POST /jobs)."""
-    if not is_admin_or_above(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can run integrity checks")
+    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     report = await integrity.verify_documents(db, current.org_id)
     return _report_out(report)
 
@@ -29,8 +28,7 @@ async def verify_ledger(current: CurrentUser, db: DbSession):
     amount_paid equals the sum of its payment entries, and no receipt is
     over-allocated. Admin-only; also available as the `integrity.verify_ledger`
     background job (POST /jobs)."""
-    if not is_admin_or_above(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can run integrity checks")
+    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     report = await integrity.verify_ledger(db, current.org_id)
     return _report_out(report)
 
@@ -41,8 +39,7 @@ async def verify_versions(current: CurrentUser, db: DbSession):
     expense receipt) has exactly one current version, its sha matches the live
     pointer, and no file lacks a history. Admin-only; also available as the
     `integrity.verify_versions` background job (POST /jobs)."""
-    if not is_admin_or_above(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can run integrity checks")
+    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     report = await integrity.verify_versions(db, current.org_id)
     return _report_out(report)
 

@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
-from app.core.roles import is_admin_or_above
+from app.core import authz
 from app.models.webhook import WebhookDelivery, WebhookEndpoint
 from app.schemas.webhook import (
     WebhookCreate,
@@ -19,8 +19,7 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 
 def _require_admin(current: CurrentUser) -> None:
-    if not is_admin_or_above(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can manage webhooks")
+    authz.require(current, authz.Permission.SETTINGS_MANAGE)
 
 
 @router.get("/events")

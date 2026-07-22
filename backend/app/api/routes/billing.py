@@ -7,8 +7,8 @@ from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 
 from app.api.deps import CurrentUser, DbSession
+from app.core import authz
 from app.core.config import settings
-from app.core.roles import is_admin_or_above
 from app.models.billing_payment import BillingPayment
 from app.models.organization import Organization
 from app.schemas.tenancy import (
@@ -57,8 +57,7 @@ async def get_billing(current: CurrentUser, db: DbSession):
 
 @router.put("/plan", response_model=BillingOut)
 async def change_plan(body: PlanChange, current: CurrentUser, db: DbSession):
-    if not is_admin_or_above(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can change the plan")
+    authz.require(current, authz.Permission.BILLING_MANAGE)
     if body.plan not in plans.PLANS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown plan")
 
@@ -112,8 +111,7 @@ async def start_checkout(body: CheckoutStart, current: CurrentUser, db: DbSessio
     hosted card payment and we persist a `BillingPayment` so the return/callback
     can verify it server-side and apply the plan.
     """
-    if not is_admin_or_above(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can manage billing")
+    authz.require(current, authz.Permission.BILLING_MANAGE)
     if not settings.billing_enabled:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Billing is not configured")
     target = plans.PLANS.get(body.plan)
@@ -164,8 +162,7 @@ async def open_portal(current: CurrentUser, db: DbSession):
     """Open the Stripe Customer Portal (manage payment method / cancel / invoices).
 
     Subscription providers only — EveryPay has no hosted portal."""
-    if not is_admin_or_above(current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can manage billing")
+    authz.require(current, authz.Permission.BILLING_MANAGE)
     provider = get_billing_provider()
     if provider.kind != "subscription":
         raise HTTPException(
