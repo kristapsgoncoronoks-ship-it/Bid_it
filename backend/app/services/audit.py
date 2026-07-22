@@ -33,6 +33,7 @@ class A:
     EMAIL_VERIFY = "auth.email_verify"
     PASSWORD_RESET_REQUEST = "auth.password_reset_request"
     PASSWORD_RESET = "auth.password_reset"
+    SWITCH_ORG = "auth.switch_org"
     INVOICE_CREATE = "invoice.create"
     INVOICE_DELETE = "invoice.delete"
     INVOICE_VALIDATE = "invoice.validate"

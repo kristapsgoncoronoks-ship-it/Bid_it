@@ -9,7 +9,13 @@ from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select
 
-from app.api.deps import CurrentSession, CurrentUser, DbSession
+from app.api.deps import (
+    CurrentSession,
+    CurrentSessionUnscoped,
+    CurrentUser,
+    CurrentUserUnscoped,
+    DbSession,
+)
 from app.core import authz, residency
 from app.core.config import settings
 from app.core.security import hash_password, verify_password
@@ -139,6 +145,58 @@ async def my_permissions(current: CurrentUser) -> dict:
 async def authz_matrix(current: CurrentUser) -> dict:
     """The full role→permission matrix (for the members & roles admin screen)."""
     return authz.matrix()
+
+
+# --- Organizations + switching (Slice 6c) ----------------------------------
+
+
+@router.get("/organizations")
+async def my_organizations(current: CurrentUserUnscoped, db: DbSession) -> list[dict]:
+    """Every organization the caller is a member of (the org switcher's data).
+    Runs unscoped so all memberships are visible; filtered by the caller's id."""
+    out = []
+    for m in await memberships.for_user(db, current.id):
+        if m.status != "active":
+            continue
+        org = await db.get(Organization, m.org_id)
+        out.append(
+            {
+                "org_id": m.org_id,
+                "name": org.name if org else "?",
+                "role": m.role.value,
+                "current": m.org_id == current.org_id,
+            }
+        )
+    return out
+
+
+@router.post("/switch-org/{org_id}")
+async def switch_org(org_id: str, session: CurrentSessionUnscoped, db: DbSession) -> dict:
+    """Switch the caller's ACTIVE organization. Only an org the caller has a live
+    membership in is allowed (opaque 404 otherwise). Repoints the active
+    org/role; the same token keeps working."""
+    user = await db.get(User, session.user_id)
+    membership = await memberships.get(db, org_id, session.user_id)
+    if user is None or membership is None or membership.status != "active":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Organization not found")
+
+    # Repoint the active org + role (dual-read: user.org_id is what deps scopes to)
+    # and keep the session's org in sync (forward-compat for later slices).
+    user.org_id = org_id
+    user.role = membership.role
+    user.is_expense_approver = membership.is_expense_approver
+    session.org_id = org_id
+    await audit.record(
+        db, audit.A.SWITCH_ORG, org_id=org_id, actor=(user.id, user.email), target_id=org_id
+    )
+    await db.commit()
+
+    org = await db.get(Organization, org_id)
+    return {
+        "org_id": org_id,
+        "name": org.name if org else "?",
+        "role": membership.role.value,
+    }
 
 
 # --- Sessions + revocation (Slice 4) ---------------------------------------

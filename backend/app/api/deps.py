@@ -34,10 +34,11 @@ _CREDENTIALS_EXC = HTTPException(
 )
 
 
-async def get_current_user(
-    db: DbSession,
-    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
-) -> User:
+async def _authenticate(
+    db: AsyncSession, creds: HTTPAuthorizationCredentials | None
+) -> tuple[User, Session]:
+    """Validate the bearer token → (user, live session), WITHOUT setting tenant
+    scope. Shared by the scoped and unscoped dependencies. Raises 401."""
     if creds is None or not creds.credentials:
         raise _CREDENTIALS_EXC
     payload = decode_access_token(creds.credentials)
@@ -51,7 +52,17 @@ async def get_current_user(
     session = await sessions.active(db, payload.get("jti"))
     if session is None:
         raise _CREDENTIALS_EXC
+    return user, session
+
+
+async def get_current_user(
+    db: DbSession,
+    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+) -> User:
+    user, session = await _authenticate(db, creds)
     # Activate defence-in-depth tenant scoping + audit attribution for this request.
+    # The ACTIVE org is `user.org_id` (repointed by org-switching); everything
+    # downstream scopes to it.
     set_current_org(user.org_id)
     set_current_actor(user.id, user.email)
     await sessions.touch(db, session)
@@ -69,6 +80,23 @@ async def get_current_user(
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
+async def get_current_user_unscoped(
+    db: DbSession,
+    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+) -> User:
+    """Authenticated but deliberately NOT tenant-scoped — `current_org` stays
+    None so a CROSS-ORG endpoint (list my organizations, switch org) can see all
+    of the caller's memberships. Such endpoints MUST filter by `user_id`
+    themselves; they never issue an unfiltered tenant query."""
+    user, session = await _authenticate(db, creds)
+    set_current_actor(user.id, user.email)
+    await sessions.touch(db, session)
+    return user
+
+
+CurrentUserUnscoped = Annotated[User, Depends(get_current_user_unscoped)]
+
+
 async def get_current_session(
     current: CurrentUser,
     db: DbSession,
@@ -76,11 +104,21 @@ async def get_current_session(
 ) -> Session:
     """The caller's own session row (already validated by `get_current_user`).
     Used by logout / session-management endpoints that act on the current jti."""
-    payload = decode_access_token(creds.credentials) if creds else None
-    session = await sessions.active(db, (payload or {}).get("jti"))
-    if session is None:  # pragma: no cover - get_current_user already guaranteed it
-        raise _CREDENTIALS_EXC
+    _, session = await _authenticate(db, creds)
     return session
 
 
 CurrentSession = Annotated[Session, Depends(get_current_session)]
+
+
+async def get_current_session_unscoped(
+    db: DbSession,
+    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+) -> Session:
+    """The caller's session WITHOUT tenant scope (for the cross-org switch)."""
+    user, session = await _authenticate(db, creds)
+    set_current_actor(user.id, user.email)
+    return session
+
+
+CurrentSessionUnscoped = Annotated[Session, Depends(get_current_session_unscoped)]

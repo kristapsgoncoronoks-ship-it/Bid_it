@@ -29,7 +29,7 @@ Legend: ✅ present · 🟡 partial · ❌ missing
 | Organization invitations | ✅ | `team/invites` (+ preview, seat limits) |
 | Invitation acceptance | ✅ | `auth/accept-invite` |
 | Invitation **email** flow | ✅ **Slice 5** | `team.send_invitation_email` mails the accept link via `mailer`; invites now expire (+14d), preview returns 410 (expired) vs 404 (invalid/used) |
-| **Organization switching** | ❌ | **Architectural fork** — see below |
+| **Organization switching** | ✅ **Slice 6c** | `GET /auth/organizations` + `POST /auth/switch-org/{id}` (membership-verified) + FE switcher; isolation preserved. The `Membership` fork (below) is landed through 6c |
 | Membership management | 🟡 | List members, change role, deactivate — all within a single org |
 | Role assignment | 🟡 | Works, but only 4 roles (see below) |
 | Account deactivation | ✅ | `is_active` + `USER_DEACTIVATE` audit |
@@ -110,8 +110,11 @@ expressed as one central policy.
    table + backfill. **6b done:** every user-creation path dual-writes a membership
    (register/accept/SSO/SCIM), and an existing account can be **invited into a
    second org** (password-verified multi-org join); inviting an existing member →
-   409. Next: 6c (active org in session + `/auth/switch-org` + FE switcher),
-   6d (migrate readers), 6e (drop `users.org_id`/`role`).
+   409. **6c done:** `GET /auth/organizations` + `POST /auth/switch-org/{id}`
+   (membership-verified, opaque 404 otherwise) — switching repoints the active
+   org/role, tenant scoping + authz follow, isolation preserved; unscoped auth
+   deps for the cross-org endpoints; FE org switcher. Next: 6d (migrate readers
+   off `user.org_id`/`role`), 6e (drop the columns).
 
 Slice 2 is the highest-value next step: it makes deny-by-default explicit and is
 the backbone the rest of the roles work hangs on.
