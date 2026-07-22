@@ -56,6 +56,12 @@ export default function InvoiceDetailPage() {
           <div>
             <h1 className="text-xl font-semibold">{inv.invoice_number}</h1>
             <p className="text-slate-500">{inv.vendor_name}</p>
+            <Link
+              to={`/invoices/${id}/review`}
+              className="text-sm text-brand-600 hover:underline"
+            >
+              Open review &amp; approval workspace →
+            </Link>
           </div>
           <div className="text-right">
             <div className="text-2xl font-semibold">{money(inv.total, inv.currency)}</div>

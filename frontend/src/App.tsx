@@ -19,6 +19,7 @@ const Benchmark = lazy(() => import("./pages/Benchmark"));
 const Explore = lazy(() => import("./pages/Explore"));
 const Fx = lazy(() => import("./pages/Fx"));
 const Review = lazy(() => import("./pages/Review"));
+const ReviewInvoice = lazy(() => import("./pages/ReviewInvoice"));
 const Settings = lazy(() => import("./pages/Settings"));
 const Issuer = lazy(() => import("./pages/Issuer"));
 const Issue = lazy(() => import("./pages/Issue"));
@@ -109,6 +110,7 @@ export default function App() {
                 <Route path="/fx" element={<Fx />} />
                 <Route path="/invoices" element={<Invoices />} />
                 <Route path="/invoices/:id" element={<InvoiceDetail />} />
+                <Route path="/invoices/:id/review" element={<ReviewInvoice />} />
                 <Route path="/review" element={<Review />} />
                 <Route path="/upload" element={<Upload />} />
                 <Route path="/email" element={<EmailIntake />} />
