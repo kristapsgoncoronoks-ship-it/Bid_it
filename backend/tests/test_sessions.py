@@ -18,16 +18,19 @@ def _h(token: str) -> dict:
 async def _register(client, email="owner@acme.io") -> str:
     r = await client.post(
         "/api/v1/auth/register",
-        json={"organization_name": "Acme", "name": "Owner", "email": email, "password": "supersecret"},
+        json={
+            "organization_name": "Acme",
+            "name": "Owner",
+            "email": email,
+            "password": "supersecret",
+        },
     )
     assert r.status_code == 201, r.text
     return r.json()["token"]["access_token"]
 
 
 async def _login(client, email="owner@acme.io") -> str:
-    r = await client.post(
-        "/api/v1/auth/login", json={"email": email, "password": "supersecret"}
-    )
+    r = await client.post("/api/v1/auth/login", json={"email": email, "password": "supersecret"})
     assert r.status_code == 200, r.text
     return r.json()["token"]["access_token"]
 

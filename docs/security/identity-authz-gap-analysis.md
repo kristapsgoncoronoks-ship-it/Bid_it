@@ -28,7 +28,7 @@ Legend: ✅ present · 🟡 partial · ❌ missing
 | Legal-entity creation | 🟡 | `issuer_profiles` = the selling legal entity (multi-issuer registry exists). No distinct multi-legal-entity-per-org tree |
 | Organization invitations | ✅ | `team/invites` (+ preview, seat limits) |
 | Invitation acceptance | ✅ | `auth/accept-invite` |
-| Invitation **email** flow | 🟡 | Invitation row + token created, but **not emailed** — token is returned to the inviter (share-a-link). Needs a `notify` send |
+| Invitation **email** flow | ✅ **Slice 5** | `team.send_invitation_email` mails the accept link via `mailer`; invites now expire (+14d), preview returns 410 (expired) vs 404 (invalid/used) |
 | **Organization switching** | ❌ | **Architectural fork** — see below |
 | Membership management | 🟡 | List members, change role, deactivate — all within a single org |
 | Role assignment | 🟡 | Works, but only 4 roles (see below) |
@@ -90,7 +90,7 @@ expressed as one central policy.
 | Security-sensitive audit events | ✅ set exists; extend for verification/reset/session-revoke when built |
 | Admin screens for members & roles | 🟡 `Team.tsx` / `Access.tsx` / `Settings.tsx` exist |
 | Invitation email flow | 🟡 (token created; email send missing) |
-| Empty / loading / invalid-token / expired / permission-denied states | 🟡 `AcceptInvite.tsx` handles invalid; others partial |
+| Empty / loading / invalid-token / expired / permission-denied states | ✅ **Slices 3+5** verify/forgot/reset (loading/invalid/expired/success); AcceptInvite distinguishes loading / invalid / **expired (410)**; sessions page (loading/error/empty) |
 
 ## Recommended sequence (each an additive, tested slice)
 
@@ -103,7 +103,8 @@ expressed as one central policy.
    loading/invalid/expired/success states).
 4. **✅ done** — sessions + revocation (`sessions` table, `jti`-bound tokens,
    logout / revoke-others / revoke-one, reset revokes all, FE `/sessions` page).
-5. **Invitation email send** + the FE empty/expired/permission-denied states.
+5. **✅ done** — invitation email send + expiry (+14d, 410 preview) + FE
+   loading/invalid/expired states.
 6. **Multi-org membership + org switching** *(the fork)* — the `Membership` split.
    Biggest change; do last, with its own migration plan.
 

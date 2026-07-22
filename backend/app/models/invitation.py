@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, ForeignKey, String
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, String
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -10,8 +12,8 @@ from app.models.user import UserRole
 
 class Invitation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """A pending invite for someone to join a tenant. Accepting it creates a
-    user in that org. Token-based so it works without email delivery (the owner
-    shares the link)."""
+    user in that org. Token-based (emailed to the invitee; the owner can also
+    share the link). Expires after a fixed window."""
 
     __tablename__ = "invitations"
 
@@ -27,3 +29,5 @@ class Invitation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     invited_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
     accepted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # NULL = never expires (pre-existing invites); new invites are stamped +14d.
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

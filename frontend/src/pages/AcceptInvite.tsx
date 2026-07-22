@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import axios from "axios";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, apiError, tokenStore } from "../lib/api";
 import type { InvitePreview } from "../lib/types";
@@ -42,8 +43,21 @@ export default function AcceptInvite() {
           <span className="text-xl font-semibold tracking-tight">InvoiceIQ</span>
         </div>
         <div className="card">
-          {preview.isError || !token ? (
-            <div className="text-sm text-rose-600">This invitation is invalid or has already been used.</div>
+          {!token ? (
+            <div className="text-sm text-rose-600">This invitation link is incomplete.</div>
+          ) : preview.isLoading ? (
+            <div className="flex items-center gap-3 text-sm text-slate-500">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-brand-500" />
+              Checking your invitation…
+            </div>
+          ) : preview.isError ? (
+            axios.isAxiosError(preview.error) && preview.error.response?.status === 410 ? (
+              <div className="text-sm text-amber-700">
+                This invitation has expired. Ask an admin at your workspace to send a new one.
+              </div>
+            ) : (
+              <div className="text-sm text-rose-600">This invitation is invalid or has already been used.</div>
+            )
           ) : (
             <>
               <h1 className="text-lg font-semibold">Join {preview.data?.organization_name ?? "…"}</h1>

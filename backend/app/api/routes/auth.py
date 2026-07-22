@@ -375,6 +375,9 @@ async def preview_invite(token: str, db: DbSession) -> InvitePreview:
     )
     if inv is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Invitation not found or already used")
+    if team.invitation_expired(inv):
+        # 410 Gone lets the UI show a distinct "expired" state (vs invalid/used).
+        raise HTTPException(status.HTTP_410_GONE, "This invitation has expired")
     org = await db.get(Organization, inv.org_id)
     return InvitePreview(email=inv.email, organization_name=org.name, role=inv.role)
 

@@ -116,6 +116,7 @@ async def create_invite(body: InviteCreate, current: CurrentUser, db: DbSession)
         raise HTTPException(status.HTTP_409_CONFLICT, "A user with that email already exists")
 
     inv = await team.create_invitation(db, current.org_id, email, body.role, current.email)
+    await team.send_invitation_email(db, inv, org_name=org.name, invited_by=current.name)
     await audit.record(
         db,
         audit.A.INVITE_CREATE,

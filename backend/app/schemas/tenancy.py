@@ -38,6 +38,7 @@ class InviteOut(BaseModel):
     token: str
     accepted: bool
     created_at: datetime
+    expires_at: datetime | None = None
 
 
 class AcceptInvite(BaseModel):
