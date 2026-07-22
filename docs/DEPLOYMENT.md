@@ -6,6 +6,11 @@ zero-downtime production service. Two supported targets:
 - **Docker Compose** — single VM / small footprint (Cloudflare → nginx origin → API).
 - **Kubernetes** — horizontal scale, rolling deploys, autoscaling (`deploy/k8s/`).
 
+For a **single VPS** end-to-end walkthrough (e.g. Hostinger KVM) using the
+self-contained `docker-compose.hostinger.yml` — local document storage, no
+separate object store, TLS via Cloudflare or Let's Encrypt — see
+[`DEPLOY-HOSTINGER.md`](DEPLOY-HOSTINGER.md).
+
 ---
 
 ## 1. Infrastructure architecture
