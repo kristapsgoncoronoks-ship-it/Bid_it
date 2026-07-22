@@ -14,6 +14,7 @@ from app.api.routes import (
     export,
     fx,
     integrity,
+    invoice_review,
     invoices,
     issued,
     issuer,
@@ -38,6 +39,7 @@ api_router = APIRouter()
 api_router.include_router(auth.router)
 api_router.include_router(vendors.router)
 api_router.include_router(invoices.router)
+api_router.include_router(invoice_review.router)
 api_router.include_router(analytics.router)
 api_router.include_router(fx.router)
 api_router.include_router(settings.router)
