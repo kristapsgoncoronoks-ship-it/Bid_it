@@ -126,6 +126,17 @@ async def create_user(db: AsyncSession, org_id: str, resource: dict, *, default_
         is_active=resource.get("active", True),
     )
     db.add(user)
+    await db.flush()
+    # Dual-write the membership (Slice 6b).
+    from app.services import memberships
+
+    await memberships.ensure(
+        db,
+        org_id=org_id,
+        user_id=user.id,
+        role=UserRole(role),
+        status="active" if user.is_active else "suspended",
+    )
     await db.commit()
     await db.refresh(user)
     return user

@@ -331,4 +331,8 @@ async def _match_or_provision(
     )
     db.add(user)
     await db.flush()
+    # Dual-write the membership (Slice 6b).
+    from app.services import memberships
+
+    await memberships.ensure(db, org_id=connection.org_id, user_id=user.id, role=UserRole(role))
     return user, org

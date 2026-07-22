@@ -31,7 +31,7 @@ from app.schemas.auth import (
     VerifyEmailRequest,
 )
 from app.schemas.tenancy import AcceptInvite, InvitePreview
-from app.services import audit, oidc, saml, sessions, sso_config, team, verification
+from app.services import audit, memberships, oidc, saml, sessions, sso_config, team, verification
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 log = logging.getLogger("invoiceiq.auth")
@@ -67,6 +67,11 @@ async def register(body: RegisterRequest, request: Request, db: DbSession) -> Au
     await db.commit()
     await db.refresh(user)
     await db.refresh(org)
+
+    # Dual-write the owner's membership (Slice 6b; users.org_id/role stay active).
+    await memberships.ensure(
+        db, org_id=org.id, user_id=user.id, role=UserRole.owner, is_expense_approver=True
+    )
 
     await audit.record(
         db,
@@ -384,7 +389,14 @@ async def preview_invite(token: str, db: DbSession) -> InvitePreview:
 
 @router.post("/accept-invite", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 async def accept_invite(body: AcceptInvite, request: Request, db: DbSession) -> AuthResponse:
-    result = await team.accept_invitation(db, body.token, body.name, body.password)
+    try:
+        result = await team.accept_invitation(db, body.token, body.name, body.password)
+    except team.InviteAuthError:
+        # The email already has an account; the wrong password was supplied.
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "This email already has an account — sign in with your existing password to join.",
+        )
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Invitation not found or already used")
     user, org_id = result

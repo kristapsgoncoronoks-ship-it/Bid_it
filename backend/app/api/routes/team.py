@@ -13,7 +13,7 @@ from app.schemas.tenancy import (
     MemberOut,
     MemberUpdate,
 )
-from app.services import audit, plans, team
+from app.services import audit, memberships, plans, team
 
 router = APIRouter(prefix="/team", tags=["team"])
 
@@ -112,8 +112,11 @@ async def create_invite(body: InviteCreate, current: CurrentUser, db: DbSession)
         )
 
     email = body.email.lower()
-    if await db.scalar(select(User).where(User.email == email)):
-        raise HTTPException(status.HTTP_409_CONFLICT, "A user with that email already exists")
+    # An existing account CAN be invited into this org (multi-org join) — unless
+    # they are already a member here.
+    existing = await db.scalar(select(User).where(User.email == email))
+    if existing is not None and await memberships.get(db, current.org_id, existing.id) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "That person is already a member")
 
     inv = await team.create_invitation(db, current.org_id, email, body.role, current.email)
     await team.send_invitation_email(db, inv, org_name=org.name, invited_by=current.name)

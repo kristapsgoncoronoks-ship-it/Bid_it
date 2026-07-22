@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import hash_password
+from app.core.security import hash_password, verify_password
 from app.models.invitation import Invitation
 from app.models.user import User, UserRole
 
@@ -115,23 +115,44 @@ async def list_invitations(db: AsyncSession, org_id: str) -> list[Invitation]:
     return list(rows)
 
 
+class InviteAuthError(Exception):
+    """The invite email already has an account and the supplied password is wrong."""
+
+
 async def accept_invitation(
     db: AsyncSession, token: str, name: str, password: str
 ) -> tuple[User, str] | None:
-    """Returns (user, org_id) on success, or None if token is invalid/used."""
+    """Accept an invite. For a NEW email, creates the account. For an EXISTING
+    account (multi-org join), the password must match that account — then a
+    membership in the inviting org is added. Either way a membership is written
+    (Slice 6b). Returns (user, org_id), None if invalid/expired, or raises
+    InviteAuthError if an existing account's password is wrong."""
+    from app.services import memberships
+
     inv = await db.scalar(
         select(Invitation).where(Invitation.token == token, Invitation.accepted.is_(False))
     )
     if inv is None or invitation_expired(inv):
         return None
-    user = User(
-        org_id=inv.org_id,
-        email=inv.email,
-        name=name,
-        hashed_password=hash_password(password),
-        role=inv.role,
-    )
-    db.add(user)
+
+    existing = await db.scalar(select(User).where(User.email == inv.email))
+    if existing is not None:
+        # An existing person joining another org must prove the account is theirs.
+        if not verify_password(password, existing.hashed_password):
+            raise InviteAuthError()
+        user = existing
+    else:
+        user = User(
+            org_id=inv.org_id,
+            email=inv.email,
+            name=name,
+            hashed_password=hash_password(password),
+            role=inv.role,
+        )
+        db.add(user)
+        await db.flush()
+
+    await memberships.ensure(db, org_id=inv.org_id, user_id=user.id, role=inv.role)
     inv.accepted = True
     await db.commit()
     await db.refresh(user)
