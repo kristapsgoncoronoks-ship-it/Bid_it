@@ -15,6 +15,15 @@ export interface Column<T> {
   className?: string;
   /** Fixed column width, e.g. "8rem". */
   width?: string;
+  /** When true, the header becomes a sort toggle (needs `sort`/`onSortChange`). */
+  sortable?: boolean;
+  /** Sort identifier if it differs from `key`. */
+  sortKey?: string;
+}
+
+export interface SortState {
+  key: string;
+  dir: "asc" | "desc";
 }
 
 export interface DataTableProps<T> {
@@ -35,7 +44,16 @@ export interface DataTableProps<T> {
   /** Tighter vertical padding. */
   dense?: boolean;
   className?: string;
+  /** Current sort (for `sortable` columns). Sets `aria-sort` on the header. */
+  sort?: SortState;
+  /** Called with the column's sort key when a sortable header is activated. */
+  onSortChange?: (key: string) => void;
 }
+
+const ARIA_SORT: Record<"asc" | "desc", "ascending" | "descending"> = {
+  asc: "ascending",
+  desc: "descending",
+};
 
 const ALIGN: Record<Align, string> = { left: "text-left", right: "text-right", center: "text-center" };
 
@@ -49,6 +67,7 @@ const ALIGN: Record<Align, string> = { left: "text-left", right: "text-right", c
 export function DataTable<T>({
   columns, rows, rowKey, loading = false, skeletonRows = 6, empty,
   caption, onRowClick, rowClassName, dense = false, className = "",
+  sort, onSortChange,
 }: DataTableProps<T>) {
   const isLoading = loading || rows === undefined;
   const showEmpty = !isLoading && rows !== undefined && rows.length === 0;
@@ -61,16 +80,34 @@ export function DataTable<T>({
         {caption && <caption className="sr-only">{caption}</caption>}
         <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
           <tr>
-            {columns.map((c) => (
-              <th
-                key={c.key}
-                scope="col"
-                style={c.width ? { width: c.width } : undefined}
-                className={`${pad} ${ALIGN[c.align ?? "left"]} ${c.className ?? ""}`}
-              >
-                {c.header}
-              </th>
-            ))}
+            {columns.map((c) => {
+              const key = c.sortKey ?? c.key;
+              const active = c.sortable && sort?.key === key;
+              return (
+                <th
+                  key={c.key}
+                  scope="col"
+                  aria-sort={c.sortable ? (active ? ARIA_SORT[sort!.dir] : "none") : undefined}
+                  style={c.width ? { width: c.width } : undefined}
+                  className={`${pad} ${ALIGN[c.align ?? "left"]} ${c.className ?? ""}`}
+                >
+                  {c.sortable && onSortChange ? (
+                    <button
+                      type="button"
+                      onClick={() => onSortChange(key)}
+                      className="group -mx-1 inline-flex items-center gap-1 rounded px-1 uppercase tracking-wide hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
+                    >
+                      {c.header}
+                      <span aria-hidden="true" className={active ? "text-brand-600" : "text-slate-300 group-hover:text-slate-400"}>
+                        {active ? (sort!.dir === "asc" ? "↑" : "↓") : "↕"}
+                      </span>
+                    </button>
+                  ) : (
+                    c.header
+                  )}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>

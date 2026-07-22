@@ -7,7 +7,11 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:e2e": "playwright test e2e/smoke.spec.ts",
+    "test:vr": "playwright test e2e/visual.spec.ts",
+    "test:vr:update": "playwright test e2e/visual.spec.ts --update-snapshots",
+    "test:ui": "playwright test"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.62.7",
@@ -18,6 +22,7 @@
     "recharts": "^2.15.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",

@@ -35,6 +35,21 @@ const Sessions = lazy(() => import("./pages/Sessions"));
 const Audit = lazy(() => import("./pages/Audit"));
 const Platform = lazy(() => import("./pages/Platform"));
 
+// Design-system showcase (public, fixtures-only). Lives under /design so the
+// living style guide + shell demo can be reviewed and visual/e2e-tested without a
+// login or a backend. See docs/DESIGN_SYSTEM.md.
+const DesignLayout = lazy(() => import("./design/DesignLayout").then((m) => ({ default: m.DesignLayout })));
+const Gallery = lazy(() => import("./design/Gallery"));
+const DsDashboard = lazy(() => import("./design/routes/Dashboard"));
+const DsSupplierInvoices = lazy(() => import("./design/routes/SupplierInvoices"));
+const DsCustomerInvoices = lazy(() => import("./design/routes/CustomerInvoices"));
+const DsExpenses = lazy(() => import("./design/routes/Expenses"));
+const DsPayments = lazy(() => import("./design/routes/Payments"));
+const DsReports = lazy(() => import("./design/routes/Reports"));
+const DsContacts = lazy(() => import("./design/routes/Contacts"));
+const DsSettings = lazy(() => import("./design/routes/Settings"));
+const DsAdministration = lazy(() => import("./design/routes/Administration"));
+
 function PageFallback() {
   return <div className="p-8 text-sm text-slate-400">Loading…</div>;
 }
@@ -48,6 +63,34 @@ export default function App() {
       <Route path="/verify-email" element={<VerifyEmail />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+
+      {/* Design-system showcase — public, fixtures-only (no auth, no backend). */}
+      <Route
+        path="/design/gallery"
+        element={
+          <Suspense fallback={<PageFallback />}>
+            <Gallery />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/design"
+        element={
+          <Suspense fallback={<PageFallback />}>
+            <DesignLayout />
+          </Suspense>
+        }
+      >
+        <Route index element={<DsDashboard />} />
+        <Route path="supplier-invoices" element={<DsSupplierInvoices />} />
+        <Route path="customer-invoices" element={<DsCustomerInvoices />} />
+        <Route path="expenses" element={<DsExpenses />} />
+        <Route path="payments" element={<DsPayments />} />
+        <Route path="reports" element={<DsReports />} />
+        <Route path="contacts" element={<DsContacts />} />
+        <Route path="settings" element={<DsSettings />} />
+        <Route path="administration" element={<DsAdministration />} />
+      </Route>
       <Route
         element={
           <ProtectedRoute>
