@@ -136,6 +136,8 @@ async def create_user(db: AsyncSession, org_id: str, resource: dict, *, default_
         user_id=user.id,
         role=UserRole(role),
         status="active" if user.is_active else "suspended",
+        email=user.email,
+        name=user.name,
     )
     await db.commit()
     await db.refresh(user)
@@ -176,6 +178,10 @@ async def replace_user(db: AsyncSession, org_id: str, user_id: str, resource: di
     user.name = _name_from(resource, user.email)
     if "active" in resource:
         user.is_active = bool(resource["active"])
+    from app.services import memberships
+
+    await memberships.sync_identity(db, user_id, email=user.email, name=user.name)
+    await memberships.set_status(db, org_id, user_id, "active" if user.is_active else "suspended")
     await db.commit()
     return user
 
@@ -195,6 +201,10 @@ async def patch_user(db: AsyncSession, org_id: str, user_id: str, body: dict) ->
             user.is_active = _as_bool(value["active"])
         elif path in ("name.formatted", "displayname"):
             user.name = str(value)[:200]
+    from app.services import memberships
+
+    await memberships.sync_identity(db, user_id, email=user.email, name=user.name)
+    await memberships.set_status(db, org_id, user_id, "active" if user.is_active else "suspended")
     await db.commit()
     return user
 
@@ -202,6 +212,9 @@ async def patch_user(db: AsyncSession, org_id: str, user_id: str, body: dict) ->
 async def deactivate_user(db: AsyncSession, org_id: str, user_id: str) -> None:
     user = await get_user(db, org_id, user_id)
     user.is_active = False
+    from app.services import memberships
+
+    await memberships.set_status(db, org_id, user_id, "suspended")
     await db.commit()
 
 

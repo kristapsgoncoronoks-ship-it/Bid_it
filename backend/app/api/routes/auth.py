@@ -76,7 +76,13 @@ async def register(body: RegisterRequest, request: Request, db: DbSession) -> Au
 
     # Dual-write the owner's membership (Slice 6b; users.org_id/role stay active).
     await memberships.ensure(
-        db, org_id=org.id, user_id=user.id, role=UserRole.owner, is_expense_approver=True
+        db,
+        org_id=org.id,
+        user_id=user.id,
+        role=UserRole.owner,
+        is_expense_approver=True,
+        email=user.email,
+        name=user.name,
     )
 
     await audit.record(

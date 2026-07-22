@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.email_intake import InboundInvoice
 from app.models.expense import ExpenseReport
 from app.models.issued_invoice import IssuedInvoice
+from app.models.membership import Membership
 from app.models.user import User
 from app.services import audit, documents, retention
 
@@ -169,14 +170,18 @@ async def erase(
 
     # users → pseudonymise (email is globally unique, so at most one row).
     for uid in user_ids:
+        erased_email = f"erased-{subject}@erased.invalid"
         await db.execute(
             update(User)
             .where(User.id == uid)
-            .values(
-                email=f"erased-{subject}@erased.invalid",
-                name=_REDACTED_NAME,
-                is_active=False,
-            )
+            .values(email=erased_email, name=_REDACTED_NAME, is_active=False)
+        )
+        # Keep the membership identity snapshot consistent with the erasure, and
+        # suspend the memberships so the person loses access everywhere.
+        await db.execute(
+            update(Membership)
+            .where(Membership.user_id == uid)
+            .values(email=erased_email, name=_REDACTED_NAME, status="suspended")
         )
     # expenses → redact the author name on this person's reports.
     if user_ids:

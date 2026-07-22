@@ -26,9 +26,12 @@ def invitation_expired(inv: Invitation) -> bool:
     return exp < datetime.now(UTC)
 
 
-async def list_members(db: AsyncSession, org_id: str) -> list[User]:
-    rows = await db.scalars(select(User).where(User.org_id == org_id).order_by(User.created_at))
-    return list(rows)
+async def list_members(db: AsyncSession, org_id: str) -> list[Membership]:
+    # Membership-driven roster (Slice 6e): complete (includes members currently
+    # active in another org) and RLS-safe, without de-scoping the User table.
+    from app.services import memberships
+
+    return await memberships.roster(db, org_id)
 
 
 async def owner_count(db: AsyncSession, org_id: str) -> int:
@@ -159,12 +162,18 @@ async def accept_invitation(
         db.add(user)
         await db.flush()
 
-    await memberships.ensure(db, org_id=inv.org_id, user_id=user.id, role=inv.role)
+    await memberships.ensure(
+        db, org_id=inv.org_id, user_id=user.id, role=inv.role, email=user.email, name=user.name
+    )
     inv.accepted = True
     await db.commit()
     await db.refresh(user)
     return user, inv.org_id
 
 
-async def get_member(db: AsyncSession, org_id: str, user_id: str) -> User | None:
-    return await db.scalar(select(User).where(User.id == user_id, User.org_id == org_id))
+async def get_member(db: AsyncSession, org_id: str, user_id: str) -> Membership | None:
+    # The member's MEMBERSHIP in this org (Slice 6e) — works even if the member is
+    # currently active in another org.
+    from app.services import memberships
+
+    return await memberships.get(db, org_id, user_id)

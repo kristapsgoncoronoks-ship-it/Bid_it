@@ -39,9 +39,13 @@ async def ensure(
     role: UserRole,
     is_expense_approver: bool = False,
     status: str = "active",
+    email: str | None = None,
+    name: str | None = None,
 ) -> Membership:
     """Create the (user, org) membership, or update it in place if it exists.
-    Idempotent. Flushes to assign the id; the caller commits."""
+    Idempotent. `email`/`name` snapshot the identity for the roster (only set when
+    provided, so a caller that doesn't know them keeps the existing snapshot).
+    Flushes to assign the id; the caller commits."""
     m = await get(db, org_id, user_id)
     if m is None:
         m = Membership(
@@ -50,11 +54,43 @@ async def ensure(
             role=role,
             is_expense_approver=is_expense_approver,
             status=status,
+            email=email,
+            name=name,
         )
         db.add(m)
     else:
         m.role = role
         m.is_expense_approver = is_expense_approver
         m.status = status
+        if email is not None:
+            m.email = email
+        if name is not None:
+            m.name = name
     await db.flush()
     return m
+
+
+async def roster(db: AsyncSession, org_id: str) -> list[Membership]:
+    """Every membership in the org (the complete member list — includes members
+    currently active in another org). Reads only memberships, so it is org-scoped
+    + RLS-safe without touching the User table's tenant scoping."""
+    rows = await db.scalars(
+        select(Membership).where(Membership.org_id == org_id).order_by(Membership.created_at.asc())
+    )
+    return list(rows)
+
+
+async def sync_identity(db: AsyncSession, user_id: str, *, email: str, name: str) -> None:
+    """Propagate an email/name change to all of the user's membership snapshots."""
+    from sqlalchemy import update as _update
+
+    await db.execute(
+        _update(Membership).where(Membership.user_id == user_id).values(email=email, name=name)
+    )
+
+
+async def set_status(db: AsyncSession, org_id: str, user_id: str, status: str) -> None:
+    """Set a single membership's status (active|suspended). No-op if not a member."""
+    m = await get(db, org_id, user_id)
+    if m is not None:
+        m.status = status

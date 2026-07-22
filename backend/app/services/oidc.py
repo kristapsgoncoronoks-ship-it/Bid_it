@@ -334,5 +334,12 @@ async def _match_or_provision(
     # Dual-write the membership (Slice 6b).
     from app.services import memberships
 
-    await memberships.ensure(db, org_id=connection.org_id, user_id=user.id, role=UserRole(role))
+    await memberships.ensure(
+        db,
+        org_id=connection.org_id,
+        user_id=user.id,
+        role=UserRole(role),
+        email=user.email,
+        name=user.name,
+    )
     return user, org

@@ -27,77 +27,88 @@ def _owner_only(current: User):
         )
 
 
+def _member_out(m) -> MemberOut:
+    """Build the member view from a membership (id = the user id)."""
+    return MemberOut(
+        id=m.user_id,
+        email=m.email or "",
+        name=m.name or "",
+        role=m.role,
+        is_active=(m.status == "active"),
+        is_expense_approver=m.is_expense_approver,
+        created_at=m.created_at,
+    )
+
+
 @router.get("/members", response_model=list[MemberOut])
 async def members(current: CurrentUser, db: DbSession):
-    return await team.list_members(db, current.org_id)
+    return [_member_out(m) for m in await team.list_members(db, current.org_id)]
 
 
 @router.patch("/members/{user_id}", response_model=MemberOut)
 async def update_member(user_id: str, body: MemberUpdate, current: CurrentUser, db: DbSession):
     _owner_only(current)
-    member = await team.get_member(db, current.org_id, user_id)
-    if member is None:
+    m = await team.get_member(db, current.org_id, user_id)  # the membership in this org
+    if m is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Member not found")
 
     # Never allow the last active owner to be demoted or deactivated.
-    demoting = (
-        body.role is not None and member.role == UserRole.owner and body.role != UserRole.owner
-    )
-    deactivating = body.is_active is False and member.is_active
-    if (demoting or deactivating) and member.role == UserRole.owner:
+    demoting = body.role is not None and m.role == UserRole.owner and body.role != UserRole.owner
+    deactivating = body.is_active is False and m.status == "active"
+    if (demoting or deactivating) and m.role == UserRole.owner:
         if await team.owner_count(db, current.org_id) <= 1:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST, "The company must keep at least one active owner"
             )
 
     if body.role is not None:
-        member.role = body.role
+        m.role = body.role
         await audit.record(
             db,
             audit.A.ROLE_CHANGE,
             target_type="user",
-            target_id=member.id,
-            meta={"email": member.email, "role": body.role.value},
+            target_id=user_id,
+            meta={"email": m.email, "role": body.role.value},
         )
     if body.is_active is not None:
-        member.is_active = body.is_active
+        m.status = "active" if body.is_active else "suspended"
         if not body.is_active:
             await audit.record(
                 db,
                 audit.A.USER_DEACTIVATE,
                 target_type="user",
-                target_id=member.id,
-                meta={"email": member.email},
+                target_id=user_id,
+                meta={"email": m.email},
             )
     if body.is_expense_approver is not None:
         # Keep at least one approver so expense reports can always be decided.
-        if not body.is_expense_approver and member.is_expense_approver:
+        if not body.is_expense_approver and m.is_expense_approver:
             if await team.approver_count(db, current.org_id) <= 1:
                 raise HTTPException(
                     status.HTTP_400_BAD_REQUEST,
                     "The workspace must keep at least one expense approver",
                 )
-        member.is_expense_approver = body.is_expense_approver
+        m.is_expense_approver = body.is_expense_approver
         await audit.record(
             db,
             audit.A.APPROVER_CHANGE,
             target_type="user",
-            target_id=member.id,
-            meta={"email": member.email, "approver": body.is_expense_approver},
+            target_id=user_id,
+            meta={"email": m.email, "approver": body.is_expense_approver},
         )
-    # Dual-write the membership so this org's record stays the source of truth
-    # (Slice 6d) — role/approver/status independent of the member's active org.
-    await memberships.ensure(
-        db,
-        org_id=current.org_id,
-        user_id=member.id,
-        role=member.role,
-        is_expense_approver=member.is_expense_approver,
-        status="active" if member.is_active else "suspended",
-    )
+
+    # Sync the ACTIVE user projection only if the member is currently active in
+    # THIS org (a scoped fetch returns them only then). Their role/approver — and,
+    # for the common single-org case, is_active — follow the membership so the
+    # live session reflects the change immediately.
+    member_user = await db.get(User, user_id)
+    if member_user is not None and member_user.org_id == current.org_id:
+        member_user.role = m.role
+        member_user.is_expense_approver = m.is_expense_approver
+        if body.is_active is not None:
+            member_user.is_active = body.is_active
     await db.commit()
-    await db.refresh(member)
-    return member
+    return _member_out(m)
 
 
 @router.get("/invites", response_model=list[InviteOut])

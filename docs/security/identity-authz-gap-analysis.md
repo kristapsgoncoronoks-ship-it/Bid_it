@@ -115,9 +115,14 @@ expressed as one central policy.
    org/role, tenant scoping + authz follow, isolation preserved; unscoped auth
    deps for the cross-org endpoints; FE org switcher. **6d done:** deps enforces a
    LIVE active-membership (suspended → 401); owner/approver/seat counts are
-   membership-based; member management dual-writes the membership. **Remaining
-   (6e, the contract):** de-scope `User` from tenancy so the roster includes
-   switched-away members, then drop `users.org_id`/`role`.
+   membership-based; member management dual-writes the membership. **6e done
+   (safe reframe):** the roster is now **membership-driven** — email/name are
+   snapshotted onto memberships, so the member list is complete (includes members
+   active in another org) with per-org roles, WITHOUT de-scoping `User` or
+   touching the RLS/isolation core. Member management, SCIM, and privacy-erasure
+   keep the snapshot in sync. Deliberately NOT done: dropping `users.org_id`/`role`
+   — pure churn (every route reads `current.org_id`) with no user value; the
+   columns remain the active projection.
 
 Slice 2 is the highest-value next step: it makes deny-by-default explicit and is
 the backbone the rest of the roles work hangs on.

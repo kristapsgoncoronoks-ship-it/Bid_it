@@ -43,3 +43,8 @@ class Membership(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(
         String(20), default="active", nullable=False
     )  # active|suspended
+    # Denormalised identity snapshot (Slice 6e) so the roster reads ONLY
+    # memberships — org-scoped + RLS-safe, and complete (includes members who are
+    # currently active in another org). Kept in sync from the User on write.
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    name: Mapped[str | None] = mapped_column(String(200), nullable=True)
