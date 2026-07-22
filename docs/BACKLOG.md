@@ -24,7 +24,6 @@ tests and keep CI green.
 | # | Item | Why | Size | Source |
 |---|------|-----|------|--------|
 | N1 | **Capture the remaining invoice fields**: supplier registration no. + VAT, PO number, bank account / IBAN as first-class captured fields; per-line **tax amount** + **line gross**. | The intake slice captures only a subset; PRD §5A lists these. Additive model + parser + schema + provenance. | M | Intake slice (commit `ab52df4`) deferral |
-| N2 | **Integrity-cover the original uploads.** `verify_documents` re-hashes receipts / logos / email-attachments but **not** the `uploads` prefix — the stored original supplier-invoice bytes are never integrity-checked. Add an `uploads` pass over `extraction_runs.source_sha256`. | The originals are the legal record; a silent-corruption sweep must include them. | S | `services/integrity.py` (no `UPLOADS` check) |
 | N3 | **Unify the upload size cap.** The route hard-codes `_MAX_UPLOAD = 15 MB` (`routes/invoices.py:55`) which duplicates `filesec._max_bytes()` (`settings.max_upload_mb`). Drop the route constant; rely on the settings-driven cap so raising the limit is one change. | Two sources of truth drift; a config change silently doesn't take effect at the route. | S | `routes/invoices.py` vs `services/filesec.py` |
 | N4 | **Page thumbnails for captures.** Render page images at capture time (the OCR path already rasterises via `pypdfium2` but discards them) and persist to object storage; serve via `/doc`. | Reviewers need to see the source page next to the extracted draft; today there's nothing to show. | M | Intake slice deferral |
 
@@ -57,6 +56,10 @@ tests and keep CI green.
   per-field provenance (confidence / original / normalized / reviewed / low-confidence),
   JPEG/PNG OCR intake, same- vs cross-supplier duplicate detection, human-review queue +
   manual re-extract, corrupt-file hardening. 12 scenario tests.
+- **Integrity-cover the original uploads** (N2): `verify_documents` now sweeps the
+  `uploads` prefix over `extraction_runs.source_sha256`, so the stored original
+  supplier-invoice bytes (the legal record) are re-hashed alongside receipts / logos /
+  email-attachments — silent loss or corruption of an original is now a finding.
 - **Frontend design system + shell + gallery** (`256da1a`), with Playwright e2e smoke
   gated in CI (`419edfb`).
 - **Identity / authz**: 8-role matrix + guard migration (`3f09d5f`), multi-org membership,

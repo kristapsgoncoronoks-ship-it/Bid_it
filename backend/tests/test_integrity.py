@@ -80,6 +80,49 @@ async def test_verify_detects_corruption(auth_client, db_session):
     assert body["issues"][0]["problem"] == "mismatch"
 
 
+async def _upload_invoice(auth_client) -> bytes:
+    """Upload one supplier-invoice CSV; its original bytes land in the `uploads`
+    store keyed by sha256 (the legal record the sweep must cover)."""
+    import io
+
+    data = b"description,quantity,unit_price,invoice_number,vendor\nA,1,10,INV-INT,Acme\n"
+    r = await auth_client.post(
+        "/api/v1/invoices/upload", files={"file": ("a.csv", io.BytesIO(data), "text/csv")}
+    )
+    assert r.status_code == 202, r.text
+    return data
+
+
+@pytest.mark.asyncio
+async def test_verify_covers_original_uploads(auth_client, db_session):
+    await _upload_invoice(auth_client)
+
+    r = await auth_client.post("/api/v1/integrity/documents/verify")
+    body = r.json()
+    # The stored original is swept alongside every other reference and is intact.
+    assert body["healthy"] is True
+    assert body["checked"] >= 1 and body["issues"] == []
+
+
+@pytest.mark.asyncio
+async def test_verify_detects_lost_original_upload(auth_client, db_session):
+    from sqlalchemy import select
+
+    from app.models.organization import Organization
+
+    data = await _upload_invoice(auth_client)
+    org_id = await db_session.scalar(select(Organization.id))
+    # Simulate loss of the original supplier-invoice bytes behind the DB reference.
+    key = storage.content_key(documents.UPLOADS, org_id, storage.sha256_hex(data))
+    storage.get_storage().delete(key)
+
+    r = await auth_client.post("/api/v1/integrity/documents/verify")
+    body = r.json()
+    assert body["healthy"] is False
+    upload_issues = [i for i in body["issues"] if i["kind"] == "upload"]
+    assert upload_issues and upload_issues[0]["problem"] == "missing"
+
+
 @pytest.mark.asyncio
 async def test_verify_requires_admin(auth_client, db_session):
     from sqlalchemy import select, update

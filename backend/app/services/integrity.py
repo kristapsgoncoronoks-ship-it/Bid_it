@@ -3,9 +3,10 @@
 The primary database is backed by managed-Postgres PITR and object storage is
 versioned — those are platform-level backups. What the *app* owns is proving the
 integrity of what it stored: every document reference in the DB (receipts, logos,
-inbound email attachments) is content-addressed by sha256, so we can re-hash the
-stored object and confirm it still exists and still matches. This catches silent
-corruption, a lost object, or a storage/DB drift that a backup alone won't.
+inbound email attachments, and the original supplier-invoice uploads) is
+content-addressed by sha256, so we can re-hash the stored object and confirm it
+still exists and still matches. This catches silent corruption, a lost object, or
+a storage/DB drift that a backup alone won't.
 
 Tenant-scoped: `verify_documents(db, org_id)` checks one tenant. A full sweep runs
 one job per org (see the scheduler / jobs). Never raises — a failure to read an
@@ -28,6 +29,7 @@ from app.models.document_version import (
 )
 from app.models.email_intake import InboundInvoice
 from app.models.expense import ExpenseItem, ExpenseReport
+from app.models.extraction_run import ExtractionRun
 from app.models.issued_invoice import IssuedInvoice
 from app.models.issuer import IssuerProfile
 from app.models.payment import Payment
@@ -39,7 +41,7 @@ _ZERO = Decimal("0")
 
 @dataclass
 class DocIssue:
-    kind: str  # receipt | logo | email_attachment
+    kind: str  # receipt | logo | email_attachment | upload
     entity_id: str
     problem: str  # missing | mismatch | error
     detail: str = ""
@@ -110,6 +112,23 @@ async def verify_documents(db: AsyncSession, org_id: str) -> IntegrityReport:
         )
     ):
         await _check(report, "email_attachment", row_id, documents.EMAIL_ATTACHMENTS, org_id, sha)
+
+    # Original supplier-invoice uploads (the legal record). The parse/OCR worker
+    # reads these bytes back from object storage, so a silent corruption or lost
+    # object here is a corrupted *original* — it must be swept like any other
+    # reference. Content-addressed storage means many runs (re-uploads / retries)
+    # can share one sha; hash each distinct object ONCE, keyed to a representative
+    # run so a finding still points at a concrete row.
+    seen_uploads: set[str] = set()
+    for run_id, sha in await db.execute(
+        select(ExtractionRun.id, ExtractionRun.source_sha256).where(
+            ExtractionRun.org_id == org_id, ExtractionRun.source_sha256.is_not(None)
+        )
+    ):
+        if sha in seen_uploads:
+            continue
+        seen_uploads.add(sha)
+        await _check(report, "upload", run_id, documents.UPLOADS, org_id, sha)
 
     return report
 
