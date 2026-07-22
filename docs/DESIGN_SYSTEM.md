@@ -234,6 +234,14 @@ These tests already earned their keep: they caught two real defects during
 build-out — a `Portal` that mounted a render late (silently defeating the modal
 focus trap) and a dropdown that focused a disabled item and ignored Escape.
 
+**In CI.** The `frontend-e2e` job (`.github/workflows/ci.yml`) runs the smoke suite
+in the version-matched Playwright container (`mcr.microsoft.com/playwright:v1.61.1-jammy`)
+— browsers are preinstalled, and the config falls back to the bundled Chromium when
+the sandbox's pinned browser isn't present. Visual regression is intentionally a
+**local** gate: pixel baselines are captured against a specific browser build, so
+running them on a different CI browser would false-diff on font rendering. To gate
+VR in CI, regenerate the baselines inside that same container and commit them.
+
 ---
 
 ## Running the showcase locally

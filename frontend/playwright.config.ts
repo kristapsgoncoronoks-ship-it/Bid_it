@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
 
 /**
@@ -10,7 +11,12 @@ import { defineConfig, devices } from "@playwright/test";
  * viewport + device scale + Playwright's built-in animation freezing keep
  * screenshots stable across runs.
  */
-const CHROMIUM = process.env.PW_CHROMIUM_PATH || "/opt/pw-browsers/chromium";
+// Use the environment's pre-installed Chromium when present (the dev sandbox pins
+// it here); otherwise fall back to Playwright's own bundled browser — which is the
+// right choice inside the version-matched Playwright CI container. `undefined`
+// launchOptions.executablePath means "use the bundled browser".
+const PINNED = process.env.PW_CHROMIUM_PATH || "/opt/pw-browsers/chromium";
+const CHROMIUM = existsSync(PINNED) ? PINNED : undefined;
 
 export default defineConfig({
   testDir: "./e2e",

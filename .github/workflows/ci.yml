@@ -115,6 +115,24 @@ jobs:
       - run: npm ci
       - run: npm run build   # tsc --noEmit + vite build (typecheck + bundle)
 
+  # Design-system end-to-end smoke tests (Playwright) over the /design showcase.
+  # Runs in the version-matched Playwright container, so Chromium is preinstalled
+  # (no download) and the config falls back to the bundled browser. Deterministic:
+  # the showcase is fixtures-only, and selectors are role/name-based. Visual-
+  # regression snapshots (npm run test:vr) are a LOCAL gate — pixel baselines are
+  # environment-specific, so they aren't run here.
+  frontend-e2e:
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-jammy
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - run: npm ci
+      - run: npm run test:e2e
+
   # Prove both images build (catches Dockerfile / .dockerignore regressions).
   docker-build:
     runs-on: ubuntu-latest
