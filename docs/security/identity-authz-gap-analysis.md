@@ -105,8 +105,12 @@ expressed as one central policy.
    logout / revoke-others / revoke-one, reset revokes all, FE `/sessions` page).
 5. **✅ done** — invitation email send + expiry (+14d, 410 preview) + FE
    loading/invalid/expired states.
-6. **Multi-org membership + org switching** *(the fork)* — the `Membership` split.
-   Biggest change; do last, with its own migration plan.
+6. **In progress** — multi-org membership + org switching *(the fork)*. Sequenced
+   in `multi-org-membership-plan.md` (expand/contract). **6a done:** the
+   `memberships` table + backfill (one per existing user; verified) — additive,
+   nothing reads it yet. Next: 6b (writes create memberships), 6c (active org in
+   session + `/auth/switch-org` + FE switcher), 6d (migrate readers), 6e (drop
+   `users.org_id`/`role`).
 
 Slice 2 is the highest-value next step: it makes deny-by-default explicit and is
 the backbone the rest of the roles work hangs on.

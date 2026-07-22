@@ -39,6 +39,7 @@ from app.models.invoice import Invoice
 from app.models.issued_invoice import IssuedInvoice
 from app.models.issuer import IssuerProfile
 from app.models.job import Job
+from app.models.membership import Membership
 from app.models.module import OrgModule
 from app.models.partner import Partner, PartnerDocument
 from app.models.payment import Payment
@@ -62,6 +63,7 @@ TENANT_MODELS = (
     Invoice,
     User,
     Invitation,
+    Membership,
     IssuedInvoice,
     OrgModule,
     IssuerProfile,
