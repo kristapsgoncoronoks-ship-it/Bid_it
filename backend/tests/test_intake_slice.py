@@ -204,6 +204,9 @@ async def test_corrupt_file_fails_with_reason_and_can_be_retried(auth_client, db
     # Manual re-extract re-queues the same stored bytes and runs again.
     retry = await auth_client.post(f"/api/v1/invoices/upload/{run_id}/retry")
     assert retry.status_code == 202
+    # The retry runs in the request's OWN session; drop this session's cached copy
+    # (loaded as "failed" during _drain) so we read the freshly-committed state.
+    db_session.expire_all()
     ran = await db_session.scalar(select(ExtractionRun).where(ExtractionRun.id == run_id))
     assert ran.status == "queued"  # reset for the re-run
     await _drain(db_session)
