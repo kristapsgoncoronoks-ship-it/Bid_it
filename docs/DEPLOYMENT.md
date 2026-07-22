@@ -35,9 +35,14 @@ zero-downtime production service. Two supported targets:
 
 **Design properties**
 
-- **Stateless backend.** No local disk state — uploaded files (receipts, logos,
-  audit-snapshot PDFs) live in Postgres, so any replica serves any request and
-  scaling out is trivial. The only stateful component is Postgres.
+- **Stateless backend.** Document bytes (uploaded originals, receipts, logos,
+  audit-snapshot PDFs) live in **object storage**, not the database (ADR-0008) —
+  the `s3` backend (AWS S3 or any S3-compatible service such as MinIO). With that
+  backend a replica holds no local disk state, so any replica serves any request
+  and scaling out is trivial; the stateful components are Postgres and the object
+  store. (The `local` filesystem backend also exists for single-node dev — there
+  the storage directory *is* state and must be a persisted volume; it does not
+  scale across replicas.)
 - **Tenant isolation** is enforced at the ORM layer for every request (see
   `app/core/tenant.py`) — independent of how many replicas run.
 - **Schema is owned by Alembic.** `create_all` is disabled in production; every
@@ -58,6 +63,11 @@ The must-set production variables:
 | `ENVIRONMENT` | ✅ | `production` (disables `create_all`, enables JSON logs) |
 | `CORS_ORIGINS` | ✅ | Public SPA origin(s), comma-separated |
 | `HSTS_ENABLED` | ✅ | `true` once TLS is live |
+| `STORAGE_BACKEND` | ✅ | `s3` for prod (AWS S3 / MinIO); `local` only for a single node with a persisted volume. |
+| `STORAGE_S3_BUCKET` | s3 | Bucket for document bytes (default `invoiceiq-documents`). |
+| `STORAGE_S3_ENDPOINT_URL` | s3 | Endpoint for S3-compatible stores (MinIO); omit for AWS S3. |
+| `STORAGE_S3_REGION` / `STORAGE_S3_PREFIX` | | Region; optional key prefix within the bucket. |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | s3 | Object-store credentials (boto3). Store as secrets. |
 | `WEB_CONCURRENCY` | | uvicorn workers per pod (default 4) |
 | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | | per-worker pool (default 10/10) — see §7 |
 | `INBOUND_EMAIL_SECRET` | | shared secret for the `/email/inbound` webhook |
@@ -101,6 +111,24 @@ export TLS_CERT_DIR=/etc/invoiceiq/certs        # holds origin.pem + origin.key
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 # The backend container runs `alembic upgrade head` then serves; nginx fronts TLS.
 ```
+
+**Object storage (do not ship the defaults).** The compose stack stores document
+bytes via the `s3` backend against a bundled **MinIO** container whose base-compose
+credentials (`invoiceiq` / `invoiceiq-secret`) and published console (ports
+`9000`/`9001`) are **dev defaults**. Before going live, do ONE of:
+
+- **Managed S3 (recommended):** point `STORAGE_S3_ENDPOINT_URL` (omit for AWS),
+  `STORAGE_S3_BUCKET`, `STORAGE_S3_REGION`, and `AWS_ACCESS_KEY_ID` /
+  `AWS_SECRET_ACCESS_KEY` at your object store, and remove the `minio` /
+  `minio-init` services (add a prod-override that drops them).
+- **Self-hosted MinIO:** change `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` (and the
+  matching `AWS_*` on backend + worker) to strong secrets, stop publishing
+  `9000`/`9001` to the host, and back the `miniodata` volume up.
+
+Either way the bytes are the legal record — `POST /api/v1/integrity/documents/verify`
+re-hashes every stored object (receipts, logos, email attachments, **and the
+original supplier-invoice uploads**) against the DB to prove integrity after a
+storage change or restore.
 
 ### Kubernetes
 
