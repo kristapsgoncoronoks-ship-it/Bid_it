@@ -28,15 +28,24 @@ def sha256_hex(data: bytes) -> str:
 async def record_fields(db: AsyncSession, org_id: str, run_id: str, fields) -> None:
     """Persist per-field provenance for a run (Slice 5f). `fields` are the parser's
     FieldProvenance items. Commits (the run already exists)."""
+
+    def _clip(v):
+        return v[:500] if v else None
+
     for f in fields:
         db.add(
             ExtractionField(
                 org_id=org_id,
                 extraction_run_id=run_id,
                 field=f.field,
-                value=(f.value[:500] if f.value else None),
+                value=_clip(f.value),
                 status=f.status,
                 confidence=f.confidence,
+                original_value=_clip(getattr(f, "original_value", None)),
+                normalized_value=_clip(getattr(f, "normalized_value", None)),
+                reviewed_value=_clip(getattr(f, "reviewed_value", None)),
+                provider=(getattr(f, "provider", None) or None),
+                low_confidence=bool(getattr(f, "low_confidence", False)),
             )
         )
     if fields:
@@ -165,12 +174,16 @@ async def extract_upload(db: AsyncSession, run_id: str) -> dict:
         draft = await run_in_threadpool(
             parse_invoice_file, run.source_filename or "upload", content
         )
-    except ValueError as exc:
+    except Exception as exc:  # noqa: BLE001
+        # A parse failure is DETERMINISTIC (corrupt/unreadable bytes) — retrying
+        # won't help. Catch broadly (a malformed PDF/XML can raise library errors,
+        # not just ValueError), record the reason, and finish the job cleanly so it
+        # doesn't churn the retry queue.
         run.method = "failed"
         run.status = "failed"
-        run.note = str(exc)[:2000]
+        run.note = str(exc)[:2000] or exc.__class__.__name__
         await db.commit()
-        return {"status": "failed"}
+        return {"status": "failed", "reason": exc.__class__.__name__}
 
     draft.draft.extraction_run_id = run.id
     draft.extraction_run_id = run.id

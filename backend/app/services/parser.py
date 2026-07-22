@@ -187,36 +187,10 @@ def parse_invoice_file(filename: str, content: bytes) -> ParsedInvoiceDraft:
 
 
 def _dispatch_parse(filename: str, content: bytes) -> ParsedInvoiceDraft:
-    warnings: list[str] = []
-    lower = filename.lower()
+    """Route the file through the pluggable provider registry (deterministic-first).
+    Each provider wraps a real backend (PDF text/OCR, e-invoice XML, CSV, JSON) and
+    returns per-field captures with honest confidence; see `extraction_provider`.
+    A future OCR/document-AI vendor registers there without changing this seam."""
+    from app.services import extraction_provider
 
-    from app.services import einvoice
-
-    if lower.endswith(".pdf"):
-        # PDF path: embedded e-invoice XML (Factur-X) → text layer → OCR fallback.
-        from app.services import pdf_ocr
-
-        try:
-            return pdf_ocr.parse_pdf(filename, content)
-        except pdf_ocr.OcrUnavailable as exc:
-            raise ValueError(
-                "PDF support is not installed on the server "
-                f"(pdfplumber/pypdfium2/pytesseract + tesseract binary): {exc}"
-            )
-    if lower.endswith(".xml") or (
-        not lower.endswith((".csv", ".json")) and einvoice.looks_like_einvoice(content)
-    ):
-        # Structured e-invoice XML (UBL 2.1 / UN-CEFACT CII) — deterministic.
-        return einvoice.parse_xml_bytes(content, filename)
-    if lower.endswith(".json"):
-        draft, fields = _parse_json(content, filename, warnings)
-        method = "json"
-    elif lower.endswith(".csv"):
-        draft, fields = _parse_csv(content, filename, warnings)
-        method = "csv"
-    else:
-        raise ValueError("Unsupported file type. Upload a .pdf, .xml, .csv, or .json file.")
-
-    if not draft.line_items:
-        warnings.append("No line items were found in the file")
-    return ParsedInvoiceDraft(draft=draft, warnings=warnings, method=method, fields=fields)
+    return extraction_provider.to_draft(extraction_provider.run(filename, content))

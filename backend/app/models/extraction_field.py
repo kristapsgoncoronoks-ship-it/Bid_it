@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from sqlalchemy import ForeignKey, ForeignKeyConstraint, Index, Numeric, String
+from sqlalchemy import Boolean, ForeignKey, ForeignKeyConstraint, Index, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -37,7 +37,17 @@ class ExtractionField(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     extraction_run_id: Mapped[str] = mapped_column(GUID(), nullable=False)
     field: Mapped[str] = mapped_column(String(40), nullable=False)  # invoice_number, issue_date, …
-    value: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    value: Mapped[str | None] = mapped_column(String(500), nullable=True)  # effective (normalized)
     status: Mapped[str] = mapped_column(String(12), nullable=False)  # extracted|defaulted|missing
-    # 0..1 confidence, reserved for OCR/AI paths; NULL for deterministic parsers.
+    # 0..1 confidence set by probabilistic providers (OCR/AI); NULL for deterministic
+    # structured parsers — NULL means "exact", not "unknown".
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(4, 3), nullable=True)
+    # Honest provenance: the raw captured text vs. the cleaned value, and a human's
+    # correction if one was made during review (NULL until reviewed).
+    original_value: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    normalized_value: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    reviewed_value: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Which extraction provider produced the field, and whether it needs a human
+    # look (below the confidence threshold, or a non-"extracted" status).
+    provider: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    low_confidence: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

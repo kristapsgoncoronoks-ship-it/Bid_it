@@ -37,6 +37,9 @@ EICAR = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
 # Kinds this platform accepts, grouped by intake surface.
 INVOICE_KINDS = frozenset({"pdf", "xml", "csv", "json"})
 RECEIPT_KINDS = frozenset({"pdf", "png", "jpeg"})
+# The supplier-invoice UPLOAD surface additionally accepts scanned images (JPEG /
+# PNG), which go through OCR. CSV is accepted only where explicitly mapped.
+SUPPLIER_UPLOAD_KINDS = INVOICE_KINDS | frozenset({"png", "jpeg"})
 
 _EXT_KIND = {
     "pdf": "pdf",

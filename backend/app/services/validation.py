@@ -201,6 +201,30 @@ async def run_checks(db: AsyncSession, invoice: Invoice, today: date) -> list[Va
                 field="invoice_number",
             )
         )
+    else:
+        # Same number under a DIFFERENT supplier — usually a coincidence, but flag
+        # it (a mis-assigned supplier looks exactly like this). Advisory warning,
+        # never an error; distinct from the same-supplier duplicate above.
+        cross = await db.scalar(
+            select(Invoice.id)
+            .where(
+                Invoice.org_id == invoice.org_id,
+                Invoice.invoice_number == invoice.invoice_number,
+                Invoice.vendor_id != invoice.vendor_id,
+                Invoice.id != invoice.id,
+            )
+            .limit(1)
+        )
+        if cross is not None:
+            f.append(
+                ValidationFinding(
+                    severity="warning",
+                    code="duplicate_cross_supplier",
+                    message=f"Invoice number '{invoice.invoice_number}' also exists "
+                    "under a different supplier — check the supplier is correct.",
+                    field="invoice_number",
+                )
+            )
 
     # FX rate vs ECB (only when foreign + a stated rate)
     if invoice.currency and invoice.currency.upper() != "EUR" and invoice.fx_rate:

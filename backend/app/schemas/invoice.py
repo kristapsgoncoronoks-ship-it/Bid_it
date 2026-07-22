@@ -92,14 +92,31 @@ class InvoiceListOut(BaseModel):
 
 
 class FieldProvenance(BaseModel):
-    """Per-field capture provenance (Slice 5f): how a top-level invoice field was
-    obtained. `status`: extracted (read from the source) | defaulted (filled in) |
-    missing (absent, no default). `confidence` is reserved for OCR/AI paths."""
+    """Per-field capture provenance: how a top-level invoice field was obtained.
+
+    `status`: extracted (read from the source) | defaulted (filled in) | missing
+    (absent, no default). Extraction is NOT assumed accurate — every field carries:
+      • `confidence` (0..1) — set by probabilistic providers (OCR/AI); None for
+        deterministic structured parsers (there is no score to report), so a None
+        confidence means "exact", not "unknown".
+      • `original_value` / `normalized_value` — the raw captured text vs. the cleaned
+        value used downstream (equal for deterministic parsers today; the seam lets
+        a provider report both).
+      • `reviewed_value` — a human-corrected value, set when someone reviews the
+        capture; None until then.
+      • `provider` — which extraction provider produced the field.
+      • `low_confidence` — a flag the review queue keys on (below threshold, or a
+        non-extracted status)."""
 
     field: str
-    value: str | None = None
+    value: str | None = None  # effective (normalized) value — kept for back-compat
     status: str = "extracted"
     confidence: Decimal | None = None
+    original_value: str | None = None
+    normalized_value: str | None = None
+    reviewed_value: str | None = None
+    provider: str | None = None
+    low_confidence: bool = False
 
 
 class ParsedInvoiceDraft(BaseModel):
@@ -113,6 +130,59 @@ class ParsedInvoiceDraft(BaseModel):
     extraction_run_id: str | None = None
     # Slice 5f: per-field provenance (populated by the deterministic parsers).
     fields: list[FieldProvenance] = Field(default_factory=list)
+
+
+class DuplicateCandidateOut(BaseModel):
+    invoice_id: str
+    vendor_id: str
+    vendor_name: str
+    invoice_number: str
+    issue_date: str | None = None
+    total: str
+    currency: str
+    status: str
+
+
+class DuplicateReportOut(BaseModel):
+    """Same-number invoices split by supplier — `exact` (same supplier, likely a true
+    duplicate) vs `cross_supplier` (a different supplier, usually a coincidence)."""
+
+    invoice_number: str
+    exact: list[DuplicateCandidateOut] = Field(default_factory=list)
+    cross_supplier: list[DuplicateCandidateOut] = Field(default_factory=list)
+
+
+class CaptureReviewItem(BaseModel):
+    """One parsed-but-unconfirmed capture in the human-review queue."""
+
+    extraction_run_id: str
+    method: str
+    status: str
+    source_filename: str | None = None
+    invoice_number: str | None = None
+    vendor_name: str | None = None
+    warning_count: int
+    total_fields: int
+    low_confidence_fields: int
+    duplicate_candidate: bool = False
+    created_at: datetime
+
+
+class CaptureReviewQueueOut(BaseModel):
+    items: list[CaptureReviewItem]
+    total: int
+
+
+class FieldReviewIn(BaseModel):
+    field: str = Field(min_length=1, max_length=40)
+    reviewed_value: str = Field(max_length=500)
+
+
+class CaptureReviewIn(BaseModel):
+    """Human corrections for a capture's fields — records the reviewed value per
+    field and clears its low-confidence flag."""
+
+    fields: list[FieldReviewIn] = Field(default_factory=list)
 
 
 class UploadAccepted(BaseModel):
@@ -141,6 +211,11 @@ class FieldProvenanceOut(BaseModel):
     value: str | None = None
     status: str
     confidence: Decimal | None = None
+    original_value: str | None = None
+    normalized_value: str | None = None
+    reviewed_value: str | None = None
+    provider: str | None = None
+    low_confidence: bool = False
 
 
 class ExtractionRunOut(BaseModel):

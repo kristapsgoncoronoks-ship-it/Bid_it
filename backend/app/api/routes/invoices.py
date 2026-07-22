@@ -5,17 +5,24 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
 from app.api.routes.vendors import get_or_create_vendor
 from app.core.dimensions import DIMENSION_KEYS
 from app.core.money import q2 as _q
+from app.models.extraction_field import ExtractionField
+from app.models.extraction_run import ExtractionRun
 from app.models.invoice import Invoice, InvoiceStatus, LineItem
 from app.models.organization import Organization
 from app.models.vendor import Vendor
 from app.schemas.invoice import (
+    CaptureReviewIn,
+    CaptureReviewItem,
+    CaptureReviewQueueOut,
+    DuplicateCandidateOut,
+    DuplicateReportOut,
     ExtractionResult,
     ExtractionRunOut,
     FieldProvenanceOut,
@@ -34,6 +41,7 @@ from app.services import (
     audit,
     costing,
     documents,
+    duplicates,
     extraction,
     filesec,
     fx,
@@ -253,6 +261,129 @@ async def list_invoices(
     )
 
 
+@router.get("/duplicate-candidates", response_model=DuplicateReportOut)
+async def duplicate_candidates(
+    current: CurrentUser,
+    db: DbSession,
+    invoice_number: str = Query(..., min_length=1),
+    vendor_id: str | None = Query(default=None),
+    exclude_invoice_id: str | None = Query(default=None),
+):
+    """Same-number invoices in this org, split into likely duplicates (same
+    supplier) vs cross-supplier candidates (a different supplier with the same
+    number). Advisory — never blocks a save."""
+    report = await duplicates.candidates(
+        db,
+        current.org_id,
+        invoice_number=invoice_number,
+        vendor_id=vendor_id,
+        exclude_invoice_id=exclude_invoice_id,
+    )
+
+    def _out(c: duplicates.Candidate) -> DuplicateCandidateOut:
+        return DuplicateCandidateOut(
+            invoice_id=c.invoice_id,
+            vendor_id=c.vendor_id,
+            vendor_name=c.vendor_name,
+            invoice_number=c.invoice_number,
+            issue_date=c.issue_date,
+            total=c.total,
+            currency=c.currency,
+            status=c.status,
+        )
+
+    return DuplicateReportOut(
+        invoice_number=report.invoice_number,
+        exact=[_out(c) for c in report.exact],
+        cross_supplier=[_out(c) for c in report.cross_supplier],
+    )
+
+
+@router.get("/captures/review", response_model=CaptureReviewQueueOut)
+async def capture_review_queue(
+    current: CurrentUser,
+    db: DbSession,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+):
+    """Human-review queue for intake: captures that PARSED but aren't saved to an
+    invoice yet, each with its low-confidence field count + a duplicate flag, so a
+    reviewer triages what needs a look. Newest first. Tenant-scoped."""
+    base = select(ExtractionRun).where(
+        ExtractionRun.org_id == current.org_id,
+        ExtractionRun.status == "parsed",
+        ExtractionRun.invoice_id.is_(None),
+    )
+    total = await db.scalar(select(func.count()).select_from(base.subquery()))
+    runs = list(
+        await db.scalars(
+            base.order_by(ExtractionRun.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    )
+    items: list[CaptureReviewItem] = []
+    for run in runs:
+        fields = await extraction.fields_for_run(db, current.org_id, run.id)
+        low = sum(1 for f in fields if f.low_confidence)
+        number: str | None = None
+        vendor_name: str | None = None
+        if run.draft_json:
+            try:
+                d = ParsedInvoiceDraft.model_validate_json(run.draft_json)
+                number = d.draft.invoice_number
+                vendor_name = d.draft.vendor_name
+            except Exception:  # noqa: BLE001 - a bad cached draft must not break the queue
+                pass
+        dup = False
+        if number:
+            dup = (
+                await db.scalar(
+                    select(Invoice.id)
+                    .where(Invoice.org_id == current.org_id, Invoice.invoice_number == number)
+                    .limit(1)
+                )
+            ) is not None
+        items.append(
+            CaptureReviewItem(
+                extraction_run_id=run.id,
+                method=run.method,
+                status=run.status,
+                source_filename=run.source_filename,
+                invoice_number=number,
+                vendor_name=vendor_name,
+                warning_count=run.warning_count,
+                total_fields=len(fields),
+                low_confidence_fields=low,
+                duplicate_candidate=dup,
+                created_at=run.created_at,
+            )
+        )
+    return CaptureReviewQueueOut(items=items, total=total or 0)
+
+
+@router.post("/captures/{run_id}/review", response_model=list[FieldProvenanceOut])
+async def review_capture_fields(
+    run_id: str, body: CaptureReviewIn, current: CurrentUser, db: DbSession
+):
+    """Record human corrections for a capture's fields — stores the reviewed value
+    and clears the low-confidence flag. The reviewed value is preserved alongside
+    the original/normalized capture, so the correction is auditable."""
+    run = await extraction.get_capture(db, current.org_id, run_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Capture not found")
+    fields = await extraction.fields_for_run(db, current.org_id, run_id)
+    by_name = {f.field: f for f in fields}
+    for item in body.fields:
+        f = by_name.get(item.field)
+        if f is not None:
+            f.reviewed_value = item.reviewed_value[:500]
+            f.low_confidence = False
+    await db.commit()
+    fields = await extraction.fields_for_run(db, current.org_id, run_id)
+    return [FieldProvenanceOut.model_validate(f) for f in fields]
+
+
 async def _load_scoped(db: DbSession, org_id: str, invoice_id: str) -> Invoice:
     invoice = await db.scalar(
         select(Invoice)
@@ -340,7 +471,8 @@ async def delete_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
 
 @router.post("/upload", response_model=UploadAccepted, status_code=status.HTTP_202_ACCEPTED)
 async def upload_invoice(current: CurrentUser, db: DbSession, file: UploadFile):
-    """Accept an uploaded PDF/XML/CSV/JSON and QUEUE it for parsing (Stage B).
+    """Accept an uploaded supplier invoice (PDF / JPEG / PNG / XML / CSV / JSON) and
+    QUEUE it for parsing (Stage B). Images and scanned PDFs go through OCR.
 
     The security scan runs inline (a bad file is rejected immediately), but the
     CPU-heavy parse/OCR runs on the WORKER tier — so a burst of large uploads
@@ -354,7 +486,7 @@ async def upload_invoice(current: CurrentUser, db: DbSession, file: UploadFile):
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File too large (max 15 MB)")
     # Security gate: type-validate + malware-scan BEFORE storing or queuing.
     try:
-        filesec.check(file.filename or "upload", content, allowed=filesec.INVOICE_KINDS)
+        filesec.check(file.filename or "upload", content, allowed=filesec.SUPPLIER_UPLOAD_KINDS)
     except filesec.FileRejected as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
     sha = extraction.sha256_hex(content)
@@ -397,3 +529,45 @@ async def upload_status(run_id: str, current: CurrentUser, db: DbSession):
         draft=draft,
         error=(run.note if run.status == "failed" else None),
     )
+
+
+@router.post(
+    "/upload/{run_id}/retry", response_model=UploadAccepted, status_code=status.HTTP_202_ACCEPTED
+)
+async def retry_upload(run_id: str, current: CurrentUser, db: DbSession):
+    """Manually re-run extraction for a FAILED or PARSED-but-unsaved capture — e.g.
+    after a transient OCR failure, or to re-parse with an updated provider. Re-queues
+    the SAME stored bytes (the original file is never re-uploaded or mutated) and
+    clears the previous parse's provenance. Tenant-scoped."""
+    run = await extraction.get_capture(db, current.org_id, run_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Upload not found")
+    if run.invoice_id is not None or run.status == "saved":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "This capture was already saved to an invoice"
+        )
+    if not run.source_sha256:
+        raise HTTPException(status.HTTP_409_CONFLICT, "No stored file to re-extract")
+
+    run.status = "queued"
+    run.method = "pending"
+    run.note = None
+    run.draft_json = None
+    await db.execute(
+        delete(ExtractionField).where(
+            ExtractionField.org_id == current.org_id,
+            ExtractionField.extraction_run_id == run.id,
+        )
+    )
+    await db.flush()
+    # A fresh (unkeyed) job so a prior finished upload-extract job doesn't dedupe
+    # this deliberate retry; the handler re-runs because status is "queued".
+    await jobs.enqueue(
+        db,
+        extraction.UPLOAD_EXTRACT_KIND,
+        {"run_id": run.id},
+        org_id=current.org_id,
+        idempotency_key=None,
+    )
+    await db.commit()
+    return UploadAccepted(extraction_run_id=run.id, status=run.status)
