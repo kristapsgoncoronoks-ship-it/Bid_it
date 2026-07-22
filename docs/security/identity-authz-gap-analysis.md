@@ -113,8 +113,11 @@ expressed as one central policy.
    409. **6c done:** `GET /auth/organizations` + `POST /auth/switch-org/{id}`
    (membership-verified, opaque 404 otherwise) — switching repoints the active
    org/role, tenant scoping + authz follow, isolation preserved; unscoped auth
-   deps for the cross-org endpoints; FE org switcher. Next: 6d (migrate readers
-   off `user.org_id`/`role`), 6e (drop the columns).
+   deps for the cross-org endpoints; FE org switcher. **6d done:** deps enforces a
+   LIVE active-membership (suspended → 401); owner/approver/seat counts are
+   membership-based; member management dual-writes the membership. **Remaining
+   (6e, the contract):** de-scope `User` from tenancy so the roster includes
+   switched-away members, then drop `users.org_id`/`role`.
 
 Slice 2 is the highest-value next step: it makes deny-by-default explicit and is
 the backbone the rest of the roles work hangs on.

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password, verify_password
 from app.models.invitation import Invitation
+from app.models.membership import Membership
 from app.models.user import User, UserRole
 
 INVITE_TTL = timedelta(days=14)
@@ -31,10 +32,14 @@ async def list_members(db: AsyncSession, org_id: str) -> list[User]:
 
 
 async def owner_count(db: AsyncSession, org_id: str) -> int:
+    # Membership-based (Slice 6d): counts owners of THIS org regardless of which
+    # org each is currently active in.
     return (
         await db.scalar(
-            select(func.count(User.id)).where(
-                User.org_id == org_id, User.role == UserRole.owner, User.is_active.is_(True)
+            select(func.count(Membership.id)).where(
+                Membership.org_id == org_id,
+                Membership.role == UserRole.owner,
+                Membership.status == "active",
             )
         )
         or 0
@@ -44,8 +49,10 @@ async def owner_count(db: AsyncSession, org_id: str) -> int:
 async def approver_count(db: AsyncSession, org_id: str) -> int:
     return (
         await db.scalar(
-            select(func.count(User.id)).where(
-                User.org_id == org_id, User.is_expense_approver.is_(True), User.is_active.is_(True)
+            select(func.count(Membership.id)).where(
+                Membership.org_id == org_id,
+                Membership.is_expense_approver.is_(True),
+                Membership.status == "active",
             )
         )
         or 0

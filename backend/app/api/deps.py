@@ -21,7 +21,7 @@ from app.core.tenant import apply_db_tenant, set_current_actor, set_current_org
 from app.models.organization import Organization
 from app.models.session import Session
 from app.models.user import User
-from app.services import sessions
+from app.services import memberships, sessions
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -65,6 +65,13 @@ async def get_current_user(
     # downstream scopes to it.
     set_current_org(user.org_id)
     set_current_actor(user.id, user.email)
+    # Active-membership enforcement (Slice 6d): the user must hold a LIVE
+    # membership in their active org — a suspended/removed membership is a hard
+    # 401 even if the global account is still active. Scoped, so it reads the
+    # active org's membership.
+    membership = await memberships.get(db, user.org_id, user.id)
+    if membership is None or membership.status != "active":
+        raise _CREDENTIALS_EXC
     await sessions.touch(db, session)
     # Pin the Postgres RLS GUC for this request's current transaction (no-op on
     # SQLite / when unscoped). The event hook re-applies it on later transactions.

@@ -85,6 +85,16 @@ async def update_member(user_id: str, body: MemberUpdate, current: CurrentUser, 
             target_id=member.id,
             meta={"email": member.email, "approver": body.is_expense_approver},
         )
+    # Dual-write the membership so this org's record stays the source of truth
+    # (Slice 6d) — role/approver/status independent of the member's active org.
+    await memberships.ensure(
+        db,
+        org_id=current.org_id,
+        user_id=member.id,
+        role=member.role,
+        is_expense_approver=member.is_expense_approver,
+        status="active" if member.is_active else "suspended",
+    )
     await db.commit()
     await db.refresh(member)
     return member

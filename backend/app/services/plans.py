@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.user import User
+from app.models.membership import Membership
 
 
 @dataclass(frozen=True)
@@ -64,9 +64,13 @@ def allows_module(plan_key: str | None, module_key: str) -> bool:
 
 
 async def active_seats(db: AsyncSession, org_id: str) -> int:
+    # A seat = an active membership in this org (Slice 6d) — so a member who is
+    # currently active in another org still occupies their seat here.
     return (
         await db.scalar(
-            select(func.count(User.id)).where(User.org_id == org_id, User.is_active.is_(True))
+            select(func.count(Membership.id)).where(
+                Membership.org_id == org_id, Membership.status == "active"
+            )
         )
         or 0
     )
