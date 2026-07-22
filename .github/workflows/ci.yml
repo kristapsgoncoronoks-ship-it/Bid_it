@@ -153,3 +153,36 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # CI-gated production deploy. Runs ONLY after every check above passes, ONLY on a
+  # push to the production branch, and ONLY once opted in via the repo variable
+  # DEPLOY_ENABLED=true — until that variable is set the job is SKIPPED, so CI stays
+  # green before the deploy secrets exist. It SSHes to the single VPS and runs its
+  # deploy script; the deploy key is restricted to that one command on the server
+  # side (forced command in authorized_keys), so a leaked key can't run arbitrary
+  # root commands. Setup: docs/DEPLOY-HOSTINGER.md#automated-ci-gated-deploy.
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [lint, backend, postgres, frontend, frontend-e2e, docker-build]
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/claude/invoice-data-analytics-qmjy7q' &&
+      vars.DEPLOY_ENABLED == 'true'
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - name: Deploy over SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          echo "Deploying to $DEPLOY_HOST…"
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" deploy

@@ -223,3 +223,60 @@ docker compose -f docker-compose.hostinger.yml restart backend    # one service
   `deploy/k8s/` for that path.
 - Postgres here runs in a container with a local volume. For stronger durability,
   point `DATABASE_URL` at a managed Postgres with automated backups + PITR.
+
+---
+
+## Automated CI-gated deploy
+
+The CI workflow has a `deploy` job that runs **only after all six checks pass**,
+**only** on a push to the production branch, and **only** once you opt in with the
+repo variable `DEPLOY_ENABLED=true`. Until then it is skipped (CI stays green).
+It SSHes to this VPS and runs a fixed deploy script; the key is restricted to that
+one command on the server side, so a leaked key can't run arbitrary root commands.
+
+### 1. On the VPS — deploy script + a restricted key
+
+```bash
+# The exact commands a deploy runs (pull the branch, rebuild, prune old images).
+cat > /root/deploy.sh <<'SH'
+#!/bin/bash
+set -euo pipefail
+cd /root/Bid_it
+git fetch origin claude/invoice-data-analytics-qmjy7q
+git reset --hard origin/claude/invoice-data-analytics-qmjy7q
+docker compose -f docker-compose.hostinger.yml up -d --build
+docker image prune -f
+SH
+chmod +x /root/deploy.sh
+
+# A dedicated key pair GitHub Actions will use to reach this box.
+ssh-keygen -t ed25519 -f /root/.ssh/ci_deploy -N "" -C "github-actions-deploy"
+
+# Authorise the PUBLIC key, but FORCE it to only ever run deploy.sh — no shell,
+# no port/agent forwarding. Even if the private key leaks, this is all it can do.
+printf 'command="/root/deploy.sh",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty %s\n' \
+  "$(cat /root/.ssh/ci_deploy.pub)" >> /root/.ssh/authorized_keys
+
+# Print the PRIVATE key to paste into the GitHub secret (next step), then you can
+# clear your screen. It never needs to leave your control.
+echo "----- copy everything below into the DEPLOY_SSH_KEY secret -----"
+cat /root/.ssh/ci_deploy
+echo "----- end -----"
+```
+
+### 2. In GitHub — secrets + the enable switch
+
+Repo → **Settings → Secrets and variables → Actions**:
+
+- **Secrets** (New repository secret):
+  - `DEPLOY_SSH_KEY` — the private key printed above (the whole block).
+  - `DEPLOY_HOST` — `srv1760867.hstgr.cloud`
+  - `DEPLOY_USER` — `root`
+- **Variables** (the Variables tab → New repository variable):
+  - `DEPLOY_ENABLED` — `true`  ← this is the master switch; set it last.
+
+### 3. Done
+
+The next green push to `claude/invoice-data-analytics-qmjy7q` deploys itself within
+~a minute of CI passing. To pause auto-deploy, set `DEPLOY_ENABLED` to `false` (or
+delete it) — the job goes back to being skipped. A failing build never deploys.
