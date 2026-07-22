@@ -20,6 +20,7 @@ from app.models.invoice import Invoice, InvoiceStatus, LineItem
 from app.models.organization import Organization
 from app.models.user import User, UserRole
 from app.models.vendor import Vendor
+from app.services import memberships
 
 DEMO_EMAIL = "demo@invoiceiq.app"
 
@@ -72,33 +73,48 @@ async def seed() -> None:
         db.add(org)
         await db.flush()
 
-        db.add(
-            User(
-                org_id=org.id,
-                email=DEMO_EMAIL,
-                name="Demo Owner",
-                hashed_password=hash_password("demo1234"),
-                role=UserRole.owner,
-                is_platform_admin=True,  # so the demo shows the operator view
-                is_expense_approver=True,  # the owner approves expenses by default
-            )
+        owner = User(
+            org_id=org.id,
+            email=DEMO_EMAIL,
+            name="Demo Owner",
+            hashed_password=hash_password("demo1234"),
+            role=UserRole.owner,
+            is_platform_admin=True,  # so the demo shows the operator view
+            is_expense_approver=True,  # the owner approves expenses by default
         )
+        db.add(owner)
         org.plan = "pro"
 
         # A few extra tenants so the platform operator view isn't lonely.
+        extra_owners: list[tuple[str, User]] = []
         for i, (tname, plan, tstatus) in enumerate(EXTRA_TENANTS):
             t = Organization(name=tname, plan=plan, status=tstatus)
             db.add(t)
             await db.flush()
-            db.add(
-                User(
-                    org_id=t.id,
-                    email=f"owner{i}@{tname.split()[0].lower()}.test",
-                    name="Owner",
-                    hashed_password=hash_password("demo1234"),
-                    role=UserRole.owner,
-                    is_expense_approver=True,
-                )
+            extra = User(
+                org_id=t.id,
+                email=f"owner{i}@{tname.split()[0].lower()}.test",
+                name="Owner",
+                hashed_password=hash_password("demo1234"),
+                role=UserRole.owner,
+                is_expense_approver=True,
+            )
+            db.add(extra)
+            extra_owners.append((t.id, extra))
+
+        # Membership dual-write (Slice 6b/6d): get_current_user requires a LIVE
+        # membership in the caller's active org, so a seeded user WITHOUT one can
+        # authenticate but is then rejected on every request ("logged in, thrown
+        # straight out"). Mirror what register() does for real signups.
+        await db.flush()
+        await memberships.ensure(
+            db, org_id=org.id, user_id=owner.id, role=UserRole.owner,
+            is_expense_approver=True, email=owner.email, name=owner.name,
+        )
+        for tid, u in extra_owners:
+            await memberships.ensure(
+                db, org_id=tid, user_id=u.id, role=UserRole.owner,
+                is_expense_approver=True, email=u.email, name=u.name,
             )
 
         vendors = []
