@@ -84,6 +84,12 @@ services:
         condition: service_healthy   # backend applies migrations first
     restart: unless-stopped
     command: ["python", "-m", "app.worker"]
+    # The worker shares the backend image, whose HEALTHCHECK curls an HTTP port
+    # the worker doesn't serve — so it would show a misleading "unhealthy". The
+    # worker's liveness is that its process is up (restart: unless-stopped covers
+    # a crash); nothing depends on an HTTP check here. Disable the inherited one.
+    healthcheck:
+      disable: true
 
   frontend:
     build:
