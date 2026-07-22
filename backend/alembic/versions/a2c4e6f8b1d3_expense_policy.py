@@ -21,6 +21,8 @@ down_revision: Union[str, None] = 'f1a3c5e7b9d2'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
+TENANT_TABLES = ("expense_policies",)
+
 _PREDICATE = (
     "current_setting('app.current_org', true) IS NULL "
     "OR org_id::text = current_setting('app.current_org', true)"
@@ -48,15 +50,17 @@ def upgrade() -> None:
     op.create_index("ix_expense_policies_org_id", "expense_policies", ["org_id"])
 
     if is_pg:
-        op.execute("ALTER TABLE expense_policies ENABLE ROW LEVEL SECURITY")
-        op.execute("ALTER TABLE expense_policies FORCE ROW LEVEL SECURITY")
-        op.execute(
-            f"CREATE POLICY tenant_isolation ON expense_policies "
-            f"USING ({_PREDICATE}) WITH CHECK ({_PREDICATE})"
-        )
+        for t in TENANT_TABLES:
+            op.execute(f"ALTER TABLE {t} ENABLE ROW LEVEL SECURITY")
+            op.execute(f"ALTER TABLE {t} FORCE ROW LEVEL SECURITY")
+            op.execute(
+                f"CREATE POLICY tenant_isolation ON {t} "
+                f"USING ({_PREDICATE}) WITH CHECK ({_PREDICATE})"
+            )
 
 
 def downgrade() -> None:
     if op.get_bind().dialect.name == "postgresql":
-        op.execute("DROP POLICY IF EXISTS tenant_isolation ON expense_policies")
+        for t in TENANT_TABLES:
+            op.execute(f"DROP POLICY IF EXISTS tenant_isolation ON {t}")
     op.drop_table("expense_policies")
