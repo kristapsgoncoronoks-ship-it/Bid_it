@@ -21,7 +21,7 @@ interface AuthState {
     email: string,
     password: string,
   ) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthCtx = createContext<AuthState | undefined>(undefined);
@@ -75,7 +75,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [applyAuth],
   );
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    // Revoke the session server-side so the token is truly dead, then clear
+    // locally regardless of the network result.
+    try {
+      await api.post("/auth/logout");
+    } catch {
+      /* best-effort — always clear locally below */
+    }
     tokenStore.clear();
     setUser(null);
     setOrg(null);

@@ -31,6 +31,7 @@ const ExpenseDetail = lazy(() => import("./pages/ExpenseDetail"));
 const EmailIntake = lazy(() => import("./pages/EmailIntake"));
 const Budget = lazy(() => import("./pages/Budget"));
 const Access = lazy(() => import("./pages/Access"));
+const Sessions = lazy(() => import("./pages/Sessions"));
 const Audit = lazy(() => import("./pages/Audit"));
 const Platform = lazy(() => import("./pages/Platform"));
 
@@ -77,6 +78,7 @@ export default function App() {
                 <Route path="/expenses/:id" element={<ExpenseDetail />} />
                 <Route path="/team" element={<Team />} />
                 <Route path="/access" element={<Access />} />
+                <Route path="/sessions" element={<Sessions />} />
                 <Route path="/audit" element={<Audit />} />
                 <Route path="/billing" element={<Billing />} />
                 <Route path="/platform" element={<Platform />} />

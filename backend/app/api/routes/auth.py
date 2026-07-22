@@ -5,17 +5,18 @@ import secrets
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentSession, CurrentUser, DbSession
 from app.core import authz, residency
 from app.core.config import settings
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.security import hash_password, verify_password
 from app.models.email_token import PURPOSE_PASSWORD_RESET, PURPOSE_VERIFY_EMAIL
 from app.models.invitation import Invitation
 from app.models.organization import Organization
+from app.models.session import Session
 from app.models.sso import SsoConnection
 from app.models.user import User, UserRole
 from app.schemas.auth import (
@@ -25,22 +26,27 @@ from app.schemas.auth import (
     MeOut,
     RegisterRequest,
     ResetPasswordRequest,
+    SessionOut,
     Token,
     VerifyEmailRequest,
 )
 from app.schemas.tenancy import AcceptInvite, InvitePreview
-from app.services import audit, oidc, saml, sso_config, team, verification
+from app.services import audit, oidc, saml, sessions, sso_config, team, verification
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 log = logging.getLogger("invoiceiq.auth")
 
 
-def _token_for(user: User) -> Token:
-    return Token(access_token=create_access_token(user.id, {"org": user.org_id}))
+def _ua(request: Request) -> str | None:
+    return request.headers.get("user-agent")
+
+
+def _ip(request: Request) -> str | None:
+    return request.client.host if request.client else None
 
 
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
-async def register(body: RegisterRequest, db: DbSession) -> AuthResponse:
+async def register(body: RegisterRequest, request: Request, db: DbSession) -> AuthResponse:
     existing = await db.scalar(select(User).where(User.email == body.email.lower()))
     if existing is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered")
@@ -72,12 +78,13 @@ async def register(body: RegisterRequest, db: DbSession) -> AuthResponse:
     )
     # Send the email-verification link (best-effort; recorded to the outbox).
     await verification.send_verification(db, user)
+    token = await sessions.start(db, user, user_agent=_ua(request), ip=_ip(request))
     await db.commit()
-    return AuthResponse(token=_token_for(user), user=user, organization=org)
+    return AuthResponse(token=Token(access_token=token), user=user, organization=org)
 
 
 @router.post("/login", response_model=AuthResponse)
-async def login(body: LoginRequest, db: DbSession) -> AuthResponse:
+async def login(body: LoginRequest, request: Request, db: DbSession) -> AuthResponse:
     user = await db.scalar(select(User).where(User.email == body.email.lower()))
     if user is None or not verify_password(body.password, user.hashed_password):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
@@ -101,8 +108,9 @@ async def login(body: LoginRequest, db: DbSession) -> AuthResponse:
             "Please verify your email address before signing in.",
         )
     await audit.record(db, audit.A.LOGIN, org_id=user.org_id, actor=(user.id, user.email))
+    token = await sessions.start(db, user, user_agent=_ua(request), ip=_ip(request))
     await db.commit()
-    return AuthResponse(token=_token_for(user), user=user, organization=org)
+    return AuthResponse(token=Token(access_token=token), user=user, organization=org)
 
 
 @router.get("/me", response_model=MeOut)
@@ -126,6 +134,52 @@ async def my_permissions(current: CurrentUser) -> dict:
 async def authz_matrix(current: CurrentUser) -> dict:
     """The full role→permission matrix (for the members & roles admin screen)."""
     return authz.matrix()
+
+
+# --- Sessions + revocation (Slice 4) ---------------------------------------
+
+
+@router.post("/logout")
+async def logout(session: CurrentSession, db: DbSession) -> dict:
+    """Revoke the current session — the token stops working immediately (not just
+    client-side)."""
+    await sessions.revoke(db, session.id)
+    return {"logged_out": True}
+
+
+@router.get("/sessions", response_model=list[SessionOut])
+async def list_sessions(session: CurrentSession, db: DbSession) -> list[SessionOut]:
+    """List this user's active sessions (the current one flagged)."""
+    rows = await sessions.list_active(db, session.user_id)
+    return [
+        SessionOut(
+            id=s.id,
+            created_at=s.created_at,
+            last_seen_at=s.last_seen_at,
+            user_agent=s.user_agent,
+            ip=s.ip,
+            current=(s.id == session.id),
+        )
+        for s in rows
+    ]
+
+
+@router.post("/sessions/revoke-others")
+async def revoke_other_sessions(session: CurrentSession, db: DbSession) -> dict:
+    """Sign out everywhere else — revoke all of this user's sessions except this
+    one."""
+    n = await sessions.revoke_all(db, session.user_id, except_jti=session.id)
+    return {"revoked": n}
+
+
+@router.delete("/sessions/{session_id}")
+async def revoke_session(session_id: str, session: CurrentSession, db: DbSession) -> dict:
+    """Revoke one of this user's OWN sessions by id (opaque 404 otherwise)."""
+    target = await db.get(Session, session_id)
+    if target is None or target.user_id != session.user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
+    await sessions.revoke(db, session_id)
+    return {"revoked": True}
 
 
 # --- Email verification + password reset (Slice 3) -------------------------
@@ -187,6 +241,8 @@ async def reset_password(body: ResetPasswordRequest, db: DbSession) -> dict:
     user.email_verified = True
     await audit.record(db, audit.A.PASSWORD_RESET, org_id=user.org_id, actor=(user.id, user.email))
     await db.commit()
+    # Revoke every existing session — a reset must lock out any hijacked token.
+    await sessions.revoke_all(db, user.id)
     return {"reset": True}
 
 
@@ -227,7 +283,11 @@ async def sso_authorize(slug: str, db: DbSession):
 
 @router.get("/sso/callback", include_in_schema=False)
 async def sso_callback(
-    db: DbSession, code: str | None = None, state: str | None = None, error: str | None = None
+    request: Request,
+    db: DbSession,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
 ):
     """OIDC redirect back: validate + JIT-provision, then bounce to the SPA with
     our internal token in the URL fragment. Any failure → the SPA login page."""
@@ -247,7 +307,8 @@ async def sso_callback(
     except Exception:  # noqa: BLE001 - never 500 into a browser redirect flow
         log.exception("SSO callback error")
         return _sso_error_redirect()
-    token = create_access_token(user.id, {"org": org.id})
+    token = await sessions.start(db, user, user_agent=_ua(request), ip=_ip(request))
+    await db.commit()
     return RedirectResponse(
         f"{settings.sso_post_login_url}#access_token={token}", status_code=status.HTTP_302_FOUND
     )
@@ -319,10 +380,12 @@ async def preview_invite(token: str, db: DbSession) -> InvitePreview:
 
 
 @router.post("/accept-invite", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
-async def accept_invite(body: AcceptInvite, db: DbSession) -> AuthResponse:
+async def accept_invite(body: AcceptInvite, request: Request, db: DbSession) -> AuthResponse:
     result = await team.accept_invitation(db, body.token, body.name, body.password)
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Invitation not found or already used")
     user, org_id = result
     org = await db.get(Organization, org_id)
-    return AuthResponse(token=_token_for(user), user=user, organization=org)
+    token = await sessions.start(db, user, user_agent=_ua(request), ip=_ip(request))
+    await db.commit()
+    return AuthResponse(token=Token(access_token=token), user=user, organization=org)

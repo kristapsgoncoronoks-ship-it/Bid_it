@@ -19,7 +19,9 @@ from app.core.database import get_session
 from app.core.security import decode_access_token
 from app.core.tenant import apply_db_tenant, set_current_actor, set_current_org
 from app.models.organization import Organization
+from app.models.session import Session
 from app.models.user import User
+from app.services import sessions
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -44,9 +46,15 @@ async def get_current_user(
     user = await db.get(User, payload["sub"])
     if user is None or not user.is_active:
         raise _CREDENTIALS_EXC
+    # Session revocation (Slice 4): the token's `jti` must map to a live session.
+    # A missing jti (legacy token) or a revoked/expired session is a hard 401.
+    session = await sessions.active(db, payload.get("jti"))
+    if session is None:
+        raise _CREDENTIALS_EXC
     # Activate defence-in-depth tenant scoping + audit attribution for this request.
     set_current_org(user.org_id)
     set_current_actor(user.id, user.email)
+    await sessions.touch(db, session)
     # Pin the Postgres RLS GUC for this request's current transaction (no-op on
     # SQLite / when unscoped). The event hook re-applies it on later transactions.
     await apply_db_tenant(db)
@@ -59,3 +67,20 @@ async def get_current_user(
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+async def get_current_session(
+    current: CurrentUser,
+    db: DbSession,
+    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+) -> Session:
+    """The caller's own session row (already validated by `get_current_user`).
+    Used by logout / session-management endpoints that act on the current jti."""
+    payload = decode_access_token(creds.credentials) if creds else None
+    session = await sessions.active(db, (payload or {}).get("jti"))
+    if session is None:  # pragma: no cover - get_current_user already guaranteed it
+        raise _CREDENTIALS_EXC
+    return session
+
+
+CurrentSession = Annotated[Session, Depends(get_current_session)]

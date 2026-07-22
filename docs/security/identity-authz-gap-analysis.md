@@ -13,11 +13,11 @@ Legend: ✅ present · 🟡 partial · ❌ missing
 |---|---|---|
 | User registration | ✅ | `auth/register` → creates org + owner |
 | Login | ✅ | `auth/login` (bcrypt, region + org-status gates) |
-| Logout | 🟡 | JWT is stateless → client discards token. **No server-side session** to invalidate |
+| Logout | ✅ **Slice 4** | `POST /auth/logout` revokes the server-side session — the token dies immediately (FE logout calls it) |
 | Email verification | ✅ **Slice 3** | `users.email_verified` + `auth_tokens` (hashed, single-use); `POST /auth/verify-email` + `/resend-verification`; opt-in login gate `require_email_verification`; FE `/verify-email` |
 | Password reset | ✅ **Slice 3** | `POST /auth/forgot-password` (no user enumeration) + `/reset-password` (single-use, 1h); FE `/forgot-password` + `/reset-password` |
-| Session management | 🟡→❌ | Stateless JWT only; no session store, no "your active sessions" list |
-| Session revocation | ❌ | Cannot revoke a live token (needs a session/`jti` denylist or a session table) |
+| Session management | ✅ **Slice 4** | `sessions` table; token carries `jti`; every request validates it; `GET /auth/sessions` lists active devices (FE `/sessions` page) |
+| Session revocation | ✅ **Slice 4** | `POST /auth/logout`, `/sessions/revoke-others`, `DELETE /sessions/{id}`; password reset revokes ALL sessions |
 | SSO prep (no enterprise SSO yet) | ✅ (exceeds) | `SsoConnection` model; **OIDC implemented**, SAML deliberately stubbed at the ACS boundary |
 
 ## Organization & membership
@@ -101,8 +101,8 @@ expressed as one central policy.
 3. **✅ done** — email verification + password reset (`auth_tokens` hashed/single-use,
    `mailer` send, opt-in login gate, FE verify/forgot/reset pages with
    loading/invalid/expired/success states).
-4. **Sessions + revocation** — a `sessions` table (or `jti` denylist) so logout,
-   "your sessions", and revoke-all work. Additive.
+4. **✅ done** — sessions + revocation (`sessions` table, `jti`-bound tokens,
+   logout / revoke-others / revoke-one, reset revokes all, FE `/sessions` page).
 5. **Invitation email send** + the FE empty/expired/permission-denied states.
 6. **Multi-org membership + org switching** *(the fork)* — the `Membership` split.
    Biggest change; do last, with its own migration plan.

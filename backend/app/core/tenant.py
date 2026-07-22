@@ -45,6 +45,7 @@ from app.models.payment import Payment
 from app.models.receipt import Receipt
 from app.models.recurring_invoice import RecurringInvoice
 from app.models.retention import LegalHold, RetentionPolicy
+from app.models.session import Session as SessionModel
 from app.models.sso import SsoConnection
 from app.models.tax_code import TaxCode
 from app.models.usage import UsageCounter
@@ -85,6 +86,7 @@ TENANT_MODELS = (
     BillingPayment,
     RetentionPolicy,
     LegalHold,
+    SessionModel,
     SsoConnection,
     Department,
     CostCenter,

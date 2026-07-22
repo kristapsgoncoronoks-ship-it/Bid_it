@@ -70,10 +70,13 @@ export function Layout() {
               <div className="font-medium text-slate-700">{org?.name}</div>
               <div className="text-xs text-slate-400">{user?.email}</div>
             </div>
+            <NavLink to="/sessions" className="text-xs text-slate-400 hover:text-brand-600 hover:underline">
+              Sessions
+            </NavLink>
             <button
               className="btn-ghost"
-              onClick={() => {
-                logout();
+              onClick={async () => {
+                await logout();
                 navigate("/login");
               }}
             >

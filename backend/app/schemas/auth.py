@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.user import UserRole
@@ -33,6 +35,17 @@ class ResetPasswordRequest(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class SessionOut(BaseModel):
+    """One active session for the "your sessions" list."""
+
+    id: str
+    created_at: datetime
+    last_seen_at: datetime | None = None
+    user_agent: str | None = None
+    ip: str | None = None
+    current: bool = False
 
 
 class OrganizationOut(BaseModel):
