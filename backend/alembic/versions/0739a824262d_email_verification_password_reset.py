@@ -35,7 +35,7 @@ def upgrade() -> None:
     with op.batch_alter_table("users", schema=None) as batch_op:
         batch_op.add_column(
             sa.Column(
-                "email_verified", sa.Boolean(), nullable=False, server_default=sa.text("1")
+                "email_verified", sa.Boolean(), nullable=False, server_default=sa.true()
             )
         )
 
