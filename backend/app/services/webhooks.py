@@ -43,6 +43,8 @@ EVENT_TYPES = (
     "expense.submitted",
     "expense.approved",
     "expense.rejected",
+    "expense.reimbursement_created",
+    "expense.reimbursed",
     "ping",
 )
 

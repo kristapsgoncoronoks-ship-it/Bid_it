@@ -13,6 +13,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     event,
     select,
 )
@@ -62,6 +63,15 @@ class ExpenseReport(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     decided_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
     decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Reimbursement (Phase 09): payment metadata recorded when the report is paid,
+    # and an optional link to the payout batch it was paid in. `payout_batch_id`
+    # is a soft (org-scoped) reference — tenant isolation is enforced by the ORM
+    # guard + RLS, so no composite FK is needed on this existing table.
+    reimbursed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    payment_method: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    payment_reference: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    payout_batch_id: Mapped[str | None] = mapped_column(GUID(), nullable=True, index=True)
 
     items: Mapped[list[ExpenseItem]] = relationship(
         back_populates="report", cascade="all, delete-orphan", order_by="ExpenseItem.spend_date"
@@ -211,3 +221,38 @@ class ExpenseComment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     author_id: Mapped[str] = mapped_column(GUID(), nullable=False)
     author_name: Mapped[str] = mapped_column(String(200), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+# Reimbursement statuses.
+BATCH_OPEN = "open"
+BATCH_PAID = "paid"
+BATCH_CANCELLED = "cancelled"
+BATCH_STATUSES = (BATCH_OPEN, BATCH_PAID, BATCH_CANCELLED)
+
+
+class ReimbursementBatch(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """A payout run (Phase 09): a set of APPROVED expense reports grouped for
+    payment, marked paid together with a shared method + reference, and exportable
+    as a bank/payroll file. Marking the batch paid flips each linked report to
+    `reimbursed` and stamps its payment metadata. Tenant-scoped."""
+
+    __tablename__ = "reimbursement_batches"
+    __table_args__ = (
+        # Target for a future composite FK from expense_reports; also the tenant
+        # uniqueness guard used across the codebase.
+        UniqueConstraint("org_id", "id", name="uq_reimbursement_batches_org_id"),
+        Index("ix_reimbursement_batches_org_status", "org_id", "status"),
+    )
+
+    org_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    reference: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    method: Mapped[str] = mapped_column(String(40), default="bank_transfer", nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default=BATCH_OPEN, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Sum of the linked reports' EUR totals (reports may be multi-currency).
+    total_eur: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)

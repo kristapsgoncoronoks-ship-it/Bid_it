@@ -468,6 +468,10 @@ async def decide(report_id: str, body: ExpenseDecision, current: CurrentUser, db
     r.decided_at = expenses.now()
     r.decided_by = current.email
     r.decision_note = body.note
+    if body.action == "reimburse":
+        # Stamp the reimbursement time for a direct single-report payout (a batch
+        # payout does the same across many reports — see routes/reimbursements.py).
+        r.reimbursed_at = expenses.now()
     if body.action in ("approve", "reject"):
         await webhooks.emit(
             db,

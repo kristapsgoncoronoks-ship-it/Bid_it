@@ -25,6 +25,7 @@ from app.api.routes import (
     privacy,
     receipts,
     recurring,
+    reimbursements,
     retention,
     scim,
     settings,
@@ -57,6 +58,7 @@ api_router.include_router(team.router)
 api_router.include_router(billing.router)
 api_router.include_router(platform.router)
 api_router.include_router(expenses.router)
+api_router.include_router(reimbursements.router)
 api_router.include_router(email.router)
 api_router.include_router(budget.router)
 api_router.include_router(access.router)

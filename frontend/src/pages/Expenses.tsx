@@ -54,7 +54,14 @@ export default function Expenses() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Expenses</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold tracking-tight">Expenses</h1>
+        {isManager && (
+          <Link to="/reimbursements" className="text-sm text-brand-600 hover:underline">
+            Reimbursements →
+          </Link>
+        )}
+      </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <KpiCard label="Awaiting reimbursement" value={s ? money(s.my_reimbursable) : "—"} accent="emerald" sub="approved · mine" />

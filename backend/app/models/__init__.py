@@ -18,6 +18,7 @@ from app.models.expense import (
     ExpenseItem,
     ExpenseReport,
     ExpenseTransaction,
+    ReimbursementBatch,
 )
 from app.models.extraction_field import ExtractionField
 from app.models.extraction_run import ExtractionRun
@@ -81,6 +82,7 @@ __all__ = [
     "ExpenseItem",
     "ExpenseTransaction",
     "ExpenseComment",
+    "ReimbursementBatch",
     "UsageCounter",
     "WebhookEndpoint",
     "WebhookDelivery",

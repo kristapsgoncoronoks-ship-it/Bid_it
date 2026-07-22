@@ -20,6 +20,7 @@ const Explore = lazy(() => import("./pages/Explore"));
 const Fx = lazy(() => import("./pages/Fx"));
 const Review = lazy(() => import("./pages/Review"));
 const ReviewInvoice = lazy(() => import("./pages/ReviewInvoice"));
+const Reimbursements = lazy(() => import("./pages/Reimbursements"));
 const Settings = lazy(() => import("./pages/Settings"));
 const Issuer = lazy(() => import("./pages/Issuer"));
 const Issue = lazy(() => import("./pages/Issue"));
@@ -121,6 +122,7 @@ export default function App() {
                 <Route path="/issuer" element={<Issuer />} />
                 <Route path="/expenses" element={<Expenses />} />
                 <Route path="/expenses/:id" element={<ExpenseDetail />} />
+                <Route path="/reimbursements" element={<Reimbursements />} />
                 <Route path="/team" element={<Team />} />
                 <Route path="/access" element={<Access />} />
                 <Route path="/sessions" element={<Sessions />} />

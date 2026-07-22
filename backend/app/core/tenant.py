@@ -32,7 +32,13 @@ from app.models.document_version import DocumentVersion
 from app.models.email_intake import EmailIntake, InboundInvoice
 from app.models.email_message import EmailMessage
 from app.models.email_token import EmailToken
-from app.models.expense import ExpenseComment, ExpenseItem, ExpenseReport, ExpenseTransaction
+from app.models.expense import (
+    ExpenseComment,
+    ExpenseItem,
+    ExpenseReport,
+    ExpenseTransaction,
+    ReimbursementBatch,
+)
 from app.models.extraction_field import ExtractionField
 from app.models.extraction_run import ExtractionRun
 from app.models.invitation import Invitation
@@ -106,6 +112,7 @@ TENANT_MODELS = (
     ApprovalStep,
     InvoiceComment,
     InvoiceAttachment,
+    ReimbursementBatch,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.

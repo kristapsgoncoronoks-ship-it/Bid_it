@@ -65,6 +65,10 @@ class A:
     DOC_DOWNLOAD = "document.download"
     INBOUND_CONFIRM = "inbound.confirm"
     MODULE_TOGGLE = "module.toggle"
+    # Expense reimbursement (Phase 09)
+    REIMBURSE_BATCH = "expense.reimbursement_batch"
+    REIMBURSE_PAID = "expense.reimbursement_paid"
+    REIMBURSE_CANCEL = "expense.reimbursement_cancel"
     ROLE_CHANGE = "user.role_change"
     APPROVER_CHANGE = "user.approver_change"
     USER_DEACTIVATE = "user.deactivate"
