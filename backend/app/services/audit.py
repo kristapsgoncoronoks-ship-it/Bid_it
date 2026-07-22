@@ -30,6 +30,9 @@ log = logging.getLogger("invoiceiq.audit")
 class A:
     LOGIN = "auth.login"
     REGISTER = "auth.register"
+    EMAIL_VERIFY = "auth.email_verify"
+    PASSWORD_RESET_REQUEST = "auth.password_reset_request"
+    PASSWORD_RESET = "auth.password_reset"
     INVOICE_CREATE = "invoice.create"
     INVOICE_DELETE = "invoice.delete"
     INVOICE_VALIDATE = "invoice.validate"

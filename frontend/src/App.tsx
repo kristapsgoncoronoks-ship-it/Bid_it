@@ -5,6 +5,9 @@ import { Layout } from "./components/Layout";
 import Login from "./pages/Login";
 import SsoCallback from "./pages/SsoCallback";
 import AcceptInvite from "./pages/AcceptInvite";
+import VerifyEmail from "./pages/VerifyEmail";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 
 // Auth pages load eagerly (first paint); everything behind the app shell is
 // code-split so the initial bundle stays small and charts load on demand.
@@ -41,6 +44,9 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/sso/callback" element={<SsoCallback />} />
       <Route path="/accept-invite" element={<AcceptInvite />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route
         element={
           <ProtectedRoute>

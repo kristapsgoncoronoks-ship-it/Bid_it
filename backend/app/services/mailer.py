@@ -82,12 +82,24 @@ async def send(
 
 
 async def list_messages(
-    db: AsyncSession, org_id: str, *, invoice_id: str | None = None, limit: int = 100
+    db: AsyncSession,
+    org_id: str,
+    *,
+    invoice_id: str | None = None,
+    kinds: tuple[str, ...] | None = None,
+    limit: int = 100,
 ) -> list[EmailMessage]:
     stmt = select(EmailMessage).where(EmailMessage.org_id == org_id)
     if invoice_id:
         stmt = stmt.where(EmailMessage.invoice_id == invoice_id)
+    if kinds:
+        stmt = stmt.where(EmailMessage.kind.in_(kinds))
     return list(await db.scalars(stmt.order_by(EmailMessage.created_at.desc()).limit(limit)))
+
+
+# Invoice-delivery message kinds (the /issued/emails log shows only these — not
+# auth/verification/reset mail that shares the same outbox table).
+INVOICE_MAIL_KINDS: tuple[str, ...] = ("invoice", "reminder")
 
 
 # --- Message templates ---------------------------------------------------------

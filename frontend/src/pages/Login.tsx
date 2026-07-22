@@ -81,6 +81,14 @@ export default function Login() {
               {busy ? "Please wait…" : mode === "login" ? "Sign in" : "Create workspace"}
             </button>
           </form>
+          {mode === "login" && (
+            <a
+              href="/forgot-password"
+              className="mt-3 block text-center text-xs text-slate-500 hover:text-brand-600 hover:underline"
+            >
+              Forgot your password?
+            </a>
+          )}
           <button
             className="mt-4 w-full text-center text-sm text-brand-600 hover:underline"
             onClick={() => {

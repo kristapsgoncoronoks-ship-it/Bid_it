@@ -13,19 +13,23 @@ from app.api.deps import CurrentUser, DbSession
 from app.core import authz, residency
 from app.core.config import settings
 from app.core.security import create_access_token, hash_password, verify_password
+from app.models.email_token import PURPOSE_PASSWORD_RESET, PURPOSE_VERIFY_EMAIL
 from app.models.invitation import Invitation
 from app.models.organization import Organization
 from app.models.sso import SsoConnection
 from app.models.user import User, UserRole
 from app.schemas.auth import (
     AuthResponse,
+    ForgotPasswordRequest,
     LoginRequest,
     MeOut,
     RegisterRequest,
+    ResetPasswordRequest,
     Token,
+    VerifyEmailRequest,
 )
 from app.schemas.tenancy import AcceptInvite, InvitePreview
-from app.services import audit, oidc, saml, sso_config, team
+from app.services import audit, oidc, saml, sso_config, team, verification
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 log = logging.getLogger("invoiceiq.auth")
@@ -66,6 +70,8 @@ async def register(body: RegisterRequest, db: DbSession) -> AuthResponse:
         target_type="organization",
         target_id=org.id,
     )
+    # Send the email-verification link (best-effort; recorded to the outbox).
+    await verification.send_verification(db, user)
     await db.commit()
     return AuthResponse(token=_token_for(user), user=user, organization=org)
 
@@ -83,6 +89,16 @@ async def login(body: LoginRequest, db: DbSession) -> AuthResponse:
     if org.status != "active" and not user.is_platform_admin:
         raise HTTPException(
             status.HTTP_402_PAYMENT_REQUIRED, f"Workspace is {org.status}. Contact support."
+        )
+    # Opt-in email-verification gate (SSO + platform operators exempt).
+    if (
+        settings.require_email_verification
+        and not user.email_verified
+        and not user.is_platform_admin
+    ):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Please verify your email address before signing in.",
         )
     await audit.record(db, audit.A.LOGIN, org_id=user.org_id, actor=(user.id, user.email))
     await db.commit()
@@ -110,6 +126,68 @@ async def my_permissions(current: CurrentUser) -> dict:
 async def authz_matrix(current: CurrentUser) -> dict:
     """The full role→permission matrix (for the members & roles admin screen)."""
     return authz.matrix()
+
+
+# --- Email verification + password reset (Slice 3) -------------------------
+
+
+@router.post("/verify-email")
+async def verify_email(body: VerifyEmailRequest, db: DbSession) -> dict:
+    """Confirm an email address from the link token. Idempotent-ish: a used or
+    expired token is a clean 400, never a leak of whether the account exists."""
+    row = await verification.consume(db, body.token, PURPOSE_VERIFY_EMAIL)
+    if row is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid or expired verification link")
+    user = await db.get(User, row.user_id)
+    if user is not None:
+        user.email_verified = True
+        await audit.record(
+            db, audit.A.EMAIL_VERIFY, org_id=user.org_id, actor=(user.id, user.email)
+        )
+    await db.commit()
+    return {"verified": True}
+
+
+@router.post("/resend-verification")
+async def resend_verification(current: CurrentUser, db: DbSession) -> dict:
+    """Re-send the verification link to the signed-in user (no-op if already
+    verified). Always 200 to avoid signalling state."""
+    if not current.email_verified:
+        await verification.send_verification(db, current)
+        await db.commit()
+    return {"sent": True}
+
+
+@router.post("/forgot-password")
+async def forgot_password(body: ForgotPasswordRequest, db: DbSession) -> dict:
+    """Begin a password reset. ALWAYS returns 200 with the same body — it never
+    reveals whether the email is registered (no user enumeration)."""
+    user = await db.scalar(select(User).where(User.email == body.email.lower()))
+    if user is not None and user.is_active:
+        await verification.send_password_reset(db, user)
+        await audit.record(
+            db, audit.A.PASSWORD_RESET_REQUEST, org_id=user.org_id, actor=(user.id, user.email)
+        )
+        await db.commit()
+    return {"sent": True}
+
+
+@router.post("/reset-password")
+async def reset_password(body: ResetPasswordRequest, db: DbSession) -> dict:
+    """Set a new password from a reset-link token (single-use). A used/expired
+    token is a clean 400."""
+    row = await verification.consume(db, body.token, PURPOSE_PASSWORD_RESET)
+    if row is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid or expired reset link")
+    user = await db.get(User, row.user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid or expired reset link")
+    user.hashed_password = hash_password(body.new_password)
+    # A verified reset also proves control of the mailbox.
+    user.email_verified = True
+    await audit.record(db, audit.A.PASSWORD_RESET, org_id=user.org_id, actor=(user.id, user.email))
+    await db.commit()
+    return {"reset": True}
 
 
 # --- SSO (OIDC) login (ADR-0021) -------------------------------------------

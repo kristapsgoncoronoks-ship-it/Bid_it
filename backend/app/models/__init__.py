@@ -11,6 +11,7 @@ from app.models.document import Document
 from app.models.document_version import DocumentVersion
 from app.models.email_intake import EmailIntake, InboundInvoice
 from app.models.email_message import EmailMessage
+from app.models.email_token import EmailToken
 from app.models.expense import (
     ExpenseComment,
     ExpenseItem,
@@ -55,6 +56,7 @@ __all__ = [
     "EmailIntake",
     "InboundInvoice",
     "EmailMessage",
+    "EmailToken",
     "Partner",
     "PartnerDocument",
     "BudgetTarget",

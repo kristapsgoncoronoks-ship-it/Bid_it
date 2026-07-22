@@ -14,8 +14,8 @@ Legend: ✅ present · 🟡 partial · ❌ missing
 | User registration | ✅ | `auth/register` → creates org + owner |
 | Login | ✅ | `auth/login` (bcrypt, region + org-status gates) |
 | Logout | 🟡 | JWT is stateless → client discards token. **No server-side session** to invalidate |
-| Email verification | ❌ | No `email_verified` / token flow |
-| Password reset | ❌ | No forgot/reset flow |
+| Email verification | ✅ **Slice 3** | `users.email_verified` + `auth_tokens` (hashed, single-use); `POST /auth/verify-email` + `/resend-verification`; opt-in login gate `require_email_verification`; FE `/verify-email` |
+| Password reset | ✅ **Slice 3** | `POST /auth/forgot-password` (no user enumeration) + `/reset-password` (single-use, 1h); FE `/forgot-password` + `/reset-password` |
 | Session management | 🟡→❌ | Stateless JWT only; no session store, no "your active sessions" list |
 | Session revocation | ❌ | Cannot revoke a live token (needs a session/`jti` denylist or a session table) |
 | SSO prep (no enterprise SSO yet) | ✅ (exceeds) | `SsoConnection` model; **OIDC implemented**, SAML deliberately stubbed at the ACS boundary |
@@ -98,8 +98,9 @@ expressed as one central policy.
 2. **✅ done** — authorization service + policy matrix (`app/core/authz.py`, 8-role
    grid, deny-by-default; export guard migrated; `GET /auth/permissions` for the UI).
    Remaining ad-hoc role guards migrate onto `authz.require` incrementally.
-3. **Email verification + password reset** — a `verification_tokens`/`password_resets`
-   table, `notify` email send, endpoints + FE states. Additive.
+3. **✅ done** — email verification + password reset (`auth_tokens` hashed/single-use,
+   `mailer` send, opt-in login gate, FE verify/forgot/reset pages with
+   loading/invalid/expired/success states).
 4. **Sessions + revocation** — a `sessions` table (or `jti` denylist) so logout,
    "your sessions", and revoke-all work. Additive.
 5. **Invitation email send** + the FE empty/expired/permission-denied states.

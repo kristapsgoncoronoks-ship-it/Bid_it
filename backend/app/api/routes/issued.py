@@ -506,7 +506,7 @@ async def run_overdue_reminders(current: CurrentUser, db: DbSession):
 async def list_emails(current: CurrentUser, db: DbSession):
     """The outbound-mail history (invoices sent + reminders) for this workspace."""
     await modules.require_enabled(db, current.org_id, "issuing")
-    rows = await mailer.list_messages(db, current.org_id)
+    rows = await mailer.list_messages(db, current.org_id, kinds=mailer.INVOICE_MAIL_KINDS)
     return [EmailMessageOut.model_validate(m) for m in rows]
 
 

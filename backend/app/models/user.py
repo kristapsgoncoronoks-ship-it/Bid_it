@@ -49,6 +49,10 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Whether the email address has been confirmed (Slice 3). New accounts start
+    # False and receive a verification link; existing accounts were backfilled True.
+    # Login only requires it when `require_email_verification` is enabled.
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Platform operator (cross-tenant admin). Off for all normal SaaS users.
     is_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Designated expense approver — may approve/reject/reimburse expense reports.

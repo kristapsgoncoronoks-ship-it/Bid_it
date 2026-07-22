@@ -30,6 +30,7 @@ from app.models.document import Document
 from app.models.document_version import DocumentVersion
 from app.models.email_intake import EmailIntake, InboundInvoice
 from app.models.email_message import EmailMessage
+from app.models.email_token import EmailToken
 from app.models.expense import ExpenseComment, ExpenseItem, ExpenseReport, ExpenseTransaction
 from app.models.extraction_field import ExtractionField
 from app.models.extraction_run import ExtractionRun
@@ -69,6 +70,7 @@ TENANT_MODELS = (
     ExpenseComment,
     EmailIntake,
     InboundInvoice,
+    EmailToken,
     BudgetTarget,
     AuditEvent,
     EmailMessage,

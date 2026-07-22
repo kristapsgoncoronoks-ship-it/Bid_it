@@ -88,6 +88,14 @@ class Settings(BaseSettings):
     def smtp_enabled(self) -> bool:
         return bool(self.smtp_host)
 
+    # Public base URL of the SPA — used to build email-verification and
+    # password-reset links (`{app_base_url}/verify-email?token=…`).
+    app_base_url: str = Field(default="http://localhost:5173")
+    # When on, login refuses an account whose email is not yet verified (SSO and
+    # platform operators are exempt). Default OFF = no behaviour change; new
+    # accounts still receive a verification link and can verify at their leisure.
+    require_email_verification: bool = Field(default=False)
+
     # --- TLS / proxy hardening (Cloudflare + nginx origin) ---
     # Emit HSTS on HTTPS responses. Enable in production once TLS is live and the
     # domain always serves HTTPS (turning it on prematurely can lock out http dev).
