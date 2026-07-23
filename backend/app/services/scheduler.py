@@ -19,7 +19,11 @@ from app.models.organization import Organization
 from app.services import billing, billing_usage, job_handlers, jobs, retention
 
 # The jobs enqueued for every active tenant, once per day.
-DAILY_KINDS = (job_handlers.RECURRING_GENERATE, job_handlers.DUNNING_RUN)
+DAILY_KINDS = (
+    job_handlers.RECURRING_GENERATE,
+    job_handlers.DUNNING_RUN,
+    job_handlers.AP_DUE_ALERTS,
+)
 
 
 async def enqueue_daily(db: AsyncSession, *, today: date | None = None) -> int:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from app.models.job import Job
 from app.services import (
+    ap_alerts,
     billing,
     billing_usage,
     costing,
@@ -25,6 +26,7 @@ from app.services import (
 
 RECURRING_GENERATE = "recurring.generate"
 DUNNING_RUN = "dunning.run"
+AP_DUE_ALERTS = "ap.due_alerts"
 INTEGRITY_VERIFY = "integrity.verify_documents"
 EVERYPAY_CHARGE = "everypay.charge_mit"
 RETENTION_PURGE = "retention.purge"
@@ -64,6 +66,12 @@ async def _dunning_run(db, payload: dict, job: Job) -> dict:
     """Send a reminder for every overdue invoice for the job's tenant."""
     res = await dunning.run_overdue(db, job.org_id)
     return {"sent": res.sent, "skipped_no_email": res.skipped_no_email}
+
+
+@jobs.handler(AP_DUE_ALERTS)
+async def _ap_due_alerts(db, payload: dict, job: Job) -> dict:
+    """Email the tenant a digest of supplier invoices due soon / overdue."""
+    return await ap_alerts.send_digest(db, job.org_id)
 
 
 @jobs.handler(webhooks.WEBHOOK_DELIVER)
@@ -129,6 +137,7 @@ async def _integrity_versions(db, payload: dict, job: Job) -> dict:
 USER_ENQUEUEABLE = (
     RECURRING_GENERATE,
     DUNNING_RUN,
+    AP_DUE_ALERTS,
     INTEGRITY_VERIFY,
     INTEGRITY_LEDGER,
     INTEGRITY_VERSIONS,

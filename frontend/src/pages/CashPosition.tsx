@@ -1,14 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Card, StatCard } from "../components/ui";
+import { Badge, Card, StatCard, type Tone } from "../components/ui";
 import { api } from "../lib/api";
-import { money } from "../lib/format";
-import type { CashPosition } from "../lib/types";
+import { money, shortDate } from "../lib/format";
+import type { ApAging, CashPosition } from "../lib/types";
 
 export default function CashPositionPage() {
   const { data, isLoading } = useQuery<CashPosition>({
     queryKey: ["cash-position"],
     queryFn: async () => (await api.get("/analytics/cash-position")).data,
+  });
+  const apAging = useQuery<ApAging>({
+    queryKey: ["ap-aging"],
+    queryFn: async () => (await api.get("/analytics/ap-aging")).data,
   });
 
   if (isLoading || !data) return <div className="text-slate-400">Loading…</div>;
@@ -100,6 +104,7 @@ export default function CashPositionPage() {
           <StatCard label="Scheduled" value={ap.scheduled} sub="ready to pay" />
           <StatCard label="Open invoices" value={ap.count} sub={`${ap.in_run} in a run`} />
         </div>
+        {apAging.data && <ApWorklist aging={apAging.data} currency={cur} />}
       </Card>
 
       {/* Reconciliation */}
@@ -122,6 +127,66 @@ export default function CashPositionPage() {
           <StatCard label="Ignored" value={rec.ignored} />
         </div>
       </Card>
+    </div>
+  );
+}
+
+function ApWorklist({ aging, currency }: { aging: ApAging; currency: string }) {
+  // Show only what needs attention: overdue first, then due-soon.
+  const rows = aging.items
+    .filter((i) => i.status === "overdue" || i.bucket === "due_soon")
+    .sort((a, b) => (a.status === "overdue" ? 0 : 1) - (b.status === "overdue" ? 0 : 1));
+  if (rows.length === 0)
+    return (
+      <p className="mt-4 text-xs text-slate-400">Nothing due soon or overdue. 🎉</p>
+    );
+
+  return (
+    <div className="mt-4">
+      <div className="mb-2 flex items-center gap-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
+        <span>Needs attention</span>
+        {aging.overdue_count > 0 && (
+          <span className="text-rose-600">
+            {aging.overdue_count} overdue · {money(aging.overdue_amount, currency)}
+          </span>
+        )}
+        {aging.due_soon_count > 0 && (
+          <span className="text-amber-600">
+            {aging.due_soon_count} due soon · {money(aging.due_soon_amount, currency)}
+          </span>
+        )}
+      </div>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-xs text-slate-400">
+            <th className="py-1">Invoice</th>
+            <th className="py-1">Supplier</th>
+            <th className="py-1">Due</th>
+            <th className="py-1 text-right">Outstanding</th>
+            <th className="py-1">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((i) => {
+            const tone: Tone = i.status === "overdue" ? "danger" : "warning";
+            const label =
+              i.status === "overdue" ? `${i.days_overdue}d overdue` : "due soon";
+            return (
+              <tr key={i.id} className="border-t border-slate-100">
+                <td className="py-1">{i.invoice_number}</td>
+                <td className="py-1 text-slate-500">{i.vendor_name ?? "—"}</td>
+                <td className="py-1 text-slate-500">{shortDate(i.due_date)}</td>
+                <td className="py-1 text-right tabular-nums">
+                  {money(i.outstanding, i.currency)}
+                </td>
+                <td className="py-1">
+                  <Badge tone={tone}>{label}</Badge>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

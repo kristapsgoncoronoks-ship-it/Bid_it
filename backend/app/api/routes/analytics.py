@@ -15,9 +15,10 @@ from app.schemas.analytics import (
     TimeBucket,
     VendorSpend,
 )
+from app.schemas.ap_aging import ApAgingOut, WorklistItemOut
 from app.schemas.benchmark import CombinedBenchmark, SupplierBenchmark
 from app.schemas.cash_position import CashPositionOut
-from app.services import analytics, benchmark, cash_position, explore
+from app.services import analytics, ap_aging, benchmark, cash_position, explore
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -27,6 +28,21 @@ async def get_cash_position(current: CurrentUser, db: DbSession):
     """AR + AP + reconciliation roll-up for the cash-position dashboard (Phase 15)."""
     authz.require(current, authz.Permission.REPORT_READ)
     return await cash_position.summary(db, current.org_id)
+
+
+@router.get("/ap-aging", response_model=ApAgingOut)
+async def get_ap_aging(current: CurrentUser, db: DbSession):
+    """Payables worklist: open supplier invoices due soon / overdue (Phase 16b)."""
+    authz.require(current, authz.Permission.REPORT_READ)
+    items = await ap_aging.worklist(db, current.org_id)
+    s = ap_aging.summarize(items)
+    return ApAgingOut(
+        due_soon_count=s.due_soon_count,
+        due_soon_amount=s.due_soon_amount,
+        overdue_count=s.overdue_count,
+        overdue_amount=s.overdue_amount,
+        items=[WorklistItemOut(**vars(it)) for it in items],
+    )
 
 
 @router.get("/summary", response_model=SummaryOut)

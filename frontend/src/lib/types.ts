@@ -390,6 +390,28 @@ export interface PaymentRunDetail extends PaymentRun {
   invoices: RunInvoice[];
 }
 
+// AP aging worklist (Phase 16b).
+export interface ApWorklistItem {
+  id: string;
+  invoice_number: string;
+  vendor_name: string | null;
+  due_date: string | null;
+  currency: string;
+  total: string;
+  outstanding: string;
+  status: "open" | "partial" | "paid" | "overdue";
+  days_overdue: number;
+  bucket: string;
+}
+
+export interface ApAging {
+  due_soon_count: number;
+  due_soon_amount: string;
+  overdue_count: number;
+  overdue_amount: string;
+  items: ApWorklistItem[];
+}
+
 // Dunning ladder (Phase 16).
 export interface DunningLevel {
   level: number;

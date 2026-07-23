@@ -97,6 +97,27 @@ async def list_messages(
     return list(await db.scalars(stmt.order_by(EmailMessage.created_at.desc()).limit(limit)))
 
 
+def ap_digest_email(
+    *,
+    due_soon_count: int,
+    due_soon_amount,
+    overdue_count: int,
+    overdue_amount,
+    currency: str = "EUR",
+) -> tuple[str, str]:
+    """A payables due-date digest (Phase 16b): supplier invoices due soon / overdue."""
+    subject = f"Payables due: {overdue_count} overdue, {due_soon_count} due soon"
+    lines = ["Some supplier invoices need attention:", ""]
+    if overdue_count:
+        lines.append(f"- {overdue_count} overdue, totalling {_fmt(overdue_amount, currency)}")
+    if due_soon_count:
+        lines.append(
+            f"- {due_soon_count} due within a week, totalling {_fmt(due_soon_amount, currency)}"
+        )
+    lines += ["", "Review and schedule them from the Cash position dashboard.", ""]
+    return subject, "\n".join(lines)
+
+
 # Invoice-delivery message kinds (the /issued/emails log shows only these — not
 # auth/verification/reset mail that shares the same outbox table).
 INVOICE_MAIL_KINDS: tuple[str, ...] = ("invoice", "reminder")
