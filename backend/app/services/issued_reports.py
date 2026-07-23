@@ -30,6 +30,19 @@ _ZERO = Decimal("0")
 _AGING = [(0, "Current"), (30, "1–30"), (60, "31–60"), (90, "61–90")]
 _AGING_OVER = "90+"
 
+# Only REAL, issued documents count toward turnover / AR / VAT. A draft or approved
+# invoice has no number and is not a sale yet; a cancelled/voided document was
+# retracted. These never contribute to a report.
+_UNREPORTED_LIFECYCLES = ("draft", "approved", "cancelled")
+
+
+def _reportable(stmt):
+    """Restrict a query to invoices that are genuine issued documents."""
+    return stmt.where(
+        IssuedInvoice.lifecycle.notin_(_UNREPORTED_LIFECYCLES),
+        IssuedInvoice.voided_at.is_(None),
+    )
+
 
 def _sum(values) -> Decimal:
     total = _ZERO
@@ -65,8 +78,10 @@ async def _pick_currency(
 async def _rows(
     db: AsyncSession, org_id: str, currency: str, start: date | None, end: date | None
 ) -> list[IssuedInvoice]:
-    stmt = select(IssuedInvoice).where(
-        IssuedInvoice.org_id == org_id, IssuedInvoice.currency == currency
+    stmt = _reportable(
+        select(IssuedInvoice).where(
+            IssuedInvoice.org_id == org_id, IssuedInvoice.currency == currency
+        )
     )
     if start is not None:
         stmt = stmt.where(IssuedInvoice.issue_date >= start)
@@ -169,7 +184,15 @@ async def receivables(
     cur, available = await _pick_currency(db, org_id, currency)
     rows = await _rows(db, org_id, cur, start, end)
 
-    order = [st.PAID, st.PARTIAL, st.OPEN, st.OVERDUE, st.CREDITED]
+    order = [
+        st.PAID,
+        st.PARTIAL,
+        st.OPEN,
+        st.OVERDUE,
+        st.CREDITED,
+        st.DISPUTED,
+        st.WRITTEN_OFF,
+    ]
     sb: dict[str, dict] = {s: {"count": 0, "gross": _ZERO, "outstanding": _ZERO} for s in order}
     aging: dict[str, dict] = {lbl: {"count": 0, "outstanding": _ZERO} for _, lbl in _AGING}
     aging[_AGING_OVER] = {"count": 0, "outstanding": _ZERO}
@@ -181,7 +204,7 @@ async def receivables(
         # corrected invoice's outstanding balance via `credited_total`.
         if st.is_credit_note(inv):
             continue
-        status = st.status_of(inv, today)
+        status = st.ar_status_of(inv, today)
         out = st.outstanding_of(inv)
         s = sb[status]
         s["count"] += 1
@@ -344,6 +367,7 @@ async def vat_summary(db, org_id, currency, start, end) -> VatReport:
         .where(IssuedInvoice.org_id == org_id, IssuedInvoice.currency == cur)
         .group_by(IssuedInvoice.vat_scheme, IssuedInvoice.doc_type, IssuedInvoiceLine.vat_rate)
     )
+    stmt = _reportable(stmt)
     if start is not None:
         stmt = stmt.where(IssuedInvoice.issue_date >= start)
     if end is not None:

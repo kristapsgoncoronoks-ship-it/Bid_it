@@ -92,7 +92,7 @@ export default function Issue() {
               {list.data?.items.map((inv) => (
                 <tr key={inv.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                   <td className="px-4 py-3 font-medium">
-                    {inv.number}
+                    {inv.number ?? <span className="italic text-slate-400">Draft — unnumbered</span>}
                     {inv.kind === "penalty" && <span className="badge ml-2 bg-rose-100 text-rose-700">Penalty</span>}
                     {inv.doc_type === "credit_note" && <span className="badge ml-2 bg-violet-100 text-violet-700">Credit note</span>}
                     {inv.doc_type !== "credit_note" && Number(inv.credited_total) > 0 && (
@@ -124,33 +124,45 @@ export default function Issue() {
                   <td className="px-4 py-3 text-right">
                     {inv.doc_type === "credit_note" ? (
                       <span className="text-xs text-slate-400">—</span>
+                    ) : inv.lifecycle === "draft" || inv.lifecycle === "approved" ? (
+                      <DraftActions inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
                     ) : (
                       <div className="flex flex-col items-end gap-1">
                         <PaymentAction inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
                         <CreditAction inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
                         <VoidAction inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
+                        {inv.lifecycle !== "written_off" && (
+                          <DisputeActions inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
+                        )}
+                        <DuplicateAction inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
                       </div>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {inv.doc_type === "credit_note" ? (
+                    {inv.doc_type === "credit_note" || !inv.number ? (
                       <span className="text-xs text-slate-400">—</span>
                     ) : (
                       <SendActions inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
                     )}
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
-                    <button className="text-brand-600 hover:underline" onClick={() => openFile(`/issued/${inv.id}/pdf?inline=1`)}>
-                      View
-                    </button>
-                    <span className="mx-1.5 text-slate-300">·</span>
-                    <button className="text-brand-600 hover:underline" onClick={() => downloadFile(`/issued/${inv.id}/pdf`, `${inv.number}.pdf`)}>
-                      PDF
-                    </button>
-                    <span className="mx-1.5 text-slate-300">·</span>
-                    <button className="text-brand-600 hover:underline" onClick={() => downloadFile(`/issued/${inv.id}/xml`, `${inv.number}.xml`)}>
-                      XML
-                    </button>
+                    {inv.number ? (
+                      <>
+                        <button className="text-brand-600 hover:underline" onClick={() => openFile(`/issued/${inv.id}/pdf?inline=1`)}>
+                          View
+                        </button>
+                        <span className="mx-1.5 text-slate-300">·</span>
+                        <button className="text-brand-600 hover:underline" onClick={() => downloadFile(`/issued/${inv.id}/pdf`, `${inv.number}.pdf`)}>
+                          PDF
+                        </button>
+                        <span className="mx-1.5 text-slate-300">·</span>
+                        <button className="text-brand-600 hover:underline" onClick={() => downloadFile(`/issued/${inv.id}/xml`, `${inv.number}.xml`)}>
+                          XML
+                        </button>
+                      </>
+                    ) : (
+                      <span className="text-xs text-slate-400">Issue first</span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -325,6 +337,134 @@ function VoidAction({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void })
   );
 }
 
+// Draft/approved workflow: approve, finalize (issue = allocate the number), or
+// cancel. A never-issued draft has no number and is not a receivable.
+function DraftActions({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void }) {
+  const [err, setErr] = useState<string | null>(null);
+  const post = (path: string) => async () => (await api.post(`/issued/${inv.id}/${path}`, {})).data;
+  const approve = useMutation({ mutationFn: post("approve"), onSuccess: onDone, onError: (e) => setErr(apiError(e)) });
+  const issue = useMutation({ mutationFn: post("issue"), onSuccess: onDone, onError: (e) => setErr(apiError(e)) });
+  const cancel = useMutation({ mutationFn: post("cancel"), onSuccess: onDone, onError: (e) => setErr(apiError(e)) });
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex items-center gap-2">
+        {inv.lifecycle === "draft" && (
+          <button
+            className="text-xs text-indigo-600 hover:underline disabled:text-slate-300"
+            disabled={approve.isPending}
+            title="Mark this draft as approved (a review gate before issuing)"
+            onClick={() => approve.mutate()}
+          >
+            Approve
+          </button>
+        )}
+        <button
+          className="text-xs font-medium text-emerald-600 hover:underline disabled:text-slate-300"
+          disabled={issue.isPending}
+          title="Finalize: allocate the invoice number and make it a live receivable"
+          onClick={() => {
+            if (window.confirm("Issue this invoice? A number will be allocated and it becomes final.")) issue.mutate();
+          }}
+        >
+          Issue
+        </button>
+        <button
+          className="text-xs text-rose-600 hover:underline disabled:text-slate-300"
+          disabled={cancel.isPending}
+          title="Discard this draft (kept for the audit trail as cancelled)"
+          onClick={() => {
+            if (window.confirm("Cancel this draft?")) cancel.mutate();
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+      {err && <span className="text-xs text-rose-500">{err}</span>}
+    </div>
+  );
+}
+
+// Post-issue receivable workflow: flag/resolve a dispute, or write off bad debt.
+function DisputeActions({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void }) {
+  const [err, setErr] = useState<string | null>(null);
+  const dispute = useMutation({
+    mutationFn: async (reason: string) => (await api.post(`/issued/${inv.id}/dispute`, { reason })).data,
+    onSuccess: onDone,
+    onError: (e) => setErr(apiError(e)),
+  });
+  const undispute = useMutation({
+    mutationFn: async () => (await api.post(`/issued/${inv.id}/undispute`, {})).data,
+    onSuccess: onDone,
+    onError: (e) => setErr(apiError(e)),
+  });
+  const writeOff = useMutation({
+    mutationFn: async (reason: string) => (await api.post(`/issued/${inv.id}/write-off`, { reason })).data,
+    onSuccess: onDone,
+    onError: (e) => setErr(apiError(e)),
+  });
+  return (
+    <div className="flex items-center gap-2">
+      {inv.lifecycle === "disputed" ? (
+        <button
+          className="text-xs text-emerald-600 hover:underline disabled:text-slate-300"
+          disabled={undispute.isPending}
+          title="Resolve the dispute — return to the normal receivable lifecycle"
+          onClick={() => undispute.mutate()}
+        >
+          Resolve
+        </button>
+      ) : (
+        <button
+          className="text-xs text-amber-600 hover:underline disabled:text-slate-300"
+          disabled={dispute.isPending}
+          title="Flag as disputed (the buyer contests it)"
+          onClick={() => {
+            const r = window.prompt("Reason for the dispute (optional):");
+            if (r !== null) dispute.mutate(r);
+          }}
+        >
+          Dispute
+        </button>
+      )}
+      <button
+        className="text-xs text-slate-500 hover:underline disabled:text-slate-300"
+        disabled={writeOff.isPending}
+        title="Write off as bad debt (no longer collectible)"
+        onClick={() => {
+          const r = window.prompt("Write off this invoice as bad debt? Reason (optional):");
+          if (r !== null) writeOff.mutate(r);
+        }}
+      >
+        Write off
+      </button>
+      {err && <span className="text-xs text-rose-500">{err}</span>}
+    </div>
+  );
+}
+
+// Copy any invoice into a fresh editable draft.
+function DuplicateAction({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void }) {
+  const [err, setErr] = useState<string | null>(null);
+  const dup = useMutation({
+    mutationFn: async () => (await api.post(`/issued/${inv.id}/duplicate`, {})).data,
+    onSuccess: onDone,
+    onError: (e) => setErr(apiError(e)),
+  });
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        className="text-xs text-slate-500 hover:underline disabled:text-slate-300"
+        disabled={dup.isPending}
+        title="Copy into a new draft"
+        onClick={() => dup.mutate()}
+      >
+        Duplicate
+      </button>
+      {err && <span className="text-xs text-rose-500">{err}</span>}
+    </div>
+  );
+}
+
 function Gate({ children }: { children: React.ReactNode }) {
   return (
     <div className="space-y-4">
@@ -365,12 +505,13 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
   };
 
   const create = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (asDraft: boolean) => {
       const payload: Record<string, unknown> = {
         ...buyer,
         buyer_email: buyer.buyer_email || null,
         vat_scheme: scheme,
         lines,
+        draft: asDraft,
       };
       if (partnerId) payload.partner_id = partnerId;
       if (penalty.trim() !== "") payload.penalty_rate = penalty;
@@ -475,13 +616,23 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
 
       <div className="flex items-center justify-between">
         <span className="text-sm text-slate-500">Total incl. VAT: <span className="font-semibold text-slate-700">{money(total)}</span></span>
-        <button
-          className="btn-primary"
-          disabled={create.isPending || !buyer.buyer_name || lines.some((l) => !l.description)}
-          onClick={() => create.mutate()}
-        >
-          {create.isPending ? "Issuing…" : "Issue invoice"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            className="btn-ghost"
+            disabled={create.isPending || !buyer.buyer_name || lines.some((l) => !l.description)}
+            title="Save as an editable draft (no number until you issue it)"
+            onClick={() => create.mutate(true)}
+          >
+            Save draft
+          </button>
+          <button
+            className="btn-primary"
+            disabled={create.isPending || !buyer.buyer_name || lines.some((l) => !l.description)}
+            onClick={() => create.mutate(false)}
+          >
+            {create.isPending ? "Issuing…" : "Issue invoice"}
+          </button>
+        </div>
       </div>
     </div>
   );

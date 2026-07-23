@@ -85,7 +85,15 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # invoice). Effective amount owed = total − credited_total − amount_paid.
     credited_total: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
 
-    number: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    # Explicit workflow lifecycle (INV-3). The AR/payment status (open/partial/
+    # paid/overdue/credited) and delivery (sent/viewed) are DERIVED on top of the
+    # `issued` lifecycle; draft/approved/disputed/written_off/cancelled are stored.
+    # Default `issued` = the historical "born final" behaviour (unchanged).
+    lifecycle: Mapped[str] = mapped_column(
+        String(16), default="issued", server_default="issued", nullable=False, index=True
+    )
+    # NULL until issued — a draft carries no gap-free number.
+    number: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
     issue_date: Mapped[date] = mapped_column(Date, nullable=False)
     supply_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -124,8 +132,16 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # cancel an unpaid invoice (a voided invoice reads as status VOID and refuses
     # payment / credit-note / send).
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     void_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # Dispute / bad-debt write-off (both from the `issued` lifecycle).
+    disputed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    dispute_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    written_off_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    writeoff_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Late-payment interest. Only invoices that CARRY a rate accrue a penalty; the
     # accrued figure is advisory (computed, never added to `total`). See issued_status.

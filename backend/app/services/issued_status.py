@@ -25,15 +25,28 @@ OVERDUE = "overdue"
 CREDITED = "credited"
 CREDIT_NOTE = "credit_note"
 VOID = "void"
+# Lifecycle-driven states (INV-3).
+DRAFT = "draft"
+APPROVED = "approved"
+SENT = "sent"
+VIEWED = "viewed"
+DISPUTED = "disputed"
+WRITTEN_OFF = "written_off"
 
 STATUS_LABELS = {
+    DRAFT: "Draft",
+    APPROVED: "Approved",
+    SENT: "Sent",
+    VIEWED: "Viewed",
     PAID: "Paid",
     PARTIAL: "Partially paid",
     OPEN: "Open",
     OVERDUE: "Overdue",
     CREDITED: "Credited",
     CREDIT_NOTE: "Credit note",
-    VOID: "Void",
+    DISPUTED: "Disputed",
+    WRITTEN_OFF: "Written off",
+    VOID: "Cancelled",
 }
 
 
@@ -50,18 +63,38 @@ def effective_total(inv: IssuedInvoice) -> Decimal:
 
 
 def outstanding_of(inv: IssuedInvoice) -> Decimal:
-    """Amount still owed (never negative). A credit note owes nothing."""
+    """Amount still owed (never negative). A credit note owes nothing; a written-off
+    invoice (bad debt) and a never-issued draft/approved/cancelled document owe
+    nothing either — only a live receivable accrues an outstanding balance."""
     if is_credit_note(inv):
+        return money.q2(_ZERO)
+    lifecycle = getattr(inv, "lifecycle", "issued") or "issued"
+    if lifecycle in ("written_off", "cancelled", "draft", "approved"):
         return money.q2(_ZERO)
     return money.q2(max(_ZERO, effective_total(inv) - Decimal(inv.amount_paid or _ZERO)))
 
 
-def status_of(inv: IssuedInvoice, today: date | None = None) -> str:
+def ar_status_of(inv: IssuedInvoice, today: date | None = None) -> str:
+    """The pure accounts-receivable status (draft/approved/void/written_off/
+    disputed/credit_note lifecycle overrides, then paid/partial/open/overdue/
+    credited). Delivery state (sent/viewed) is NOT folded in — reports bucket on
+    this so a merely-delivered invoice still counts as an OPEN receivable."""
     today = today or date.today()
-    if getattr(inv, "voided_at", None) is not None:
-        return VOID  # cancelled before payment — no longer a receivable
+    # Stored lifecycle states take precedence over the derived AR status.
+    lifecycle = getattr(inv, "lifecycle", "issued") or "issued"
+    if lifecycle == "draft":
+        return DRAFT
+    if lifecycle == "approved":
+        return APPROVED
+    if lifecycle == "cancelled" or getattr(inv, "voided_at", None) is not None:
+        return VOID  # cancelled — no longer a receivable
+    if lifecycle == "written_off":
+        return WRITTEN_OFF
+    if lifecycle == "disputed":
+        return DISPUTED
     if is_credit_note(inv):
         return CREDIT_NOTE
+    # lifecycle == 'issued' → the AR-derived status.
     paid = Decimal(inv.amount_paid or _ZERO)
     eff = effective_total(inv)
     credited = Decimal(getattr(inv, "credited_total", None) or _ZERO)
@@ -76,6 +109,19 @@ def status_of(inv: IssuedInvoice, today: date | None = None) -> str:
         return OVERDUE
     if paid > _ZERO:
         return PARTIAL
+    return OPEN
+
+
+def status_of(inv: IssuedInvoice, today: date | None = None) -> str:
+    """The DISPLAY status: the AR status, refining a still-open receivable by its
+    delivery state (viewed > sent > open) for the list/detail UI."""
+    base = ar_status_of(inv, today)
+    if base != OPEN:
+        return base
+    if getattr(inv, "viewed_at", None) is not None:
+        return VIEWED
+    if getattr(inv, "sent_at", None) is not None:
+        return SENT
     return OPEN
 
 

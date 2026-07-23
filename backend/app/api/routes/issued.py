@@ -4,7 +4,7 @@ import csv
 import io
 import json
 import zipfile
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -16,16 +16,18 @@ from app.api.deps import CurrentUser, DbSession
 from app.core import authz, money
 from app.models.customer import Customer
 from app.models.email_message import EmailMessage
-from app.models.issued_invoice import IssuedInvoice
+from app.models.issued_invoice import IssuedInvoice, IssuedInvoiceLine
 from app.schemas.issued import (
     BulkReminderResult,
     CreditNoteCreate,
+    DisputeRequest,
     EmailMessageOut,
     IssuedInvoiceCreate,
     IssuedInvoiceDetail,
     IssuedInvoiceListOut,
     IssuedInvoiceOut,
     IssuedLineOut,
+    IssueRequest,
     PaymentOut,
     PaymentUpdate,
     ReminderRequest,
@@ -33,6 +35,7 @@ from app.schemas.issued import (
     SendResult,
     VatBucketOut,
     VoidRequest,
+    WriteOffRequest,
 )
 from app.schemas.issued_reports import (
     PartnerReportOut,
@@ -46,6 +49,7 @@ from app.services import (
     dunning,
     facturx,
     invoice_pdf,
+    issued_lifecycle,
     issued_reports,
     issued_service,
     issued_status,
@@ -116,35 +120,36 @@ def _detail(inv: IssuedInvoice) -> IssuedInvoiceDetail:
     return d
 
 
-@router.post("", response_model=IssuedInvoiceDetail, status_code=status.HTTP_201_CREATED)
-async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbSession):
-    authz.require(current, authz.Permission.ISSUED_WRITE)
-    await _guard(db, current.org_id)  # module + issuer-completeness gate
+def _enforce_partner_gate(partner) -> None:
+    """A partner-linked invoice can only be ISSUED once its pre-invoicing workflow
+    (contract / acceptance act) is signed. Enforced at issue time, not on a draft."""
+    if partner is None:
+        return
+    missing = partners.missing_signed(partner)
+    if missing:
+        labels = ", ".join(partners.DOC_LABELS.get(k, k) for k in missing)
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Cannot issue to {partner.name}: awaiting signed {labels}.",
+        )
 
-    # If linked to a partner, enforce its pre-invoicing workflow (contract /
-    # acceptance act must be signed) and inherit the partner's penalty rate.
+
+async def _resolve_links(db: DbSession, org_id: str, body: IssuedInvoiceCreate):
+    """Resolve+validate the partner/customer links, prefill the buyer block from
+    the customer master, resolve line tax-codes, and validate a buyer is present.
+    Returns (partner, customer, customer_terms). Does NOT enforce the partner
+    signed-gate (that is deferred to issue time)."""
     partner = None
     if body.partner_id:
-        partner = await partners.get_partner(db, current.org_id, body.partner_id)
+        partner = await partners.get_partner(db, org_id, body.partner_id)
         if partner is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Partner not found")
-        missing = partners.missing_signed(partner)
-        if missing:
-            labels = ", ".join(partners.DOC_LABELS.get(k, k) for k in missing)
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                f"Cannot issue to {partner.name}: awaiting signed {labels}.",
-            )
 
-    # If linked to a sales Customer, prefill the buyer block + terms/currency from
-    # the master where the payload didn't override them.
     customer = None
     customer_terms = None
     if body.customer_id:
         customer = await db.scalar(
-            select(Customer).where(
-                Customer.id == body.customer_id, Customer.org_id == current.org_id
-            )
+            select(Customer).where(Customer.id == body.customer_id, Customer.org_id == org_id)
         )
         if customer is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Customer not found")
@@ -166,26 +171,366 @@ async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbS
     # vat_rate; the canonical code is snapshotted onto the line.
     for li in body.lines:
         if li.tax_code:
-            tc = await tax_codes.resolve(db, current.org_id, li.tax_code)
+            tc = await tax_codes.resolve(db, org_id, li.tax_code)
             if tc is None or not tc.active:
                 raise HTTPException(
                     status.HTTP_400_BAD_REQUEST, f"Unknown or inactive tax code '{li.tax_code}'"
                 )
             li.vat_rate = tc.rate
             li.tax_code = tc.code
+    return partner, customer, customer_terms
 
-    # Lock the issuer row FOR UPDATE so concurrent issues serialize on numbering.
-    profile = await issuer.lock(db, current.org_id)
-    inv = issued_service.build_invoice(
+
+@router.post("", response_model=IssuedInvoiceDetail, status_code=status.HTTP_201_CREATED)
+async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbSession):
+    """Create an invoice. By default it is born FINAL (numbered, issued); pass
+    `draft: true` to create an editable draft with no number and no partner
+    signed-gate (finalize it later via POST /{id}/issue)."""
+    authz.require(current, authz.Permission.ISSUED_WRITE)
+    await _guard(db, current.org_id)  # module + issuer-completeness gate
+    partner, customer, customer_terms = await _resolve_links(db, current.org_id, body)
+
+    if body.draft:
+        # A draft carries no gap-free number (and doesn't touch the profile
+        # counter) — it is not a legal document until issued.
+        profile = await issuer.get_or_create(db, current.org_id)
+        inv = issued_service.build_invoice(
+            profile,
+            body,
+            org_id=current.org_id,
+            partner=partner,
+            payment_terms_days=customer_terms,
+            allocate_number=False,
+            lifecycle=issued_lifecycle.DRAFT,
+        )
+    else:
+        _enforce_partner_gate(partner)
+        # Lock the issuer row FOR UPDATE so concurrent issues serialize on numbering.
+        profile = await issuer.lock(db, current.org_id)
+        inv = issued_service.build_invoice(
+            profile,
+            body,
+            org_id=current.org_id,
+            partner=partner,
+            payment_terms_days=customer_terms,
+        )
+        inv.issued_at = datetime.now(UTC)
+    if customer is not None:
+        inv.customer_id = customer.id
+    db.add(inv)
+    await audit.record(
+        db,
+        audit.A.ISSUED_CREATE,
+        target_type="issued_invoice",
+        target_id=inv.id,
+        meta={"number": inv.number, "lifecycle": inv.lifecycle, "total": str(inv.total)},
+    )
+    await db.commit()
+    await db.refresh(inv, attribute_names=["lines"])
+    return _detail(inv)
+
+
+@router.patch("/{invoice_id}", response_model=IssuedInvoiceDetail)
+async def edit_draft(
+    invoice_id: str, body: IssuedInvoiceCreate, current: CurrentUser, db: DbSession
+):
+    """Replace a DRAFT invoice's contents (buyer, dates, lines, totals). Only a
+    draft is editable — an issued invoice is immutable (correct it with a credit
+    note). Server recomputes the tax/totals."""
+    authz.require(current, authz.Permission.ISSUED_WRITE)
+    await _guard(db, current.org_id)
+    inv = await _load(db, current.org_id, invoice_id)
+    if not issued_lifecycle.is_editable(inv.lifecycle):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Only a draft invoice can be edited (this one is {inv.lifecycle}). "
+            "Issue a credit note to correct an issued invoice.",
+        )
+    partner, customer, customer_terms = await _resolve_links(db, current.org_id, body)
+    profile = await issuer.get_or_create(db, current.org_id)
+    rebuilt = issued_service.build_invoice(
         profile,
         body,
         org_id=current.org_id,
         partner=partner,
         payment_terms_days=customer_terms,
+        allocate_number=False,
+        lifecycle=issued_lifecycle.DRAFT,
     )
-    if customer is not None:
-        inv.customer_id = customer.id
-    db.add(inv)
+    # Copy the recomputed snapshot onto the existing draft row (keep its id).
+    for attr in (
+        "partner_id",
+        "issue_date",
+        "supply_date",
+        "due_date",
+        "currency",
+        "buyer_name",
+        "buyer_email",
+        "buyer_vat_number",
+        "buyer_address_line1",
+        "buyer_city",
+        "buyer_postal_code",
+        "buyer_country",
+        "seller_json",
+        "vat_scheme",
+        "note",
+        "penalty_rate",
+        "subtotal",
+        "tax_total",
+        "total",
+    ):
+        setattr(inv, attr, getattr(rebuilt, attr))
+    inv.customer_id = customer.id if customer is not None else None
+    # Replace the line set with FRESH (unparented) rows so the delete-orphan cascade
+    # deletes the old lines and inserts the new ones cleanly.
+    new_lines = [
+        IssuedInvoiceLine(
+            position=li.position,
+            description=li.description,
+            quantity=li.quantity,
+            unit=li.unit,
+            unit_price=li.unit_price,
+            vat_rate=li.vat_rate,
+            net_amount=li.net_amount,
+            tax_code=li.tax_code,
+        )
+        for li in rebuilt.lines
+    ]
+    inv.lines.clear()
+    inv.lines.extend(new_lines)
+    await audit.record(
+        db,
+        audit.A.ISSUED_EDIT,
+        target_type="issued_invoice",
+        target_id=inv.id,
+        meta={"total": str(inv.total)},
+    )
+    await db.commit()
+    await db.refresh(inv, attribute_names=["lines"])
+    return _detail(inv)
+
+
+@router.post("/{invoice_id}/approve", response_model=IssuedInvoiceDetail)
+async def approve_draft(invoice_id: str, current: CurrentUser, db: DbSession):
+    """Move a draft to APPROVED (a review gate before it is issued). Still no
+    number and still editable-free — approve is reversible only by issuing or
+    cancelling."""
+    authz.require(current, authz.Permission.ISSUED_WRITE)
+    await modules.require_enabled(db, current.org_id, "issuing")
+    inv = await _load(db, current.org_id, invoice_id)
+    issued_lifecycle.target_for("approve", inv.lifecycle)  # validates source state
+    inv.lifecycle = issued_lifecycle.APPROVED
+    inv.approved_at = datetime.now(UTC)
+    await audit.record(
+        db,
+        audit.A.ISSUED_APPROVE,
+        target_type="issued_invoice",
+        target_id=inv.id,
+        meta={},
+    )
+    await db.commit()
+    await db.refresh(inv, attribute_names=["lines"])
+    return _detail(inv)
+
+
+@router.post("/{invoice_id}/issue", response_model=IssuedInvoiceDetail)
+async def issue_draft(invoice_id: str, body: IssueRequest, current: CurrentUser, db: DbSession):
+    """Finalize a draft/approved invoice: enforce the partner signed-gate, allocate
+    the gap-free number under a row lock, and set it live (immutable thereafter)."""
+    authz.require(current, authz.Permission.ISSUED_WRITE)
+    await _guard(db, current.org_id)
+    inv = await _load(db, current.org_id, invoice_id)
+    issued_lifecycle.target_for("issue", inv.lifecycle)  # validates source state
+    if inv.partner_id:
+        partner = await partners.get_partner(db, current.org_id, inv.partner_id)
+        _enforce_partner_gate(partner)
+
+    # Re-stamp the issue date (default today) and recompute the due date, keeping
+    # the draft's payment-term gap. The number uses the (new) issue year.
+    profile = await issuer.lock(db, current.org_id)
+    term_days = (
+        (inv.due_date - inv.issue_date).days
+        if inv.due_date is not None
+        else profile.payment_terms_days
+    )
+    new_issue = body.issue_date or date.today()
+    inv.issue_date = new_issue
+    inv.due_date = new_issue + timedelta(days=max(0, term_days))
+    inv.number = issued_service._next_invoice_number(profile, inv.issue_date)
+    inv.lifecycle = issued_lifecycle.ISSUED
+    inv.issued_at = datetime.now(UTC)
+    await audit.record(
+        db,
+        audit.A.ISSUED_ISSUE,
+        target_type="issued_invoice",
+        target_id=inv.id,
+        meta={"number": inv.number},
+    )
+    await webhooks.emit(
+        db,
+        current.org_id,
+        "issued.created",
+        {"id": inv.id, "number": inv.number, "total": str(inv.total), "currency": inv.currency},
+    )
+    await db.commit()
+    await db.refresh(inv, attribute_names=["lines"])
+    return _detail(inv)
+
+
+@router.post(
+    "/{invoice_id}/duplicate",
+    response_model=IssuedInvoiceDetail,
+    status_code=status.HTTP_201_CREATED,
+)
+async def duplicate_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
+    """Copy any invoice into a fresh editable DRAFT (new dates, no number, a fresh
+    seller snapshot). Credit notes can't be duplicated."""
+    authz.require(current, authz.Permission.ISSUED_WRITE)
+    await _guard(db, current.org_id)
+    src = await _load(db, current.org_id, invoice_id)
+    if issued_status.is_credit_note(src):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot duplicate a credit note.")
+    profile = await issuer.get_or_create(db, current.org_id)
+    dup = IssuedInvoice(
+        org_id=current.org_id,
+        partner_id=src.partner_id,
+        customer_id=src.customer_id,
+        doc_type="invoice",
+        lifecycle=issued_lifecycle.DRAFT,
+        number=None,
+        issue_date=date.today(),
+        supply_date=src.supply_date,
+        due_date=None,  # recomputed at issue
+        currency=src.currency,
+        buyer_name=src.buyer_name,
+        buyer_email=src.buyer_email,
+        buyer_vat_number=src.buyer_vat_number,
+        buyer_address_line1=src.buyer_address_line1,
+        buyer_city=src.buyer_city,
+        buyer_postal_code=src.buyer_postal_code,
+        buyer_country=src.buyer_country,
+        seller_json=json.dumps(issuer.seller_snapshot(profile)),
+        vat_scheme=src.vat_scheme,
+        note=src.note,
+        penalty_rate=src.penalty_rate,
+        subtotal=src.subtotal,
+        tax_total=src.tax_total,
+        total=src.total,
+    )
+    dup.lines = [
+        IssuedInvoiceLine(
+            position=li.position,
+            description=li.description,
+            quantity=li.quantity,
+            unit=li.unit,
+            unit_price=li.unit_price,
+            vat_rate=li.vat_rate,
+            net_amount=li.net_amount,
+            tax_code=li.tax_code,
+        )
+        for li in src.lines
+    ]
+    db.add(dup)
+    await audit.record(
+        db,
+        audit.A.ISSUED_DUPLICATE,
+        target_type="issued_invoice",
+        target_id=dup.id,
+        meta={"source": src.number or src.id},
+    )
+    await db.commit()
+    await db.refresh(dup, attribute_names=["lines"])
+    return _detail(dup)
+
+
+@router.post("/{invoice_id}/cancel", response_model=IssuedInvoiceDetail)
+async def cancel_draft(invoice_id: str, current: CurrentUser, db: DbSession):
+    """Cancel a never-issued draft/approved invoice. (An ISSUED invoice is voided
+    via /void, not cancelled.) The row is kept for the audit trail, reading VOID."""
+    authz.require(current, authz.Permission.ISSUED_WRITE)
+    await modules.require_enabled(db, current.org_id, "issuing")
+    inv = await _load(db, current.org_id, invoice_id)
+    issued_lifecycle.target_for("cancel_draft", inv.lifecycle)  # validates source state
+    inv.lifecycle = issued_lifecycle.CANCELLED
+    await audit.record(
+        db,
+        audit.A.ISSUED_CANCEL,
+        target_type="issued_invoice",
+        target_id=inv.id,
+        meta={},
+    )
+    await db.commit()
+    await db.refresh(inv, attribute_names=["lines"])
+    return _detail(inv)
+
+
+@router.post("/{invoice_id}/dispute", response_model=IssuedInvoiceDetail)
+async def dispute_invoice(
+    invoice_id: str, body: DisputeRequest, current: CurrentUser, db: DbSession
+):
+    """Flag an issued invoice as DISPUTED (the buyer contests it). It stays a
+    receivable (still owed) but is surfaced separately."""
+    authz.require(current, authz.Permission.ISSUED_WRITE)
+    await modules.require_enabled(db, current.org_id, "issuing")
+    inv = await _load(db, current.org_id, invoice_id)
+    _reject_if_voided(inv)
+    issued_lifecycle.target_for("dispute", inv.lifecycle)  # validates source state
+    inv.lifecycle = issued_lifecycle.DISPUTED
+    inv.disputed_at = datetime.now(UTC)
+    inv.dispute_reason = body.reason
+    await audit.record(
+        db,
+        audit.A.ISSUED_DISPUTE,
+        target_type="issued_invoice",
+        target_id=inv.id,
+        meta={"number": inv.number, "reason": body.reason},
+    )
+    await db.commit()
+    await db.refresh(inv, attribute_names=["lines"])
+    return _detail(inv)
+
+
+@router.post("/{invoice_id}/undispute", response_model=IssuedInvoiceDetail)
+async def undispute_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
+    """Resolve a dispute — return the invoice to the normal issued/AR lifecycle."""
+    authz.require(current, authz.Permission.ISSUED_WRITE)
+    await modules.require_enabled(db, current.org_id, "issuing")
+    inv = await _load(db, current.org_id, invoice_id)
+    issued_lifecycle.target_for("undispute", inv.lifecycle)  # validates source state
+    inv.lifecycle = issued_lifecycle.ISSUED
+    await audit.record(
+        db,
+        audit.A.ISSUED_UNDISPUTE,
+        target_type="issued_invoice",
+        target_id=inv.id,
+        meta={"number": inv.number},
+    )
+    await db.commit()
+    await db.refresh(inv, attribute_names=["lines"])
+    return _detail(inv)
+
+
+@router.post("/{invoice_id}/write-off", response_model=IssuedInvoiceDetail)
+async def write_off_invoice(
+    invoice_id: str, body: WriteOffRequest, current: CurrentUser, db: DbSession
+):
+    """Write off an issued/disputed invoice as bad debt. It is no longer a
+    collectible receivable (outstanding reads 0), but the turnover stays on record."""
+    authz.require(current, authz.Permission.ISSUED_WRITE)
+    await modules.require_enabled(db, current.org_id, "issuing")
+    inv = await _load(db, current.org_id, invoice_id)
+    _reject_if_voided(inv)
+    issued_lifecycle.target_for("write_off", inv.lifecycle)  # validates source state
+    inv.lifecycle = issued_lifecycle.WRITTEN_OFF
+    inv.written_off_at = datetime.now(UTC)
+    inv.writeoff_reason = body.reason
+    await audit.record(
+        db,
+        audit.A.ISSUED_WRITE_OFF,
+        target_type="issued_invoice",
+        target_id=inv.id,
+        meta={"number": inv.number, "reason": body.reason},
+    )
     await db.commit()
     await db.refresh(inv, attribute_names=["lines"])
     return _detail(inv)
@@ -208,7 +553,7 @@ async def create_credit_note(
     authz.require(current, authz.Permission.ISSUED_WRITE)
     await _guard(db, current.org_id)  # module + issuer-completeness gate
     original = await _load(db, current.org_id, invoice_id)
-    _reject_if_voided(original)
+    _require_receivable(original)
     if issued_status.is_credit_note(original):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot credit a credit note.")
 
@@ -305,13 +650,39 @@ def _reject_if_voided(inv: IssuedInvoice) -> None:
         )
 
 
+def _require_receivable(inv: IssuedInvoice) -> None:
+    """A live receivable (issued or disputed, not voided). Payment / credit-note /
+    send / reminder only apply here — a draft/approved has no number yet and a
+    cancelled/written-off invoice is no longer collectible."""
+    _reject_if_voided(inv)
+    if inv.lifecycle in (issued_lifecycle.DRAFT, issued_lifecycle.APPROVED):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"This invoice is still a {inv.lifecycle} — issue it first.",
+        )
+    if inv.lifecycle in (issued_lifecycle.CANCELLED, issued_lifecycle.WRITTEN_OFF):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"This invoice is {inv.lifecycle.replace('_', ' ')} and is no longer a receivable.",
+        )
+
+
+def _require_numbered(inv: IssuedInvoice) -> None:
+    """A PDF / e-invoice XML only exists for a numbered (issued) document."""
+    if inv.number is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "A draft has no PDF or e-invoice XML until it is issued.",
+        )
+
+
 @router.patch("/{invoice_id}/payment", response_model=IssuedInvoiceDetail)
 async def record_payment(invoice_id: str, body: PaymentUpdate, current: CurrentUser, db: DbSession):
     """Record a payment against an issued invoice (drives the paid/overdue report)."""
     authz.require(current, authz.Permission.ISSUED_WRITE)
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id)
-    _reject_if_voided(inv)
+    _require_receivable(inv)
     if issued_status.is_credit_note(inv):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "A credit note is not a receivable — no payment applies."
@@ -372,6 +743,13 @@ async def void_invoice(invoice_id: str, body: VoidRequest, current: CurrentUser,
     inv = await _load(db, current.org_id, invoice_id)
     if inv.voided_at is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Invoice is already voided.")
+    if inv.lifecycle != issued_lifecycle.ISSUED:
+        # A never-issued draft/approved is cancelled (/cancel); a disputed/written-off
+        # invoice is resolved through its own lifecycle, not voided.
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Only an issued invoice can be voided (this one is {inv.lifecycle}).",
+        )
     if issued_status.is_credit_note(inv):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot void a credit note.")
     if Decimal(inv.amount_paid or 0) > Decimal("0"):
@@ -408,6 +786,7 @@ async def list_payments(invoice_id: str, current: CurrentUser, db: DbSession):
 @router.get("/{invoice_id}/xml")
 async def get_issued_xml(invoice_id: str, current: CurrentUser, db: DbSession):
     inv = await _load(db, current.org_id, invoice_id)
+    _require_numbered(inv)
     seller = json.loads(inv.seller_json)
     xml = facturx.build_cii(inv, seller, _vat_of(inv))
     return Response(
@@ -440,6 +819,7 @@ async def get_issued_pdf(
 ):
     """Download the invoice PDF, or view it inline in the browser (`?inline=1`)."""
     inv = await _load(db, current.org_id, invoice_id)
+    _require_numbered(inv)
     try:
         pdf = await _render_pdf(db, current.org_id, inv)
     except invoice_pdf.PdfUnavailable as e:
@@ -467,7 +847,11 @@ async def export_period_zip(
     await modules.require_enabled(db, current.org_id, "issuing")
     stmt = (
         select(IssuedInvoice)
-        .where(IssuedInvoice.org_id == current.org_id)
+        .where(
+            IssuedInvoice.org_id == current.org_id,
+            # A draft has no number and no legal PDF — never export one.
+            IssuedInvoice.number.isnot(None),
+        )
         .options(selectinload(IssuedInvoice.lines))
         .order_by(IssuedInvoice.issue_date)
     )
@@ -516,7 +900,7 @@ async def send_invoice(invoice_id: str, body: SendRequest, current: CurrentUser,
     authz.require(current, authz.Permission.ISSUED_SEND)
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id)
-    _reject_if_voided(inv)
+    _require_receivable(inv)
     recipient = body.to_email or inv.buyer_email
     if not recipient:
         raise HTTPException(
@@ -589,7 +973,7 @@ async def send_reminder(
     authz.require(current, authz.Permission.ISSUED_SEND)
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id)
-    _reject_if_voided(inv)
+    _require_receivable(inv)
     recipient = body.to_email or inv.buyer_email
     if not recipient:
         raise HTTPException(

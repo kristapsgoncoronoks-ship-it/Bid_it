@@ -43,6 +43,9 @@ class IssuedInvoiceCreate(BaseModel):
     # Late-payment interest (% p.a.); omit to inherit the issuer default (if any).
     penalty_rate: Decimal | None = Field(default=None, ge=0, le=100)
     lines: list[IssuedLineIn] = Field(min_length=1)
+    # Create as an editable DRAFT (no number, no partner signed-gate) instead of a
+    # born-final invoice. A draft is numbered and finalized later via /issue.
+    draft: bool = False
 
 
 class VatBucketOut(BaseModel):
@@ -66,7 +69,8 @@ class IssuedLineOut(BaseModel):
 class IssuedInvoiceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
-    number: str
+    number: str | None = None  # NULL until a draft is issued
+    lifecycle: str = "issued"  # draft | approved | issued | disputed | written_off | cancelled
     kind: str = "standard"  # standard | penalty
     doc_type: str = "invoice"  # invoice | credit_note
     corrected_invoice_id: str | None = None
@@ -94,12 +98,35 @@ class IssuedInvoiceOut(BaseModel):
     reminder_count: int = 0
     last_reminder_at: date | None = None
     sent_at: datetime | None = None
+    viewed_at: datetime | None = None
     voided_at: datetime | None = None
     void_reason: str | None = None
+    disputed_at: datetime | None = None
+    dispute_reason: str | None = None
+    written_off_at: datetime | None = None
+    writeoff_reason: str | None = None
+    approved_at: datetime | None = None
+    issued_at: datetime | None = None
 
 
 class VoidRequest(BaseModel):
     reason: str | None = None
+
+
+class IssueRequest(BaseModel):
+    """Finalize a draft/approved invoice: allocate its number and set it live.
+    `issue_date` re-stamps the issue date (default = today); the due date is
+    recomputed keeping the draft's payment-term gap."""
+
+    issue_date: date | None = None
+
+
+class DisputeRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=300)
+
+
+class WriteOffRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=300)
 
 
 class PaymentUpdate(BaseModel):

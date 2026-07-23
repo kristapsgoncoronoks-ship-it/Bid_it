@@ -39,18 +39,26 @@ export const STATUS_STYLES: Record<string, string> = {
 
 // Accounts-receivable status for issued invoices.
 export const ISSUED_STATUS_STYLES: Record<string, string> = {
+  draft: "bg-slate-100 text-slate-500",
+  approved: "bg-indigo-100 text-indigo-700",
+  sent: "bg-sky-50 text-sky-600",
+  viewed: "bg-sky-100 text-sky-700",
   paid: "bg-emerald-100 text-emerald-700",
   partial: "bg-sky-100 text-sky-700",
   open: "bg-slate-100 text-slate-600",
   overdue: "bg-rose-100 text-rose-700",
   credited: "bg-violet-100 text-violet-700",
   credit_note: "bg-violet-100 text-violet-700",
+  disputed: "bg-amber-100 text-amber-700",
+  written_off: "bg-slate-200 text-slate-500",
   void: "bg-slate-200 text-slate-500 line-through",
 };
 
 export const ISSUED_STATUS_LABELS: Record<string, string> = {
+  draft: "Draft", approved: "Approved", sent: "Sent", viewed: "Viewed",
   paid: "Paid", partial: "Partially paid", open: "Open", overdue: "Overdue",
-  credited: "Credited", credit_note: "Credit note", void: "Void",
+  credited: "Credited", credit_note: "Credit note",
+  disputed: "Disputed", written_off: "Written off", void: "Cancelled",
 };
 
 export const VALIDATION_STYLES: Record<string, string> = {

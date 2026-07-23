@@ -38,11 +38,15 @@ def build_invoice(
     partner=None,
     issue_date: date | None = None,
     payment_terms_days: int | None = None,
+    allocate_number: bool = True,
+    lifecycle: str = "issued",
 ) -> IssuedInvoice:
     """Construct (but do NOT persist) an issued INVOICE from a create payload.
 
-    Assigns the next number and mutates `profile.next_number`; the caller adds
-    the row and commits so numbering + row land atomically.
+    When `allocate_number` is True (the default), assigns the next number and
+    mutates `profile.next_number` (the caller commits so numbering + row land
+    atomically). A DRAFT passes allocate_number=False and gets no number until it
+    is issued.
     """
     result = vat.compute([li.model_dump() for li in body.lines], body.vat_scheme)
     issue_date = issue_date or body.issue_date or date.today()
@@ -63,7 +67,8 @@ def build_invoice(
         org_id=org_id,
         partner_id=partner.id if partner else None,
         doc_type="invoice",
-        number=_next_invoice_number(profile, issue_date),
+        lifecycle=lifecycle,
+        number=_next_invoice_number(profile, issue_date) if allocate_number else None,
         issue_date=issue_date,
         supply_date=body.supply_date,
         due_date=due_date,

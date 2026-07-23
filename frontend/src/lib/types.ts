@@ -941,13 +941,27 @@ export interface VatBucket {
 }
 
 export type IssuedStatus =
+  | "draft"
+  | "approved"
+  | "sent"
+  | "viewed"
   | "paid"
   | "partial"
   | "open"
   | "overdue"
   | "credited"
   | "credit_note"
+  | "disputed"
+  | "written_off"
   | "void";
+
+export type IssuedLifecycle =
+  | "draft"
+  | "approved"
+  | "issued"
+  | "disputed"
+  | "written_off"
+  | "cancelled";
 
 // --- Partners (counterparties) with a pre-invoicing document workflow ---
 export type PartnerDocKind = "contract" | "acceptance_act";
@@ -1004,7 +1018,8 @@ export interface PenaltySummary {
 
 export interface IssuedInvoice {
   id: string;
-  number: string;
+  number: string | null;
+  lifecycle: IssuedLifecycle;
   kind: "standard" | "penalty";
   doc_type: "invoice" | "credit_note";
   corrected_invoice_id: string | null;
@@ -1032,8 +1047,15 @@ export interface IssuedInvoice {
   reminder_count: number;
   last_reminder_at: string | null;
   sent_at: string | null;
+  viewed_at: string | null;
   voided_at: string | null;
   void_reason: string | null;
+  disputed_at: string | null;
+  dispute_reason: string | null;
+  written_off_at: string | null;
+  writeoff_reason: string | null;
+  approved_at: string | null;
+  issued_at: string | null;
 }
 
 // Accounts-receivable cash: a receipt (money received) allocated across invoices.
