@@ -196,7 +196,8 @@ async def confirm_inbound(
 ):
     """Confirm a parsed inbound invoice into a real Invoice — using the same
     persistence path as a manual upload. Accepts an edited draft override."""
-    authz.require(current, authz.Permission.INVOICE_WRITE)
+    # Same metered capture flow as /invoices and /invoices/upload — quota-governed,
+    # open to every tier; not INVOICE_WRITE-gated.
     await _guard(db, current.org_id)
     await access.enforce_invoice_quota(db, current.org_id, current.role)
     row = await _load(db, current.org_id, inbound_id)

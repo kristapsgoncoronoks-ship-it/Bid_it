@@ -55,21 +55,22 @@ async def _member_token(auth_client, client, email, role="user"):
 
 
 @pytest.mark.asyncio
-async def test_readonly_member_cannot_write_delete_or_validate_invoices(auth_client, client):
-    # Owner creates an invoice; a read-only "user" (EMPLOYEE = INVOICE_READ only)
-    # may view it but not mutate it.
+async def test_privileged_invoice_ops_require_permission(auth_client, client):
+    # Invoice CAPTURE (create/edit) is the metered data-entry flow open to every
+    # tier — a plain member can create and read. But the PRIVILEGED operations —
+    # validation (approve/reject) and delete — are permission-gated, so a member
+    # holding only INVOICE_READ is refused.
     inv = (await auth_client.post("/api/v1/invoices", json=_invoice_payload())).json()
     iid = inv["id"]
     tok = await _member_token(auth_client, client, "ro@acme.io", role="user")
     h = {"Authorization": f"Bearer {tok}"}
 
     assert (await client.get(f"/api/v1/invoices/{iid}", headers=h)).status_code == 200  # read OK
+    # Metered data entry is allowed (not a 403).
     assert (
         await client.post("/api/v1/invoices", json=_invoice_payload("INV-2"), headers=h)
-    ).status_code == 403
-    assert (
-        await client.patch(f"/api/v1/invoices/{iid}", json={"notes": "x"}, headers=h)
-    ).status_code == 403
+    ).status_code != 403
+    # Privileged operations are gated.
     assert (
         await client.post(f"/api/v1/invoices/{iid}/validate", json={"action": "approve"}, headers=h)
     ).status_code == 403
