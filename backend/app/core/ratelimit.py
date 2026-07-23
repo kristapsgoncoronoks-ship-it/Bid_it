@@ -72,11 +72,23 @@ _EXEMPT_PREFIXES = ("/health", "/metrics")
 
 
 def _client_ip(scope) -> str:
-    """Best client IP. Behind a trusted proxy (uvicorn ``--proxy-headers`` or an
-    explicit X-Forwarded-For), the first hop is the real client; else the peer."""
-    for name, value in scope.get("headers", []):
-        if name == b"x-forwarded-for" and value:
-            return value.split(b",")[0].strip().decode("latin-1") or "unknown"
+    """The client IP for rate-limiting, resistant to ``X-Forwarded-For`` spoofing.
+
+    ``X-Forwarded-For`` is client-controlled, so trusting its first value lets an
+    attacker mint a fresh rate-limit bucket per request and defeat the brute-force
+    guard. We only honour it when ``trusted_proxy_count > 0`` (the number of proxy
+    hops the operator actually runs, e.g. Cloudflare + nginx = 2), and then take
+    the value that many hops from the RIGHT — the address the outermost trusted
+    proxy saw. With the default of 0 we ignore the header entirely and key on the
+    socket peer."""
+    hops = settings.trusted_proxy_count
+    if hops > 0:
+        for name, value in scope.get("headers", []):
+            if name == b"x-forwarded-for" and value:
+                parts = [p.strip().decode("latin-1") for p in value.split(b",") if p.strip()]
+                if parts:
+                    # -hops is the peer as seen by the outermost trusted proxy.
+                    return parts[-hops] if len(parts) >= hops else parts[0]
     client = scope.get("client")
     return client[0] if client else "unknown"
 

@@ -54,7 +54,7 @@ from app.schemas.approval import (
     TransitionIn,
 )
 from app.services import approval_policy as ap
-from app.services import audit, costing, documents, fx, mailer, webhooks
+from app.services import audit, costing, documents, filesec, fx, mailer, webhooks
 from app.services import invoice_workflow as wf
 
 router = APIRouter(tags=["invoice-review"])
@@ -834,6 +834,13 @@ async def add_attachment(
         raise HTTPException(
             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Attachment too large (25 MB)."
         )
+    # Security gate (filesec choke point): block executables / archives / scripts
+    # + malware-scan BEFORE storing — an internal attachment is still attacker-
+    # supplied bytes. A plain text / PDF / image contract-or-PO is allowed.
+    try:
+        filesec.reject_active_content(data)
+    except filesec.FileRejected as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
     sha, size = await documents.store(
         documents.INVOICE_ATTACHMENTS,
         current.org_id,

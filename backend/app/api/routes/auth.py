@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import secrets
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import RedirectResponse, Response
@@ -103,7 +103,31 @@ async def register(body: RegisterRequest, request: Request, db: DbSession) -> Au
 @router.post("/login", response_model=AuthResponse)
 async def login(body: LoginRequest, request: Request, db: DbSession) -> AuthResponse:
     user = await db.scalar(select(User).where(User.email == body.email.lower()))
+    now = datetime.now(UTC)
+
+    # Brute-force lockout: if the account is currently locked, refuse WITHOUT
+    # checking the password (so a correct guess during lockout still fails).
+    if user is not None and user.locked_until is not None:
+        locked_until = user.locked_until
+        if locked_until.tzinfo is None:  # SQLite returns naive datetimes
+            locked_until = locked_until.replace(tzinfo=UTC)
+        if locked_until > now:
+            retry = int((locked_until - now).total_seconds()) + 1
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "Too many failed attempts. Try again later.",
+                headers={"Retry-After": str(retry)},
+            )
+
     if user is None or not verify_password(body.password, user.hashed_password):
+        # Count the failure and lock the account once the threshold is crossed.
+        # (A missing user is not counted — nothing to persist and no enumeration.)
+        if user is not None:
+            user.failed_login_count = (user.failed_login_count or 0) + 1
+            if user.failed_login_count >= settings.login_max_failed_attempts:
+                user.locked_until = now + timedelta(minutes=settings.login_lockout_minutes)
+                user.failed_login_count = 0
+            await db.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Account is disabled")
@@ -124,6 +148,10 @@ async def login(body: LoginRequest, request: Request, db: DbSession) -> AuthResp
             status.HTTP_403_FORBIDDEN,
             "Please verify your email address before signing in.",
         )
+    # Successful login clears any accumulated failure count / lock.
+    if user.failed_login_count or user.locked_until:
+        user.failed_login_count = 0
+        user.locked_until = None
     await audit.record(db, audit.A.LOGIN, org_id=user.org_id, actor=(user.id, user.email))
     token = await sessions.start(db, user, user_agent=_ua(request), ip=_ip(request))
     await db.commit()

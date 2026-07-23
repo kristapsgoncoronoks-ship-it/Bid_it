@@ -70,6 +70,11 @@ app = FastAPI(
     version=__version__,
     summary="Invoice Data Analytics Platform",
     lifespan=lifespan,
+    # Don't expose the interactive docs / OpenAPI schema in production — no reason
+    # to hand an attacker the full API contract. Available in dev/test as usual.
+    docs_url=None if settings.is_production else "/docs",
+    redoc_url=None if settings.is_production else "/redoc",
+    openapi_url=None if settings.is_production else "/openapi.json",
 )
 
 app.add_middleware(

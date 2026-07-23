@@ -14,10 +14,13 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import secrets
+import socket
 from datetime import UTC, datetime
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +29,63 @@ from app.models import webhook as wh
 from app.models.webhook import WebhookDelivery, WebhookEndpoint
 
 log = logging.getLogger("invoiceiq.webhooks")
+
+
+class UnsafeWebhookUrl(ValueError):
+    """The endpoint URL points at a private/reserved address (SSRF guard)."""
+
+
+def _addr_is_public(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    return not (
+        addr.is_private
+        or addr.is_loopback
+        or addr.is_link_local
+        or addr.is_multicast
+        or addr.is_reserved
+        or addr.is_unspecified
+    )
+
+
+def assert_public_url(url: str) -> None:
+    """Reject a webhook URL that targets the internal network (SSRF defense).
+
+    Blocks non-http(s) schemes, `localhost`, and any host that IS or RESOLVES TO a
+    private / loopback / link-local / reserved address (e.g. 127.0.0.1, 10.x,
+    169.254.169.254 cloud metadata, ::1). DNS resolution FAILS OPEN — an
+    unresolvable host (offline/test) is allowed through; the delivery simply won't
+    connect. Called on create/update AND again at delivery time (defense in depth
+    against DNS rebinding). Raises UnsafeWebhookUrl."""
+    p = urlparse(url)
+    if p.scheme not in ("http", "https"):
+        raise UnsafeWebhookUrl("url must use http or https")
+    host = p.hostname
+    if not host:
+        raise UnsafeWebhookUrl("url has no host")
+    h = host.lower()
+    if h == "localhost" or h.endswith(".localhost"):
+        raise UnsafeWebhookUrl("url host is not allowed")
+    # IP literal → classify directly (no DNS).
+    try:
+        literal = ipaddress.ip_address(host)
+    except ValueError:
+        literal = None
+    if literal is not None:
+        if not _addr_is_public(literal):
+            raise UnsafeWebhookUrl("url targets a private or reserved address")
+        return
+    # Hostname → resolve; fail OPEN on resolution error, CLOSED on any private hit.
+    try:
+        infos = socket.getaddrinfo(host, p.port or (443 if p.scheme == "https" else 80))
+    except socket.gaierror:
+        return
+    for info in infos:
+        try:
+            addr = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            continue
+        if not _addr_is_public(addr):
+            raise UnsafeWebhookUrl("url resolves to a private or reserved address")
+
 
 # Known event types (documentation + the /webhooks/events catalog).
 EVENT_TYPES = (
@@ -129,6 +189,17 @@ async def deliver(db: AsyncSession, delivery_id: str) -> dict:
         delivery.last_error = "endpoint removed or inactive"
         await db.commit()
         return {"skipped": "endpoint inactive"}
+
+    # Re-check the target at delivery time — the URL may have been repointed at an
+    # internal host (or DNS-rebound) since it was registered. A blocked URL is a
+    # terminal failure, not a retry.
+    try:
+        assert_public_url(endpoint.url)
+    except UnsafeWebhookUrl as exc:
+        delivery.status = wh.FAILED
+        delivery.last_error = f"blocked: {exc}"
+        await db.commit()
+        return {"skipped": "unsafe url"}
 
     body = delivery.payload_json.encode()
     headers = {

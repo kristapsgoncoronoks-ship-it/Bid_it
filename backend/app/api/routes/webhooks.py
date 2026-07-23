@@ -22,6 +22,14 @@ def _require_admin(current: CurrentUser) -> None:
     authz.require(current, authz.Permission.SETTINGS_MANAGE)
 
 
+def _check_url(url: str) -> None:
+    """Reject an SSRF-unsafe endpoint URL (private/reserved/loopback host)."""
+    try:
+        webhooks.assert_public_url(url)
+    except webhooks.UnsafeWebhookUrl as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+
+
 @router.get("/events")
 async def list_event_types(current: CurrentUser):
     """The event types a webhook can subscribe to."""
@@ -42,6 +50,7 @@ async def list_endpoints(current: CurrentUser, db: DbSession):
 async def create_endpoint(body: WebhookCreate, current: CurrentUser, db: DbSession):
     """Register an endpoint. The signing secret is returned ONCE here."""
     _require_admin(current)
+    _check_url(body.url)
     ep = WebhookEndpoint(
         org_id=current.org_id,
         url=body.url,
@@ -73,6 +82,8 @@ async def update_endpoint(
 ):
     _require_admin(current)
     ep = await _load(db, current.org_id, endpoint_id)
+    if body.url is not None:
+        _check_url(body.url)
     for field in ("url", "events", "description", "active"):
         val = getattr(body, field)
         if val is not None:

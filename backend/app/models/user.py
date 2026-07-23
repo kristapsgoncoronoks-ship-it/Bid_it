@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import enum
+from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -58,5 +59,10 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Designated expense approver — may approve/reject/reimburse expense reports.
     # The workspace owner (first-registered user) is one by default and appoints others.
     is_expense_approver: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Brute-force lockout: consecutive failed logins, reset on success. When the
+    # count crosses the configured threshold the account is locked until
+    # `locked_until` (a timestamp in the future).
+    failed_login_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     organization: Mapped[Organization] = relationship(back_populates="users")

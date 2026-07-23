@@ -19,7 +19,15 @@ _STATIC_HEADERS: list[tuple[bytes, bytes]] = [
     (b"x-frame-options", b"DENY"),
     (b"referrer-policy", b"strict-origin-when-cross-origin"),
     (b"cross-origin-opener-policy", b"same-origin"),
+    (b"cross-origin-resource-policy", b"same-origin"),
+    (b"permissions-policy", b"geolocation=(), camera=(), microphone=(), payment=()"),
 ]
+
+# The API returns JSON only — a locked-down CSP costs nothing and blocks any
+# reflected/stored HTML from executing. It is NOT applied to the interactive API
+# docs (Swagger/ReDoc/OpenAPI), which need to load their own assets.
+_API_CSP = b"default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+_DOCS_PREFIXES = ("/docs", "/redoc", "/openapi.json")
 
 
 def _is_https(scope) -> bool:
@@ -41,6 +49,8 @@ class SecurityHeadersMiddleware:
             return
 
         add = list(_STATIC_HEADERS)
+        if not scope.get("path", "").startswith(_DOCS_PREFIXES):
+            add.append((b"content-security-policy", _API_CSP))
         if settings.hsts_enabled and _is_https(scope):
             add.append(
                 (

@@ -63,6 +63,15 @@ class Settings(BaseSettings):
     secret_key: str = Field(default=INSECURE_SECRET_KEY)
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24  # 24h
+    # Per-account brute-force lockout: after N consecutive failed logins, the
+    # account is locked for `login_lockout_minutes` (a successful login resets it).
+    login_max_failed_attempts: int = Field(default=10)
+    login_lockout_minutes: int = Field(default=15)
+    # Number of TRUSTED reverse-proxy hops in front of the app (e.g. Cloudflare +
+    # nginx = 2). The client IP used for rate-limiting is taken this many hops from
+    # the right of X-Forwarded-For; 0 (default) IGNORES the header entirely and uses
+    # the socket peer, so a spoofed XFF cannot mint fresh rate-limit buckets.
+    trusted_proxy_count: int = Field(default=0)
 
     # --- Email invoice intake ---
     # Domain for per-org inbound addresses (`<token>@<domain>`). An email provider's
@@ -97,9 +106,9 @@ class Settings(BaseSettings):
     require_email_verification: bool = Field(default=False)
 
     # --- TLS / proxy hardening (Cloudflare + nginx origin) ---
-    # Emit HSTS on HTTPS responses. Enable in production once TLS is live and the
-    # domain always serves HTTPS (turning it on prematurely can lock out http dev).
-    hsts_enabled: bool = Field(default=False)
+    # Emit HSTS on HTTPS responses. On by default — it is only ever sent on an
+    # HTTPS request (plain-http dev never receives it), so enabling it is safe.
+    hsts_enabled: bool = Field(default=True)
     hsts_max_age: int = Field(default=63072000)  # 2 years
 
     # --- File security (uploads & email attachments) ---

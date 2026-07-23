@@ -168,6 +168,22 @@ def validate(filename: str, content: bytes, allowed: frozenset[str] = INVOICE_KI
     return kind
 
 
+def reject_active_content(content: bytes) -> None:
+    """Block executables / archives / active-content + run the malware scan,
+    WITHOUT a positive type allowlist. For internal attachments (a contract, PO or
+    pasted email) where a plain text / PDF / image is legitimate but an EXE, shell
+    script, macro-bearing archive or HTML/JS payload must never be stored."""
+    if not content:
+        raise FileRejected("Empty file")
+    if len(content) > _max_bytes():
+        raise FileRejected(f"File too large (max {getattr(settings, 'max_upload_mb', 15)} MB)")
+    if content.startswith(_DANGEROUS_MAGICS):
+        raise FileRejected("Executable, archive or active-content files are not allowed")
+    if _looks_scripted(content):
+        raise FileRejected("HTML/script content is not allowed")
+    scan_malware(content)
+
+
 def scan_malware(content: bytes) -> None:
     """Malware scan. Raises FileRejected on a hit or (when a scanner is
     configured but unreachable) on scan failure."""
