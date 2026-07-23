@@ -1046,12 +1046,21 @@ async def list_emails(current: CurrentUser, db: DbSession):
 # --------------------------------------------------------------------------------
 
 
+def _csv_safe(value):
+    """Neutralise CSV/Excel formula injection: prefix a leading formula trigger
+    (= + - @ tab CR) with a single quote so a cell (e.g. a crafted buyer name) is
+    never evaluated as a formula on open. Mirrors erp_export._safe."""
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
 def _csv(filename: str, header: list[str], rows: list[list]) -> Response:
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(header)
     for r in rows:
-        w.writerow(r)
+        w.writerow([_csv_safe(c) for c in r])
     return Response(
         content=buf.getvalue(),
         media_type="text/csv",

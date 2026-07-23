@@ -195,6 +195,7 @@ async def persist_invoice(db: DbSession, org_id: str, body: InvoiceCreate) -> tu
 
 @router.post("", response_model=InvoiceDetailOut, status_code=status.HTTP_201_CREATED)
 async def create_invoice(body: InvoiceCreate, current: CurrentUser, db: DbSession):
+    authz.require(current, authz.Permission.INVOICE_WRITE)
     # System-matrix usage limit for the caller's access level.
     await access.enforce_invoice_quota(db, current.org_id, current.role)
     invoice, vendor_name = await persist_invoice(db, current.org_id, body)
@@ -379,6 +380,7 @@ async def review_capture_fields(
     """Record human corrections for a capture's fields — stores the reviewed value
     and clears the low-confidence flag. The reviewed value is preserved alongside
     the original/normalized capture, so the correction is auditable."""
+    authz.require(current, authz.Permission.INVOICE_WRITE)
     run = await extraction.get_capture(db, current.org_id, run_id)
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Capture not found")
@@ -428,6 +430,7 @@ async def invoice_extraction(invoice_id: str, current: CurrentUser, db: DbSessio
 
 @router.patch("/{invoice_id}", response_model=InvoiceDetailOut)
 async def update_invoice(invoice_id: str, body: InvoiceUpdate, current: CurrentUser, db: DbSession):
+    authz.require(current, authz.Permission.INVOICE_WRITE)
     invoice = await _load_scoped(db, current.org_id, invoice_id)
     if body.status is not None:
         invoice.status = body.status
@@ -529,6 +532,7 @@ async def human_validate(
     invoice_id: str, body: ValidationDecision, current: CurrentUser, db: DbSession
 ):
     """Human review gate: approve or reject an invoice pending validation."""
+    authz.require(current, authz.Permission.INVOICE_APPROVE)
     invoice = await _load_scoped(db, current.org_id, invoice_id)
     invoice.validation_status = (
         validation.APPROVED if body.action == "approve" else validation.REJECTED
@@ -544,6 +548,7 @@ async def human_validate(
 
 @router.delete("/{invoice_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
+    authz.require(current, authz.Permission.INVOICE_DELETE)
     invoice = await _load_scoped(db, current.org_id, invoice_id)
     await audit.record(
         db,
@@ -566,6 +571,7 @@ async def upload_invoice(current: CurrentUser, db: DbSession, file: UploadFile):
     never ties up the API. Returns 202 + an `extraction_run_id`; poll
     GET /invoices/upload/{extraction_run_id} for the draft, then POST it to
     /invoices to save."""
+    authz.require(current, authz.Permission.INVOICE_WRITE)
     # Metered usage: the acting role's monthly upload limit (0 = unlimited).
     await access.enforce_upload_quota(db, current.org_id, current.role)
     content = await file.read()
@@ -626,6 +632,7 @@ async def retry_upload(run_id: str, current: CurrentUser, db: DbSession):
     after a transient OCR failure, or to re-parse with an updated provider. Re-queues
     the SAME stored bytes (the original file is never re-uploaded or mutated) and
     clears the previous parse's provenance. Tenant-scoped."""
+    authz.require(current, authz.Permission.INVOICE_WRITE)
     run = await extraction.get_capture(db, current.org_id, run_id)
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Upload not found")

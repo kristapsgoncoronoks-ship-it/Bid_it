@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ApprovalPolicyIn(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=200)
     active: bool = True
     priority: int = 100
     min_amount: Decimal | None = None
@@ -28,7 +28,7 @@ class ApprovalPolicyIn(BaseModel):
 
 class ApprovalPolicyUpdate(BaseModel):
     version: int
-    name: str | None = None
+    name: str | None = Field(default=None, max_length=200)
     active: bool | None = None
     priority: int | None = None
     min_amount: Decimal | None = None
@@ -77,21 +77,24 @@ class LinesUpdate(BaseModel):
 
 
 class ReviewHeaderUpdate(BaseModel):
+    # Widths MUST match the invoice columns — an over-length value fails only on
+    # Postgres (SQLite ignores VARCHAR length), and the create path (InvoiceCreate)
+    # is already capped, so this edit path was the one exposed.
     version: int
     vendor_id: str | None = None
-    vendor_name: str | None = None
-    invoice_number: str | None = None
+    vendor_name: str | None = Field(default=None, max_length=200)
+    invoice_number: str | None = Field(default=None, max_length=120)
     issue_date: date | None = None
     due_date: date | None = None
-    currency: str | None = None
+    currency: str | None = Field(default=None, max_length=3)
     notes: str | None = None
-    account_code: str | None = None
+    account_code: str | None = Field(default=None, max_length=80)
     legal_entity_id: str | None = None
-    cost_center: str | None = None
-    department: str | None = None
-    project: str | None = None
-    vehicle: str | None = None
-    property_ref: str | None = None
+    cost_center: str | None = Field(default=None, max_length=80)
+    department: str | None = Field(default=None, max_length=80)
+    project: str | None = Field(default=None, max_length=80)
+    vehicle: str | None = Field(default=None, max_length=80)
+    property_ref: str | None = Field(default=None, max_length=80)
 
 
 # --------------------------------------------------------------------------- #
