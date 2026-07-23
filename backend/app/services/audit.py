@@ -53,6 +53,7 @@ class A:
     POLICY_UPDATE = "approval_policy.update"
     POLICY_DELETE = "approval_policy.delete"
     ISSUED_PAYMENT = "issued.payment"
+    AP_PAYMENT = "ap.payment"
     ISSUED_SENT = "issued.sent"
     ISSUED_REMINDER = "issued.reminder"
     ISSUED_PENALTY = "issued.penalty_invoice"

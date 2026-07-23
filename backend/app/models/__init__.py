@@ -42,6 +42,7 @@ from app.models.retention import LegalHold, RetentionPolicy
 from app.models.role_policy import RolePolicy
 from app.models.session import Session
 from app.models.sso import SsoConnection
+from app.models.supplier_payment import SupplierPayment
 from app.models.tax_code import TaxCode
 from app.models.usage import UsageCounter
 from app.models.user import User, UserRole
@@ -65,6 +66,7 @@ __all__ = [
     "InvoiceAttachment",
     "BankStatement",
     "BankLine",
+    "SupplierPayment",
     "Job",
     "EcbRate",
     "EmailIntake",

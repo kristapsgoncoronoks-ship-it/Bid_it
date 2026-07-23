@@ -155,6 +155,16 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     submitted_by: Mapped[str | None] = mapped_column(GUID(), nullable=True)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # --- AP settlement ledger cache (Phase 13) -------------------------------
+    # `amount_paid` = SUM(supplier_payments.amount) for this invoice — the ledger
+    # is the source of truth, this stays a derived running-total cache. `paid_date`
+    # is the settlement date once fully paid. Derived paid/outstanding/overdue
+    # status lives in services/ap_status.py (never stored).
+    amount_paid: Mapped[Decimal] = mapped_column(
+        Money, default=Decimal("0"), server_default="0", nullable=False
+    )
+    paid_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+
     # Cost-allocation dimensions (free-text tags; see app.core.dimensions). Any
     # combination may be set; each is independently filterable/groupable.
     cost_center: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)

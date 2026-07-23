@@ -82,6 +82,12 @@ class InvoiceDetailOut(InvoiceOut):
     validation_findings: list[ValidationFinding] = Field(default_factory=list)
     validated_by: str | None = None
     validated_at: datetime | None = None
+    # AP settlement (Phase 13). `payment_status` is derived (paid/partial/open/overdue).
+    workflow_state: str | None = None
+    amount_paid: Decimal = Decimal("0")
+    paid_date: date | None = None
+    outstanding: Decimal = Decimal("0")
+    payment_status: str = "open"
 
 
 class InvoiceListOut(BaseModel):

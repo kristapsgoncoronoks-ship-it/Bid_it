@@ -10,13 +10,15 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
 from app.api.routes.vendors import get_or_create_vendor
+from app.core import authz
 from app.core.dimensions import DIMENSION_KEYS
 from app.core.money import q2 as _q
 from app.models.extraction_field import ExtractionField
 from app.models.extraction_run import ExtractionRun
-from app.models.invoice import Invoice, InvoiceStatus, LineItem
+from app.models.invoice import Invoice, InvoiceStatus, LineItem, WorkflowState
 from app.models.organization import Organization
 from app.models.vendor import Vendor
+from app.schemas.ap_payment import SupplierPaymentOut, SupplierPaymentRecord
 from app.schemas.invoice import (
     CaptureReviewIn,
     CaptureReviewItem,
@@ -38,6 +40,8 @@ from app.schemas.invoice import (
 from app.schemas.validation import ValidationDecision, ValidationFinding
 from app.services import (
     access,
+    ap_payments,
+    ap_status,
     audit,
     costing,
     documents,
@@ -45,6 +49,7 @@ from app.services import (
     extraction,
     filesec,
     fx,
+    invoice_workflow,
     jobs,
     validation,
     webhooks,
@@ -96,6 +101,11 @@ def _detail(inv: Invoice, vendor_name: str) -> InvoiceDetailOut:
         validation_findings=_parse_findings(inv.validation_findings),
         validated_by=inv.validated_by,
         validated_at=inv.validated_at,
+        workflow_state=inv.workflow_state.value,
+        amount_paid=inv.amount_paid,
+        paid_date=inv.paid_date,
+        outstanding=ap_status.outstanding_of(inv),
+        payment_status=ap_status.status_of(inv),
     )
 
 
@@ -435,6 +445,83 @@ async def update_invoice(invoice_id: str, body: InvoiceUpdate, current: CurrentU
     await db.commit()
     await db.refresh(invoice, attribute_names=["line_items"])
     return _detail(invoice, invoice.vendor.name)
+
+
+# States from which a supplier invoice can be paid (see invoice_workflow.TRANSITIONS).
+_PAYABLE = frozenset({WorkflowState.scheduled_for_payment, WorkflowState.partially_paid})
+
+
+@router.get("/{invoice_id}/payments", response_model=list[SupplierPaymentOut])
+async def list_supplier_payments(invoice_id: str, current: CurrentUser, db: DbSession):
+    """The AP payment-ledger history for one supplier invoice (Phase 13)."""
+    authz.require(current, authz.Permission.PAYMENT_READ)
+    await _load_scoped(db, current.org_id, invoice_id)  # tenant-scoped existence check
+    rows = await ap_payments.list_for(db, current.org_id, invoice_id)
+    return [SupplierPaymentOut.model_validate(p) for p in rows]
+
+
+@router.patch("/{invoice_id}/payment", response_model=InvoiceDetailOut)
+async def record_supplier_payment(
+    invoice_id: str, body: SupplierPaymentRecord, current: CurrentUser, db: DbSession
+):
+    """Record a payment against an APPROVED, scheduled-for-payment supplier invoice.
+    The body carries the new CUMULATIVE amount paid; the ledger records the delta
+    (a downward figure is an auditable correction). The amount is capped at the
+    invoice total, and settling it (partially/fully) advances the workflow state to
+    partially_paid / paid."""
+    authz.require(current, authz.Permission.PAYMENT_WRITE)
+    inv = await _load_scoped(db, current.org_id, invoice_id)
+    if inv.workflow_state not in _PAYABLE:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "invoice must be scheduled for payment before it can be paid",
+        )
+    total = _q(Decimal(inv.total))
+    new_total = _q(Decimal(body.amount_paid))
+    if new_total > total:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"amount exceeds the invoice total ({total})"
+        )
+
+    await ap_payments.set_cumulative(
+        db,
+        current.org_id,
+        inv,
+        new_total=new_total,
+        paid_date=body.paid_date,
+        method=body.method,
+        reference=body.reference,
+    )
+    # Advance the approval workflow to match the settlement.
+    target: WorkflowState | None = None
+    if new_total >= total and total > 0:
+        target = WorkflowState.paid
+    elif new_total > 0 and inv.workflow_state == WorkflowState.scheduled_for_payment:
+        target = WorkflowState.partially_paid
+    if target is not None and target != inv.workflow_state:
+        invoice_workflow.assert_transition(inv.workflow_state, target)
+        inv.workflow_state = target
+        if target == WorkflowState.paid:
+            inv.status = InvoiceStatus.paid  # sync the legacy aging status
+        inv.version = (inv.version or 0) + 1
+
+    await audit.record(
+        db,
+        audit.A.AP_PAYMENT,
+        target_type="invoice",
+        target_id=inv.id,
+        meta={"amount_paid": str(new_total), "status": ap_status.status_of(inv)},
+    )
+    if target == WorkflowState.paid:
+        await webhooks.emit(
+            db,
+            current.org_id,
+            "invoice.paid",
+            {"id": inv.id, "invoice_number": inv.invoice_number},
+        )
+    await db.commit()
+    await db.refresh(inv, attribute_names=["line_items", "vendor"])
+    return _detail(inv, inv.vendor.name)
 
 
 @router.post("/{invoice_id}/validate", response_model=InvoiceDetailOut)
