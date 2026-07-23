@@ -115,6 +115,9 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Dunning: how many reminders sent and when the last went out.
     reminder_count: Mapped[int] = mapped_column(default=0, nullable=False)
     last_reminder_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Highest dunning-ladder level already fired for this invoice (Phase 16), so
+    # each escalation level sends at most once. 0 = no reminder sent yet.
+    dunning_level: Mapped[int] = mapped_column(default=0, server_default="0", nullable=False)
 
     lines: Mapped[list[IssuedInvoiceLine]] = relationship(
         back_populates="invoice",

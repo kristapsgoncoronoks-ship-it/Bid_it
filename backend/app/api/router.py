@@ -9,6 +9,7 @@ from app.api.routes import (
     budget,
     currencies,
     documents,
+    dunning,
     email,
     expenses,
     export,
@@ -44,6 +45,7 @@ api_router.include_router(vendors.router)
 api_router.include_router(invoices.router)
 api_router.include_router(invoice_review.router)
 api_router.include_router(analytics.router)
+api_router.include_router(dunning.router)
 api_router.include_router(fx.router)
 api_router.include_router(settings.router)
 api_router.include_router(modules.router)

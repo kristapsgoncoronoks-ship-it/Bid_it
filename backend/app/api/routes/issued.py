@@ -545,7 +545,18 @@ async def send_reminder(
 
 
 async def _do_reminder(db: DbSession, org_id: str, inv: IssuedInvoice, recipient: str):
-    return await dunning.send_reminder(db, org_id, inv, recipient)
+    # A manual send uses the ladder tone for the invoice's current overdue depth and
+    # advances its level, so the daily auto-run won't immediately re-send the same one.
+    ladder = await dunning.load_ladder(db, org_id)
+    target = dunning.resolve_level(issued_status.days_overdue_of(inv), ladder)
+    return await dunning.send_reminder(
+        db,
+        org_id,
+        inv,
+        recipient,
+        tone=target.tone if target else "reminder",
+        level=target.level if target else None,
+    )
 
 
 @router.post("/reminders/run", response_model=BulkReminderResult)
@@ -560,6 +571,7 @@ async def run_overdue_reminders(current: CurrentUser, db: DbSession):
     return BulkReminderResult(
         sent=res.sent,
         skipped_no_email=res.skipped_no_email,
+        skipped=res.skipped,
         messages=[EmailMessageOut.model_validate(m) for m in res.messages],
     )
 

@@ -191,10 +191,13 @@ async def test_reminder_single_and_bulk_overdue(auth_client):
     assert got["reminder_count"] == 1
     assert got["last_reminder_at"] is not None
 
-    # Bulk run: 2 have email (a@, b@), 1 skipped (Gamma). o1 gets a 2nd reminder.
+    # Bulk run (dunning ladder, Phase 16): the manual reminder above already
+    # advanced o1 to the top level, so the ladder does NOT re-send to it (no daily
+    # storm). Only Beta (never reminded) gets one; Gamma has no email.
     bulk = (await auth_client.post("/api/v1/issued/reminders/run")).json()
-    assert bulk["sent"] == 2
-    assert bulk["skipped_no_email"] == 1
+    assert bulk["sent"] == 1  # Beta only
+    assert bulk["skipped_no_email"] == 1  # Gamma
+    assert bulk["skipped"] == 1  # o1 already at its ladder level
 
     # Reminder on a PAID invoice is rejected.
     paid = (

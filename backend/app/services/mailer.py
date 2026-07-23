@@ -123,6 +123,33 @@ def invoice_email(
     return subject, body
 
 
+# Dunning-ladder tone → (subject label, opening line, closing line). The escalation
+# is language-only; the figures are identical. `firm`/`final` are later levels.
+_REMINDER_TONES: dict[str, tuple[str, str, str]] = {
+    "reminder": (
+        "Payment reminder",
+        "Our records show invoice {number} remains unpaid and is now {days} day(s) "
+        "past its due date{due}.",
+        "Please arrange payment at your earliest convenience. If you have already "
+        "paid, kindly disregard this notice.",
+    ),
+    "firm": (
+        "Overdue notice",
+        "Invoice {number} is now {days} day(s) overdue{due} and remains unpaid "
+        "despite our earlier reminder.",
+        "We must ask that you settle this balance without further delay to avoid "
+        "any interruption to your account.",
+    ),
+    "final": (
+        "FINAL NOTICE",
+        "Invoice {number} remains unpaid and is now {days} day(s) overdue{due}, "
+        "despite previous reminders.",
+        "Unless payment is received within 7 days, this account may be referred for "
+        "collection. Please treat this as a matter of urgency.",
+    ),
+}
+
+
 def reminder_email(
     *,
     seller_name: str,
@@ -134,25 +161,21 @@ def reminder_email(
     penalty,
     due_date,
     penalty_rate,
+    tone: str = "reminder",
 ) -> tuple[str, str]:
     total_due = outstanding + penalty
-    subject = f"Payment reminder: invoice {number} ({days_overdue} days overdue)"
+    label, opening, closing = _REMINDER_TONES.get(tone, _REMINDER_TONES["reminder"])
+    due = f" of {due_date.isoformat()}" if due_date else ""
+    subject = f"{label}: invoice {number} ({days_overdue} days overdue)"
     lines = [
         f"Dear {buyer_name},",
         "",
-        f"Our records show invoice {number} remains unpaid and is now {days_overdue} "
-        f"day(s) past its due date" + (f" of {due_date.isoformat()}" if due_date else "") + ".",
+        opening.format(number=number, days=days_overdue, due=due),
         "",
         f"Outstanding balance: {_fmt(outstanding, currency)}",
     ]
     if penalty and penalty > 0:
         lines.append(f"Late-payment interest ({penalty_rate}% p.a.): {_fmt(penalty, currency)}")
         lines.append(f"Total now due: {_fmt(total_due, currency)}")
-    lines += [
-        "",
-        "Please arrange payment at your earliest convenience. If you have already "
-        "paid, kindly disregard this notice.",
-        "",
-        f"Kind regards,\n{seller_name}",
-    ]
+    lines += ["", closing, "", f"Kind regards,\n{seller_name}"]
     return subject, "\n".join(lines)

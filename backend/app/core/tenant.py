@@ -30,6 +30,7 @@ from app.models.costing import CostCenter, Department, Project
 from app.models.currency import Currency
 from app.models.document import Document
 from app.models.document_version import DocumentVersion
+from app.models.dunning_policy import DunningPolicy
 from app.models.email_intake import EmailIntake, InboundInvoice
 from app.models.email_message import EmailMessage
 from app.models.email_token import EmailToken
@@ -122,6 +123,7 @@ TENANT_MODELS = (
     BankLine,
     SupplierPayment,
     PaymentRun,
+    DunningPolicy,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.

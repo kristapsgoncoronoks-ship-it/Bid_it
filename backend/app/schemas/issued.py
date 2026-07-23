@@ -165,6 +165,7 @@ class SendResult(BaseModel):
 class BulkReminderResult(BaseModel):
     sent: int
     skipped_no_email: int
+    skipped: int = 0  # overdue but no new ladder level due
     messages: list[EmailMessageOut]
 
 

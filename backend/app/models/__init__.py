@@ -11,6 +11,7 @@ from app.models.costing import CostCenter, Department, Project
 from app.models.currency import Currency
 from app.models.document import Document
 from app.models.document_version import DocumentVersion
+from app.models.dunning_policy import DunningPolicy
 from app.models.email_intake import EmailIntake, InboundInvoice
 from app.models.email_message import EmailMessage
 from app.models.email_token import EmailToken
@@ -69,6 +70,7 @@ __all__ = [
     "BankLine",
     "SupplierPayment",
     "PaymentRun",
+    "DunningPolicy",
     "Job",
     "EcbRate",
     "EmailIntake",

@@ -53,6 +53,7 @@ class A:
     POLICY_UPDATE = "approval_policy.update"
     POLICY_DELETE = "approval_policy.delete"
     ISSUED_PAYMENT = "issued.payment"
+    DUNNING_CONFIG = "dunning.config"
     AP_PAYMENT = "ap.payment"
     AP_RUN_CREATE = "ap.run_create"
     AP_RUN_PAID = "ap.run_paid"
