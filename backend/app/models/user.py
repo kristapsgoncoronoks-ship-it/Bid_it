@@ -59,6 +59,10 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Designated expense approver — may approve/reject/reimburse expense reports.
     # The workspace owner (first-registered user) is one by default and appoints others.
     is_expense_approver: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Employee bank details for expense reimbursement payouts (SEPA credit
+    # transfer). Self-service; only used when a reimbursement batch is exported.
+    iban: Mapped[str | None] = mapped_column(String(34), nullable=True)
+    bic: Mapped[str | None] = mapped_column(String(11), nullable=True)
     # Brute-force lockout: consecutive failed logins, reset on success. When the
     # count crosses the configured threshold the account is locked until
     # `locked_until` (a timestamp in the future).

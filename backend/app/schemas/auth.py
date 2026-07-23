@@ -32,6 +32,11 @@ class ResetPasswordRequest(BaseModel):
     new_password: str = Field(min_length=8, max_length=72)
 
 
+class BankDetailsIn(BaseModel):
+    iban: str | None = Field(default=None, max_length=34)
+    bic: str | None = Field(default=None, max_length=11)
+
+
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -67,6 +72,8 @@ class UserOut(BaseModel):
     is_platform_admin: bool = False
     is_expense_approver: bool = False
     email_verified: bool = False
+    iban: str | None = None
+    bic: str | None = None
 
 
 class MeOut(BaseModel):

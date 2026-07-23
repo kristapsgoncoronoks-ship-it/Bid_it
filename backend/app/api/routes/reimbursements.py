@@ -22,7 +22,7 @@ from app.schemas.reimbursement import (
     BatchPay,
     ReimbursementReportOut,
 )
-from app.services import audit, reimbursement, webhooks
+from app.services import audit, reimbursement, sepa, webhooks
 
 router = APIRouter(prefix="/reimbursements", tags=["reimbursements"])
 _P = authz.Permission
@@ -210,5 +210,29 @@ async def export_batch(batch_id: str, current: CurrentUser, db: DbSession):
         headers={
             "Content-Disposition": f'attachment; filename="{fname}"',
             "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.get("/{batch_id}/sepa")
+async def export_batch_sepa(batch_id: str, current: CurrentUser, db: DbSession):
+    """Export the batch as an ISO 20022 pain.001 SEPA credit-transfer file (paid to
+    employees with an IBAN on file). 422 if the issuer has no IBAN or no payee has
+    one. The `X-Skipped` header counts employees excluded for missing bank details."""
+    await _guard(db, current.org_id)
+    authz.require(current, _P.EXPENSE_APPROVE)
+    b = await _load(db, current.org_id, batch_id)
+    try:
+        xml, skipped = await reimbursement.batch_sepa(db, current.org_id, b)
+    except (reimbursement.ReimbursementError, sepa.SepaError) as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+    fname = f"reimbursement-{(b.reference or b.id)}.xml"
+    return Response(
+        content=xml,
+        media_type="application/xml",
+        headers={
+            "Content-Disposition": f'attachment; filename="{fname}"',
+            "X-Content-Type-Options": "nosniff",
+            "X-Skipped": str(skipped),
         },
     )

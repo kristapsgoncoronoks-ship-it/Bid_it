@@ -70,6 +70,8 @@ export default function Expenses() {
         {isManager && <KpiCard label="To approve" value={s ? String(s.pending_approvals) : "—"} accent="rose" sub="team, awaiting me" />}
       </div>
 
+      <BankDetailsCard />
+
       <AvailableExpenses enabled={!!enabled} />
 
       <NewReport />
@@ -311,6 +313,67 @@ function NewReport() {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Self-service payout bank details (IBAN/BIC), used when an expense reimbursement
+// batch is exported as a SEPA credit transfer. Collapsed by default.
+function BankDetailsCard() {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [iban, setIban] = useState("");
+  const [bic, setBic] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const me = useQuery<{ user: { iban: string | null; bic: string | null } }>({
+    queryKey: ["me", "bank"],
+    queryFn: async () => {
+      const d = (await api.get("/auth/me")).data;
+      setIban(d.user.iban ?? "");
+      setBic(d.user.bic ?? "");
+      return d;
+    },
+    enabled: open,
+  });
+
+  const save = useMutation({
+    mutationFn: async () =>
+      (await api.put("/auth/bank-details", { iban: iban || null, bic: bic || null })).data,
+    onSuccess: () => {
+      setErr(null);
+      setMsg("Saved.");
+      qc.invalidateQueries({ queryKey: ["me", "bank"] });
+    },
+    onError: (e) => { setMsg(null); setErr(apiError(e)); },
+  });
+
+  const current = me.data?.user;
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <button className="flex w-full items-center justify-between text-left" onClick={() => setOpen((o) => !o)}>
+        <div>
+          <div className="text-sm font-semibold text-slate-700">My reimbursement bank details</div>
+          <div className="text-xs text-slate-400">
+            {current?.iban ? `IBAN on file · ${current.iban.slice(0, 8)}…` : "Add an IBAN so your expenses can be paid by SEPA transfer"}
+          </div>
+        </div>
+        <span className="text-slate-400">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="mt-3 space-y-2">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input className="input py-1 font-mono text-sm" placeholder="IBAN" value={iban} onChange={(e) => setIban(e.target.value)} />
+            <input className="input py-1 text-sm" placeholder="BIC (optional)" value={bic} onChange={(e) => setBic(e.target.value)} />
+          </div>
+          {err && <div className="text-xs text-rose-600">{err}</div>}
+          {msg && <div className="text-xs text-emerald-600">{msg}</div>}
+          <div className="flex justify-end">
+            <button className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>Save bank details</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

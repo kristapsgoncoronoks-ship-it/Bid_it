@@ -198,6 +198,19 @@ export default function ReimbursementsPage() {
                   >
                     Export CSV
                   </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    title="ISO 20022 pain.001 credit-transfer file (employees with an IBAN on file)"
+                    onClick={() =>
+                      downloadFile(
+                        `/reimbursements/${b.id}/sepa`,
+                        `reimbursement-${b.reference || b.id}.xml`,
+                      )
+                    }
+                  >
+                    Export SEPA
+                  </Button>
                 </div>
               </div>
               <div className="mt-1 text-xs text-slate-400">

@@ -27,6 +27,7 @@ from app.models.sso import SsoConnection
 from app.models.user import User, UserRole
 from app.schemas.auth import (
     AuthResponse,
+    BankDetailsIn,
     ForgotPasswordRequest,
     LoginRequest,
     MeOut,
@@ -162,6 +163,19 @@ async def login(body: LoginRequest, request: Request, db: DbSession) -> AuthResp
 async def me(current: CurrentUser, db: DbSession) -> MeOut:
     org = await db.get(Organization, current.org_id)
     return MeOut(user=current, organization=org)
+
+
+@router.put("/bank-details", response_model=MeOut)
+async def set_bank_details(body: BankDetailsIn, current: CurrentUser, db: DbSession) -> MeOut:
+    """Set the caller's OWN payout bank details (IBAN/BIC), used when an expense
+    reimbursement batch is exported as a SEPA credit transfer."""
+    user = await db.get(User, current.id)
+    user.iban = (body.iban or "").replace(" ", "").upper() or None
+    user.bic = (body.bic or "").replace(" ", "").upper() or None
+    await db.commit()
+    await db.refresh(user)
+    org = await db.get(Organization, user.org_id)
+    return MeOut(user=user, organization=org)
 
 
 @router.get("/permissions")

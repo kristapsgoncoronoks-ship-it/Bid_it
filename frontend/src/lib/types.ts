@@ -53,6 +53,8 @@ export interface User {
   org_id: string;
   is_platform_admin?: boolean;
   is_expense_approver?: boolean;
+  iban?: string | null;
+  bic?: string | null;
 }
 
 export interface Organization {

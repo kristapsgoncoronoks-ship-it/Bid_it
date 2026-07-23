@@ -140,6 +140,65 @@ async def cancel_batch(
     return reports
 
 
+async def batch_sepa(db: AsyncSession, org_id: str, batch: ReimbursementBatch) -> tuple[str, int]:
+    """Render a reimbursement batch as an ISO 20022 pain.001 SEPA credit-transfer
+    file — debtor = our issuer profile, one creditor per employee (those with an
+    IBAN on file; the rest are skipped). Returns (xml, skipped). Reuses the AP
+    `sepa.build_pain001` primitive so both payout rails share one renderer."""
+    from datetime import UTC, datetime
+
+    from app.models.issuer import IssuerProfile
+    from app.models.user import User
+    from app.services import sepa
+
+    reports = await batch_reports(db, org_id, batch.id)
+    if not reports:
+        raise ReimbursementError("Batch has no reports to pay.")
+
+    # Load each payee's bank details once (employee_id → User).
+    emp_ids = {r.employee_id for r in reports}
+    users = {
+        u.id: u
+        for u in await db.scalars(select(User).where(User.id.in_(emp_ids), User.org_id == org_id))
+    }
+
+    transfers: list[sepa.CreditTransfer] = []
+    skipped = 0
+    for r in reports:
+        u = users.get(r.employee_id)
+        iban = (u.iban if u else None) or None
+        if not iban:
+            skipped += 1
+            continue
+        transfers.append(
+            sepa.CreditTransfer(
+                end_to_end=r.id[:35],
+                amount=eur_of(r),
+                creditor_name=r.employee_name,
+                creditor_iban=iban,
+                creditor_bic=u.bic if u else None,
+                remittance=f"Expense reimbursement {r.title}"[:140],
+            )
+        )
+
+    issuer = await db.scalar(select(IssuerProfile).where(IssuerProfile.org_id == org_id))
+    debtor_name = (issuer.legal_name if issuer and issuer.legal_name else None) or "Our company"
+    xml = sepa.build_pain001(
+        msg_id=f"REIMB-{batch.id[:8]}",
+        created_at=batch.created_at or datetime.now(UTC),
+        exec_date=(
+            batch.paid_at.date()
+            if batch.paid_at
+            else (batch.created_at or datetime.now(UTC)).date()
+        ),
+        debtor_name=debtor_name,
+        debtor_iban=issuer.iban if issuer else None,
+        debtor_bic=issuer.bic if issuer else None,
+        transfers=transfers,
+    )
+    return xml, skipped
+
+
 def export_csv(batch: ReimbursementBatch, reports: list[ExpenseReport]) -> str:
     """A bank/payroll-friendly CSV of the batch's payouts (one row per report)."""
     buf = io.StringIO()
