@@ -42,6 +42,10 @@ class Permission(str, enum.Enum):
     ISSUED_READ = "issued.read"
     ISSUED_WRITE = "issued.write"
     ISSUED_SEND = "issued.send"
+    # Accounts-receivable cash application — record receipts, allocate/reverse them
+    # across issued invoices (Phase 11). A distinct duty from issuing the invoice.
+    PAYMENT_READ = "payment.read"
+    PAYMENT_WRITE = "payment.write"
     # Analytics / reporting
     REPORT_READ = "report.read"
     # Accounting / ERP / e-invoice exports
@@ -91,13 +95,15 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             _P.ISSUED_READ,
             _P.ISSUED_WRITE,
             _P.ISSUED_SEND,
+            _P.PAYMENT_READ,
+            _P.PAYMENT_WRITE,
             _P.REPORT_READ,
             _P.EXPORT_RUN,
             _P.AUDIT_READ,
         }
     ),
-    # Books the numbers: read/write invoices/expenses/issuing + export + report.
-    # No approving, no sending, no administration.
+    # Books the numbers: read/write invoices/expenses/issuing + apply cash + export
+    # + report. No approving, no sending, no administration.
     Role.ACCOUNTANT: frozenset(
         {
             _P.INVOICE_READ,
@@ -106,6 +112,8 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             _P.EXPENSE_WRITE,
             _P.ISSUED_READ,
             _P.ISSUED_WRITE,
+            _P.PAYMENT_READ,
+            _P.PAYMENT_WRITE,
             _P.REPORT_READ,
             _P.EXPORT_RUN,
         }
@@ -128,13 +136,16 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             _P.INVOICE_READ,
             _P.EXPENSE_READ,
             _P.ISSUED_READ,
+            _P.PAYMENT_READ,
             _P.REPORT_READ,
             _P.AUDIT_READ,
             _P.EXPORT_RUN,
         }
     ),
     # Pure read of the money surfaces.
-    Role.READ_ONLY: frozenset({_P.INVOICE_READ, _P.EXPENSE_READ, _P.ISSUED_READ, _P.REPORT_READ}),
+    Role.READ_ONLY: frozenset(
+        {_P.INVOICE_READ, _P.EXPENSE_READ, _P.ISSUED_READ, _P.PAYMENT_READ, _P.REPORT_READ}
+    ),
 }
 
 # Today's stored 4-tier role → a business role (backward compatibility).

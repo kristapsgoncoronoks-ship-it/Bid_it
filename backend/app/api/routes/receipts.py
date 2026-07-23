@@ -7,13 +7,15 @@ single source of truth. Gated on the issuing module.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
+from app.core import authz
 from app.models.issued_invoice import IssuedInvoice
 from app.schemas.receipt import (
     AllocateRequest,
+    DeallocateRequest,
     ReceiptAllocationOut,
     ReceiptCreate,
     ReceiptDetail,
@@ -21,7 +23,16 @@ from app.schemas.receipt import (
 )
 from app.services import modules, receipts
 
-router = APIRouter(prefix="/receipts", tags=["receipts"])
+
+def _require_payment_read(current: CurrentUser) -> None:
+    """Router-level gate: reading cash receipts needs PAYMENT_READ. The mutating
+    routes additionally require PAYMENT_WRITE inline."""
+    authz.require(current, authz.Permission.PAYMENT_READ)
+
+
+router = APIRouter(
+    prefix="/receipts", tags=["receipts"], dependencies=[Depends(_require_payment_read)]
+)
 
 
 async def _guard(db: DbSession, org_id: str) -> None:
@@ -61,6 +72,7 @@ async def _load(db: DbSession, org_id: str, receipt_id: str):
 
 @router.post("", response_model=ReceiptOut, status_code=status.HTTP_201_CREATED)
 async def create_receipt(body: ReceiptCreate, current: CurrentUser, db: DbSession):
+    authz.require(current, authz.Permission.PAYMENT_WRITE)
     await _guard(db, current.org_id)
     r = await receipts.create(
         db,
@@ -92,6 +104,7 @@ async def get_receipt(receipt_id: str, current: CurrentUser, db: DbSession):
 async def allocate_receipt(
     receipt_id: str, body: AllocateRequest, current: CurrentUser, db: DbSession
 ):
+    authz.require(current, authz.Permission.PAYMENT_WRITE)
     await _guard(db, current.org_id)
     r = await _load(db, current.org_id, receipt_id)
     inv = await db.scalar(
@@ -103,6 +116,20 @@ async def allocate_receipt(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Issued invoice not found")
     try:
         await receipts.allocate(db, current.org_id, r, inv, body.amount)
+    except receipts.ReceiptError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+    return await _detail(db, current.org_id, r)
+
+
+@router.post("/{receipt_id}/deallocate", response_model=ReceiptDetail)
+async def deallocate_receipt(
+    receipt_id: str, body: DeallocateRequest, current: CurrentUser, db: DbSession
+):
+    authz.require(current, authz.Permission.PAYMENT_WRITE)
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, receipt_id)
+    try:
+        await receipts.deallocate(db, current.org_id, r, body.payment_id)
     except receipts.ReceiptError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
     return await _detail(db, current.org_id, r)

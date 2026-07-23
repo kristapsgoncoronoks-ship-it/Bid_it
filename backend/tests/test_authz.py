@@ -24,9 +24,18 @@ class _U:
 
 def test_deny_by_default_read_only_has_only_reads():
     perms = authz.ROLE_PERMISSIONS[Role.READ_ONLY]
-    assert perms == frozenset({P.INVOICE_READ, P.EXPENSE_READ, P.ISSUED_READ, P.REPORT_READ})
+    assert perms == frozenset(
+        {P.INVOICE_READ, P.EXPENSE_READ, P.ISSUED_READ, P.PAYMENT_READ, P.REPORT_READ}
+    )
     # Nothing write/admin/export leaks in.
-    for denied in (P.INVOICE_WRITE, P.EXPORT_RUN, P.MEMBER_MANAGE, P.ROLE_ASSIGN, P.BILLING_MANAGE):
+    for denied in (
+        P.INVOICE_WRITE,
+        P.PAYMENT_WRITE,
+        P.EXPORT_RUN,
+        P.MEMBER_MANAGE,
+        P.ROLE_ASSIGN,
+        P.BILLING_MANAGE,
+    ):
         assert denied not in perms
 
 
@@ -44,6 +53,7 @@ def test_role_boundaries():
 
     acc = authz.ROLE_PERMISSIONS[Role.ACCOUNTANT]
     assert P.INVOICE_WRITE in acc and P.EXPORT_RUN in acc
+    assert P.PAYMENT_READ in acc and P.PAYMENT_WRITE in acc  # applies cash
     assert P.EXPENSE_APPROVE not in acc and P.ISSUED_SEND not in acc  # books, doesn't approve/send
 
     appr = authz.ROLE_PERMISSIONS[Role.APPROVER]
@@ -58,8 +68,9 @@ def test_role_boundaries():
     )
 
     aud = authz.ROLE_PERMISSIONS[Role.AUDITOR]
-    assert P.AUDIT_READ in aud and P.EXPORT_RUN in aud
-    assert not (aud & {P.INVOICE_WRITE, P.EXPENSE_WRITE, P.ISSUED_WRITE})  # read-only assurance
+    assert P.AUDIT_READ in aud and P.EXPORT_RUN in aud and P.PAYMENT_READ in aud
+    # read-only assurance — no write of any money surface, incl. cash application.
+    assert not (aud & {P.INVOICE_WRITE, P.EXPENSE_WRITE, P.ISSUED_WRITE, P.PAYMENT_WRITE})
 
 
 def test_stored_legacy_roles_map_to_business_roles():

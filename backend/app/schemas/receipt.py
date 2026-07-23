@@ -19,13 +19,20 @@ class AllocateRequest(BaseModel):
     amount: Decimal = Field(gt=0)
 
 
+class DeallocateRequest(BaseModel):
+    # The allocation (payment-ledger entry) to reverse.
+    payment_id: str
+
+
 class ReceiptAllocationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    id: str
     issued_invoice_id: str
     amount: Decimal
     paid_on: date
     reference: str | None = None
+    note: str | None = None
 
 
 class ReceiptOut(BaseModel):

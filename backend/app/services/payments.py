@@ -111,6 +111,37 @@ async def add_receipt_allocation(
     return entry
 
 
+async def reverse_allocation(
+    db: AsyncSession,
+    org_id: str,
+    inv: IssuedInvoice,
+    entry: Payment,
+    *,
+    effective: Decimal,
+    when: date | None = None,
+) -> Payment:
+    """Append an offsetting NEGATIVE ledger entry that reverses a prior receipt
+    allocation `entry`, and decrement the invoice's amount_paid cache. Keeps the
+    append-only ledger invariant SUM(payments.amount) == amount_paid intact (the
+    original row is never mutated). The caller enforces that `entry` is a positive,
+    not-yet-reversed allocation on this receipt."""
+    delta = money.q2(-Decimal(entry.amount))
+    rev = Payment(
+        org_id=org_id,
+        issued_invoice_id=inv.id,
+        amount=delta,
+        paid_on=when or date.today(),
+        method=entry.method,
+        reference=entry.reference,
+        receipt_id=entry.receipt_id,
+        note=f"reversal:{entry.id}",
+    )
+    db.add(rev)
+    inv.amount_paid = money.q2(Decimal(inv.amount_paid or _ZERO) + delta)
+    inv.paid_date = _derive_paid_date(inv.amount_paid, effective, inv.paid_date)
+    return rev
+
+
 async def backfill_ledger(db: AsyncSession, org_id: str) -> int:
     """Seed a 'migrated' ledger entry for any settled issued invoice that has none
     yet (for the demo seed or a store predating the ledger). Idempotent; commits

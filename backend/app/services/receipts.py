@@ -121,3 +121,40 @@ async def allocate(
     )
     await db.commit()
     return entry
+
+
+async def deallocate(db: AsyncSession, org_id: str, receipt: Receipt, payment_id: str) -> Payment:
+    """Reverse a single allocation of this receipt: appends an offsetting negative
+    ledger entry, frees the receipt's unallocated balance, and lowers the invoice's
+    amount_paid. Idempotent-safe — a second reversal of the same allocation is
+    refused. Commits."""
+    entry = await db.scalar(
+        select(Payment).where(
+            Payment.org_id == org_id,
+            Payment.id == payment_id,
+            Payment.receipt_id == receipt.id,
+        )
+    )
+    if entry is None:
+        raise ReceiptError("allocation not found on this receipt")
+    if Decimal(entry.amount) <= _ZERO:
+        raise ReceiptError("only a positive allocation can be reversed")
+    already = await db.scalar(
+        select(func.count(Payment.id)).where(
+            Payment.org_id == org_id, Payment.note == f"reversal:{payment_id}"
+        )
+    )
+    if already:
+        raise ReceiptError("this allocation was already reversed")
+    inv = await db.scalar(
+        select(IssuedInvoice).where(
+            IssuedInvoice.org_id == org_id, IssuedInvoice.id == entry.issued_invoice_id
+        )
+    )
+    if inv is None:  # pragma: no cover - the composite FK makes this unreachable
+        raise ReceiptError("issued invoice not found")
+    rev = await payments.reverse_allocation(
+        db, org_id, inv, entry, effective=issued_status.effective_total(inv)
+    )
+    await db.commit()
+    return rev

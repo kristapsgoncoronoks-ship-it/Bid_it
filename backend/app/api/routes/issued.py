@@ -619,10 +619,17 @@ async def report_receivables(
     date_to: date | None = Query(default=None, alias="to"),
     currency: str | None = Query(default=None, min_length=3, max_length=3),
     format: str = Query(default="json", pattern="^(json|csv)$"),
+    view: str = Query(default="status", pattern="^(status|aging)$"),
 ):
     await modules.require_enabled(db, current.org_id, "issuing")
     rep = await issued_reports.receivables(db, current.org_id, currency, date_from, date_to)
     if format == "csv":
+        if view == "aging":
+            return _csv(
+                "issued-aging.csv",
+                ["bucket", "invoices", f"outstanding_{rep.currency}"],
+                [[b.label, b.count, b.outstanding] for b in rep.aging],
+            )
         return _csv(
             "issued-receivables.csv",
             ["status", "invoices", f"gross_{rep.currency}", f"outstanding_{rep.currency}"],

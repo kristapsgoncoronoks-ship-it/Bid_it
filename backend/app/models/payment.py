@@ -11,8 +11,11 @@ lowering a number. A cross-tenant reference is structurally impossible: the
 composite FK `(org_id, issued_invoice_id) → issued_invoices(org_id, id)` (the
 same guard the cost-allocation links use).
 
-`payment_allocations` (one receipt split across several invoices) is the next
-slice; today a payment belongs to exactly one issued invoice.
+Splitting one receipt across several invoices is modelled WITHOUT a separate
+`payment_allocations` table: a receipt allocation is just a `payments` row whose
+`receipt_id` is set (see `app.models.receipt` / `app.services.receipts`), and
+reversing an allocation appends an offsetting negative row — so the ledger stays
+the single append-only source of truth for `amount_paid`.
 """
 
 from __future__ import annotations
