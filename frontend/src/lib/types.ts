@@ -361,6 +361,35 @@ export interface SupplierPayment {
   created_at: string;
 }
 
+// Supplier payment runs (Phase 14).
+export interface RunInvoice {
+  id: string;
+  invoice_number: string;
+  vendor_name: string | null;
+  total: string;
+  currency: string;
+  total_eur: string | null;
+  workflow_state: string;
+}
+
+export interface PaymentRun {
+  id: string;
+  reference: string | null;
+  method: string;
+  status: "open" | "paid" | "cancelled";
+  note: string | null;
+  total_eur: string;
+  paid_at: string | null;
+  created_by: string | null;
+  version: number;
+  created_at: string;
+  invoice_count: number;
+}
+
+export interface PaymentRunDetail extends PaymentRun {
+  invoices: RunInvoice[];
+}
+
 export interface InvoiceList {
   items: Invoice[];
   total: number;

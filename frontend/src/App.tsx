@@ -27,6 +27,7 @@ const Issue = lazy(() => import("./pages/Issue"));
 const IssuedReports = lazy(() => import("./pages/IssuedReports"));
 const Receipts = lazy(() => import("./pages/Receipts"));
 const Reconciliation = lazy(() => import("./pages/Reconciliation"));
+const PaymentRuns = lazy(() => import("./pages/PaymentRuns"));
 const Partners = lazy(() => import("./pages/Partners"));
 const Team = lazy(() => import("./pages/Team"));
 const Billing = lazy(() => import("./pages/Billing"));
@@ -122,6 +123,7 @@ export default function App() {
                 <Route path="/issue/reports" element={<IssuedReports />} />
                 <Route path="/receipts" element={<Receipts />} />
                 <Route path="/reconciliation" element={<Reconciliation />} />
+                <Route path="/payment-runs" element={<PaymentRuns />} />
                 <Route path="/partners" element={<Partners />} />
                 <Route path="/issuer" element={<Issuer />} />
                 <Route path="/expenses" element={<Expenses />} />
