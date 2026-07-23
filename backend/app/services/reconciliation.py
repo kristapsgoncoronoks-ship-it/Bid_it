@@ -2,8 +2,9 @@
 
 Persist an imported bank statement into `bank_statements` + `bank_lines`, then
 MATCH each line to a cash movement already on our books: an incoming CREDIT to a
-`receipt` (money received against issued invoices), an outgoing DEBIT to a paid
-`reimbursement_batch` (an expense payout). Matching is ADVISORY — `suggest_matches`
+`receipt` or a direct issued-invoice payment (money received), an outgoing DEBIT to
+a paid `reimbursement_batch` or supplier `payment_run` (money paid). Matching is
+ADVISORY — `suggest_matches`
 ranks candidates by amount (within a small tolerance), date proximity, and a
 reference/description hit; a human confirms. Nothing here mutates a receipt, a
 batch, or the payment ledger — it only records which bank line corresponds to
@@ -23,13 +24,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import money
 from app.models.bank_import import BankLine, BankStatement
 from app.models.expense import ReimbursementBatch
+from app.models.payment import Payment
 from app.models.payment_run import PaymentRun
 from app.models.receipt import Receipt
 from app.services.bank_statement import StatementResult
 
 _TOL = Decimal("0.02")  # cents of slack on an amount match
 _ZERO = Decimal("0")
-KINDS = ("receipt", "reimbursement", "payment_run")
+KINDS = ("receipt", "reimbursement", "payment_run", "issued_payment")
 
 
 class ReconError(Exception):
@@ -172,10 +174,10 @@ async def suggest_matches(
     desc = (line.description or "").lower()
     out: list[Candidate] = []
 
-    if Decimal(line.amount) >= _ZERO:  # credit → receipts
-        taken = await _matched_targets(db, org_id, "receipt")
+    if Decimal(line.amount) >= _ZERO:  # credit → receipts + direct issued payments
+        taken_r = await _matched_targets(db, org_id, "receipt")
         for r in await db.scalars(select(Receipt).where(Receipt.org_id == org_id)):
-            if r.id in taken or abs(money.q2(Decimal(r.amount)) - magnitude) > _TOL:
+            if r.id in taken_r or abs(money.q2(Decimal(r.amount)) - magnitude) > _TOL:
                 continue
             ref_hit = bool(r.reference) and r.reference.lower() in desc
             days_off = abs((r.received_on - line.line_date).days)
@@ -186,6 +188,29 @@ async def suggest_matches(
                     money.q2(Decimal(r.amount)),
                     r.received_on,
                     r.reference,
+                    days_off,
+                    _rank(days_off, ref_hit),
+                )
+            )
+        # Direct issued-invoice payments (PATCH /issued/payment) — a Payment row with
+        # no receipt (positive = money in). A receipt-backed allocation is excluded.
+        taken_p = await _matched_targets(db, org_id, "issued_payment")
+        for p in await db.scalars(
+            select(Payment).where(
+                Payment.org_id == org_id, Payment.receipt_id.is_(None), Payment.amount > _ZERO
+            )
+        ):
+            if p.id in taken_p or abs(money.q2(Decimal(p.amount)) - magnitude) > _TOL:
+                continue
+            ref_hit = bool(p.reference) and p.reference.lower() in desc
+            days_off = abs((p.paid_on - line.line_date).days)
+            out.append(
+                Candidate(
+                    "issued_payment",
+                    p.id,
+                    money.q2(Decimal(p.amount)),
+                    p.paid_on,
+                    p.reference,
                     days_off,
                     _rank(days_off, ref_hit),
                 )
@@ -259,6 +284,19 @@ async def confirm_match(
         if target is None:
             raise ReconError("receipt not found")
         tgt_amount = money.q2(Decimal(target.amount))
+    elif kind == "issued_payment":
+        if signed < _ZERO:
+            raise ReconError("a debit line cannot match an issued-invoice payment (money in)")
+        target = await db.scalar(
+            select(Payment).where(
+                Payment.org_id == org_id,
+                Payment.id == target_id,
+                Payment.receipt_id.is_(None),
+            )
+        )
+        if target is None:
+            raise ReconError("issued-invoice payment not found")
+        tgt_amount = money.q2(abs(Decimal(target.amount)))
     elif kind == "reimbursement":
         if signed > _ZERO:
             raise ReconError("a credit line cannot match a reimbursement payout (money paid)")

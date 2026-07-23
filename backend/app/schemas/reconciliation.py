@@ -52,5 +52,5 @@ class MatchCandidateOut(BaseModel):
 
 
 class MatchRequest(BaseModel):
-    kind: str = Field(pattern="^(receipt|reimbursement|payment_run)$")
+    kind: str = Field(pattern="^(receipt|reimbursement|payment_run|issued_payment)$")
     target_id: str
