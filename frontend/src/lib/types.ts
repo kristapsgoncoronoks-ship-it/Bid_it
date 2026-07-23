@@ -261,6 +261,7 @@ export interface ExpenseReport {
   status:
     | "draft"
     | "submitted"
+    | "partially_approved"
     | "approved"
     | "rejected"
     | "returned"
@@ -315,6 +316,18 @@ export interface ExpensePolicy {
   version: number;
 }
 
+export interface ApprovalStep {
+  id: string;
+  seq: number;
+  kind: string;
+  approver_id: string | null;
+  approver_email: string | null;
+  status: string;
+  decided_by_email: string | null;
+  decided_at: string | null;
+  note: string | null;
+}
+
 export interface ExpenseReportDetail extends ExpenseReport {
   note: string | null;
   decided_at: string | null;
@@ -322,6 +335,19 @@ export interface ExpenseReportDetail extends ExpenseReport {
   decision_note: string | null;
   items: ExpenseItem[];
   policy_violations?: PolicyViolation[];
+  approval_steps?: ApprovalStep[];
+}
+
+export interface ExpenseApprovalPolicy {
+  id: string;
+  name: string;
+  active: boolean;
+  priority: number;
+  min_amount: string | null;
+  approver_ids: string[];
+  finance_final: boolean;
+  finance_approver_id: string | null;
+  version: number;
 }
 
 export interface ExpenseSummary {

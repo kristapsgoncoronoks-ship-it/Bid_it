@@ -23,6 +23,7 @@ from app.models.expense import (
     ExpenseTransaction,
     ReimbursementBatch,
 )
+from app.models.expense_approval import ExpenseApprovalPolicy, ExpenseApprovalStep
 from app.models.extraction_field import ExtractionField
 from app.models.extraction_run import ExtractionRun
 from app.models.fx import EcbRate
@@ -92,6 +93,8 @@ __all__ = [
     "ExpenseItem",
     "ExpenseTransaction",
     "ExpenseComment",
+    "ExpenseApprovalPolicy",
+    "ExpenseApprovalStep",
     "ReimbursementBatch",
     "ExpensePolicy",
     "UsageCounter",

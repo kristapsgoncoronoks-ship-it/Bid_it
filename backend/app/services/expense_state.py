@@ -22,6 +22,7 @@ from fastapi import HTTPException, status
 STATES = (
     "draft",
     "submitted",
+    "partially_approved",
     "approved",
     "rejected",
     "returned",
@@ -33,6 +34,8 @@ STATES = (
 EDITABLE = frozenset({"draft", "returned"})
 # States from which no further transition is possible.
 TERMINAL = frozenset({"rejected", "reimbursed"})
+# States in which an approval-chain decision (approve/reject/return) may be made.
+IN_APPROVAL = frozenset({"submitted", "partially_approved"})
 
 # action → (set of legal source states, target state). Actor authorisation
 # (owner vs approver, segregation of duties) is enforced at the route layer; this

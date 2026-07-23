@@ -31,6 +31,7 @@ Money = Numeric(14, 2)
 EXPENSE_STATUSES = (
     "draft",
     "submitted",
+    "partially_approved",
     "approved",
     "rejected",
     "returned",
@@ -66,7 +67,8 @@ class ExpenseReport(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     employee_name: Mapped[str] = mapped_column(String(200), nullable=False)
 
     title: Mapped[str] = mapped_column(String(200), nullable=False)
-    status: Mapped[str] = mapped_column(String(16), default="draft", nullable=False, index=True)
+    # Width fits the longest workflow status ("marked_for_reimbursement" = 24).
+    status: Mapped[str] = mapped_column(String(32), default="draft", nullable=False, index=True)
     currency: Mapped[str] = mapped_column(String(3), default="EUR", nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 

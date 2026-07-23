@@ -2,7 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useToast } from "../components/Toast";
 import { api, apiError } from "../lib/api";
-import { EXPENSE_CATEGORIES, EXPENSE_POLICY_RULES, type ExpensePolicy } from "../lib/types";
+import {
+  EXPENSE_CATEGORIES,
+  EXPENSE_POLICY_RULES,
+  type ExpenseApprovalPolicy,
+  type ExpensePolicy,
+} from "../lib/types";
 
 const RULE_LABELS: Record<string, string> = {
   over_item_max: "Over per-item maximum",
@@ -141,6 +146,98 @@ export default function ExpensePolicyPage() {
 
         <div className="flex justify-end">
           <button className="btn-primary" disabled={save.isPending} onClick={() => save.mutate(f)}>Save policy</button>
+        </div>
+      </div>
+
+      <ApprovalRouting />
+    </div>
+  );
+}
+
+// Multi-step approval routing: ordered approver chains chosen by amount threshold.
+function ApprovalRouting() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [name, setName] = useState("");
+  const [minAmount, setMinAmount] = useState("");
+  const [picked, setPicked] = useState<string[]>([]);
+
+  const policies = useQuery<ExpenseApprovalPolicy[]>({
+    queryKey: ["expense-approval-policies"],
+    queryFn: async () => (await api.get("/expenses/approval-policies")).data,
+  });
+  const members = useQuery<{ id: string; email: string; name: string; is_expense_approver?: boolean }[]>({
+    queryKey: ["team", "members"],
+    queryFn: async () => (await api.get("/team/members")).data,
+  });
+  const approvers = (members.data ?? []).filter((m) => m.is_expense_approver);
+  const nameOf = (uid: string) => approvers.find((m) => m.id === uid)?.name ?? uid.slice(0, 8);
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["expense-approval-policies"] });
+  const create = useMutation({
+    mutationFn: async () =>
+      (await api.post("/expenses/approval-policies", {
+        name,
+        min_amount: minAmount || null,
+        approver_ids: picked,
+      })).data,
+    onSuccess: () => { setName(""); setMinAmount(""); setPicked([]); invalidate(); },
+    onError: (e) => toast.error(apiError(e)),
+  });
+  const del = useMutation({
+    mutationFn: async (id: string) => api.delete(`/expenses/approval-policies/${id}`),
+    onSuccess: invalidate,
+    onError: (e) => toast.error(apiError(e)),
+  });
+  const toggle = (uid: string) =>
+    setPicked((p) => (p.includes(uid) ? p.filter((x) => x !== uid) : [...p, uid]));
+
+  return (
+    <div className="card space-y-4">
+      <div>
+        <h2 className="text-sm font-semibold text-slate-600">Approval routing</h2>
+        <p className="text-xs text-slate-400">
+          Ordered approver chains, selected by amount. No matching policy ⇒ a single approver decides
+          (today's behaviour). Only designated expense approvers can be added to a chain.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        {(policies.data ?? []).map((p) => (
+          <div key={p.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">
+            <span className="font-medium">{p.name}</span>
+            {!p.active && <span className="badge bg-slate-100 text-slate-400">inactive</span>}
+            <span className="text-xs text-slate-400">
+              {p.min_amount ? `≥ ${p.min_amount} EUR · ` : ""}
+              {p.approver_ids.map(nameOf).join(" → ") || "any approver"}
+              {p.finance_final ? " → finance" : ""}
+            </span>
+            <button className="ml-auto text-xs text-rose-500 hover:underline" onClick={() => del.mutate(p.id)}>remove</button>
+          </div>
+        ))}
+        {(policies.data ?? []).length === 0 && <p className="text-sm text-slate-400">No approval chains — a single approver decides.</p>}
+      </div>
+
+      <div className="rounded-lg border border-dashed border-slate-300 p-3 space-y-2">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <input className="input py-1 text-sm" placeholder="Chain name (e.g. Over €1,000)" value={name} onChange={(e) => setName(e.target.value)} />
+          <input className="input py-1 text-sm" inputMode="decimal" placeholder="Applies at/above (EUR, blank = all)" value={minAmount} onChange={(e) => setMinAmount(e.target.value)} />
+        </div>
+        <div>
+          <div className="mb-1 text-xs font-medium text-slate-500">Approvers in order (tick to add)</div>
+          <div className="flex flex-wrap gap-2">
+            {approvers.map((m) => (
+              <label key={m.id} className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-sm ${picked.includes(m.id) ? "border-brand-400 bg-brand-50" : "border-slate-200"}`}>
+                <input type="checkbox" checked={picked.includes(m.id)} onChange={() => toggle(m.id)} />
+                {m.name}
+              </label>
+            ))}
+            {approvers.length === 0 && <span className="text-xs text-slate-400">Appoint expense approvers on the Team page first.</span>}
+          </div>
+          {picked.length > 0 && <div className="mt-1 text-xs text-slate-500">Order: {picked.map(nameOf).join(" → ")}</div>}
+        </div>
+        <div className="flex justify-end">
+          <button className="btn-primary" disabled={!name || picked.length === 0 || create.isPending} onClick={() => create.mutate()}>Add chain</button>
         </div>
       </div>
     </div>

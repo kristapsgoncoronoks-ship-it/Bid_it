@@ -42,6 +42,7 @@ from app.models.expense import (
     ExpenseTransaction,
     ReimbursementBatch,
 )
+from app.models.expense_approval import ExpenseApprovalPolicy, ExpenseApprovalStep
 from app.models.extraction_field import ExtractionField
 from app.models.extraction_run import ExtractionRun
 from app.models.invitation import Invitation
@@ -119,6 +120,8 @@ TENANT_MODELS = (
     InvoiceAttachment,
     ReimbursementBatch,
     ExpensePolicy,
+    ExpenseApprovalPolicy,
+    ExpenseApprovalStep,
     BankStatement,
     BankLine,
     SupplierPayment,

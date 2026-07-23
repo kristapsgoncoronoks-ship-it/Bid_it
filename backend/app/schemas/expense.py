@@ -229,6 +229,19 @@ class PolicyCheckOut(BaseModel):
     can_submit: bool = True
 
 
+class ApprovalStepOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    seq: int
+    kind: str
+    approver_id: str | None = None
+    approver_email: str | None = None
+    status: str
+    decided_by_email: str | None = None
+    decided_at: datetime | None = None
+    note: str | None = None
+
+
 class ExpenseReportDetail(ExpenseReportOut):
     note: str | None
     decided_at: datetime | None
@@ -238,6 +251,39 @@ class ExpenseReportDetail(ExpenseReportOut):
     payment_reference: str | None = None
     items: list[ExpenseItemOut]
     policy_violations: list[PolicyViolation] = []
+    approval_steps: list[ApprovalStepOut] = []
+
+
+class ReassignIn(BaseModel):
+    approver_id: str
+    step_id: str | None = None  # default: the current pending step
+
+
+class ExpenseApprovalPolicyIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    active: bool = True
+    priority: int = 100
+    min_amount: Decimal | None = None
+    approver_ids: list[str] = Field(default_factory=list)
+    finance_final: bool = False
+    finance_approver_id: str | None = None
+
+
+class ExpenseApprovalPolicyUpdate(ExpenseApprovalPolicyIn):
+    version: int
+
+
+class ExpenseApprovalPolicyOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    name: str
+    active: bool
+    priority: int
+    min_amount: Decimal | None = None
+    approver_ids: list[str] = []
+    finance_final: bool = False
+    finance_approver_id: str | None = None
+    version: int
 
 
 class ExpenseReportListOut(BaseModel):

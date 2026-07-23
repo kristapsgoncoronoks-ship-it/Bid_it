@@ -8,6 +8,7 @@ import { api, apiError, downloadFile } from "../lib/api";
 import { EXPENSE_STATUS_STYLES, money, shortDate } from "../lib/format";
 import {
   EXPENSE_CATEGORIES,
+  type ApprovalStep,
   type ExpenseCategory,
   type ExpenseComment,
   type ExpenseItemInput,
@@ -169,7 +170,7 @@ export default function ExpenseDetail() {
             <button className="btn-ghost" onClick={() => act.mutate({ path: "withdraw" })}>Withdraw</button>
           )}
           {canEdit && r.status === "draft" && <button className="btn-ghost text-rose-600" onClick={() => del.mutate()}>Delete draft</button>}
-          {canDecide && r.status === "submitted" && (
+          {canDecide && (r.status === "submitted" || r.status === "partially_approved") && (
             <>
               <button className="btn bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => decide("approve")}>Approve</button>
               <button className="btn border border-orange-300 bg-white text-orange-600 hover:bg-orange-50" onClick={() => decide("return_for_correction")}>Return for correction</button>
@@ -197,6 +198,10 @@ export default function ExpenseDetail() {
       {/* Mobile camera capture — opens the rear camera directly on phones. */}
       <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f && uploadItemId.current) uploadReceipt.mutate({ itemId: uploadItemId.current, file: f }); e.target.value = ""; }} />
+
+      {(r.approval_steps?.length ?? 0) > 0 && (
+        <ApprovalChain reportId={id!} steps={r.approval_steps!} canReassign={canDecide} onChange={invalidate} />
+      )}
 
       <div className="card overflow-x-auto p-0">
         <table className="w-full text-sm">
@@ -455,6 +460,72 @@ function CommentThread({ reportId }: { reportId: string }) {
           onKeyDown={(e) => { if (e.key === "Enter" && body.trim()) post.mutate(); }} />
         <button className="btn-primary" disabled={!body.trim() || post.isPending} onClick={() => post.mutate()}>Post</button>
       </div>
+    </div>
+  );
+}
+
+// The report's multi-step approval chain: an ordered timeline of steps + a
+// reassign control on the current pending step (approvers only).
+function ApprovalChain({ reportId, steps, canReassign, onChange }:
+  { reportId: string; steps: ApprovalStep[]; canReassign: boolean; onChange: () => void }) {
+  const toast = useToast();
+  const [reassigning, setReassigning] = useState(false);
+  const members = useQuery<{ id: string; email: string; name: string; is_expense_approver?: boolean }[]>({
+    queryKey: ["team", "members"],
+    queryFn: async () => (await api.get("/team/members")).data,
+    enabled: reassigning,
+  });
+  const reassign = useMutation({
+    mutationFn: async (approver_id: string) =>
+      (await api.post(`/expenses/${reportId}/reassign`, { approver_id })).data,
+    onSuccess: () => { setReassigning(false); onChange(); },
+    onError: (e) => toast.error(apiError(e)),
+  });
+
+  const tone: Record<string, string> = {
+    approved: "bg-emerald-100 text-emerald-700",
+    rejected: "bg-rose-100 text-rose-700",
+    skipped: "bg-slate-100 text-slate-400",
+    pending: "bg-amber-100 text-amber-700",
+  };
+  const pendingSeq = steps.find((s) => s.status === "pending")?.seq;
+
+  return (
+    <div className="card space-y-2">
+      <h2 className="text-sm font-semibold text-slate-600">Approval chain</h2>
+      <ol className="space-y-2">
+        {steps.map((s) => (
+          <li key={s.id} className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="grid h-6 w-6 place-items-center rounded-full bg-slate-100 text-xs font-semibold text-slate-500">{s.seq + 1}</span>
+            <span className={`badge ${tone[s.status] ?? "bg-slate-100 text-slate-500"}`}>{s.status}</span>
+            <span className="text-slate-600">
+              {s.kind === "finance_final" ? "Finance sign-off · " : ""}
+              {s.approver_email ?? "Any approver"}
+            </span>
+            {s.decided_by_email && s.status !== "pending" && (
+              <span className="text-xs text-slate-400">by {s.decided_by_email}</span>
+            )}
+            {canReassign && s.seq === pendingSeq && !reassigning && (
+              <button className="text-xs text-brand-600 hover:underline" onClick={() => setReassigning(true)}>reassign</button>
+            )}
+            {canReassign && s.seq === pendingSeq && reassigning && (
+              <span className="flex items-center gap-1">
+                <select
+                  className="input py-0.5 text-xs"
+                  defaultValue=""
+                  onChange={(e) => e.target.value && reassign.mutate(e.target.value)}
+                >
+                  <option value="" disabled>Reassign to…</option>
+                  {(members.data ?? []).filter((m) => m.is_expense_approver).map((m) => (
+                    <option key={m.id} value={m.id}>{m.name} ({m.email})</option>
+                  ))}
+                </select>
+                <button className="text-xs text-slate-400 hover:underline" onClick={() => setReassigning(false)}>cancel</button>
+              </span>
+            )}
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from datetime import date
 from decimal import Decimal
@@ -23,8 +24,12 @@ from app.models.expense import (
 from app.models.user import User
 from app.schemas.document_version import DocumentVersionOut
 from app.schemas.expense import (
+    ApprovalStepOut,
     BankImportResult,
     CategoryTotal,
+    ExpenseApprovalPolicyIn,
+    ExpenseApprovalPolicyOut,
+    ExpenseApprovalPolicyUpdate,
     ExpenseCommentIn,
     ExpenseCommentOut,
     ExpenseDecision,
@@ -44,6 +49,7 @@ from app.schemas.expense import (
     MatchTransaction,
     PolicyCheckOut,
     PolicyViolation,
+    ReassignIn,
 )
 from app.services import (
     audit,
@@ -51,6 +57,7 @@ from app.services import (
     costing,
     document_versions,
     documents,
+    expense_approval,
     expense_policy,
     expense_state,
     expenses,
@@ -97,6 +104,14 @@ def _detail(r: ExpenseReport) -> ExpenseReportDetail:
         out.verified = it.bank_reference is not None
         items.append(out)
     d.items = items
+    return d
+
+
+async def _detail_with_steps(r: ExpenseReport, db: DbSession, org_id: str) -> ExpenseReportDetail:
+    """Report detail enriched with its approval-chain steps."""
+    d = _detail(r)
+    steps = await expense_approval.steps_for(db, org_id, r.id)
+    d.approval_steps = [ApprovalStepOut.model_validate(s) for s in steps]
     return d
 
 
@@ -431,12 +446,142 @@ async def set_policy(body: ExpensePolicyIn, current: CurrentUser, db: DbSession)
     return _policy_out(p)
 
 
+# --------------------------------------------------------------------------- #
+# Multi-step approval-routing policies (mirrors /approval-policies for invoices)
+# --------------------------------------------------------------------------- #
+def _appr_policy_out(p) -> ExpenseApprovalPolicyOut:
+    return ExpenseApprovalPolicyOut(
+        id=p.id,
+        name=p.name,
+        active=p.active,
+        priority=p.priority,
+        min_amount=p.min_amount,
+        approver_ids=expense_approval.approver_ids_of(p),
+        finance_final=p.finance_final,
+        finance_approver_id=p.finance_approver_id,
+        version=p.version,
+    )
+
+
+@router.get("/approval-policies", response_model=list[ExpenseApprovalPolicyOut])
+async def list_approval_policies(current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    from app.models.expense_approval import ExpenseApprovalPolicy
+
+    rows = await db.scalars(
+        select(ExpenseApprovalPolicy)
+        .where(ExpenseApprovalPolicy.org_id == current.org_id)
+        .order_by(ExpenseApprovalPolicy.priority.asc(), ExpenseApprovalPolicy.created_at.asc())
+    )
+    return [_appr_policy_out(p) for p in rows]
+
+
+@router.post(
+    "/approval-policies",
+    response_model=ExpenseApprovalPolicyOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_approval_policy(
+    body: ExpenseApprovalPolicyIn, current: CurrentUser, db: DbSession
+):
+    await _guard(db, current.org_id)
+    if not is_admin_or_above(current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can manage approval policies")
+    from app.models.expense_approval import ExpenseApprovalPolicy
+
+    p = ExpenseApprovalPolicy(
+        org_id=current.org_id,
+        name=body.name,
+        active=body.active,
+        priority=body.priority,
+        min_amount=body.min_amount,
+        approver_ids=json.dumps(body.approver_ids) if body.approver_ids else None,
+        finance_final=body.finance_final,
+        finance_approver_id=body.finance_approver_id,
+    )
+    db.add(p)
+    await audit.record(
+        db,
+        audit.A.EXPENSE_APPROVAL_POLICY,
+        target_type="expense_approval_policy",
+        meta={"op": "create"},
+    )
+    await db.commit()
+    await db.refresh(p)
+    return _appr_policy_out(p)
+
+
+@router.patch("/approval-policies/{policy_id}", response_model=ExpenseApprovalPolicyOut)
+async def update_approval_policy(
+    policy_id: str, body: ExpenseApprovalPolicyUpdate, current: CurrentUser, db: DbSession
+):
+    await _guard(db, current.org_id)
+    if not is_admin_or_above(current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can manage approval policies")
+    from app.models.expense_approval import ExpenseApprovalPolicy
+
+    p = await db.scalar(
+        select(ExpenseApprovalPolicy).where(
+            ExpenseApprovalPolicy.id == policy_id, ExpenseApprovalPolicy.org_id == current.org_id
+        )
+    )
+    if p is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Policy not found")
+    if body.version != p.version:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"Policy changed (your {body.version}, current {p.version})"
+        )
+    p.name = body.name
+    p.active = body.active
+    p.priority = body.priority
+    p.min_amount = body.min_amount
+    p.approver_ids = json.dumps(body.approver_ids) if body.approver_ids else None
+    p.finance_final = body.finance_final
+    p.finance_approver_id = body.finance_approver_id
+    p.version += 1
+    await audit.record(
+        db,
+        audit.A.EXPENSE_APPROVAL_POLICY,
+        target_type="expense_approval_policy",
+        target_id=p.id,
+        meta={"op": "update"},
+    )
+    await db.commit()
+    await db.refresh(p)
+    return _appr_policy_out(p)
+
+
+@router.delete("/approval-policies/{policy_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_approval_policy(policy_id: str, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    if not is_admin_or_above(current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can manage approval policies")
+    from app.models.expense_approval import ExpenseApprovalPolicy
+
+    p = await db.scalar(
+        select(ExpenseApprovalPolicy).where(
+            ExpenseApprovalPolicy.id == policy_id, ExpenseApprovalPolicy.org_id == current.org_id
+        )
+    )
+    if p is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Policy not found")
+    await db.delete(p)
+    await audit.record(
+        db,
+        audit.A.EXPENSE_APPROVAL_POLICY,
+        target_type="expense_approval_policy",
+        target_id=policy_id,
+        meta={"op": "delete"},
+    )
+    await db.commit()
+
+
 @router.get("/{report_id}", response_model=ExpenseReportDetail)
 async def get_report(report_id: str, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     r = await _load(db, current.org_id, report_id)
     _require_view(r, current)
-    detail = _detail(r)
+    detail = await _detail_with_steps(r, db, current.org_id)
     # Full configurable rule set for the reviewer (advisory unless a rule is
     # explicitly configured to block — see the submit gate).
     policy = await expense_policy.get(db, current.org_id)
@@ -524,11 +669,24 @@ async def submit_report(report_id: str, current: CurrentUser, db: DbSession):
 
     r.status = target
     r.submitted_at = expenses.now()
+    r.decided_at = None
+    r.decided_by = None
+    r.decision_note = None
     if r.currency.upper() == "EUR":
         r.total_eur = r.total
     else:
         eur, _resolved = await fx.to_eur(db, r.total, r.currency, date.today())
         r.total_eur = eur
+
+    # Build a fresh multi-step approval chain (a resubmit replaces any old one).
+    # No policy ⇒ one generic open step = the legacy single-approver behaviour.
+    await expense_approval.delete_chain(db, current.org_id, r.id)
+    appr_policy = await expense_approval.evaluate(db, current.org_id, r)
+    await expense_approval.build_chain(db, current.org_id, r, appr_policy)
+
+    await audit.record(
+        db, audit.A.EXPENSE_SUBMIT, target_type="expense_report", target_id=r.id, meta={}
+    )
     await webhooks.emit(
         db,
         current.org_id,
@@ -543,7 +701,7 @@ async def submit_report(report_id: str, current: CurrentUser, db: DbSession):
     )
     await db.commit()
     await db.refresh(r, attribute_names=["items"])
-    return _detail(r)
+    return await _detail_with_steps(r, db, current.org_id)
 
 
 @router.post("/{report_id}/decision", response_model=ExpenseReportDetail)
@@ -564,30 +722,70 @@ async def decide(report_id: str, body: ExpenseDecision, current: CurrentUser, db
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You cannot approve your own expense report")
 
     action = expense_state.canonical(body.action)
-    target = expense_state.target_for(action, r.status)  # 409 if illegal from here
 
-    r.status = target
-    r.decided_at = expenses.now()
-    r.decided_by = current.email
-    r.decision_note = body.note
-    if target == "reimbursed":
-        # Stamp the reimbursement time for a direct single-report payout (a batch
-        # payout does the same across many reports — see routes/reimbursements.py).
-        r.reimbursed_at = expenses.now()
+    if action in ("approve", "reject", "return_for_correction"):
+        # Multi-step chain decision: act on the current pending step only.
+        if r.status not in expense_state.IN_APPROVAL:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, f"A {r.status} report is not awaiting approval"
+            )
+        steps = await expense_approval.steps_for(db, current.org_id, r.id)
+        step = expense_approval.pending_step(steps)
+        if step is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "No pending approval step")
+        if not expense_approval.is_assigned_approver(step, current):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "This step is assigned to another approver — you cannot decide it yet.",
+            )
+        if action == "approve":
+            expense_approval.decide_step(step, current, approved=True, note=body.note)
+            new_status = expense_approval.chain_state(steps)
+        elif action == "reject":
+            expense_approval.decide_step(step, current, approved=False, note=body.note)
+            expense_approval.skip_pending(steps)
+            new_status = "rejected"
+        else:  # return_for_correction
+            expense_approval.skip_pending(steps)
+            new_status = "returned"
+        r.status = new_status
+        r.decided_at = expenses.now()
+        r.decided_by = current.email
+        r.decision_note = body.note
+        _audit_action = {
+            "approve": audit.A.EXPENSE_APPROVE,
+            "reject": audit.A.EXPENSE_REJECT,
+            "return_for_correction": audit.A.EXPENSE_RETURN,
+        }[action]
+        await audit.record(
+            db,
+            _audit_action,
+            target_type="expense_report",
+            target_id=r.id,
+            meta={"to": new_status, "step_seq": step.seq},
+        )
+    else:
+        # Owner/finance progression actions (mark for reimbursement / reimbursed).
+        target = expense_state.target_for(action, r.status)  # 409 if illegal
+        r.status = target
+        r.decided_at = expenses.now()
+        r.decided_by = current.email
+        r.decision_note = body.note
+        if target == "reimbursed":
+            r.reimbursed_at = expenses.now()
+        await audit.record(
+            db,
+            audit.A.EXPENSE_TRANSITION,
+            target_type="expense_report",
+            target_id=r.id,
+            meta={"action": action, "to": target},
+        )
 
-    await audit.record(
-        db,
-        audit.A.EXPENSE_TRANSITION,
-        target_type="expense_report",
-        target_id=r.id,
-        meta={"action": action, "to": target},
-    )
-    # Notify on the meaningful lifecycle events.
-    if target in ("approved", "rejected", "returned", "reimbursed"):
+    if r.status in ("approved", "rejected", "returned", "reimbursed"):
         await webhooks.emit(
             db,
             current.org_id,
-            f"expense.{target}",
+            f"expense.{r.status}",
             {
                 "id": r.id,
                 "title": r.title,
@@ -599,7 +797,47 @@ async def decide(report_id: str, body: ExpenseDecision, current: CurrentUser, db
         )
     await db.commit()
     await db.refresh(r, attribute_names=["items"])
-    return _detail(r)
+    return await _detail_with_steps(r, db, current.org_id)
+
+
+@router.post("/{report_id}/reassign", response_model=ExpenseReportDetail)
+async def reassign_step(report_id: str, body: ReassignIn, current: CurrentUser, db: DbSession):
+    """Reassign a pending approval step to a different approver (an approver may
+    delegate/route). Defaults to the current pending step."""
+    await _guard(db, current.org_id)
+    if not _is_approver(current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an expense approver can reassign")
+    r = await _load(db, current.org_id, report_id)
+    if r.status not in expense_state.IN_APPROVAL:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Report is not awaiting approval")
+    steps = await expense_approval.steps_for(db, current.org_id, r.id)
+    if body.step_id:
+        step = next((s for s in steps if s.id == body.step_id), None)
+    else:
+        step = expense_approval.pending_step(steps)
+    if step is None or step.status != "pending":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such pending step")
+    new_approver = await db.get(User, body.approver_id)
+    if new_approver is None or new_approver.org_id != current.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Approver not found")
+    step.approver_id = new_approver.id
+    step.approver_email = new_approver.email
+    await audit.record(
+        db,
+        audit.A.EXPENSE_REASSIGN,
+        target_type="expense_report",
+        target_id=r.id,
+        meta={"step_seq": step.seq, "to": new_approver.email},
+    )
+    await webhooks.emit(
+        db,
+        current.org_id,
+        "expense.reassigned",
+        {"id": r.id, "title": r.title, "approver": new_approver.email},
+    )
+    await db.commit()
+    await db.refresh(r, attribute_names=["items"])
+    return await _detail_with_steps(r, db, current.org_id)
 
 
 @router.post("/{report_id}/withdraw", response_model=ExpenseReportDetail)
@@ -612,6 +850,8 @@ async def withdraw_report(report_id: str, current: CurrentUser, db: DbSession):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only withdraw your own reports")
     r.status = expense_state.target_for("withdraw", r.status)  # 409 if not submitted
     r.submitted_at = None
+    # A withdrawn report goes back to the drawing board — discard its chain.
+    await expense_approval.delete_chain(db, current.org_id, r.id)
     await audit.record(
         db,
         audit.A.EXPENSE_TRANSITION,

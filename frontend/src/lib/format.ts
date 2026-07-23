@@ -118,6 +118,7 @@ export const SEVERITY_STYLES: Record<string, string> = {
 export const EXPENSE_STATUS_STYLES: Record<string, string> = {
   draft: "bg-slate-100 text-slate-600",
   submitted: "bg-amber-100 text-amber-700",
+  partially_approved: "bg-amber-100 text-amber-800",
   approved: "bg-sky-100 text-sky-700",
   returned: "bg-orange-100 text-orange-700",
   marked_for_reimbursement: "bg-indigo-100 text-indigo-700",
