@@ -24,6 +24,7 @@ OPEN = "open"
 OVERDUE = "overdue"
 CREDITED = "credited"
 CREDIT_NOTE = "credit_note"
+VOID = "void"
 
 STATUS_LABELS = {
     PAID: "Paid",
@@ -32,6 +33,7 @@ STATUS_LABELS = {
     OVERDUE: "Overdue",
     CREDITED: "Credited",
     CREDIT_NOTE: "Credit note",
+    VOID: "Void",
 }
 
 
@@ -56,6 +58,8 @@ def outstanding_of(inv: IssuedInvoice) -> Decimal:
 
 def status_of(inv: IssuedInvoice, today: date | None = None) -> str:
     today = today or date.today()
+    if getattr(inv, "voided_at", None) is not None:
+        return VOID  # cancelled before payment — no longer a receivable
     if is_credit_note(inv):
         return CREDIT_NOTE
     paid = Decimal(inv.amount_paid or _ZERO)

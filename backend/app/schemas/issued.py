@@ -89,6 +89,13 @@ class IssuedInvoiceOut(BaseModel):
     days_overdue: int = 0
     reminder_count: int = 0
     last_reminder_at: date | None = None
+    sent_at: datetime | None = None
+    voided_at: datetime | None = None
+    void_reason: str | None = None
+
+
+class VoidRequest(BaseModel):
+    reason: str | None = None
 
 
 class PaymentUpdate(BaseModel):

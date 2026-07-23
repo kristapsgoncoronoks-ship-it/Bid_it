@@ -694,7 +694,14 @@ export interface VatBucket {
   vat: string;
 }
 
-export type IssuedStatus = "paid" | "partial" | "open" | "overdue" | "credited" | "credit_note";
+export type IssuedStatus =
+  | "paid"
+  | "partial"
+  | "open"
+  | "overdue"
+  | "credited"
+  | "credit_note"
+  | "void";
 
 // --- Partners (counterparties) with a pre-invoicing document workflow ---
 export type PartnerDocKind = "contract" | "acceptance_act";
@@ -778,6 +785,9 @@ export interface IssuedInvoice {
   days_overdue: number;
   reminder_count: number;
   last_reminder_at: string | null;
+  sent_at: string | null;
+  voided_at: string | null;
+  void_reason: string | null;
 }
 
 export interface EmailMessage {

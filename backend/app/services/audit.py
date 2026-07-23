@@ -57,6 +57,7 @@ class A:
     ISSUED_REMINDER = "issued.reminder"
     ISSUED_PENALTY = "issued.penalty_invoice"
     ISSUED_CREDIT_NOTE = "issued.credit_note"
+    ISSUED_VOID = "issued.void"
     RECURRING_CREATE = "recurring.create"
     RECURRING_UPDATE = "recurring.update"
     RECURRING_GENERATE = "recurring.generate"

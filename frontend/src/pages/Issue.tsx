@@ -109,6 +109,7 @@ export default function Issue() {
                     <span className={`badge ${ISSUED_STATUS_STYLES[inv.status] ?? "bg-slate-100 text-slate-600"}`}>
                       {ISSUED_STATUS_LABELS[inv.status] ?? inv.status}
                     </span>
+                    {inv.sent_at && <span className="badge ml-1 bg-sky-50 text-sky-600" title={`Sent ${shortDate(inv.sent_at)}`}>Sent</span>}
                     {inv.status === "overdue" && (
                       <div className="mt-0.5 text-xs text-rose-500">
                         {inv.days_overdue}d overdue
@@ -127,6 +128,7 @@ export default function Issue() {
                       <div className="flex flex-col items-end gap-1">
                         <PaymentAction inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
                         <CreditAction inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
+                        <VoidAction inv={inv} onDone={() => qc.invalidateQueries({ queryKey: ["issued"] })} />
                       </div>
                     )}
                   </td>
@@ -286,6 +288,39 @@ function CreditAction({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void 
         Credit
       </button>
       {note && <span className="text-xs text-slate-500">{note}</span>}
+    </div>
+  );
+}
+
+function VoidAction({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void }) {
+  const [err, setErr] = useState<string | null>(null);
+  const doVoid = useMutation({
+    mutationFn: async (reason: string) => (await api.post(`/issued/${inv.id}/void`, { reason })).data,
+    onSuccess: onDone,
+    onError: (e) => setErr(apiError(e)),
+  });
+  // Only an unpaid, un-credited standard invoice can be voided.
+  if (
+    inv.doc_type === "credit_note" ||
+    inv.voided_at !== null ||
+    Number(inv.amount_paid) > 0 ||
+    Number(inv.credited_total) > 0
+  )
+    return null;
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        className="text-xs text-rose-600 hover:underline disabled:text-slate-300"
+        disabled={doVoid.isPending}
+        title="Cancel (void) this unpaid invoice"
+        onClick={() => {
+          const reason = window.prompt(`Void invoice ${inv.number}? Optional reason:`);
+          if (reason !== null) doVoid.mutate(reason);
+        }}
+      >
+        Void
+      </button>
+      {err && <span className="text-xs text-rose-500">{err}</span>}
     </div>
   );
 }

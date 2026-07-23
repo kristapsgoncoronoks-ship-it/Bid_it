@@ -1,9 +1,18 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, ForeignKey, Index, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -88,6 +97,14 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # overdue when still owed past due_date, otherwise open. See issued_reports.
     amount_paid: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
     paid_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    # Lifecycle (Phase 10): delivery + cancellation. `sent_at` records the first
+    # time the invoice PDF was emailed to the buyer; `voided_at`/`void_reason`
+    # cancel an unpaid invoice (a voided invoice reads as status VOID and refuses
+    # payment / credit-note / send).
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    void_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
     # Late-payment interest. Only invoices that CARRY a rate accrue a penalty; the
     # accrued figure is advisory (computed, never added to `total`). See issued_status.

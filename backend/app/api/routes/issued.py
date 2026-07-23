@@ -4,16 +4,16 @@ import csv
 import io
 import json
 import zipfile
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
-from app.core import money
+from app.core import authz, money
 from app.models.issued_invoice import IssuedInvoice
 from app.schemas.issued import (
     BulkReminderResult,
@@ -30,6 +30,7 @@ from app.schemas.issued import (
     SendRequest,
     SendResult,
     VatBucketOut,
+    VoidRequest,
 )
 from app.schemas.issued_reports import (
     PartnerReportOut,
@@ -56,7 +57,14 @@ from app.services import (
     webhooks,
 )
 
-router = APIRouter(prefix="/issued", tags=["issuing"])
+
+def _require_issued_read(current: CurrentUser) -> None:
+    """Router-level gate: every issuing route needs at least ISSUED_READ. Write/send
+    routes additionally require ISSUED_WRITE / ISSUED_SEND inline."""
+    authz.require(current, authz.Permission.ISSUED_READ)
+
+
+router = APIRouter(prefix="/issued", tags=["issuing"], dependencies=[Depends(_require_issued_read)])
 
 
 async def _guard(db: DbSession, org_id: str):
@@ -108,6 +116,7 @@ def _detail(inv: IssuedInvoice) -> IssuedInvoiceDetail:
 
 @router.post("", response_model=IssuedInvoiceDetail, status_code=status.HTTP_201_CREATED)
 async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbSession):
+    authz.require(current, authz.Permission.ISSUED_WRITE)
     profile = await _guard(db, current.org_id)
 
     # If linked to a partner, enforce its pre-invoicing workflow (contract /
@@ -158,8 +167,10 @@ async def create_credit_note(
     credit. A credit note gets its own number series, reduces the corrected
     invoice's outstanding balance, and lowers reported turnover.
     """
+    authz.require(current, authz.Permission.ISSUED_WRITE)
     profile = await _guard(db, current.org_id)
     original = await _load(db, current.org_id, invoice_id)
+    _reject_if_voided(original)
     if issued_status.is_credit_note(original):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot credit a credit note.")
 
@@ -247,11 +258,20 @@ async def _load(db: DbSession, org_id: str, invoice_id: str) -> IssuedInvoice:
     return inv
 
 
+def _reject_if_voided(inv: IssuedInvoice) -> None:
+    if inv.voided_at is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"Invoice {inv.number} is voided and cannot be modified."
+        )
+
+
 @router.patch("/{invoice_id}/payment", response_model=IssuedInvoiceDetail)
 async def record_payment(invoice_id: str, body: PaymentUpdate, current: CurrentUser, db: DbSession):
     """Record a payment against an issued invoice (drives the paid/overdue report)."""
+    authz.require(current, authz.Permission.ISSUED_WRITE)
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id)
+    _reject_if_voided(inv)
     if issued_status.is_credit_note(inv):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "A credit note is not a receivable — no payment applies."
@@ -296,6 +316,41 @@ async def record_payment(invoice_id: str, body: PaymentUpdate, current: CurrentU
             "status": issued_status.status_of(inv),
             "currency": inv.currency,
         },
+    )
+    await db.commit()
+    await db.refresh(inv, attribute_names=["lines"])
+    return _detail(inv)
+
+
+@router.post("/{invoice_id}/void", response_model=IssuedInvoiceDetail)
+async def void_invoice(invoice_id: str, body: VoidRequest, current: CurrentUser, db: DbSession):
+    """Cancel (void) an unpaid invoice. A voided invoice reads as status VOID and
+    refuses payment / credit-note / send. Refuses to void a credit note, an
+    invoice with any payment recorded, or one already credited."""
+    authz.require(current, authz.Permission.ISSUED_WRITE)
+    await modules.require_enabled(db, current.org_id, "issuing")
+    inv = await _load(db, current.org_id, invoice_id)
+    if inv.voided_at is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Invoice is already voided.")
+    if issued_status.is_credit_note(inv):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot void a credit note.")
+    if Decimal(inv.amount_paid or 0) > Decimal("0"):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Cannot void an invoice with payments recorded — refund and remove them first.",
+        )
+    if Decimal(getattr(inv, "credited_total", None) or 0) > Decimal("0"):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Cannot void an invoice that has credit notes against it."
+        )
+    inv.voided_at = datetime.now(UTC)
+    inv.void_reason = body.reason
+    await audit.record(
+        db,
+        audit.A.ISSUED_VOID,
+        target_type="issued_invoice",
+        target_id=inv.id,
+        meta={"number": inv.number, "reason": body.reason},
     )
     await db.commit()
     await db.refresh(inv, attribute_names=["lines"])
@@ -418,8 +473,10 @@ def _seller_name(inv: IssuedInvoice) -> str:
 @router.post("/{invoice_id}/send", response_model=SendResult)
 async def send_invoice(invoice_id: str, body: SendRequest, current: CurrentUser, db: DbSession):
     """Email the invoice PDF to the buyer (or an override recipient)."""
+    authz.require(current, authz.Permission.ISSUED_SEND)
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id)
+    _reject_if_voided(inv)
     recipient = body.to_email or inv.buyer_email
     if not recipient:
         raise HTTPException(
@@ -449,6 +506,8 @@ async def send_invoice(invoice_id: str, body: SendRequest, current: CurrentUser,
         invoice_id=inv.id,
         attachment=(f"{inv.number}.pdf", pdf),
     )
+    if inv.sent_at is None:
+        inv.sent_at = datetime.now(UTC)  # record the first delivery on the invoice
     await audit.record(
         db,
         audit.A.ISSUED_SENT,
@@ -466,8 +525,10 @@ async def send_reminder(
     invoice_id: str, body: ReminderRequest, current: CurrentUser, db: DbSession
 ):
     """Send a payment reminder (with any accrued penalty) for an overdue invoice."""
+    authz.require(current, authz.Permission.ISSUED_SEND)
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id)
+    _reject_if_voided(inv)
     recipient = body.to_email or inv.buyer_email
     if not recipient:
         raise HTTPException(
@@ -490,6 +551,7 @@ async def _do_reminder(db: DbSession, org_id: str, inv: IssuedInvoice, recipient
 @router.post("/reminders/run", response_model=BulkReminderResult)
 async def run_overdue_reminders(current: CurrentUser, db: DbSession):
     """Send a reminder for every overdue invoice that has a customer email."""
+    authz.require(current, authz.Permission.ISSUED_SEND)
     await modules.require_enabled(db, current.org_id, "issuing")
     res = await dunning.run_overdue(db, current.org_id)
     await db.commit()
