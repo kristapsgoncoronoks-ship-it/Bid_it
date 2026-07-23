@@ -2,6 +2,7 @@
 
 from app.models.approval import ApprovalPolicy, ApprovalStep
 from app.models.audit import AuditEvent
+from app.models.bank_import import BankLine, BankStatement
 from app.models.base import Base
 from app.models.billing_event import ProcessedStripeEvent
 from app.models.billing_payment import BillingPayment
@@ -62,6 +63,8 @@ __all__ = [
     "ApprovalStep",
     "InvoiceComment",
     "InvoiceAttachment",
+    "BankStatement",
+    "BankLine",
     "Job",
     "EcbRate",
     "EmailIntake",

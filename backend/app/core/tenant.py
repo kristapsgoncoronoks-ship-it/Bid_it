@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session, with_loader_criteria
 
 from app.models.approval import ApprovalPolicy, ApprovalStep
 from app.models.audit import AuditEvent
+from app.models.bank_import import BankLine, BankStatement
 from app.models.billing_payment import BillingPayment
 from app.models.budget import BudgetTarget
 from app.models.costing import CostCenter, Department, Project
@@ -115,6 +116,8 @@ TENANT_MODELS = (
     InvoiceAttachment,
     ReimbursementBatch,
     ExpensePolicy,
+    BankStatement,
+    BankLine,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.
