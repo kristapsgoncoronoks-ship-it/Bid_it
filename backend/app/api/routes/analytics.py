@@ -17,8 +17,9 @@ from app.schemas.analytics import (
 )
 from app.schemas.ap_aging import ApAgingOut, WorklistItemOut
 from app.schemas.benchmark import CombinedBenchmark, SupplierBenchmark
+from app.schemas.cash_flow import CashFlowPointOut
 from app.schemas.cash_position import CashPositionOut
-from app.services import analytics, ap_aging, benchmark, cash_position, explore
+from app.services import analytics, ap_aging, benchmark, cash_flow, cash_position, explore
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -28,6 +29,17 @@ async def get_cash_position(current: CurrentUser, db: DbSession):
     """AR + AP + reconciliation roll-up for the cash-position dashboard (Phase 15)."""
     authz.require(current, authz.Permission.REPORT_READ)
     return await cash_position.summary(db, current.org_id)
+
+
+@router.get("/cash-flow", response_model=list[CashFlowPointOut])
+async def get_cash_flow(
+    current: CurrentUser,
+    db: DbSession,
+    months: int = Query(default=12, ge=1, le=36),
+):
+    """Monthly inflow / outflow / net cash-flow trend (Phase 19)."""
+    authz.require(current, authz.Permission.REPORT_READ)
+    return await cash_flow.monthly(db, current.org_id, months=months)
 
 
 @router.get("/ap-aging", response_model=ApAgingOut)

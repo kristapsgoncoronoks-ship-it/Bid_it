@@ -390,6 +390,14 @@ export interface PaymentRunDetail extends PaymentRun {
   invoices: RunInvoice[];
 }
 
+// Cash-flow trend (Phase 19).
+export interface CashFlowPoint {
+  period: string;
+  inflow: string;
+  outflow: string;
+  net: string;
+}
+
 // AP aging worklist (Phase 16b).
 export interface ApWorklistItem {
   id: string;

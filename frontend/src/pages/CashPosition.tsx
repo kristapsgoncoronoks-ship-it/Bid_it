@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import { CashFlowChart } from "../components/Charts";
 import { Badge, Card, StatCard, type Tone } from "../components/ui";
 import { api } from "../lib/api";
 import { money, shortDate } from "../lib/format";
-import type { ApAging, CashPosition } from "../lib/types";
+import type { ApAging, CashFlowPoint, CashPosition } from "../lib/types";
 
 export default function CashPositionPage() {
   const { data, isLoading } = useQuery<CashPosition>({
@@ -13,6 +14,10 @@ export default function CashPositionPage() {
   const apAging = useQuery<ApAging>({
     queryKey: ["ap-aging"],
     queryFn: async () => (await api.get("/analytics/ap-aging")).data,
+  });
+  const cashFlow = useQuery<CashFlowPoint[]>({
+    queryKey: ["cash-flow"],
+    queryFn: async () => (await api.get("/analytics/cash-flow?months=12")).data,
   });
 
   if (isLoading || !data) return <div className="text-slate-400">Loading…</div>;
@@ -53,6 +58,13 @@ export default function CashPositionPage() {
           accent={net >= 0 ? "brand" : "amber"}
         />
       </div>
+
+      {/* Cash-flow trend */}
+      {cashFlow.data && cashFlow.data.length > 0 && (
+        <Card title="Cash flow (last 12 months)">
+          <CashFlowChart data={cashFlow.data} />
+        </Card>
+      )}
 
       {/* Receivables */}
       <Card title="Receivables">
