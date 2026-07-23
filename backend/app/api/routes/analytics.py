@@ -5,6 +5,7 @@ from datetime import date
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from app.api.deps import CurrentUser, DbSession
+from app.core import authz
 from app.core.dimensions import DIMENSIONS, is_dimension
 from app.schemas.analytics import (
     CategorySpend,
@@ -15,9 +16,17 @@ from app.schemas.analytics import (
     VendorSpend,
 )
 from app.schemas.benchmark import CombinedBenchmark, SupplierBenchmark
-from app.services import analytics, benchmark, explore
+from app.schemas.cash_position import CashPositionOut
+from app.services import analytics, benchmark, cash_position, explore
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
+
+
+@router.get("/cash-position", response_model=CashPositionOut)
+async def get_cash_position(current: CurrentUser, db: DbSession):
+    """AR + AP + reconciliation roll-up for the cash-position dashboard (Phase 15)."""
+    authz.require(current, authz.Permission.REPORT_READ)
+    return await cash_position.summary(db, current.org_id)
 
 
 @router.get("/summary", response_model=SummaryOut)
