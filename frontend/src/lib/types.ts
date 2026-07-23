@@ -390,6 +390,32 @@ export interface PaymentRunDetail extends PaymentRun {
   invoices: RunInvoice[];
 }
 
+// Cash-position dashboard (Phase 15).
+export interface CashPosition {
+  currency: string;
+  receivables: {
+    currency: string;
+    outstanding: string;
+    overdue: string;
+    avg_days_to_pay: number | null;
+    aging: { label: string; count: number; outstanding: string }[];
+  };
+  payables: {
+    outstanding: string;
+    overdue: string;
+    count: number;
+    scheduled: number;
+    in_run: number;
+  };
+  reconciliation: {
+    unmatched: number;
+    matched: number;
+    ignored: number;
+    unmatched_amount: string;
+  };
+  net_position: string;
+}
+
 export interface InvoiceList {
   items: Invoice[];
   total: number;

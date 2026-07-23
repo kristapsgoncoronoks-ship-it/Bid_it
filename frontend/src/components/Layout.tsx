@@ -7,6 +7,7 @@ import { OrgSwitcher } from "./OrgSwitcher";
 // `module` marks an item that only shows when that add-on module is enabled.
 const NAV = [
   { to: "/", label: "Dashboard", end: true },
+  { to: "/cash-position", label: "Cash position", end: false },
   { to: "/explore", label: "Explore", end: false },
   { to: "/benchmark", label: "Benchmark", end: false },
   { to: "/fx", label: "FX", end: false },
