@@ -816,6 +816,43 @@ export interface ReceiptDetail extends Receipt {
   allocations: ReceiptAllocation[];
 }
 
+// Bank reconciliation (Phase 12): imported statements + their lines.
+export interface BankStatement {
+  id: string;
+  filename: string;
+  source_format: string;
+  method: string;
+  line_count: number;
+  created_by: string | null;
+  created_at: string;
+  unmatched: number;
+  matched: number;
+  ignored: number;
+}
+
+export interface BankLine {
+  id: string;
+  statement_id: string;
+  line_date: string;
+  description: string;
+  amount: string; // signed: credit +, debit −
+  direction: "credit" | "debit";
+  balance: string | null;
+  status: "unmatched" | "matched" | "ignored";
+  matched_kind: "receipt" | "reimbursement" | null;
+  matched_id: string | null;
+}
+
+export interface MatchCandidate {
+  kind: "receipt" | "reimbursement";
+  id: string;
+  amount: string;
+  date: string;
+  reference: string | null;
+  days_off: number;
+  score: number;
+}
+
 export interface EmailMessage {
   id: string;
   invoice_id: string | null;
