@@ -790,6 +790,32 @@ export interface IssuedInvoice {
   void_reason: string | null;
 }
 
+// Accounts-receivable cash: a receipt (money received) allocated across invoices.
+export interface ReceiptAllocation {
+  id: string;
+  issued_invoice_id: string;
+  amount: string;
+  paid_on: string;
+  reference: string | null;
+  note: string | null;
+}
+
+export interface Receipt {
+  id: string;
+  amount: string;
+  received_on: string;
+  method: string;
+  reference: string | null;
+  note: string | null;
+  allocated: string;
+  unallocated: string;
+  created_at: string;
+}
+
+export interface ReceiptDetail extends Receipt {
+  allocations: ReceiptAllocation[];
+}
+
 export interface EmailMessage {
   id: string;
   invoice_id: string | null;
