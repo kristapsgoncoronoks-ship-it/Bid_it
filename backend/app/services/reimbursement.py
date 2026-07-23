@@ -72,7 +72,7 @@ async def create_batch(
     if missing:
         raise ReimbursementError(f"Report(s) not found: {', '.join(missing)}")
     for r in reports:
-        if r.status != "approved":
+        if r.status not in ("approved", "marked_for_reimbursement"):
             raise ReimbursementError(
                 f"Report '{r.title}' is {r.status}; only approved reports can be paid."
             )

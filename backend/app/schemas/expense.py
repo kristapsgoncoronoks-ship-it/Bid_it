@@ -10,6 +10,7 @@ from app.schemas.dimensions import DimensionFields
 
 Category = Literal["travel", "meals", "accommodation", "transport", "supplies", "software", "other"]
 PaymentMethod = Literal["personal", "company_card"]
+ExpenseType = Literal["standard", "mileage", "per_diem"]
 
 
 class ExpenseItemIn(DimensionFields):
@@ -17,10 +18,27 @@ class ExpenseItemIn(DimensionFields):
     category: Category = "other"
     description: str = Field(min_length=1, max_length=300)
     merchant: str | None = Field(default=None, max_length=200)
-    amount: Decimal = Field(ge=0)
+    amount: Decimal = Field(default=Decimal("0"), ge=0)
     vat_amount: Decimal = Field(default=Decimal("0"), ge=0)
+    reclaimable_tax: bool = True
     payment_method: PaymentMethod = "personal"
+    customer_billable: bool = False
+    billable_customer: str | None = Field(default=None, max_length=200)
     comment: str | None = Field(default=None, max_length=1000)
+    missing_receipt_declaration: str | None = Field(default=None, max_length=500)
+    # Original-currency figure + FX provenance (converted amount lands in `amount`).
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    original_amount: Decimal | None = Field(default=None, ge=0)
+    fx_rate: Decimal | None = Field(default=None, ge=0)
+    fx_source: str | None = Field(default=None, max_length=40)
+    # Entry kind + mileage / per-diem inputs. When type is mileage/per_diem and
+    # `amount` is 0, the service derives it (distance × rate / days × rate).
+    expense_type: ExpenseType = "standard"
+    mileage_distance: Decimal | None = Field(default=None, ge=0)
+    mileage_rate: Decimal | None = Field(default=None, ge=0)
+    mileage_unit: Literal["km", "mi"] | None = None
+    per_diem_days: Decimal | None = Field(default=None, ge=0)
+    per_diem_rate: Decimal | None = Field(default=None, ge=0)
 
 
 class ExpenseReportCreate(BaseModel):
@@ -40,7 +58,15 @@ class ExpenseReportUpdate(BaseModel):
 
 
 class ExpenseDecision(BaseModel):
-    action: Literal["approve", "reject", "reimburse"]
+    # Approver / finance actions on a report (the state machine validates legality).
+    action: Literal[
+        "approve",
+        "reject",
+        "return_for_correction",
+        "mark_for_reimbursement",
+        "mark_reimbursed",
+        "reimburse",  # legacy alias for mark_reimbursed
+    ]
     note: str | None = Field(default=None, max_length=1000)
 
 
@@ -52,18 +78,43 @@ class ExpenseItemOut(DimensionFields):
     description: str
     merchant: str | None
     amount: Decimal
+    currency: str | None = None
+    original_amount: Decimal | None = None
+    fx_rate: Decimal | None = None
+    fx_source: str | None = None
     vat_amount: Decimal
+    reclaimable_tax: bool = True
     payment_method: str
+    customer_billable: bool = False
+    billable_customer: str | None = None
     comment: str | None = None
+    missing_receipt_declaration: str | None = None
+    expense_type: str = "standard"
+    mileage_distance: Decimal | None = None
+    mileage_rate: Decimal | None = None
+    mileage_unit: str | None = None
+    per_diem_days: Decimal | None = None
+    per_diem_rate: Decimal | None = None
     has_receipt: bool = False
     verified: bool = False  # reconciled against a bank/card transaction
     bank_reference: str | None = None
 
 
 class ExpenseItemPatch(DimensionFields):
-    """Edit a draft item's business purpose, category, and cost dimensions."""
+    """Edit a draft/returned item — business purpose, category, money, flags,
+    declarations, and cost dimensions. Only fields explicitly present are applied."""
 
+    description: str | None = Field(default=None, min_length=1, max_length=300)
+    merchant: str | None = Field(default=None, max_length=200)
+    spend_date: date | None = None
+    amount: Decimal | None = Field(default=None, ge=0)
+    vat_amount: Decimal | None = Field(default=None, ge=0)
+    reclaimable_tax: bool | None = None
+    payment_method: PaymentMethod | None = None
+    customer_billable: bool | None = None
+    billable_customer: str | None = Field(default=None, max_length=200)
     comment: str | None = Field(default=None, max_length=1000)
+    missing_receipt_declaration: str | None = Field(default=None, max_length=500)
     category: Category | None = None
 
 
@@ -127,12 +178,13 @@ class ExpenseReportOut(BaseModel):
 
 
 class PolicyViolation(BaseModel):
-    item_id: str
-    category: str
     code: str
     message: str
-    amount: Decimal
-    limit: Decimal
+    severity: Literal["warn", "block"] = "warn"
+    item_id: str | None = None
+    category: str | None = None
+    amount: Decimal | None = None
+    limit: Decimal | None = None
 
 
 class ExpensePolicyIn(BaseModel):
@@ -140,6 +192,16 @@ class ExpensePolicyIn(BaseModel):
     max_item_amount: Decimal | None = None
     receipt_required_over: Decimal | None = None
     category_caps: dict[str, Decimal] = Field(default_factory=dict)
+    allowed_categories: list[str] = Field(default_factory=list)
+    allowed_currencies: list[str] = Field(default_factory=list)
+    warn_weekend: bool = False
+    duplicate_detection: bool = True
+    mileage_rate: Decimal | None = None
+    mileage_rate_tolerance: Decimal | None = None
+    require_purpose_over: Decimal | None = None
+    late_submission_days: int | None = Field(default=None, ge=0)
+    # Rule codes that HARD-BLOCK submission; anything else only warns.
+    blocking_rules: list[str] = Field(default_factory=list)
 
 
 class ExpensePolicyOut(BaseModel):
@@ -147,7 +209,24 @@ class ExpensePolicyOut(BaseModel):
     max_item_amount: Decimal | None
     receipt_required_over: Decimal | None
     category_caps: dict[str, Decimal]
+    allowed_categories: list[str] = Field(default_factory=list)
+    allowed_currencies: list[str] = Field(default_factory=list)
+    warn_weekend: bool = False
+    duplicate_detection: bool = True
+    mileage_rate: Decimal | None = None
+    mileage_rate_tolerance: Decimal | None = None
+    require_purpose_over: Decimal | None = None
+    late_submission_days: int | None = None
+    blocking_rules: list[str] = Field(default_factory=list)
     version: int
+
+
+class PolicyCheckOut(BaseModel):
+    """A dry-run policy evaluation: every finding + whether submission is blocked."""
+
+    violations: list[PolicyViolation] = []
+    blocking: bool = False
+    can_submit: bool = True
 
 
 class ExpenseReportDetail(ExpenseReportOut):

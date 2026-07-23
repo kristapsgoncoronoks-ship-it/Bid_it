@@ -22,6 +22,28 @@ def compute_totals(items: list) -> tuple[Decimal, Decimal]:
     return total, vat
 
 
+def derive_amount(payload) -> Decimal:
+    """The gross amount in the reporting currency. For mileage/per-diem it is
+    computed from the inputs; for a foreign-currency item with an FX rate and no
+    explicit amount it is original × rate; otherwise the supplied `amount`."""
+    etype = getattr(payload, "expense_type", "standard")
+    amount = Decimal(getattr(payload, "amount", 0) or 0)
+    if etype == "mileage" and amount == 0:
+        dist = Decimal(getattr(payload, "mileage_distance", 0) or 0)
+        rate = Decimal(getattr(payload, "mileage_rate", 0) or 0)
+        amount = dist * rate
+    elif etype == "per_diem" and amount == 0:
+        days = Decimal(getattr(payload, "per_diem_days", 0) or 0)
+        rate = Decimal(getattr(payload, "per_diem_rate", 0) or 0)
+        amount = days * rate
+    elif amount == 0:
+        orig = getattr(payload, "original_amount", None)
+        fx = getattr(payload, "fx_rate", None)
+        if orig is not None and fx is not None:
+            amount = Decimal(orig) * Decimal(fx)
+    return q(amount)
+
+
 def item_from(payload) -> ExpenseItem:
     from app.core.dimensions import DIMENSION_KEYS
 
@@ -30,10 +52,28 @@ def item_from(payload) -> ExpenseItem:
         category=payload.category,
         description=payload.description,
         merchant=payload.merchant,
-        amount=q(payload.amount),
+        amount=derive_amount(payload),
+        currency=(c.upper() if (c := getattr(payload, "currency", None)) else None),
+        original_amount=(
+            q(o) if (o := getattr(payload, "original_amount", None)) is not None else None
+        ),
+        fx_rate=getattr(payload, "fx_rate", None),
+        fx_source=getattr(payload, "fx_source", None),
         vat_amount=q(payload.vat_amount),
+        reclaimable_tax=getattr(payload, "reclaimable_tax", True),
         payment_method=payload.payment_method,
+        customer_billable=getattr(payload, "customer_billable", False),
+        billable_customer=getattr(payload, "billable_customer", None),
         comment=getattr(payload, "comment", None),
+        missing_receipt_declaration=getattr(payload, "missing_receipt_declaration", None),
+        expense_type=getattr(payload, "expense_type", "standard"),
+        mileage_distance=getattr(payload, "mileage_distance", None),
+        mileage_rate=getattr(payload, "mileage_rate", None),
+        mileage_unit=getattr(payload, "mileage_unit", None),
+        per_diem_days=getattr(payload, "per_diem_days", None),
+        per_diem_rate=(
+            q(r) if (r := getattr(payload, "per_diem_rate", None)) is not None else None
+        ),
         **{k: getattr(payload, k, None) for k in DIMENSION_KEYS},
     )
 
@@ -44,12 +84,17 @@ def now() -> datetime:
 
 def item_missing(item: ExpenseItem) -> list[str]:
     """Compliance requirements every expense entry must carry before submission:
-    a business-purpose comment and an attached document copy (receipt)."""
+    a business-purpose comment and a receipt. Mileage/per-diem entries are computed
+    allowances with no receipt; a written missing-receipt declaration also
+    substitutes for the document (an explicit affidavit in its place)."""
     missing = []
     if not (item.comment and item.comment.strip()):
         missing.append("business purpose")
-    if item.receipt_sha256 is None:
-        missing.append("receipt")
+    receipt_exempt = item.expense_type in ("mileage", "per_diem") or bool(
+        item.missing_receipt_declaration and item.missing_receipt_declaration.strip()
+    )
+    if item.receipt_sha256 is None and not receipt_exempt:
+        missing.append("receipt or a missing-receipt declaration")
     return missing
 
 

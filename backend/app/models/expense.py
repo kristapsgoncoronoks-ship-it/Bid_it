@@ -24,8 +24,22 @@ from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 Money = Numeric(14, 2)
 
-# Lifecycle: draft → submitted → approved | rejected → reimbursed
-EXPENSE_STATUSES = ("draft", "submitted", "approved", "rejected", "reimbursed")
+# Lifecycle (see app.services.expense_state for the transition graph):
+#   draft ⇄ returned → submitted → approved → marked_for_reimbursement → reimbursed
+#                                 ↘ rejected      (submitted → returned = send back)
+# withdraw takes submitted → draft before a decision is made.
+EXPENSE_STATUSES = (
+    "draft",
+    "submitted",
+    "approved",
+    "rejected",
+    "returned",
+    "marked_for_reimbursement",
+    "reimbursed",
+)
+# Line-item kinds. A standard receipted spend, a mileage claim (distance × rate),
+# or a per-diem allowance (days × rate).
+EXPENSE_TYPES = ("standard", "mileage", "per_diem")
 EXPENSE_CATEGORIES = (
     "travel",
     "meals",
@@ -122,14 +136,38 @@ class ExpenseItem(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     category: Mapped[str] = mapped_column(String(40), default="other", nullable=False)
     description: Mapped[str] = mapped_column(String(300), nullable=False)
     merchant: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # `amount` is the GROSS spend in the report's reporting currency (the converted
+    # figure). When the receipt was in another currency, `original_amount`/`currency`
+    # carry the source figure and `fx_rate`/`fx_source` its provenance (non-negotiable
+    # #3: original + reporting currency with provenance).
     amount: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)  # gross
+    currency: Mapped[str | None] = mapped_column(String(3), nullable=True)  # original currency
+    original_amount: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    fx_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
+    fx_source: Mapped[str | None] = mapped_column(String(40), nullable=True)  # e.g. "ECB", "manual"
     vat_amount: Mapped[Decimal] = mapped_column(
         Money, default=Decimal("0"), nullable=False
-    )  # reclaimable
+    )  # tax amount
+    # Whether the tax on this item is reclaimable (some categories/countries aren't).
+    reclaimable_tax: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     payment_method: Mapped[str] = mapped_column(String(20), default="personal", nullable=False)
+    # Rebillable to a client — feeds project/customer billing.
+    customer_billable: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    billable_customer: Mapped[str | None] = mapped_column(String(200), nullable=True)
     comment: Mapped[str | None] = mapped_column(
         Text, nullable=True
     )  # business purpose (Concur-style)
+
+    # Entry kind + the mileage / per-diem computation inputs (null on a standard item).
+    expense_type: Mapped[str] = mapped_column(String(16), default="standard", nullable=False)
+    mileage_distance: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    mileage_rate: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    mileage_unit: Mapped[str | None] = mapped_column(String(4), nullable=True)  # "km" | "mi"
+    per_diem_days: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), nullable=True)
+    per_diem_rate: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    # A declared reason for a missing receipt (in lieu of the document itself), so a
+    # receipt-required item can still be submitted with an explicit affidavit.
+    missing_receipt_declaration: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # Cost-allocation dimensions (see app.core.dimensions) — e.g. tag fuel to a
     # vehicle, a site visit to a property, billable time to a project.
@@ -278,4 +316,23 @@ class ExpensePolicy(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     receipt_required_over: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
     # Per-category ceilings as a JSON object {category: max_amount}.
     category_caps: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # --- Configurable review rules (all advisory by default; see `blocking_rules`) --
+    # JSON array of allowed category keys; an item outside it is flagged.
+    allowed_categories: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # JSON array of ISO currency codes the org accepts; anything else is flagged.
+    allowed_currencies: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Flag spend dated on a Saturday/Sunday.
+    warn_weekend: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Flag likely duplicates (same receipt hash, or same amount+date+merchant).
+    duplicate_detection: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Sanctioned mileage rate + the ± tolerance a claimed rate may deviate by.
+    mileage_rate: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    mileage_rate_tolerance: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    # Require a business purpose on any item above this amount (flag if missing).
+    require_purpose_over: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    # Flag an item whose spend date is older than this many days at submission.
+    late_submission_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # JSON array of rule codes that HARD-BLOCK submission (everything else warns).
+    blocking_rules: Mapped[str | None] = mapped_column(Text, nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)

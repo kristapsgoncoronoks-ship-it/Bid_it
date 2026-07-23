@@ -28,6 +28,7 @@ from app.schemas.expense import (
     ExpenseCommentIn,
     ExpenseCommentOut,
     ExpenseDecision,
+    ExpenseItemIn,
     ExpenseItemOut,
     ExpenseItemPatch,
     ExpensePolicyIn,
@@ -41,6 +42,7 @@ from app.schemas.expense import (
     ExpenseTransactionOut,
     ItemFromTransaction,
     MatchTransaction,
+    PolicyCheckOut,
     PolicyViolation,
 )
 from app.services import (
@@ -50,6 +52,7 @@ from app.services import (
     document_versions,
     documents,
     expense_policy,
+    expense_state,
     expenses,
     filesec,
     fx,
@@ -116,8 +119,10 @@ def _require_view(r: ExpenseReport, user: User):
 def _require_owner_editable(r: ExpenseReport, user: User):
     if r.employee_id != user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only edit your own reports")
-    if r.status != "draft":
-        raise HTTPException(status.HTTP_409_CONFLICT, "Only draft reports can be edited")
+    if not expense_state.is_editable(r.status):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Only draft or returned reports can be edited"
+        )
 
 
 async def _load_available_txns(
@@ -326,7 +331,7 @@ async def summary(current: CurrentUser, db: DbSession):
     my_reimbursable = (
         await db.scalar(
             select(func.coalesce(func.sum(ExpenseReport.total), 0)).where(
-                mine, ExpenseReport.status == "approved"
+                mine, ExpenseReport.status.in_(("approved", "marked_for_reimbursement"))
             )
         )
         or 0
@@ -372,6 +377,15 @@ def _policy_out(p) -> ExpensePolicyOut:
         max_item_amount=p.max_item_amount if p else None,
         receipt_required_over=p.receipt_required_over if p else None,
         category_caps=expense_policy.caps_of(p),
+        allowed_categories=expense_policy.allowed_categories_of(p),
+        allowed_currencies=expense_policy.allowed_currencies_of(p),
+        warn_weekend=bool(p.warn_weekend) if p else False,
+        duplicate_detection=bool(p.duplicate_detection) if p else True,
+        mileage_rate=p.mileage_rate if p else None,
+        mileage_rate_tolerance=p.mileage_rate_tolerance if p else None,
+        require_purpose_over=p.require_purpose_over if p else None,
+        late_submission_days=p.late_submission_days if p else None,
+        blocking_rules=expense_policy.blocking_rules_of(p),
         version=p.version if p else 0,
     )
 
@@ -395,6 +409,15 @@ async def set_policy(body: ExpensePolicyIn, current: CurrentUser, db: DbSession)
         max_item_amount=body.max_item_amount,
         receipt_required_over=body.receipt_required_over,
         category_caps=body.category_caps,
+        allowed_categories=body.allowed_categories,
+        allowed_currencies=body.allowed_currencies,
+        warn_weekend=body.warn_weekend,
+        duplicate_detection=body.duplicate_detection,
+        mileage_rate=body.mileage_rate,
+        mileage_rate_tolerance=body.mileage_rate_tolerance,
+        require_purpose_over=body.require_purpose_over,
+        late_submission_days=body.late_submission_days,
+        blocking_rules=body.blocking_rules,
     )
     await audit.record(
         db,
@@ -414,12 +437,28 @@ async def get_report(report_id: str, current: CurrentUser, db: DbSession):
     r = await _load(db, current.org_id, report_id)
     _require_view(r, current)
     detail = _detail(r)
-    # Out-of-policy flags for the reviewer (advisory; never blocks).
+    # Full configurable rule set for the reviewer (advisory unless a rule is
+    # explicitly configured to block — see the submit gate).
     policy = await expense_policy.get(db, current.org_id)
-    detail.policy_violations = [
-        PolicyViolation(**v) for v in expense_policy.violations(policy, r.items)
-    ]
+    detail.policy_violations = [PolicyViolation(**v) for v in expense_policy.evaluate(policy, r)]
     return detail
+
+
+@router.get("/{report_id}/policy-check", response_model=PolicyCheckOut)
+async def policy_check(report_id: str, current: CurrentUser, db: DbSession):
+    """Dry-run the policy engine over a report — every finding plus whether a
+    configured hard-block would stop submission."""
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_view(r, current)
+    policy = await expense_policy.get(db, current.org_id)
+    findings = expense_policy.evaluate(policy, r)
+    blockers = expense_policy.blocking(findings)
+    return PolicyCheckOut(
+        violations=[PolicyViolation(**v) for v in findings],
+        blocking=bool(blockers),
+        can_submit=not blockers,
+    )
 
 
 @router.patch("/{report_id}", response_model=ExpenseReportDetail)
@@ -453,15 +492,15 @@ async def submit_report(report_id: str, current: CurrentUser, db: DbSession):
     r = await _load(db, current.org_id, report_id)
     if r.employee_id != current.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only submit your own reports")
-    if r.status != "draft":
-        raise HTTPException(status.HTTP_409_CONFLICT, "Report is not a draft")
+    # State machine: submit is legal from draft or returned (409 otherwise).
+    target = expense_state.target_for("submit", r.status)
     if not r.items:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY, "Add at least one expense before submitting"
         )
 
-    # Compliance gate: every entry must carry a business purpose AND an attached
-    # document copy (receipt) before the report can be submitted.
+    # Compliance gate: every entry must carry a business purpose AND a receipt
+    # (or a missing-receipt declaration; mileage/per-diem are exempt).
     incomplete = expenses.incomplete_items(r)
     if incomplete:
         detail = "; ".join(
@@ -472,7 +511,18 @@ async def submit_report(report_id: str, current: CurrentUser, db: DbSession):
             f"Each expense must have a business purpose and an attached receipt. Missing — {detail}",
         )
 
-    r.status = "submitted"
+    # Policy gate: findings are advisory unless a rule is configured to hard-block.
+    # Suspicious expenses are flagged for review, never auto-rejected.
+    policy = await expense_policy.get(db, current.org_id)
+    blockers = expense_policy.blocking(expense_policy.evaluate(policy, r))
+    if blockers:
+        detail = "; ".join(b["message"] for b in blockers)
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"Submission blocked by policy — {detail}",
+        )
+
+    r.status = target
     r.submitted_at = expenses.now()
     if r.currency.upper() == "EUR":
         r.total_eur = r.total
@@ -498,6 +548,10 @@ async def submit_report(report_id: str, current: CurrentUser, db: DbSession):
 
 @router.post("/{report_id}/decision", response_model=ExpenseReportDetail)
 async def decide(report_id: str, body: ExpenseDecision, current: CurrentUser, db: DbSession):
+    """An approver/finance action on a report: approve, reject, return for
+    correction, mark for reimbursement, or mark reimbursed. The state machine
+    validates legality; suspicious expenses are returned/flagged, never silently
+    dropped."""
     await _guard(db, current.org_id)
     if not _is_approver(current):
         raise HTTPException(
@@ -509,26 +563,31 @@ async def decide(report_id: str, body: ExpenseDecision, current: CurrentUser, db
     if r.employee_id == current.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You cannot approve your own expense report")
 
-    if body.action in ("approve", "reject") and r.status != "submitted":
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, "Only submitted reports can be approved or rejected"
-        )
-    if body.action == "reimburse" and r.status != "approved":
-        raise HTTPException(status.HTTP_409_CONFLICT, "Only approved reports can be reimbursed")
+    action = expense_state.canonical(body.action)
+    target = expense_state.target_for(action, r.status)  # 409 if illegal from here
 
-    r.status = {"approve": "approved", "reject": "rejected", "reimburse": "reimbursed"}[body.action]
+    r.status = target
     r.decided_at = expenses.now()
     r.decided_by = current.email
     r.decision_note = body.note
-    if body.action == "reimburse":
+    if target == "reimbursed":
         # Stamp the reimbursement time for a direct single-report payout (a batch
         # payout does the same across many reports — see routes/reimbursements.py).
         r.reimbursed_at = expenses.now()
-    if body.action in ("approve", "reject"):
+
+    await audit.record(
+        db,
+        audit.A.EXPENSE_TRANSITION,
+        target_type="expense_report",
+        target_id=r.id,
+        meta={"action": action, "to": target},
+    )
+    # Notify on the meaningful lifecycle events.
+    if target in ("approved", "rejected", "returned", "reimbursed"):
         await webhooks.emit(
             db,
             current.org_id,
-            f"expense.{r.status}",
+            f"expense.{target}",
             {
                 "id": r.id,
                 "title": r.title,
@@ -538,6 +597,46 @@ async def decide(report_id: str, body: ExpenseDecision, current: CurrentUser, db
                 "decided_by": r.decided_by,
             },
         )
+    await db.commit()
+    await db.refresh(r, attribute_names=["items"])
+    return _detail(r)
+
+
+@router.post("/{report_id}/withdraw", response_model=ExpenseReportDetail)
+async def withdraw_report(report_id: str, current: CurrentUser, db: DbSession):
+    """Pull a submitted report back to draft before any decision is made
+    (owner-only)."""
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    if r.employee_id != current.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only withdraw your own reports")
+    r.status = expense_state.target_for("withdraw", r.status)  # 409 if not submitted
+    r.submitted_at = None
+    await audit.record(
+        db,
+        audit.A.EXPENSE_TRANSITION,
+        target_type="expense_report",
+        target_id=r.id,
+        meta={"action": "withdraw", "to": r.status},
+    )
+    await db.commit()
+    await db.refresh(r, attribute_names=["items"])
+    return _detail(r)
+
+
+@router.post(
+    "/{report_id}/items", response_model=ExpenseReportDetail, status_code=status.HTTP_201_CREATED
+)
+async def add_item(report_id: str, body: ExpenseItemIn, current: CurrentUser, db: DbSession):
+    """Add a manual expense entry (standard / mileage / per-diem) to a draft or
+    returned report."""
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_owner_editable(r, current)
+    item = expenses.item_from(body)
+    r.items.append(item)
+    await _link_items(db, current.org_id, [item])
+    r.total, r.vat_total = expenses.compute_totals(r.items)
     await db.commit()
     await db.refresh(r, attribute_names=["items"])
     return _detail(r)
@@ -613,23 +712,43 @@ async def add_comment(report_id: str, body: ExpenseCommentIn, current: CurrentUs
 async def update_item(
     report_id: str, item_id: str, body: ExpenseItemPatch, current: CurrentUser, db: DbSession
 ):
-    """Edit a draft item's business purpose (comment) / category."""
+    """Edit a draft/returned item — money, flags, declarations, purpose, and
+    cost dimensions. Only fields explicitly present in the body are applied."""
     await _guard(db, current.org_id)
     r = await _load(db, current.org_id, report_id)
     _require_owner_editable(r, current)
     item = next((i for i in r.items if i.id == item_id), None)
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
-    if body.comment is not None:
-        item.comment = body.comment
-    if body.category is not None:
-        item.category = body.category
-    # Cost dimensions: apply only fields explicitly present (a null clears a tag).
-    changed = [key for key in DIMENSION_KEYS if key in body.model_fields_set]
+    fields = body.model_fields_set
+    # Scalar fields applied verbatim when present (a null clears an optional value).
+    for key in (
+        "description",
+        "merchant",
+        "spend_date",
+        "reclaimable_tax",
+        "payment_method",
+        "customer_billable",
+        "billable_customer",
+        "comment",
+        "missing_receipt_declaration",
+        "category",
+    ):
+        if key in fields:
+            setattr(item, key, getattr(body, key))
+    # Money fields are quantized before storage.
+    if "amount" in fields and body.amount is not None:
+        item.amount = expenses.q(body.amount)
+    if "vat_amount" in fields and body.vat_amount is not None:
+        item.vat_amount = expenses.q(body.vat_amount)
+    # Cost dimensions: apply only fields explicitly present.
+    changed = [key for key in DIMENSION_KEYS if key in fields]
     for key in changed:
         setattr(item, key, getattr(body, key))
-    # Re-resolve the master link only for the dimensions that changed (Slice 3b).
     await _link_items(db, current.org_id, [item], changed)
+    # Money may have changed → refresh the report totals from the live items.
+    if fields & {"amount", "vat_amount"}:
+        r.total, r.vat_total = expenses.compute_totals(r.items)
     await db.commit()
     await db.refresh(r, attribute_names=["items"])
     return _detail(r)
