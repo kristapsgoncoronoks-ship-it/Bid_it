@@ -342,6 +342,23 @@ export interface InvoiceDetail extends Invoice {
   validation_findings: ValidationFinding[];
   validated_by: string | null;
   validated_at: string | null;
+  // AP settlement (Phase 13).
+  workflow_state: string | null;
+  amount_paid: string;
+  paid_date: string | null;
+  outstanding: string;
+  payment_status: "paid" | "partial" | "open" | "overdue";
+}
+
+export interface SupplierPayment {
+  id: string;
+  invoice_id: string;
+  amount: string;
+  paid_on: string;
+  method: string;
+  reference: string | null;
+  note: string | null;
+  created_at: string;
 }
 
 export interface InvoiceList {

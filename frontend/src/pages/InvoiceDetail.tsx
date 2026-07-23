@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Field } from "../components/Field";
 import { Link, useParams } from "react-router-dom";
-import { api } from "../lib/api";
+import { api, apiError } from "../lib/api";
 import {
   money,
   SEVERITY_STYLES,
@@ -11,7 +11,20 @@ import {
   VALIDATION_LABELS,
   VALIDATION_STYLES,
 } from "../lib/format";
-import { DIMENSION_LABELS, type Dimensions, type InvoiceDetail, type InvoiceStatus } from "../lib/types";
+import {
+  DIMENSION_LABELS,
+  type Dimensions,
+  type InvoiceDetail,
+  type InvoiceStatus,
+  type SupplierPayment,
+} from "../lib/types";
+
+const PAY_STATUS_STYLE: Record<string, string> = {
+  paid: "bg-emerald-100 text-emerald-700",
+  partial: "bg-sky-100 text-sky-700",
+  open: "bg-slate-100 text-slate-600",
+  overdue: "bg-rose-100 text-rose-700",
+};
 
 const STATUSES: InvoiceStatus[] = ["draft", "pending", "paid", "overdue"];
 
@@ -94,6 +107,8 @@ export default function InvoiceDetailPage() {
           </div>
         </div>
       </div>
+
+      <APPayment inv={inv} onPaid={invalidate} />
 
       <CostAllocation inv={inv} onSaved={invalidate} />
 
@@ -182,6 +197,113 @@ export default function InvoiceDetailPage() {
 
 // Editable cost-allocation tags (cost center, department, project, vehicle,
 // property). Saved via PATCH; only changed fields are sent.
+function APPayment({ inv, onPaid }: { inv: InvoiceDetail; onPaid: () => void }) {
+  const payable =
+    inv.workflow_state === "scheduled_for_payment" || inv.workflow_state === "partially_paid";
+  const [amount, setAmount] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+
+  const ledger = useQuery<SupplierPayment[]>({
+    queryKey: ["invoice", inv.id, "payments"],
+    queryFn: async () => (await api.get(`/invoices/${inv.id}/payments`)).data,
+  });
+
+  const pay = useMutation({
+    mutationFn: async (cumulative: string) =>
+      (await api.patch(`/invoices/${inv.id}/payment`, { amount_paid: cumulative })).data,
+    onSuccess: () => {
+      setAmount("");
+      setErr(null);
+      onPaid();
+      ledger.refetch();
+    },
+    onError: (e) => setErr(apiError(e)),
+  });
+
+  // The record form adds to the already-paid total (the API takes the new cumulative).
+  const submit = () => {
+    const add = Number(amount);
+    if (!(add > 0)) return;
+    pay.mutate((Number(inv.amount_paid) + add).toFixed(2));
+  };
+
+  const inputClass = "rounded-lg border border-slate-300 px-2 py-1 text-sm";
+  return (
+    <div className="card space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-slate-600">Payment</h2>
+        <span className={`badge ${PAY_STATUS_STYLE[inv.payment_status] ?? ""}`}>
+          {inv.payment_status}
+        </span>
+      </div>
+      <dl className="grid grid-cols-3 gap-4 text-sm">
+        <Field label="Paid" value={money(inv.amount_paid, inv.currency)} />
+        <Field label="Outstanding" value={money(inv.outstanding, inv.currency)} />
+        <Field label="Paid date" value={shortDate(inv.paid_date)} />
+      </dl>
+
+      {err && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          {err}
+        </div>
+      )}
+
+      {payable ? (
+        <div className="flex items-end gap-2">
+          <div>
+            <label className="label">Record a payment ({inv.currency})</label>
+            <input
+              className={`${inputClass} w-40`}
+              inputMode="decimal"
+              placeholder="0.00"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          </div>
+          <button
+            className="btn bg-brand-500 text-white hover:bg-brand-600"
+            disabled={pay.isPending || !(Number(amount) > 0)}
+            onClick={submit}
+          >
+            Record payment
+          </button>
+        </div>
+      ) : (
+        <p className="text-xs text-slate-400">
+          An invoice can be paid once it is approved and scheduled for payment.
+        </p>
+      )}
+
+      {(ledger.data ?? []).length > 0 && (
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-slate-400">
+              <th className="py-1">Date</th>
+              <th className="py-1">Method</th>
+              <th className="py-1">Reference</th>
+              <th className="py-1 text-right">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(ledger.data ?? []).map((p) => (
+              <tr key={p.id} className="border-t border-slate-100">
+                <td className="py-1 text-slate-500">{shortDate(p.paid_on)}</td>
+                <td className="py-1 text-slate-500">{p.method}</td>
+                <td className="py-1 text-slate-500">{p.reference ?? "—"}</td>
+                <td
+                  className={`py-1 text-right tabular-nums ${Number(p.amount) < 0 ? "text-rose-600" : ""}`}
+                >
+                  {money(p.amount, inv.currency)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 function CostAllocation({ inv, onSaved }: { inv: InvoiceDetail; onSaved: () => void }) {
   const keys = Object.keys(DIMENSION_LABELS) as (keyof Dimensions)[];
   const [draft, setDraft] = useState<Record<string, string>>(
