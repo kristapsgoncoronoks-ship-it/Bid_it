@@ -8,6 +8,16 @@ class VendorCreate(BaseModel):
     tax_id: str | None = Field(default=None, max_length=64)
     country: str | None = Field(default=None, min_length=2, max_length=2)
     category: str | None = Field(default=None, max_length=80)
+    iban: str | None = Field(default=None, max_length=34)
+    bic: str | None = Field(default=None, max_length=11)
+
+
+class VendorUpdate(BaseModel):
+    tax_id: str | None = Field(default=None, max_length=64)
+    country: str | None = Field(default=None, min_length=2, max_length=2)
+    category: str | None = Field(default=None, max_length=80)
+    iban: str | None = Field(default=None, max_length=34)
+    bic: str | None = Field(default=None, max_length=11)
 
 
 class VendorOut(BaseModel):
@@ -17,3 +27,5 @@ class VendorOut(BaseModel):
     tax_id: str | None
     country: str | None
     category: str | None
+    iban: str | None = None
+    bic: str | None = None

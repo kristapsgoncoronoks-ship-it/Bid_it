@@ -21,7 +21,7 @@ from app.schemas.payment_run import (
     RunOut,
     RunPay,
 )
-from app.services import audit, payment_run, webhooks
+from app.services import audit, payment_run, sepa, webhooks
 
 
 def _require_payment_read(current: CurrentUser) -> None:
@@ -192,6 +192,25 @@ async def export_run(run_id: str, current: CurrentUser, db: DbSession):
     return Response(
         content=csv_text,
         media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{fname}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.get("/{run_id}/sepa")
+async def export_sepa(run_id: str, current: CurrentUser, db: DbSession):
+    """The run as an ISO 20022 pain.001 SEPA credit-transfer file for the bank."""
+    run = await _load(db, current.org_id, run_id)
+    try:
+        xml, _skipped = await sepa.payment_run_sepa(db, current.org_id, run)
+    except sepa.SepaError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+    fname = f"payment-run-{(run.reference or run.id)}.xml"
+    return Response(
+        content=xml,
+        media_type="application/xml",
         headers={
             "Content-Disposition": f'attachment; filename="{fname}"',
             "X-Content-Type-Options": "nosniff",

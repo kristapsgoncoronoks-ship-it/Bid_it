@@ -27,6 +27,10 @@ class Vendor(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     tax_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     country: Mapped[str | None] = mapped_column(String(2), nullable=True)
     category: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Bank details for AP payment files (Phase 17): the creditor account a SEPA
+    # pain.001 credit transfer pays into.
+    iban: Mapped[str | None] = mapped_column(String(34), nullable=True)
+    bic: Mapped[str | None] = mapped_column(String(11), nullable=True)
 
     organization: Mapped[Organization] = relationship(back_populates="vendors")
     invoices: Mapped[list[Invoice]] = relationship(

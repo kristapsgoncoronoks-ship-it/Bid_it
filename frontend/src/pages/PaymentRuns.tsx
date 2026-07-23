@@ -173,6 +173,25 @@ export default function PaymentRunsPage() {
                   >
                     Export CSV
                   </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={async () => {
+                      try {
+                        setErr(null);
+                        await downloadFile(
+                          `/payment-runs/${r.id}/sepa`,
+                          `payment-run-${r.reference || r.id}.xml`,
+                        );
+                      } catch {
+                        setErr(
+                          "Could not generate the SEPA file — set the issuer IBAN and each supplier's bank details first.",
+                        );
+                      }
+                    }}
+                  >
+                    SEPA XML
+                  </Button>
                 </div>
               </div>
               <div className="mt-1 text-xs text-slate-400">
