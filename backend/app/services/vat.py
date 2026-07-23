@@ -52,7 +52,11 @@ def compute(raw_lines: list[dict], scheme: str = "standard") -> VatResult:
     for li in raw_lines:
         qty = Decimal(str(li.get("quantity", "1")))
         unit_price = Decimal(str(li.get("unit_price", "0")))
-        net = q(qty * unit_price)
+        discount = Decimal(str(li.get("discount_percent", "0") or "0"))
+        # Clamp to [0, 100] defensively — the schema also validates.
+        discount = min(max(discount, Decimal("0")), Decimal("100"))
+        # net = qty × unit_price, less the line discount %.
+        net = q(qty * unit_price * (Decimal("100") - discount) / Decimal("100"))
         rate = Decimal("0") if zero else Decimal(str(li.get("vat_rate", "0")))
         subtotal += net
         b = buckets.setdefault(rate, RateBucket(rate=rate, base=Decimal("0"), vat=Decimal("0")))
@@ -63,6 +67,7 @@ def compute(raw_lines: list[dict], scheme: str = "standard") -> VatResult:
                 "quantity": qty,
                 "unit": str(li.get("unit", "C62"))[:8],
                 "unit_price": unit_price,
+                "discount_percent": discount,
                 "vat_rate": rate,
                 "net_amount": net,
             }

@@ -49,7 +49,7 @@ from app.models.extraction_run import ExtractionRun
 from app.models.invitation import Invitation
 from app.models.invoice import Invoice
 from app.models.invoice_collab import InvoiceAttachment, InvoiceComment
-from app.models.issued_invoice import IssuedInvoice
+from app.models.issued_invoice import IssuedInvoice, IssuedInvoiceAttachment
 from app.models.issuer import IssuerProfile
 from app.models.job import Job
 from app.models.membership import Membership
@@ -80,6 +80,7 @@ TENANT_MODELS = (
     Invitation,
     Membership,
     IssuedInvoice,
+    IssuedInvoiceAttachment,
     OrgModule,
     IssuerProfile,
     ExpenseReport,

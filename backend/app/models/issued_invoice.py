@@ -7,7 +7,9 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
+    Integer,
     Numeric,
     String,
     Text,
@@ -116,6 +118,12 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # VAT treatment: 'standard' | 'reverse_charge' | 'intra_eu' | 'exempt'
     vat_scheme: Mapped[str] = mapped_column(String(20), default="standard", nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Buyer's purchase-order reference (EN-16931 BT-13). Free text a buyer quotes
+    # so they can match the invoice to their PO.
+    po_reference: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    # VAT-exemption reason text (EN-16931 BT-120): the legal ground when no VAT is
+    # charged (reverse-charge / intra-EU / exempt). Defaults from the scheme note.
+    tax_exemption_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
     subtotal: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
     tax_total: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
@@ -174,6 +182,11 @@ class IssuedInvoiceLine(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     quantity: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=Decimal("1"), nullable=False)
     unit: Mapped[str] = mapped_column(String(8), default="C62", nullable=False)  # UN/ECE unit code
     unit_price: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
+    # Per-line discount as a percentage of qty×unit_price (EN-16931 line allowance).
+    # net_amount is stored POST-discount and is what the totals/VAT are built on.
+    discount_percent: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), default=Decimal("0"), server_default="0", nullable=False
+    )
     vat_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0"), nullable=False)
     net_amount: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
     # Slice 4b: SNAPSHOT of the tax-code catalogue entry chosen at issue time (the
@@ -182,3 +195,33 @@ class IssuedInvoiceLine(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     tax_code: Mapped[str | None] = mapped_column(String(24), nullable=True)
 
     invoice: Mapped[IssuedInvoice] = relationship(back_populates="lines")
+
+
+class IssuedInvoiceAttachment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """A supporting document attached to an ISSUED invoice (a signed PO, a delivery
+    note, a contract). The bytes live in object storage; this row holds the
+    metadata + sha256 pointer. Tenant-scoped (own org_id + RLS)."""
+
+    __tablename__ = "issued_invoice_attachments"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["org_id", "invoice_id"],
+            ["issued_invoices.org_id", "issued_invoices.id"],
+            name="fk_issued_attachments_invoice",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint("org_id", "id", name="uq_issued_attachments_org_id"),
+        Index("ix_issued_attachments_invoice", "org_id", "invoice_id"),
+    )
+
+    org_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    invoice_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    mime: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    size: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    uploaded_by: Mapped[str | None] = mapped_column(GUID(), nullable=True)
+    uploaded_by_email: Mapped[str | None] = mapped_column(String(200), nullable=True)

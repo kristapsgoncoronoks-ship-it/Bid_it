@@ -106,7 +106,16 @@ def build_cii(invoice, seller: dict, vat: VatResult) -> bytes:
         _t(prod, _ram("Name"), line["description"])
         agr = SubElement(li, _ram("SpecifiedLineTradeAgreement"))
         price = SubElement(agr, _ram("NetPriceProductTradePrice"))
-        _t(price, _ram("ChargeAmount"), _amt(line["unit_price"]))
+        # BT-146 net price is post-discount. Without a discount this equals the
+        # unit price; with one, derive it from the (discounted) line net so
+        # net_price × quantity stays consistent with the line total.
+        disc = Decimal(str(line.get("discount_percent", 0) or 0))
+        qty = Decimal(str(line["quantity"]))
+        if disc > 0 and qty:
+            net_price = Decimal(str(line["net_amount"])) / qty
+        else:
+            net_price = Decimal(str(line["unit_price"]))
+        _t(price, _ram("ChargeAmount"), _amt(net_price))
         deliv = SubElement(li, _ram("SpecifiedLineTradeDelivery"))
         _t(deliv, _ram("BilledQuantity"), f"{Decimal(line['quantity']):.3f}", unitCode=line["unit"])
         settle = SubElement(li, _ram("SpecifiedLineTradeSettlement"))
@@ -141,6 +150,10 @@ def build_cii(invoice, seller: dict, vat: VatResult) -> bytes:
         postal=invoice.buyer_postal_code,
         country=invoice.buyer_country,
     )
+    # BT-13 buyer's purchase-order reference.
+    if getattr(invoice, "po_reference", None):
+        po = SubElement(hagr, _ram("BuyerOrderReferencedDocument"))
+        _t(po, _ram("IssuerAssignedID"), invoice.po_reference)
 
     hdel = SubElement(txn, _ram("ApplicableHeaderTradeDelivery"))
     if invoice.supply_date:
@@ -156,11 +169,15 @@ def build_cii(invoice, seller: dict, vat: VatResult) -> bytes:
         acct = SubElement(pm, _ram("PayeePartyCreditorFinancialAccount"))
         _t(acct, _ram("IBANID"), seller["iban"])
 
-    # VAT breakdown (one ApplicableTradeTax per rate)
+    # VAT breakdown (one ApplicableTradeTax per rate). For a zero-rate bucket under
+    # a no-VAT scheme, state the exemption reason (BT-120) in CII element order.
+    exemption = getattr(invoice, "tax_exemption_reason", None)
     for b in vat.breakdown:
         tax = SubElement(hset, _ram("ApplicableTradeTax"))
         _t(tax, _ram("CalculatedAmount"), _amt(b.vat))
         _t(tax, _ram("TypeCode"), "VAT")
+        if b.rate == 0 and exemption:
+            _t(tax, _ram("ExemptionReason"), exemption)
         _t(tax, _ram("BasisAmount"), _amt(b.base))
         _t(tax, _ram("CategoryCode"), "S" if b.rate > 0 else "Z")
         _t(tax, _ram("RateApplicablePercent"), f"{Decimal(b.rate):.2f}")

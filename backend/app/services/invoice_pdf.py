@@ -119,6 +119,12 @@ def build_pdf(
                     ParagraphStyle("d2", parent=small, alignment=2),
                 )
             ],
+            [
+                Paragraph(
+                    f"PO: {invoice.po_reference}" if getattr(invoice, "po_reference", None) else "",
+                    ParagraphStyle("po", parent=small, alignment=2),
+                )
+            ],
         ],
         colWidths=[70 * mm],
     )
@@ -175,20 +181,29 @@ def build_pdf(
     bill.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0)]))
     story += [bill, Spacer(1, 12)]
 
-    # Line items
-    rows = [["#", "Description", "Qty", "Unit price", "VAT %", "Net"]]
+    # Line items. Show a discount column only when a line actually carries one.
+    show_disc = any(Decimal(li.get("discount_percent", 0) or 0) > 0 for li in vat.lines)
+    header_row = ["#", "Description", "Qty", "Unit price"]
+    if show_disc:
+        header_row.append("Disc %")
+    header_row += ["VAT %", "Net"]
+    rows = [header_row]
     for i, li in enumerate(vat.lines, start=1):
-        rows.append(
-            [
-                str(i),
-                Paragraph(li["description"], body),
-                f"{Decimal(li['quantity']):g}",
-                _money(li["unit_price"], ccy),
-                f"{Decimal(li['vat_rate']):g}%",
-                _money(li["net_amount"], ccy),
-            ]
-        )
-    tbl = Table(rows, colWidths=[8 * mm, 82 * mm, 16 * mm, 26 * mm, 16 * mm, 30 * mm], repeatRows=1)
+        row = [
+            str(i),
+            Paragraph(li["description"], body),
+            f"{Decimal(li['quantity']):g}",
+            _money(li["unit_price"], ccy),
+        ]
+        if show_disc:
+            row.append(f"{Decimal(li.get('discount_percent', 0) or 0):g}%")
+        row += [f"{Decimal(li['vat_rate']):g}%", _money(li["net_amount"], ccy)]
+        rows.append(row)
+    col_widths = [8 * mm, 74 * mm, 14 * mm, 26 * mm]
+    if show_disc:
+        col_widths.append(14 * mm)
+    col_widths += [14 * mm, 28 * mm]
+    tbl = Table(rows, colWidths=col_widths, repeatRows=1)
     tbl.setStyle(
         TableStyle(
             [
@@ -248,7 +263,9 @@ def build_pdf(
     summary.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
     story += [summary, Spacer(1, 14)]
 
-    note = SCHEME_NOTES.get(invoice.vat_scheme)
+    # Prefer the invoice's own exemption reason (EN-16931 BT-120); fall back to the
+    # scheme's default legal note.
+    note = getattr(invoice, "tax_exemption_reason", None) or SCHEME_NOTES.get(invoice.vat_scheme)
     if note:
         story += [Paragraph(f"<b>{note}</b>", small), Spacer(1, 6)]
 

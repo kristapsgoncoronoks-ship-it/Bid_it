@@ -7,7 +7,7 @@ import zipfile
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
@@ -16,12 +16,17 @@ from app.api.deps import CurrentUser, DbSession
 from app.core import authz, money
 from app.models.customer import Customer
 from app.models.email_message import EmailMessage
-from app.models.issued_invoice import IssuedInvoice, IssuedInvoiceLine
+from app.models.issued_invoice import (
+    IssuedInvoice,
+    IssuedInvoiceAttachment,
+    IssuedInvoiceLine,
+)
 from app.schemas.issued import (
     BulkReminderResult,
     CreditNoteCreate,
     DisputeRequest,
     EmailMessageOut,
+    IssuedAttachmentOut,
     IssuedInvoiceCreate,
     IssuedInvoiceDetail,
     IssuedInvoiceListOut,
@@ -48,6 +53,7 @@ from app.services import (
     documents,
     dunning,
     facturx,
+    filesec,
     invoice_pdf,
     issued_lifecycle,
     issued_reports,
@@ -92,6 +98,7 @@ def _vat_of(inv: IssuedInvoice) -> vat.VatResult:
             "quantity": li.quantity,
             "unit": li.unit,
             "unit_price": li.unit_price,
+            "discount_percent": li.discount_percent,
             "vat_rate": li.vat_rate,
         }
         for li in inv.lines
@@ -274,6 +281,8 @@ async def edit_draft(
         "seller_json",
         "vat_scheme",
         "note",
+        "po_reference",
+        "tax_exemption_reason",
         "penalty_rate",
         "subtotal",
         "tax_total",
@@ -290,6 +299,7 @@ async def edit_draft(
             quantity=li.quantity,
             unit=li.unit,
             unit_price=li.unit_price,
+            discount_percent=li.discount_percent,
             vat_rate=li.vat_rate,
             net_amount=li.net_amount,
             tax_code=li.tax_code,
@@ -424,6 +434,7 @@ async def duplicate_invoice(invoice_id: str, current: CurrentUser, db: DbSession
             quantity=li.quantity,
             unit=li.unit,
             unit_price=li.unit_price,
+            discount_percent=li.discount_percent,
             vat_rate=li.vat_rate,
             net_amount=li.net_amount,
             tax_code=li.tax_code,
@@ -1154,6 +1165,139 @@ async def report_vat(
             [[r.rate, r.base, r.vat] for r in rep.by_rate],
         )
     return rep
+
+
+# --------------------------------------------------------------------------------
+# Supporting attachments (a signed PO, a delivery note, a contract). The bytes are
+# stored in object storage; the row holds the metadata + sha256 pointer. Any
+# lifecycle may carry attachments; they are never part of the legal invoice PDF.
+# --------------------------------------------------------------------------------
+
+_ATTACH_MAX = 25 * 1024 * 1024  # 25 MB per attachment
+
+
+@router.get("/{invoice_id}/attachments", response_model=list[IssuedAttachmentOut])
+async def list_issued_attachments(invoice_id: str, current: CurrentUser, db: DbSession):
+    await modules.require_enabled(db, current.org_id, "issuing")
+    await _load(db, current.org_id, invoice_id)  # tenant-scoped existence check
+    rows = list(
+        await db.scalars(
+            select(IssuedInvoiceAttachment)
+            .where(
+                IssuedInvoiceAttachment.org_id == current.org_id,
+                IssuedInvoiceAttachment.invoice_id == invoice_id,
+            )
+            .order_by(IssuedInvoiceAttachment.created_at.asc())
+        )
+    )
+    return [IssuedAttachmentOut.model_validate(a) for a in rows]
+
+
+@router.post(
+    "/{invoice_id}/attachments",
+    response_model=IssuedAttachmentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_issued_attachment(
+    invoice_id: str,
+    current: CurrentUser,
+    db: DbSession,
+    file: UploadFile,
+    note: str | None = None,
+):
+    """Attach a supporting document (signed PO, delivery note, contract)."""
+    authz.require(current, authz.Permission.ISSUED_WRITE)
+    await modules.require_enabled(db, current.org_id, "issuing")
+    await _load(db, current.org_id, invoice_id)
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Empty file.")
+    if len(data) > _ATTACH_MAX:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Attachment too large (25 MB).")
+    # Security gate (filesec choke point): block executables / archives / scripts
+    # + malware-scan BEFORE storing — attacker-supplied bytes. Inert docs allowed.
+    try:
+        filesec.reject_active_content(data)
+    except filesec.FileRejected as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
+    sha, size = await documents.store(
+        documents.ISSUED_ATTACHMENTS,
+        current.org_id,
+        data,
+        file.content_type,
+        db=db,
+        filename=file.filename,
+        uploaded_by=current.email,
+    )
+    row = IssuedInvoiceAttachment(
+        org_id=current.org_id,
+        invoice_id=invoice_id,
+        filename=file.filename or "attachment",
+        mime=file.content_type,
+        size=size,
+        sha256=sha,
+        note=note,
+        uploaded_by=current.id,
+        uploaded_by_email=current.email,
+    )
+    db.add(row)
+    await audit.record(
+        db,
+        audit.A.ISSUED_ATTACH,
+        target_type="issued_invoice",
+        target_id=invoice_id,
+        meta={"filename": row.filename, "size": size},
+    )
+    await db.commit()
+    await db.refresh(row)
+    return IssuedAttachmentOut.model_validate(row)
+
+
+@router.get("/{invoice_id}/attachments/{attachment_id}/download")
+async def download_issued_attachment(
+    invoice_id: str, attachment_id: str, current: CurrentUser, db: DbSession
+):
+    await modules.require_enabled(db, current.org_id, "issuing")
+    row = await db.scalar(
+        select(IssuedInvoiceAttachment).where(
+            IssuedInvoiceAttachment.id == attachment_id,
+            IssuedInvoiceAttachment.invoice_id == invoice_id,
+            IssuedInvoiceAttachment.org_id == current.org_id,
+        )
+    )
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment not found")
+    data = await documents.load(documents.ISSUED_ATTACHMENTS, current.org_id, row.sha256)
+    if data is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment bytes missing")
+    return Response(
+        content=data,
+        media_type=row.mime or "application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{row.filename}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.delete("/{invoice_id}/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_issued_attachment(
+    invoice_id: str, attachment_id: str, current: CurrentUser, db: DbSession
+):
+    authz.require(current, authz.Permission.ISSUED_WRITE)
+    await modules.require_enabled(db, current.org_id, "issuing")
+    row = await db.scalar(
+        select(IssuedInvoiceAttachment).where(
+            IssuedInvoiceAttachment.id == attachment_id,
+            IssuedInvoiceAttachment.invoice_id == invoice_id,
+            IssuedInvoiceAttachment.org_id == current.org_id,
+        )
+    )
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment not found")
+    await db.delete(row)
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # Registered LAST: this single-segment dynamic route must not shadow the static

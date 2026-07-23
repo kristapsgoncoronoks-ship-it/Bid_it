@@ -31,7 +31,11 @@ from app.models.fx import EcbRate
 from app.models.invitation import Invitation
 from app.models.invoice import Invoice, InvoiceStatus, LineItem, WorkflowState
 from app.models.invoice_collab import InvoiceAttachment, InvoiceComment
-from app.models.issued_invoice import IssuedInvoice, IssuedInvoiceLine
+from app.models.issued_invoice import (
+    IssuedInvoice,
+    IssuedInvoiceAttachment,
+    IssuedInvoiceLine,
+)
 from app.models.issuer import IssuerProfile
 from app.models.job import Job
 from app.models.membership import Membership
@@ -85,6 +89,7 @@ __all__ = [
     "OrgModule",
     "IssuerProfile",
     "IssuedInvoice",
+    "IssuedInvoiceAttachment",
     "IssuedInvoiceLine",
     "RecurringInvoice",
     "Invitation",

@@ -62,6 +62,11 @@ def build_invoice(
         penalty_rate = profile.default_penalty_rate
 
     note = body.note or vat.SCHEME_NOTES.get(body.vat_scheme)
+    # EN-16931 BT-120: when no VAT is charged, a reason is required. Default it
+    # from the scheme's legal note when the caller didn't supply one.
+    exemption = body.tax_exemption_reason
+    if exemption is None and body.vat_scheme in vat.ZERO_VAT_SCHEMES:
+        exemption = vat.SCHEME_NOTES.get(body.vat_scheme)
 
     return IssuedInvoice(
         org_id=org_id,
@@ -84,6 +89,8 @@ def build_invoice(
         seller_json=json.dumps(issuer_svc.seller_snapshot(profile)),
         vat_scheme=body.vat_scheme,
         note=note,
+        po_reference=body.po_reference,
+        tax_exemption_reason=exemption,
         subtotal=result.subtotal,
         tax_total=result.tax_total,
         total=result.total,
@@ -94,6 +101,7 @@ def build_invoice(
                 quantity=li["quantity"],
                 unit=li["unit"],
                 unit_price=li["unit_price"],
+                discount_percent=li["discount_percent"],
                 vat_rate=li["vat_rate"],
                 net_amount=li["net_amount"],
                 # Carry the chosen catalogue code through as a snapshot label
@@ -144,6 +152,8 @@ def build_credit_note(
         seller_json=original.seller_json,  # same frozen seller as the invoice it corrects
         vat_scheme=original.vat_scheme,
         note=note or default_note,
+        po_reference=original.po_reference,
+        tax_exemption_reason=original.tax_exemption_reason,
         subtotal=result.subtotal,
         tax_total=result.tax_total,
         total=result.total,
@@ -154,6 +164,7 @@ def build_credit_note(
                 quantity=li["quantity"],
                 unit=li["unit"],
                 unit_price=li["unit_price"],
+                discount_percent=li["discount_percent"],
                 vat_rate=li["vat_rate"],
                 net_amount=li["net_amount"],
             )
@@ -170,6 +181,7 @@ def credit_note_lines_for_full(original: IssuedInvoice) -> list[dict]:
             "quantity": li.quantity,
             "unit": li.unit,
             "unit_price": li.unit_price,
+            "discount_percent": li.discount_percent,
             "vat_rate": li.vat_rate,
         }
         for li in original.lines

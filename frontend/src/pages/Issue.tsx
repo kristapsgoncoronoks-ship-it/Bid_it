@@ -5,7 +5,7 @@ import { api, apiError, downloadFile, openFile } from "../lib/api";
 import { ISSUED_STATUS_LABELS, ISSUED_STATUS_STYLES, money, shortDate } from "../lib/format";
 import { useModules } from "../lib/useModules";
 import type {
-  BulkReminderResult, GenerateResult, IssuedInvoice, IssuedLineInput, IssuerProfile,
+  BulkReminderResult, GenerateResult, IssuedAttachment, IssuedInvoice, IssuedLineInput, IssuerProfile,
   Paginated, Partner, RecurringFrequency, RecurringSchedule, SendResult, VatScheme,
 } from "../lib/types";
 
@@ -163,6 +163,7 @@ export default function Issue() {
                     ) : (
                       <span className="text-xs text-slate-400">Issue first</span>
                     )}
+                    <IssuedAttachments inv={inv} />
                   </td>
                 </tr>
               ))}
@@ -465,6 +466,66 @@ function DuplicateAction({ inv, onDone }: { inv: IssuedInvoice; onDone: () => vo
   );
 }
 
+// Supporting attachments (signed PO, delivery note, contract). Expandable per row.
+function IssuedAttachments({ inv }: { inv: IssuedInvoice }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const key = ["issued-attachments", inv.id];
+  const list = useQuery<IssuedAttachment[]>({
+    queryKey: key,
+    queryFn: async () => (await api.get(`/issued/${inv.id}/attachments`)).data,
+    enabled: open,
+  });
+  const upload = useMutation({
+    mutationFn: async (file: File) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      return (await api.post(`/issued/${inv.id}/attachments`, fd)).data;
+    },
+    onSuccess: () => { setErr(null); qc.invalidateQueries({ queryKey: key }); },
+    onError: (e) => setErr(apiError(e)),
+  });
+  const remove = useMutation({
+    mutationFn: async (aid: string) => (await api.delete(`/issued/${inv.id}/attachments/${aid}`)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: key }),
+    onError: (e) => setErr(apiError(e)),
+  });
+  const count = list.data?.length ?? 0;
+  return (
+    <div className="mt-1 text-right">
+      <button className="text-xs text-slate-500 hover:underline" onClick={() => setOpen((o) => !o)}>
+        📎 Files{open && count ? ` (${count})` : ""}
+      </button>
+      {open && (
+        <div className="mt-1 space-y-1 rounded-lg border border-slate-200 p-2 text-left">
+          {list.data?.map((a) => (
+            <div key={a.id} className="flex items-center justify-between gap-2 text-xs">
+              <button
+                className="truncate text-brand-600 hover:underline"
+                onClick={() => downloadFile(`/issued/${inv.id}/attachments/${a.id}/download`, a.filename)}
+              >
+                {a.filename}
+              </button>
+              <button className="text-rose-500 hover:underline" onClick={() => remove.mutate(a.id)}>remove</button>
+            </div>
+          ))}
+          {list.data && list.data.length === 0 && <div className="text-xs text-slate-400">No files yet.</div>}
+          <label className="block cursor-pointer text-xs text-brand-600 hover:underline">
+            {upload.isPending ? "Uploading…" : "+ Add file"}
+            <input
+              type="file"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) upload.mutate(f); e.target.value = ""; }}
+            />
+          </label>
+          {err && <div className="text-xs text-rose-500">{err}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Gate({ children }: { children: React.ReactNode }) {
   return (
     <div className="space-y-4">
@@ -480,6 +541,8 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
   const [buyer, setBuyer] = useState({ ...emptyBuyer });
   const [scheme, setScheme] = useState<VatScheme>("standard");
   const [penalty, setPenalty] = useState("");
+  const [poRef, setPoRef] = useState("");
+  const [exemption, setExemption] = useState("");
   const [partnerId, setPartnerId] = useState("");
   const [lines, setLines] = useState<IssuedLineInput[]>([emptyLine()]);
   const [error, setError] = useState<string | null>(null);
@@ -515,12 +578,16 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
       };
       if (partnerId) payload.partner_id = partnerId;
       if (penalty.trim() !== "") payload.penalty_rate = penalty;
+      if (poRef.trim() !== "") payload.po_reference = poRef.trim();
+      if (exemption.trim() !== "") payload.tax_exemption_reason = exemption.trim();
       return (await api.post("/issued", payload)).data;
     },
     onSuccess: () => {
       setBuyer({ ...emptyBuyer });
       setLines([emptyLine()]);
       setPenalty("");
+      setPoRef("");
+      setExemption("");
       setPartnerId("");
       setError(null);
       onCreated();
@@ -530,7 +597,8 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
 
   const zero = scheme !== "standard";
   const total = lines.reduce((sum, l) => {
-    const net = Number(l.quantity || 0) * Number(l.unit_price || 0);
+    const gross = Number(l.quantity || 0) * Number(l.unit_price || 0);
+    const net = gross * (1 - Number(l.discount_percent || 0) / 100);
     const vat = zero ? 0 : (net * Number(l.vat_rate || 0)) / 100;
     return sum + net + vat;
   }, 0);
@@ -580,6 +648,15 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
             onChange={(e) => setPenalty(e.target.value)}
           />
         </div>
+        <Field label="PO reference" v={poRef} on={setPoRef} />
+        {zero && (
+          <Field
+            label="VAT-exemption reason"
+            v={exemption}
+            on={setExemption}
+            span2
+          />
+        )}
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-slate-200">
@@ -589,6 +666,7 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
               <th className="px-3 py-2">Description</th>
               <th className="px-3 py-2 w-20">Qty</th>
               <th className="px-3 py-2 w-28">Unit price</th>
+              <th className="px-3 py-2 w-20">Disc %</th>
               <th className="px-3 py-2 w-20">VAT %</th>
               <th className="px-3 py-2"></th>
             </tr>
@@ -599,6 +677,7 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
                 <td className="px-3 py-2"><input className="input" value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} /></td>
                 <td className="px-3 py-2"><input className="input" value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} /></td>
                 <td className="px-3 py-2"><input className="input" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} /></td>
+                <td className="px-3 py-2"><input className="input" value={l.discount_percent ?? ""} placeholder="0" onChange={(e) => setLine(i, { discount_percent: e.target.value })} /></td>
                 <td className="px-3 py-2"><input className="input" value={l.vat_rate} disabled={zero} onChange={(e) => setLine(i, { vat_rate: e.target.value })} /></td>
                 <td className="px-3 py-2 text-right">
                   {lines.length > 1 && (
@@ -815,6 +894,7 @@ function NewRecurring({ onCreated }: { onCreated: () => void }) {
               <th className="px-3 py-2">Description</th>
               <th className="px-3 py-2 w-20">Qty</th>
               <th className="px-3 py-2 w-28">Unit price</th>
+              <th className="px-3 py-2 w-20">Disc %</th>
               <th className="px-3 py-2 w-20">VAT %</th>
               <th className="px-3 py-2"></th>
             </tr>
@@ -825,6 +905,7 @@ function NewRecurring({ onCreated }: { onCreated: () => void }) {
                 <td className="px-3 py-2"><input className="input" value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} /></td>
                 <td className="px-3 py-2"><input className="input" value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} /></td>
                 <td className="px-3 py-2"><input className="input" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} /></td>
+                <td className="px-3 py-2"><input className="input" value={l.discount_percent ?? ""} placeholder="0" onChange={(e) => setLine(i, { discount_percent: e.target.value })} /></td>
                 <td className="px-3 py-2"><input className="input" value={l.vat_rate} disabled={zero} onChange={(e) => setLine(i, { vat_rate: e.target.value })} /></td>
                 <td className="px-3 py-2 text-right">
                   {lines.length > 1 && (

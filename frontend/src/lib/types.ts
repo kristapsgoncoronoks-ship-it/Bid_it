@@ -931,7 +931,18 @@ export interface IssuedLineInput {
   quantity: string;
   unit?: string;
   unit_price: string;
+  discount_percent?: string;
   vat_rate: string;
+}
+
+export interface IssuedAttachment {
+  id: string;
+  filename: string;
+  mime: string | null;
+  size: number;
+  note: string | null;
+  uploaded_by_email: string | null;
+  created_at: string;
 }
 
 export interface VatBucket {
@@ -1033,6 +1044,8 @@ export interface IssuedInvoice {
   buyer_vat_number: string | null;
   vat_scheme: string;
   note: string | null;
+  po_reference: string | null;
+  tax_exemption_reason: string | null;
   subtotal: string;
   tax_total: string;
   total: string;
@@ -1246,6 +1259,7 @@ export interface IssuedInvoiceDetail extends IssuedInvoice {
     quantity: string;
     unit: string;
     unit_price: string;
+    discount_percent: string;
     vat_rate: string;
     net_amount: string;
   }[];

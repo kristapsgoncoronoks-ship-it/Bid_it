@@ -14,6 +14,8 @@ class IssuedLineIn(BaseModel):
     quantity: Decimal = Field(default=Decimal("1"), gt=0)
     unit: str = Field(default="C62", max_length=8)
     unit_price: Decimal = Field(ge=0)
+    # Per-line discount as a % of qty×unit_price (net is stored post-discount).
+    discount_percent: Decimal = Field(default=Decimal("0"), ge=0, le=100)
     vat_rate: Decimal = Field(default=Decimal("0"), ge=0, le=100)
     # Optional tax-code catalogue reference; when set, its rate overrides vat_rate.
     tax_code: str | None = Field(default=None, max_length=24)
@@ -40,6 +42,11 @@ class IssuedInvoiceCreate(BaseModel):
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     vat_scheme: VatScheme = "standard"
     note: str | None = Field(default=None, max_length=1000)
+    # Buyer's purchase-order reference (EN-16931 BT-13).
+    po_reference: str | None = Field(default=None, max_length=60)
+    # VAT-exemption reason (EN-16931 BT-120); defaults from the scheme note when a
+    # zero-VAT scheme is chosen and this is omitted.
+    tax_exemption_reason: str | None = Field(default=None, max_length=300)
     # Late-payment interest (% p.a.); omit to inherit the issuer default (if any).
     penalty_rate: Decimal | None = Field(default=None, ge=0, le=100)
     lines: list[IssuedLineIn] = Field(min_length=1)
@@ -61,6 +68,7 @@ class IssuedLineOut(BaseModel):
     quantity: Decimal
     unit: str
     unit_price: Decimal
+    discount_percent: Decimal = Decimal("0")
     vat_rate: Decimal
     net_amount: Decimal
     tax_code: str | None = None
@@ -84,6 +92,8 @@ class IssuedInvoiceOut(BaseModel):
     buyer_vat_number: str | None
     vat_scheme: str
     note: str | None
+    po_reference: str | None = None
+    tax_exemption_reason: str | None = None
     buyer_email: str | None = None
     subtotal: Decimal
     tax_total: Decimal
@@ -216,3 +226,14 @@ class IssuedInvoiceDetail(IssuedInvoiceOut):
 class IssuedInvoiceListOut(BaseModel):
     items: list[IssuedInvoiceOut]
     total: int
+
+
+class IssuedAttachmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    filename: str
+    mime: str | None = None
+    size: int
+    note: str | None = None
+    uploaded_by_email: str | None = None
+    created_at: datetime
