@@ -71,10 +71,14 @@ async def import_statement(
     )
     if dup is not None:
         raise ReconError("this statement was already imported")
+    lower = filename.lower()
+    source_format = (
+        "csv" if lower.endswith(".csv") else "camt" if result.method == "camt.053" else "pdf"
+    )
     stmt = BankStatement(
         org_id=org_id,
         filename=filename[:300],
-        source_format="csv" if filename.lower().endswith(".csv") else "pdf",
+        source_format=source_format,
         method=result.method,
         sha256=sha,
         line_count=len(result.transactions),

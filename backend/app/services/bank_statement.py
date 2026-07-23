@@ -190,6 +190,76 @@ def _parse_csv(content: bytes, warnings: list[str]) -> list[Txn]:
 
 
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# camt.053 path (ISO 20022 bank-to-customer statement, the modern bank export)
+# --------------------------------------------------------------------------- #
+def _local(tag: str) -> str:
+    """The local element name, dropping any XML namespace."""
+    return tag.rsplit("}", 1)[-1]
+
+
+def _looks_like_camt(content: bytes) -> bool:
+    head = content[:2000].lower()
+    return b"camt.053" in head or b"bktocstmrstmt" in head
+
+
+def _parse_camt053(content: bytes, warnings: list[str]) -> list[Txn]:
+    from defusedxml import ElementTree as DET  # XXE-hardened parse
+
+    try:
+        root = DET.fromstring(content)
+    except Exception as exc:
+        raise ValueError(f"Could not parse camt.053 XML: {exc}") from exc
+
+    def child(el, name):
+        for c in el:
+            if _local(c.tag) == name:
+                return c
+        return None
+
+    def descr(el) -> str:
+        parts = [
+            c.text.strip()
+            for c in el.iter()
+            if _local(c.tag) in ("Ustrd", "AddtlNtryInf") and c.text and c.text.strip()
+        ]
+        return "; ".join(parts)[:300] or "Transaction"
+
+    txns: list[Txn] = []
+    for ntry in (e for e in root.iter() if _local(e.tag) == "Ntry"):
+        amt_el = child(ntry, "Amt")
+        cd_el = child(ntry, "CdtDbtInd")
+        if amt_el is None or amt_el.text is None or cd_el is None:
+            continue
+        try:
+            amount = Decimal(amt_el.text.strip()).quantize(_CENTS)
+        except (ArithmeticError, ValueError):
+            continue
+        direction = "credit" if (cd_el.text or "").strip().upper() == "CRDT" else "debit"
+        # NB: `X or Y` is unsafe for ElementTree elements — an element with no
+        # sub-elements is FALSY — so resolve the date holder/field with `is None`.
+        dt_holder = child(ntry, "BookgDt")
+        if dt_holder is None:
+            dt_holder = child(ntry, "ValDt")
+        d: date | None = None
+        if dt_holder is not None:
+            dt_el = child(dt_holder, "Dt")
+            if dt_el is None:
+                dt_el = child(dt_holder, "DtTm")
+            if dt_el is not None and dt_el.text:
+                try:
+                    d = date.fromisoformat(dt_el.text.strip()[:10])
+                except ValueError:
+                    d = None
+        if d is None:
+            continue  # a bookable entry must carry a date
+        txns.append(Txn(date=d, description=descr(ntry), amount=amount, direction=direction))
+    if not txns:
+        raise ValueError("No bookable entries (Ntry) found in the camt.053 statement.")
+    return txns
+
+
+# --------------------------------------------------------------------------- #
 # Public API
 # --------------------------------------------------------------------------- #
 def parse(filename: str, content: bytes) -> StatementResult:
@@ -198,6 +268,10 @@ def parse(filename: str, content: bytes) -> StatementResult:
     if lower.endswith(".csv"):
         return StatementResult(
             method="csv", transactions=_parse_csv(content, warnings), warnings=warnings
+        )
+    if lower.endswith(".xml") or _looks_like_camt(content):
+        return StatementResult(
+            method="camt.053", transactions=_parse_camt053(content, warnings), warnings=warnings
         )
     if lower.endswith(".pdf"):
         text, method = pdf_ocr.extract_text(content)

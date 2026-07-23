@@ -70,7 +70,9 @@ async def import_statement(current: CurrentUser, db: DbSession, file: UploadFile
         )
     # Security gate before any parsing/OCR of the (untrusted) statement.
     try:
-        filesec.check(file.filename or "statement", content, allowed=frozenset({"pdf", "csv"}))
+        filesec.check(
+            file.filename or "statement", content, allowed=frozenset({"pdf", "csv", "xml"})
+        )
     except filesec.FileRejected as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
     try:
