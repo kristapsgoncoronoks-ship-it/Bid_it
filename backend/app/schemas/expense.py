@@ -229,6 +229,18 @@ class PolicyCheckOut(BaseModel):
     can_submit: bool = True
 
 
+class ReceiptScanOut(BaseModel):
+    """Advisory OCR suggestion for a receipt — the user confirms before saving."""
+
+    merchant: str | None = None
+    spend_date: date | None = None
+    amount: Decimal | None = None
+    vat_amount: Decimal | None = None
+    currency: str | None = None
+    method: str  # text-layer | ocr
+    text_preview: str = ""
+
+
 class ApprovalStepOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str

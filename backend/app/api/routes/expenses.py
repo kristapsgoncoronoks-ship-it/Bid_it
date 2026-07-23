@@ -50,6 +50,7 @@ from app.schemas.expense import (
     PolicyCheckOut,
     PolicyViolation,
     ReassignIn,
+    ReceiptScanOut,
 )
 from app.services import (
     audit,
@@ -64,6 +65,7 @@ from app.services import (
     filesec,
     fx,
     modules,
+    receipt_ocr,
     webhooks,
 )
 
@@ -267,6 +269,37 @@ async def import_bank_statement(current: CurrentUser, db: DbSession, file: Uploa
         transactions=[ExpenseTransactionOut.model_validate(t) for t in created],
         warnings=result.warnings
         + [f"{len(created)} transaction(s) added to your available expenses; credits excluded."],
+    )
+
+
+@router.post("/receipt-scan", response_model=ReceiptScanOut)
+async def receipt_scan(current: CurrentUser, db: DbSession, file: UploadFile):
+    """Advisory OCR of a receipt image/PDF → suggested item fields (merchant, date,
+    amount, tax, currency). Reads only — writes nothing; the user confirms."""
+    await _guard(db, current.org_id)
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Receipt too large (max 5 MB)"
+        )
+    try:
+        filesec.check(file.filename or "receipt", content, allowed=filesec.RECEIPT_KINDS)
+    except filesec.FileRejected as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
+    try:
+        s = await run_in_threadpool(receipt_ocr.suggest, file.filename or "receipt", content)
+    except receipt_ocr.pdf_ocr.OcrUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"OCR unavailable: {exc}")
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+    return ReceiptScanOut(
+        merchant=s.merchant,
+        spend_date=s.spend_date,
+        amount=s.amount,
+        vat_amount=s.vat_amount,
+        currency=s.currency,
+        method=s.method,
+        text_preview=s.text_preview,
     )
 
 

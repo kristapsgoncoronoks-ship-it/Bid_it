@@ -299,6 +299,9 @@ export default function ExpenseDetail() {
 
 // Add a manual expense entry: standard / mileage / per-diem, mobile-friendly.
 function AddItem({ onAdd, pending }: { onAdd: (b: ExpenseItemInput) => void; pending: boolean }) {
+  const toast = useToast();
+  const scanRef = useRef<HTMLInputElement>(null);
+  const [scanning, setScanning] = useState(false);
   const [type, setType] = useState<ExpenseType>("standard");
   const [f, setF] = useState<Record<string, string>>({
     spend_date: new Date().toISOString().slice(0, 10),
@@ -310,6 +313,29 @@ function AddItem({ onAdd, pending }: { onAdd: (b: ExpenseItemInput) => void; pen
     comment: "",
   });
   const set = (k: string, v: string) => setF((s) => ({ ...s, [k]: v }));
+
+  // Advisory receipt OCR: scan a photo/PDF and prefill the fields to confirm.
+  const scan = async (file: File) => {
+    setScanning(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const s = (await api.post("/expenses/receipt-scan", form)).data;
+      setF((cur) => ({
+        ...cur,
+        merchant: s.merchant ?? cur.merchant,
+        amount: s.amount ?? cur.amount,
+        vat_amount: s.vat_amount ?? cur.vat_amount,
+        spend_date: s.spend_date ?? cur.spend_date,
+        description: cur.description || s.merchant || "",
+      }));
+      toast.success(`Scanned (${s.method}). Review the prefilled fields.`);
+    } catch (e) {
+      toast.error(apiError(e));
+    } finally {
+      setScanning(false);
+    }
+  };
 
   const submit = () => {
     const body: ExpenseItemInput = {
@@ -332,8 +358,21 @@ function AddItem({ onAdd, pending }: { onAdd: (b: ExpenseItemInput) => void; pen
   const inp = "input py-1 text-sm";
   return (
     <div className="card space-y-3">
+      <input
+        ref={scanRef}
+        type="file"
+        accept="image/*,.pdf"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => { const file = e.target.files?.[0]; if (file) scan(file); e.target.value = ""; }}
+      />
       <div className="flex items-center gap-2">
         <h2 className="text-sm font-semibold text-slate-600">Add an expense</h2>
+        {type === "standard" && (
+          <button className="btn-ghost text-xs" disabled={scanning} onClick={() => scanRef.current?.click()}>
+            {scanning ? "Scanning…" : "📷 Scan receipt"}
+          </button>
+        )}
         <div className="ml-auto flex rounded-lg border border-slate-200 p-0.5 text-xs">
           {(["standard", "mileage", "per_diem"] as ExpenseType[]).map((t) => (
             <button key={t} className={`rounded px-2 py-1 ${type === t ? "bg-brand-50 text-brand-700" : "text-slate-500"}`} onClick={() => setType(t)}>
