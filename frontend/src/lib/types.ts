@@ -900,6 +900,9 @@ export interface BudgetOverview {
 }
 
 export interface IssuerProfile {
+  id: string;
+  name: string;
+  is_default: boolean;
   legal_name: string | null;
   trade_name: string | null;
   vat_number: string | null;
@@ -915,9 +918,11 @@ export interface IssuerProfile {
   bic: string | null;
   default_currency: string;
   invoice_prefix: string;
+  credit_note_prefix: string;
   next_number: number;
   payment_terms_days: number;
   default_penalty_rate: string | null;
+  payment_instructions: string | null;
   notes: string | null;
   is_complete: boolean;
   missing_fields: string[];
@@ -1035,6 +1040,7 @@ export interface IssuedInvoice {
   doc_type: "invoice" | "credit_note";
   corrected_invoice_id: string | null;
   credited_total: string;
+  issuer_id: string | null;
   partner_id: string | null;
   issue_date: string;
   supply_date: string | null;

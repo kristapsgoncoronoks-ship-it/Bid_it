@@ -544,12 +544,19 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
   const [poRef, setPoRef] = useState("");
   const [exemption, setExemption] = useState("");
   const [partnerId, setPartnerId] = useState("");
+  const [issuerId, setIssuerId] = useState("");
   const [lines, setLines] = useState<IssuedLineInput[]>([emptyLine()]);
   const [error, setError] = useState<string | null>(null);
 
   const partners = useQuery<Partner[]>({
     queryKey: ["partners"],
     queryFn: async () => (await api.get("/partners")).data,
+  });
+  // Issuer companies: when more than one exists, the user picks which entity
+  // issues (and numbers) this invoice; otherwise the default entity is used.
+  const issuers = useQuery<IssuerProfile[]>({
+    queryKey: ["issuer-registry"],
+    queryFn: async () => (await api.get("/issuer/registry")).data,
   });
   const selectedPartner = partners.data?.find((p) => p.id === partnerId);
 
@@ -577,6 +584,7 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
         draft: asDraft,
       };
       if (partnerId) payload.partner_id = partnerId;
+      if (issuerId) payload.issuer_id = issuerId;
       if (penalty.trim() !== "") payload.penalty_rate = penalty;
       if (poRef.trim() !== "") payload.po_reference = poRef.trim();
       if (exemption.trim() !== "") payload.tax_exemption_reason = exemption.trim();
@@ -589,6 +597,7 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
       setPoRef("");
       setExemption("");
       setPartnerId("");
+      setIssuerId("");
       setError(null);
       onCreated();
     },
@@ -609,6 +618,30 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
   return (
     <div className="card space-y-4">
       <h2 className="text-sm font-semibold text-slate-600">New invoice</h2>
+
+      {(issuers.data?.length ?? 0) > 1 && (
+        <div>
+          <label className="label">Issue from (company)</label>
+          <select className="input sm:w-1/2" value={issuerId} onChange={(e) => setIssuerId(e.target.value)}>
+            <option value="">
+              — Default{" "}
+              {issuers.data?.find((i) => i.is_default)
+                ? `(${issuers.data.find((i) => i.is_default)!.name || issuers.data.find((i) => i.is_default)!.legal_name})`
+                : ""}{" "}
+              —
+            </option>
+            {issuers.data?.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.name || i.legal_name} · {i.invoice_prefix}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-slate-400">
+            Each company keeps its own gap-free numbering series — manage them under{" "}
+            <Link to="/issuer" className="underline">Company details</Link>.
+          </p>
+        </div>
+      )}
 
       {(partners.data?.length ?? 0) > 0 && (
         <div>
