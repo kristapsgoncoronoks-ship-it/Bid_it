@@ -63,10 +63,14 @@ def _run_out(run: PaymentRun, invoice_count: int) -> RunOut:
     )
 
 
-async def _load(db: DbSession, org_id: str, run_id: str) -> PaymentRun:
-    r = await db.scalar(
-        select(PaymentRun).where(PaymentRun.id == run_id, PaymentRun.org_id == org_id)
-    )
+async def _load(db: DbSession, org_id: str, run_id: str, *, lock: bool = False) -> PaymentRun:
+    stmt = select(PaymentRun).where(PaymentRun.id == run_id, PaymentRun.org_id == org_id)
+    if lock:
+        # Serialize concurrent state-changing operations (pay/cancel) on the run so
+        # the version check + mark_paid are atomic and can't double-settle. SQLite
+        # ignores FOR UPDATE (writes already serialize); Postgres takes the row lock.
+        stmt = stmt.with_for_update()
+    r = await db.scalar(stmt)
     if r is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Payment run not found")
     return r
@@ -138,7 +142,7 @@ async def get_run(run_id: str, current: CurrentUser, db: DbSession):
 @router.post("/{run_id}/pay", response_model=RunDetailOut)
 async def pay_run(run_id: str, body: RunPay, current: CurrentUser, db: DbSession):
     authz.require(current, authz.Permission.PAYMENT_WRITE)
-    run = await _load(db, current.org_id, run_id)
+    run = await _load(db, current.org_id, run_id, lock=True)
     if body.version != run.version:
         raise HTTPException(
             status.HTTP_409_CONFLICT, f"Run changed (your {body.version}, current {run.version})."
@@ -172,7 +176,7 @@ async def pay_run(run_id: str, body: RunPay, current: CurrentUser, db: DbSession
 @router.delete("/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_run(run_id: str, current: CurrentUser, db: DbSession):
     authz.require(current, authz.Permission.PAYMENT_WRITE)
-    run = await _load(db, current.org_id, run_id)
+    run = await _load(db, current.org_id, run_id, lock=True)
     try:
         await payment_run.cancel_run(db, current.org_id, run)
     except payment_run.PaymentRunError as e:

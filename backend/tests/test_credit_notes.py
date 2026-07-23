@@ -75,6 +75,33 @@ async def test_full_credit_note_cancels_invoice(auth_client):
 
 
 @pytest.mark.asyncio
+async def test_omit_lines_credits_remaining_after_partial(auth_client):
+    # Regression (audit M3): after a partial credit, omitting `lines` must credit
+    # the still-un-credited REMAINDER — previously it rebuilt the full lines and
+    # the cap check then rejected it, so the documented convenience path was dead.
+    await _activate(auth_client)
+    inv = await _make_invoice(auth_client)  # total 291.50
+    part = await auth_client.post(
+        f"/api/v1/issued/{inv['id']}/credit-note",
+        json={
+            "lines": [
+                {"description": "Support", "quantity": "1", "unit_price": "50.00", "vat_rate": "7"}
+            ]
+        },
+    )
+    assert part.status_code == 201, part.text
+    assert part.json()["total"] == "53.50"
+
+    rest = await auth_client.post(f"/api/v1/issued/{inv['id']}/credit-note", json={})
+    assert rest.status_code == 201, rest.text
+    assert rest.json()["total"] == "238.00"  # 291.50 − 53.50
+
+    got = (await auth_client.get(f"/api/v1/issued/{inv['id']}")).json()
+    assert got["credited_total"] == "291.50"
+    assert got["status"] == "credited"
+
+
+@pytest.mark.asyncio
 async def test_partial_credit_note_reduces_outstanding(auth_client):
     await _activate(auth_client)
     inv = await _make_invoice(auth_client)

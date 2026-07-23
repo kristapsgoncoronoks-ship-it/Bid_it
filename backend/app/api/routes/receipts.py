@@ -63,8 +63,8 @@ async def _detail(db: DbSession, org_id: str, r) -> ReceiptDetail:
     )
 
 
-async def _load(db: DbSession, org_id: str, receipt_id: str):
-    r = await receipts.get(db, org_id, receipt_id)
+async def _load(db: DbSession, org_id: str, receipt_id: str, *, lock: bool = False):
+    r = await receipts.get(db, org_id, receipt_id, lock=lock)
     if r is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Receipt not found")
     return r
@@ -106,11 +106,11 @@ async def allocate_receipt(
 ):
     authz.require(current, authz.Permission.PAYMENT_WRITE)
     await _guard(db, current.org_id)
-    r = await _load(db, current.org_id, receipt_id)
+    r = await _load(db, current.org_id, receipt_id, lock=True)
     inv = await db.scalar(
-        select(IssuedInvoice).where(
-            IssuedInvoice.org_id == current.org_id, IssuedInvoice.id == body.invoice_id
-        )
+        select(IssuedInvoice)
+        .where(IssuedInvoice.org_id == current.org_id, IssuedInvoice.id == body.invoice_id)
+        .with_for_update(of=IssuedInvoice)
     )
     if inv is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Issued invoice not found")
@@ -127,7 +127,7 @@ async def deallocate_receipt(
 ):
     authz.require(current, authz.Permission.PAYMENT_WRITE)
     await _guard(db, current.org_id)
-    r = await _load(db, current.org_id, receipt_id)
+    r = await _load(db, current.org_id, receipt_id, lock=True)
     try:
         await receipts.deallocate(db, current.org_id, r, body.payment_id)
     except receipts.ReceiptError as exc:

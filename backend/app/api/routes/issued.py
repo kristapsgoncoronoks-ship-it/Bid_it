@@ -569,13 +569,21 @@ async def create_credit_note(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot credit a credit note.")
 
     # Determine the lines being credited (full remaining, or the caller's lines).
+    already = issued_service.already_credited(original)
     if body.lines is None:
-        remaining = money.q2(Decimal(original.total) - issued_service.already_credited(original))
+        remaining = money.q2(Decimal(original.total) - already)
         if remaining <= Decimal("0"):
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST, "This invoice is already fully credited."
             )
         raw_lines = issued_service.credit_note_lines_for_full(original)
+        # After a PARTIAL credit, credit only the still-un-credited portion: scale
+        # the original lines by remaining/total. VAT is linear in the net, so the
+        # credit note grosses to exactly `remaining` while keeping the rate mix.
+        if already > Decimal("0") and Decimal(original.total) > Decimal("0"):
+            factor = remaining / Decimal(original.total)
+            for rl in raw_lines:
+                rl["unit_price"] = Decimal(rl["unit_price"]) * factor
     else:
         raw_lines = [li.model_dump() for li in body.lines]
 
@@ -590,14 +598,17 @@ async def create_credit_note(
         note=body.reason,
     )
     # Enforce: total credited (existing + this) may not exceed the invoiced total.
-    new_credited = issued_service.already_credited(original) + Decimal(cn.total)
-    if new_credited > Decimal(original.total) + Decimal("0.001"):
+    # Only the caller-supplied-lines path can over-credit; the omit path is bounded
+    # to `remaining` by construction. Allow one cent of rounding tolerance.
+    new_credited = already + Decimal(cn.total)
+    if body.lines is not None and new_credited > Decimal(original.total) + Decimal("0.01"):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             f"Credit ({cn.total}) exceeds the invoice's un-credited amount "
-            f"({money.q2(Decimal(original.total) - issued_service.already_credited(original))}).",
+            f"({money.q2(Decimal(original.total) - already)}).",
         )
-    original.credited_total = money.q2(new_credited)
+    # Never let the running credited total drift past the invoiced total.
+    original.credited_total = money.q2(min(new_credited, Decimal(original.total)))
     db.add(cn)
     await audit.record(
         db,
@@ -643,12 +654,22 @@ async def list_issued(
     return IssuedInvoiceListOut(items=[_out(r) for r in rows], total=total or 0)
 
 
-async def _load(db: DbSession, org_id: str, invoice_id: str) -> IssuedInvoice:
-    inv = await db.scalar(
+async def _load(
+    db: DbSession, org_id: str, invoice_id: str, *, lock: bool = False
+) -> IssuedInvoice:
+    stmt = (
         select(IssuedInvoice)
         .where(IssuedInvoice.id == invoice_id, IssuedInvoice.org_id == org_id)
         .options(selectinload(IssuedInvoice.lines))
     )
+    if lock:
+        # Serialize concurrent settlement writes on this invoice so the cumulative
+        # amount_paid update + ledger delta are atomic (no double-write / cap bypass).
+        # SQLite ignores FOR UPDATE (writes serialize); Postgres takes the row lock.
+        # The lines load via a separate selectinload query, so FOR UPDATE stays on
+        # the invoice row only.
+        stmt = stmt.with_for_update(of=IssuedInvoice)
+    inv = await db.scalar(stmt)
     if inv is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Issued invoice not found")
     return inv
@@ -692,7 +713,7 @@ async def record_payment(invoice_id: str, body: PaymentUpdate, current: CurrentU
     """Record a payment against an issued invoice (drives the paid/overdue report)."""
     authz.require(current, authz.Permission.ISSUED_WRITE)
     await modules.require_enabled(db, current.org_id, "issuing")
-    inv = await _load(db, current.org_id, invoice_id)
+    inv = await _load(db, current.org_id, invoice_id, lock=True)
     _require_receivable(inv)
     if issued_status.is_credit_note(inv):
         raise HTTPException(

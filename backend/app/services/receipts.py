@@ -50,10 +50,16 @@ async def create(
     return r
 
 
-async def get(db: AsyncSession, org_id: str, receipt_id: str) -> Receipt | None:
-    return await db.scalar(
-        select(Receipt).where(Receipt.org_id == org_id, Receipt.id == receipt_id)
-    )
+async def get(
+    db: AsyncSession, org_id: str, receipt_id: str, *, lock: bool = False
+) -> Receipt | None:
+    stmt = select(Receipt).where(Receipt.org_id == org_id, Receipt.id == receipt_id)
+    if lock:
+        # Serialize concurrent (de)allocations of the same receipt so the
+        # unallocated-balance cap can't be jointly exceeded. SQLite ignores FOR
+        # UPDATE (writes serialize); Postgres takes the row lock.
+        stmt = stmt.with_for_update()
+    return await db.scalar(stmt)
 
 
 async def list_receipts(db: AsyncSession, org_id: str) -> list[Receipt]:

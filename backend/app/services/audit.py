@@ -17,7 +17,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.tenant import get_current_actor, get_current_org
@@ -145,6 +145,19 @@ async def record(
         if org is None:
             return None  # no tenant context (bootstrap) — nothing to attribute
         actor_id, actor_email = actor if actor is not None else get_current_actor()
+
+        # Serialize per-tenant audit appends so the hash-chain seq is collision-free
+        # under concurrency: without this, two concurrent same-org writes compute the
+        # same seq and the second hits the (org_id, seq) unique constraint at the
+        # caller's commit — OUTSIDE this try/except — which would 500 the whole
+        # operation, violating the best-effort contract. A Postgres transaction-scoped
+        # advisory lock (released at commit/rollback) makes the read-then-insert atomic;
+        # SQLite already serializes writers, so it is a no-op there.
+        bind = db.bind
+        if bind is not None and bind.dialect.name == "postgresql":
+            await db.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"audit:{org}"}
+            )
 
         latest = await db.scalar(
             select(AuditEvent)

@@ -28,12 +28,18 @@ router = APIRouter(prefix="/reimbursements", tags=["reimbursements"])
 _P = authz.Permission
 
 
-async def _load(db: DbSession, org_id: str, batch_id: str) -> ReimbursementBatch:
-    b = await db.scalar(
-        select(ReimbursementBatch).where(
-            ReimbursementBatch.id == batch_id, ReimbursementBatch.org_id == org_id
-        )
+async def _load(
+    db: DbSession, org_id: str, batch_id: str, *, lock: bool = False
+) -> ReimbursementBatch:
+    stmt = select(ReimbursementBatch).where(
+        ReimbursementBatch.id == batch_id, ReimbursementBatch.org_id == org_id
     )
+    if lock:
+        # Serialize state-changing operations (pay/cancel) so the version check +
+        # settlement are atomic and can't double-write the ledger. SQLite ignores
+        # FOR UPDATE (writes serialize); Postgres takes the row lock.
+        stmt = stmt.with_for_update()
+    b = await db.scalar(stmt)
     if b is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Reimbursement batch not found")
     return b
@@ -147,7 +153,7 @@ async def get_batch(batch_id: str, current: CurrentUser, db: DbSession):
 async def pay_batch(batch_id: str, body: BatchPay, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     authz.require(current, _P.EXPENSE_APPROVE)
-    b = await _load(db, current.org_id, batch_id)
+    b = await _load(db, current.org_id, batch_id, lock=True)
     if body.version != b.version:
         raise HTTPException(
             status.HTTP_409_CONFLICT, f"Batch changed (your {body.version}, current {b.version})."
