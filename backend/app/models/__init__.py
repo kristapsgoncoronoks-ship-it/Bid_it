@@ -9,6 +9,7 @@ from app.models.billing_payment import BillingPayment
 from app.models.budget import BudgetTarget
 from app.models.costing import CostCenter, Department, Project
 from app.models.currency import Currency
+from app.models.customer import Customer, CustomerContact
 from app.models.document import Document
 from app.models.document_version import DocumentVersion
 from app.models.dunning_policy import DunningPolicy
@@ -95,6 +96,8 @@ __all__ = [
     "ExpenseComment",
     "ExpenseApprovalPolicy",
     "ExpenseApprovalStep",
+    "Customer",
+    "CustomerContact",
     "ReimbursementBatch",
     "ExpensePolicy",
     "UsageCounter",

@@ -32,6 +32,7 @@ const CashPosition = lazy(() => import("./pages/CashPosition"));
 const DunningSettings = lazy(() => import("./pages/DunningSettings"));
 const Vendors = lazy(() => import("./pages/Vendors"));
 const Partners = lazy(() => import("./pages/Partners"));
+const Customers = lazy(() => import("./pages/Customers"));
 const Team = lazy(() => import("./pages/Team"));
 const Billing = lazy(() => import("./pages/Billing"));
 const Expenses = lazy(() => import("./pages/Expenses"));
@@ -132,6 +133,7 @@ export default function App() {
                 <Route path="/dunning" element={<DunningSettings />} />
                 <Route path="/vendors" element={<Vendors />} />
                 <Route path="/partners" element={<Partners />} />
+                <Route path="/customers" element={<Customers />} />
                 <Route path="/issuer" element={<Issuer />} />
                 <Route path="/expenses" element={<Expenses />} />
                 <Route path="/expenses/policy" element={<ExpensePolicy />} />

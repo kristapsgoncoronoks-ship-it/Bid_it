@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
 from app.core import authz, money
+from app.models.customer import Customer
 from app.models.email_message import EmailMessage
 from app.models.issued_invoice import IssuedInvoice
 from app.schemas.issued import (
@@ -135,6 +136,32 @@ async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbS
                 f"Cannot issue to {partner.name}: awaiting signed {labels}.",
             )
 
+    # If linked to a sales Customer, prefill the buyer block + terms/currency from
+    # the master where the payload didn't override them.
+    customer = None
+    customer_terms = None
+    if body.customer_id:
+        customer = await db.scalar(
+            select(Customer).where(
+                Customer.id == body.customer_id, Customer.org_id == current.org_id
+            )
+        )
+        if customer is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Customer not found")
+        body.buyer_name = body.buyer_name or customer.name
+        body.buyer_email = body.buyer_email or customer.email
+        body.buyer_vat_number = body.buyer_vat_number or customer.vat_number
+        body.buyer_address_line1 = body.buyer_address_line1 or customer.address_line1
+        body.buyer_city = body.buyer_city or customer.city
+        body.buyer_postal_code = body.buyer_postal_code or customer.postal_code
+        body.buyer_country = body.buyer_country or customer.country
+        body.currency = body.currency or customer.default_currency
+        customer_terms = customer.payment_terms_days
+    if not body.buyer_name:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "A buyer name (or a customer_id) is required."
+        )
+
     # Resolve any line tax-code to its catalogue rate (Slice 4b): the code drives
     # vat_rate; the canonical code is snapshotted onto the line.
     for li in body.lines:
@@ -149,7 +176,15 @@ async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbS
 
     # Lock the issuer row FOR UPDATE so concurrent issues serialize on numbering.
     profile = await issuer.lock(db, current.org_id)
-    inv = issued_service.build_invoice(profile, body, org_id=current.org_id, partner=partner)
+    inv = issued_service.build_invoice(
+        profile,
+        body,
+        org_id=current.org_id,
+        partner=partner,
+        payment_terms_days=customer_terms,
+    )
+    if customer is not None:
+        inv.customer_id = customer.id
     db.add(inv)
     await db.commit()
     await db.refresh(inv, attribute_names=["lines"])

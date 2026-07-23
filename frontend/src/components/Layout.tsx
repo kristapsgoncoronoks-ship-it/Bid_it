@@ -19,6 +19,7 @@ const NAV = [
   { to: "/email", label: "Email intake", end: false, module: "email_intake" },
   { to: "/budget", label: "Budget", end: false, module: "budget" },
   { to: "/issue", label: "Issue", end: true, module: "issuing" },
+  { to: "/customers", label: "Customers", end: false, module: "issuing" },
   { to: "/receipts", label: "Receipts", end: false, module: "issuing" },
   { to: "/reconciliation", label: "Reconciliation", end: false, module: "issuing" },
   { to: "/issue/reports", label: "Invoice reports", end: false, module: "issuing" },

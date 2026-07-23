@@ -338,6 +338,38 @@ export interface ExpenseReportDetail extends ExpenseReport {
   approval_steps?: ApprovalStep[];
 }
 
+export interface CustomerContact {
+  id?: string;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  role?: string | null;
+}
+
+export interface Customer {
+  id: string;
+  name: string;
+  legal_name?: string | null;
+  vat_number?: string | null;
+  registration_number?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address_line1?: string | null;
+  address_line2?: string | null;
+  city?: string | null;
+  postal_code?: string | null;
+  country?: string | null;
+  ship_address_line1?: string | null;
+  ship_city?: string | null;
+  ship_postal_code?: string | null;
+  ship_country?: string | null;
+  payment_terms_days?: number | null;
+  default_currency?: string | null;
+  notes?: string | null;
+  is_active: boolean;
+  contacts: CustomerContact[];
+}
+
 export interface ExpenseApprovalPolicy {
   id: string;
   name: string;

@@ -56,6 +56,11 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     partner_id: Mapped[str | None] = mapped_column(
         GUID(), ForeignKey("partners.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Optional link to the sales Customer master this was billed to (the buyer
+    # block is still snapshotted onto the invoice at issue time).
+    customer_id: Mapped[str | None] = mapped_column(
+        GUID(), ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     kind: Mapped[str] = mapped_column(
         String(12), default="standard", nullable=False
     )  # standard | penalty

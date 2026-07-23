@@ -22,7 +22,11 @@ class IssuedLineIn(BaseModel):
 class IssuedInvoiceCreate(BaseModel):
     # Optional link to a Partner — when set, its pre-invoicing workflow is enforced.
     partner_id: str | None = None
-    buyer_name: str = Field(min_length=1, max_length=200)
+    # Optional link to a sales Customer — its billing details prefill the buyer
+    # block (and payment terms / currency) when not given explicitly.
+    customer_id: str | None = None
+    # Required unless a customer_id supplies it (validated server-side).
+    buyer_name: str | None = Field(default=None, max_length=200)
     buyer_email: EmailStr | None = None
     buyer_vat_number: str | None = Field(default=None, max_length=32)
     buyer_address_line1: str | None = Field(default=None, max_length=200)
