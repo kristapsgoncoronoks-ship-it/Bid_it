@@ -53,6 +53,7 @@ from app.models.membership import Membership
 from app.models.module import OrgModule
 from app.models.partner import Partner, PartnerDocument
 from app.models.payment import Payment
+from app.models.payment_run import PaymentRun
 from app.models.receipt import Receipt
 from app.models.recurring_invoice import RecurringInvoice
 from app.models.retention import LegalHold, RetentionPolicy
@@ -120,6 +121,7 @@ TENANT_MODELS = (
     BankStatement,
     BankLine,
     SupplierPayment,
+    PaymentRun,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.

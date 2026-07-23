@@ -36,6 +36,7 @@ from app.models.module import OrgModule
 from app.models.organization import Organization
 from app.models.partner import Partner, PartnerDocument
 from app.models.payment import Payment
+from app.models.payment_run import PaymentRun
 from app.models.receipt import Receipt
 from app.models.recurring_invoice import RecurringInvoice
 from app.models.retention import LegalHold, RetentionPolicy
@@ -67,6 +68,7 @@ __all__ = [
     "BankStatement",
     "BankLine",
     "SupplierPayment",
+    "PaymentRun",
     "Job",
     "EcbRate",
     "EmailIntake",

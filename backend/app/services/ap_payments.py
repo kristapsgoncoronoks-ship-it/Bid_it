@@ -52,11 +52,12 @@ async def set_cumulative(
     method: str = "bank_transfer",
     reference: str | None = None,
     note: str | None = None,
+    run_id: str | None = None,
 ) -> SupplierPayment | None:
     """Set `inv.amount_paid` to `new_total`, recording the delta as a signed ledger
     entry and refreshing the derived `paid_date`. Returns the new entry, or None when
-    the total is unchanged. The caller enforces the overpay cap (`new_total <=
-    total`)."""
+    the total is unchanged. `run_id` stamps the payment run this settlement came from
+    (Phase 14). The caller enforces the overpay cap (`new_total <= total`)."""
     old = Decimal(inv.amount_paid or _ZERO)
     new_total = money.q2(Decimal(new_total))
     delta = money.q2(new_total - old)
@@ -70,6 +71,7 @@ async def set_cumulative(
             method=method,
             reference=reference,
             note=note,
+            run_id=run_id,
         )
         db.add(entry)
     inv.amount_paid = new_total

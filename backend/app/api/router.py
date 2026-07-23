@@ -21,6 +21,7 @@ from app.api.routes import (
     jobs,
     modules,
     partners,
+    payment_runs,
     platform,
     privacy,
     receipts,
@@ -55,6 +56,7 @@ api_router.include_router(recurring.router)
 api_router.include_router(issued.router)
 api_router.include_router(receipts.router)
 api_router.include_router(reconciliation.router)
+api_router.include_router(payment_runs.router)
 api_router.include_router(partners.router)
 api_router.include_router(team.router)
 api_router.include_router(billing.router)

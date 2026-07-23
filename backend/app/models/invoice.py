@@ -164,6 +164,9 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Money, default=Decimal("0"), server_default="0", nullable=False
     )
     paid_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Soft link to the payment run this invoice is queued in (Phase 14); NULL when
+    # not in a run. Cleared if the run is cancelled.
+    payment_run_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)
 
     # Cost-allocation dimensions (free-text tags; see app.core.dimensions). Any
     # combination may be set; each is independently filterable/groupable.

@@ -23,12 +23,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import money
 from app.models.bank_import import BankLine, BankStatement
 from app.models.expense import ReimbursementBatch
+from app.models.payment_run import PaymentRun
 from app.models.receipt import Receipt
 from app.services.bank_statement import StatementResult
 
 _TOL = Decimal("0.02")  # cents of slack on an amount match
 _ZERO = Decimal("0")
-KINDS = ("receipt", "reimbursement")
+KINDS = ("receipt", "reimbursement", "payment_run")
 
 
 class ReconError(Exception):
@@ -189,13 +190,14 @@ async def suggest_matches(
                     _rank(days_off, ref_hit),
                 )
             )
-    else:  # debit → paid reimbursement payouts
-        taken = await _matched_targets(db, org_id, "reimbursement")
-        q = select(ReimbursementBatch).where(
-            ReimbursementBatch.org_id == org_id, ReimbursementBatch.status == "paid"
-        )
-        for b in await db.scalars(q):
-            if b.id in taken or abs(money.q2(Decimal(b.total_eur)) - magnitude) > _TOL:
+    else:  # debit → paid reimbursement payouts + paid supplier payment runs
+        taken_r = await _matched_targets(db, org_id, "reimbursement")
+        for b in await db.scalars(
+            select(ReimbursementBatch).where(
+                ReimbursementBatch.org_id == org_id, ReimbursementBatch.status == "paid"
+            )
+        ):
+            if b.id in taken_r or abs(money.q2(Decimal(b.total_eur)) - magnitude) > _TOL:
                 continue
             ref_hit = bool(b.reference) and b.reference.lower() in desc
             when = b.paid_at.date() if b.paid_at else line.line_date
@@ -207,6 +209,26 @@ async def suggest_matches(
                     money.q2(Decimal(b.total_eur)),
                     when,
                     b.reference,
+                    days_off,
+                    _rank(days_off, ref_hit),
+                )
+            )
+        taken_p = await _matched_targets(db, org_id, "payment_run")
+        for run in await db.scalars(
+            select(PaymentRun).where(PaymentRun.org_id == org_id, PaymentRun.status == "paid")
+        ):
+            if run.id in taken_p or abs(money.q2(Decimal(run.total_eur)) - magnitude) > _TOL:
+                continue
+            ref_hit = bool(run.reference) and run.reference.lower() in desc
+            when = run.paid_at.date() if run.paid_at else line.line_date
+            days_off = abs((when - line.line_date).days)
+            out.append(
+                Candidate(
+                    "payment_run",
+                    run.id,
+                    money.q2(Decimal(run.total_eur)),
+                    when,
+                    run.reference,
                     days_off,
                     _rank(days_off, ref_hit),
                 )
@@ -237,7 +259,7 @@ async def confirm_match(
         if target is None:
             raise ReconError("receipt not found")
         tgt_amount = money.q2(Decimal(target.amount))
-    else:  # reimbursement
+    elif kind == "reimbursement":
         if signed > _ZERO:
             raise ReconError("a credit line cannot match a reimbursement payout (money paid)")
         target = await db.scalar(
@@ -249,6 +271,17 @@ async def confirm_match(
             raise ReconError("reimbursement batch not found")
         if target.status != "paid":
             raise ReconError("only a paid payout batch can be reconciled")
+        tgt_amount = money.q2(Decimal(target.total_eur))
+    else:  # payment_run
+        if signed > _ZERO:
+            raise ReconError("a credit line cannot match a supplier payment run (money paid)")
+        target = await db.scalar(
+            select(PaymentRun).where(PaymentRun.org_id == org_id, PaymentRun.id == target_id)
+        )
+        if target is None:
+            raise ReconError("payment run not found")
+        if target.status != "paid":
+            raise ReconError("only a paid payment run can be reconciled")
         tgt_amount = money.q2(Decimal(target.total_eur))
 
     if abs(tgt_amount - magnitude) > _TOL:
