@@ -34,6 +34,17 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_issued_org_issue", "org_id", "issue_date"),
         # Target for the composite FK from the payment ledger (tenant-safe refs).
         UniqueConstraint("org_id", "id", name="uq_issued_invoices_org_id"),
+        # Numbering backstop: even if two issue transactions somehow raced past the
+        # profile row lock, the DB refuses a duplicate document number per tenant.
+        UniqueConstraint("org_id", "number", name="uq_issued_invoices_org_number"),
+        # Recurring cross-worker dedup: at most one invoice per (schedule, run date),
+        # so two overlapping recurring workers can't double-generate an occurrence.
+        UniqueConstraint(
+            "org_id",
+            "recurring_id",
+            "recurring_period",
+            name="uq_issued_invoices_recurring_period",
+        ),
     )
 
     org_id: Mapped[str] = mapped_column(
@@ -60,6 +71,11 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     corrected_invoice_id: Mapped[str | None] = mapped_column(
         GUID(), ForeignKey("issued_invoices.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Recurring provenance (Phase INV-1): when generated from a schedule, the
+    # schedule id + the occurrence's run date. The unique (org_id, recurring_id,
+    # recurring_period) constraint makes generation cross-worker idempotent.
+    recurring_id: Mapped[str | None] = mapped_column(GUID(), nullable=True, index=True)
+    recurring_period: Mapped[date | None] = mapped_column(Date, nullable=True)
     # Sum of credit notes applied AGAINST this invoice (only meaningful on an
     # invoice). Effective amount owed = total − credited_total − amount_paid.
     credited_total: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)

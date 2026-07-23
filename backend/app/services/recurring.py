@@ -147,6 +147,10 @@ async def _generate_one(
         issue_date=on,
         payment_terms_days=rec.payment_terms_days,
     )
+    # Stamp the schedule + occurrence so the unique (org_id, recurring_id,
+    # recurring_period) constraint makes generation idempotent across workers.
+    inv.recurring_id = rec.id
+    inv.recurring_period = on
     db.add(inv)
     rec.last_generated_at = on
     rec.generated_count += 1
@@ -170,7 +174,8 @@ async def generate_due(
     if not schedules:
         return GenerationResult(generated=[])
 
-    profile = await issuer_svc.get_or_create(db, org_id)
+    # Lock the issuer row so numbering is race-free across the whole sweep.
+    profile = await issuer_svc.lock(db, org_id)
     generated: list[tuple[str, str]] = []
     for rec in schedules:
         emitted = 0
@@ -179,9 +184,21 @@ async def generate_due(
             and (rec.end_date is None or rec.next_run_date <= rec.end_date)
             and emitted < _CATCHUP_CAP
         ):
-            inv = await _generate_one(db, rec, profile, rec.next_run_date)
-            await db.flush()  # assign number before the next iteration reads it
-            generated.append((rec.id, inv.number))
+            run_on = rec.next_run_date
+            # Idempotency: skip an occurrence that already materialised (a prior
+            # sweep or another worker). The unique (org_id, recurring_id,
+            # recurring_period) constraint is the hard cross-worker backstop.
+            already = await db.scalar(
+                select(IssuedInvoice.id).where(
+                    IssuedInvoice.org_id == org_id,
+                    IssuedInvoice.recurring_id == rec.id,
+                    IssuedInvoice.recurring_period == run_on,
+                )
+            )
+            if already is None:
+                inv = await _generate_one(db, rec, profile, run_on)
+                await db.flush()  # assign number before the next iteration reads it
+                generated.append((rec.id, inv.number))
             rec.next_run_date = advance(rec.next_run_date, rec.frequency, rec.interval)
             emitted += 1
         # Auto-close a schedule that has run past its end date.

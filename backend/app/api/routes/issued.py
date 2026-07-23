@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
 from app.core import authz, money
+from app.models.email_message import EmailMessage
 from app.models.issued_invoice import IssuedInvoice
 from app.schemas.issued import (
     BulkReminderResult,
@@ -117,7 +118,7 @@ def _detail(inv: IssuedInvoice) -> IssuedInvoiceDetail:
 @router.post("", response_model=IssuedInvoiceDetail, status_code=status.HTTP_201_CREATED)
 async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbSession):
     authz.require(current, authz.Permission.ISSUED_WRITE)
-    profile = await _guard(db, current.org_id)
+    await _guard(db, current.org_id)  # module + issuer-completeness gate
 
     # If linked to a partner, enforce its pre-invoicing workflow (contract /
     # acceptance act must be signed) and inherit the partner's penalty rate.
@@ -146,6 +147,8 @@ async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbS
             li.vat_rate = tc.rate
             li.tax_code = tc.code
 
+    # Lock the issuer row FOR UPDATE so concurrent issues serialize on numbering.
+    profile = await issuer.lock(db, current.org_id)
     inv = issued_service.build_invoice(profile, body, org_id=current.org_id, partner=partner)
     db.add(inv)
     await db.commit()
@@ -168,7 +171,7 @@ async def create_credit_note(
     invoice's outstanding balance, and lowers reported turnover.
     """
     authz.require(current, authz.Permission.ISSUED_WRITE)
-    profile = await _guard(db, current.org_id)
+    await _guard(db, current.org_id)  # module + issuer-completeness gate
     original = await _load(db, current.org_id, invoice_id)
     _reject_if_voided(original)
     if issued_status.is_credit_note(original):
@@ -185,6 +188,8 @@ async def create_credit_note(
     else:
         raw_lines = [li.model_dump() for li in body.lines]
 
+    # Lock the issuer row FOR UPDATE so the credit-note number series is race-free.
+    profile = await issuer.lock(db, current.org_id)
     cn = issued_service.build_credit_note(
         profile,
         original,
@@ -483,6 +488,27 @@ async def send_invoice(invoice_id: str, body: SendRequest, current: CurrentUser,
             status.HTTP_400_BAD_REQUEST,
             "No recipient: set a customer email on the invoice or pass one.",
         )
+
+    # Idempotency: once delivered, a repeat send is a NO-OP that returns the first
+    # send (no second email, no second outbox row). `resend=true` overrides.
+    if inv.sent_at is not None and not body.resend:
+        last = await db.scalar(
+            select(EmailMessage)
+            .where(
+                EmailMessage.org_id == current.org_id,
+                EmailMessage.invoice_id == inv.id,
+                EmailMessage.kind == "invoice",
+            )
+            .order_by(EmailMessage.created_at.desc())
+            .limit(1)
+        )
+        if last is not None:
+            return SendResult(
+                message=EmailMessageOut.model_validate(last),
+                delivered=last.status == "sent",
+                already_sent=True,
+            )
+
     try:
         pdf = await _render_pdf(db, current.org_id, inv)
     except invoice_pdf.PdfUnavailable as e:

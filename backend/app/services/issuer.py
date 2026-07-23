@@ -21,6 +21,22 @@ async def get_or_create(db: AsyncSession, org_id: str) -> IssuerProfile:
     return profile
 
 
+async def lock(db: AsyncSession, org_id: str) -> IssuerProfile:
+    """Load the issuer profile FOR UPDATE so invoice-number allocation is
+    concurrency-safe: two overlapping issue transactions serialize on this row
+    (Postgres row lock; SQLite serializes writes anyway), so they cannot read the
+    same `next_number`. The lock is held until the caller's commit. Combined with
+    the UniqueConstraint(org_id, number) backstop, duplicate numbers are impossible.
+    """
+    profile = await db.scalar(
+        select(IssuerProfile).where(IssuerProfile.org_id == org_id).with_for_update()
+    )
+    if profile is None:
+        # Should not happen (callers validate completeness first), but stay safe.
+        profile = await get_or_create(db, org_id)
+    return profile
+
+
 def missing_fields(profile: IssuerProfile | None) -> list[str]:
     if profile is None:
         return list(REQUIRED_FIELDS)

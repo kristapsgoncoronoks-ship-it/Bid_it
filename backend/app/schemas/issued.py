@@ -137,6 +137,9 @@ class SendRequest(BaseModel):
     """Email an issued invoice (PDF attached). Recipient defaults to buyer_email."""
 
     to_email: EmailStr | None = None
+    # Send is IDEMPOTENT: once delivered, a repeat call is a no-op that returns the
+    # first send. Set resend=true to deliberately dispatch the invoice again.
+    resend: bool = False
 
 
 class ReminderRequest(BaseModel):
@@ -160,6 +163,7 @@ class EmailMessageOut(BaseModel):
 class SendResult(BaseModel):
     message: EmailMessageOut
     delivered: bool  # True when relayed via SMTP; False when only recorded
+    already_sent: bool = False  # True when this was an idempotent no-op re-request
 
 
 class BulkReminderResult(BaseModel):

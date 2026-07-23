@@ -24,7 +24,7 @@ from sqlalchemy.orm import selectinload
 from app.core import money
 from app.models.issued_invoice import IssuedInvoice, IssuedInvoiceLine
 from app.models.partner import Partner
-from app.services import issued_status
+from app.services import issued_service, issued_status
 from app.services import issuer as issuer_svc
 
 CONTRACT = "contract"
@@ -171,9 +171,10 @@ async def generate_penalty_invoice(
     if summary.total_penalty <= _ZERO:
         raise PenaltyBlocked("This partner has no accrued late-payment interest to bill.")
 
-    profile = await issuer_svc.get_or_create(db, org_id)
-    number = f"{profile.invoice_prefix}{today.year}-{profile.next_number:04d}"
-    profile.next_number += 1
+    # Lock the issuer row FOR UPDATE + use the single shared number allocator so a
+    # penalty invoice can never collide with a concurrent standard issue.
+    profile = await issuer_svc.lock(db, org_id)
+    number = issued_service._next_invoice_number(profile, today)
 
     detail = "; ".join(
         f"{ln.number} ({ln.days_overdue}d, {summary.currency} {ln.penalty})" for ln in summary.lines
