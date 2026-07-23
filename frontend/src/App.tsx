@@ -36,6 +36,7 @@ const Team = lazy(() => import("./pages/Team"));
 const Billing = lazy(() => import("./pages/Billing"));
 const Expenses = lazy(() => import("./pages/Expenses"));
 const ExpenseDetail = lazy(() => import("./pages/ExpenseDetail"));
+const ExpensePolicy = lazy(() => import("./pages/ExpensePolicy"));
 const EmailIntake = lazy(() => import("./pages/EmailIntake"));
 const Budget = lazy(() => import("./pages/Budget"));
 const Access = lazy(() => import("./pages/Access"));
@@ -133,6 +134,7 @@ export default function App() {
                 <Route path="/partners" element={<Partners />} />
                 <Route path="/issuer" element={<Issuer />} />
                 <Route path="/expenses" element={<Expenses />} />
+                <Route path="/expenses/policy" element={<ExpensePolicy />} />
                 <Route path="/expenses/:id" element={<ExpenseDetail />} />
                 <Route path="/reimbursements" element={<Reimbursements />} />
                 <Route path="/team" element={<Team />} />

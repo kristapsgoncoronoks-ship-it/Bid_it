@@ -176,6 +176,8 @@ export const EXPENSE_CATEGORIES = [
 ] as const;
 export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
 
+export type ExpenseType = "standard" | "mileage" | "per_diem";
+
 export interface ExpenseItemInput {
   spend_date: string;
   category: ExpenseCategory;
@@ -183,8 +185,22 @@ export interface ExpenseItemInput {
   merchant?: string | null;
   amount: string;
   vat_amount: string;
+  reclaimable_tax?: boolean;
   payment_method: "personal" | "company_card";
+  customer_billable?: boolean;
+  billable_customer?: string | null;
   comment?: string;   // business purpose
+  missing_receipt_declaration?: string | null;
+  currency?: string | null;
+  original_amount?: string | null;
+  fx_rate?: string | null;
+  fx_source?: string | null;
+  expense_type?: ExpenseType;
+  mileage_distance?: string | null;
+  mileage_rate?: string | null;
+  mileage_unit?: "km" | "mi" | null;
+  per_diem_days?: string | null;
+  per_diem_rate?: string | null;
 }
 
 export interface ExpenseItem {
@@ -194,9 +210,23 @@ export interface ExpenseItem {
   description: string;
   merchant: string | null;
   amount: string;
+  currency: string | null;
+  original_amount: string | null;
+  fx_rate: string | null;
+  fx_source: string | null;
   vat_amount: string;
+  reclaimable_tax: boolean;
   payment_method: string;
+  customer_billable: boolean;
+  billable_customer: string | null;
   comment: string | null;
+  missing_receipt_declaration: string | null;
+  expense_type: string;
+  mileage_distance: string | null;
+  mileage_rate: string | null;
+  mileage_unit: string | null;
+  per_diem_days: string | null;
+  per_diem_rate: string | null;
   has_receipt: boolean;
   verified: boolean;
   bank_reference: string | null;
@@ -226,7 +256,14 @@ export interface ExpenseReport {
   employee_id: string;
   employee_name: string;
   title: string;
-  status: "draft" | "submitted" | "approved" | "rejected" | "reimbursed";
+  status:
+    | "draft"
+    | "submitted"
+    | "approved"
+    | "rejected"
+    | "returned"
+    | "marked_for_reimbursement"
+    | "reimbursed";
   currency: string;
   total: string;
   vat_total: string;
@@ -236,12 +273,44 @@ export interface ExpenseReport {
 }
 
 export interface PolicyViolation {
-  item_id: string;
-  category: string;
   code: string;
   message: string;
-  amount: string;
-  limit: string;
+  severity: "warn" | "block";
+  item_id: string | null;
+  category: string | null;
+  amount: string | null;
+  limit: string | null;
+}
+
+export const EXPENSE_POLICY_RULES = [
+  "over_item_max",
+  "over_category_cap",
+  "missing_receipt",
+  "out_of_policy_category",
+  "unsupported_currency",
+  "mileage_rate",
+  "missing_business_purpose",
+  "late_submission",
+  "weekend_spend",
+  "duplicate_receipt",
+  "duplicate_amount_date_merchant",
+] as const;
+
+export interface ExpensePolicy {
+  active: boolean;
+  max_item_amount: string | null;
+  receipt_required_over: string | null;
+  category_caps: Record<string, string>;
+  allowed_categories: string[];
+  allowed_currencies: string[];
+  warn_weekend: boolean;
+  duplicate_detection: boolean;
+  mileage_rate: string | null;
+  mileage_rate_tolerance: string | null;
+  require_purpose_over: string | null;
+  late_submission_days: number | null;
+  blocking_rules: string[];
+  version: number;
 }
 
 export interface ExpenseReportDetail extends ExpenseReport {
