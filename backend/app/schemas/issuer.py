@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class IssuerProfileIn(BaseModel):
+    name: str | None = Field(default=None, max_length=200)  # entity label
     legal_name: str | None = Field(default=None, max_length=200)
     trade_name: str | None = Field(default=None, max_length=200)
     vat_number: str | None = Field(default=None, max_length=32)
@@ -21,13 +22,18 @@ class IssuerProfileIn(BaseModel):
     bic: str | None = Field(default=None, max_length=11)
     default_currency: str | None = Field(default=None, min_length=3, max_length=3)
     invoice_prefix: str | None = Field(default=None, max_length=16)
+    credit_note_prefix: str | None = Field(default=None, max_length=16)
     payment_terms_days: int | None = Field(default=None, ge=0, le=365)
     default_penalty_rate: Decimal | None = Field(default=None, ge=0, le=100)
+    payment_instructions: str | None = None
     notes: str | None = None
 
 
 class IssuerProfileOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+    id: str
+    name: str = ""
+    is_default: bool = False
     legal_name: str | None
     trade_name: str | None
     vat_number: str | None
@@ -44,8 +50,10 @@ class IssuerProfileOut(BaseModel):
     default_currency: str
     invoice_prefix: str
     next_number: int
+    credit_note_prefix: str = "CN-"
     payment_terms_days: int
     default_penalty_rate: Decimal | None = None
+    payment_instructions: str | None = None
     notes: str | None
     is_complete: bool = False
     missing_fields: list[str] = []

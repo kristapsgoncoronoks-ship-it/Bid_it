@@ -1,15 +1,24 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Response, UploadFile, status
+from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DbSession
 from app.core import authz
 from app.models.document_version import OWNER_ISSUER_LOGO
+from app.models.issued_invoice import IssuedInvoice
 from app.schemas.document_version import DocumentVersionOut
 from app.schemas.issuer import IssuerProfileIn, IssuerProfileOut
 from app.services import document_versions, documents, filesec, issuer
 
 router = APIRouter(prefix="/issuer", tags=["issuer"])
+
+
+def _apply(profile, body: IssuerProfileIn) -> None:
+    for field, value in body.model_dump(exclude_unset=True).items():
+        if field in ("country", "default_currency") and value:
+            value = value.upper()
+        setattr(profile, field, value)
 
 _LOGO_KINDS = frozenset({"png", "jpeg"})
 _LOGO_MIME = {"png": "image/png", "jpeg": "image/jpeg"}
@@ -30,15 +39,84 @@ async def get_issuer(current: CurrentUser, db: DbSession):
 
 @router.put("", response_model=IssuerProfileOut)
 async def update_issuer(body: IssuerProfileIn, current: CurrentUser, db: DbSession):
+    """Update the org's DEFAULT issuer entity (the legacy single-issuer surface)."""
     authz.require(current, authz.Permission.SETTINGS_MANAGE)
     profile = await issuer.get_or_create(db, current.org_id)
-    for field, value in body.model_dump(exclude_unset=True).items():
-        if field in ("country", "default_currency") and value:
-            value = value.upper()
-        setattr(profile, field, value)
+    _apply(profile, body)
     await db.commit()
     await db.refresh(profile)
     return _out(profile)
+
+
+# --- Issuer registry: MULTIPLE legal entities, each with its own numbering series ---
+
+
+@router.get("/registry", response_model=list[IssuerProfileOut])
+async def list_registry(current: CurrentUser, db: DbSession):
+    await issuer.get_or_create(db, current.org_id)  # ensure at least the default exists
+    return [_out(p) for p in await issuer.list_issuers(db, current.org_id)]
+
+
+@router.post("/registry", response_model=IssuerProfileOut, status_code=status.HTTP_201_CREATED)
+async def create_registry_issuer(body: IssuerProfileIn, current: CurrentUser, db: DbSession):
+    """Register an additional issuer legal entity (its own gap-free numbering series)."""
+    authz.require(current, authz.Permission.SETTINGS_MANAGE)
+    await issuer.get_or_create(db, current.org_id)  # first entity is the default
+    profile = await issuer.create_issuer(db, current.org_id)
+    _apply(profile, body)
+    await db.commit()
+    await db.refresh(profile)
+    return _out(profile)
+
+
+@router.put("/registry/{issuer_id}", response_model=IssuerProfileOut)
+async def update_registry_issuer(
+    issuer_id: str, body: IssuerProfileIn, current: CurrentUser, db: DbSession
+):
+    authz.require(current, authz.Permission.SETTINGS_MANAGE)
+    profile = await issuer.get_by_id(db, current.org_id, issuer_id)
+    if profile is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Issuer not found")
+    _apply(profile, body)
+    await db.commit()
+    await db.refresh(profile)
+    return _out(profile)
+
+
+@router.post("/registry/{issuer_id}/default", response_model=IssuerProfileOut)
+async def set_registry_default(issuer_id: str, current: CurrentUser, db: DbSession):
+    authz.require(current, authz.Permission.SETTINGS_MANAGE)
+    target = await issuer.set_default(db, current.org_id, issuer_id)
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Issuer not found")
+    await db.commit()
+    await db.refresh(target)
+    return _out(target)
+
+
+@router.delete("/registry/{issuer_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_registry_issuer(issuer_id: str, current: CurrentUser, db: DbSession):
+    authz.require(current, authz.Permission.SETTINGS_MANAGE)
+    profile = await issuer.get_by_id(db, current.org_id, issuer_id)
+    if profile is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Issuer not found")
+    if profile.is_default:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Cannot delete the default issuer; set another default first."
+        )
+    referenced = await db.scalar(
+        select(func.count(IssuedInvoice.id)).where(
+            IssuedInvoice.org_id == current.org_id, IssuedInvoice.issuer_id == issuer_id
+        )
+    )
+    if referenced:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Cannot delete an issuer that has invoices; it is part of their audit record.",
+        )
+    await db.delete(profile)
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/logo", response_model=IssuerProfileOut)

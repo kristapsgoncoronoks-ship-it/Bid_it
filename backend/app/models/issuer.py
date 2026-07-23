@@ -2,28 +2,39 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from sqlalchemy import ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 
 class IssuerProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """The org's own company details used as the SELLER on issued invoices.
+    """A legal entity this org ISSUES invoices as (the SELLER).
 
     Carries everything EN 16931 / VAT Directive 2006/112/EC Art. 226 requires of
-    the supplier, plus payment details and an optional logo for the PDF. One per
-    organization.
+    the supplier, plus payment details and an optional logo for the PDF. An org may
+    register MULTIPLE issuer entities — two legal entities never share a gap-free
+    numbering series, so each row owns its OWN `next_number`/`next_credit_number`.
+    Exactly one is the `is_default` (used when an invoice doesn't name an issuer).
     """
 
     __tablename__ = "issuer_profiles"
+    __table_args__ = (
+        # Tenant-safe FK target for issued_invoices.(org_id, issuer_id).
+        UniqueConstraint("org_id", "id", name="uq_issuer_profiles_org_id_id"),
+    )
 
     org_id: Mapped[str] = mapped_column(
         GUID(),
         ForeignKey("organizations.id", ondelete="CASCADE"),
         nullable=False,
-        unique=True,
         index=True,
+    )
+    # Human label distinguishing entities (e.g. "Acme GmbH", "Acme France SARL").
+    name: Mapped[str] = mapped_column(String(200), default="", server_default="", nullable=False)
+    # Exactly one issuer per org is the default (used when an invoice names none).
+    is_default: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0", nullable=False
     )
 
     legal_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -54,6 +65,10 @@ class IssuerProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     payment_terms_days: Mapped[int] = mapped_column(default=14, nullable=False)
     # Default late-payment interest (% p.a.) new invoices inherit; None = no penalty.
     default_penalty_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+
+    # Free-text payment instructions printed on the invoice (e.g. "Pay within 14
+    # days to the account below; quote the invoice number as the reference.").
+    payment_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     logo_mime: Mapped[str | None] = mapped_column(String(40), nullable=True)
     # Object-storage reference (ADR-0008): logo bytes live in object storage.

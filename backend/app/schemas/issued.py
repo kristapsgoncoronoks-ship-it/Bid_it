@@ -22,6 +22,9 @@ class IssuedLineIn(BaseModel):
 
 
 class IssuedInvoiceCreate(BaseModel):
+    # The issuer legal entity to invoice AS (its own numbering series + seller
+    # snapshot). Omit to use the org's default issuer.
+    issuer_id: str | None = None
     # Optional link to a Partner — when set, its pre-invoicing workflow is enforced.
     partner_id: str | None = None
     # Optional link to a sales Customer — its billing details prefill the buyer
@@ -79,6 +82,7 @@ class IssuedInvoiceOut(BaseModel):
     id: str
     number: str | None = None  # NULL until a draft is issued
     lifecycle: str = "issued"  # draft | approved | issued | disputed | written_off | cancelled
+    issuer_id: str | None = None
     kind: str = "standard"  # standard | penalty
     doc_type: str = "invoice"  # invoice | credit_note
     corrected_invoice_id: str | None = None

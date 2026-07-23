@@ -274,6 +274,8 @@ def build_pdf(
         pay.append(
             f"IBAN: {seller['iban']}" + (f"  ·  BIC: {seller['bic']}" if seller.get("bic") else "")
         )
+    if seller.get("payment_instructions"):
+        pay.append(seller["payment_instructions"])
     if seller.get("email"):
         pay.append(f"Contact: {seller['email']}")
     if seller.get("notes"):

@@ -63,6 +63,12 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     customer_id: Mapped[str | None] = mapped_column(
         GUID(), ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # The issuer legal entity this invoice was numbered from and snapshots as the
+    # seller (multi-issuer: each entity owns its own gap-free series). NULL for
+    # legacy rows created before the registry — they used the org's default issuer.
+    issuer_id: Mapped[str | None] = mapped_column(
+        GUID(), ForeignKey("issuer_profiles.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     kind: Mapped[str] = mapped_column(
         String(12), default="standard", nullable=False
     )  # standard | penalty

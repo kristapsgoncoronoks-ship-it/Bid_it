@@ -127,6 +127,22 @@ def _detail(inv: IssuedInvoice) -> IssuedInvoiceDetail:
     return d
 
 
+async def _resolve_issuer(db: DbSession, org_id: str, issuer_id: str | None):
+    """The issuer entity to invoice as (named or default), validated to belong to
+    the org and to be Art. 226-complete."""
+    try:
+        chosen = await issuer.resolve(db, org_id, issuer_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Issuer not found")
+    missing = issuer.missing_fields(chosen)
+    if missing:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Complete the issuer's registration details first (missing: {', '.join(missing)}).",
+        )
+    return chosen
+
+
 def _enforce_partner_gate(partner) -> None:
     """A partner-linked invoice can only be ISSUED once its pre-invoicing workflow
     (contract / acceptance act) is signed. Enforced at issue time, not on a draft."""
@@ -194,13 +210,14 @@ async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbS
     `draft: true` to create an editable draft with no number and no partner
     signed-gate (finalize it later via POST /{id}/issue)."""
     authz.require(current, authz.Permission.ISSUED_WRITE)
-    await _guard(db, current.org_id)  # module + issuer-completeness gate
+    await _guard(db, current.org_id)  # module + default-issuer completeness gate
     partner, customer, customer_terms = await _resolve_links(db, current.org_id, body)
+    chosen = await _resolve_issuer(db, current.org_id, body.issuer_id)
 
     if body.draft:
         # A draft carries no gap-free number (and doesn't touch the profile
         # counter) — it is not a legal document until issued.
-        profile = await issuer.get_or_create(db, current.org_id)
+        profile = chosen
         inv = issued_service.build_invoice(
             profile,
             body,
@@ -212,8 +229,9 @@ async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbS
         )
     else:
         _enforce_partner_gate(partner)
-        # Lock the issuer row FOR UPDATE so concurrent issues serialize on numbering.
-        profile = await issuer.lock(db, current.org_id)
+        # Lock the CHOSEN issuer entity FOR UPDATE so concurrent issues on it
+        # serialize on its own numbering series.
+        profile = await issuer.lock(db, current.org_id, chosen.id)
         inv = issued_service.build_invoice(
             profile,
             body,
@@ -254,7 +272,8 @@ async def edit_draft(
             "Issue a credit note to correct an issued invoice.",
         )
     partner, customer, customer_terms = await _resolve_links(db, current.org_id, body)
-    profile = await issuer.get_or_create(db, current.org_id)
+    # Keep the draft's issuer unless the edit names a different one.
+    profile = await _resolve_issuer(db, current.org_id, body.issuer_id or inv.issuer_id)
     rebuilt = issued_service.build_invoice(
         profile,
         body,
@@ -266,6 +285,7 @@ async def edit_draft(
     )
     # Copy the recomputed snapshot onto the existing draft row (keep its id).
     for attr in (
+        "issuer_id",
         "partner_id",
         "issue_date",
         "supply_date",
@@ -356,8 +376,9 @@ async def issue_draft(invoice_id: str, body: IssueRequest, current: CurrentUser,
         _enforce_partner_gate(partner)
 
     # Re-stamp the issue date (default today) and recompute the due date, keeping
-    # the draft's payment-term gap. The number uses the (new) issue year.
-    profile = await issuer.lock(db, current.org_id)
+    # the draft's payment-term gap. The number uses the (new) issue year and comes
+    # from the DRAFT'S OWN issuer entity's series.
+    profile = await issuer.lock(db, current.org_id, inv.issuer_id)
     term_days = (
         (inv.due_date - inv.issue_date).days
         if inv.due_date is not None
@@ -400,11 +421,15 @@ async def duplicate_invoice(invoice_id: str, current: CurrentUser, db: DbSession
     src = await _load(db, current.org_id, invoice_id)
     if issued_status.is_credit_note(src):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot duplicate a credit note.")
-    profile = await issuer.get_or_create(db, current.org_id)
+    # Keep the source's issuer entity (fresh seller snapshot from it).
+    profile = (
+        await issuer.get_by_id(db, current.org_id, src.issuer_id) if src.issuer_id else None
+    ) or await issuer.get_or_create(db, current.org_id)
     dup = IssuedInvoice(
         org_id=current.org_id,
         partner_id=src.partner_id,
         customer_id=src.customer_id,
+        issuer_id=profile.id,
         doc_type="invoice",
         lifecycle=issued_lifecycle.DRAFT,
         number=None,
@@ -472,6 +497,36 @@ async def cancel_draft(invoice_id: str, current: CurrentUser, db: DbSession):
     )
     await db.commit()
     await db.refresh(inv, attribute_names=["lines"])
+    return _detail(inv)
+
+
+@router.post("/{invoice_id}/mark-viewed", response_model=IssuedInvoiceDetail)
+async def mark_viewed(invoice_id: str, current: CurrentUser, db: DbSession):
+    """Record that the buyer VIEWED the invoice (drives the 'viewed' delivery state).
+
+    The trigger for a real deployment is an email open-tracking webhook or a public
+    invoice-link open; this authenticated endpoint is the seam they call. First-wins
+    and IDEMPOTENT — a second call is a no-op (the first view timestamp stands). The
+    invoice must already have been sent."""
+    authz.require(current, authz.Permission.ISSUED_WRITE)
+    await modules.require_enabled(db, current.org_id, "issuing")
+    inv = await _load(db, current.org_id, invoice_id)
+    _require_receivable(inv)
+    if inv.sent_at is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Send the invoice before it can be marked viewed."
+        )
+    if inv.viewed_at is None:
+        inv.viewed_at = datetime.now(UTC)  # idempotent: only the first view is recorded
+        await audit.record(
+            db,
+            audit.A.ISSUED_VIEWED,
+            target_type="issued_invoice",
+            target_id=inv.id,
+            meta={"number": inv.number},
+        )
+        await db.commit()
+        await db.refresh(inv, attribute_names=["lines"])
     return _detail(inv)
 
 
@@ -587,8 +642,9 @@ async def create_credit_note(
     else:
         raw_lines = [li.model_dump() for li in body.lines]
 
-    # Lock the issuer row FOR UPDATE so the credit-note number series is race-free.
-    profile = await issuer.lock(db, current.org_id)
+    # Lock the ORIGINAL invoice's issuer entity FOR UPDATE so the credit-note number
+    # comes from the same entity's series (race-free).
+    profile = await issuer.lock(db, current.org_id, original.issuer_id)
     cn = issued_service.build_credit_note(
         profile,
         original,
@@ -833,7 +889,10 @@ async def _render_pdf(db: DbSession, org_id: str, inv: IssuedInvoice) -> bytes:
     seller = json.loads(inv.seller_json)
     result = _vat_of(inv)
     xml = facturx.build_cii(inv, seller, result)
-    profile = await issuer.get_or_create(db, org_id)
+    # The logo comes from the invoice's OWN issuer entity (fallback: default).
+    profile = (
+        await issuer.get_by_id(db, org_id, inv.issuer_id) if inv.issuer_id else None
+    ) or await issuer.get_or_create(db, org_id)
     logo = None
     if profile.logo_sha256:
         logo_bytes = await documents.load(documents.LOGOS, org_id, profile.logo_sha256)

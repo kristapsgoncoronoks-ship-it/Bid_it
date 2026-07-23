@@ -1,4 +1,10 @@
-"""Issuer profile: the org's own company registration details (the SELLER)."""
+"""Issuer registry: the org's own legal entities (the SELLER on issued invoices).
+
+An org may register MULTIPLE issuer entities; each owns its OWN gap-free numbering
+series. Exactly one is the default (used when an invoice names no issuer). The
+legacy single-issuer callers keep working: `get_or_create`/`lock` resolve the
+default entity.
+"""
 
 from __future__ import annotations
 
@@ -11,30 +17,95 @@ from app.models.issuer import IssuerProfile
 REQUIRED_FIELDS = ("legal_name", "vat_number", "address_line1", "city", "postal_code", "country")
 
 
+def _default_first(org_id: str):
+    # Prefer the flagged default; fall back to the oldest row (deterministic).
+    return (
+        select(IssuerProfile)
+        .where(IssuerProfile.org_id == org_id)
+        .order_by(IssuerProfile.is_default.desc(), IssuerProfile.created_at.asc())
+        .limit(1)
+    )
+
+
 async def get_or_create(db: AsyncSession, org_id: str) -> IssuerProfile:
-    profile = await db.scalar(select(IssuerProfile).where(IssuerProfile.org_id == org_id))
+    """The org's DEFAULT issuer entity, creating one if the org has none yet."""
+    profile = await db.scalar(_default_first(org_id))
     if profile is None:
-        profile = IssuerProfile(org_id=org_id)
+        profile = IssuerProfile(org_id=org_id, is_default=True)
         db.add(profile)
         await db.commit()
         await db.refresh(profile)
     return profile
 
 
-async def lock(db: AsyncSession, org_id: str) -> IssuerProfile:
-    """Load the issuer profile FOR UPDATE so invoice-number allocation is
-    concurrency-safe: two overlapping issue transactions serialize on this row
-    (Postgres row lock; SQLite serializes writes anyway), so they cannot read the
-    same `next_number`. The lock is held until the caller's commit. Combined with
-    the UniqueConstraint(org_id, number) backstop, duplicate numbers are impossible.
-    """
-    profile = await db.scalar(
-        select(IssuerProfile).where(IssuerProfile.org_id == org_id).with_for_update()
+async def list_issuers(db: AsyncSession, org_id: str) -> list[IssuerProfile]:
+    return list(
+        await db.scalars(
+            select(IssuerProfile)
+            .where(IssuerProfile.org_id == org_id)
+            .order_by(IssuerProfile.is_default.desc(), IssuerProfile.created_at.asc())
+        )
     )
-    if profile is None:
-        # Should not happen (callers validate completeness first), but stay safe.
-        profile = await get_or_create(db, org_id)
-    return profile
+
+
+async def get_by_id(db: AsyncSession, org_id: str, issuer_id: str) -> IssuerProfile | None:
+    return await db.scalar(
+        select(IssuerProfile).where(
+            IssuerProfile.id == issuer_id, IssuerProfile.org_id == org_id
+        )
+    )
+
+
+async def resolve(db: AsyncSession, org_id: str, issuer_id: str | None) -> IssuerProfile:
+    """The issuer for an invoice: the named entity (validated to belong to the org)
+    or the org's default when none is named. Raises ValueError on an unknown id."""
+    if issuer_id:
+        prof = await get_by_id(db, org_id, issuer_id)
+        if prof is None:
+            raise ValueError("issuer not found")
+        return prof
+    return await get_or_create(db, org_id)
+
+
+async def create_issuer(db: AsyncSession, org_id: str, **fields) -> IssuerProfile:
+    """Register a new issuer entity. The first entity an org creates is its default."""
+    existing = await db.scalar(select(IssuerProfile.id).where(IssuerProfile.org_id == org_id))
+    prof = IssuerProfile(org_id=org_id, is_default=(existing is None), **fields)
+    db.add(prof)
+    await db.flush()
+    return prof
+
+
+async def set_default(db: AsyncSession, org_id: str, issuer_id: str) -> IssuerProfile | None:
+    """Make `issuer_id` the org's default (clears the flag on the others)."""
+    target = await get_by_id(db, org_id, issuer_id)
+    if target is None:
+        return None
+    for prof in await list_issuers(db, org_id):
+        prof.is_default = prof.id == issuer_id
+    return target
+
+
+async def lock(db: AsyncSession, org_id: str, issuer_id: str | None = None) -> IssuerProfile:
+    """Load the issuer entity FOR UPDATE so invoice-number allocation is
+    concurrency-safe: two overlapping issue transactions on the SAME entity
+    serialize on this row (Postgres row lock; SQLite serializes writes anyway), so
+    they cannot read the same `next_number`. Held until the caller's commit; with
+    the UniqueConstraint(org_id, number) backstop, duplicate numbers are impossible.
+    Different entities lock different rows, so they number in parallel.
+    """
+    if issuer_id:
+        prof = await db.scalar(
+            select(IssuerProfile)
+            .where(IssuerProfile.id == issuer_id, IssuerProfile.org_id == org_id)
+            .with_for_update()
+        )
+        if prof is not None:
+            return prof
+    prof = await db.scalar(_default_first(org_id).with_for_update())
+    if prof is None:
+        prof = await get_or_create(db, org_id)
+    return prof
 
 
 def missing_fields(profile: IssuerProfile | None) -> list[str]:
@@ -63,5 +134,6 @@ def seller_snapshot(p: IssuerProfile) -> dict:
         "phone": p.phone,
         "iban": p.iban,
         "bic": p.bic,
+        "payment_instructions": p.payment_instructions,
         "notes": p.notes,
     }

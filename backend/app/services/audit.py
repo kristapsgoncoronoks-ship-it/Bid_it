@@ -74,6 +74,7 @@ class A:
     ISSUED_UNDISPUTE = "issued.undispute"
     ISSUED_WRITE_OFF = "issued.write_off"
     ISSUED_ATTACH = "issued.attachment"
+    ISSUED_VIEWED = "issued.viewed"
     RECURRING_CREATE = "recurring.create"
     RECURRING_UPDATE = "recurring.update"
     RECURRING_GENERATE = "recurring.generate"

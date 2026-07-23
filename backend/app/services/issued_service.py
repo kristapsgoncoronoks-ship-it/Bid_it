@@ -71,6 +71,7 @@ def build_invoice(
     return IssuedInvoice(
         org_id=org_id,
         partner_id=partner.id if partner else None,
+        issuer_id=profile.id,
         doc_type="invoice",
         lifecycle=lifecycle,
         number=_next_invoice_number(profile, issue_date) if allocate_number else None,
@@ -134,6 +135,7 @@ def build_credit_note(
     return IssuedInvoice(
         org_id=org_id,
         partner_id=original.partner_id,
+        issuer_id=profile.id,
         doc_type="credit_note",
         corrected_invoice_id=original.id,
         number=_next_credit_note_number(profile, issue_date),
