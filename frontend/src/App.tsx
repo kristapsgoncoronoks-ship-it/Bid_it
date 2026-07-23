@@ -30,6 +30,7 @@ const Reconciliation = lazy(() => import("./pages/Reconciliation"));
 const PaymentRuns = lazy(() => import("./pages/PaymentRuns"));
 const CashPosition = lazy(() => import("./pages/CashPosition"));
 const DunningSettings = lazy(() => import("./pages/DunningSettings"));
+const Vendors = lazy(() => import("./pages/Vendors"));
 const Partners = lazy(() => import("./pages/Partners"));
 const Team = lazy(() => import("./pages/Team"));
 const Billing = lazy(() => import("./pages/Billing"));
@@ -128,6 +129,7 @@ export default function App() {
                 <Route path="/payment-runs" element={<PaymentRuns />} />
                 <Route path="/cash-position" element={<CashPosition />} />
                 <Route path="/dunning" element={<DunningSettings />} />
+                <Route path="/vendors" element={<Vendors />} />
                 <Route path="/partners" element={<Partners />} />
                 <Route path="/issuer" element={<Issuer />} />
                 <Route path="/expenses" element={<Expenses />} />

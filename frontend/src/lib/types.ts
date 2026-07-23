@@ -275,6 +275,8 @@ export interface Vendor {
   tax_id: string | null;
   country: string | null;
   category: string | null;
+  iban?: string | null;
+  bic?: string | null;
 }
 
 export interface LineItem {
