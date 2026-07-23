@@ -390,6 +390,19 @@ export interface PaymentRunDetail extends PaymentRun {
   invoices: RunInvoice[];
 }
 
+// Dunning ladder (Phase 16).
+export interface DunningLevel {
+  level: number;
+  days_overdue: number;
+  tone: "reminder" | "firm" | "final";
+  active: boolean;
+}
+
+export interface DunningPolicy {
+  is_default: boolean;
+  levels: DunningLevel[];
+}
+
 // Cash-position dashboard (Phase 15).
 export interface CashPosition {
   currency: string;

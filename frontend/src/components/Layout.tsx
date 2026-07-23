@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { isOwner } from "../lib/roles";
+import { isAdminOrAbove, isOwner } from "../lib/roles";
 import { useModules } from "../lib/useModules";
 import { OrgSwitcher } from "./OrgSwitcher";
 
@@ -21,6 +21,7 @@ const NAV = [
   { to: "/receipts", label: "Receipts", end: false, module: "issuing" },
   { to: "/reconciliation", label: "Reconciliation", end: false, module: "issuing" },
   { to: "/issue/reports", label: "Invoice reports", end: false, module: "issuing" },
+  { to: "/dunning", label: "Dunning", end: false, module: "issuing", admin: true },
   { to: "/partners", label: "Partners", end: false, module: "issuing" },
   { to: "/expenses", label: "Expenses", end: false, module: "expenses" },
   { to: "/team", label: "Team", end: false },
@@ -34,7 +35,12 @@ export function Layout() {
   const { user, org, logout } = useAuth();
   const navigate = useNavigate();
   const { isEnabled } = useModules();
-  const nav = NAV.filter((n) => (!n.module || isEnabled(n.module)) && (!("owner" in n && n.owner) || isOwner(user)));
+  const nav = NAV.filter(
+    (n) =>
+      (!n.module || isEnabled(n.module)) &&
+      (!("owner" in n && n.owner) || isOwner(user)) &&
+      (!("admin" in n && n.admin) || isAdminOrAbove(user)),
+  );
   if (user?.is_platform_admin) {
     nav.push({ to: "/platform", label: "Platform", end: false });
   }
