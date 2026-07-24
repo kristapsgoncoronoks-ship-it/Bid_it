@@ -10,6 +10,11 @@ export default function SsoCallback() {
   useEffect(() => {
     const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const token = hash.get("access_token");
+    // Scrub the token from the visible URL immediately (before storing/navigating)
+    // so it can't linger in the address bar or be re-read if navigation is delayed.
+    if (window.location.hash) {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
     if (token) {
       tokenStore.set(token);
       window.location.replace("/");
