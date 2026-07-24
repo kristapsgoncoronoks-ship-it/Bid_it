@@ -1,28 +1,28 @@
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
-sqlalchemy[asyncio]==2.0.36
-asyncpg==0.30.0
-aiosqlite==0.20.0
-alembic==1.14.0
-pydantic==2.10.4
-pydantic-settings==2.7.1
-python-jose[cryptography]==3.3.0
+fastapi==0.139.2
+uvicorn[standard]==0.51.0
+sqlalchemy[asyncio]==2.0.51
+asyncpg==0.31.0
+aiosqlite==0.22.1
+alembic==1.18.5
+pydantic==2.13.4
+pydantic-settings==2.14.2
+python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.4
 # Pinned: passlib 1.7.4 reads bcrypt's version via the __about__ attr that
 # bcrypt >= 4.1 removed, which emits a noisy (harmless) warning. 4.0.1 is clean.
 bcrypt==4.0.1
-python-multipart==0.0.20
-email-validator==2.2.0
+python-multipart==0.0.32
+email-validator==2.3.0
 
 # Object storage for document bytes (ADR-0008). Imported lazily and only when
 # STORAGE_BACKEND=s3; the default local/memory backends need nothing extra.
-boto3==1.35.90
+boto3==1.43.55
 
 # PDF ingestion + OCR. Text-layer extraction needs only pdfplumber; the OCR
 # fallback also needs the system `tesseract-ocr` binary on PATH (see Dockerfile).
-pdfplumber==0.11.4
+pdfplumber==0.11.10
 pypdf==5.1.0
-pypdfium2==4.30.0
+pypdfium2==5.12.1
 pytesseract==0.3.13
 pillow==12.3.0
 reportlab==4.2.5
@@ -44,4 +44,4 @@ defusedxml==0.7.1
 pytest==8.3.4
 pytest-asyncio==0.25.0
 httpx==0.28.1
-prometheus-client==0.21.1
+prometheus-client==0.25.0
