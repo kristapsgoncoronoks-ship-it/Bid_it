@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
 from app.core import authz, money
+from app.core.security_headers import content_disposition
 from app.models.customer import Customer
 from app.models.email_message import EmailMessage
 from app.models.issued_invoice import (
@@ -880,7 +881,7 @@ async def get_issued_xml(invoice_id: str, current: CurrentUser, db: DbSession):
     return Response(
         content=xml,
         media_type="application/xml",
-        headers={"Content-Disposition": f'attachment; filename="{inv.number}.xml"'},
+        headers={"Content-Disposition": content_disposition(f"{inv.number}.xml")},
     )
 
 
@@ -920,7 +921,9 @@ async def get_issued_pdf(
         content=pdf,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'{disposition}; filename="{inv.number}.pdf"',
+            "Content-Disposition": content_disposition(
+                f"{inv.number}.pdf", disposition=disposition
+            ),
             "X-Content-Type-Options": "nosniff",
         },
     )
@@ -1363,7 +1366,7 @@ async def download_issued_attachment(
         content=data,
         media_type=row.mime or "application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="{row.filename}"',
+            "Content-Disposition": content_disposition(row.filename, fallback="attachment"),
             "X-Content-Type-Options": "nosniff",
         },
     )

@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from app.api.deps import CurrentUser, DbSession
 from app.core import authz
+from app.core.security_headers import content_disposition
 from app.services import erp_export
 
 router = APIRouter(prefix="/export", tags=["export"])
@@ -50,5 +51,5 @@ async def export_accounting(
     return Response(
         content=text,
         media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename)},
     )

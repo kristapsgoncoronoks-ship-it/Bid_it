@@ -12,7 +12,32 @@ Python object overhead beyond a header rewrite.
 
 from __future__ import annotations
 
+import re
+from urllib.parse import quote
+
 from app.core.config import settings
+
+# Anything outside this set is replaced in the ASCII `filename` fallback — in
+# particular quotes, backslashes and every control char (CR/LF included), so a
+# crafted upload name can never break out of the header or inject a second one.
+_CD_UNSAFE = re.compile(r"[^A-Za-z0-9_.\- ]")
+
+
+def content_disposition(
+    filename: str | None, *, fallback: str = "download", disposition: str = "attachment"
+) -> str:
+    """Build a header-injection-safe ``Content-Disposition`` value.
+
+    User-controlled filenames (uploaded attachments, user-set batch/run
+    references) must never be interpolated raw into this header: a ``"`` closes
+    the quoted value early and a CR/LF splits the response. This emits a
+    sanitised ASCII ``filename`` fallback plus an RFC 5987 ``filename*`` that
+    carries the full UTF-8 name percent-encoded (both injection-proof).
+    """
+    raw = (filename or "").strip()[:200] or fallback
+    ascii_name = _CD_UNSAFE.sub("_", raw).strip() or fallback
+    star = quote(raw, safe="")
+    return f"{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{star}"
 
 _STATIC_HEADERS: list[tuple[bytes, bytes]] = [
     (b"x-content-type-options", b"nosniff"),

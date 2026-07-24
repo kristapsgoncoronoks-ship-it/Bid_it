@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
 from app.core import authz
+from app.core.security_headers import content_disposition
 from app.models.payment_run import PaymentRun
 from app.schemas.payment_run import (
     RunCreate,
@@ -197,7 +198,7 @@ async def export_run(run_id: str, current: CurrentUser, db: DbSession):
         content=csv_text,
         media_type="text/csv",
         headers={
-            "Content-Disposition": f'attachment; filename="{fname}"',
+            "Content-Disposition": content_disposition(fname),
             "X-Content-Type-Options": "nosniff",
         },
     )
@@ -216,7 +217,7 @@ async def export_sepa(run_id: str, current: CurrentUser, db: DbSession):
         content=xml,
         media_type="application/xml",
         headers={
-            "Content-Disposition": f'attachment; filename="{fname}"',
+            "Content-Disposition": content_disposition(fname),
             "X-Content-Type-Options": "nosniff",
         },
     )

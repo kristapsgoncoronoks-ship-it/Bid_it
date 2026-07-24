@@ -25,6 +25,7 @@ from app.api.routes.vendors import get_or_create_vendor
 from app.core import authz
 from app.core.dimensions import DIMENSION_KEYS
 from app.core.money import q2 as _q
+from app.core.security_headers import content_disposition
 from app.models.approval import (
     STEP_APPROVED,
     STEP_REJECTED,
@@ -895,7 +896,7 @@ async def download_attachment(
         content=data,
         media_type=row.mime or "application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="{row.filename}"',
+            "Content-Disposition": content_disposition(row.filename, fallback="attachment"),
             "X-Content-Type-Options": "nosniff",
         },
     )
