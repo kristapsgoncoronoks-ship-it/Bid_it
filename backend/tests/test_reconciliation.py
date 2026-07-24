@@ -146,6 +146,49 @@ async def test_debit_matches_paid_reimbursement(auth_client, db_session):
 
 
 @pytest.mark.asyncio
+async def test_receipt_cannot_reconcile_to_two_lines(auth_client):
+    """1:1 invariant (REC-1): a receipt already matched to one bank line is refused
+    on a second. Under concurrency the target row is locked FOR UPDATE so two racing
+    confirms serialize on it; this exercises the guard the lock protects."""
+    await _enable(auth_client)
+    rec = (
+        await auth_client.post(
+            "/api/v1/receipts", json={"amount": "1210.00", "received_on": "2026-02-05"}
+        )
+    ).json()
+    # Two identical credit lines, same amount as the receipt.
+    two_credits = (
+        "date,description,credit,debit\n"
+        "2026-02-05,Payment A,1210.00,\n"
+        "2026-02-06,Payment B,1210.00,\n"
+    )
+    await _upload(auth_client, text=two_credits)
+    sid = (await auth_client.get("/api/v1/reconciliation/statements")).json()[0]["id"]
+    lines = (await auth_client.get(f"/api/v1/reconciliation/statements/{sid}/lines")).json()
+    a, b = lines[0], lines[1]
+
+    m1 = await auth_client.post(
+        f"/api/v1/reconciliation/lines/{a['id']}/match",
+        json={"kind": "receipt", "target_id": rec["id"]},
+    )
+    assert m1.status_code == 200, m1.text
+
+    m2 = await auth_client.post(
+        f"/api/v1/reconciliation/lines/{b['id']}/match",
+        json={"kind": "receipt", "target_id": rec["id"]},
+    )
+    assert m2.status_code == 400 and "already reconciled" in m2.json()["detail"]
+
+    # After unmatching the first, the receipt is free to reconcile to the second.
+    await auth_client.delete(f"/api/v1/reconciliation/lines/{a['id']}/match")
+    m3 = await auth_client.post(
+        f"/api/v1/reconciliation/lines/{b['id']}/match",
+        json={"kind": "receipt", "target_id": rec["id"]},
+    )
+    assert m3.status_code == 200, m3.text
+
+
+@pytest.mark.asyncio
 async def test_amount_mismatch_and_wrong_direction_refused(auth_client):
     await _enable(auth_client)
     rec = (

@@ -183,7 +183,7 @@ async def suggest_matches(
         for r in await db.scalars(select(Receipt).where(Receipt.org_id == org_id)):
             if r.id in taken_r or abs(money.q2(Decimal(r.amount)) - magnitude) > _TOL:
                 continue
-            ref_hit = bool(r.reference) and r.reference.lower() in desc
+            ref_hit = bool(r.reference and r.reference.lower() in desc)
             days_off = abs((r.received_on - line.line_date).days)
             out.append(
                 Candidate(
@@ -206,7 +206,7 @@ async def suggest_matches(
         ):
             if p.id in taken_p or abs(money.q2(Decimal(p.amount)) - magnitude) > _TOL:
                 continue
-            ref_hit = bool(p.reference) and p.reference.lower() in desc
+            ref_hit = bool(p.reference and p.reference.lower() in desc)
             days_off = abs((p.paid_on - line.line_date).days)
             out.append(
                 Candidate(
@@ -228,7 +228,7 @@ async def suggest_matches(
         ):
             if b.id in taken_r or abs(money.q2(Decimal(b.total_eur)) - magnitude) > _TOL:
                 continue
-            ref_hit = bool(b.reference) and b.reference.lower() in desc
+            ref_hit = bool(b.reference and b.reference.lower() in desc)
             when = b.paid_at.date() if b.paid_at else line.line_date
             days_off = abs((when - line.line_date).days)
             out.append(
@@ -248,7 +248,7 @@ async def suggest_matches(
         ):
             if run.id in taken_p or abs(money.q2(Decimal(run.total_eur)) - magnitude) > _TOL:
                 continue
-            ref_hit = bool(run.reference) and run.reference.lower() in desc
+            ref_hit = bool(run.reference and run.reference.lower() in desc)
             when = run.paid_at.date() if run.paid_at else line.line_date
             days_off = abs((when - line.line_date).days)
             out.append(
@@ -273,7 +273,12 @@ async def confirm_match(
     """Reconcile a bank line to a receipt (credit) or a paid reimbursement payout
     (debit). Validates direction, that the target exists in this org, that the
     amounts agree within tolerance, and that the target is not already reconciled to
-    another line (1:1). Commits."""
+    another line (1:1). Commits.
+
+    Concurrency: the target row is SELECT-ed `FOR UPDATE`, so two confirms racing to
+    reconcile the SAME target onto different bank lines serialize on it — the second
+    only proceeds after the first commits, sees the now-matched line in the 1:1 check
+    below, and is rejected (on SQLite writes serialize anyway)."""
     if kind not in KINDS:
         raise ReconError("unknown match kind")
     signed = Decimal(line.amount)
@@ -283,7 +288,7 @@ async def confirm_match(
         if signed < _ZERO:
             raise ReconError("a debit line cannot match a receipt (money received)")
         target = await db.scalar(
-            select(Receipt).where(Receipt.org_id == org_id, Receipt.id == target_id)
+            select(Receipt).where(Receipt.org_id == org_id, Receipt.id == target_id).with_for_update()
         )
         if target is None:
             raise ReconError("receipt not found")
@@ -296,7 +301,7 @@ async def confirm_match(
                 Payment.org_id == org_id,
                 Payment.id == target_id,
                 Payment.receipt_id.is_(None),
-            )
+            ).with_for_update()
         )
         if target is None:
             raise ReconError("issued-invoice payment not found")
@@ -307,7 +312,7 @@ async def confirm_match(
         target = await db.scalar(
             select(ReimbursementBatch).where(
                 ReimbursementBatch.org_id == org_id, ReimbursementBatch.id == target_id
-            )
+            ).with_for_update()
         )
         if target is None:
             raise ReconError("reimbursement batch not found")
@@ -318,7 +323,7 @@ async def confirm_match(
         if signed > _ZERO:
             raise ReconError("a credit line cannot match a supplier payment run (money paid)")
         target = await db.scalar(
-            select(PaymentRun).where(PaymentRun.org_id == org_id, PaymentRun.id == target_id)
+            select(PaymentRun).where(PaymentRun.org_id == org_id, PaymentRun.id == target_id).with_for_update()
         )
         if target is None:
             raise ReconError("payment run not found")
