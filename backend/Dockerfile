@@ -1,5 +1,5 @@
 # ---------- build stage: compile wheels so the runtime image stays lean ----------
-FROM python:3.11-slim AS build
+FROM python:3.14-slim AS build
 
 ENV PIP_NO_CACHE_DIR=1 PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
@@ -13,7 +13,7 @@ COPY requirements.txt .
 RUN pip wheel --wheel-dir /wheels -r requirements.txt
 
 # ---------- runtime stage ----------
-FROM python:3.11-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
