@@ -1,0 +1,31 @@
+# Schema migrations run ONCE per release, as a Job — never inside the app pods
+# (N replicas racing `alembic upgrade` is unsafe). Apply this and wait for it to
+# complete before rolling out the Deployment. As a Helm/ArgoCD pre-sync hook or:
+#   kubectl -n invoiceiq apply -f 20-migrate-job.yaml
+#   kubectl -n invoiceiq wait --for=condition=complete job/invoiceiq-migrate --timeout=180s
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: invoiceiq-migrate
+  namespace: invoiceiq
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels: { app: invoiceiq, component: migrate }
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: migrate
+          image: ghcr.io/OWNER/REPO/backend:VERSION   # pin to the release being deployed
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef: { name: invoiceiq-config }
+            - secretRef: { name: invoiceiq-secrets }
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits: { cpu: "500m", memory: "512Mi" }

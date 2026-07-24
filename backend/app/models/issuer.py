@@ -1,0 +1,77 @@
+from __future__ import annotations
+
+from decimal import Decimal
+
+from sqlalchemy import Boolean, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
+
+
+class IssuerProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """A legal entity this org ISSUES invoices as (the SELLER).
+
+    Carries everything EN 16931 / VAT Directive 2006/112/EC Art. 226 requires of
+    the supplier, plus payment details and an optional logo for the PDF. An org may
+    register MULTIPLE issuer entities — two legal entities never share a gap-free
+    numbering series, so each row owns its OWN `next_number`/`next_credit_number`.
+    Exactly one is the `is_default` (used when an invoice doesn't name an issuer).
+    """
+
+    __tablename__ = "issuer_profiles"
+    __table_args__ = (
+        # Tenant-safe FK target for issued_invoices.(org_id, issuer_id).
+        UniqueConstraint("org_id", "id", name="uq_issuer_profiles_org_id_id"),
+    )
+
+    org_id: Mapped[str] = mapped_column(
+        GUID(),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # Human label distinguishing entities (e.g. "Acme GmbH", "Acme France SARL").
+    name: Mapped[str] = mapped_column(String(200), default="", server_default="", nullable=False)
+    # Exactly one issuer per org is the default (used when an invoice names none).
+    is_default: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0", nullable=False
+    )
+
+    legal_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    trade_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    vat_number: Mapped[str | None] = mapped_column(String(32), nullable=True)  # e.g. DE123456789
+    registration_number: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )  # company/trade register
+
+    address_line1: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    address_line2: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    postal_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(2), nullable=True)  # ISO 3166-1 alpha-2
+
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+    iban: Mapped[str | None] = mapped_column(String(34), nullable=True)
+    bic: Mapped[str | None] = mapped_column(String(11), nullable=True)
+
+    default_currency: Mapped[str] = mapped_column(String(3), default="EUR", nullable=False)
+    invoice_prefix: Mapped[str] = mapped_column(String(16), default="INV-", nullable=False)
+    next_number: Mapped[int] = mapped_column(default=1, nullable=False)
+    # Credit notes carry their OWN gap-free series (accounting best practice).
+    credit_note_prefix: Mapped[str] = mapped_column(String(16), default="CN-", nullable=False)
+    next_credit_number: Mapped[int] = mapped_column(default=1, nullable=False)
+    payment_terms_days: Mapped[int] = mapped_column(default=14, nullable=False)
+    # Default late-payment interest (% p.a.) new invoices inherit; None = no penalty.
+    default_penalty_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+
+    # Free-text payment instructions printed on the invoice (e.g. "Pay within 14
+    # days to the account below; quote the invoice number as the reference.").
+    payment_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    logo_mime: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # Object-storage reference (ADR-0008): logo bytes live in object storage.
+    logo_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    logo_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)  # footer / legal notes

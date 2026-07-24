@@ -1,0 +1,69 @@
+[project]
+name = "invoiceiq-backend"
+version = "0.1.0"
+description = "InvoiceIQ — invoice analytics platform (FastAPI backend)"
+requires-python = ">=3.11"
+
+# Runtime dependencies live in requirements.txt (pinned, pip-installable in CI and
+# Docker). pyproject here carries TOOLING config only — ruff (lint+format) and mypy.
+# We deliberately do NOT move to a build backend / editable install: the app is run,
+# not distributed as a wheel, so requirements.txt stays the single dependency source.
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["alembic/versions", ".venv", "var"]
+
+[tool.ruff.lint]
+# Curated, high-signal rules — the ones that catch real defects and keep imports
+# tidy — without drowning a mature codebase in stylistic noise. Grow this set
+# deliberately (see docs/architecture/engineering-rules.md § Linting).
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes (undefined names, unused imports)
+    "I",    # isort (import ordering)
+    "UP",   # pyupgrade (modern syntax)
+    "B",    # flake8-bugbear (likely bugs)
+    "C4",   # flake8-comprehensions
+    "T20",  # flake8-print (no stray print() in app code)
+]
+ignore = [
+    "E501",   # line length — enforced by the formatter, not the linter
+    "B008",   # function call in argument default — FastAPI's Depends() idiom
+    "B904",   # raise-from inside except: chaining an HTTPException would leak the
+              #   internal traceback into the API error. New code SHOULD use
+              #   `from err`/`from None` deliberately (see engineering-rules.md);
+              #   not machine-enforced to avoid a blanket retrofit that suppresses
+              #   context we may want in logs.
+    "UP042",  # str+Enum -> StrEnum: behaviour-changing (str(Member) differs), and
+              #   our enums are serialised across the API. Migrate per-enum, tested.
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Seed + one-off CLIs intentionally print progress to stdout/stderr.
+"app/seed.py" = ["T20"]
+"app/openapi.py" = ["T20"]
+# Tests use conventions the app code doesn't: kwargs `dict()` builders (C408),
+# short loop vars (E741), and deliberate blind-exception assertions that prove
+# "the DB refuses this write with SOME error" (B017). Print output is fine (T20).
+"tests/**" = ["T20", "C408", "E741", "B017"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.mypy]
+# Incremental typing: the foundation layer (app/core) is held to a real bar; the
+# rest of the tree is checked leniently and tightened module-by-module. See
+# docs/architecture/engineering-rules.md § Type checking for the ratchet plan.
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = false
+follow_imports = "silent"
+exclude = ["alembic/", "tests/", "var/"]
+
+[[tool.mypy.overrides]]
+module = "app.core.*"
+disallow_untyped_defs = false
+warn_return_any = false
+check_untyped_defs = true

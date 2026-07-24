@@ -1,0 +1,1220 @@
+from __future__ import annotations
+
+import json
+import re
+from datetime import date
+from decimal import Decimal
+from urllib.parse import quote
+
+from fastapi import APIRouter, HTTPException, Query, Response, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
+from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
+
+from app.api.deps import CurrentUser, DbSession
+from app.core.dimensions import DIMENSION_KEYS
+from app.core.roles import is_admin_or_above
+from app.models.document_version import OWNER_EXPENSE_RECEIPT
+from app.models.expense import (
+    ExpenseComment,
+    ExpenseItem,
+    ExpenseReport,
+    ExpenseTransaction,
+)
+from app.models.user import User
+from app.schemas.document_version import DocumentVersionOut
+from app.schemas.expense import (
+    ApprovalStepOut,
+    BankImportResult,
+    CategoryTotal,
+    ExpenseApprovalPolicyIn,
+    ExpenseApprovalPolicyOut,
+    ExpenseApprovalPolicyUpdate,
+    ExpenseCommentIn,
+    ExpenseCommentOut,
+    ExpenseDecision,
+    ExpenseItemIn,
+    ExpenseItemOut,
+    ExpenseItemPatch,
+    ExpensePolicyIn,
+    ExpensePolicyOut,
+    ExpenseReportCreate,
+    ExpenseReportDetail,
+    ExpenseReportListOut,
+    ExpenseReportOut,
+    ExpenseReportUpdate,
+    ExpenseSummary,
+    ExpenseTransactionOut,
+    ItemFromTransaction,
+    MatchTransaction,
+    PolicyCheckOut,
+    PolicyViolation,
+    ReassignIn,
+    ReceiptScanOut,
+)
+from app.services import (
+    audit,
+    bank_statement,
+    costing,
+    document_versions,
+    documents,
+    expense_approval,
+    expense_policy,
+    expense_state,
+    expenses,
+    filesec,
+    fx,
+    modules,
+    receipt_ocr,
+    webhooks,
+)
+
+router = APIRouter(prefix="/expenses", tags=["expenses"])
+
+
+async def _guard(db: DbSession, org_id: str):
+    await modules.require_enabled(db, org_id, "expenses")
+
+
+async def _link_items(db: DbSession, org_id: str, items, dimensions=DIMENSION_KEYS) -> None:
+    """Resolve each item's cost-allocation tags to master links at write time
+    (Slice 3b — the expense-side twin of the invoice write-path resolution)."""
+    for it in items:
+        await costing.apply_links(db, org_id, it, dimensions)
+
+
+def _is_approver(user: User) -> bool:
+    # Designated expense approvers may approve/reject/reimburse. The owner
+    # (first-registered user) is one by default; others are appointed on /team.
+    return bool(getattr(user, "is_expense_approver", False))
+
+
+def _can_oversee(user: User) -> bool:
+    # See every report in the tenant + the pending-approvals queue: approvers,
+    # plus admins for oversight.
+    return _is_approver(user) or is_admin_or_above(user)
+
+
+def _detail(r: ExpenseReport) -> ExpenseReportDetail:
+    d = ExpenseReportDetail.model_validate(r)
+    items = []
+    for it in r.items:
+        # from_attributes carries the dimension tags + base fields; the two
+        # derived flags are computed here.
+        out = ExpenseItemOut.model_validate(it)
+        out.has_receipt = it.receipt_sha256 is not None
+        out.verified = it.bank_reference is not None
+        items.append(out)
+    d.items = items
+    return d
+
+
+async def _detail_with_steps(r: ExpenseReport, db: DbSession, org_id: str) -> ExpenseReportDetail:
+    """Report detail enriched with its approval-chain steps."""
+    d = _detail(r)
+    steps = await expense_approval.steps_for(db, org_id, r.id)
+    d.approval_steps = [ApprovalStepOut.model_validate(s) for s in steps]
+    return d
+
+
+async def _load(db: DbSession, org_id: str, report_id: str) -> ExpenseReport:
+    r = await db.scalar(
+        select(ExpenseReport)
+        .where(ExpenseReport.id == report_id, ExpenseReport.org_id == org_id)
+        .options(selectinload(ExpenseReport.items))
+    )
+    if r is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Expense report not found")
+    return r
+
+
+def _require_view(r: ExpenseReport, user: User):
+    if not _can_oversee(user) and r.employee_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Expense report not found")
+
+
+def _require_owner_editable(r: ExpenseReport, user: User):
+    if r.employee_id != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only edit your own reports")
+    if not expense_state.is_editable(r.status):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Only draft or returned reports can be edited"
+        )
+
+
+async def _load_available_txns(
+    db: DbSession, org_id: str, user_id: str, ids: list[str]
+) -> list[ExpenseTransaction]:
+    if not ids:
+        return []
+    rows = list(
+        await db.scalars(
+            select(ExpenseTransaction).where(
+                ExpenseTransaction.id.in_(ids),
+                ExpenseTransaction.org_id == org_id,
+                ExpenseTransaction.employee_id == user_id,
+                ExpenseTransaction.status == "available",
+            )
+        )
+    )
+    if len(rows) != len(set(ids)):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "One or more transactions were not found or already used"
+        )
+    return rows
+
+
+def _txn_reference(t: ExpenseTransaction) -> str:
+    """Human-readable statement reference stored on a reconciled item."""
+    who = t.merchant or t.description[:60]
+    return f"{t.txn_date.isoformat()} · {who} · {t.currency} {expenses.q(t.amount)}"
+
+
+def _item_from_txn(t: ExpenseTransaction, category: str = "other", vat=Decimal("0")) -> ExpenseItem:
+    # Built from a statement line ⇒ already verified against the bank statement.
+    return ExpenseItem(
+        spend_date=t.txn_date,
+        category=category,
+        description=t.description[:300],
+        merchant=t.merchant,
+        amount=expenses.q(t.amount),
+        vat_amount=expenses.q(vat),
+        payment_method="company_card" if t.source in ("bank_statement", "card") else "personal",
+        bank_reference=_txn_reference(t),
+    )
+
+
+@router.post("", response_model=ExpenseReportDetail, status_code=status.HTTP_201_CREATED)
+async def create_report(body: ExpenseReportCreate, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    items = [expenses.item_from(i) for i in body.items]
+
+    # Concur-style: also build entries from selected inbox transactions.
+    txns = await _load_available_txns(db, current.org_id, current.id, body.transaction_ids)
+    txn_items = [_item_from_txn(t) for t in txns]
+    items += txn_items
+    await _link_items(db, current.org_id, items)
+
+    total, vat = expenses.compute_totals(items)
+    report = ExpenseReport(
+        org_id=current.org_id,
+        employee_id=current.id,
+        employee_name=current.name,
+        title=body.title,
+        currency=body.currency.upper(),
+        note=body.note,
+        total=total,
+        vat_total=vat,
+        items=items,
+    )
+    db.add(report)
+    await db.flush()
+    for t, it in zip(txns, txn_items, strict=False):
+        t.status = "assigned"
+        t.item_id = it.id
+    await db.commit()
+    await db.refresh(report, attribute_names=["items"])
+    return _detail(report)
+
+
+@router.post("/import/bank-statement", response_model=BankImportResult)
+async def import_bank_statement(current: CurrentUser, db: DbSession, file: UploadFile):
+    """Read a bank statement (PDF via OCR, or CSV) and drop the transactions into
+    the employee's 'available expenses' inbox (SAP Concur style)."""
+    await _guard(db, current.org_id)
+    content = await file.read()
+    if len(content) > 15 * 1024 * 1024:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Statement too large (max 15 MB)"
+        )
+    # Security gate before any parsing/OCR of the (untrusted) statement.
+    try:
+        filesec.check(file.filename or "statement", content, allowed=frozenset({"pdf", "csv"}))
+    except filesec.FileRejected as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
+    try:
+        result = await run_in_threadpool(
+            bank_statement.parse, file.filename or "statement", content
+        )
+    except bank_statement.pdf_ocr.OcrUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"OCR unavailable: {exc}")
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+
+    created: list[ExpenseTransaction] = []
+    for t in result.transactions:
+        if t.direction != "debit":
+            continue  # only outflows are expensable
+        txn = ExpenseTransaction(
+            org_id=current.org_id,
+            employee_id=current.id,
+            txn_date=t.date,
+            description=t.description[:300],
+            merchant=None,
+            amount=expenses.q(t.amount),
+            currency="EUR",
+            direction="debit",
+            source="bank_statement",
+            status="available",
+        )
+        db.add(txn)
+        created.append(txn)
+    await db.commit()
+    for t in created:
+        await db.refresh(t)
+
+    return BankImportResult(
+        method=result.method,
+        imported=len(created),
+        transactions=[ExpenseTransactionOut.model_validate(t) for t in created],
+        warnings=result.warnings
+        + [f"{len(created)} transaction(s) added to your available expenses; credits excluded."],
+    )
+
+
+@router.post("/receipt-scan", response_model=ReceiptScanOut)
+async def receipt_scan(current: CurrentUser, db: DbSession, file: UploadFile):
+    """Advisory OCR of a receipt image/PDF → suggested item fields (merchant, date,
+    amount, tax, currency). Reads only — writes nothing; the user confirms."""
+    await _guard(db, current.org_id)
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Receipt too large (max 5 MB)"
+        )
+    try:
+        filesec.check(file.filename or "receipt", content, allowed=filesec.RECEIPT_KINDS)
+    except filesec.FileRejected as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
+    try:
+        s = await run_in_threadpool(receipt_ocr.suggest, file.filename or "receipt", content)
+    except receipt_ocr.pdf_ocr.OcrUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"OCR unavailable: {exc}")
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+    return ReceiptScanOut(
+        merchant=s.merchant,
+        spend_date=s.spend_date,
+        amount=s.amount,
+        vat_amount=s.vat_amount,
+        currency=s.currency,
+        method=s.method,
+        text_preview=s.text_preview,
+    )
+
+
+@router.get("/transactions", response_model=list[ExpenseTransactionOut])
+async def list_transactions(
+    current: CurrentUser, db: DbSession, status_: str = Query(default="available", alias="status")
+):
+    """The employee's 'available expenses' inbox."""
+    await _guard(db, current.org_id)
+    rows = await db.scalars(
+        select(ExpenseTransaction)
+        .where(ExpenseTransaction.employee_id == current.id, ExpenseTransaction.status == status_)
+        .order_by(ExpenseTransaction.txn_date.desc())
+    )
+    return [ExpenseTransactionOut.model_validate(t) for t in rows]
+
+
+@router.delete("/transactions/{txn_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_transaction(txn_id: str, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    t = await db.scalar(
+        select(ExpenseTransaction).where(
+            ExpenseTransaction.id == txn_id, ExpenseTransaction.employee_id == current.id
+        )
+    )
+    if t is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Transaction not found")
+    if t.status != "available":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Transaction is already on a report")
+    await db.delete(t)
+    await db.commit()
+
+
+@router.get("", response_model=ExpenseReportListOut)
+async def list_reports(
+    current: CurrentUser,
+    db: DbSession,
+    status_: str | None = Query(default=None, alias="status"),
+    mine: bool = False,
+    employee_id: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=500),
+):
+    await _guard(db, current.org_id)
+    filters = [ExpenseReport.org_id == current.org_id]
+    if not _can_oversee(current) or mine:
+        filters.append(ExpenseReport.employee_id == current.id)
+    elif employee_id:
+        filters.append(ExpenseReport.employee_id == employee_id)
+    if status_:
+        filters.append(ExpenseReport.status == status_)
+
+    total = await db.scalar(select(func.count(ExpenseReport.id)).where(*filters))
+    rows = await db.scalars(
+        select(ExpenseReport)
+        .where(*filters)
+        .order_by(ExpenseReport.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    return ExpenseReportListOut(
+        items=[ExpenseReportOut.model_validate(r) for r in rows], total=total or 0
+    )
+
+
+@router.get("/summary", response_model=ExpenseSummary)
+async def summary(current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    mine = ExpenseReport.employee_id == current.id
+
+    my_draft = (
+        await db.scalar(select(func.count()).where(mine, ExpenseReport.status == "draft")) or 0
+    )
+    my_submitted = (
+        await db.scalar(select(func.count()).where(mine, ExpenseReport.status == "submitted")) or 0
+    )
+    my_reimbursable = (
+        await db.scalar(
+            select(func.coalesce(func.sum(ExpenseReport.total), 0)).where(
+                mine, ExpenseReport.status.in_(("approved", "marked_for_reimbursement"))
+            )
+        )
+        or 0
+    )
+    reclaimable_vat = (
+        await db.scalar(select(func.coalesce(func.sum(ExpenseReport.vat_total), 0)).where(mine))
+        or 0
+    )
+    pending = 0
+    if _can_oversee(current):
+        pending = (
+            await db.scalar(
+                select(func.count()).where(
+                    ExpenseReport.org_id == current.org_id, ExpenseReport.status == "submitted"
+                )
+            )
+            or 0
+        )
+
+    cat_rows = (
+        await db.execute(
+            select(ExpenseItem.category, func.coalesce(func.sum(ExpenseItem.amount), 0))
+            .join(ExpenseReport, ExpenseReport.id == ExpenseItem.report_id)
+            .where(ExpenseReport.employee_id == current.id)
+            .group_by(ExpenseItem.category)
+            .order_by(func.sum(ExpenseItem.amount).desc())
+        )
+    ).all()
+
+    return ExpenseSummary(
+        my_draft=my_draft,
+        my_submitted=my_submitted,
+        my_reimbursable=my_reimbursable,
+        reclaimable_vat=reclaimable_vat,
+        pending_approvals=pending,
+        by_category=[CategoryTotal(category=c, total=t) for c, t in cat_rows],
+    )
+
+
+def _policy_out(p) -> ExpensePolicyOut:
+    return ExpensePolicyOut(
+        active=p.active if p else False,
+        max_item_amount=p.max_item_amount if p else None,
+        receipt_required_over=p.receipt_required_over if p else None,
+        category_caps=expense_policy.caps_of(p),
+        allowed_categories=expense_policy.allowed_categories_of(p),
+        allowed_currencies=expense_policy.allowed_currencies_of(p),
+        warn_weekend=bool(p.warn_weekend) if p else False,
+        duplicate_detection=bool(p.duplicate_detection) if p else True,
+        mileage_rate=p.mileage_rate if p else None,
+        mileage_rate_tolerance=p.mileage_rate_tolerance if p else None,
+        require_purpose_over=p.require_purpose_over if p else None,
+        late_submission_days=p.late_submission_days if p else None,
+        blocking_rules=expense_policy.blocking_rules_of(p),
+        version=p.version if p else 0,
+    )
+
+
+@router.get("/policy", response_model=ExpensePolicyOut)
+async def get_policy(current: CurrentUser, db: DbSession):
+    """The org's expense spending policy (visible to everyone; edited by admins)."""
+    await _guard(db, current.org_id)
+    return _policy_out(await expense_policy.get(db, current.org_id))
+
+
+@router.put("/policy", response_model=ExpensePolicyOut)
+async def set_policy(body: ExpensePolicyIn, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    if not is_admin_or_above(current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can set the expense policy")
+    p = await expense_policy.upsert(
+        db,
+        current.org_id,
+        active=body.active,
+        max_item_amount=body.max_item_amount,
+        receipt_required_over=body.receipt_required_over,
+        category_caps=body.category_caps,
+        allowed_categories=body.allowed_categories,
+        allowed_currencies=body.allowed_currencies,
+        warn_weekend=body.warn_weekend,
+        duplicate_detection=body.duplicate_detection,
+        mileage_rate=body.mileage_rate,
+        mileage_rate_tolerance=body.mileage_rate_tolerance,
+        require_purpose_over=body.require_purpose_over,
+        late_submission_days=body.late_submission_days,
+        blocking_rules=body.blocking_rules,
+    )
+    await audit.record(
+        db,
+        audit.A.EXPENSE_POLICY_SET,
+        target_type="expense_policy",
+        target_id=p.id,
+        meta={"active": p.active},
+    )
+    await db.commit()
+    await db.refresh(p)
+    return _policy_out(p)
+
+
+# --------------------------------------------------------------------------- #
+# Multi-step approval-routing policies (mirrors /approval-policies for invoices)
+# --------------------------------------------------------------------------- #
+def _appr_policy_out(p) -> ExpenseApprovalPolicyOut:
+    return ExpenseApprovalPolicyOut(
+        id=p.id,
+        name=p.name,
+        active=p.active,
+        priority=p.priority,
+        min_amount=p.min_amount,
+        approver_ids=expense_approval.approver_ids_of(p),
+        finance_final=p.finance_final,
+        finance_approver_id=p.finance_approver_id,
+        version=p.version,
+    )
+
+
+@router.get("/approval-policies", response_model=list[ExpenseApprovalPolicyOut])
+async def list_approval_policies(current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    from app.models.expense_approval import ExpenseApprovalPolicy
+
+    rows = await db.scalars(
+        select(ExpenseApprovalPolicy)
+        .where(ExpenseApprovalPolicy.org_id == current.org_id)
+        .order_by(ExpenseApprovalPolicy.priority.asc(), ExpenseApprovalPolicy.created_at.asc())
+    )
+    return [_appr_policy_out(p) for p in rows]
+
+
+@router.post(
+    "/approval-policies",
+    response_model=ExpenseApprovalPolicyOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_approval_policy(
+    body: ExpenseApprovalPolicyIn, current: CurrentUser, db: DbSession
+):
+    await _guard(db, current.org_id)
+    if not is_admin_or_above(current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can manage approval policies")
+    from app.models.expense_approval import ExpenseApprovalPolicy
+
+    p = ExpenseApprovalPolicy(
+        org_id=current.org_id,
+        name=body.name,
+        active=body.active,
+        priority=body.priority,
+        min_amount=body.min_amount,
+        approver_ids=json.dumps(body.approver_ids) if body.approver_ids else None,
+        finance_final=body.finance_final,
+        finance_approver_id=body.finance_approver_id,
+    )
+    db.add(p)
+    await audit.record(
+        db,
+        audit.A.EXPENSE_APPROVAL_POLICY,
+        target_type="expense_approval_policy",
+        meta={"op": "create"},
+    )
+    await db.commit()
+    await db.refresh(p)
+    return _appr_policy_out(p)
+
+
+@router.patch("/approval-policies/{policy_id}", response_model=ExpenseApprovalPolicyOut)
+async def update_approval_policy(
+    policy_id: str, body: ExpenseApprovalPolicyUpdate, current: CurrentUser, db: DbSession
+):
+    await _guard(db, current.org_id)
+    if not is_admin_or_above(current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can manage approval policies")
+    from app.models.expense_approval import ExpenseApprovalPolicy
+
+    p = await db.scalar(
+        select(ExpenseApprovalPolicy).where(
+            ExpenseApprovalPolicy.id == policy_id, ExpenseApprovalPolicy.org_id == current.org_id
+        )
+    )
+    if p is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Policy not found")
+    if body.version != p.version:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"Policy changed (your {body.version}, current {p.version})"
+        )
+    p.name = body.name
+    p.active = body.active
+    p.priority = body.priority
+    p.min_amount = body.min_amount
+    p.approver_ids = json.dumps(body.approver_ids) if body.approver_ids else None
+    p.finance_final = body.finance_final
+    p.finance_approver_id = body.finance_approver_id
+    p.version += 1
+    await audit.record(
+        db,
+        audit.A.EXPENSE_APPROVAL_POLICY,
+        target_type="expense_approval_policy",
+        target_id=p.id,
+        meta={"op": "update"},
+    )
+    await db.commit()
+    await db.refresh(p)
+    return _appr_policy_out(p)
+
+
+@router.delete("/approval-policies/{policy_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_approval_policy(policy_id: str, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    if not is_admin_or_above(current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an admin can manage approval policies")
+    from app.models.expense_approval import ExpenseApprovalPolicy
+
+    p = await db.scalar(
+        select(ExpenseApprovalPolicy).where(
+            ExpenseApprovalPolicy.id == policy_id, ExpenseApprovalPolicy.org_id == current.org_id
+        )
+    )
+    if p is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Policy not found")
+    await db.delete(p)
+    await audit.record(
+        db,
+        audit.A.EXPENSE_APPROVAL_POLICY,
+        target_type="expense_approval_policy",
+        target_id=policy_id,
+        meta={"op": "delete"},
+    )
+    await db.commit()
+
+
+@router.get("/{report_id}", response_model=ExpenseReportDetail)
+async def get_report(report_id: str, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_view(r, current)
+    detail = await _detail_with_steps(r, db, current.org_id)
+    # Full configurable rule set for the reviewer (advisory unless a rule is
+    # explicitly configured to block — see the submit gate).
+    policy = await expense_policy.get(db, current.org_id)
+    detail.policy_violations = [PolicyViolation(**v) for v in expense_policy.evaluate(policy, r)]
+    return detail
+
+
+@router.get("/{report_id}/policy-check", response_model=PolicyCheckOut)
+async def policy_check(report_id: str, current: CurrentUser, db: DbSession):
+    """Dry-run the policy engine over a report — every finding plus whether a
+    configured hard-block would stop submission."""
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_view(r, current)
+    policy = await expense_policy.get(db, current.org_id)
+    findings = expense_policy.evaluate(policy, r)
+    blockers = expense_policy.blocking(findings)
+    return PolicyCheckOut(
+        violations=[PolicyViolation(**v) for v in findings],
+        blocking=bool(blockers),
+        can_submit=not blockers,
+    )
+
+
+@router.patch("/{report_id}", response_model=ExpenseReportDetail)
+async def update_report(
+    report_id: str, body: ExpenseReportUpdate, current: CurrentUser, db: DbSession
+):
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_owner_editable(r, current)
+
+    if body.title is not None:
+        r.title = body.title
+    if body.currency is not None:
+        r.currency = body.currency.upper()
+    if body.note is not None:
+        r.note = body.note
+    if body.items is not None:
+        r.items.clear()
+        for i in body.items:
+            r.items.append(expenses.item_from(i))
+        await _link_items(db, current.org_id, r.items)
+        r.total, r.vat_total = expenses.compute_totals(r.items)
+    await db.commit()
+    await db.refresh(r, attribute_names=["items"])
+    return _detail(r)
+
+
+@router.post("/{report_id}/submit", response_model=ExpenseReportDetail)
+async def submit_report(report_id: str, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    if r.employee_id != current.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only submit your own reports")
+    # State machine: submit is legal from draft or returned (409 otherwise).
+    target = expense_state.target_for("submit", r.status)
+    if not r.items:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "Add at least one expense before submitting"
+        )
+
+    # Compliance gate: every entry must carry a business purpose AND a receipt
+    # (or a missing-receipt declaration; mileage/per-diem are exempt).
+    incomplete = expenses.incomplete_items(r)
+    if incomplete:
+        detail = "; ".join(
+            f"{it.description} (needs {', '.join(missing)})" for it, missing in incomplete
+        )
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"Each expense must have a business purpose and an attached receipt. Missing — {detail}",
+        )
+
+    # Policy gate: findings are advisory unless a rule is configured to hard-block.
+    # Suspicious expenses are flagged for review, never auto-rejected.
+    policy = await expense_policy.get(db, current.org_id)
+    blockers = expense_policy.blocking(expense_policy.evaluate(policy, r))
+    if blockers:
+        detail = "; ".join(b["message"] for b in blockers)
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"Submission blocked by policy — {detail}",
+        )
+
+    r.status = target
+    r.submitted_at = expenses.now()
+    r.decided_at = None
+    r.decided_by = None
+    r.decision_note = None
+    if r.currency.upper() == "EUR":
+        r.total_eur = r.total
+    else:
+        eur, _resolved = await fx.to_eur(db, r.total, r.currency, date.today())
+        r.total_eur = eur
+
+    # Build a fresh multi-step approval chain (a resubmit replaces any old one).
+    # No policy ⇒ one generic open step = the legacy single-approver behaviour.
+    await expense_approval.delete_chain(db, current.org_id, r.id)
+    appr_policy = await expense_approval.evaluate(db, current.org_id, r)
+    await expense_approval.build_chain(db, current.org_id, r, appr_policy)
+
+    await audit.record(
+        db, audit.A.EXPENSE_SUBMIT, target_type="expense_report", target_id=r.id, meta={}
+    )
+    await webhooks.emit(
+        db,
+        current.org_id,
+        "expense.submitted",
+        {
+            "id": r.id,
+            "title": r.title,
+            "employee_name": r.employee_name,
+            "total": str(r.total),
+            "currency": r.currency,
+        },
+    )
+    await db.commit()
+    await db.refresh(r, attribute_names=["items"])
+    return await _detail_with_steps(r, db, current.org_id)
+
+
+@router.post("/{report_id}/decision", response_model=ExpenseReportDetail)
+async def decide(report_id: str, body: ExpenseDecision, current: CurrentUser, db: DbSession):
+    """An approver/finance action on a report: approve, reject, return for
+    correction, mark for reimbursement, or mark reimbursed. The state machine
+    validates legality; suspicious expenses are returned/flagged, never silently
+    dropped."""
+    await _guard(db, current.org_id)
+    if not _is_approver(current):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Only a designated expense approver can decide on expenses"
+        )
+    r = await _load(db, current.org_id, report_id)
+
+    # Segregation of duties: an approver cannot decide on their own report.
+    if r.employee_id == current.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You cannot approve your own expense report")
+
+    action = expense_state.canonical(body.action)
+
+    if action in ("approve", "reject", "return_for_correction"):
+        # Multi-step chain decision: act on the current pending step only.
+        if r.status not in expense_state.IN_APPROVAL:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, f"A {r.status} report is not awaiting approval"
+            )
+        steps = await expense_approval.steps_for(db, current.org_id, r.id)
+        step = expense_approval.pending_step(steps)
+        if step is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "No pending approval step")
+        if not expense_approval.is_assigned_approver(step, current):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "This step is assigned to another approver — you cannot decide it yet.",
+            )
+        if action == "approve":
+            expense_approval.decide_step(step, current, approved=True, note=body.note)
+            new_status = expense_approval.chain_state(steps)
+        elif action == "reject":
+            expense_approval.decide_step(step, current, approved=False, note=body.note)
+            expense_approval.skip_pending(steps)
+            new_status = "rejected"
+        else:  # return_for_correction
+            expense_approval.skip_pending(steps)
+            new_status = "returned"
+        r.status = new_status
+        r.decided_at = expenses.now()
+        r.decided_by = current.email
+        r.decision_note = body.note
+        _audit_action = {
+            "approve": audit.A.EXPENSE_APPROVE,
+            "reject": audit.A.EXPENSE_REJECT,
+            "return_for_correction": audit.A.EXPENSE_RETURN,
+        }[action]
+        await audit.record(
+            db,
+            _audit_action,
+            target_type="expense_report",
+            target_id=r.id,
+            meta={"to": new_status, "step_seq": step.seq},
+        )
+    else:
+        # Owner/finance progression actions (mark for reimbursement / reimbursed).
+        target = expense_state.target_for(action, r.status)  # 409 if illegal
+        r.status = target
+        r.decided_at = expenses.now()
+        r.decided_by = current.email
+        r.decision_note = body.note
+        if target == "reimbursed":
+            r.reimbursed_at = expenses.now()
+        await audit.record(
+            db,
+            audit.A.EXPENSE_TRANSITION,
+            target_type="expense_report",
+            target_id=r.id,
+            meta={"action": action, "to": target},
+        )
+
+    if r.status in ("approved", "rejected", "returned", "reimbursed"):
+        await webhooks.emit(
+            db,
+            current.org_id,
+            f"expense.{r.status}",
+            {
+                "id": r.id,
+                "title": r.title,
+                "employee_name": r.employee_name,
+                "total": str(r.total),
+                "currency": r.currency,
+                "decided_by": r.decided_by,
+            },
+        )
+    await db.commit()
+    await db.refresh(r, attribute_names=["items"])
+    return await _detail_with_steps(r, db, current.org_id)
+
+
+@router.post("/{report_id}/reassign", response_model=ExpenseReportDetail)
+async def reassign_step(report_id: str, body: ReassignIn, current: CurrentUser, db: DbSession):
+    """Reassign a pending approval step to a different approver (an approver may
+    delegate/route). Defaults to the current pending step."""
+    await _guard(db, current.org_id)
+    if not _is_approver(current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an expense approver can reassign")
+    r = await _load(db, current.org_id, report_id)
+    if r.status not in expense_state.IN_APPROVAL:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Report is not awaiting approval")
+    steps = await expense_approval.steps_for(db, current.org_id, r.id)
+    if body.step_id:
+        step = next((s for s in steps if s.id == body.step_id), None)
+    else:
+        step = expense_approval.pending_step(steps)
+    if step is None or step.status != "pending":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such pending step")
+    new_approver = await db.get(User, body.approver_id)
+    if new_approver is None or new_approver.org_id != current.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Approver not found")
+    step.approver_id = new_approver.id
+    step.approver_email = new_approver.email
+    await audit.record(
+        db,
+        audit.A.EXPENSE_REASSIGN,
+        target_type="expense_report",
+        target_id=r.id,
+        meta={"step_seq": step.seq, "to": new_approver.email},
+    )
+    await webhooks.emit(
+        db,
+        current.org_id,
+        "expense.reassigned",
+        {"id": r.id, "title": r.title, "approver": new_approver.email},
+    )
+    await db.commit()
+    await db.refresh(r, attribute_names=["items"])
+    return await _detail_with_steps(r, db, current.org_id)
+
+
+@router.post("/{report_id}/withdraw", response_model=ExpenseReportDetail)
+async def withdraw_report(report_id: str, current: CurrentUser, db: DbSession):
+    """Pull a submitted report back to draft before any decision is made
+    (owner-only)."""
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    if r.employee_id != current.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only withdraw your own reports")
+    r.status = expense_state.target_for("withdraw", r.status)  # 409 if not submitted
+    r.submitted_at = None
+    # A withdrawn report goes back to the drawing board — discard its chain.
+    await expense_approval.delete_chain(db, current.org_id, r.id)
+    await audit.record(
+        db,
+        audit.A.EXPENSE_TRANSITION,
+        target_type="expense_report",
+        target_id=r.id,
+        meta={"action": "withdraw", "to": r.status},
+    )
+    await db.commit()
+    await db.refresh(r, attribute_names=["items"])
+    return _detail(r)
+
+
+@router.post(
+    "/{report_id}/items", response_model=ExpenseReportDetail, status_code=status.HTTP_201_CREATED
+)
+async def add_item(report_id: str, body: ExpenseItemIn, current: CurrentUser, db: DbSession):
+    """Add a manual expense entry (standard / mileage / per-diem) to a draft or
+    returned report."""
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_owner_editable(r, current)
+    item = expenses.item_from(body)
+    r.items.append(item)
+    await _link_items(db, current.org_id, [item])
+    r.total, r.vat_total = expenses.compute_totals(r.items)
+    await db.commit()
+    await db.refresh(r, attribute_names=["items"])
+    return _detail(r)
+
+
+@router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_report(report_id: str, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    if r.employee_id != current.id or r.status != "draft":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only your own draft reports can be deleted")
+    await db.delete(r)
+    await db.commit()
+
+
+@router.post("/{report_id}/items/from-transaction", response_model=ExpenseReportDetail)
+async def add_item_from_transaction(
+    report_id: str, body: ItemFromTransaction, current: CurrentUser, db: DbSession
+):
+    """Add an inbox transaction to a draft report as an expense entry."""
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_owner_editable(r, current)
+    txns = await _load_available_txns(db, current.org_id, current.id, [body.transaction_id])
+    txn = txns[0]
+    item = _item_from_txn(txn, body.category, body.vat_amount)
+    r.items.append(item)
+    await _link_items(db, current.org_id, [item])
+    r.total, r.vat_total = expenses.compute_totals(r.items)
+    await db.flush()
+    txn.status = "assigned"
+    txn.item_id = item.id
+    await db.commit()
+    await db.refresh(r, attribute_names=["items"])
+    return _detail(r)
+
+
+@router.get("/{report_id}/comments", response_model=list[ExpenseCommentOut])
+async def list_comments(report_id: str, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_view(r, current)
+    rows = await db.scalars(
+        select(ExpenseComment)
+        .where(ExpenseComment.report_id == report_id)
+        .order_by(ExpenseComment.created_at)
+    )
+    return [ExpenseCommentOut.model_validate(c) for c in rows]
+
+
+@router.post(
+    "/{report_id}/comments", response_model=ExpenseCommentOut, status_code=status.HTTP_201_CREATED
+)
+async def add_comment(report_id: str, body: ExpenseCommentIn, current: CurrentUser, db: DbSession):
+    """Comment on a report — the employee↔approver thread (either side can post)."""
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_view(r, current)
+    c = ExpenseComment(
+        org_id=current.org_id,
+        report_id=report_id,
+        author_id=current.id,
+        author_name=current.name,
+        body=body.body,
+    )
+    db.add(c)
+    await db.commit()
+    await db.refresh(c)
+    return ExpenseCommentOut.model_validate(c)
+
+
+@router.patch("/{report_id}/items/{item_id}", response_model=ExpenseReportDetail)
+async def update_item(
+    report_id: str, item_id: str, body: ExpenseItemPatch, current: CurrentUser, db: DbSession
+):
+    """Edit a draft/returned item — money, flags, declarations, purpose, and
+    cost dimensions. Only fields explicitly present in the body are applied."""
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_owner_editable(r, current)
+    item = next((i for i in r.items if i.id == item_id), None)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    fields = body.model_fields_set
+    # Scalar fields applied verbatim when present (a null clears an optional value).
+    for key in (
+        "description",
+        "merchant",
+        "spend_date",
+        "reclaimable_tax",
+        "payment_method",
+        "customer_billable",
+        "billable_customer",
+        "comment",
+        "missing_receipt_declaration",
+        "category",
+    ):
+        if key in fields:
+            setattr(item, key, getattr(body, key))
+    # Money fields are quantized before storage.
+    if "amount" in fields and body.amount is not None:
+        item.amount = expenses.q(body.amount)
+    if "vat_amount" in fields and body.vat_amount is not None:
+        item.vat_amount = expenses.q(body.vat_amount)
+    # Cost dimensions: apply only fields explicitly present.
+    changed = [key for key in DIMENSION_KEYS if key in fields]
+    for key in changed:
+        setattr(item, key, getattr(body, key))
+    await _link_items(db, current.org_id, [item], changed)
+    # Money may have changed → refresh the report totals from the live items.
+    if fields & {"amount", "vat_amount"}:
+        r.total, r.vat_total = expenses.compute_totals(r.items)
+    await db.commit()
+    await db.refresh(r, attribute_names=["items"])
+    return _detail(r)
+
+
+# Amount tolerance (in currency units) when matching an item to a statement line.
+_MATCH_TOLERANCE = Decimal("0.01")
+
+
+@router.get(
+    "/{report_id}/items/{item_id}/match-candidates", response_model=list[ExpenseTransactionOut]
+)
+async def match_candidates(report_id: str, item_id: str, current: CurrentUser, db: DbSession):
+    """Available bank/card statement lines that plausibly match this item (same
+    amount, within a few days), for reconciliation."""
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_owner_editable(r, current)
+    item = next((i for i in r.items if i.id == item_id), None)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    rows = list(
+        await db.scalars(
+            select(ExpenseTransaction).where(
+                ExpenseTransaction.org_id == current.org_id,
+                ExpenseTransaction.employee_id == current.id,
+                ExpenseTransaction.status == "available",
+            )
+        )
+    )
+    amt = Decimal(item.amount)
+    cands = [t for t in rows if abs(Decimal(t.amount) - amt) <= _MATCH_TOLERANCE]
+    cands.sort(key=lambda t: abs((t.txn_date - item.spend_date).days))
+    return [ExpenseTransactionOut.model_validate(t) for t in cands[:10]]
+
+
+@router.post("/{report_id}/items/{item_id}/match", response_model=ExpenseReportDetail)
+async def match_item(
+    report_id: str, item_id: str, body: MatchTransaction, current: CurrentUser, db: DbSession
+):
+    """Reconcile a draft item against a bank/card statement transaction."""
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_owner_editable(r, current)
+    item = next((i for i in r.items if i.id == item_id), None)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    txns = await _load_available_txns(db, current.org_id, current.id, [body.transaction_id])
+    txn = txns[0]
+    if abs(Decimal(txn.amount) - Decimal(item.amount)) > _MATCH_TOLERANCE:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"Amounts don't match: entry is {item.amount}, statement line is {txn.amount}.",
+        )
+    item.bank_reference = _txn_reference(txn)
+    txn.status = "assigned"
+    txn.item_id = item.id
+    await db.commit()
+    await db.refresh(r, attribute_names=["items"])
+    return _detail(r)
+
+
+@router.delete("/{report_id}/items/{item_id}/match", response_model=ExpenseReportDetail)
+async def unmatch_item(report_id: str, item_id: str, current: CurrentUser, db: DbSession):
+    """Undo a bank-statement reconciliation, returning the line to the inbox."""
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_owner_editable(r, current)
+    item = next((i for i in r.items if i.id == item_id), None)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    txn = await db.scalar(
+        select(ExpenseTransaction).where(
+            ExpenseTransaction.item_id == item_id, ExpenseTransaction.org_id == current.org_id
+        )
+    )
+    if txn is not None:
+        txn.status = "available"
+        txn.item_id = None
+    item.bank_reference = None
+    await db.commit()
+    await db.refresh(r, attribute_names=["items"])
+    return _detail(r)
+
+
+@router.post("/{report_id}/items/{item_id}/receipt", response_model=ExpenseReportDetail)
+async def upload_receipt(
+    report_id: str, item_id: str, current: CurrentUser, db: DbSession, file: UploadFile
+):
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_owner_editable(r, current)
+    item = next((i for i in r.items if i.id == item_id), None)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Receipt too large (max 5 MB)"
+        )
+    # Security gate: validate the real type (PNG/JPEG/PDF) + malware-scan.
+    try:
+        kind = filesec.check(file.filename or "receipt", content, allowed=filesec.RECEIPT_KINDS)
+    except filesec.FileRejected as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
+    mime = {"png": "image/png", "jpeg": "image/jpeg", "pdf": "application/pdf"}[kind]
+    sha, size = await documents.store(
+        documents.RECEIPTS,
+        current.org_id,
+        content,
+        mime,
+        db=db,
+        filename=file.filename,
+        uploaded_by=current.email,
+    )
+    await document_versions.record(
+        db,
+        current.org_id,
+        OWNER_EXPENSE_RECEIPT,
+        item.id,
+        sha256=sha,
+        size=size,
+        mime=mime,
+        filename=file.filename,
+        uploaded_by=current.email,
+    )
+    item.receipt_mime = mime
+    item.receipt_sha256 = sha
+    item.receipt_size = size
+    await db.commit()
+    await db.refresh(r, attribute_names=["items"])
+    return _detail(r)
+
+
+@router.get("/{report_id}/items/{item_id}/receipt")
+async def get_receipt(report_id: str, item_id: str, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_view(r, current)
+    item = next((i for i in r.items if i.id == item_id), None)
+    if item is None or not item.receipt_sha256:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Receipt not found")
+    content = await documents.load(documents.RECEIPTS, current.org_id, item.receipt_sha256)
+    await audit.record(
+        db,
+        audit.A.DOC_DOWNLOAD,
+        target_type="receipt",
+        target_id=item_id,
+        meta={"report_id": report_id},
+    )
+    await db.commit()
+    # Serve inert: force download and stop MIME sniffing.
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": "attachment", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@router.get(
+    "/{report_id}/items/{item_id}/receipt/versions",
+    response_model=list[DocumentVersionOut],
+)
+async def receipt_versions(report_id: str, item_id: str, current: CurrentUser, db: DbSession):
+    """The supersession history of this item's receipt (newest first) — an audit
+    trail of every file that was uploaded to the slot, including replacements."""
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_view(r, current)
+    item = next((i for i in r.items if i.id == item_id), None)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    rows = await document_versions.history(db, current.org_id, OWNER_EXPENSE_RECEIPT, item_id)
+    return [DocumentVersionOut.model_validate(row) for row in rows]
+
+
+@router.get("/{report_id}/pdf")
+async def report_pdf(report_id: str, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    r = await _load(db, current.org_id, report_id)
+    _require_view(r, current)
+    try:
+        pdf = await run_in_threadpool(expenses.build_pdf, r)
+    except expenses.PdfUnavailable as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"PDF generation unavailable: {e}")
+    # HTTP headers are latin-1 only, but titles can contain any Unicode (e.g. an
+    # em dash). Provide an ASCII-safe `filename` plus an RFC 5987 UTF-8 `filename*`.
+    stem = r.title[:40].strip()
+    ascii_name = re.sub(r"[^A-Za-z0-9_.-]", "_", stem.replace(" ", "_")) or "report"
+    disposition = (
+        f'attachment; filename="expense-{ascii_name}.pdf"; '
+        f"filename*=UTF-8''{quote(f'expense-{stem}.pdf')}"
+    )
+    return Response(
+        content=pdf, media_type="application/pdf", headers={"Content-Disposition": disposition}
+    )

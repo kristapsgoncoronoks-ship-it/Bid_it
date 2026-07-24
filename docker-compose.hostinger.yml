@@ -1,0 +1,112 @@
+# Single-node production stack for ONE Linux VPS (e.g. a Hostinger KVM VPS).
+#
+# Self-contained: Postgres + backend (API) + worker + frontend (nginx TLS origin)
+# on one box. Document bytes are stored on a LOCAL persisted volume — at
+# single-node scale there is no need to run a separate object store (MinIO/S3),
+# so this stack drops it. The backend and worker SHARE that volume so the worker
+# can read back what an upload stored.
+#
+# Usage (see docs/DEPLOY-HOSTINGER.md for the full walkthrough):
+#   cp .env.hostinger.example .env      # fill in the required values
+#   mkdir -p certs                      # drop origin.pem + origin.key here (TLS)
+#   docker compose --env-file .env -f docker-compose.hostinger.yml up -d --build
+#
+# The backend runs `alembic upgrade head` before serving. nginx terminates TLS
+# and reverse-proxies /api to the backend on the private compose network.
+name: invoiceiq
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-invoiceiq}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-invoiceiq}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-invoiceiq}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # Deliberately NOT published to the host — only the app reaches Postgres on
+    # the private compose network.
+
+  backend:
+    build: ./backend
+    environment:
+      ENVIRONMENT: production
+      HSTS_ENABLED: "true"
+      SECRET_KEY: ${SECRET_KEY:?set a strong SECRET_KEY in .env (openssl rand -hex 32)}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-invoiceiq}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-invoiceiq}
+      CORS_ORIGINS: ${APP_ORIGIN:?set APP_ORIGIN in .env, e.g. https://app.example.com}
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-4}
+      # Document bytes on a local persisted volume (no object store at single-node).
+      STORAGE_BACKEND: local
+      STORAGE_LOCAL_PATH: /app/var/storage
+      INBOUND_EMAIL_SECRET: ${INBOUND_EMAIL_SECRET:-}
+    volumes:
+      - storagedata:/app/var/storage
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - >-
+        alembic upgrade head &&
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-4}
+        --proxy-headers --forwarded-allow-ips '*'
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    # Not published — nginx reaches it as http://backend:8000 on the compose network.
+
+  worker:
+    build: ./backend
+    environment:
+      ENVIRONMENT: production
+      SECRET_KEY: ${SECRET_KEY:?set a strong SECRET_KEY in .env}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-invoiceiq}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-invoiceiq}
+      STORAGE_BACKEND: local
+      STORAGE_LOCAL_PATH: /app/var/storage
+    volumes:
+      # SAME volume as the backend — the worker reads back the bytes the upload
+      # route stored (and writes capture artifacts). Do not remove.
+      - storagedata:/app/var/storage
+    depends_on:
+      backend:
+        condition: service_healthy   # backend applies migrations first
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    # The worker shares the backend image, whose HEALTHCHECK curls an HTTP port
+    # the worker doesn't serve — so it would show a misleading "unhealthy". The
+    # worker's liveness is that its process is up (restart: unless-stopped covers
+    # a crash); nothing depends on an HTTP check here. Disable the inherited one.
+    healthcheck:
+      disable: true
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ""        # same-origin: the SPA calls /api on this host
+    volumes:
+      - ./frontend/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${TLS_CERT_DIR:-./certs}:/etc/nginx/certs:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:        # Postgres data — back this up (see the deploy doc).
+  storagedata:   # document bytes (uploaded originals, receipts, logos) — back this up.

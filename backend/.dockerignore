@@ -1,0 +1,25 @@
+# Keep the image small and free of dev/runtime junk and secrets.
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+tests/
+htmlcov/
+.coverage
+# Local databases must NEVER ship in the image (they'd leak dev data + bloat it).
+*.db
+*.sqlite
+*.sqlite3
+# Local env / secrets (keep .env.example so the image can document required vars)
+.env
+.env.*
+!.env.example
+# VCS / editor
+.git/
+.gitignore
+.idea/
+.vscode/

@@ -1,0 +1,127 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: invoiceiq
+      POSTGRES_PASSWORD: invoiceiq
+      POSTGRES_DB: invoiceiq
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U invoiceiq"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # S3-compatible object storage for document bytes (ADR-0008). The dev stack
+  # runs the real S3 path against MinIO so it matches production behaviour.
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: invoiceiq
+      MINIO_ROOT_PASSWORD: invoiceiq-secret
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # web console
+    volumes:
+      - miniodata:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # One-shot: create the documents bucket, then exit.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >-
+      /bin/sh -c "
+      mc alias set local http://minio:9000 invoiceiq invoiceiq-secret &&
+      mc mb --ignore-existing local/invoiceiq-documents &&
+      echo 'bucket ready'"
+    restart: "no"
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://invoiceiq:invoiceiq@db:5432/invoiceiq
+      SECRET_KEY: ${SECRET_KEY:-dev-insecure-change-me}
+      ENVIRONMENT: production
+      CORS_ORIGINS: http://localhost:8080,http://localhost:5173
+      # Document bytes → MinIO (S3). boto3 reads the AWS_* credentials.
+      STORAGE_BACKEND: s3
+      STORAGE_S3_BUCKET: invoiceiq-documents
+      STORAGE_S3_ENDPOINT_URL: http://minio:9000
+      STORAGE_S3_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: invoiceiq
+      AWS_SECRET_ACCESS_KEY: invoiceiq-secret
+    depends_on:
+      db:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    # Production owns the schema via Alembic — apply migrations, then serve.
+    # (docker-compose.prod.yml replaces this with the proxy-headers variant.)
+    command:
+      - sh
+      - -c
+      - >-
+        alembic upgrade head &&
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-4}
+    # Readiness (DB reachable) gates the container healthy, so `frontend` only
+    # starts once the API can actually serve traffic.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    ports:
+      - "8000:8000"
+
+  # Durable background worker: drains the job queue (recurring-invoice generation,
+  # overdue reminders) and enqueues the daily periodic jobs. Shares the backend
+  # image; runs the worker entrypoint instead of the web server. Scale with
+  # `docker compose up --scale worker=N` — the claim is atomic, so it's safe.
+  worker:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://invoiceiq:invoiceiq@db:5432/invoiceiq
+      SECRET_KEY: ${SECRET_KEY:-dev-insecure-change-me}
+      ENVIRONMENT: production
+      STORAGE_BACKEND: s3
+      STORAGE_S3_BUCKET: invoiceiq-documents
+      STORAGE_S3_ENDPOINT_URL: http://minio:9000
+      STORAGE_S3_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: invoiceiq
+      AWS_SECRET_ACCESS_KEY: invoiceiq-secret
+    depends_on:
+      backend:
+        condition: service_healthy   # backend applies migrations first
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ""
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+
+volumes:
+  pgdata:
+  miniodata:

@@ -1,0 +1,185 @@
+from __future__ import annotations
+
+import logging
+from contextlib import asynccontextmanager
+from typing import Annotated
+
+from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app import __version__
+from app.api.router import api_router
+from app.core.config import settings
+from app.core.database import engine, get_session
+from app.core.errors import AppError
+from app.core.observability import (
+    RequestContextMiddleware,
+    configure_logging,
+    setup_metrics,
+)
+from app.core.ratelimit import RateLimitMiddleware
+from app.core.security_headers import SecurityHeadersMiddleware
+from app.core.tenant import TenantScopeMiddleware
+from app.models import Base
+from app.services.scim import ERROR_SCHEMA as SCIM_ERROR_SCHEMA
+from app.services.scim import ScimError
+
+configure_logging(settings.structured_logs)
+log = logging.getLogger("invoiceiq")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Dev/test: create tables directly for zero-setup. Production owns schema
+    # evolution through Alembic (`alembic upgrade head`, run before boot), so we
+    # do NOT create_all there — it would race the migrations' version tracking.
+    if settings.environment != "production":
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    else:
+        log.info("Production: schema is managed by Alembic (run `alembic upgrade head`)")
+
+    # Seed the bundled ECB rate snapshot if the cache is empty, so FX conversion
+    # works before the first live refresh. Best-effort — never blocks startup.
+    from datetime import date
+
+    from app.core.database import SessionLocal
+    from app.services import fx
+
+    try:
+        async with SessionLocal() as db:
+            seeded = await fx.ensure_seed_rates(db, date.today())
+            if seeded:
+                log.info("Seeded %d bundled ECB fallback rates", seeded)
+            # Guarantee full European-currency coverage (incl. the non-ECB ones).
+            covered = await fx.ensure_european_coverage(db, date.today())
+            if covered:
+                log.info("Seeded %d indicative rows for European currencies", covered)
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("ECB rate seeding skipped: %s", exc)
+
+    log.info("%s %s ready (%s)", settings.app_name, __version__, settings.environment)
+    yield
+    await engine.dispose()
+
+
+app = FastAPI(
+    title=settings.app_name,
+    version=__version__,
+    summary="Invoice Data Analytics Platform",
+    lifespan=lifespan,
+    # Don't expose the interactive docs / OpenAPI schema in production — no reason
+    # to hand an attacker the full API contract. Available in dev/test as usual.
+    docs_url=None if settings.is_production else "/docs",
+    redoc_url=None if settings.is_production else "/redoc",
+    openapi_url=None if settings.is_production else "/openapi.json",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origin_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+# Outermost: bound the tenant-scope ContextVar to each request.
+app.add_middleware(TenantScopeMiddleware)
+# Security response headers (HSTS on HTTPS, nosniff, frame-deny, referrer policy).
+app.add_middleware(SecurityHeadersMiddleware)
+# Coarse abuse / brute-force guard (before tenant + route work; after the
+# request-context wrapper so a 429 still gets a request-id + access-log line).
+app.add_middleware(RateLimitMiddleware)
+# First to see the request / last to see the response: request-id + access log.
+app.add_middleware(RequestContextMiddleware)
+
+# Prometheus /metrics + per-request instrumentation (only if the lib is present).
+if settings.metrics_enabled and setup_metrics(app):
+    log.info("Prometheus metrics enabled at /metrics")
+
+
+@app.exception_handler(ScimError)
+async def _scim_error_handler(request, exc: ScimError):
+    """Render SCIM service errors in the SCIM error schema."""
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        status_code=exc.status,
+        media_type="application/scim+json",
+        content={"schemas": [SCIM_ERROR_SCHEMA], "detail": exc.detail, "status": str(exc.status)},
+    )
+
+
+@app.exception_handler(AppError)
+async def _app_error_handler(request, exc: AppError):
+    """Map a framework-agnostic service error (app.core.errors) to the API's error
+    shape — {"detail", "code"}. The X-Request-ID header is added by the middleware."""
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(status_code=exc.status, content={"detail": exc.message, "code": exc.code})
+
+
+@app.exception_handler(Exception)
+async def _unhandled_error_handler(request, exc: Exception):
+    """Last-resort 500: never leak an internal message or a bare text body. The
+    exception is already logged with the request id by RequestContextMiddleware;
+    the client gets a stable JSON envelope + the X-Request-ID header to quote."""
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        status_code=500, content={"detail": "Internal server error", "code": "internal_error"}
+    )
+
+
+@app.get("/health", tags=["meta"])
+async def health() -> dict:
+    """Liveness: the process is up. Cheap — no I/O. Used by load balancers / k8s
+    livenessProbe to decide whether to restart the container."""
+    return {"status": "ok", "version": __version__, "app": settings.app_name}
+
+
+@app.get("/health/ready", tags=["meta"])
+async def ready():
+    """Readiness: the app can serve traffic (the database is reachable). Used by
+    k8s readinessProbe / the LB to decide whether to route traffic here. Returns
+    503 when the DB is unreachable so the replica is pulled from rotation."""
+    from fastapi import Response
+
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        return {"status": "ready"}
+    except Exception as exc:  # DB down / starting up → not ready
+        log.warning("readiness check failed: %s", exc)
+        return Response(
+            content='{"status":"not-ready"}', status_code=503, media_type="application/json"
+        )
+
+
+@app.get("/health/queue", tags=["meta"])
+async def queue_health(db: Annotated[AsyncSession, Depends(get_session)]):
+    """Background-queue SLO probe: aggregate job counts + dead-letter depth +
+    oldest-pending age. Returns 503 (degraded) when the SLO is breached so an
+    uptime check pages. Runs unscoped (all tenants); aggregate numbers only — no
+    tenant data. (Deep DB-down liveness is /health/ready's job.)"""
+    import json as _json
+
+    from fastapi import Response
+
+    from app.services import queue_health as qh
+
+    h = await qh.snapshot(db)
+    body = {
+        "status": "ok" if h.slo_ok else "degraded",
+        "dead": h.dead,
+        "pending": h.pending,
+        "oldest_pending_seconds": h.oldest_pending_seconds,
+        "by_status": h.counts,
+    }
+    if not h.slo_ok:
+        return Response(content=_json.dumps(body), status_code=503, media_type="application/json")
+    return body
+
+
+app.include_router(api_router, prefix=settings.api_v1_prefix)

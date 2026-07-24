@@ -1,0 +1,103 @@
+# Worker LANES — resource isolation for the heavy modules (opt-in).
+#
+# Apply this INSTEAD of 35-worker.yaml when you want the CPU-heavy OCR/extraction
+# work on its own pool so it can never starve — or be starved by — the light,
+# latency-sensitive periodic jobs (dunning, recurring invoices, integrity).
+#
+# The two lanes are COMPLEMENTARY and together cover every kind (no job is
+# orphaned): `worker-extract` takes only email.extract; `worker-general` takes
+# everything except email.extract. Scale and size each independently.
+#
+#   kubectl -n invoiceiq delete deploy worker            # remove the all-kinds pool
+#   kubectl -n invoiceiq apply -f 36-worker-lanes.yaml   # bring up the two lanes
+#
+# NOTE (see deploy/SCALING.md): direct-upload OCR and PDF/Excel generation still
+# run inline on the WEB tier today — moving them onto their own kinds
+# (upload.extract / report.render) is the follow-up that fully isolates them here.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-extract
+  namespace: invoiceiq
+  labels: { app: invoiceiq, component: worker, lane: extract }
+spec:
+  replicas: 2                          # scale up during onboarding/ingestion bursts
+  selector:
+    matchLabels: { app: invoiceiq, component: worker, lane: extract }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: { app: invoiceiq, component: worker, lane: extract }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: worker
+          image: ghcr.io/OWNER/REPO/backend:VERSION
+          command: ["python", "-m", "app.worker", "--kinds", "email.extract,upload.extract"]
+          envFrom:
+            - configMapRef: { name: invoiceiq-config }
+            - secretRef: { name: invoiceiq-secrets }
+          # OCR/parse is CPU-bound — give this lane more CPU headroom and schedule
+          # it on compute-optimised nodes if available (nodeSelector/affinity).
+          resources:
+            requests: { cpu: "500m", memory: "512Mi" }
+            limits: { cpu: "2000m", memory: "1Gi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      terminationGracePeriodSeconds: 60   # OCR jobs can be long — allow draining
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-general
+  namespace: invoiceiq
+  labels: { app: invoiceiq, component: worker, lane: general }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: invoiceiq, component: worker, lane: general }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: { app: invoiceiq, component: worker, lane: general }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: worker
+          image: ghcr.io/OWNER/REPO/backend:VERSION
+          command: ["python", "-m", "app.worker", "--exclude", "email.extract,upload.extract"]
+          envFrom:
+            - configMapRef: { name: invoiceiq-config }
+            - secretRef: { name: invoiceiq-secrets }
+          # Light, steady periodic work — a small footprint is plenty.
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits: { cpu: "500m", memory: "512Mi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      terminationGracePeriodSeconds: 30

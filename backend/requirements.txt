@@ -1,0 +1,47 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+aiosqlite==0.20.0
+alembic==1.14.0
+pydantic==2.10.4
+pydantic-settings==2.7.1
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+# Pinned: passlib 1.7.4 reads bcrypt's version via the __about__ attr that
+# bcrypt >= 4.1 removed, which emits a noisy (harmless) warning. 4.0.1 is clean.
+bcrypt==4.0.1
+python-multipart==0.0.20
+email-validator==2.2.0
+
+# Object storage for document bytes (ADR-0008). Imported lazily and only when
+# STORAGE_BACKEND=s3; the default local/memory backends need nothing extra.
+boto3==1.35.90
+
+# PDF ingestion + OCR. Text-layer extraction needs only pdfplumber; the OCR
+# fallback also needs the system `tesseract-ocr` binary on PATH (see Dockerfile).
+pdfplumber==0.11.4
+pypdf==5.1.0
+pypdfium2==4.30.0
+pytesseract==0.3.13
+pillow==11.0.0
+reportlab==4.2.5
+# Structured e-invoice XML (UBL 2.1 / UN-CEFACT CII, incl. Factur-X/ZUGFeRD).
+# defusedxml hardens parsing of attacker-supplied XML (XXE / billion-laughs).
+defusedxml==0.7.1
+
+# Billing (ADR-0013). Imported LAZILY only when a Stripe secret key is set;
+# without it the app runs on the NullProvider and nothing charges. Uncomment (or
+# `pip install stripe`) on any deployment that turns billing on.
+# stripe==11.4.1
+
+# Malware scanning of uploads/attachments (OPTIONAL). filesec imports `clamd`
+# lazily and only when clamav_enabled=true; without it, type validation + EICAR
+# detection still apply. Install alongside a running clamd daemon to enable AV.
+# clamd==1.0.2
+
+# dev / test
+pytest==8.3.4
+pytest-asyncio==0.25.0
+httpx==0.28.1
+prometheus-client==0.21.1

@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Databases / local data
+*.db
+*.sqlite3
+smoke.db
+
+# Node / frontend
+node_modules/
+frontend/dist/
+*.local
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+!.env.hostinger.example
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# TS incremental build cache
+*.tsbuildinfo
+backend/var/
+
+# Playwright artifacts (also ignored under frontend/.gitignore; guard the root
+# too, since a stray run from the repo root writes here)
+test-results/
+playwright-report/
+blob-report/
