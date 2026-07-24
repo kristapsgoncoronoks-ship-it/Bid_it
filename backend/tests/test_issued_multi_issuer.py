@@ -14,6 +14,7 @@ def _instant(ts: str) -> datetime:
     dt = datetime.fromisoformat(ts)
     return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
+
 ISSUER = {
     "legal_name": "InvoiceIQ Demo BV",
     "vat_number": "NL123456789B01",

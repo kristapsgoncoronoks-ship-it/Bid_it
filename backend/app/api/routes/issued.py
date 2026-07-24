@@ -1302,7 +1302,9 @@ async def add_issued_attachment(
     if not data:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Empty file.")
     if len(data) > _ATTACH_MAX:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Attachment too large (25 MB).")
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Attachment too large (25 MB)."
+        )
     # Security gate (filesec choke point): block executables / archives / scripts
     # + malware-scan BEFORE storing — attacker-supplied bytes. Inert docs allowed.
     try:
