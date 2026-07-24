@@ -116,7 +116,7 @@ def assert_transition(frm: WorkflowState, to: WorkflowState) -> None:
     transition route calls before mutating `workflow_state`."""
     if not can_transition(frm, to):
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"Illegal transition: {frm.value} → {to.value}. "
             f"Allowed from {frm.value}: {sorted(t.value for t in allowed_targets(frm))}.",
         )

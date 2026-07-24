@@ -898,7 +898,7 @@ async def _render_pdf(db: DbSession, org_id: str, inv: IssuedInvoice) -> bytes:
     if profile.logo_sha256:
         logo_bytes = await documents.load(documents.LOGOS, org_id, profile.logo_sha256)
         if logo_bytes:
-            logo = (profile.logo_mime, logo_bytes)
+            logo = (profile.logo_mime or "image/png", logo_bytes)
     return await run_in_threadpool(invoice_pdf.build_pdf, inv, seller, result, xml, logo)
 
 
@@ -1029,7 +1029,7 @@ async def send_invoice(invoice_id: str, body: SendRequest, current: CurrentUser,
 
     subject, text = mailer.invoice_email(
         seller_name=_seller_name(inv),
-        number=inv.number,
+        number=inv.number or "",
         buyer_name=inv.buyer_name,
         total=inv.total,
         currency=inv.currency,
@@ -1303,9 +1303,11 @@ async def add_issued_attachment(
     await _load(db, current.org_id, invoice_id)
     data = await file.read()
     if not data:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Empty file.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Empty file.")
     if len(data) > _ATTACH_MAX:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Attachment too large (25 MB).")
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Attachment too large (25 MB)."
+        )
     # Security gate (filesec choke point): block executables / archives / scripts
     # + malware-scan BEFORE storing — attacker-supplied bytes. Inert docs allowed.
     try:

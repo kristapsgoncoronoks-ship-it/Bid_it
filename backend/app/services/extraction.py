@@ -7,9 +7,10 @@ invoice when the reviewed draft is saved. Tenant-scoped by the caller's `org_id`
 from __future__ import annotations
 
 import hashlib
+from typing import cast
 
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import select, update
+from sqlalchemy import CursorResult, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.extraction_field import ExtractionField
@@ -104,7 +105,7 @@ async def link_to_invoice(db: AsyncSession, org_id: str, run_id: str, invoice_id
         )
         .values(invoice_id=invoice_id, status="saved")
     )
-    return result.rowcount > 0
+    return cast(CursorResult, result).rowcount > 0
 
 
 async def list_for_invoice(db: AsyncSession, org_id: str, invoice_id: str) -> list[ExtractionRun]:

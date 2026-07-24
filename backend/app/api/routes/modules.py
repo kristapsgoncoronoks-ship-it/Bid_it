@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentOrg, CurrentUser, DbSession
 from app.core import authz
-from app.models.organization import Organization
 from app.schemas.module import ModuleOut, ModuleToggle
 from app.services import audit, issuer, modules, plans
 
@@ -38,7 +37,9 @@ async def list_modules(current: CurrentUser, db: DbSession):
 
 
 @router.put("/{key}", response_model=ModuleOut)
-async def toggle_module(key: str, body: ModuleToggle, current: CurrentUser, db: DbSession):
+async def toggle_module(
+    key: str, body: ModuleToggle, current: CurrentUser, db: DbSession, org: CurrentOrg
+):
     authz.require(current, authz.Permission.SETTINGS_MANAGE)
     m = modules.MODULES_BY_KEY.get(key)
     if m is None:
@@ -48,7 +49,6 @@ async def toggle_module(key: str, body: ModuleToggle, current: CurrentUser, db: 
 
     # Add-on modules are gated by the subscription plan.
     if body.enabled:
-        org = await db.get(Organization, current.org_id)
         if not plans.allows_module(org.plan, key):
             raise HTTPException(
                 status.HTTP_402_PAYMENT_REQUIRED,

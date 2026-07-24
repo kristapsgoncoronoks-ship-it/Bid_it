@@ -50,9 +50,7 @@ async def list_issuers(db: AsyncSession, org_id: str) -> list[IssuerProfile]:
 
 async def get_by_id(db: AsyncSession, org_id: str, issuer_id: str) -> IssuerProfile | None:
     return await db.scalar(
-        select(IssuerProfile).where(
-            IssuerProfile.id == issuer_id, IssuerProfile.org_id == org_id
-        )
+        select(IssuerProfile).where(IssuerProfile.id == issuer_id, IssuerProfile.org_id == org_id)
     )
 
 

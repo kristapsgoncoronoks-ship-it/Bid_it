@@ -75,12 +75,14 @@ MODULES_BY_KEY = {m.key: m for m in MODULES}
 
 
 async def enabled_keys(db: AsyncSession, org_id: str) -> set[str]:
-    rows = dict(
+    rows: dict[str, bool] = dict(
         (
             await db.execute(
                 select(OrgModule.key, OrgModule.enabled).where(OrgModule.org_id == org_id)
             )
-        ).all()
+        )
+        .tuples()
+        .all()
     )
     out: set[str] = set()
     for m in MODULES:

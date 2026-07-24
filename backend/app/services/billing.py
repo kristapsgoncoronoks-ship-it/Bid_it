@@ -238,7 +238,7 @@ async def charge_renewal(db: AsyncSession, org_id: str, *, today: date | None = 
             org.everypay_next_charge = _add_months(org.everypay_next_charge or today, 1)
             if org.status != "active":
                 org.status = "active"
-            result = {"charged": True, "amount_eur": plan.price_eur}
+            result: dict[str, object] = {"charged": True, "amount_eur": plan.price_eur}
         else:
             org.status = "suspended"
             result = {"charged": False, "reason": status.state}

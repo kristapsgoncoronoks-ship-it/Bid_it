@@ -298,6 +298,8 @@ async def _match_or_provision(
 ) -> tuple[User, Organization]:
     existing = await db.scalar(select(User).where(func.lower(User.email) == email))
     org = await db.get(Organization, connection.org_id)
+    if org is None:
+        raise SsoError("organization not found")
     if existing is not None:
         if existing.org_id != connection.org_id:
             raise SsoError("this email belongs to a different workspace")

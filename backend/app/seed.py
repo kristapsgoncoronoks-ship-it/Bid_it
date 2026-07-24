@@ -154,7 +154,7 @@ async def seed() -> None:
                     tax_total += tax
                     items.append(
                         LineItem(
-                            description=f"{vendor.category.title()} service",
+                            description=f"{(vendor.category or '').title()} service",
                             category=rng.choice(CATEGORIES)
                             if rng.random() < 0.3
                             else vendor.category,
@@ -204,8 +204,8 @@ async def seed() -> None:
             ("Lufthansa", "CHF", Decimal("5400.00"), date(2026, 5, 2)),
         ]
         for vname, ccy, amount, issue in foreign:
-            vendor = vendor_by_name.get(vname)
-            if vendor is None:
+            fx_vendor = vendor_by_name.get(vname)
+            if fx_vendor is None:
                 continue
             resolved = await fx.resolve_rate(db, ccy, issue)
             if resolved is None:
@@ -220,7 +220,7 @@ async def seed() -> None:
             db.add(
                 Invoice(
                     org_id=org.id,
-                    vendor_id=vendor.id,
+                    vendor_id=fx_vendor.id,
                     invoice_number=f"INV-{2026}-{count:04d}",
                     issue_date=issue,
                     due_date=issue + timedelta(days=30),
@@ -234,8 +234,8 @@ async def seed() -> None:
                     fx_source="stated",
                     line_items=[
                         LineItem(
-                            description=f"{vendor.category.title()} service ({ccy})",
-                            category=vendor.category,
+                            description=f"{(fx_vendor.category or '').title()} service ({ccy})",
+                            category=fx_vendor.category,
                             quantity=Decimal("1"),
                             unit_price=amount,
                             amount=amount,

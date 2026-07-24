@@ -36,7 +36,7 @@ _TRANSITIONS: dict[str, tuple[frozenset[str], str]] = {
 def target_for(action: str, current: str) -> str:
     spec = _TRANSITIONS.get(action)
     if spec is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Unknown action '{action}'")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Unknown action '{action}'")
     sources, target = spec
     if current not in sources:
         raise HTTPException(

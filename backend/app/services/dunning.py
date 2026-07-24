@@ -80,7 +80,7 @@ async def send_reminder(
     days = issued_status.days_overdue_of(inv, today)
     subject, text = mailer.reminder_email(
         seller_name=_seller_name(inv),
-        number=inv.number,
+        number=inv.number or "",
         buyer_name=inv.buyer_name,
         currency=inv.currency,
         outstanding=issued_status.outstanding_of(inv),

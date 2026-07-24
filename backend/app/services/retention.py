@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
+from typing import Any
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,7 +42,7 @@ log = logging.getLogger("invoiceiq.retention")
 class Category:
     key: str
     label: str
-    model: type
+    model: Any
     # (child_model, foreign-key column) pairs deleted before the parent.
     children: tuple = ()
 

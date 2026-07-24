@@ -87,6 +87,22 @@ async def get_current_user(
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
+async def get_current_org(current: CurrentUser, db: DbSession) -> Organization:
+    """The caller's active organization, guaranteed non-None. `current.org_id` is
+    a live FK for any valid session, so a missing row means the account is in an
+    inconsistent state → hard 401."""
+    org = await db.get(Organization, current.org_id)
+    if org is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Organization not found",
+        )
+    return org
+
+
+CurrentOrg = Annotated[Organization, Depends(get_current_org)]
+
+
 async def get_current_user_unscoped(
     db: DbSession,
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],

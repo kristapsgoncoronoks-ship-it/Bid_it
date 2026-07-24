@@ -325,7 +325,7 @@ async def edit_lines(invoice_id: str, body: LinesUpdate, current: CurrentUser, d
     for li in body.lines:
         if li.tax_rate < 0 or li.tax_rate > 100:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 f"Line '{li.description}': tax rate must be between 0 and 100.",
             )
     subtotal = Decimal("0")
@@ -380,11 +380,11 @@ async def submit(invoice_id: str, body: SubmitIn, current: CurrentUser, db: DbSe
     wf.assert_version(inv.version, body.version)
     wf.assert_transition(inv.workflow_state, WorkflowState.submitted)
     if not inv.line_items:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Add at least one line first.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Add at least one line first.")
     recon = _reconcile(inv)
     if not recon.balanced:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Invoice does not reconcile: " + "; ".join(recon.findings),
         )
     # Fresh chain (a resubmission after return/correction supersedes the old one).
@@ -439,7 +439,7 @@ async def _current_step(db: DbSession, org_id: str, inv: Invoice) -> ApprovalSte
     step = ap.pending_step(steps)
     if step is None:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "No pending approval step for this invoice."
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "No pending approval step for this invoice."
         )
     return step
 
@@ -468,7 +468,7 @@ async def approve(invoice_id: str, body: DecisionIn, current: CurrentUser, db: D
     wf.assert_version(inv.version, body.version)
     if inv.workflow_state not in (WorkflowState.submitted, WorkflowState.partially_approved):
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "Invoice is not awaiting approval."
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Invoice is not awaiting approval."
         )
     step = await _current_step(db, current.org_id, inv)
     _guard_decider(inv, current, step)
@@ -533,7 +533,7 @@ async def reject(invoice_id: str, body: DecisionIn, current: CurrentUser, db: Db
     wf.assert_version(inv.version, body.version)
     if inv.workflow_state not in (WorkflowState.submitted, WorkflowState.partially_approved):
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "Invoice is not awaiting approval."
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Invoice is not awaiting approval."
         )
     step = await _current_step(db, current.org_id, inv)
     _guard_decider(inv, current, step)
@@ -584,7 +584,7 @@ async def return_for_correction(
     wf.assert_version(inv.version, body.version)
     if inv.workflow_state not in (WorkflowState.submitted, WorkflowState.partially_approved):
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "Invoice is not awaiting approval."
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Invoice is not awaiting approval."
         )
     step = await _current_step(db, current.org_id, inv)
     _guard_decider(inv, current, step)
@@ -634,7 +634,7 @@ async def reassign(invoice_id: str, body: ReassignIn, current: CurrentUser, db: 
     else:
         target = ap.pending_step(steps)
     if target is None or target.status != "pending":
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "No pending step to reassign.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "No pending step to reassign.")
     target.approver_id = body.approver_id
     target.approver_email = await _email_for(db, body.approver_id)
     _bump(inv)
@@ -790,7 +790,7 @@ async def add_comment(invoice_id: str, body: CommentIn, current: CurrentUser, db
     await _load(db, current.org_id, invoice_id)
     text = (body.body or "").strip()
     if not text:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Comment cannot be empty.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Comment cannot be empty.")
     c = await _add_comment(db, current, invoice_id, text)
     await audit.record(
         db, audit.A.INVOICE_COMMENT, target_type="invoice", target_id=invoice_id, meta={}
@@ -830,7 +830,7 @@ async def add_attachment(
     await _load(db, current.org_id, invoice_id)
     data = await file.read()
     if not data:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Empty file.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Empty file.")
     if len(data) > _ATTACH_MAX:
         raise HTTPException(
             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Attachment too large (25 MB)."

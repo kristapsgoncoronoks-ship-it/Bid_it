@@ -82,7 +82,9 @@ async def test_malicious_attachment_filename_is_sanitised_on_download(auth_clien
             "/api/v1/issued",
             json={
                 "buyer_name": "Globex",
-                "lines": [{"description": "x", "quantity": "1", "unit_price": "10", "vat_rate": "0"}],
+                "lines": [
+                    {"description": "x", "quantity": "1", "unit_price": "10", "vat_rate": "0"}
+                ],
             },
         )
     ).json()

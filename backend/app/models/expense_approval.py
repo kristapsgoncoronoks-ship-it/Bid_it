@@ -13,6 +13,7 @@ Tenant isolation is via the denormalised `org_id` + the ORM guard + Postgres RLS
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
@@ -55,7 +56,7 @@ class ExpenseApprovalPolicy(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Lower runs first; the first fully-matching active policy wins.
     priority: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     # Match criterion (null = wildcard): the report's EUR total must be >= this.
-    min_amount: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    min_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     # Ordered chain: a JSON array of user-ids, each an approval step in order.
     approver_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Append a finance sign-off step at the end of the chain.

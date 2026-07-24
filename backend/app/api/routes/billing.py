@@ -6,7 +6,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentOrg, CurrentUser, DbSession
 from app.core import authz
 from app.core.config import settings
 from app.models.billing_payment import BillingPayment
@@ -40,8 +40,7 @@ def _plan_out(p) -> PlanOut:
 
 
 @router.get("", response_model=BillingOut)
-async def get_billing(current: CurrentUser, db: DbSession):
-    org = await db.get(Organization, current.org_id)
+async def get_billing(current: CurrentUser, db: DbSession, org: CurrentOrg):
     plan = plans.plan_for(org.plan)
     return BillingOut(
         plan=_plan_out(plan),
@@ -56,12 +55,11 @@ async def get_billing(current: CurrentUser, db: DbSession):
 
 
 @router.put("/plan", response_model=BillingOut)
-async def change_plan(body: PlanChange, current: CurrentUser, db: DbSession):
+async def change_plan(body: PlanChange, current: CurrentUser, db: DbSession, org: CurrentOrg):
     authz.require(current, authz.Permission.BILLING_MANAGE)
     if body.plan not in plans.PLANS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown plan")
 
-    org = await db.get(Organization, current.org_id)
     target = plans.plan_for(body.plan)
 
     # When Stripe is live, a PAID plan change must go through Checkout/Portal so
@@ -89,7 +87,7 @@ async def change_plan(body: PlanChange, current: CurrentUser, db: DbSession):
 
     org.plan = body.plan
     await db.commit()
-    return await get_billing(current, db)
+    return await get_billing(current, db, org)
 
 
 async def _ensure_customer(db, org: Organization, current) -> str:
@@ -104,7 +102,7 @@ async def _ensure_customer(db, org: Organization, current) -> str:
 
 
 @router.post("/checkout", response_model=CheckoutOut)
-async def start_checkout(body: CheckoutStart, current: CurrentUser, db: DbSession):
+async def start_checkout(body: CheckoutStart, current: CurrentUser, db: DbSession, org: CurrentOrg):
     """Start a hosted payment for a paid plan → returns a redirect URL.
 
     Provider-agnostic: Stripe starts a subscription Checkout; EveryPay starts a
@@ -123,7 +121,6 @@ async def start_checkout(body: CheckoutStart, current: CurrentUser, db: DbSessio
         )
 
     provider = get_billing_provider()
-    org = await db.get(Organization, current.org_id)
     order_reference = f"iiq-{org.id[:8]}-{body.plan}-{uuid.uuid4().hex[:10]}"
     try:
         # Subscription providers (Stripe) need a customer; redirect ones don't.
@@ -158,7 +155,7 @@ async def start_checkout(body: CheckoutStart, current: CurrentUser, db: DbSessio
 
 
 @router.post("/portal", response_model=PortalOut)
-async def open_portal(current: CurrentUser, db: DbSession):
+async def open_portal(current: CurrentUser, db: DbSession, org: CurrentOrg):
     """Open the Stripe Customer Portal (manage payment method / cancel / invoices).
 
     Subscription providers only — EveryPay has no hosted portal."""
@@ -169,7 +166,6 @@ async def open_portal(current: CurrentUser, db: DbSession):
             status.HTTP_400_BAD_REQUEST, "This payment method has no customer portal"
         )
 
-    org = await db.get(Organization, current.org_id)
     if not org.stripe_customer_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No billing account yet — subscribe first")
     try:
@@ -236,7 +232,8 @@ async def everypay_callback(request: Request, db: DbSession):
     if not reference:
         try:
             form = await request.form()
-            reference = form.get("payment_reference")
+            value = form.get("payment_reference")
+            reference = value if isinstance(value, str) else None
         except Exception:  # noqa: BLE001 - no/blank form body
             reference = None
     applied = await _confirm_everypay(db, reference)

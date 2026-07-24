@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
 
@@ -84,7 +85,7 @@ async def upsert(
     active: bool = True,
     max_item_amount: Decimal | None = None,
     receipt_required_over: Decimal | None = None,
-    category_caps: dict[str, str | Decimal] | None = None,
+    category_caps: Mapping[str, str | Decimal] | None = None,
     allowed_categories: list[str] | None = None,
     allowed_currencies: list[str] | None = None,
     warn_weekend: bool = False,

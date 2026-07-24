@@ -9,9 +9,12 @@ conformance is a hardening step), but a functional embedded-XML hybrid.
 from __future__ import annotations
 
 import io
+import logging
 from decimal import Decimal
 
 from app.services.vat import SCHEME_NOTES, VatResult
+
+log = logging.getLogger("invoiceiq.invoice_pdf")
 
 _BRAND = "#2f57d4"
 _INK = "#1e293b"
@@ -146,7 +149,7 @@ def build_pdf(
             )
             left_cells.append(Spacer(1, 4))
         except Exception:
-            pass
+            log.warning("invoice logo render failed, omitting", exc_info=True)
     left_cells.append(Paragraph(seller_lines, body))
     left = Table([[c] for c in left_cells], colWidths=[95 * mm])
     left.setStyle(

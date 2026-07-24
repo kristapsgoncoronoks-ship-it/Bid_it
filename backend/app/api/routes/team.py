@@ -3,9 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentOrg, CurrentUser, DbSession
 from app.core import authz
-from app.models.organization import Organization
 from app.models.user import User, UserRole
 from app.schemas.tenancy import (
     InviteCreate,
@@ -109,9 +108,8 @@ async def list_invites(current: CurrentUser, db: DbSession):
 
 
 @router.post("/invites", response_model=InviteOut, status_code=status.HTTP_201_CREATED)
-async def create_invite(body: InviteCreate, current: CurrentUser, db: DbSession):
+async def create_invite(body: InviteCreate, current: CurrentUser, db: DbSession, org: CurrentOrg):
     authz.require(current, authz.Permission.MEMBER_MANAGE)
-    org = await db.get(Organization, current.org_id)
 
     # Seat limit (active users + outstanding invites) vs the plan.
     outstanding = await team.open_invitation_count(db, current.org_id)

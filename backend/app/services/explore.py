@@ -20,6 +20,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import ColumnElement, Integer, String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,7 +34,7 @@ from app.models.vendor import Vendor
 class Dimension:
     key: str
     label: str
-    expr: Callable[[], ColumnElement]
+    expr: Callable[[], Any]
     temporal: bool = False
 
 

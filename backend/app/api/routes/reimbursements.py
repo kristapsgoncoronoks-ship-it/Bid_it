@@ -123,7 +123,7 @@ async def create_batch(body: BatchCreate, current: CurrentUser, db: DbSession):
             created_by=current.email,
         )
     except reimbursement.ReimbursementError as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e))
     await audit.record(
         db,
         audit.A.REIMBURSE_BATCH,
@@ -232,7 +232,7 @@ async def export_batch_sepa(batch_id: str, current: CurrentUser, db: DbSession):
     try:
         xml, skipped = await reimbursement.batch_sepa(db, current.org_id, b)
     except (reimbursement.ReimbursementError, sepa.SepaError) as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e))
     fname = f"reimbursement-{(b.reference or b.id)}.xml"
     return Response(
         content=xml,

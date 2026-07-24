@@ -9,8 +9,9 @@ password reset, deactivation). `touch` lazily refreshes last-seen for the
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
-from sqlalchemy import select, update
+from sqlalchemy import CursorResult, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -92,7 +93,7 @@ async def revoke_all(db: AsyncSession, user_id: str, *, except_jti: str | None =
         stmt = stmt.where(Session.id != except_jti)
     result = await db.execute(stmt)
     await db.commit()
-    return result.rowcount or 0
+    return cast(CursorResult, result).rowcount or 0
 
 
 async def list_active(db: AsyncSession, user_id: str) -> list[Session]:

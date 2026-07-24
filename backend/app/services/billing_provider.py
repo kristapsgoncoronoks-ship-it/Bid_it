@@ -237,7 +237,11 @@ def reduce_stripe_event(event: dict) -> SubscriptionEvent:
 
     if etype.startswith("customer.subscription."):
         subscription_id = obj.get("id")
-        status = "canceled" if etype.endswith(".deleted") else _STRIPE_STATUS.get(obj.get("status"))
+        status = (
+            "canceled"
+            if etype.endswith(".deleted")
+            else _STRIPE_STATUS.get(obj.get("status") or "")
+        )
         meta = obj.get("metadata") or {}
         plan_key = meta.get("plan_key") or _plan_from_subscription_items(obj)
     elif etype == "checkout.session.completed":
@@ -393,7 +397,7 @@ class EveryPayProvider:
 
 def _everypay_status(data: dict) -> PaymentStatus:
     """Map an EveryPay payment object to our PaymentStatus (pure)."""
-    state = _EVERYPAY_STATE.get(data.get("payment_state"), "pending")
+    state = _EVERYPAY_STATE.get(data.get("payment_state") or "", "pending")
     # The stored token is returned on the tokenised payment; field name varies by
     # account config — accept the common shapes.
     token = data.get("token") or (data.get("cc_details") or {}).get("token")

@@ -121,7 +121,7 @@ async def create_run(body: RunCreate, current: CurrentUser, db: DbSession):
             created_by=current.email,
         )
     except payment_run.PaymentRunError as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e))
     await audit.record(
         db,
         audit.A.AP_RUN_CREATE,
@@ -211,7 +211,7 @@ async def export_sepa(run_id: str, current: CurrentUser, db: DbSession):
     try:
         xml, _skipped = await sepa.payment_run_sepa(db, current.org_id, run)
     except sepa.SepaError as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e))
     fname = f"payment-run-{(run.reference or run.id)}.xml"
     return Response(
         content=xml,

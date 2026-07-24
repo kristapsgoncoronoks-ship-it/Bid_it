@@ -20,7 +20,9 @@ import signal
 import socket
 from datetime import date
 
+from app.core.config import settings
 from app.core.database import SessionLocal
+from app.core.observability import configure_logging
 from app.services import (
     job_handlers,  # noqa: F401 — registers the handlers
     jobs,
@@ -137,9 +139,7 @@ def main() -> None:
     if kinds and exclude:
         parser.error("pass --kinds OR --exclude, not both")
 
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
+    configure_logging(settings.structured_logs)
     asyncio.run(run_forever(args.poll, kinds=kinds, exclude=exclude))
 
 

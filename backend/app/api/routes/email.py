@@ -68,7 +68,7 @@ async def inbound(
                 content = base64.b64decode(att.content_base64, validate=True)
             except (binascii.Error, ValueError):
                 raise HTTPException(
-                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
                     f"Attachment {att.filename} is not valid base64",
                 )
             row = await email_intake.process_attachment(
@@ -208,7 +208,7 @@ async def confirm_inbound(
     if draft is None:
         if not row.draft_json:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "This attachment has no parsed draft to confirm",
             )
         draft = ParsedInvoiceDraft.model_validate_json(row.draft_json).draft

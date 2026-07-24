@@ -23,7 +23,7 @@ async def overview(
     try:
         year, mon = budget.parse_month(month)
     except ValueError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
     return await budget.overview(db, current.org_id, year, mon)
 
 
