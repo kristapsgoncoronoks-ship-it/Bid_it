@@ -24,7 +24,7 @@ pdfplumber==0.11.4
 pypdf==5.1.0
 pypdfium2==4.30.0
 pytesseract==0.3.13
-pillow==11.0.0
+pillow==12.3.0
 reportlab==4.2.5
 # Structured e-invoice XML (UBL 2.1 / UN-CEFACT CII, incl. Factur-X/ZUGFeRD).
 # defusedxml hardens parsing of attacker-supplied XML (XXE / billion-laughs).
