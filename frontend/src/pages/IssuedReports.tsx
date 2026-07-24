@@ -218,9 +218,9 @@ function ReceivablesTab({ params }: { params: Record<string, string> }) {
           {d.aging.map((a) => (
             <div key={a.label} className="flex items-center gap-3 text-sm">
               <span className="w-16 shrink-0 text-slate-500">{a.label}</span>
-              <div className="h-4 flex-1 rounded bg-slate-100">
+              <div className="h-4 flex-1 rounded-sm bg-slate-100">
                 <div
-                  className="h-4 rounded bg-brand-400"
+                  className="h-4 rounded-sm bg-brand-400"
                   style={{ width: `${(Number(a.outstanding) / maxAging) * 100}%` }}
                 />
               </div>

@@ -375,7 +375,7 @@ function AddItem({ onAdd, pending }: { onAdd: (b: ExpenseItemInput) => void; pen
         )}
         <div className="ml-auto flex rounded-lg border border-slate-200 p-0.5 text-xs">
           {(["standard", "mileage", "per_diem"] as ExpenseType[]).map((t) => (
-            <button key={t} className={`rounded px-2 py-1 ${type === t ? "bg-brand-50 text-brand-700" : "text-slate-500"}`} onClick={() => setType(t)}>
+            <button key={t} className={`rounded-sm px-2 py-1 ${type === t ? "bg-brand-50 text-brand-700" : "text-slate-500"}`} onClick={() => setType(t)}>
               {t === "standard" ? "Standard" : t === "mileage" ? "Mileage" : "Per diem"}
             </button>
           ))}
@@ -438,7 +438,7 @@ function BankMatch({ reportId, item, onMatch }:
       {candidates.isLoading && <span className="text-xs text-slate-400">Searching…</span>}
       {candidates.data?.length === 0 && <span className="text-xs text-amber-600">No matching statement line.</span>}
       {candidates.data?.map((t) => (
-        <button key={t.id} className="block w-full rounded border border-slate-200 px-2 py-1 text-left text-xs hover:bg-slate-50" onClick={() => onMatch(t.id)}>
+        <button key={t.id} className="block w-full rounded-sm border border-slate-200 px-2 py-1 text-left text-xs hover:bg-slate-50" onClick={() => onMatch(t.id)}>
           {shortDate(t.txn_date)} · {t.merchant || t.description} · {money(t.amount, t.currency)}
         </button>
       ))}

@@ -36,7 +36,7 @@ export function Timeline({ events, className = "" }: { events: TimelineEvent[]; 
       {events.map((e) => (
         <li key={e.id} className="relative py-3 pl-6">
           <span
-            className={`absolute -left-[5px] top-4 h-2.5 w-2.5 rounded-full ring-4 ring-white ${DOT[e.tone ?? "neutral"]}`}
+            className={`absolute left-[-5px] top-4 h-2.5 w-2.5 rounded-full ring-4 ring-white ${DOT[e.tone ?? "neutral"]}`}
             aria-hidden="true"
           />
           <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">

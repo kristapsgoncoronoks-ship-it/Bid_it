@@ -25,7 +25,7 @@ export function Pagination({ page, total, pageSize, onPageChange, className = ""
 
   const btn =
     "inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 " +
-    "hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 " +
+    "hover:bg-slate-50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300 " +
     "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white";
 
   return (

@@ -50,14 +50,14 @@ export function SearchInput({
         onKeyDown={(e) => {
           if (e.key === "Enter" && onSubmit) onSubmit(value);
         }}
-        className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-9 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+        className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-9 text-sm outline-hidden focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
       />
       {value && (
         <button
           type="button"
           onClick={() => onChange("")}
           aria-label="Clear search"
-          className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:text-brand-600"
+          className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 focus-visible:outline-hidden focus-visible:text-brand-600"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />

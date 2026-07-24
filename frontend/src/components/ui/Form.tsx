@@ -22,7 +22,7 @@ export interface FormFieldProps {
 }
 
 const INPUT_BASE =
-  "w-full rounded-lg border px-3 py-2 text-sm outline-none transition " +
+  "w-full rounded-lg border px-3 py-2 text-sm outline-hidden transition " +
   "focus:ring-2 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400";
 
 /** Border + ring that flips to a rose scheme when invalid. Shared by all inputs. */
@@ -123,7 +123,7 @@ export function Textarea({
 }: BaseFieldProps & Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "id">) {
   return (
     <FormField label={label} hint={hint} error={error} required={required} className={className}>
-      {(f) => <textarea {...f} {...ta} className={inputClass(!!error, "min-h-[5rem]")} />}
+      {(f) => <textarea {...f} {...ta} className={inputClass(!!error, "min-h-20")} />}
     </FormField>
   );
 }

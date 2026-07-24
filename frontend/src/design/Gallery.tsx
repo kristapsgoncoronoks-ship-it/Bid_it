@@ -19,7 +19,7 @@ function Section({ id, title, children, note }: { id: string; title: string; not
         </h2>
         {note && <p className="mt-0.5 text-sm text-slate-500">{note}</p>}
       </div>
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">{children}</div>
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">{children}</div>
     </section>
   );
 }
@@ -95,7 +95,7 @@ export default function Gallery() {
             <ul className="space-y-1 text-sm">
               {SECTIONS.map((s) => (
                 <li key={s.id}>
-                  <a href={`#${s.id}`} className="block rounded px-2 py-1 text-slate-600 hover:bg-white hover:text-brand-700">
+                  <a href={`#${s.id}`} className="block rounded-sm px-2 py-1 text-slate-600 hover:bg-white hover:text-brand-700">
                     {s.title}
                   </a>
                 </li>

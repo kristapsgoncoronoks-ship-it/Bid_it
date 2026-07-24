@@ -21,7 +21,7 @@ export function FilterBar({
       role="search"
       aria-label={label}
       className={cx(
-        "flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm",
+        "flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-xs",
         className,
       )}
     >
@@ -54,7 +54,7 @@ export function FilterSelect({ label, value, onChange, options, hideLabel }: Fil
         id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-hidden focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>
@@ -78,7 +78,7 @@ export function FilterChip({ label, onRemove }: { label: ReactNode; onRemove: ()
         type="button"
         onClick={onRemove}
         aria-label={`Remove filter`}
-        className="grid h-4 w-4 place-items-center rounded-full text-brand-500 hover:bg-brand-100 hover:text-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
+        className="grid h-4 w-4 place-items-center rounded-full text-brand-500 hover:bg-brand-100 hover:text-brand-700 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300"
       >
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />

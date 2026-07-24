@@ -12,7 +12,7 @@ export function Card({ title, actions, padded = true, className = "", children }
   children: ReactNode;
 }) {
   return (
-    <section className={`rounded-xl border border-slate-200 bg-white shadow-sm ${className}`}>
+    <section className={`rounded-xl border border-slate-200 bg-white shadow-xs ${className}`}>
       {(title || actions) && (
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
           {title && <h2 className="text-sm font-semibold text-slate-600">{title}</h2>}
@@ -38,7 +38,7 @@ export function StatCard({ label, value, sub, accent = "slate" }: {
   accent?: keyof typeof ACCENTS;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
       <div className="text-sm font-medium text-slate-500">{label}</div>
       <div className={`mt-1 text-2xl font-semibold tracking-tight tabular-nums ${ACCENTS[accent]}`}>{value}</div>
       {sub && <div className="mt-1 text-xs text-slate-400">{sub}</div>}

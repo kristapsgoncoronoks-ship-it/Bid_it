@@ -67,10 +67,10 @@ export default function Upload() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Upload an invoice</h1>
         <p className="text-sm text-slate-500">
-          Drop a <code className="rounded bg-slate-100 px-1">.pdf</code>,{" "}
-          <code className="rounded bg-slate-100 px-1">.xml</code>,{" "}
-          <code className="rounded bg-slate-100 px-1">.csv</code>, or{" "}
-          <code className="rounded bg-slate-100 px-1">.json</code> file. We parse it into a draft you confirm.
+          Drop a <code className="rounded-sm bg-slate-100 px-1">.pdf</code>,{" "}
+          <code className="rounded-sm bg-slate-100 px-1">.xml</code>,{" "}
+          <code className="rounded-sm bg-slate-100 px-1">.csv</code>, or{" "}
+          <code className="rounded-sm bg-slate-100 px-1">.json</code> file. We parse it into a draft you confirm.
           <span className="text-slate-400"> E-invoice XML (UBL/Factur-X) is read exactly; scanned PDFs use OCR.</span>
         </p>
       </div>

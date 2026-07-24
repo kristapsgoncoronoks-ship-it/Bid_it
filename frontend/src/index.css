@@ -1,56 +1,127 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
 
-:root {
-  color-scheme: light;
+@theme {
+  --color-brand-50: #eef4ff;
+  --color-brand-100: #d9e6ff;
+  --color-brand-500: #3b6ef2;
+  --color-brand-600: #2f57d4;
+  --color-brand-700: #2545ab;
 }
 
-body {
-  @apply bg-slate-50 text-slate-800 antialiased;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
 }
 
-/* Overlay + entrance animations for the design-system primitives (Modal, Drawer,
+@utility card {
+  @apply rounded-xl border border-slate-200 bg-white p-5 shadow-xs;
+}
+
+@utility btn {
+  @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition disabled:opacity-50;
+}
+
+@utility btn-primary {
+  @apply btn bg-brand-500 text-white hover:bg-brand-600;
+}
+
+@utility btn-ghost {
+  @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
+}
+
+@utility input {
+  @apply w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-hidden focus:border-brand-500 focus:ring-2 focus:ring-brand-100;
+}
+
+@utility label {
+  @apply mb-1 block text-sm font-medium text-slate-600;
+}
+
+@utility badge {
+  @apply inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium;
+}
+
+@layer utilities {
+  :root {
+    color-scheme: light;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-800 antialiased;
+    font-family:
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      'Segoe UI',
+      Roboto,
+      sans-serif;
+  }
+
+  /* Overlay + entrance animations for the design-system primitives (Modal, Drawer,
    Toast, menus). Real keyframes so they work as static utility classes (Tailwind's
    JIT can't see class names built at runtime). All gated behind
    prefers-reduced-motion so motion-sensitive users get an instant, non-animated
    appearance. */
-@keyframes iqFadeIn { from { opacity: 0; } to { opacity: 1; } }
-@keyframes iqPopIn {
-  from { opacity: 0; transform: translateY(4px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-@keyframes iqSlideRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
-@keyframes iqSlideLeft { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+  @keyframes iqFadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes iqPopIn {
+    from {
+      opacity: 0;
+      transform: translateY(4px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  @keyframes iqSlideRight {
+    from {
+      transform: translateX(100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+  @keyframes iqSlideLeft {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
 
-@media (prefers-reduced-motion: no-preference) {
-  .iq-fade-in { animation: iqFadeIn 120ms ease-out; }
-  .iq-pop-in { animation: iqPopIn 140ms cubic-bezier(0.16, 1, 0.3, 1); }
-  .iq-slide-right { animation: iqSlideRight 180ms cubic-bezier(0.16, 1, 0.3, 1); }
-  .iq-slide-left { animation: iqSlideLeft 180ms cubic-bezier(0.16, 1, 0.3, 1); }
-}
-
-@layer components {
-  .card {
-    @apply rounded-xl border border-slate-200 bg-white p-5 shadow-sm;
-  }
-  .btn {
-    @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition disabled:opacity-50;
-  }
-  .btn-primary {
-    @apply btn bg-brand-500 text-white hover:bg-brand-600;
-  }
-  .btn-ghost {
-    @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
-  }
-  .input {
-    @apply w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100;
-  }
-  .label {
-    @apply mb-1 block text-sm font-medium text-slate-600;
-  }
-  .badge {
-    @apply inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium;
+  @media (prefers-reduced-motion: no-preference) {
+    .iq-fade-in {
+      animation: iqFadeIn 120ms ease-out;
+    }
+    .iq-pop-in {
+      animation: iqPopIn 140ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .iq-slide-right {
+      animation: iqSlideRight 180ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .iq-slide-left {
+      animation: iqSlideLeft 180ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
   }
 }
