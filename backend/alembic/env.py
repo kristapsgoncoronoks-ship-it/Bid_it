@@ -1,13 +1,14 @@
 """Alembic environment — async-aware, wired to app models + settings."""
+
 from __future__ import annotations
 
 import asyncio
 from logging.config import fileConfig
 
-from alembic import context
-from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy import pool
+from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from alembic import context
 from app.core.config import settings
 from app.models import Base
 

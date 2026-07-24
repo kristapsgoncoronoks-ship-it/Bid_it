@@ -27,7 +27,7 @@ def _check_url(url: str) -> None:
     try:
         webhooks.assert_public_url(url)
     except webhooks.UnsafeWebhookUrl as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
 
 
 @router.get("/events")

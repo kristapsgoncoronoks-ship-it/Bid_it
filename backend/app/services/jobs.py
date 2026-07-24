@@ -23,8 +23,9 @@ import json
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import CursorResult, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -111,11 +112,13 @@ async def enqueue(
     except IntegrityError:
         # A concurrent enqueue won the unique (org, kind, key) race — return theirs.
         await db.rollback()
-        return await db.scalar(
+        winner = await db.scalar(
             select(Job).where(
                 Job.org_id == org_id, Job.kind == kind, Job.idempotency_key == idempotency_key
             )
         )
+        assert winner is not None  # the unique conflict guarantees a live row exists
+        return winner
     return job
 
 
@@ -164,7 +167,7 @@ async def claim(
                 updated_at=now,
             )
         )
-        if result.rowcount == 1:
+        if cast(CursorResult, result).rowcount == 1:
             await db.commit()
             return await db.get(Job, candidate)
         await db.rollback()  # lost the race — try the next candidate
@@ -230,6 +233,7 @@ async def run_once(
         # touching attempts/status (accessing an expired attr would do sync IO).
         await db.rollback()
         job = await db.get(Job, job_id)
+        assert job is not None  # the row exists — we loaded it moments ago
         log.warning("job %s (%s) failed on attempt %s: %s", job_id, kind, job.attempts, exc)
         await _fail(db, job, f"{type(exc).__name__}: {exc}", now=now)
     finally:
@@ -247,7 +251,7 @@ async def reclaim_stale(db: AsyncSession, *, now: datetime | None = None) -> int
         .values(status=jobmodel.QUEUED, locked_at=None, locked_by=None, updated_at=now)
     )
     await db.commit()
-    return result.rowcount or 0
+    return cast(CursorResult, result).rowcount or 0
 
 
 async def retry(db: AsyncSession, job: Job, *, now: datetime | None = None) -> Job:

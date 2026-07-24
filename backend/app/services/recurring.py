@@ -198,6 +198,7 @@ async def generate_due(
             if already is None:
                 inv = await _generate_one(db, rec, profile, run_on)
                 await db.flush()  # assign number before the next iteration reads it
+                assert inv.number is not None  # the flush above assigned the series number
                 generated.append((rec.id, inv.number))
             rec.next_run_date = advance(rec.next_run_date, rec.frequency, rec.interval)
             emitted += 1

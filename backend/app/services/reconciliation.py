@@ -288,7 +288,9 @@ async def confirm_match(
         if signed < _ZERO:
             raise ReconError("a debit line cannot match a receipt (money received)")
         target = await db.scalar(
-            select(Receipt).where(Receipt.org_id == org_id, Receipt.id == target_id).with_for_update()
+            select(Receipt)
+            .where(Receipt.org_id == org_id, Receipt.id == target_id)
+            .with_for_update()
         )
         if target is None:
             raise ReconError("receipt not found")
@@ -297,11 +299,13 @@ async def confirm_match(
         if signed < _ZERO:
             raise ReconError("a debit line cannot match an issued-invoice payment (money in)")
         target = await db.scalar(
-            select(Payment).where(
+            select(Payment)
+            .where(
                 Payment.org_id == org_id,
                 Payment.id == target_id,
                 Payment.receipt_id.is_(None),
-            ).with_for_update()
+            )
+            .with_for_update()
         )
         if target is None:
             raise ReconError("issued-invoice payment not found")
@@ -310,9 +314,9 @@ async def confirm_match(
         if signed > _ZERO:
             raise ReconError("a credit line cannot match a reimbursement payout (money paid)")
         target = await db.scalar(
-            select(ReimbursementBatch).where(
-                ReimbursementBatch.org_id == org_id, ReimbursementBatch.id == target_id
-            ).with_for_update()
+            select(ReimbursementBatch)
+            .where(ReimbursementBatch.org_id == org_id, ReimbursementBatch.id == target_id)
+            .with_for_update()
         )
         if target is None:
             raise ReconError("reimbursement batch not found")
@@ -323,7 +327,9 @@ async def confirm_match(
         if signed > _ZERO:
             raise ReconError("a credit line cannot match a supplier payment run (money paid)")
         target = await db.scalar(
-            select(PaymentRun).where(PaymentRun.org_id == org_id, PaymentRun.id == target_id).with_for_update()
+            select(PaymentRun)
+            .where(PaymentRun.org_id == org_id, PaymentRun.id == target_id)
+            .with_for_update()
         )
         if target is None:
             raise ReconError("payment run not found")

@@ -10,6 +10,7 @@ from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select
 
 from app.api.deps import (
+    CurrentOrg,
     CurrentSession,
     CurrentSessionUnscoped,
     CurrentUser,
@@ -31,10 +32,12 @@ from app.schemas.auth import (
     ForgotPasswordRequest,
     LoginRequest,
     MeOut,
+    OrganizationOut,
     RegisterRequest,
     ResetPasswordRequest,
     SessionOut,
     Token,
+    UserOut,
     VerifyEmailRequest,
 )
 from app.schemas.tenancy import AcceptInvite, InvitePreview
@@ -98,7 +101,11 @@ async def register(body: RegisterRequest, request: Request, db: DbSession) -> Au
     await verification.send_verification(db, user)
     token = await sessions.start(db, user, user_agent=_ua(request), ip=_ip(request))
     await db.commit()
-    return AuthResponse(token=Token(access_token=token), user=user, organization=org)
+    return AuthResponse(
+        token=Token(access_token=token),
+        user=UserOut.model_validate(user),
+        organization=OrganizationOut.model_validate(org),
+    )
 
 
 @router.post("/login", response_model=AuthResponse)
@@ -134,6 +141,8 @@ async def login(body: LoginRequest, request: Request, db: DbSession) -> AuthResp
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Account is disabled")
 
     org = await db.get(Organization, user.org_id)
+    if org is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Organization not found")
     residency.assert_region(org)  # refuse a wrong-region login (backstop; LB routes)
     if org.status != "active" and not user.is_platform_admin:
         raise HTTPException(
@@ -156,26 +165,38 @@ async def login(body: LoginRequest, request: Request, db: DbSession) -> AuthResp
     await audit.record(db, audit.A.LOGIN, org_id=user.org_id, actor=(user.id, user.email))
     token = await sessions.start(db, user, user_agent=_ua(request), ip=_ip(request))
     await db.commit()
-    return AuthResponse(token=Token(access_token=token), user=user, organization=org)
+    return AuthResponse(
+        token=Token(access_token=token),
+        user=UserOut.model_validate(user),
+        organization=OrganizationOut.model_validate(org),
+    )
 
 
 @router.get("/me", response_model=MeOut)
-async def me(current: CurrentUser, db: DbSession) -> MeOut:
-    org = await db.get(Organization, current.org_id)
-    return MeOut(user=current, organization=org)
+async def me(current: CurrentUser, org: CurrentOrg) -> MeOut:
+    return MeOut(
+        user=UserOut.model_validate(current),
+        organization=OrganizationOut.model_validate(org),
+    )
 
 
 @router.put("/bank-details", response_model=MeOut)
-async def set_bank_details(body: BankDetailsIn, current: CurrentUser, db: DbSession) -> MeOut:
+async def set_bank_details(
+    body: BankDetailsIn, current: CurrentUser, db: DbSession, org: CurrentOrg
+) -> MeOut:
     """Set the caller's OWN payout bank details (IBAN/BIC), used when an expense
     reimbursement batch is exported as a SEPA credit transfer."""
     user = await db.get(User, current.id)
+    if user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
     user.iban = (body.iban or "").replace(" ", "").upper() or None
     user.bic = (body.bic or "").replace(" ", "").upper() or None
     await db.commit()
     await db.refresh(user)
-    org = await db.get(Organization, user.org_id)
-    return MeOut(user=user, organization=org)
+    return MeOut(
+        user=UserOut.model_validate(user),
+        organization=OrganizationOut.model_validate(org),
+    )
 
 
 @router.get("/permissions")
@@ -490,6 +511,8 @@ async def preview_invite(token: str, db: DbSession) -> InvitePreview:
         # 410 Gone lets the UI show a distinct "expired" state (vs invalid/used).
         raise HTTPException(status.HTTP_410_GONE, "This invitation has expired")
     org = await db.get(Organization, inv.org_id)
+    if org is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Organization not found")
     return InvitePreview(email=inv.email, organization_name=org.name, role=inv.role)
 
 
@@ -507,6 +530,12 @@ async def accept_invite(body: AcceptInvite, request: Request, db: DbSession) -> 
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Invitation not found or already used")
     user, org_id = result
     org = await db.get(Organization, org_id)
+    if org is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Organization not found")
     token = await sessions.start(db, user, user_agent=_ua(request), ip=_ip(request))
     await db.commit()
-    return AuthResponse(token=Token(access_token=token), user=user, organization=org)
+    return AuthResponse(
+        token=Token(access_token=token),
+        user=UserOut.model_validate(user),
+        organization=OrganizationOut.model_validate(org),
+    )

@@ -20,6 +20,7 @@ def _apply(profile, body: IssuerProfileIn) -> None:
             value = value.upper()
         setattr(profile, field, value)
 
+
 _LOGO_KINDS = frozenset({"png", "jpeg"})
 _LOGO_MIME = {"png": "image/png", "jpeg": "image/jpeg"}
 

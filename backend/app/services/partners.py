@@ -137,6 +137,8 @@ async def penalty_summary(
     for inv in rows:
         if issued_status.status_of(inv, today) != issued_status.OVERDUE:
             continue
+        if inv.number is None:  # unissued invoices carry no number — never overdue
+            continue
         pen = issued_status.penalty_of(inv, today)
         if pen <= _ZERO:
             continue

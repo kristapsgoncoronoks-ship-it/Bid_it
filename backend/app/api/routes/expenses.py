@@ -239,7 +239,7 @@ async def import_bank_statement(current: CurrentUser, db: DbSession, file: Uploa
     except bank_statement.pdf_ocr.OcrUnavailable as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"OCR unavailable: {exc}")
     except ValueError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
 
     created: list[ExpenseTransaction] = []
     for t in result.transactions:
@@ -260,8 +260,8 @@ async def import_bank_statement(current: CurrentUser, db: DbSession, file: Uploa
         db.add(txn)
         created.append(txn)
     await db.commit()
-    for t in created:
-        await db.refresh(t)
+    for saved in created:
+        await db.refresh(saved)
 
     return BankImportResult(
         method=result.method,
@@ -291,7 +291,7 @@ async def receipt_scan(current: CurrentUser, db: DbSession, file: UploadFile):
     except receipt_ocr.pdf_ocr.OcrUnavailable as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"OCR unavailable: {exc}")
     except ValueError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
     return ReceiptScanOut(
         merchant=s.merchant,
         spend_date=s.spend_date,
@@ -376,18 +376,14 @@ async def summary(current: CurrentUser, db: DbSession):
     my_submitted = (
         await db.scalar(select(func.count()).where(mine, ExpenseReport.status == "submitted")) or 0
     )
-    my_reimbursable = (
-        await db.scalar(
-            select(func.coalesce(func.sum(ExpenseReport.total), 0)).where(
-                mine, ExpenseReport.status.in_(("approved", "marked_for_reimbursement"))
-            )
+    my_reimbursable = await db.scalar(
+        select(func.coalesce(func.sum(ExpenseReport.total), 0)).where(
+            mine, ExpenseReport.status.in_(("approved", "marked_for_reimbursement"))
         )
-        or 0
-    )
-    reclaimable_vat = (
-        await db.scalar(select(func.coalesce(func.sum(ExpenseReport.vat_total), 0)).where(mine))
-        or 0
-    )
+    ) or Decimal("0")
+    reclaimable_vat = await db.scalar(
+        select(func.coalesce(func.sum(ExpenseReport.vat_total), 0)).where(mine)
+    ) or Decimal("0")
     pending = 0
     if _can_oversee(current):
         pending = (
@@ -674,7 +670,7 @@ async def submit_report(report_id: str, current: CurrentUser, db: DbSession):
     target = expense_state.target_for("submit", r.status)
     if not r.items:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "Add at least one expense before submitting"
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Add at least one expense before submitting"
         )
 
     # Compliance gate: every entry must carry a business purpose AND a receipt
@@ -685,7 +681,7 @@ async def submit_report(report_id: str, current: CurrentUser, db: DbSession):
             f"{it.description} (needs {', '.join(missing)})" for it, missing in incomplete
         )
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"Each expense must have a business purpose and an attached receipt. Missing — {detail}",
         )
 
@@ -696,7 +692,7 @@ async def submit_report(report_id: str, current: CurrentUser, db: DbSession):
     if blockers:
         detail = "; ".join(b["message"] for b in blockers)
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"Submission blocked by policy — {detail}",
         )
 
@@ -1073,7 +1069,7 @@ async def match_item(
     txn = txns[0]
     if abs(Decimal(txn.amount) - Decimal(item.amount)) > _MATCH_TOLERANCE:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"Amounts don't match: entry is {item.amount}, statement line is {txn.amount}.",
         )
     item.bank_reference = _txn_reference(txn)

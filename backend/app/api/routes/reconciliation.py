@@ -82,7 +82,7 @@ async def import_statement(current: CurrentUser, db: DbSession, file: UploadFile
     except bank_statement.pdf_ocr.OcrUnavailable as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"OCR unavailable: {exc}")
     except ValueError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
     try:
         stmt = await reconciliation.import_statement(
             db,

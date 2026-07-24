@@ -39,6 +39,7 @@ def content_disposition(
     star = quote(raw, safe="")
     return f"{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{star}"
 
+
 _STATIC_HEADERS: list[tuple[bytes, bytes]] = [
     (b"x-content-type-options", b"nosniff"),
     (b"x-frame-options", b"DENY"),

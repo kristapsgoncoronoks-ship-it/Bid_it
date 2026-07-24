@@ -69,7 +69,7 @@ async def _resolve_vendor(db: DbSession, org_id: str, body: InvoiceCreate) -> Ve
     if body.vendor_name and body.vendor_name.strip():
         return await get_or_create_vendor(db, org_id, body.vendor_name)
     raise HTTPException(
-        status.HTTP_422_UNPROCESSABLE_ENTITY, "vendor_id or vendor_name is required"
+        status.HTTP_422_UNPROCESSABLE_CONTENT, "vendor_id or vendor_name is required"
     )
 
 
@@ -179,6 +179,8 @@ async def persist_invoice(db: DbSession, org_id: str, body: InvoiceCreate) -> tu
 
     # Data validation (AI / human) — runs only for the options the org enabled.
     org = await db.get(Organization, org_id)
+    if org is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Organization not found")
     await validation.apply_validation(
         db, invoice, org.ai_validation_enabled, org.human_validation_enabled, date.today()
     )
@@ -477,7 +479,7 @@ async def record_supplier_payment(
     inv = await _load_scoped(db, current.org_id, invoice_id)
     if inv.workflow_state not in _PAYABLE:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "invoice must be scheduled for payment before it can be paid",
         )
     total = _q(Decimal(inv.total))

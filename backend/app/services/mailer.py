@@ -28,6 +28,8 @@ log = logging.getLogger("invoiceiq.mailer")
 def _smtp_send(
     from_email: str, to_email: str, subject: str, body: str, attachment: tuple[str, bytes] | None
 ) -> None:
+    if not settings.smtp_host:
+        raise RuntimeError("SMTP host not configured")
     msg = MimeEmail()
     msg["From"] = from_email
     msg["To"] = to_email

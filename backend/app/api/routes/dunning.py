@@ -53,7 +53,7 @@ async def set_policy(body: DunningPolicyIn, current: CurrentUser, db: DbSession)
     authz.require(current, authz.Permission.SETTINGS_MANAGE)
     levels = sorted(body.levels, key=lambda lv: lv.level)
     if len({lv.level for lv in levels}) != len(levels):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "duplicate level")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "duplicate level")
     # Replace the whole ladder for this org.
     await db.execute(delete(DunningPolicy).where(DunningPolicy.org_id == current.org_id))
     for lv in levels:

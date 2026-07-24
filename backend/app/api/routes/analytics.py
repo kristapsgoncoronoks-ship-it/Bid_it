@@ -173,7 +173,7 @@ async def get_explore(
     try:
         result = await explore.run(db, current.org_id, q)
     except ValueError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
 
     if format == "csv":
         return Response(
