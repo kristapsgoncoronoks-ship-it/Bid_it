@@ -37,8 +37,10 @@ def upgrade() -> None:
         b.create_index("ix_issuer_profiles_org_id", ["org_id"], unique=False)
         b.create_unique_constraint("uq_issuer_profiles_org_id_id", ["org_id", "id"])
 
-    # Every existing (singleton) issuer becomes its org's default.
-    op.execute("UPDATE issuer_profiles SET is_default = 1")
+    # Every existing (singleton) issuer becomes its org's default. Use the boolean
+    # literal `true` (not integer 1): Postgres will not implicitly cast int→boolean,
+    # and `true` is portable to SQLite (which maps it to 1).
+    op.execute("UPDATE issuer_profiles SET is_default = true")
 
     with op.batch_alter_table("issued_invoices", schema=None) as b:
         b.add_column(sa.Column("issuer_id", _G(), nullable=True))
