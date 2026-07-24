@@ -157,7 +157,7 @@ function SummaryTab({ params }: { params: Record<string, string> }) {
               <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#94a3b8" }} />
               <YAxis tickFormatter={(v) => compactMoney(v)} tick={{ fontSize: 12, fill: "#94a3b8" }} width={60} />
-              <Tooltip formatter={(v: number) => money(v, d.currency)} />
+              <Tooltip formatter={(v) => money(Number(v), d.currency)} />
               <Bar dataKey="gross" radius={[4, 4, 0, 0]} fill="#3b6ef2" />
             </BarChart>
           </ResponsiveContainer>
@@ -347,7 +347,7 @@ function VatTab({ params, schemeLabels }: { params: Record<string, string>; sche
               <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
               <XAxis dataKey="name" tick={{ fontSize: 12, fill: "#94a3b8" }} />
               <YAxis tickFormatter={(v) => compactMoney(v)} tick={{ fontSize: 12, fill: "#94a3b8" }} width={60} />
-              <Tooltip formatter={(v: number) => money(v, d.currency)} />
+              <Tooltip formatter={(v) => money(Number(v), d.currency)} />
               <Bar dataKey="value" radius={[4, 4, 0, 0]}>
                 {rateRows.map((r) => <Cell key={r.i} fill={PALETTE[r.i % PALETTE.length]} />)}
               </Bar>

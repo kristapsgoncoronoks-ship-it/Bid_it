@@ -119,7 +119,7 @@ function ChartView({ result, chart, fmt, fmtAxis, temporal }: {
           <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
           <XAxis dataKey="name" tick={{ fontSize: 12, fill: "#94a3b8" }} />
           <YAxis tickFormatter={fmtAxis} tick={{ fontSize: 12, fill: "#94a3b8" }} width={64} />
-          <Tooltip formatter={(v: number) => fmt(v)} />
+          <Tooltip formatter={(v) => fmt(Number(v))} />
           <Line type="monotone" dataKey="value" stroke="#3b6ef2" strokeWidth={2.5} dot={{ r: 2 }} />
         </LineChart>
       </ResponsiveContainer>
@@ -132,7 +132,7 @@ function ChartView({ result, chart, fmt, fmtAxis, temporal }: {
           <Pie data={data} dataKey="value" nameKey="name" innerRadius={60} outerRadius={110} paddingAngle={2}>
             {data.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
           </Pie>
-          <Tooltip formatter={(v: number) => fmt(v)} />
+          <Tooltip formatter={(v) => fmt(Number(v))} />
         </PieChart>
       </ResponsiveContainer>
     );
@@ -144,7 +144,7 @@ function ChartView({ result, chart, fmt, fmtAxis, temporal }: {
           <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
           <XAxis dataKey="name" tick={{ fontSize: 12, fill: "#94a3b8" }} />
           <YAxis tickFormatter={fmtAxis} tick={{ fontSize: 12, fill: "#94a3b8" }} width={64} />
-          <Tooltip formatter={(v: number) => fmt(v)} />
+          <Tooltip formatter={(v) => fmt(Number(v))} />
           <Bar dataKey="value" radius={[4, 4, 0, 0]}>
             {data.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
           </Bar>
@@ -159,7 +159,7 @@ function ChartView({ result, chart, fmt, fmtAxis, temporal }: {
         <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
         <XAxis dataKey="name" tick={{ fontSize: 12, fill: "#94a3b8" }} />
         <YAxis tickFormatter={fmtAxis} tick={{ fontSize: 12, fill: "#94a3b8" }} width={64} />
-        <Tooltip formatter={(v: number) => fmt(v)} />
+        <Tooltip formatter={(v) => fmt(Number(v))} />
         <Legend wrapperStyle={{ fontSize: 12 }} />
         {series.map((s, i) => (
           <Bar key={s} dataKey={s} stackId="a" fill={PALETTE[i % PALETTE.length]} />
