@@ -1,9 +1,12 @@
 name: CI
 
 on:
+  # Push CI runs only on main (post-merge) + manual dispatch; branch work is
+  # covered by the pull_request run, so a PR'd branch is no longer built twice.
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 # A newer push to the same branch/PR cancels the in-flight run.
 concurrency:
@@ -166,7 +169,7 @@ jobs:
     needs: [lint, backend, postgres, frontend, frontend-e2e, docker-build]
     if: >-
       github.event_name == 'push' &&
-      github.ref == 'refs/heads/claude/invoice-data-analytics-qmjy7q' &&
+      github.ref == 'refs/heads/main' &&
       vars.DEPLOY_ENABLED == 'true'
     concurrency:
       group: deploy-production
