@@ -30,8 +30,8 @@ jobs:
         run: ruff check app tests
       - name: Ruff format check
         run: ruff format --check app tests
-      - name: Mypy (foundation layer — app/core)
-        run: mypy app/core
+      - name: Mypy (whole app — type-clean, enforced)
+        run: mypy app
 
   backend:
     runs-on: ubuntu-latest
