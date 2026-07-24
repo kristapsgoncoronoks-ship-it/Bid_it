@@ -31,7 +31,7 @@ export default function Dashboard() {
                 <li key={s.to}>
                   <Link
                     to={s.to}
-                    className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-700 hover:border-brand-300 hover:bg-brand-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
+                    className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-700 hover:border-brand-300 hover:bg-brand-50/50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300"
                   >
                     <span className="text-slate-400">{s.icon}</span>
                     {s.label}

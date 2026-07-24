@@ -504,7 +504,7 @@ function EditPanel({
             <tr key={i} className="border-t border-slate-100">
               <td className="py-1">
                 <input
-                  className="w-full rounded border border-slate-200 px-1.5 py-1"
+                  className="w-full rounded-sm border border-slate-200 px-1.5 py-1"
                   value={l.description}
                   onChange={(e) => setLine(i, "description", e.target.value)}
                 />
@@ -512,7 +512,7 @@ function EditPanel({
               {(["quantity", "unit_price", "tax_rate"] as (keyof Line)[]).map((k) => (
                 <td key={k} className="py-1">
                   <input
-                    className="w-16 rounded border border-slate-200 px-1.5 py-1 text-right tabular-nums"
+                    className="w-16 rounded-sm border border-slate-200 px-1.5 py-1 text-right tabular-nums"
                     value={(l[k] as string) ?? ""}
                     onChange={(e) => setLine(i, k, e.target.value)}
                   />

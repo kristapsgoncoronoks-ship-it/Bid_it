@@ -24,7 +24,7 @@ export function Breadcrumbs({ items }: { items: Crumb[] }) {
                 {c.to && !last ? (
                   <Link
                     to={c.to}
-                    className="rounded text-slate-500 hover:text-brand-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
+                    className="rounded-sm text-slate-500 hover:text-brand-700 hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300"
                   >
                     {c.label}
                   </Link>

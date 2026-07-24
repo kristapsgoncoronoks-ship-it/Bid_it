@@ -35,7 +35,7 @@ export default function Benchmark() {
             key={t}
             onClick={() => setTab(t)}
             className={`rounded-md px-4 py-1.5 font-medium capitalize ${
-              tab === t ? "bg-white text-brand-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              tab === t ? "bg-white text-brand-700 shadow-xs" : "text-slate-500 hover:text-slate-700"
             }`}
           >
             {t}

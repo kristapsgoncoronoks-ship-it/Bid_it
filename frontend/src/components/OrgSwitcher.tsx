@@ -34,7 +34,7 @@ export function OrgSwitcher({ currentName }: { currentName?: string }) {
   return (
     <select
       aria-label="Active organization"
-      className="rounded border border-slate-200 bg-white px-2 py-1 text-sm font-medium text-slate-700"
+      className="rounded-sm border border-slate-200 bg-white px-2 py-1 text-sm font-medium text-slate-700"
       value={current?.org_id ?? ""}
       onChange={(e) => switchTo(e.target.value)}
     >

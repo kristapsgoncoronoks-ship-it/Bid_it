@@ -112,7 +112,7 @@ export function Dropdown({ trigger, items, label, align = "right", className = "
             setOpen(true);
           }
         }}
-        className="rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
+        className="rounded-lg focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300"
       >
         {trigger({ open })}
       </button>
@@ -122,13 +122,13 @@ export function Dropdown({ trigger, items, label, align = "right", className = "
           role="menu"
           aria-label={label}
           className={cx(
-            "iq-pop-in absolute z-40 mt-1 min-w-[12rem] overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg",
+            "iq-pop-in absolute z-40 mt-1 min-w-48 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg",
             align === "right" ? "right-0" : "left-0",
           )}
         >
           {items.map((item, i) => {
             const cls = cx(
-              "flex w-full items-center gap-2 px-3 py-2 text-left text-sm focus-visible:outline-none",
+              "flex w-full items-center gap-2 px-3 py-2 text-left text-sm focus-visible:outline-hidden",
               item.disabled
                 ? "cursor-not-allowed text-slate-300"
                 : item.danger

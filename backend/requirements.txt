@@ -7,10 +7,11 @@ alembic==1.18.5
 pydantic==2.13.4
 pydantic-settings==2.14.2
 python-jose[cryptography]==3.5.0
-passlib[bcrypt]==1.7.4
-# Pinned: passlib 1.7.4 reads bcrypt's version via the __about__ attr that
-# bcrypt >= 4.1 removed, which emits a noisy (harmless) warning. 4.0.1 is clean.
-bcrypt==4.0.1
+# Password hashing calls bcrypt directly (see app/core/security.py). passlib was
+# dropped: 1.7.4 is unmaintained and incompatible with bcrypt >= 5 (its backend
+# probe trips bcrypt 5's hard 72-byte limit). bcrypt's "$2b$" output is unchanged,
+# so hashes created under the old passlib path still verify.
+bcrypt==5.0.0
 python-multipart==0.0.32
 email-validator==2.3.0
 
@@ -41,7 +42,7 @@ defusedxml==0.7.1
 # clamd==1.0.2
 
 # dev / test
-pytest==8.3.4
-pytest-asyncio==0.25.0
+pytest==9.1.1
+pytest-asyncio==1.4.0
 httpx==0.28.1
 prometheus-client==0.25.0

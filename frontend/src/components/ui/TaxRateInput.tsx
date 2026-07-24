@@ -71,7 +71,7 @@ export function TaxRateInput({
                     onClick={() => onValueChange(String(p))}
                     className={cx(
                       "rounded-full border px-2.5 py-0.5 text-xs font-medium transition",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300",
+                      "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300",
                       selected
                         ? "border-brand-500 bg-brand-50 text-brand-700"
                         : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",

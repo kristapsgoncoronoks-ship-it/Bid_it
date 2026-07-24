@@ -157,7 +157,7 @@ function SummaryTab({ params }: { params: Record<string, string> }) {
               <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#94a3b8" }} />
               <YAxis tickFormatter={(v) => compactMoney(v)} tick={{ fontSize: 12, fill: "#94a3b8" }} width={60} />
-              <Tooltip formatter={(v: number) => money(v, d.currency)} />
+              <Tooltip formatter={(v) => money(Number(v), d.currency)} />
               <Bar dataKey="gross" radius={[4, 4, 0, 0]} fill="#3b6ef2" />
             </BarChart>
           </ResponsiveContainer>
@@ -218,9 +218,9 @@ function ReceivablesTab({ params }: { params: Record<string, string> }) {
           {d.aging.map((a) => (
             <div key={a.label} className="flex items-center gap-3 text-sm">
               <span className="w-16 shrink-0 text-slate-500">{a.label}</span>
-              <div className="h-4 flex-1 rounded bg-slate-100">
+              <div className="h-4 flex-1 rounded-sm bg-slate-100">
                 <div
-                  className="h-4 rounded bg-brand-400"
+                  className="h-4 rounded-sm bg-brand-400"
                   style={{ width: `${(Number(a.outstanding) / maxAging) * 100}%` }}
                 />
               </div>
@@ -347,7 +347,7 @@ function VatTab({ params, schemeLabels }: { params: Record<string, string>; sche
               <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
               <XAxis dataKey="name" tick={{ fontSize: 12, fill: "#94a3b8" }} />
               <YAxis tickFormatter={(v) => compactMoney(v)} tick={{ fontSize: 12, fill: "#94a3b8" }} width={60} />
-              <Tooltip formatter={(v: number) => money(v, d.currency)} />
+              <Tooltip formatter={(v) => money(Number(v), d.currency)} />
               <Bar dataKey="value" radius={[4, 4, 0, 0]}>
                 {rateRows.map((r) => <Cell key={r.i} fill={PALETTE[r.i % PALETTE.length]} />)}
               </Bar>

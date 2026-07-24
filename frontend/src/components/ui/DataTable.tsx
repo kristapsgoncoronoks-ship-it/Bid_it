@@ -75,7 +75,7 @@ export function DataTable<T>({
   const clickable = !!onRowClick;
 
   return (
-    <div className={`overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm ${className}`}>
+    <div className={`overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-xs ${className}`}>
       <table className="w-full text-sm" aria-busy={isLoading || undefined}>
         {caption && <caption className="sr-only">{caption}</caption>}
         <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
@@ -95,7 +95,7 @@ export function DataTable<T>({
                     <button
                       type="button"
                       onClick={() => onSortChange(key)}
-                      className="group -mx-1 inline-flex items-center gap-1 rounded px-1 uppercase tracking-wide hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
+                      className="group -mx-1 inline-flex items-center gap-1 rounded-sm px-1 uppercase tracking-wide hover:text-slate-700 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300"
                     >
                       {c.header}
                       <span aria-hidden="true" className={active ? "text-brand-600" : "text-slate-300 group-hover:text-slate-400"}>

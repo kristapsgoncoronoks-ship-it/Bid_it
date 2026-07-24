@@ -132,8 +132,8 @@ function SpendByDimension() {
           {rows.map((r) => (
             <li key={r.value} className="flex items-center gap-3 text-sm">
               <span className="w-40 truncate text-slate-600" title={r.value}>{r.value}</span>
-              <span className="relative h-5 flex-1 overflow-hidden rounded bg-slate-100">
-                <span className="absolute inset-y-0 left-0 rounded bg-brand-400/70" style={{ width: `${(Number(r.total) / max) * 100}%` }} />
+              <span className="relative h-5 flex-1 overflow-hidden rounded-sm bg-slate-100">
+                <span className="absolute inset-y-0 left-0 rounded-sm bg-brand-400/70" style={{ width: `${(Number(r.total) / max) * 100}%` }} />
               </span>
               <span className="w-24 text-right tabular-nums text-slate-500">{money(r.total)}</span>
               <span className="w-16 text-right text-xs text-slate-400">{r.invoice_count} inv</span>

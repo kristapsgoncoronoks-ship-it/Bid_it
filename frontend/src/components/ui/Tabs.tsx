@@ -89,7 +89,7 @@ export function Tabs({ tabs, value, onChange, label, idBase, className = "" }: T
             onKeyDown={(e) => onKeyDown(e, i)}
             className={cx(
               "-mb-px inline-flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-medium transition",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 focus-visible:ring-offset-1",
+              "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300 focus-visible:ring-offset-1",
               selected
                 ? "border-brand-500 text-brand-700"
                 : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700",
@@ -127,7 +127,7 @@ export function TabPanel({
       id={`${idBase}-panel-${value}`}
       aria-labelledby={`${idBase}-tab-${value}`}
       tabIndex={0}
-      className="pt-4 focus-visible:outline-none"
+      className="pt-4 focus-visible:outline-hidden"
     >
       {children}
     </div>

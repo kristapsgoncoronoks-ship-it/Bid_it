@@ -77,7 +77,7 @@ export default function Sessions() {
                   <td className="px-3 py-2">
                     <span className="text-slate-700">{s.user_agent || "Unknown device"}</span>
                     {s.current && (
-                      <span className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700">
+                      <span className="ml-2 rounded-sm bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700">
                         This device
                       </span>
                     )}

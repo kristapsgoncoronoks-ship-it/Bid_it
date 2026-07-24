@@ -64,7 +64,7 @@ export function ScopeSwitcher({
         <span className={cx("flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-slate-100")}>
           <span className="text-left">
             <span className="block text-[10px] font-medium uppercase tracking-wide text-slate-400">{eyebrow}</span>
-            <span className="block max-w-[10rem] truncate text-sm font-medium text-slate-700">{current?.name}</span>
+            <span className="block max-w-40 truncate text-sm font-medium text-slate-700">{current?.name}</span>
           </span>
           <svg
             width="16"

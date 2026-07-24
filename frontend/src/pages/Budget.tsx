@@ -100,7 +100,7 @@ export default function Budget() {
         )}
 
         <div className="flex flex-wrap items-end gap-2 border-t border-slate-200 px-4 py-3">
-          <div className="flex-1 min-w-[10rem]">
+          <div className="flex-1 min-w-40">
             <label className="label">New category</label>
             <input className="input" placeholder="e.g. groceries" value={newCat} onChange={(e) => setNewCat(e.target.value)} />
           </div>

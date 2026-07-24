@@ -485,7 +485,7 @@ function IntegrityCheck() {
             {r.issues.length > 0 && (
               <ul className="space-y-1 text-xs">
                 {r.issues.map((i, idx) => (
-                  <li key={idx} className="flex items-center gap-2 rounded bg-slate-50 px-2 py-1">
+                  <li key={idx} className="flex items-center gap-2 rounded-sm bg-slate-50 px-2 py-1">
                     <span className="badge bg-rose-100 text-rose-700">{i.problem}</span>
                     <span className="font-mono text-slate-600">{i.kind}</span>
                     <span className="text-slate-400">{i.detail}</span>
@@ -614,7 +614,7 @@ function WebhookRow({ ep, onPing, onDelete }: { ep: WebhookEndpoint; onPing: () 
       {open && (
         <div className="mt-2 space-y-1">
           {deliveries.data?.length ? deliveries.data.map((d) => (
-            <div key={d.id} className="flex items-center gap-2 rounded bg-slate-50 px-2 py-1 text-xs">
+            <div key={d.id} className="flex items-center gap-2 rounded-sm bg-slate-50 px-2 py-1 text-xs">
               <span className={`badge ${WEBHOOK_STATUS_STYLES[d.status] ?? ""}`}>{d.status}</span>
               <span className="font-mono text-slate-600">{d.event_type}</span>
               <span className="text-slate-400">{d.response_code ?? "—"}</span>

@@ -41,7 +41,7 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
                   className={({ isActive }) =>
                     cx(
                       "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300",
+                      "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300",
                       isActive ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-800",
                     )
                   }
@@ -114,11 +114,11 @@ export function AppShell({
 
       <div className="lg:pl-64">
         {/* Top bar */}
-        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
+        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur-sm">
           <div className="flex items-center gap-3 px-4 py-2.5">
             <button
               type="button"
-              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 lg:hidden"
+              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-300 lg:hidden"
               aria-label="Open navigation menu"
               aria-expanded={mobileNav}
               onClick={() => setMobileNav(true)}
@@ -145,7 +145,7 @@ export function AppShell({
 
         {banner}
 
-        <main id="main" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-6 focus:outline-none sm:px-6">
+        <main id="main" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-6 focus:outline-hidden sm:px-6">
           {children}
         </main>
       </div>
