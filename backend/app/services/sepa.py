@@ -16,6 +16,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import bank_id
 from app.core.money import q2
 from app.models.issuer import IssuerProfile
 from app.models.payment_run import PaymentRun
@@ -56,11 +57,32 @@ def build_pain001(
     transfers: list[CreditTransfer],
 ) -> str:
     """Serialize a pain.001.001.03 document. Raises SepaError on missing debtor
-    IBAN or an empty transfer list."""
+    IBAN or an empty transfer list, and on ANY structurally invalid IBAN/BIC.
+
+    The IBAN/BIC re-validation here is deliberate defence in depth (WO-2):
+    write-time validation in services/vendors.py can be bypassed by a data
+    migration or a direct DB edit, and this file is the last line of defence
+    before money moves — an invalid account means NO XML is produced at all,
+    never a file with a bad creditor. Fail-closed by design."""
     if not debtor_iban:
         raise SepaError("the issuer profile has no IBAN — set one before exporting SEPA")
     if not transfers:
         raise SepaError("no invoice in this run has a supplier IBAN to pay to")
+    if not bank_id.is_valid_iban(debtor_iban):
+        raise SepaError("the issuer profile's IBAN is invalid — fix it before exporting SEPA")
+    if debtor_bic and not bank_id.is_valid_bic(debtor_bic):
+        raise SepaError("the issuer profile's BIC is invalid — fix it before exporting SEPA")
+    for t in transfers:
+        if not bank_id.is_valid_iban(t.creditor_iban):
+            raise SepaError(
+                f"creditor '{t.creditor_name}' has a structurally invalid IBAN — "
+                "the payment file was not produced"
+            )
+        if t.creditor_bic and not bank_id.is_valid_bic(t.creditor_bic):
+            raise SepaError(
+                f"creditor '{t.creditor_name}' has a structurally invalid BIC — "
+                "the payment file was not produced"
+            )
     total = q2(sum((t.amount for t in transfers), Decimal("0")))
 
     doc = ET.Element("Document", {"xmlns": _NS})

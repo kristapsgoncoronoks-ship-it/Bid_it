@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, sta
 from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DbSession, require_perm
-from app.core import authz
+from app.core import authz, bank_id
 from app.models.document_version import OWNER_ISSUER_LOGO
 from app.models.issued_invoice import IssuedInvoice
 from app.schemas.document_version import DocumentVersionOut
@@ -26,6 +26,13 @@ def _apply(profile, body: IssuerProfileIn) -> None:
     for field, value in body.model_dump(exclude_unset=True).items():
         if field in ("country", "default_currency") and value:
             value = value.upper()
+        # Format gate (WO-2): the issuer IBAN/BIC become the DEBTOR account of
+        # every SEPA payment file — malformed values are refused at write time
+        # (422 invalid_iban/invalid_bic), stored normalized otherwise.
+        if field == "iban" and value:
+            value = bank_id.assert_iban(value)
+        if field == "bic" and value:
+            value = bank_id.assert_bic(value)
         setattr(profile, field, value)
 
 

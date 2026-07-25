@@ -17,7 +17,7 @@ from app.api.deps import (
     CurrentUserUnscoped,
     DbSession,
 )
-from app.core import authz, residency
+from app.core import authz, bank_id, residency
 from app.core.config import settings
 from app.core.security import hash_password, verify_password
 from app.models.email_token import PURPOSE_PASSWORD_RESET, PURPOSE_VERIFY_EMAIL
@@ -189,8 +189,11 @@ async def set_bank_details(
     user = await db.get(User, current.id)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
-    user.iban = (body.iban or "").replace(" ", "").upper() or None
-    user.bic = (body.bic or "").replace(" ", "").upper() or None
+    # Format gate (WO-2): this IBAN becomes a SEPA creditor account in the
+    # reimbursement payout file — a malformed one is refused at write time
+    # (422 invalid_iban/invalid_bic via the AppError handler).
+    user.iban = bank_id.assert_iban(body.iban) if body.iban else None
+    user.bic = bank_id.assert_bic(body.bic) if body.bic else None
     await db.commit()
     await db.refresh(user)
     return MeOut(
