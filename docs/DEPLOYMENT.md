@@ -157,6 +157,27 @@ kubectl -n invoiceiq wait --for=condition=complete job/invoiceiq-migrate --timeo
 kubectl apply -f deploy/k8s/30-backend.yaml -f deploy/k8s/40-frontend.yaml -f deploy/k8s/50-ingress.yaml
 ```
 
+### Runbook note — payment-run re-exports and the WO-9 migration
+
+- **What a re-export means to the bank.** Every SEPA export now carries a
+  `MsgId` unique to that *generation* (`RUN-<id8>-<n>-<random>`), so a
+  re-export is a **new payment instruction**: if the first file was already
+  submitted, uploading the second one instructs the bank to pay **again** —
+  banks will not deduplicate it, because the message id differs by design (the
+  old behaviour, a duplicate id, is what banks reject or silently drop). The
+  UI and API therefore require an explicit `confirm_reexport=true`, and every
+  export is audited (`payment_run.exported`) with its MsgId — use those audit
+  rows (or `payment_runs.last_msg_id`) to answer a bank query about a file.
+- **First deploy of migration `d4e6f8a0b2c4`.** Existing runs/batches are
+  backfilled `export_count = 0` (treated as never exported), so a file that was
+  in fact already sent to the bank before the deploy can be re-exported ONCE
+  without the confirmation prompt — warn treasurers on the deploy day. Existing
+  OPEN runs must now be approved by a second user before they can be paid.
+- **Never downgrade `d4e6f8a0b2c4` in production** without first extracting
+  `payment_runs.last_msg_id` / `reimbursement_batches.last_msg_id` and the
+  `payment_run.exported` audit rows to a CSV — the downgrade drops the columns
+  and the MsgId values may be needed to trace a payment with the bank.
+
 ---
 
 ## 4. CI/CD

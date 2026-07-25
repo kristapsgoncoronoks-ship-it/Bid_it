@@ -32,15 +32,39 @@ api.interceptors.response.use(
 );
 
 export async function downloadFile(path: string, filename: string): Promise<void> {
-  const res = await api.get(path, { responseType: "blob" });
-  const url = URL.createObjectURL(res.data as Blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  try {
+    const res = await api.get(path, { responseType: "blob" });
+    const url = URL.createObjectURL(res.data as Blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    // With responseType "blob" an error body arrives as a Blob, hiding the
+    // {"detail","code"} shape from apiError/apiErrorCode. Re-inflate it so
+    // callers can branch on the machine code (e.g. WO-9's already_exported /
+    // skipped_payees confirm flows).
+    if (axios.isAxiosError(e) && e.response && e.response.data instanceof Blob) {
+      try {
+        e.response.data = JSON.parse(await e.response.data.text());
+      } catch {
+        // Not JSON — leave the original error untouched.
+      }
+    }
+    throw e;
+  }
+}
+
+// The stable machine `code` slug from an API error body, if present.
+export function apiErrorCode(e: unknown): string | null {
+  if (axios.isAxiosError(e)) {
+    const code = (e.response?.data as { code?: unknown } | undefined)?.code;
+    if (typeof code === "string") return code;
+  }
+  return null;
 }
 
 // Open an authenticated file (e.g. a PDF) in a new browser tab. A raw <a href>

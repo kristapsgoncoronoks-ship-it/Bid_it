@@ -1,22 +1,37 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Badge, Button, Card, type Tone } from "../components/ui";
-import { api, apiError, downloadFile } from "../lib/api";
+import { Badge, Button, Card, ConfirmDialog, type Tone } from "../components/ui";
+import { api, apiError, apiErrorCode, downloadFile } from "../lib/api";
 import { money, shortDate } from "../lib/format";
 import type { PaymentRun, RunInvoice } from "../lib/types";
 
 const STATUS_TONE: Record<PaymentRun["status"], Tone> = {
   open: "info",
+  approved: "warning",
   paid: "success",
   cancelled: "neutral",
 };
+
+type ExportKind = "csv" | "sepa";
+interface PendingExport {
+  run: PaymentRun;
+  kind: ExportKind;
+  confirmReexport: boolean;
+  acknowledgeSkipped: boolean;
+}
 
 export default function PaymentRunsPage() {
   const qc = useQueryClient();
   const [err, setErr] = useState<string | null>(null);
   const [picked, setPicked] = useState<Record<string, boolean>>({});
   const [refs, setRefs] = useState<Record<string, string>>({});
+  // WO-9 export flows: a re-export needs explicit confirmation (the bank sees a
+  // NEW message id), and skipped payees must be acknowledged BY NAME.
+  const [reexportAsk, setReexportAsk] = useState<PendingExport | null>(null);
+  const [skippedAsk, setSkippedAsk] = useState<{ pending: PendingExport; detail: string } | null>(
+    null,
+  );
 
   const payable = useQuery<RunInvoice[]>({
     queryKey: ["payment-runs", "payable"],
@@ -47,6 +62,12 @@ export default function PaymentRunsPage() {
     },
     onError: onErr,
   });
+  const approve = useMutation({
+    mutationFn: async (r: PaymentRun) =>
+      (await api.post(`/payment-runs/${r.id}/approve`, { version: r.version })).data,
+    onSuccess: invalidate,
+    onError: onErr,
+  });
   const pay = useMutation({
     mutationFn: async (r: PaymentRun) =>
       (await api.post(`/payment-runs/${r.id}/pay`, { version: r.version, reference: refs[r.id] || null }))
@@ -60,6 +81,32 @@ export default function PaymentRunsPage() {
     onError: onErr,
   });
 
+  const doExport = async (p: PendingExport) => {
+    const params = new URLSearchParams();
+    if (p.confirmReexport) params.set("confirm_reexport", "true");
+    if (p.acknowledgeSkipped) params.set("acknowledge_skipped", "true");
+    const q = params.toString() ? `?${params.toString()}` : "";
+    const path = p.kind === "csv" ? "export" : "sepa";
+    const ext = p.kind === "csv" ? "csv" : "xml";
+    try {
+      setErr(null);
+      await downloadFile(
+        `/payment-runs/${p.run.id}/${path}${q}`,
+        `payment-run-${p.run.reference || p.run.id}.${ext}`,
+      );
+      invalidate();
+    } catch (e) {
+      const code = apiErrorCode(e);
+      if (code === "already_exported") {
+        setReexportAsk({ ...p, confirmReexport: true });
+      } else if (code === "skipped_payees") {
+        setSkippedAsk({ pending: { ...p, acknowledgeSkipped: true }, detail: apiError(e) });
+      } else {
+        setErr(apiError(e));
+      }
+    }
+  };
+
   const items = payable.data ?? [];
   const selectedTotal = items
     .filter((i) => picked[i.id])
@@ -70,7 +117,10 @@ export default function PaymentRunsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">Payment runs</h1>
-          <p className="text-slate-500">Pay approved, scheduled supplier invoices in a batch.</p>
+          <p className="text-slate-500">
+            Pay approved, scheduled supplier invoices in a batch. A second user must approve a
+            run before it can be paid or exported (maker–checker).
+          </p>
         </div>
         <Link to="/invoices" className="text-sm text-brand-600 hover:underline">
           ← Invoices
@@ -150,13 +200,33 @@ export default function PaymentRunsPage() {
                 <div className="flex items-center gap-2">
                   {r.status === "open" && (
                     <>
+                      <Button
+                        size="sm"
+                        loading={approve.isPending}
+                        title="A different user than the creator must approve (maker–checker)"
+                        onClick={() => approve.mutate(r)}
+                      >
+                        Approve
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => cancel.mutate(r.id)}>
+                        Cancel
+                      </Button>
+                    </>
+                  )}
+                  {r.status === "approved" && (
+                    <>
                       <input
                         className="w-40 rounded-lg border border-slate-300 px-2 py-1 text-sm"
                         placeholder="Payment reference…"
                         value={refs[r.id] ?? ""}
                         onChange={(e) => setRefs({ ...refs, [r.id]: e.target.value })}
                       />
-                      <Button size="sm" loading={pay.isPending} onClick={() => pay.mutate(r)}>
+                      <Button
+                        size="sm"
+                        loading={pay.isPending}
+                        title="Neither the run's creator nor its approver can pay it"
+                        onClick={() => pay.mutate(r)}
+                      >
                         Mark paid
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => cancel.mutate(r.id)}>
@@ -164,40 +234,53 @@ export default function PaymentRunsPage() {
                       </Button>
                     </>
                   )}
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() =>
-                      downloadFile(`/payment-runs/${r.id}/export`, `payment-run-${r.reference || r.id}.csv`)
-                    }
-                  >
-                    Export CSV
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={async () => {
-                      try {
-                        setErr(null);
-                        await downloadFile(
-                          `/payment-runs/${r.id}/sepa`,
-                          `payment-run-${r.reference || r.id}.xml`,
-                        );
-                      } catch {
-                        setErr(
-                          "Could not generate the SEPA file — set the issuer IBAN and each supplier's bank details first.",
-                        );
-                      }
-                    }}
-                  >
-                    SEPA XML
-                  </Button>
+                  {(r.status === "approved" || r.status === "paid") && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() =>
+                          doExport({
+                            run: r,
+                            kind: "csv",
+                            confirmReexport: false,
+                            acknowledgeSkipped: false,
+                          })
+                        }
+                      >
+                        Export CSV
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        title="ISO 20022 pain.001 credit-transfer file (suppliers with an IBAN on file)"
+                        onClick={() =>
+                          doExport({
+                            run: r,
+                            kind: "sepa",
+                            confirmReexport: false,
+                            acknowledgeSkipped: false,
+                          })
+                        }
+                      >
+                        SEPA XML
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="mt-1 text-xs text-slate-400">
                 Created {shortDate(r.created_at)}
                 {r.created_by ? ` by ${r.created_by}` : ""}
+                {r.approved_at
+                  ? ` · approved ${shortDate(r.approved_at)}${r.approved_by ? ` by ${r.approved_by}` : ""}`
+                  : ""}
                 {r.paid_at ? ` · paid ${shortDate(r.paid_at)}` : ""}
+                {r.export_count > 0
+                  ? ` · exported ${r.export_count}× (first ${shortDate(r.exported_at!)}${
+                      r.last_msg_id ? `, MsgId ${r.last_msg_id}` : ""
+                    })`
+                  : ""}
               </div>
             </div>
           ))}
@@ -206,6 +289,46 @@ export default function PaymentRunsPage() {
           )}
         </div>
       </Card>
+
+      <ConfirmDialog
+        open={reexportAsk !== null}
+        onClose={() => setReexportAsk(null)}
+        onConfirm={() => {
+          const p = reexportAsk!;
+          setReexportAsk(null);
+          void doExport(p);
+        }}
+        title="Re-export bank file?"
+        confirmLabel="Re-export with a new message id"
+        tone="danger"
+      >
+        {reexportAsk && (
+          <p className="text-sm text-slate-600">
+            This run was already exported{" "}
+            {reexportAsk.run.export_count > 0
+              ? `${reexportAsk.run.export_count}× (first ${shortDate(reexportAsk.run.exported_at!)})`
+              : ""}
+            . Re-exporting produces a <strong>new file with a new message id</strong> — the bank
+            will treat it as a separate payment instruction. Only continue if the previous file
+            was never submitted.
+          </p>
+        )}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={skippedAsk !== null}
+        onClose={() => setSkippedAsk(null)}
+        onConfirm={() => {
+          const p = skippedAsk!.pending;
+          setSkippedAsk(null);
+          void doExport(p);
+        }}
+        title="Some suppliers will not be paid"
+        confirmLabel="I understand these will not be paid"
+        tone="danger"
+      >
+        {skippedAsk && <p className="text-sm text-slate-600">{skippedAsk.detail}</p>}
+      </ConfirmDialog>
     </div>
   );
 }

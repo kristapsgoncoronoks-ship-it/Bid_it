@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Badge, Button, Card, type Tone } from "../components/ui";
-import { api, apiError, downloadFile } from "../lib/api";
+import { Badge, Button, Card, ConfirmDialog, type Tone } from "../components/ui";
+import { api, apiError, apiErrorCode, downloadFile } from "../lib/api";
 import { money, shortDate } from "../lib/format";
 
 interface Report {
@@ -22,6 +22,9 @@ interface Batch {
   total_eur: string;
   paid_at: string | null;
   created_by: string | null;
+  exported_at: string | null;
+  export_count: number;
+  last_msg_id: string | null;
   version: number;
   created_at: string;
   report_count: number;
@@ -33,11 +36,25 @@ const STATUS_TONE: Record<string, Tone> = {
   cancelled: "neutral",
 };
 
+type ExportKind = "csv" | "sepa";
+interface PendingExport {
+  batch: Batch;
+  kind: ExportKind;
+  confirmReexport: boolean;
+  acknowledgeSkipped: boolean;
+}
+
 export default function ReimbursementsPage() {
   const qc = useQueryClient();
   const [err, setErr] = useState<string | null>(null);
   const [picked, setPicked] = useState<Record<string, boolean>>({});
   const [refs, setRefs] = useState<Record<string, string>>({});
+  // WO-9 export flows: a re-export needs explicit confirmation (the bank sees a
+  // NEW message id), and employees without an IBAN must be acknowledged BY NAME.
+  const [reexportAsk, setReexportAsk] = useState<PendingExport | null>(null);
+  const [skippedAsk, setSkippedAsk] = useState<{ pending: PendingExport; detail: string } | null>(
+    null,
+  );
 
   const { data: approved } = useQuery<{ items: Report[] }>({
     queryKey: ["expenses", "approved"],
@@ -81,6 +98,32 @@ export default function ReimbursementsPage() {
     onSuccess: invalidate,
     onError: onErr,
   });
+
+  const doExport = async (p: PendingExport) => {
+    const params = new URLSearchParams();
+    if (p.confirmReexport) params.set("confirm_reexport", "true");
+    if (p.acknowledgeSkipped) params.set("acknowledge_skipped", "true");
+    const q = params.toString() ? `?${params.toString()}` : "";
+    const path = p.kind === "csv" ? "export" : "sepa";
+    const ext = p.kind === "csv" ? "csv" : "xml";
+    try {
+      setErr(null);
+      await downloadFile(
+        `/reimbursements/${p.batch.id}/${path}${q}`,
+        `reimbursement-${p.batch.reference || p.batch.id}.${ext}`,
+      );
+      invalidate();
+    } catch (e) {
+      const code = apiErrorCode(e);
+      if (code === "already_exported") {
+        setReexportAsk({ ...p, confirmReexport: true });
+      } else if (code === "skipped_payees") {
+        setSkippedAsk({ pending: { ...p, acknowledgeSkipped: true }, detail: apiError(e) });
+      } else {
+        setErr(apiError(e));
+      }
+    }
+  };
 
   const items = approved?.items ?? [];
   const selectedTotal = items
@@ -186,37 +229,50 @@ export default function ReimbursementsPage() {
                       </Button>
                     </>
                   )}
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() =>
-                      downloadFile(
-                        `/reimbursements/${b.id}/export`,
-                        `reimbursement-${b.reference || b.id}.csv`,
-                      )
-                    }
-                  >
-                    Export CSV
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    title="ISO 20022 pain.001 credit-transfer file (employees with an IBAN on file)"
-                    onClick={() =>
-                      downloadFile(
-                        `/reimbursements/${b.id}/sepa`,
-                        `reimbursement-${b.reference || b.id}.xml`,
-                      )
-                    }
-                  >
-                    Export SEPA
-                  </Button>
+                  {b.status !== "cancelled" && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() =>
+                          doExport({
+                            batch: b,
+                            kind: "csv",
+                            confirmReexport: false,
+                            acknowledgeSkipped: false,
+                          })
+                        }
+                      >
+                        Export CSV
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        title="ISO 20022 pain.001 credit-transfer file (employees with an IBAN on file)"
+                        onClick={() =>
+                          doExport({
+                            batch: b,
+                            kind: "sepa",
+                            confirmReexport: false,
+                            acknowledgeSkipped: false,
+                          })
+                        }
+                      >
+                        Export SEPA
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="mt-1 text-xs text-slate-400">
                 Created {shortDate(b.created_at)}
                 {b.created_by ? ` by ${b.created_by}` : ""}
                 {b.paid_at ? ` · paid ${shortDate(b.paid_at)}` : ""}
+                {b.export_count > 0
+                  ? ` · exported ${b.export_count}× (first ${shortDate(b.exported_at!)}${
+                      b.last_msg_id ? `, MsgId ${b.last_msg_id}` : ""
+                    })`
+                  : ""}
               </div>
             </div>
           ))}
@@ -225,6 +281,46 @@ export default function ReimbursementsPage() {
           )}
         </div>
       </Card>
+
+      <ConfirmDialog
+        open={reexportAsk !== null}
+        onClose={() => setReexportAsk(null)}
+        onConfirm={() => {
+          const p = reexportAsk!;
+          setReexportAsk(null);
+          void doExport(p);
+        }}
+        title="Re-export bank file?"
+        confirmLabel="Re-export with a new message id"
+        tone="danger"
+      >
+        {reexportAsk && (
+          <p className="text-sm text-slate-600">
+            This batch was already exported{" "}
+            {reexportAsk.batch.export_count > 0
+              ? `${reexportAsk.batch.export_count}× (first ${shortDate(reexportAsk.batch.exported_at!)})`
+              : ""}
+            . Re-exporting produces a <strong>new file with a new message id</strong> — the bank
+            will treat it as a separate payment instruction. Only continue if the previous file
+            was never submitted.
+          </p>
+        )}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={skippedAsk !== null}
+        onClose={() => setSkippedAsk(null)}
+        onConfirm={() => {
+          const p = skippedAsk!.pending;
+          setSkippedAsk(null);
+          void doExport(p);
+        }}
+        title="Some employees will not be paid"
+        confirmLabel="I understand these will not be paid"
+        tone="danger"
+      >
+        {skippedAsk && <p className="text-sm text-slate-600">{skippedAsk.detail}</p>}
+      </ConfirmDialog>
     </div>
   );
 }

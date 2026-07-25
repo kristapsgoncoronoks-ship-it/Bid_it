@@ -528,11 +528,16 @@ export interface PaymentRun {
   id: string;
   reference: string | null;
   method: string;
-  status: "open" | "paid" | "cancelled";
+  status: "open" | "approved" | "paid" | "cancelled";
   note: string | null;
   total_eur: string;
   paid_at: string | null;
   created_by: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  exported_at: string | null;
+  export_count: number;
+  last_msg_id: string | null;
   version: number;
   created_at: string;
   invoice_count: number;

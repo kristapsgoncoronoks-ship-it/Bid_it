@@ -138,6 +138,33 @@ Legend: **Owns** = writes + schema authority. **Reads** = consumes read-only. Is
 | **FX** | `ecb_rates` | `fx` | ECB (external) | EUR conversion with provenance. |
 | **VAT** | — (pure) | `vat` | — | Scheme handling + breakdown. |
 | **Expenses (post-MVP)** | `expense_reports`, `expense_items`, `expense_transactions`, `expense_comments` | `expenses`, `bank_statement` | fx, dimensions | Approval + reimbursement + recon. |
+| **AP settlement (payment runs)** | `payment_runs`, `supplier_payments`, `reimbursement_batches` (with Expenses) | `payment_run`, `ap_payments`, `sepa`, `reimbursement` | invoices, vendors, issuer | Groups scheduled invoices, settles them via the append-only AP ledger, renders the pain.001 bank file. Carries the WO-9 settlement controls (below). |
+
+### Settlement controls (WO-9)
+
+The payout rails carry controls an auditor asks about, all server-enforced:
+
+- **Maker ≠ checker ≠ payer.** A run's lifecycle is `open → approved → paid`:
+  the creator cannot approve their own run, and neither creator nor approver can
+  mark it paid (403 `maker_is_checker`, compared by immutable user id with an
+  email fallback for pre-WO-9 rows). The only exemption is a platform admin's
+  explicit `override_sod=true`, audited as `payment_run.sod_override` naming the
+  overridden control.
+- **Export guard.** Both bank-file routes (CSV + SEPA) require `payment.write`
+  and an approved/paid run; a **second** export needs `confirm_reexport=true`
+  (409 `already_exported` carrying the first export's timestamp).
+- **Unique `MsgId` per generation.** `sepa.new_msg_id` emits
+  `RUN-<id8>-<generation>-<random8>` (≤35 chars, enforced again in
+  `build_pain001`) so a re-export never sends the bank a duplicate message id;
+  the last MsgId is stored on the run and EVERY export's MsgId is in the audit
+  log (`payment_run.exported`) — a bank query about any historic id is answerable.
+- **Skipped payees are named.** An export that would drop a payee (missing IBAN
+  — an invalid one is already refused at write and in `build_pain001`, WO-2) is
+  refused with 409 `skipped_payees` naming them; `acknowledge_skipped=true`
+  proceeds and the audit event records who was skipped.
+- **Same treatment for reimbursement batches** (no approval stage — each report
+  was individually approved under its own SoD — but export-once, unique MsgId
+  and named-skipped-payee acknowledgement all apply).
 
 **Ownership rule of thumb:** if you need another module's data, call its service or read its published read model. If you find yourself importing another module's *model* to write it, that's a boundary violation — raise it in review.
 

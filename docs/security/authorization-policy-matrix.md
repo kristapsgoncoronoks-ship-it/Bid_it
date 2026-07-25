@@ -132,6 +132,9 @@ the permission is necessary but not sufficient (segregation of duties, §4.8):
 | Approve a vendor bank-detail / tax-id change request | `settings.manage` | Approver **must not** be the requester — `requested_by == approver` is 403 `maker_is_checker`, enforced in `services/vendors.py::approve_change` regardless of role (even the Owner cannot approve their own request). |
 | Approve a supplier invoice | `invoice.approve` | Submitter cannot approve their own invoice. |
 | Approve an expense report | `expense.approve` | Claimant cannot approve their own report. |
+| Approve a payment run (WO-9) | `payment.write` | The run's **creator** cannot approve it — 403 `maker_is_checker`, enforced in `services/payment_run.py` (immutable user id, with an email fallback covering pre-WO-9 runs), even for the Owner. |
+| Mark a payment run paid (WO-9) | `payment.write` | Neither the run's **creator** nor its **approver** can pay it — three distinct people carry a payment from selection to settlement. The only exemption is a **platform admin** passing an explicit `override_sod=true`, which is audited as `payment_run.sod_override` naming the overridden control — never silent. |
+| Export a payment-run bank file (CSV or SEPA, WO-9) | `payment.write` | Producing a payment instruction file is a treasury act, not a read: the run must be **approved or paid**, a **second** export needs `confirm_reexport=true` (409 `already_exported` otherwise, naming the first export's timestamp), a run with payees lacking an IBAN is refused **naming them** (409 `skipped_payees`) unless `acknowledge_skipped=true`, and every export is audited (`payment_run.exported`) with actor, MsgId, payee count and total. Reimbursement-batch exports apply the same export-once / skipped-payee rules under `expense.approve`. |
 
 The vendor rule exists because a single compromised account must never be able
 to both **plant** a new payee IBAN and **activate** it — the whole point of the
