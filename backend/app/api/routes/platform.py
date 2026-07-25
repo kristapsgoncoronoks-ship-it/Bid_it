@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession, get_current_user
+from app.core import authz
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.tenancy import TenantOut, TenantUpdate
@@ -27,6 +28,12 @@ async def require_platform_admin(current: User = Depends(get_current_user)) -> U
     set_current_org(None)
     return current
 
+
+# Structural authorization (ADR-0024): the platform gate is STRICTER than any
+# tenant permission (an org OWNER holds every Permission yet must never pass),
+# so it declares the PLATFORM_ADMIN sentinel rather than a Permission — the
+# coverage test recognises it through the same introspection attribute.
+setattr(require_platform_admin, authz.PERMISSIONS_ATTR, (authz.PLATFORM_ADMIN,))
 
 PlatformAdmin = CurrentUser  # alias documented; real gate below via dependency
 

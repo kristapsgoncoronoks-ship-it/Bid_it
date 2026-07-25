@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentOrg, CurrentUser, DbSession
+from app.api.deps import CurrentOrg, CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.models.user import User, UserRole
 from app.schemas.tenancy import (
@@ -14,7 +14,14 @@ from app.schemas.tenancy import (
 )
 from app.services import audit, memberships, plans, team
 
-router = APIRouter(prefix="/team", tags=["team"])
+# Structural authorization (ADR-0024): the member list is org administration
+# data — router-level MEMBER_READ (previously open to any member). Role changes
+# declare ROLE_ASSIGN; invitations declare MEMBER_MANAGE.
+router = APIRouter(
+    prefix="/team",
+    tags=["team"],
+    dependencies=[Depends(require_perm(authz.Permission.MEMBER_READ))],
+)
 
 
 def _member_out(m) -> MemberOut:
@@ -35,9 +42,12 @@ async def members(current: CurrentUser, db: DbSession):
     return [_member_out(m) for m in await team.list_members(db, current.org_id)]
 
 
-@router.patch("/members/{user_id}", response_model=MemberOut)
+@router.patch(
+    "/members/{user_id}",
+    response_model=MemberOut,
+    dependencies=[Depends(require_perm(authz.Permission.ROLE_ASSIGN))],
+)
 async def update_member(user_id: str, body: MemberUpdate, current: CurrentUser, db: DbSession):
-    authz.require(current, authz.Permission.ROLE_ASSIGN)
     m = await team.get_member(db, current.org_id, user_id)  # the membership in this org
     if m is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Member not found")
@@ -101,15 +111,22 @@ async def update_member(user_id: str, body: MemberUpdate, current: CurrentUser, 
     return _member_out(m)
 
 
-@router.get("/invites", response_model=list[InviteOut])
+@router.get(
+    "/invites",
+    response_model=list[InviteOut],
+    dependencies=[Depends(require_perm(authz.Permission.MEMBER_MANAGE))],
+)
 async def list_invites(current: CurrentUser, db: DbSession):
-    authz.require(current, authz.Permission.MEMBER_MANAGE)
     return await team.list_invitations(db, current.org_id)
 
 
-@router.post("/invites", response_model=InviteOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/invites",
+    response_model=InviteOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_perm(authz.Permission.MEMBER_MANAGE))],
+)
 async def create_invite(body: InviteCreate, current: CurrentUser, db: DbSession, org: CurrentOrg):
-    authz.require(current, authz.Permission.MEMBER_MANAGE)
 
     # Seat limit (active users + outstanding invites) vs the plan.
     outstanding = await team.open_invitation_count(db, current.org_id)
@@ -141,9 +158,12 @@ async def create_invite(body: InviteCreate, current: CurrentUser, db: DbSession,
     return inv
 
 
-@router.delete("/invites/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/invites/{invite_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_perm(authz.Permission.MEMBER_MANAGE))],
+)
 async def revoke_invite(invite_id: str, current: CurrentUser, db: DbSession):
-    authz.require(current, authz.Permission.MEMBER_MANAGE)
     from app.models.invitation import Invitation
 
     inv = await db.scalar(

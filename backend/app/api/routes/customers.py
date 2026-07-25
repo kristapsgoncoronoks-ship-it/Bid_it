@@ -7,18 +7,24 @@ survive.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession
-from app.core import authz
+from app.api.deps import CurrentUser, DbSession, require_perm
+from app.core.authz import Permission as _P
 from app.models.customer import Customer, CustomerContact
 from app.schemas.customer import CustomerCreate, CustomerOut, CustomerUpdate
 from app.services import modules
 
-router = APIRouter(prefix="/customers", tags=["customers"])
-_P = authz.Permission
+# Structural authorization (ADR-0024): every customer route needs at least
+# ISSUED_READ; the mutating routes declare ISSUED_WRITE per-route below.
+router = APIRouter(
+    prefix="/customers",
+    tags=["customers"],
+    dependencies=[Depends(require_perm(_P.ISSUED_READ))],
+)
+_WRITE = [Depends(require_perm(_P.ISSUED_WRITE))]
 
 _SCALAR_FIELDS = (
     "name",
@@ -64,7 +70,6 @@ async def list_customers(
     current: CurrentUser, db: DbSession, include_inactive: bool = Query(default=False)
 ):
     await _guard(db, current.org_id)
-    authz.require(current, _P.ISSUED_READ)
     filters = [Customer.org_id == current.org_id]
     if not include_inactive:
         filters.append(Customer.is_active.is_(True))
@@ -77,10 +82,14 @@ async def list_customers(
     return [CustomerOut.model_validate(c) for c in rows]
 
 
-@router.post("", response_model=CustomerOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=CustomerOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=_WRITE,
+)
 async def create_customer(body: CustomerCreate, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
-    authz.require(current, _P.ISSUED_WRITE)
     c = Customer(org_id=current.org_id, **body.model_dump(exclude={"contacts"}))
     c.contacts = [CustomerContact(org_id=current.org_id, **ct.model_dump()) for ct in body.contacts]
     db.add(c)
@@ -92,16 +101,14 @@ async def create_customer(body: CustomerCreate, current: CurrentUser, db: DbSess
 @router.get("/{customer_id}", response_model=CustomerOut)
 async def get_customer(customer_id: str, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
-    authz.require(current, _P.ISSUED_READ)
     return CustomerOut.model_validate(await _load(db, current.org_id, customer_id))
 
 
-@router.patch("/{customer_id}", response_model=CustomerOut)
+@router.patch("/{customer_id}", response_model=CustomerOut, dependencies=_WRITE)
 async def update_customer(
     customer_id: str, body: CustomerUpdate, current: CurrentUser, db: DbSession
 ):
     await _guard(db, current.org_id)
-    authz.require(current, _P.ISSUED_WRITE)
     c = await _load(db, current.org_id, customer_id)
     fields = body.model_fields_set
     for key in _SCALAR_FIELDS:
@@ -116,11 +123,10 @@ async def update_customer(
     return CustomerOut.model_validate(c)
 
 
-@router.delete("/{customer_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{customer_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=_WRITE)
 async def delete_customer(customer_id: str, current: CurrentUser, db: DbSession):
     """Soft delete — deactivate the customer (invoice history keeps its link)."""
     await _guard(db, current.org_id)
-    authz.require(current, _P.ISSUED_WRITE)
     c = await _load(db, current.org_id, customer_id)
     c.is_active = False
     await db.commit()

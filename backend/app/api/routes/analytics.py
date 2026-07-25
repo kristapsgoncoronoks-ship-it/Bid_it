@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.core.dimensions import DIMENSIONS, is_dimension
 from app.schemas.analytics import (
@@ -21,13 +21,20 @@ from app.schemas.cash_flow import CashFlowPointOut
 from app.schemas.cash_position import CashPositionOut
 from app.services import analytics, ap_aging, benchmark, cash_flow, cash_position, explore
 
-router = APIRouter(prefix="/analytics", tags=["analytics"])
+# Structural authorization (ADR-0024): the whole analytics surface reads the
+# org's aggregated money data — router-level REPORT_READ. Previously only three
+# endpoints checked it in-handler; the rest were open to any member (the
+# security gap this order closes).
+router = APIRouter(
+    prefix="/analytics",
+    tags=["analytics"],
+    dependencies=[Depends(require_perm(authz.Permission.REPORT_READ))],
+)
 
 
 @router.get("/cash-position", response_model=CashPositionOut)
 async def get_cash_position(current: CurrentUser, db: DbSession):
     """AR + AP + reconciliation roll-up for the cash-position dashboard (Phase 15)."""
-    authz.require(current, authz.Permission.REPORT_READ)
     return await cash_position.summary(db, current.org_id)
 
 
@@ -38,14 +45,12 @@ async def get_cash_flow(
     months: int = Query(default=12, ge=1, le=36),
 ):
     """Monthly inflow / outflow / net cash-flow trend (Phase 19)."""
-    authz.require(current, authz.Permission.REPORT_READ)
     return await cash_flow.monthly(db, current.org_id, months=months)
 
 
 @router.get("/ap-aging", response_model=ApAgingOut)
 async def get_ap_aging(current: CurrentUser, db: DbSession):
     """Payables worklist: open supplier invoices due soon / overdue (Phase 16b)."""
-    authz.require(current, authz.Permission.REPORT_READ)
     items = await ap_aging.worklist(db, current.org_id)
     s = ap_aging.summarize(items)
     return ApAgingOut(

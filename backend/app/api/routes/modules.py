@@ -1,13 +1,20 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.deps import CurrentOrg, CurrentUser, DbSession
+from app.api.deps import CurrentOrg, CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.schemas.module import ModuleOut, ModuleToggle
 from app.services import audit, issuer, modules, plans
 
-router = APIRouter(prefix="/modules", tags=["modules"])
+# Structural authorization (ADR-0024): module entitlements are org
+# configuration — router-level SETTINGS_MANAGE (previously the list was open to
+# any member; WO-1 newly gates it).
+router = APIRouter(
+    prefix="/modules",
+    tags=["modules"],
+    dependencies=[Depends(require_perm(authz.Permission.SETTINGS_MANAGE))],
+)
 
 
 async def _ready(db: DbSession, org_id: str, m: modules.Module) -> bool:
@@ -40,7 +47,6 @@ async def list_modules(current: CurrentUser, db: DbSession):
 async def toggle_module(
     key: str, body: ModuleToggle, current: CurrentUser, db: DbSession, org: CurrentOrg
 ):
-    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     m = modules.MODULES_BY_KEY.get(key)
     if m is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown module")

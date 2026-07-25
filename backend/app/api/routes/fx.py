@@ -3,10 +3,10 @@ from __future__ import annotations
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.core.money import CENTS as _CENTS
 from app.models.fx import EcbRate
@@ -21,7 +21,16 @@ from app.schemas.fx import (
 )
 from app.services import fx
 
-router = APIRouter(prefix="/fx", tags=["fx"])
+# Structural authorization (ADR-0024): rate lookups/conversion feed pickers on
+# every money form, so they declare INVOICE_READ — held by EVERY business role,
+# i.e. behaviour-preserving "any authenticated member". The ECB comparison reads
+# the org's invoice data (REPORT_READ); the cache refresh is administrative
+# (SETTINGS_MANAGE).
+router = APIRouter(
+    prefix="/fx",
+    tags=["fx"],
+    dependencies=[Depends(require_perm(authz.Permission.INVOICE_READ))],
+)
 
 
 @router.get("/rates", response_model=RatesResponse)
@@ -94,7 +103,11 @@ async def convert(
     )
 
 
-@router.get("/ecb-comparison", response_model=FxComparison)
+@router.get(
+    "/ecb-comparison",
+    response_model=FxComparison,
+    dependencies=[Depends(require_perm(authz.Permission.REPORT_READ))],
+)
 async def ecb_comparison(
     current: CurrentUser, db: DbSession, start: date | None = None, end: date | None = None
 ):
@@ -103,8 +116,11 @@ async def ecb_comparison(
     return await fx.ecb_comparison(db, current.org_id, start, end)
 
 
-@router.post("/refresh", response_model=RefreshResult)
+@router.post(
+    "/refresh",
+    response_model=RefreshResult,
+    dependencies=[Depends(require_perm(authz.Permission.SETTINGS_MANAGE))],
+)
 async def refresh(current: CurrentUser, db: DbSession, history: bool = True):
     """Pull the latest ECB reference rates into the cache (admin only)."""
-    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     return await fx.refresh_from_ecb(db, history=history)

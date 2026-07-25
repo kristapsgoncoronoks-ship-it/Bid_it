@@ -3,14 +3,21 @@ from __future__ import annotations
 import json
 from datetime import UTC, date, datetime, time
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
-from app.api.deps import CurrentUser, DbSession
-from app.core import authz
+from app.api.deps import CurrentUser, DbSession, require_perm
+from app.core.authz import Permission
 from app.schemas.audit import AuditEventOut, AuditListOut, ChainStatusOut
 from app.services import audit, audit_export
 
-router = APIRouter(prefix="/audit", tags=["audit"])
+# Reading the audit trail requires AUDIT_READ (owner, administrator, finance
+# manager, auditor) — declared structurally on the router (ADR-0024), enforced
+# through the authz matrix, never a raw role check.
+router = APIRouter(
+    prefix="/audit",
+    tags=["audit"],
+    dependencies=[Depends(require_perm(Permission.AUDIT_READ))],
+)
 
 
 def _day_bounds_ms(from_: str | None, to: str | None) -> tuple[int | None, int | None]:
@@ -26,12 +33,6 @@ def _day_bounds_ms(from_: str | None, to: str | None) -> tuple[int | None, int |
     except ValueError:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "from/to must be ISO dates (YYYY-MM-DD)")
     return since, until
-
-
-def _require_audit_access(current):
-    # Reading the audit trail requires AUDIT_READ (owner, administrator, finance
-    # manager, auditor) — enforced through the authz matrix, not a raw role check.
-    authz.require(current, authz.Permission.AUDIT_READ)
 
 
 def _out(e) -> AuditEventOut:
@@ -61,7 +62,6 @@ async def list_audit(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
 ):
-    _require_audit_access(current)
     rows, total = await audit.list_events(
         db, current.org_id, action=action, page=page, page_size=page_size
     )
@@ -71,7 +71,6 @@ async def list_audit(
 @router.get("/verify", response_model=ChainStatusOut)
 async def verify(current: CurrentUser, db: DbSession):
     """Recompute the hash chain and report the first break (tamper check)."""
-    _require_audit_access(current)
     s = await audit.verify_chain(db, current.org_id)
     return ChainStatusOut(ok=s.ok, events=s.events, broken_at_seq=s.broken_at_seq, detail=s.detail)
 
@@ -87,7 +86,6 @@ async def export_audit(
 ):
     """Download the tenant's audit trail (CSV or JSON) for auditors. Includes the
     seq/prev_hash/hash columns so the chain can be re-verified independently."""
-    _require_audit_access(current)
     if fmt not in audit_export.FORMATS:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,

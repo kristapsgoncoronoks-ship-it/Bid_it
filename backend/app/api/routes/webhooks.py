@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.models.webhook import WebhookDelivery, WebhookEndpoint
 from app.schemas.webhook import (
@@ -15,11 +15,14 @@ from app.schemas.webhook import (
 )
 from app.services import webhooks
 
-router = APIRouter(prefix="/webhooks", tags=["webhooks"])
-
-
-def _require_admin(current: CurrentUser) -> None:
-    authz.require(current, authz.Permission.SETTINGS_MANAGE)
+# Structural authorization (ADR-0024): webhook endpoints deliver tenant events
+# to external URLs — router-level SETTINGS_MANAGE (previously only the mutations
+# checked it; the endpoint/delivery lists were open to any member).
+router = APIRouter(
+    prefix="/webhooks",
+    tags=["webhooks"],
+    dependencies=[Depends(require_perm(authz.Permission.SETTINGS_MANAGE))],
+)
 
 
 def _check_url(url: str) -> None:
@@ -49,7 +52,6 @@ async def list_endpoints(current: CurrentUser, db: DbSession):
 @router.post("", response_model=WebhookCreated, status_code=status.HTTP_201_CREATED)
 async def create_endpoint(body: WebhookCreate, current: CurrentUser, db: DbSession):
     """Register an endpoint. The signing secret is returned ONCE here."""
-    _require_admin(current)
     _check_url(body.url)
     ep = WebhookEndpoint(
         org_id=current.org_id,
@@ -80,7 +82,6 @@ async def _load(db: DbSession, org_id: str, endpoint_id: str) -> WebhookEndpoint
 async def update_endpoint(
     endpoint_id: str, body: WebhookUpdate, current: CurrentUser, db: DbSession
 ):
-    _require_admin(current)
     ep = await _load(db, current.org_id, endpoint_id)
     if body.url is not None:
         _check_url(body.url)
@@ -95,7 +96,6 @@ async def update_endpoint(
 
 @router.delete("/{endpoint_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_endpoint(endpoint_id: str, current: CurrentUser, db: DbSession):
-    _require_admin(current)
     ep = await _load(db, current.org_id, endpoint_id)
     await db.delete(ep)
     await db.commit()
@@ -104,7 +104,6 @@ async def delete_endpoint(endpoint_id: str, current: CurrentUser, db: DbSession)
 @router.post("/{endpoint_id}/ping", status_code=status.HTTP_202_ACCEPTED)
 async def ping_endpoint(endpoint_id: str, current: CurrentUser, db: DbSession):
     """Send a test `ping` event to this endpoint (enqueued like any other)."""
-    _require_admin(current)
     await _load(db, current.org_id, endpoint_id)
     n = await webhooks.emit(db, current.org_id, "ping", {"message": "InvoiceIQ webhook test"})
     await db.commit()

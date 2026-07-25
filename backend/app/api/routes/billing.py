@@ -3,10 +3,10 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 
-from app.api.deps import CurrentOrg, CurrentUser, DbSession
+from app.api.deps import CurrentOrg, CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.core.config import settings
 from app.models.billing_payment import BillingPayment
@@ -24,7 +24,13 @@ from app.services import modules as modules_svc
 from app.services import plans
 from app.services.billing_provider import BillingError, get_billing_provider
 
+# Structural authorization (ADR-0024): declared PER-ROUTE because the Stripe/
+# EveryPay webhook + redirect endpoints authenticate by signature/reference (see
+# PUBLIC_ROUTES). Everything a user calls here manages the subscription —
+# BILLING_MANAGE (owner-only), including the read (it exposes subscription
+# state; previously any member could read it — tightened by ADR-0024).
 router = APIRouter(prefix="/billing", tags=["billing"])
+_MANAGE = [Depends(require_perm(authz.Permission.BILLING_MANAGE))]
 log = logging.getLogger("invoiceiq.billing")
 
 
@@ -39,7 +45,7 @@ def _plan_out(p) -> PlanOut:
     )
 
 
-@router.get("", response_model=BillingOut)
+@router.get("", response_model=BillingOut, dependencies=_MANAGE)
 async def get_billing(current: CurrentUser, db: DbSession, org: CurrentOrg):
     plan = plans.plan_for(org.plan)
     return BillingOut(
@@ -54,9 +60,8 @@ async def get_billing(current: CurrentUser, db: DbSession, org: CurrentOrg):
     )
 
 
-@router.put("/plan", response_model=BillingOut)
+@router.put("/plan", response_model=BillingOut, dependencies=_MANAGE)
 async def change_plan(body: PlanChange, current: CurrentUser, db: DbSession, org: CurrentOrg):
-    authz.require(current, authz.Permission.BILLING_MANAGE)
     if body.plan not in plans.PLANS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown plan")
 
@@ -101,7 +106,7 @@ async def _ensure_customer(db, org: Organization, current) -> str:
     return customer_id
 
 
-@router.post("/checkout", response_model=CheckoutOut)
+@router.post("/checkout", response_model=CheckoutOut, dependencies=_MANAGE)
 async def start_checkout(body: CheckoutStart, current: CurrentUser, db: DbSession, org: CurrentOrg):
     """Start a hosted payment for a paid plan → returns a redirect URL.
 
@@ -109,7 +114,6 @@ async def start_checkout(body: CheckoutStart, current: CurrentUser, db: DbSessio
     hosted card payment and we persist a `BillingPayment` so the return/callback
     can verify it server-side and apply the plan.
     """
-    authz.require(current, authz.Permission.BILLING_MANAGE)
     if not settings.billing_enabled:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Billing is not configured")
     target = plans.PLANS.get(body.plan)
@@ -154,12 +158,11 @@ async def start_checkout(body: CheckoutStart, current: CurrentUser, db: DbSessio
     return CheckoutOut(url=session.url)
 
 
-@router.post("/portal", response_model=PortalOut)
+@router.post("/portal", response_model=PortalOut, dependencies=_MANAGE)
 async def open_portal(current: CurrentUser, db: DbSession, org: CurrentOrg):
     """Open the Stripe Customer Portal (manage payment method / cancel / invoices).
 
     Subscription providers only — EveryPay has no hosted portal."""
-    authz.require(current, authz.Permission.BILLING_MANAGE)
     provider = get_billing_provider()
     if provider.kind != "subscription":
         raise HTTPException(

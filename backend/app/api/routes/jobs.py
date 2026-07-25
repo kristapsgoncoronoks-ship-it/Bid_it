@@ -1,19 +1,22 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.models.job import Job
 from app.schemas.jobs import JobEnqueue, JobOut
 from app.services import job_handlers, jobs
 
-router = APIRouter(prefix="/jobs", tags=["jobs"])
-
-
-def _require_admin(current: CurrentUser) -> None:
-    authz.require(current, authz.Permission.SETTINGS_MANAGE)
+# Structural authorization (ADR-0024): the background-job queue is operational
+# tooling — router-level SETTINGS_MANAGE (previously only enqueue/retry checked
+# it; list/get were open to any member).
+router = APIRouter(
+    prefix="/jobs",
+    tags=["jobs"],
+    dependencies=[Depends(require_perm(authz.Permission.SETTINGS_MANAGE))],
+)
 
 
 @router.get("", response_model=list[JobOut])
@@ -34,7 +37,6 @@ async def list_jobs(
 @router.post("", response_model=JobOut, status_code=status.HTTP_201_CREATED)
 async def enqueue_job(body: JobEnqueue, current: CurrentUser, db: DbSession):
     """Enqueue a background job. Only a safe allowlist of kinds is user-facing."""
-    _require_admin(current)
     if body.kind not in job_handlers.USER_ENQUEUEABLE:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -66,6 +68,5 @@ async def get_job(job_id: str, current: CurrentUser, db: DbSession):
 @router.post("/{job_id}/retry", response_model=JobOut)
 async def retry_job(job_id: str, current: CurrentUser, db: DbSession):
     """Requeue a dead/failed job (resets its attempt counter)."""
-    _require_admin(current)
     job = await _load(db, current.org_id, job_id)
     return JobOut.model_validate(await jobs.retry(db, job))

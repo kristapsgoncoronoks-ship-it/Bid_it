@@ -2,14 +2,19 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.core.security_headers import content_disposition
 from app.services import erp_export
 
-router = APIRouter(prefix="/export", tags=["export"])
+# Structural authorization (ADR-0024): the export surface is EXPORT_RUN.
+router = APIRouter(
+    prefix="/export",
+    tags=["export"],
+    dependencies=[Depends(require_perm(authz.Permission.EXPORT_RUN))],
+)
 
 
 @router.get("/formats")
@@ -38,7 +43,6 @@ async def export_accounting(
 ):
     """Export the received-invoice ledger for a period into an accounting-package
     import file (CSV). NET EUR basis; read-only; formula-injection-safe."""
-    authz.require(current, authz.Permission.EXPORT_RUN)
     if fmt not in erp_export.FORMATS:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,

@@ -3,10 +3,10 @@ from __future__ import annotations
 import base64
 import binascii
 
-from fastapi import APIRouter, Header, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
 from app.api.routes.invoices import _detail, persist_invoice
 from app.core import authz
 from app.core.config import settings
@@ -24,7 +24,14 @@ from app.schemas.email_intake import (
 from app.schemas.invoice import InvoiceDetailOut, ParsedInvoiceDraft
 from app.services import access, audit, documents, email_intake, modules
 
+# Structural authorization (ADR-0024): declared PER-ROUTE because POST /inbound
+# is a provider webhook (its own authentication; see PUBLIC_ROUTES). The review
+# inbox is the metered capture surface — INVOICE_READ (held by EVERY business
+# role) preserves the documented open-to-every-tier capture decision (see
+# `confirm_inbound`); rotating the inbound address is org configuration.
 router = APIRouter(prefix="/email", tags=["email intake"])
+_CAPTURE = [Depends(require_perm(authz.Permission.INVOICE_READ))]
+_ADMIN = [Depends(require_perm(authz.Permission.SETTINGS_MANAGE))]
 
 
 async def _guard(db: DbSession, org_id: str):
@@ -95,7 +102,7 @@ async def inbound(
 # --------------------------------------------------------------------------- #
 # Settings (the inbound address)
 # --------------------------------------------------------------------------- #
-@router.get("/settings", response_model=EmailSettingsOut)
+@router.get("/settings", response_model=EmailSettingsOut, dependencies=_CAPTURE)
 async def get_settings(current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     intake = await email_intake.get_or_create(db, current.org_id)
@@ -121,10 +128,9 @@ async def get_settings(current: CurrentUser, db: DbSession):
     )
 
 
-@router.post("/settings/rotate", response_model=EmailSettingsOut)
+@router.post("/settings/rotate", response_model=EmailSettingsOut, dependencies=_ADMIN)
 async def rotate_address(current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
-    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     intake = await email_intake.rotate(db, current.org_id)
     return EmailSettingsOut(
         address=email_intake.address_for(intake.token), domain=settings.inbound_email_domain
@@ -145,7 +151,7 @@ async def _load(db: DbSession, org_id: str, inbound_id: str) -> InboundInvoice:
     return row
 
 
-@router.get("/inbox", response_model=InboundListOut)
+@router.get("/inbox", response_model=InboundListOut, dependencies=_CAPTURE)
 async def list_inbox(
     current: CurrentUser,
     db: DbSession,
@@ -168,7 +174,7 @@ async def list_inbox(
     return InboundListOut(items=[InboundInvoiceOut.model_validate(r) for r in rows], total=total)
 
 
-@router.get("/inbox/{inbound_id}", response_model=InboundInvoiceDetail)
+@router.get("/inbox/{inbound_id}", response_model=InboundInvoiceDetail, dependencies=_CAPTURE)
 async def get_inbound(inbound_id: str, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     row = await _load(db, current.org_id, inbound_id)
@@ -190,6 +196,7 @@ async def get_inbound(inbound_id: str, current: CurrentUser, db: DbSession):
     "/inbox/{inbound_id}/confirm",
     response_model=InvoiceDetailOut,
     status_code=status.HTTP_201_CREATED,
+    dependencies=_CAPTURE,
 )
 async def confirm_inbound(
     inbound_id: str, body: InboundConfirm, current: CurrentUser, db: DbSession
@@ -227,7 +234,7 @@ async def confirm_inbound(
     return _detail(invoice, vendor_name)
 
 
-@router.post("/inbox/{inbound_id}/discard", response_model=InboundInvoiceOut)
+@router.post("/inbox/{inbound_id}/discard", response_model=InboundInvoiceOut, dependencies=_CAPTURE)
 async def discard_inbound(inbound_id: str, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     row = await _load(db, current.org_id, inbound_id)
@@ -239,7 +246,7 @@ async def discard_inbound(inbound_id: str, current: CurrentUser, db: DbSession):
     return InboundInvoiceOut.model_validate(row)
 
 
-@router.delete("/inbox/{inbound_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/inbox/{inbound_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=_CAPTURE)
 async def delete_inbound(inbound_id: str, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     row = await _load(db, current.org_id, inbound_id)
@@ -247,7 +254,7 @@ async def delete_inbound(inbound_id: str, current: CurrentUser, db: DbSession):
     await db.commit()
 
 
-@router.get("/inbox/{inbound_id}/file")
+@router.get("/inbox/{inbound_id}/file", dependencies=_CAPTURE)
 async def download_file(inbound_id: str, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     row = await _load(db, current.org_id, inbound_id)

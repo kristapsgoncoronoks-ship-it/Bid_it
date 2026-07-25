@@ -12,7 +12,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz, money
 from app.core.security_headers import content_disposition
 from app.models.customer import Customer
@@ -70,14 +70,16 @@ from app.services import (
     webhooks,
 )
 
-
-def _require_issued_read(current: CurrentUser) -> None:
-    """Router-level gate: every issuing route needs at least ISSUED_READ. Write/send
-    routes additionally require ISSUED_WRITE / ISSUED_SEND inline."""
-    authz.require(current, authz.Permission.ISSUED_READ)
-
-
-router = APIRouter(prefix="/issued", tags=["issuing"], dependencies=[Depends(_require_issued_read)])
+# Structural authorization (ADR-0024): every issuing route needs at least
+# ISSUED_READ (router-level); write/send routes declare the stricter
+# ISSUED_WRITE / ISSUED_SEND per-route below.
+router = APIRouter(
+    prefix="/issued",
+    tags=["issuing"],
+    dependencies=[Depends(require_perm(authz.Permission.ISSUED_READ))],
+)
+_WRITE = [Depends(require_perm(authz.Permission.ISSUED_WRITE))]
+_SEND = [Depends(require_perm(authz.Permission.ISSUED_SEND))]
 
 
 async def _guard(db: DbSession, org_id: str):
@@ -205,12 +207,16 @@ async def _resolve_links(db: DbSession, org_id: str, body: IssuedInvoiceCreate):
     return partner, customer, customer_terms
 
 
-@router.post("", response_model=IssuedInvoiceDetail, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=IssuedInvoiceDetail,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=_WRITE,
+)
 async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbSession):
     """Create an invoice. By default it is born FINAL (numbered, issued); pass
     `draft: true` to create an editable draft with no number and no partner
     signed-gate (finalize it later via POST /{id}/issue)."""
-    authz.require(current, authz.Permission.ISSUED_WRITE)
     await _guard(db, current.org_id)  # module + default-issuer completeness gate
     partner, customer, customer_terms = await _resolve_links(db, current.org_id, body)
     chosen = await _resolve_issuer(db, current.org_id, body.issuer_id)
@@ -256,14 +262,13 @@ async def create_issued(body: IssuedInvoiceCreate, current: CurrentUser, db: DbS
     return _detail(inv)
 
 
-@router.patch("/{invoice_id}", response_model=IssuedInvoiceDetail)
+@router.patch("/{invoice_id}", response_model=IssuedInvoiceDetail, dependencies=_WRITE)
 async def edit_draft(
     invoice_id: str, body: IssuedInvoiceCreate, current: CurrentUser, db: DbSession
 ):
     """Replace a DRAFT invoice's contents (buyer, dates, lines, totals). Only a
     draft is editable — an issued invoice is immutable (correct it with a credit
     note). Server recomputes the tax/totals."""
-    authz.require(current, authz.Permission.ISSUED_WRITE)
     await _guard(db, current.org_id)
     inv = await _load(db, current.org_id, invoice_id)
     if not issued_lifecycle.is_editable(inv.lifecycle):
@@ -341,12 +346,11 @@ async def edit_draft(
     return _detail(inv)
 
 
-@router.post("/{invoice_id}/approve", response_model=IssuedInvoiceDetail)
+@router.post("/{invoice_id}/approve", response_model=IssuedInvoiceDetail, dependencies=_WRITE)
 async def approve_draft(invoice_id: str, current: CurrentUser, db: DbSession):
     """Move a draft to APPROVED (a review gate before it is issued). Still no
     number and still editable-free — approve is reversible only by issuing or
     cancelling."""
-    authz.require(current, authz.Permission.ISSUED_WRITE)
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id)
     issued_lifecycle.target_for("approve", inv.lifecycle)  # validates source state
@@ -364,11 +368,10 @@ async def approve_draft(invoice_id: str, current: CurrentUser, db: DbSession):
     return _detail(inv)
 
 
-@router.post("/{invoice_id}/issue", response_model=IssuedInvoiceDetail)
+@router.post("/{invoice_id}/issue", response_model=IssuedInvoiceDetail, dependencies=_WRITE)
 async def issue_draft(invoice_id: str, body: IssueRequest, current: CurrentUser, db: DbSession):
     """Finalize a draft/approved invoice: enforce the partner signed-gate, allocate
     the gap-free number under a row lock, and set it live (immutable thereafter)."""
-    authz.require(current, authz.Permission.ISSUED_WRITE)
     await _guard(db, current.org_id)
     inv = await _load(db, current.org_id, invoice_id)
     issued_lifecycle.target_for("issue", inv.lifecycle)  # validates source state
@@ -413,11 +416,11 @@ async def issue_draft(invoice_id: str, body: IssueRequest, current: CurrentUser,
     "/{invoice_id}/duplicate",
     response_model=IssuedInvoiceDetail,
     status_code=status.HTTP_201_CREATED,
+    dependencies=_WRITE,
 )
 async def duplicate_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
     """Copy any invoice into a fresh editable DRAFT (new dates, no number, a fresh
     seller snapshot). Credit notes can't be duplicated."""
-    authz.require(current, authz.Permission.ISSUED_WRITE)
     await _guard(db, current.org_id)
     src = await _load(db, current.org_id, invoice_id)
     if issued_status.is_credit_note(src):
@@ -480,11 +483,10 @@ async def duplicate_invoice(invoice_id: str, current: CurrentUser, db: DbSession
     return _detail(dup)
 
 
-@router.post("/{invoice_id}/cancel", response_model=IssuedInvoiceDetail)
+@router.post("/{invoice_id}/cancel", response_model=IssuedInvoiceDetail, dependencies=_WRITE)
 async def cancel_draft(invoice_id: str, current: CurrentUser, db: DbSession):
     """Cancel a never-issued draft/approved invoice. (An ISSUED invoice is voided
     via /void, not cancelled.) The row is kept for the audit trail, reading VOID."""
-    authz.require(current, authz.Permission.ISSUED_WRITE)
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id)
     issued_lifecycle.target_for("cancel_draft", inv.lifecycle)  # validates source state
@@ -501,7 +503,7 @@ async def cancel_draft(invoice_id: str, current: CurrentUser, db: DbSession):
     return _detail(inv)
 
 
-@router.post("/{invoice_id}/mark-viewed", response_model=IssuedInvoiceDetail)
+@router.post("/{invoice_id}/mark-viewed", response_model=IssuedInvoiceDetail, dependencies=_WRITE)
 async def mark_viewed(invoice_id: str, current: CurrentUser, db: DbSession):
     """Record that the buyer VIEWED the invoice (drives the 'viewed' delivery state).
 
@@ -509,7 +511,6 @@ async def mark_viewed(invoice_id: str, current: CurrentUser, db: DbSession):
     invoice-link open; this authenticated endpoint is the seam they call. First-wins
     and IDEMPOTENT — a second call is a no-op (the first view timestamp stands). The
     invoice must already have been sent."""
-    authz.require(current, authz.Permission.ISSUED_WRITE)
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id)
     _require_receivable(inv)
@@ -531,13 +532,12 @@ async def mark_viewed(invoice_id: str, current: CurrentUser, db: DbSession):
     return _detail(inv)
 
 
-@router.post("/{invoice_id}/dispute", response_model=IssuedInvoiceDetail)
+@router.post("/{invoice_id}/dispute", response_model=IssuedInvoiceDetail, dependencies=_WRITE)
 async def dispute_invoice(
     invoice_id: str, body: DisputeRequest, current: CurrentUser, db: DbSession
 ):
     """Flag an issued invoice as DISPUTED (the buyer contests it). It stays a
     receivable (still owed) but is surfaced separately."""
-    authz.require(current, authz.Permission.ISSUED_WRITE)
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id)
     _reject_if_voided(inv)
@@ -557,10 +557,9 @@ async def dispute_invoice(
     return _detail(inv)
 
 
-@router.post("/{invoice_id}/undispute", response_model=IssuedInvoiceDetail)
+@router.post("/{invoice_id}/undispute", response_model=IssuedInvoiceDetail, dependencies=_WRITE)
 async def undispute_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
     """Resolve a dispute — return the invoice to the normal issued/AR lifecycle."""
-    authz.require(current, authz.Permission.ISSUED_WRITE)
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id)
     issued_lifecycle.target_for("undispute", inv.lifecycle)  # validates source state
@@ -577,13 +576,12 @@ async def undispute_invoice(invoice_id: str, current: CurrentUser, db: DbSession
     return _detail(inv)
 
 
-@router.post("/{invoice_id}/write-off", response_model=IssuedInvoiceDetail)
+@router.post("/{invoice_id}/write-off", response_model=IssuedInvoiceDetail, dependencies=_WRITE)
 async def write_off_invoice(
     invoice_id: str, body: WriteOffRequest, current: CurrentUser, db: DbSession
 ):
     """Write off an issued/disputed invoice as bad debt. It is no longer a
     collectible receivable (outstanding reads 0), but the turnover stays on record."""
-    authz.require(current, authz.Permission.ISSUED_WRITE)
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id)
     _reject_if_voided(inv)
@@ -607,6 +605,7 @@ async def write_off_invoice(
     "/{invoice_id}/credit-note",
     response_model=IssuedInvoiceDetail,
     status_code=status.HTTP_201_CREATED,
+    dependencies=_WRITE,
 )
 async def create_credit_note(
     invoice_id: str, body: CreditNoteCreate, current: CurrentUser, db: DbSession
@@ -617,7 +616,6 @@ async def create_credit_note(
     credit. A credit note gets its own number series, reduces the corrected
     invoice's outstanding balance, and lowers reported turnover.
     """
-    authz.require(current, authz.Permission.ISSUED_WRITE)
     await _guard(db, current.org_id)  # module + issuer-completeness gate
     original = await _load(db, current.org_id, invoice_id)
     _require_receivable(original)
@@ -765,10 +763,9 @@ def _require_numbered(inv: IssuedInvoice) -> None:
         )
 
 
-@router.patch("/{invoice_id}/payment", response_model=IssuedInvoiceDetail)
+@router.patch("/{invoice_id}/payment", response_model=IssuedInvoiceDetail, dependencies=_WRITE)
 async def record_payment(invoice_id: str, body: PaymentUpdate, current: CurrentUser, db: DbSession):
     """Record a payment against an issued invoice (drives the paid/overdue report)."""
-    authz.require(current, authz.Permission.ISSUED_WRITE)
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id, lock=True)
     _require_receivable(inv)
@@ -822,12 +819,11 @@ async def record_payment(invoice_id: str, body: PaymentUpdate, current: CurrentU
     return _detail(inv)
 
 
-@router.post("/{invoice_id}/void", response_model=IssuedInvoiceDetail)
+@router.post("/{invoice_id}/void", response_model=IssuedInvoiceDetail, dependencies=_WRITE)
 async def void_invoice(invoice_id: str, body: VoidRequest, current: CurrentUser, db: DbSession):
     """Cancel (void) an unpaid invoice. A voided invoice reads as status VOID and
     refuses payment / credit-note / send. Refuses to void a credit note, an
     invoice with any payment recorded, or one already credited."""
-    authz.require(current, authz.Permission.ISSUED_WRITE)
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id)
     if inv.voided_at is not None:
@@ -988,10 +984,9 @@ def _seller_name(inv: IssuedInvoice) -> str:
     return seller.get("legal_name") or seller.get("trade_name") or "Us"
 
 
-@router.post("/{invoice_id}/send", response_model=SendResult)
+@router.post("/{invoice_id}/send", response_model=SendResult, dependencies=_SEND)
 async def send_invoice(invoice_id: str, body: SendRequest, current: CurrentUser, db: DbSession):
     """Email the invoice PDF to the buyer (or an override recipient)."""
-    authz.require(current, authz.Permission.ISSUED_SEND)
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id)
     _require_receivable(inv)
@@ -1059,12 +1054,11 @@ async def send_invoice(invoice_id: str, body: SendRequest, current: CurrentUser,
     return SendResult(message=EmailMessageOut.model_validate(msg), delivered=msg.status == "sent")
 
 
-@router.post("/{invoice_id}/reminder", response_model=SendResult)
+@router.post("/{invoice_id}/reminder", response_model=SendResult, dependencies=_SEND)
 async def send_reminder(
     invoice_id: str, body: ReminderRequest, current: CurrentUser, db: DbSession
 ):
     """Send a payment reminder (with any accrued penalty) for an overdue invoice."""
-    authz.require(current, authz.Permission.ISSUED_SEND)
     await modules.require_enabled(db, current.org_id, "issuing")
     inv = await _load(db, current.org_id, invoice_id)
     _require_receivable(inv)
@@ -1098,10 +1092,9 @@ async def _do_reminder(db: DbSession, org_id: str, inv: IssuedInvoice, recipient
     )
 
 
-@router.post("/reminders/run", response_model=BulkReminderResult)
+@router.post("/reminders/run", response_model=BulkReminderResult, dependencies=_SEND)
 async def run_overdue_reminders(current: CurrentUser, db: DbSession):
     """Send a reminder for every overdue invoice that has a customer email."""
-    authz.require(current, authz.Permission.ISSUED_SEND)
     await modules.require_enabled(db, current.org_id, "issuing")
     res = await dunning.run_overdue(db, current.org_id)
     await db.commit()
@@ -1289,6 +1282,7 @@ async def list_issued_attachments(invoice_id: str, current: CurrentUser, db: DbS
     "/{invoice_id}/attachments",
     response_model=IssuedAttachmentOut,
     status_code=status.HTTP_201_CREATED,
+    dependencies=_WRITE,
 )
 async def add_issued_attachment(
     invoice_id: str,
@@ -1298,7 +1292,6 @@ async def add_issued_attachment(
     note: str | None = None,
 ):
     """Attach a supporting document (signed PO, delivery note, contract)."""
-    authz.require(current, authz.Permission.ISSUED_WRITE)
     await modules.require_enabled(db, current.org_id, "issuing")
     await _load(db, current.org_id, invoice_id)
     data = await file.read()
@@ -1374,11 +1367,14 @@ async def download_issued_attachment(
     )
 
 
-@router.delete("/{invoice_id}/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{invoice_id}/attachments/{attachment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=_WRITE,
+)
 async def delete_issued_attachment(
     invoice_id: str, attachment_id: str, current: CurrentUser, db: DbSession
 ):
-    authz.require(current, authz.Permission.ISSUED_WRITE)
     await modules.require_enabled(db, current.org_id, "issuing")
     row = await db.scalar(
         select(IssuedInvoiceAttachment).where(

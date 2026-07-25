@@ -6,18 +6,23 @@ VAT-rate picker. Managing the catalog (create / archive) is admin-gated.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.schemas.tax_code import TaxCodeActivate, TaxCodeCreate, TaxCodeOut
 from app.services import tax_codes
 
-router = APIRouter(prefix="/tax-codes", tags=["tax-codes"])
-
-
-def _require_admin(current: CurrentUser) -> None:
-    authz.require(current, authz.Permission.SETTINGS_MANAGE)
+# Structural authorization (ADR-0024): the tax-code catalogue feeds pickers on
+# the money forms, so reading it declares INVOICE_READ — held by EVERY business
+# role, i.e. behaviour-preserving "any authenticated member". Managing the
+# catalogue is org configuration (SETTINGS_MANAGE, per-route).
+router = APIRouter(
+    prefix="/tax-codes",
+    tags=["tax-codes"],
+    dependencies=[Depends(require_perm(authz.Permission.INVOICE_READ))],
+)
+_ADMIN = [Depends(require_perm(authz.Permission.SETTINGS_MANAGE))]
 
 
 @router.get("", response_model=list[TaxCodeOut])
@@ -32,9 +37,10 @@ async def list_tax_codes(
     )
 
 
-@router.post("", response_model=TaxCodeOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=TaxCodeOut, status_code=status.HTTP_201_CREATED, dependencies=_ADMIN
+)
 async def create_tax_code(body: TaxCodeCreate, current: CurrentUser, db: DbSession):
-    _require_admin(current)
     try:
         return await tax_codes.create(
             db,
@@ -49,11 +55,10 @@ async def create_tax_code(body: TaxCodeCreate, current: CurrentUser, db: DbSessi
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
 
 
-@router.patch("/{code_id}", response_model=TaxCodeOut)
+@router.patch("/{code_id}", response_model=TaxCodeOut, dependencies=_ADMIN)
 async def set_tax_code_active(
     code_id: str, body: TaxCodeActivate, current: CurrentUser, db: DbSession
 ):
-    _require_admin(current)
     try:
         return await tax_codes.set_active(
             db, current.org_id, code_id, active=body.active, expected_version=body.version

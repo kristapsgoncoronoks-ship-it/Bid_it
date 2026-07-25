@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.models.issued_invoice import IssuedInvoice
 from app.schemas.receipt import (
@@ -23,16 +23,14 @@ from app.schemas.receipt import (
 )
 from app.services import modules, receipts
 
-
-def _require_payment_read(current: CurrentUser) -> None:
-    """Router-level gate: reading cash receipts needs PAYMENT_READ. The mutating
-    routes additionally require PAYMENT_WRITE inline."""
-    authz.require(current, authz.Permission.PAYMENT_READ)
-
-
+# Structural authorization (ADR-0024): reading cash receipts needs PAYMENT_READ
+# (router-level); the mutating routes declare PAYMENT_WRITE per-route below.
 router = APIRouter(
-    prefix="/receipts", tags=["receipts"], dependencies=[Depends(_require_payment_read)]
+    prefix="/receipts",
+    tags=["receipts"],
+    dependencies=[Depends(require_perm(authz.Permission.PAYMENT_READ))],
 )
+_WRITE = [Depends(require_perm(authz.Permission.PAYMENT_WRITE))]
 
 
 async def _guard(db: DbSession, org_id: str) -> None:
@@ -70,9 +68,10 @@ async def _load(db: DbSession, org_id: str, receipt_id: str, *, lock: bool = Fal
     return r
 
 
-@router.post("", response_model=ReceiptOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=ReceiptOut, status_code=status.HTTP_201_CREATED, dependencies=_WRITE
+)
 async def create_receipt(body: ReceiptCreate, current: CurrentUser, db: DbSession):
-    authz.require(current, authz.Permission.PAYMENT_WRITE)
     await _guard(db, current.org_id)
     r = await receipts.create(
         db,
@@ -100,11 +99,10 @@ async def get_receipt(receipt_id: str, current: CurrentUser, db: DbSession):
     return await _detail(db, current.org_id, r)
 
 
-@router.post("/{receipt_id}/allocate", response_model=ReceiptDetail)
+@router.post("/{receipt_id}/allocate", response_model=ReceiptDetail, dependencies=_WRITE)
 async def allocate_receipt(
     receipt_id: str, body: AllocateRequest, current: CurrentUser, db: DbSession
 ):
-    authz.require(current, authz.Permission.PAYMENT_WRITE)
     await _guard(db, current.org_id)
     r = await _load(db, current.org_id, receipt_id, lock=True)
     inv = await db.scalar(
@@ -121,11 +119,10 @@ async def allocate_receipt(
     return await _detail(db, current.org_id, r)
 
 
-@router.post("/{receipt_id}/deallocate", response_model=ReceiptDetail)
+@router.post("/{receipt_id}/deallocate", response_model=ReceiptDetail, dependencies=_WRITE)
 async def deallocate_receipt(
     receipt_id: str, body: DeallocateRequest, current: CurrentUser, db: DbSession
 ):
-    authz.require(current, authz.Permission.PAYMENT_WRITE)
     await _guard(db, current.org_id)
     r = await _load(db, current.org_id, receipt_id, lock=True)
     try:

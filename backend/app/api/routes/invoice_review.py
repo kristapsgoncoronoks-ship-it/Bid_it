@@ -16,11 +16,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
 from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
 from app.api.routes.vendors import get_or_create_vendor
 from app.core import authz
 from app.core.dimensions import DIMENSION_KEYS
@@ -58,7 +58,16 @@ from app.services import approval_policy as ap
 from app.services import audit, costing, documents, filesec, fx, mailer, webhooks
 from app.services import invoice_workflow as wf
 
-router = APIRouter(tags=["invoice-review"])
+# Structural authorization (ADR-0024): every review route needs at least
+# INVOICE_READ (router-level); edits/submits declare INVOICE_WRITE, approval
+# decisions INVOICE_APPROVE, and policy administration SETTINGS_MANAGE per-route.
+router = APIRouter(
+    tags=["invoice-review"],
+    dependencies=[Depends(require_perm(authz.Permission.INVOICE_READ))],
+)
+_WRITE = [Depends(require_perm(authz.Permission.INVOICE_WRITE))]
+_APPROVE = [Depends(require_perm(authz.Permission.INVOICE_APPROVE))]
+_ADMIN = [Depends(require_perm(authz.Permission.SETTINGS_MANAGE))]
 
 _P = authz.Permission
 _ATTACH_MAX = 25 * 1024 * 1024  # 25 MB per internal attachment
@@ -252,18 +261,16 @@ def _policy_out(p: ApprovalPolicy) -> ApprovalPolicyOut:
 async def get_review(invoice_id: str, current: CurrentUser, db: DbSession):
     """The side-by-side review payload: header + lines + reconciliation + the live
     approval chain + comments + attachments + which transitions are legal now."""
-    authz.require(current, _P.INVOICE_READ)
     inv = await _load(db, current.org_id, invoice_id)
     return await _review_out(db, current.org_id, inv)
 
 
-@router.patch("/invoices/{invoice_id}/review", response_model=ReviewOut)
+@router.patch("/invoices/{invoice_id}/review", response_model=ReviewOut, dependencies=_WRITE)
 async def edit_header(
     invoice_id: str, body: ReviewHeaderUpdate, current: CurrentUser, db: DbSession
 ):
     """Edit header fields, supplier, dimensions, account — while the invoice is in
     an editable state. Version-gated; locked (approved+) invoices refuse edits."""
-    authz.require(current, _P.INVOICE_WRITE)
     inv = await _load(db, current.org_id, invoice_id)
     wf.assert_version(inv.version, body.version)
     if not wf.is_editable(inv.workflow_state):
@@ -310,11 +317,10 @@ async def edit_header(
     return await _review_out(db, current.org_id, inv)
 
 
-@router.put("/invoices/{invoice_id}/lines", response_model=ReviewOut)
+@router.put("/invoices/{invoice_id}/lines", response_model=ReviewOut, dependencies=_WRITE)
 async def edit_lines(invoice_id: str, body: LinesUpdate, current: CurrentUser, db: DbSession):
     """Replace the invoice's line items (tax-validated), then recompute the header
     totals and FX. Version-gated; editable states only."""
-    authz.require(current, _P.INVOICE_WRITE)
     inv = await _load(db, current.org_id, invoice_id)
     wf.assert_version(inv.version, body.version)
     if not wf.is_editable(inv.workflow_state):
@@ -371,11 +377,10 @@ async def edit_lines(invoice_id: str, body: LinesUpdate, current: CurrentUser, d
 # --------------------------------------------------------------------------- #
 
 
-@router.post("/invoices/{invoice_id}/submit", response_model=ReviewOut)
+@router.post("/invoices/{invoice_id}/submit", response_model=ReviewOut, dependencies=_WRITE)
 async def submit(invoice_id: str, body: SubmitIn, current: CurrentUser, db: DbSession):
     """Submit a draft for approval: reconcile, evaluate the governing policy, and
     build the approval chain. Refuses an unbalanced invoice (AP control)."""
-    authz.require(current, _P.INVOICE_WRITE)
     inv = await _load(db, current.org_id, invoice_id)
     wf.assert_version(inv.version, body.version)
     wf.assert_transition(inv.workflow_state, WorkflowState.submitted)
@@ -460,10 +465,9 @@ def _guard_decider(inv: Invoice, current, step: ApprovalStep) -> None:
         )
 
 
-@router.post("/invoices/{invoice_id}/approve", response_model=ReviewOut)
+@router.post("/invoices/{invoice_id}/approve", response_model=ReviewOut, dependencies=_APPROVE)
 async def approve(invoice_id: str, body: DecisionIn, current: CurrentUser, db: DbSession):
     """Approve the current step. Advances the chain; the last approval locks the record."""
-    authz.require(current, _P.INVOICE_APPROVE)
     inv = await _load(db, current.org_id, invoice_id)
     wf.assert_version(inv.version, body.version)
     if inv.workflow_state not in (WorkflowState.submitted, WorkflowState.partially_approved):
@@ -525,10 +529,9 @@ async def approve(invoice_id: str, body: DecisionIn, current: CurrentUser, db: D
     return await _review_out(db, current.org_id, inv)
 
 
-@router.post("/invoices/{invoice_id}/reject", response_model=ReviewOut)
+@router.post("/invoices/{invoice_id}/reject", response_model=ReviewOut, dependencies=_APPROVE)
 async def reject(invoice_id: str, body: DecisionIn, current: CurrentUser, db: DbSession):
     """Reject the current step — ends the chain, invoice → Rejected."""
-    authz.require(current, _P.INVOICE_APPROVE)
     inv = await _load(db, current.org_id, invoice_id)
     wf.assert_version(inv.version, body.version)
     if inv.workflow_state not in (WorkflowState.submitted, WorkflowState.partially_approved):
@@ -574,12 +577,11 @@ async def reject(invoice_id: str, body: DecisionIn, current: CurrentUser, db: Db
     return await _review_out(db, current.org_id, inv)
 
 
-@router.post("/invoices/{invoice_id}/return", response_model=ReviewOut)
+@router.post("/invoices/{invoice_id}/return", response_model=ReviewOut, dependencies=_APPROVE)
 async def return_for_correction(
     invoice_id: str, body: DecisionIn, current: CurrentUser, db: DbSession
 ):
     """Return an in-flight invoice to the submitter for correction (→ Draft)."""
-    authz.require(current, _P.INVOICE_APPROVE)
     inv = await _load(db, current.org_id, invoice_id)
     wf.assert_version(inv.version, body.version)
     if inv.workflow_state not in (WorkflowState.submitted, WorkflowState.partially_approved):
@@ -621,10 +623,9 @@ async def return_for_correction(
     return await _review_out(db, current.org_id, inv)
 
 
-@router.post("/invoices/{invoice_id}/reassign", response_model=ReviewOut)
+@router.post("/invoices/{invoice_id}/reassign", response_model=ReviewOut, dependencies=_APPROVE)
 async def reassign(invoice_id: str, body: ReassignIn, current: CurrentUser, db: DbSession):
     """Reassign a pending approval step to another approver (or make it open)."""
-    authz.require(current, _P.INVOICE_APPROVE)
     inv = await _load(db, current.org_id, invoice_id)
     wf.assert_version(inv.version, body.version)
     steps = await ap.steps_for(db, current.org_id, inv.id)
@@ -669,12 +670,11 @@ async def reassign(invoice_id: str, body: ReassignIn, current: CurrentUser, db: 
 # --------------------------------------------------------------------------- #
 
 
-@router.post("/invoices/{invoice_id}/transition", response_model=ReviewOut)
+@router.post("/invoices/{invoice_id}/transition", response_model=ReviewOut, dependencies=_WRITE)
 async def transition(invoice_id: str, body: TransitionIn, current: CurrentUser, db: DbSession):
     """Move the invoice to another lifecycle state (schedule payment, mark paid,
     dispute, cancel, archive) or reopen an approved invoice for correction (→
     Draft, which invalidates the approval chain and clears the lock)."""
-    authz.require(current, _P.INVOICE_WRITE)
     try:
         target = WorkflowState(body.target)
     except ValueError:
@@ -731,7 +731,6 @@ async def transition(invoice_id: str, body: TransitionIn, current: CurrentUser, 
 @router.get("/invoices/{invoice_id}/approvals", response_model=ApprovalHistoryOut)
 async def approval_history(invoice_id: str, current: CurrentUser, db: DbSession):
     """The live approval chain + the immutable audit history of decisions."""
-    authz.require(current, _P.INVOICE_READ)
     await _load(db, current.org_id, invoice_id)
     steps = await ap.steps_for(db, current.org_id, invoice_id)
     events, _ = await audit.list_events(db, current.org_id, page=1, page_size=200)
@@ -768,7 +767,6 @@ async def _add_comment(db: DbSession, current, invoice_id: str, body: str) -> In
 
 @router.get("/invoices/{invoice_id}/comments", response_model=list[InvoiceCommentOut])
 async def list_comments(invoice_id: str, current: CurrentUser, db: DbSession):
-    authz.require(current, _P.INVOICE_READ)
     await _load(db, current.org_id, invoice_id)
     rows = list(
         await db.scalars(
@@ -786,7 +784,6 @@ async def list_comments(invoice_id: str, current: CurrentUser, db: DbSession):
     status_code=status.HTTP_201_CREATED,
 )
 async def add_comment(invoice_id: str, body: CommentIn, current: CurrentUser, db: DbSession):
-    authz.require(current, _P.INVOICE_READ)
     await _load(db, current.org_id, invoice_id)
     text = (body.body or "").strip()
     if not text:
@@ -802,7 +799,6 @@ async def add_comment(invoice_id: str, body: CommentIn, current: CurrentUser, db
 
 @router.get("/invoices/{invoice_id}/attachments", response_model=list[InvoiceAttachmentOut])
 async def list_attachments(invoice_id: str, current: CurrentUser, db: DbSession):
-    authz.require(current, _P.INVOICE_READ)
     await _load(db, current.org_id, invoice_id)
     rows = list(
         await db.scalars(
@@ -821,12 +817,12 @@ async def list_attachments(invoice_id: str, current: CurrentUser, db: DbSession)
     "/invoices/{invoice_id}/attachments",
     response_model=InvoiceAttachmentOut,
     status_code=status.HTTP_201_CREATED,
+    dependencies=_WRITE,
 )
 async def add_attachment(
     invoice_id: str, current: CurrentUser, db: DbSession, file: UploadFile, note: str | None = None
 ):
     """Attach an internal working document (contract, PO, email) to the invoice."""
-    authz.require(current, _P.INVOICE_WRITE)
     await _load(db, current.org_id, invoice_id)
     data = await file.read()
     if not data:
@@ -879,7 +875,6 @@ async def add_attachment(
 async def download_attachment(
     invoice_id: str, attachment_id: str, current: CurrentUser, db: DbSession
 ):
-    authz.require(current, _P.INVOICE_READ)
     row = await db.scalar(
         select(InvoiceAttachment).where(
             InvoiceAttachment.id == attachment_id,
@@ -909,7 +904,6 @@ async def download_attachment(
 
 @router.get("/approval-policies", response_model=list[ApprovalPolicyOut])
 async def list_policies(current: CurrentUser, db: DbSession):
-    authz.require(current, _P.INVOICE_READ)
     rows = list(
         await db.scalars(
             select(ApprovalPolicy)
@@ -921,12 +915,14 @@ async def list_policies(current: CurrentUser, db: DbSession):
 
 
 @router.post(
-    "/approval-policies", response_model=ApprovalPolicyOut, status_code=status.HTTP_201_CREATED
+    "/approval-policies",
+    response_model=ApprovalPolicyOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=_ADMIN,
 )
 async def create_policy(body: ApprovalPolicyIn, current: CurrentUser, db: DbSession):
     import json
 
-    authz.require(current, _P.SETTINGS_MANAGE)
     p = ApprovalPolicy(
         org_id=current.org_id,
         name=body.name,
@@ -954,13 +950,14 @@ async def create_policy(body: ApprovalPolicyIn, current: CurrentUser, db: DbSess
     return _policy_out(p)
 
 
-@router.patch("/approval-policies/{policy_id}", response_model=ApprovalPolicyOut)
+@router.patch(
+    "/approval-policies/{policy_id}", response_model=ApprovalPolicyOut, dependencies=_ADMIN
+)
 async def update_policy(
     policy_id: str, body: ApprovalPolicyUpdate, current: CurrentUser, db: DbSession
 ):
     import json
 
-    authz.require(current, _P.SETTINGS_MANAGE)
     p = await db.scalar(
         select(ApprovalPolicy).where(
             ApprovalPolicy.id == policy_id, ApprovalPolicy.org_id == current.org_id
@@ -1002,9 +999,10 @@ async def update_policy(
     return _policy_out(p)
 
 
-@router.delete("/approval-policies/{policy_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/approval-policies/{policy_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=_ADMIN
+)
 async def delete_policy(policy_id: str, current: CurrentUser, db: DbSession):
-    authz.require(current, _P.SETTINGS_MANAGE)
     p = await db.scalar(
         select(ApprovalPolicy).where(
             ApprovalPolicy.id == policy_id, ApprovalPolicy.org_id == current.org_id

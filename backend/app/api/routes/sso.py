@@ -3,19 +3,22 @@ public login endpoints live on the auth router (`/auth/sso/...`)."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.core.config import settings
 from app.schemas.sso import ScimTokenOut, SsoConnectionOut, SsoConnectionUpdate
 from app.services import scim, sso_config
 
-router = APIRouter(prefix="/sso", tags=["sso"])
-
-
-def _require_admin(current) -> None:
-    authz.require(current, authz.Permission.SETTINGS_MANAGE)
+# Structural authorization (ADR-0024): SSO/SCIM connection administration is
+# org configuration — router-level SETTINGS_MANAGE (the public login endpoints
+# live on the auth router and stay in PUBLIC_ROUTES).
+router = APIRouter(
+    prefix="/sso",
+    tags=["sso"],
+    dependencies=[Depends(require_perm(authz.Permission.SETTINGS_MANAGE))],
+)
 
 
 def _out(conn) -> SsoConnectionOut:
@@ -49,14 +52,12 @@ def _out(conn) -> SsoConnectionOut:
 
 @router.get("/connection", response_model=SsoConnectionOut | None)
 async def get_connection(current: CurrentUser, db: DbSession):
-    _require_admin(current)
     conn = await sso_config.get_connection(db, current.org_id)
     return _out(conn) if conn else None
 
 
 @router.put("/connection", response_model=SsoConnectionOut)
 async def put_connection(body: SsoConnectionUpdate, current: CurrentUser, db: DbSession):
-    _require_admin(current)
     fields = body.model_dump(exclude_none=True)
     if "role_mappings" in fields:  # dict → JSON string for the Text column
         import json
@@ -76,7 +77,6 @@ async def put_connection(body: SsoConnectionUpdate, current: CurrentUser, db: Db
 
 @router.delete("/connection", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_connection(current: CurrentUser, db: DbSession):
-    _require_admin(current)
     await sso_config.delete_connection(db, current.org_id)
 
 
@@ -84,7 +84,6 @@ async def delete_connection(current: CurrentUser, db: DbSession):
 async def rotate_scim_token(current: CurrentUser, db: DbSession):
     """Enable SCIM and mint a fresh provisioning token (shown ONCE). Regenerating
     invalidates the previous token."""
-    _require_admin(current)
     try:
         token = await scim.set_token(db, current.org_id)
     except scim.ScimError as exc:

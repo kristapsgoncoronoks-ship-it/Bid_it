@@ -1,13 +1,24 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
+from app.core import authz
 from app.models.vendor import Vendor
 from app.schemas.vendor import VendorCreate, VendorOut, VendorUpdate
 
-router = APIRouter(prefix="/vendors", tags=["vendors"])
+# Structural authorization (ADR-0024): the vendor master feeds pickers/filters —
+# router-level INVOICE_READ. Creating/updating a vendor sets the tax id and the
+# IBAN that payment runs pay out to, so the mutations declare INVOICE_WRITE.
+# (These two routes previously carried NO permission check at all — the
+# highest-consequence gap this order closes.)
+router = APIRouter(
+    prefix="/vendors",
+    tags=["vendors"],
+    dependencies=[Depends(require_perm(authz.Permission.INVOICE_READ))],
+)
+_WRITE = [Depends(require_perm(authz.Permission.INVOICE_WRITE))]
 
 
 async def get_or_create_vendor(db: DbSession, org_id: str, name: str) -> Vendor:
@@ -30,7 +41,7 @@ async def list_vendors(current: CurrentUser, db: DbSession) -> list[Vendor]:
     return list(rows)
 
 
-@router.post("", response_model=VendorOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=VendorOut, status_code=status.HTTP_201_CREATED, dependencies=_WRITE)
 async def create_vendor(body: VendorCreate, current: CurrentUser, db: DbSession) -> Vendor:
     existing = await db.scalar(
         select(Vendor).where(Vendor.org_id == current.org_id, Vendor.name == body.name.strip())
@@ -52,7 +63,7 @@ async def create_vendor(body: VendorCreate, current: CurrentUser, db: DbSession)
     return vendor
 
 
-@router.patch("/{vendor_id}", response_model=VendorOut)
+@router.patch("/{vendor_id}", response_model=VendorOut, dependencies=_WRITE)
 async def update_vendor(
     vendor_id: str, body: VendorUpdate, current: CurrentUser, db: DbSession
 ) -> Vendor:

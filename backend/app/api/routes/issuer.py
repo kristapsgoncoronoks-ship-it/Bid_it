@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
 from sqlalchemy import func, select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.models.document_version import OWNER_ISSUER_LOGO
 from app.models.issued_invoice import IssuedInvoice
@@ -11,7 +11,15 @@ from app.schemas.document_version import DocumentVersionOut
 from app.schemas.issuer import IssuerProfileIn, IssuerProfileOut
 from app.services import document_versions, documents, filesec, issuer
 
-router = APIRouter(prefix="/issuer", tags=["issuer"])
+# Structural authorization (ADR-0024): reading the issuer profile/logo powers the
+# issuing screens (ISSUED_READ, router-level); editing the legal entity, its
+# registry and the logo is org administration (SETTINGS_MANAGE, per-route).
+router = APIRouter(
+    prefix="/issuer",
+    tags=["issuer"],
+    dependencies=[Depends(require_perm(authz.Permission.ISSUED_READ))],
+)
+_ADMIN = [Depends(require_perm(authz.Permission.SETTINGS_MANAGE))]
 
 
 def _apply(profile, body: IssuerProfileIn) -> None:
@@ -38,10 +46,9 @@ async def get_issuer(current: CurrentUser, db: DbSession):
     return _out(await issuer.get_or_create(db, current.org_id))
 
 
-@router.put("", response_model=IssuerProfileOut)
+@router.put("", response_model=IssuerProfileOut, dependencies=_ADMIN)
 async def update_issuer(body: IssuerProfileIn, current: CurrentUser, db: DbSession):
     """Update the org's DEFAULT issuer entity (the legacy single-issuer surface)."""
-    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     profile = await issuer.get_or_create(db, current.org_id)
     _apply(profile, body)
     await db.commit()
@@ -58,10 +65,14 @@ async def list_registry(current: CurrentUser, db: DbSession):
     return [_out(p) for p in await issuer.list_issuers(db, current.org_id)]
 
 
-@router.post("/registry", response_model=IssuerProfileOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/registry",
+    response_model=IssuerProfileOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=_ADMIN,
+)
 async def create_registry_issuer(body: IssuerProfileIn, current: CurrentUser, db: DbSession):
     """Register an additional issuer legal entity (its own gap-free numbering series)."""
-    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     await issuer.get_or_create(db, current.org_id)  # first entity is the default
     profile = await issuer.create_issuer(db, current.org_id)
     _apply(profile, body)
@@ -70,11 +81,10 @@ async def create_registry_issuer(body: IssuerProfileIn, current: CurrentUser, db
     return _out(profile)
 
 
-@router.put("/registry/{issuer_id}", response_model=IssuerProfileOut)
+@router.put("/registry/{issuer_id}", response_model=IssuerProfileOut, dependencies=_ADMIN)
 async def update_registry_issuer(
     issuer_id: str, body: IssuerProfileIn, current: CurrentUser, db: DbSession
 ):
-    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     profile = await issuer.get_by_id(db, current.org_id, issuer_id)
     if profile is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Issuer not found")
@@ -84,9 +94,8 @@ async def update_registry_issuer(
     return _out(profile)
 
 
-@router.post("/registry/{issuer_id}/default", response_model=IssuerProfileOut)
+@router.post("/registry/{issuer_id}/default", response_model=IssuerProfileOut, dependencies=_ADMIN)
 async def set_registry_default(issuer_id: str, current: CurrentUser, db: DbSession):
-    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     target = await issuer.set_default(db, current.org_id, issuer_id)
     if target is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Issuer not found")
@@ -95,9 +104,8 @@ async def set_registry_default(issuer_id: str, current: CurrentUser, db: DbSessi
     return _out(target)
 
 
-@router.delete("/registry/{issuer_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/registry/{issuer_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=_ADMIN)
 async def delete_registry_issuer(issuer_id: str, current: CurrentUser, db: DbSession):
-    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     profile = await issuer.get_by_id(db, current.org_id, issuer_id)
     if profile is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Issuer not found")
@@ -120,9 +128,8 @@ async def delete_registry_issuer(issuer_id: str, current: CurrentUser, db: DbSes
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/logo", response_model=IssuerProfileOut)
+@router.post("/logo", response_model=IssuerProfileOut, dependencies=_ADMIN)
 async def upload_logo(current: CurrentUser, db: DbSession, file: UploadFile):
-    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     content = await file.read()
     if len(content) > 2 * 1024 * 1024:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Logo too large (max 2 MB)")
@@ -173,10 +180,9 @@ async def get_logo(current: CurrentUser, db: DbSession):
     )
 
 
-@router.get("/logo/versions", response_model=list[DocumentVersionOut])
+@router.get("/logo/versions", response_model=list[DocumentVersionOut], dependencies=_ADMIN)
 async def logo_versions(current: CurrentUser, db: DbSession):
     """The supersession history of this org's logo (newest first)."""
-    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     profile = await issuer.get_or_create(db, current.org_id)
     rows = await document_versions.history(db, current.org_id, OWNER_ISSUER_LOGO, profile.id)
     return [DocumentVersionOut.model_validate(r) for r in rows]

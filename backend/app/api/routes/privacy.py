@@ -5,18 +5,20 @@ integrity) or blocked by a legal hold."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.schemas.privacy import ErasureLocationOut, ErasureReportOut, ErasureRequest
 from app.services import privacy
 
-router = APIRouter(prefix="/privacy", tags=["privacy"])
-
-
-def _require_admin(current) -> None:
-    authz.require(current, authz.Permission.SETTINGS_MANAGE)
+# Structural authorization (ADR-0024): GDPR erasure is an administrative,
+# audited operation — router-level SETTINGS_MANAGE.
+router = APIRouter(
+    prefix="/privacy",
+    tags=["privacy"],
+    dependencies=[Depends(require_perm(authz.Permission.SETTINGS_MANAGE))],
+)
 
 
 def _out(rep) -> ErasureReportOut:
@@ -39,11 +41,9 @@ def _out(rep) -> ErasureReportOut:
 
 @router.post("/erasure/preview", response_model=ErasureReportOut)
 async def preview_erasure(body: ErasureRequest, current: CurrentUser, db: DbSession):
-    _require_admin(current)
     return _out(await privacy.preview(db, current.org_id, str(body.email)))
 
 
 @router.post("/erasure", response_model=ErasureReportOut)
 async def run_erasure(body: ErasureRequest, current: CurrentUser, db: DbSession):
-    _require_admin(current)
     return _out(await privacy.erase(db, current.org_id, str(body.email), actor_email=current.email))

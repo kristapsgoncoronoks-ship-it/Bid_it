@@ -6,12 +6,13 @@ from datetime import date
 from decimal import Decimal
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
+from app.core import authz
 from app.core.dimensions import DIMENSION_KEYS
 from app.core.roles import is_admin_or_above
 from app.models.document_version import OWNER_EXPENSE_RECEIPT
@@ -69,7 +70,21 @@ from app.services import (
     webhooks,
 )
 
-router = APIRouter(prefix="/expenses", tags=["expenses"])
+# Structural authorization (ADR-0024): every expense route needs at least
+# EXPENSE_READ (router-level). Claimant actions (create/edit/submit/withdraw and
+# the transaction inbox) declare EXPENSE_WRITE; approver decisions declare
+# EXPENSE_APPROVE (the in-handler assigned-approver + segregation-of-duties
+# checks REMAIN — they are stricter than any permission); policy administration
+# declares SETTINGS_MANAGE (matching the existing is_admin_or_above checks,
+# which remain as defence in depth).
+router = APIRouter(
+    prefix="/expenses",
+    tags=["expenses"],
+    dependencies=[Depends(require_perm(authz.Permission.EXPENSE_READ))],
+)
+_WRITE = [Depends(require_perm(authz.Permission.EXPENSE_WRITE))]
+_APPROVE = [Depends(require_perm(authz.Permission.EXPENSE_APPROVE))]
+_ADMIN = [Depends(require_perm(authz.Permission.SETTINGS_MANAGE))]
 
 
 async def _guard(db: DbSession, org_id: str):
@@ -184,7 +199,12 @@ def _item_from_txn(t: ExpenseTransaction, category: str = "other", vat=Decimal("
     )
 
 
-@router.post("", response_model=ExpenseReportDetail, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=ExpenseReportDetail,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=_WRITE,
+)
 async def create_report(body: ExpenseReportCreate, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     items = [expenses.item_from(i) for i in body.items]
@@ -217,7 +237,7 @@ async def create_report(body: ExpenseReportCreate, current: CurrentUser, db: DbS
     return _detail(report)
 
 
-@router.post("/import/bank-statement", response_model=BankImportResult)
+@router.post("/import/bank-statement", response_model=BankImportResult, dependencies=_WRITE)
 async def import_bank_statement(current: CurrentUser, db: DbSession, file: UploadFile):
     """Read a bank statement (PDF via OCR, or CSV) and drop the transactions into
     the employee's 'available expenses' inbox (SAP Concur style)."""
@@ -272,7 +292,7 @@ async def import_bank_statement(current: CurrentUser, db: DbSession, file: Uploa
     )
 
 
-@router.post("/receipt-scan", response_model=ReceiptScanOut)
+@router.post("/receipt-scan", response_model=ReceiptScanOut, dependencies=_WRITE)
 async def receipt_scan(current: CurrentUser, db: DbSession, file: UploadFile):
     """Advisory OCR of a receipt image/PDF → suggested item fields (merchant, date,
     amount, tax, currency). Reads only — writes nothing; the user confirms."""
@@ -317,7 +337,9 @@ async def list_transactions(
     return [ExpenseTransactionOut.model_validate(t) for t in rows]
 
 
-@router.delete("/transactions/{txn_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/transactions/{txn_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=_WRITE
+)
 async def delete_transaction(txn_id: str, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     t = await db.scalar(
@@ -441,7 +463,7 @@ async def get_policy(current: CurrentUser, db: DbSession):
     return _policy_out(await expense_policy.get(db, current.org_id))
 
 
-@router.put("/policy", response_model=ExpensePolicyOut)
+@router.put("/policy", response_model=ExpensePolicyOut, dependencies=_ADMIN)
 async def set_policy(body: ExpensePolicyIn, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     if not is_admin_or_above(current):
@@ -509,6 +531,7 @@ async def list_approval_policies(current: CurrentUser, db: DbSession):
     "/approval-policies",
     response_model=ExpenseApprovalPolicyOut,
     status_code=status.HTTP_201_CREATED,
+    dependencies=_ADMIN,
 )
 async def create_approval_policy(
     body: ExpenseApprovalPolicyIn, current: CurrentUser, db: DbSession
@@ -540,7 +563,11 @@ async def create_approval_policy(
     return _appr_policy_out(p)
 
 
-@router.patch("/approval-policies/{policy_id}", response_model=ExpenseApprovalPolicyOut)
+@router.patch(
+    "/approval-policies/{policy_id}",
+    response_model=ExpenseApprovalPolicyOut,
+    dependencies=_ADMIN,
+)
 async def update_approval_policy(
     policy_id: str, body: ExpenseApprovalPolicyUpdate, current: CurrentUser, db: DbSession
 ):
@@ -580,7 +607,9 @@ async def update_approval_policy(
     return _appr_policy_out(p)
 
 
-@router.delete("/approval-policies/{policy_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/approval-policies/{policy_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=_ADMIN
+)
 async def delete_approval_policy(policy_id: str, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     if not is_admin_or_above(current):
@@ -635,7 +664,7 @@ async def policy_check(report_id: str, current: CurrentUser, db: DbSession):
     )
 
 
-@router.patch("/{report_id}", response_model=ExpenseReportDetail)
+@router.patch("/{report_id}", response_model=ExpenseReportDetail, dependencies=_WRITE)
 async def update_report(
     report_id: str, body: ExpenseReportUpdate, current: CurrentUser, db: DbSession
 ):
@@ -660,7 +689,7 @@ async def update_report(
     return _detail(r)
 
 
-@router.post("/{report_id}/submit", response_model=ExpenseReportDetail)
+@router.post("/{report_id}/submit", response_model=ExpenseReportDetail, dependencies=_WRITE)
 async def submit_report(report_id: str, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     r = await _load(db, current.org_id, report_id)
@@ -733,7 +762,7 @@ async def submit_report(report_id: str, current: CurrentUser, db: DbSession):
     return await _detail_with_steps(r, db, current.org_id)
 
 
-@router.post("/{report_id}/decision", response_model=ExpenseReportDetail)
+@router.post("/{report_id}/decision", response_model=ExpenseReportDetail, dependencies=_APPROVE)
 async def decide(report_id: str, body: ExpenseDecision, current: CurrentUser, db: DbSession):
     """An approver/finance action on a report: approve, reject, return for
     correction, mark for reimbursement, or mark reimbursed. The state machine
@@ -829,7 +858,7 @@ async def decide(report_id: str, body: ExpenseDecision, current: CurrentUser, db
     return await _detail_with_steps(r, db, current.org_id)
 
 
-@router.post("/{report_id}/reassign", response_model=ExpenseReportDetail)
+@router.post("/{report_id}/reassign", response_model=ExpenseReportDetail, dependencies=_APPROVE)
 async def reassign_step(report_id: str, body: ReassignIn, current: CurrentUser, db: DbSession):
     """Reassign a pending approval step to a different approver (an approver may
     delegate/route). Defaults to the current pending step."""
@@ -869,7 +898,7 @@ async def reassign_step(report_id: str, body: ReassignIn, current: CurrentUser, 
     return await _detail_with_steps(r, db, current.org_id)
 
 
-@router.post("/{report_id}/withdraw", response_model=ExpenseReportDetail)
+@router.post("/{report_id}/withdraw", response_model=ExpenseReportDetail, dependencies=_WRITE)
 async def withdraw_report(report_id: str, current: CurrentUser, db: DbSession):
     """Pull a submitted report back to draft before any decision is made
     (owner-only)."""
@@ -894,7 +923,10 @@ async def withdraw_report(report_id: str, current: CurrentUser, db: DbSession):
 
 
 @router.post(
-    "/{report_id}/items", response_model=ExpenseReportDetail, status_code=status.HTTP_201_CREATED
+    "/{report_id}/items",
+    response_model=ExpenseReportDetail,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=_WRITE,
 )
 async def add_item(report_id: str, body: ExpenseItemIn, current: CurrentUser, db: DbSession):
     """Add a manual expense entry (standard / mileage / per-diem) to a draft or
@@ -911,7 +943,7 @@ async def add_item(report_id: str, body: ExpenseItemIn, current: CurrentUser, db
     return _detail(r)
 
 
-@router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=_WRITE)
 async def delete_report(report_id: str, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     r = await _load(db, current.org_id, report_id)
@@ -921,7 +953,11 @@ async def delete_report(report_id: str, current: CurrentUser, db: DbSession):
     await db.commit()
 
 
-@router.post("/{report_id}/items/from-transaction", response_model=ExpenseReportDetail)
+@router.post(
+    "/{report_id}/items/from-transaction",
+    response_model=ExpenseReportDetail,
+    dependencies=_WRITE,
+)
 async def add_item_from_transaction(
     report_id: str, body: ItemFromTransaction, current: CurrentUser, db: DbSession
 ):
@@ -977,7 +1013,9 @@ async def add_comment(report_id: str, body: ExpenseCommentIn, current: CurrentUs
     return ExpenseCommentOut.model_validate(c)
 
 
-@router.patch("/{report_id}/items/{item_id}", response_model=ExpenseReportDetail)
+@router.patch(
+    "/{report_id}/items/{item_id}", response_model=ExpenseReportDetail, dependencies=_WRITE
+)
 async def update_item(
     report_id: str, item_id: str, body: ExpenseItemPatch, current: CurrentUser, db: DbSession
 ):
@@ -1054,7 +1092,9 @@ async def match_candidates(report_id: str, item_id: str, current: CurrentUser, d
     return [ExpenseTransactionOut.model_validate(t) for t in cands[:10]]
 
 
-@router.post("/{report_id}/items/{item_id}/match", response_model=ExpenseReportDetail)
+@router.post(
+    "/{report_id}/items/{item_id}/match", response_model=ExpenseReportDetail, dependencies=_WRITE
+)
 async def match_item(
     report_id: str, item_id: str, body: MatchTransaction, current: CurrentUser, db: DbSession
 ):
@@ -1080,7 +1120,11 @@ async def match_item(
     return _detail(r)
 
 
-@router.delete("/{report_id}/items/{item_id}/match", response_model=ExpenseReportDetail)
+@router.delete(
+    "/{report_id}/items/{item_id}/match",
+    response_model=ExpenseReportDetail,
+    dependencies=_WRITE,
+)
 async def unmatch_item(report_id: str, item_id: str, current: CurrentUser, db: DbSession):
     """Undo a bank-statement reconciliation, returning the line to the inbox."""
     await _guard(db, current.org_id)
@@ -1103,7 +1147,11 @@ async def unmatch_item(report_id: str, item_id: str, current: CurrentUser, db: D
     return _detail(r)
 
 
-@router.post("/{report_id}/items/{item_id}/receipt", response_model=ExpenseReportDetail)
+@router.post(
+    "/{report_id}/items/{item_id}/receipt",
+    response_model=ExpenseReportDetail,
+    dependencies=_WRITE,
+)
 async def upload_receipt(
     report_id: str, item_id: str, current: CurrentUser, db: DbSession, file: UploadFile
 ):

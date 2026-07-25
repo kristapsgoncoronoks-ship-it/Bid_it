@@ -11,7 +11,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.core.security_headers import content_disposition
 from app.models.payment_run import PaymentRun
@@ -24,16 +24,14 @@ from app.schemas.payment_run import (
 )
 from app.services import audit, payment_run, sepa, webhooks
 
-
-def _require_payment_read(current: CurrentUser) -> None:
-    authz.require(current, authz.Permission.PAYMENT_READ)
-
-
+# Structural authorization (ADR-0024): router-level PAYMENT_READ; the mutating
+# routes declare the stricter PAYMENT_WRITE per-route below.
 router = APIRouter(
     prefix="/payment-runs",
     tags=["payment-runs"],
-    dependencies=[Depends(_require_payment_read)],
+    dependencies=[Depends(require_perm(authz.Permission.PAYMENT_READ))],
 )
+_WRITE = [Depends(require_perm(authz.Permission.PAYMENT_WRITE))]
 
 
 def _invoice_out(inv) -> RunInvoiceOut:
@@ -108,9 +106,10 @@ async def list_runs(current: CurrentUser, db: DbSession):
     return out
 
 
-@router.post("", response_model=RunDetailOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=RunDetailOut, status_code=status.HTTP_201_CREATED, dependencies=_WRITE
+)
 async def create_run(body: RunCreate, current: CurrentUser, db: DbSession):
-    authz.require(current, authz.Permission.PAYMENT_WRITE)
     try:
         run = await payment_run.create_run(
             db,
@@ -140,9 +139,8 @@ async def get_run(run_id: str, current: CurrentUser, db: DbSession):
     return await _detail(db, current.org_id, run)
 
 
-@router.post("/{run_id}/pay", response_model=RunDetailOut)
+@router.post("/{run_id}/pay", response_model=RunDetailOut, dependencies=_WRITE)
 async def pay_run(run_id: str, body: RunPay, current: CurrentUser, db: DbSession):
-    authz.require(current, authz.Permission.PAYMENT_WRITE)
     run = await _load(db, current.org_id, run_id, lock=True)
     if body.version != run.version:
         raise HTTPException(
@@ -174,9 +172,8 @@ async def pay_run(run_id: str, body: RunPay, current: CurrentUser, db: DbSession
     return await _detail(db, current.org_id, run)
 
 
-@router.delete("/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{run_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=_WRITE)
 async def cancel_run(run_id: str, current: CurrentUser, db: DbSession):
-    authz.require(current, authz.Permission.PAYMENT_WRITE)
     run = await _load(db, current.org_id, run_id, lock=True)
     try:
         await payment_run.cancel_run(db, current.org_id, run)

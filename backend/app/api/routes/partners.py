@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
+from app.core import authz
 from app.models.partner import Partner, PartnerDocument
 from app.schemas.issued import IssuedInvoiceDetail
 from app.schemas.partner import (
@@ -20,7 +21,16 @@ from app.schemas.partner import (
 )
 from app.services import audit, modules, partners
 
-router = APIRouter(prefix="/partners", tags=["partners"])
+# Structural authorization (ADR-0024): partners are the issuing counterparty
+# master — router-level ISSUED_READ; mutations (incl. document sign-off, which
+# unlocks invoicing, and penalty-invoice generation) declare ISSUED_WRITE.
+# (Previously open to any member with the module enabled.)
+router = APIRouter(
+    prefix="/partners",
+    tags=["partners"],
+    dependencies=[Depends(require_perm(authz.Permission.ISSUED_READ))],
+)
+_WRITE = [Depends(require_perm(authz.Permission.ISSUED_WRITE))]
 
 
 async def _guard(db: DbSession, org_id: str):
@@ -55,7 +65,9 @@ async def list_partners(current: CurrentUser, db: DbSession):
     return [PartnerOut.model_validate(p) for p in rows]
 
 
-@router.post("", response_model=PartnerDetail, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=PartnerDetail, status_code=status.HTTP_201_CREATED, dependencies=_WRITE
+)
 async def create_partner(body: PartnerIn, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     p = Partner(org_id=current.org_id, **body.model_dump())
@@ -76,7 +88,7 @@ async def get_partner(partner_id: str, current: CurrentUser, db: DbSession):
     return _detail(await _load(db, current.org_id, partner_id))
 
 
-@router.patch("/{partner_id}", response_model=PartnerDetail)
+@router.patch("/{partner_id}", response_model=PartnerDetail, dependencies=_WRITE)
 async def update_partner(partner_id: str, body: PartnerUpdate, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     p = await _load(db, current.org_id, partner_id)
@@ -96,6 +108,7 @@ async def update_partner(partner_id: str, body: PartnerUpdate, current: CurrentU
     "/{partner_id}/documents",
     response_model=PartnerDocumentOut,
     status_code=status.HTTP_201_CREATED,
+    dependencies=_WRITE,
 )
 async def add_document(
     partner_id: str, body: PartnerDocumentIn, current: CurrentUser, db: DbSession
@@ -117,7 +130,9 @@ async def add_document(
     return PartnerDocumentOut.model_validate(doc)
 
 
-@router.post("/{partner_id}/documents/{doc_id}/sign", response_model=PartnerDetail)
+@router.post(
+    "/{partner_id}/documents/{doc_id}/sign", response_model=PartnerDetail, dependencies=_WRITE
+)
 async def sign_document(
     partner_id: str, doc_id: str, body: DocumentSignIn, current: CurrentUser, db: DbSession
 ):
@@ -148,7 +163,11 @@ async def sign_document(
     return _detail(await _load(db, current.org_id, partner_id))
 
 
-@router.delete("/{partner_id}/documents/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{partner_id}/documents/{doc_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=_WRITE,
+)
 async def delete_document(partner_id: str, doc_id: str, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     doc = await db.scalar(
@@ -205,6 +224,7 @@ async def partner_penalty(partner_id: str, current: CurrentUser, db: DbSession):
     "/{partner_id}/penalty-invoice",
     response_model=IssuedInvoiceDetail,
     status_code=status.HTTP_201_CREATED,
+    dependencies=_WRITE,
 )
 async def generate_penalty_invoice(partner_id: str, current: CurrentUser, db: DbSession):
     """Generate a penalty (late-interest) invoice for the partner. Requires the

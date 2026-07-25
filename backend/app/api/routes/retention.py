@@ -7,9 +7,9 @@ suspends all purging while active. `POST /retention/purge` runs a purge on deman
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.schemas.retention import (
     HoldCreate,
@@ -21,11 +21,13 @@ from app.schemas.retention import (
 )
 from app.services import retention as svc
 
-router = APIRouter(prefix="/retention", tags=["retention"])
-
-
-def _require_admin(current) -> None:
-    authz.require(current, authz.Permission.SETTINGS_MANAGE)
+# Structural authorization (ADR-0024): retention policy + legal holds + purge are
+# administrative, audited operations — router-level SETTINGS_MANAGE.
+router = APIRouter(
+    prefix="/retention",
+    tags=["retention"],
+    dependencies=[Depends(require_perm(authz.Permission.SETTINGS_MANAGE))],
+)
 
 
 async def _snapshot(db, org_id: str) -> RetentionOut:
@@ -46,13 +48,11 @@ async def _snapshot(db, org_id: str) -> RetentionOut:
 
 @router.get("", response_model=RetentionOut)
 async def get_retention(current: CurrentUser, db: DbSession):
-    _require_admin(current)
     return await _snapshot(db, current.org_id)
 
 
 @router.put("/policy", response_model=RetentionOut)
 async def set_policy(body: PolicyUpdate, current: CurrentUser, db: DbSession):
-    _require_admin(current)
     try:
         await svc.set_policy(db, current.org_id, body.category, body.retain_days)
     except ValueError as exc:
@@ -62,14 +62,12 @@ async def set_policy(body: PolicyUpdate, current: CurrentUser, db: DbSession):
 
 @router.post("/holds", response_model=LegalHoldOut, status_code=status.HTTP_201_CREATED)
 async def place_hold(body: HoldCreate, current: CurrentUser, db: DbSession):
-    _require_admin(current)
     hold = await svc.place_hold(db, current.org_id, reason=body.reason, actor_email=current.email)
     return LegalHoldOut.model_validate(hold)
 
 
 @router.post("/holds/{hold_id}/release", response_model=RetentionOut)
 async def release_hold(hold_id: str, current: CurrentUser, db: DbSession):
-    _require_admin(current)
     ok = await svc.release_hold(db, current.org_id, hold_id, actor_email=current.email)
     if not ok:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No active hold with that id")
@@ -79,6 +77,5 @@ async def release_hold(hold_id: str, current: CurrentUser, db: DbSession):
 @router.post("/purge", response_model=PurgeResult)
 async def run_purge(current: CurrentUser, db: DbSession):
     """Run a retention purge now (in addition to the daily scheduled run)."""
-    _require_admin(current)
     result = await svc.purge(db, current.org_id)
     return PurgeResult(**result)

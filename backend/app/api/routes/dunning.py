@@ -7,21 +7,26 @@ levels the org runs the built-in default ladder — GET reports that via `is_def
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.models.dunning_policy import DunningPolicy
 from app.schemas.dunning import DunningLevelOut, DunningPolicyIn, DunningPolicyOut
 from app.services import audit, dunning
 
-router = APIRouter(prefix="/dunning", tags=["dunning"])
+# Structural authorization (ADR-0024): the dunning ladder is org configuration —
+# router-level SETTINGS_MANAGE (both read and write, as before).
+router = APIRouter(
+    prefix="/dunning",
+    tags=["dunning"],
+    dependencies=[Depends(require_perm(authz.Permission.SETTINGS_MANAGE))],
+)
 
 
 @router.get("/policy", response_model=DunningPolicyOut)
 async def get_policy(current: CurrentUser, db: DbSession):
-    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     configured = list(
         await db.scalars(
             select(DunningPolicy)
@@ -50,7 +55,6 @@ async def get_policy(current: CurrentUser, db: DbSession):
 
 @router.put("/policy", response_model=DunningPolicyOut)
 async def set_policy(body: DunningPolicyIn, current: CurrentUser, db: DbSession):
-    authz.require(current, authz.Permission.SETTINGS_MANAGE)
     levels = sorted(body.levels, key=lambda lv: lv.level)
     if len({lv.level for lv in levels}) != len(levels):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "duplicate level")

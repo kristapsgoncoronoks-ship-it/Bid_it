@@ -8,10 +8,10 @@ the expenses module; every action is audited and emits a webhook.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
 from app.api.routes.expenses import _guard
 from app.core import authz
 from app.core.security_headers import content_disposition
@@ -25,8 +25,13 @@ from app.schemas.reimbursement import (
 )
 from app.services import audit, reimbursement, sepa, webhooks
 
-router = APIRouter(prefix="/reimbursements", tags=["reimbursements"])
-_P = authz.Permission
+# Structural authorization (ADR-0024): every reimbursement-payout route is an
+# approver/finance action — router-level EXPENSE_APPROVE.
+router = APIRouter(
+    prefix="/reimbursements",
+    tags=["reimbursements"],
+    dependencies=[Depends(require_perm(authz.Permission.EXPENSE_APPROVE))],
+)
 
 
 async def _load(
@@ -80,7 +85,6 @@ async def _detail(db: DbSession, org_id: str, b: ReimbursementBatch) -> BatchDet
 @router.get("", response_model=list[BatchOut])
 async def list_batches(current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
-    authz.require(current, _P.EXPENSE_APPROVE)
     rows = list(
         await db.scalars(
             select(ReimbursementBatch)
@@ -112,7 +116,6 @@ async def list_batches(current: CurrentUser, db: DbSession):
 @router.post("", response_model=BatchDetailOut, status_code=status.HTTP_201_CREATED)
 async def create_batch(body: BatchCreate, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
-    authz.require(current, _P.EXPENSE_APPROVE)
     try:
         batch = await reimbursement.create_batch(
             db,
@@ -145,7 +148,6 @@ async def create_batch(body: BatchCreate, current: CurrentUser, db: DbSession):
 @router.get("/{batch_id}", response_model=BatchDetailOut)
 async def get_batch(batch_id: str, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
-    authz.require(current, _P.EXPENSE_APPROVE)
     b = await _load(db, current.org_id, batch_id)
     return await _detail(db, current.org_id, b)
 
@@ -153,7 +155,6 @@ async def get_batch(batch_id: str, current: CurrentUser, db: DbSession):
 @router.post("/{batch_id}/pay", response_model=BatchDetailOut)
 async def pay_batch(batch_id: str, body: BatchPay, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
-    authz.require(current, _P.EXPENSE_APPROVE)
     b = await _load(db, current.org_id, batch_id, lock=True)
     if body.version != b.version:
         raise HTTPException(
@@ -191,7 +192,6 @@ async def pay_batch(batch_id: str, body: BatchPay, current: CurrentUser, db: DbS
 @router.delete("/{batch_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_batch(batch_id: str, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
-    authz.require(current, _P.EXPENSE_APPROVE)
     b = await _load(db, current.org_id, batch_id)
     try:
         await reimbursement.cancel_batch(db, current.org_id, b)
@@ -206,7 +206,6 @@ async def cancel_batch(batch_id: str, current: CurrentUser, db: DbSession):
 @router.get("/{batch_id}/export")
 async def export_batch(batch_id: str, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
-    authz.require(current, _P.EXPENSE_APPROVE)
     b = await _load(db, current.org_id, batch_id)
     reports = await reimbursement.batch_reports(db, current.org_id, b.id)
     csv_text = reimbursement.export_csv(b, reports)
@@ -227,7 +226,6 @@ async def export_batch_sepa(batch_id: str, current: CurrentUser, db: DbSession):
     employees with an IBAN on file). 422 if the issuer has no IBAN or no payee has
     one. The `X-Skipped` header counts employees excluded for missing bank details."""
     await _guard(db, current.org_id)
-    authz.require(current, _P.EXPENSE_APPROVE)
     b = await _load(db, current.org_id, batch_id)
     try:
         xml, skipped = await reimbursement.batch_sepa(db, current.org_id, b)

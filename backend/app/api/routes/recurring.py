@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
+from app.core import authz
 from app.schemas.recurring import (
     GenerateResult,
     RecurringCreate,
@@ -13,7 +14,16 @@ from app.services import audit, issuer, modules, partners, recurring
 
 # Mounted under the issuing module. Included BEFORE the `issued` router so
 # `/issued/recurring*` resolves here and never hits `/issued/{invoice_id}`.
-router = APIRouter(prefix="/issued/recurring", tags=["issuing"])
+# Structural authorization (ADR-0024): schedules belong to the issuing surface —
+# router-level ISSUED_READ; creating/updating/deleting a schedule and generating
+# the due invoices declare ISSUED_WRITE. (Previously open to any member with the
+# module enabled.)
+router = APIRouter(
+    prefix="/issued/recurring",
+    tags=["issuing"],
+    dependencies=[Depends(require_perm(authz.Permission.ISSUED_READ))],
+)
+_WRITE = [Depends(require_perm(authz.Permission.ISSUED_WRITE))]
 
 
 async def _guard(db: DbSession, org_id: str):
@@ -27,7 +37,9 @@ async def _guard(db: DbSession, org_id: str):
         )
 
 
-@router.post("", response_model=RecurringOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=RecurringOut, status_code=status.HTTP_201_CREATED, dependencies=_WRITE
+)
 async def create_schedule(body: RecurringCreate, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     # If the template links a partner, it must exist (its signed-doc gate is
@@ -57,7 +69,7 @@ async def list_schedules(current: CurrentUser, db: DbSession):
     return [RecurringOut.model_validate(r) for r in rows]
 
 
-@router.post("/run", response_model=GenerateResult)
+@router.post("/run", response_model=GenerateResult, dependencies=_WRITE)
 async def run_due(current: CurrentUser, db: DbSession):
     """Generate every invoice that is due now across this tenant's schedules."""
     await _guard(db, current.org_id)
@@ -74,7 +86,7 @@ async def get_schedule(rec_id: str, current: CurrentUser, db: DbSession):
     return RecurringOut.model_validate(rec)
 
 
-@router.patch("/{rec_id}", response_model=RecurringOut)
+@router.patch("/{rec_id}", response_model=RecurringOut, dependencies=_WRITE)
 async def update_schedule(rec_id: str, body: RecurringUpdate, current: CurrentUser, db: DbSession):
     await modules.require_enabled(db, current.org_id, "issuing")
     rec = await recurring.get(db, current.org_id, rec_id)
@@ -104,7 +116,7 @@ async def update_schedule(rec_id: str, body: RecurringUpdate, current: CurrentUs
     return RecurringOut.model_validate(rec)
 
 
-@router.delete("/{rec_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{rec_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=_WRITE)
 async def delete_schedule(rec_id: str, current: CurrentUser, db: DbSession):
     await modules.require_enabled(db, current.org_id, "issuing")
     rec = await recurring.get(db, current.org_id, rec_id)

@@ -4,11 +4,11 @@ import json
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
 from app.api.routes.vendors import get_or_create_vendor
 from app.core import authz
 from app.core.dimensions import DIMENSION_KEYS
@@ -55,7 +55,16 @@ from app.services import (
     webhooks,
 )
 
-router = APIRouter(prefix="/invoices", tags=["invoices"])
+# Structural authorization (ADR-0024): every invoice route needs at least
+# INVOICE_READ (router-level — held by EVERY business role, so the metered
+# capture flow stays open to every tier exactly as documented on
+# `create_invoice`/`upload_invoice`). The privileged operations declare their
+# stricter permission per-route below.
+router = APIRouter(
+    prefix="/invoices",
+    tags=["invoices"],
+    dependencies=[Depends(require_perm(authz.Permission.INVOICE_READ))],
+)
 
 _MAX_UPLOAD = 15 * 1024 * 1024  # 15 MB (scanned PDFs run larger)
 
@@ -432,7 +441,11 @@ async def invoice_extraction(invoice_id: str, current: CurrentUser, db: DbSessio
     return out
 
 
-@router.patch("/{invoice_id}", response_model=InvoiceDetailOut)
+@router.patch(
+    "/{invoice_id}",
+    response_model=InvoiceDetailOut,
+    dependencies=[Depends(require_perm(authz.Permission.INVOICE_WRITE))],
+)
 async def update_invoice(invoice_id: str, body: InvoiceUpdate, current: CurrentUser, db: DbSession):
     invoice = await _load_scoped(db, current.org_id, invoice_id)
     if body.status is not None:
@@ -457,16 +470,23 @@ async def update_invoice(invoice_id: str, body: InvoiceUpdate, current: CurrentU
 _PAYABLE = frozenset({WorkflowState.scheduled_for_payment, WorkflowState.partially_paid})
 
 
-@router.get("/{invoice_id}/payments", response_model=list[SupplierPaymentOut])
+@router.get(
+    "/{invoice_id}/payments",
+    response_model=list[SupplierPaymentOut],
+    dependencies=[Depends(require_perm(authz.Permission.PAYMENT_READ))],
+)
 async def list_supplier_payments(invoice_id: str, current: CurrentUser, db: DbSession):
     """The AP payment-ledger history for one supplier invoice (Phase 13)."""
-    authz.require(current, authz.Permission.PAYMENT_READ)
     await _load_scoped(db, current.org_id, invoice_id)  # tenant-scoped existence check
     rows = await ap_payments.list_for(db, current.org_id, invoice_id)
     return [SupplierPaymentOut.model_validate(p) for p in rows]
 
 
-@router.patch("/{invoice_id}/payment", response_model=InvoiceDetailOut)
+@router.patch(
+    "/{invoice_id}/payment",
+    response_model=InvoiceDetailOut,
+    dependencies=[Depends(require_perm(authz.Permission.PAYMENT_WRITE))],
+)
 async def record_supplier_payment(
     invoice_id: str, body: SupplierPaymentRecord, current: CurrentUser, db: DbSession
 ):
@@ -475,7 +495,6 @@ async def record_supplier_payment(
     (a downward figure is an auditable correction). The amount is capped at the
     invoice total, and settling it (partially/fully) advances the workflow state to
     partially_paid / paid."""
-    authz.require(current, authz.Permission.PAYMENT_WRITE)
     inv = await _load_scoped(db, current.org_id, invoice_id)
     if inv.workflow_state not in _PAYABLE:
         raise HTTPException(
@@ -530,12 +549,15 @@ async def record_supplier_payment(
     return _detail(inv, inv.vendor.name)
 
 
-@router.post("/{invoice_id}/validate", response_model=InvoiceDetailOut)
+@router.post(
+    "/{invoice_id}/validate",
+    response_model=InvoiceDetailOut,
+    dependencies=[Depends(require_perm(authz.Permission.INVOICE_APPROVE))],
+)
 async def human_validate(
     invoice_id: str, body: ValidationDecision, current: CurrentUser, db: DbSession
 ):
     """Human review gate: approve or reject an invoice pending validation."""
-    authz.require(current, authz.Permission.INVOICE_APPROVE)
     invoice = await _load_scoped(db, current.org_id, invoice_id)
     invoice.validation_status = (
         validation.APPROVED if body.action == "approve" else validation.REJECTED
@@ -549,9 +571,12 @@ async def human_validate(
     return _detail(invoice, invoice.vendor.name)
 
 
-@router.delete("/{invoice_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{invoice_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_perm(authz.Permission.INVOICE_DELETE))],
+)
 async def delete_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
-    authz.require(current, authz.Permission.INVOICE_DELETE)
     invoice = await _load_scoped(db, current.org_id, invoice_id)
     await audit.record(
         db,

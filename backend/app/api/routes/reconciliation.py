@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.schemas.reconciliation import (
     BankLineOut,
@@ -20,18 +20,14 @@ from app.schemas.reconciliation import (
 )
 from app.services import bank_statement, filesec, modules, reconciliation
 
-
-def _require_payment_read(current: CurrentUser) -> None:
-    """Router-level gate: viewing reconciliation needs PAYMENT_READ. Import + match
-    additionally require PAYMENT_WRITE inline."""
-    authz.require(current, authz.Permission.PAYMENT_READ)
-
-
+# Structural authorization (ADR-0024): viewing reconciliation needs PAYMENT_READ
+# (router-level); import + match declare PAYMENT_WRITE per-route below.
 router = APIRouter(
     prefix="/reconciliation",
     tags=["reconciliation"],
-    dependencies=[Depends(_require_payment_read)],
+    dependencies=[Depends(require_perm(authz.Permission.PAYMENT_READ))],
 )
+_WRITE = [Depends(require_perm(authz.Permission.PAYMENT_WRITE))]
 
 
 async def _guard(db: DbSession, org_id: str) -> None:
@@ -59,9 +55,10 @@ async def _load_line(db: DbSession, org_id: str, line_id: str):
     return line
 
 
-@router.post("/import", response_model=ImportResult, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/import", response_model=ImportResult, status_code=status.HTTP_201_CREATED, dependencies=_WRITE
+)
 async def import_statement(current: CurrentUser, db: DbSession, file: UploadFile):
-    authz.require(current, authz.Permission.PAYMENT_WRITE)
     await _guard(db, current.org_id)
     content = await file.read()
     if len(content) > 15 * 1024 * 1024:
@@ -137,9 +134,8 @@ async def match_candidates(line_id: str, current: CurrentUser, db: DbSession):
     ]
 
 
-@router.post("/lines/{line_id}/match", response_model=BankLineOut)
+@router.post("/lines/{line_id}/match", response_model=BankLineOut, dependencies=_WRITE)
 async def match_line(line_id: str, body: MatchRequest, current: CurrentUser, db: DbSession):
-    authz.require(current, authz.Permission.PAYMENT_WRITE)
     await _guard(db, current.org_id)
     line = await _load_line(db, current.org_id, line_id)
     try:
@@ -149,18 +145,16 @@ async def match_line(line_id: str, body: MatchRequest, current: CurrentUser, db:
     return BankLineOut.model_validate(line)
 
 
-@router.delete("/lines/{line_id}/match", response_model=BankLineOut)
+@router.delete("/lines/{line_id}/match", response_model=BankLineOut, dependencies=_WRITE)
 async def unmatch_line(line_id: str, current: CurrentUser, db: DbSession):
-    authz.require(current, authz.Permission.PAYMENT_WRITE)
     await _guard(db, current.org_id)
     line = await _load_line(db, current.org_id, line_id)
     await reconciliation.unmatch(db, current.org_id, line)
     return BankLineOut.model_validate(line)
 
 
-@router.post("/lines/{line_id}/ignore", response_model=BankLineOut)
+@router.post("/lines/{line_id}/ignore", response_model=BankLineOut, dependencies=_WRITE)
 async def ignore_line(line_id: str, current: CurrentUser, db: DbSession):
-    authz.require(current, authz.Permission.PAYMENT_WRITE)
     await _guard(db, current.org_id)
     line = await _load_line(db, current.org_id, line_id)
     try:
