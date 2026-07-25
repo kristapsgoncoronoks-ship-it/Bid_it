@@ -41,6 +41,9 @@ class BatchOut(BaseModel):
     total_eur: Decimal
     paid_at: datetime | None
     created_by: str | None
+    exported_at: datetime | None = None
+    export_count: int = 0
+    last_msg_id: str | None = None
     version: int
     created_at: datetime
     report_count: int

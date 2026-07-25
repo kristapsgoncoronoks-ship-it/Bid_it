@@ -242,10 +242,14 @@ async def test_sepa_build_refuses_invalid_creditor_iban(auth_client, client, db_
     vid = next(x["id"] for x in vendors if x["name"] == "Corrupt AG")
     await auth_client.patch(f"/api/v1/vendors/{vid}", json={"iban": IBAN_A})  # first capture
     run = (await auth_client.post("/api/v1/payment-runs", json={"invoice_ids": [iid]})).json()
-    await auth_client.post(
-        f"/api/v1/payment-runs/{run['id']}/pay",
-        json={"version": run["version"], "reference": "SEPA-X"},
+    # WO-9: a SECOND user approves the run (the creator no longer can); an approved
+    # run is exportable — no need to pay it for this defence-in-depth test.
+    appr = await auth_client.post(
+        f"/api/v1/payment-runs/{run['id']}/approve",
+        headers={"Authorization": f"Bearer {approver}"},
+        json={"version": run["version"]},
     )
+    assert appr.status_code == 200, appr.text
     # Corrupt the stored IBAN beneath every app-level write gate.
     await db_session.execute(
         update(Vendor).where(Vendor.id == vid).values(iban="DE00000000000000000000")

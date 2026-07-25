@@ -17,6 +17,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import ConflictError
 from app.core.money import q2
 from app.models.expense import (
     BATCH_CANCELLED,
@@ -29,6 +30,39 @@ from app.models.expense import (
 
 class ReimbursementError(Exception):
     """A reimbursement precondition failed (bad state / not eligible)."""
+
+
+def assert_exportable(batch: ReimbursementBatch, *, confirm_reexport: bool) -> None:
+    """WO-9 export gate for the employee payout rail. Unlike a payment run, a
+    batch has NO separate approval stage — every report in it was individually
+    approved under its own segregation of duties (a claimant can never approve
+    their own report), so an OPEN batch may export; only a CANCELLED batch must
+    never reach the bank. Export-once still applies: a second file needs the
+    explicit `confirm_reexport` because a silent duplicate risks a double payout."""
+    if batch.status == BATCH_CANCELLED:
+        raise ConflictError(
+            "Batch is cancelled; a cancelled batch cannot be exported as a bank file.",
+            code="batch_not_exportable",
+        )
+    if batch.export_count and not confirm_reexport:
+        first = batch.exported_at.isoformat() if batch.exported_at else "an earlier deploy"
+        raise ConflictError(
+            f"This batch was already exported (count {batch.export_count}, first at {first}). "
+            "Re-exporting produces a NEW bank file with a new message id — pass "
+            "confirm_reexport=true to proceed.",
+            code="already_exported",
+        )
+
+
+def record_export(batch: ReimbursementBatch, *, msg_id: str | None) -> None:
+    """Stamp a SUCCESSFUL export (mirror of `payment_run.record_export`):
+    `exported_at` keeps the FIRST export's time, the counter feeds the next MsgId
+    generation, and the last pain.001 MsgId stays queryable (each is audited)."""
+    if batch.exported_at is None:
+        batch.exported_at = datetime.now(UTC)
+    batch.export_count += 1
+    if msg_id:
+        batch.last_msg_id = msg_id
 
 
 def eur_of(r: ExpenseReport) -> Decimal:
@@ -165,11 +199,22 @@ async def cancel_batch(
     return reports
 
 
-async def batch_sepa(db: AsyncSession, org_id: str, batch: ReimbursementBatch) -> tuple[str, int]:
+async def batch_sepa(
+    db: AsyncSession,
+    org_id: str,
+    batch: ReimbursementBatch,
+    *,
+    msg_id: str,
+    acknowledge_skipped: bool = False,
+) -> tuple[str, list[str]]:
     """Render a reimbursement batch as an ISO 20022 pain.001 SEPA credit-transfer
     file — debtor = our issuer profile, one creditor per employee (those with an
-    IBAN on file; the rest are skipped). Returns (xml, skipped). Reuses the AP
-    `sepa.build_pain001` primitive so both payout rails share one renderer."""
+    IBAN on file). Returns (xml, skipped) where `skipped` NAMES the employees
+    excluded for a missing IBAN; if any exist the export is refused (409
+    `skipped_payees`) unless `acknowledge_skipped` is set — an employee silently
+    dropped from the payout file is an unpaid person nobody was told about (WO-9).
+    Reuses the AP `sepa.build_pain001` primitive so both payout rails share one
+    renderer, under a caller-supplied per-generation `msg_id`."""
     from datetime import UTC, datetime
 
     from app.models.issuer import IssuerProfile
@@ -188,12 +233,12 @@ async def batch_sepa(db: AsyncSession, org_id: str, batch: ReimbursementBatch) -
     }
 
     transfers: list[sepa.CreditTransfer] = []
-    skipped = 0
+    skipped: list[str] = []
     for r in reports:
         u = users.get(r.employee_id)
         iban = (u.iban if u else None) or None
         if not iban:
-            skipped += 1
+            skipped.append(r.employee_name)
             continue
         transfers.append(
             sepa.CreditTransfer(
@@ -206,10 +251,14 @@ async def batch_sepa(db: AsyncSession, org_id: str, batch: ReimbursementBatch) -
             )
         )
 
+    # Total absence of payable employees stays the historical 422 (build_pain001
+    # below); a PARTIAL drop is the silent-skip hazard needing acknowledgement.
+    if transfers:
+        sepa.assert_skipped_acknowledged(skipped, acknowledge_skipped)
     issuer = await db.scalar(select(IssuerProfile).where(IssuerProfile.org_id == org_id))
     debtor_name = (issuer.legal_name if issuer and issuer.legal_name else None) or "Our company"
     xml = sepa.build_pain001(
-        msg_id=f"REIMB-{batch.id[:8]}",
+        msg_id=msg_id,
         created_at=batch.created_at or datetime.now(UTC),
         exec_date=(
             batch.paid_at.date()

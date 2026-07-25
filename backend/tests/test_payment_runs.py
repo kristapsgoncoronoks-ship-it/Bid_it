@@ -1,6 +1,7 @@
-"""Supplier payment runs (Phase 14): group scheduled invoices into a run, pay it
-(writes the AP ledger + advances each invoice to paid), cancel unlinks, a paid run
-reconciles a bank debit, and the PAYMENT_* authz gate. Invoices are driven to
+"""Supplier payment runs (Phase 14): group scheduled invoices into a run, approve
+it (WO-9: a second user), pay it (a third — maker ≠ checker ≠ payer; writes the AP
+ledger + advances each invoice to paid), cancel unlinks, a paid run reconciles a
+bank debit, and the PAYMENT_* authz gate. Invoices are driven to
 `scheduled_for_payment` via the real submit→approve→schedule path."""
 
 import io
@@ -19,6 +20,24 @@ async def _member(auth_client, client, email, role="admin"):
         json={"token": inv.json()["token"], "name": "M", "password": "supersecret"},
     )
     return acc.json()["token"]["access_token"]
+
+
+async def _approve_and_pay(auth_client, client, run, approver, *, reference="SEPA-9"):
+    """WO-9 flow: the run's creator (the owner/auth_client) can no longer approve or
+    pay their own run — a second user approves and a third pays."""
+    appr = await client.post(
+        f"/api/v1/payment-runs/{run['id']}/approve",
+        headers=_h(approver),
+        json={"version": run["version"]},
+    )
+    assert appr.status_code == 200, appr.text
+    payer = await _member(auth_client, client, "payer@acme.io", role="admin")
+    paid = await client.post(
+        f"/api/v1/payment-runs/{run['id']}/pay",
+        headers=_h(payer),
+        json={"version": appr.json()["version"], "reference": reference},
+    )
+    return paid
 
 
 async def _make_invoice(auth_client, number, unit_price="100"):
@@ -83,10 +102,8 @@ async def test_create_pay_and_ledger(auth_client, client):
     # Once queued, they leave the payable pool.
     assert (await auth_client.get("/api/v1/payment-runs/payable")).json() == []
 
-    # Pay the run → both invoices paid, AP ledger written.
-    paid = await auth_client.post(
-        f"/api/v1/payment-runs/{rid}/pay", json={"version": rb["version"], "reference": "SEPA-9"}
-    )
+    # Approve (second user) then pay (third user) → both invoices paid, ledger written.
+    paid = await _approve_and_pay(auth_client, client, rb, approver)
     assert paid.status_code == 200, paid.text
     assert paid.json()["status"] == "paid"
     assert all(i["workflow_state"] == "paid" for i in paid.json()["invoices"])
@@ -126,10 +143,8 @@ async def test_paid_run_reconciles_bank_debit(auth_client, client):
     a = await _make_invoice(auth_client, "INV-1", "100")
     await _schedule(auth_client, approver, a)
     run = (await auth_client.post("/api/v1/payment-runs", json={"invoice_ids": [a]})).json()
-    await auth_client.post(
-        f"/api/v1/payment-runs/{run['id']}/pay",
-        json={"version": run["version"], "reference": "SEPA-9"},
-    )
+    paid = await _approve_and_pay(auth_client, client, run, approver)
+    assert paid.status_code == 200, paid.text
 
     # Import a bank statement with a matching debit (money out 100).
     await auth_client.put("/api/v1/modules/issuing", json={"enabled": True})

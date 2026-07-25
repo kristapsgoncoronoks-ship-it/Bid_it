@@ -303,6 +303,11 @@ class ReimbursementBatch(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     total_eur: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # WO-9 export-once (same treatment as payment_runs): first bank-file export,
+    # total exports produced, and the last pain.001 MsgId sent to the bank.
+    exported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    export_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_msg_id: Mapped[str | None] = mapped_column(String(35), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
 

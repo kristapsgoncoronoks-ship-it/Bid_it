@@ -62,6 +62,9 @@ async def _detail(db: DbSession, org_id: str, b: ReimbursementBatch) -> BatchDet
         total_eur=b.total_eur,
         paid_at=b.paid_at,
         created_by=b.created_by,
+        exported_at=b.exported_at,
+        export_count=b.export_count,
+        last_msg_id=b.last_msg_id,
         version=b.version,
         created_at=b.created_at,
         report_count=len(reports),
@@ -105,6 +108,9 @@ async def list_batches(current: CurrentUser, db: DbSession):
                 total_eur=b.total_eur,
                 paid_at=b.paid_at,
                 created_by=b.created_by,
+                exported_at=b.exported_at,
+                export_count=b.export_count,
+                last_msg_id=b.last_msg_id,
                 version=b.version,
                 created_at=b.created_at,
                 report_count=len(reports),
@@ -204,11 +210,32 @@ async def cancel_batch(batch_id: str, current: CurrentUser, db: DbSession):
 
 
 @router.get("/{batch_id}/export")
-async def export_batch(batch_id: str, current: CurrentUser, db: DbSession):
+async def export_batch(
+    batch_id: str, current: CurrentUser, db: DbSession, confirm_reexport: bool = False
+):
+    """The batch's bank/payroll CSV. WO-9 export guard (same treatment as payment
+    runs): never a cancelled batch, export-once (`confirm_reexport` for a second
+    file), every export audited. Loaded FOR UPDATE to serialize the counter."""
     await _guard(db, current.org_id)
-    b = await _load(db, current.org_id, batch_id)
+    b = await _load(db, current.org_id, batch_id, lock=True)
+    reimbursement.assert_exportable(b, confirm_reexport=confirm_reexport)
     reports = await reimbursement.batch_reports(db, current.org_id, b.id)
     csv_text = reimbursement.export_csv(b, reports)
+    reimbursement.record_export(b, msg_id=None)
+    await audit.record(
+        db,
+        audit.A.REIMBURSE_EXPORTED,
+        target_type="reimbursement_batch",
+        target_id=b.id,
+        meta={
+            "format": "csv",
+            "export_count": b.export_count,
+            "msg_id": None,
+            "payees": len(reports),
+            "total_eur": str(b.total_eur),
+        },
+    )
+    await db.commit()
     fname = f"reimbursement-{(b.reference or b.id)}.csv"
     return Response(
         content=csv_text,
@@ -221,16 +248,46 @@ async def export_batch(batch_id: str, current: CurrentUser, db: DbSession):
 
 
 @router.get("/{batch_id}/sepa")
-async def export_batch_sepa(batch_id: str, current: CurrentUser, db: DbSession):
+async def export_batch_sepa(
+    batch_id: str,
+    current: CurrentUser,
+    db: DbSession,
+    confirm_reexport: bool = False,
+    acknowledge_skipped: bool = False,
+):
     """Export the batch as an ISO 20022 pain.001 SEPA credit-transfer file (paid to
     employees with an IBAN on file). 422 if the issuer has no IBAN or no payee has
-    one. The `X-Skipped` header counts employees excluded for missing bank details."""
+    one. WO-9: export-once (`confirm_reexport`), a UNIQUE MsgId per generation, and
+    employees without an IBAN are NAMED in a 409 refusal (`acknowledge_skipped` to
+    export without them) — never only counted in a header. The `X-Skipped` header
+    is kept for compatibility (the test suite reads it; the SPA never did)."""
     await _guard(db, current.org_id)
-    b = await _load(db, current.org_id, batch_id)
+    b = await _load(db, current.org_id, batch_id, lock=True)
+    reimbursement.assert_exportable(b, confirm_reexport=confirm_reexport)
+    msg_id = sepa.new_msg_id("REIMB", b.id, b.export_count + 1)
     try:
-        xml, skipped = await reimbursement.batch_sepa(db, current.org_id, b)
+        xml, skipped = await reimbursement.batch_sepa(
+            db, current.org_id, b, msg_id=msg_id, acknowledge_skipped=acknowledge_skipped
+        )
     except (reimbursement.ReimbursementError, sepa.SepaError) as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e))
+    reimbursement.record_export(b, msg_id=msg_id)
+    reports = await reimbursement.batch_reports(db, current.org_id, b.id)
+    await audit.record(
+        db,
+        audit.A.REIMBURSE_EXPORTED,
+        target_type="reimbursement_batch",
+        target_id=b.id,
+        meta={
+            "format": "sepa",
+            "export_count": b.export_count,
+            "msg_id": msg_id,
+            "payees": len(reports) - len(skipped),
+            "skipped": skipped,
+            "total_eur": str(b.total_eur),
+        },
+    )
+    await db.commit()
     fname = f"reimbursement-{(b.reference or b.id)}.xml"
     return Response(
         content=xml,
@@ -238,6 +295,6 @@ async def export_batch_sepa(batch_id: str, current: CurrentUser, db: DbSession):
         headers={
             "Content-Disposition": content_disposition(fname),
             "X-Content-Type-Options": "nosniff",
-            "X-Skipped": str(skipped),
+            "X-Skipped": str(len(skipped)),
         },
     )

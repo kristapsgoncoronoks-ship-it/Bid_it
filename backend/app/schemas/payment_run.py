@@ -15,10 +15,19 @@ class RunCreate(BaseModel):
     confirm_provisional: bool = False
 
 
+class RunApprove(BaseModel):
+    version: int
+    # WO-9: the EXPLICIT platform-admin segregation-of-duties override — never
+    # silent, always audited (`payment_run.sod_override`). Ignored for everyone else.
+    override_sod: bool = False
+
+
 class RunPay(BaseModel):
     version: int
     reference: str | None = None
     method: str | None = None
+    # WO-9: explicit, audited platform-admin SoD override (see RunApprove).
+    override_sod: bool = False
 
 
 class RunInvoiceOut(BaseModel):
@@ -40,6 +49,11 @@ class RunOut(BaseModel):
     total_eur: Decimal
     paid_at: datetime | None = None
     created_by: str | None = None
+    approved_by: str | None = None
+    approved_at: datetime | None = None
+    exported_at: datetime | None = None
+    export_count: int = 0
+    last_msg_id: str | None = None
     version: int
     created_at: datetime
     invoice_count: int

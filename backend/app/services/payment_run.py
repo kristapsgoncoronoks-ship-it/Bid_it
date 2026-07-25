@@ -18,16 +18,83 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.errors import AppError, ConflictError
 from app.core.money import q2
 from app.models.invoice import Invoice, InvoiceStatus, WorkflowState
-from app.models.payment_run import RUN_CANCELLED, RUN_OPEN, RUN_PAID, PaymentRun
+from app.models.payment_run import RUN_APPROVED, RUN_CANCELLED, RUN_OPEN, RUN_PAID, PaymentRun
 from app.models.vendor import VENDOR_PROVISIONAL, Vendor
-from app.services import ap_payments, invoice_workflow
+from app.services import ap_payments, audit, invoice_workflow
 from app.services import vendors as vendor_service
 
 
 class PaymentRunError(Exception):
     """A payment-run precondition failed (bad state / not eligible)."""
+
+
+# A bank file may only leave the building for a run a SECOND person has reviewed
+# (approved) or that is already settled (paid). Exporting an open run would let
+# the maker send their own unreviewed file to the bank — the exact gap WO-9 closes.
+EXPORTABLE_STATUSES = (RUN_APPROVED, RUN_PAID)
+
+
+def _sod_conflict(
+    run: PaymentRun, actor_id: str | None, actor_email: str | None, *, include_approver: bool
+) -> str | None:
+    """The segregation-of-duties check (§4.8): which recorded role, if any, the
+    acting user already holds on this run. Compares the immutable user id first
+    and falls back to the stored email so LEGACY runs (created before the id
+    columns existed, `created_by_id` NULL) are still covered — fail-closed: a
+    run whose maker we can identify by either handle is never self-checked."""
+    if (actor_id and run.created_by_id and actor_id == run.created_by_id) or (
+        actor_email and run.created_by and actor_email == run.created_by
+    ):
+        return "creator"
+    if include_approver and (
+        (actor_id and run.approved_by_id and actor_id == run.approved_by_id)
+        or (actor_email and run.approved_by and actor_email == run.approved_by)
+    ):
+        return "approver"
+    return None
+
+
+async def _enforce_sod(
+    db: AsyncSession,
+    run: PaymentRun,
+    *,
+    stage: str,
+    actor_id: str | None,
+    actor_email: str | None,
+    is_platform_admin: bool,
+    override_sod: bool,
+    include_approver: bool,
+) -> None:
+    """Maker ≠ checker, enforced for EVERY role including the org Owner. The only
+    exemption is the cross-tenant platform operator, and it is EXPLICIT (the
+    request must carry `override_sod=true`) and AUDITED (`payment_run.sod_override`
+    naming the overridden control) — never silent."""
+    role = _sod_conflict(run, actor_id, actor_email, include_approver=include_approver)
+    if role is None:
+        return
+    if is_platform_admin and override_sod:
+        await audit.record(
+            db,
+            audit.A.AP_RUN_SOD_OVERRIDE,
+            target_type="payment_run",
+            target_id=run.id,
+            meta={
+                "control": "maker_is_checker",
+                "stage": stage,
+                "conflict_role": role,
+                "actor": actor_email,
+            },
+        )
+        return
+    raise AppError(
+        f"You are this run's {role}; a different user must {stage} it "
+        "(maker–checker control on payment runs).",
+        code="maker_is_checker",
+        status=403,
+    )
 
 
 async def _assert_vendors_payable(
@@ -141,6 +208,7 @@ async def create_run(
     method: str,
     note: str | None,
     created_by: str | None,
+    created_by_id: str | None = None,
     confirm_provisional: bool = False,
 ) -> PaymentRun:
     """Group scheduled-for-payment, un-run invoices into an OPEN run. Raises
@@ -173,6 +241,7 @@ async def create_run(
         method=method,
         note=note,
         created_by=created_by,
+        created_by_id=created_by_id,
         status=RUN_OPEN,
         total_eur=q2(sum((eur_of(i) for i in invoices), Decimal("0"))),
     )
@@ -183,6 +252,40 @@ async def create_run(
     return run
 
 
+async def approve_run(
+    db: AsyncSession,
+    org_id: str,
+    run: PaymentRun,
+    *,
+    actor_id: str | None,
+    actor_email: str | None,
+    is_platform_admin: bool = False,
+    override_sod: bool = False,
+) -> None:
+    """The checker's step (WO-9): a SECOND person reviews an open run and marks it
+    approved — only then can it be paid or exported as a bank file. The creator can
+    never approve their own run (maker ≠ checker, §4.8); the explicit, audited
+    platform-admin override is the sole exemption. Flushes nothing new; caller
+    commits."""
+    if run.status != RUN_OPEN:
+        raise PaymentRunError(f"Run is {run.status}; only an open run can be approved.")
+    await _enforce_sod(
+        db,
+        run,
+        stage="approve",
+        actor_id=actor_id,
+        actor_email=actor_email,
+        is_platform_admin=is_platform_admin,
+        override_sod=override_sod,
+        include_approver=False,
+    )
+    run.approved_by = actor_email
+    run.approved_by_id = actor_id
+    run.approved_at = datetime.now(UTC)
+    run.status = RUN_APPROVED
+    run.version += 1
+
+
 async def mark_paid(
     db: AsyncSession,
     org_id: str,
@@ -190,12 +293,31 @@ async def mark_paid(
     *,
     reference: str | None,
     method: str | None = None,
+    actor_id: str | None = None,
+    actor_email: str | None = None,
+    is_platform_admin: bool = False,
+    override_sod: bool = False,
 ) -> list[Invoice]:
-    """Mark an open run paid: stamp it, then settle every linked invoice IN FULL via
-    the AP payment ledger (stamped with the run id) and advance it to `paid`. Returns
-    the affected invoices."""
-    if run.status != RUN_OPEN:
-        raise PaymentRunError(f"Run is {run.status}; only an open run can be paid.")
+    """Mark an approved run paid: stamp it, then settle every linked invoice IN FULL
+    via the AP payment ledger (stamped with the run id) and advance it to `paid`.
+    Returns the affected invoices. Segregation of duties (WO-9): neither the run's
+    creator nor its approver may be the payer — a single account must never carry a
+    payment from selection to settlement on its own."""
+    if run.status != RUN_APPROVED:
+        raise PaymentRunError(
+            f"Run is {run.status}; only an approved run can be paid"
+            + (" (a second user must approve it first)." if run.status == RUN_OPEN else ".")
+        )
+    await _enforce_sod(
+        db,
+        run,
+        stage="pay",
+        actor_id=actor_id,
+        actor_email=actor_email,
+        is_platform_admin=is_platform_admin,
+        override_sod=override_sod,
+        include_approver=True,
+    )
     invoices = await run_invoices(db, org_id, run.id)
     if not invoices:
         raise PaymentRunError("Run has no invoices to pay.")
@@ -231,16 +353,53 @@ async def mark_paid(
 
 
 async def cancel_run(db: AsyncSession, org_id: str, run: PaymentRun) -> list[Invoice]:
-    """Cancel an open run: unlink its invoices (they return to the scheduled pool).
-    A paid run cannot be cancelled."""
-    if run.status != RUN_OPEN:
-        raise PaymentRunError(f"Run is {run.status}; only an open run can be cancelled.")
+    """Cancel an open or approved run: unlink its invoices (they return to the
+    scheduled pool). A paid run cannot be cancelled."""
+    if run.status not in (RUN_OPEN, RUN_APPROVED):
+        raise PaymentRunError(
+            f"Run is {run.status}; only an open or approved run can be cancelled."
+        )
     invoices = await run_invoices(db, org_id, run.id)
     for inv in invoices:
         inv.payment_run_id = None
     run.status = RUN_CANCELLED
     run.version += 1
     return invoices
+
+
+def assert_exportable(run: PaymentRun, *, confirm_reexport: bool) -> None:
+    """The WO-9 export gate. Fail-closed on both checks:
+
+    - STATE: only an approved/paid run may produce a bank file — an open run has
+      not been reviewed by a second person, and a cancelled run must never reach
+      the bank at all.
+    - EXPORT-ONCE: a run that already produced a file needs an EXPLICIT
+      `confirm_reexport` — a silent second file risks a double payment at the
+      bank, and the refusal tells the caller when the first one was produced."""
+    if run.status not in EXPORTABLE_STATUSES:
+        raise ConflictError(
+            f"Run is {run.status}; only an approved or paid run can be exported as a bank file.",
+            code="run_not_exportable",
+        )
+    if run.export_count and not confirm_reexport:
+        first = run.exported_at.isoformat() if run.exported_at else "an earlier deploy"
+        raise ConflictError(
+            f"This run was already exported (count {run.export_count}, first at {first}). "
+            "Re-exporting produces a NEW bank file with a new message id — pass "
+            "confirm_reexport=true to proceed.",
+            code="already_exported",
+        )
+
+
+def record_export(run: PaymentRun, *, msg_id: str | None) -> None:
+    """Stamp a SUCCESSFUL export: `exported_at` keeps the FIRST export's time (the
+    409 names it), the counter feeds the next MsgId generation, and the last
+    pain.001 MsgId stays queryable (each one is also audited)."""
+    if run.exported_at is None:
+        run.exported_at = datetime.now(UTC)
+    run.export_count += 1
+    if msg_id:
+        run.last_msg_id = msg_id
 
 
 def export_csv(run: PaymentRun, invoices: list[Invoice]) -> str:

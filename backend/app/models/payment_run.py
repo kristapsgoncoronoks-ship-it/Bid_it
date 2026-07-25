@@ -31,9 +31,10 @@ from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
 Money = Numeric(14, 2)
 
 RUN_OPEN = "open"
+RUN_APPROVED = "approved"  # a second person reviewed the run (WO-9 maker≠checker)
 RUN_PAID = "paid"
 RUN_CANCELLED = "cancelled"
-RUN_STATUSES = (RUN_OPEN, RUN_PAID, RUN_CANCELLED)
+RUN_STATUSES = (RUN_OPEN, RUN_APPROVED, RUN_PAID, RUN_CANCELLED)
 
 
 class PaymentRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -54,4 +55,17 @@ class PaymentRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     total_eur: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # WO-9 segregation of duties: the maker (creator) and checker (approver) are
+    # recorded by IMMUTABLE user id (the email columns are display copies — an
+    # account can change its email, an id it cannot). Enforcement compares both.
+    created_by_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)
+    approved_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    approved_by_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # WO-9 export-once: when the FIRST bank file left the building, how many were
+    # produced in total, and the last pain.001 MsgId sent — so a bank query about
+    # a message id can be answered later (every export is also audited).
+    exported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    export_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_msg_id: Mapped[str | None] = mapped_column(String(35), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)

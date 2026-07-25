@@ -35,7 +35,9 @@ async def _member(auth_client, client, email, role="admin"):
     return acc.json()["token"]["access_token"]
 
 
-async def _paid_run(auth_client, approver, *, vendor, number, price="100"):
+async def _paid_run(auth_client, client, approver, *, vendor, number, price="100"):
+    """A PAID run under the WO-9 flow: owner creates, `approver` approves the run,
+    and a dedicated third member pays (maker ≠ checker ≠ payer)."""
     r = await auth_client.post(
         "/api/v1/invoices",
         json={
@@ -61,10 +63,19 @@ async def _paid_run(auth_client, approver, *, vendor, number, price="100"):
         json={"version": appr.json()["version"], "target": "scheduled_for_payment"},
     )
     run = (await auth_client.post("/api/v1/payment-runs", json={"invoice_ids": [iid]})).json()
-    await auth_client.post(
-        f"/api/v1/payment-runs/{run['id']}/pay",
-        json={"version": run["version"], "reference": "SEPA-9"},
+    appr = await auth_client.post(
+        f"/api/v1/payment-runs/{run['id']}/approve",
+        headers=_h(approver),
+        json={"version": run["version"]},
     )
+    assert appr.status_code == 200, appr.text
+    payer = await _member(auth_client, client, f"payer-{number.lower()}@acme.io", role="admin")
+    paid = await auth_client.post(
+        f"/api/v1/payment-runs/{run['id']}/pay",
+        headers=_h(payer),
+        json={"version": appr.json()["version"], "reference": "SEPA-9"},
+    )
+    assert paid.status_code == 200, paid.text
     return run["id"]
 
 
@@ -90,7 +101,7 @@ async def test_vendor_iban_crud(auth_client):
 async def test_sepa_export_structure(auth_client, client):
     approver = await _member(auth_client, client, "appr@acme.io", role="admin")
     await auth_client.put("/api/v1/issuer", json=ISSUER)
-    rid = await _paid_run(auth_client, approver, vendor="Acme Supplies", number="INV-1")
+    rid = await _paid_run(auth_client, client, approver, vendor="Acme Supplies", number="INV-1")
     await _set_vendor_iban(auth_client, "Acme Supplies", "DE89370400440532013000", "COBADEFFXXX")
 
     r = await auth_client.get(f"/api/v1/payment-runs/{rid}/sepa")
@@ -158,7 +169,7 @@ async def test_sepa_never_labels_a_foreign_amount_eur(auth_client, client, db_se
 
     approver = await _member(auth_client, client, "appr@acme.io", role="admin")
     await auth_client.put("/api/v1/issuer", json=ISSUER)
-    rid = await _paid_run(auth_client, approver, vendor="Acme Supplies", number="INV-OK")
+    rid = await _paid_run(auth_client, client, approver, vendor="Acme Supplies", number="INV-OK")
     await _set_vendor_iban(auth_client, "Acme Supplies", "DE89370400440532013000", "COBADEFFXXX")
 
     # The healthy run: every emitted amount carries the currency it is actually
@@ -182,7 +193,9 @@ async def test_sepa_never_labels_a_foreign_amount_eur(auth_client, client, db_se
     )
     await db_session.commit()
 
-    bad = await auth_client.get(f"/api/v1/payment-runs/{rid}/sepa")
+    # WO-9 export-once: the healthy export above counted, so the re-export needs the
+    # explicit confirm flag — the refusal we want here is the FX one, not 409.
+    bad = await auth_client.get(f"/api/v1/payment-runs/{rid}/sepa?confirm_reexport=true")
     assert bad.status_code == 422, bad.text
     detail = bad.json()["detail"]
     assert "INV-OK" in detail and "PLN" in detail
@@ -193,7 +206,7 @@ async def test_sepa_never_labels_a_foreign_amount_eur(auth_client, client, db_se
 async def test_sepa_422_when_no_creditor_iban(auth_client, client):
     approver = await _member(auth_client, client, "appr@acme.io", role="admin")
     await auth_client.put("/api/v1/issuer", json=ISSUER)
-    rid = await _paid_run(auth_client, approver, vendor="NoBank Ltd", number="INV-2")
+    rid = await _paid_run(auth_client, client, approver, vendor="NoBank Ltd", number="INV-2")
     # Vendor has no IBAN → nothing to pay.
     r = await auth_client.get(f"/api/v1/payment-runs/{rid}/sepa")
     assert r.status_code == 422 and "supplier IBAN" in r.json()["detail"]
@@ -203,7 +216,7 @@ async def test_sepa_422_when_no_creditor_iban(auth_client, client):
 async def test_sepa_422_when_issuer_has_no_iban(auth_client, client):
     approver = await _member(auth_client, client, "appr@acme.io", role="admin")
     # No issuer profile set → no debtor IBAN.
-    rid = await _paid_run(auth_client, approver, vendor="Acme Supplies", number="INV-3")
+    rid = await _paid_run(auth_client, client, approver, vendor="Acme Supplies", number="INV-3")
     await _set_vendor_iban(auth_client, "Acme Supplies", "DE89370400440532013000")
     r = await auth_client.get(f"/api/v1/payment-runs/{rid}/sepa")
     assert r.status_code == 422 and "IBAN" in r.json()["detail"]

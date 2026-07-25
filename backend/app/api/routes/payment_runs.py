@@ -16,6 +16,7 @@ from app.core import authz
 from app.core.security_headers import content_disposition
 from app.models.payment_run import PaymentRun
 from app.schemas.payment_run import (
+    RunApprove,
     RunCreate,
     RunDetailOut,
     RunInvoiceOut,
@@ -56,6 +57,11 @@ def _run_out(run: PaymentRun, invoice_count: int) -> RunOut:
         total_eur=run.total_eur,
         paid_at=run.paid_at,
         created_by=run.created_by,
+        approved_by=run.approved_by,
+        approved_at=run.approved_at,
+        exported_at=run.exported_at,
+        export_count=run.export_count,
+        last_msg_id=run.last_msg_id,
         version=run.version,
         created_at=run.created_at,
         invoice_count=invoice_count,
@@ -118,6 +124,7 @@ async def create_run(body: RunCreate, current: CurrentUser, db: DbSession):
             method=body.method,
             note=body.note,
             created_by=current.email,
+            created_by_id=current.id,
             confirm_provisional=body.confirm_provisional,
         )
     except payment_run.PaymentRunError as e:
@@ -140,6 +147,40 @@ async def get_run(run_id: str, current: CurrentUser, db: DbSession):
     return await _detail(db, current.org_id, run)
 
 
+@router.post("/{run_id}/approve", response_model=RunDetailOut, dependencies=_WRITE)
+async def approve_run(run_id: str, body: RunApprove, current: CurrentUser, db: DbSession):
+    """The checker's step (WO-9): a SECOND user reviews the run. The creator gets
+    403 `maker_is_checker` — the service enforces it, incl. the audited
+    platform-admin override."""
+    run = await _load(db, current.org_id, run_id, lock=True)
+    if body.version != run.version:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"Run changed (your {body.version}, current {run.version})."
+        )
+    try:
+        await payment_run.approve_run(
+            db,
+            current.org_id,
+            run,
+            actor_id=current.id,
+            actor_email=current.email,
+            is_platform_admin=bool(current.is_platform_admin),
+            override_sod=body.override_sod,
+        )
+    except payment_run.PaymentRunError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
+    await audit.record(
+        db,
+        audit.A.AP_RUN_APPROVE,
+        target_type="payment_run",
+        target_id=run.id,
+        meta={"total_eur": str(run.total_eur)},
+    )
+    await db.commit()
+    await db.refresh(run)
+    return await _detail(db, current.org_id, run)
+
+
 @router.post("/{run_id}/pay", response_model=RunDetailOut, dependencies=_WRITE)
 async def pay_run(run_id: str, body: RunPay, current: CurrentUser, db: DbSession):
     run = await _load(db, current.org_id, run_id, lock=True)
@@ -149,7 +190,15 @@ async def pay_run(run_id: str, body: RunPay, current: CurrentUser, db: DbSession
         )
     try:
         invoices = await payment_run.mark_paid(
-            db, current.org_id, run, reference=body.reference, method=body.method
+            db,
+            current.org_id,
+            run,
+            reference=body.reference,
+            method=body.method,
+            actor_id=current.id,
+            actor_email=current.email,
+            is_platform_admin=bool(current.is_platform_admin),
+            override_sod=body.override_sod,
         )
     except payment_run.PaymentRunError as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))
@@ -186,11 +235,33 @@ async def cancel_run(run_id: str, current: CurrentUser, db: DbSession):
     await db.commit()
 
 
-@router.get("/{run_id}/export")
-async def export_run(run_id: str, current: CurrentUser, db: DbSession):
-    run = await _load(db, current.org_id, run_id)
+@router.get("/{run_id}/export", dependencies=_WRITE)
+async def export_run(
+    run_id: str, current: CurrentUser, db: DbSession, confirm_reexport: bool = False
+):
+    """The run's bank CSV. WO-9 export guard: PAYMENT_WRITE (producing a payment
+    file is a treasury act, not a read), approved/paid runs only, export-once (a
+    second file needs `confirm_reexport=true`), every export audited. Loaded
+    FOR UPDATE so concurrent exports serialize on the export counter."""
+    run = await _load(db, current.org_id, run_id, lock=True)
+    payment_run.assert_exportable(run, confirm_reexport=confirm_reexport)
     invoices = await payment_run.run_invoices(db, current.org_id, run.id)
     csv_text = payment_run.export_csv(run, invoices)
+    payment_run.record_export(run, msg_id=None)
+    await audit.record(
+        db,
+        audit.A.AP_RUN_EXPORTED,
+        target_type="payment_run",
+        target_id=run.id,
+        meta={
+            "format": "csv",
+            "export_count": run.export_count,
+            "msg_id": None,
+            "payees": len(invoices),
+            "total_eur": str(run.total_eur),
+        },
+    )
+    await db.commit()
     fname = f"payment-run-{(run.reference or run.id)}.csv"
     return Response(
         content=csv_text,
@@ -202,14 +273,44 @@ async def export_run(run_id: str, current: CurrentUser, db: DbSession):
     )
 
 
-@router.get("/{run_id}/sepa")
-async def export_sepa(run_id: str, current: CurrentUser, db: DbSession):
-    """The run as an ISO 20022 pain.001 SEPA credit-transfer file for the bank."""
-    run = await _load(db, current.org_id, run_id)
+@router.get("/{run_id}/sepa", dependencies=_WRITE)
+async def export_sepa(
+    run_id: str,
+    current: CurrentUser,
+    db: DbSession,
+    confirm_reexport: bool = False,
+    acknowledge_skipped: bool = False,
+):
+    """The run as an ISO 20022 pain.001 SEPA credit-transfer file for the bank.
+    WO-9 export guard: PAYMENT_WRITE, approved/paid runs only, export-once
+    (`confirm_reexport`), a UNIQUE MsgId per generation, refusal NAMING payees
+    that would be silently dropped (`acknowledge_skipped` to proceed), audited."""
+    run = await _load(db, current.org_id, run_id, lock=True)
+    payment_run.assert_exportable(run, confirm_reexport=confirm_reexport)
+    msg_id = sepa.new_msg_id("RUN", run.id, run.export_count + 1)
     try:
-        xml, _skipped = await sepa.payment_run_sepa(db, current.org_id, run)
+        xml, skipped = await sepa.payment_run_sepa(
+            db, current.org_id, run, msg_id=msg_id, acknowledge_skipped=acknowledge_skipped
+        )
     except sepa.SepaError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e))
+    payment_run.record_export(run, msg_id=msg_id)
+    invoices = await payment_run.run_invoices(db, current.org_id, run.id)
+    await audit.record(
+        db,
+        audit.A.AP_RUN_EXPORTED,
+        target_type="payment_run",
+        target_id=run.id,
+        meta={
+            "format": "sepa",
+            "export_count": run.export_count,
+            "msg_id": msg_id,
+            "payees": len(invoices) - len(skipped),
+            "skipped": skipped,
+            "total_eur": str(run.total_eur),
+        },
+    )
+    await db.commit()
     fname = f"payment-run-{(run.reference or run.id)}.xml"
     return Response(
         content=xml,

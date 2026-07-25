@@ -12,11 +12,13 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import bank_id
+from app.core.errors import ConflictError
 from app.core.money import q2
 from app.models.issuer import IssuerProfile
 from app.models.payment_run import PaymentRun
@@ -24,9 +26,37 @@ from app.services import payment_run
 
 _NS = "urn:iso:std:iso:20022:tech:xsd:pain.001.001.03"
 
+# ISO 20022 pain.001 `MsgId` is Max35Text — enforce the limit, never overflow.
+MSG_ID_MAX = 35
+
 
 class SepaError(Exception):
     """The run cannot be rendered as SEPA (missing debtor IBAN / no creditor IBANs)."""
+
+
+def new_msg_id(prefix: str, ref_id: str, generation: int) -> str:
+    """A pain.001 MsgId unique per GENERATION, not per run (WO-9): a re-export must
+    never send the bank a duplicate message id (banks reject — or worse, silently
+    deduplicate a file the treasurer believes was sent). Traceable back to the run
+    (`<PREFIX>-<run id prefix>-<generation>-<random>`) and bounded to Max35Text."""
+    mid = f"{prefix}-{ref_id[:8]}-{generation}-{uuid4().hex[:8]}"
+    if len(mid) > MSG_ID_MAX:  # arithmetically unreachable for sane prefixes; fail loud
+        raise SepaError(f"generated MsgId '{mid}' exceeds the pain.001 35-character limit")
+    return mid
+
+
+def assert_skipped_acknowledged(skipped: list[str], acknowledge_skipped: bool) -> None:
+    """A payee silently dropped from the bank file is an unpaid supplier or
+    employee nobody was told about (the old `X-Skipped` header the caller
+    discarded). Refuse the export NAMING the payees unless the caller explicitly
+    acknowledged they will not be paid."""
+    if skipped and not acknowledge_skipped:
+        raise ConflictError(
+            f"{len(skipped)} payee(s) have no IBAN on file and would be dropped from the "
+            f"bank file: {', '.join(skipped)}. Add their bank details, or pass "
+            "acknowledge_skipped=true to export without them.",
+            code="skipped_payees",
+        )
 
 
 @dataclass
@@ -68,6 +98,8 @@ def build_pain001(
     migration or a direct DB edit, and this file is the last line of defence
     before money moves — an invalid account means NO XML is produced at all,
     never a file with a bad creditor. Fail-closed by design."""
+    if not msg_id or len(msg_id) > MSG_ID_MAX:
+        raise SepaError("pain.001 MsgId must be 1–35 characters — refusing to build the file")
     if not debtor_iban:
         raise SepaError("the issuer profile has no IBAN — set one before exporting SEPA")
     if not transfers:
@@ -138,21 +170,34 @@ def build_pain001(
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + body
 
 
-async def payment_run_sepa(db: AsyncSession, org_id: str, run: PaymentRun) -> tuple[str, int]:
-    """Render a run as SEPA XML. Returns (xml, skipped) where `skipped` counts
-    invoices whose vendor has no IBAN (and were therefore excluded). Raises
-    SepaError if the issuer has no IBAN or no invoice has a payable creditor."""
+async def payment_run_sepa(
+    db: AsyncSession,
+    org_id: str,
+    run: PaymentRun,
+    *,
+    msg_id: str,
+    acknowledge_skipped: bool = False,
+) -> tuple[str, list[str]]:
+    """Render a run as SEPA XML under the caller-supplied `msg_id` (unique per
+    generation — see `new_msg_id`). Returns (xml, skipped) where `skipped` NAMES
+    the payees excluded for a missing IBAN; if any exist the export is REFUSED
+    (409 `skipped_payees`, naming them) unless `acknowledge_skipped` is set —
+    WO-9: a dropped payee must never travel only in a discarded header. Raises
+    SepaError if the issuer has no IBAN or no invoice has a payable creditor.
+
+    After WO-2, a payee is skipped ONLY for a *missing* IBAN: an invalid one is
+    refused at write time and again inside `build_pain001`."""
     issuer = await db.scalar(select(IssuerProfile).where(IssuerProfile.org_id == org_id))
     debtor_name = (issuer.legal_name if issuer and issuer.legal_name else None) or "Our company"
     invoices = await payment_run.run_invoices(db, org_id, run.id)
 
     transfers: list[CreditTransfer] = []
-    skipped = 0
+    skipped: list[str] = []
     for inv in invoices:
         vendor = inv.vendor
         iban = (vendor.iban if vendor else None) or None
         if not iban:
-            skipped += 1
+            skipped.append(vendor.name if vendor else f"invoice {inv.invoice_number}")
             continue
         # WO-8: the reliable EUR figure or a refusal — never the raw foreign
         # total silently relabelled EUR (the verified 1,000-PLN → "EUR 1000.00"
@@ -172,8 +217,13 @@ async def payment_run_sepa(db: AsyncSession, org_id: str, run: PaymentRun) -> tu
             )
         )
 
+    # A TOTAL absence of payable creditors stays the historical 422 (below, from
+    # build_pain001) — there is no file to acknowledge into existence. A PARTIAL
+    # drop is the silent-skip hazard and needs the explicit acknowledgement.
+    if transfers:
+        assert_skipped_acknowledged(skipped, acknowledge_skipped)
     xml = build_pain001(
-        msg_id=f"RUN-{run.id[:8]}",
+        msg_id=msg_id,
         created_at=run.created_at,
         exec_date=(run.paid_at.date() if run.paid_at else run.created_at.date()),
         debtor_name=debtor_name,
