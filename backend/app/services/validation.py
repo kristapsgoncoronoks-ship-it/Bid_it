@@ -1,35 +1,56 @@
-"""Data validation for invoices — AI (automated checks) and/or human review.
+"""The ONE invoice validation engine (WO-7 / board C1.1).
 
-Both are OPT-IN, OFF by default, and turned on per-organization by the user:
-  • ai_validation_enabled    → run the automated validator (below) and record its
-    findings. On its own it auto-resolves to `passed` or `flagged`.
-  • human_validation_enabled → route the invoice to a human review gate
-    (`pending`) until someone approves/rejects it.
+Two validators used to disagree about whether an invoice reconciles: an
+advisory, org-toggled rule engine here, and a zero-tolerance blocking
+`_reconcile` living inside the review *route* module. They are now a single
+service-owned registry (`RULES`): every rule carries an explicit
+``block | advise`` policy and its own tolerance, and no rule is implemented
+twice. The route layer only calls in and shapes the response.
 
-With both on, the AI findings are computed to ASSIST the human, and the invoice
-still waits at `pending` for a person. With neither on, status is `none` and the
-invoice behaves exactly as before.
+Two families of rules:
 
-The "AI" validator here is a deterministic rule engine (fast, offline, testable).
-It is the seam for a real LLM: `ai_enrich()` is where a model would add findings;
-the default provider is a no-op, so nothing leaves the server unless wired up.
+• BLOCKING (policy="block", tolerance exactly 0) — the AP submit gate.
+  `reconcile()` recomputes the money from the lines and compares it to the
+  stated header totals; any finding refuses `POST /invoices/{id}/submit`.
+  Zero tolerance is deliberate: a submitted invoice enters the approval
+  chain and, once approved, locks — a cent of drift there is a control
+  failure, not noise. Fail-closed.
+
+• ADVISORY (policy="advise") — the opt-in data-validation findings, OFF by
+  default and turned on per-organization by the user:
+    ai_validation_enabled    → run `run_checks` and record findings; on its
+                               own it auto-resolves to `passed` / `flagged`.
+    human_validation_enabled → route the invoice to a human review gate
+                               (`pending`) until someone approves/rejects.
+  With both on, the AI findings assist the human and the invoice still waits
+  at `pending`. With neither on, status is `none` and nothing changes.
+  Advisory tolerances are looser (a cent of rounding, two cents of tax) —
+  these findings inform capture review, they never gate. Fail-open.
+
+The "AI" validator is a deterministic rule engine (fast, offline, testable).
+`ai_enrich()` is the seam for a real LLM; the default provider is a no-op,
+so nothing leaves the server unless wired up.
+
+Findings persist as JSON `{severity, code, message, field}` — the SPA renders
+that shape; do not change it.
 """
 
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from datetime import date, timedelta
 from decimal import Decimal
+from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.money import q2
 from app.models.invoice import Invoice
 from app.schemas.validation import ValidationFinding
 from app.services import fx
-
-_TOL = Decimal("0.01")
-_TAX_TOL = Decimal("0.02")
-_FX_DEVIATION_PCT = Decimal("3")
 
 # status values
 NONE = "none"
@@ -38,6 +59,73 @@ FLAGGED = "flagged"
 PENDING = "pending"
 APPROVED = "approved"
 REJECTED = "rejected"
+
+
+# --------------------------------------------------------------------------- #
+# The rule registry — single source of truth for policy and tolerance
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class Rule:
+    """One validation rule. `policy` decides whether a finding blocks the AP
+    submit gate ("block") or merely informs ("advise"); `tolerance` is the
+    rule's own comparison slack — explicit per rule, never a module-level
+    constant reused by accident. Every "block" rule has tolerance exactly 0
+    (see the module docstring for why)."""
+
+    code: str  # stable, unique, machine-readable slug
+    policy: Literal["block", "advise"]
+    tolerance: Decimal
+    scope: Literal["header", "line", "document"]
+
+
+RULES: tuple[Rule, ...] = (
+    # -- blocking reconciliation (the former route-level `_reconcile`) --------
+    Rule("recon_tax_rate_range", "block", Decimal("0"), "line"),
+    Rule("recon_line_amount", "block", Decimal("0"), "line"),
+    Rule("recon_subtotal", "block", Decimal("0"), "header"),
+    Rule("recon_tax", "block", Decimal("0"), "header"),
+    Rule("recon_total", "block", Decimal("0"), "header"),
+    # -- advisory data-validation checks --------------------------------------
+    Rule("missing_number", "advise", Decimal("0"), "header"),
+    Rule("no_lines", "advise", Decimal("0"), "document"),
+    Rule("subtotal_mismatch", "advise", Decimal("0.01"), "header"),
+    Rule("total_mismatch", "advise", Decimal("0.01"), "header"),
+    Rule("tax_mismatch", "advise", Decimal("0.02"), "header"),
+    # line_math: tolerance is the FLOOR — the effective slack is
+    # max(0.01, 1% of the expected amount), relative part applied in the check.
+    Rule("line_math", "advise", Decimal("0.01"), "line"),
+    Rule("non_positive_total", "advise", Decimal("0"), "header"),
+    Rule("future_date", "advise", Decimal("0"), "header"),
+    Rule("old_date", "advise", Decimal("0"), "header"),
+    Rule("due_before_issue", "advise", Decimal("0"), "header"),
+    Rule("unknown_currency", "advise", Decimal("0"), "header"),
+    Rule("duplicate", "advise", Decimal("0"), "document"),
+    Rule("duplicate_cross_supplier", "advise", Decimal("0"), "document"),
+    # fx_deviation: tolerance is a PERCENT deviation from the ECB rate, not EUR.
+    Rule("fx_deviation", "advise", Decimal("3"), "header"),
+)
+
+_BY_CODE: dict[str, Rule] = {r.code: r for r in RULES}
+
+
+def rule(code: str) -> Rule:
+    """Registry lookup; raises KeyError for an unknown code (a programming
+    error — every emitted finding must be a registered rule)."""
+    return _BY_CODE[code]
+
+
+def _policy_of(code: str) -> str:
+    """Defensive policy lookup for PERSISTED findings: a finding read back from
+    an old row whose code predates the registry is treated as advisory
+    ("legacy" — it never gains blocking power retroactively)."""
+    r = _BY_CODE.get(code)
+    return r.policy if r is not None else "advise"
+
+
+# formatting quantum for messages (2 dp display) — not a tolerance.
+_CENT = Decimal("0.01")
 
 _KNOWN_CCY = {
     "EUR",
@@ -58,8 +146,111 @@ _KNOWN_CCY = {
 }
 
 
+# --------------------------------------------------------------------------- #
+# Blocking reconciliation (the AP submit gate) — pure, sync, zero tolerance
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class Reconciliation:
+    """Result of the blocking money reconciliation: the recomputed totals, the
+    stated header totals, and the findings. `blocking` derives from the
+    registry policy; the submit gate refuses when it is non-empty."""
+
+    computed_subtotal: Decimal
+    computed_tax: Decimal
+    computed_total: Decimal
+    stated_subtotal: Decimal
+    stated_tax: Decimal
+    stated_total: Decimal
+    findings: list[ValidationFinding] = dc_field(default_factory=list)
+
+    @property
+    def blocking(self) -> list[ValidationFinding]:
+        return [f for f in self.findings if _policy_of(f.code) == "block"]
+
+    @property
+    def balanced(self) -> bool:
+        return not self.blocking
+
+
+def reconcile(invoice: Invoice) -> Reconciliation:
+    """Recompute the money from the lines and compare to the stated header
+    totals — the AP total-reconciliation + tax-validation check surfaced in
+    review and enforced at submit. The server's numbers are authoritative; a
+    stated header total is compared, never trusted (§4.10). Zero tolerance:
+    the tolerances come from the registry's `recon_*` rules, all Decimal("0")."""
+
+    def _f(code: str, message: str, fld: str | None = None) -> ValidationFinding:
+        return ValidationFinding(severity="error", code=code, message=message, field=fld)
+
+    findings: list[ValidationFinding] = []
+    csub = Decimal("0")
+    ctax = Decimal("0")
+    for li in invoice.line_items:
+        amount = q2(Decimal(li.amount or 0))
+        rate = Decimal(li.tax_rate or 0)
+        csub += amount
+        ctax += q2(amount * rate / Decimal("100"))
+        if rate < 0 or rate > 100:
+            findings.append(
+                _f(
+                    "recon_tax_rate_range",
+                    f"Line '{li.description}': tax rate {rate}% is out of range 0–100",
+                )
+            )
+        expected = q2(Decimal(li.quantity or 0) * Decimal(li.unit_price or 0))
+        if amount != expected:
+            findings.append(
+                _f(
+                    "recon_line_amount",
+                    f"Line '{li.description}': amount {amount} ≠ quantity × unit price "
+                    f"({expected})",
+                )
+            )
+    csub = q2(csub)
+    ctax = q2(ctax)
+    ctot = q2(csub + ctax)
+    ssub, stax, stot = (
+        q2(Decimal(invoice.subtotal or 0)),
+        q2(Decimal(invoice.tax_amount or 0)),
+        q2(Decimal(invoice.total or 0)),
+    )
+    if csub != ssub:
+        findings.append(
+            _f(
+                "recon_subtotal",
+                f"Subtotal mismatch: lines total {csub} vs stated {ssub}",
+                "subtotal",
+            )
+        )
+    if ctax != stax:
+        findings.append(
+            _f("recon_tax", f"Tax mismatch: lines tax {ctax} vs stated {stax}", "tax_amount")
+        )
+    if ctot != stot:
+        findings.append(
+            _f("recon_total", f"Total mismatch: computed {ctot} vs stated {stot}", "total")
+        )
+    return Reconciliation(
+        computed_subtotal=csub,
+        computed_tax=ctax,
+        computed_total=ctot,
+        stated_subtotal=ssub,
+        stated_tax=stax,
+        stated_total=stot,
+        findings=findings,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Advisory checks (opt-in AI validation) — read-only, looser tolerances
+# --------------------------------------------------------------------------- #
+
+
 async def run_checks(db: AsyncSession, invoice: Invoice, today: date) -> list[ValidationFinding]:
-    """The automated (AI) validator. Read-only; returns findings, never mutates."""
+    """The automated (AI) validator. Read-only; returns findings, never mutates.
+    Tolerances come from the registry — one rule, one slack, declared once."""
     f: list[ValidationFinding] = []
     lines = list(invoice.line_items)
 
@@ -82,7 +273,7 @@ async def run_checks(db: AsyncSession, invoice: Invoice, today: date) -> list[Va
 
     # Money consistency
     line_sum = sum((li.amount for li in lines), start=Decimal("0"))
-    if lines and abs(line_sum - Decimal(invoice.subtotal)) > _TOL:
+    if lines and abs(line_sum - Decimal(invoice.subtotal)) > rule("subtotal_mismatch").tolerance:
         f.append(
             ValidationFinding(
                 severity="error",
@@ -91,7 +282,10 @@ async def run_checks(db: AsyncSession, invoice: Invoice, today: date) -> list[Va
                 field="subtotal",
             )
         )
-    if abs(Decimal(invoice.subtotal) + Decimal(invoice.tax_amount) - Decimal(invoice.total)) > _TOL:
+    if (
+        abs(Decimal(invoice.subtotal) + Decimal(invoice.tax_amount) - Decimal(invoice.total))
+        > rule("total_mismatch").tolerance
+    ):
         f.append(
             ValidationFinding(
                 severity="error",
@@ -102,13 +296,13 @@ async def run_checks(db: AsyncSession, invoice: Invoice, today: date) -> list[Va
             )
         )
     line_tax = sum(((li.amount * li.tax_rate / Decimal("100")) for li in lines), start=Decimal("0"))
-    if lines and abs(line_tax - Decimal(invoice.tax_amount)) > _TAX_TOL:
+    if lines and abs(line_tax - Decimal(invoice.tax_amount)) > rule("tax_mismatch").tolerance:
         f.append(
             ValidationFinding(
                 severity="warning",
                 code="tax_mismatch",
                 message=f"Tax {invoice.tax_amount} ≠ sum of line taxes "
-                f"({line_tax.quantize(_TOL)}).",
+                f"({line_tax.quantize(_CENT)}).",
                 field="tax_amount",
             )
         )
@@ -118,14 +312,14 @@ async def run_checks(db: AsyncSession, invoice: Invoice, today: date) -> list[Va
     for li in lines:
         if li.quantity and li.quantity > 1 and li.unit_price > 0:
             expected = li.quantity * li.unit_price
-            tol = max(_TOL, abs(expected) * Decimal("0.01"))
+            tol = max(rule("line_math").tolerance, abs(expected) * Decimal("0.01"))
             if abs(expected - li.amount) > tol:
                 f.append(
                     ValidationFinding(
                         severity="warning",
                         code="line_math",
                         message=f"Line '{li.description[:40]}': {li.quantity}×{li.unit_price} "
-                        f"= {expected.quantize(_TOL)} ≠ amount {li.amount}.",
+                        f"= {expected.quantize(_CENT)} ≠ amount {li.amount}.",
                     )
                 )
 
@@ -231,7 +425,7 @@ async def run_checks(db: AsyncSession, invoice: Invoice, today: date) -> list[Va
         ecb = await fx.rate_for(db, invoice.currency, invoice.issue_date or today)
         if ecb and ecb > 0:
             dev = (Decimal(invoice.fx_rate) - ecb) / ecb * Decimal("100")
-            if abs(dev) > _FX_DEVIATION_PCT:
+            if abs(dev) > rule("fx_deviation").tolerance:
                 f.append(
                     ValidationFinding(
                         severity="warning",
@@ -255,8 +449,6 @@ async def apply_validation(
     db: AsyncSession, invoice: Invoice, ai_enabled: bool, human_enabled: bool, today: date
 ) -> list[ValidationFinding]:
     """Set invoice.validation_status/findings per the org's enabled options."""
-    import json
-
     findings: list[ValidationFinding] = []
     if not ai_enabled and not human_enabled:
         invoice.validation_status = NONE

@@ -1,4 +1,9 @@
-"""Opt-in data validation: AI (automated) and human review, both off by default."""
+"""Opt-in data validation: AI (automated) and human review, both off by default.
+
+Plus the WO-7 rule-registry integrity checks: one engine in
+app/services/validation.py, every rule declaring `block | advise` and its own
+tolerance, no rule implemented twice, and a stable code set.
+"""
 
 import pytest
 
@@ -130,3 +135,113 @@ async def test_settings_owner_only(client):
     )
     assert upd.status_code == 200
     assert upd.json()["ai_validation_enabled"] is True
+
+
+# --------------------------------------------------------------------------- #
+# WO-7 — the one rule registry (integrity + stability)
+# --------------------------------------------------------------------------- #
+
+
+def test_rule_registry_has_no_duplicate_codes():
+    from app.services import validation
+
+    codes = [r.code for r in validation.RULES]
+    assert len(codes) == len(set(codes)), f"duplicate rule codes: {sorted(codes)}"
+    assert all(c and c.strip() for c in codes), "every rule must have a non-empty code"
+
+
+def test_block_rules_have_zero_tolerance():
+    from decimal import Decimal
+
+    from app.services import validation
+
+    # Zero tolerance on every blocking rule is deliberate (see the module
+    # docstring): a submitted invoice enters the approval chain and locks on
+    # approval — drift there is a control failure. No exception is justified.
+    for r in validation.RULES:
+        if r.policy == "block":
+            assert r.tolerance == Decimal("0"), f"block rule {r.code} must have zero tolerance"
+
+
+def test_rule_codes_snapshot():
+    """The sorted code list is a stable contract — an accidental rename or a
+    silently dropped rule must be a visible diff here."""
+    from app.services import validation
+
+    assert sorted(r.code for r in validation.RULES) == [
+        "due_before_issue",
+        "duplicate",
+        "duplicate_cross_supplier",
+        "future_date",
+        "fx_deviation",
+        "line_math",
+        "missing_number",
+        "no_lines",
+        "non_positive_total",
+        "old_date",
+        "recon_line_amount",
+        "recon_subtotal",
+        "recon_tax",
+        "recon_tax_rate_range",
+        "recon_total",
+        "subtotal_mismatch",
+        "tax_mismatch",
+        "total_mismatch",
+        "unknown_currency",
+    ]
+
+
+def test_every_rule_declares_policy_and_scope():
+    from app.services import validation
+
+    for r in validation.RULES:
+        assert r.policy in ("block", "advise")
+        assert r.scope in ("header", "line", "document")
+
+
+@pytest.mark.asyncio
+async def test_advisory_findings_shape_unchanged(auth_client):
+    """Persisted findings keep the exact {severity, code, message, field} shape
+    the SPA renders — the refactor must not change it."""
+    await _set_settings(auth_client, ai=True)
+    p = _payload("SHAPE-1")
+    p["issue_date"] = "2999-01-01"  # future date → at least one finding
+    inv = (await auth_client.post("/api/v1/invoices", json=p)).json()
+    assert inv["validation_findings"], "expected at least one advisory finding"
+    for f in inv["validation_findings"]:
+        assert set(f.keys()) == {"severity", "code", "message", "field"}
+        assert f["severity"] in ("info", "warning", "error")
+        assert f["code"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("ai", "human", "expected_status"),
+    [
+        (False, False, "none"),  # both off: invoice behaves exactly as before
+        (True, False, "flagged"),  # AI only: an error finding auto-resolves to flagged
+        (False, True, "pending"),  # human only: routed to the review gate
+        (True, True, "pending"),  # both: AI findings assist, human still gates
+    ],
+)
+async def test_toggle_matrix(auth_client, ai, human, expected_status):
+    await _set_settings(auth_client, ai=ai, human=human)
+    # A same-vendor duplicate number gives the AI validator an error finding,
+    # so the AI-only combination lands on `flagged` (not `passed`).
+    await auth_client.post("/api/v1/invoices", json=_payload("TM-1"))
+    inv = (await auth_client.post("/api/v1/invoices", json=_payload("TM-1"))).json()
+    assert inv["validation_status"] == expected_status
+
+
+def test_no_rule_is_implemented_twice():
+    """The route module must not contain a reconciliation implementation any
+    more — the service registry is the only engine (source scan is cheap and
+    catches a reintroduced helper)."""
+    from pathlib import Path
+
+    import app.api.routes.invoice_review as review_route
+
+    src = Path(review_route.__file__).read_text(encoding="utf-8")
+    assert "_reconcile" not in src, "reconciliation logic must live in services/validation.py"
+    assert "Subtotal mismatch" not in src, "reconcile message strings belong to the service"
+    assert "out of range 0–100" not in src, "tax-range check belongs to the service"

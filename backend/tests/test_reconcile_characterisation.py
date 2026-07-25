@@ -89,8 +89,7 @@ async def test_line_amount_vs_qty_times_price_blocks_submit(auth_client):
     r = await _submit(auth_client, iid)
     assert r.status_code == 422, r.text
     assert r.json()["detail"] == (
-        "Invoice does not reconcile: "
-        "Line 'Widgets': amount 250.00 ≠ quantity × unit price (300.00)"
+        "Invoice does not reconcile: Line 'Widgets': amount 250.00 ≠ quantity × unit price (300.00)"
     )
 
 

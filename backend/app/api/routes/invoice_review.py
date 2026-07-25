@@ -54,7 +54,7 @@ from app.schemas.approval import (
     TransitionIn,
 )
 from app.services import approval_policy as ap
-from app.services import audit, costing, documents, filesec, fx, mailer, webhooks
+from app.services import audit, costing, documents, filesec, fx, mailer, validation, webhooks
 from app.services import invoice_workflow as wf
 from app.services.vendors import get_or_create_vendor
 
@@ -100,47 +100,18 @@ async def _email_for(db: DbSession, user_id: str | None) -> str | None:
     return u.email if u else None
 
 
-def _reconcile(inv: Invoice) -> ReconciliationOut:
-    """Recompute the money from the lines and compare to the stated header totals
-    — the AP total-reconciliation + tax-validation check surfaced in review."""
-    findings: list[str] = []
-    csub = Decimal("0")
-    ctax = Decimal("0")
-    for li in inv.line_items:
-        amount = _q(Decimal(li.amount or 0))
-        rate = Decimal(li.tax_rate or 0)
-        csub += amount
-        ctax += _q(amount * rate / Decimal("100"))
-        if rate < 0 or rate > 100:
-            findings.append(f"Line '{li.description}': tax rate {rate}% is out of range 0–100")
-        expected = _q(Decimal(li.quantity or 0) * Decimal(li.unit_price or 0))
-        if amount != expected:
-            findings.append(
-                f"Line '{li.description}': amount {amount} ≠ quantity × unit price ({expected})"
-            )
-    csub = _q(csub)
-    ctax = _q(ctax)
-    ctot = _q(csub + ctax)
-    ssub, stax, stot = (
-        _q(Decimal(inv.subtotal or 0)),
-        _q(Decimal(inv.tax_amount or 0)),
-        _q(Decimal(inv.total or 0)),
-    )
-    if csub != ssub:
-        findings.append(f"Subtotal mismatch: lines total {csub} vs stated {ssub}")
-    if ctax != stax:
-        findings.append(f"Tax mismatch: lines tax {ctax} vs stated {stax}")
-    if ctot != stot:
-        findings.append(f"Total mismatch: computed {ctot} vs stated {stot}")
+def _recon_out(r: validation.Reconciliation) -> ReconciliationOut:
+    """Shape the service's reconciliation result onto the frozen wire model
+    (findings travel as plain message strings — the SPA's contract)."""
     return ReconciliationOut(
-        computed_subtotal=csub,
-        computed_tax=ctax,
-        computed_total=ctot,
-        stated_subtotal=ssub,
-        stated_tax=stax,
-        stated_total=stot,
-        balanced=not findings,
-        findings=findings,
+        computed_subtotal=r.computed_subtotal,
+        computed_tax=r.computed_tax,
+        computed_total=r.computed_total,
+        stated_subtotal=r.stated_subtotal,
+        stated_tax=r.stated_tax,
+        stated_total=r.stated_total,
+        balanced=r.balanced,
+        findings=[f.message for f in r.findings],
     )
 
 
@@ -207,7 +178,7 @@ async def _review_out(db: DbSession, org_id: str, inv: Invoice) -> ReviewOut:
         submitted_by=inv.submitted_by,
         submitted_at=inv.submitted_at,
         lines=[ReviewLineOut.model_validate(li) for li in inv.line_items],
-        reconciliation=_reconcile(inv),
+        reconciliation=_recon_out(validation.reconcile(inv)),
         approval_steps=[await _step_out(db, s) for s in steps],
         comments=[InvoiceCommentOut.model_validate(c) for c in comments],
         attachments=[InvoiceAttachmentOut.model_validate(a) for a in attachments],
@@ -386,11 +357,11 @@ async def submit(invoice_id: str, body: SubmitIn, current: CurrentUser, db: DbSe
     wf.assert_transition(inv.workflow_state, WorkflowState.submitted)
     if not inv.line_items:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Add at least one line first.")
-    recon = _reconcile(inv)
-    if not recon.balanced:
+    recon = validation.reconcile(inv)
+    if recon.blocking:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "Invoice does not reconcile: " + "; ".join(recon.findings),
+            "Invoice does not reconcile: " + "; ".join(f.message for f in recon.blocking),
         )
     # Fresh chain (a resubmission after return/correction supersedes the old one).
     await db.execute(

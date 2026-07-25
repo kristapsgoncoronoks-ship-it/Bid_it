@@ -124,7 +124,7 @@ Legend: **Owns** = writes + schema authority. **Reads** = consumes read-only. Is
 | **Extraction** | — (stateless) | `parser`, `einvoice`, `facturx`, `pdf_ocr` | object storage | Deterministic-first; opt-in AI seam. |
 | **Invoices (AP)** | `invoices`, `line_items` | invoice routes, `validation` | vendors, fx, vat, dimensions | The core received-invoice record. |
 | **Vendors** | `vendors` | vendor routes | — | Supplier master (received side). |
-| **Validation** | (findings on invoice) | `validation` | invoice, fx, ecb | Advisory; AI opt-in; never blocks unless human-gate on. |
+| **Validation** | (findings on invoice) | `validation` | invoice, fx, ecb | ONE service-owned engine (WO-7; ADR forthcoming in WO-10): a single rule registry — `block` rules (zero tolerance) gate AP submit, `advise` rules are the opt-in AI findings; human-gate routes to `pending`. |
 | **Dimensions** | (columns on invoices/expense_items) | `core/dimensions` | — | Cost-allocation tags; catalog in one place. |
 | **Analytics** | (read models / metrics) | `analytics`, `explore`, `issued_reports` | invoices, issued, dimensions | DB-side aggregation; single-currency. |
 | **Budget** | `budget_targets` | `budget` | invoices | Category budgets vs. spend. |

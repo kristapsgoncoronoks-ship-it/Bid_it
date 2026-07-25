@@ -63,6 +63,14 @@ api     →  services, core, models          # the web layer, on top
   composes and commits once). Don't leave a half-written aggregate. **[review]**
 - Side effects that can fail independently (email, webhooks, external billing)
   go through their own advisory seam and **never fail the primary write**.
+- **No business logic in a route module** — worked example (WO-7): the AP
+  submit-time reconciliation once lived as `_reconcile` inside
+  `api/routes/invoice_review.py`, disagreeing with the advisory validator in
+  `services/validation.py`. It now lives in the service's single rule registry
+  (`validation.RULES`, each rule declaring `block | advise` + its own
+  tolerance); the route only calls `validation.reconcile()` and shapes the
+  response. `tests/test_validation.py::test_no_rule_is_implemented_twice`
+  keeps it out of the controller. **[CI]**
 
 ## 4. Repository / data-access rules
 
