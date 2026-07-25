@@ -55,6 +55,7 @@ from app.models.tax_code import TaxCode
 from app.models.usage import UsageCounter
 from app.models.user import User, UserRole
 from app.models.vendor import Vendor
+from app.models.vendor_change_request import VendorChangeRequest
 from app.models.webhook import WebhookDelivery, WebhookEndpoint
 
 __all__ = [
@@ -64,6 +65,7 @@ __all__ = [
     "User",
     "UserRole",
     "Vendor",
+    "VendorChangeRequest",
     "Invoice",
     "InvoiceStatus",
     "WorkflowState",
