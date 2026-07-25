@@ -81,19 +81,47 @@ async def revoke(db: AsyncSession, jti: str) -> bool:
     return True
 
 
-async def revoke_all(db: AsyncSession, user_id: str, *, except_jti: str | None = None) -> int:
-    """Revoke every live session for a user (optionally keeping one). Returns the
-    number revoked. Caller need not commit — this commits."""
-    stmt = (
-        update(Session)
-        .where(Session.user_id == user_id, Session.revoked_at.is_(None))
-        .values(revoked_at=datetime.now(UTC))
-    )
+async def revoke_bulk(
+    db: AsyncSession,
+    *,
+    user_id: str | None = None,
+    org_id: str | None = None,
+    except_jti: str | None = None,
+) -> int:
+    """Bulk-revoke live sessions matching the filters (at least one required).
+    Returns the number revoked. THE single revocation mechanism (WO-4) — every
+    trigger (logout-everywhere, password reset, org suspension, role change,
+    deactivation) funnels through this one UPDATE.
+
+    Deliberately does NOT commit: the caller commits, so the revocation lands
+    atomically with the state change that triggered it (and its audit event) —
+    a failed trigger can never leave sessions half-revoked, and a revocation
+    can never persist without its cause.
+
+    `org_id` scopes the kill to sessions whose ACTIVE org is that tenant: a
+    session the user holds in ANOTHER org is untouched, because their standing
+    there is unchanged (switching into the affected org re-reads membership
+    and hits the per-request gates anyway).
+    """
+    if user_id is None and org_id is None:
+        raise ValueError("revoke_bulk needs user_id and/or org_id")
+    stmt = update(Session).where(Session.revoked_at.is_(None)).values(revoked_at=datetime.now(UTC))
+    if user_id is not None:
+        stmt = stmt.where(Session.user_id == user_id)
+    if org_id is not None:
+        stmt = stmt.where(Session.org_id == org_id)
     if except_jti:
         stmt = stmt.where(Session.id != except_jti)
     result = await db.execute(stmt)
-    await db.commit()
     return cast(CursorResult, result).rowcount or 0
+
+
+async def revoke_all(db: AsyncSession, user_id: str, *, except_jti: str | None = None) -> int:
+    """Revoke every live session for a user (optionally keeping one). Returns the
+    number revoked. Caller need not commit — this commits."""
+    n = await revoke_bulk(db, user_id=user_id, except_jti=except_jti)
+    await db.commit()
+    return n
 
 
 async def list_active(db: AsyncSession, user_id: str) -> list[Session]:

@@ -62,6 +62,7 @@ async def update_member(user_id: str, body: MemberUpdate, current: CurrentUser, 
             )
 
     if body.role is not None:
+        role_changed = body.role != m.role
         m.role = body.role
         await audit.record(
             db,
@@ -70,6 +71,10 @@ async def update_member(user_id: str, body: MemberUpdate, current: CurrentUser, 
             target_id=user_id,
             meta={"email": m.email, "role": body.role.value},
         )
+        # WO-4: a role change forces re-auth — the old token must not keep
+        # exercising the old role's permissions for up to the token TTL.
+        if role_changed:
+            await team.revoke_member_sessions(db, current.org_id, user_id, trigger="role_change")
     if body.is_active is not None:
         m.status = "active" if body.is_active else "suspended"
         if not body.is_active:
@@ -79,6 +84,11 @@ async def update_member(user_id: str, body: MemberUpdate, current: CurrentUser, 
                 target_type="user",
                 target_id=user_id,
                 meta={"email": m.email},
+            )
+            # WO-4: deactivation kills the member's live sessions in this org
+            # now (belt-and-braces with the per-request membership gate).
+            await team.revoke_member_sessions(
+                db, current.org_id, user_id, trigger="user_deactivated"
             )
     if body.is_expense_approver is not None:
         # Keep at least one approver so expense reports can always be decided.

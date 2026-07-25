@@ -42,13 +42,24 @@ class AppError(Exception):
     status: int = 400
     code: str = "error"
 
-    def __init__(self, message: str, *, code: str | None = None, status: int | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str | None = None,
+        status: int | None = None,
+        headers: dict[str, str] | None = None,
+    ):
         super().__init__(message)
         self.message = message
         if code is not None:
             self.code = code
         if status is not None:
             self.status = status
+        # Optional response headers (e.g. WWW-Authenticate on a 401), so an
+        # AppError-rendered auth failure is wire-identical to the HTTPException
+        # path except for the additive `code` field.
+        self.headers = headers
 
 
 class NotFoundError(AppError):

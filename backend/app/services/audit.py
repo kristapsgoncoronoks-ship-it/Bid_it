@@ -107,6 +107,9 @@ class A:
     APPROVER_CHANGE = "user.approver_change"
     USER_DEACTIVATE = "user.deactivate"
     INVITE_CREATE = "user.invite"
+    # Tenant & session integrity (WO-4)
+    SESSION_REVOKE_BULK = "session.revoked_bulk"
+    TENANT_UPDATE = "platform.tenant_update"
 
 
 def _hash(

@@ -159,6 +159,19 @@ kubectl apply -f deploy/k8s/30-backend.yaml -f deploy/k8s/40-frontend.yaml -f de
   `alembic check` for un-migrated model drift), frontend typecheck+build, and a
   **docker-build** job that builds both images (catches Dockerfile regressions).
   Cached pip/npm; in-progress runs cancel on a new push.
+- **Required PR checks (branch protection).** The workflow triggers on
+  `pull_request` with **no job-level filters**, so every job below runs on every
+  PR — but GitHub only *blocks* a merge on jobs listed as required checks.
+  Enable branch protection on `main` in GitHub → Settings → Branches with these
+  required status checks (this list is the contract; it cannot be asserted from
+  inside the repo):
+  - `lint` — ruff + `mypy app` (whole app)
+  - `backend` — full pytest suite + migration consistency on SQLite
+  - `postgres` — **the tenancy gate**: migrations on real Postgres + RLS
+    enforcement (`tests/test_rls.py`) + concurrent numbering, run as a
+    **`NOSUPERUSER`** app role (a superuser would bypass RLS and prove nothing)
+  - `frontend` — typecheck + build
+  - `docker-build` — both images build
 - **`.github/workflows/release.yml`** (on a `v*.*.*` tag): builds and pushes
   immutable, versioned images to GHCR. Deployment stays a deliberate, separate
   step — CI/CD produces artifacts; a human (or ArgoCD/Flux) promotes them.

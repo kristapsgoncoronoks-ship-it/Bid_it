@@ -117,7 +117,11 @@ async def _app_error_handler(request, exc: AppError):
     shape — {"detail", "code"}. The X-Request-ID header is added by the middleware."""
     from fastapi.responses import JSONResponse
 
-    return JSONResponse(status_code=exc.status, content={"detail": exc.message, "code": exc.code})
+    return JSONResponse(
+        status_code=exc.status,
+        content={"detail": exc.message, "code": exc.code},
+        headers=exc.headers,
+    )
 
 
 @app.exception_handler(Exception)

@@ -171,6 +171,32 @@ async def accept_invitation(
     return user, inv.org_id
 
 
+async def revoke_member_sessions(
+    db: AsyncSession, org_id: str, user_id: str, *, trigger: str
+) -> int:
+    """Kill the member's live sessions in THIS org so a role change or a
+    deactivation forces re-authentication immediately (WO-4) — a live token must
+    never keep exercising a role the member no longer holds.
+
+    Scoped to the org on purpose: a session the member holds with ANOTHER org
+    active is untouched (their standing there is unchanged, and switching back
+    into this org re-reads the membership + per-request gates). Audited as
+    `session.revoked_bulk` with the trigger and count. The caller commits, so
+    the revocation is atomic with the membership change and its audit trail.
+    """
+    from app.services import audit, sessions
+
+    n = await sessions.revoke_bulk(db, user_id=user_id, org_id=org_id)
+    await audit.record(
+        db,
+        audit.A.SESSION_REVOKE_BULK,
+        target_type="user",
+        target_id=user_id,
+        meta={"trigger": trigger, "count": n},
+    )
+    return n
+
+
 async def get_member(db: AsyncSession, org_id: str, user_id: str) -> Membership | None:
     # The member's MEMBERSHIP in this org (Slice 6e) — works even if the member is
     # currently active in another org.

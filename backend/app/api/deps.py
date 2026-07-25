@@ -14,8 +14,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import authz, residency
-from app.core.config import settings
 from app.core.database import get_session
+from app.core.errors import AppError
 from app.core.security import decode_access_token
 from app.core.tenant import apply_db_tenant, set_current_actor, set_current_org
 from app.models.organization import Organization
@@ -55,10 +55,28 @@ async def _authenticate(
     return user, session
 
 
-async def get_current_user(
+async def get_current_identity(
     db: DbSession,
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
-) -> User:
+) -> tuple[User, Organization]:
+    """Bearer token → the tenant-scoped (User, Organization) pair. THE per-request
+    gate chain: token signature, live session (jti), active account, active
+    membership, and — WO-4 — an ACTIVE organization.
+
+    Returns both so the org row is fetched exactly ONCE per request: FastAPI's
+    dependency cache holds this tuple (a strong reference — the session's
+    identity map alone is weak and would let the row be garbage-collected
+    between dependencies), and `get_current_user` / `get_current_org` just
+    unpack it. No second organizations query, structurally.
+
+    The org-status gate is a 401, not a 403, deliberately: a token for a
+    suspended tenant is a credential that is no longer usable at all (there is
+    nothing the caller could be "forbidden" from with it), and a 401 makes the
+    SPA drop the token and log the user out instead of showing a confusing
+    in-app permission error. The body is byte-identical to the invalid-token
+    401 except for the additive `code` — object/tenant existence is never
+    leaked to an unauthorized caller.
+    """
     user, session = await _authenticate(db, creds)
     # Activate defence-in-depth tenant scoping + audit attribution for this request.
     # The ACTIVE org is `user.org_id` (repointed by org-switching); everything
@@ -72,16 +90,35 @@ async def get_current_user(
     membership = await memberships.get(db, user.org_id, user.id)
     if membership is None or membership.status != "active":
         raise _CREDENTIALS_EXC
+    # Organization-status gate (WO-4): suspension must bite on the NEXT request,
+    # not when the token expires. This is the request's ONE org query.
+    # `org is None` (dangling FK — inconsistent state) gets the same opaque 401.
+    org = await db.get(Organization, user.org_id)
+    if org is None or org.status != "active":
+        raise AppError(
+            "Could not validate credentials",
+            code="organization_suspended",
+            status=status.HTTP_401_UNAUTHORIZED,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     await sessions.touch(db, session)
     # Pin the Postgres RLS GUC for this request's current transaction (no-op on
     # SQLite / when unscoped). The event hook re-applies it on later transactions.
     await apply_db_tenant(db)
-    # Data-residency backstop: refuse a tenant pinned to another region (no-op
-    # unless enforcement is on → single-region deployments skip the org fetch).
-    if settings.enforce_region_pinning:
-        org = await db.get(Organization, user.org_id)
-        residency.assert_region(org)
-    return user
+    # Data-residency backstop: refuse a tenant pinned to another region.
+    # Self-short-circuits unless `enforce_region_pinning` is on; reuses the org
+    # row fetched above (no extra query either way).
+    residency.assert_region(org)
+    return user, org
+
+
+Identity = Annotated[tuple[User, Organization], Depends(get_current_identity)]
+
+
+async def get_current_user(identity: Identity) -> User:
+    """The authenticated, tenant-scoped caller. All gates live in
+    `get_current_identity`; this just unpacks the cached pair."""
+    return identity[0]
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
@@ -126,17 +163,12 @@ def require_perm(*permissions: authz.Permission) -> PermissionDependency:
     return PermissionDependency(permissions)
 
 
-async def get_current_org(current: CurrentUser, db: DbSession) -> Organization:
-    """The caller's active organization, guaranteed non-None. `current.org_id` is
-    a live FK for any valid session, so a missing row means the account is in an
-    inconsistent state → hard 401."""
-    org = await db.get(Organization, current.org_id)
-    if org is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Organization not found",
-        )
-    return org
+async def get_current_org(identity: Identity) -> Organization:
+    """The caller's active organization, guaranteed non-None and guaranteed
+    ACTIVE — `get_current_identity` already fetched and gated it (401 on a
+    missing or non-active org), and the dependency cache reuses that single
+    fetch, so resolving CurrentOrg adds ZERO queries to the request."""
+    return identity[1]
 
 
 CurrentOrg = Annotated[Organization, Depends(get_current_org)]
