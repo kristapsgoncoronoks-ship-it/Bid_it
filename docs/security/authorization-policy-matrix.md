@@ -77,13 +77,47 @@ the stored role vocabulary expands.
 
 ## Using it in a route
 
-```python
-from app.core import authz
+Authorization is **structural** (ADR-0024): a route declares its permission on
+the router, and CI proves total coverage in both directions.
 
-authz.require(current, authz.Permission.EXPORT_RUN)   # 403 if not granted
+```python
+from fastapi import APIRouter, Depends
+
+from app.api.deps import require_perm
+from app.core.authz import Permission
+
+router = APIRouter(
+    prefix="/vendors",
+    tags=["vendors"],
+    dependencies=[Depends(require_perm(Permission.INVOICE_READ))],  # router default
+)
+
+
+@router.post("", dependencies=[Depends(require_perm(Permission.INVOICE_WRITE))])
+async def create_vendor(...):  # stricter per-route override — both gates run
+    ...
 ```
 
-Migrated so far: `GET /export/accounting` (was an ad-hoc `is_admin_or_above`
-check — behaviour-preserving: only Owner/Administrator/platform hold `export.run`).
-Remaining ad-hoc role checks migrate onto `authz.require` incrementally; each
-migration is behaviour-preserving for the four stored roles by construction.
+## How it is enforced
+
+- **The factory** — `app/api/deps.py::require_perm(*permissions)` returns an
+  introspectable dependency that calls `authz.require` (which resolves through
+  `authz.permissions_for`, the single resolver). It carries its declaration
+  under `authz.PERMISSIONS_ATTR` so tooling can read it without executing
+  anything. A denial is a `403 {"detail","code"}`.
+- **The allow-list** — `app/core/authz.py::PUBLIC_ROUTES` is the explicitly
+  reviewed set of `(method, path)` pairs that legitimately carry no permission
+  (auth bootstrap, signature-authenticated webhooks, SCIM's own bearer, and
+  authenticated self-service endpoints). Every entry carries a reason **in the
+  structure itself**; a reason-less entry fails CI.
+- **The coverage test** — `backend/tests/test_authz_coverage.py` asserts BOTH
+  directions on every CI run: (forward) every route declares a permission or is
+  allow-listed with a reason — an unclassified route fails CI by name; (reverse)
+  every allow-list entry resolves to a live route — no stale classifications.
+  The checker is proven by a self-test on a scratch app.
+- **Platform-operator routes** (`/platform/*`, the `/access/matrix` write) are
+  stricter than any tenant permission and declare the `authz.PLATFORM_ADMIN`
+  sentinel through the same introspection attribute.
+- **Fixture discipline** — when gating breaks a test whose role should never
+  have had access, the fixture's privilege is raised; an assertion is never
+  weakened (ADR-0024 §6).

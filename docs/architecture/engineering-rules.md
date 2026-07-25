@@ -88,6 +88,10 @@ api     →  services, core, models          # the web layer, on top
   from types and can't drift. **[review]**
 - Routes are thin: parse → authorize → call one service → shape the response.
   Business rules live in the service, not the route. **[review]**
+- **Every new route declares a permission** via `require_perm(...)` on the router
+  (or a stricter per-route override) or is added to `authz.PUBLIC_ROUTES` with a
+  reason — the coverage test fails CI on an unclassified route, in both
+  directions (ADR-0024). **[CI]** (`test_authz_coverage.py`)
 - Semantic validation the schema can't express (a cross-field or DB-dependent
   rule) raises `ValidationError`/`ConflictError` from the service. **[convention]**
 

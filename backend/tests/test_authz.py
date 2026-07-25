@@ -124,6 +124,36 @@ async def test_permissions_endpoint_reflects_owner(auth_client):
 
 
 @pytest.mark.asyncio
+async def test_require_perm_dependency_denies_missing_permission(role_client):
+    """Structural enforcement (ADR-0024): /audit is gated ONLY by the router-level
+    require_perm(AUDIT_READ) dependency — there is no in-handler call left — so a
+    role without AUDIT_READ must get 403 and a role with it must get through."""
+    employee = await role_client("user")  # EMPLOYEE — no AUDIT_READ
+    denied = await employee.get("/api/v1/audit")
+    assert denied.status_code == 403
+    assert "detail" in denied.json()
+
+    owner = await role_client("owner")  # OWNER — all permissions
+    allowed = await owner.get("/api/v1/audit")
+    assert allowed.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_route_level_override_is_stricter_than_router_default(role_client):
+    """A per-route stricter declaration wins over the router default: /vendors is
+    INVOICE_READ at the router, but POST declares INVOICE_WRITE — so READ_ONLY
+    (user_free) can list vendors yet cannot create one."""
+    ro = await role_client("user_free")  # READ_ONLY — INVOICE_READ only
+    assert (await ro.get("/api/v1/vendors")).status_code == 200
+    denied = await ro.post("/api/v1/vendors", json={"name": "Overreach GmbH"})
+    assert denied.status_code == 403
+
+    owner = await role_client("owner")
+    created = await owner.post("/api/v1/vendors", json={"name": "Legit Vendor OU"})
+    assert created.status_code == 201
+
+
+@pytest.mark.asyncio
 async def test_export_guard_uses_authz(auth_client, db_session):
     # Owner (has EXPORT_RUN) is allowed past the guard (404 = no data, not 403).
     r = await auth_client.get("/api/v1/export/accounting?from=2026-01-01&to=2026-12-31")
