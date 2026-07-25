@@ -23,6 +23,12 @@ frontend/dist/
 !.env.example
 !.env.hostinger.example
 
+# PII quarantine (WO-6): the owner-held raw identifier list must NEVER be
+# committed — only the salted-hash deny-list (scripts/pii_denylist.json) is.
+# The scan cache is a local optimisation.
+identifiers_for_denylist.txt
+.pii_scan_cache.json
+
 # Editor / OS
 .DS_Store
 .idea/

@@ -1,0 +1,27 @@
+# Nightly full-history PII scan (WO-6). The per-PR tree scan lives in ci.yml;
+# history scanning walks every blob on every ref, so it runs on a schedule
+# (plus on demand) rather than on each pull request. Lives in its own workflow
+# file so the nightly cron does not re-run the whole CI matrix.
+name: PII history scan
+
+on:
+  schedule:
+    - cron: "23 2 * * *" # nightly, 02:23 UTC
+  workflow_dispatch:
+
+jobs:
+  pii-history:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history — the whole point of this job
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: PII scan (every blob on every ref)
+        env:
+          PII_SCAN_SALT: ${{ secrets.PII_SCAN_SALT }}
+        # --no-cache: the nightly pass is the authoritative full sweep; the
+        # clean-blob cache is a local-developer optimisation only.
+        run: python scripts/pii_scan.py --history --no-cache

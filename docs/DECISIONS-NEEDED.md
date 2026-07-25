@@ -121,6 +121,34 @@ code.
 
 ---
 
+## 8. Fleet Fuel decommission archive — retention / destruction (counsel)
+**Status:** 🔓  ·  **Raised by:** WO-6 (PII quarantine) — a legal decision, deliberately **not** acted on in code.
+
+**Situation:** the retired Fleet Fuel repository was deleted on 2026-07-25,
+but the **owner-held decommission archive** retains its full git history —
+including real client personal and commercial data as module constants
+(company names, EU VAT ids, addresses, bank references, invoice numbers) and
+three committed live databases (`customers.db`, `fuel_history.db`,
+`suppliers.db`). Deleting the GitHub repository does **not** end the GDPR
+exposure; the archive is now the sole copy of that personal data.
+
+**Decision needed from counsel:**
+- the archive's **lawful basis and retention period** (or a destruction date);
+- whether a **redacted derivative** (history rewritten without the PII) should
+  replace it for engineering-reference purposes;
+- storage requirements meanwhile (encryption, access list, audit of access).
+
+**Owner:** the repository owner (holder of the archive) — to engage counsel.
+**Date needed by:** 2026-09-30 (before any Epic-G work could tempt an
+archive consultation).
+**Interim controls already in place:** the archive stays offline with the
+owner; this repo's CI PII scan (`scripts/pii_scan.py`, required check) blocks
+any identifier from crossing over; the identifier extract for the deny-list
+(`identifiers_for_denylist.txt`) is `.gitignore`d and documented as
+never-committed (`docs/transport/harvest-protocol.md`).
+
+---
+
 *Not blocked — I can keep building these without you:* enhancements to shipped
 features, tests/coverage, docs, and any of the above up to its stated boundary.
 Tell me which to prioritise next.

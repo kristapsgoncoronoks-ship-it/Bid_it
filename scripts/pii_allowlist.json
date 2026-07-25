@@ -1,0 +1,203 @@
+{
+  "_comment": [
+    "Known-synthetic values that match the structural PII patterns (EU VAT",
+    "id shape / MOD-97-valid IBAN shape) but are verifiably fictional.",
+    "Every entry needs a justification and a named verifier — this is the",
+    "ONLY sanctioned way to resolve a pii_scan false positive; the job is",
+    "never disabled (docs/transport/harvest-protocol.md)."
+  ],
+  "entries": [
+    {
+      "value": "FR40303265045",
+      "kind": "vat_id",
+      "justification": "The example VAT number published in the EU VIES web-service documentation; used as a synthetic buyer VAT in backend tests (test_issuing, test_customers, test_credit_notes, ...).",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "EE999999999",
+      "kind": "vat_id",
+      "justification": "Obviously-synthetic all-nines body; authored in backend/tests/test_vendor_change_requests.py, never client data.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "LV99999999999",
+      "kind": "vat_id",
+      "justification": "Obviously-synthetic all-nines body; authored in backend/tests/test_vendor_change_requests.py, never client data.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "EE100200300",
+      "kind": "vat_id",
+      "justification": "Demo-tenant seed value authored in backend/app/seed.py for the fictional issuer profile; sequential toy digits, never client data.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "EE100111222",
+      "kind": "vat_id",
+      "justification": "Demo-tenant seed value for the fictional vendor 'Meridian Freight OÜ' (backend/app/seed.py).",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "EE100333444",
+      "kind": "vat_id",
+      "justification": "Demo-tenant seed value for the fictional vendor 'Baltic Cold Chain AS' (backend/app/seed.py).",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "LT100555666",
+      "kind": "vat_id",
+      "justification": "Demo-tenant seed value for the fictional vendor 'Vilnius Logistics UAB' (backend/app/seed.py).",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "LV40103777888",
+      "kind": "vat_id",
+      "justification": "Demo-tenant seed value for the fictional vendor 'Riga Port Services SIA' (backend/app/seed.py).",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "FI29999999",
+      "kind": "vat_id",
+      "justification": "Demo-tenant seed value for the fictional vendor 'Helsinki Haul Oy' (backend/app/seed.py); near-all-nines toy body.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "DE311111111",
+      "kind": "vat_id",
+      "justification": "Demo-tenant seed value (fictional German customer, backend/app/seed.py); all-ones toy body.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "LV40199999999",
+      "kind": "vat_id",
+      "justification": "Demo-tenant seed value (fictional Latvian customer, backend/app/seed.py); all-nines toy body.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "DE123456789",
+      "kind": "vat_id",
+      "justification": "Ascending-digits format example in a code comment (backend/app/models/issuer.py).",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "FI09876543",
+      "kind": "vat_id",
+      "justification": "Descending-digits toy value in the frontend design-showcase fixtures (frontend/src/design/fixtures.ts, fictional 'Neste' contact card with .example email).",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "LV40003123456",
+      "kind": "vat_id",
+      "justification": "Toy value in the frontend design-showcase fixtures (fictional 'Riga Distribution', .example email); ascending-digits body.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "CZ12345678",
+      "kind": "vat_id",
+      "justification": "Ascending-digits toy value in the frontend design-showcase fixtures (fictional supplier card, .example email).",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "EE101234567",
+      "kind": "vat_id",
+      "justification": "Ascending-digits toy value in the frontend design-showcase fixtures (fictional 'Tallinn Cold Chain', .example email).",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "AT611904300234573201",
+      "kind": "iban",
+      "justification": "Published ISO 13616 registry example IBAN for Austria; standard documentation value used as a synthetic fixture.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "BE68539007547034",
+      "kind": "iban",
+      "justification": "Published ISO 13616 registry example IBAN for Belgium; standard documentation value used as a synthetic fixture.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "DE89370400440532013000",
+      "kind": "iban",
+      "justification": "The canonical ISO 13616 example IBAN for Germany (used in the standard itself and countless docs); synthetic fixture.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "EE382200221020145685",
+      "kind": "iban",
+      "justification": "Published ISO 13616 registry example IBAN for Estonia; standard documentation value used as a synthetic fixture.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "EE471000001020145685",
+      "kind": "iban",
+      "justification": "Estonian example-IBAN variant built from the registry example BBAN over a different bank code; synthetic fixture.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "ES9121000418450200051332",
+      "kind": "iban",
+      "justification": "Published ISO 13616 registry example IBAN for Spain; standard documentation value used as a synthetic fixture.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "FI2112345600000785",
+      "kind": "iban",
+      "justification": "Published ISO 13616 registry example IBAN for Finland; standard documentation value used as a synthetic fixture.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "FR1420041010050500013M02606",
+      "kind": "iban",
+      "justification": "Published ISO 13616 registry example IBAN for France; standard documentation value used as a synthetic fixture.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "GB29NWBK60161331926819",
+      "kind": "iban",
+      "justification": "Published ISO 13616 registry example IBAN for the UK; standard documentation value used as a synthetic fixture.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "IE29AIBK93115212345678",
+      "kind": "iban",
+      "justification": "Published ISO 13616 registry example IBAN for Ireland; standard documentation value used as a synthetic fixture.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "IT60X0542811101000000123456",
+      "kind": "iban",
+      "justification": "Published ISO 13616 registry example IBAN for Italy; standard documentation value used as a synthetic fixture.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "LT121000011101001000",
+      "kind": "iban",
+      "justification": "Published ISO 13616 registry example IBAN for Lithuania; standard documentation value used as a synthetic fixture.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "LV80BANK0000435195001",
+      "kind": "iban",
+      "justification": "Published ISO 13616 registry example IBAN for Latvia (bank code literally 'BANK'); synthetic fixture.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "NL91ABNA0417164300",
+      "kind": "iban",
+      "justification": "Published ISO 13616 registry example IBAN for the Netherlands; standard documentation value used as a synthetic fixture.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "PL61109010140000071219812874",
+      "kind": "iban",
+      "justification": "Published ISO 13616 registry example IBAN for Poland; standard documentation value used as a synthetic fixture.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "PT50000201231234567890154",
+      "kind": "iban",
+      "justification": "Published ISO 13616 registry example IBAN for Portugal; standard documentation value used as a synthetic fixture.",
+      "verified_by": "Claude (WO-6, 2026-07-25)"
+    }
+  ]
+}

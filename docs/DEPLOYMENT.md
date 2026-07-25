@@ -83,6 +83,13 @@ The must-set production variables:
 or commit them. Use k8s Secrets / a secrets manager. `backend/.env.example`
 lists everything.
 
+**CI-only secret — `PII_SCAN_SALT`:** the salt for the hashed Fleet Fuel PII
+deny-list (`scripts/pii_denylist.json`), consumed by the required `pii-scan`
+CI job and the nightly history scan. Not a runtime variable — the app never
+reads it. Generate once (`python -c "import secrets;print(secrets.token_hex(32))"`),
+store it as a GitHub Actions secret and in the password manager; changing it
+invalidates every committed hash. Details: `docs/transport/harvest-protocol.md`.
+
 ---
 
 ## 3. Deployment workflow

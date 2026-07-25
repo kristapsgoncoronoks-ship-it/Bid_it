@@ -14,6 +14,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Fleet Fuel PII quarantine gate (WO-6, risk L-3) — REQUIRED CHECK. Fast and
+  # dependency-free (stdlib only, no pip install): scans the working tree for
+  # deny-listed Fleet Fuel identifiers (salted-hash compare — the salt is the
+  # PII_SCAN_SALT secret, never committed) plus structural EU-VAT-id / MOD-97
+  # IBAN patterns. Fails closed on a missing deny-list; a false positive is
+  # resolved by an allow-list entry with a named verifier — NEVER by disabling
+  # this job. Nightly full-history pass: .github/workflows/pii-history.yml.
+  pii-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: PII scan (working tree)
+        env:
+          PII_SCAN_SALT: ${{ secrets.PII_SCAN_SALT }}
+        run: python scripts/pii_scan.py --tree
+
   # Fast static gate — runs first, no services, fails in seconds on a style/type
   # regression before the slower test/docker jobs spend a runner.
   lint:
@@ -166,7 +185,7 @@ jobs:
   # root commands. Setup: docs/DEPLOY-HOSTINGER.md#automated-ci-gated-deploy.
   deploy:
     runs-on: ubuntu-latest
-    needs: [lint, backend, postgres, frontend, frontend-e2e, docker-build]
+    needs: [pii-scan, lint, backend, postgres, frontend, frontend-e2e, docker-build]
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&

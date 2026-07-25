@@ -1,0 +1,22 @@
+{
+  "_comment": [
+    "Fleet Fuel PII deny-list (WO-6). Entries are salted SHA-256 hashes of",
+    "normalised tokens (lower-cased, whitespace-stripped) — NEVER plaintext.",
+    "The salt lives in the environment variable named by 'salt_env' (a CI",
+    "secret) and is never committed.",
+    "",
+    "STATUS — DOCUMENTED ADAPTATION: the Fleet Fuel repository was deleted",
+    "on 2026-07-25 after an owner-held decommission archive was made, so the",
+    "deny-list could not be built by reading the live repo. It ships EMPTY;",
+    "the structural patterns in scripts/pii_scan.py are active regardless.",
+    "The owner holds identifiers_for_denylist.txt in the archive and",
+    "populates this file with: PII_SCAN_SALT=<secret> python",
+    "scripts/pii_denylist_build.py. See docs/transport/harvest-protocol.md.",
+    "",
+    "Entry shape: {\"label\": \"customer-1-name\", \"len\": 12,",
+    "\"sha256\": \"<hex>\", \"kind\": \"company_name\"}. The label must never",
+    "identify the subject."
+  ],
+  "salt_env": "PII_SCAN_SALT",
+  "entries": []
+}
