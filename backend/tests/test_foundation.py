@@ -81,6 +81,7 @@ def test_valid_production_config_passes():
         secret_key="a-real-32-byte-secret-value-here!!",
         database_url="postgresql+asyncpg://u:p@db/invoiceiq",
         cors_origins="https://app.invoiceiq.example",
+        inbound_email_secret="a-generated-webhook-secret",  # mandatory since WO-5
     )
     assert s.is_production and not s.is_sqlite
 

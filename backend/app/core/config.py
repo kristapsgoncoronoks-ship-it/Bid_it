@@ -76,9 +76,12 @@ class Settings(BaseSettings):
     # --- Email invoice intake ---
     # Domain for per-org inbound addresses (`<token>@<domain>`). An email provider's
     # inbound-parse webhook (SendGrid/Mailgun/Postmark) posts attachments to
-    # `POST /email/inbound`. When `inbound_email_secret` is set, that webhook must
-    # present the matching secret (header `X-Inbound-Secret` or a `secret` field);
-    # when unset, the endpoint is open (dev convenience).
+    # `POST /email/inbound` and MUST present the shared secret (header
+    # `X-Inbound-Secret` or a `secret` body field). The secret is MANDATORY:
+    # production refuses to boot without it (`_validate_production`), and the
+    # endpoint fails CLOSED (401) whenever it is unset — an unset secret must
+    # never silently open a document-injection door into a tenant's review inbox.
+    # Generate one: python -c "import secrets;print(secrets.token_urlsafe(32))"
     inbound_email_domain: str = Field(default="in.invoiceiq.app")
     inbound_email_secret: str | None = Field(default=None)
 
@@ -265,7 +268,14 @@ class Settings(BaseSettings):
         """Fail fast when a production deployment still carries an insecure/dev
         default. Dev and test (environment != 'production') are unaffected, so
         zero-config local startup keeps working. This turns a silent security
-        footgun (booting prod with the dev signing key) into a boot-time crash."""
+        footgun (booting prod with the dev signing key) into a boot-time crash.
+
+        `inbound_email_secret` is required UNCONDITIONALLY in production (there
+        is no boot-time feature flag for email intake — activation is per-org DB
+        state the validator cannot see), so the simpler, stricter rule applies:
+        no secret, no production boot. Without it, anyone who guesses a 64-bit
+        inbound address token could inject documents into a tenant's review
+        inbox (risk S-5); the webhook endpoint independently fails closed too."""
         if self.environment != "production":
             return self
         problems: list[str] = []
@@ -277,6 +287,8 @@ class Settings(BaseSettings):
             problems.append("kek_provider=env but kek_key is unset (set KEK_KEY, base64 32 bytes)")
         if "*" in self.cors_origin_list:
             problems.append("cors_origins allows '*' with credentials (set explicit origins)")
+        if not self.inbound_email_secret:
+            problems.append("inbound_email_secret is unset (set INBOUND_EMAIL_SECRET)")
         if problems:
             raise ValueError("Insecure production configuration:\n  - " + "\n  - ".join(problems))
         return self

@@ -92,8 +92,11 @@ async def test_audit_requires_audit_read(auth_client, client):
 
 
 @pytest.mark.asyncio
-async def test_document_download_is_logged(auth_client, client):
+async def test_document_download_is_logged(auth_client, client, monkeypatch):
     # Activate email intake, ingest a CSV, confirm, then download the original.
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "inbound_email_secret", "audit-test-secret")
     await auth_client.put("/api/v1/modules/email_intake", json={"enabled": True})
     addr = (await auth_client.get("/api/v1/email/settings")).json()["address"]
     token = addr.split("@")[0]
@@ -103,6 +106,7 @@ async def test_document_download_is_logged(auth_client, client):
     await client.post(
         "/api/v1/email/inbound",
         json={"token": token, "attachments": [{"filename": "d.csv", "content_base64": csv}]},
+        headers={"X-Inbound-Secret": "audit-test-secret"},
     )
     row = (await auth_client.get("/api/v1/email/inbox")).json()["items"][0]
     dl = await auth_client.get(f"/api/v1/email/inbox/{row['id']}/file")

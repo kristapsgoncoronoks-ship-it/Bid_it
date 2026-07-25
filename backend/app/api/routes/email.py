@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hmac
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy import func, select
@@ -10,6 +11,7 @@ from app.api.deps import CurrentUser, DbSession, require_perm
 from app.api.routes.invoices import _detail, persist_invoice
 from app.core import authz
 from app.core.config import settings
+from app.core.errors import AppError
 from app.core.tenant import reset_current_org, set_current_org
 from app.models.email_intake import InboundInvoice
 from app.schemas.email_intake import (
@@ -41,6 +43,19 @@ async def _guard(db: DbSession, org_id: str):
 # --------------------------------------------------------------------------- #
 # Inbound webhook (public — called by the email provider's parse hook)
 # --------------------------------------------------------------------------- #
+def _inbound_auth_failed() -> AppError:
+    """The ONE rejection for every inbound-auth failure mode (no secret
+    configured, secret absent, secret wrong, unknown recipient token). A single
+    construction site guarantees the responses are byte-identical, so a caller
+    can never distinguish "bad secret" from "real tenant, wrong secret" from
+    "no such tenant" — enumeration safety over the 64-bit address tokens."""
+    return AppError(
+        "Inbound authentication failed",
+        code="inbound_auth_failed",
+        status=status.HTTP_401_UNAUTHORIZED,
+    )
+
+
 @router.post("/inbound", response_model=InboundResult)
 async def inbound(
     body: InboundEmailIn,
@@ -48,18 +63,31 @@ async def inbound(
     x_inbound_secret: str | None = Header(default=None, alias="X-Inbound-Secret"),
 ):
     """Receive a parsed inbound email and drop each attachment into the org's
-    review inbox. Unauthenticated: the tenant is resolved from the inbound
-    address token, and (optionally) a shared secret authenticates the provider."""
+    review inbox.
+
+    Authentication is a MANDATORY shared secret (header `X-Inbound-Secret` or a
+    `secret` body field) presented by the email provider's webhook. FAIL CLOSED:
+    an unconfigured secret rejects everything — an unset env var must never
+    silently open a document-injection door into a tenant's AP review flow. The
+    comparison is constant-time (`hmac.compare_digest`) so it leaks neither
+    length nor prefix.
+
+    The tenant is resolved from the RECIPIENT address token, never the sender:
+    `From` is trivially forgeable and forwarding breaks SPF/DKIM alignment, so
+    the sender can never be an identity. An unknown recipient token returns the
+    SAME 401 as a bad secret (never a distinguishable 404) so the endpoint
+    cannot be used to enumerate live inbound addresses."""
     expected = settings.inbound_email_secret
-    if expected:
-        presented = x_inbound_secret or body.secret
-        if presented != expected:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid inbound secret")
+    presented = x_inbound_secret or body.secret
+    if not expected or presented is None:
+        raise _inbound_auth_failed()
+    if not hmac.compare_digest(presented.encode(), expected.encode()):
+        raise _inbound_auth_failed()
 
     token = body.token or email_intake.token_from_address(body.to)
     org_id = await email_intake.resolve_org(db, token)
     if org_id is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown inbound address")
+        raise _inbound_auth_failed()
 
     # Module gate for the resolved tenant.
     if not await modules.is_enabled(db, org_id, "email_intake"):

@@ -6,6 +6,20 @@ import shutil
 
 import pytest
 
+# The mandatory inbound shared secret (WO-5): every webhook post must present it.
+SECRET = "test-inbound-webhook-secret"
+HDR = {"X-Inbound-Secret": SECRET}
+
+
+@pytest.fixture(autouse=True)
+def _inbound_secret(monkeypatch):
+    """Configure the mandatory webhook secret for every test in this module —
+    the endpoint fails closed (401) when it is unset."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "inbound_email_secret", SECRET)
+
+
 CSV = (
     "vendor,invoice_number,issue_date,description,quantity,unit_price,amount,tax_rate\n"
     "Globex Ltd,INV-EMAIL-1,2026-06-01,Widgets,10,5.00,50.00,21\n"
@@ -61,7 +75,8 @@ async def test_inbound_creates_pending_and_confirm_creates_invoice(auth_client, 
     await _activate(auth_client)
     address = await _address(auth_client)
 
-    # Provider posts the parsed email (no auth) — resolve tenant by the `to` address.
+    # Provider posts the parsed email (secret-authenticated) — resolve tenant by
+    # the `to` address.
     r = await client.post(
         "/api/v1/email/inbound",
         json={
@@ -70,6 +85,7 @@ async def test_inbound_creates_pending_and_confirm_creates_invoice(auth_client, 
             "subject": "Your invoice",
             "attachments": [_att("invoice.csv", CSV)],
         },
+        headers=HDR,
     )
     assert r.status_code == 200, r.text
     # The webhook returns fast: the attachment is QUEUED, parsing runs on the worker.
@@ -129,6 +145,7 @@ async def test_inbound_by_token_and_multiple_attachments(auth_client, client, db
                 _att("bad.txt", "not an invoice"),
             ],
         },
+        headers=HDR,
     )
     assert r.status_code == 200, r.text
     # bad.txt is an unsupported type → blocked by the security gate (rejected).
@@ -147,7 +164,9 @@ async def test_inbound_by_token_and_multiple_attachments(auth_client, client, db
 
 
 @pytest.mark.asyncio
-async def test_unknown_token_404(auth_client, client):
+async def test_unknown_token_401(auth_client, client):
+    # An unknown recipient token is refused with the SAME 401 as a bad secret
+    # (never a 404) — the endpoint must not confirm which tokens exist.
     await _activate(auth_client)
     r = await client.post(
         "/api/v1/email/inbound",
@@ -155,8 +174,10 @@ async def test_unknown_token_404(auth_client, client):
             "token": "deadbeefdeadbeef",
             "attachments": [_att("a.csv", CSV)],
         },
+        headers=HDR,
     )
-    assert r.status_code == 404
+    assert r.status_code == 401
+    assert r.json()["code"] == "inbound_auth_failed"
 
 
 @pytest.mark.asyncio
@@ -172,6 +193,7 @@ async def test_inbound_rejected_when_module_off(auth_client, client):
             "token": token,
             "attachments": [_att("a.csv", CSV)],
         },
+        headers=HDR,
     )
     assert r.status_code == 403
 
@@ -184,15 +206,16 @@ async def test_rotate_changes_address(auth_client, client):
     assert rot.status_code == 200
     new = _token(rot.json()["address"])
     assert new != old
-    # Old token no longer routes.
+    # Old token no longer routes — same opaque 401 as any other auth failure.
     r = await client.post(
         "/api/v1/email/inbound",
         json={
             "token": old,
             "attachments": [_att("a.csv", CSV)],
         },
+        headers=HDR,
     )
-    assert r.status_code == 404
+    assert r.status_code == 401
 
 
 @pytest.mark.asyncio
@@ -207,6 +230,7 @@ async def test_tenant_isolation(auth_client, client):
             "to": addr_a,
             "attachments": [_att("a.csv", CSV)],
         },
+        headers=HDR,
     )
 
     # A second, independent workspace.
@@ -235,6 +259,7 @@ async def test_tenant_isolation(auth_client, client):
             "to": addr_b,
             "attachments": [_att("b.json", JSON)],
         },
+        headers=HDR,
     )
     inbox_b2 = (await client.get("/api/v1/email/inbox", headers=hb)).json()
     assert inbox_b2["total"] == 1
@@ -303,6 +328,7 @@ async def test_emailed_scanned_pdf_is_processed_by_ocr(auth_client, client, db_s
                 }
             ],
         },
+        headers=HDR,
     )
     assert r.status_code == 200, r.text
     assert r.json()["queued"] == 1
@@ -340,7 +366,9 @@ async def test_emailed_malware_is_quarantined(auth_client, client):
         "content_base64": base64.b64encode(payload).decode(),
     }
 
-    r = await client.post("/api/v1/email/inbound", json={"token": token, "attachments": [att]})
+    r = await client.post(
+        "/api/v1/email/inbound", json={"token": token, "attachments": [att]}, headers=HDR
+    )
     assert r.status_code == 200, r.text
     assert r.json()["rejected"] == 1 and r.json()["queued"] == 0
 
@@ -363,7 +391,9 @@ async def test_emailed_executable_disguised_as_pdf_is_rejected(auth_client, clie
     token = _token(await _address(auth_client))
     exe = b"MZ\x90\x00" + b"\x00" * 128  # PE executable renamed .pdf
     att = {"filename": "invoice.pdf", "content_base64": base64.b64encode(exe).decode()}
-    r = await client.post("/api/v1/email/inbound", json={"token": token, "attachments": [att]})
+    r = await client.post(
+        "/api/v1/email/inbound", json={"token": token, "attachments": [att]}, headers=HDR
+    )
     assert r.json()["rejected"] == 1
 
 
@@ -382,3 +412,154 @@ async def test_upload_endpoint_rejects_malware_and_disguised_files(auth_client):
     files = {"file": ("invoice.pdf", html, "application/pdf")}
     r = await auth_client.post("/api/v1/invoices/upload", files=files)
     assert r.status_code == 415
+
+
+# --------------------------------------------------------------------------- #
+# Mandatory inbound secret (WO-5): fail closed, constant time, no enumeration
+# --------------------------------------------------------------------------- #
+
+
+async def _counts(db_session) -> tuple[int, int]:
+    """(inbound rows, queued jobs) — a rejected webhook must create neither."""
+    from sqlalchemy import func, select
+
+    from app.models.email_intake import InboundInvoice
+    from app.models.job import Job
+
+    rows = await db_session.scalar(select(func.count(InboundInvoice.id))) or 0
+    jobs = await db_session.scalar(select(func.count(Job.id))) or 0
+    return rows, jobs
+
+
+@pytest.mark.asyncio
+async def test_inbound_rejects_missing_secret(auth_client, client):
+    await _activate(auth_client)
+    token = _token(await _address(auth_client))
+    r = await client.post(
+        "/api/v1/email/inbound", json={"token": token, "attachments": [_att("a.csv", CSV)]}
+    )
+    assert r.status_code == 401
+    assert r.json()["code"] == "inbound_auth_failed"
+
+
+@pytest.mark.asyncio
+async def test_inbound_rejects_wrong_secret(auth_client, client, db_session):
+    await _activate(auth_client)
+    token = _token(await _address(auth_client))
+    r = await client.post(
+        "/api/v1/email/inbound",
+        json={"token": token, "attachments": [_att("a.csv", CSV)]},
+        headers={"X-Inbound-Secret": "not-the-secret"},
+    )
+    assert r.status_code == 401
+    assert r.json()["code"] == "inbound_auth_failed"
+    # A rejected request creates ZERO rows and ZERO jobs — not just a status.
+    assert await _counts(db_session) == (0, 0)
+
+
+@pytest.mark.asyncio
+async def test_inbound_rejects_when_secret_unconfigured(auth_client, client, monkeypatch):
+    """FAIL CLOSED: with no secret configured, the endpoint refuses everything —
+    an unset env var must never silently open the intake door (the old
+    check-only-if-set behaviour)."""
+    from app.core.config import settings
+
+    await _activate(auth_client)
+    token = _token(await _address(auth_client))
+    monkeypatch.setattr(settings, "inbound_email_secret", None)
+    r = await client.post(
+        "/api/v1/email/inbound",
+        json={"token": token, "attachments": [_att("a.csv", CSV)]},
+        headers=HDR,  # even presenting a secret cannot help
+    )
+    assert r.status_code == 401
+    assert r.json()["code"] == "inbound_auth_failed"
+
+
+@pytest.mark.asyncio
+async def test_inbound_accepts_correct_secret(auth_client, client, db_session):
+    """With the correct secret (body field works like the header), the attachment
+    lands in the review queue exactly as before."""
+    await _activate(auth_client)
+    token = _token(await _address(auth_client))
+    r = await client.post(
+        "/api/v1/email/inbound",
+        json={"token": token, "secret": SECRET, "attachments": [_att("a.csv", CSV)]},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"received": 1, "queued": 1, "rejected": 0}
+    assert await _drain_extraction(db_session) == 1
+    inbox = (await auth_client.get("/api/v1/email/inbox")).json()
+    assert inbox["total"] == 1 and inbox["items"][0]["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_unknown_recipient_token_returns_the_same_401_as_a_bad_secret(auth_client, client):
+    """Enumeration safety: an attacker probing tokens gets a response
+    byte-identical to a wrong-secret rejection — no oracle over live addresses."""
+    await _activate(auth_client)
+    real_token = _token(await _address(auth_client))
+    payload = [_att("a.csv", CSV)]
+
+    bad_secret = await client.post(
+        "/api/v1/email/inbound",
+        json={"token": real_token, "attachments": payload},
+        headers={"X-Inbound-Secret": "wrong"},
+    )
+    unknown_token = await client.post(
+        "/api/v1/email/inbound",
+        json={"token": "0123456789abcdef", "attachments": payload},
+        headers=HDR,
+    )
+    assert bad_secret.status_code == unknown_token.status_code == 401
+    assert bad_secret.json() == unknown_token.json()  # identical body
+
+
+@pytest.mark.asyncio
+async def test_tenant_is_resolved_from_recipient_not_sender(auth_client, client):
+    """The recipient token routes; the sender NEVER does. `From` is trivially
+    forgeable (and forwarding breaks SPF/DKIM), so a mail whose From belongs to
+    tenant B but whose recipient token belongs to tenant A lands in A."""
+    await _activate(auth_client)
+    addr_a = await _address(auth_client)
+
+    # Tenant B, with email intake active and a known owner email.
+    reg = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "organization_name": "Beta Logistics",
+            "name": "Bea",
+            "email": "bea@beta-logistics.io",
+            "password": "supersecret",
+        },
+    )
+    hb = {"Authorization": f"Bearer {reg.json()['token']['access_token']}"}
+    await client.put("/api/v1/modules/email_intake", json={"enabled": True}, headers=hb)
+
+    r = await client.post(
+        "/api/v1/email/inbound",
+        json={
+            "to": addr_a,  # recipient token = tenant A
+            "from": "bea@beta-logistics.io",  # sender claims to be tenant B
+            "attachments": [_att("a.csv", CSV)],
+        },
+        headers=HDR,
+    )
+    assert r.status_code == 200, r.text
+
+    inbox_a = (await auth_client.get("/api/v1/email/inbox")).json()
+    assert inbox_a["total"] == 1  # landed in A (the recipient), …
+    inbox_b = (await client.get("/api/v1/email/inbox", headers=hb)).json()
+    assert inbox_b["total"] == 0  # … never in B (the forgeable sender)
+
+
+def test_secret_comparison_is_constant_time():
+    """The secret check must go through hmac.compare_digest (constant-time), not
+    `==` — a source assertion locks the implementation choice in."""
+    import inspect
+
+    from app.api.routes import email as email_routes
+
+    src = inspect.getsource(email_routes.inbound)
+    assert "hmac.compare_digest(" in src
+    assert "presented != expected" not in src and "presented == expected" not in src

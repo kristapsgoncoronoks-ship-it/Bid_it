@@ -75,7 +75,7 @@ The must-set production variables:
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | s3 | Object-store credentials (boto3). Store as secrets. |
 | `WEB_CONCURRENCY` | | uvicorn workers per pod (default 4) |
 | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | | per-worker pool (default 10/10) — see §7 |
-| `INBOUND_EMAIL_SECRET` | | shared secret for the `/email/inbound` webhook |
+| `INBOUND_EMAIL_SECRET` | ✅ | shared secret for the `/email/inbound` webhook. **Mandatory** — production refuses to boot without it, and the endpoint rejects every request (401) unless the provider presents it. Generate: `python -c "import secrets;print(secrets.token_urlsafe(32))"`. **Deploy ordering:** set the env var in the environment *before* rolling out a release that requires it, or the new pods will refuse to boot. |
 | `SMTP_HOST` / `SMTP_*` | | outbound email relay (else sends are recorded-only) |
 | `CLAMAV_ENABLED` / `CLAMAV_HOST` | | malware scanning of uploads (fails closed) |
 

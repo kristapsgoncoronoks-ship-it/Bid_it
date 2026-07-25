@@ -65,3 +65,38 @@ async def test_read_only_is_denied_by_the_config_guard(auth_client, db_session):
     for method, path, body in _CONFIG_ENDPOINTS:
         r = await _call(auth_client, method, path, body)
         assert r.status_code == 403, f"read-only reached {method} {path}: {r.status_code}"
+
+
+# --------------------------------------------------------------------------- #
+# Boot-time config guard: the inbound-email secret is mandatory in production
+# --------------------------------------------------------------------------- #
+
+_PROD_KWARGS = dict(
+    environment="production",
+    secret_key="a-real-32-byte-secret-value-here!!",
+    database_url="postgresql+asyncpg://u:p@db/invoiceiq",
+    cors_origins="https://app.invoiceiq.example",
+)
+
+
+def test_production_boot_fails_without_inbound_email_secret():
+    from app.core.config import Settings
+
+    with pytest.raises(ValueError, match="inbound_email_secret"):
+        Settings(**_PROD_KWARGS)
+
+
+def test_production_boots_with_inbound_email_secret():
+    from app.core.config import Settings
+
+    s = Settings(**_PROD_KWARGS, inbound_email_secret="a-generated-webhook-secret")
+    assert s.is_production and s.inbound_email_secret
+
+
+def test_development_boot_unaffected():
+    # Dev and test keep booting with zero configuration — the mandate is
+    # production-only (the endpoint still fails closed at request time).
+    from app.core.config import Settings
+
+    s = Settings(environment="development")
+    assert s.inbound_email_secret is None

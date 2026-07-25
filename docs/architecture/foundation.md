@@ -121,7 +121,7 @@ production. Full annotated list: `backend/app/core/config.py`.
 | `STORAGE_LOCAL_PATH` / `STORAGE_S3_*` | `./var/storage` | Filesystem root or S3 bucket/endpoint/region/prefix. |
 | `KEK_PROVIDER` / `KEK_KEY` | `local` / — | Secret-sealing key. `env` (BYOK) requires `KEK_KEY` (base64 32 bytes). |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | unset | Outbound email relay; unset = record-to-outbox only. |
-| `INBOUND_EMAIL_DOMAIN` / `INBOUND_EMAIL_SECRET` | `in.invoiceiq.app` / — | Per-org intake addresses + webhook auth. |
+| `INBOUND_EMAIL_DOMAIN` / `INBOUND_EMAIL_SECRET` | `in.invoiceiq.app` / — | Per-org intake addresses + webhook auth. The secret is **required in production** (boot-time check); the webhook 401s whenever it is unset or mismatched (fails closed). |
 | `BILLING_PROVIDER` | `auto` | `auto` \| `stripe` \| `everypay` \| `none`. |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PRICE_*` / `STRIPE_METER_*` | unset | Stripe subscription + metered usage. |
 | `EVERYPAY_API_USERNAME` / `EVERYPAY_API_SECRET` / `EVERYPAY_ACCOUNT_NAME` / `EVERYPAY_API_BASE_URL` | unset / demo base | Baltic card gateway. |

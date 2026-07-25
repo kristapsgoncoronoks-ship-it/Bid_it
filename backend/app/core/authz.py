@@ -341,7 +341,7 @@ PUBLIC_ROUTES: dict[tuple[str, str], str] = {
     (
         "POST",
         "/api/v1/email/inbound",
-    ): "webhook: inbound-address token (+ optional shared secret) authenticates the provider",
+    ): "webhook: mandatory shared secret authenticates the provider; recipient token routes",
     # --- SCIM provisioning (authenticated by the connection's own bearer token) ---
     (
         "POST",

@@ -45,7 +45,7 @@ services:
       # Document bytes on a local persisted volume (no object store at single-node).
       STORAGE_BACKEND: local
       STORAGE_LOCAL_PATH: /app/var/storage
-      INBOUND_EMAIL_SECRET: ${INBOUND_EMAIL_SECRET:-}
+      INBOUND_EMAIL_SECRET: ${INBOUND_EMAIL_SECRET:?set INBOUND_EMAIL_SECRET in .env (python -c "import secrets;print(secrets.token_urlsafe(32))")}
     volumes:
       - storagedata:/app/var/storage
     depends_on:

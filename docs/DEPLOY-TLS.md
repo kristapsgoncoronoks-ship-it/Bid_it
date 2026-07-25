@@ -68,5 +68,7 @@ The prod override (`docker-compose.prod.yml`):
   mount Cloudflare's origin-pull CA.
 - Restrict the server's firewall so **:443/:80 accept only Cloudflare IP ranges**.
 - Rotate `SECRET_KEY` out of band; never commit certs or keys.
-- For the email-intake webhook, set `INBOUND_EMAIL_SECRET` and configure your email
-  provider to send it (see the email-intake notes).
+- The email-intake webhook secret `INBOUND_EMAIL_SECRET` is **mandatory** —
+  production refuses to boot without it and the webhook 401s until your email
+  provider presents it (header `X-Inbound-Secret`). Generate one with
+  `python -c "import secrets;print(secrets.token_urlsafe(32))"`.

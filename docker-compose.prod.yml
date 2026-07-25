@@ -6,8 +6,9 @@
 #   SECRET_KEY            strong random string  (openssl rand -hex 32)
 #   APP_ORIGIN            https://app.example.com   (your public URL)
 #   TLS_CERT_DIR          host dir holding origin.pem + origin.key (Cloudflare Origin cert)
-# Optional:
-#   INBOUND_EMAIL_SECRET  shared secret for the /email/inbound webhook
+#   INBOUND_EMAIL_SECRET  shared secret for the /email/inbound webhook — REQUIRED
+#                         (production refuses to boot without it; generate with
+#                         python -c "import secrets;print(secrets.token_urlsafe(32))")
 #
 # See docs/DEPLOY-TLS.md for the full Cloudflare + SSL walkthrough.
 services:
@@ -17,7 +18,7 @@ services:
       HSTS_ENABLED: "true"
       SECRET_KEY: ${SECRET_KEY:?set a strong SECRET_KEY}
       CORS_ORIGINS: ${APP_ORIGIN:?set APP_ORIGIN, e.g. https://app.example.com}
-      INBOUND_EMAIL_SECRET: ${INBOUND_EMAIL_SECRET:-}
+      INBOUND_EMAIL_SECRET: ${INBOUND_EMAIL_SECRET:?set INBOUND_EMAIL_SECRET (python -c "import secrets;print(secrets.token_urlsafe(32))")}
     # Apply DB migrations, then start uvicorn. Honours X-Forwarded-Proto/For from
     # the nginx origin so the app knows it is HTTPS and sees the real client IP.
     command:
