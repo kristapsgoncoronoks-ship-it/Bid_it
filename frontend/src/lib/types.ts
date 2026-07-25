@@ -398,6 +398,24 @@ export interface AuthResponse {
   organization: Organization;
 }
 
+export interface VendorChangeRequest {
+  id: string;
+  vendor_id: string;
+  vendor_name?: string | null;
+  field: string;
+  old_value: string | null;
+  new_value: string | null;
+  status: "pending" | "approved" | "rejected";
+  requested_by: string;
+  requested_by_email: string | null;
+  requested_at: string;
+  decided_by: string | null;
+  decided_by_email: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  source_document_id: string | null;
+}
+
 export interface Vendor {
   id: string;
   name: string;
@@ -406,6 +424,9 @@ export interface Vendor {
   category: string | null;
   iban?: string | null;
   bic?: string | null;
+  status?: "active" | "provisional";
+  version?: number;
+  pending_changes?: VendorChangeRequest[];
 }
 
 export interface LineItem {

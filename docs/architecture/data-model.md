@@ -32,7 +32,7 @@ InvoiceIQ is **not greenfield**: 34 tables and 24 migrations already implement o
 | 6 | Departments | ✅ **(this slice)** | `departments` |
 | 7 | Cost centers | ✅ **(this slice)** | `cost_centers` (→ department, composite FK) |
 | 8 | Projects | ✅ **(this slice)** | `projects` |
-| 9 | Suppliers | ✅ | `vendors` |
+| 9 | Suppliers | ✅ | `vendors` (+ `version`, `status` `active\|provisional`) + `vendor_change_requests` (WO-2 protected-field workflow, see below) |
 | 10 | Customers | 🟡 | `partners` + per-invoice buyer fields on `issued_invoices`. **Target:** first-class `customers`. |
 | 11 | Contacts | ⬜ | **Target:** `contacts` (person rows for supplier/customer/partner). |
 | 12 | Bank accounts | ⬜ | **Target:** `bank_accounts` (own + counterparty; IBAN sealed). |
@@ -150,6 +150,10 @@ Base columns + `start_date`/`end_date`, `status` (`active|closed|archived`). Con
 **`invoices`** (supplier invoices) — money stored as three separate quantities per the tax-total rule: `subtotal` (tax-exclusive), `tax_amount`, `total` (tax-inclusive), all `Numeric(14,2)`; original currency (`currency`) **and** reporting currency (`total_eur` + `fx_rate` + `fx_source` provenance). `issue_date` indexed with `org_id`. **Target:** `cost_center_id`/`department_id`/`project_id` FKs (Slice 2).
 
 **`issued_invoices`** (customer invoices + credit notes) — immutable once issued; corrections via a linked credit note (`doc_type`, `corrected_invoice_id`), never an edit. Gap-free per-issuer numbering. `subtotal`/`tax_total`/`total` separated. **Target:** extract `payments` + `payment_allocations` from the inline `amount_paid`/`paid_date`.
+
+**`vendors`** (suppliers) — `name` (UNIQUE per org), `tax_id`, `country`, `category`, `iban`/`bic` (the SEPA creditor account), `version` (optimistic concurrency), `status` (`active|provisional`). **UNIQUE(org_id, id)** as the composite-FK target. **Protected-field rule (WO-2):** `iban` and `tax_id` on an *existing* vendor are never written directly — a change is a **workflow, not a write**: it lands in `vendor_change_requests` and only a *different* `SETTINGS_MANAGE` holder may apply it. A vendor *created* already carrying an iban/tax_id is `provisional` until a payment-run maker explicitly confirms it. Every IBAN/BIC passes `core/bank_id` (ISO 13616 + MOD-97) at write time AND again inside the SEPA builder.
+
+**`vendor_change_requests`** (WO-2) — the second-approver queue for protected vendor fields. `org_id` · `vendor_id` (**composite FK `(org_id, vendor_id) → vendors(org_id, id)`**) · `field` · `old_value`/`new_value` (full values; the *audit trail* only ever holds a masked IBAN) · `status` (`pending|approved|rejected`) · `requested_by`(+email snapshot)/`requested_at` · `decided_by`(+email)/`decided_at`/`decision_note` · `source_document_id` (nullable FK documents, SET NULL). Partial unique index: at most ONE `pending` row per `(org_id, vendor_id, field)`. Index `(org_id, vendor_id, status)`. Tenant-scoped with its RLS policy shipped in the same migration. A payment run refuses a vendor with a pending request (checked at create AND pay time).
 
 **`audit_events`** — append-only, hash-chained (`prev_hash`→`hash`), per-tenant monotonic `seq`; never updated or deleted. The integrity spine.
 

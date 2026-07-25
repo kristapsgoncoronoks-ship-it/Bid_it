@@ -33,3 +33,9 @@ The change is additive at the router layer and behaviour-preserving at the servi
 
 ## Revisit when
 A1.5 makes the four currently-unreachable business roles storable (fixtures can then act as ACCOUNTANT/AUDITOR/… directly); A1.4 adds audit-coverage enforcement over the same introspection hook; any new transport (websocket, RPC) needs an equivalent structural gate.
+
+## Follow-on
+WO-2 (ADR-0025) builds the vendor bank-detail control on these gates: protected
+vendor fields (`iban`, `tax_id`) are a **workflow, not a write** — a change
+request approved by a *different* `SETTINGS_MANAGE` holder — and the approval
+routes declare their permission structurally like every other route.

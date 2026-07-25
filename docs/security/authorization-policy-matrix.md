@@ -121,3 +121,19 @@ async def create_vendor(...):  # stricter per-route override — both gates run
 - **Fixture discipline** — when gating breaks a test whose role should never
   have had access, the fixture's privilege is raised; an assertion is never
   weakened (ADR-0024 §6).
+
+## Beyond the matrix: two-person controls (permission ∧ different user)
+
+Some actions are deliberately **stricter than any single permission** — holding
+the permission is necessary but not sufficient (segregation of duties, §4.8):
+
+| Action | Permission required | Additional rule |
+|---|---|---|
+| Approve a vendor bank-detail / tax-id change request | `settings.manage` | Approver **must not** be the requester — `requested_by == approver` is 403 `maker_is_checker`, enforced in `services/vendors.py::approve_change` regardless of role (even the Owner cannot approve their own request). |
+| Approve a supplier invoice | `invoice.approve` | Submitter cannot approve their own invoice. |
+| Approve an expense report | `expense.approve` | Claimant cannot approve their own report. |
+
+The vendor rule exists because a single compromised account must never be able
+to both **plant** a new payee IBAN and **activate** it — the whole point of the
+WO-2 payment-redirection control. The UI hides the Approve button for the
+requester, but the server check is the control; the frontend is cosmetic.
