@@ -200,3 +200,171 @@ def require(user, *permissions: Permission) -> None:
 def matrix() -> dict[str, list[str]]:
     """The role→permission grid, JSON-friendly (for the admin UI and the doc)."""
     return {r.value: sorted(p.value for p in perms) for r, perms in ROLE_PERMISSIONS.items()}
+
+
+# --------------------------------------------------------------------------- #
+# Structural authorization (ADR-0024)
+#
+# Routes declare their permission as a router/route dependency built by
+# `app.api.deps.require_perm(...)` (the factory lives in the API layer because a
+# FastAPI dependency must resolve `CurrentUser` at definition time and `core`
+# must not import `app.api` — see the layering tests). The introspection
+# contract, however, is defined HERE so CI and tooling depend only on core:
+# every gate dependency carries its declaration under `PERMISSIONS_ATTR`, and
+# `declared_permissions()` reads it back without executing anything.
+# --------------------------------------------------------------------------- #
+
+# Attribute a gate dependency carries so tests/CI can enumerate what a route
+# declares. The value is a non-empty tuple of `Permission` members — or, for the
+# cross-tenant operator gate (stricter than ANY tenant permission), the
+# `PLATFORM_ADMIN` sentinel.
+PERMISSIONS_ATTR = "__ffs_permissions__"
+
+# Sentinel declaration for platform-operator-only routes (`is_platform_admin`).
+# Not a `Permission`: an org OWNER holds every permission but must NEVER pass a
+# platform gate, so the gate cannot be expressed in the tenant vocabulary.
+PLATFORM_ADMIN = "platform_admin"
+
+
+def declared_permissions(dep: object) -> tuple[object, ...]:
+    """The permission declaration a gate dependency carries (empty if none)."""
+    value = getattr(dep, PERMISSIONS_ATTR, ())
+    return tuple(value) if value else ()
+
+
+# The explicitly-reviewed allow-list of routes that legitimately carry NO
+# permission declaration. Keyed by (HTTP method, full mounted path); the value
+# is the REASON the route may stay unclassified — an entry with an empty reason
+# fails CI (tests/test_authz_coverage.py), and so does an entry that no longer
+# resolves to a live route (no stale/phantom classifications).
+#
+# Three legitimate categories:
+#   1. public bootstrap / token-credentialed endpoints (register, login, reset,
+#      invites, SSO) — the token IS the credential;
+#   2. webhook receivers that carry their own authentication (payload signature,
+#      inbound-address token, SCIM bearer);
+#   3. authenticated SELF-SERVICE endpoints that touch only the caller's own
+#      account/session/usage — no permission is implied by any role.
+PUBLIC_ROUTES: dict[tuple[str, str], str] = {
+    # --- infrastructure probes (no tenant data) ---
+    ("GET", "/health"): "liveness probe for load balancers — no I/O, no data",
+    ("GET", "/health/ready"): "readiness probe — reports DB reachability only",
+    ("GET", "/health/queue"): "queue SLO probe for uptime checks — aggregate counts only",
+    ("GET", "/metrics"): "Prometheus scrape endpoint — infrastructure metrics only",
+    # --- auth bootstrap (public; the token/credential is the authentication) ---
+    ("POST", "/api/v1/auth/register"): "public bootstrap: account + workspace registration",
+    ("POST", "/api/v1/auth/login"): "public bootstrap: credential login",
+    (
+        "POST",
+        "/api/v1/auth/verify-email",
+    ): "public: the emailed verification token is the credential",
+    (
+        "POST",
+        "/api/v1/auth/forgot-password",
+    ): "public bootstrap: reset request (never enumerates accounts)",
+    ("POST", "/api/v1/auth/reset-password"): "public: the emailed reset token is the credential",
+    (
+        "GET",
+        "/api/v1/auth/invite/{token}",
+    ): "public: the invitation token is the credential (preview)",
+    (
+        "POST",
+        "/api/v1/auth/accept-invite",
+    ): "public bootstrap: the invitation token is the credential",
+    ("GET", "/api/v1/auth/sso/{slug}/authorize"): "public SSO: begins the OIDC login redirect",
+    (
+        "GET",
+        "/api/v1/auth/sso/callback",
+    ): "public SSO: OIDC redirect back from the IdP (state-signed)",
+    (
+        "GET",
+        "/api/v1/auth/sso/{slug}/saml/metadata",
+    ): "public SSO: SP metadata XML for IdP registration",
+    ("GET", "/api/v1/auth/sso/{slug}/saml/login"): "public SSO: begins the SAML login redirect",
+    (
+        "POST",
+        "/api/v1/auth/sso/saml/acs",
+    ): "public SSO: SAML ACS (deliberate 501 until XML-DSig is vetted)",
+    # --- authenticated self-service (the caller's OWN account/session/usage) ---
+    ("GET", "/api/v1/auth/me"): "authenticated self-service: the caller's own profile",
+    (
+        "PUT",
+        "/api/v1/auth/bank-details",
+    ): "authenticated self-service: the caller's OWN payout IBAN/BIC only",
+    (
+        "GET",
+        "/api/v1/auth/permissions",
+    ): "authenticated self-service: own resolved permissions (advisory for the UI)",
+    (
+        "GET",
+        "/api/v1/auth/authz-matrix",
+    ): "authenticated: the static role→permission matrix — no tenant data",
+    (
+        "GET",
+        "/api/v1/auth/organizations",
+    ): "authenticated self-service: the caller's own memberships (org switcher)",
+    (
+        "POST",
+        "/api/v1/auth/switch-org/{org_id}",
+    ): "authenticated self-service: membership-gated in-handler, opaque 404",
+    ("POST", "/api/v1/auth/logout"): "authenticated self-service: revoke the caller's own session",
+    ("GET", "/api/v1/auth/sessions"): "authenticated self-service: list the caller's own sessions",
+    (
+        "POST",
+        "/api/v1/auth/sessions/revoke-others",
+    ): "authenticated self-service: revoke own other sessions",
+    (
+        "DELETE",
+        "/api/v1/auth/sessions/{session_id}",
+    ): "authenticated self-service: own session only, opaque 404",
+    (
+        "POST",
+        "/api/v1/auth/resend-verification",
+    ): "authenticated self-service: re-send own verification mail",
+    (
+        "GET",
+        "/api/v1/access/usage",
+    ): "authenticated self-service: the caller's own usage vs quota (every tier reads its own; asserted by test_access)",
+    # --- webhook receivers (authenticated by their own mechanism) ---
+    (
+        "POST",
+        "/api/v1/billing/webhook",
+    ): "webhook: the Stripe payload signature is the authentication",
+    (
+        "GET",
+        "/api/v1/billing/everypay/return",
+    ): "payment redirect: verified server-side by reference, never trusted",
+    (
+        "POST",
+        "/api/v1/billing/everypay/callback",
+    ): "webhook: EveryPay server-to-server, verified by reference lookup",
+    (
+        "POST",
+        "/api/v1/email/inbound",
+    ): "webhook: inbound-address token (+ optional shared secret) authenticates the provider",
+    # --- SCIM provisioning (authenticated by the connection's own bearer token) ---
+    (
+        "POST",
+        "/api/v1/scim/v2/Users",
+    ): "SCIM: the connection's own bearer token authenticates (require_scim)",
+    (
+        "GET",
+        "/api/v1/scim/v2/Users",
+    ): "SCIM: the connection's own bearer token authenticates (require_scim)",
+    (
+        "GET",
+        "/api/v1/scim/v2/Users/{user_id}",
+    ): "SCIM: the connection's own bearer token authenticates (require_scim)",
+    (
+        "PUT",
+        "/api/v1/scim/v2/Users/{user_id}",
+    ): "SCIM: the connection's own bearer token authenticates (require_scim)",
+    (
+        "PATCH",
+        "/api/v1/scim/v2/Users/{user_id}",
+    ): "SCIM: the connection's own bearer token authenticates (require_scim)",
+    (
+        "DELETE",
+        "/api/v1/scim/v2/Users/{user_id}",
+    ): "SCIM: the connection's own bearer token authenticates (require_scim)",
+}

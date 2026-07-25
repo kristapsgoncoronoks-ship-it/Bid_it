@@ -13,7 +13,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import residency
+from app.core import authz, residency
 from app.core.config import settings
 from app.core.database import get_session
 from app.core.security import decode_access_token
@@ -85,6 +85,45 @@ async def get_current_user(
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+class PermissionDependency:
+    """A declared, introspectable permission gate (ADR-0024).
+
+    Built by `require_perm(...)` and attached structurally to a router or route:
+
+        APIRouter(dependencies=[Depends(require_perm(Permission.X))])
+
+    Enforcement reuses `authz.require` (which reuses `authz.permissions_for` —
+    the SINGLE resolver; nothing is duplicated here), so a denial is the same
+    403 wire shape as the historical in-handler calls. The declared tuple is
+    carried under `authz.PERMISSIONS_ATTR` so the CI coverage test
+    (tests/test_authz_coverage.py) can enumerate every route's declaration
+    without executing anything.
+
+    Fail-closed by construction: the gate depends on `get_current_user`, so an
+    unauthenticated request is a 401 before any permission logic runs, and a
+    missing permission is a hard 403 — there is no anonymous or partial pass.
+    """
+
+    def __init__(self, permissions: tuple[authz.Permission, ...]) -> None:
+        if not permissions:
+            raise ValueError("require_perm needs at least one Permission")
+        self.permissions = permissions
+        setattr(self, authz.PERMISSIONS_ATTR, permissions)
+        # A readable name for debugging / dependency-cache keys.
+        self.__name__ = "require_perm[" + ",".join(p.value for p in permissions) + "]"
+
+    async def __call__(self, current: CurrentUser) -> None:
+        authz.require(current, *self.permissions)
+
+
+def require_perm(*permissions: authz.Permission) -> PermissionDependency:
+    """FastAPI dependency factory: enforce EVERY given permission on the current
+    user. Used as `APIRouter(dependencies=[Depends(require_perm(Permission.X))])`
+    with per-route overrides for stricter verbs. Carries `.permissions` (and
+    `authz.PERMISSIONS_ATTR`) so tests/CI can introspect what a route declares."""
+    return PermissionDependency(permissions)
 
 
 async def get_current_org(current: CurrentUser, db: DbSession) -> Organization:

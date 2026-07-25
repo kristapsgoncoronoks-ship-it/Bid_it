@@ -120,3 +120,57 @@ async def auth_client(client: AsyncClient) -> AsyncClient:
     token = resp.json()["token"]["access_token"]
     client.headers["Authorization"] = f"Bearer {token}"
     return client
+
+
+@pytest_asyncio.fixture
+async def role_client(client: AsyncClient, db_session):
+    """Return an async factory: `await role_client("user_free")` -> AsyncClient
+    authenticated as a member of a FRESH org whose stored role is that value.
+    Stored roles today are UserRole.{user_free,user,admin,owner}; they resolve to
+    business roles READ_ONLY/EMPLOYEE/ADMINISTRATOR/OWNER via authz.business_role.
+
+    Registration always creates an OWNER (with the expense-approver flag), so the
+    factory downgrades the stored role + flag afterwards — the same pattern
+    tests/test_authz.py uses. get_current_user reloads the user per request, so
+    the token keeps working with the new role."""
+    import uuid
+
+    from sqlalchemy import update
+
+    from app.models.user import User, UserRole
+
+    made: list[AsyncClient] = []
+
+    async def _make(role: str) -> AsyncClient:
+        suffix = uuid.uuid4().hex[:8]
+        resp = await client.post(
+            "/api/v1/auth/register",
+            json={
+                "organization_name": f"RoleOrg-{role}-{suffix}",
+                "name": f"Member {role}",
+                "email": f"{role}-{suffix}@roleorg.io",
+                "password": "supersecret",
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        token = body["token"]["access_token"]
+        user_id = body["user"]["id"]
+        if role != "owner":
+            await db_session.execute(
+                update(User)
+                .where(User.id == user_id)
+                .values(role=UserRole(role), is_expense_approver=False)
+            )
+            await db_session.commit()
+        c = AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        made.append(c)
+        return c
+
+    yield _make
+    for c in made:
+        await c.aclose()
