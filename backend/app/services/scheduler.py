@@ -42,6 +42,21 @@ async def enqueue_daily(db: AsyncSession, *, today: date | None = None) -> int:
             if not before:
                 created += 1
 
+    # Daily ECB refresh (WO-8): rates are GLOBAL reference data, so this is ONE
+    # job per day TOTAL — never one per tenant (that would fetch the same feed N
+    # times). The queue requires an org row (org_id NOT NULL + RLS), so the
+    # lowest org id deterministically "carries" the global job; the handler only
+    # writes the shared, org-less `ecb_rates` cache, so which tenant carries it
+    # is irrelevant. Same idempotent `kind:date` key convention as DAILY_KINDS.
+    if org_ids:
+        carrier = min(org_ids)
+        kind = job_handlers.FX_REFRESH
+        key = f"{kind}:{today.isoformat()}"
+        before = await _live_exists(db, carrier, kind, key)
+        await jobs.enqueue(db, kind, {}, org_id=carrier, idempotency_key=key)
+        if not before:
+            created += 1
+
     # EveryPay recurring: enqueue an MIT charge only for tenants whose renewal is
     # due today (idempotent per org per due-day).
     for org_id in await billing.orgs_due_for_charge(db, today=today):

@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -21,6 +22,7 @@ from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.fx import FX_SOURCE_CHECK
 
 if TYPE_CHECKING:
     from app.models.vendor import Vendor
@@ -61,6 +63,8 @@ Money = Numeric(14, 2)
 class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "invoices"
     __table_args__ = (
+        # FX provenance is a closed enum (WO-8): eur/stated/ecb/unknown or NULL.
+        CheckConstraint(FX_SOURCE_CHECK, name="ck_invoices_fx_source"),
         # Analytics fact scan (tenant + time window).
         Index("ix_invoices_org_issue", "org_id", "issue_date"),
         # Foreign-currency scans (fx.ecb_comparison, explore currency filter).

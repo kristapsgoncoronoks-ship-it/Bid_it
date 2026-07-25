@@ -116,7 +116,7 @@ export default function CashPositionPage() {
           <StatCard label="Scheduled" value={ap.scheduled} sub="ready to pay" />
           <StatCard label="Open invoices" value={ap.count} sub={`${ap.in_run} in a run`} />
         </div>
-        {apAging.data && <ApWorklist aging={apAging.data} currency={cur} />}
+        {apAging.data && <ApWorklist aging={apAging.data} />}
       </Card>
 
       {/* Reconciliation */}
@@ -143,7 +143,7 @@ export default function CashPositionPage() {
   );
 }
 
-function ApWorklist({ aging, currency }: { aging: ApAging; currency: string }) {
+function ApWorklist({ aging }: { aging: ApAging }) {
   // Show only what needs attention: overdue first, then due-soon.
   const rows = aging.items
     .filter((i) => i.status === "overdue" || i.bucket === "due_soon")
@@ -153,19 +153,24 @@ function ApWorklist({ aging, currency }: { aging: ApAging; currency: string }) {
       <p className="mt-4 text-xs text-slate-400">Nothing due soon or overdue. 🎉</p>
     );
 
+  // The summary amounts are single-currency (WO-8): labelled with the server's
+  // currency; anything it could not fold in is called out, never summed.
   return (
     <div className="mt-4">
       <div className="mb-2 flex items-center gap-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
         <span>Needs attention</span>
         {aging.overdue_count > 0 && (
           <span className="text-rose-600">
-            {aging.overdue_count} overdue · {money(aging.overdue_amount, currency)}
+            {aging.overdue_count} overdue · {money(aging.overdue_amount, aging.currency)}
           </span>
         )}
         {aging.due_soon_count > 0 && (
           <span className="text-amber-600">
-            {aging.due_soon_count} due soon · {money(aging.due_soon_amount, currency)}
+            {aging.due_soon_count} due soon · {money(aging.due_soon_amount, aging.currency)}
           </span>
+        )}
+        {aging.other_currencies.length > 0 && (
+          <span>+ amounts in {aging.other_currencies.join(", ")} (listed below)</span>
         )}
       </div>
       <table className="w-full text-sm">

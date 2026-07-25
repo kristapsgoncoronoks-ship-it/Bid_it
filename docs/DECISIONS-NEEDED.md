@@ -149,6 +149,39 @@ never-committed (`docs/transport/harvest-protocol.md`).
 
 ---
 
+## 9. Restating expense figures a human already approved (WO-8 FX correction)
+**Status:** 🔓  ·  **Raised by:** WO-8 (one FX convention) — a business decision, deliberately **not** acted on in code.
+
+**Situation:** before WO-8, the expense-item path converted a foreign
+original-currency figure by **multiplying** by the rate, while the one true
+convention (ECB: units per 1 EUR) **divides** — so an affected item's stored
+reporting-currency amount could be wildly wrong (100 USD at rate 1.23456
+stored as 123.46 instead of 81.00). The WO-8 data migration
+(`b1c3e5a7f9d1`) **corrected** affected items on reports **no human had
+decided yet** (draft / submitted / returned), recomputed those reports'
+totals, and printed every old→new value as the reconciliation artifact.
+
+**Deliberately NOT corrected:** items on reports already **approved,
+rejected, marked for reimbursement, or reimbursed**. Those figures were seen
+and signed off by a human — and some may already have been **paid out** at
+the wrong EUR value. The migration *flags* each one in its printed report
+(row id, stored value, what the correct value would be) and leaves the
+stored value untouched.
+
+**Decision needed:**
+- whether to **restate** the flagged approved/reimbursed reports (and if so,
+  whether by correcting in place with an audit event, or by a compensating
+  claim/deduction on the employee's next report);
+- who communicates with the affected employees / approvers;
+- the cutoff (e.g. restate unpaid approvals, compensate paid ones).
+
+**Owner:** finance lead. **Interim controls:** the multiply path is gone;
+new writes follow the single divide convention with server-derived
+provenance; a report with no reliable EUR value can no longer enter a
+reimbursement batch or a SEPA file (it refuses, naming the line).
+
+---
+
 *Not blocked — I can keep building these without you:* enhancements to shipped
 features, tests/coverage, docs, and any of the above up to its stated boundary.
 Tell me which to prioritise next.

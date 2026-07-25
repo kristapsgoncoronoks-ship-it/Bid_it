@@ -36,6 +36,8 @@ async def send_digest(db: AsyncSession, org_id: str, today: date | None = None) 
         due_soon_amount=s.due_soon_amount,
         overdue_count=s.overdue_count,
         overdue_amount=s.overdue_amount,
+        # The digest's totals are single-currency (WO-8) — label them honestly.
+        currency=s.currency,
     )
     await mailer.send(db, org_id, kind="ap_alert", to_email=recipient, subject=subject, body=body)
     return {"sent": 1, "due_soon": s.due_soon_count, "overdue": s.overdue_count}

@@ -565,10 +565,14 @@ export interface ApWorklistItem {
 }
 
 export interface ApAging {
+  // Amounts are single-currency (`currency`) — currencies that could not be
+  // folded in are listed in `other_currencies`, never silently summed (WO-8).
+  currency: string;
   due_soon_count: number;
   due_soon_amount: string;
   overdue_count: number;
   overdue_amount: string;
+  other_currencies: string[];
   items: ApWorklistItem[];
 }
 

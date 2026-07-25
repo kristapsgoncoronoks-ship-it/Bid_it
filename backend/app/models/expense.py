@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -21,6 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.fx import FX_SOURCE_CHECK
 
 Money = Numeric(14, 2)
 
@@ -98,6 +100,8 @@ class ExpenseReport(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class ExpenseItem(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "expense_items"
     __table_args__ = (
+        # FX provenance is a closed enum (WO-8): eur/stated/ecb/unknown or NULL.
+        CheckConstraint(FX_SOURCE_CHECK, name="ck_expense_items_fx_source"),
         # Slice 2b: normalised links to the cost-allocation master tables, same
         # composite-FK tenant guard invoices use. Requires org_id on this table
         # (denormalised from the parent report — see the before_insert hook).
@@ -145,8 +149,11 @@ class ExpenseItem(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     amount: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)  # gross
     currency: Mapped[str | None] = mapped_column(String(3), nullable=True)  # original currency
     original_amount: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    # `fx_rate` follows the ONE convention (WO-8): original-currency units per 1
+    # unit of the report currency — converting divides. `fx_source` is the closed
+    # provenance enum (models.fx.FxSource: eur/stated/ecb/unknown).
     fx_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
-    fx_source: Mapped[str | None] = mapped_column(String(40), nullable=True)  # e.g. "ECB", "manual"
+    fx_source: Mapped[str | None] = mapped_column(String(40), nullable=True)
     vat_amount: Mapped[Decimal] = mapped_column(
         Money, default=Decimal("0"), nullable=False
     )  # tax amount

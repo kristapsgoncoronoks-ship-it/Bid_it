@@ -180,6 +180,33 @@ async def test_missing_rate_yields_none_not_a_guess(db_session):
 
 
 @pytest.mark.asyncio
+async def test_invalid_fx_source_rejected_at_write(auth_client):
+    """WO-8: fx_source is a closed enum at the schema boundary — free text 422s."""
+    await auth_client.put("/api/v1/modules/expenses", json={"enabled": True})
+    r = await auth_client.post(
+        "/api/v1/expenses",
+        json={
+            "title": "T",
+            "currency": "EUR",
+            "items": [
+                {
+                    "spend_date": "2026-06-01",
+                    "description": "X",
+                    "amount": "0",
+                    "vat_amount": "0",
+                    "currency": "USD",
+                    "original_amount": "100.00",
+                    "fx_rate": "1.0850",
+                    "fx_source": "banana",
+                }
+            ],
+        },
+    )
+    assert r.status_code == 422
+    assert "fx_source" in r.text
+
+
+@pytest.mark.asyncio
 async def test_refresh_owner_only_and_graceful(auth_client):
     # auth_client is the workspace owner; refresh is allowed and must not raise
     # even when the ECB host is unreachable (returns ok=false).

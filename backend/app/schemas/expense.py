@@ -11,6 +11,8 @@ from app.schemas.dimensions import DimensionFields
 Category = Literal["travel", "meals", "accommodation", "transport", "supplies", "software", "other"]
 PaymentMethod = Literal["personal", "company_card"]
 ExpenseType = Literal["standard", "mileage", "per_diem"]
+# FX provenance (WO-8) — must mirror app.models.fx.FxSource.
+FxSourceLiteral = Literal["eur", "stated", "ecb", "unknown"]
 
 
 class ExpenseItemIn(DimensionFields):
@@ -27,10 +29,12 @@ class ExpenseItemIn(DimensionFields):
     comment: str | None = Field(default=None, max_length=1000)
     missing_receipt_declaration: str | None = Field(default=None, max_length=500)
     # Original-currency figure + FX provenance (converted amount lands in `amount`).
+    # `fx_source` is the closed provenance enum (WO-8); the server re-derives it
+    # on write, so the field is accepted for compatibility but never trusted.
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     original_amount: Decimal | None = Field(default=None, ge=0)
     fx_rate: Decimal | None = Field(default=None, ge=0)
-    fx_source: str | None = Field(default=None, max_length=40)
+    fx_source: FxSourceLiteral | None = None
     # Entry kind + mileage / per-diem inputs. When type is mileage/per_diem and
     # `amount` is 0, the service derives it (distance × rate / days × rate).
     expense_type: ExpenseType = "standard"

@@ -110,6 +110,86 @@ async def test_sepa_export_structure(auth_client, client):
 
 
 @pytest.mark.asyncio
+async def test_mixed_currency_run_is_refused_when_a_line_cannot_convert(auth_client, client):
+    """WO-8: an invoice with no reliable EUR amount cannot enter a payment run —
+    the refusal names the line and the missing rate's currency."""
+    approver = await _member(auth_client, client, "appr@acme.io", role="admin")
+    r = await auth_client.post(
+        "/api/v1/invoices",
+        json={
+            "vendor_name": "Warsaw Ltd",
+            "invoice_number": "INV-XTS",
+            "issue_date": "2026-05-01",
+            "due_date": "2026-12-01",
+            "currency": "XTS",  # no rate exists → total_eur is NULL, fx_source unknown
+            "line_items": [
+                {"description": "W", "quantity": "1", "unit_price": "1000", "tax_rate": "0"}
+            ],
+        },
+    )
+    inv = r.json()
+    assert inv["total_eur"] is None and inv["fx_source"] == "unknown"
+    iid = inv["id"]
+    sub = await auth_client.post(f"/api/v1/invoices/{iid}/submit", json={"version": 1})
+    appr = await auth_client.post(
+        f"/api/v1/invoices/{iid}/approve",
+        headers=_h(approver),
+        json={"version": sub.json()["version"]},
+    )
+    await auth_client.post(
+        f"/api/v1/invoices/{iid}/transition",
+        json={"version": appr.json()["version"], "target": "scheduled_for_payment"},
+    )
+    run = await auth_client.post("/api/v1/payment-runs", json={"invoice_ids": [iid]})
+    assert run.status_code == 422, run.text
+    detail = run.json()["detail"]
+    assert "INV-XTS" in detail and "XTS" in detail
+
+
+@pytest.mark.asyncio
+async def test_sepa_never_labels_a_foreign_amount_eur(auth_client, client, db_session):
+    """THE WO-8 regression: a foreign-currency invoice with a missing total_eur
+    can NEVER produce a SEPA InstdAmt in the wrong currency. Legacy data is
+    simulated by corrupting a paid run's invoice AFTER the run-creation gate:
+    the export refuses outright — no XML, no `Ccy="EUR"` over 1,000 PLN."""
+    from sqlalchemy import select, update
+
+    from app.models.invoice import Invoice
+
+    approver = await _member(auth_client, client, "appr@acme.io", role="admin")
+    await auth_client.put("/api/v1/issuer", json=ISSUER)
+    rid = await _paid_run(auth_client, approver, vendor="Acme Supplies", number="INV-OK")
+    await _set_vendor_iban(auth_client, "Acme Supplies", "DE89370400440532013000", "COBADEFFXXX")
+
+    # The healthy run: every emitted amount carries the currency it is actually
+    # denominated in (EUR source → EUR label), never a relabelled foreign figure.
+    good = await auth_client.get(f"/api/v1/payment-runs/{rid}/sepa")
+    assert good.status_code == 200
+    root = ET.fromstring(good.text)
+    amts = root.findall(".//p:CdtTrfTxInf/p:Amt/p:InstdAmt", _NS)
+    assert amts, "expected at least one credit transfer"
+    for amt in amts:
+        assert amt.get("Ccy") == "EUR"
+        assert amt.text == "100.00"  # the invoice's EUR total, not a foreign figure
+
+    # Corrupt the paid invoice the way pre-WO-8 data could look: foreign
+    # currency, total 1000, no stamped EUR conversion.
+    iid = await db_session.scalar(select(Invoice.id).where(Invoice.invoice_number == "INV-OK"))
+    await db_session.execute(
+        update(Invoice)
+        .where(Invoice.id == iid)
+        .values(currency="PLN", total=1000, total_eur=None, fx_source="unknown")
+    )
+    await db_session.commit()
+
+    bad = await auth_client.get(f"/api/v1/payment-runs/{rid}/sepa")
+    assert bad.status_code == 422, bad.text
+    detail = bad.json()["detail"]
+    assert "INV-OK" in detail and "PLN" in detail
+    assert "<Document" not in bad.text  # NO payment file was produced at all
+
+
+@pytest.mark.asyncio
 async def test_sepa_422_when_no_creditor_iban(auth_client, client):
     approver = await _member(auth_client, client, "appr@acme.io", role="admin")
     await auth_client.put("/api/v1/issuer", json=ISSUER)

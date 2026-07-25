@@ -54,10 +54,12 @@ async def get_ap_aging(current: CurrentUser, db: DbSession):
     items = await ap_aging.worklist(db, current.org_id)
     s = ap_aging.summarize(items)
     return ApAgingOut(
+        currency=s.currency,
         due_soon_count=s.due_soon_count,
         due_soon_amount=s.due_soon_amount,
         overdue_count=s.overdue_count,
         overdue_amount=s.overdue_amount,
+        other_currencies=list(s.other_currencies),
         items=[WorklistItemOut(**vars(it)) for it in items],
     )
 

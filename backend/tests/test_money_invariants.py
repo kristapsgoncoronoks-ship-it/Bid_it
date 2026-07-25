@@ -58,6 +58,13 @@ def test_money_never_uses_float():
     assert isinstance(result, Decimal)
 
 
+def test_q2_fleet_fuel_threshold_smoke():
+    # Fleet Fuel harvest (WO-8): EUR-threshold decisions sit exactly at the
+    # rounding boundary — 399.994 stays under 400, 399.995 crosses it.
+    assert money.q2(Decimal("399.994")) < Decimal("400")
+    assert money.q2(Decimal("399.995")) >= Decimal("400")
+
+
 # --------------------------------------------------------------------------- #
 # V — VAT engine
 # --------------------------------------------------------------------------- #
@@ -156,6 +163,103 @@ async def test_provenance_source_is_always_a_known_value(db_session):
 # --------------------------------------------------------------------------- #
 # X — No mixed-currency aggregation (reports are single-currency by construction)
 # --------------------------------------------------------------------------- #
+
+
+def test_fi15_no_aggregate_sums_across_currencies_without_conversion():
+    """FI-15 (WO-8): an aggregate spanning currencies either returns
+    per-currency figures or converts with a recorded rate — NEVER a bare sum of
+    the raw amounts. The AP aging summary is the canonical aggregate here."""
+    from app.services import ap_aging
+
+    def item(number, ccy, outstanding, status="overdue", bucket="1-30"):
+        return ap_aging.WorklistItem(
+            id=number,
+            invoice_number=number,
+            vendor_name="V",
+            due_date=_ON,
+            currency=ccy,
+            total=Decimal(outstanding),
+            outstanding=Decimal(outstanding),
+            status=status,
+            days_overdue=5,
+            bucket=bucket,
+        )
+
+    items = [
+        item("E-1", "EUR", "100.00"),
+        item("E-2", "EUR", "50.00"),
+        item("S-1", "SEK", "999.00"),
+        item("P-1", "PLN", "777.00", status="open", bucket="due_soon"),
+    ]
+    s = ap_aging.summarize(items)
+    raw_mixed_sum = Decimal("100.00") + Decimal("50.00") + Decimal("999.00")
+    # Single labelled currency; the amount is that currency's sum ONLY.
+    assert s.currency == "EUR"
+    assert s.overdue_amount == Decimal("150.00")
+    assert s.overdue_amount != raw_mixed_sum
+    assert s.due_soon_amount == Decimal("0.00")  # the PLN line is NOT folded in
+    # Counts still cover everything (a count is not a money sum)…
+    assert s.overdue_count == 3 and s.due_soon_count == 1
+    # …and the unfolded currencies are surfaced, never silently dropped.
+    assert s.other_currencies == ("PLN", "SEK")
+
+
+@pytest.mark.asyncio
+async def test_invoice_path_and_expense_path_agree(db_session):
+    """WO-8 acceptance: the same (amount, currency, date) yields the identical
+    EUR Decimal through the invoice path (fx.eur_total) and the expense path
+    (expenses.apply_item_fx on an EUR report)."""
+    from datetime import date as _date
+
+    from app.models.expense import ExpenseItem
+    from app.services import expenses
+
+    matrix = [
+        ("108.50", "USD", _date(2026, 6, 5)),
+        ("430.00", "PLN", _date(2026, 6, 5)),
+        ("59.99", "CZK", _date(2026, 7, 10)),
+        ("1000.00", "PLN", _date(2026, 2, 14)),
+        ("250.00", "EUR", _date(2026, 6, 5)),
+    ]
+    for amount, ccy, on in matrix:
+        invoice_eur, invoice_src = await fx.eur_total(db_session, Decimal(amount), ccy, on, None)
+        item = ExpenseItem(
+            spend_date=on,
+            description="X",
+            currency=ccy,
+            original_amount=Decimal(amount),
+            amount=Decimal("0"),
+        )
+        await expenses.apply_item_fx(db_session, item, "EUR")
+        assert invoice_eur is not None
+        assert item.amount == invoice_eur, (amount, ccy, on)
+        assert item.fx_source == invoice_src, (amount, ccy, on)
+        if ccy != "EUR":
+            assert item.fx_rate is not None  # the conversion rate is RECORDED
+
+
+@pytest.mark.asyncio
+async def test_expense_path_unknown_currency_refuses_never_guesses(db_session):
+    """WO-8: `unknown` never masks as a conversion — an entry that cannot be
+    converted is refused at write (422, stable code), not stored at a guessed
+    or silently-zero amount."""
+    from datetime import date as _date
+
+    from app.core.errors import AppError
+    from app.models.expense import ExpenseItem
+    from app.services import expenses
+
+    item = ExpenseItem(
+        spend_date=_date(2026, 6, 5),
+        description="X",
+        currency="QQQ",  # no rate cached, ever
+        original_amount=Decimal("100.00"),
+        amount=Decimal("0"),
+    )
+    with pytest.raises(AppError) as exc:
+        await expenses.apply_item_fx(db_session, item, "EUR")
+    assert exc.value.code == "fx_rate_unavailable"
+    assert exc.value.status == 422
 
 
 @pytest.mark.asyncio

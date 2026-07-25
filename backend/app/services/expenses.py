@@ -12,8 +12,16 @@ import io
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.errors import AppError
 from app.core.money import q2 as q
 from app.models.expense import ExpenseItem, ExpenseReport
+from app.models.fx import FxSource
+from app.services import fx as fx_service
+
+# Precision for a stored/implied FX rate (matches the Numeric(18, 8) column).
+_RATE_EXP = Decimal("0.00000001")
 
 
 def compute_totals(items: list) -> tuple[Decimal, Decimal]:
@@ -23,25 +31,100 @@ def compute_totals(items: list) -> tuple[Decimal, Decimal]:
 
 
 def derive_amount(payload) -> Decimal:
-    """The gross amount in the reporting currency. For mileage/per-diem it is
-    computed from the inputs; for a foreign-currency item with an FX rate and no
-    explicit amount it is original × rate; otherwise the supplied `amount`."""
+    """The gross amount in the reporting currency. Mileage/per-diem entries are
+    computed from their inputs (distance × per-km, days × per-day — allowance
+    tariffs, not FX rates); otherwise the supplied `amount` stands. A foreign
+    original-currency figure is converted separately by `apply_item_fx` under the
+    single ECB convention (WO-8) — the old original × rate multiply is gone."""
     etype = getattr(payload, "expense_type", "standard")
     amount = Decimal(getattr(payload, "amount", 0) or 0)
     if etype == "mileage" and amount == 0:
         dist = Decimal(getattr(payload, "mileage_distance", 0) or 0)
-        rate = Decimal(getattr(payload, "mileage_rate", 0) or 0)
-        amount = dist * rate
+        per_km = Decimal(getattr(payload, "mileage_rate", 0) or 0)
+        amount = dist * per_km
     elif etype == "per_diem" and amount == 0:
         days = Decimal(getattr(payload, "per_diem_days", 0) or 0)
-        rate = Decimal(getattr(payload, "per_diem_rate", 0) or 0)
-        amount = days * rate
-    elif amount == 0:
-        orig = getattr(payload, "original_amount", None)
-        fx = getattr(payload, "fx_rate", None)
-        if orig is not None and fx is not None:
-            amount = Decimal(orig) * Decimal(fx)
+        per_day = Decimal(getattr(payload, "per_diem_rate", 0) or 0)
+        amount = days * per_day
     return q(amount)
+
+
+async def apply_item_fx(db: AsyncSession, item: ExpenseItem, report_currency: str) -> None:
+    """Resolve an entry's original-currency figure into the report currency and
+    stamp its provenance, under the ONE FX convention (WO-8): a rate is original-
+    currency units per 1 unit of the report currency, and converting DIVIDES
+    (for an EUR report that is exactly the ECB convention — units per 1 EUR).
+
+    Provenance is server-derived, never trusted from the client (§4.10 — the
+    server recomputes): a claimant-typed converted amount is `stated` (the card
+    statement is the observable fact; the implied rate is recorded from it), an
+    ECB conversion is `ecb` with the resolved rate recorded.
+
+    Fail-CLOSED: an entry that cannot be converted is REFUSED at write with a
+    422 and a stable code — a silently-zero or guessed amount would flow into
+    the report total, the reimbursement batch and ultimately a bank file.
+    """
+    report_ccy = (report_currency or "EUR").upper()
+    ccy = item.currency.upper() if item.currency else None
+    item.currency = ccy
+    if item.original_amount is None or ccy is None:
+        # Not a foreign-currency entry — provenance fields are meaningless noise;
+        # normalise them away rather than storing an unverifiable claim.
+        item.fx_source = None
+        item.fx_rate = None
+        return
+    original = Decimal(item.original_amount)
+    if ccy == report_ccy:
+        # Same currency: identity. `eur` provenance only when that currency IS
+        # the euro; otherwise there is no EUR claim to stamp.
+        if not item.amount:
+            item.amount = q(original)
+        item.fx_source = FxSource.eur.value if ccy == "EUR" else None
+        item.fx_rate = None
+        return
+    if item.amount:
+        # The claimant stated the converted amount (their card/bank statement).
+        # Record the implied rate so the conversion is fully documented.
+        item.fx_source = FxSource.stated.value
+        item.fx_rate = (original / Decimal(item.amount)).quantize(_RATE_EXP)
+        return
+    if item.fx_rate:
+        # A stated rate: original units per 1 report-currency unit → divide.
+        item.amount = q(original / Decimal(item.fx_rate))
+        item.fx_source = FxSource.stated.value
+        return
+    if report_ccy == "EUR":
+        eur, resolved = await fx_service.to_eur(db, original, ccy, item.spend_date)
+        if eur is None or resolved is None:
+            raise AppError(
+                f"No exchange rate is available for {ccy} on {item.spend_date} — "
+                "enter the converted amount (or a rate), or refresh the ECB rates.",
+                code="fx_rate_unavailable",
+                status=422,
+            )
+        item.amount = eur
+        item.fx_source = FxSource.ecb.value
+        item.fx_rate = Decimal(resolved.rate).quantize(_RATE_EXP)
+        return
+    # Foreign entry on a non-EUR report with nothing stated: refusing beats
+    # inventing a cross rate the claimant never saw (fail-closed, §4.14).
+    raise AppError(
+        f"Cannot convert {ccy} into {report_ccy} automatically — enter the "
+        "converted amount or a rate (original units per 1 " + report_ccy + ").",
+        code="fx_cross_currency_unsupported",
+        status=422,
+    )
+
+
+async def build_items(db: AsyncSession, payloads: list, report_currency: str) -> list[ExpenseItem]:
+    """Build ORM items from request payloads, resolving each foreign-currency
+    figure through the single conversion path (`apply_item_fx`)."""
+    items = []
+    for p in payloads:
+        item = item_from(p)
+        await apply_item_fx(db, item, report_currency)
+        items.append(item)
+    return items
 
 
 def item_from(payload) -> ExpenseItem:

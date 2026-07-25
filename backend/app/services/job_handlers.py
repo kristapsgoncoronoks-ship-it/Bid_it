@@ -17,6 +17,7 @@ from app.services import (
     dunning,
     email_intake,
     extraction,
+    fx,
     integrity,
     jobs,
     recurring,
@@ -34,6 +35,24 @@ USAGE_REPORT = "billing.report_usage"
 COSTING_BACKFILL = "costing.backfill_links"
 INTEGRITY_LEDGER = "integrity.verify_ledger"
 INTEGRITY_VERSIONS = "integrity.verify_versions"
+FX_REFRESH = "fx.refresh"
+
+
+@jobs.handler(FX_REFRESH)
+async def _fx_refresh(db, payload: dict, job: Job) -> dict:
+    """Daily ECB reference-rate refresh (WO-8).
+
+    ECB rates are GLOBAL reference data, not per-tenant, so the scheduler
+    enqueues this ONCE per day total — carried by a single deterministic org
+    (see scheduler.enqueue_daily) because the queue's tenant invariants (org_id
+    NOT NULL + RLS) rule out an org-less row. A per-org daily job was rejected:
+    it would fetch the same public feed once per tenant, and a handler-side
+    cross-org dedupe cannot see sibling jobs through the tenant guard (by
+    design). Graceful degradation is preserved end to end: `fx.refresh_from_ecb`
+    never raises (12s timeout, returns ok=False on any failure) and a failed
+    fetch leaves the cached rates serving; the write is an idempotent upsert, so
+    even a duplicate run is harmless."""
+    return await fx.refresh_from_ecb(db)
 
 
 @jobs.handler(USAGE_REPORT)

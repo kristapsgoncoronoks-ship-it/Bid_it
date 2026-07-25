@@ -147,7 +147,7 @@ Base columns + `start_date`/`end_date`, `status` (`active|closed|archived`). Con
 
 **`organizations`** (tenant root) — `id`, `name`, `plan`, `status` (`active|suspended|canceled`), `region`, `stripe_customer_id`/`stripe_subscription_id`, `everypay_token`. Not tenant-scoped (it *is* the tenant).
 
-**`invoices`** (supplier invoices) — money stored as three separate quantities per the tax-total rule: `subtotal` (tax-exclusive), `tax_amount`, `total` (tax-inclusive), all `Numeric(14,2)`; original currency (`currency`) **and** reporting currency (`total_eur` + `fx_rate` + `fx_source` provenance). `issue_date` indexed with `org_id`. **Target:** `cost_center_id`/`department_id`/`project_id` FKs (Slice 2).
+**`invoices`** (supplier invoices) — money stored as three separate quantities per the tax-total rule: `subtotal` (tax-exclusive), `tax_amount`, `total` (tax-inclusive), all `Numeric(14,2)`; original currency (`currency`) **and** reporting currency (`total_eur` + `fx_rate` + `fx_source` provenance). **`fx_source` is a closed enum (WO-8)** — `{eur, stated, ecb, unknown}` (`models/fx.FxSource`), CHECK-constrained (`ck_invoices_fx_source`, same on `expense_items`); rates follow the single ECB convention (units per 1 EUR, converting to EUR divides) and `unknown ⇒ total_eur IS NULL`, never a guessed figure. `issue_date` indexed with `org_id`. **Target:** `cost_center_id`/`department_id`/`project_id` FKs (Slice 2).
 
 **`issued_invoices`** (customer invoices + credit notes) — immutable once issued; corrections via a linked credit note (`doc_type`, `corrected_invoice_id`), never an edit. Gap-free per-issuer numbering. `subtotal`/`tax_total`/`total` separated. **Target:** extract `payments` + `payment_allocations` from the inline `amount_paid`/`paid_date`.
 

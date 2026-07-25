@@ -93,23 +93,48 @@ async def worklist(db: AsyncSession, org_id: str, today: date | None = None) -> 
 
 @dataclass
 class DueSummary:
+    """Due-soon/overdue roll-up. Counts span every currency (a count is not a
+    money sum); the AMOUNTS are single-currency (`currency`) only — currencies
+    that could not be folded in are surfaced in `other_currencies`, never
+    silently summed (WO-8 / §4.14: no cross-currency sums without a recorded
+    conversion; this follows the AR reports' single-currency pattern)."""
+
+    currency: str = "EUR"
     due_soon_count: int = 0
     due_soon_amount: Decimal = _ZERO
     overdue_count: int = 0
     overdue_amount: Decimal = _ZERO
+    other_currencies: tuple[str, ...] = ()
 
 
 def summarize(items: list[WorklistItem]) -> DueSummary:
-    s = DueSummary()
-    for it in items:
+    """Roll up the worklist per the DueSummary contract: pick the most-used
+    currency among the items needing attention (EUR wins ties), total ONLY that
+    currency's outstanding, and surface the rest — a raw sum of PLN + SEK + EUR
+    figures labelled EUR was exactly the defect WO-8 removes."""
+    attention = [it for it in items if it.status == ap_status.OVERDUE or it.bucket == "due_soon"]
+    counts: dict[str, int] = {}
+    for it in attention:
+        counts[it.currency] = counts.get(it.currency, 0) + 1
+    # Most-used currency; EUR on a tie (deterministic, matches the AR reports).
+    currency = "EUR"
+    if counts:
+        best = max(counts.values())
+        leaders = sorted(c for c, n in counts.items() if n == best)
+        currency = "EUR" if "EUR" in leaders else leaders[0]
+    s = DueSummary(currency=currency)
+    for it in attention:
         if it.status == ap_status.OVERDUE:
             s.overdue_count += 1
-            s.overdue_amount += it.outstanding
-        elif it.bucket == "due_soon":
+            if it.currency == currency:
+                s.overdue_amount += it.outstanding
+        else:
             s.due_soon_count += 1
-            s.due_soon_amount += it.outstanding
+            if it.currency == currency:
+                s.due_soon_amount += it.outstanding
     s.due_soon_amount = money.q2(s.due_soon_amount)
     s.overdue_amount = money.q2(s.overdue_amount)
+    s.other_currencies = tuple(sorted(set(counts) - {currency}))
     return s
 
 

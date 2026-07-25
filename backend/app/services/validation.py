@@ -189,14 +189,14 @@ def reconcile(invoice: Invoice) -> Reconciliation:
     ctax = Decimal("0")
     for li in invoice.line_items:
         amount = q2(Decimal(li.amount or 0))
-        rate = Decimal(li.tax_rate or 0)
+        tax_pct = Decimal(li.tax_rate or 0)  # a VAT percentage, not an FX rate
         csub += amount
-        ctax += q2(amount * rate / Decimal("100"))
-        if rate < 0 or rate > 100:
+        ctax += q2(amount * tax_pct / Decimal("100"))
+        if tax_pct < 0 or tax_pct > 100:
             findings.append(
                 _f(
                     "recon_tax_rate_range",
-                    f"Line '{li.description}': tax rate {rate}% is out of range 0–100",
+                    f"Line '{li.description}': tax rate {tax_pct}% is out of range 0–100",
                 )
             )
         expected = q2(Decimal(li.quantity or 0) * Decimal(li.unit_price or 0))

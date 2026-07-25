@@ -32,7 +32,32 @@ class ReimbursementError(Exception):
 
 
 def eur_of(r: ExpenseReport) -> Decimal:
-    return q2(Decimal(r.total_eur if r.total_eur is not None else (r.total or 0)))
+    """The report's EUR amount for batch totals and the SEPA payout file.
+
+    Fail-CLOSED (WO-8): an EUR-currency report with no stamped `total_eur` is
+    the identity conversion (rate 1 by convention — not a guess); a FOREIGN
+    report with no stamped `total_eur` is REFUSED. The old fallback silently
+    treated the raw foreign total as EUR and the SEPA file paid that figure.
+    A blocked batch is recoverable; a mis-currencied payout is not."""
+    if r.total_eur is not None:
+        return q2(Decimal(r.total_eur))
+    if (r.currency or "EUR").upper() == "EUR":
+        return q2(Decimal(r.total or 0))
+    raise ReimbursementError(
+        f"Report '{r.title}' is in {r.currency} with no recorded EUR conversion "
+        f"(no rate was available for {r.currency}); refresh the ECB rates and "
+        "re-submit the report before paying it."
+    )
+
+
+def eur_or_none(r: ExpenseReport) -> Decimal | None:
+    """Best-effort EUR figure for REPORTING surfaces (the CSV export): None when
+    the report has no reliable EUR value — the row still shows its original
+    amount + currency, and the EUR column stays honestly blank."""
+    try:
+        return eur_of(r)
+    except ReimbursementError:
+        return None
 
 
 async def batch_reports(db: AsyncSession, org_id: str, batch_id: str) -> list[ExpenseReport]:
@@ -207,6 +232,7 @@ def export_csv(batch: ReimbursementBatch, reports: list[ExpenseReport]) -> str:
         ["batch_reference", "employee", "report", "amount", "currency", "amount_eur", "method"]
     )
     for r in reports:
+        eur = eur_or_none(r)
         w.writerow(
             [
                 batch.reference or batch.id,
@@ -214,7 +240,7 @@ def export_csv(batch: ReimbursementBatch, reports: list[ExpenseReport]) -> str:
                 r.title,
                 f"{q2(Decimal(r.total or 0))}",
                 r.currency,
-                f"{eur_of(r)}",
+                f"{eur}" if eur is not None else "",
                 batch.method,
             ]
         )

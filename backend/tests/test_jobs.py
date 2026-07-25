@@ -220,8 +220,9 @@ async def test_scheduler_enqueues_daily_jobs_idempotently(auth_client, db_sessio
 
     today = date(2026, 7, 20)
     created = await scheduler.enqueue_daily(db_session, today=today)
-    # One org × the daily kinds (recurring-generate, dunning-run, ap-due-alerts).
-    n = len(scheduler.DAILY_KINDS)
+    # One org × the daily kinds (recurring-generate, dunning-run, ap-due-alerts)
+    # + the single GLOBAL fx.refresh job (WO-8: one per day total, not per org).
+    n = len(scheduler.DAILY_KINDS) + 1
     assert created == n
     # Running again the same day adds nothing (idempotent per date).
     assert await scheduler.enqueue_daily(db_session, today=today) == 0

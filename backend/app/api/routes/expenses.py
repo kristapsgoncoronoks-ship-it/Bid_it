@@ -207,7 +207,7 @@ def _item_from_txn(t: ExpenseTransaction, category: str = "other", vat=Decimal("
 )
 async def create_report(body: ExpenseReportCreate, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
-    items = [expenses.item_from(i) for i in body.items]
+    items = await expenses.build_items(db, body.items, body.currency)
 
     # Concur-style: also build entries from selected inbox transactions.
     txns = await _load_available_txns(db, current.org_id, current.id, body.transaction_ids)
@@ -680,8 +680,8 @@ async def update_report(
         r.note = body.note
     if body.items is not None:
         r.items.clear()
-        for i in body.items:
-            r.items.append(expenses.item_from(i))
+        for item in await expenses.build_items(db, body.items, r.currency):
+            r.items.append(item)
         await _link_items(db, current.org_id, r.items)
         r.total, r.vat_total = expenses.compute_totals(r.items)
     await db.commit()
@@ -934,7 +934,7 @@ async def add_item(report_id: str, body: ExpenseItemIn, current: CurrentUser, db
     await _guard(db, current.org_id)
     r = await _load(db, current.org_id, report_id)
     _require_owner_editable(r, current)
-    item = expenses.item_from(body)
+    item = (await expenses.build_items(db, [body], r.currency))[0]
     r.items.append(item)
     await _link_items(db, current.org_id, [item])
     r.total, r.vat_total = expenses.compute_totals(r.items)
@@ -1046,6 +1046,10 @@ async def update_item(
     # Money fields are quantized before storage.
     if "amount" in fields and body.amount is not None:
         item.amount = expenses.q(body.amount)
+        # A repriced foreign-currency entry re-derives its FX provenance (WO-8):
+        # the new amount is a stated conversion; the implied rate is recorded.
+        if item.original_amount is not None and item.currency:
+            await expenses.apply_item_fx(db, item, r.currency)
     if "vat_amount" in fields and body.vat_amount is not None:
         item.vat_amount = expenses.q(body.vat_amount)
     # Cost dimensions: apply only fields explicitly present.

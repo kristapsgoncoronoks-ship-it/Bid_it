@@ -289,6 +289,10 @@ async def rate_for(db: AsyncSession, currency: str, on_date: date) -> Decimal | 
 async def to_eur(
     db: AsyncSession, amount: Decimal, currency: str, on_date: date
 ) -> tuple[Decimal | None, Resolved | None]:
+    """THE conversion entry point (WO-8). ECB publishes units of `currency` per
+    1 EUR; EUR = amount / rate; EUR itself has rate 1. Rate selection is the most
+    recent rate on or before `on_date` (a Sunday transaction uses Friday's rate).
+    Returns (None, None) when no rate exists — never a guessed number."""
     r = await resolve_rate(db, currency, on_date)
     if r is None:
         return None, None
@@ -298,7 +302,11 @@ async def to_eur(
 async def eur_total(
     db: AsyncSession, total: Decimal, currency: str, on_date: date, stated_rate: Decimal | None
 ) -> tuple[Decimal | None, str]:
-    """EUR value of an invoice total + how it was derived (for the create path)."""
+    """EUR value of a document total + its provenance (`models.fx.FxSource`).
+
+    One convention (WO-8): a stated rate is foreign units per 1 EUR and the
+    conversion DIVIDES; otherwise the ECB cache converts via `to_eur`; when
+    neither can, the result is (None, "unknown") — never a guessed figure."""
     currency = (currency or "EUR").upper()
     if currency == "EUR":
         return _q(total), "eur"
@@ -409,7 +417,7 @@ async def ecb_comparison(
             total_markup += markup
             with_stated += 1
         if stated and ecb_rate:
-            deviation = _q((stated - ecb_rate) / ecb_rate * 100, Decimal("0.1"))
+            deviation = _q(Decimal("100") * (stated - ecb_rate) / ecb_rate, Decimal("0.1"))
 
         rows.append(
             {

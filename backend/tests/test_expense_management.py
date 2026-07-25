@@ -62,6 +62,10 @@ async def _create(cl, headers=None, items=None, currency="EUR", title="Trip"):
 # --------------------------------------------------------------------------- #
 @pytest.mark.asyncio
 async def test_fx_conversion_rounds_half_up(auth_client):
+    """WO-8: one convention — a stated rate is foreign units per 1 EUR and the
+    conversion DIVIDES (24.69 / 2 = 12.345 → 12.35, HALF_UP). The old assertion
+    here encoded the multiply bug (100 × 1.23456) and a free-text fx_source;
+    provenance is now server-derived from the closed enum."""
     await _activate(auth_client)
     rid = await _create(
         auth_client,
@@ -69,18 +73,17 @@ async def test_fx_conversion_rounds_half_up(auth_client):
             _item(
                 amount="0",
                 currency="USD",
-                original_amount="100.00",
-                fx_rate="1.23456",  # 100 * 1.23456 = 123.456 → 123.46
-                fx_source="ECB",
+                original_amount="24.69",
+                fx_rate="2",  # 24.69 / 2 = 12.345 → 12.35 (ROUND_HALF_UP)
             )
         ],
     )
     detail = (await auth_client.get(f"/api/v1/expenses/{rid}")).json()
     it = detail["items"][0]
-    assert Decimal(it["amount"]) == Decimal("123.46")
+    assert Decimal(it["amount"]) == Decimal("12.35")
     assert it["currency"] == "USD"
-    assert it["fx_source"] == "ECB"
-    assert Decimal(detail["total"]) == Decimal("123.46")
+    assert it["fx_source"] == "stated"  # server-derived provenance, closed enum
+    assert Decimal(detail["total"]) == Decimal("12.35")
 
 
 @pytest.mark.asyncio

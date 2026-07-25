@@ -76,7 +76,33 @@ async def _assert_vendors_payable(
 
 
 def eur_of(inv: Invoice) -> Decimal:
-    return q2(Decimal(inv.total_eur if inv.total_eur is not None else (inv.total or 0)))
+    """The invoice's EUR amount for run totals and the SEPA bank file.
+
+    Fail-CLOSED (WO-8): an EUR-currency invoice with no stamped `total_eur` is
+    the identity conversion (rate 1 by convention — not a guess); a FOREIGN
+    invoice with no stamped `total_eur` is REFUSED. The old fallback silently
+    used the raw foreign total as if it were EUR, and the SEPA file then
+    instructed the bank to pay e.g. EUR 1,000 for a 1,000-PLN invoice. A
+    blocked run is recoverable; a mis-currencied payment is not."""
+    if inv.total_eur is not None:
+        return q2(Decimal(inv.total_eur))
+    if (inv.currency or "EUR").upper() == "EUR":
+        return q2(Decimal(inv.total or 0))
+    raise PaymentRunError(
+        f"Invoice '{inv.invoice_number}' is in {inv.currency} with no recorded EUR "
+        f"conversion (no rate was available for {inv.currency}); refresh the ECB "
+        "rates and re-register the invoice before paying it."
+    )
+
+
+def eur_or_none(inv: Invoice) -> Decimal | None:
+    """Best-effort EUR figure for REPORTING surfaces (the CSV export): None when
+    the invoice has no reliable EUR value — the row still shows its original
+    amount + currency, and the EUR column stays honestly blank."""
+    try:
+        return eur_of(inv)
+    except PaymentRunError:
+        return None
 
 
 async def payable_invoices(db: AsyncSession, org_id: str) -> list[Invoice]:
@@ -223,13 +249,14 @@ def export_csv(run: PaymentRun, invoices: list[Invoice]) -> str:
     w = csv.writer(buf)
     w.writerow(["run_reference", "invoice_number", "amount", "currency", "amount_eur", "method"])
     for inv in invoices:
+        eur = eur_or_none(inv)
         w.writerow(
             [
                 run.reference or run.id,
                 inv.invoice_number,
                 f"{q2(Decimal(inv.total or 0))}",
                 inv.currency,
-                f"{eur_of(inv)}",
+                f"{eur}" if eur is not None else "",
                 run.method,
             ]
         )

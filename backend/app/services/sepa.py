@@ -37,6 +37,10 @@ class CreditTransfer:
     creditor_iban: str
     creditor_bic: str | None
     remittance: str
+    # The currency `amount` is actually denominated in. SEPA credit transfers
+    # are EUR-only; build_pain001 REFUSES any other value (WO-8) — the `Ccy`
+    # attribute is emitted from here, never hardcoded over a foreign figure.
+    currency: str = "EUR"
 
 
 def _el(parent: ET.Element, tag: str, text: str | None = None) -> ET.Element:
@@ -73,6 +77,15 @@ def build_pain001(
     if debtor_bic and not bank_id.is_valid_bic(debtor_bic):
         raise SepaError("the issuer profile's BIC is invalid — fix it before exporting SEPA")
     for t in transfers:
+        # WO-8 fail-closed currency gate: a pain.001 SEPA credit transfer is
+        # EUR-only. An amount denominated in anything else must never be
+        # serialized — labelling a foreign figure EUR instructs the bank to
+        # pay the wrong value, so NO XML is produced at all.
+        if t.currency != "EUR":
+            raise SepaError(
+                f"transfer '{t.end_to_end}' is denominated in {t.currency}; a SEPA "
+                "credit transfer is EUR-only — the payment file was not produced"
+            )
         if not bank_id.is_valid_iban(t.creditor_iban):
             raise SepaError(
                 f"creditor '{t.creditor_name}' has a structurally invalid IBAN — "
@@ -112,7 +125,9 @@ def build_pain001(
         tx = _el(pmt, "CdtTrfTxInf")
         _el(_el(tx, "PmtId"), "EndToEndId", (t.end_to_end or "NOTPROVIDED")[:35])
         instd = _el(_el(tx, "Amt"), "InstdAmt", f"{q2(t.amount)}")
-        instd.set("Ccy", "EUR")
+        # Emitted from the transfer's actual denomination (guarded EUR above) —
+        # never a hardcoded label over an unconverted amount (WO-8).
+        instd.set("Ccy", t.currency)
         if t.creditor_bic:
             _el(_el(_el(tx, "CdtrAgt"), "FinInstnId"), "BIC", t.creditor_bic)
         _el(_el(tx, "Cdtr"), "Nm", t.creditor_name[:70])
@@ -139,7 +154,13 @@ async def payment_run_sepa(db: AsyncSession, org_id: str, run: PaymentRun) -> tu
         if not iban:
             skipped += 1
             continue
-        amount = q2(Decimal(inv.total_eur if inv.total_eur is not None else (inv.total or 0)))
+        # WO-8: the reliable EUR figure or a refusal — never the raw foreign
+        # total silently relabelled EUR (the verified 1,000-PLN → "EUR 1000.00"
+        # defect). eur_of names the invoice and the missing rate.
+        try:
+            amount = payment_run.eur_of(inv)
+        except payment_run.PaymentRunError as exc:
+            raise SepaError(str(exc)) from exc
         transfers.append(
             CreditTransfer(
                 end_to_end=inv.invoice_number,

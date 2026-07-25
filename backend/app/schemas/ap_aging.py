@@ -20,8 +20,13 @@ class WorklistItemOut(BaseModel):
 
 
 class ApAgingOut(BaseModel):
+    # Amounts are single-currency (`currency`) — see services.ap_aging.DueSummary.
+    # Additive wire change (WO-8): existing fields keep their names; `currency`
+    # labels them and `other_currencies` surfaces what was NOT folded in.
+    currency: str
     due_soon_count: int
     due_soon_amount: Decimal
     overdue_count: int
     overdue_amount: Decimal
+    other_currencies: list[str] = []
     items: list[WorklistItemOut]
