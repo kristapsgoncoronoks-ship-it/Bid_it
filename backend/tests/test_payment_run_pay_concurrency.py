@@ -67,7 +67,7 @@ async def test_two_concurrent_pays_settle_once():
                     tax_amount=Decimal("0.00"),
                     total=Decimal("100.00"),
                     total_eur=Decimal("100.00"),
-                    status=InvoiceStatus.approved,
+                    status=InvoiceStatus.pending,
                     workflow_state=WorkflowState.scheduled_for_payment,
                 )
                 s.add(inv)
