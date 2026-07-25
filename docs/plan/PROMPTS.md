@@ -1,7 +1,17 @@
-# PROMPT LIBRARY — building the all-in-one financial workspace on `/home/user/Bid_it`
+# PROMPT LIBRARY — building the all-in-one financial workspace
+
+> **⚠ DECISION UPDATE (2026-07-25 — see `GREENFIELD_plan.md`, which is authoritative):**
+> BOTH repositories (`fleet_fuel_system` AND `Bid_it`) will be deleted; the product is
+> rebuilt **from zero** in a new repository. Consequences for this library:
+> **Parts C, D and E remain fully valid** (template, reviews, VAT harvest — they are
+> code-independent). **Part A's repo-facts appendix and all of Part B (WO-1…WO-10)
+> target the Bid_it codebase and are SUPERSEDED** — the greenfield work orders are
+> `GREENFIELD_plan.md` §8 (G-1…G-10); regenerate Part A's appendix against the new repo
+> in G-1. **Part F now runs TWICE** (once per repo) with the ordering rules of
+> `GREENFIELD_plan.md` §9 — the new repo receives the specs BEFORE anything is deleted.
 
 **Author:** Senior Prompt Engineer
-**Date:** 2026-07-24
+**Date:** 2026-07-24 (greenfield banner added 2026-07-25)
 **Derived from:** `ARCH_plan.md` (the architecture plan — authoritative), `BA_bidit.md`, `BA_fleet_fuel.md` (R1–R76).
 **Audience:** an AI engineering agent with filesystem + shell access to `/home/user/Bid_it`.
 

@@ -1,5 +1,11 @@
 # Platform Engineering Plan — evolving Bid_it (InvoiceIQ) into the all-in-one financial workspace
 
+> **⚠ SUPERSEDED (2026-07-25):** the owner decided to delete BOTH repositories and build
+> from zero — see **`GREENFIELD_plan.md`** (authoritative). This document remains the
+> reference for the target architecture (§1, carried over), the gap analysis, the risk
+> register and the debt lessons the new build must not repeat; its "evolve Bid_it"
+> decision and its Bid_it-specific work orders no longer apply.
+
 **Author:** Senior Solution Architect / acting CTO
 **Date:** 2026-07-24
 **Inputs:** `BA_bidit.md` (analysis of `/home/user/Bid_it`), `BA_fleet_fuel.md` (analysis of `/home/user/fleet_fuel_system`), the founder's charter.
