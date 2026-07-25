@@ -9,7 +9,6 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession, require_perm
-from app.api.routes.vendors import get_or_create_vendor
 from app.core import authz
 from app.core.dimensions import DIMENSION_KEYS
 from app.core.money import q2 as _q
@@ -54,6 +53,7 @@ from app.services import (
     validation,
     webhooks,
 )
+from app.services.vendors import get_or_create_vendor
 
 # Structural authorization (ADR-0024): every invoice route needs at least
 # INVOICE_READ (router-level — held by EVERY business role, so the metered

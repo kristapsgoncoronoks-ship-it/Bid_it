@@ -95,6 +95,12 @@ class A:
     EXPENSE_RETURN = "expense.return_for_correction"
     EXPENSE_REASSIGN = "expense.reassign_approver"
     EXPENSE_APPROVAL_POLICY = "expense.approval_policy"
+    # Vendor master data + the protected-field change workflow (WO-2)
+    VENDOR_CREATE = "vendor.create"
+    VENDOR_UPDATE = "vendor.update"
+    VENDOR_CHANGE_REQUEST = "vendor.change_requested"
+    VENDOR_CHANGE_APPROVE = "vendor.change_approved"
+    VENDOR_CHANGE_REJECT = "vendor.change_rejected"
     ROLE_CHANGE = "user.role_change"
     APPROVER_CHANGE = "user.approver_change"
     USER_DEACTIVATE = "user.deactivate"

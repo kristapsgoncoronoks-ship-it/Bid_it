@@ -21,11 +21,58 @@ from sqlalchemy.orm import selectinload
 from app.core.money import q2
 from app.models.invoice import Invoice, InvoiceStatus, WorkflowState
 from app.models.payment_run import RUN_CANCELLED, RUN_OPEN, RUN_PAID, PaymentRun
+from app.models.vendor import VENDOR_PROVISIONAL, Vendor
 from app.services import ap_payments, invoice_workflow
+from app.services import vendors as vendor_service
 
 
 class PaymentRunError(Exception):
     """A payment-run precondition failed (bad state / not eligible)."""
+
+
+async def _assert_vendors_payable(
+    db: AsyncSession,
+    org_id: str,
+    invoices: list[Invoice],
+    *,
+    allow_provisional: bool,
+) -> None:
+    """The WO-2 fraud gate on the payout path. Refuses (naming the vendor):
+
+    - a vendor with a PENDING protected-field change request — paying while a
+      bank-detail change is in flight would either pay an account someone is
+      actively trying to replace, or race the approval;
+    - a PROVISIONAL vendor (bank/tax identity captured at creation, never
+      independently verified) unless the caller explicitly confirmed it.
+
+    Fail-closed: this runs at run CREATION and again at PAY time, because a
+    change request can be filed between the two."""
+    vendor_ids = sorted({inv.vendor_id for inv in invoices if inv.vendor_id})
+    if not vendor_ids:
+        return
+    vendors = {
+        v.id: v
+        for v in await db.scalars(
+            select(Vendor).where(Vendor.org_id == org_id, Vendor.id.in_(vendor_ids))
+        )
+    }
+    pending = await vendor_service.pending_requests_for(db, org_id, vendor_ids)
+    for vid in vendor_ids:
+        vendor = vendors.get(vid)
+        if vendor is None:
+            continue
+        if pending.get(vid):
+            fields = ", ".join(sorted({r.field for r in pending[vid]}))
+            raise PaymentRunError(
+                f"Vendor '{vendor.name}' has a pending bank-detail change request "
+                f"({fields}); approve or reject it before paying this vendor."
+            )
+        if vendor.status == VENDOR_PROVISIONAL and not allow_provisional:
+            raise PaymentRunError(
+                f"Vendor '{vendor.name}' is provisional (its bank/tax identity was "
+                "captured but never verified); confirm it explicitly to include it "
+                "in a payment run."
+            )
 
 
 def eur_of(inv: Invoice) -> Decimal:
@@ -68,10 +115,12 @@ async def create_run(
     method: str,
     note: str | None,
     created_by: str | None,
+    confirm_provisional: bool = False,
 ) -> PaymentRun:
     """Group scheduled-for-payment, un-run invoices into an OPEN run. Raises
     PaymentRunError if any invoice is missing, not scheduled for payment, or already
-    in a run. Flushes; caller commits."""
+    in a run — or (WO-2) if a linked vendor has a pending bank-detail change, or is
+    provisional and `confirm_provisional` was not set. Flushes; caller commits."""
     if not invoice_ids:
         raise PaymentRunError("Select at least one scheduled invoice.")
     invoices = list(
@@ -91,6 +140,7 @@ async def create_run(
             )
         if inv.payment_run_id:
             raise PaymentRunError(f"Invoice '{inv.invoice_number}' is already in a run.")
+    await _assert_vendors_payable(db, org_id, invoices, allow_provisional=confirm_provisional)
 
     run = PaymentRun(
         org_id=org_id,
@@ -123,6 +173,10 @@ async def mark_paid(
     invoices = await run_invoices(db, org_id, run.id)
     if not invoices:
         raise PaymentRunError("Run has no invoices to pay.")
+    # Re-check at pay time: a bank-detail change request filed AFTER the run was
+    # created must still block the payout (provisional vendors were confirmed —
+    # or refused — at creation, so only the pending-change gate re-runs here).
+    await _assert_vendors_payable(db, org_id, invoices, allow_provisional=True)
     now = datetime.now(UTC)
     if method:
         run.method = method

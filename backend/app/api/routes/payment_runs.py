@@ -118,6 +118,7 @@ async def create_run(body: RunCreate, current: CurrentUser, db: DbSession):
             method=body.method,
             note=body.note,
             created_by=current.email,
+            confirm_provisional=body.confirm_provisional,
         )
     except payment_run.PaymentRunError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e))

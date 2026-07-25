@@ -21,7 +21,6 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession, require_perm
-from app.api.routes.vendors import get_or_create_vendor
 from app.core import authz
 from app.core.dimensions import DIMENSION_KEYS
 from app.core.money import q2 as _q
@@ -57,6 +56,7 @@ from app.schemas.approval import (
 from app.services import approval_policy as ap
 from app.services import audit, costing, documents, filesec, fx, mailer, webhooks
 from app.services import invoice_workflow as wf
+from app.services.vendors import get_or_create_vendor
 
 # Structural authorization (ADR-0024): every review route needs at least
 # INVOICE_READ (router-level); edits/submits declare INVOICE_WRITE, approval

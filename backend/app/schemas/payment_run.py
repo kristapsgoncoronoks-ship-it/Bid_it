@@ -10,6 +10,9 @@ class RunCreate(BaseModel):
     invoice_ids: list[str] = Field(min_length=1)
     method: str = "bank_transfer"
     note: str | None = None
+    # WO-2: a PROVISIONAL vendor (bank identity captured at creation, never
+    # verified) is refused from a run unless the maker explicitly confirms it.
+    confirm_provisional: bool = False
 
 
 class RunPay(BaseModel):
