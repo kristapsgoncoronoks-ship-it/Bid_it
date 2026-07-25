@@ -109,6 +109,76 @@ async def test_stated_rate_markup_vs_ecb(auth_client):
     assert row["deviation_pct"] == "-7.8"
 
 
+# --------------------------------------------------------------------------- #
+# WO-8 characterisation: the invoice path IS the canonical convention. These
+# pins were written BEFORE the expense path was fixed; the expense path must
+# converge on exactly these figures (see test_money_invariants FI-15 suite).
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_ecb_convention_divides(db_session):
+    """ECB publishes units of `currency` per 1 EUR; EUR = amount / rate."""
+    from datetime import date
+    from decimal import Decimal
+
+    from app.services import fx
+
+    await fx.load_rates(db_session, [(date(2026, 7, 15), "ZZZ", Decimal("2.5"))])
+    eur, resolved = await fx.to_eur(db_session, Decimal("100.00"), "ZZZ", date(2026, 7, 15))
+    assert eur == Decimal("40.00")  # 100 / 2.5 — NEVER 100 × 2.5
+    assert resolved is not None and resolved.rate == Decimal("2.5")
+
+
+@pytest.mark.asyncio
+async def test_invoice_path_characterisation_matrix(auth_client):
+    """Golden figures the invoice create path produces today (2026-06-01 rates,
+    wobble factor 1.0). The expense path must yield these exact EUR values."""
+    cases = [
+        ("USD", "108.50", "100.00"),  # 1.0850 USD per EUR
+        ("PLN", "430.00", "100.00"),  # 4.3000 PLN per EUR
+        ("CZK", "253.00", "10.00"),  # 25.300 CZK per EUR
+    ]
+    for i, (ccy, unit, expected_eur) in enumerate(cases):
+        payload = _usd_invoice(f"CHAR-{i}", unit, issue="2026-06-05")
+        payload["currency"] = ccy
+        inv = (await auth_client.post("/api/v1/invoices", json=payload)).json()
+        assert inv["total_eur"] == expected_eur, (ccy, inv)
+        assert inv["fx_source"] == "ecb"
+
+
+@pytest.mark.asyncio
+async def test_rate_selection_uses_most_recent_on_or_before(db_session):
+    """A Sunday transaction uses Friday's rate (ECB publishes no weekend rate)."""
+    from datetime import date
+    from decimal import Decimal
+
+    from app.services import fx
+
+    await fx.load_rates(
+        db_session,
+        [
+            (date(2026, 7, 13), "ZZY", Decimal("2.0")),  # Monday
+            (date(2026, 7, 17), "ZZY", Decimal("4.0")),  # Friday
+        ],
+    )
+    r = await fx.resolve_rate(db_session, "ZZY", date(2026, 7, 19))  # Sunday
+    assert r is not None
+    assert r.rate == Decimal("4.0") and r.rate_date == date(2026, 7, 17)
+    assert r.approximate is False
+
+
+@pytest.mark.asyncio
+async def test_missing_rate_yields_none_not_a_guess(db_session):
+    from datetime import date
+    from decimal import Decimal
+
+    from app.services import fx
+
+    eur, resolved = await fx.to_eur(db_session, Decimal("99.99"), "QQX", date(2026, 7, 15))
+    assert eur is None and resolved is None
+
+
 @pytest.mark.asyncio
 async def test_refresh_owner_only_and_graceful(auth_client):
     # auth_client is the workspace owner; refresh is allowed and must not raise
