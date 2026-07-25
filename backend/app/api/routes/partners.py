@@ -70,13 +70,7 @@ async def list_partners(current: CurrentUser, db: DbSession):
 )
 async def create_partner(body: PartnerIn, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
-    p = Partner(org_id=current.org_id, **body.model_dump())
-    if p.country:
-        p.country = p.country.upper()
-    db.add(p)
-    await audit.record(
-        db, audit.A.PARTNER_CREATE, target_type="partner", target_id=p.id, meta={"name": p.name}
-    )
+    p = await partners.create_partner(db, current.org_id, body)
     await db.commit()
     await db.refresh(p, attribute_names=["documents"])
     return _detail(p)
@@ -92,10 +86,7 @@ async def get_partner(partner_id: str, current: CurrentUser, db: DbSession):
 async def update_partner(partner_id: str, body: PartnerUpdate, current: CurrentUser, db: DbSession):
     await _guard(db, current.org_id)
     p = await _load(db, current.org_id, partner_id)
-    for field, value in body.model_dump(exclude_unset=True).items():
-        if field == "country" and value:
-            value = value.upper()
-        setattr(p, field, value)
+    await partners.update_partner(db, p, body)
     await db.commit()
     await db.refresh(p, attribute_names=["documents"])
     return _detail(p)
@@ -115,16 +106,7 @@ async def add_document(
 ):
     await _guard(db, current.org_id)
     p = await _load(db, current.org_id, partner_id)
-    doc = PartnerDocument(
-        org_id=current.org_id,
-        partner_id=p.id,
-        kind=body.kind,
-        title=body.title,
-        reference=body.reference,
-        note=body.note,
-        status="draft",
-    )
-    db.add(doc)
+    doc = await partners.add_document(db, current.org_id, p, body)
     await db.commit()
     await db.refresh(doc)
     return PartnerDocumentOut.model_validate(doc)
@@ -136,29 +118,11 @@ async def add_document(
 async def sign_document(
     partner_id: str, doc_id: str, body: DocumentSignIn, current: CurrentUser, db: DbSession
 ):
-    """Mark a partner document as signed — this can unlock invoicing."""
-    from datetime import date
-
+    """Mark a partner document as signed — this can unlock invoicing. The
+    service audits the sign (actor, partner, kind, signature date) and raises an
+    opaque 404 for a cross-tenant/unknown document."""
     await _guard(db, current.org_id)
-    doc = await db.scalar(
-        select(PartnerDocument).where(
-            PartnerDocument.id == doc_id,
-            PartnerDocument.partner_id == partner_id,
-            PartnerDocument.org_id == current.org_id,
-        )
-    )
-    if doc is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
-    doc.status = "signed"
-    doc.signed_by = body.signed_by
-    doc.signed_date = body.signed_date or date.today()
-    await audit.record(
-        db,
-        audit.A.PARTNER_DOC_SIGN,
-        target_type="partner_document",
-        target_id=doc.id,
-        meta={"partner_id": partner_id, "kind": doc.kind},
-    )
+    await partners.sign_document(db, current.org_id, partner_id, doc_id, body)
     await db.commit()
     return _detail(await _load(db, current.org_id, partner_id))
 

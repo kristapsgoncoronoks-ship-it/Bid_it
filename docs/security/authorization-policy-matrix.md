@@ -137,3 +137,20 @@ The vendor rule exists because a single compromised account must never be able
 to both **plant** a new payee IBAN and **activate** it — the whole point of the
 WO-2 payment-redirection control. The UI hides the Approve button for the
 requester, but the server check is the control; the frontend is cosmetic.
+
+## Permission ∧ entitlement: the partners router (WO-3)
+
+Partner (issuing-counterparty) routes carry **two orthogonal gates, both live**:
+
+- **Permission** — reads declare `issued.read`; every mutation (`POST /partners`,
+  `PATCH /partners/{id}`, document upload and above all **document signing**,
+  which unlocks whether an invoice may be issued at all) declares
+  `issued.write`. Signing a contract/acceptance act is a commercial assertion:
+  it requires `issued.write` and is audited (`partner.document_sign`) with the
+  actor, the partner, the document kind and the signature date.
+- **Module entitlement** — every partner route additionally requires the org's
+  `issuing` module to be enabled. Entitlement answers "has this org bought/
+  switched on the capability"; permission answers "may this member act". A
+  fully-permissioned Owner in a non-issuing org is still refused (403 from the
+  module gate), and an issuing-org Employee is refused by the permission gate.
+  Neither check substitutes for the other.

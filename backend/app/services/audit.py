@@ -79,6 +79,8 @@ class A:
     RECURRING_UPDATE = "recurring.update"
     RECURRING_GENERATE = "recurring.generate"
     PARTNER_CREATE = "partner.create"
+    PARTNER_UPDATE = "partner.update"
+    PARTNER_DOC_UPLOAD = "partner.document_upload"
     PARTNER_DOC_SIGN = "partner.document_sign"
     DOC_DOWNLOAD = "document.download"
     INBOUND_CONFIRM = "inbound.confirm"

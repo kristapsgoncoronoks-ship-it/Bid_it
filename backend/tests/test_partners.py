@@ -182,3 +182,17 @@ async def test_penalty_invoice_blocked_when_disabled(auth_client):
 async def test_partners_require_module(auth_client):
     r = await auth_client.get("/api/v1/partners")
     assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_issue_still_refused_for_unsigned_contract_409(auth_client):
+    """WO-3 regression guard: the permission lockdown must NOT mask the partner
+    signed-document gate — issuing to an unready partner is still a 409 with the
+    EXACT message naming the missing document."""
+    await _activate(auth_client)
+    p = await _partner(auth_client, requires_contract=True)
+    r = await auth_client.post(
+        "/api/v1/issued", json=_invoice(p["id"], issue="2026-06-01", due="2026-06-30")
+    )
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"] == "Cannot issue to Meridian Freight: awaiting signed Contract."
