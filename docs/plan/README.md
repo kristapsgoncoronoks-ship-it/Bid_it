@@ -1,0 +1,53 @@
+# Execution hub — how to run Plan A or Plan B
+
+Everything needed to execute either plan lives under this folder. **Decide with
+`PLAN_A_vs_PLAN_B.md`, then follow ONE of the runbooks below.**
+
+```
+docs/plan/
+├── README.md                    ← you are here (the map)
+├── PLAN_A_vs_PLAN_B.md          ← 1-page decision sheet (OPEN — owner decides)
+├── PROMPTS.md                   ← index stub (content split into the folders below)
+├── shared/                      ← used by BOTH plans
+│   ├── 00_MASTER_CONTEXT.md     ← Part A: prepend to EVERY work session
+│   ├── WORK_ORDER_TEMPLATE.md   ← Part C: generate future work orders
+│   ├── REVIEW_PROMPTS.md        ← Part D: Security/QA/DB/Perf/FinTech/UX reviews
+│   ├── VAT_HARVEST.md           ← Part E: transport vertical (prepend to Epic-G/M5 work)
+│   ├── DECOMMISSION_FLEET_FUEL.md ← Part F: archive+delete runbook (per repo)
+│   └── specs/
+│       ├── BA_bidit.md          ← platform spec: capabilities, invariants, §3 AR engine
+│       └── BA_fleet_fuel.md     ← VAT/transport spec: R1–R76 + case-law rules
+├── plan-a/                      ← EVOLVE Bid_it (this repo)
+│   ├── ARCH_plan.md             ← architecture, gap analysis, M0–M6, risks, TODO board
+│   └── wo/WO-01.md … WO-10.md   ← ten ready work orders (M0 debt sprint)
+└── plan-b/                      ← GREENFIELD (new repo, both old repos deleted)
+    ├── GREENFIELD_plan.md       ← stack/database/scalability decisions, M0–M6, §9 ordering
+    └── wo/G-01.md … G-10.md     ← ten ready work orders (foundation + AR engine)
+```
+
+## Execute Plan A (evolve Bid_it)
+1. Session recipe: paste `shared/00_MASTER_CONTEXT.md`, then ONE file from `plan-a/wo/`
+   (start `WO-01.md`). One work order per session, one concern per PR.
+2. Order: WO-1 → WO-2 → WO-3 …; WO-4/5/6/7/8/10 may run in parallel after WO-1
+   (see each order's Depends line and `plan-a/wo/00_PART_B_INTRO.md`).
+3. After each order: run the matching `shared/REVIEW_PROMPTS.md` role in a FRESH session.
+4. Fleet Fuel deletion: run `shared/DECOMMISSION_FLEET_FUEL.md` once (WO-6 Step 1 first).
+5. After WO-10 (M0 exit gate): continue with `plan-a/ARCH_plan.md` M1 tasks via
+   `shared/WORK_ORDER_TEMPLATE.md`.
+
+## Execute Plan B (greenfield)
+1. Owner: name + create the new repository.
+2. Follow `plan-b/GREENFIELD_plan.md` §9 ORDER STRICTLY: new repo → copy this whole
+   `docs/plan/` tree into it → PII deny-list while old repos readable → archive BOTH
+   repos (Part F, twice) → delete both.
+3. Session recipe: paste `shared/00_MASTER_CONTEXT.md` + ONE file from `plan-b/wo/`
+   (start `G-01.md` — it also regenerates the master context's facts appendix for the
+   new repo). G-orders run strictly in sequence G-1 → G-10.
+4. Reviews after each order as in Plan A. After G-10: M2 onward per
+   `GREENFIELD_plan.md` §7 via the template.
+
+## Rules that apply to both
+- The 20 invariants in `shared/00_MASTER_CONTEXT.md` are non-negotiable.
+- PII quarantine (`shared/VAT_HARVEST.md` E.0) binds ALL copies/archives of the old
+  repos, forever.
+- Never claim done without pasted command output (definition of done, Part A).
