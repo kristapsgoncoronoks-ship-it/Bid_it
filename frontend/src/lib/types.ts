@@ -665,10 +665,11 @@ export interface InvoiceCreate {
   line_items: LineItemInput[];
 }
 
-// Per-field capture provenance (Slice 5f): how a header field was obtained.
-// `confidence` is null for deterministic structured parsers — null means
-// "exact", NOT "unknown". `reviewed_value` is a human correction (null until
-// someone reviews the capture).
+// Per-field capture provenance (Slice 5f + E1.2): how a field was obtained.
+// `line_index` null = one of the five header fields; n = one field of
+// line_items[n]. `confidence` is null for deterministic structured parsers —
+// null means "exact", NOT "unknown". `reviewed_value` is a human correction
+// (null until someone reviews the capture).
 export interface FieldProvenance {
   field: string;
   value?: string | null;
@@ -679,6 +680,7 @@ export interface FieldProvenance {
   reviewed_value?: string | null;
   provider?: string | null;
   low_confidence: boolean;
+  line_index?: number | null;
 }
 
 export interface ParsedDraft {

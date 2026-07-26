@@ -35,6 +35,23 @@ const HEADER_FIELDS = [
 
 type HeaderKey = (typeof HEADER_FIELDS)[number]["key"];
 
+// Line-item provenance (E1.2): the six per-line fields, mirroring the backend's
+// extraction_fields rows with `line_index` set.
+const LINE_FIELDS = [
+  { key: "description", label: "Description", numeric: false },
+  { key: "category", label: "Category", numeric: false },
+  { key: "quantity", label: "Qty", numeric: true },
+  { key: "unit_price", label: "Unit", numeric: true },
+  { key: "amount", label: "Amount", numeric: true },
+  { key: "tax_rate", label: "Tax %", numeric: true },
+] as const;
+
+type LineKey = (typeof LINE_FIELDS)[number]["key"];
+
+/** One correction posted to the audited review endpoint — `line_index` targets a
+ * line row; absent targets a header row. */
+type Correction = { field: string; reviewed_value: string; line_index?: number };
+
 const STATUS_STYLES: Record<string, string> = {
   extracted: "bg-slate-100 text-slate-600",
   defaulted: "bg-amber-100 text-amber-700",
@@ -50,6 +67,26 @@ const STATUS_HELP: Record<string, string> = {
 function draftValue(draft: InvoiceCreate, key: HeaderKey): string {
   const v = draft[key];
   return v == null ? "" : String(v);
+}
+
+function lineValue(draft: InvoiceCreate, i: number, key: LineKey): string {
+  const v = draft.line_items[i]?.[key];
+  return v == null ? "" : String(v);
+}
+
+/** Compact provenance caption for one line cell — same vocabulary as the header
+ * fields (null confidence = exact, never "unknown"). */
+function lineCellNote(row: FieldProvenance): string {
+  const parts: string[] = [row.status];
+  if (row.status === "extracted") {
+    parts.push(
+      row.confidence == null
+        ? "exact — structured source"
+        : `${Math.round(Number(row.confidence) * 100)}% confidence`,
+    );
+  }
+  if (row.reviewed_value != null) parts.push(`corrected to “${row.reviewed_value}”`);
+  return parts.join(" · ");
 }
 
 function ConfidenceNote({ f }: { f: FieldProvenance }) {
@@ -178,13 +215,27 @@ export default function CaptureReview() {
   });
 
   // Seed the editable draft once from the parsed result, preferring any human
-  // corrections already on file over the machine's values.
+  // corrections already on file over the machine's values — header AND line
+  // fields, so a corrected line cell survives a page reload (E1.2).
   useEffect(() => {
     if (draft || !parsed || !poll.data?.draft || !fields.data) return;
-    const d: InvoiceCreate = { ...poll.data.draft.draft, extraction_run_id: runId };
+    const d: InvoiceCreate = {
+      ...poll.data.draft.draft,
+      line_items: poll.data.draft.draft.line_items.map((li) => ({ ...li })),
+      extraction_run_id: runId,
+    };
     for (const f of fields.data) {
-      if (f.reviewed_value != null && (HEADER_FIELDS as readonly { key: string }[]).some((h) => h.key === f.field)) {
-        (d as unknown as Record<string, string | null>)[f.field] = f.reviewed_value || null;
+      if (f.reviewed_value == null) continue;
+      if (f.line_index == null) {
+        if ((HEADER_FIELDS as readonly { key: string }[]).some((h) => h.key === f.field)) {
+          (d as unknown as Record<string, string | null>)[f.field] = f.reviewed_value || null;
+        }
+      } else if (
+        d.line_items[f.line_index] &&
+        (LINE_FIELDS as readonly { key: string }[]).some((l) => l.key === f.field)
+      ) {
+        (d.line_items[f.line_index] as unknown as Record<string, string | null>)[f.field] =
+          f.reviewed_value;
       }
     }
     setDraft(d);
@@ -214,13 +265,17 @@ export default function CaptureReview() {
     enabled: parsed && number.length > 0,
   });
 
-  const fieldRow = (key: HeaderKey) => fields.data?.find((f) => f.field === key);
+  const fieldRow = (key: HeaderKey) =>
+    fields.data?.find((f) => f.field === key && f.line_index == null);
+  const lineRow = (i: number, key: LineKey) =>
+    fields.data?.find((f) => f.field === key && f.line_index === i);
 
-  /** Header fields whose edited value differs from the captured record — these
-   * are recorded as `reviewed_value` provenance through the audited endpoint. */
-  const corrections = (): { field: string; reviewed_value: string }[] => {
+  /** Fields (header AND line) whose edited value differs from the captured
+   * record — recorded as `reviewed_value` provenance through the audited
+   * endpoint, never silently applied. */
+  const corrections = (): Correction[] => {
     if (!draft || !fields.data) return [];
-    const out: { field: string; reviewed_value: string }[] = [];
+    const out: Correction[] = [];
     for (const h of HEADER_FIELDS) {
       const row = fieldRow(h.key);
       if (!row) continue;
@@ -228,6 +283,17 @@ export default function CaptureReview() {
       const captured = row.reviewed_value ?? row.value ?? "";
       if (current !== (captured || "")) out.push({ field: h.key, reviewed_value: current });
     }
+    draft.line_items.forEach((_, i) => {
+      for (const l of LINE_FIELDS) {
+        const row = lineRow(i, l.key);
+        if (!row) continue;
+        const current = lineValue(draft, i, l.key);
+        const captured = row.reviewed_value ?? row.value ?? "";
+        if (current !== (captured || "")) {
+          out.push({ field: l.key, line_index: i, reviewed_value: current });
+        }
+      }
+    });
     return out;
   };
   const pending = corrections();
@@ -520,31 +586,91 @@ export default function CaptureReview() {
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
                     <tr>
-                      <th scope="col" className="px-3 py-2">Description</th>
-                      <th scope="col" className="px-3 py-2">Category</th>
-                      <th scope="col" className="px-3 py-2 text-right">Qty</th>
-                      <th scope="col" className="px-3 py-2 text-right">Unit</th>
-                      <th scope="col" className="px-3 py-2 text-right">Amount</th>
+                      {LINE_FIELDS.map((l) => (
+                        <th
+                          key={l.key}
+                          scope="col"
+                          className={`px-2 py-2 ${l.numeric ? "text-right" : ""}`}
+                        >
+                          {l.label}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {draft.line_items.map((li, i) => (
+                    {draft.line_items.map((_, i) => (
                       <tr key={i} className="border-t border-slate-100">
-                        <td className="px-3 py-2">{li.description}</td>
-                        <td className="px-3 py-2 text-slate-500">{li.category}</td>
-                        <td className="px-3 py-2 text-right text-slate-500">{Number(li.quantity)}</td>
-                        <td className="px-3 py-2 text-right text-slate-500">{money(li.unit_price)}</td>
-                        <td className="px-3 py-2 text-right font-medium">
-                          {money(li.amount ?? Number(li.quantity) * Number(li.unit_price))}
-                        </td>
+                        {LINE_FIELDS.map((l) => {
+                          const row = lineRow(i, l.key);
+                          return (
+                            <td
+                              key={l.key}
+                              className={`px-1 py-1 ${l.key === "description" ? "min-w-[10rem]" : ""}`}
+                            >
+                              <input
+                                className={`input px-2 py-1 text-sm ${l.numeric ? "text-right" : ""} ${
+                                  row?.low_confidence ? "border-amber-400 bg-amber-50/50" : ""
+                                }`}
+                                aria-label={`Line ${i + 1} ${l.label}`}
+                                title={row ? lineCellNote(row) : undefined}
+                                value={lineValue(draft, i, l.key)}
+                                onChange={(e) => {
+                                  const items = draft.line_items.map((x) => ({ ...x }));
+                                  (items[i] as unknown as Record<string, string | null>)[l.key] =
+                                    l.key === "amount" && e.target.value === ""
+                                      ? null
+                                      : e.target.value;
+                                  setDraft({ ...draft, line_items: items });
+                                }}
+                              />
+                            </td>
+                          );
+                        })}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              {(() => {
+                // Cells that deserve a human look: low-confidence reads and
+                // recorded corrections — same vocabulary as the header fields.
+                const notes = draft.line_items.flatMap((_, i) =>
+                  LINE_FIELDS.flatMap((l) => {
+                    const row = lineRow(i, l.key);
+                    if (!row || (!row.low_confidence && row.reviewed_value == null)) return [];
+                    return [{ i, label: l.label, row }];
+                  }),
+                );
+                if (notes.length === 0) return null;
+                return (
+                  <ul className="space-y-0.5 text-xs">
+                    {notes.map(({ i, label, row }) => (
+                      <li key={`${i}-${row.field}`} className="flex flex-wrap items-center gap-2">
+                        <span className="text-slate-500">
+                          Line {i + 1} · {label}
+                        </span>
+                        {row.low_confidence && (
+                          <span className="font-medium text-amber-600">
+                            {row.confidence != null
+                              ? `low confidence (${Math.round(Number(row.confidence) * 100)}%) — please verify`
+                              : "needs a look"}
+                          </span>
+                        )}
+                        {row.reviewed_value != null && (
+                          <span className="text-emerald-600">
+                            corrected to “{row.reviewed_value}” (original “{row.value ?? ""}” kept)
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                );
+              })()}
               <p className="text-xs text-slate-400">
-                Line items don’t carry per-field confidence yet — check the amounts against the
-                document. Totals are recomputed on the server when you confirm.
+                Each cell carries the same provenance as the fields above — amber means it was read
+                with low confidence, so verify it against the document. Edits are recorded as
+                corrections next to the machine’s values; totals are recomputed on the server when
+                you confirm.
               </p>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-500">Net of tax · subtotal {money(subtotal)}</span>
