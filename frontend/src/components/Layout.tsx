@@ -12,6 +12,7 @@ const NAV = [
   { to: "/benchmark", label: "Benchmark", end: false },
   { to: "/fx", label: "FX", end: false },
   { to: "/invoices", label: "Invoices", end: false },
+  { to: "/captures", label: "Captures", end: false },
   { to: "/review", label: "Review", end: false },
   { to: "/payment-runs", label: "Payment runs", end: false },
   { to: "/vendors", label: "Suppliers", end: false },

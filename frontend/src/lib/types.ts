@@ -659,13 +659,34 @@ export interface InvoiceCreate {
   status: InvoiceStatus;
   notes?: string | null;
   source_filename?: string | null;
+  // The capture run this draft came from — echoed back on save so the invoice's
+  // extraction lineage links up (Slice 5b). Absent for manual entry.
+  extraction_run_id?: string | null;
   line_items: LineItemInput[];
+}
+
+// Per-field capture provenance (Slice 5f): how a header field was obtained.
+// `confidence` is null for deterministic structured parsers — null means
+// "exact", NOT "unknown". `reviewed_value` is a human correction (null until
+// someone reviews the capture).
+export interface FieldProvenance {
+  field: string;
+  value?: string | null;
+  status: "extracted" | "defaulted" | "missing" | string;
+  confidence?: string | null;
+  original_value?: string | null;
+  normalized_value?: string | null;
+  reviewed_value?: string | null;
+  provider?: string | null;
+  low_confidence: boolean;
 }
 
 export interface ParsedDraft {
   draft: InvoiceCreate;
   warnings: string[];
   method?: string;
+  extraction_run_id?: string | null;
+  fields?: FieldProvenance[];
 }
 
 // Async direct-upload capture (Stage B): the parse/OCR runs on the worker tier.
@@ -676,10 +697,49 @@ export interface UploadAccepted {
 
 export interface ExtractionResult {
   extraction_run_id: string;
-  status: "queued" | "running" | "parsed" | "failed";
+  status: "queued" | "running" | "parsed" | "failed" | "saved";
   method?: string | null;
   draft?: ParsedDraft | null;
   error?: string | null;
+}
+
+// One parsed-but-unconfirmed capture in the human-review queue (E1.1).
+export interface CaptureReviewItem {
+  extraction_run_id: string;
+  method: string;
+  status: string;
+  source_filename?: string | null;
+  invoice_number?: string | null;
+  vendor_name?: string | null;
+  warning_count: number;
+  total_fields: number;
+  low_confidence_fields: number;
+  duplicate_candidate: boolean;
+  created_at: string;
+}
+
+export interface CaptureReviewQueue {
+  items: CaptureReviewItem[];
+  total: number;
+}
+
+export interface DuplicateCandidate {
+  invoice_id: string;
+  vendor_id: string;
+  vendor_name: string;
+  invoice_number: string;
+  issue_date?: string | null;
+  total: string;
+  currency: string;
+  status: string;
+}
+
+// Same-number invoices split by supplier: `exact` (same supplier — likely a true
+// duplicate) vs `cross_supplier` (usually a coincidence). Advisory, never blocks.
+export interface DuplicateReport {
+  invoice_number: string;
+  exact: DuplicateCandidate[];
+  cross_supplier: DuplicateCandidate[];
 }
 
 export interface Summary {
