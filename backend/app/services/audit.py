@@ -86,6 +86,7 @@ class A:
     PARTNER_UPDATE = "partner.update"
     PARTNER_DOC_UPLOAD = "partner.document_upload"
     PARTNER_DOC_SIGN = "partner.document_sign"
+    PARTNER_DOC_DELETE = "partner.document_delete"
     DOC_DOWNLOAD = "document.download"
     INBOUND_CONFIRM = "inbound.confirm"
     MODULE_TOGGLE = "module.toggle"

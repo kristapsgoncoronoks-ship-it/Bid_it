@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
-from app.models.partner import Partner, PartnerDocument
+from app.models.partner import Partner
 from app.schemas.issued import IssuedInvoiceDetail
 from app.schemas.partner import (
     DocumentSignIn,
@@ -133,17 +133,12 @@ async def sign_document(
     dependencies=_WRITE,
 )
 async def delete_document(partner_id: str, doc_id: str, current: CurrentUser, db: DbSession):
+    """Delete a partner document. Deleting a signed contract can flip the
+    partner readiness gate, so the service audits the deletion (kind, title,
+    status at deletion) and raises an opaque 404 for a cross-tenant/unknown id."""
     await _guard(db, current.org_id)
-    doc = await db.scalar(
-        select(PartnerDocument).where(
-            PartnerDocument.id == doc_id,
-            PartnerDocument.partner_id == partner_id,
-            PartnerDocument.org_id == current.org_id,
-        )
-    )
-    if doc is not None:
-        await db.delete(doc)
-        await db.commit()
+    await partners.delete_document(db, current.org_id, partner_id, doc_id)
+    await db.commit()
 
 
 # --- Penalty invoicing ---------------------------------------------------------

@@ -176,3 +176,54 @@ async def test_cross_tenant_partner_returns_404(auth_client, client):
     # And B's list shows ZERO of A's rows.
     listing = await client.get("/api/v1/partners", headers=other)
     assert listing.status_code == 200 and listing.json() == []
+
+
+@pytest.mark.asyncio
+async def test_document_delete_is_audited_and_flips_readiness(auth_client, db_session):
+    """WO-10 follow-up sweep: deleting a signed contract silently flips the
+    partner readiness gate, so the deletion MUST leave an audit trail carrying
+    the document's kind/title/status at the moment of deletion — the row itself
+    is gone afterwards, the audit event is the only remaining record."""
+    await _activate(auth_client)
+    p = await _partner(auth_client, requires_contract=True)
+    doc = (
+        await auth_client.post(
+            f"/api/v1/partners/{p['id']}/documents",
+            json={"kind": "contract", "title": "Framework agreement"},
+        )
+    ).json()
+    signed = (
+        await auth_client.post(f"/api/v1/partners/{p['id']}/documents/{doc['id']}/sign", json={})
+    ).json()
+    assert signed["readiness"]["ready"] is True
+
+    r = await auth_client.delete(f"/api/v1/partners/{p['id']}/documents/{doc['id']}")
+    assert r.status_code == 204, r.text
+
+    # The readiness gate flipped back — and the flip is attributable.
+    detail = (await auth_client.get(f"/api/v1/partners/{p['id']}")).json()
+    assert detail["readiness"]["ready"] is False
+
+    event = await db_session.scalar(
+        select(AuditEvent).where(AuditEvent.action == "partner.document_delete")
+    )
+    assert event is not None, "deleting must emit a partner.document_delete audit event"
+    assert event.actor_email == "owner@acme.io"
+    assert event.target_type == "partner_document"
+    assert event.target_id == doc["id"]
+    meta = json.loads(event.meta)
+    assert meta["partner_id"] == p["id"]
+    assert meta["kind"] == "contract"
+    assert meta["title"] == "Framework agreement"
+    assert meta["status"] == "signed"
+
+
+@pytest.mark.asyncio
+async def test_document_delete_unknown_id_is_opaque_404(auth_client):
+    """A nonexistent (or cross-tenant) document id yields an opaque 404 —
+    matching the sign endpoint's contract (invariant §4.4) — and never a
+    silent 204 that would mask a failed audit trail."""
+    await _activate(auth_client)
+    p = await _partner(auth_client)
+    r = await auth_client.delete(f"/api/v1/partners/{p['id']}/documents/nonexistent-id")
+    assert r.status_code == 404, r.text

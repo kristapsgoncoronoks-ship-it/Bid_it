@@ -216,6 +216,40 @@ async def sign_document(
     return doc
 
 
+async def delete_document(
+    db: AsyncSession, org_id: str, partner_id: str, doc_id: str
+) -> PartnerDocument:
+    """Delete a partner document. Deleting a SIGNED contract/acceptance act
+    silently flips the partner readiness gate (issuing may become blocked — or,
+    for an already-ready partner, the evidence that justified past issuing
+    disappears), so the deletion is audited with the document's kind, title and
+    status BEFORE removal (invariant §4.16 — the row is gone afterwards, the
+    audit event is the only remaining record). Opaque 404 (`NotFoundError`) for
+    a cross-tenant or nonexistent id (invariant §4.4). Flushes + audits; caller
+    commits."""
+    doc = await db.scalar(
+        select(PartnerDocument).where(
+            PartnerDocument.id == doc_id,
+            PartnerDocument.partner_id == partner_id,
+            PartnerDocument.org_id == org_id,
+        )
+    )
+    if doc is None:
+        raise NotFoundError("Document not found")
+    meta = {
+        "partner_id": partner_id,
+        "kind": doc.kind,
+        "title": doc.title,
+        "status": doc.status,
+    }
+    await db.delete(doc)
+    await db.flush()
+    await audit.record(
+        db, audit.A.PARTNER_DOC_DELETE, target_type="partner_document", target_id=doc_id, meta=meta
+    )
+    return doc
+
+
 # --- Penalty invoicing ---------------------------------------------------------
 
 
