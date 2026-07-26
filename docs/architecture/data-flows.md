@@ -109,6 +109,7 @@ flowchart TD
 - **Structured formats never fall to AI.** AI belongs to post-extraction *assistance*, not capture of a figure a deterministic path can read.
 - **Email/bulk** parse/OCR runs on the **worker tier** (CPU isolation): the webhook stores bytes + enqueues `email.extract`, the worker parses out-of-band. Interactive single-file upload parses synchronously off the event loop by design (see ADR-0009).
 - **A human confirms** every draft before it becomes a booked record.
+- **The review queue has a UI** (WO-12 / E1.1): `/captures` lists parsed-but-unconfirmed runs; `/captures/{run_id}` shows the source document side by side with per-field provenance (status `extracted|defaulted|missing`, confidence — `null` = exact from a structured source, `< 0.75` flagged low — original vs normalized vs reviewed values, provider) plus advisory duplicate warnings, and owns the confirm step. Two read-only endpoints back it: `GET /invoices/captures/{run_id}/fields` (the LIVE field rows incl. `reviewed_value`, so a reloaded screen still shows corrections) and `GET /invoices/captures/{run_id}/source` (the original bytes served inert — nosniff + content-disposition, mime from the document registry). Human corrections go through `POST /invoices/captures/{run_id}/review`, which records a `capture.field_review` audit event with old→new per field — the machine's capture is kept next to the correction, never rewritten.
 
 ---
 
