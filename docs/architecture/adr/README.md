@@ -35,6 +35,10 @@ Status values: **Accepted** (in effect), **Proposed** (agreed direction, not yet
 | [0020](./0020-gdpr-erasure.md) | GDPR right-to-erasure respecting statutory retention | Accepted |
 | [0021](./0021-sso-scim.md) | Enterprise SSO (OIDC → SCIM → SAML), fixtures boundary | Accepted (OIDC + SCIM; SAML scaffold) |
 | [0022](./0022-data-residency.md) | Data residency / region-pinning (app seam + backstop) | Accepted |
+| [0023](./0023-platform-evolution-and-transport-seam.md) | Platform evolution: 8 contexts + 2 projections + the transport seam | Accepted |
 | [0024](./0024-structural-authorization.md) | Structural authorization: declared router permissions + both-direction CI coverage | Accepted |
+| [0025](./0025-vendor-bank-detail-control.md) | Vendor bank-detail control: protected-field changes are a workflow | Accepted |
+| [0026](./0026-one-validation-engine-one-fx-convention.md) | One validation engine, one FX convention, one currency/dimension registry | Accepted (C1.5–C1.7 pending) |
+| [0027](./0027-ai-capture-policy.md) | AI capture policy — decided before any model is wired | Accepted |
 
 **To add an ADR:** copy the shape above, take the next number, link it here. Never edit an Accepted ADR's decision in place — supersede it with a new one and mark the old one Superseded.

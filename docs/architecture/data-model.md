@@ -1,6 +1,6 @@
 # InvoiceIQ — Logical Data Model
 
-> **Status:** v1 · Owner: Data Architect · Last updated: 2026-07-22
+> **Status:** v2 (WO-10 truth-up: every build-state marker re-verified against `backend/app/models/`) · Owner: Data Architect · Last updated: 2026-07-26
 > Companion to [overview](./overview.md), [domain-modules](./domain-modules.md), [data-flows](./data-flows.md), [security-boundaries](./security-boundaries.md).
 >
 > This is the **complete target logical model** across all requested domains, with each domain honestly tagged by build state, followed by the design strategies (indexes, tenant isolation, retention, migration, seed, test-factory). We **design the whole model but implement it incrementally** — no empty tables without a working use case.
@@ -11,7 +11,7 @@
 
 ## 0. Approach — design complete, build incremental
 
-InvoiceIQ is **not greenfield**: 34 tables and 24 migrations already implement organizations, users, roles, suppliers, supplier + customer invoices, credit notes, expenses, audit, billing, SSO, retention, and more, all under a defence-in-depth tenant guard + Postgres RLS + Decimal money. So this document does two things:
+InvoiceIQ is **not greenfield**: 64 tables and 64 migrations (single head) already implement organizations, users/memberships, roles, suppliers (+ the protected-field change workflow), supplier + customer invoices, credit notes, payments/receipts/payment runs, expenses (+ approval chains and reimbursement batches), bank import/reconciliation, documents/versions/extraction provenance, audit, billing, SSO/SCIM, retention, and more, all under a defence-in-depth tenant guard + Postgres RLS + Decimal money. So this document does two things:
 
 1. **Documents the complete target logical model** for every requested domain — including the ones already built (so the model is coherent end-to-end) and the ones not yet built (so the target is explicit).
 2. **Implements exactly one new vertical slice now** — **cost-allocation master data** (Departments, Cost centers, Projects) — because the code itself flagged it (`core/dimensions.py`: *"no master table yet … normalise later"*), it is foundational, and it lets us demonstrate every required data-principle without disturbing the working ledger.
@@ -26,20 +26,20 @@ InvoiceIQ is **not greenfield**: 34 tables and 24 migrations already implement o
 |---|---|---|---|
 | 1 | Organizations | ✅ | `organizations` (tenant root; `region`, `plan`, `status`) |
 | 2 | Legal entities | 🟡 | `issuer_profiles` (our issuing entities). **Target:** promote to `legal_entities` (own+counterparty), FK from invoices. |
-| 3 | Organization membership | ✅ | `users.org_id` (one org per user today). **Target:** `memberships` for multi-org users. |
+| 3 | Organization membership | ✅ | `memberships` (multi-org, roster-authoritative). `users.org_id` remains the **active-org pointer** — retiring/renaming it as an explicit projection is open item **B1.5** (see `docs/M0-exit-gate.md`). |
 | 4 | Users & invitations | ✅ | `users`, `invitations` |
 | 5 | Roles & permissions | ✅ | `users.role` + `role_policies` (configurable matrix) + `core/roles` |
 | 6 | Departments | ✅ **(this slice)** | `departments` |
 | 7 | Cost centers | ✅ **(this slice)** | `cost_centers` (→ department, composite FK) |
 | 8 | Projects | ✅ **(this slice)** | `projects` |
 | 9 | Suppliers | ✅ | `vendors` (+ `version`, `status` `active\|provisional`) + `vendor_change_requests` (WO-2 protected-field workflow, see below) |
-| 10 | Customers | 🟡 | `partners` + per-invoice buyer fields on `issued_invoices`. **Target:** first-class `customers`. |
-| 11 | Contacts | ⬜ | **Target:** `contacts` (person rows for supplier/customer/partner). |
+| 10 | Customers | ✅ | `customers` (+ `customer_contacts`); `partners` remains the issuing counterparty with document gates + per-invoice buyer snapshot on `issued_invoices`. |
+| 11 | Contacts | 🟡 | `customer_contacts` (customer person rows). **Target:** supplier/partner contact rows. |
 | 12 | Bank accounts | ⬜ | **Target:** `bank_accounts` (own + counterparty; IBAN sealed). |
-| 13 | Currencies | 🟡 | ISO code strings + `ecb_rates`. **Target:** `currencies` reference table. |
-| 14 | Tax codes | 🟡 | `vat.py` scheme logic. **Target:** `tax_codes` (rate + scheme + reporting box) per country. |
+| 13 | Currencies | ✅ | `currencies` per-tenant catalog (Slice 5a) + `ecb_rates`. Unifying it with the FX list into ONE registry is accepted work (ADR-0026, C1.5). |
+| 14 | Tax codes | ✅ | `tax_codes` per-tenant catalog (Slice 4a) + snapshot onto issued lines (4b); `vat.py` scheme logic. |
 | 15 | Accounting periods | ⬜ | **Target:** `accounting_periods` (open/closed; posting lock). |
-| 16 | Documents | 🟡 | `inbound_invoices` + `documents`/`core/storage` (bytes). **Target:** unify as `documents`. |
+| 16 | Documents | ✅ | `documents` registry (Slice 5d, content-addressed, written at the storage choke point) + `inbound_invoices` (email inbox) + `core/storage` (bytes). |
 | 17 | Document versions | ✅ | `document_versions` — append-only supersession chain per single-file slot (Slice 5g). |
 | 18 | Extraction runs | ✅ | `extraction_runs` (Slice 5b). |
 | 19 | Extraction fields & confidence | ✅ | `extraction_fields` (field, value, status, confidence slot) — Slice 5f. |
@@ -48,15 +48,15 @@ InvoiceIQ is **not greenfield**: 34 tables and 24 migrations already implement o
 | 22 | Customer invoices | ✅ | `issued_invoices` |
 | 23 | Customer invoice lines | ✅ | `issued_invoice_lines` |
 | 24 | Credit notes | ✅ | `issued_invoices` (`doc_type='credit_note'`, `corrected_invoice_id`) |
-| 25 | Payments | 🟡 | `issued_invoices.amount_paid`/`paid_date` (AR only). **Target:** `payments`. |
-| 26 | Payment allocations | ⬜ | **Target:** `payment_allocations` (one payment → many invoices). |
+| 25 | Payments | ✅ | `payments` (AR settlement ledger, Slice 3c; `amount_paid` is the derived cache) + `supplier_payments` (AP ledger) + `payment_runs` (grouped AP payment with maker≠checker + export-once, WO-9). |
+| 26 | Payment allocations | ✅ | `receipts` + `payments.receipt_id` (Slice 5c): one receipt allocated across many issued invoices, capped by unallocated balance and outstanding, under a row lock. |
 | 27 | Expense reports | ✅ | `expense_reports` |
 | 28 | Expense items | ✅ | `expense_items` |
-| 29 | Approval policies | ⬜ | **Target:** `approval_policies` (thresholds, sequence). |
-| 30 | Approval steps | ⬜ | **Target:** `approval_steps`. |
-| 31 | Approval decisions | ⬜ | **Target:** `approval_decisions` (immutable). |
-| 32 | Attachments | 🟡 | receipt/logo/attachment sha refs on owning rows. **Target:** polymorphic `attachments`. |
-| 33 | Comments | 🟡 | `expense_comments`. **Target:** generalise to `comments`. |
+| 29 | Approval policies | ✅ | `approval_policies` (AP, priority-ordered first-match) + `expense_approval_policies`. |
+| 30 | Approval steps | ✅ | `approval_steps` (AP) + `expense_approval_steps`. |
+| 31 | Approval decisions | 🟡 | Decisions are recorded ON the step rows + the audit chain (immutable there); a separate `approval_decisions` table remains a target only if step rows ever need mutability. |
+| 32 | Attachments | 🟡 | `invoice_attachments` + `issued_invoice_attachments` (per-domain, built); receipt/logo sha refs on owning rows. **Target:** polymorphic `attachments` only when a third consumer appears. |
+| 33 | Comments | 🟡 | `expense_comments` + `invoice_comments` (built). **Target:** generalise to `comments` only when a third consumer appears. |
 | 34 | Notifications | 🟡 | `webhook_deliveries`, `email_messages`. **Target:** `notifications` (in-app inbox). |
 | 35 | Accounting exports | 🟡 | `erp_export`/`saft` (stateless, on-demand). **Target:** `accounting_exports` (run record). |
 | 36 | Integrations | ⬜ | **Target:** `integrations` (per-tenant connection config; SSO already models this shape). |
@@ -67,7 +67,7 @@ InvoiceIQ is **not greenfield**: 34 tables and 24 migrations already implement o
 | 41 | Usage records | ✅ | `usage_counters` (`count`/`reported`) |
 | 42 | Feature entitlements | ✅ | `org_modules` (+ plan→module derivation) |
 
-**Also built, beyond the list:** `processed_stripe_events` (billing idempotency ledger), `sso_connections` (SSO/SCIM/SAML), `retention_policies` + `legal_holds`, `budget_targets`, `partner_documents`, `jobs`, `ecb_rates`.
+**Also built, beyond the list:** `processed_stripe_events` (billing idempotency ledger), `sso_connections` (SSO/SCIM/SAML), `sessions` (revocable auth sessions), `retention_policies` + `legal_holds`, `budget_targets`, `partner_documents`, `jobs`, `ecb_rates`, `bank_statements` + `bank_lines` (statement import + reconciliation), `dunning_policies`, `recurring_invoices`, `email_intakes` + `email_messages` (inbound address + outbound mail history), `expense_policies` + `expense_transactions` + `reimbursement_batches`, `role_policies`.
 
 ---
 
@@ -78,13 +78,13 @@ Grouped ER diagram of the target model. **Bold** = built; *italic* = target/part
 ```mermaid
 erDiagram
   ORGANIZATIONS ||--o{ USERS : has
-  ORGANIZATIONS ||--o{ MEMBERSHIPS : "target: M:N users"
+  ORGANIZATIONS ||--o{ MEMBERSHIPS : "M:N users (built)"
   ORGANIZATIONS ||--o{ LEGAL_ENTITIES : "target (issuer_profiles today)"
   ORGANIZATIONS ||--o{ DEPARTMENTS : owns
   DEPARTMENTS   ||--o{ COST_CENTERS : "rolls up (composite FK)"
   ORGANIZATIONS ||--o{ PROJECTS : owns
   ORGANIZATIONS ||--o{ VENDORS : owns
-  ORGANIZATIONS ||--o{ CUSTOMERS : "target (partners today)"
+  ORGANIZATIONS ||--o{ CUSTOMERS : "owns (built; partners = issuing gate)"
   VENDORS       ||--o{ CONTACTS : "target"
   CUSTOMERS     ||--o{ CONTACTS : "target"
   VENDORS       ||--o{ BANK_ACCOUNTS : "target"
@@ -99,19 +99,17 @@ erDiagram
   ORGANIZATIONS ||--o{ ISSUED_INVOICES : "customer invoices + credit notes"
   ISSUED_INVOICES ||--o{ ISSUED_INVOICE_LINES : has
   ISSUED_INVOICES }o--o| ISSUED_INVOICES : "credit note corrects"
-  ISSUED_INVOICES ||--o{ PAYMENTS : "target"
-  PAYMENTS      ||--o{ PAYMENT_ALLOCATIONS : "target"
-  PAYMENT_ALLOCATIONS }o--|| ISSUED_INVOICES : "target"
+  ISSUED_INVOICES ||--o{ PAYMENTS : "settlement ledger (built)"
+  RECEIPTS      ||--o{ PAYMENTS : "allocation (built)"
 
   ORGANIZATIONS ||--o{ EXPENSE_REPORTS : owns
   EXPENSE_REPORTS ||--o{ EXPENSE_ITEMS : has
-  EXPENSE_REPORTS ||--o{ APPROVAL_STEPS : "target"
-  APPROVAL_POLICIES ||--o{ APPROVAL_STEPS : "target"
-  APPROVAL_STEPS ||--o{ APPROVAL_DECISIONS : "target"
+  INVOICES      ||--o{ APPROVAL_STEPS : "built (AP; expenses have their own)"
+  APPROVAL_POLICIES ||--o{ APPROVAL_STEPS : "built"
 
-  DOCUMENTS     ||--o{ DOCUMENT_VERSIONS : "target"
-  DOCUMENTS     ||--o{ EXTRACTION_RUNS : "target"
-  EXTRACTION_RUNS ||--o{ EXTRACTION_FIELDS : "target"
+  DOCUMENTS     ||--o{ DOCUMENT_VERSIONS : "built"
+  INVOICES      ||--o{ EXTRACTION_RUNS : "built"
+  EXTRACTION_RUNS ||--o{ EXTRACTION_FIELDS : "built"
   INVOICES      }o--o| DOCUMENTS : "sourced from"
 
   ORGANIZATIONS ||--o{ AUDIT_EVENTS : records
@@ -149,7 +147,7 @@ Base columns + `start_date`/`end_date`, `status` (`active|closed|archived`). Con
 
 **`invoices`** (supplier invoices) — money stored as three separate quantities per the tax-total rule: `subtotal` (tax-exclusive), `tax_amount`, `total` (tax-inclusive), all `Numeric(14,2)`; original currency (`currency`) **and** reporting currency (`total_eur` + `fx_rate` + `fx_source` provenance). **`fx_source` is a closed enum (WO-8)** — `{eur, stated, ecb, unknown}` (`models/fx.FxSource`), CHECK-constrained (`ck_invoices_fx_source`, same on `expense_items`); rates follow the single ECB convention (units per 1 EUR, converting to EUR divides) and `unknown ⇒ total_eur IS NULL`, never a guessed figure. `issue_date` indexed with `org_id`. **Target:** `cost_center_id`/`department_id`/`project_id` FKs (Slice 2).
 
-**`issued_invoices`** (customer invoices + credit notes) — immutable once issued; corrections via a linked credit note (`doc_type`, `corrected_invoice_id`), never an edit. Gap-free per-issuer numbering. `subtotal`/`tax_total`/`total` separated. **Target:** extract `payments` + `payment_allocations` from the inline `amount_paid`/`paid_date`.
+**`issued_invoices`** (customer invoices + credit notes) — immutable once issued; corrections via a linked credit note (`doc_type`, `corrected_invoice_id`), never an edit. Gap-free per-issuer numbering. `subtotal`/`tax_total`/`total` separated. The `payments` ledger (Slice 3c) + `receipts` allocation (Slice 5c) are **built**; `amount_paid` is the derived cache (`= SUM(payments.amount)`), integrity-checked by `verify_ledger` (Slice 5e).
 
 **`vendors`** (suppliers) — `name` (UNIQUE per org), `tax_id`, `country`, `category`, `iban`/`bic` (the SEPA creditor account), `version` (optimistic concurrency), `status` (`active|provisional`). **UNIQUE(org_id, id)** as the composite-FK target. **Protected-field rule (WO-2):** `iban` and `tax_id` on an *existing* vendor are never written directly — a change is a **workflow, not a write**: it lands in `vendor_change_requests` and only a *different* `SETTINGS_MANAGE` holder may apply it. A vendor *created* already carrying an iban/tax_id is `provisional` until a payment-run maker explicitly confirms it. Every IBAN/BIC passes `core/bank_id` (ISO 13616 + MOD-97) at write time AND again inside the SEPA builder.
 
@@ -163,17 +161,14 @@ Base columns + `start_date`/`end_date`, `status` (`active|closed|archived`). Con
 
 ### 3.3 Target shapes (designed, built when a slice needs them)
 
+*(WO-10 truth-up: `customers`/`customer_contacts`, `currencies`, `tax_codes`, `documents`/`document_versions`, `extraction_runs`/`extraction_fields`, `payments` + the `receipts` allocation and `approval_policies`/`approval_steps` have all since been **built** — see §1 and the shipped slices in §8. What remains target-only:)*
+
 - **`legal_entities`** — `org_id`, `kind` (own|counterparty), `name`, `vat_number`, `country`, address; FK from invoices for multi-entity correctness. (Today: `issuer_profiles` for own entities.)
-- **`customers`** / **`contacts`** — first-class AR counterparty + person rows (today: `partners` + inline buyer fields).
-- **`bank_accounts`** — `owner_type`/`owner_id`, `iban` (**sealed via keyvault**), `bic`, `currency`. IBAN is a secret-at-rest, never in analytics.
-- **`currencies`** — ISO 4217 code (PK), `minor_units`, `name`; a reference table so FX/rounding is data-driven.
-- **`tax_codes`** — `org_id`, `code`, `country`, `rate`, `scheme` (standard|reverse_charge|intra_eu|exempt|zero), `reporting_box`; replaces hard-coded scheme logic per country.
+- **Supplier/partner `contacts`** — person rows beyond the built `customer_contacts`.
+- **`bank_accounts`** — `owner_type`/`owner_id`, `iban` (**sealed via keyvault**), `bic`, `currency`. IBAN is a secret-at-rest, never in analytics. (Today: `iban`/`bic` live on `vendors` under the WO-2 change-request control, on `issuer_profiles`, and on `users.bank_iban` for reimbursement.)
 - **`accounting_periods`** — `org_id`, `period` (YYYY-MM), `status` (open|closed), `closed_at`; a **posting lock** so a closed period can't be mutated.
-- **`documents`** / **`document_versions`** — a content-addressed registry of every stored original (Slice 5d), and an append-only supersession chain (Slice 5g) for the single-file slots (issuer logo, expense receipt) so a replaced file's identity — sha256, size, who, when — is preserved rather than overwritten.
-- **`extraction_runs`** / **`extraction_fields`** — one row per parse attempt (method, model, started/finished, status) and per extracted field (name, value, **confidence**, source page/bbox) — the extraction *history*.
-- **`payments`** / **`payment_allocations`** — a payment (amount, date, method, direction) allocated across one or many invoices; supports partial + over/under.
-- **`approval_policies`** / **`approval_steps`** / **`approval_decisions`** — configurable routing (threshold → sequence of approvers); decisions are **immutable** (append-only, like audit).
-- **`attachments`** / **`comments`** / **`notifications`** — polymorphic (`entity_type`, `entity_id`) supporting artefacts; notifications add an in-app inbox alongside webhooks/email.
+- **`approval_decisions`** — a separate immutable decision table; today decisions are recorded on the step rows + the audit chain.
+- **Polymorphic `attachments`** / **`comments`** / **`notifications`** — per-domain tables exist (`invoice_attachments`, `issued_invoice_attachments`, `invoice_comments`, `expense_comments`); generalise only when a third consumer appears (§8, Slice 5+ note).
 - **`accounting_exports`** — a record per export run (format, period, row count, sha of the file) for reproducibility.
 - **`integrations`** — per-tenant external-connection config (ERP, bank feed) following the `sso_connections` shape (sealed secrets).
 - **`subscription_plans`** / **`subscriptions`** — only if plans become operator-editable data (today code-defined + `org_modules`); explicit `subscriptions` if lifecycle needs more than `organizations.plan`.

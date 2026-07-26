@@ -1,0 +1,125 @@
+# M0 exit gate — "Safe to hold a stranger's money data"
+
+> **Status:** verified 2026-07-26 on branch `claude/bidit-invoice-data-analytics`
+> (WO-10). Every criterion below maps to the **test or artifact that proves it**
+> and an honest status: ✅ met · 🔶 met-with-owner-action · 🔴 OPEN.
+> Baseline discipline: WO-1 started from **761** passing tests; after WO-9 the
+> suite stood at **920 passed, 3 skipped**; the WO-10 verification run is pasted
+> at the bottom. Nothing was skipped or weakened along the way — fixtures were
+> raised in privilege where a gate closed an endpoint, never the reverse.
+
+## Verdict
+
+**M0 is MET, with one explicitly OPEN engineering item (B1.5) and five
+owner/legal actions that are outside the codebase.** All in-code exit criteria
+are implemented, tested and CI-enforced. B1.5 (`users.org_id` dual-write
+contract step) was an M0 exit criterion that no executed work order contained;
+its risk is mitigated per-request but the item remains open and is the first
+candidate for M1's start.
+
+## Criteria → proof → status
+
+| # | M0 exit criterion | Proof (test / artifact) | Status |
+|---|---|---|---|
+| 1 | Every route declares a permission via a router dependency or sits on a reviewed `PUBLIC_ROUTES` allow-list; CI fails otherwise, **asserted in both directions** | `tests/test_authz_coverage.py` (forward + reverse + self-test on a scratch app, min-route-count guard) · ADR-0024 · WO-1 | ✅ |
+| 2 | Vendor bank-detail change is permission-gated, audited, IBAN mod-97 + BIC validated, version-guarded, and lands as a **pending change request requiring a second person's approval** | `tests/test_vendor_change_requests.py`, `tests/test_vendors_authz.py`, `tests/test_bank_id.py` · `app/core/bank_id.py` re-checked inside `build_pain001` · ADR-0025 · WO-2 | ✅ |
+| 3 | `partners` router fully permission-gated and audited | `tests/test_partners_authz.py` (incl. the WO-10 follow-up: `partner.document_delete` is now audited — deleting a signed contract can flip the readiness gate and previously left no record) · WO-3 | ✅ |
+| 4 | `Organization.status != 'active'` enforced **on every request**, and suspension revokes live sessions | `tests/test_org_suspension.py`, `tests/test_membership_enforcement.py` (role change → bulk session revocation audited) · `app/api/deps.py::get_current_user` (the one org query per request) · WO-4 | ✅ |
+| 5 | Inbound-email shared secret **mandatory** (boot fails in production without it) | `app/core/config.py` production validation (`inbound_email_secret is unset` is a boot failure) · `tests/test_email_intake.py` (401 fail-closed without/with wrong secret) · WO-5 | 🔶 met in code; **owner action:** set `INBOUND_EMAIL_SECRET` in production env before deploying this branch — boot refuses without it |
+| 6 | Exactly **one** validation engine, service-owned, per-rule `block \| advise` policy; `_reconcile` no longer in a route | `app/services/validation.py` (single `RULES` registry) · `tests/test_validation.py`, `tests/test_reconcile_characterisation.py` (byte-for-byte gate behaviour preserved) · ADR-0026 · WO-7 | ✅ |
+| 7 | Exactly **one** FX convention; `fx_source` a validated enum everywhere; no report sums across currencies without conversion; scheduled ECB refresh exists | ADR-0010 (amended by WO-8) + ADR-0026 · `models/fx.FxSource` CHECK-constrained · `tests/test_fx.py`, `tests/test_fx_europe.py`, `tests/test_fx_schedule.py` (daily job), `tests/test_ap_aging.py` (per-currency), `tests/test_reimbursement_sepa.py` / `tests/test_sepa.py` (refusal names the line; no foreign amount labelled EUR) | 🔶 met in code; **owner decision pending:** DECISIONS-NEEDED §9 — whether to restate expense figures a human already approved under the old multiply convention (flagged, deliberately untouched by the migration) |
+| 8 | Payment runs enforce **maker ≠ checker**; bank-file export requires `PAYMENT_WRITE`, works only on an approved/paid run, is **export-once guarded**, emits a **unique `MsgId`** per generation, and **surfaces** skipped payees | `tests/test_payment_runs_sod.py` (maker≠checker≠payer + audited override), `tests/test_payment_run_export_guard.py` (export-once + re-export confirm + state gate), `tests/test_sepa.py` (unique MsgId, skipped payees named), `tests/test_payment_run_pay_concurrency.py` (Postgres row-lock race) · WO-9 | ✅ |
+| 9 | `users.org_id` dual-write resolved; memberships authoritative | See **B1.5 status** below | 🔴 **OPEN** |
+| 10 | Fleet Fuel real-client data quarantined out of the harvest path; harvest protocol written down | `scripts/pii_scan.py` + `tests/test_pii_scan.py` + the required `pii-scan` CI job (structural EU-VAT/IBAN patterns active; full-history scan of 2,119 blobs clean on 2026-07-25) · `docs/transport/harvest-protocol.md` · WO-6 | 🔶 met in code; **owner actions:** set the `PII_SCAN_SALT` CI secret and populate `scripts/pii_denylist.json` from the owner-held archive (`identifiers_for_denylist.txt`); counsel decision on the archive itself is DECISIONS-NEEDED §8 (due 2026-09-30) |
+| 11 | `README.md` + `ARCHITECTURE.md` regenerated truthfully (or deleted with a pointer) | `README.md` regenerated against verified counts (64 tables / 64 migrations single-head / ~980 collected tests / 7 CI jobs); `ARCHITECTURE.md` reduced to a pointer at `docs/architecture/`; `docs/architecture/data-model.md` build-state markers re-verified against `backend/app/models/` (WO-10) | ✅ |
+| 12 | Baseline tests still green + the new authorization-coverage and tenancy-parity tests green in CI | Full-suite transcript below · `tests/test_authz_coverage.py` · `tests/test_tenancy_parity.py` (58-table registry: 52 probed over the real query path, 6 reasoned exemptions, both-direction exemption check, self-test that a deliberately unscoped query fails) · `tests/test_ai_policy.py` (zero external calls at defaults, socket-blocked) | ✅ |
+
+Note on the original criterion list: ARCH_plan M0 also folds the audit-coverage
+idea into #1's discipline — every financial mutation audits in-transaction
+(invariant §4.16); WO-2/3/9/10 each added the missing audit events they found
+(vendor writes, partner mutations + document delete, payment-run transitions).
+
+## B1.5 — `users.org_id` dual-write: OPEN (one paragraph, honest)
+
+**State verified in code (2026-07-26):** the dual-write is IN FLIGHT, not
+resolved. Every user-creation site writes a matching `memberships` row and the
+roster/owner-count reads are membership-driven (`services/team.list_members` →
+`memberships.roster`); `app/api/deps.py::get_current_user` enforces a LIVE
+membership in the active org on **every request** (so a stale `users.org_id`
+alone can no longer grant access — the WO-4 gate mitigates the security edge of
+this item). But `users.org_id` remains the **active-org pointer the request
+path scopes to** (org-switching repoints it), `services/memberships.py` still
+documents itself as "dual-write … until the contract step", and several
+services still filter `User.org_id` directly (`scim.py`, `privacy.py`,
+`reimbursement.py`, `expense_approval.py`) — meaning a member whose *active*
+org is elsewhere is invisible to SCIM listing, reimbursement payee resolution
+and expense-approver resolution in this org. That is exactly the divergence
+B1.5 exists to close. **No executed work order (WO-1…WO-10) contained B1.5**;
+it stays OPEN with acceptance criteria per ARCH_plan: memberships become
+authoritative, `users.org_id` becomes an explicitly-documented active-org
+pointer (or is retired), and no code reads it as a membership assertion.
+Recommended first item of M1 while the context is loaded.
+
+## Consolidated OWNER ACTIONS (nothing in-repo can close these)
+
+1. **Set the `PII_SCAN_SALT` repository secret** in GitHub Actions, then
+   **populate the PII deny-list** (`scripts/pii_denylist.json`) from the
+   owner-held decommission archive's `identifiers_for_denylist.txt` (never
+   commit the raw list) — `docs/transport/harvest-protocol.md`.
+2. **Enable branch protection on `main`** with required checks: `lint`,
+   `backend`, `postgres`, `frontend`, `docker-build`, `pii-scan`
+   (`docs/DEPLOYMENT.md` §CI — the list cannot be asserted from inside the repo).
+3. **Set `INBOUND_EMAIL_SECRET` in the production environment** before
+   deploying this branch — production boot now fails closed without it (WO-5).
+4. **DECISIONS-NEEDED §8** — engage counsel on the Fleet Fuel decommission
+   archive (lawful basis, retention/destruction, redacted derivative), **due
+   2026-09-30**.
+5. **DECISIONS-NEEDED §9** — decide whether/how to restate the
+   approved/reimbursed expense figures flagged (not changed) by the WO-8 FX
+   correction migration, and who communicates with affected employees.
+
+## Verification transcript (2026-07-26, commit series d000bd2 → this commit)
+
+```
+$ python3 scripts/pii_scan.py --tree
+pii-scan: NOTICE: deny-list is EMPTY — structural patterns only. …
+pii-scan: clean            (exit 0)
+
+$ cd backend && .venv/bin/ruff check app tests && .venv/bin/ruff format --check app tests
+All checks passed!
+363 files already formatted
+
+$ .venv/bin/mypy app
+Success: no issues found in 232 source files
+
+$ .venv/bin/alembic heads | wc -l
+1
+
+# scratch Postgres 16 (NOSUPERUSER appuser, port 5433, fresh cluster):
+$ DATABASE_URL=postgresql+asyncpg://appuser:apppw@127.0.0.1:5433/invoiceiq alembic upgrade head
+… Running upgrade b1c3e5a7f9d1 -> d4e6f8a0b2c4 (head)   # applies cleanly from empty
+$ RLS_TEST_DATABASE_URL=… pytest tests/test_rls.py tests/test_numbering_concurrency.py \
+      tests/test_payment_run_pay_concurrency.py -q
+4 passed
+
+$ pytest tests/test_tenancy_parity.py tests/test_ai_policy.py -q
+58 passed
+
+$ cd frontend && npm run build
+tsc --noEmit && vite build … ✓ built   (exit 0)
+
+$ cd backend && python -m pytest -q          # full suite, SQLite
+983 passed, 3 skipped
+```
+
+(3 skips are the Postgres-only markers — they run, un-skipped, in the
+`postgres` CI job / the scratch-cluster transcript above.)
+
+## What M1 starts with
+
+- **B1.5** (finish `users.org_id` → memberships) — the one open M0 item.
+- The M1 theme per `docs/plan/plan-a/ARCH_plan.md`: close the frontend gap on
+  the AP/AR paths (capture-review UI is the #1 job-to-be-done with no screen),
+  line-item provenance, the composed home dashboard, the grouped navigation IA.
+- Accepted-not-yet-implemented registry unifications C1.5/C1.6/C1.7
+  (ADR-0026).

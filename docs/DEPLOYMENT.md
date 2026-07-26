@@ -194,12 +194,22 @@ kubectl apply -f deploy/k8s/30-backend.yaml -f deploy/k8s/40-frontend.yaml -f de
   required status checks (this list is the contract; it cannot be asserted from
   inside the repo):
   - `lint` — ruff + `mypy app` (whole app)
-  - `backend` — full pytest suite + migration consistency on SQLite
+  - `backend` — full pytest suite + migration consistency on SQLite. This job
+    is what makes the structural gates blocking: **route-authorization coverage
+    in both directions** (`tests/test_authz_coverage.py`, ADR-0024) and
+    **behavioural tenancy parity over the real query path**
+    (`tests/test_tenancy_parity.py`, WO-10) run here — a route without a
+    permission classification, a tenant table without a probe/reasoned
+    exemption, or a cross-tenant leak fails this required check.
   - `postgres` — **the tenancy gate**: migrations on real Postgres + RLS
     enforcement (`tests/test_rls.py`) + concurrent numbering, run as a
     **`NOSUPERUSER`** app role (a superuser would bypass RLS and prove nothing)
   - `frontend` — typecheck + build
   - `docker-build` — both images build
+  - `pii-scan` — the Fleet Fuel PII quarantine (`scripts/pii_scan.py`, WO-6):
+    structural EU-VAT/IBAN patterns + the salted deny-list. Requires the
+    `PII_SCAN_SALT` repository secret; the deny-list is populated from the
+    owner-held archive (see `docs/transport/harvest-protocol.md`).
 - **`.github/workflows/release.yml`** (on a `v*.*.*` tag): builds and pushes
   immutable, versioned images to GHCR. Deployment stays a deliberate, separate
   step — CI/CD produces artifacts; a human (or ArgoCD/Flux) promotes them.
