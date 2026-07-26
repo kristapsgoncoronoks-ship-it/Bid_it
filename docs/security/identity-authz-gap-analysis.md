@@ -123,6 +123,11 @@ expressed as one central policy.
    keep the snapshot in sync. Deliberately NOT done: dropping `users.org_id`/`role`
    — pure churn (every route reads `current.org_id`) with no user value; the
    columns remain the active projection.
+   **Superseded by B1.5/WO-11 (2026-07-26):** the contract step has since landed —
+   the users-table ORM guard and RLS policy now scope by **membership EXISTS**
+   (migration `e6a8c0b2d4f6`), and SCIM/privacy/reimbursement/expense-approval
+   resolve members via membership joins; `users.org_id`/`role` are the documented
+   active-org projection only. See `docs/security/multi-org-membership-plan.md` §6e.
 
 Slice 2 is the highest-value next step: it makes deny-by-default explicit and is
 the backbone the rest of the roles work hangs on.

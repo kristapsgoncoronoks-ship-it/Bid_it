@@ -26,7 +26,7 @@ InvoiceIQ is **not greenfield**: 64 tables and 64 migrations (single head) alrea
 |---|---|---|---|
 | 1 | Organizations | ✅ | `organizations` (tenant root; `region`, `plan`, `status`) |
 | 2 | Legal entities | 🟡 | `issuer_profiles` (our issuing entities). **Target:** promote to `legal_entities` (own+counterparty), FK from invoices. |
-| 3 | Organization membership | ✅ | `memberships` (multi-org, roster-authoritative). `users.org_id` remains the **active-org pointer** — retiring/renaming it as an explicit projection is open item **B1.5** (see `docs/M0-exit-gate.md`). |
+| 3 | Organization membership | ✅ | `memberships` — **authoritative since B1.5/WO-11**: every tenant-scoping decision (per-request live-membership gate, the users-table ORM guard + RLS policy, SCIM/DSAR/payee/approver resolution) reads memberships. `users.org_id` survives only as the **documented active-org pointer** (repointed by org-switching; never a membership assertion — see `app/models/user.py`). Dropping the column outright is deferred follow-up work (see `docs/security/multi-org-membership-plan.md`). |
 | 4 | Users & invitations | ✅ | `users`, `invitations` |
 | 5 | Roles & permissions | ✅ | `users.role` + `role_policies` (configurable matrix) + `core/roles` |
 | 6 | Departments | ✅ **(this slice)** | `departments` |
