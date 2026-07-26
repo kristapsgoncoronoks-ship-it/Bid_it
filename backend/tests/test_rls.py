@@ -112,3 +112,77 @@ async def test_rls_blocks_cross_tenant_raw_query():
             assert names == ["Vendor B"], names
     finally:
         await engine.dispose()
+
+
+@pg_only
+@pytest.mark.asyncio
+async def test_rls_users_visibility_is_membership_driven():
+    """B1.5: the `users` policy keys off MEMBERSHIPS, not the `org_id` pointer.
+    A user whose active org is A but who holds a membership in B is VISIBLE
+    scoped-to-B; scoped-to-A (pointer match, no membership row — the anomaly
+    the policy must not honour) and scoped-to-C (stranger) see NOTHING; and a
+    scoped INSERT for a foreign org with no membership is REFUSED."""
+    engine = create_async_engine(RLS_URL)
+    org_a, org_b, org_c = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+    uid = str(uuid.uuid4())
+    try:
+        async with engine.begin() as conn:
+            for oid, name in ((org_a, "A"), (org_b, "B"), (org_c, "C")):
+                await conn.execute(
+                    text(
+                        "INSERT INTO organizations (id, name, ai_validation_enabled, "
+                        "human_validation_enabled, plan, status, created_at, updated_at) "
+                        "VALUES (:id, :n, false, false, 'trial', 'active', now(), now())"
+                    ),
+                    {"id": oid, "n": f"Org {name}"},
+                )
+            # users.org_id (the ACTIVE-ORG pointer) → A; membership ONLY in B.
+            await conn.execute(
+                text(
+                    "INSERT INTO users (id, org_id, email, name, hashed_password, role, "
+                    "is_active, email_verified, is_platform_admin, is_expense_approver, "
+                    "failed_login_count, created_at, updated_at) "
+                    "VALUES (:id, :org, 'switched@x.io', 'S', 'h', 'user', true, true, "
+                    "false, false, 0, now(), now())"
+                ),
+                {"id": uid, "org": org_a},
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO memberships (id, org_id, user_id, role, is_expense_approver, "
+                    "status, created_at, updated_at) "
+                    "VALUES (:id, :org, :uid, 'user', false, 'active', now(), now())"
+                ),
+                {"id": str(uuid.uuid4()), "org": org_b, "uid": uid},
+            )
+
+        async def _emails_scoped_to(org: str) -> list[str]:
+            async with engine.connect() as conn:
+                await conn.execute(
+                    text("SELECT set_config('app.current_org', :o, false)"), {"o": org}
+                )
+                return (await conn.execute(text("SELECT email FROM users"))).scalars().all()
+
+        assert await _emails_scoped_to(org_b) == ["switched@x.io"]  # member → visible
+        assert await _emails_scoped_to(org_a) == []  # pointer alone is NOT membership
+        assert await _emails_scoped_to(org_c) == []  # stranger org → zero rows
+
+        # WITH CHECK: scoped to B, inserting a user row pointed at C (no
+        # membership anywhere) must be refused by the database.
+        async with engine.connect() as conn:
+            await conn.execute(
+                text("SELECT set_config('app.current_org', :o, false)"), {"o": org_b}
+            )
+            with pytest.raises(Exception):
+                await conn.execute(
+                    text(
+                        "INSERT INTO users (id, org_id, email, name, hashed_password, role, "
+                        "is_active, email_verified, is_platform_admin, is_expense_approver, "
+                        "failed_login_count, created_at, updated_at) "
+                        "VALUES (:id, :org, 'sneaky@x.io', 'S', 'h', 'user', true, true, "
+                        "false, false, 0, now(), now())"
+                    ),
+                    {"id": str(uuid.uuid4()), "org": org_c},
+                )
+    finally:
+        await engine.dispose()

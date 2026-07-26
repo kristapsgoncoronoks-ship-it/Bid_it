@@ -71,11 +71,21 @@ async def evaluate(
 
 
 async def _emails_for(db: AsyncSession, org_id: str, user_ids: list[str]) -> dict[str, str]:
+    # B1.5: approvers are org MEMBERS, resolved via memberships — an approver
+    # currently switched into another org must still resolve to an e-mail here
+    # (`users.org_id` is only the active-org pointer, never a membership test).
+    from sqlalchemy import and_
+
+    from app.models.membership import Membership
     from app.models.user import User
 
     if not user_ids:
         return {}
-    rows = await db.scalars(select(User).where(User.id.in_(user_ids), User.org_id == org_id))
+    rows = await db.scalars(
+        select(User)
+        .join(Membership, and_(Membership.user_id == User.id, Membership.org_id == org_id))
+        .where(User.id.in_(user_ids))
+    )
     return {u.id: u.email for u in rows}
 
 

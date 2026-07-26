@@ -1,13 +1,17 @@
-"""Organization membership (Slice 6a — multi-org foundation).
+"""Organization membership — the AUTHORITATIVE org relationship (B1.5).
 
-The tenant relationship between a global identity (`User`) and an `Organization`.
-Splitting membership out of the user row is what lets one person belong to — and
-switch between — several organizations. See
+The tenant relationship between a global identity (`User`) and an
+`Organization`. Splitting membership out of the user row is what lets one
+person belong to — and switch between — several organizations. See
 docs/security/multi-org-membership-plan.md.
 
-This slice only ADDS the table and backfills one membership per existing user;
-nothing reads it yet (`user.org_id`/`user.role` stay authoritative until the
-contract step). Tenant-scoped (org_id + RLS + ORM guard).
+Since the B1.5 contract step this table IS the source of truth for "who belongs
+to this org": every request verifies a live membership in the caller's active
+org, the users-table tenant guard/RLS scope by membership existence, and all
+org-member resolution (roster, SCIM, reimbursement payees, expense approvers,
+GDPR scans) reads memberships. `users.org_id`/`users.role` survive only as the
+documented ACTIVE-ORG projection (repointed by org-switching), never as a
+membership assertion. Tenant-scoped (org_id + RLS + ORM guard).
 """
 
 from __future__ import annotations

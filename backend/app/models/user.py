@@ -36,6 +36,14 @@ class UserRole(str, enum.Enum):
 class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "users"
 
+    # The ACTIVE-ORG pointer (B1.5) — which of the user's organizations this
+    # session currently acts in, repointed by POST /auth/switch-org. It is a
+    # denormalized projection, NOT a membership assertion: the authoritative
+    # org relationship is the `memberships` table, and every request verifies a
+    # LIVE membership in this org (api/deps.get_current_identity) before the
+    # pointer is honoured. Nothing security-relevant reads it as membership —
+    # the users-table tenant guard/RLS scope by membership, and org-member
+    # resolution (roster, SCIM, payees, approvers, DSAR) reads memberships.
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )

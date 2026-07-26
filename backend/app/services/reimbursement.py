@@ -225,11 +225,22 @@ async def batch_sepa(
     if not reports:
         raise ReimbursementError("Batch has no reports to pay.")
 
-    # Load each payee's bank details once (employee_id → User).
+    # Load each payee's bank details once (employee_id → User). B1.5: payees are
+    # resolved through MEMBERSHIPS — an employee currently switched into another
+    # org must still be paid by this org, so filtering by `users.org_id` (the
+    # active-org pointer) would silently drop their IBAN from the payout file.
+    from sqlalchemy import and_ as _and
+
+    from app.models.membership import Membership
+
     emp_ids = {r.employee_id for r in reports}
     users = {
         u.id: u
-        for u in await db.scalars(select(User).where(User.id.in_(emp_ids), User.org_id == org_id))
+        for u in await db.scalars(
+            select(User)
+            .join(Membership, _and(Membership.user_id == User.id, Membership.org_id == org_id))
+            .where(User.id.in_(emp_ids))
+        )
     }
 
     transfers: list[sepa.CreditTransfer] = []

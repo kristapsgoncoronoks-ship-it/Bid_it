@@ -1,8 +1,12 @@
 """Shared request dependencies: DB session + authenticated, tenant-scoped user.
 
 `get_current_user` is the single choke point that turns a bearer token into a
-`User`. Everything downstream reads `user.org_id`, so no endpoint can
-accidentally serve another tenant's data.
+`User`. The request's tenant scope is the caller's ACTIVE org — `user.org_id`,
+a denormalized pointer repointed by org-switching — and it is only honoured
+after the per-request LIVE-membership check below: memberships are the
+authoritative org relationship (B1.5), the pointer is never a membership
+assertion on its own. Everything downstream scopes to that verified active org,
+so no endpoint can accidentally serve another tenant's data.
 """
 
 from __future__ import annotations
@@ -79,14 +83,16 @@ async def get_current_identity(
     """
     user, session = await _authenticate(db, creds)
     # Activate defence-in-depth tenant scoping + audit attribution for this request.
-    # The ACTIVE org is `user.org_id` (repointed by org-switching); everything
-    # downstream scopes to it.
+    # The ACTIVE org is `user.org_id` — the denormalized active-org POINTER
+    # (repointed by org-switching), not a membership assertion; the membership
+    # check just below is what makes acting in this org legitimate (B1.5).
     set_current_org(user.org_id)
     set_current_actor(user.id, user.email)
     # Active-membership enforcement (Slice 6d): the user must hold a LIVE
     # membership in their active org — a suspended/removed membership is a hard
     # 401 even if the global account is still active. Scoped, so it reads the
-    # active org's membership.
+    # active org's membership. This is THE authoritative tenancy decision for
+    # the request; the pointer above only selects which membership to verify.
     membership = await memberships.get(db, user.org_id, user.id)
     if membership is None or membership.status != "active":
         raise _CREDENTIALS_EXC

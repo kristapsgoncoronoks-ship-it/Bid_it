@@ -1,9 +1,12 @@
-"""Membership service (Slice 6b).
+"""Membership service (Slice 6b; authoritative since B1.5).
 
-The write-side of the identity/membership split: every user-creation site keeps a
-matching membership, and an existing user can join a second org (multi-org). Still
-dual-write — `users.org_id`/`role` remain the active projection until the contract
-step; this keeps `memberships` authoritative-in-waiting and consistent.
+The write-side of the identity/membership split: every user-creation site keeps
+a matching membership, and an existing user can join a second org (multi-org).
+Memberships are the AUTHORITATIVE org relationship — every tenant-scoping
+decision (the per-request live-membership gate, the users-table guard/RLS, and
+org-member resolution across SCIM/privacy/reimbursement/expense-approval) reads
+this table. `users.org_id`/`role` remain only as the documented active-org
+projection, kept in sync on switch/member-update for the common single-org read.
 """
 
 from __future__ import annotations

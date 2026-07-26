@@ -31,7 +31,7 @@ import hashlib
 import logging
 from dataclasses import dataclass, field
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.email_intake import InboundInvoice
@@ -79,9 +79,15 @@ async def _scan(db: AsyncSession, org_id: str, email: str) -> tuple[list[str], d
     """Locate the subject across personal-data locations. Returns the matched
     user ids and per-location match counts."""
     email = email.strip()
+    # B1.5: the subject belongs to this org iff they hold a MEMBERSHIP here —
+    # `users.org_id` is only the active-org pointer, so a member currently
+    # switched into another org must still be found by this org's DSAR scan
+    # (status is irrelevant: a suspended member is still this org's data).
     user_ids = list(
         await db.scalars(
-            select(User.id).where(User.org_id == org_id, func.lower(User.email) == email.lower())
+            select(User.id)
+            .join(Membership, and_(Membership.user_id == User.id, Membership.org_id == org_id))
+            .where(func.lower(User.email) == email.lower())
         )
     )
 

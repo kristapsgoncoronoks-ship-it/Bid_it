@@ -15,12 +15,25 @@ from __future__ import annotations
 import hashlib
 import secrets
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password
+from app.models.membership import Membership
 from app.models.sso import SsoConnection
 from app.models.user import User, UserRole
+
+# B1.5: SCIM resolves "who belongs to this workspace" through MEMBERSHIPS, never
+# through `users.org_id` (that column is only the active-org pointer — a member
+# currently switched into another org must still be provisionable/offboardable
+# by THIS org's IdP). Membership existence, not status: a suspended member is
+# still listed (as active=false) so the IdP sees the truth.
+
+
+def _member_join(org_id: str):
+    return and_(Membership.user_id == User.id, Membership.org_id == org_id)
+
 
 USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User"
 LIST_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:ListResponse"
@@ -108,12 +121,19 @@ async def create_user(db: AsyncSession, org_id: str, resource: dict, *, default_
     email = _email_from(resource)
     if not email:
         raise ScimError(400, "userName (email) is required")
-    existing = await db.scalar(select(User).where(func.lower(User.email) == email))
+    from app.services import memberships
+
+    # An existing MEMBER of this org (whatever their active org) → idempotent-ish
+    # reactivate. Looked up via the membership join: a scoped session neither can
+    # nor should read a foreign workspace's user row.
+    existing = await db.scalar(
+        select(User).join(Membership, _member_join(org_id)).where(func.lower(User.email) == email)
+    )
     if existing is not None:
-        if existing.org_id != org_id:
-            raise ScimError(409, "That user already exists in another workspace")
-        # Idempotent-ish: reactivate + return the existing user.
         existing.is_active = resource.get("active", True)
+        await memberships.set_status(
+            db, org_id, existing.id, "active" if existing.is_active else "suspended"
+        )
         await db.commit()
         return existing
     role = default_role if default_role in UserRole.__members__ else UserRole.user.value
@@ -126,10 +146,16 @@ async def create_user(db: AsyncSession, org_id: str, resource: dict, *, default_
         is_active=resource.get("active", True),
     )
     db.add(user)
-    await db.flush()
-    # Dual-write the membership (Slice 6b).
-    from app.services import memberships
-
+    try:
+        await db.flush()
+    except IntegrityError:
+        # The email exists globally but has no membership here: the tenant-scoped
+        # session must not (and cannot) see that row, so the DB's unique-email
+        # constraint is the conflict detector. Fail CLOSED with the SCIM 409.
+        await db.rollback()
+        raise ScimError(409, "That user already exists in another workspace") from None
+    # Write the authoritative membership (B1.5); `users.org_id` above is only the
+    # new account's initial active-org pointer.
     await memberships.ensure(
         db,
         org_id=org_id,
@@ -145,22 +171,33 @@ async def create_user(db: AsyncSession, org_id: str, resource: dict, *, default_
 
 
 async def get_user(db: AsyncSession, org_id: str, user_id: str) -> User:
-    user = await db.scalar(select(User).where(User.org_id == org_id, User.id == user_id))
+    user = await db.scalar(
+        select(User).join(Membership, _member_join(org_id)).where(User.id == user_id)
+    )
     if user is None:
-        raise ScimError(404, "User not found")
+        raise ScimError(404, "User not found")  # opaque: non-member ≡ nonexistent
     return user
 
 
 async def list_users(
     db: AsyncSession, org_id: str, *, email_filter: str | None, start_index: int, count: int
 ) -> tuple[list[User], int]:
-    where = [User.org_id == org_id]
+    where = []
     if email_filter:
         where.append(func.lower(User.email) == email_filter.lower())
-    total = int(await db.scalar(select(func.count()).select_from(User).where(*where)) or 0)
+    total = int(
+        await db.scalar(
+            select(func.count())
+            .select_from(User)
+            .join(Membership, _member_join(org_id))
+            .where(*where)
+        )
+        or 0
+    )
     rows = list(
         await db.scalars(
             select(User)
+            .join(Membership, _member_join(org_id))
             .where(*where)
             .order_by(User.created_at.asc())
             .offset(max(0, start_index - 1))

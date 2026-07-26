@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from contextvars import ContextVar, Token
 
-from sqlalchemy import event, text
+from sqlalchemy import event, select, text
 from sqlalchemy.orm import Session, with_loader_criteria
 
 from app.models.approval import ApprovalPolicy, ApprovalStep
@@ -163,6 +163,25 @@ def get_current_actor() -> tuple[str | None, str | None]:
     return _current_actor.get()
 
 
+def _scope_criteria(model, org: str):
+    """The tenant-visibility predicate for one model under the current org.
+
+    Every tenant model scopes by its own `org_id` — except `User` (B1.5): a
+    person can belong to several orgs, so `users.org_id` is only the ACTIVE-ORG
+    pointer (repointed by org-switching), never a membership assertion. The
+    users table is therefore scoped by membership EXISTENCE in the current org
+    — a member whose active org is elsewhere stays visible to their other orgs
+    (SCIM roster, reimbursement payees, approver resolution, GDPR scans), while
+    a non-member remains at zero rows. Membership *status* is deliberately not
+    part of the predicate: a suspended member is still this org's data (SCIM
+    must list them as inactive; erasure must reach them) — access control is
+    the live-membership gate in deps, not row visibility.
+    """
+    if model is User:
+        return User.id.in_(select(Membership.user_id).where(Membership.org_id == org))
+    return model.org_id == org
+
+
 @event.listens_for(Session, "do_orm_execute")
 def _apply_tenant_scope(orm_execute_state) -> None:
     if not orm_execute_state.is_select:
@@ -172,7 +191,7 @@ def _apply_tenant_scope(orm_execute_state) -> None:
         return  # unscoped context (bootstrap / operator)
     orm_execute_state.statement = orm_execute_state.statement.options(
         *[
-            with_loader_criteria(model, model.org_id == org, include_aliases=True)
+            with_loader_criteria(model, _scope_criteria(model, org), include_aliases=True)
             for model in TENANT_MODELS
         ]
     )

@@ -12,8 +12,8 @@ from app.models.email_intake import InboundInvoice
 from app.models.expense import ExpenseReport
 from app.models.issued_invoice import IssuedInvoice
 from app.models.organization import Organization
-from app.models.user import User
-from app.services import documents, privacy, retention
+from app.models.user import User, UserRole
+from app.services import documents, memberships, privacy, retention
 
 SUBJECT = "jane@bigco.com"
 
@@ -27,6 +27,11 @@ async def _seed_subject(db, org_id, *, with_attachment=True):
     u = User(org_id=org_id, email=SUBJECT, name="Jane Doe", role="user", hashed_password="x")
     db.add(u)
     await db.flush()
+    # B1.5: every real user-creation site writes the authoritative membership,
+    # and the DSAR scan locates the subject via memberships — mirror that here.
+    await memberships.ensure(
+        db, org_id=org_id, user_id=u.id, role=UserRole.user, email=SUBJECT, name="Jane Doe"
+    )
     db.add(ExpenseReport(org_id=org_id, employee_id=u.id, employee_name="Jane Doe", title="Trip"))
     sha = None
     if with_attachment:

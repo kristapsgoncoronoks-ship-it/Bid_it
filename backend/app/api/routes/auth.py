@@ -78,7 +78,8 @@ async def register(body: RegisterRequest, request: Request, db: DbSession) -> Au
     await db.refresh(user)
     await db.refresh(org)
 
-    # Dual-write the owner's membership (Slice 6b; users.org_id/role stay active).
+    # Write the owner's AUTHORITATIVE membership (B1.5); users.org_id/role above
+    # are only the new account's initial active-org projection.
     await memberships.ensure(
         db,
         org_id=org.id,
@@ -252,8 +253,9 @@ async def switch_org(org_id: str, session: CurrentSessionUnscoped, db: DbSession
     if user is None or membership is None or membership.status != "active":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Organization not found")
 
-    # Repoint the active org + role (dual-read: user.org_id is what deps scopes to)
-    # and keep the session's org in sync (forward-compat for later slices).
+    # Repoint the ACTIVE-ORG pointer + role projection (B1.5: user.org_id is the
+    # pointer deps scopes to AFTER verifying the live membership above — the
+    # membership is the authority) and keep the session's org in sync.
     user.org_id = org_id
     user.role = membership.role
     user.is_expense_approver = membership.is_expense_approver
