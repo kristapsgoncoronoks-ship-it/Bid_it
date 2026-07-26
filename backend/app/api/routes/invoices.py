@@ -4,14 +4,16 @@ import json
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession, require_perm
-from app.core import authz
+from app.core import authz, storage
 from app.core.dimensions import DIMENSION_KEYS
 from app.core.money import q2 as _q
+from app.core.security_headers import content_disposition
+from app.models.document import Document
 from app.models.extraction_field import ExtractionField
 from app.models.extraction_run import ExtractionRun
 from app.models.invoice import Invoice, InvoiceStatus, LineItem, WorkflowState
@@ -399,14 +401,78 @@ async def review_capture_fields(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Capture not found")
     fields = await extraction.fields_for_run(db, current.org_id, run_id)
     by_name = {f.field: f for f in fields}
+    changes: dict[str, dict[str, str | None]] = {}
     for item in body.fields:
         f = by_name.get(item.field)
         if f is not None:
+            changes[f.field] = {
+                "old": f.reviewed_value if f.reviewed_value is not None else f.value,
+                "new": item.reviewed_value[:500],
+            }
             f.reviewed_value = item.reviewed_value[:500]
             f.low_confidence = False
+    # §4.16: the correction is a mutation, so it is audited (old→new per field)
+    # in the SAME transaction as the field update.
+    if changes:
+        await audit.record(
+            db,
+            audit.A.CAPTURE_REVIEW,
+            target_type="extraction_run",
+            target_id=run_id,
+            meta={"fields": changes},
+        )
     await db.commit()
     fields = await extraction.fields_for_run(db, current.org_id, run_id)
     return [FieldProvenanceOut.model_validate(f) for f in fields]
+
+
+@router.get("/captures/{run_id}/fields", response_model=list[FieldProvenanceOut])
+async def capture_fields(run_id: str, current: CurrentUser, db: DbSession):
+    """The LIVE per-field provenance rows for a capture run (E1.1) — including any
+    human `reviewed_value` recorded so far. The poll endpoint replays the
+    parse-time draft; this is the endpoint the review screen re-reads after a
+    correction or a page reload. Read-only, tenant-scoped, opaque 404."""
+    run = await extraction.get_capture(db, current.org_id, run_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Capture not found")
+    fields = await extraction.fields_for_run(db, current.org_id, run_id)
+    return [FieldProvenanceOut.model_validate(f) for f in fields]
+
+
+@router.get("/captures/{run_id}/source")
+async def capture_source(run_id: str, current: CurrentUser, db: DbSession):
+    """The original uploaded document for a capture run, served INERT (nosniff +
+    content-disposition) so the review screen can show it side by side with the
+    extracted fields (E1.1). The mime comes from the document registry — the
+    server never sniffs or guesses a renderable type. Tenant-scoped, opaque 404."""
+    run = await extraction.get_capture(db, current.org_id, run_id)
+    if run is None or not run.source_sha256:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Capture not found")
+    try:
+        data = await documents.load(documents.UPLOADS, current.org_id, run.source_sha256)
+    except storage.StorageError:
+        # A referenced-but-missing object is an integrity fault; to this caller it
+        # is simply "no document" — 404, without leaking storage internals.
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored document missing")
+    if data is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored document missing")
+    doc = await db.scalar(
+        select(Document).where(
+            Document.org_id == current.org_id,
+            Document.sha256 == run.source_sha256,
+            Document.kind == documents.UPLOADS,
+        )
+    )
+    return Response(
+        content=data,
+        media_type=(doc.mime if doc and doc.mime else "application/octet-stream"),
+        headers={
+            "Content-Disposition": content_disposition(
+                run.source_filename or "document", fallback="attachment"
+            ),
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 async def _load_scoped(db: DbSession, org_id: str, invoice_id: str) -> Invoice:

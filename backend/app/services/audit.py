@@ -49,6 +49,10 @@ class A:
     INVOICE_LOCK = "invoice.lock"
     INVOICE_COMMENT = "invoice.comment"
     INVOICE_ATTACH = "invoice.attachment"
+    # Capture review (E1.1): a human recording per-field corrections on an
+    # extraction run — advisory provenance, not a financial mutation, but §4.16
+    # still applies (every mutating operation is audited).
+    CAPTURE_REVIEW = "capture.field_review"
     POLICY_CREATE = "approval_policy.create"
     POLICY_UPDATE = "approval_policy.update"
     POLICY_DELETE = "approval_policy.delete"
