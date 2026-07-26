@@ -41,10 +41,15 @@ _CONFIDENCE: dict[str, Decimal | None] = {
 # extraction-fields test asserts exactly these five for the structured parsers).
 _HEADER_FIELDS = ("invoice_number", "vendor_name", "issue_date", "due_date", "currency")
 
+# The six line-item fields captured per line (E1.2) — one provenance row per
+# (line_index, field), same honest confidence semantics as the header.
+_LINE_FIELDS = ("description", "category", "quantity", "unit_price", "amount", "tax_rate")
+
 
 @dataclass
 class FieldCapture:
-    """One captured field with honest provenance."""
+    """One captured field with honest provenance. `line_index` None = one of the
+    five header fields; n = one field of the draft's line_items[n] (E1.2)."""
 
     field: str
     status: str  # extracted | defaulted | missing
@@ -53,6 +58,7 @@ class FieldCapture:
     confidence: Decimal | None = None
     provider: str = ""
     low_confidence: bool = False
+    line_index: int | None = None
 
     @property
     def value(self) -> str | None:
@@ -93,6 +99,20 @@ def _flag(status: str, confidence: Decimal | None) -> bool:
     return confidence is not None and confidence < LOW_CONFIDENCE_THRESHOLD
 
 
+def _line_flag(status: str, confidence: Decimal | None) -> bool:
+    """The LINE-field flag rule deliberately differs from the header rule: a
+    `defaulted` line field does NOT flag. `category` is structurally defaulted on
+    nearly every line of every provider (no parser reads a category) and
+    `tax_rate` is legitimately zero/filled on most — flagging them would put
+    dozens of meaningless flags on every capture and drown the review queue's
+    "needs a look" count. The `defaulted` status still shows honestly in the UI;
+    only genuine uncertainty (a sub-threshold OCR/text score) or a truly missing
+    value demands review."""
+    if status == "missing":
+        return True
+    return confidence is not None and confidence < LOW_CONFIDENCE_THRESHOLD
+
+
 def _header_captures(draft: InvoiceCreate, *, method: str, provider: str) -> list[FieldCapture]:
     """Build provenance for the five header fields from a draft, for providers
     (OCR/e-invoice) whose underlying parser doesn't emit per-field provenance
@@ -120,6 +140,50 @@ def _header_captures(draft: InvoiceCreate, *, method: str, provider: str) -> lis
                 low_confidence=_flag(status, conf),
             )
         )
+    return out
+
+
+def _line_captures(draft: InvoiceCreate, *, method: str, provider: str) -> list[FieldCapture]:
+    """Line-item provenance (E1.2) for providers whose underlying parser emits a
+    draft, not per-cell presence data (PDF text/OCR, e-invoice XML, image OCR).
+
+    Per line, per field: description/quantity/unit_price/amount are present by
+    construction → `extracted` with the method's confidence (None = exact for the
+    structured e-invoice path, 0.85 text-layer, 0.55 OCR). `category` is never
+    read by these parsers → `defaulted` (confidence None — a fill, not a
+    probabilistic read). `tax_rate` 0 is the parsers' fill value → `defaulted`;
+    a non-zero rate was read/inferred from the document → `extracted`. The line
+    flag rule (`_line_flag`) applies — see its docstring for why `defaulted`
+    line fields don't flag."""
+    conf = _CONFIDENCE.get(method)
+    out: list[FieldCapture] = []
+    for i, li in enumerate(draft.line_items):
+        amount = li.amount if li.amount is not None else (li.quantity * li.unit_price)
+        values: dict[str, tuple[str | None, str]] = {
+            "description": (li.description, "extracted"),
+            "category": (li.category, "defaulted"),
+            "quantity": (str(li.quantity), "extracted"),
+            "unit_price": (str(li.unit_price), "extracted"),
+            "amount": (str(amount), "extracted"),
+            "tax_rate": (str(li.tax_rate), "extracted" if li.tax_rate else "defaulted"),
+        }
+        for name in _LINE_FIELDS:
+            v, status = values[name]
+            if v in (None, ""):
+                status = "missing"
+            field_conf = conf if status == "extracted" else None
+            out.append(
+                FieldCapture(
+                    field=name,
+                    status=status,
+                    original=v,
+                    normalized=v,
+                    confidence=field_conf,
+                    provider=provider,
+                    low_confidence=_line_flag(status, field_conf),
+                    line_index=i,
+                )
+            )
     return out
 
 
@@ -154,7 +218,8 @@ class PdfProvider(ExtractionProvider):
             draft=parsed.draft,
             provider=prov,
             warnings=list(parsed.warnings),
-            fields=_header_captures(parsed.draft, method=parsed.method, provider=prov),
+            fields=_header_captures(parsed.draft, method=parsed.method, provider=prov)
+            + _line_captures(parsed.draft, method=parsed.method, provider=prov),
         )
 
 
@@ -180,26 +245,35 @@ class EInvoiceProvider(ExtractionProvider):
             draft=parsed.draft,
             provider=self.name,
             warnings=list(parsed.warnings),
-            fields=_header_captures(parsed.draft, method=parsed.method, provider=self.name),
+            fields=_header_captures(parsed.draft, method=parsed.method, provider=self.name)
+            + _line_captures(parsed.draft, method=parsed.method, provider=self.name),
         )
 
 
 def _captures_from_provenance(fields, provider: str) -> list[FieldCapture]:
-    """Adapt the CSV/JSON parser's FieldProvenance (5 header fields, no confidence)
-    to FieldCapture. Deterministic → confidence stays None; a defaulted/missing
-    field is still flagged so the review queue surfaces it."""
-    return [
-        FieldCapture(
-            field=p.field,
-            status=p.status,
-            original=p.value,
-            normalized=p.value,
-            confidence=None,
-            provider=provider,
-            low_confidence=(p.status != "extracted"),
+    """Adapt the CSV/JSON parser's FieldProvenance (5 header fields + per-line
+    rows, no confidence) to FieldCapture. Deterministic → confidence stays None;
+    a defaulted/missing HEADER field is still flagged so the review queue
+    surfaces it, while line fields follow the `_line_flag` rule (a deterministic
+    defaulted line cell — e.g. a computed amount — doesn't demand review)."""
+    out: list[FieldCapture] = []
+    for p in fields:
+        line_index = getattr(p, "line_index", None)
+        original = getattr(p, "original_value", None)
+        flagged = (p.status != "extracted") if line_index is None else _line_flag(p.status, None)
+        out.append(
+            FieldCapture(
+                field=p.field,
+                status=p.status,
+                original=original if original is not None else p.value,
+                normalized=p.value,
+                confidence=None,
+                provider=provider,
+                low_confidence=flagged,
+                line_index=line_index,
+            )
         )
-        for p in fields
-    ]
+    return out
 
 
 class JsonProvider(ExtractionProvider):
@@ -278,7 +352,8 @@ class ImageProvider(ExtractionProvider):
             draft=parsed.draft,
             provider=self.name,
             warnings=list(parsed.warnings),
-            fields=_header_captures(parsed.draft, method="ocr", provider=self.name),
+            fields=_header_captures(parsed.draft, method="ocr", provider=self.name)
+            + _line_captures(parsed.draft, method="ocr", provider=self.name),
         )
 
 
@@ -336,6 +411,7 @@ def to_draft(result: ProviderResult) -> ParsedInvoiceDraft:
             reviewed_value=None,
             provider=c.provider or result.provider,
             low_confidence=c.low_confidence,
+            line_index=c.line_index,
         )
         for c in result.fields
     ]

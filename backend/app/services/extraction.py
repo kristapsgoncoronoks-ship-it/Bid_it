@@ -39,6 +39,7 @@ async def record_fields(db: AsyncSession, org_id: str, run_id: str, fields) -> N
                 org_id=org_id,
                 extraction_run_id=run_id,
                 field=f.field,
+                line_index=getattr(f, "line_index", None),
                 value=_clip(f.value),
                 status=f.status,
                 confidence=f.confidence,
@@ -54,11 +55,13 @@ async def record_fields(db: AsyncSession, org_id: str, run_id: str, fields) -> N
 
 
 async def fields_for_run(db: AsyncSession, org_id: str, run_id: str) -> list[ExtractionField]:
+    # Header rows (line_index NULL) first, then line rows grouped per line —
+    # NULLS FIRST explicitly, because SQLite and Postgres default differently.
     return list(
         await db.scalars(
             select(ExtractionField)
             .where(ExtractionField.org_id == org_id, ExtractionField.extraction_run_id == run_id)
-            .order_by(ExtractionField.field.asc())
+            .order_by(ExtractionField.line_index.asc().nullsfirst(), ExtractionField.field.asc())
         )
     )
 

@@ -61,6 +61,41 @@ def _provenance(source: dict, draft: InvoiceCreate) -> list[FieldProvenance]:
     ]
 
 
+def _line_provenance(raw_rows: list[dict], lines: list[LineItemIn]) -> list[FieldProvenance]:
+    """Line-item provenance (E1.2) from the RAW source rows — the presence data
+    only the CSV/JSON paths have. Per (line, field): `extracted` when the source
+    row actually carried the cell, `defaulted` when `_line_from`'s fill was used
+    (incl. `amount` computed as qty × unit — the server recomputes it identically
+    on confirm, so it is a fill, not a read). Deterministic source → no
+    confidence score is attached (None means "exact", not "unknown")."""
+    out: list[FieldProvenance] = []
+    for i, (raw, li) in enumerate(zip(raw_rows, lines, strict=True)):
+        src = {str(k).strip().lower(): v for k, v in raw.items()}
+        amount = li.amount if li.amount is not None else (li.quantity * li.unit_price)
+        cells: dict[str, str | None] = {
+            "description": li.description,
+            "category": li.category,
+            "quantity": str(li.quantity),
+            "unit_price": str(li.unit_price),
+            "amount": str(amount),
+            "tax_rate": str(li.tax_rate),
+        }
+        for field, normalized in cells.items():
+            raw_cell = src.get(field)
+            present = raw_cell not in (None, "")
+            out.append(
+                FieldProvenance(
+                    field=field,
+                    value=normalized,
+                    status="extracted" if present else "defaulted",
+                    original_value=(str(raw_cell) if present else normalized),
+                    normalized_value=normalized,
+                    line_index=i,
+                )
+            )
+    return out
+
+
 def _to_decimal(value, default: str = "0") -> Decimal:
     if value is None or value == "":
         return Decimal(default)
@@ -105,7 +140,8 @@ def _parse_json(
     if not isinstance(data, dict):
         raise ValueError("JSON invoice must be an object")
 
-    lines = [_line_from(li) for li in data.get("line_items", []) if isinstance(li, dict)]
+    raw_lines = [li for li in data.get("line_items", []) if isinstance(li, dict)]
+    lines = [_line_from(li) for li in raw_lines]
     issue = _to_date(data.get("issue_date")) or date.today()
     if data.get("issue_date") and _to_date(data.get("issue_date")) is None:
         warnings.append("Could not parse issue_date; defaulted to today")
@@ -121,7 +157,7 @@ def _parse_json(
         source_filename=filename,
         line_items=lines,
     )
-    return draft, _provenance(data, draft)
+    return draft, _provenance(data, draft) + _line_provenance(raw_lines, lines)
 
 
 def _parse_csv(
@@ -142,7 +178,8 @@ def _parse_csv(
 
     # Invoice-level metadata may be repeated on the first row.
     first = {k.strip().lower(): v for k, v in rows[0].items()}
-    lines = [_line_from({k.strip().lower(): v for k, v in r.items()}) for r in rows]
+    raw_lines = [{k.strip().lower(): v for k, v in r.items()} for r in rows]
+    lines = [_line_from(r) for r in raw_lines]
 
     issue = _to_date(first.get("issue_date")) or date.today()
     if not first.get("issue_date"):
@@ -161,7 +198,7 @@ def _parse_csv(
         source_filename=filename,
         line_items=lines,
     )
-    return draft, _provenance(first, draft)
+    return draft, _provenance(first, draft) + _line_provenance(raw_lines, lines)
 
 
 def _stem(filename: str) -> str:

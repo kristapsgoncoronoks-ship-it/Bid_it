@@ -40,8 +40,13 @@ async def test_capture_fields_live_provenance_roundtrip(auth_client, parse_uploa
 
     r = await auth_client.get(f"/api/v1/invoices/captures/{run_id}/fields")
     assert r.status_code == 200, r.text
-    fields = {f["field"]: f for f in r.json()}
+    # Header rows (line_index None) are the five top-level fields; the 1-line CSV
+    # additionally carries 6 line-scoped rows (E1.2 — the old set-equality here
+    # encoded the header-only limitation).
+    fields = {f["field"]: f for f in r.json() if f["line_index"] is None}
     assert set(fields) == {"invoice_number", "vendor_name", "issue_date", "due_date", "currency"}
+    line0 = {f["field"]: f for f in r.json() if f["line_index"] == 0}
+    assert set(line0) == {"description", "category", "quantity", "unit_price", "amount", "tax_rate"}
     assert fields["vendor_name"]["status"] == "extracted"
     assert fields["vendor_name"]["reviewed_value"] is None
 
@@ -175,3 +180,68 @@ async def test_capture_source_missing_sha_404(auth_client, db_session):
     )
     r = await auth_client.get(f"/api/v1/invoices/captures/{run.id}/source")
     assert r.status_code == 404, r.text
+
+
+# --------------------------------------------------------------------------- #
+# E1.2 — line-scoped corrections
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_line_field_correction_roundtrip_and_audit(auth_client, parse_upload, db_session):
+    """A correction targeting (field, line_index) persists on exactly that row —
+    a body item WITHOUT line_index never hits a line row — and is audited with
+    the `line_items[0].amount` meta key (§4.16)."""
+    from app.models.audit import AuditEvent
+
+    run_id = await _parsed_run_id(auth_client, parse_upload)
+
+    r = await auth_client.post(
+        f"/api/v1/invoices/captures/{run_id}/review",
+        json={"fields": [{"field": "amount", "line_index": 0, "reviewed_value": "16.00"}]},
+    )
+    assert r.status_code == 200, r.text
+
+    rows = (await auth_client.get(f"/api/v1/invoices/captures/{run_id}/fields")).json()
+    line0 = {f["field"]: f for f in rows if f["line_index"] == 0}
+    assert line0["amount"]["reviewed_value"] == "16.00"
+    assert line0["amount"]["low_confidence"] is False
+    assert line0["amount"]["value"] == "15.00"  # the capture is kept, not rewritten
+    # No header row was touched (there is no header "amount"), and no other line
+    # cell picked up the correction.
+    assert all(
+        f["reviewed_value"] is None
+        for f in rows
+        if not (f["line_index"] == 0 and f["field"] == "amount")
+    )
+
+    ev = await db_session.scalar(
+        select(AuditEvent).where(
+            AuditEvent.action == "capture.field_review", AuditEvent.target_id == run_id
+        )
+    )
+    assert ev is not None
+    meta = json.loads(ev.meta)
+    assert meta["fields"]["line_items[0].amount"] == {"old": "15.00", "new": "16.00"}
+
+
+@pytest.mark.asyncio
+async def test_line_correction_unknown_index_ignored(auth_client, parse_upload, db_session):
+    """An out-of-range line_index mutates nothing and writes no audit event —
+    same contract as an unknown header field (§8 malformed boundary)."""
+    from app.models.audit import AuditEvent
+
+    run_id = await _parsed_run_id(auth_client, parse_upload)
+    r = await auth_client.post(
+        f"/api/v1/invoices/captures/{run_id}/review",
+        json={"fields": [{"field": "amount", "line_index": 99, "reviewed_value": "1.00"}]},
+    )
+    assert r.status_code == 200, r.text
+    rows = (await auth_client.get(f"/api/v1/invoices/captures/{run_id}/fields")).json()
+    assert all(f["reviewed_value"] is None for f in rows)
+    ev = await db_session.scalar(
+        select(AuditEvent).where(
+            AuditEvent.action == "capture.field_review", AuditEvent.target_id == run_id
+        )
+    )
+    assert ev is None

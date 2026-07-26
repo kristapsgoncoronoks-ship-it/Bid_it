@@ -98,7 +98,12 @@ class InvoiceListOut(BaseModel):
 
 
 class FieldProvenance(BaseModel):
-    """Per-field capture provenance: how a top-level invoice field was obtained.
+    """Per-field capture provenance: how an invoice field was obtained.
+
+    Two scopes (E1.2): `line_index` None = one of the five header fields;
+    `line_index = n` = one field of `line_items[n]` (description / category /
+    quantity / unit_price / amount / tax_rate) — the same honest semantics
+    apply to both.
 
     `status`: extracted (read from the source) | defaulted (filled in) | missing
     (absent, no default). Extraction is NOT assumed accurate — every field carries:
@@ -123,6 +128,7 @@ class FieldProvenance(BaseModel):
     reviewed_value: str | None = None
     provider: str | None = None
     low_confidence: bool = False
+    line_index: int | None = None  # None = header field; n = line_items[n] (E1.2)
 
 
 class ParsedInvoiceDraft(BaseModel):
@@ -182,6 +188,8 @@ class CaptureReviewQueueOut(BaseModel):
 class FieldReviewIn(BaseModel):
     field: str = Field(min_length=1, max_length=40)
     reviewed_value: str = Field(max_length=500)
+    # None targets the header row for `field`; n targets line_items[n]'s row (E1.2).
+    line_index: int | None = Field(default=None, ge=0)
 
 
 class CaptureReviewIn(BaseModel):
@@ -222,6 +230,7 @@ class FieldProvenanceOut(BaseModel):
     reviewed_value: str | None = None
     provider: str | None = None
     low_confidence: bool = False
+    line_index: int | None = None  # None = header field; n = line_items[n] (E1.2)
 
 
 class ExtractionRunOut(BaseModel):

@@ -69,12 +69,23 @@ def test_provider_interface_selects_and_extracts():
     csv = b"description,quantity,unit_price,invoice_number\nFuel,2,10,INV-P1\n"
     result = extraction_provider.run("x.csv", csv)
     assert result.method == "csv" and result.provider == "csv"
-    assert {f.field for f in result.fields} == {
+    # Header captures (line_index None) are the five top-level fields; the row
+    # additionally yields six line-scoped captures (E1.2 — the old set-equality
+    # here encoded the header-only limitation).
+    assert {f.field for f in result.fields if f.line_index is None} == {
         "invoice_number",
         "vendor_name",
         "issue_date",
         "due_date",
         "currency",
+    }
+    assert {f.field for f in result.fields if f.line_index == 0} == {
+        "description",
+        "category",
+        "quantity",
+        "unit_price",
+        "amount",
+        "tax_rate",
     }
     # Providers are pluggable + ordered.
     names = [p.name for p in extraction_provider.providers()]

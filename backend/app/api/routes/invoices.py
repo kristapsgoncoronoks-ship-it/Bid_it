@@ -335,7 +335,11 @@ async def capture_review_queue(
 ):
     """Human-review queue for intake: captures that PARSED but aren't saved to an
     invoice yet, each with its low-confidence field count + a duplicate flag, so a
-    reviewer triages what needs a look. Newest first. Tenant-scoped."""
+    reviewer triages what needs a look. Newest first. Tenant-scoped.
+
+    Field counts include LINE-scoped rows (E1.2). Deterministic line captures
+    contribute zero flags (see extraction_provider._line_flag); OCR/text captures
+    flag their genuinely-uncertain cells — so the count stays a signal."""
     base = select(ExtractionRun).where(
         ExtractionRun.org_id == current.org_id,
         ExtractionRun.status == "parsed",
@@ -395,17 +399,21 @@ async def review_capture_fields(
 ):
     """Record human corrections for a capture's fields — stores the reviewed value
     and clears the low-confidence flag. The reviewed value is preserved alongside
-    the original/normalized capture, so the correction is auditable."""
+    the original/normalized capture, so the correction is auditable. A body item
+    without `line_index` targets a header row; with `line_index = n` it targets
+    that field of line_items[n] (E1.2). Unknown (field, line_index) pairs are
+    ignored — no mutation, no audit event."""
     run = await extraction.get_capture(db, current.org_id, run_id)
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Capture not found")
     fields = await extraction.fields_for_run(db, current.org_id, run_id)
-    by_name = {f.field: f for f in fields}
+    by_key = {(f.field, f.line_index): f for f in fields}
     changes: dict[str, dict[str, str | None]] = {}
     for item in body.fields:
-        f = by_name.get(item.field)
+        f = by_key.get((item.field, item.line_index))
         if f is not None:
-            changes[f.field] = {
+            key = f.field if f.line_index is None else f"line_items[{f.line_index}].{f.field}"
+            changes[key] = {
                 "old": f.reviewed_value if f.reviewed_value is not None else f.value,
                 "new": item.reviewed_value[:500],
             }
