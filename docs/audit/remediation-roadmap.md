@@ -20,7 +20,7 @@ schedulable) · **P3** (backlog, quality/hardening) · **P4** (informational / d
 |---|---|---|
 | R2 | Credit-note creation has no row lock (over-crediting race) | **P0** |
 | R3 | Demo/seed data self-contradicts (Cash Position/Payment Runs vs Invoices) | **P0** |
-| R1 | CSV formula-injection unprotected on 3 financial exports | **P1** |
+| R1 | CSV formula-injection unprotected on 3 financial exports | **P1** — CLOSED (WO-29) |
 
 *Rationale:* R2 is a reproduced financial-correctness bug that would corrupt real AR data the moment two
 credit-note requests race, which can happen even under a single supervised pilot user (double-click, two
@@ -153,7 +153,7 @@ purchase path until R5 is closed.
 
 ## P1 items — full detail
 
-### R1 — CSV formula-injection sanitization is inconsistently applied across financial exports
+### R1 — CSV formula-injection sanitization is inconsistently applied across financial exports — **CLOSED (WO-29)**
 - **Priority:** P1 (debate-confirmed, no change — see `agent-debate.md` §2)
 - **Problem statement:** three CSV export paths write attacker-influenceable free text directly into
   `csv.writer` with no formula-injection neutralization, while three sibling exporters in the same codebase
@@ -178,6 +178,21 @@ purchase path until R5 is closed.
      three writers' output for a `=HYPERLINK(...)`-style input in the relevant free-text field.
   3. No change to non-malicious CSV output (byte-for-byte identical for values not starting with a trigger
      character).
+- **Closed by:** `docs/plan/plan-a/wo/WO-29-R1.md`. A new shared `app/core/csv_safety.py::sanitize_cell`
+  (OWASP leading-quote mitigation) is now applied to the free-text columns of `payment_run.export_csv`
+  (`run.reference`/`inv.invoice_number`), `reimbursement.export_csv` (`batch.reference`/`employee_name`/
+  `title`), and `explore.to_csv` (dimension values) — amount/currency/method/measure columns are
+  deliberately left untouched (numeric/enum, not free text). As a low-risk side effect (naturally paired
+  per this item's own "Dependencies" note), the three pre-existing duplicated helpers —
+  `erp_export._safe`, `audit_export._safe`, `report_writers._safe_cell` — now delegate to the same shared
+  function under their original local names, a down payment on R9 (not a full close of it). Red-then-green
+  proof per export path: `tests/test_payment_runs.py::test_export_csv_is_formula_injection_safe`,
+  `tests/test_reimbursement.py::test_export_csv_is_formula_injection_safe`,
+  `tests/test_explore.py::test_to_csv_is_formula_injection_safe`, plus
+  `tests/test_csv_safety.py` (unit tests on the shared helper). `test_erp_export.py`/`test_audit_export.py`/
+  `test_report_writers.py` pass unmodified, proving the dedup is behavior-preserving. This was the last
+  open Milestone A item — **Milestone A is now fully closed** (R2 closed by WO-26/WO-27, R3 by WO-28, R1 by
+  WO-29).
 
 ### R4 — Expense-approval decision has no optimistic-concurrency guard or row lock
 - **Priority:** P1 (debate-confirmed, no change — see `agent-debate.md` §6)
