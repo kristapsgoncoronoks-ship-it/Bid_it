@@ -617,7 +617,12 @@ async def create_credit_note(
     invoice's outstanding balance, and lowers reported turnover.
     """
     await _guard(db, current.org_id)  # module + issuer-completeness gate
-    original = await _load(db, current.org_id, invoice_id)
+    # Lock the invoice row: `credited_total` is a read-modify-write over the SAME
+    # cumulative figure `record_payment` locks for (see `_load`'s comment) — two
+    # concurrent partial credit notes reading the same stale `already` would lose
+    # one write and understate credited_total, silently widening the over-credit/
+    # over-payment exposure `record_payment` trusts this number to cap.
+    original = await _load(db, current.org_id, invoice_id, lock=True)
     _require_receivable(original)
     if issued_status.is_credit_note(original):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot credit a credit note.")
