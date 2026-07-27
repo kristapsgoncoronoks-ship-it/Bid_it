@@ -103,8 +103,23 @@ purchase path until R5 is closed.
   `tests/test_rls_connection_reuse.py` (red-then-green proof), and `docs/plan/plan-a/wo/WO-27.md`.
   `test_credit_note_lock_concurrency.py` now runs on a normal reused pool (no more `NullPool` workaround).
 
-### R3 — Demo/seed data contradicts itself (Cash Position/Payment Runs show €0 while Invoices lists >€1M)
+### R3 — Demo/seed data contradicts itself (Cash Position/Payment Runs show €0 while Invoices lists >€1M) — **CLOSED (WO-28)**
 - **Priority:** P0 (debate-confirmed, no change — see `agent-debate.md` §8)
+- **Closed by:** `docs/plan/plan-a/wo/WO-28-R3.md`. `app/seed.py` now collects every seeded AP
+  invoice into `ap_invoices` and, after the existing post-creation flush, drives each one
+  through the REAL endpoint functions (`invoice_review.submit`/`approve`/`transition`,
+  `payment_runs.create_run`/`approve_run`/`pay_run`, called directly — not over HTTP, but the
+  exact same code FastAPI dispatches to) via a new `_drive_ap_workflow()` helper: every
+  `status=paid` invoice reaches `workflow_state=paid` through a real, batched payment run
+  (`override_sod=True`, audited — the demo org's single `is_platform_admin` owner is its own
+  maker/checker/payer, the same escape hatch WO-9 gives a real solo-admin org); every
+  `pending`/`overdue` invoice reaches an open-payable state (`approved`, some further to
+  `scheduled_for_payment`). Regression-proven by
+  `backend/tests/test_seed.py::test_seed_drives_ap_invoices_through_real_workflow` (asserts no
+  invoice is left at `workflow_state=draft`, every `status=paid` invoice is
+  `workflow_state=paid` and fully settled, every open invoice is in an open-payable state, and
+  `cash_position.summary()` / `payment_run.payable_invoices()` / a paid `PaymentRun` row are all
+  non-empty for the freshly seeded demo org).
 - **Problem statement:** `backend/app/seed.py` sets the legacy `Invoice.status` enum directly on all 83
   seeded AP invoices but never drives them through the real `/submit`→`/approve`→schedule→`/pay` workflow
   endpoints, so `workflow_state` stays at `draft` for every one of them. Every downstream "payables" surface

@@ -134,6 +134,13 @@ async def seed() -> None:
             vendors.append(v)
         await db.flush()
 
+        # AP invoices (both the domestic loop below and the FX loop further down)
+        # are collected here so they can be driven through the REAL review →
+        # approval → payment-run workflow after they're flushed (R3): the legacy
+        # `status` set below is not what cash-position/payment-runs/dashboard
+        # read — they read `workflow_state`, which must never diverge from it.
+        ap_invoices: list[Invoice] = []
+
         today = date(2026, 7, 1)
         count = 0
         for month_back in range(12):
@@ -170,25 +177,25 @@ async def seed() -> None:
                     weights=[6, 3, 1],
                 )[0]
                 count += 1
-                db.add(
-                    Invoice(
-                        org_id=org.id,
-                        vendor_id=vendor.id,
-                        invoice_number=f"INV-{2026}-{count:04d}",
-                        issue_date=issue,
-                        due_date=issue + timedelta(days=30),
-                        currency="EUR",
-                        status=status,
-                        subtotal=_q(subtotal),
-                        tax_amount=_q(tax_total),
-                        total=_q(subtotal + tax_total),
-                        # Free-text cost-allocation tags (the master-table links are
-                        # resolved from these by the Slice-2 backfill below).
-                        cost_center=_DEMO_CC_CODES[count % len(_DEMO_CC_CODES)],
-                        department=_DEMO_DEPT_CODES[count % len(_DEMO_DEPT_CODES)],
-                        line_items=items,
-                    )
+                ap_inv = Invoice(
+                    org_id=org.id,
+                    vendor_id=vendor.id,
+                    invoice_number=f"INV-{2026}-{count:04d}",
+                    issue_date=issue,
+                    due_date=issue + timedelta(days=30),
+                    currency="EUR",
+                    status=status,
+                    subtotal=_q(subtotal),
+                    tax_amount=_q(tax_total),
+                    total=_q(subtotal + tax_total),
+                    # Free-text cost-allocation tags (the master-table links are
+                    # resolved from these by the Slice-2 backfill below).
+                    cost_center=_DEMO_CC_CODES[count % len(_DEMO_CC_CODES)],
+                    department=_DEMO_DEPT_CODES[count % len(_DEMO_DEPT_CODES)],
+                    line_items=items,
                 )
+                db.add(ap_inv)
+                ap_invoices.append(ap_inv)
         # --- FX: seed ECB rates + a few foreign-currency invoices ---
         from app.services import fx
 
@@ -217,33 +224,33 @@ async def seed() -> None:
             )
             total_eur = _q(amount / stated)
             count += 1
-            db.add(
-                Invoice(
-                    org_id=org.id,
-                    vendor_id=fx_vendor.id,
-                    invoice_number=f"INV-{2026}-{count:04d}",
-                    issue_date=issue,
-                    due_date=issue + timedelta(days=30),
-                    currency=ccy,
-                    status=InvoiceStatus.paid,
-                    subtotal=amount,
-                    tax_amount=Decimal("0"),
-                    total=amount,
-                    total_eur=total_eur,
-                    fx_rate=stated,
-                    fx_source="stated",
-                    line_items=[
-                        LineItem(
-                            description=f"{(fx_vendor.category or '').title()} service ({ccy})",
-                            category=fx_vendor.category,
-                            quantity=Decimal("1"),
-                            unit_price=amount,
-                            amount=amount,
-                            tax_rate=Decimal("0"),
-                        )
-                    ],
-                )
+            fx_inv = Invoice(
+                org_id=org.id,
+                vendor_id=fx_vendor.id,
+                invoice_number=f"INV-{2026}-{count:04d}",
+                issue_date=issue,
+                due_date=issue + timedelta(days=30),
+                currency=ccy,
+                status=InvoiceStatus.paid,
+                subtotal=amount,
+                tax_amount=Decimal("0"),
+                total=amount,
+                total_eur=total_eur,
+                fx_rate=stated,
+                fx_source="stated",
+                line_items=[
+                    LineItem(
+                        description=f"{(fx_vendor.category or '').title()} service ({ccy})",
+                        category=fx_vendor.category,
+                        quantity=Decimal("1"),
+                        unit_price=amount,
+                        amount=amount,
+                        tax_rate=Decimal("0"),
+                    )
+                ],
             )
+            db.add(fx_inv)
+            ap_invoices.append(fx_inv)
 
         # --- Issued invoices (accounts-receivable) so the issuing reports have data ---
         issued = await _seed_issued(db, org.id, rng)
@@ -261,6 +268,11 @@ async def seed() -> None:
         # --- Slice 4a / 5a: seed the tenant's reference catalogues ---
         tax_ct = await tax_codes.seed_standard(db, org.id)
         cur_ct = await currencies.seed_standard(db, org.id)
+        # --- R3: drive every AP invoice through the REAL review/approval/
+        # payment-run workflow so `workflow_state` (what cash-position/payment
+        # -runs/dashboard read) never diverges from the legacy `status` (what
+        # the Invoices list badge reads) — see docs/plan/plan-a/wo/WO-28-R3.md.
+        ap_workflow = await _drive_ap_workflow(db, org.id, owner, ap_invoices, rng)
 
         await db.commit()
         print(f"Seeded '{org.name}' with {count} invoices across {len(vendors)} vendors.")
@@ -274,6 +286,11 @@ async def seed() -> None:
         print(
             f"Linked invoices to master data (Slice 2 backfill): "
             f"{linked['cost_center']} cost-center, {linked['department']} department."
+        )
+        print(
+            f"Drove {len(ap_invoices)} AP invoices through the real review->approval "
+            f"workflow across {ap_workflow['_payment_runs']} payment run(s) "
+            f"(workflow_state mix: {ap_workflow})."
         )
         print(f"Login: {DEMO_EMAIL} / demo1234")
 
@@ -541,6 +558,91 @@ async def _seed_partners(db, org_id: str) -> int:
         )
     )
     return 2
+
+
+async def _drive_ap_workflow(
+    db, org_id: str, owner: User, invoices: list[Invoice], rng: random.Random
+) -> dict[str, int]:
+    """Advance every seeded AP invoice through the REAL review -> approval ->
+    payment-run endpoint FUNCTIONS (not a hand-set enum), so `workflow_state` —
+    what cash-position/payment-runs/the dashboard actually read — never diverges
+    from the legacy aging `status` the Invoices list badge reads (R3,
+    docs/plan/plan-a/wo/WO-28-R3.md). These are plain `async def`s: FastAPI's
+    Depends/Annotated machinery only activates through the real HTTP dispatcher,
+    so calling them directly with `current=owner, db=db` runs the exact same
+    body (audit records, webhook emit, best-effort mailer.send) with zero
+    network I/O, since the fresh demo org has no webhook endpoints and
+    `settings.smtp_enabled` defaults False.
+
+    The demo owner (`is_platform_admin=True`) is the ONLY user in the demo org,
+    so the payment-run maker<>checker control (WO-9) is satisfied via the SAME
+    explicit, audited `override_sod=True` path a real single-admin org would
+    use — never a silent bypass; every override is recorded to the audit log
+    exactly as it would be for a live customer."""
+    from app.api.routes import invoice_review
+    from app.api.routes import payment_runs as payment_run_routes
+    from app.schemas.approval import DecisionIn, SubmitIn, TransitionIn
+    from app.schemas.payment_run import RunApprove, RunCreate, RunPay
+
+    to_pay: list[Invoice] = []
+    for inv in invoices:
+        review = await invoice_review.submit(
+            inv.id, SubmitIn(version=inv.version), current=owner, db=db
+        )
+        review = await invoice_review.approve(
+            inv.id, DecisionIn(version=review.version), current=owner, db=db
+        )
+        if inv.status == InvoiceStatus.paid:
+            # Full cycle: schedule now, settle via a real payment run below.
+            await invoice_review.transition(
+                inv.id,
+                TransitionIn(version=review.version, target="scheduled_for_payment"),
+                current=owner,
+                db=db,
+            )
+            to_pay.append(inv)
+        elif inv.status == InvoiceStatus.pending and rng.random() < 0.35:
+            # Some pending invoices are already queued for payment (not yet
+            # paid) so the payment-run candidate pool isn't empty either —
+            # legacy `status` stays 'pending', which is not a contradiction:
+            # "scheduled to be paid soon" is still "not yet paid".
+            await invoice_review.transition(
+                inv.id,
+                TransitionIn(version=review.version, target="scheduled_for_payment"),
+                current=owner,
+                db=db,
+            )
+        # The rest of 'pending' and every 'overdue' invoice stays 'approved' —
+        # an open payable; ap_status.status_of derives OVERDUE from the
+        # (already-past) due_date at read time, never from a stored flag.
+
+    # Settle every 'paid'-status invoice through a REAL payment run (creates the
+    # AP ledger entries + run history, exactly like a customer's data) — batched
+    # so the demo's Payment Runs screen shows several runs, not one giant one.
+    n_runs = 0
+    for start in range(0, len(to_pay), 7):
+        batch = to_pay[start : start + 7]
+        run = await payment_run_routes.create_run(
+            RunCreate(invoice_ids=[i.id for i in batch], method="bank_transfer"),
+            current=owner,
+            db=db,
+        )
+        n_runs += 1
+        run = await payment_run_routes.approve_run(
+            run.id, RunApprove(version=run.version, override_sod=True), current=owner, db=db
+        )
+        await payment_run_routes.pay_run(
+            run.id,
+            RunPay(version=run.version, reference=f"SEED-RUN-{n_runs:02d}", override_sod=True),
+            current=owner,
+            db=db,
+        )
+
+    counts: dict[str, int] = {}
+    for inv in invoices:
+        counts[inv.workflow_state.value] = counts.get(inv.workflow_state.value, 0) + 1
+    counts["_payment_runs"] = n_runs
+    return counts
 
 
 if __name__ == "__main__":
