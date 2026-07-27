@@ -284,6 +284,7 @@ export interface ExpenseReport {
   total_eur: string | null;
   submitted_at: string | null;
   created_at: string;
+  version: number;
 }
 
 export interface PolicyViolation {

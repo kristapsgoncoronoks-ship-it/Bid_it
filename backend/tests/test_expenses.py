@@ -123,23 +123,32 @@ async def test_approval_workflow(auth_client, client):
     # employee cannot approve their own
     assert (
         await client.post(
-            f"/api/v1/expenses/{rid}/decision", json={"action": "approve"}, headers=_h(emp)
+            f"/api/v1/expenses/{rid}/decision",
+            json={"action": "approve", "version": 1},
+            headers=_h(emp),
         )
     ).status_code == 403
 
     # manager approves, then reimburses
     ap = await auth_client.post(
-        f"/api/v1/expenses/{rid}/decision", json={"action": "approve", "note": "ok"}
+        f"/api/v1/expenses/{rid}/decision",
+        json={"action": "approve", "note": "ok", "version": 1},
     )
     assert ap.status_code == 200 and ap.json()["status"] == "approved"
     assert ap.json()["decided_by"] == "owner@acme.io"
 
     # can't reimburse before approve is a no-op here (already approved) → reimburse works
-    rb = await auth_client.post(f"/api/v1/expenses/{rid}/decision", json={"action": "reimburse"})
+    rb = await auth_client.post(
+        f"/api/v1/expenses/{rid}/decision",
+        json={"action": "reimburse", "version": ap.json()["version"]},
+    )
     assert rb.status_code == 200 and rb.json()["status"] == "reimbursed"
 
     # can't approve an already-decided report
-    bad = await auth_client.post(f"/api/v1/expenses/{rid}/decision", json={"action": "approve"})
+    bad = await auth_client.post(
+        f"/api/v1/expenses/{rid}/decision",
+        json={"action": "approve", "version": rb.json()["version"]},
+    )
     assert bad.status_code == 409
 
 

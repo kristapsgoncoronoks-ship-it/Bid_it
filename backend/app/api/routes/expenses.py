@@ -132,12 +132,20 @@ async def _detail_with_steps(r: ExpenseReport, db: DbSession, org_id: str) -> Ex
     return d
 
 
-async def _load(db: DbSession, org_id: str, report_id: str) -> ExpenseReport:
-    r = await db.scalar(
+async def _load(db: DbSession, org_id: str, report_id: str, *, lock: bool = False) -> ExpenseReport:
+    stmt = (
         select(ExpenseReport)
         .where(ExpenseReport.id == report_id, ExpenseReport.org_id == org_id)
         .options(selectinload(ExpenseReport.items))
     )
+    if lock:
+        # Serialize the decision (approve/reject/return/mark-for-reimbursement/
+        # mark-reimbursed) so the version check + step/status write are atomic and
+        # two concurrent decisions on the same pending step can't both succeed
+        # (R4). SQLite ignores FOR UPDATE (writes serialize); Postgres takes the
+        # row lock — same pattern as reimbursements.py::_load.
+        stmt = stmt.with_for_update()
+    r = await db.scalar(stmt)
     if r is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Expense report not found")
     return r
@@ -767,7 +775,15 @@ async def decide(report_id: str, body: ExpenseDecision, current: CurrentUser, db
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Only a designated expense approver can decide on expenses"
         )
-    r = await _load(db, current.org_id, report_id)
+    # Locked FOR UPDATE (R4): the version check + step/status write below must be
+    # atomic across two genuinely concurrent decisions on the same pending step.
+    r = await _load(db, current.org_id, report_id, lock=True)
+    if body.version != r.version:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"This report was changed by someone else (your version {body.version}, "
+            f"current {r.version}). Reload and re-apply your decision.",
+        )
 
     # Segregation of duties: an approver cannot decide on their own report.
     if r.employee_id == current.id:
@@ -832,6 +848,10 @@ async def decide(report_id: str, body: ExpenseDecision, current: CurrentUser, db
             target_id=r.id,
             meta={"action": action, "to": target},
         )
+
+    # R4: bump AFTER the decision is applied (both branches) so the next reader's
+    # version reflects this decision — one bump point covers every action.
+    r.version += 1
 
     if r.status in ("approved", "rejected", "returned", "reimbursed"):
         await webhooks.emit(

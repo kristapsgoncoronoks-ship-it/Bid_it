@@ -70,9 +70,15 @@ async def _submit(client, emp, amount="42.00"):
     return rid
 
 
-def _dec(client, rid, action, token):
-    return client.post(
-        f"/api/v1/expenses/{rid}/decision", headers=_h(token), json={"action": action}
+async def _dec(client, rid, action, token):
+    # Read-then-write: fetch the report's current version so this helper works
+    # for both a fresh report (version 1) and a sequential re-decision within
+    # the same test (R4 optimistic concurrency — see app.api.routes.expenses).
+    cur = await client.get(f"/api/v1/expenses/{rid}", headers=_h(token))
+    return await client.post(
+        f"/api/v1/expenses/{rid}/decision",
+        headers=_h(token),
+        json={"action": action, "version": cur.json()["version"]},
     )
 
 
@@ -148,7 +154,8 @@ async def test_amount_threshold_routing(auth_client, client):
     d_small = (await auth_client.get(f"/api/v1/expenses/{small}")).json()
     assert d_small["approval_steps"][0]["approver_id"] is None
     approved_small = await auth_client.post(
-        f"/api/v1/expenses/{small}/decision", json={"action": "approve"}
+        f"/api/v1/expenses/{small}/decision",
+        json={"action": "approve", "version": d_small["version"]},
     )
     assert approved_small.json()["status"] == "approved"
 
@@ -158,7 +165,10 @@ async def test_amount_threshold_routing(auth_client, client):
     assert d_big["approval_steps"][0]["approver_id"] == a_id
     # The owner is not Ann → cannot decide Ann's named step.
     assert (
-        await auth_client.post(f"/api/v1/expenses/{big}/decision", json={"action": "approve"})
+        await auth_client.post(
+            f"/api/v1/expenses/{big}/decision",
+            json={"action": "approve", "version": d_big["version"]},
+        )
     ).status_code == 403
     assert (await _dec(client, big, "approve", a_tok)).json()["status"] == "approved"
 

@@ -371,7 +371,9 @@ async def test_approver_role_still_needs_the_expense_flag_to_decide(auth_client,
     # it) but the in-handler flag check still denies — the flag, not the role,
     # is the designated-approver signal for THIS endpoint.
     still_denied = await client.post(
-        f"/api/v1/expenses/{rid}/decision", json={"action": "approve"}, headers=appr_headers
+        f"/api/v1/expenses/{rid}/decision",
+        json={"action": "approve", "version": 1},
+        headers=appr_headers,
     )
     assert still_denied.status_code == 403
     assert "designated" in still_denied.json()["detail"].lower()
@@ -382,7 +384,9 @@ async def test_approver_role_still_needs_the_expense_flag_to_decide(auth_client,
     )
     assert appointed.status_code == 200 and appointed.json()["is_expense_approver"] is True
     now_ok = await client.post(
-        f"/api/v1/expenses/{rid}/decision", json={"action": "approve"}, headers=appr_headers
+        f"/api/v1/expenses/{rid}/decision",
+        json={"action": "approve", "version": 1},
+        headers=appr_headers,
     )
     assert now_ok.status_code == 200, now_ok.text
 

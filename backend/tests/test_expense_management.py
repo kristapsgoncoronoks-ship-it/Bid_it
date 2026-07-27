@@ -149,9 +149,14 @@ async def test_full_lifecycle_submit_approve_reimburse(auth_client, client):
     rid = await _create(client, headers=_h(emp))
     assert (await client.post(f"/api/v1/expenses/{rid}/submit", headers=_h(emp))).status_code == 200
 
-    # Owner (approver by default) drives the rest.
-    def dec(action):
-        return auth_client.post(f"/api/v1/expenses/{rid}/decision", json={"action": action})
+    # Owner (approver by default) drives the rest. Read-then-write the version
+    # (R4 optimistic concurrency) so this closure works across the sequence.
+    async def dec(action):
+        cur = await auth_client.get(f"/api/v1/expenses/{rid}")
+        return await auth_client.post(
+            f"/api/v1/expenses/{rid}/decision",
+            json={"action": action, "version": cur.json()["version"]},
+        )
 
     assert (await dec("approve")).json()["status"] == "approved"
     assert (await dec("mark_for_reimbursement")).json()["status"] == "marked_for_reimbursement"
@@ -179,7 +184,7 @@ async def test_return_for_correction_then_resubmit(auth_client, client):
     await client.post(f"/api/v1/expenses/{rid}/submit", headers=_h(emp))
     ret = await auth_client.post(
         f"/api/v1/expenses/{rid}/decision",
-        json={"action": "return_for_correction", "note": "add detail"},
+        json={"action": "return_for_correction", "note": "add detail", "version": 1},
     )
     assert ret.json()["status"] == "returned"
     # A returned report is editable again by the owner, then resubmittable.
@@ -201,7 +206,9 @@ async def test_illegal_transitions_conflict(auth_client, client):
     # Approving a DRAFT (owned by the employee, so segregation-of-duties passes) → 409.
     emp_draft = await _create(client, headers=_h(emp))
     assert (
-        await auth_client.post(f"/api/v1/expenses/{emp_draft}/decision", json={"action": "approve"})
+        await auth_client.post(
+            f"/api/v1/expenses/{emp_draft}/decision", json={"action": "approve", "version": 1}
+        )
     ).status_code == 409
     # Withdrawing a report that is not submitted → 409 (owner withdraws own draft).
     own_draft = await _create(auth_client)
@@ -218,7 +225,9 @@ async def test_non_approver_cannot_decide(auth_client, client):
     rid = await _create(client, headers=_h(emp))
     await client.post(f"/api/v1/expenses/{rid}/submit", headers=_h(emp))
     r = await client.post(
-        f"/api/v1/expenses/{rid}/decision", headers=_h(emp), json={"action": "approve"}
+        f"/api/v1/expenses/{rid}/decision",
+        headers=_h(emp),
+        json={"action": "approve", "version": 1},
     )
     assert r.status_code == 403
 
@@ -228,7 +237,9 @@ async def test_cannot_approve_own_report(auth_client):
     await _activate(auth_client)
     rid = await _create(auth_client)  # owner's own report
     await auth_client.post(f"/api/v1/expenses/{rid}/submit")
-    r = await auth_client.post(f"/api/v1/expenses/{rid}/decision", json={"action": "approve"})
+    r = await auth_client.post(
+        f"/api/v1/expenses/{rid}/decision", json={"action": "approve", "version": 1}
+    )
     assert r.status_code == 403
 
 
@@ -351,9 +362,12 @@ async def test_marked_for_reimbursement_report_is_batchable(auth_client, client)
     emp = await _member(auth_client, client, "emp6@corp.io")
     rid = await _create(client, headers=_h(emp))
     await client.post(f"/api/v1/expenses/{rid}/submit", headers=_h(emp))
-    await auth_client.post(f"/api/v1/expenses/{rid}/decision", json={"action": "approve"})
+    approved = await auth_client.post(
+        f"/api/v1/expenses/{rid}/decision", json={"action": "approve", "version": 1}
+    )
     await auth_client.post(
-        f"/api/v1/expenses/{rid}/decision", json={"action": "mark_for_reimbursement"}
+        f"/api/v1/expenses/{rid}/decision",
+        json={"action": "mark_for_reimbursement", "version": approved.json()["version"]},
     )
     batch = await auth_client.post("/api/v1/reimbursements", json={"report_ids": [rid]})
     assert batch.status_code == 201, batch.text

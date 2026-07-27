@@ -106,7 +106,7 @@ export default function ExpenseDetail() {
   const violations = r.policy_violations ?? [];
   const blocks = violations.filter((v) => v.severity === "block");
   const warns = violations.filter((v) => v.severity !== "block");
-  const decide = (action: string) => act.mutate({ path: "decision", body: { action } });
+  const decide = (action: string) => act.mutate({ path: "decision", body: { action, version: r.version } });
 
   return (
     <div className="space-y-6">

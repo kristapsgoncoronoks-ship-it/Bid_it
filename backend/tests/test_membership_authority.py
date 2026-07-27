@@ -278,7 +278,9 @@ async def test_reimbursement_sepa_pays_member_active_elsewhere(auth_client, clie
         )
     assert (await client.post(f"/api/v1/expenses/{rid}/submit", headers=_h(emp))).status_code == 200
     assert (
-        await auth_client.post(f"/api/v1/expenses/{rid}/decision", json={"action": "approve"})
+        await auth_client.post(
+            f"/api/v1/expenses/{rid}/decision", json={"action": "approve", "version": 1}
+        )
     ).status_code == 200
     b = await auth_client.post("/api/v1/reimbursements", json={"report_ids": [rid]})
     assert b.status_code == 201, b.text

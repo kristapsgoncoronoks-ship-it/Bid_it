@@ -71,6 +71,9 @@ class ExpenseDecision(BaseModel):
         "mark_reimbursed",
         "reimburse",  # legacy alias for mark_reimbursed
     ]
+    # Optimistic-concurrency guard (R4): the version the client read; a stale value
+    # is refused 409 (see app.api.routes.expenses.decide).
+    version: int
     note: str | None = Field(default=None, max_length=1000)
 
 
@@ -179,6 +182,7 @@ class ExpenseReportOut(BaseModel):
     total_eur: Decimal | None
     submitted_at: datetime | None
     created_at: datetime
+    version: int
 
 
 class PolicyViolation(BaseModel):

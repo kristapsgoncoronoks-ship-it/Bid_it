@@ -74,7 +74,9 @@ async def test_owner_is_approver_by_default_and_appoints_others(auth_client, cli
     await _complete_and_submit(client, rid, _h(emp_tok))
     assert (
         await client.post(
-            f"/api/v1/expenses/{rid}/decision", json={"action": "approve"}, headers=_h(tok)
+            f"/api/v1/expenses/{rid}/decision",
+            json={"action": "approve", "version": 1},
+            headers=_h(tok),
         )
     ).status_code == 403
 
@@ -84,7 +86,9 @@ async def test_owner_is_approver_by_default_and_appoints_others(auth_client, cli
 
     # Now that user can approve (and see the report).
     ok = await client.post(
-        f"/api/v1/expenses/{rid}/decision", json={"action": "approve"}, headers=_h(tok)
+        f"/api/v1/expenses/{rid}/decision",
+        json={"action": "approve", "version": 1},
+        headers=_h(tok),
     )
     assert ok.status_code == 200 and ok.json()["status"] == "approved"
 
@@ -99,12 +103,16 @@ async def test_cannot_approve_own_report(auth_client, client):
     # The owner (an approver) submits their own report → cannot self-approve.
     rid = (await auth_client.post("/api/v1/expenses", json=_payload())).json()["id"]
     await _complete_and_submit(auth_client, rid, {})
-    mine = await auth_client.post(f"/api/v1/expenses/{rid}/decision", json={"action": "approve"})
+    mine = await auth_client.post(
+        f"/api/v1/expenses/{rid}/decision", json={"action": "approve", "version": 1}
+    )
     assert mine.status_code == 403 and "own" in mine.json()["detail"]
     # But the other approver can.
     assert (
         await client.post(
-            f"/api/v1/expenses/{rid}/decision", json={"action": "approve"}, headers=_h(tok)
+            f"/api/v1/expenses/{rid}/decision",
+            json={"action": "approve", "version": 1},
+            headers=_h(tok),
         )
     ).status_code == 200
 

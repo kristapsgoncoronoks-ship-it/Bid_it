@@ -74,7 +74,9 @@ async def _approved(auth_client, client, emp, title="Trip", amount="300.00"):
     rid = await _draft(client, emp, title, amount)
     await _complete(client, rid, emp)
     assert (await client.post(f"/api/v1/expenses/{rid}/submit", headers=_h(emp))).status_code == 200
-    dec = await auth_client.post(f"/api/v1/expenses/{rid}/decision", json={"action": "approve"})
+    dec = await auth_client.post(
+        f"/api/v1/expenses/{rid}/decision", json={"action": "approve", "version": 1}
+    )
     assert dec.status_code == 200 and dec.json()["status"] == "approved"
     return rid
 

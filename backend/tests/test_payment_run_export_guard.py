@@ -285,7 +285,9 @@ async def test_reimbursement_batch_applies_the_same_rules(auth_client, client, d
             await client.post(f"/api/v1/expenses/{rid}/submit", headers=_h(emp))
         ).status_code == 200
         assert (
-            await auth_client.post(f"/api/v1/expenses/{rid}/decision", json={"action": "approve"})
+            await auth_client.post(
+                f"/api/v1/expenses/{rid}/decision", json={"action": "approve", "version": 1}
+            )
         ).status_code == 200
         return rid
 

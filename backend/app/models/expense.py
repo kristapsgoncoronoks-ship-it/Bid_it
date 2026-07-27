@@ -82,6 +82,13 @@ class ExpenseReport(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     decided_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
     decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Optimistic concurrency (R4): bumped on every /decision call (approve/reject/
+    # return_for_correction/mark_for_reimbursement/mark_reimbursed — one handler, one
+    # lock, one counter). The client sends back the version it read; a stale value is
+    # refused 409 by the route, and the row is loaded FOR UPDATE so two genuinely
+    # concurrent decisions on the same pending step can't both succeed (mirrors
+    # Invoice.version / ReimbursementBatch.version).
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
 
     # Reimbursement (Phase 09): payment metadata recorded when the report is paid,
     # and an optional link to the payout batch it was paid in. `payout_batch_id`
