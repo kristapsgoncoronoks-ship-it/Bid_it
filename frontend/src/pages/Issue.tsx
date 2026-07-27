@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, apiError, downloadFile, openFile } from "../lib/api";
+import { ConfirmDialog } from "../components/ui";
 import { ISSUED_STATUS_LABELS, ISSUED_STATUS_STYLES, money, shortDate } from "../lib/format";
 import { useModules } from "../lib/useModules";
 import type {
@@ -307,9 +308,15 @@ function CreditAction({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void 
 
 function VoidAction({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void }) {
   const [err, setErr] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [reason, setReason] = useState("");
   const doVoid = useMutation({
-    mutationFn: async (reason: string) => (await api.post(`/issued/${inv.id}/void`, { reason })).data,
-    onSuccess: onDone,
+    mutationFn: async (r: string) => (await api.post(`/issued/${inv.id}/void`, { reason: r })).data,
+    onSuccess: () => {
+      setConfirmOpen(false);
+      setReason("");
+      onDone();
+    },
     onError: (e) => setErr(apiError(e)),
   });
   // Only an unpaid, un-credited standard invoice can be voided.
@@ -327,13 +334,35 @@ function VoidAction({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void })
         disabled={doVoid.isPending}
         title="Cancel (void) this unpaid invoice"
         onClick={() => {
-          const reason = window.prompt(`Void invoice ${inv.number}? Optional reason:`);
-          if (reason !== null) doVoid.mutate(reason);
+          setErr(null);
+          setReason("");
+          setConfirmOpen(true);
         }}
       >
         Void
       </button>
       {err && <span className="text-xs text-rose-500">{err}</span>}
+      <ConfirmDialog
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={() => doVoid.mutate(reason)}
+        title={`Void invoice ${inv.number}?`}
+        confirmLabel="Void invoice"
+        tone="danger"
+        loading={doVoid.isPending}
+      >
+        <p>
+          This permanently cancels the invoice — it stops being a live receivable and this
+          cannot be undone.
+        </p>
+        <label className="label mt-3 block">Reason (optional)</label>
+        <input
+          className="input"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Why is this being voided?"
+        />
+      </ConfirmDialog>
     </div>
   );
 }
@@ -388,6 +417,8 @@ function DraftActions({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void 
 // Post-issue receivable workflow: flag/resolve a dispute, or write off bad debt.
 function DisputeActions({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void }) {
   const [err, setErr] = useState<string | null>(null);
+  const [writeOffOpen, setWriteOffOpen] = useState(false);
+  const [writeOffReason, setWriteOffReason] = useState("");
   const dispute = useMutation({
     mutationFn: async (reason: string) => (await api.post(`/issued/${inv.id}/dispute`, { reason })).data,
     onSuccess: onDone,
@@ -400,7 +431,11 @@ function DisputeActions({ inv, onDone }: { inv: IssuedInvoice; onDone: () => voi
   });
   const writeOff = useMutation({
     mutationFn: async (reason: string) => (await api.post(`/issued/${inv.id}/write-off`, { reason })).data,
-    onSuccess: onDone,
+    onSuccess: () => {
+      setWriteOffOpen(false);
+      setWriteOffReason("");
+      onDone();
+    },
     onError: (e) => setErr(apiError(e)),
   });
   return (
@@ -432,13 +467,35 @@ function DisputeActions({ inv, onDone }: { inv: IssuedInvoice; onDone: () => voi
         disabled={writeOff.isPending}
         title="Write off as bad debt (no longer collectible)"
         onClick={() => {
-          const r = window.prompt("Write off this invoice as bad debt? Reason (optional):");
-          if (r !== null) writeOff.mutate(r);
+          setErr(null);
+          setWriteOffReason("");
+          setWriteOffOpen(true);
         }}
       >
         Write off
       </button>
       {err && <span className="text-xs text-rose-500">{err}</span>}
+      <ConfirmDialog
+        open={writeOffOpen}
+        onClose={() => setWriteOffOpen(false)}
+        onConfirm={() => writeOff.mutate(writeOffReason)}
+        title={`Write off invoice ${inv.number}?`}
+        confirmLabel="Write off as bad debt"
+        tone="danger"
+        loading={writeOff.isPending}
+      >
+        <p>
+          This marks the invoice as uncollectible bad debt — it stays in the audit trail but is
+          removed from active receivables tracking.
+        </p>
+        <label className="label mt-3 block">Reason (optional)</label>
+        <input
+          className="input"
+          value={writeOffReason}
+          onChange={(e) => setWriteOffReason(e.target.value)}
+          placeholder="Why is this being written off?"
+        />
+      </ConfirmDialog>
     </div>
   );
 }
