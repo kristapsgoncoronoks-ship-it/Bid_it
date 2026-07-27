@@ -33,7 +33,7 @@ module goes live with a real vendor.
 | ID | Item | Priority |
 |---|---|---|
 | R4 | Expense-approval decision has no optimistic-concurrency/row lock | **P1** — CLOSED (WO-30) |
-| R5 | Self-serve billing collects no real payment; Enterprise tier self-upgradable for free | **P1** |
+| R5 | Self-serve billing collects no real payment; Enterprise tier self-upgradable for free | **P1** — (b) CLOSED (WO-31), (a) still open |
 | R6 | Reimbursement payout has no maker≠checker (SoD) control | **P2** |
 | R7 | ClamAV fail-closed malware-scan branch has zero test coverage | **P2** |
 | R14 | No application-owned backup/restore tooling exists | **P2** |
@@ -273,13 +273,25 @@ purchase path until R5 is closed.
   scoped; (b) can proceed independently and immediately.
 - **Acceptance criteria:**
   1. `change_plan`'s guard blocks a self-service switch to any plan with `price_eur is None` unconditionally
-     (not gated on `billing_enabled`).
+     (not gated on `billing_enabled`). — **DONE (WO-31)**
   2. A new test (extending `test_billing_stripe.py`) asserts an org owner cannot self-upgrade to Enterprise
      via `PUT /billing/plan` in both the `billing_enabled=True` and `billing_enabled=False` configurations.
+     — **DONE (WO-31):** `test_enterprise_self_upgrade_blocked_billing_disabled` /
+     `test_enterprise_self_upgrade_blocked_billing_enabled`.
   3. `docs/architecture/adr/0013-billing-metering.md` is updated to record the resolved GTM decision (wire
-     billing before GA vs. manually invoice pilots) and the Enterprise-tier gating fix.
+     billing before GA vs. manually invoice pilots) and the Enterprise-tier gating fix. — **PARTIAL:** the
+     Enterprise-tier gating fix is recorded (WO-31); the GTM decision itself is **not** resolved by this
+     work order — it stays open in `docs/DECISIONS-NEEDED.md` item 2, and the ADR says so explicitly rather
+     than fabricating a resolution.
   4. `Billing.tsx` UX matches the resolved decision (e.g. "Contact sales" replaces a bare "Switch to
-     Enterprise" button when `price_eur is None`).
+     Enterprise" button when `price_eur is None`). — **DONE (WO-31):** a disabled "Contact sales" control
+     replaces the active switch button for any `price_eur === null` plan, independent of the GTM decision.
+- **Closed (partial):** `docs/plan/plan-a/wo/WO-31-R5b.md`. Part (b) — the engineering half, items 1/2/4
+  above — is fully closed: `backend/app/api/routes/billing.py::change_plan` now raises 409 unconditionally
+  for any `price_eur is None` target before the existing `billing_enabled` paid-plan check runs, so the two
+  guards can never interact to produce a free self-upgrade; `Billing.tsx` never offers an actionable switch
+  for such a plan. Part (a) — the GTM/business decision — remains open, tracked only in
+  `docs/DECISIONS-NEEDED.md` item 2 ("Billing go-live"); **R5 as a whole stays open** until (a) is decided.
 
 ---
 
