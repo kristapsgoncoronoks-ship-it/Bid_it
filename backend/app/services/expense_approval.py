@@ -12,7 +12,7 @@ import json
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.expense import ExpenseReport
@@ -198,6 +198,21 @@ def skip_pending(steps: list[ExpenseApprovalStep]) -> None:
     for s in steps:
         if s.status == STEP_PENDING:
             s.status = STEP_SKIPPED
+
+
+async def pending_report_count(db: AsyncSession, org_id: str) -> int:
+    """Org-wide count of expense reports awaiting a decision (status
+    ``submitted``). The single definition behind BOTH ``/expenses/summary``'s
+    ``pending_approvals`` and the composed home dashboard (WO-16) — the caller
+    decides who may see it (an oversee/approve gate), this only counts."""
+    return int(
+        await db.scalar(
+            select(func.count()).where(
+                ExpenseReport.org_id == org_id, ExpenseReport.status == "submitted"
+            )
+        )
+        or 0
+    )
 
 
 def decide_step(step: ExpenseApprovalStep, user, *, approved: bool, note: str | None) -> None:

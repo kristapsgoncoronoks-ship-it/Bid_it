@@ -22,10 +22,12 @@ lock is handled separately in `invoice_workflow.assert_version`.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.approval import (
     KIND_APPROVER,
@@ -203,3 +205,80 @@ def skip_pending(steps: list[ApprovalStep]) -> None:
     for s in steps:
         if s.status == STEP_PENDING:
             s.status = STEP_SKIPPED
+
+
+# --------------------------------------------------------------------------- #
+# Cross-invoice inbox (WO-16 / I1.1)
+# --------------------------------------------------------------------------- #
+
+# Workflow states in which an approval chain is live (a pending step is actionable).
+_IN_APPROVAL_STATES = (WorkflowState.submitted, WorkflowState.partially_approved)
+
+
+@dataclass
+class ApInboxItem:
+    """One supplier invoice whose CURRENT approval step awaits the given user."""
+
+    invoice_id: str
+    invoice_number: str
+    vendor_name: str | None
+    total: Decimal
+    currency: str
+
+
+async def waiting_for(
+    db: AsyncSession,
+    org_id: str,
+    *,
+    user_id: str,
+    can_approve_any: bool,
+    limit: int = 10,
+) -> list[ApInboxItem]:
+    """The canonical "AP approvals waiting on me" inbox (the composed home
+    dashboard projects this — ADR-0023: one query, never re-derived elsewhere).
+
+    An invoice counts only when its CURRENT step (lowest ``seq`` still pending —
+    a later pending step of the chain is not yet actionable) is either assigned
+    to ``user_id`` or open (``approver_id IS NULL``) while the caller holds
+    INVOICE_APPROVE (``can_approve_any``). Invoices the user submitted are
+    EXCLUDED — segregation of duties (§4.8) forbids acting on them (parity with
+    the route's ``_guard_decider``), so counting them would invite a forbidden
+    action. Newest submissions first; read-only, mutates nothing.
+    """
+    rows = await db.execute(
+        select(ApprovalStep, Invoice)
+        .join(Invoice, Invoice.id == ApprovalStep.invoice_id)
+        .where(
+            ApprovalStep.org_id == org_id,
+            Invoice.org_id == org_id,
+            ApprovalStep.status == STEP_PENDING,
+            Invoice.workflow_state.in_(_IN_APPROVAL_STATES),
+        )
+        .options(selectinload(Invoice.vendor))
+        .order_by(Invoice.submitted_at.desc().nulls_last(), ApprovalStep.seq.asc())
+    )
+    current: dict[str, tuple[ApprovalStep, Invoice]] = {}
+    for step, inv in rows:
+        kept = current.get(inv.id)
+        if kept is None or step.seq < kept[0].seq:
+            current[inv.id] = (step, inv)
+    items: list[ApInboxItem] = []
+    for step, inv in current.values():
+        if inv.submitted_by and inv.submitted_by == user_id:
+            continue  # SoD: the submitter can never decide their own invoice
+        mine = step.approver_id == user_id
+        open_to_me = step.approver_id is None and can_approve_any
+        if not (mine or open_to_me):
+            continue
+        items.append(
+            ApInboxItem(
+                invoice_id=inv.id,
+                invoice_number=inv.invoice_number,
+                vendor_name=inv.vendor.name if inv.vendor else None,
+                total=Decimal(inv.total),
+                currency=inv.currency,
+            )
+        )
+        if len(items) >= limit:
+            break
+    return items

@@ -10,6 +10,7 @@ from app.api.routes import (
     costing,
     currencies,
     customers,
+    dashboard,
     documents,
     dunning,
     email,
@@ -43,6 +44,7 @@ from app.api.routes import (
 
 api_router = APIRouter()
 api_router.include_router(auth.router)
+api_router.include_router(dashboard.router)
 api_router.include_router(vendors.router)
 api_router.include_router(invoices.router)
 api_router.include_router(invoice_review.router)

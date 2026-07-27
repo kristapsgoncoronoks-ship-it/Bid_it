@@ -14,7 +14,7 @@ import io
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -185,6 +185,26 @@ async def payable_invoices(db: AsyncSession, org_id: str) -> list[Invoice]:
             .options(selectinload(Invoice.vendor))
             .order_by(Invoice.due_date.asc())
         )
+    )
+
+
+async def runs_awaiting_check(db: AsyncSession, org_id: str, *, checker_id: str) -> int:
+    """Open runs awaiting a second pair of eyes, EXCLUDING runs the checker made
+    (maker≠checker, §4.8 — `_sod_conflict` would refuse their approval, so the
+    dashboard must not count them toward "waiting on me"). A legacy run with no
+    recorded `created_by_id` counts: the id-based exclusion cannot prove the
+    caller made it, and the email-based SoD check still guards the action itself
+    (fail toward showing work, never toward permitting it). Canonical read for
+    the composed home dashboard (WO-16)."""
+    return int(
+        await db.scalar(
+            select(func.count()).where(
+                PaymentRun.org_id == org_id,
+                PaymentRun.status == RUN_OPEN,
+                or_(PaymentRun.created_by_id.is_(None), PaymentRun.created_by_id != checker_id),
+            )
+        )
+        or 0
     )
 
 

@@ -255,6 +255,10 @@ async def list_invoices(
     validation_status: str | None = Query(
         default=None, description="none|passed|flagged|pending|approved|rejected"
     ),
+    workflow_state: str | None = Query(
+        default=None,
+        description="a WorkflowState value, or `in_approval` = submitted|partially_approved",
+    ),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
 ):
@@ -265,6 +269,23 @@ async def list_invoices(
         filters.append(Invoice.status == status_)
     if validation_status:
         filters.append(Invoice.validation_status == validation_status)
+    if workflow_state:
+        # `in_approval` is a virtual alias so the dashboard's approvals tile can
+        # deep-link ONE worklist covering both live-chain states (WO-16).
+        if workflow_state == "in_approval":
+            filters.append(
+                Invoice.workflow_state.in_(
+                    (WorkflowState.submitted, WorkflowState.partially_approved)
+                )
+            )
+        else:
+            try:
+                filters.append(Invoice.workflow_state == WorkflowState(workflow_state))
+            except ValueError:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    "Unknown workflow_state filter.",
+                ) from None
     if start:
         filters.append(Invoice.issue_date >= start)
     if end:
@@ -340,11 +361,8 @@ async def capture_review_queue(
     Field counts include LINE-scoped rows (E1.2). Deterministic line captures
     contribute zero flags (see extraction_provider._line_flag); OCR/text captures
     flag their genuinely-uncertain cells — so the count stays a signal."""
-    base = select(ExtractionRun).where(
-        ExtractionRun.org_id == current.org_id,
-        ExtractionRun.status == "parsed",
-        ExtractionRun.invoice_id.is_(None),
-    )
+    # One queue definition (WO-16): the dashboard's counts use the same filter.
+    base = select(ExtractionRun).where(*extraction.pending_review_filters(current.org_id))
     total = await db.scalar(select(func.count()).select_from(base.subquery()))
     runs = list(
         await db.scalars(

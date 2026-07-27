@@ -72,6 +72,10 @@ class InvoiceOut(DimensionFields):
     fx_rate: Decimal | None = None
     fx_source: str | None = None
     validation_status: str = "none"
+    # AP review-&-approval lifecycle state (additive on the LIST shape, WO-16 —
+    # the approvals worklist filter renders it; the detail shape already carried
+    # it since Phase 13, same `str | None` type).
+    workflow_state: str | None = None
     source_filename: str | None
 
 
@@ -83,7 +87,7 @@ class InvoiceDetailOut(InvoiceOut):
     validated_by: str | None = None
     validated_at: datetime | None = None
     # AP settlement (Phase 13). `payment_status` is derived (paid/partial/open/overdue).
-    workflow_state: str | None = None
+    # (`workflow_state` moved to the InvoiceOut base — WO-16, same type/default.)
     amount_paid: Decimal = Decimal("0")
     paid_date: date | None = None
     outstanding: Decimal = Decimal("0")

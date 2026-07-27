@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import bank_id
@@ -271,6 +271,23 @@ async def list_change_requests(
         stmt = stmt.where(VendorChangeRequest.status == status)
     rows = await db.execute(stmt)
     return [(req, name) for req, name in rows.all()]
+
+
+async def pending_change_count(db: AsyncSession, org_id: str, *, exclude_requester_id: str) -> int:
+    """Pending protected-field change requests awaiting a decision, excluding the
+    caller's own (maker≠checker: `approve_change` refuses `maker_is_checker`, so
+    their own requests are not actionable by them — §4.8). Canonical read for the
+    composed home dashboard (WO-16)."""
+    return int(
+        await db.scalar(
+            select(func.count()).where(
+                VendorChangeRequest.org_id == org_id,
+                VendorChangeRequest.status == CR_PENDING,
+                VendorChangeRequest.requested_by != exclude_requester_id,
+            )
+        )
+        or 0
+    )
 
 
 async def pending_requests_for(

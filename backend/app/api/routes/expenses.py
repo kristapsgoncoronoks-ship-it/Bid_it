@@ -408,14 +408,8 @@ async def summary(current: CurrentUser, db: DbSession):
     ) or Decimal("0")
     pending = 0
     if _can_oversee(current):
-        pending = (
-            await db.scalar(
-                select(func.count()).where(
-                    ExpenseReport.org_id == current.org_id, ExpenseReport.status == "submitted"
-                )
-            )
-            or 0
-        )
+        # One definition (WO-16): the dashboard projects this same count.
+        pending = await expense_approval.pending_report_count(db, current.org_id)
 
     cat_rows = (
         await db.execute(

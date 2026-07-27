@@ -7,10 +7,11 @@ invoice when the reviewed draft is saved. Tenant-scoped by the caller's `org_id`
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 from typing import cast
 
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import CursorResult, select, update
+from sqlalchemy import CursorResult, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.extraction_field import ExtractionField
@@ -52,6 +53,52 @@ async def record_fields(db: AsyncSession, org_id: str, run_id: str, fields) -> N
         )
     if fields:
         await db.commit()
+
+
+def pending_review_filters(org_id: str) -> tuple:
+    """THE definition of "a capture pending human review": parsed, not yet saved
+    to an invoice. Both the review-queue route and the composed home dashboard
+    build their queries from this one tuple (WO-16) — two hand-written copies of
+    the filter would be exactly the drift ADR-0023's projection rule forbids."""
+    return (
+        ExtractionRun.org_id == org_id,
+        ExtractionRun.status == "parsed",
+        ExtractionRun.invoice_id.is_(None),
+    )
+
+
+@dataclass
+class ReviewQueueSummary:
+    """Roll-up of the capture review queue (counts only, no amounts)."""
+
+    pending: int
+    low_confidence_fields: int
+
+
+async def review_queue_summary(db: AsyncSession, org_id: str) -> ReviewQueueSummary:
+    """Counts for the composed home dashboard: how many captures await review,
+    and how many captured fields across them are flagged low-confidence (the
+    same `ExtractionField.low_confidence` flag the queue lists per item)."""
+    pending = int(
+        await db.scalar(
+            select(func.count()).select_from(ExtractionRun).where(*pending_review_filters(org_id))
+        )
+        or 0
+    )
+    low = int(
+        await db.scalar(
+            select(func.count())
+            .select_from(ExtractionField)
+            .join(ExtractionRun, ExtractionRun.id == ExtractionField.extraction_run_id)
+            .where(
+                ExtractionField.org_id == org_id,
+                ExtractionField.low_confidence.is_(True),
+                *pending_review_filters(org_id),
+            )
+        )
+        or 0
+    )
+    return ReviewQueueSummary(pending=pending, low_confidence_fields=low)
 
 
 async def fields_for_run(db: AsyncSession, org_id: str, run_id: str) -> list[ExtractionField]:
