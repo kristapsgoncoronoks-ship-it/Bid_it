@@ -3,6 +3,12 @@
 **Status:** Accepted (contexts + projection rules are in effect today; the transport
 vertical itself is future work — this ADR fixes its binding rules *before* it is built).
 Extends ADR-0001 (modular monolith), ADR-0004 (tenant isolation).
+The Insight projection rule has its first composed endpoint: the home dashboard
+(`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
+canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,
+`payment_run.runs_awaiting_check`, `vendors.pending_change_count`,
+`extraction.review_queue_summary`, `ap_aging`, `issued_reports`, `cash_position`),
+owns no tables and adds no arithmetic on amounts.
 
 ## Context
 

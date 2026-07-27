@@ -484,6 +484,8 @@ export interface Invoice extends Dimensions {
   total: string;
   total_eur?: string | null;
   validation_status: ValidationStatus;
+  /** AP review-&-approval lifecycle state (WO-16 — the approvals worklist). */
+  workflow_state?: string | null;
   source_filename: string | null;
 }
 
@@ -1409,4 +1411,62 @@ export interface DocumentEntry {
   filename: string | null;
   uploaded_by: string | null;
   created_at: string;
+}
+
+// --- Composed home dashboard (WO-16 / I1.1) --------------------------------
+// Sections are null when the caller lacks that surface's permission (or its
+// module is off) — the SPA hides the card; it never fans out N calls.
+
+export interface DashboardApInboxItem {
+  invoice_id: string;
+  invoice_number: string;
+  vendor_name: string | null;
+  total: string;
+  currency: string;
+}
+
+export interface DashboardApprovals {
+  invoices: DashboardApInboxItem[] | null;
+  invoice_count: number | null;
+  expense_reports: number | null;
+  payment_runs: number | null;
+  vendor_changes: number | null;
+  total: number;
+}
+
+export interface DashboardCaptures {
+  pending: number;
+  low_confidence_fields: number;
+}
+
+export interface DashboardPayables {
+  currency: string;
+  due_soon_count: number;
+  due_soon_amount: string;
+  overdue_count: number;
+  overdue_amount: string;
+  other_currencies: string[];
+}
+
+export interface DashboardReceivables {
+  currency: string;
+  outstanding: string;
+  overdue: string;
+  avg_days_to_pay: number | null;
+}
+
+export interface DashboardCash {
+  currency: string;
+  receivables_outstanding: string;
+  payables_outstanding: string;
+  net_position: string;
+}
+
+export interface DashboardData {
+  as_of: string;
+  approvals: DashboardApprovals | null;
+  captures: DashboardCaptures | null;
+  payables: DashboardPayables | null;
+  receivables: DashboardReceivables | null;
+  cash: DashboardCash | null;
 }
