@@ -34,7 +34,7 @@ module goes live with a real vendor.
 |---|---|---|
 | R4 | Expense-approval decision has no optimistic-concurrency/row lock | **P1** — CLOSED (WO-30) |
 | R5 | Self-serve billing collects no real payment; Enterprise tier self-upgradable for free | **P1** — (b) CLOSED (WO-31), (a) still open |
-| R6 | Reimbursement payout has no maker≠checker (SoD) control | **P2** |
+| R6 | Reimbursement payout has no maker≠checker (SoD) control | **P2** — CLOSED (WO-32) |
 | R7 | ClamAV fail-closed malware-scan branch has zero test coverage | **P2** |
 | R14 | No application-owned backup/restore tooling exists | **P2** |
 | R16 | AR "Issue" screen: destructive actions (Void/Write off) have no confirmation | **P2** |
@@ -297,13 +297,27 @@ purchase path until R5 is closed.
 
 ## P2 items — brief detail
 
-### R6 — Reimbursement payout has no maker≠checker (SoD) control
+### R6 — Reimbursement payout has no maker≠checker (SoD) control — **CLOSED (WO-32)**
 Evidence: `functional-audit.md` §2.2. The same `EXPENSE_APPROVE` account that calls `create_batch` can
 immediately call `pay_batch` alone, unlike `payment_run`'s explicit `_enforce_sod`. Fix: add an
 `_enforce_sod`-style check to `reimbursement.mark_paid` (payer ≠ batch creator), mirroring the payment-run
 precedent, or explicitly document the accepted-risk asymmetry in an ADR. Risk of fix: low, follows an
 established pattern. Acceptance: a reimbursement batch's creator cannot also be its payer; a test proves it
 (mirroring `test_payment_runs_sod.py`).
+- **Closed by:** `docs/plan/plan-a/wo/WO-32-R6.md`. `ReimbursementBatch` gained `created_by_id`
+  (migration `07a09c738fab`, additive column, no new RLS policy needed); `reimbursement.py` gained
+  `_sod_conflict`/`_enforce_sod` (single "creator" role — batches have no separate approval stage),
+  called from `mark_paid` before settlement — a conflict raises `AppError` 403 `code="maker_is_checker"`,
+  mirroring `payment_run.py::_enforce_sod` exactly, including the audited, explicit platform-admin
+  override (`override_sod=true` → `audit.A.REIMBURSE_SOD_OVERRIDE`, never silent). `BatchPay` gained an
+  additive `override_sod` field; the route wires `actor_id`/`actor_email`/`is_platform_admin` through.
+  Red-then-green: `tests/test_reimbursement_sod.py::test_creator_cannot_mark_batch_paid` and
+  `::test_platform_admin_override_is_audited` failed against the pre-fix code (200 instead of 403) and
+  pass after. Three pre-existing tests had the batch's creator also pay it (the exact bug closed here) and
+  were raised to a second admin-role payer per master-context §9:
+  `test_reimbursement.py::test_batch_pay_marks_reports_reimbursed`, `::test_pay_is_version_guarded`, and
+  `test_expense_management.py::test_marked_for_reimbursement_report_is_batchable`. Full backend suite:
+  1107 passed, 8 skipped (baseline was 1104 passed, 8 skipped — +3 new SoD tests).
 
 ### R7 — ClamAV fail-closed malware-scan branch has zero test coverage
 Evidence: `test-baseline.md` finding #1; debate-adjusted P2 (`agent-debate.md` §7) — control behaves
