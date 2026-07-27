@@ -31,51 +31,98 @@ ECB_90D_URL = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist-90d.xml"
 
 
 # --------------------------------------------------------------------------- #
-# European currency registry — every European currency, valued against the EUR.
-# `ecb=True` currencies are published in the ECB daily reference feed (kept live
-# by refresh_from_ecb). `ecb=False` currencies are NOT in the ECB feed (Balkans,
-# Eastern-Europe/Caucasus neighbours); we carry an INDICATIVE EUR rate for them so
-# the module still converts every European currency — flagged approximate.
+# THE currency-identity registry (C1.5, WO-23) — the ONE place a currency's
+# name/symbol/decimal-places/ECB-published-ness is typed in. `services/
+# currencies.py` (the per-tenant catalogue behind `/currencies`) derives its
+# default seed FROM this module rather than keeping its own copy, so the
+# tenant catalogue and the FX module cannot disagree about what a currency is
+# (ADR-0026). `ecb=True` currencies are published in the ECB daily reference
+# feed (kept live by refresh_from_ecb). `ecb=False` currencies are NOT in the
+# ECB feed (Balkans, Eastern-Europe/Caucasus neighbours); we carry an
+# INDICATIVE EUR rate for them so the module still converts every European
+# currency — flagged approximate. `symbol`/`decimal_places` are DISPLAY
+# metadata only (storage stays `Numeric(14,2)` everywhere, per
+# `models/currency.py`) and default to `None`/2 for codes the tenant seed
+# never surfaces, since only the seeded set needs a curated symbol.
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class Currency:
     code: str
     name: str
     ecb: bool  # published in the ECB reference feed
+    symbol: str | None = None
+    decimal_places: int = 2
 
 
 EUROPEAN_CURRENCIES: tuple[Currency, ...] = (
-    Currency("EUR", "Euro", True),
+    Currency("EUR", "Euro", True, symbol="€"),
     # EU / EEA / EFTA + UK — all in the ECB reference feed.
-    Currency("BGN", "Bulgarian lev", True),
-    Currency("CZK", "Czech koruna", True),
-    Currency("DKK", "Danish krone", True),
-    Currency("GBP", "Pound sterling", True),
-    Currency("HUF", "Hungarian forint", True),
-    Currency("PLN", "Polish złoty", True),
-    Currency("RON", "Romanian leu", True),
-    Currency("SEK", "Swedish krona", True),
-    Currency("CHF", "Swiss franc", True),
-    Currency("ISK", "Icelandic króna", True),
-    Currency("NOK", "Norwegian krone", True),
-    Currency("TRY", "Turkish lira", True),
+    Currency("BGN", "Bulgarian Lev", True),
+    Currency("CZK", "Czech Koruna", True),
+    Currency("DKK", "Danish Krone", True),
+    Currency("GBP", "Pound Sterling", True, symbol="£"),
+    Currency("HUF", "Hungarian Forint", True),
+    Currency("PLN", "Polish Złoty", True),
+    Currency("RON", "Romanian Leu", True),
+    Currency("SEK", "Swedish Krona", True),
+    Currency("CHF", "Swiss Franc", True),
+    Currency("ISK", "Icelandic Króna", True),
+    Currency("NOK", "Norwegian Krone", True),
+    Currency("TRY", "Turkish Lira", True),
     # Wider Europe — NOT in the ECB feed → indicative EUR rate.
-    Currency("RSD", "Serbian dinar", False),
-    Currency("BAM", "Bosnia-Herzegovina convertible mark", False),
-    Currency("MKD", "Macedonian denar", False),
-    Currency("ALL", "Albanian lek", False),
-    Currency("MDL", "Moldovan leu", False),
-    Currency("UAH", "Ukrainian hryvnia", False),
-    Currency("GEL", "Georgian lari", False),
-    Currency("AMD", "Armenian dram", False),
-    Currency("AZN", "Azerbaijani manat", False),
-    Currency("BYN", "Belarusian ruble", False),
-    Currency("RUB", "Russian ruble", False),
-    Currency("GIP", "Gibraltar pound", False),
+    Currency("RSD", "Serbian Dinar", False),
+    Currency("BAM", "Bosnia-Herzegovina Convertible Mark", False),
+    Currency("MKD", "Macedonian Denar", False),
+    Currency("ALL", "Albanian Lek", False),
+    Currency("MDL", "Moldovan Leu", False),
+    Currency("UAH", "Ukrainian Hryvnia", False),
+    Currency("GEL", "Georgian Lari", False),
+    Currency("AMD", "Armenian Dram", False),
+    Currency("AZN", "Azerbaijani Manat", False),
+    Currency("BYN", "Belarusian Ruble", False),
+    Currency("RUB", "Russian Ruble", False),
+    Currency("GIP", "Gibraltar Pound", False),
 )
 EUROPEAN_BY_CODE: dict[str, Currency] = {c.code: c for c in EUROPEAN_CURRENCIES}
 # Currencies whose cached rate is indicative (never an official ECB reference).
 NON_ECB_EUROPEAN: frozenset[str] = frozenset(c.code for c in EUROPEAN_CURRENCIES if not c.ecb)
+
+# Global majors ECB does publish but that fall outside the "European currency"
+# scope this module otherwise limits itself to (EUROPEAN_CURRENCIES / the
+# `/fx/currencies?region=europe` endpoint stay Europe-only on purpose — these
+# are NOT added there). They already price via FALLBACK_RATES below; this
+# gives them a `Currency` identity entry too, matching the tenant catalogue's
+# pre-existing seed metadata exactly (name/symbol/decimal_places unchanged
+# for any org that already seeded USD/JPY).
+GLOBAL_MAJORS: tuple[Currency, ...] = (
+    Currency("USD", "US Dollar", True, symbol="$"),
+    Currency("JPY", "Japanese Yen", True, symbol="¥", decimal_places=0),
+    Currency("CAD", "Canadian Dollar", True),
+    Currency("AUD", "Australian Dollar", True),
+)
+
+# THE currency registry (C1.5): every currency this module has identity
+# metadata for, European or not. `services/currencies.py` seeds from this.
+ALL_CURRENCIES: tuple[Currency, ...] = EUROPEAN_CURRENCIES + GLOBAL_MAJORS
+CURRENCY_BY_CODE: dict[str, Currency] = {c.code: c for c in ALL_CURRENCIES}
+
+
+def indicative_for(code: str) -> bool | None:
+    """Currency-IDENTITY provenance for a single code (C1.5) — distinct from
+    `supported_currencies`' per-date `approximate` flag below (that answers
+    "was THIS resolved rate, on THIS date, an estimate"; this answers "is
+    THIS code's rate ever anything but an official ECB reference").
+
+    Returns `True` for a known, non-ECB-published currency (its cached rate
+    is always an estimate); `False` for a known, ECB-published currency;
+    `None` when `code` is outside the shared registry entirely — a
+    tenant-defined currency FX has no identity/rate provenance for at all
+    (its conversions already fail closed to `NULL` per §4.15 — this is
+    surfaced honestly as `null`, never guessed as `True` or `False`).
+    """
+    c = CURRENCY_BY_CODE.get(code.upper())
+    return None if c is None else not c.ecb
+
 
 # Bundled snapshot (units per 1 EUR), used when the live ECB feed is unreachable
 # AND as the standing indicative rate for the non-ECB European currencies. Values

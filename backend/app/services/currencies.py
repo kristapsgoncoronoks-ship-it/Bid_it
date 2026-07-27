@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.currency import Currency
-from app.services import audit
+from app.services import audit, fx
 
 
 class CurrencyError(Exception):
@@ -23,18 +23,22 @@ class ConcurrencyError(CurrencyError):
     """Optimistic-concurrency conflict: the row changed since it was read."""
 
 
-# (code, name, symbol, decimal_places) — a compact, realistic default set (the
-# euro-area home currency plus the majors the FX layer already handles).
-_STANDARD: tuple[tuple[str, str, str | None, int], ...] = (
-    ("EUR", "Euro", "€", 2),
-    ("USD", "US Dollar", "$", 2),
-    ("GBP", "Pound Sterling", "£", 2),
-    ("CHF", "Swiss Franc", None, 2),
-    ("SEK", "Swedish Krona", None, 2),
-    ("NOK", "Norwegian Krone", None, 2),
-    ("DKK", "Danish Krone", None, 2),
-    ("PLN", "Polish Zloty", None, 2),
-    ("JPY", "Japanese Yen", "¥", 0),
+# A compact, realistic default set (the euro-area home currency plus the
+# majors the FX layer already handles). C1.5 (WO-23): this module no longer
+# keeps its own copy of each code's name/symbol/decimal_places — those are
+# typed ONCE in `fx.CURRENCY_BY_CODE` (the one currency-identity registry) and
+# looked up here at seed time, so the tenant catalogue and the FX module
+# cannot disagree about what a currency is (ADR-0026).
+_STANDARD_CODES: tuple[str, ...] = (
+    "EUR",
+    "USD",
+    "GBP",
+    "CHF",
+    "SEK",
+    "NOK",
+    "DKK",
+    "PLN",
+    "JPY",
 )
 
 
@@ -126,10 +130,19 @@ async def seed_standard(db: AsyncSession, org_id: str) -> int:
     """Seed the default currency set for a tenant; skips any code already present
     (idempotent). Commits once. Returns how many were created."""
     made = 0
-    for code, name, symbol, dp in _STANDARD:
+    for code in _STANDARD_CODES:
         if await _code_taken(db, org_id, code):
             continue
-        db.add(Currency(org_id=org_id, code=code, name=name, symbol=symbol, decimal_places=dp))
+        meta = fx.CURRENCY_BY_CODE[code]
+        db.add(
+            Currency(
+                org_id=org_id,
+                code=code,
+                name=meta.name,
+                symbol=meta.symbol,
+                decimal_places=meta.decimal_places,
+            )
+        )
         made += 1
     if made:
         await db.commit()

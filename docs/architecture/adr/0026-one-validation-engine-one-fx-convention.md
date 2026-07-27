@@ -2,9 +2,10 @@
 
 **Status:** Accepted — validation engine and FX convention implemented (WO-7, WO-8);
 the dimension-registry unification implemented (board C1.6, WO-15); the
-currency-registry unification and multi-currency reporting remain **accepted but not
-yet implemented** (board C1.5, C1.7) — recorded here so the decision is not
-re-litigated when that work is scheduled. Extends ADR-0010.
+currency-registry unification implemented (board C1.5, WO-23); multi-currency
+reporting remains **accepted but not yet implemented** (board C1.7) — recorded
+here so the decision is not re-litigated when that work is scheduled. Extends
+ADR-0010.
 
 ## Context
 
@@ -44,9 +45,19 @@ prevent:
    `unknown` yields `NULL`, never a guessed number. A payout aggregate either uses a
    recorded EUR conversion or refuses, naming the line — a bank file never labels a
    foreign amount `EUR`. A daily scheduled job refreshes the ECB cache.
-3. **One currency registry** (accepted, not yet implemented — C1.5): the tenant
-   catalogue and the FX list must resolve through one registry so they cannot
-   disagree about what a currency is or whether it is active.
+3. **One currency registry** (implemented — C1.5, WO-23): the tenant catalogue
+   (`services/currencies.py`) and the FX list (`services/fx.py`) now resolve
+   currency identity (name, symbol, decimal places, ECB-published-ness)
+   through the same registry, `fx.CURRENCY_BY_CODE`/`fx.ALL_CURRENCIES` — the
+   tenant seed derives its metadata from it instead of keeping its own copy,
+   which had already drifted (`"Pound sterling"` vs `"Pound Sterling"`).
+   `fx.indicative_for(code)` gives every consumer a single source of
+   ECB-vs-indicative provenance; the tenant `/currencies` endpoint now
+   surfaces it (`CurrencyOut.indicative`) and agrees with `/fx/currencies`
+   for the same code
+   (`tests/test_currency_registry.py::test_indicative_agrees_across_currency_and_fx_endpoints`).
+   No migration: `Currency` (the tenant ORM model) gained no column —
+   `indicative` is derived at the API-response boundary, never stored.
 4. **One dimension registry** (implemented — C1.6, WO-15): Explore and the
    fixed reports read the same registry, `core/dimensions`. The Explore pivot
    derives the five cost-allocation dimensions from it (key, label, and the
@@ -68,7 +79,8 @@ prevent:
 - **Tolerate both FX conventions with a per-path flag** — rejected: a convention
   with two readings is not a convention; money invariant §4.15 admits one.
 - **Leave registries duplicated until a bug forces the issue** — rejected as a
-  *decision*; deferred as *work* (C1.5–C1.7) with the direction fixed here.
+  *decision*; deferred as *work* (C1.5–C1.7, now C1.7 only) with the direction
+  fixed here.
 
 ## Why appropriate
 
@@ -80,18 +92,20 @@ wrong-currency bug class into a refusal with a named cause.
 
 ## Risks
 
-- The accepted-not-yet-implemented items (C1.5, C1.7) can silently regress further
-  while open — mitigations: this ADR fixes the direction; the backlog entries carry
-  the acceptance criteria; new code touching currencies/dimensions must not add a
-  third registry (for dimensions this is now test-enforced:
-  `tests/test_dimension_registry.py::test_registry_parity_and_drift_detection`).
+- The remaining accepted-not-yet-implemented item (C1.7) can silently regress
+  further while open — mitigations: this ADR fixes the direction; the backlog
+  entry carries the acceptance criteria; new code touching currencies/
+  dimensions must not add a third registry — test-enforced for dimensions
+  (`tests/test_dimension_registry.py::test_registry_parity_and_drift_detection`)
+  and for currencies (`tests/test_currency_registry.py::test_no_duplicate_codes_in_registry`,
+  `::test_no_third_registry`).
 - Zero-tolerance blocking rules can frustrate capture of genuinely sloppy supplier
   PDFs — mitigation: the advisory family and capture review exist precisely to fix
   the data *before* submit.
 
 ## Revisit when
 
-C1.5/C1.7 are implemented (fold their outcome in here and mark them done, as was
-done for C1.6 in WO-15); a
-rule needs a third policy beyond `block | advise` (e.g. `warn-once`); or a non-EUR
-reporting pivot is required (ADR-0010's revisit trigger).
+C1.7 is implemented (fold its outcome in here and mark it done, as was done
+for C1.6 in WO-15 and C1.5 in WO-23); a rule needs a third policy beyond
+`block | advise` (e.g. `warn-once`); or a non-EUR reporting pivot is required
+(ADR-0010's revisit trigger).
