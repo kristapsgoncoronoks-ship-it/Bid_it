@@ -682,7 +682,9 @@ async def delete_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
 
 
 @router.post("/upload", response_model=UploadAccepted, status_code=status.HTTP_202_ACCEPTED)
-async def upload_invoice(current: CurrentUser, db: DbSession, file: UploadFile):
+async def upload_invoice(
+    current: CurrentUser, db: DbSession, file: UploadFile, override: bool = False
+):
     """Accept an uploaded supplier invoice (PDF / JPEG / PNG / XML / CSV / JSON) and
     QUEUE it for parsing (Stage B). Images and scanned PDFs go through OCR.
 
@@ -690,7 +692,10 @@ async def upload_invoice(current: CurrentUser, db: DbSession, file: UploadFile):
     CPU-heavy parse/OCR runs on the WORKER tier — so a burst of large uploads
     never ties up the API. Returns 202 + an `extraction_run_id`; poll
     GET /invoices/upload/{extraction_run_id} for the draft, then POST it to
-    /invoices to save."""
+    /invoices to save.
+
+    `override=true` bypasses the hash-based re-upload advisory (E1.3) — see
+    `extraction.check_duplicate_upload`."""
     # Metered usage: the acting role's monthly upload limit (0 = unlimited). Upload
     # is metered data capture, open to every tier (see create_invoice) — not gated.
     await access.enforce_upload_quota(db, current.org_id, current.role)
@@ -703,6 +708,10 @@ async def upload_invoice(current: CurrentUser, db: DbSession, file: UploadFile):
     except filesec.FileRejected as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
     sha = extraction.sha256_hex(content)
+    # Advisory re-upload guard (E1.3): blocks (409, code=duplicate_upload) on a
+    # byte-identical prior capture unless the caller explicitly overrides — before
+    # anything is stored, queued, or metered.
+    await extraction.check_duplicate_upload(db, current.org_id, sha, override=override)
     # Persist the original so the worker can parse it off-tier, then queue a run.
     await documents.store(
         documents.UPLOADS,

@@ -1,8 +1,15 @@
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, apiError } from "../lib/api";
+import { ConfirmDialog } from "../components/ui";
+import { api, apiError, apiErrorCode } from "../lib/api";
 import type { UploadAccepted } from "../lib/types";
+
+interface UploadArgs {
+  file: File;
+  /** Explicit escape hatch for the E1.3 hash-based re-upload advisory. */
+  override?: boolean;
+}
 
 /**
  * Pure upload surface. The parse/OCR runs on the worker tier: the POST returns
@@ -13,15 +20,29 @@ import type { UploadAccepted } from "../lib/types";
 export default function Upload() {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
+  // E1.3: a byte-identical prior upload is blocked (409, code=duplicate_upload)
+  // unless explicitly overridden — this holds the file + the server's message
+  // while the user decides.
+  const [duplicate, setDuplicate] = useState<{ file: File; message: string } | null>(null);
 
   const upload = useMutation({
-    mutationFn: async (file: File): Promise<UploadAccepted> => {
+    mutationFn: async ({ file, override }: UploadArgs): Promise<UploadAccepted> => {
       const form = new FormData();
       form.append("file", file);
-      return (await api.post<UploadAccepted>("/invoices/upload", form)).data;
+      const path = override ? "/invoices/upload?override=true" : "/invoices/upload";
+      return (await api.post<UploadAccepted>(path, form)).data;
     },
-    onSuccess: (accepted) => navigate(`/captures/${accepted.extraction_run_id}`),
-    onError: (e) => setError(apiError(e)),
+    onSuccess: (accepted) => {
+      setDuplicate(null);
+      navigate(`/captures/${accepted.extraction_run_id}`);
+    },
+    onError: (e, vars) => {
+      if (apiErrorCode(e) === "duplicate_upload") {
+        setDuplicate({ file: vars.file, message: apiError(e) });
+      } else {
+        setError(apiError(e));
+      }
+    },
   });
 
   return (
@@ -48,7 +69,8 @@ export default function Upload() {
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) upload.mutate(f);
+            if (f) upload.mutate({ file: f });
+            e.target.value = ""; // allow re-selecting the same file
           }}
         />
         <div className="text-slate-500">
@@ -72,6 +94,21 @@ export default function Upload() {
         </Link>
         .
       </p>
+
+      <ConfirmDialog
+        open={!!duplicate}
+        onClose={() => setDuplicate(null)}
+        onConfirm={() => {
+          const d = duplicate!;
+          upload.mutate({ file: d.file, override: true });
+        }}
+        title="You already uploaded this file"
+        confirmLabel="Upload anyway"
+        tone="danger"
+        loading={upload.isPending}
+      >
+        {duplicate && <p className="text-sm text-slate-600">{duplicate.message}</p>}
+      </ConfirmDialog>
     </div>
   );
 }

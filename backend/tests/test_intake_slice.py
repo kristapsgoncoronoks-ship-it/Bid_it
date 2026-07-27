@@ -105,7 +105,16 @@ async def test_repeated_upload_dedups_and_is_idempotent(auth_client, db_session)
     org = await _org_id(auth_client)
 
     r1 = await auth_client.post("/api/v1/invoices/upload", files=_file("a.csv", data, "text/csv"))
-    r2 = await auth_client.post("/api/v1/invoices/upload", files=_file("a.csv", data, "text/csv"))
+    # E1.3: a second byte-identical upload is now an advisory re-upload guard —
+    # override=true is the explicit escape hatch (see test_duplicate_upload_*
+    # below for the guard itself). Passing it here preserves this test's original
+    # purpose: storage dedups and the job-enqueue key is idempotent, regardless of
+    # how many ExtractionRun rows exist.
+    r2 = await auth_client.post(
+        "/api/v1/invoices/upload",
+        files=_file("a.csv", data, "text/csv"),
+        params={"override": "true"},
+    )
     assert r1.status_code == 202 and r2.status_code == 202
 
     # The original bytes are stored ONCE (content-addressed dedup), even though two
@@ -138,6 +147,112 @@ async def test_repeated_upload_dedups_and_is_idempotent(auth_client, db_session)
         idempotency_key="upload-extract:x",
     )
     assert j1.id == j2.id
+
+
+# --------------------------------------------------------------------------- #
+# 1b. Hash-based re-upload detection (E1.3) — advisory, overridable
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_duplicate_upload_blocked_without_override(auth_client, db_session):
+    data = b"description,quantity,unit_price,invoice_number\nA,1,10,INV-DUP2\n"
+    org = await _org_id(auth_client)
+
+    r1 = await auth_client.post("/api/v1/invoices/upload", files=_file("a.csv", data, "text/csv"))
+    assert r1.status_code == 202
+
+    r2 = await auth_client.post("/api/v1/invoices/upload", files=_file("a.csv", data, "text/csv"))
+    assert r2.status_code == 409
+    body = r2.json()
+    assert body["code"] == "duplicate_upload"
+    assert "already uploaded" in body["detail"]
+
+    # The blocked attempt created NOTHING — no second run, no second stored file.
+    runs = await db_session.scalar(
+        select(func.count()).select_from(ExtractionRun).where(ExtractionRun.org_id == org)
+    )
+    assert runs == 1
+    sha = extraction.sha256_hex(data)
+    docs = await db_session.scalar(
+        select(func.count())
+        .select_from(Document)
+        .where(Document.org_id == org, Document.sha256 == sha, Document.kind == "uploads")
+    )
+    assert docs == 1
+
+
+@pytest.mark.asyncio
+async def test_duplicate_upload_override_allowed(auth_client, db_session):
+    data = b"description,quantity,unit_price,invoice_number\nA,1,10,INV-DUP3\n"
+    org = await _org_id(auth_client)
+
+    r1 = await auth_client.post("/api/v1/invoices/upload", files=_file("a.csv", data, "text/csv"))
+    assert r1.status_code == 202
+
+    r2 = await auth_client.post(
+        "/api/v1/invoices/upload",
+        files=_file("a.csv", data, "text/csv"),
+        params={"override": "true"},
+    )
+    assert r2.status_code == 202
+
+    runs = await db_session.scalar(
+        select(func.count()).select_from(ExtractionRun).where(ExtractionRun.org_id == org)
+    )
+    assert runs == 2
+
+
+@pytest.mark.asyncio
+async def test_failed_upload_is_not_a_duplicate(auth_client, db_session):
+    # Structurally valid JSON that isn't an invoice object → the parse fails
+    # (mirrors test_corrupt_file_fails_with_reason_and_can_be_retried). A FAILED
+    # capture didn't actually capture anything, so re-uploading the same bytes is
+    # not "the same document already on file" and needs no override.
+    r1 = await auth_client.post(
+        "/api/v1/invoices/upload", files=_file("bad.json", b"[]", "application/json")
+    )
+    assert r1.status_code == 202
+    await _drain(db_session)
+    run1 = await db_session.scalar(
+        select(ExtractionRun).where(ExtractionRun.id == r1.json()["extraction_run_id"])
+    )
+    assert run1.status == "failed"
+
+    r2 = await auth_client.post(
+        "/api/v1/invoices/upload", files=_file("bad.json", b"[]", "application/json")
+    )
+    assert r2.status_code == 202  # no override needed — the prior attempt failed
+
+    org = await _org_id(auth_client)
+    runs = await db_session.scalar(
+        select(func.count()).select_from(ExtractionRun).where(ExtractionRun.org_id == org)
+    )
+    assert runs == 2
+
+
+@pytest.mark.asyncio
+async def test_duplicate_upload_is_tenant_scoped(auth_client, client):
+    data = b"description,quantity,unit_price,invoice_number\nA,1,10,INV-DUP4\n"
+    r1 = await auth_client.post("/api/v1/invoices/upload", files=_file("a.csv", data, "text/csv"))
+    assert r1.status_code == 202
+
+    # A second, unrelated org uploads byte-IDENTICAL content — the guard is
+    # per-tenant, so this must succeed with no override, never see org A's run.
+    reg = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "organization_name": "Gamma",
+            "name": "G",
+            "email": "g@gamma.io",
+            "password": "supersecret",
+        },
+    )
+    hb = {"Authorization": f"Bearer {reg.json()['token']['access_token']}"}
+    r2 = await client.post(
+        "/api/v1/invoices/upload", files=_file("a.csv", data, "text/csv"), headers=hb
+    )
+    assert r2.status_code == 202
 
 
 # --------------------------------------------------------------------------- #

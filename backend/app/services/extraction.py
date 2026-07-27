@@ -14,6 +14,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import CursorResult, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import ConflictError
 from app.models.extraction_field import ExtractionField
 from app.models.extraction_run import ExtractionRun
 
@@ -174,6 +175,53 @@ async def list_for_invoice(db: AsyncSession, org_id: str, invoice_id: str) -> li
 # enqueues UPLOAD_EXTRACT_KIND; `extract_upload` (below) parses off-tier and
 # stores the draft; the client polls `get_capture` for the result.
 # --------------------------------------------------------------------------- #
+
+
+async def check_duplicate_upload(
+    db: AsyncSession, org_id: str, sha256: str, *, override: bool
+) -> None:
+    """Advisory re-upload guard (E1.3): raises when byte-identical content was
+    already captured in this org, unless the caller explicitly overrides.
+
+    Fails CLOSED by default (blocks): unlike the fuzzy, amount/date/vendor
+    duplicate signals in `app/services/duplicates.py` (E1.4), which are
+    deliberately advisory-never-block, an exact SHA-256 match is a near-certain
+    true duplicate (the same bytes, not merely a similar invoice). It is still
+    weaker than the bank-statement re-import guard
+    (`app/services/reconciliation.py::import_statement`, which has NO escape
+    hatch at all): here the block is user-escapable via `override`, because a
+    deliberate re-upload (retrying after a mistake, a demo, a genuinely
+    duplicated real-world document) is a legitimate case invoices — unlike a
+    bank statement — can have.
+
+    A prior run whose `status == "failed"` captured nothing, so re-uploading
+    the same bytes to try again is not "the same document already on file" —
+    excluded from the match, and needs no override.
+    """
+    if override:
+        return
+    dup = await db.scalar(
+        select(ExtractionRun)
+        .where(
+            ExtractionRun.org_id == org_id,
+            ExtractionRun.source_sha256 == sha256,
+            ExtractionRun.status != "failed",
+        )
+        .order_by(ExtractionRun.created_at.desc())
+        .limit(1)
+    )
+    if dup is None:
+        return
+    when = dup.created_at.date().isoformat()
+    fate = (
+        "and it was saved to an invoice."
+        if dup.status == "saved"
+        else "and it's still pending review."
+    )
+    raise ConflictError(
+        f"You already uploaded this file on {when} {fate} Upload it again if this is intentional.",
+        code="duplicate_upload",
+    )
 
 
 async def start_capture(
