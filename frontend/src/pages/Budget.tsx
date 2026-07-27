@@ -56,6 +56,17 @@ export default function Budget() {
         </div>
       </div>
 
+      {/* C1.7/WO-24: an invoice that couldn't be converted to EUR (no rate
+          ever resolved) is EXCLUDED from the totals below rather than
+          guessed at parity — surface that honestly instead of hiding it. */}
+      {!!data?.excluded_unconverted && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          {data.excluded_unconverted} invoice{data.excluded_unconverted === 1 ? "" : "s"} this month
+          could not be converted to EUR (no exchange rate available) and{" "}
+          {data.excluded_unconverted === 1 ? "is" : "are"} not included in the totals below.
+        </div>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-3">
         <KpiCard label="Budgeted" value={money(data?.total_budget ?? 0)} sub="sum of category limits" />
         <KpiCard label="Spent" value={money(data?.total_actual ?? 0)} accent="brand" sub={`received invoices · ${month}`} />

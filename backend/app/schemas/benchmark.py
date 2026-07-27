@@ -58,9 +58,25 @@ class BenchmarkSummary(BaseModel):
     categories_analyzed: int
     multi_supplier_categories: int
     total_savings_opportunity: Decimal
+    # C1.7/WO-24: resolved by `benchmark._pick_currency` (the AR-reports
+    # pattern) — no longer a hard-coded "EUR". Every amount above sums ONLY
+    # this currency; the rest are listed, never blended in (§4.14).
     currency: str
+    available_currencies: list[str] = []
 
 
 class CombinedBenchmark(BaseModel):
     summary: BenchmarkSummary
     categories: list[CategoryBenchmark]
+
+
+class SupplierBenchmarkListOut(BaseModel):
+    """C1.7/WO-24: `supplier_benchmarks` used to return a bare `list[SupplierBenchmark]`
+    aggregated with no currency filter — a vendor billing in both EUR and USD
+    got one blended `total_spend`. Wrapped the same way as the analytics
+    row-shaped endpoints (a wire-shape change, coordinated with the route and
+    the SPA)."""
+
+    currency: str
+    available_currencies: list[str]
+    rows: list[SupplierBenchmark]

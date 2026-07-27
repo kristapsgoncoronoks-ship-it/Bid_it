@@ -1,5 +1,7 @@
 """Monthly budgeting over received invoices: targets, actuals, over/under, trend."""
 
+from decimal import Decimal
+
 import pytest
 
 
@@ -135,3 +137,50 @@ async def test_invalid_month(auth_client):
     await _activate(auth_client)
     r = await auth_client.get("/api/v1/budget/overview?month=nonsense")
     assert r.status_code == 422
+
+
+# --------------------------------------------------------------------------- #
+# C1.7/WO-24 — an invoice that cannot be converted to EUR is EXCLUDED from the
+# actual, never silently counted at a guessed 1:1 parity.
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+async def test_unknown_fx_invoice_excluded_not_guessed(auth_client):
+    await _activate(auth_client)
+    # A normal EUR bill — must still count fully.
+    await auth_client.post("/api/v1/invoices", json=_bill("G-1", "groceries", 200, 0))
+    # "QQQ" is not a real currency — no ECB/fallback rate is ever cached for
+    # it (same fixture `test_money_invariants.py::
+    # test_expense_path_unknown_currency_refuses_never_guesses` uses), so
+    # `fx_source` resolves to "unknown" and `total_eur` stays NULL.
+    unknown_bill = _bill("Q-1", "groceries", 500, 0)
+    unknown_bill["currency"] = "QQQ"
+    r = await auth_client.post("/api/v1/invoices", json=unknown_bill)
+    assert r.status_code == 201
+    assert r.json()["fx_source"] == "unknown"
+    assert r.json()["total_eur"] is None
+
+    ov = (await auth_client.get("/api/v1/budget/overview?month=2026-01")).json()
+    # The old fallback would have counted the 500 QQQ "as if EUR", giving 700.
+    # Correct behaviour: the QQQ invoice is excluded, actual stays at 200.
+    assert ov["total_actual"] == "200.00"
+    rows = {r["category"]: r for r in ov["rows"]}
+    assert rows["groceries"]["actual"] == "200.00"
+    assert ov["excluded_unconverted"] == 1
+
+
+@pytest.mark.asyncio
+async def test_known_fx_invoice_still_converts(auth_client):
+    await _activate(auth_client)
+    # USD is seeded with a fallback ECB-style rate in every test (conftest's
+    # ensure_seed_rates/ensure_european_coverage) — a resolvable rate, so this
+    # invoice must still be CONVERTED and counted, not excluded.
+    usd_bill = _bill("U-1", "groceries", 100, 0)
+    usd_bill["currency"] = "USD"
+    r = await auth_client.post("/api/v1/invoices", json=usd_bill)
+    assert r.status_code == 201
+    assert r.json()["fx_source"] in ("ecb", "stated")
+    assert r.json()["total_eur"] is not None
+
+    ov = (await auth_client.get("/api/v1/budget/overview?month=2026-01")).json()
+    assert ov["excluded_unconverted"] == 0
+    assert Decimal(ov["total_actual"]) > 0

@@ -43,15 +43,19 @@ export function CashFlowChart({ data }: { data: CashFlowPoint[] }) {
   );
 }
 
-export function SpendChart({ data }: { data: TimeBucket[] }) {
+export function SpendChart({ data, currency = "EUR" }: { data: TimeBucket[]; currency?: string }) {
   const rows = data.map((d) => ({ ...d, label: monthLabel(d.period), value: Number(d.total) }));
   return (
     <ResponsiveContainer width="100%" height={260}>
       <LineChart data={rows} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
         <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#94a3b8" }} />
-        <YAxis tickFormatter={(v) => compactMoney(v)} tick={{ fontSize: 12, fill: "#94a3b8" }} width={60} />
-        <Tooltip formatter={(v) => money(Number(v))} />
+        <YAxis
+          tickFormatter={(v) => compactMoney(v, currency)}
+          tick={{ fontSize: 12, fill: "#94a3b8" }}
+          width={60}
+        />
+        <Tooltip formatter={(v) => money(Number(v), currency)} />
         <Line type="monotone" dataKey="value" stroke="#3b6ef2" strokeWidth={2.5} dot={{ r: 3 }} />
       </LineChart>
     </ResponsiveContainer>
@@ -74,15 +78,19 @@ export function BudgetTrendChart({ data }: { data: BudgetTrendPoint[] }) {
   );
 }
 
-export function VendorBar({ data }: { data: VendorSpend[] }) {
+export function VendorBar({ data, currency = "EUR" }: { data: VendorSpend[]; currency?: string }) {
   const rows = data.map((d) => ({ name: d.vendor_name, value: Number(d.total) }));
   return (
     <ResponsiveContainer width="100%" height={260}>
       <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" horizontal={false} />
-        <XAxis type="number" tickFormatter={(v) => compactMoney(v)} tick={{ fontSize: 12, fill: "#94a3b8" }} />
+        <XAxis
+          type="number"
+          tickFormatter={(v) => compactMoney(v, currency)}
+          tick={{ fontSize: 12, fill: "#94a3b8" }}
+        />
         <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 12, fill: "#64748b" }} />
-        <Tooltip formatter={(v) => money(Number(v))} />
+        <Tooltip formatter={(v) => money(Number(v), currency)} />
         <Bar dataKey="value" radius={[0, 4, 4, 0]}>
           {rows.map((_, i) => (
             <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
@@ -93,7 +101,13 @@ export function VendorBar({ data }: { data: VendorSpend[] }) {
   );
 }
 
-export function CategoryPie({ data }: { data: CategorySpend[] }) {
+export function CategoryPie({
+  data,
+  currency = "EUR",
+}: {
+  data: CategorySpend[];
+  currency?: string;
+}) {
   const rows = data
     .map((d) => ({ name: d.category, value: Number(d.total) }))
     .filter((r) => r.value > 0);
@@ -105,7 +119,7 @@ export function CategoryPie({ data }: { data: CategorySpend[] }) {
             <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
           ))}
         </Pie>
-        <Tooltip formatter={(v) => money(Number(v))} />
+        <Tooltip formatter={(v) => money(Number(v), currency)} />
       </PieChart>
     </ResponsiveContainer>
   );

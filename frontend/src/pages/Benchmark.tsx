@@ -3,14 +3,14 @@ import { useState } from "react";
 import { KpiCard } from "../components/KpiCard";
 import { api } from "../lib/api";
 import { money } from "../lib/format";
-import type { CombinedBenchmark, SupplierBenchmark } from "../lib/types";
+import type { CombinedBenchmark, SupplierBenchmarkListOut } from "../lib/types";
 
 type Tab = "independent" | "combined";
 
 export default function Benchmark() {
   const [tab, setTab] = useState<Tab>("combined");
 
-  const suppliers = useQuery<SupplierBenchmark[]>({
+  const suppliers = useQuery<SupplierBenchmarkListOut>({
     queryKey: ["benchmark", "suppliers"],
     queryFn: async () => (await api.get("/analytics/supplier-benchmark")).data,
   });
@@ -18,6 +18,9 @@ export default function Benchmark() {
     queryKey: ["benchmark", "combined"],
     queryFn: async () => (await api.get("/analytics/combined-benchmark")).data,
   });
+  // C1.7/WO-24: the resolved currency, not a hard-coded "EUR" caption — both
+  // endpoints now name what they actually summed.
+  const currency = tab === "combined" ? combined.data?.summary.currency : suppliers.data?.currency;
 
   return (
     <div className="space-y-6">
@@ -25,7 +28,7 @@ export default function Benchmark() {
         <h1 className="text-2xl font-semibold tracking-tight">Supplier benchmark</h1>
         <p className="text-sm text-slate-500">
           Each supplier on its own, and compared head-to-head on price. Basis: effective unit
-          price = spend ÷ quantity within a category. Indicative — EUR.
+          price = spend ÷ quantity within a category. Indicative{currency ? ` — ${currency}` : ""}.
         </p>
       </div>
 
@@ -46,7 +49,7 @@ export default function Benchmark() {
       {tab === "combined" ? (
         <CombinedView data={combined.data} loading={combined.isLoading} />
       ) : (
-        <IndependentView rows={suppliers.data} loading={suppliers.isLoading} />
+        <IndependentView data={suppliers.data} loading={suppliers.isLoading} />
       )}
     </div>
   );
@@ -56,13 +59,14 @@ function CombinedView({ data, loading }: { data?: CombinedBenchmark; loading: bo
   if (loading) return <Loading />;
   if (!data || data.categories.length === 0) return <Empty />;
   const s = data.summary;
+  const ccy = s.currency;
 
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <KpiCard
           label="Savings opportunity"
-          value={money(s.total_savings_opportunity)}
+          value={money(s.total_savings_opportunity, ccy)}
           accent="emerald"
           sub="if each category bought at its cheapest rate"
         />
@@ -84,14 +88,14 @@ function CombinedView({ data, loading }: { data?: CombinedBenchmark; loading: bo
                 <h3 className="text-base font-semibold capitalize">{c.category}</h3>
                 <p className="text-xs text-slate-500">
                   {c.supplier_count} supplier{c.supplier_count !== 1 ? "s" : ""} · combined avg{" "}
-                  {money(c.combined_avg_unit)}/unit · cheapest{" "}
+                  {money(c.combined_avg_unit, ccy)}/unit · cheapest{" "}
                   <span className="font-medium text-emerald-600">{c.cheapest_vendor_name}</span> @{" "}
-                  {money(c.cheapest_unit)}
+                  {money(c.cheapest_unit, ccy)}
                 </p>
               </div>
               {Number(c.savings_opportunity) > 0 && (
                 <span className="badge bg-emerald-100 text-emerald-700">
-                  save {money(c.savings_opportunity)}
+                  save {money(c.savings_opportunity, ccy)}
                 </span>
               )}
             </div>
@@ -117,7 +121,7 @@ function CombinedView({ data, loading }: { data?: CombinedBenchmark; loading: bo
                           <span className="badge ml-2 bg-emerald-100 text-emerald-700">cheapest</span>
                         )}
                       </td>
-                      <td className="py-2 text-right font-medium">{money(sup.unit_price)}</td>
+                      <td className="py-2 text-right font-medium">{money(sup.unit_price, ccy)}</td>
                       <td
                         className={`py-2 text-right ${
                           dev > 0 ? "text-rose-600" : dev < 0 ? "text-emerald-600" : "text-slate-400"
@@ -126,10 +130,12 @@ function CombinedView({ data, loading }: { data?: CombinedBenchmark; loading: bo
                         {dev > 0 ? "+" : ""}
                         {sup.deviation_pct}%
                       </td>
-                      <td className="py-2 text-right text-slate-500">{money(sup.spend)}</td>
+                      <td className="py-2 text-right text-slate-500">{money(sup.spend, ccy)}</td>
                       <td className="py-2 text-right">
                         {Number(sup.overspend_vs_cheapest) > 0 ? (
-                          <span className="text-rose-600">{money(sup.overspend_vs_cheapest)}</span>
+                          <span className="text-rose-600">
+                            {money(sup.overspend_vs_cheapest, ccy)}
+                          </span>
                         ) : (
                           <span className="text-slate-300">—</span>
                         )}
@@ -146,9 +152,16 @@ function CombinedView({ data, loading }: { data?: CombinedBenchmark; loading: bo
   );
 }
 
-function IndependentView({ rows, loading }: { rows?: SupplierBenchmark[]; loading: boolean }) {
+function IndependentView({
+  data,
+  loading,
+}: {
+  data?: SupplierBenchmarkListOut;
+  loading: boolean;
+}) {
   if (loading) return <Loading />;
-  if (!rows || rows.length === 0) return <Empty />;
+  if (!data || data.rows.length === 0) return <Empty />;
+  const ccy = data.currency;
 
   return (
     <div className="card overflow-x-auto p-0">
@@ -166,16 +179,16 @@ function IndependentView({ rows, loading }: { rows?: SupplierBenchmark[]; loadin
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
+          {data.rows.map((r) => (
             <tr key={r.vendor_id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
               <td className="px-4 py-3 font-medium">
                 {r.vendor_name}
                 {r.country && <span className="ml-2 text-xs text-slate-400">{r.country}</span>}
               </td>
-              <td className="px-4 py-3 text-right font-medium">{money(r.total_spend)}</td>
+              <td className="px-4 py-3 text-right font-medium">{money(r.total_spend, ccy)}</td>
               <td className="px-4 py-3 text-right text-slate-500">{r.spend_share}%</td>
               <td className="px-4 py-3 text-right text-slate-500">{r.invoice_count}</td>
-              <td className="px-4 py-3 text-right text-slate-500">{money(r.avg_invoice)}</td>
+              <td className="px-4 py-3 text-right text-slate-500">{money(r.avg_invoice, ccy)}</td>
               <td className="px-4 py-3 text-right text-slate-500">{r.category_count}</td>
               <td className="px-4 py-3 text-right text-slate-500">{r.effective_tax_rate}%</td>
               <td className="px-4 py-3 text-right">

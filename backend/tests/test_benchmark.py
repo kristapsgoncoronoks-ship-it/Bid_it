@@ -35,7 +35,12 @@ async def _scenario(auth_client):
 @pytest.mark.asyncio
 async def test_supplier_benchmark_independent(auth_client):
     await _scenario(auth_client)
-    rows = (await auth_client.get("/api/v1/analytics/supplier-benchmark")).json()
+    # C1.7/WO-24: now {currency, available_currencies, rows} — a wire-shape
+    # change coordinated with the currency-filter fix (a bare list had no way
+    # to say which currency `total_spend` below was scoped to).
+    data = (await auth_client.get("/api/v1/analytics/supplier-benchmark")).json()
+    assert data["currency"] == "EUR"
+    rows = data["rows"]
     assert len(rows) == 2
     by_name = {r["vendor_name"]: r for r in rows}
 
@@ -93,8 +98,74 @@ async def test_combined_benchmark_prices_and_savings(auth_client):
 
 @pytest.mark.asyncio
 async def test_benchmark_empty_tenant(auth_client):
-    rows = (await auth_client.get("/api/v1/analytics/supplier-benchmark")).json()
-    assert rows == []
+    data = (await auth_client.get("/api/v1/analytics/supplier-benchmark")).json()
+    assert data["rows"] == []
+    assert data["currency"] == "EUR"  # no invoices at all → the default, not a guess
+    assert data["available_currencies"] == []
+    combined = (await auth_client.get("/api/v1/analytics/combined-benchmark")).json()
+    assert combined["summary"]["total_savings_opportunity"] == "0.00"
+    assert combined["categories"] == []
+
+
+@pytest.mark.asyncio
+async def test_mixed_currency_supplier_benchmark_never_blends(auth_client):
+    # Alpha bills in both EUR and USD; only the EUR invoice may count toward
+    # the EUR-scoped report.
+    await _invoice(auth_client, "Alpha", "A-EUR", "fuel", "10", "2.00")
+    r = await auth_client.post(
+        "/api/v1/invoices",
+        json={
+            "vendor_name": "Alpha",
+            "invoice_number": "A-USD",
+            "issue_date": "2026-01-10",
+            "currency": "USD",
+            "status": "paid",
+            "line_items": [
+                {
+                    "description": "fuel item",
+                    "category": "fuel",
+                    "quantity": "10",
+                    "unit_price": "50.00",
+                    "tax_rate": "0",
+                },
+            ],
+        },
+    )
+    assert r.status_code == 201
+
+    data = (await auth_client.get("/api/v1/analytics/supplier-benchmark")).json()
+    assert data["currency"] == "EUR"
+    alpha = next(row for row in data["rows"] if row["vendor_name"] == "Alpha")
+    assert alpha["total_spend"] == "20.00"  # the 10x2.00 EUR invoice only, never +500 USD
+    assert alpha["invoice_count"] == 1
+    assert "USD" in data["available_currencies"]
+
+
+@pytest.mark.asyncio
+async def test_combined_benchmark_currency_is_resolved_not_hardcoded(auth_client):
+    r = await auth_client.post(
+        "/api/v1/invoices",
+        json={
+            "vendor_name": "Acme",
+            "invoice_number": "US-1",
+            "issue_date": "2026-01-10",
+            "currency": "USD",
+            "status": "paid",
+            "line_items": [
+                {
+                    "description": "fuel item",
+                    "category": "fuel",
+                    "quantity": "10",
+                    "unit_price": "2.00",
+                    "tax_rate": "0",
+                },
+            ],
+        },
+    )
+    assert r.status_code == 201
+
     data = (await auth_client.get("/api/v1/analytics/combined-benchmark")).json()
-    assert data["summary"]["total_savings_opportunity"] == "0.00"
-    assert data["categories"] == []
+    # A USD-only tenant must get "USD" here — the pre-fix code hard-coded "EUR"
+    # regardless of what was actually summed.
+    assert data["summary"]["currency"] == "USD"
+    assert data["summary"]["available_currencies"] == ["USD"]

@@ -303,3 +303,178 @@ async def test_issued_report_never_sums_across_currencies(db_session):
     assert "USD" in rep.available_currencies  # the other currency is surfaced…
     assert "EUR" in rep.available_currencies
     # …but never folded into a single cross-currency total.
+
+
+async def _org_vendor(db_session, org_name="FX Co", vendor_name="V"):
+    from app.models.organization import Organization
+    from app.models.vendor import Vendor
+
+    org = Organization(name=org_name)
+    db_session.add(org)
+    await db_session.flush()
+    vendor = Vendor(org_id=org.id, name=vendor_name)
+    db_session.add(vendor)
+    await db_session.flush()
+    return org, vendor
+
+
+@pytest.mark.asyncio
+async def test_fi10_analytics_never_sums_across_currencies(db_session):
+    """C1.7/WO-24: same shape as
+    `test_issued_report_never_sums_across_currencies`, generalised to the AP
+    side (`analytics.summary`) — a EUR+USD tenant's total is 150.00, never
+    1149.00."""
+    from app.models.invoice import Invoice
+    from app.services import analytics
+
+    org, vendor = await _org_vendor(db_session)
+
+    def _inv(number, currency, total):
+        return Invoice(
+            org_id=org.id,
+            vendor_id=vendor.id,
+            invoice_number=number,
+            issue_date=_ON,
+            currency=currency,
+            subtotal=Decimal(total),
+            tax_amount=Decimal("0"),
+            total=Decimal(total),
+        )
+
+    db_session.add_all(
+        [
+            _inv("E-1", "EUR", "100.00"),
+            _inv("E-2", "EUR", "50.00"),
+            _inv("U-1", "USD", "999.00"),  # must NOT be summed into the EUR total
+        ]
+    )
+    await db_session.commit()
+
+    rep = await analytics.summary(db_session, org.id, None, None, None)
+    assert rep.currency == "EUR"
+    assert rep.total_spend == Decimal("150.00")  # 100 + 50, NOT + 1149.00
+    assert set(rep.available_currencies) == {"EUR", "USD"}
+
+
+@pytest.mark.asyncio
+async def test_fi10_benchmark_never_sums_across_currencies(db_session):
+    """Same shape, over `benchmark.combined_benchmark` — a category's "cheapest
+    vendor" verdict must never blend unit prices from different currencies."""
+    from app.models.invoice import Invoice, LineItem
+    from app.services import benchmark
+
+    org, vendor = await _org_vendor(db_session)
+
+    def _inv_with_line(number, currency, amount, qty):
+        inv = Invoice(
+            org_id=org.id,
+            vendor_id=vendor.id,
+            invoice_number=number,
+            issue_date=_ON,
+            currency=currency,
+            subtotal=Decimal(amount),
+            tax_amount=Decimal("0"),
+            total=Decimal(amount),
+        )
+        db_session.add(inv)
+        return inv
+
+    eur1 = _inv_with_line("E-1", "EUR", "20.00", "10")
+    eur2 = _inv_with_line("E-2", "EUR", "10.00", "10")
+    usd1 = _inv_with_line("U-1", "USD", "9990.00", "1")  # would dominate any blended avg
+    await db_session.flush()
+    db_session.add_all(
+        [
+            LineItem(
+                invoice_id=eur1.id,
+                description="fuel",
+                category="fuel",
+                quantity="10",
+                amount="20.00",
+            ),
+            LineItem(
+                invoice_id=eur2.id,
+                description="fuel",
+                category="fuel",
+                quantity="10",
+                amount="10.00",
+            ),
+            LineItem(
+                invoice_id=usd1.id,
+                description="fuel",
+                category="fuel",
+                quantity="1",
+                amount="9990.00",
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    rep = await benchmark.combined_benchmark(db_session, org.id, None, None)
+    assert rep.summary.currency == "EUR"
+    assert rep.summary.total_spend == Decimal("30.00")  # 20 + 10, NOT + 9990.00
+    assert "USD" in rep.summary.available_currencies
+
+
+@pytest.mark.asyncio
+async def test_fi10_budget_never_guesses_unknown_fx(db_session):
+    """Same shape, over `budget.overview` — an invoice in a currency with no
+    recorded conversion is EXCLUDED, never guessed at a 1:1 parity (§4.15)."""
+    from app.models.invoice import Invoice, LineItem
+    from app.services import budget
+
+    org, vendor = await _org_vendor(db_session)
+
+    eur = Invoice(
+        org_id=org.id,
+        vendor_id=vendor.id,
+        invoice_number="E-1",
+        issue_date=_ON,
+        currency="EUR",
+        subtotal=Decimal("100.00"),
+        tax_amount=Decimal("0"),
+        total=Decimal("100.00"),
+        total_eur=Decimal("100.00"),
+        fx_source="eur",
+    )
+    # "QQQ" has no cached rate anywhere (same as the expense-path fixture
+    # above) — fx_source is "unknown", total_eur stays NULL.
+    unknown = Invoice(
+        org_id=org.id,
+        vendor_id=vendor.id,
+        invoice_number="Q-1",
+        issue_date=_ON,
+        currency="QQQ",
+        subtotal=Decimal("500.00"),
+        tax_amount=Decimal("0"),
+        total=Decimal("500.00"),
+        total_eur=None,
+        fx_source="unknown",
+    )
+    db_session.add_all([eur, unknown])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            LineItem(
+                invoice_id=eur.id,
+                description="x",
+                category="groceries",
+                quantity="1",
+                amount="100.00",
+            ),
+            LineItem(
+                invoice_id=unknown.id,
+                description="x",
+                category="groceries",
+                quantity="1",
+                amount="500.00",
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    ov = await budget.overview(db_session, org.id, _ON.year, _ON.month)
+    # The old fallback would have counted the 500 QQQ as if it were 500 EUR,
+    # giving 600.00. Correct: the unknown-FX invoice is excluded.
+    assert ov["total_actual"] == "100.00"
+    assert ov["excluded_unconverted"] == 1

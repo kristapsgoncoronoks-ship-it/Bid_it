@@ -41,3 +41,8 @@ class BudgetOverview(BaseModel):
     over_budget: bool
     rows: list[BudgetRow]
     trend: list[BudgetTrendPoint]
+    # C1.7/WO-24: invoices in `month` that could not be converted to EUR (no
+    # rate ever resolved) and were therefore EXCLUDED from every total above,
+    # rather than guessed at a 1:1 parity (§4.15). Zero means every invoice
+    # in the window is accounted for.
+    excluded_unconverted: int = 0

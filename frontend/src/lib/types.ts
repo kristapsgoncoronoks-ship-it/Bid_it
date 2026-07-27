@@ -651,6 +651,10 @@ export interface DimensionBreakdown {
   label: string;
   rows: DimensionSpend[];
   total: string;
+  // C1.7/WO-24: `total` sums ONLY `currency`; other currencies present are
+  // listed here, never folded in.
+  currency: string;
+  available_currencies: string[];
 }
 
 export interface LineItemInput {
@@ -765,6 +769,9 @@ export interface Summary {
   avg_invoice: string;
   vendor_count: number;
   currency: string;
+  // C1.7/WO-24: every other currency the tenant has invoices in — `currency`
+  // above is the one `total_spend` etc. are scoped to, never a blend of both.
+  available_currencies: string[];
 }
 
 export interface TimeBucket {
@@ -789,6 +796,35 @@ export interface StatusBucket {
   status: string;
   count: number;
   total: string;
+}
+
+// C1.7/WO-24: `/analytics/spend-over-time`, `/top-vendors`, `/by-category` and
+// `/by-status` used to return a bare array aggregated across EVERY currency
+// with no label — a EUR+USD tenant's numbers silently blended both. Each is
+// now wrapped: `currency` names what `rows` is scoped to, `available_currencies`
+// lists what else exists (never folded in).
+export interface SpendOverTimeOut {
+  currency: string;
+  available_currencies: string[];
+  rows: TimeBucket[];
+}
+
+export interface TopVendorsOut {
+  currency: string;
+  available_currencies: string[];
+  rows: VendorSpend[];
+}
+
+export interface ByCategoryOut {
+  currency: string;
+  available_currencies: string[];
+  rows: CategorySpend[];
+}
+
+export interface ByStatusOut {
+  currency: string;
+  available_currencies: string[];
+  rows: StatusBucket[];
 }
 
 export interface ExploreField {
@@ -855,12 +891,25 @@ export interface BenchmarkSummary {
   categories_analyzed: number;
   multi_supplier_categories: number;
   total_savings_opportunity: string;
+  // C1.7/WO-24: resolved by the AR-reports pattern — no longer a hard-coded
+  // "EUR". Every amount above sums ONLY this currency.
   currency: string;
+  available_currencies: string[];
 }
 
 export interface CombinedBenchmark {
   summary: BenchmarkSummary;
   categories: CategoryBenchmark[];
+}
+
+// C1.7/WO-24: `/analytics/supplier-benchmark` used to return a bare
+// `SupplierBenchmark[]` aggregated with no currency filter — a vendor billing
+// in both EUR and USD got one blended `total_spend`. Wrapped the same way as
+// the analytics row-shaped endpoints.
+export interface SupplierBenchmarkListOut {
+  currency: string;
+  available_currencies: string[];
+  rows: SupplierBenchmark[];
 }
 
 export interface FxRate {
@@ -1002,6 +1051,10 @@ export interface BudgetOverview {
   over_budget: boolean;
   rows: BudgetRow[];
   trend: BudgetTrendPoint[];
+  // C1.7/WO-24: invoices this month that could not be converted to EUR (no
+  // rate ever resolved) and were EXCLUDED from every total above, rather
+  // than guessed at a 1:1 parity. 0 = every invoice is accounted for.
+  excluded_unconverted: number;
 }
 
 export interface IssuerProfile {

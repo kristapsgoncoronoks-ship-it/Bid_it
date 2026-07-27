@@ -7,11 +7,11 @@ import { api } from "../lib/api";
 import { CHART_PALETTE as PALETTE, money } from "../lib/format";
 import { DIMENSION_LABELS, type Dimensions } from "../lib/types";
 import type {
-  CategorySpend,
+  ByCategoryOut,
   DashboardData,
   DimensionBreakdown,
-  TimeBucket,
-  VendorSpend,
+  SpendOverTimeOut,
+  TopVendorsOut,
 } from "../lib/types";
 
 /**
@@ -268,9 +268,20 @@ function useAnalytics<T>(path: string, key: string) {
 }
 
 function SpendSnapshot() {
-  const sot = useAnalytics<TimeBucket[]>("spend-over-time", "sot");
-  const vendors = useAnalytics<VendorSpend[]>("top-vendors?limit=8", "vendors");
-  const categories = useAnalytics<CategorySpend[]>("by-category", "categories");
+  const sot = useAnalytics<SpendOverTimeOut>("spend-over-time", "sot");
+  const vendors = useAnalytics<TopVendorsOut>("top-vendors?limit=8", "vendors");
+  const categories = useAnalytics<ByCategoryOut>("by-category", "categories");
+  // C1.7/WO-24: each envelope names the single currency its `rows` are
+  // scoped to (the AR-reports pattern) — pass it into money()/the charts
+  // instead of relying on their EUR default, which used to silently mislabel
+  // a non-EUR tenant's spend. Optional-chained throughout: defensive against
+  // a still-loading/empty response, not just the happy path.
+  const sotRows = sot.data?.rows ?? [];
+  const sotCurrency = sot.data?.currency;
+  const vendorRows = vendors.data?.rows ?? [];
+  const vendorCurrency = vendors.data?.currency;
+  const catRows = categories.data?.rows ?? [];
+  const catCurrency = categories.data?.currency ?? "EUR";
 
   return (
     <div className="space-y-4">
@@ -282,31 +293,47 @@ function SpendSnapshot() {
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="card">
-          <h3 className="mb-3 text-sm font-semibold text-slate-600">Spend over time</h3>
-          {sot.data && sot.data.length > 0 ? <SpendChart data={sot.data} /> : <Empty />}
+          <h3 className="mb-3 text-sm font-semibold text-slate-600">
+            Spend over time {sotCurrency && <span className="text-slate-400">· {sotCurrency}</span>}
+          </h3>
+          {sotRows.length > 0 ? (
+            <SpendChart data={sotRows} currency={sotCurrency} />
+          ) : (
+            <Empty />
+          )}
         </div>
         <div className="card">
-          <h3 className="mb-3 text-sm font-semibold text-slate-600">Top vendors</h3>
-          {vendors.data && vendors.data.length > 0 ? <VendorBar data={vendors.data} /> : <Empty />}
+          <h3 className="mb-3 text-sm font-semibold text-slate-600">
+            Top vendors{" "}
+            {vendorCurrency && <span className="text-slate-400">· {vendorCurrency}</span>}
+          </h3>
+          {vendorRows.length > 0 ? (
+            <VendorBar data={vendorRows} currency={vendorCurrency} />
+          ) : (
+            <Empty />
+          )}
         </div>
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="card">
-          <h3 className="mb-3 text-sm font-semibold text-slate-600">Spend by category</h3>
-          {categories.data && categories.data.length > 0 ? (
+          <h3 className="mb-3 text-sm font-semibold text-slate-600">
+            Spend by category{" "}
+            {categories.data && <span className="text-slate-400">· {catCurrency}</span>}
+          </h3>
+          {catRows.length > 0 ? (
             <div className="flex items-center gap-4">
               <div className="flex-1">
-                <CategoryPie data={categories.data} />
+                <CategoryPie data={catRows} currency={catCurrency} />
               </div>
               <ul className="w-40 space-y-1 text-sm">
-                {categories.data.slice(0, 8).map((c, i) => (
+                {catRows.slice(0, 8).map((c, i) => (
                   <li key={c.category} className="flex items-center gap-2">
                     <span
                       className="h-2.5 w-2.5 rounded-full"
                       style={{ background: PALETTE[i % PALETTE.length] }}
                     />
                     <span className="flex-1 truncate text-slate-600">{c.category}</span>
-                    <span className="text-slate-400">{money(c.total)}</span>
+                    <span className="text-slate-400">{money(c.total, catCurrency)}</span>
                   </li>
                 ))}
               </ul>
@@ -331,12 +358,15 @@ function SpendByDimension() {
     queryFn: async () => (await api.get(`/analytics/by-dimension?dimension=${dim}`)).data,
   });
   const rows = q.data?.rows ?? [];
+  const currency = q.data?.currency ?? "EUR";
   const max = rows.reduce((m, r) => Math.max(m, Number(r.total)), 0) || 1;
 
   return (
     <div className="card">
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-600">Spend by dimension</h3>
+        <h3 className="text-sm font-semibold text-slate-600">
+          Spend by dimension {q.data && <span className="text-slate-400">· {currency}</span>}
+        </h3>
         <select
           className="input w-40 py-1"
           value={dim}
@@ -362,7 +392,9 @@ function SpendByDimension() {
                   style={{ width: `${(Number(r.total) / max) * 100}%` }}
                 />
               </span>
-              <span className="w-24 text-right tabular-nums text-slate-500">{money(r.total)}</span>
+              <span className="w-24 text-right tabular-nums text-slate-500">
+                {money(r.total, currency)}
+              </span>
               <span className="w-16 text-right text-xs text-slate-400">{r.invoice_count} inv</span>
             </li>
           ))}

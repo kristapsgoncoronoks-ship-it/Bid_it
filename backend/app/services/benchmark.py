@@ -13,6 +13,13 @@ Basis: effective unit price = line spend / line quantity within a category.
 Comparisons are indicative — quantities are only loosely comparable across
 different products in the same category — and are advisory, never a gate.
 All aggregation happens in the database; per-category math is finished in Python.
+
+C1.7/WO-24: both lenses sum money (per-vendor / per-category spend), so both
+are scoped to a SINGLE currency — the AR-reports pattern (`analytics.
+_pick_currency`): an explicit `currency` filter wins, else the tenant's
+most-used currency; every other currency present is surfaced, never folded
+into the same total (§4.14). A vendor billing in both EUR and USD used to get
+one blended `total_spend` — that is exactly the defect this closes.
 """
 
 from __future__ import annotations
@@ -31,6 +38,7 @@ from app.schemas.benchmark import (
     CategoryBenchmark,
     CombinedBenchmark,
     SupplierBenchmark,
+    SupplierBenchmarkListOut,
     SupplierPricePoint,
 )
 
@@ -38,8 +46,30 @@ _ZERO = Decimal("0")
 _PCT = Decimal("0.1")
 
 
-def _scope(stmt: Select, org_id: str, start: date | None, end: date | None) -> Select:
-    stmt = stmt.where(Invoice.org_id == org_id)
+async def _pick_currency(
+    db: AsyncSession, org_id: str, currency: str | None
+) -> tuple[str, list[str]]:
+    """Same shape as `analytics._pick_currency` / `issued_reports._pick_currency`
+    (the AR-reports pattern, C1.7) — kept local rather than shared to match the
+    existing convention of each reporting module owning its own copy."""
+    rows = list(
+        await db.execute(
+            select(Invoice.currency, func.count(Invoice.id))
+            .where(Invoice.org_id == org_id)
+            .group_by(Invoice.currency)
+            .order_by(func.count(Invoice.id).desc())
+        )
+    )
+    available = sorted(c for c, _ in rows)
+    if currency:
+        return currency.upper(), available
+    return (rows[0][0] if rows else "EUR"), available
+
+
+def _scope(
+    stmt: Select, org_id: str, currency: str, start: date | None, end: date | None
+) -> Select:
+    stmt = stmt.where(Invoice.org_id == org_id, Invoice.currency == currency)
     if start is not None:
         stmt = stmt.where(Invoice.issue_date >= start)
     if end is not None:
@@ -51,8 +81,13 @@ def _scope(stmt: Select, org_id: str, start: date | None, end: date | None) -> S
 # Independent per-supplier scorecards
 # --------------------------------------------------------------------------- #
 async def supplier_benchmarks(
-    db: AsyncSession, org_id: str, start: date | None, end: date | None
-) -> list[SupplierBenchmark]:
+    db: AsyncSession,
+    org_id: str,
+    start: date | None,
+    end: date | None,
+    currency: str | None = None,
+) -> SupplierBenchmarkListOut:
+    cur, available = await _pick_currency(db, org_id, currency)
     paid_sum = func.coalesce(
         func.sum(case((Invoice.status == InvoiceStatus.paid, Invoice.total), else_=0)), 0
     )
@@ -70,17 +105,20 @@ async def supplier_benchmarks(
             func.max(Invoice.issue_date),
         ).join(Vendor, Vendor.id == Invoice.vendor_id),
         org_id,
+        cur,
         start,
         end,
     ).group_by(Vendor.id, Vendor.name, Vendor.country)
     rows = (await db.execute(stmt)).all()
 
-    # Category counts per vendor (separate join through line_items).
+    # Category counts per vendor (separate join through line_items), same
+    # single-currency scope as the spend query above.
     cat_stmt = _scope(
         select(Invoice.vendor_id, func.count(func.distinct(LineItem.category))).join(
             LineItem, LineItem.invoice_id == Invoice.id
         ),
         org_id,
+        cur,
         start,
         end,
     ).group_by(Invoice.vendor_id)
@@ -117,16 +155,24 @@ async def supplier_benchmarks(
             )
         )
     out.sort(key=lambda s: s.total_spend, reverse=True)
-    return out
+    return SupplierBenchmarkListOut(currency=cur, available_currencies=available, rows=out)
 
 
 # --------------------------------------------------------------------------- #
 # Combined cross-supplier price benchmark
 # --------------------------------------------------------------------------- #
 async def combined_benchmark(
-    db: AsyncSession, org_id: str, start: date | None, end: date | None
+    db: AsyncSession,
+    org_id: str,
+    start: date | None,
+    end: date | None,
+    currency: str | None = None,
 ) -> CombinedBenchmark:
-    # Per (category, vendor): total spend and total quantity.
+    cur, available = await _pick_currency(db, org_id, currency)
+    # Per (category, vendor): total spend and total quantity — scoped to `cur`
+    # alone (C1.7): unit prices/spend from different currencies are not
+    # comparable without conversion, so mixing them into one "cheapest
+    # vendor" verdict would be actively misleading, not just mislabeled.
     stmt = _scope(
         select(
             LineItem.category,
@@ -138,6 +184,7 @@ async def combined_benchmark(
         .join(Invoice, Invoice.id == LineItem.invoice_id)
         .join(Vendor, Vendor.id == Invoice.vendor_id),
         org_id,
+        cur,
         start,
         end,
     ).group_by(LineItem.category, Vendor.id, Vendor.name)
@@ -219,6 +266,7 @@ async def combined_benchmark(
         categories_analyzed=len(categories),
         multi_supplier_categories=multi_supplier,
         total_savings_opportunity=_q(total_savings),
-        currency="EUR",
+        currency=cur,
+        available_currencies=available,
     )
     return CombinedBenchmark(summary=summary, categories=categories)

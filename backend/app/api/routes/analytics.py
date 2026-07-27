@@ -9,15 +9,15 @@ from app.core import authz
 from app.core.dimensions import DIMENSION_KEYS, DIMENSIONS, is_dimension
 from app.core.security_headers import content_disposition
 from app.schemas.analytics import (
-    CategorySpend,
+    ByCategoryOut,
+    ByStatusOut,
     DimensionBreakdown,
-    StatusBucket,
+    SpendOverTimeOut,
     SummaryOut,
-    TimeBucket,
-    VendorSpend,
+    TopVendorsOut,
 )
 from app.schemas.ap_aging import ApAgingOut, WorklistItemOut
-from app.schemas.benchmark import CombinedBenchmark, SupplierBenchmark
+from app.schemas.benchmark import CombinedBenchmark, SupplierBenchmarkListOut
 from app.schemas.cash_flow import CashFlowPointOut
 from app.schemas.cash_position import CashPositionOut
 from app.services import (
@@ -73,36 +73,57 @@ async def get_ap_aging(current: CurrentUser, db: DbSession):
     )
 
 
+# C1.7/WO-24: every report below sums money, so every one takes an optional
+# `currency` filter — an explicit request wins, else the AR-reports pattern
+# (`_pick_currency`) resolves the tenant's most-used currency. Never omit it
+# silently: the response always names which currency was used and which
+# others exist (`available_currencies`), never a blended cross-currency total.
+_CurrencyQ = Query(default=None, min_length=3, max_length=3)
+
+
 @router.get("/summary", response_model=SummaryOut)
 async def get_summary(
-    current: CurrentUser, db: DbSession, start: date | None = None, end: date | None = None
+    current: CurrentUser,
+    db: DbSession,
+    start: date | None = None,
+    end: date | None = None,
+    currency: str | None = _CurrencyQ,
 ):
-    return await analytics.summary(db, current.org_id, start, end)
+    return await analytics.summary(db, current.org_id, start, end, currency)
 
 
-@router.get("/spend-over-time", response_model=list[TimeBucket])
+@router.get("/spend-over-time", response_model=SpendOverTimeOut)
 async def get_spend_over_time(
-    current: CurrentUser, db: DbSession, start: date | None = None, end: date | None = None
+    current: CurrentUser,
+    db: DbSession,
+    start: date | None = None,
+    end: date | None = None,
+    currency: str | None = _CurrencyQ,
 ):
-    return await analytics.spend_over_time(db, current.org_id, start, end)
+    return await analytics.spend_over_time(db, current.org_id, start, end, currency)
 
 
-@router.get("/top-vendors", response_model=list[VendorSpend])
+@router.get("/top-vendors", response_model=TopVendorsOut)
 async def get_top_vendors(
     current: CurrentUser,
     db: DbSession,
     start: date | None = None,
     end: date | None = None,
     limit: int = Query(default=10, ge=1, le=50),
+    currency: str | None = _CurrencyQ,
 ):
-    return await analytics.top_vendors(db, current.org_id, start, end, limit)
+    return await analytics.top_vendors(db, current.org_id, start, end, limit, currency)
 
 
-@router.get("/by-category", response_model=list[CategorySpend])
+@router.get("/by-category", response_model=ByCategoryOut)
 async def get_by_category(
-    current: CurrentUser, db: DbSession, start: date | None = None, end: date | None = None
+    current: CurrentUser,
+    db: DbSession,
+    start: date | None = None,
+    end: date | None = None,
+    currency: str | None = _CurrencyQ,
 ):
-    return await analytics.by_category(db, current.org_id, start, end)
+    return await analytics.by_category(db, current.org_id, start, end, currency)
 
 
 @router.get("/dimensions")
@@ -118,33 +139,46 @@ async def get_by_dimension(
     dimension: str = Query(..., description=" | ".join(DIMENSION_KEYS)),
     start: date | None = None,
     end: date | None = None,
+    currency: str | None = _CurrencyQ,
 ):
     if not is_dimension(dimension):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown dimension '{dimension}'")
-    return await analytics.by_dimension(db, current.org_id, dimension, start, end)
+    return await analytics.by_dimension(db, current.org_id, dimension, start, end, currency)
 
 
-@router.get("/by-status", response_model=list[StatusBucket])
+@router.get("/by-status", response_model=ByStatusOut)
 async def get_by_status(
-    current: CurrentUser, db: DbSession, start: date | None = None, end: date | None = None
+    current: CurrentUser,
+    db: DbSession,
+    start: date | None = None,
+    end: date | None = None,
+    currency: str | None = _CurrencyQ,
 ):
-    return await analytics.by_status(db, current.org_id, start, end)
+    return await analytics.by_status(db, current.org_id, start, end, currency)
 
 
-@router.get("/supplier-benchmark", response_model=list[SupplierBenchmark])
+@router.get("/supplier-benchmark", response_model=SupplierBenchmarkListOut)
 async def get_supplier_benchmark(
-    current: CurrentUser, db: DbSession, start: date | None = None, end: date | None = None
+    current: CurrentUser,
+    db: DbSession,
+    start: date | None = None,
+    end: date | None = None,
+    currency: str | None = _CurrencyQ,
 ):
     """Independent per-supplier scorecards."""
-    return await benchmark.supplier_benchmarks(db, current.org_id, start, end)
+    return await benchmark.supplier_benchmarks(db, current.org_id, start, end, currency)
 
 
 @router.get("/combined-benchmark", response_model=CombinedBenchmark)
 async def get_combined_benchmark(
-    current: CurrentUser, db: DbSession, start: date | None = None, end: date | None = None
+    current: CurrentUser,
+    db: DbSession,
+    start: date | None = None,
+    end: date | None = None,
+    currency: str | None = _CurrencyQ,
 ):
     """Combined cross-supplier price benchmark per category + savings opportunity."""
-    return await benchmark.combined_benchmark(db, current.org_id, start, end)
+    return await benchmark.combined_benchmark(db, current.org_id, start, end, currency)
 
 
 @router.get("/fields")
