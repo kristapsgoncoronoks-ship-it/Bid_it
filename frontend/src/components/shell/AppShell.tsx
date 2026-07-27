@@ -1,34 +1,49 @@
 import { useState, type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
-import { NAV_GROUPS } from "./nav";
+import type { NavGroup } from "./nav";
 import { ScopeSwitcher, type SwitcherOption } from "./EntitySwitcher";
 import { UserMenu, type ShellUser } from "./UserMenu";
+import type { DropdownItem } from "./Dropdown";
 import { Drawer } from "../ui/Drawer";
 import { SearchInput } from "../ui/SearchInput";
 import { Breadcrumbs, type Crumb } from "../ui/Breadcrumbs";
 import { cx } from "../../lib/cx";
 
 export interface AppShellProps {
+  /** The grouped nav to render. Caller-supplied so the shell has no built-in
+   * opinion about destinations — `/design` passes its fixture IA, the live app
+   * passes the real one (`frontend/src/lib/nav.ts`), already permission/module
+   * filtered by the caller (the shell renders whatever it is given). */
+  navGroups: NavGroup[];
   orgs: SwitcherOption[];
   currentOrgId: string;
   onSwitchOrg: (id: string) => void;
-  entities: SwitcherOption[];
-  currentEntityId: string;
-  onSwitchEntity: (id: string) => void;
+  /** Legal-entity switcher — omit when no such concept exists for the caller
+   * (e.g. the live app today has no legal-entity model at all: wiring this with
+   * invented data would be placeholder UI, not a feature). */
+  entities?: SwitcherOption[];
+  currentEntityId?: string;
+  onSwitchEntity?: (id: string) => void;
   user: ShellUser;
   onSignOut: () => void;
-  search: string;
-  onSearch: (v: string) => void;
+  /** Global search box — omit when no search backend exists for the caller. */
+  search?: string;
+  onSearch?: (v: string) => void;
   breadcrumbs?: Crumb[];
-  /** Full-width notice under the top bar (e.g. the dev-fixtures banner). */
+  /** Full-width notice under the top bar (e.g. the dev-fixtures banner, or a
+   * suspended-workspace notice). */
   banner?: ReactNode;
+  /** Extra items appended to the user menu, before Sign out (e.g. "Sessions"). */
+  userMenuExtraItems?: DropdownItem[];
+  /** Where "Account settings" in the user menu points. */
+  accountHref?: string;
   children: ReactNode;
 }
 
-function NavList({ onNavigate }: { onNavigate?: () => void }) {
+function NavList({ navGroups, onNavigate }: { navGroups: NavGroup[]; onNavigate?: () => void }) {
   return (
     <nav aria-label="Primary" className="flex flex-col gap-5 px-3 py-4">
-      {NAV_GROUPS.map((group) => (
+      {navGroups.map((group) => (
         <div key={group.title}>
           <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">{group.title}</p>
           <ul className="flex flex-col gap-0.5">
@@ -36,7 +51,7 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
               <li key={item.to}>
                 <NavLink
                   to={item.to}
-                  end={item.to === "/design"}
+                  end={item.end ?? false}
                   onClick={onNavigate}
                   className={({ isActive }) =>
                     cx(
@@ -71,20 +86,35 @@ function Brand() {
  * The application shell: a persistent grouped sidebar + a sticky top bar wrapping
  * the routed page content. Responsive — on desktop the sidebar is fixed at 16rem;
  * below `lg` it collapses behind a hamburger that opens the same nav in a `Drawer`.
- * The top bar carries the org + legal-entity switchers, global search, and the user
- * menu. A skip link jumps keyboard users straight to `<main>`.
+ * The top bar carries the org switcher (+ an optional legal-entity switcher and an
+ * optional global search box, when the caller has something real to back them
+ * with), and the user menu. A skip link jumps keyboard users straight to `<main>`.
+ *
+ * `navGroups` is caller-supplied and pre-filtered — this component has no opinion
+ * about destinations, permissions or module gating; both the `/design` showcase
+ * (`DesignLayout`) and the live app (`Layout`) mount it with their own nav data.
  */
 export function AppShell({
+  navGroups,
   orgs, currentOrgId, onSwitchOrg,
   entities, currentEntityId, onSwitchEntity,
-  user, onSignOut, search, onSearch, breadcrumbs, banner, children,
+  user, onSignOut, search, onSearch, breadcrumbs, banner,
+  userMenuExtraItems, accountHref,
+  children,
 }: AppShellProps) {
   const [mobileNav, setMobileNav] = useState(false);
 
   const switchers = (
     <div className="flex flex-col gap-2 border-y border-slate-100 px-3 py-3">
       <ScopeSwitcher kind="organization" options={orgs} currentId={currentOrgId} onSwitch={onSwitchOrg} />
-      <ScopeSwitcher kind="legal entity" options={entities} currentId={currentEntityId} onSwitch={onSwitchEntity} />
+      {entities && entities.length > 0 && (
+        <ScopeSwitcher
+          kind="legal entity"
+          options={entities}
+          currentId={currentEntityId ?? entities[0].id}
+          onSwitch={onSwitchEntity ?? (() => {})}
+        />
+      )}
     </div>
   );
 
@@ -102,14 +132,14 @@ export function AppShell({
         <Brand />
         {switchers}
         <div className="flex-1 overflow-y-auto">
-          <NavList />
+          <NavList navGroups={navGroups} />
         </div>
       </aside>
 
       {/* Mobile nav drawer */}
       <Drawer open={mobileNav} onClose={() => setMobileNav(false)} title="Menu" side="left" size="sm">
         {switchers}
-        <NavList onNavigate={() => setMobileNav(false)} />
+        <NavList navGroups={navGroups} onNavigate={() => setMobileNav(false)} />
       </Drawer>
 
       <div className="lg:pl-64">
@@ -132,14 +162,16 @@ export function AppShell({
               {breadcrumbs && breadcrumbs.length > 0 && <Breadcrumbs items={breadcrumbs} />}
             </div>
 
-            <SearchInput
-              value={search}
-              onChange={onSearch}
-              label="Search the workspace"
-              placeholder="Search…"
-              className="hidden w-64 md:block"
-            />
-            <UserMenu user={user} onSignOut={onSignOut} />
+            {onSearch && (
+              <SearchInput
+                value={search ?? ""}
+                onChange={onSearch}
+                label="Search the workspace"
+                placeholder="Search…"
+                className="hidden w-64 md:block"
+              />
+            )}
+            <UserMenu user={user} onSignOut={onSignOut} extraItems={userMenuExtraItems} accountHref={accountHref} />
           </div>
         </header>
 

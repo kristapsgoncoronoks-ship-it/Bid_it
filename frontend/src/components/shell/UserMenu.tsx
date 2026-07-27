@@ -25,14 +25,17 @@ export function UserMenu({
   user,
   onSignOut,
   extraItems = [],
+  accountHref = "/design/settings",
 }: {
   user: ShellUser;
   onSignOut: () => void;
   extraItems?: DropdownItem[];
+  /** Where "Account settings" points — the live app passes `/settings`. */
+  accountHref?: string;
 }) {
   const items: DropdownItem[] = [
     { key: "email", label: <span className="text-xs text-slate-400">{user.email}</span>, disabled: true },
-    { key: "account", label: "Account settings", href: "/design/settings" },
+    { key: "account", label: "Account settings", href: accountHref },
     ...extraItems,
     { key: "signout", label: "Sign out", danger: true, onSelect: onSignOut },
   ];

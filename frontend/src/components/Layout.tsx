@@ -1,119 +1,84 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { isAdminOrAbove, isOwner } from "../lib/roles";
 import { useModules } from "../lib/useModules";
-import { OrgSwitcher } from "./OrgSwitcher";
+import { useOrgSwitcher } from "../lib/useOrgSwitcher";
+import { LIVE_NAV, matchNavItem, type LiveNavGroup, type LiveNavItem } from "../lib/nav";
+import { AppShell } from "./shell/AppShell";
+import type { NavGroup } from "./shell/nav";
+import { icon } from "./shell/nav";
+import type { Crumb } from "./ui/Breadcrumbs";
 
-// `module` marks an item that only shows when that add-on module is enabled.
-const NAV = [
-  { to: "/", label: "Dashboard", end: true },
-  { to: "/cash-position", label: "Cash position", end: false },
-  { to: "/explore", label: "Explore", end: false },
-  { to: "/benchmark", label: "Benchmark", end: false },
-  { to: "/fx", label: "FX", end: false },
-  { to: "/invoices", label: "Invoices", end: false },
-  { to: "/captures", label: "Captures", end: false },
-  { to: "/review", label: "Review", end: false },
-  { to: "/payment-runs", label: "Payment runs", end: false },
-  { to: "/vendors", label: "Suppliers", end: false },
-  { to: "/upload", label: "Upload", end: false },
-  { to: "/email", label: "Email intake", end: false, module: "email_intake" },
-  { to: "/budget", label: "Budget", end: false, module: "budget" },
-  { to: "/issue", label: "Issue", end: true, module: "issuing" },
-  { to: "/customers", label: "Customers", end: false, module: "issuing" },
-  { to: "/receipts", label: "Receipts", end: false, module: "issuing" },
-  { to: "/reconciliation", label: "Reconciliation", end: false, module: "issuing" },
-  { to: "/issue/reports", label: "Invoice reports", end: false, module: "issuing" },
-  { to: "/dunning", label: "Dunning", end: false, module: "issuing", admin: true },
-  { to: "/partners", label: "Partners", end: false, module: "issuing" },
-  { to: "/expenses", label: "Expenses", end: true, module: "expenses" },
-  { to: "/expenses/policy", label: "Expense policy", end: false, module: "expenses", admin: true },
-  { to: "/tax-codes", label: "Tax codes", end: false, admin: true },
-  { to: "/currencies", label: "Currencies", end: false, admin: true },
-  { to: "/cost-objects", label: "Cost objects", end: false, admin: true },
-  { to: "/documents", label: "Documents", end: false, admin: true },
-  { to: "/team", label: "Team", end: false },
-  { to: "/access", label: "Access", end: false, owner: true },
-  { to: "/audit", label: "Audit log", end: false, owner: true },
-  { to: "/billing", label: "Billing", end: false },
-  { to: "/settings", label: "Settings", end: false },
-];
+/**
+ * The application shell for the live app (board I1.2) — mounts the same `AppShell`
+ * the `/design` showcase uses (`docs/DESIGN_SYSTEM.md`), grouped Overview /
+ * Payables / Receivables / Insights / Workspace instead of the flat ~28-item nav
+ * this replaces. Filtering is unchanged in spirit from the old flat `NAV` array:
+ * a `module` flag hides an item until that add-on is enabled, `admin`/`owner`
+ * hide business-admin/owner-only items. This filtering is cosmetic UX only — the
+ * server is the real permission boundary (master-context §6), unchanged by this.
+ *
+ * No legal-entity switcher and no search box are wired: neither concept exists in
+ * the backend today (verified — no entity model, no search endpoint), and mounting
+ * either with nothing behind it would be placeholder UI, not a feature.
+ */
+function filterNav(groups: LiveNavGroup[], opts: { isEnabled: (m: string) => boolean; admin: boolean; owner: boolean }): NavGroup[] {
+  return groups
+    .map((g) => ({
+      title: g.title,
+      items: g.items.filter(
+        (i: LiveNavItem) =>
+          (!i.module || opts.isEnabled(i.module)) && (!i.admin || opts.admin) && (!i.owner || opts.owner),
+      ),
+    }))
+    .filter((g) => g.items.length > 0);
+}
 
 export function Layout() {
   const { user, org, logout } = useAuth();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const { isEnabled } = useModules();
-  const nav = NAV.filter(
-    (n) =>
-      (!n.module || isEnabled(n.module)) &&
-      (!("owner" in n && n.owner) || isOwner(user)) &&
-      (!("admin" in n && n.admin) || isAdminOrAbove(user)),
-  );
+  const orgSwitcher = useOrgSwitcher();
+
+  const admin = isAdminOrAbove(user);
+  const owner = isOwner(user);
+  const navGroups = filterNav(LIVE_NAV, { isEnabled, admin, owner });
   if (user?.is_platform_admin) {
-    nav.push({ to: "/platform", label: "Platform", end: false });
+    const workspace = navGroups.find((g) => g.title === "Workspace");
+    const platformItem = { to: "/platform", label: "Platform", icon: icon("M4 4h16v16H4V4zm4 4h8v8H8V8z") };
+    if (workspace) workspace.items.push(platformItem);
+    else navGroups.push({ title: "Workspace", items: [platformItem] });
   }
+
+  const current = matchNavItem(pathname);
+  const crumbs: Crumb[] = current ? [{ label: current.label }] : [];
+
   const suspended = org?.status && org.status !== "active";
 
   return (
-    <div className="min-h-screen">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-8">
-            <div className="flex items-center gap-2">
-              <div className="grid h-8 w-8 place-items-center rounded-lg bg-brand-500 text-sm font-bold text-white">
-                iQ
-              </div>
-              <span className="text-lg font-semibold tracking-tight">InvoiceIQ</span>
-            </div>
-            <nav className="flex items-center gap-1">
-              {nav.map((n) => (
-                <NavLink
-                  key={n.to}
-                  to={n.to}
-                  end={n.end}
-                  className={({ isActive }) =>
-                    `rounded-lg px-3 py-1.5 text-sm font-medium ${
-                      isActive
-                        ? "bg-brand-50 text-brand-700"
-                        : "text-slate-600 hover:bg-slate-100"
-                    }`
-                  }
-                >
-                  {n.label}
-                </NavLink>
-              ))}
-            </nav>
+    <AppShell
+      navGroups={navGroups}
+      orgs={orgSwitcher.options}
+      currentOrgId={orgSwitcher.currentId}
+      onSwitchOrg={orgSwitcher.onSwitch}
+      user={{ name: user?.name ?? user?.email ?? "—", email: user?.email ?? "", role: user?.role ?? "" }}
+      onSignOut={async () => {
+        await logout();
+        navigate("/login");
+      }}
+      breadcrumbs={crumbs}
+      userMenuExtraItems={[{ key: "sessions", label: "Sessions", href: "/sessions" }]}
+      accountHref="/settings"
+      banner={
+        suspended ? (
+          <div className="bg-rose-600 px-4 py-2 text-center text-sm font-medium text-white">
+            This workspace is {org?.status}. Some actions are disabled — please contact support or update billing.
           </div>
-          <div className="flex items-center gap-3">
-            <div className="text-right text-sm">
-              <div className="flex justify-end">
-                <OrgSwitcher currentName={org?.name} />
-              </div>
-              <div className="text-xs text-slate-400">{user?.email}</div>
-            </div>
-            <NavLink to="/sessions" className="text-xs text-slate-400 hover:text-brand-600 hover:underline">
-              Sessions
-            </NavLink>
-            <button
-              className="btn-ghost"
-              onClick={async () => {
-                await logout();
-                navigate("/login");
-              }}
-            >
-              Sign out
-            </button>
-          </div>
-        </div>
-      </header>
-      {suspended && (
-        <div className="bg-rose-600 px-4 py-2 text-center text-sm font-medium text-white">
-          This workspace is {org?.status}. Some actions are disabled — please contact support or update billing.
-        </div>
-      )}
-      <main className="mx-auto max-w-6xl px-4 py-6">
-        <Outlet />
-      </main>
-    </div>
+        ) : undefined
+      }
+    >
+      <Outlet />
+    </AppShell>
   );
 }

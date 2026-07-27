@@ -6,6 +6,8 @@ export interface NavItem {
   to: string;
   label: string;
   icon: ReactNode;
+  /** Exact-match the route for "active" styling (root/dashboard items). Default false. */
+  end?: boolean;
 }
 
 /** A titled group of nav items (e.g. "Payables", "Receivables"). */
@@ -15,7 +17,9 @@ export interface NavGroup {
 }
 
 // Minimal inline icons (no icon dependency). 1.5px stroke, currentColor.
-function icon(path: string): ReactNode {
+// Exported so the live app's nav (`frontend/src/lib/nav.ts`) can build its own
+// icon set in the same visual language without a separate dependency.
+export function icon(path: string): ReactNode {
   return h(
     "svg",
     { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", "aria-hidden": true },
@@ -32,7 +36,7 @@ function icon(path: string): ReactNode {
 export const NAV_GROUPS: NavGroup[] = [
   {
     title: "Overview",
-    items: [{ to: "/design", label: "Dashboard", icon: icon("M4 13h6V4H4v9zm10 7h6V4h-6v16zM4 20h6v-4H4v4z") }],
+    items: [{ to: "/design", label: "Dashboard", icon: icon("M4 13h6V4H4v9zm10 7h6V4h-6v16zM4 20h6v-4H4v4z"), end: true }],
   },
   {
     title: "Payables",

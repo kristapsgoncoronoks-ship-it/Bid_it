@@ -1,7 +1,7 @@
 import { Suspense, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { AppShell } from "../components/shell/AppShell";
-import { NAV_FLAT } from "../components/shell/nav";
+import { NAV_FLAT, NAV_GROUPS } from "../components/shell/nav";
 import { DevBanner } from "./DevBanner";
 import { FIXTURE_ORGS, FIXTURE_ENTITIES, FIXTURE_USER } from "./fixtures";
 import type { Crumb } from "../components/ui";
@@ -27,6 +27,7 @@ export function DesignLayout() {
 
   return (
     <AppShell
+      navGroups={NAV_GROUPS}
       orgs={FIXTURE_ORGS}
       currentOrgId={orgId}
       onSwitchOrg={setOrgId}

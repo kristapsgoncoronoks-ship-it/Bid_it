@@ -1,0 +1,106 @@
+import { icon, type NavItem } from "../components/shell/nav";
+
+/**
+ * The live app's navigation IA (board I1.2). Mirrors `docs/DESIGN_SYSTEM.md`'s
+ * grouping (Overview / Payables / Receivables / Insights / Workspace) but with the
+ * real ~28 destinations `frontend/src/App.tsx` actually routes, not the nine-item
+ * fixture showcase under `/design`.
+ *
+ * Each item carries the same three gating flags the flat nav it replaces used
+ * (`frontend/src/components/Layout.tsx` before this change): `module` (only shown
+ * when that add-on module is enabled), `admin` (business-admin or above), `owner`
+ * (company owner or above). Filtering happens in `Layout.tsx`, not here — this
+ * module is data + a couple of pure helpers, no React, no auth/module reads.
+ */
+export interface LiveNavItem extends NavItem {
+  /** Only shown when this module key is enabled for the org. */
+  module?: string;
+  /** Only shown to admin-or-above (`isAdminOrAbove`). */
+  admin?: boolean;
+  /** Only shown to the company owner (`isOwner`). */
+  owner?: boolean;
+}
+
+export interface LiveNavGroup {
+  title: string;
+  items: LiveNavItem[];
+}
+
+export const LIVE_NAV: LiveNavGroup[] = [
+  {
+    title: "Overview",
+    items: [
+      { to: "/", label: "Dashboard", end: true, icon: icon("M4 13h6V4H4v9zm10 7h6V4h-6v16zM4 20h6v-4H4v4z") },
+    ],
+  },
+  {
+    title: "Payables",
+    items: [
+      { to: "/invoices", label: "Invoices", icon: icon("M6 3h9l3 3v15H6V3zM9 8h6M9 12h6M9 16h4") },
+      { to: "/captures", label: "Captures", icon: icon("M4 7l8-4 8 4v10l-8 4-8-4V7zm8-4v18") },
+      { to: "/review", label: "Review", icon: icon("M9 12l2 2 4-4M12 3l8 4v5c0 4.5-3.4 7.7-8 9-4.6-1.3-8-4.5-8-9V7l8-4z") },
+      { to: "/payment-runs", label: "Payment runs", icon: icon("M3 6h18v12H3V6zm0 4h18M7 14h4") },
+      { to: "/vendors", label: "Suppliers", icon: icon("M4 21V10l8-6 8 6v11h-5v-6H9v6H4z") },
+      { to: "/upload", label: "Upload", icon: icon("M12 16V4m0 0L7 9m5-5l5 5M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3") },
+      { to: "/email", label: "Email intake", module: "email_intake", icon: icon("M3 6h18v12H3V6zm0 0l9 7 9-7") },
+      { to: "/expenses", label: "Expenses", module: "expenses", end: true, icon: icon("M3 7h18v10H3V7zm0 4h18M7 15h3") },
+      {
+        to: "/expenses/policy",
+        label: "Expense policy",
+        module: "expenses",
+        admin: true,
+        icon: icon("M9 12l2 2 4-4M12 3l8 4v5c0 4.5-3.4 7.7-8 9-4.6-1.3-8-4.5-8-9V7l8-4z"),
+      },
+    ],
+  },
+  {
+    title: "Receivables",
+    items: [
+      { to: "/issue", label: "Issue", module: "issuing", end: true, icon: icon("M6 3h12v18l-3-2-3 2-3-2-3 2V3zM9 8h6M9 12h6") },
+      { to: "/customers", label: "Customers", module: "issuing", icon: icon("M16 20v-1a4 4 0 00-4-4H8a4 4 0 00-4 4v1M10 11a3 3 0 100-6 3 3 0 000 6zm10 9v-1a4 4 0 00-3-3.8") },
+      { to: "/receipts", label: "Receipts", module: "issuing", icon: icon("M6 2h12v20l-3-2-3 2-3-2-3 2V2zM9 7h6M9 11h6") },
+      { to: "/reconciliation", label: "Reconciliation", module: "issuing", icon: icon("M4 4l16 16M20 4L4 20") },
+      { to: "/issue/reports", label: "Invoice reports", module: "issuing", icon: icon("M4 20V10M10 20V4M16 20v-7M22 20H2") },
+      { to: "/partners", label: "Partners", module: "issuing", icon: icon("M17 20v-1a4 4 0 00-4-4H7a4 4 0 00-4 4v1M9 11a3 3 0 100-6 3 3 0 000 6zm9 9v-1a3.9 3.9 0 00-2.5-3.6M15 5a3 3 0 010 5.8") },
+      { to: "/dunning", label: "Dunning", module: "issuing", admin: true, icon: icon("M12 9v4m0 4h.01M4.9 4.9l14.2 14.2") },
+    ],
+  },
+  {
+    title: "Insights",
+    items: [
+      { to: "/explore", label: "Explore", icon: icon("M11 4a7 7 0 105.3 12.6l4.05 4.05 1.4-1.4-4.05-4.05A7 7 0 0011 4zm0 2a5 5 0 110 10 5 5 0 010-10z") },
+      { to: "/benchmark", label: "Benchmark", icon: icon("M4 20V10M10 20V4M16 20v-7M22 20H2") },
+      { to: "/fx", label: "FX", icon: icon("M7 8l4-4 4 4M11 4v12M17 16l-4 4-4-4M13 20V8") },
+      { to: "/cash-position", label: "Cash position", icon: icon("M3 6h18v12H3V6zm0 4h18M7 14h4") },
+      { to: "/budget", label: "Budget", module: "budget", icon: icon("M4 4h16v16H4V4zm4 12V8m4 8V11m4 5V6") },
+    ],
+  },
+  {
+    title: "Workspace",
+    items: [
+      { to: "/tax-codes", label: "Tax codes", admin: true, icon: icon("M9 12l2 2 4-4M12 3l8 4v5c0 4.5-3.4 7.7-8 9-4.6-1.3-8-4.5-8-9V7l8-4z") },
+      { to: "/currencies", label: "Currencies", admin: true, icon: icon("M7 8l4-4 4 4M11 4v12M17 16l-4 4-4-4M13 20V8") },
+      { to: "/cost-objects", label: "Cost objects", admin: true, icon: icon("M4 4h16v16H4V4zm4 12V8m4 8V11m4 5V6") },
+      { to: "/documents", label: "Documents", admin: true, icon: icon("M6 3h9l3 3v15H6V3zM9 8h6M9 12h6M9 16h4") },
+      { to: "/team", label: "Team", icon: icon("M16 20v-1a4 4 0 00-4-4H8a4 4 0 00-4 4v1M10 11a3 3 0 100-6 3 3 0 000 6zm10 9v-1a4 4 0 00-3-3.8") },
+      { to: "/access", label: "Access", owner: true, icon: icon("M12 15a3 3 0 100-6 3 3 0 000 6zM19 12a7 7 0 00-.1-1l2-1.6-2-3.4-2.4 1a7 7 0 00-1.7-1L14.5 3h-4l-.3 2.4a7 7 0 00-1.7 1l-2.4-1-2 3.4 2 1.6a7 7 0 000 2l-2 1.6 2 3.4 2.4-1a7 7 0 001.7 1l.3 2.4h4l.3-2.4a7 7 0 001.7-1l2.4 1 2-3.4-2-1.6a7 7 0 00.1-1z") },
+      { to: "/audit", label: "Audit log", owner: true, icon: icon("M4 20V10M10 20V4M16 20v-7M22 20H2") },
+      { to: "/billing", label: "Billing", icon: icon("M3 6h18v12H3V6zm0 4h18M7 14h4") },
+      { to: "/settings", label: "Settings", icon: icon("M12 15a3 3 0 100-6 3 3 0 000 6zM19 12a7 7 0 00-.1-1l2-1.6-2-3.4-2.4 1a7 7 0 00-1.7-1L14.5 3h-4l-.3 2.4a7 7 0 00-1.7 1l-2.4-1-2 3.4 2 1.6a7 7 0 000 2l-2 1.6 2 3.4 2.4-1a7 7 0 001.7 1l.3 2.4h4l.3-2.4a7 7 0 001.7-1l2.4 1 2-3.4-2-1.6a7 7 0 00.1-1z") },
+    ],
+  },
+];
+
+/** Best-effort current-page label for the top-bar breadcrumb: exact match first,
+ * else the longest registered `to` that prefixes the pathname (so a detail route
+ * like `/invoices/inv-1` still reads "Invoices"). Returns `undefined` for a path
+ * with no ancestor in the nav (there is always at least "/" for a live route). */
+export function matchNavItem(pathname: string, groups: LiveNavGroup[] = LIVE_NAV): LiveNavItem | undefined {
+  const flat = groups.flatMap((g) => g.items);
+  const exact = flat.find((i) => i.to === pathname);
+  if (exact) return exact;
+  const prefixed = flat
+    .filter((i) => i.to !== "/" && pathname.startsWith(i.to))
+    .sort((a, b) => b.to.length - a.to.length);
+  return prefixed[0];
+}

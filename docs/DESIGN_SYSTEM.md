@@ -5,10 +5,13 @@ a responsive application shell, a living component gallery, and visual + end-to-
 tests. Built for non-technical users doing daily financial work on desktop, and for
 expense submission / approvals on mobile.
 
-Everything ships as an **additive** layer on the existing frontend — the live app's
-pages and routes are untouched. The showcase lives under `/design` and uses
-**clearly-marked development fixtures only** (`src/design/fixtures.ts`); no screen
-is filled with fake analytics.
+The reusable primitives (`components/ui/`) and the application shell
+(`components/shell/`) are shared: `Layout.tsx` mounts the same `AppShell` the
+`/design` showcase uses, grouped into the live IA (`src/lib/nav.ts`) instead of the
+fixture's nine-item demo nav (board I1.2). The showcase itself stays additive — its
+routes, its fixtures (`src/design/fixtures.ts`) and every live *page*'s content are
+untouched by this — `/design` remains a fixtures-only surface with **clearly-marked
+development data**; no screen is filled with fake analytics.
 
 ---
 
@@ -67,13 +70,13 @@ and exported from the barrel.
 ### Structure & navigation
 | Component | Key props | Purpose |
 |---|---|---|
-| `AppShell` | `orgs/currentOrgId/onSwitchOrg`, `entities/currentEntityId/onSwitchEntity`, `user/onSignOut`, `search/onSearch`, `breadcrumbs`, `banner`, `children` | Sidebar + top bar wrapping routed content |
+| `AppShell` | `navGroups`, `orgs/currentOrgId/onSwitchOrg`, `entities?/currentEntityId?/onSwitchEntity?`, `user/onSignOut`, `search?/onSearch?`, `breadcrumbs`, `banner`, `userMenuExtraItems?`, `accountHref?`, `children` | Sidebar + top bar wrapping routed content. `navGroups` is caller-supplied (no built-in nav opinion); `entities`/`search` are optional — omit when the caller has no legal-entity or search backend behind them (the live app omits both today) |
 | `PageHeader` | `title`, `description`, `actions`, `breadcrumbs`, `meta` | The one place page `<h1>` + actions are composed |
 | `Breadcrumbs` | `items: {label, to?}[]` | Labelled `<nav>`; last crumb `aria-current="page"` |
 | `Tabs` / `TabPanel` | `tabs`, `value`, `onChange`, `label`, `idBase` | WAI-ARIA tablist + linked panel |
 | `Dropdown` | `trigger(fn)`, `items`, `label`, `align` | Menu-button pattern; powers the switchers + user menu |
-| `ScopeSwitcher` | `kind`, `options`, `currentId`, `onSwitch` | Org **and** legal-entity switcher |
-| `UserMenu` | `user`, `onSignOut`, `extraItems` | Account menu |
+| `ScopeSwitcher` | `kind`, `options`, `currentId`, `onSwitch` | Org **and** legal-entity switcher; renders as static text when `options.length <= 1` |
+| `UserMenu` | `user`, `onSignOut`, `extraItems`, `accountHref?` | Account menu; `accountHref` defaults to `/design/settings`, the live app passes `/settings` |
 
 ### Data display
 | Component | Key props | Purpose |
@@ -220,27 +223,37 @@ before updating — an unexpected change is a regression.
 
 ```bash
 cd frontend
-npm run test:e2e          # 7 role-based smoke tests
-npm run test:ui           # smoke + visual together
+npm run test:e2e          # smoke.spec.ts + dashboard.spec.ts + masters.spec.ts + nav.spec.ts
+npm run test:ui           # every e2e spec, incl. visual, together
 ```
 
 `e2e/smoke.spec.ts` drives real user journeys through **role + accessible-name**
-selectors (so it doubles as an a11y check): navigating the IA, switching legal
-entity, keyboard-operating the user menu (Escape closes), filtering/sorting the
-supplier list and opening a detail drawer → confirm → toast, validating then
-submitting the expense form, tab-filtering payments, and trapping focus in a modal.
+selectors (so it doubles as an a11y check) over the `/design` showcase: navigating
+the IA, switching legal entity, keyboard-operating the user menu (Escape closes),
+filtering/sorting the supplier list and opening a detail drawer → confirm → toast,
+validating then submitting the expense form, tab-filtering payments, and trapping
+focus in a modal.
 
-These tests already earned their keep: they caught two real defects during
-build-out — a `Portal` that mounted a render late (silently defeating the modal
-focus trap) and a dropdown that focused a disabled item and ignored Escape.
+Three further specs exercise the **live app shell** (mocked API via `page.route`,
+no backend, same role/accessible-name discipline): `e2e/dashboard.spec.ts` (the
+composed home dashboard, WO-16), `e2e/masters.spec.ts` (the AR/master-data
+screens, WO-14) and `e2e/nav.spec.ts` (the grouped nav IA, WO-17/I1.2 — group
+headings, permission/module filtering, the org switcher, the mobile drawer, the
+breadcrumb).
 
-**In CI.** The `frontend-e2e` job (`.github/workflows/ci.yml`) runs the smoke suite
-in the version-matched Playwright container (`mcr.microsoft.com/playwright:v1.61.1-jammy`)
-— browsers are preinstalled, and the config falls back to the bundled Chromium when
-the sandbox's pinned browser isn't present. Visual regression is intentionally a
-**local** gate: pixel baselines are captured against a specific browser build, so
-running them on a different CI browser would false-diff on font rendering. To gate
-VR in CI, regenerate the baselines inside that same container and commit them.
+These tests already earned their keep: `smoke.spec.ts` caught two real defects
+during build-out — a `Portal` that mounted a render late (silently defeating the
+modal focus trap) and a dropdown that focused a disabled item and ignored Escape.
+
+**In CI.** The `frontend-e2e` job (`.github/workflows/ci.yml`) runs `npm run
+test:e2e` — all four functional specs above — in the version-matched Playwright
+container (`mcr.microsoft.com/playwright:v1.61.1-jammy`) — browsers are
+preinstalled, and the config falls back to the bundled Chromium when the sandbox's
+pinned browser isn't present. Visual regression (`visual.spec.ts`) is intentionally
+a **local** gate, excluded from `test:e2e`: pixel baselines are captured against a
+specific browser build, so running them on a different CI browser would false-diff
+on font rendering. To gate VR in CI, regenerate the baselines inside that same
+container and commit them.
 
 ---
 
