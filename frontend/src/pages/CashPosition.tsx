@@ -33,7 +33,8 @@ export default function CashPositionPage() {
       <div>
         <h1 className="text-xl font-semibold">Cash position</h1>
         <p className="text-slate-500">
-          Receivables, payables, and bank reconciliation at a glance. Net EUR.
+          Receivables, payables, and bank reconciliation at a glance — a
+          working-capital snapshot, not a bank balance. Net EUR.
         </p>
       </div>
 
@@ -52,16 +53,22 @@ export default function CashPositionPage() {
           accent="rose"
         />
         <StatCard
-          label="Net position"
+          label="Working-capital gap"
           value={money(net, cur)}
-          sub={net >= 0 ? "receivables exceed payables" : "payables exceed receivables"}
+          sub={
+            (net >= 0 ? "receivables exceed payables" : "payables exceed receivables") +
+            " — not a bank balance"
+          }
           accent={net >= 0 ? "brand" : "amber"}
         />
       </div>
 
       {/* Cash-flow trend */}
       {cashFlow.data && cashFlow.data.length > 0 && (
-        <Card title="Cash flow (last 12 months)">
+        <Card title="Cash flow, last 12 months (historical)">
+          <p className="mb-3 text-xs text-slate-400">
+            Settled inflow vs. outflow by month — a look back, not a forecast.
+          </p>
           <CashFlowChart data={cashFlow.data} />
         </Card>
       )}
