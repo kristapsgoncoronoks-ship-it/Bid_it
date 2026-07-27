@@ -40,9 +40,6 @@ class WorkflowState(str, enum.Enum):
     transition state machine). Runs alongside the legacy aging `status` above,
     which analytics/payments still read; the two are synced at the paid milestone."""
 
-    uploaded = "uploaded"
-    processing = "processing"
-    review_required = "review_required"
     draft = "draft"
     submitted = "submitted"  # "Submitted for Approval"
     partially_approved = "partially_approved"

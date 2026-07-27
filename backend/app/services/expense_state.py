@@ -12,7 +12,7 @@ module for the target state instead of writing `report.status` directly:
 fixed and resubmitted. `rejected` and `reimbursed` are terminal.
 
 This mirrors the invoice workflow's `assert_transition` pattern but is a distinct,
-simpler graph — expenses do not reuse the 14-state invoice machine.
+simpler graph — expenses do not reuse the 11-state invoice machine.
 """
 
 from __future__ import annotations

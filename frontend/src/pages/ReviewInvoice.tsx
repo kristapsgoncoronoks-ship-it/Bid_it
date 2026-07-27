@@ -84,7 +84,6 @@ interface History {
 
 const STATE_TONE: Record<string, Tone> = {
   draft: "neutral",
-  review_required: "warning",
   submitted: "info",
   partially_approved: "info",
   approved: "success",
@@ -95,8 +94,6 @@ const STATE_TONE: Record<string, Tone> = {
   disputed: "warning",
   cancelled: "neutral",
   archived: "neutral",
-  uploaded: "neutral",
-  processing: "neutral",
 };
 const STEP_TONE: Record<string, Tone> = {
   pending: "info",

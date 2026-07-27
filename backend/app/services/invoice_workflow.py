@@ -1,6 +1,6 @@
 """Supplier-invoice lifecycle state machine (AP review & approval).
 
-The 14-state lifecycle an invoice moves through from capture to archive. This
+The 11-state lifecycle an invoice moves through from draft to archive. This
 module is the SINGLE SOURCE OF TRUTH for *which* state changes are legal — every
 route computes a target state and calls `assert_transition(...)`, which raises on
 an illegal move. It is pure domain logic: no DB, no I/O, so it is trivially unit
@@ -28,9 +28,6 @@ _S = WorkflowState
 
 # Human-facing labels (the UI reads these; keep in sync with the enum).
 LABELS: dict[WorkflowState, str] = {
-    _S.uploaded: "Uploaded",
-    _S.processing: "Processing",
-    _S.review_required: "Review Required",
     _S.draft: "Draft",
     _S.submitted: "Submitted for Approval",
     _S.partially_approved: "Partially Approved",
@@ -48,9 +45,6 @@ LABELS: dict[WorkflowState, str] = {
 # `cancelled` is reachable from any non-terminal state (added below). Every state
 # except `archived` can also be cancelled; `archived` is fully terminal.
 TRANSITIONS: dict[WorkflowState, frozenset[WorkflowState]] = {
-    _S.uploaded: frozenset({_S.processing, _S.review_required, _S.draft}),
-    _S.processing: frozenset({_S.review_required, _S.draft}),
-    _S.review_required: frozenset({_S.draft}),
     # submit → submitted; the policy engine then advances it.
     _S.draft: frozenset({_S.submitted}),
     # one approval step done with more remaining → partially_approved; last step →
@@ -79,9 +73,7 @@ _CANCELLABLE = frozenset(
 # States in which the invoice's header/lines may be freely edited. After
 # submission the record is effectively frozen; editing an approved+ invoice needs
 # the explicit controlled-correction path (reopen → draft) — see the route.
-EDITABLE: frozenset[WorkflowState] = frozenset(
-    {_S.uploaded, _S.processing, _S.review_required, _S.draft}
-)
+EDITABLE: frozenset[WorkflowState] = frozenset({_S.draft})
 
 # States where the record is LOCKED (approved and everything downstream). A locked
 # invoice cannot be edited or re-submitted without a controlled correction.

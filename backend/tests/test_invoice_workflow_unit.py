@@ -31,9 +31,6 @@ S = WorkflowState
 
 def test_happy_path_transitions_are_legal():
     chain = [
-        (S.uploaded, S.processing),
-        (S.processing, S.review_required),
-        (S.review_required, S.draft),
         (S.draft, S.submitted),
         (S.submitted, S.partially_approved),
         (S.partially_approved, S.approved),
@@ -78,7 +75,7 @@ def test_cancellable_from_active_states_only():
 
 
 def test_editable_and_locked_sets():
-    assert wf.is_editable(S.draft) and wf.is_editable(S.review_required)
+    assert wf.is_editable(S.draft)
     assert not wf.is_editable(S.submitted)  # frozen once submitted
     assert wf.is_locked(S.approved) and wf.is_locked(S.paid)
     assert not wf.is_locked(S.draft)
