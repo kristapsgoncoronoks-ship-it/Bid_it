@@ -35,8 +35,8 @@ module goes live with a real vendor.
 | R4 | Expense-approval decision has no optimistic-concurrency/row lock | **P1** — CLOSED (WO-30) |
 | R5 | Self-serve billing collects no real payment; Enterprise tier self-upgradable for free | **P1** — (b) CLOSED (WO-31), (a) still open |
 | R6 | Reimbursement payout has no maker≠checker (SoD) control | **P2** — CLOSED (WO-32) |
-| R7 | ClamAV fail-closed malware-scan branch has zero test coverage | **P2** |
-| R14 | No application-owned backup/restore tooling exists | **P2** |
+| R7 | ClamAV fail-closed malware-scan branch has zero test coverage | **P2** — CLOSED (WO-33) |
+| R14 | No application-owned backup/restore tooling exists | **P2** — decision-gated, not code (see below) |
 | R16 | AR "Issue" screen: destructive actions (Void/Write off) have no confirmation | **P2** |
 | R18 | Billing downgrade silently disables modules with no confirmation | **P2** |
 
@@ -319,13 +319,27 @@ established pattern. Acceptance: a reimbursement batch's creator cannot also be 
   `test_expense_management.py::test_marked_for_reimbursement_report_is_batchable`. Full backend suite:
   1107 passed, 8 skipped (baseline was 1104 passed, 8 skipped — +3 new SoD tests).
 
-### R7 — ClamAV fail-closed malware-scan branch has zero test coverage
+### R7 — ClamAV fail-closed malware-scan branch has zero test coverage — **CLOSED (WO-33)**
 Evidence: `test-baseline.md` finding #1; debate-adjusted P2 (`agent-debate.md` §7) — control behaves
 correctly today (verified live with a monkeypatched `clamd`), this is a regression-prevention gap on an
 unreachable-by-default branch. Fix: add tests for the FOUND / non-OK-status / unreachable-scanner branches
 using a monkeypatched fake `clamd` module (no real daemon needed — demonstrated feasible in the debate pass).
 Risk: none (test-only addition). Acceptance: `scan_malware`'s three configured-scanner branches each have a
 dedicated test; CI catches a regression to fail-open.
+- **Closed by:** `docs/plan/plan-a/wo/WO-33-R7.md`. Pure test-only change — `app/services/filesec.py` is
+  byte-for-byte unchanged (the control was already correct). Added 7 tests to `backend/tests/test_filesec.py`
+  via a fake `clamd` module injected into `sys.modules` (no real daemon or package needed):
+  `test_clamav_found_rejects_with_signature`, `test_clamav_non_ok_status_rejects`,
+  `test_clamav_unreachable_fails_closed` (proves fail-CLOSED), `test_clamav_ok_status_passes`,
+  `test_clamav_uses_unix_socket_when_configured`, `test_clamav_uses_network_socket_by_default`, and
+  `test_clamav_eicar_short_circuits_before_scanner`. Red-then-green: manually broke `scan_malware`'s
+  unreachable-daemon branch (swallow instead of raise) — `test_clamav_unreachable_fails_closed` failed
+  ("DID NOT RAISE"); manually broke the FOUND/non-OK branches (no-op instead of raise) —
+  `test_clamav_found_rejects_with_signature` and `test_clamav_non_ok_status_rejects` both failed; restored
+  the original file (`git diff --stat` confirms zero change) and all tests pass green. Full backend suite:
+  1114 passed, 8 skipped (baseline was 1107 passed, 8 skipped — +7 new ClamAV-branch tests, 0 assertions
+  weakened). Milestone B is now closed except for R14, which is explicitly decision-gated (see below), not
+  a pending code change.
 
 ### R14 — No application-owned backup/restore tooling exists
 Evidence: `test-baseline.md` finding #4. `docs/DECISIONS-NEEDED.md` currently defers this to infrastructure.
