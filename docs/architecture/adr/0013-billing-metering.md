@@ -44,3 +44,14 @@ MoR fees drop below the cost of running VAT compliance in-house *or* cross-borde
 
 ## Status of implementation
 Shipped: provider seam (Null default + **Stripe** + **EveryPay**), selectable via `billing_provider`; org `stripe_customer_id`/`stripe_subscription_id` + `everypay_token`/`everypay_next_charge`; `processed_stripe_events` idempotency ledger (generic, both providers) + `billing_payments` (redirect-flow correlation) + migrations; `/billing/checkout` (provider-agnostic) + `/billing/portal` (Stripe) + signed `/billing/webhook` (Stripe) + `/billing/everypay/return` + `/billing/everypay/callback`; entitlement application (plan/status + add-on reconciliation); EveryPay MIT recurring on the job queue (`everypay.charge_mit` + daily scheduler); frontend provider-aware Checkout/Portal wiring; and **metered-usage overage reporting to Stripe** — `usage_counters.reported` watermark, `billing_usage.report_org_usage` reports only `count - reported` as a **Stripe Billing Meter event** (deterministic `identifier` → idempotent), wired as the `billing.report_usage` queue job (daily, only when Stripe is the active provider); tests (Stripe + EveryPay + usage). **Deferred:** Stripe Tax enablement + VAT remit/file runbook, EveryPay advanced dunning/retry policy + token-expiry handling.
+
+**R5(b) fix (WO-31):** `PUT /billing/plan` now refuses (409) a self-service switch to ANY plan with
+`price_eur is None` (currently only `enterprise`, "contact us" custom pricing) **unconditionally**,
+independent of `settings.billing_enabled`. Previously the guard was
+`billing_enabled and target.price_eur`, and `None` is falsy in Python, so the guard never fired for
+Enterprise regardless of whether billing was wired — any self-registered org owner could
+self-upgrade to the 200-seat Enterprise plan for free, even in a live-Stripe deployment. `Billing.tsx`
+now renders a non-actionable "Contact sales" control instead of an active switch button for any
+`price_eur === null` plan. **This does NOT resolve R5(a)** — whether/when a live Stripe/EveryPay key
+is wired before GA, or pilots are invoiced manually, remains an open GTM/business decision tracked in
+`docs/DECISIONS-NEEDED.md` item 2.

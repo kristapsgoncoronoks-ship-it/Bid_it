@@ -94,6 +94,7 @@ export default function Billing() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         {b?.available_plans.map((p) => {
           const current = p.key === b.plan.key;
+          const selfService = p.price_eur !== null; // custom-priced plans (e.g. Enterprise) are never self-service
           return (
             <div key={p.key} className={`card flex flex-col ${current ? "ring-2 ring-brand-500" : ""}`}>
               <div className="text-sm font-semibold text-slate-700">{p.name}</div>
@@ -107,17 +108,23 @@ export default function Billing() {
                 <li>• {p.modules.includes("issuing") ? "Invoice issuing included" : "No invoice issuing"}</li>
                 {p.trial && <li className="text-amber-600">• Trial</li>}
               </ul>
-              <button
-                className={`mt-4 ${current ? "btn-ghost" : "btn-primary"}`}
-                disabled={current || !isOwner || busy}
-                onClick={() => choosePlan(p.key, p.price_eur)}
-              >
-                {current
-                  ? "Current plan"
-                  : billingOn && p.price_eur
-                    ? `Subscribe to ${p.name}`
-                    : `Switch to ${p.name}`}
-              </button>
+              {!current && !selfService ? (
+                <button className="mt-4 btn-ghost" disabled title="Custom pricing — not available for self-service switch">
+                  Contact sales
+                </button>
+              ) : (
+                <button
+                  className={`mt-4 ${current ? "btn-ghost" : "btn-primary"}`}
+                  disabled={current || !isOwner || busy}
+                  onClick={() => choosePlan(p.key, p.price_eur)}
+                >
+                  {current
+                    ? "Current plan"
+                    : billingOn && p.price_eur
+                      ? `Subscribe to ${p.name}`
+                      : `Switch to ${p.name}`}
+                </button>
+              )}
             </div>
           );
         })}

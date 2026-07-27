@@ -67,6 +67,19 @@ async def change_plan(body: PlanChange, current: CurrentUser, db: DbSession, org
 
     target = plans.plan_for(body.plan)
 
+    # A plan with no listed price (`price_eur is None`, e.g. Enterprise) is
+    # "contact us" custom pricing, never self-service — unconditionally, whether
+    # or not a billing provider is wired. This guard must NOT be folded into the
+    # billing_enabled check below: `None` is falsy in Python, so
+    # `billing_enabled and target.price_eur` is False for a None-priced plan
+    # regardless of billing_enabled, which previously let any org owner
+    # self-upgrade to Enterprise for free even in a live-Stripe deployment (R5b).
+    if target.price_eur is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"{target.name} is not self-service — contact sales to switch to this plan.",
+        )
+
     # When Stripe is live, a PAID plan change must go through Checkout/Portal so
     # entitlements never outrun payment; the webhook is the authority. The free
     # default plan can still be set directly (in-app cancel/downgrade).

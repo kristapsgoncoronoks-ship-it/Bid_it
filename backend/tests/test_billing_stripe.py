@@ -295,6 +295,42 @@ async def test_paid_plan_switch_blocked_when_billing_enabled(auth_client, monkey
 
 
 @pytest.mark.asyncio
+async def test_enterprise_self_upgrade_blocked_billing_disabled(auth_client, db_session):
+    """R5(b): a None-priced ("contact us") plan must never be self-service, even
+    with no billing provider wired at all — the default/most common deployment
+    state. Before the fix this returned 200 (Python: `None` is falsy, so the old
+    `billing_enabled and target.price_eur` guard never fired for Enterprise)."""
+    org = await db_session.scalar(select(Organization))
+    before = org.plan
+
+    r = await auth_client.put("/api/v1/billing/plan", json={"plan": "enterprise"})
+    assert r.status_code == 409, r.text
+
+    await db_session.refresh(org)
+    assert org.plan == before
+
+
+@pytest.mark.asyncio
+async def test_enterprise_self_upgrade_blocked_billing_enabled(
+    auth_client, db_session, monkeypatch
+):
+    """R5(b), the worse half: even in a fully-wired, live-Stripe deployment, the
+    Enterprise self-upgrade must still be refused — billing being "on" must not
+    accidentally make a custom-priced plan free."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_x")
+    org = await db_session.scalar(select(Organization))
+    before = org.plan
+
+    r = await auth_client.put("/api/v1/billing/plan", json={"plan": "enterprise"})
+    assert r.status_code == 409, r.text
+
+    await db_session.refresh(org)
+    assert org.plan == before
+
+
+@pytest.mark.asyncio
 async def test_checkout_requires_billing_manage(auth_client, db_session, monkeypatch):
     # BILLING_MANAGE is owner-only (matrix-aligned) — even an administrator is
     # refused, and so is a plain user.
