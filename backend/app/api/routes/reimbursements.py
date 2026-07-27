@@ -130,6 +130,7 @@ async def create_batch(body: BatchCreate, current: CurrentUser, db: DbSession):
             method=body.method,
             note=body.note,
             created_by=current.email,
+            created_by_id=current.id,
         )
     except reimbursement.ReimbursementError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e))
@@ -168,7 +169,15 @@ async def pay_batch(batch_id: str, body: BatchPay, current: CurrentUser, db: DbS
         )
     try:
         reports = await reimbursement.mark_paid(
-            db, current.org_id, b, reference=body.reference, method=body.method
+            db,
+            current.org_id,
+            b,
+            reference=body.reference,
+            method=body.method,
+            actor_id=current.id,
+            actor_email=current.email,
+            is_platform_admin=bool(current.is_platform_admin),
+            override_sod=body.override_sod,
         )
     except reimbursement.ReimbursementError as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))

@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.csv_safety import sanitize_cell
-from app.core.errors import ConflictError
+from app.core.errors import AppError, ConflictError
 from app.core.money import q2
 from app.models.expense import (
     BATCH_CANCELLED,
@@ -27,10 +27,68 @@ from app.models.expense import (
     ExpenseReport,
     ReimbursementBatch,
 )
+from app.services import audit
 
 
 class ReimbursementError(Exception):
     """A reimbursement precondition failed (bad state / not eligible)."""
+
+
+def _sod_conflict(
+    batch: ReimbursementBatch, actor_id: str | None, actor_email: str | None
+) -> str | None:
+    """The segregation-of-duties check (§4.8, board R6): is the acting user the
+    batch's creator? Unlike a payment run, a reimbursement batch has no separate
+    approval stage (each underlying expense report was individually approved
+    under its own SoD before batching — see `assert_exportable`), so the only
+    conflicting role here is "creator". Compares the immutable user id first and
+    falls back to the stored email so LEGACY batches (created before
+    `created_by_id` existed, NULL) are still covered — fail-closed: a batch
+    whose maker we can identify by either handle is never self-paid."""
+    if (actor_id and batch.created_by_id and actor_id == batch.created_by_id) or (
+        actor_email and batch.created_by and actor_email == batch.created_by
+    ):
+        return "creator"
+    return None
+
+
+async def _enforce_sod(
+    db: AsyncSession,
+    batch: ReimbursementBatch,
+    *,
+    actor_id: str | None,
+    actor_email: str | None,
+    is_platform_admin: bool,
+    override_sod: bool,
+) -> None:
+    """Maker ≠ checker, enforced for EVERY role including the org Owner. The only
+    exemption is the cross-tenant platform operator, and it is EXPLICIT (the
+    request must carry `override_sod=true`) and AUDITED
+    (`reimbursement.sod_override` naming the overridden control) — never silent.
+    Mirrors `payment_run._enforce_sod`."""
+    role = _sod_conflict(batch, actor_id, actor_email)
+    if role is None:
+        return
+    if is_platform_admin and override_sod:
+        await audit.record(
+            db,
+            audit.A.REIMBURSE_SOD_OVERRIDE,
+            target_type="reimbursement_batch",
+            target_id=batch.id,
+            meta={
+                "control": "maker_is_checker",
+                "stage": "pay",
+                "conflict_role": role,
+                "actor": actor_email,
+            },
+        )
+        return
+    raise AppError(
+        f"You are this batch's {role}; a different user must pay it "
+        "(maker–checker control on reimbursement payouts).",
+        code="maker_is_checker",
+        status=403,
+    )
 
 
 def assert_exportable(batch: ReimbursementBatch, *, confirm_reexport: bool) -> None:
@@ -114,6 +172,7 @@ async def create_batch(
     method: str,
     note: str | None,
     created_by: str | None,
+    created_by_id: str | None = None,
 ) -> ReimbursementBatch:
     """Group approved, un-batched reports into an OPEN payout batch. Raises
     ReimbursementError if any report is missing, not approved, or already batched.
@@ -144,6 +203,7 @@ async def create_batch(
         method=method,
         note=note,
         created_by=created_by,
+        created_by_id=created_by_id,
         status=BATCH_OPEN,
         total_eur=q2(sum((eur_of(r) for r in reports), Decimal("0"))),
     )
@@ -161,11 +221,26 @@ async def mark_paid(
     *,
     reference: str | None,
     method: str | None = None,
+    actor_id: str | None = None,
+    actor_email: str | None = None,
+    is_platform_admin: bool = False,
+    override_sod: bool = False,
 ) -> list[ExpenseReport]:
     """Mark an open batch paid: stamp it, then flip every linked report to
-    `reimbursed` with the payment metadata. Returns the affected reports."""
+    `reimbursed` with the payment metadata. Returns the affected reports.
+    Segregation of duties (board R6): the batch's creator may never also be its
+    payer — a single account must never carry a reimbursement payout from
+    selection to settlement on its own, mirroring `payment_run.mark_paid`."""
     if batch.status != BATCH_OPEN:
         raise ReimbursementError(f"Batch is {batch.status}; only an open batch can be paid.")
+    await _enforce_sod(
+        db,
+        batch,
+        actor_id=actor_id,
+        actor_email=actor_email,
+        is_platform_admin=is_platform_admin,
+        override_sod=override_sod,
+    )
     reports = await batch_reports(db, org_id, batch.id)
     if not reports:
         raise ReimbursementError("Batch has no reports to pay.")

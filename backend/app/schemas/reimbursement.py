@@ -18,6 +18,9 @@ class BatchPay(BaseModel):
     version: int
     reference: str | None = None
     method: str | None = None
+    # Board R6 — the audited, explicit platform-admin escape hatch for the
+    # maker≠checker control (mirrors payment_run's RunPay.override_sod).
+    override_sod: bool = False
 
 
 class ReimbursementReportOut(BaseModel):

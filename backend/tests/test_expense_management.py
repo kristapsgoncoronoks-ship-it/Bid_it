@@ -371,8 +371,12 @@ async def test_marked_for_reimbursement_report_is_batchable(auth_client, client)
     )
     batch = await auth_client.post("/api/v1/reimbursements", json={"report_ids": [rid]})
     assert batch.status_code == 201, batch.text
-    pay = await auth_client.post(
+    # Board R6: the batch's creator (the owner) may not also be its payer — a
+    # second approver pays it.
+    payer = await _member(auth_client, client, "payer6@corp.io", role="admin")
+    pay = await client.post(
         f"/api/v1/reimbursements/{batch.json()['id']}/pay",
+        headers=_h(payer),
         json={"reference": "PAY-1", "version": batch.json()["version"]},
     )
     assert pay.status_code == 200, pay.text

@@ -96,9 +96,12 @@ async def test_batch_pay_marks_reports_reimbursed(auth_client, client):
     b = batch.json()
     assert b["status"] == "open" and b["report_count"] == 2 and b["total_eur"] == "300.00"
 
-    # Pay it → both reports become reimbursed with the reference stamped.
-    paid = await auth_client.post(
+    # Board R6: the batch's creator (the owner) may not also be its payer — a
+    # second approver pays it. Both to be its checker.
+    payer = await _member(auth_client, client, "payer1@corp.io", role="admin")
+    paid = await client.post(
         f"/api/v1/reimbursements/{b['id']}/pay",
+        headers=_h(payer),
         json={"version": b["version"], "reference": "PAY-2026-001"},
     )
     assert paid.status_code == 200, paid.text
@@ -150,17 +153,26 @@ async def test_pay_is_version_guarded(auth_client, client):
     emp = await _member(auth_client, client, "e5@corp.io")
     rid = await _approved(auth_client, client, emp)
     b = (await auth_client.post("/api/v1/reimbursements", json={"report_ids": [rid]})).json()
+    # The version check happens before the R6 maker≠checker check, so the
+    # creator (owner) still exercises the stale-version 409 path directly.
     stale = await auth_client.post(
         f"/api/v1/reimbursements/{b['id']}/pay", json={"version": 999, "reference": "X"}
     )
     assert stale.status_code == 409
+    # Board R6: the batch's creator (the owner) may not also be its payer — a
+    # second approver pays it.
+    payer = await _member(auth_client, client, "payer5@corp.io", role="admin")
     # A paid batch can't be paid again.
-    ok = await auth_client.post(
-        f"/api/v1/reimbursements/{b['id']}/pay", json={"version": b["version"]}
+    ok = await client.post(
+        f"/api/v1/reimbursements/{b['id']}/pay",
+        headers=_h(payer),
+        json={"version": b["version"]},
     )
     assert ok.status_code == 200
-    twice = await auth_client.post(
-        f"/api/v1/reimbursements/{b['id']}/pay", json={"version": ok.json()["version"]}
+    twice = await client.post(
+        f"/api/v1/reimbursements/{b['id']}/pay",
+        headers=_h(payer),
+        json={"version": ok.json()["version"]},
     )
     assert twice.status_code == 409
 

@@ -99,6 +99,9 @@ class A:
     REIMBURSE_PAID = "expense.reimbursement_paid"
     REIMBURSE_CANCEL = "expense.reimbursement_cancel"
     REIMBURSE_EXPORTED = "expense.reimbursement_exported"
+    # R6 (§4.8 SoD): the audited, explicit platform-admin override of the
+    # reimbursement-payout maker≠checker control (mirrors AP_RUN_SOD_OVERRIDE).
+    REIMBURSE_SOD_OVERRIDE = "reimbursement.sod_override"
     EXPENSE_POLICY_SET = "expense.policy_set"
     EXPENSE_TRANSITION = "expense.transition"
     EXPENSE_SUBMIT = "expense.submit"

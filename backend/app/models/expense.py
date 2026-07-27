@@ -310,6 +310,11 @@ class ReimbursementBatch(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     total_eur: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # R6 (§4.8 SoD): the immutable user id of the maker, compared against the
+    # payer at `pay` time. NULL for pre-migration batches — the maker≠checker
+    # check falls back to the `created_by` email for those (see
+    # `reimbursement._sod_conflict`), mirroring `PaymentRun.created_by_id`.
+    created_by_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)
     # WO-9 export-once (same treatment as payment_runs): first bank-file export,
     # total exports produced, and the last pain.001 MsgId sent to the bank.
     exported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
