@@ -67,6 +67,8 @@ export default function Explore() {
       <div className="flex flex-wrap items-end gap-3">
         <Picker label="Status filter" value={status} onChange={setStatus} options={[["", "All"], ["paid", "paid"], ["pending", "pending"], ["overdue", "overdue"], ["draft", "draft"]]} className="w-40" />
         <button className="btn-ghost" onClick={() => downloadFile(`/analytics/explore?${params.toString()}&format=csv`, "explore.csv")}>Export CSV</button>
+        <button className="btn-ghost" onClick={() => downloadFile(`/analytics/explore?${params.toString()}&format=xlsx`, "explore.xlsx")}>Export Excel</button>
+        <button className="btn-ghost" onClick={() => downloadFile(`/analytics/explore?${params.toString()}&format=pdf`, "explore.pdf")}>Export PDF</button>
       </div>
 
       <div className="card">

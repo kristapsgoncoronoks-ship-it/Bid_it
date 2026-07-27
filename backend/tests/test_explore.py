@@ -105,3 +105,45 @@ async def test_bad_field_rejected(auth_client):
     assert r.status_code == 422
     r2 = await auth_client.get("/api/v1/analytics/explore?measure=bogus&dim=vendor")
     assert r2.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_xlsx_and_pdf_export(auth_client):
+    """board I1.5 — the general report-to-Excel/PDF writers, over the same
+    Explore cut CSV already exercises. Never a forked query: same measure/dim,
+    three serialisations."""
+    await _mk(auth_client, "AWS", "A1", "2026-01-10", "cloud", "100.00")
+    await _mk(auth_client, "AWS", "A2", "2026-01-11", "cloud", "50.00")
+
+    xlsx = await auth_client.get("/api/v1/analytics/explore?measure=net&dim=category&format=xlsx")
+    assert xlsx.status_code == 200
+    assert xlsx.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert len(xlsx.content) > 0
+    import io
+
+    import openpyxl
+
+    wb = openpyxl.load_workbook(io.BytesIO(xlsx.content))
+    ws = wb.active
+    assert [c.value for c in ws[1]] == ["Category", "Net spend"]
+    assert [c.value for c in ws[2]] == ["cloud", "150.00"]
+
+    pdf = await auth_client.get("/api/v1/analytics/explore?measure=net&dim=category&format=pdf")
+    assert pdf.status_code == 200
+    assert pdf.headers["content-type"].startswith("application/pdf")
+    assert pdf.content[:4] == b"%PDF"
+
+
+@pytest.mark.asyncio
+async def test_xlsx_export_requires_report_read(role_client):
+    """Same router-level REPORT_READ gate the existing json/csv formats already
+    inherit — asserted explicitly for the new format value since it is new
+    code path, not just a new format string on an unrelated route."""
+    employee = await role_client("user")  # EMPLOYEE — no report.read
+    ro = await role_client("user_free")  # READ_ONLY — holds report.read
+    denied = await employee.get("/api/v1/analytics/explore?measure=net&dim=category&format=xlsx")
+    assert denied.status_code == 403
+    granted = await ro.get("/api/v1/analytics/explore?measure=net&dim=category&format=xlsx")
+    assert granted.status_code == 200

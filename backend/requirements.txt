@@ -31,6 +31,10 @@ reportlab==4.2.5
 # defusedxml hardens parsing of attacker-supplied XML (XXE / billion-laughs).
 defusedxml==0.7.1
 
+# General report-to-Excel writer (board I1.5) — Explore-cut .xlsx export.
+# Pure Python, no compiled/system dependency.
+openpyxl==3.1.5
+
 # Billing (ADR-0013). Imported LAZILY only when a Stripe secret key is set;
 # without it the app runs on the NullProvider and nothing charges. Uncomment (or
 # `pip install stripe`) on any deployment that turns billing on.

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.core.dimensions import DIMENSION_KEYS, DIMENSIONS, is_dimension
+from app.core.security_headers import content_disposition
 from app.schemas.analytics import (
     CategorySpend,
     DimensionBreakdown,
@@ -19,7 +20,15 @@ from app.schemas.ap_aging import ApAgingOut, WorklistItemOut
 from app.schemas.benchmark import CombinedBenchmark, SupplierBenchmark
 from app.schemas.cash_flow import CashFlowPointOut
 from app.schemas.cash_position import CashPositionOut
-from app.services import analytics, ap_aging, benchmark, cash_flow, cash_position, explore
+from app.services import (
+    analytics,
+    ap_aging,
+    benchmark,
+    cash_flow,
+    cash_position,
+    explore,
+    report_writers,
+)
 
 # Structural authorization (ADR-0024): the whole analytics surface reads the
 # org's aggregated money data — router-level REPORT_READ. Previously only three
@@ -159,7 +168,7 @@ async def get_explore(
     vendor_id: str | None = None,
     sort: str = "auto",
     limit: int = Query(default=100, ge=1, le=1000),
-    format: str = Query(default="json", pattern="^(json|csv)$"),
+    format: str = Query(default="json", pattern="^(json|csv|xlsx|pdf)$"),
 ):
     """Self-service pivot: pick a measure + up to two dimensions + filters."""
     q = explore.ExploreQuery(
@@ -185,5 +194,17 @@ async def get_explore(
             content=explore.to_csv(result),
             media_type="text/csv",
             headers={"Content-Disposition": 'attachment; filename="explore.csv"'},
+        )
+    if format == "xlsx":
+        return Response(
+            content=report_writers.to_xlsx(result),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": content_disposition("explore.xlsx")},
+        )
+    if format == "pdf":
+        return Response(
+            content=report_writers.to_pdf(result),
+            media_type="application/pdf",
+            headers={"Content-Disposition": content_disposition("explore.pdf")},
         )
     return result
