@@ -27,6 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.csv_safety import sanitize_cell as _safe
 from app.models.invoice import Invoice
 
 # Default chart mappings (constants for now; can become per-org settings later).
@@ -94,15 +95,8 @@ async def ledger(
 
 
 # --- CSV safety --------------------------------------------------------------- #
-
-
-def _safe(value) -> str:
-    """Neutralise CSV/Excel formula injection: prefix a leading formula trigger
-    with a single quote so a cell is never evaluated as a formula."""
-    s = "" if value is None else str(value)
-    if s and s[0] in ("=", "+", "-", "@", "\t", "\r"):
-        return "'" + s
-    return s
+# `_safe` is `app.core.csv_safety.sanitize_cell` imported under its original
+# local name (board R1/R9 — one shared implementation, no per-file copy).
 
 
 def _csv(header: list[str], rows: list[list]) -> str:

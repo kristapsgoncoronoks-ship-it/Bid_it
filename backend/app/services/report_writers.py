@@ -26,21 +26,11 @@ from __future__ import annotations
 import io
 from datetime import UTC, datetime
 
-_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+from app.core.csv_safety import sanitize_cell as _safe_cell
 
-
-def _safe_cell(value: object) -> str:
-    """Neutralise CSV/Excel formula injection: prefix a leading formula
-    trigger with a single quote so a cell is never evaluated as a formula.
-
-    Mirrors `erp_export._safe`/`audit_export._safe` verbatim (kept as a
-    separate small copy here rather than a shared import — consolidating the
-    three call sites is a legitimate follow-up, not required by this order).
-    """
-    s = "" if value is None else str(value)
-    if s and s[0] in _FORMULA_TRIGGERS:
-        return "'" + s
-    return s
+# `_safe_cell` is `app.core.csv_safety.sanitize_cell` imported under its
+# original local name (board R1/R9 — one shared implementation, no per-file
+# copy; see `test_safe_cell_neutralises_every_trigger`).
 
 
 def _header_and_rows(result: dict) -> tuple[list[str], list[list[str]]]:

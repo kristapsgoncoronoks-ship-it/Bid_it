@@ -4,6 +4,7 @@ ledger + advances each invoice to paid), cancel unlinks, a paid run reconciles a
 bank debit, and the PAYMENT_* authz gate. Invoices are driven to
 `scheduled_for_payment` via the real submit→approve→schedule path."""
 
+import csv
 import io
 
 import pytest
@@ -161,6 +162,44 @@ async def test_paid_run_reconciles_bank_debit(auth_client, client):
         json={"kind": "payment_run", "target_id": run["id"]},
     )
     assert m.status_code == 200 and m.json()["status"] == "matched"
+
+
+@pytest.mark.asyncio
+async def test_export_csv_is_formula_injection_safe(auth_client, client):
+    """Board R1: `payment_run.export_csv` writes `inv.invoice_number` and
+    `run.reference` — both attacker-influenceable free text (an invoice
+    number can originate from a vendor-supplied PDF a human transcribes; a
+    run reference is operator-typed) — into the bank-payment CSV a finance
+    user opens straight in Excel. Neither may reach the file un-neutralised
+    (CWE-1236), and the numeric amount column must never be touched."""
+    approver = await _member(auth_client, client, "appr@acme.io", role="admin")
+    a = await _make_invoice(auth_client, "=cmd|'/c calc'!A1", "100")
+    await _schedule(auth_client, approver, a)
+    run = (await auth_client.post("/api/v1/payment-runs", json={"invoice_ids": [a]})).json()
+    paid = await _approve_and_pay(
+        auth_client, client, run, approver, reference="=1+1+cmd|'/c calc'!A1"
+    )
+    assert paid.status_code == 200, paid.text
+
+    exp = await auth_client.get(f"/api/v1/payment-runs/{run['id']}/export")
+    assert exp.status_code == 200
+    rows = list(csv.reader(io.StringIO(exp.text)))
+    header, data = rows[0], rows[1]
+    assert header == [
+        "run_reference",
+        "invoice_number",
+        "amount",
+        "currency",
+        "amount_eur",
+        "method",
+    ]
+    # Both attacker-influenceable free-text cells are neutralised with a
+    # leading quote so Excel/Sheets renders them as inert text, not formulas.
+    assert data[0].startswith("'="), data[0]
+    assert data[1].startswith("'="), data[1]
+    # The numeric amount column is never sanitised (it must stay a real
+    # number a spreadsheet can sum, not text).
+    assert data[2] == "100.00"
 
 
 @pytest.mark.asyncio

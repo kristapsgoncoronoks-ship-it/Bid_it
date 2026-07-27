@@ -13,6 +13,7 @@ import io
 import json
 from datetime import UTC, datetime
 
+from app.core.csv_safety import sanitize_cell as _safe
 from app.models.audit import AuditEvent
 from app.services.audit import ChainStatus
 
@@ -28,14 +29,8 @@ CSV_HEADER = [
     "hash",
 ]
 
-
-def _safe(value) -> str:
-    """Neutralise CSV/Excel formula injection: a leading formula trigger is
-    prefixed with a quote so the cell is never evaluated."""
-    s = "" if value is None else str(value)
-    if s and s[0] in ("=", "+", "-", "@", "\t", "\r"):
-        return "'" + s
-    return s
+# `_safe` is `app.core.csv_safety.sanitize_cell` imported under its original
+# local name (board R1/R9 — one shared implementation, no per-file copy).
 
 
 def _iso(at_ms: int) -> str:

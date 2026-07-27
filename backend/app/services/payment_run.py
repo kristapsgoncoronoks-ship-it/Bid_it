@@ -18,6 +18,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.csv_safety import sanitize_cell
 from app.core.errors import AppError, ConflictError
 from app.core.money import q2
 from app.models.invoice import Invoice, InvoiceStatus, WorkflowState
@@ -423,7 +424,15 @@ def record_export(run: PaymentRun, *, msg_id: str | None) -> None:
 
 
 def export_csv(run: PaymentRun, invoices: list[Invoice]) -> str:
-    """A bank-friendly CSV of the run's payments (one row per invoice)."""
+    """A bank-friendly CSV of the run's payments (one row per invoice).
+
+    `run.reference` (operator-typed) and `inv.invoice_number` (can originate
+    from a vendor-supplied PDF a human transcribes) are free text a human
+    reads straight into Excel — sanitized against CSV/Excel formula
+    injection (board R1, CWE-1236). The amount/currency/method columns are
+    never sanitized: they are formatted numbers/codes, not free text, and a
+    legitimate negative amount must round-trip untouched.
+    """
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["run_reference", "invoice_number", "amount", "currency", "amount_eur", "method"])
@@ -431,8 +440,8 @@ def export_csv(run: PaymentRun, invoices: list[Invoice]) -> str:
         eur = eur_or_none(inv)
         w.writerow(
             [
-                run.reference or run.id,
-                inv.invoice_number,
+                sanitize_cell(run.reference or run.id),
+                sanitize_cell(inv.invoice_number),
                 f"{q2(Decimal(inv.total or 0))}",
                 inv.currency,
                 f"{eur}" if eur is not None else "",

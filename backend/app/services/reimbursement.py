@@ -17,6 +17,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.csv_safety import sanitize_cell
 from app.core.errors import ConflictError
 from app.core.money import q2
 from app.models.expense import (
@@ -285,7 +286,15 @@ async def batch_sepa(
 
 
 def export_csv(batch: ReimbursementBatch, reports: list[ExpenseReport]) -> str:
-    """A bank/payroll-friendly CSV of the batch's payouts (one row per report)."""
+    """A bank/payroll-friendly CSV of the batch's payouts (one row per report).
+
+    `r.employee_name` and `r.title` are free text (an employee's account
+    name, a self-typed report title) reaching a payroll-adjacent CSV a human
+    opens straight in Excel — sanitized against CSV/Excel formula injection
+    (board R1, CWE-1236). The amount/currency/method columns are never
+    sanitized: they are formatted numbers/codes, not free text, and a
+    legitimate negative amount must round-trip untouched.
+    """
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(
@@ -295,9 +304,9 @@ def export_csv(batch: ReimbursementBatch, reports: list[ExpenseReport]) -> str:
         eur = eur_or_none(r)
         w.writerow(
             [
-                batch.reference or batch.id,
-                r.employee_name,
-                r.title,
+                sanitize_cell(batch.reference or batch.id),
+                sanitize_cell(r.employee_name),
+                sanitize_cell(r.title),
                 f"{q2(Decimal(r.total or 0))}",
                 r.currency,
                 f"{eur}" if eur is not None else "",

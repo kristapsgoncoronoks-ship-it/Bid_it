@@ -243,10 +243,19 @@ def to_csv(result: dict) -> str:
     import csv
     import io
 
+    from app.core.csv_safety import sanitize_cell
+
     dims = result["dimensions"]
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow([d["label"] for d in dims] + [result["measure"]["label"]])
     for row in result["rows"]:
-        w.writerow([row.get(d["key"], "") for d in dims] + [row["value"]])
+        # Dimension values (vendor name, category, cost center, ...) are
+        # free text that can originate from a supplier document a human
+        # transcribes — sanitized against CSV/Excel formula injection
+        # (board R1, CWE-1236). `row["value"]` is the already-formatted
+        # measure figure (money/percent/count) and is left untouched: a
+        # legitimate negative figure must round-trip as a real number, not
+        # be turned into text by a stray quote prefix.
+        w.writerow([sanitize_cell(row.get(d["key"], "")) for d in dims] + [row["value"]])
     return buf.getvalue()

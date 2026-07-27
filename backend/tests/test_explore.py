@@ -1,5 +1,8 @@
 """Self-service pivot engine (Power BI / Tableau-style explore)."""
 
+import csv
+import io
+
 import pytest
 
 
@@ -97,6 +100,28 @@ async def test_filters_and_csv(auth_client):
     assert csv.headers["content-type"].startswith("text/csv")
     assert "Category,Net spend" in csv.text
     assert "cloud" in csv.text
+
+
+@pytest.mark.asyncio
+async def test_to_csv_is_formula_injection_safe(auth_client):
+    """Board R1: `explore.to_csv` writes dimension values — which can be a
+    vendor name a human transcribed from a supplier PDF — into a CSV an
+    analyst opens straight in Excel. A dimension value starting with a
+    formula trigger must be neutralised (CWE-1236); the numeric measure
+    column must never be touched."""
+    await _mk(auth_client, "=cmd|'/c calc'!A1", "A1", "2026-01-10", "cloud", "100.00")
+
+    r = await auth_client.get("/api/v1/analytics/explore?measure=net&dim=vendor&format=csv")
+    assert r.status_code == 200
+    rows = list(csv.reader(io.StringIO(r.text)))
+    header, data = rows[0], rows[1]
+    assert header == ["Vendor", "Net spend"]
+    # The attacker-influenceable dimension value is neutralised with a
+    # leading quote so Excel/Sheets renders it as inert text, not a formula.
+    assert data[0].startswith("'="), data[0]
+    # The numeric measure column is never sanitised (it must stay a real
+    # number a spreadsheet can sum, not text).
+    assert data[1] == "100.00"
 
 
 @pytest.mark.asyncio

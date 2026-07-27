@@ -2,6 +2,9 @@
 them together (→ reimbursed + payment metadata), export a bank/payroll CSV, with
 authorization + tenant isolation + optimistic concurrency."""
 
+import csv
+import io
+
 import pytest
 
 _PNG = (
@@ -210,3 +213,37 @@ async def test_cross_tenant_isolation(auth_client, client):
         "/api/v1/reimbursements", headers=_h(other), json={"report_ids": [rid]}
     )
     assert steal.status_code == 422  # report not found in the other org
+
+
+@pytest.mark.asyncio
+async def test_export_csv_is_formula_injection_safe(auth_client, client):
+    """Board R1: `reimbursement.export_csv` writes `r.employee_name` and
+    `r.title` — both free text (an employee's account name, a self-typed
+    report title) — into a payroll-adjacent CSV an HR/finance user opens
+    straight in Excel. Neither may reach the file un-neutralised (CWE-1236),
+    and the numeric amount column must never be touched."""
+    await _activate(auth_client)
+    emp = await _member(auth_client, client, "e9@corp.io", name="=cmd|'/c calc'!A1")
+    rid = await _approved(auth_client, client, emp, "@SUM(A1:A9)", "150.00")
+    b = (await auth_client.post("/api/v1/reimbursements", json={"report_ids": [rid]})).json()
+    exp = await auth_client.get(f"/api/v1/reimbursements/{b['id']}/export")
+    assert exp.status_code == 200
+    rows = list(csv.reader(io.StringIO(exp.text)))
+    header = rows[0]
+    data = rows[1]
+    assert header == [
+        "batch_reference",
+        "employee",
+        "report",
+        "amount",
+        "currency",
+        "amount_eur",
+        "method",
+    ]
+    # Both attacker-influenceable free-text cells are neutralised with a
+    # leading quote so Excel/Sheets renders them as inert text, not formulas.
+    assert data[1].startswith("'="), data[1]
+    assert data[2].startswith("'@"), data[2]
+    # The numeric amount column is never sanitised (it must stay a real
+    # number a spreadsheet can sum, not text).
+    assert data[3] == "150.00"
