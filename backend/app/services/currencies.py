@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.currency import Currency
+from app.services import audit
 
 
 class CurrencyError(Exception):
@@ -61,6 +62,16 @@ async def create(
         org_id=org_id, code=code, name=name, symbol=symbol, decimal_places=decimal_places
     )
     db.add(cur)
+    # §4.16: audited in the same commit as the insert (flush materialises the id).
+    await db.flush()
+    await audit.record(
+        db,
+        audit.A.CURRENCY_CREATE,
+        target_type="currency",
+        target_id=cur.id,
+        meta={"code": cur.code, "name": cur.name, "decimal_places": cur.decimal_places},
+        org_id=org_id,
+    )
     await db.commit()
     await db.refresh(cur)
     return cur
@@ -94,8 +105,18 @@ async def set_active(
         raise ConcurrencyError(
             f"stale write: expected version {expected_version}, current is {row.version}"
         )
+    old = row.active
     row.active = active
     row.version += 1
+    # §4.16: old→new in the same commit as the flip.
+    await audit.record(
+        db,
+        audit.A.CURRENCY_SET_ACTIVE,
+        target_type="currency",
+        target_id=row.id,
+        meta={"code": row.code, "old": old, "new": active},
+        org_id=org_id,
+    )
     await db.commit()
     await db.refresh(row)
     return row

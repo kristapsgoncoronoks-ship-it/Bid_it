@@ -98,6 +98,22 @@ async def create_vendor(...):  # stricter per-route override — both gates run
     ...
 ```
 
+### Master-data catalogs (WO-14)
+
+The three cost-allocation master routers added in WO-14 follow the same pattern
+as the tax-code and currency catalogs before them — reading is broad because the
+masters feed pickers on invoice/expense forms, managing them is org
+configuration:
+
+| Route group | Read | Mutate |
+|---|---|---|
+| `/masters/departments` | `invoice.read` | `settings.manage` |
+| `/masters/cost-centers` | `invoice.read` | `settings.manage` |
+| `/masters/projects` | `invoice.read` | `settings.manage` |
+
+(`/documents`, the tenant-wide registry of stored originals, remains
+router-level `settings.manage` for reads too — it spans every user's uploads.)
+
 ## How it is enforced
 
 - **The factory** — `app/api/deps.py::require_perm(*permissions)` returns an

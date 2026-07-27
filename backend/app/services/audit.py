@@ -120,6 +120,15 @@ class A:
     # Tenant & session integrity (WO-4)
     SESSION_REVOKE_BULK = "session.revoked_bulk"
     TENANT_UPDATE = "platform.tenant_update"
+    # Master-data catalogs (WO-14 / F1.1): tax codes, currencies, costing
+    # masters. Not financial mutations themselves, but they configure how money
+    # is rated and allocated — §4.16 applies to them like any other mutation.
+    TAX_CODE_CREATE = "tax_code.create"
+    TAX_CODE_SET_ACTIVE = "tax_code.set_active"
+    CURRENCY_CREATE = "currency.create"
+    CURRENCY_SET_ACTIVE = "currency.set_active"
+    MASTER_CREATE = "master.create"
+    MASTER_UPDATE = "master.update"
 
 
 def _hash(

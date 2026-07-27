@@ -1363,3 +1363,50 @@ export interface IssuedInvoiceDetail extends IssuedInvoice {
   }[];
   vat_breakdown: VatBucket[];
 }
+
+// --- Master data & document registry (WO-14 / F1.1) ------------------------
+
+export interface TaxCode {
+  id: string;
+  code: string;
+  name: string;
+  rate: string; // Decimal serialised as string — never parse into a float for math
+  category: "standard" | "reduced" | "zero" | "exempt" | "reverse_charge" | string;
+  country: string | null;
+  active: boolean;
+  version: number;
+}
+
+export interface CurrencyEntry {
+  id: string;
+  code: string;
+  name: string;
+  symbol: string | null;
+  decimal_places: number;
+  active: boolean;
+  version: number;
+}
+
+export type MasterStatus = "active" | "closed" | "archived";
+
+export interface CostMaster {
+  id: string;
+  code: string;
+  name: string;
+  status: MasterStatus;
+  version: number;
+  department_id?: string | null; // cost centers only
+  start_date?: string | null; // projects only
+  end_date?: string | null; // projects only
+}
+
+export interface DocumentEntry {
+  id: string;
+  sha256: string;
+  size: number;
+  mime: string | null;
+  kind: string;
+  filename: string | null;
+  uploaded_by: string | null;
+  created_at: string;
+}

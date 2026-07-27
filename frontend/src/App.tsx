@@ -46,6 +46,10 @@ const Access = lazy(() => import("./pages/Access"));
 const Sessions = lazy(() => import("./pages/Sessions"));
 const Audit = lazy(() => import("./pages/Audit"));
 const Platform = lazy(() => import("./pages/Platform"));
+const TaxCodes = lazy(() => import("./pages/TaxCodes"));
+const Currencies = lazy(() => import("./pages/Currencies"));
+const CostObjects = lazy(() => import("./pages/CostObjects"));
+const Documents = lazy(() => import("./pages/Documents"));
 
 // Design-system showcase (public, fixtures-only). Lives under /design so the
 // living style guide + shell demo can be reviewed and visual/e2e-tested without a
@@ -143,6 +147,10 @@ export default function App() {
                 <Route path="/expenses/policy" element={<ExpensePolicy />} />
                 <Route path="/expenses/:id" element={<ExpenseDetail />} />
                 <Route path="/reimbursements" element={<Reimbursements />} />
+                <Route path="/tax-codes" element={<TaxCodes />} />
+                <Route path="/currencies" element={<Currencies />} />
+                <Route path="/cost-objects" element={<CostObjects />} />
+                <Route path="/documents" element={<Documents />} />
                 <Route path="/team" element={<Team />} />
                 <Route path="/access" element={<Access />} />
                 <Route path="/sessions" element={<Sessions />} />

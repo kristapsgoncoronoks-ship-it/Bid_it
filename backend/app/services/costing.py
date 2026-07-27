@@ -17,6 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.costing import CostCenter, Department, Project
+from app.services import audit
 
 # Allowed status transitions per entity (enforced here, not just in the DB).
 _TRANSITIONS = {
@@ -36,6 +37,11 @@ class CostingError(Exception):
 
 class ConcurrencyError(CostingError):
     """Optimistic-concurrency conflict: the row changed since it was read."""
+
+
+class NotFoundError(CostingError):
+    """No such master row in this tenant — the API maps this to an opaque 404
+    (§4.4: a cross-tenant id probe must be indistinguishable from a missing id)."""
 
 
 def _kind(model) -> str:
@@ -60,6 +66,7 @@ async def create_department(db: AsyncSession, org_id: str, *, code: str, name: s
         raise CostingError(f"department code '{code}' already exists")
     dep = Department(org_id=org_id, code=code, name=name)
     db.add(dep)
+    await _audit_create(db, org_id, dep, "department")
     await db.commit()
     await db.refresh(dep)
     return dep
@@ -79,6 +86,7 @@ async def create_cost_center(
             raise CostingError("department not found in this workspace")
     cc = CostCenter(org_id=org_id, code=code, name=name, department_id=department_id)
     db.add(cc)
+    await _audit_create(db, org_id, cc, "cost_center")
     await db.commit()
     await db.refresh(cc)
     return cc
@@ -91,9 +99,24 @@ async def create_project(
         raise CostingError(f"project code '{code}' already exists")
     pr = Project(org_id=org_id, code=code, name=name, start_date=start_date, end_date=end_date)
     db.add(pr)
+    await _audit_create(db, org_id, pr, "project")
     await db.commit()
     await db.refresh(pr)
     return pr
+
+
+async def _audit_create(db: AsyncSession, org_id: str, row, kind: str) -> None:
+    """§4.16: the create is audited in the SAME commit as the insert. The flush
+    materialises the client-side UUID default so the event can carry the id."""
+    await db.flush()
+    await audit.record(
+        db,
+        audit.A.MASTER_CREATE,
+        target_type=kind,
+        target_id=row.id,
+        meta={"kind": kind, "code": row.code, "name": row.name},
+        org_id=org_id,
+    )
 
 
 # --- listing (active-only by default) --------------------------------------
@@ -111,38 +134,66 @@ async def list_entities(
 # --- update with optimistic concurrency ------------------------------------
 
 
-async def rename(
-    db: AsyncSession, model, org_id: str, entity_id: str, *, name: str, expected_version: int
+async def update(
+    db: AsyncSession,
+    model,
+    org_id: str,
+    entity_id: str,
+    *,
+    expected_version: int,
+    name: str | None = None,
+    status: str | None = None,
 ) -> object:
+    """Rename and/or transition ONE master row under a single version check and a
+    single commit — the API's PATCH maps here so a combined edit is atomic (one
+    version bump, one audit event) instead of two racing writes."""
     row = await _load(db, model, org_id, entity_id)
     _check_version(row, expected_version)
-    row.name = name
+    changed: dict[str, dict[str, str]] = {}
+    if name is not None and name != row.name:
+        changed["name"] = {"old": row.name, "new": name}
+        row.name = name
+    if status is not None:
+        allowed = _TRANSITIONS[_kind(model)].get(row.status, set())
+        if status != row.status and status not in allowed:
+            raise CostingError(f"cannot move {_kind(model)} from '{row.status}' to '{status}'")
+        if status != row.status:
+            changed["status"] = {"old": row.status, "new": status}
+        row.status = status
+        row.archived_at = datetime.now(UTC) if status == "archived" else None
     row.version += 1
+    # §4.16: audited in the same commit as the mutation, with old→new meta.
+    await audit.record(
+        db,
+        audit.A.MASTER_UPDATE,
+        target_type=_kind(model),
+        target_id=row.id,
+        meta={"kind": _kind(model), "code": row.code, "changed": changed},
+        org_id=org_id,
+    )
     await db.commit()
     await db.refresh(row)
     return row
+
+
+async def rename(
+    db: AsyncSession, model, org_id: str, entity_id: str, *, name: str, expected_version: int
+) -> object:
+    return await update(db, model, org_id, entity_id, expected_version=expected_version, name=name)
 
 
 async def set_status(
     db: AsyncSession, model, org_id: str, entity_id: str, *, status: str, expected_version: int
 ) -> object:
-    row = await _load(db, model, org_id, entity_id)
-    _check_version(row, expected_version)
-    allowed = _TRANSITIONS[_kind(model)].get(row.status, set())
-    if status != row.status and status not in allowed:
-        raise CostingError(f"cannot move {_kind(model)} from '{row.status}' to '{status}'")
-    row.status = status
-    row.archived_at = datetime.now(UTC) if status == "archived" else None
-    row.version += 1
-    await db.commit()
-    await db.refresh(row)
-    return row
+    return await update(
+        db, model, org_id, entity_id, expected_version=expected_version, status=status
+    )
 
 
 async def _load(db: AsyncSession, model, org_id: str, entity_id: str):
     row = await db.scalar(select(model).where(model.org_id == org_id, model.id == entity_id))
     if row is None:
-        raise CostingError(f"{_kind(model)} not found")
+        raise NotFoundError(f"{_kind(model)} not found")
     return row
 
 

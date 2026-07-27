@@ -114,3 +114,32 @@ async def test_read_any_role_manage_admin_only(auth_client, client, db_session):
         "/api/v1/tax-codes", json={"code": "X", "name": "x", "rate": "1"}, headers=h
     )
     assert forbidden.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_tax_code_mutations_are_audited(auth_client, db_session):
+    """§4.16 (WO-14): create and set_active each append an audit event in the
+    same commit as the mutation, with old→new on the flip."""
+    import json
+
+    from app.models.audit import AuditEvent
+
+    made = await auth_client.post(
+        "/api/v1/tax-codes", json={"code": "AUD-T", "name": "Audited", "rate": "9"}
+    )
+    assert made.status_code == 201, made.text
+    tc = made.json()
+    r = await auth_client.patch(
+        f"/api/v1/tax-codes/{tc['id']}", json={"active": False, "version": tc["version"]}
+    )
+    assert r.status_code == 200
+
+    events = list(
+        await db_session.scalars(
+            select(AuditEvent).where(AuditEvent.target_id == tc["id"]).order_by(AuditEvent.seq)
+        )
+    )
+    assert [e.action for e in events] == ["tax_code.create", "tax_code.set_active"]
+    assert json.loads(events[0].meta)["code"] == "AUD-T"
+    flip = json.loads(events[1].meta)
+    assert flip["old"] is True and flip["new"] is False

@@ -7,6 +7,7 @@ from app.api.routes import (
     auth,
     billing,
     budget,
+    costing,
     currencies,
     customers,
     documents,
@@ -52,6 +53,7 @@ api_router.include_router(settings.router)
 api_router.include_router(modules.router)
 api_router.include_router(tax_codes.router)
 api_router.include_router(currencies.router)
+api_router.include_router(costing.router)
 api_router.include_router(issuer.router)
 api_router.include_router(customers.router)
 # Recurring BEFORE issued: `/issued/recurring*` must not be shadowed by the

@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import money
 from app.models.tax_code import CATEGORIES, TaxCode
+from app.services import audit
 
 
 class TaxCodeError(Exception):
@@ -75,6 +76,16 @@ async def create(
         country=(country.upper() if country else None),
     )
     db.add(tc)
+    # §4.16: audited in the same commit as the insert (flush materialises the id).
+    await db.flush()
+    await audit.record(
+        db,
+        audit.A.TAX_CODE_CREATE,
+        target_type="tax_code",
+        target_id=tc.id,
+        meta={"code": tc.code, "name": tc.name, "rate": str(tc.rate), "category": tc.category},
+        org_id=org_id,
+    )
     await db.commit()
     await db.refresh(tc)
     return tc
@@ -113,8 +124,18 @@ async def set_active(
         raise ConcurrencyError(
             f"stale write: expected version {expected_version}, current is {row.version}"
         )
+    old = row.active
     row.active = active
     row.version += 1
+    # §4.16: old→new in the same commit as the flip.
+    await audit.record(
+        db,
+        audit.A.TAX_CODE_SET_ACTIVE,
+        target_type="tax_code",
+        target_id=row.id,
+        meta={"code": row.code, "old": old, "new": active},
+        org_id=org_id,
+    )
     await db.commit()
     await db.refresh(row)
     return row

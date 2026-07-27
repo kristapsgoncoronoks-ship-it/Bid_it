@@ -126,6 +126,7 @@ Legend: **Owns** = writes + schema authority. **Reads** = consumes read-only. Is
 | **Vendors** | `vendors` | vendor routes | — | Supplier master (received side). |
 | **Validation** | (findings on invoice) | `validation` | invoice, fx, ecb | ONE service-owned engine (WO-7; ADR forthcoming in WO-10): a single rule registry — `block` rules (zero tolerance) gate AP submit, `advise` rules are the opt-in AI findings; human-gate routes to `pending`. |
 | **Dimensions** | (columns on invoices/expense_items) | `core/dimensions` | — | Cost-allocation tags; catalog in one place. |
+| **Master-data catalogs** | `tax_codes`, `currencies`, `departments`, `cost_centers`, `projects` | `tax_codes`, `currencies`, `costing` (+ `/tax-codes`, `/currencies`, `/masters/*` routes) | dimensions (tag→FK backfill) | WO-14: costing masters gained their API surface (read `invoice.read`, manage `settings.manage`); every catalog mutation is audited (`tax_code.*`, `currency.*`, `master.*`) in the same commit; optimistic `version`; archive-never-delete. |
 | **Analytics** | (read models / metrics) | `analytics`, `explore`, `issued_reports` | invoices, issued, dimensions | DB-side aggregation; single-currency. |
 | **Budget** | `budget_targets` | `budget` | invoices | Category budgets vs. spend. |
 | **Exports** | — (stateless) | export services, `saft`, ERP exporters | invoices, issued | Read-only; formula-injection-safe. |
