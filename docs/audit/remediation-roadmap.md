@@ -32,7 +32,7 @@ module goes live with a real vendor.
 ### Milestone B — Must fix before General (self-serve) Release
 | ID | Item | Priority |
 |---|---|---|
-| R4 | Expense-approval decision has no optimistic-concurrency/row lock | **P1** |
+| R4 | Expense-approval decision has no optimistic-concurrency/row lock | **P1** — CLOSED (WO-30) |
 | R5 | Self-serve billing collects no real payment; Enterprise tier self-upgradable for free | **P1** |
 | R6 | Reimbursement payout has no maker≠checker (SoD) control | **P2** |
 | R7 | ClamAV fail-closed malware-scan branch has zero test coverage | **P2** |
@@ -194,8 +194,28 @@ purchase path until R5 is closed.
   open Milestone A item — **Milestone A is now fully closed** (R2 closed by WO-26/WO-27, R3 by WO-28, R1 by
   WO-29).
 
-### R4 — Expense-approval decision has no optimistic-concurrency guard or row lock
+### R4 — Expense-approval decision has no optimistic-concurrency guard or row lock — **CLOSED (WO-30)**
 - **Priority:** P1 (debate-confirmed, no change — see `agent-debate.md` §6)
+- **Closed by:** `docs/plan/plan-a/wo/WO-30-R4.md`. `ExpenseReport` gained a `version` column
+  (migration `1b4cf6cc802f`, `server_default="1"`, mirrors `Invoice.version`/
+  `ReimbursementBatch.version`); `ExpenseDecision.version` is now required; `expenses.py::_load`
+  gained a `lock: bool = False` keyword taking `.with_for_update()` (mirrors
+  `reimbursements.py::_load`); `decide()` loads with `lock=True`, 409s on a version mismatch, and
+  bumps the version once per successful decision — one lock/check/bump point covers approve,
+  reject, return_for_correction, mark_for_reimbursement AND mark_reimbursed uniformly (they share
+  the single `decide()` handler, so the `mark_reimbursed` bypass the roadmap called out is closed
+  by construction, not as a separate fix). `ExpenseDetail.tsx` sends `version: r.version` on every
+  decision (mirrors `PaymentRuns.tsx`'s existing pattern). Red-then-green proved on a scratch
+  Postgres 16 cluster: `tests/test_expense_decision_concurrency.py` (two designated approvers
+  firing genuinely concurrent `approve` decisions on the same open pending step) failed 4/4 runs
+  with the lock+bump reverted (a nondeterministic mix of double-`200`s and version-count
+  mismatches — not a fixed, single symptom) and passed 4/4 runs with the fix restored; asserts
+  exactly one `200`/one `409`, exactly one `STEP_APPROVED` row (no lost update on the step
+  itself), and exactly one `WebhookDelivery` for `expense.approved` (no double fan-out to a real
+  integration). `tests/test_expense_decision_version.py` (SQLite, every CI job) proves the
+  stale-version 409 and that the loser's decided state is left byte-identical to the winner's.
+  Every existing test that posts `/decision` was updated to supply the now-required `version`
+  field — a mechanical wire-shape fix, zero behavior-assertion changed.
 - **Problem statement:** `POST /expenses/{id}/decision` (`decide()`) reads the expense report's status with
   a plain `select()` (no `.with_for_update()`) and `ExpenseDecision` carries no `version` field, unlike every
   other money-adjacent mutation route in the codebase (`payment_runs.py`, `receipts.py`, `reconciliation.py`,
