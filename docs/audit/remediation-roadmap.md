@@ -91,6 +91,17 @@ purchase path until R5 is closed.
      the non-concurrent case).
   4. `docs/plan/shared/00_MASTER_CONTEXT.md` invariant §4/13 documentation is either already satisfied or
      updated to reference the new test.
+- **Follow-up (WO-27, P0, closed):** proving R2's fix (`tests/test_credit_note_lock_concurrency.py`)
+  required combining real Postgres + the full HTTP auth chain + more than one authenticated request on a
+  shared pool for the first time, which surfaced a second, previously-undiscovered defect one layer down:
+  every RLS policy's `current_setting('app.current_org', true) IS NULL` "unscoped" check silently stops
+  matching after the FIRST scoped transaction on a physical connection (Postgres never restores a custom
+  GUC to NULL once `set_config` has touched it — it sticks at `''`), hiding rows for any unscoped/
+  re-authenticating request that reuses a warmed pooled connection — i.e. any real deployment under load.
+  Fixed by migration `6fec8c88ba7c` (every policy now also treats `''` as unscoped); see
+  `docs/architecture/adr/0028-rls-unscoped-guc-sticky-empty-string.md`,
+  `tests/test_rls_connection_reuse.py` (red-then-green proof), and `docs/plan/plan-a/wo/WO-27.md`.
+  `test_credit_note_lock_concurrency.py` now runs on a normal reused pool (no more `NullPool` workaround).
 
 ### R3 — Demo/seed data contradicts itself (Cash Position/Payment Runs show €0 while Invoices lists >€1M)
 - **Priority:** P0 (debate-confirmed, no change — see `agent-debate.md` §8)

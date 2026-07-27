@@ -16,22 +16,18 @@ lock=True)` call, not in a directly-testable service function. Postgres-only
 (SQLite's test harness is one shared connection — no real concurrency), mirroring
 tests/test_payment_run_pay_concurrency.py and tests/test_numbering_concurrency.py.
 
-Uses `NullPool` (a brand-new physical connection per session, never reused) —
-required to sidestep an unrelated, pre-existing defect this is otherwise the
-first test to trip: Postgres custom GUCs (`app.current_org`) have no true
-"unset" state once `set_config(..., true)` has run on a backend connection at
-least once — `current_setting(name, true)` then returns `''`, never SQL NULL,
-for the rest of that connection's life (confirmed empirically; `RESET` and an
-explicit `set_config(name, NULL, true)` both still yield `''`). Every RLS
-policy here reads `IS NULL` as "unscoped, bypass", so the FIRST (unscoped)
-query `get_current_identity` issues per request would silently see ZERO rows
-on any pooled connection a PRIOR request already scoped — not just the second
-request in THIS test, any second authenticated request on a reused connection,
-which is exactly what a real connection pool does under load. No existing test
-combines real Postgres + the full HTTP auth chain + more than one authenticated
-request, so this was never caught; it is written up separately (WO-27) for its
-own review rather than fixed here, since it is orthogonal to the lock fix this
-test exists to prove and touches every RLS policy, not this route.
+Uses a normal small pooled engine (`pool_size=1`), NOT `NullPool`. It used to
+use `NullPool` (a brand-new physical connection per session, never reused) to
+sidestep an unrelated, pre-existing defect this was otherwise the first test
+to trip: Postgres custom GUCs (`app.current_org`) have no true "unset" state
+once `set_config(..., true)` has run on a backend connection at least once —
+`current_setting(name, true)` then returns `''`, never SQL NULL, for the rest
+of that connection's life. That defect is now fixed (WO-27, migration
+6fec8c88ba7c — every RLS policy's "unscoped" check now also matches `''`, not
+just `IS NULL`; see `tests/test_rls_connection_reuse.py` and
+`docs/architecture/adr/0028-rls-unscoped-guc-sticky-empty-string.md`), so this
+test now runs on an ordinary reused pool like production does — `NullPool`
+was a deliberate workaround for that bug, not the intended long-term pattern.
 """
 
 from __future__ import annotations
@@ -45,7 +41,6 @@ from decimal import Decimal
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
 
 from app.core.database import get_session
 from app.main import app
@@ -73,7 +68,15 @@ ISSUER = {
 @pg_only
 @pytest.mark.asyncio
 async def test_two_concurrent_partial_credit_notes_sum_correctly():
-    engine = create_async_engine(PG_URL, poolclass=NullPool)
+    # pool_size=2: the two credit-note requests below run genuinely
+    # concurrently (asyncio.gather + a barrier) and each holds its own
+    # connection for the duration of its transaction, so the pool needs
+    # capacity for both at once — unlike test_rls_connection_reuse.py's
+    # pool_size=1 (which is deliberately forcing SEQUENTIAL reuse of a single
+    # connection to prove the WO-27 fix). Still a normal reused pool, not
+    # NullPool: connections are checked back in and reused across the whole
+    # test (the register/issuer/module/invoice setup calls beforehand).
+    engine = create_async_engine(PG_URL, pool_size=2, max_overflow=0)
     sm = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
 
     async def _get_test_session():

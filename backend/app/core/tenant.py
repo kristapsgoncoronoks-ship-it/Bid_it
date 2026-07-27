@@ -205,11 +205,23 @@ def _apply_tenant_scope(orm_execute_state) -> None:
 # model cannot cross tenants. RLS reads the current org from a per-transaction
 # GUC, `app.current_org`, which we keep in sync with the ContextVar here.
 #
-# Policy contract (see the migration): when `app.current_org` is UNSET the policy
-# passes all rows — matching the app's "org is None ⇒ intentionally unscoped"
-# semantics for bootstrap / platform-operator / worker-claim paths. When it is
-# SET, rows are restricted to that org. The scoped path (a normal authenticated
-# request) always sets it, so that is where RLS bites.
+# Policy contract (see the migration): when `app.current_org` is UNSET *or the
+# empty string* the policy passes all rows — matching the app's "org is None
+# ⇒ intentionally unscoped" semantics for bootstrap / platform-operator /
+# worker-claim paths. When it is SET to a real org id, rows are restricted to
+# that org. The scoped path (a normal authenticated request) always sets it,
+# so that is where RLS bites.
+#
+# WHY both NULL and '': a per-transaction `set_config(..., true)` (`SET
+# LOCAL`) never restores a custom GUC to SQL NULL once ANY transaction on that
+# physical connection has set it — COMMIT, RESET, and an explicit
+# `set_config(name, NULL, true)` all leave it at `''` instead, for the rest of
+# that connection's life (confirmed empirically on Postgres 16; see ADR-0028
+# and `tests/test_rls_connection_reuse.py`). So a connection a prior request
+# scoped is NEVER NULL again — only a virgin connection is. Every RLS policy
+# therefore treats both as "unscoped" (WO-27); relying on NULL alone silently
+# hid rows for any unscoped/re-authenticating request on a warmed, reused
+# connection, which is every connection under any real pool/load.
 # --------------------------------------------------------------------------- #
 
 # `set_config(name, value, is_local=true)` == `SET LOCAL`: scoped to the current

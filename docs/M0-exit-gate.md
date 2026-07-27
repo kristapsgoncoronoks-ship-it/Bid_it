@@ -151,3 +151,12 @@ $ cd backend && python -m pytest -q          # full suite, SQLite
   line-item provenance, the composed home dashboard, the grouped navigation IA.
 - Accepted-not-yet-implemented registry unifications C1.5/C1.6/C1.7
   (ADR-0026).
+- **WO-27 (P0, closed, post-M0):** while proving the WO-26/R2 credit-note row-lock fix (the first test to
+  combine real Postgres + the full HTTP auth chain + more than one authenticated request on a shared pool),
+  a real, previously-undiscovered defect surfaced in the RLS "unscoped" GUC: `current_setting('app.
+  current_org', true) IS NULL` stops matching after the first scoped transaction on any reused physical
+  connection (Postgres never restores a custom GUC to NULL once `set_config` has touched it), silently
+  hiding rows for any unscoped/re-authenticating request under real pooled-connection load. Fixed by
+  migration `6fec8c88ba7c` (every RLS policy also treats `''` as unscoped) — see
+  `docs/architecture/adr/0028-rls-unscoped-guc-sticky-empty-string.md`, `tests/test_rls_connection_reuse.py`,
+  and `docs/audit/remediation-roadmap.md`'s R2 follow-up note.
