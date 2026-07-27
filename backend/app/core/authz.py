@@ -9,10 +9,11 @@ Design (see docs/security/authorization-policy-matrix.md):
   grants EXACTLY the listed permissions and nothing else (deny-by-default: an
   unlisted permission is denied).
 - `business_role(user)` maps the CURRENTLY-STORED role onto a business role, so
-  this layer works on today's accounts WITHOUT a schema change:
+  this layer works on legacy accounts WITHOUT a schema change:
     owner→OWNER, admin→ADMINISTRATOR, user→EMPLOYEE, user_free→READ_ONLY.
-  It is also forward-compatible: if the stored role is already one of the eight
-  business-role values (after the role-model expansion), it is used directly.
+  It is also forward-compatible: since the role-model expansion (A1.5,
+  `app.models.user.UserRole`), an account may also store one of the eight
+  business-role values directly — it is then used as-is, no mapping needed.
 - `is_platform_admin` (cross-tenant operator) is granted every permission;
   `is_expense_approver` (the existing per-user flag) additively grants
   EXPENSE_APPROVE, bridging today's approver concept onto the APPROVER role.
@@ -148,7 +149,8 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
     ),
 }
 
-# Today's stored 4-tier role → a business role (backward compatibility).
+# The original 4-tier stored role → a business role (backward compatibility;
+# still the values `owner`/`admin`/`user`/`user_free` in `UserRole`).
 _LEGACY_ROLE: dict[str, Role] = {
     "owner": Role.OWNER,
     "admin": Role.ADMINISTRATOR,

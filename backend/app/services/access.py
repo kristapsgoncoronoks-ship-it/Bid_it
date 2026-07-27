@@ -26,11 +26,23 @@ from app.models.usage import UsageCounter
 from app.models.user import UserRole
 
 # Defaults: (monthly_invoice_limit, monthly_upload_limit). 0 = unlimited.
+#
+# The four business roles A1.5 made directly assignable (finance_manager/
+# accountant/approver/auditor) are professional/business roles, not a
+# free/paid-tier distinction — they default unlimited, same as admin/owner.
+# Without an entry here, `_get_or_seed` would `KeyError` the first time a
+# member holding one of these roles created an invoice or uploaded a document
+# (both call `enforce_*_quota(db, org_id, current.role)` with the caller's raw
+# stored role) — a real latent defect this order fixes, not just a widening.
 LIMIT_DEFAULTS: dict[UserRole, tuple[int, int]] = {
     UserRole.user_free: (10, 20),
     UserRole.user: (1000, 2000),
     UserRole.admin: (0, 0),
     UserRole.owner: (0, 0),
+    UserRole.finance_manager: (0, 0),
+    UserRole.accountant: (0, 0),
+    UserRole.approver: (0, 0),
+    UserRole.auditor: (0, 0),
 }
 
 # Display metadata for the matrix UI.
@@ -50,6 +62,26 @@ ROLE_META: dict[UserRole, dict] = {
         "label": "Owner",
         "paid": True,
         "desc": "The company's primary user — full administration of their company.",
+    },
+    UserRole.finance_manager: {
+        "label": "Finance Manager",
+        "paid": True,
+        "desc": "Runs the finance function — full money surfaces + approve, send, export, audit-read.",
+    },
+    UserRole.accountant: {
+        "label": "Accountant",
+        "paid": True,
+        "desc": "Books the numbers — invoices/expenses/issuing + cash application + export.",
+    },
+    UserRole.approver: {
+        "label": "Approver",
+        "paid": True,
+        "desc": "Approves expenses and invoices; otherwise read-only.",
+    },
+    UserRole.auditor: {
+        "label": "Auditor",
+        "paid": True,
+        "desc": "Read-everything for assurance + the audit log + export.",
     },
 }
 

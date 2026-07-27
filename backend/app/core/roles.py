@@ -1,6 +1,8 @@
-"""Role ranking + privilege helpers for the four per-company user groups.
+"""Role ranking + privilege helpers for the original four per-company user
+groups (the LEGACY quota/administration ladder), plus rank entries for the
+four business roles A1.5 made directly assignable.
 
-Order (low → high): user_free < user < admin < owner.
+Order (low → high) of the legacy ladder: user_free < user < admin < owner.
 
   • user_free — non-paying; limited access, usage limits from the system matrix
   • user      — paying; usage limits from the system matrix
@@ -12,6 +14,16 @@ Every role is scoped to the user's own company (tenant); none grants any
 cross-company or system-wide power. Platform-operator access (reading/editing
 across tenants, the global limits matrix) is the separate `is_platform_admin`
 flag — never a company role. `is_platform_admin` outranks any company role.
+
+This ladder is DISTINCT from (but keyed off the same `UserRole` storage as) the
+8-role business-permission matrix in `app.core.authz` — `ROLE_RANK`/`rank()`
+here only drive the coarse `is_admin_or_above`/`is_owner` defense-in-depth
+checks and the legacy free/paid quota split; the actual authorization decision
+is always `authz.permissions_for`/`authz.require`, never this module. The four
+newly-reachable business roles (`finance_manager`/`accountant`/`approver`/
+`auditor`) rank alongside `user` (non-admin): none of them holds
+`SETTINGS_MANAGE` in the authz matrix, so none should ever read as
+`is_admin_or_above()` here either — that stays reserved for `admin`/`owner`.
 """
 
 from __future__ import annotations
@@ -23,14 +35,27 @@ ROLE_RANK: dict[UserRole, int] = {
     UserRole.user: 1,
     UserRole.admin: 2,
     UserRole.owner: 3,
+    # The four business roles A1.5 made directly assignable — none holds
+    # SETTINGS_MANAGE in authz.ROLE_PERMISSIONS, so they rank as non-admin,
+    # same tier as `user`. See the module docstring above.
+    UserRole.finance_manager: 1,
+    UserRole.accountant: 1,
+    UserRole.approver: 1,
+    UserRole.auditor: 1,
 }
 
-# Roles an owner may assign / that appear in the matrix, low → high.
+# Roles that appear in the system quota matrix (`access.matrix()`) and that a
+# member may be assigned, low → high within the legacy ladder, then the four
+# newly-reachable business roles in the same order `authz.Role` declares them.
 ASSIGNABLE_ROLES: tuple[UserRole, ...] = (
     UserRole.user_free,
     UserRole.user,
     UserRole.admin,
     UserRole.owner,
+    UserRole.finance_manager,
+    UserRole.accountant,
+    UserRole.approver,
+    UserRole.auditor,
 )
 
 

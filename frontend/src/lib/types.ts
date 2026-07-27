@@ -6,8 +6,19 @@ export interface Paginated<T> {
   total: number;
 }
 
-// The four user groups (low → high privilege).
-export type UserRoleName = "user_free" | "user" | "admin" | "owner";
+// The stored role vocabulary: the original four user groups (low → high
+// privilege) plus the four business roles A1.5 made directly assignable
+// (finance_manager/accountant/approver/auditor — see backend
+// app/core/authz.py::Role, the 8-role permission matrix).
+export type UserRoleName =
+  | "user_free"
+  | "user"
+  | "admin"
+  | "owner"
+  | "finance_manager"
+  | "accountant"
+  | "approver"
+  | "auditor";
 
 export interface RolePolicy {
   role: UserRoleName;

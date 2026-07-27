@@ -31,7 +31,7 @@ Legend: ✅ present · 🟡 partial · ❌ missing
 | Invitation **email** flow | ✅ **Slice 5** | `team.send_invitation_email` mails the accept link via `mailer`; invites now expire (+14d), preview returns 410 (expired) vs 404 (invalid/used) |
 | **Organization switching** | ✅ **Slice 6c** | `GET /auth/organizations` + `POST /auth/switch-org/{id}` (membership-verified) + FE switcher; isolation preserved. The `Membership` fork (below) is landed through 6c |
 | Membership management | 🟡 | List members, change role, deactivate — all within a single org |
-| Role assignment | 🟡 | Works, but only 4 roles (see below) |
+| Role assignment | ✅ **A1.5** | Works — all 8 business roles directly assignable (see below) |
 | Account deactivation | ✅ | `is_active` + `USER_DEACTIVATE` audit |
 
 ### The architectural fork: single-org-per-user vs. multi-org membership
@@ -51,19 +51,31 @@ plan. Everything else below can proceed without it.
 
 ## Roles
 
-Requested 8 business roles vs. existing 4-tier ladder + flag:
+Requested 8 business roles — **all 8 now map 1:1 to a directly-assignable
+stored role** (A1.5, `app/models/user.py::UserRole`):
 
 | Requested | Maps to today |
 |---|---|
 | Organization Owner | `owner` ✅ |
 | Administrator | `admin` ✅ |
-| Finance Manager · Accountant · Approver · Employee · Auditor · Read-only | ❌ — collapse into `user`/`user_free` + `is_expense_approver` |
+| Employee | `user` ✅ |
+| Read-only | `user_free` ✅ |
+| Finance Manager | `finance_manager` ✅ **A1.5** |
+| Accountant | `accountant` ✅ **A1.5** |
+| Approver | `approver` ✅ **A1.5** (the `is_expense_approver` flag remains a
+  separate, additional gate specifically on deciding an expense report — see
+  `docs/security/authorization-policy-matrix.md`) |
+| Auditor | `auditor` ✅ **A1.5** |
 
-Gap: a real **role → permission matrix** (the 8 roles × capability grid). Note
-`RolePolicy` is the *usage-limits* matrix (monthly upload/invoice caps), **not**
-an authorization matrix — authz today is ad-hoc `is_admin_or_above` checks in
-routes. Deny-by-default holds structurally (unlisted → no grant) but isn't
-expressed as one central policy.
+The **role → permission matrix** itself (the 8 roles × capability grid) shipped
+earlier (Slice 2, `app/core/authz.py::ROLE_PERMISSIONS`) — A1.5 closed the
+remaining gap, which was reachability: the matrix was fully defined and
+enforced but 4 of its 8 rows had no way to ever be assigned. Note `RolePolicy`
+remains the *usage-limits* matrix (monthly upload/invoice caps), a distinct
+mechanism from the authorization matrix (`app/core/roles.py::ASSIGNABLE_ROLES`/
+`LIMIT_DEFAULTS` were extended alongside `UserRole` so the quota gate does not
+`KeyError` on a newly-reachable role). Deny-by-default holds structurally
+(unlisted → no grant), expressed as one central policy in `authz.py`.
 
 ## Authorization requirements
 

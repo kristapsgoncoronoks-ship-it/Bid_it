@@ -1,4 +1,5 @@
-"""Four user groups + the system matrix (per-role usage limits) + quota gating."""
+"""The 8 stored roles (the original 4-tier ladder + the 4 A1.5-reachable
+business roles) + the system matrix (per-role usage limits) + quota gating."""
 
 import pytest
 
@@ -57,13 +58,59 @@ async def test_registrant_is_company_owner_not_sysadmin(auth_client):
 
 
 @pytest.mark.asyncio
-async def test_matrix_has_four_roles_with_defaults(auth_client):
+async def test_matrix_has_eight_roles_with_defaults(auth_client):
+    # A1.5 widened the stored role vocabulary from 4 to 8 — the quota matrix
+    # must carry a row for every one of them (this is exactly the assertion
+    # that previously would have masked the latent access.py KeyError: had
+    # LIMIT_DEFAULTS/ROLE_META not been fixed, the 4 new roles simply
+    # wouldn't be here — see test_finance_manager_can_create_invoices_without_quota_crash
+    # below for the crash itself, proven through the real quota-enforcing path).
     m = {r["role"]: r for r in (await auth_client.get("/api/v1/access/matrix")).json()}
-    assert set(m) == {"user_free", "user", "admin", "owner"}
+    assert set(m) == {
+        "user_free",
+        "user",
+        "admin",
+        "owner",
+        "finance_manager",
+        "accountant",
+        "approver",
+        "auditor",
+    }
     assert m["user_free"]["monthly_invoice_limit"] == 10
     assert m["user_free"]["paid"] is False
     assert m["user"]["paid"] is True
     assert m["admin"]["monthly_invoice_limit"] == 0  # unlimited
+    # The 4 newly-reachable business roles default unlimited + paid, matching
+    # the existing treatment of admin/owner (professional roles, not a
+    # free/paid-tier distinction).
+    for role in ("finance_manager", "accountant", "approver", "auditor"):
+        assert m[role]["monthly_invoice_limit"] == 0
+        assert m[role]["monthly_upload_limit"] == 0
+        assert m[role]["paid"] is True
+
+
+@pytest.mark.asyncio
+async def test_finance_manager_can_create_invoices_without_quota_crash(
+    auth_client, client, db_session
+):
+    """Regression test (A1.5): before LIMIT_DEFAULTS/ROLE_META gained entries for
+    the 4 newly-reachable roles, `access._get_or_seed` raised an unhandled
+    KeyError the moment any member holding one of them created an invoice or
+    uploaded a document (both call `enforce_*_quota(db, org_id, current.role)`
+    with the caller's raw stored role) — a 500, not a graceful denial."""
+    from sqlalchemy import select
+
+    from app.models.organization import Organization
+
+    org = await db_session.scalar(select(Organization.id))
+    assert org is not None
+
+    token = await _member(auth_client, client, "fm@acme.io", "finance_manager")
+    created = await client.post("/api/v1/invoices", json=_inv(500), headers=_h(token))
+    assert created.status_code == 201, created.text
+
+    usage = (await client.get("/api/v1/access/usage", headers=_h(token))).json()
+    assert usage["unlimited"] is True and usage["invoices_remaining"] is None
 
 
 @pytest.mark.asyncio

@@ -15,22 +15,44 @@ if TYPE_CHECKING:
 
 
 class UserRole(str, enum.Enum):
-    """Four per-company user groups, low → high privilege. These are ALWAYS scoped
-    to the user's own company (tenant) — no company role grants any cross-company
-    or system-wide privilege. Platform-operator access is a separate flag
-    (`is_platform_admin`), never a company role.
+    """The stored role column. These are ALWAYS scoped to the user's own company
+    (tenant) — no company role grants any cross-company or system-wide privilege.
+    Platform-operator access is a separate flag (`is_platform_admin`), never a
+    company role.
+
+    The original four values (low → high privilege):
 
     - user_free : non-paying user; limited access, usage limits from the matrix
     - user      : paying user; usage limits from the matrix
     - admin     : business administration WITHIN the company (the admin panel)
     - owner     : the company's primary user — full administration of THEIR company
                   (user management, roles, settings). Not a system administrator.
+
+    Since A1.5, the column also accepts the remaining four business roles from
+    the 8-role authorization matrix (`app.core.authz.Role`) directly by value —
+    `finance_manager`/`accountant`/`approver`/`auditor` — so every business role
+    is now a genuinely assignable stored value, not just a permission-matrix
+    definition with no way to reach it. These four values are spelled to match
+    `authz.Role`'s own string values exactly, so `authz.business_role()` resolves
+    them with no mapping code (see its module docstring: "forward-compatible").
+    `owner`/`admin`/`user`/`user_free` keep their legacy strings and continue to
+    resolve through `authz._LEGACY_ROLE` onto OWNER/ADMINISTRATOR/EMPLOYEE/
+    READ_ONLY, unchanged by this expansion.
+
+    Stored as a portable VARCHAR (native_enum=False) so the role set can evolve
+    without a Postgres ENUM migration — this expansion is exactly that: a pure
+    Python-side widening, no DDL, no CHECK constraint (see `app/core/roles.py`
+    and `docs/security/authorization-policy-matrix.md`).
     """
 
     user_free = "user_free"
     user = "user"
     admin = "admin"
     owner = "owner"
+    finance_manager = "finance_manager"
+    accountant = "accountant"
+    approver = "approver"
+    auditor = "auditor"
 
 
 class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):

@@ -49,10 +49,13 @@ The runtime source is `ROLE_PERMISSIONS` in `app/core/authz.py`; this table is
 generated from the same data (`GET /api/v1/auth/authz-matrix`) and the test
 `test_every_role_is_in_the_matrix` keeps them in lock-step.
 
-## How it works today (no schema change yet)
+## How it works today
 
-The stored role is still the 4-tier ladder (`owner/admin/user/user_free`). It is
-mapped onto the business roles so this layer works on current accounts:
+`app.models.user.UserRole` (the stored role column) has **8** values since A1.5:
+the original 4-tier ladder (`owner/admin/user/user_free`) plus the 4 remaining
+business roles stored **directly** by their matrix name
+(`finance_manager/accountant/approver/auditor`). The original 4 are mapped onto
+the business roles so legacy accounts keep working unchanged:
 
 | Stored role | Business role |
 |---|---|
@@ -61,19 +64,32 @@ mapped onto the business roles so this layer works on current accounts:
 | user | Employee |
 | user_free | Read-only User |
 
-Plus two bridges:
+The 4 newly-reachable values need no mapping — `finance_manager`, `accountant`,
+`approver`, `auditor` are spelled to match `Role`'s own string values, so
+`business_role()`'s forward-compatible branch resolves them as-is.
+
+Plus two bridges, unchanged by A1.5:
 - `is_platform_admin` (cross-tenant operator) → **all** permissions.
-- `is_expense_approver` (per-user flag) → additively grants `expense.approve`,
-  bridging today's approver onto the Approver role.
+- `is_expense_approver` (per-user flag) → additively grants `expense.approve`.
+  This flag is **also** the *designated-approver* gate on
+  `POST /expenses/{id}/decision` specifically (a stricter, in-handler check
+  beyond the router's `expense.approve` dependency, matching the two-person
+  control pattern below) — assigning the `approver` role grants the
+  `expense.approve`/`invoice.approve` *permissions* everywhere else
+  immediately, but a member still needs the flag appointed separately (same as
+  an `admin` or `owner` needs it today) before they can decide a specific
+  expense report. See `backend/tests/test_authz.py::
+  test_approver_role_still_needs_the_expense_flag_to_decide`.
 
-The resolver is **forward-compatible**: once the role model expands to store the
-eight business-role values directly (the multi-org membership slice), they resolve
-as-is with no change to this matrix or the route guards.
-
-**Directly assignable today:** Owner, Administrator, Employee, Read-only (the four
-stored values), plus Approver via the flag. Finance Manager, Accountant, and
-Auditor are fully defined and enforced here, and become directly assignable when
-the stored role vocabulary expands.
+**Directly assignable today (all 8):** every business role is now reachable via
+`PATCH /team/members/{id}` (`role.assign`) or `POST /team/invites` — both
+endpoints are typed against the full `UserRole` enum, so the widening required
+no endpoint change. The one deliberate exception: **federated identity**
+(`app/services/oidc.py::_ASSIGNABLE`, SSO group→role mapping, and
+`app/services/scim.py`'s SCIM default-role provisioning) still only maps to
+the legacy 3 non-owner values — expanding IdP-driven default-role assignment
+to the 4 new roles is a separate, un-scoped feature (a new group-naming
+convention with its own tests), not a reachability gap.
 
 ## Using it in a route
 

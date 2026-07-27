@@ -126,8 +126,10 @@ async def auth_client(client: AsyncClient) -> AsyncClient:
 async def role_client(client: AsyncClient, db_session):
     """Return an async factory: `await role_client("user_free")` -> AsyncClient
     authenticated as a member of a FRESH org whose stored role is that value.
-    Stored roles today are UserRole.{user_free,user,admin,owner}; they resolve to
-    business roles READ_ONLY/EMPLOYEE/ADMINISTRATOR/OWNER via authz.business_role.
+    Since A1.5, UserRole has 8 values: the legacy user_free/user/admin/owner
+    (resolving to READ_ONLY/EMPLOYEE/ADMINISTRATOR/OWNER via authz.business_role)
+    plus finance_manager/accountant/approver/auditor, which resolve directly
+    (same string values as authz.Role — no mapping needed).
 
     Registration always creates an OWNER (with the expense-approver flag), so the
     factory downgrades the stored role + flag afterwards — the same pattern
