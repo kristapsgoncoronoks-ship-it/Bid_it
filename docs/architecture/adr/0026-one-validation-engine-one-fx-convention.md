@@ -1,8 +1,9 @@
 # ADR-0026 — One validation engine, one FX convention, one currency registry, one dimension registry
 
 **Status:** Accepted — validation engine and FX convention implemented (WO-7, WO-8);
-the currency-registry and dimension-registry unifications are **accepted but not yet
-implemented** (board C1.5, C1.6, C1.7) — recorded here so the decision is not
+the dimension-registry unification implemented (board C1.6, WO-15); the
+currency-registry unification and multi-currency reporting remain **accepted but not
+yet implemented** (board C1.5, C1.7) — recorded here so the decision is not
 re-litigated when that work is scheduled. Extends ADR-0010.
 
 ## Context
@@ -46,12 +47,18 @@ prevent:
 3. **One currency registry** (accepted, not yet implemented — C1.5): the tenant
    catalogue and the FX list must resolve through one registry so they cannot
    disagree about what a currency is or whether it is active.
-4. **One dimension registry** (accepted, not yet implemented — C1.6, with C1.7
-   extending single-currency discipline to every analytics surface): Explore and
-   the fixed reports must read the same dimension registry (`core/dimensions` is
-   the intended home), and `analytics.summary()`/benchmark/budget must stop
-   hard-coding `"EUR"` — following the pattern the AR reports already get right
-   (one currency per report, or a recorded conversion).
+4. **One dimension registry** (implemented — C1.6, WO-15): Explore and the
+   fixed reports read the same registry, `core/dimensions`. The Explore pivot
+   derives the five cost-allocation dimensions from it (key, label, and the
+   shared `UNASSIGNED` untagged-spend bucket), so a dimension added to the
+   registry appears in Explore, `/analytics/dimensions`, `/analytics/fields`
+   and the fixed by-dimension report with no further change, and both read
+   paths return identical numbers for the same cut
+   (`tests/test_dimension_registry.py::test_explore_matches_fixed_report_same_cut`).
+   C1.7 still extends single-currency discipline to every analytics surface:
+   `analytics.summary()`/benchmark/budget must stop hard-coding `"EUR"` —
+   following the pattern the AR reports already get right (one currency per
+   report, or a recorded conversion).
 
 ## Alternatives considered
 
@@ -73,16 +80,18 @@ wrong-currency bug class into a refusal with a named cause.
 
 ## Risks
 
-- The accepted-not-yet-implemented items (C1.5–C1.7) can silently regress further
+- The accepted-not-yet-implemented items (C1.5, C1.7) can silently regress further
   while open — mitigations: this ADR fixes the direction; the backlog entries carry
   the acceptance criteria; new code touching currencies/dimensions must not add a
-  third registry.
+  third registry (for dimensions this is now test-enforced:
+  `tests/test_dimension_registry.py::test_registry_parity_and_drift_detection`).
 - Zero-tolerance blocking rules can frustrate capture of genuinely sloppy supplier
   PDFs — mitigation: the advisory family and capture review exist precisely to fix
   the data *before* submit.
 
 ## Revisit when
 
-C1.5/C1.6/C1.7 are implemented (fold their outcome in here and mark them done); a
+C1.5/C1.7 are implemented (fold their outcome in here and mark them done, as was
+done for C1.6 in WO-15); a
 rule needs a third policy beyond `block | advise` (e.g. `warn-once`); or a non-EUR
 reporting pivot is required (ADR-0010's revisit trigger).

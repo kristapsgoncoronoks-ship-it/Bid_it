@@ -25,6 +25,7 @@ from typing import Any
 from sqlalchemy import ColumnElement, Integer, String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import dimensions as core_dimensions
 from app.core.config import settings
 from app.models.invoice import Invoice, InvoiceStatus, LineItem
 from app.models.vendor import Vendor
@@ -70,6 +71,25 @@ def _quarter():
     )
 
 
+def _cost_dimension(key: str, label: str) -> Dimension:
+    """A cost-allocation dimension, derived from the one registry in
+    ``app.core.dimensions`` (ADR-0026 — one dimension registry; board C1.6).
+
+    The tags live as columns on ``Invoice``, so grouping *line amounts* by them
+    never double-counts (each line belongs to exactly one invoice — the same
+    additivity rule as the other invoice-level dimensions above). The coalesce
+    happens SQL-side so ``GROUP BY`` merges untagged rows into the same
+    ``UNASSIGNED`` bucket the fixed by-dimension report uses — the two read
+    paths must return identical numbers for the same cut.
+
+    ``key``/``label`` are bound as parameters (never a closure over a loop
+    variable — late binding would point every lambda at the last key).
+    """
+    return Dimension(
+        key, label, lambda: func.coalesce(getattr(Invoice, key), core_dimensions.UNASSIGNED)
+    )
+
+
 DIMENSIONS: dict[str, Dimension] = {
     d.key: d
     for d in [
@@ -82,6 +102,10 @@ DIMENSIONS: dict[str, Dimension] = {
         Dimension("month", "Month", _month, temporal=True),
         Dimension("quarter", "Quarter", _quarter, temporal=True),
         Dimension("year", "Year", _year, temporal=True),
+        # The five cost-allocation dimensions come FROM the core registry — a
+        # dimension added there appears here (and in /analytics/dimensions and
+        # the fixed report) with no further change. Never hand-list them here.
+        *(_cost_dimension(k, label) for k, label in core_dimensions.DIMENSIONS.items()),
     ]
 }
 

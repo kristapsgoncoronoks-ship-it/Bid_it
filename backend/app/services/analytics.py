@@ -14,7 +14,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.dimensions import DIMENSIONS, is_dimension
+from app.core.dimensions import DIMENSIONS, UNASSIGNED, is_dimension
 from app.models.invoice import Invoice, InvoiceStatus, LineItem
 from app.models.vendor import Vendor
 from app.schemas.analytics import (
@@ -27,7 +27,9 @@ from app.schemas.analytics import (
     VendorSpend,
 )
 
-_UNASSIGNED = "(unassigned)"
+# The untagged-spend label lives in the registry so Explore and this fixed
+# report bucket identically (ADR-0026 — one dimension registry).
+_UNASSIGNED = UNASSIGNED
 
 _ZERO = Decimal("0")
 

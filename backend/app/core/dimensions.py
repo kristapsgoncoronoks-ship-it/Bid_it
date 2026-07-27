@@ -26,6 +26,11 @@ DIMENSION_KEYS: tuple[str, ...] = tuple(DIMENSIONS)
 # Column width for every dimension tag.
 MAX_LEN = 80
 
+# The registry owns the untagged-spend convention: both the fixed by-dimension
+# report and the Explore pivot bucket untagged rows under this label, so the two
+# read paths return the same cut (ADR-0026 — one dimension registry).
+UNASSIGNED = "(unassigned)"
+
 
 def is_dimension(key: str) -> bool:
     return key in DIMENSIONS

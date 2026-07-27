@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
-from app.core.dimensions import DIMENSIONS, is_dimension
+from app.core.dimensions import DIMENSION_KEYS, DIMENSIONS, is_dimension
 from app.schemas.analytics import (
     CategorySpend,
     DimensionBreakdown,
@@ -106,9 +106,7 @@ async def get_dimensions(current: CurrentUser):
 async def get_by_dimension(
     current: CurrentUser,
     db: DbSession,
-    dimension: str = Query(
-        ..., description="cost_center | department | project | vehicle | property_ref"
-    ),
+    dimension: str = Query(..., description=" | ".join(DIMENSION_KEYS)),
     start: date | None = None,
     end: date | None = None,
 ):
