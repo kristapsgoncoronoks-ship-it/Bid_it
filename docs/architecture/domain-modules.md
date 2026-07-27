@@ -120,7 +120,7 @@ Legend: **Owns** = writes + schema authority. **Reads** = consumes read-only. Is
 | **Notifications** | `webhook_endpoints`, `webhook_deliveries`, `email_messages` | `webhooks`, `mailer`, `dunning` | issued/expenses events | Delivery via the queue. |
 | **Document storage** | — (sha refs on owning rows) | `documents`, `core/storage`, `integrity` | object storage | S3/local/memory backends; content-addressed; re-hash integrity verify. |
 | **Upload / Ingest** | — (stateless) | `filesec`, upload routes, API ingest | plans (quota) | Produces drafts; persists nothing until confirm. |
-| **Email intake** | `email_intake`, `inbound_invoices` | `email_intake` | parser | Attachments → review queue. |
+| **Email intake** | `email_intake`, `inbound_invoices` | `email_intake`, `email_providers.mailgun` | parser | Attachments → review queue. Generic JSON webhook (`POST /email/inbound`, mandatory shared secret) plus a Mailgun-native adapter (`POST /email/inbound/mailgun`, HMAC signature + freshness window) — both resolve the tenant from the recipient-address token, never the sender, and feed the SAME `process_attachment` pipeline (E1.6). |
 | **Extraction** | — (stateless) | `parser`, `einvoice`, `facturx`, `pdf_ocr` | object storage | Deterministic-first; opt-in AI seam. |
 | **Invoices (AP)** | `invoices`, `line_items` | invoice routes, `validation` | vendors, fx, vat, dimensions | The core received-invoice record. |
 | **Vendors** | `vendors` | vendor routes | — | Supplier master (received side). |

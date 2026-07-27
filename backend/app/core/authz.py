@@ -342,6 +342,10 @@ PUBLIC_ROUTES: dict[tuple[str, str], str] = {
         "POST",
         "/api/v1/email/inbound",
     ): "webhook: mandatory shared secret authenticates the provider; recipient token routes",
+    (
+        "POST",
+        "/api/v1/email/inbound/mailgun",
+    ): "webhook: Mailgun's own HMAC signature (timestamp+token) authenticates; recipient token routes",
     # --- SCIM provisioning (authenticated by the connection's own bearer token) ---
     (
         "POST",

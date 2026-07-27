@@ -4,7 +4,7 @@ import base64
 import binascii
 import hmac
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DbSession, require_perm
@@ -25,6 +25,7 @@ from app.schemas.email_intake import (
 )
 from app.schemas.invoice import InvoiceDetailOut, ParsedInvoiceDraft
 from app.services import access, audit, documents, email_intake, modules
+from app.services.email_providers import mailgun
 
 # Structural authorization (ADR-0024): declared PER-ROUTE because POST /inbound
 # is a provider webhook (its own authentication; see PUBLIC_ROUTES). The review
@@ -125,6 +126,90 @@ async def inbound(
         reset_current_org(scope)
 
     return InboundResult(received=len(body.attachments), queued=queued, rejected=rejected)
+
+
+@router.post("/inbound/mailgun", response_model=InboundResult)
+async def inbound_mailgun(request: Request, db: DbSession):
+    """Mailgun-native counterpart to `POST /inbound` (E1.6 — the email-intake
+    provider adapter). Reads Mailgun's own inbound-route `multipart/form-data`
+    payload directly (`recipient`, `sender`, `subject`, `timestamp`, `token`,
+    `signature`, `attachment-count` + `attachment-1..N` file parts) instead of
+    requiring the caller to have already normalised it into `InboundEmailIn`,
+    and feeds each attachment through the SAME `email_intake.process_attachment`
+    pipeline the generic endpoint above uses — no logic is duplicated.
+
+    Authentication is a SECOND, provider-native layer on top of the shared
+    recipient-token tenant resolution both endpoints use: Mailgun's own
+    HMAC-SHA256(signing_key, timestamp+token) signature
+    (`app.services.email_providers.mailgun.verify_signature`), plus a freshness
+    window (`mailgun.is_fresh`) so a captured valid signature cannot be replayed
+    indefinitely. FAILS CLOSED exactly like `/inbound`: an unconfigured signing
+    key, a missing/bad/stale signature, or an unresolvable recipient token all
+    return the SAME `_inbound_auth_failed()` response — a prober can never
+    distinguish "wrong signature" from "no such tenant" from "Mailgun not
+    configured"."""
+    form = await request.form()
+
+    def _s(key: str) -> str | None:
+        value = form.get(key)
+        return value if isinstance(value, str) else None
+
+    signing_key = settings.mailgun_signing_key
+    token_field = _s("token") or ""
+    timestamp = _s("timestamp") or ""
+    signature = _s("signature") or ""
+    if (
+        not signing_key
+        or not mailgun.verify_signature(
+            token=token_field, timestamp=timestamp, signature=signature, signing_key=signing_key
+        )
+        or not mailgun.is_fresh(timestamp)
+    ):
+        raise _inbound_auth_failed()
+
+    recipient = _s("recipient") or _s("to")
+    org_id = await email_intake.resolve_org(db, email_intake.token_from_address(recipient))
+    if org_id is None:
+        raise _inbound_auth_failed()
+
+    if not await modules.is_enabled(db, org_id, "email_intake"):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Email invoice intake is not activated for this workspace"
+        )
+
+    sender = _s("sender") or _s("from")
+    subject = _s("subject")
+    try:
+        count = int(_s("attachment-count") or "0")
+    except ValueError:
+        count = 0
+
+    queued = rejected = 0
+    scope = set_current_org(org_id)
+    try:
+        for i in range(1, count + 1):
+            upload = form.get(f"attachment-{i}")
+            if upload is None or isinstance(upload, str):
+                continue  # malformed part — never a reason to fail the whole message
+            content = await upload.read()
+            row = await email_intake.process_attachment(
+                db,
+                org_id,
+                from_addr=sender,
+                subject=subject,
+                filename=upload.filename or f"attachment-{i}",
+                content_type=upload.content_type,
+                content=content,
+            )
+            if row.status == "rejected":
+                rejected += 1
+            else:
+                queued += 1
+        await db.commit()
+    finally:
+        reset_current_org(scope)
+
+    return InboundResult(received=count, queued=queued, rejected=rejected)
 
 
 # --------------------------------------------------------------------------- #

@@ -85,6 +85,18 @@ class Settings(BaseSettings):
     inbound_email_domain: str = Field(default="in.invoiceiq.app")
     inbound_email_secret: str | None = Field(default=None)
 
+    # Mailgun inbound-parse ADAPTER (E1.6): a second, provider-native webhook
+    # (`POST /email/inbound/mailgun`) that maps Mailgun's own multipart payload
+    # (recipient/sender/attachment-N + a timestamp/token/signature HMAC) onto the
+    # SAME `email_intake.process_attachment` pipeline the generic JSON endpoint
+    # above uses. `mailgun_signing_key` is the account's inbound-routes signing
+    # key (Mailgun dashboard → Sending → Webhooks). Unlike `inbound_email_secret`
+    # this is OPTIONAL and NOT enforced by `_validate_production` — using Mailgun
+    # specifically is a per-deployment choice, not a baseline requirement — but
+    # the route itself still fails CLOSED (401) whenever it is unset, exactly
+    # like an unset `inbound_email_secret` does for the generic path.
+    mailgun_signing_key: str | None = Field(default=None)
+
     # --- Outbound email (invoice delivery + payment reminders) ---
     # When smtp_host is set, messages are RELAYED via SMTP; otherwise every send
     # is still RECORDED to the outbox (demo/no-relay) and never fails a request.
