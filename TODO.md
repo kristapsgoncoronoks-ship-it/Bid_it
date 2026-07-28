@@ -18,21 +18,24 @@ aside; not executed.
 |---|---|---|
 | **M0** | Security/correctness debt sprint | ✅ **Completed** — WO-1…11 (incl. B1.5). All 12 exit-gate criteria met. See `docs/M0-exit-gate.md`. |
 | **M1** | Feature completion + independent audit | ✅ **Completed** — WO-12…46. Every named epic shipped; 18-item audit (R1–R19) closed except two decision-gated/backlog items (below). |
-| **M2** | "We can take money" — billing go-live | 🔶 **In Progress** — WO-47 running (quota model). Three items owner-blocked (below). |
+| **M2** | "We can take money" — billing go-live | 🔶 **In Progress** — WO-47 shipped (quota model fixed). Three items owner-blocked (below). |
 | M3 | Transport vertical phase 1 — VAT refund claim engine | `Planned` |
 | M4 | Payments & cash depth | `Planned` |
 | M5 | Transport vertical phase 2 — recovery intelligence | `Planned` |
 | M6 | Integrations & enterprise go-live | `Planned` |
 
-**Test suite:** 761 → 1153 passed (+392), 8 skipped (pg-only, verified separately on real Postgres), 0 known regressions, as of `a7cf6c6`.
+**Test suite:** 761 → 1157 passed (+396), 8 skipped (pg-only, verified separately on real Postgres), 0 known regressions, as of `a124538`.
 
 ---
 
 ## M2 — In Progress
 
-- [ ] **WO-47** — `In Progress` — Quota/usage-limit model keys off the org's plan, not the user's
-  role (the plan flags this as must-fix "before the first invoice, not after"); preserves the
-  never-lose-a-document-on-limit guardrail. Detail: `docs/plan/plan-a/ARCH_plan.md` M2 exit criteria.
+- [x] **WO-47** — `Completed` — Quota/usage-limit model now keys off the org's `plan`
+  (`app.services.plans.PLANS`), not the acting user's role (the plan flagged this as must-fix
+  "before the first invoice, not after") — every member of an org shares one org-wide cap;
+  `role_policies`→`plan_policies`. Preserves the never-lose-a-document-on-limit guardrail (every
+  quota check still runs before anything is persisted; block-at-the-cap, since auto-charge overage
+  needs live billing, still owner-blocked). Detail: `docs/plan/plan-a/wo/WO-47-H13.md`.
 
 ### M2 — Blocked on owner/business decisions (not code-blocked; tracked in `docs/DECISIONS-NEEDED.md`)
 
@@ -40,9 +43,11 @@ aside; not executed.
   Stripe credentials from the owner. Fallback available: AR-module dogfood invoicing — revenue is not
   blocked on this.
 - [ ] **Seller-of-record VAT process** — Stripe Tax vs. an explicit alternative; a finance decision.
-- [ ] **Plan ladder reconciliation** — code implements trial/starter/pro/enterprise (€0/€29/€99/custom);
-  the pricing hypothesis doc proposes a different Free/€39/€99/€249/Enterprise ladder. They conflict;
-  the owner must pick one.
+- [ ] **Plan ladder reconciliation (H1.2)** — code implements trial/starter/pro/enterprise
+  (€0/€29/€99/custom); the pricing hypothesis doc proposes a different Free/€39/€99/€249/Enterprise +
+  Practice ladder. They conflict; the owner must pick one. WO-47's quota fix already uses whichever
+  ladder is live in code today (indicative defaults, sysadmin-overridable) — this decision changes
+  only `plans.py::PLANS`, not the enforcement mechanism. `docs/DECISIONS-NEEDED.md` §2a.
 
 ---
 
