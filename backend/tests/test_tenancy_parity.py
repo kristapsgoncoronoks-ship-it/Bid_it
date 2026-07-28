@@ -990,6 +990,63 @@ async def _p_extraction_fields(ctx: Ctx) -> None:
     )
 
 
+@probe("capture_field_memory")
+async def _p_capture_field_memory(ctx: Ctx) -> None:
+    """E1.5: both orgs correct the SAME field for an IDENTICALLY-spelled vendor
+    with DIFFERENT corrected values — the overlap that forces the tenant
+    filter to discriminate. Each org's NEXT capture from that vendor must
+    surface `suggested_value` == its OWN correction, never the other org's —
+    the hint has no list/by-id route of its own; it is read only through the
+    already-scoped capture-fields response, so that is the real path probed."""
+    from app.services import jobs
+
+    csv1 = (
+        "vendor,invoice_number,issue_date,description,quantity,unit_price,amount,tax_rate\n"
+        "Overlap Fuels OU,INV-PARITY-MEM-1,2026-06-01,Diesel,10,1.50,15.00,21\n"
+    )
+    csv2 = (
+        "vendor,invoice_number,issue_date,description,quantity,unit_price,amount,tax_rate\n"
+        "Overlap Fuels OU,INV-PARITY-MEM-2,2026-06-02,Diesel,11,1.55,17.05,21\n"
+    )
+    corrected = {ctx.a.name: "Overlap Fuels OÜ (A)", ctx.b.name: "Overlap Fuels OÜ (B)"}
+    for org in (ctx.a, ctx.b):
+        up = await org.post(
+            "/api/v1/invoices/upload",
+            files={"file": ("mem1.csv", io.BytesIO(csv1.encode()), "text/csv")},
+        )
+        assert up.status_code == 202, up.text
+        for _ in range(30):
+            if await jobs.run_once(ctx.db, "parity-worker") is None:
+                break
+        r = await org.post(
+            f"/api/v1/invoices/captures/{up.json()['extraction_run_id']}/review",
+            json={"fields": [{"field": "vendor_name", "reviewed_value": corrected[org.name]}]},
+        )
+        assert r.status_code == 200, r.text
+
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        up2 = await me.post(
+            "/api/v1/invoices/upload",
+            files={"file": ("mem2.csv", io.BytesIO(csv2.encode()), "text/csv")},
+        )
+        assert up2.status_code == 202, up2.text
+        for _ in range(30):
+            if await jobs.run_once(ctx.db, "parity-worker") is None:
+                break
+        rows = (
+            await me.get(f"/api/v1/invoices/captures/{up2.json()['extraction_run_id']}/fields")
+        ).json()
+        vendor_field = next(
+            f for f in rows if f["field"] == "vendor_name" and f["line_index"] is None
+        )
+        assert vendor_field["suggested_value"] == corrected[me.name], (
+            f"capture_field_memory: {me.name} did not see its own hint"
+        )
+        assert vendor_field["suggested_value"] != corrected[other.name], (
+            f"capture_field_memory: TENANT LEAK — {me.name} saw {other.name}'s hint"
+        )
+
+
 @probe("email_intakes")
 async def _p_email_intakes(ctx: Ctx) -> None:
     addresses = {}

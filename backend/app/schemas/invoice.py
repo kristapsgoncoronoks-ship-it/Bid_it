@@ -248,6 +248,14 @@ class FieldProvenanceOut(BaseModel):
     provider: str | None = None
     low_confidence: bool = False
     line_index: int | None = None  # None = header field; n = line_items[n] (E1.2)
+    # E1.5 — the extraction learning loop: an ADVISORY suggestion derived from
+    # past human corrections of this field for this vendor. `None` when there
+    # is no correction history. Set by the route AFTER validation (not present
+    # on the ORM row) — NEVER auto-applied to `value`/`reviewed_value`; a human
+    # still applies it through the existing review-correction endpoint.
+    suggested_value: str | None = None
+    suggestion_observed_count: int | None = None
+    suggestion_corrected_count: int | None = None
 
 
 class ExtractionRunOut(BaseModel):

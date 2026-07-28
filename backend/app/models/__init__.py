@@ -7,6 +7,7 @@ from app.models.base import Base
 from app.models.billing_event import ProcessedStripeEvent
 from app.models.billing_payment import BillingPayment
 from app.models.budget import BudgetTarget
+from app.models.capture_field_memory import CaptureFieldMemory
 from app.models.costing import CostCenter, Department, Project
 from app.models.currency import Currency
 from app.models.customer import Customer, CustomerContact
@@ -127,4 +128,5 @@ __all__ = [
     "Department",
     "CostCenter",
     "Project",
+    "CaptureFieldMemory",
 ]

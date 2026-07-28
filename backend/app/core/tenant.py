@@ -26,6 +26,7 @@ from app.models.audit import AuditEvent
 from app.models.bank_import import BankLine, BankStatement
 from app.models.billing_payment import BillingPayment
 from app.models.budget import BudgetTarget
+from app.models.capture_field_memory import CaptureFieldMemory
 from app.models.costing import CostCenter, Department, Project
 from app.models.currency import Currency
 from app.models.customer import Customer, CustomerContact
@@ -133,6 +134,7 @@ TENANT_MODELS = (
     SupplierPayment,
     PaymentRun,
     DunningPolicy,
+    CaptureFieldMemory,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.

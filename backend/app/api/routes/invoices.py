@@ -45,6 +45,7 @@ from app.services import (
     ap_payments,
     ap_status,
     audit,
+    capture_memory,
     costing,
     documents,
     duplicates,
@@ -384,6 +385,39 @@ async def duplicate_candidates(
     )
 
 
+def _vendor_name_from_run(run: ExtractionRun) -> str | None:
+    """The raw captured header `vendor_name` off a run's cached draft — used
+    both to flag a would-be duplicate (existing) and, since E1.5, as the key
+    into the capture-memory learning loop. A malformed/missing cached draft
+    yields `None`, never an exception — a queue row or a hint lookup must not
+    break because one cached draft is unreadable."""
+    if not run.draft_json:
+        return None
+    try:
+        return ParsedInvoiceDraft.model_validate_json(run.draft_json).draft.vendor_name
+    except Exception:  # noqa: BLE001 - a bad cached draft must not break the caller
+        return None
+
+
+async def _attach_hints(
+    db: DbSession, org_id: str, run: ExtractionRun, out: list[FieldProvenanceOut]
+) -> list[FieldProvenanceOut]:
+    """E1.5: attach the vendor's current advisory hints to each field's live
+    provenance, post-validation. Never touches `value`/`reviewed_value` — see
+    `capture_memory.hints_for`'s docstring for the §4.19 guarantee."""
+    vendor_name = _vendor_name_from_run(run)
+    if vendor_name is None:
+        return out
+    hints = await capture_memory.hints_for(db, org_id, vendor_name, [o.field for o in out])
+    for o in out:
+        h = hints.get(o.field)
+        if h is not None:
+            o.suggested_value = h.suggested_value
+            o.suggestion_observed_count = h.observed_count
+            o.suggestion_corrected_count = h.corrected_count
+    return out
+
+
 @router.get("/captures/review", response_model=CaptureReviewQueueOut)
 async def capture_review_queue(
     current: CurrentUser,
@@ -463,19 +497,35 @@ async def review_capture_fields(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Capture not found")
     fields = await extraction.fields_for_run(db, current.org_id, run_id)
     by_key = {(f.field, f.line_index): f for f in fields}
+    # E1.5: the raw captured header vendor_name keys the learning-loop memory
+    # (see capture_memory.py) — resolved once, from the run's own cached
+    # draft, never from a correction made in THIS request.
+    vendor_name = _vendor_name_from_run(run)
     changes: dict[str, dict[str, str | None]] = {}
     for item in body.fields:
         f = by_key.get((item.field, item.line_index))
         if f is not None:
             key = f.field if f.line_index is None else f"line_items[{f.line_index}].{f.field}"
-            changes[key] = {
-                "old": f.reviewed_value if f.reviewed_value is not None else f.value,
-                "new": item.reviewed_value[:500],
-            }
-            f.reviewed_value = item.reviewed_value[:500]
+            old = f.reviewed_value if f.reviewed_value is not None else f.value
+            new = item.reviewed_value[:500]
+            changes[key] = {"old": old, "new": new}
+            if new != old:
+                # A GENUINE correction feeds the learning loop; a same-value
+                # resubmit (old == new) is still recorded/audited above but
+                # teaches the memory nothing (§4.19: advisory signal only).
+                await capture_memory.record_correction(
+                    db,
+                    current.org_id,
+                    vendor_name=vendor_name,
+                    field=f.field,
+                    original_value=old,
+                    corrected_value=new,
+                )
+            f.reviewed_value = new
             f.low_confidence = False
     # §4.16: the correction is a mutation, so it is audited (old→new per field)
-    # in the SAME transaction as the field update.
+    # in the SAME transaction as the field update (and, since E1.5, the same
+    # transaction as any capture_memory row above — both commit together).
     if changes:
         await audit.record(
             db,
@@ -486,20 +536,24 @@ async def review_capture_fields(
         )
     await db.commit()
     fields = await extraction.fields_for_run(db, current.org_id, run_id)
-    return [FieldProvenanceOut.model_validate(f) for f in fields]
+    out = [FieldProvenanceOut.model_validate(f) for f in fields]
+    return await _attach_hints(db, current.org_id, run, out)
 
 
 @router.get("/captures/{run_id}/fields", response_model=list[FieldProvenanceOut])
 async def capture_fields(run_id: str, current: CurrentUser, db: DbSession):
     """The LIVE per-field provenance rows for a capture run (E1.1) — including any
-    human `reviewed_value` recorded so far. The poll endpoint replays the
-    parse-time draft; this is the endpoint the review screen re-reads after a
-    correction or a page reload. Read-only, tenant-scoped, opaque 404."""
+    human `reviewed_value` recorded so far, plus (E1.5) an ADVISORY
+    `suggested_value` per field drawn from this vendor's past corrections, when
+    any exist. The poll endpoint replays the parse-time draft; this is the
+    endpoint the review screen re-reads after a correction or a page reload.
+    Read-only, tenant-scoped, opaque 404."""
     run = await extraction.get_capture(db, current.org_id, run_id)
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Capture not found")
     fields = await extraction.fields_for_run(db, current.org_id, run_id)
-    return [FieldProvenanceOut.model_validate(f) for f in fields]
+    out = [FieldProvenanceOut.model_validate(f) for f in fields]
+    return await _attach_hints(db, current.org_id, run, out)
 
 
 @router.get("/captures/{run_id}/source")

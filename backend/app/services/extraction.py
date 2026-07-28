@@ -295,4 +295,11 @@ async def extract_upload(db: AsyncSession, run_id: str) -> dict:
     await db.commit()
     # Per-field provenance (Slice 5f), now recorded on the worker tier.
     await record_fields(db, run.org_id, run.id, draft.fields)
+    # E1.5: bump the learning-loop's observed-count denominator for this
+    # vendor's fields — best-effort, never blocks the parse (see
+    # capture_memory.observe_fields).
+    from app.services import capture_memory
+
+    field_names = [f.field for f in draft.fields]
+    await capture_memory.observe_fields(db, run.org_id, draft.draft.vendor_name, field_names)
     return {"status": "parsed", "method": draft.method}
