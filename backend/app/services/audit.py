@@ -123,6 +123,9 @@ class A:
     # Tenant & session integrity (WO-4)
     SESSION_REVOKE_BULK = "session.revoked_bulk"
     TENANT_UPDATE = "platform.tenant_update"
+    # Dogfood subscription billing (H1.6 / WO-48): InvoiceIQ invoicing its own
+    # tenant customers through its own AR module.
+    PLATFORM_SUBSCRIPTION_INVOICE = "platform.subscription_invoice"
     # Master-data catalogs (WO-14 / F1.1): tax codes, currencies, costing
     # masters. Not financial mutations themselves, but they configure how money
     # is rated and allocated — §4.16 applies to them like any other mutation.

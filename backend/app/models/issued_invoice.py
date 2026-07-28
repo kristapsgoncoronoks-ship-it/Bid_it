@@ -47,6 +47,15 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "recurring_period",
             name="uq_issued_invoices_recurring_period",
         ),
+        # Dogfood subscription billing (H1.6 / WO-48): at most one invoice per
+        # (subscriber tenant, billing period), so a re-run of the daily job can't
+        # double-invoice a tenant for the same month.
+        UniqueConstraint(
+            "org_id",
+            "subscription_org_id",
+            "subscription_period",
+            name="uq_issued_invoices_subscription_period",
+        ),
     )
 
     org_id: Mapped[str] = mapped_column(
@@ -89,6 +98,17 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # recurring_period) constraint makes generation cross-worker idempotent.
     recurring_id: Mapped[str | None] = mapped_column(GUID(), nullable=True, index=True)
     recurring_period: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Dogfood subscription billing (H1.6 / WO-48): set ONLY on an invoice issued
+    # from the platform's own org (`settings.platform_org_id`) billing another
+    # tenant for its InvoiceIQ subscription. `subscription_org_id` identifies
+    # WHICH tenant (a plain reference, like `customer_id`/`partner_id` — not a
+    # second tenant-scoping dimension: RLS still keys strictly on `org_id`, the
+    # platform org's own id); `subscription_period` is the first-of-month the
+    # invoice covers. NULL on every ordinary invoice.
+    subscription_org_id: Mapped[str | None] = mapped_column(
+        GUID(), ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    subscription_period: Mapped[date | None] = mapped_column(Date, nullable=True)
     # Sum of credit notes applied AGAINST this invoice (only meaningful on an
     # invoice). Effective amount owed = total − credited_total − amount_paid.
     credited_total: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)

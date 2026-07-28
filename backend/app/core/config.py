@@ -6,6 +6,7 @@ defaults are safe for local development only.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from functools import lru_cache
 
 from pydantic import Field, model_validator
@@ -215,6 +216,31 @@ class Settings(BaseSettings):
 
     def stripe_meter_for(self, metric: str) -> str | None:
         return {"upload": self.stripe_meter_upload}.get(metric)
+
+    # --- Dogfood subscription billing (H1.6 / ADR-0013, WO-48) ---
+    # A FALLBACK path that invoices InvoiceIQ's own paying tenants through the
+    # platform's OWN accounts-receivable module (issuer profile, gap-free
+    # numbering, PDF/XML, send, dunning — all pre-existing) instead of a payment
+    # provider, so revenue is never blocked on Stripe/EveryPay credentials
+    # (docs/DECISIONS-NEEDED.md §2). `platform_org_id` names WHICH of the
+    # platform's own organizations — created via the ordinary signup flow, like
+    # any tenant — issues the invoices; unset (the default) makes the whole
+    # feature an inert no-op. Nothing here invents the operator's legal name/
+    # VAT/address: that is entered through the SAME `/issuers` screen every
+    # tenant already uses for their own AR.
+    platform_org_id: str | None = Field(default=None)
+    # VAT rate applied to our own subscription invoice lines. Defaults to 0% —
+    # asserts no VAT treatment. The correct rate/scheme is a seller-of-record
+    # VAT decision still owner-blocked (docs/DECISIONS-NEEDED.md §2); this is a
+    # placeholder, trivially corrected (env override) once that decision lands.
+    platform_subscription_vat_rate: Decimal = Field(default=Decimal("0"))
+
+    @property
+    def dogfood_billing_enabled(self) -> bool:
+        """H1.6: the AR-module fallback runs only when a platform org is
+        configured AND no live payment provider is active — so a tenant is
+        never invoiced twice once Stripe/EveryPay goes live."""
+        return bool(self.platform_org_id) and not self.billing_enabled
 
     # --- Secret encryption (ADR-0016) ---
     # KEK for app-level secret sealing (keyvault.py). `local` (default) derives

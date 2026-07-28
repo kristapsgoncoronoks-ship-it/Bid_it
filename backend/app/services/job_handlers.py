@@ -20,6 +20,7 @@ from app.services import (
     fx,
     integrity,
     jobs,
+    platform_billing,
     recurring,
     retention,
     webhooks,
@@ -36,6 +37,7 @@ COSTING_BACKFILL = "costing.backfill_links"
 INTEGRITY_LEDGER = "integrity.verify_ledger"
 INTEGRITY_VERSIONS = "integrity.verify_versions"
 FX_REFRESH = "fx.refresh"
+PLATFORM_BILLING_RUN = "platform.bill_subscriptions"
 
 
 @jobs.handler(FX_REFRESH)
@@ -65,6 +67,15 @@ async def _usage_report(db, payload: dict, job: Job) -> dict:
 async def _everypay_charge(db, payload: dict, job: Job) -> dict:
     """Charge one tenant's recurring EveryPay MIT for the current period."""
     return await billing.charge_renewal(db, job.org_id)
+
+
+@jobs.handler(PLATFORM_BILLING_RUN)
+async def _platform_billing_run(db, payload: dict, job: Job) -> dict:
+    """Dogfood fallback (H1.6): generate this period's subscription invoice for
+    every tenant that owes one and doesn't have it yet. A no-op unless
+    `settings.dogfood_billing_enabled`."""
+    res = await platform_billing.bill_subscriptions(db)
+    return {"invoiced": len(res.invoiced)}
 
 
 @jobs.handler(RETENTION_PURGE)

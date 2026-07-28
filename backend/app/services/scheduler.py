@@ -67,6 +67,21 @@ async def enqueue_daily(db: AsyncSession, *, today: date | None = None) -> int:
         if not before:
             created += 1
 
+    # Dogfood subscription billing (H1.6): ONE job per day total, carried by the
+    # designated platform org itself — it is a real `organizations` row, so it
+    # satisfies the queue's org_id NOT NULL + RLS invariant without a synthetic
+    # "carrier" (unlike the FX refresh, which has no natural owner). A no-op
+    # unless `settings.dogfood_billing_enabled` (platform org configured AND no
+    # live billing provider active); the handler itself is idempotent per
+    # (subscriber, period), so a daily re-run costs nothing on days nothing is due.
+    if settings.dogfood_billing_enabled and settings.platform_org_id in org_ids:
+        kind = job_handlers.PLATFORM_BILLING_RUN
+        key = f"{kind}:{today.isoformat()}"
+        before = await _live_exists(db, settings.platform_org_id, kind, key)
+        await jobs.enqueue(db, kind, {}, org_id=settings.platform_org_id, idempotency_key=key)
+        if not before:
+            created += 1
+
     # Retention purge: only for tenants that have configured a policy.
     for org_id in await retention.orgs_with_policy(db):
         kind = job_handlers.RETENTION_PURGE

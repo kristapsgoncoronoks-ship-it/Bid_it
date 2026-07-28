@@ -45,6 +45,26 @@ MoR fees drop below the cost of running VAT compliance in-house *or* cross-borde
 ## Status of implementation
 Shipped: provider seam (Null default + **Stripe** + **EveryPay**), selectable via `billing_provider`; org `stripe_customer_id`/`stripe_subscription_id` + `everypay_token`/`everypay_next_charge`; `processed_stripe_events` idempotency ledger (generic, both providers) + `billing_payments` (redirect-flow correlation) + migrations; `/billing/checkout` (provider-agnostic) + `/billing/portal` (Stripe) + signed `/billing/webhook` (Stripe) + `/billing/everypay/return` + `/billing/everypay/callback`; entitlement application (plan/status + add-on reconciliation); EveryPay MIT recurring on the job queue (`everypay.charge_mit` + daily scheduler); frontend provider-aware Checkout/Portal wiring; and **metered-usage overage reporting to Stripe** — `usage_counters.reported` watermark, `billing_usage.report_org_usage` reports only `count - reported` as a **Stripe Billing Meter event** (deterministic `identifier` → idempotent), wired as the `billing.report_usage` queue job (daily, only when Stripe is the active provider); tests (Stripe + EveryPay + usage). **Deferred:** Stripe Tax enablement + VAT remit/file runbook, EveryPay advanced dunning/retry policy + token-expiry handling.
 
+**H1.6 dogfood fallback (WO-48):** an ADDITIONAL, config-gated path —
+`app/services/platform_billing.py` — invoices InvoiceIQ's OWN paying tenants through the platform's
+own AR module (`issuer.py`'s numbering, `issued_service.build_invoice`'s one true construction path,
+the SAME PDF/XML/send/dunning surface every tenant already uses) instead of a payment provider, per the
+M2 exit criteria's explicit fallback clause: *"we can invoice our own customers through our own AR
+module (dogfooding) if Stripe credentials slip. Revenue is not blocked on a provider."* Gated by
+`settings.dogfood_billing_enabled` (`platform_org_id` configured AND `not billing_enabled`) so a
+tenant is never double-invoiced once Stripe/EveryPay goes live. Generates ONE invoice per (subscriber
+org, calendar month) for every OTHER active org whose plan carries a price — idempotent via
+`issued_invoices.uq_issued_invoices_subscription_period`, enqueued once/day by the scheduler (carried
+by the platform org itself, like `everypay.charge_mit`). Delivery and dunning are NOT new code: the
+generated invoice is an ordinary row in the platform org's own `issued_invoices`, so the pre-existing
+`POST /issued/{id}/send` and the daily `dunning.run` job already cover it (the platform org is just
+another row `scheduler.enqueue_daily`'s per-org loop visits). Applies a **0% placeholder VAT rate**
+(`settings.platform_subscription_vat_rate`) — it asserts no VAT treatment and charges nothing extra —
+pending the seller-of-record VAT decision below (`docs/DECISIONS-NEEDED.md` §2/§2b); this is
+generation + delivery only, no payment collection (collection is the same manual `PATCH
+/issued/{id}/payment` route every tenant already uses for a bank transfer — full Stripe/EveryPay
+collection remains H1.4, owner-blocked).
+
 **R5(b) fix (WO-31):** `PUT /billing/plan` now refuses (409) a self-service switch to ANY plan with
 `price_eur is None` (currently only `enterprise`, "contact us" custom pricing) **unconditionally**,
 independent of `settings.billing_enabled`. Previously the guard was

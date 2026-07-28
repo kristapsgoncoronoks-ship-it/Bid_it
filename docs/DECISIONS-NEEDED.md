@@ -90,6 +90,37 @@ further rework.
 
 ---
 
+## 2b. Dogfood subscription billing — activation steps + VAT placeholder (M2 / H1.6)
+**Status:** 🔓 (built, inert until activated)  ·  **Built by:** WO-48  ·  **ADR:** [0013](architecture/adr/0013-billing-metering.md)
+
+**Built:** `app/services/platform_billing.py` — while no live billing provider is configured
+(`settings.dogfood_billing_enabled`), it invoices every OTHER paying tenant, once per calendar month,
+through the platform's OWN accounts-receivable module (the same `issuer.py`/`issued_service.py`/
+send/dunning surface every tenant already uses on their own customers). This is the M2 exit-criteria
+fallback: revenue is not blocked on Stripe/EveryPay credentials landing. The feature is **OFF by
+default** (`platform_org_id` unset) and does nothing until switched on.
+
+**Blocked / needs you, to ACTIVATE it (not to build it — this is operational, not code):**
+- **Designate the operator's own organization.** Create/sign up an org through the ordinary flow
+  (exactly like any tenant) and set `PLATFORM_ORG_ID` to its id. This is a config value, not a
+  business decision — the platform can use whichever org the operator already manages.
+- **Complete that org's issuer profile** via the existing `/issuers` screen with the REAL legal
+  name/VAT number/registered address (Art. 226 minimum) — WO-48 invents none of this; it is the same
+  data-entry surface every tenant fills in for their own AR.
+- **The VAT rate/scheme on our own subscription invoices.** WO-48 applies a **0% placeholder**
+  (`platform_subscription_vat_rate` app setting, default `0`) — it asserts no VAT treatment rather
+  than guessing a jurisdiction's rate. This is the SAME seller-of-record VAT question as §2 above (we
+  are seller-of-record, so registration/remittance is a finance/legal task) — once that decision
+  lands, either set the real rate via the setting, or (if a scheme like reverse-charge/exempt applies)
+  a small follow-up order threads the scheme through `platform_billing.bill_subscriptions`. Until then,
+  every dogfood invoice generated is legally a €X + 0% VAT document — get finance's sign-off before
+  relying on it for real remittance.
+- **Payment collection stays manual.** WO-48 deliberately does not collect anything — an operator
+  records a bank-transfer receipt via the existing `PATCH /issued/{id}/payment`, same as any tenant
+  today. Automated collection is H1.4 (Stripe/EveryPay), still owner-blocked at §2.
+
+---
+
 ## 3. Accounting/ERP exporters — DATEV & SAF-T
 **Status:** 🔓  ·  **ADR:** [0013 context / export hub]
 
