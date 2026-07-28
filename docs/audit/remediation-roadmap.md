@@ -54,7 +54,7 @@ purchase path until R5 is closed.
 | R9 | Duplicate `_safe`/`_safe_cell` CSV-sanitization helper (3 copies, no shared module) | P3 — CLOSED (WO-36) |
 | R13 | `test_fx.py::test_refresh_owner_only_and_graceful` doesn't test "owner only" | P3 — CLOSED (WO-38) |
 | R15 | No load/concurrency/large-dataset performance testing has been performed | P3 |
-| R17 | Payment-run "Cancel" button fires with no confirmation | P3 |
+| R17 | Payment-run "Cancel" button fires with no confirmation | P3 — CLOSED (WO-39) |
 | R19 | No guided onboarding/setup-wizard checklist | P3 |
 | R10 | `LocalStorage._path` containment check uses bare `startswith` (not currently reachable) | P4 |
 | R11 | Stale TODO on `SsoConnection.client_secret` contradicts accurate docstring | P4 |
@@ -480,7 +480,20 @@ which modules are affected.
 - **R15** (P3) — Stand up a load/concurrency testing harness (none exists today; explicit scope gap, not a
   silent one — see `security-findings.md` §3).
 - **R17** (P3) — Add a confirmation step to the Payment Run "Cancel" button, for UX consistency (cancelling
-  doesn't move money, so this is cosmetic/consistency, not a control gap).
+  doesn't move money, so this is cosmetic/consistency, not a control gap) — **CLOSED (WO-39)**. Both
+  "Cancel" buttons in `frontend/src/pages/PaymentRuns.tsx` (the `open`-status row and the `approved`-status
+  row) called `cancel.mutate(r.id)` directly in `onClick`, firing `DELETE /payment-runs/{id}` on a single
+  click with no chance to back out — a visible drift from the same page's own `ConfirmDialog` usage for its
+  re-export/skipped-payee flows. Both now open a `ConfirmDialog` (`tone="danger"`, `confirmLabel="Cancel
+  run"`) whose body states the invoice count returning to the scheduled pool and, for an `approved` run,
+  that the existing maker-checker approval is discarded and the action cannot be undone; the DELETE only
+  fires on explicit confirm. No backend change — `DELETE /payment-runs/{id}`
+  (`backend/app/api/routes/payment_runs.py:225-235`) already gates `PAYMENT_WRITE`, validates state via
+  `payment_run.cancel_run`, and audits `AP_RUN_CANCEL` in the same transaction, confirmed unchanged.
+  Regression-proven by the new `frontend/e2e/payment-run-cancel-confirm.spec.ts` (dialog appears before any
+  request; dismissing the dialog issues zero requests; confirming calls the delete endpoint exactly once).
+  `npm run build` clean; full backend suite unaffected (frontend-only change). See
+  `docs/plan/plan-a/wo/WO-39-R17.md`.
 - **R19** (P3) — Add a guided onboarding/setup-wizard checklist (first vendor, bank connection, invite team).
 - **R10** (P4) — Harden `LocalStorage._path`'s `startswith` containment check (not currently reachable; cheap
   defense-in-depth for a future caller).

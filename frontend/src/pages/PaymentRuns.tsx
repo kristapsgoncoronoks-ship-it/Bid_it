@@ -32,6 +32,9 @@ export default function PaymentRunsPage() {
   const [skippedAsk, setSkippedAsk] = useState<{ pending: PendingExport; detail: string } | null>(
     null,
   );
+  // R17: cancelling a run discards its invoice selection (and, for an approved
+  // run, a second person's sign-off) — an explicit confirm step, not a bare click.
+  const [cancelAsk, setCancelAsk] = useState<PaymentRun | null>(null);
 
   const payable = useQuery<RunInvoice[]>({
     queryKey: ["payment-runs", "payable"],
@@ -208,7 +211,7 @@ export default function PaymentRunsPage() {
                       >
                         Approve
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => cancel.mutate(r.id)}>
+                      <Button size="sm" variant="ghost" onClick={() => setCancelAsk(r)}>
                         Cancel
                       </Button>
                     </>
@@ -229,7 +232,7 @@ export default function PaymentRunsPage() {
                       >
                         Mark paid
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => cancel.mutate(r.id)}>
+                      <Button size="sm" variant="ghost" onClick={() => setCancelAsk(r)}>
                         Cancel
                       </Button>
                     </>
@@ -328,6 +331,30 @@ export default function PaymentRunsPage() {
         tone="danger"
       >
         {skippedAsk && <p className="text-sm text-slate-600">{skippedAsk.detail}</p>}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={cancelAsk !== null}
+        onClose={() => setCancelAsk(null)}
+        onConfirm={() => {
+          const r = cancelAsk!;
+          setCancelAsk(null);
+          cancel.mutate(r.id);
+        }}
+        title="Cancel this payment run?"
+        confirmLabel="Cancel run"
+        tone="danger"
+        loading={cancel.isPending}
+      >
+        {cancelAsk && (
+          <p className="text-sm text-slate-600">
+            Its {cancelAsk.invoice_count} invoice{cancelAsk.invoice_count === 1 ? "" : "s"} will
+            return to the scheduled pool
+            {cancelAsk.status === "approved"
+              ? " and the existing approval will be discarded — a cancelled run cannot be un-cancelled; the invoices would need to go through create and approve again."
+              : ". This cannot be undone."}
+          </p>
+        )}
       </ConfirmDialog>
     </div>
   );
