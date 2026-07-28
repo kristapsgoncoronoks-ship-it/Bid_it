@@ -19,13 +19,13 @@ aside; not executed.
 | **M0** | Security/correctness debt sprint | ✅ **Completed** — WO-1…11 (incl. B1.5). All 12 exit-gate criteria met. See `docs/M0-exit-gate.md`. |
 | **M1** | Feature completion + independent audit | ✅ **Completed** — WO-12…46. Every named epic shipped; 18-item audit (R1–R19) closed except two decision-gated/backlog items (below). |
 | **M2** | "We can take money" — billing go-live | 🔶 **In Progress** — WO-47 (quota model) + WO-48 (dogfood billing fallback) shipped. Three items still owner-blocked (below). |
-| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) shipped. 70-100 day milestone; remaining slices tracked below. |
+| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) shipped. 70-100 day milestone; remaining slices tracked below. |
 | M4 | Payments & cash depth | `Planned` |
 | M5 | Transport vertical phase 2 — recovery intelligence | `Planned` |
 | M6 | Integrations & enterprise go-live | `Planned` |
 
-**Test suite:** 761 → 1169 → 1216 passed (+455 total, +47 this session), 8 skipped (pg-only, verified
-separately on real Postgres), 0 known regressions, as of WO-49.
+**Test suite:** 761 → 1169 → 1216 → 1247 passed (+486 total, +31 this session), 8 skipped (pg-only,
+verified separately on real Postgres), 0 known regressions, as of WO-50.
 
 ---
 
@@ -48,15 +48,31 @@ separately on real Postgres), 0 known regressions, as of WO-49.
   the monthly close job, capture/entity-resolution, and every `api/routes/transport/*` route. Detail:
   `docs/plan/plan-a/wo/WO-49-G1.1-G2.1-G2.3.md`.
 
-### M3 — Next slice (recommended: WO-50)
+- [x] **WO-50** — `Completed` — G1.2: the typed `fuel_transactions` model
+  (`app/models/transport/fuel_transaction.py`) per `BA_fleet_fuel.md` section 4.2 (the canonical
+  transaction schema) + section 8.1 items 4-6 (no duplicated positional schema; split the overloaded
+  `note` into `invoice_ref`+`provenance_note`; a real natural key). Note: `ARCH_plan.md` tags this task
+  R29/R30, but those R-numbers are actually about engine read-only ownership and the separate claims
+  store — not the transaction schema; corrected in `docs/plan/plan-a/wo/WO-50-G1.2.md`. Natural key
+  `(org, entity, supplier, period, line_seq)` — caller-assigned, deterministic line position — makes
+  ingestion insert-or-no-op, never Fleet Fuel's DELETE-by-period; `app/services/transport/product_group.py
+  ::derive_product_group()` centralizes the PROMO → HVO → {AdBlue,Parking,Toll/Fees} → Diesel →
+  Service/Other precedence the same way `is_synthetic()` is centralized; `app/services/transport/
+  fuel_ingest.py::ingest_transaction()` gates on the module entitlement first, resolves the entity via
+  `issuer.get_by_id` (opaque 404), `q2`-quantizes every monetary column while leaving `qty` deliberately
+  unrounded, audits exactly once per real insert. `invoice_id` is a nullable FK into `invoices` (ADR-P3
+  rule 1) — the same table `vat_claim_lines.invoice_id` (WO-49) points at, so the two transport tables
+  relate only through the shared AP invoice, never a new transport-internal cross-reference. Migration
+  `fc45baaf3283` (1 table, RLS in the same migration); RLS proven on real Postgres (cross-tenant SELECT
+  returns zero rows, cross-tenant INSERT blocked by `WITH CHECK`). 68 tables, 74 revisions. Detail:
+  `docs/plan/plan-a/wo/WO-50-G1.2.md`.
 
-- [ ] **G1.2 — `fuel_transactions` model** (R29, R30) — the typed transaction model the claim-lines
-  materializer and the lock table's FK both need before either can do anything real. Natural
-  predecessor to G2.2 (locks) per `ARCH_plan.md`'s dependency chain
-  (`G0.1 → G0.2 → G1.1 → G1.2 → G2.1 → G2.2 → ...`).
+### M3 — Next slice (recommended: WO-51)
+
 - [ ] **G2.2 — Locks: one invoice, one submission** (R4, R5) — `vat_claimed_invoices`, transactional
-  INSERT-not-upsert acquisition, withdraw-only release; needs a real-Postgres concurrency test in the
-  `postgres` CI job.
+  INSERT-not-upsert acquisition, withdraw-only release, composite RESTRICT FK into `fuel_transactions`;
+  needs a real-Postgres concurrency test in the `postgres` CI job. Now unblocked: `fuel_transactions`
+  (WO-50) gives the lock table's FK target something to mean.
 
 ---
 
