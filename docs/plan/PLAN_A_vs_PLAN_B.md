@@ -1,8 +1,14 @@
 # Decision sheet — Plan A (evolve Bid_it) vs Plan B (greenfield from zero)
 
-**Status: OPEN — owner decides.** Both plans are fully specified and executable.
-Plan A detail: `ARCH_plan.md` + `PROMPTS.md` Part B (WO-1…10).
-Plan B detail: `GREENFIELD_plan.md` (+ its §8 G-1…10).
+**Status: DECIDED (2026-07-25) — Plan A.** The owner chose to evolve Bid_it rather than
+start from zero. Execution is well underway: M0 (WO-1…11, the security/correctness
+debt sprint) and M1 (WO-12…46, feature work + an 18-item security audit) are both
+complete — see `docs/M0-exit-gate.md` and `docs/plan/plan-a/wo/` for the record. M2
+(billing) is in progress. Plan B (`GREENFIELD_plan.md`) is retained as the alternative
+that was considered and set aside.
+
+Plan A detail: `ARCH_plan.md` + `docs/plan/plan-a/wo/` (WO-1…46 and counting).
+Plan B detail: `GREENFIELD_plan.md` (+ its §8 G-1…10) — not executed.
 
 ## Common to both
 

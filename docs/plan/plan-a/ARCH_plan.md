@@ -1,10 +1,11 @@
 # Platform Engineering Plan — evolving Bid_it (InvoiceIQ) into the all-in-one financial workspace
 
-> **⚠ SUPERSEDED (2026-07-25):** the owner decided to delete BOTH repositories and build
-> from zero — see **`GREENFIELD_plan.md`** (authoritative). This document remains the
-> reference for the target architecture (§1, carried over), the gap analysis, the risk
-> register and the debt lessons the new build must not repeat; its "evolve Bid_it"
-> decision and its Bid_it-specific work orders no longer apply.
+> **✅ ACTIVE PLAN (decided 2026-07-25, reaffirmed 2026-07-28):** the owner chose to
+> **evolve Bid_it** — this is the plan in execution. `GREENFIELD_plan.md` documents the
+> alternative that was considered and set aside; it is retained for reference only.
+> M0 (security/correctness debt, WO-1…11) and M1 (WO-12…46) are both complete — see
+> `docs/M0-exit-gate.md` and `docs/plan/plan-a/wo/` for the full execution record.
+> M2 (billing) is next.
 
 **Author:** Senior Solution Architect / acting CTO
 **Date:** 2026-07-24
