@@ -50,9 +50,9 @@ purchase path until R5 is closed.
 ### Milestone C — Backlog (not release-blocking)
 | ID | Item | Priority |
 |---|---|---|
-| R8 | OIDC discover()/fetch_jwks() has no SSRF guard | P3 |
+| R8 | OIDC discover()/fetch_jwks() has no SSRF guard | P3 — CLOSED (WO-37) |
 | R9 | Duplicate `_safe`/`_safe_cell` CSV-sanitization helper (3 copies, no shared module) | P3 — CLOSED (WO-36) |
-| R13 | `test_fx.py::test_refresh_owner_only_and_graceful` doesn't test "owner only" | P3 |
+| R13 | `test_fx.py::test_refresh_owner_only_and_graceful` doesn't test "owner only" | P3 — CLOSED (WO-38) |
 | R15 | No load/concurrency/large-dataset performance testing has been performed | P3 |
 | R17 | Payment-run "Cancel" button fires with no confirmation | P3 |
 | R19 | No guided onboarding/setup-wizard checklist | P3 |
@@ -463,7 +463,20 @@ which modules are affected.
   backend suite: 1115 passed, 8 skipped (baseline 1114 passed, 8 skipped — +1 new formula-injection
   regression test, 0 assertions weakened). R9 is now fully closed; the only code touching this pattern
   anywhere in the app is `app/core/csv_safety.py`.
-- **R13** (P3) — Fix `test_fx.py::test_refresh_owner_only_and_graceful` to actually assert non-owner rejection.
+- **R13** (P3) — Fix `test_fx.py::test_refresh_owner_only_and_graceful` to actually assert non-owner rejection
+  — **CLOSED (WO-38)**. The route's `POST /fx/refresh` structural `SETTINGS_MANAGE` gate
+  (`app/api/routes/fx.py`) was already correct; only its test coverage was incomplete — the test's sole
+  call was always as `auth_client` (the workspace owner), so a denied-role request was never sent despite
+  the test's own name/docstring claiming "owner only". Rewritten to use the `role_client` factory (the
+  established pattern in `tests/test_authz_routes.py`): `role_client("user_free")` (READ_ONLY, holds no
+  `settings.manage`) now asserts `403` with a `detail` field; `role_client("admin")` (ADMINISTRATOR, the
+  lowest role the matrix grants `settings.manage` to) asserts `200` and preserves the original
+  graceful-failure assertion (`ok in (True, False)` — must not raise even when the ECB host is
+  unreachable in the test sandbox). No production code changed — `app/core/authz.py::ROLE_PERMISSIONS`
+  confirms `SETTINGS_MANAGE` is held only by `Role.OWNER`/`Role.ADMINISTRATOR`, so the fixed test passes
+  against the unchanged route. Full backend suite: 1128 passed, 8 skipped (baseline 1128 passed, 8
+  skipped — 0 new tests, 1 existing test rewritten to test what its name claims, 0 assertions weakened).
+  See `docs/plan/plan-a/wo/WO-38-R13.md`.
 - **R15** (P3) — Stand up a load/concurrency testing harness (none exists today; explicit scope gap, not a
   silent one — see `security-findings.md` §3).
 - **R17** (P3) — Add a confirmation step to the Payment Run "Cancel" button, for UX consistency (cancelling

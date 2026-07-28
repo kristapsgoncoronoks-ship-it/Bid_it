@@ -207,9 +207,17 @@ async def test_invalid_fx_source_rejected_at_write(auth_client):
 
 
 @pytest.mark.asyncio
-async def test_refresh_owner_only_and_graceful(auth_client):
-    # auth_client is the workspace owner; refresh is allowed and must not raise
-    # even when the ECB host is unreachable (returns ok=false).
-    r = await auth_client.post("/api/v1/fx/refresh")
-    assert r.status_code == 200
-    assert r.json()["ok"] in (True, False)
+async def test_refresh_owner_only_and_graceful(role_client):
+    # POST /fx/refresh is gated on SETTINGS_MANAGE (app/api/routes/fx.py). A role
+    # without it (READ_ONLY) must be refused with 403; a role that holds it
+    # (ADMINISTRATOR — the lowest role the matrix grants it to) is allowed and
+    # must not raise even when the ECB host is unreachable (returns ok=false).
+    ro = await role_client("user_free")  # READ_ONLY — no settings.manage
+    denied = await ro.post("/api/v1/fx/refresh")
+    assert denied.status_code == 403
+    assert "detail" in denied.json()
+
+    admin = await role_client("admin")  # ADMINISTRATOR — holds settings.manage
+    granted = await admin.post("/api/v1/fx/refresh")
+    assert granted.status_code == 200
+    assert granted.json()["ok"] in (True, False)
