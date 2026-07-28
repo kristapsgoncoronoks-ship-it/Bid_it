@@ -288,6 +288,15 @@ EXEMPT: dict[str, str] = {
         "in this order even writes a row (claim-line materialization is future "
         "work, ADR-P3's G2.4/G2.5)."
     ),
+    "fuel_transactions": (
+        "G1.2 (WO-50): the typed fuel-transaction line, written only through "
+        "services/transport/fuel_ingest.ingest_transaction (tenant-scoped there "
+        "via the same ORM guard this probe would exercise, AND proven on real "
+        "Postgres RLS — see docs/plan/plan-a/wo/WO-50-G1.2.md's RLS proof) — no "
+        "api/routes/transport/* route exists yet to drive an HTTP-level probe "
+        "through. Gains a probe with the first transport route (ARCH_plan.md "
+        "G2.x)."
+    ),
 }
 
 
