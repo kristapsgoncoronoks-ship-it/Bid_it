@@ -3,7 +3,7 @@
 The detailed architecture documentation lives under **[`docs/architecture/`](./docs/architecture/)**.
 This file is deliberately a one-page pointer: the long-form document that used to
 live here described the project's earliest prototype (a dozen tests, 4 routers) and drifted
-fatally from the codebase (64 tables, ~980 backend tests, 38 route modules).
+fatally from the codebase (64 tables, 1136 backend tests, 39 route modules).
 A lying document is worse than no document — the detail now lives where it is
 kept true.
 
@@ -11,12 +11,12 @@ Start here, in order:
 
 1. **[Overview](./docs/architecture/overview.md)** — stance, requirement
    challenges, the system at a glance. The authoritative architecture reference.
-2. **[ADR index](./docs/architecture/adr/README.md)** — 27 Architecture Decision
+2. **[ADR index](./docs/architecture/adr/README.md)** — 28 Architecture Decision
    Records; **the specification**. Notable: 0001 modular monolith · 0004 tenant
    isolation · 0010 money/FX/VAT · 0012 hash-chained audit · 0023 bounded
    contexts + transport seam · 0024 structural authorization · 0025 vendor
    bank-detail control · 0026 one validation engine / one FX convention ·
-   0027 AI capture policy.
+   0027 AI capture policy · 0028 RLS unscoped-GUC sticky empty string.
 3. **[Domain modules](./docs/architecture/domain-modules.md)** — data ownership
    per module and the seams between them.
 4. **[Data model](./docs/architecture/data-model.md)** — tables, keys, tenancy

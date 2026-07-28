@@ -10,11 +10,11 @@ plug-in bounded context ([ADR-0023](./docs/architecture/adr/0023-platform-evolut
 zero-setup dev/test) · React 18 + Vite + TypeScript + Tailwind SPA · Docker.
 
 **Scale of the codebase (verified against this tree):** 64 database tables
-(65 Alembic revisions, single head), 47 model modules, 79 service modules,
-38 route modules, 39 SPA pages, ~980 collected backend tests, 7 CI jobs.
+(69 Alembic revisions, single head), 46 model modules, 80 service modules,
+39 route modules, 45 SPA pages, 1136 collected backend tests, 8 CI jobs.
 
 > **The specification lives in [`docs/`](./docs), not here.**
-> [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (27 ADRs) and
+> [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (28 ADRs) and
 > [`docs/product/`](./docs/product) are authoritative; start with
 > [`docs/architecture/overview.md`](./docs/architecture/overview.md). This README
 > is only the front door.
@@ -99,11 +99,11 @@ make build        # frontend: tsc --noEmit && vite build
 make up / down / logs          # docker compose
 ```
 
-**CI is authoritative and stricter than the Makefile shortcuts.** The 7 jobs in
+**CI is authoritative and stricter than the Makefile shortcuts.** The 8 jobs in
 [.github/workflows/ci.yml](./.github/workflows/ci.yml): `pii-scan` (WO-6
 quarantine gate), `lint`, `backend` (SQLite suite), `postgres` (real-Postgres RLS
-+ concurrency, `NOSUPERUSER` role), `frontend` (typecheck + build), `docker-build`,
-`deploy`. Reproduce locally:
++ concurrency, `NOSUPERUSER` role), `frontend` (typecheck + build), `frontend-e2e`
+(Playwright design-system smoke), `docker-build`, `deploy`. Reproduce locally:
 
 ```bash
 cd backend && . .venv/bin/activate

@@ -58,7 +58,7 @@ purchase path until R5 is closed.
 | R19 | No guided onboarding/setup-wizard checklist | P3 |
 | R10 | `LocalStorage._path` containment check uses bare `startswith` (not currently reachable) | P4 |
 | R11 | Stale TODO on `SsoConnection.client_secret` contradicts accurate docstring | P4 |
-| R12 | Root `README.md`/`ARCHITECTURE.md` are stale (module/route/migration counts) | P4 |
+| R12 | Root `README.md`/`ARCHITECTURE.md` are stale (module/route/migration counts) | P4 — CLOSED (WO-40) |
 
 ---
 
@@ -500,7 +500,22 @@ which modules are affected.
 - **R11** (P4) — Delete the stale `# TODO: secret store` comment on `SsoConnection.client_secret` (sealing is
   already implemented and tested; the comment is simply wrong).
 - **R12** (P4) — Delete or clearly banner the stale root `README.md`/`ARCHITECTURE.md` (already disclaimed by
-  `00_MASTER_CONTEXT.md`, but a future contributor could still cite them by accident).
+  `00_MASTER_CONTEXT.md`, but a future contributor could still cite them by accident) — **CLOSED (WO-40)**.
+  Verified WO-10's earlier truth-up pass had itself gone stale again: 8 of the 9 published scale numbers
+  (Alembic revisions, model/service/route-module counts, SPA-page count, collected-test count, CI-job
+  count, ADR count) no longer matched the live tree after ~30 further work orders — only the "64 database
+  tables" figure still held. Recomputed every figure from the live tree and corrected `README.md`
+  (the "Scale of the codebase" sentence, the ADR-count pointer, and the CI job list — which had silently
+  dropped the `frontend-e2e` job) and `ARCHITECTURE.md` (the drift-comparison sentence and ADR count). To
+  stop this recurring a third time, added `backend/tests/test_docs_truth.py::test_readme_scale_numbers_match_the_live_tree`,
+  `::test_readme_ci_job_list_names_every_job`, and `::test_architecture_md_scale_numbers_match_the_live_tree`,
+  each recomputing its figure straight from the filesystem/`alembic/versions/`/the ADR directory/the CI
+  workflow file and asserting the docs' embedded numbers still match (the single most volatile figure,
+  collected-test count, is deliberately excluded from strict equality per the WO's own guidance, since it
+  grows on nearly every future work order). `docs/plan/shared/00_MASTER_CONTEXT.md`'s own stale repo-layout
+  numbers were left untouched — out of scope, it is a frozen prompt template, not the R12 target. Full
+  backend suite: 1128 passed, 8 skipped, plus 3 new passing tests in `test_docs_truth.py` (baseline 1128
+  passed, 8 skipped — 0 assertions weakened, 0 tests skipped). See `docs/plan/plan-a/wo/WO-40-R12.md`.
 
 ---
 
