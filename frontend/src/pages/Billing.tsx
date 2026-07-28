@@ -1,13 +1,26 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
-import type { BillingInfo } from "../lib/types";
+import type { BillingInfo, ModuleInfo, PlanInfo } from "../lib/types";
 import { isAdminOrAbove } from "../lib/roles";
+import { useModules } from "../lib/useModules";
+import { ConfirmDialog } from "../components/ui";
+
+// Which currently-enabled, non-core modules would this target plan turn off?
+// Real data only (R18): the org's actual enabled modules (`GET /modules`)
+// diffed against the target plan's actual module allowlist (`PlanInfo.modules`
+// from `GET /billing`) — never a guess.
+function affectedModules(target: PlanInfo, modules: ModuleInfo[]): ModuleInfo[] {
+  return modules.filter((m) => !m.core && m.enabled && !target.modules.includes(m.key));
+}
 
 export default function Billing() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const isOwner = isAdminOrAbove(user);
+  const modulesInfo = useModules();
+  const [confirmPlan, setConfirmPlan] = useState<PlanInfo | null>(null);
 
   const billing = useQuery<BillingInfo>({ queryKey: ["billing"], queryFn: async () => (await api.get("/billing")).data });
 
@@ -41,10 +54,23 @@ export default function Billing() {
   const hasPortal = provider === "stripe";        // EveryPay has no hosted portal
   const busy = change.isPending || checkout.isPending || portal.isPending;
 
-  function choosePlan(planKey: string, priceEur: number | null) {
+  function commitPlanChange(p: PlanInfo) {
     // Paid plan + a provider connected → hosted checkout. Otherwise in-app switch.
-    if (billingOn && priceEur) checkout.mutate(planKey);
-    else change.mutate(planKey);
+    if (billingOn && p.price_eur) checkout.mutate(p.key);
+    else change.mutate(p.key);
+  }
+
+  // R18: a plan change can silently disable an in-use add-on module
+  // (`PUT /billing/plan` / the Stripe webhook both reconcile modules down to
+  // the target plan's allowlist). Warn first, naming what would be lost, and
+  // only commit on explicit confirm. A change that drops nothing currently
+  // enabled proceeds exactly as before — no added friction.
+  function choosePlan(p: PlanInfo) {
+    if (affectedModules(p, modulesInfo.data ?? []).length > 0) {
+      setConfirmPlan(p);
+      return;
+    }
+    commitPlanChange(p);
   }
 
   const providerBlurb: Record<string, string> = {
@@ -115,8 +141,8 @@ export default function Billing() {
               ) : (
                 <button
                   className={`mt-4 ${current ? "btn-ghost" : "btn-primary"}`}
-                  disabled={current || !isOwner || busy}
-                  onClick={() => choosePlan(p.key, p.price_eur)}
+                  disabled={current || !isOwner || busy || modulesInfo.isLoading}
+                  onClick={() => choosePlan(p)}
                 >
                   {current
                     ? "Current plan"
@@ -130,6 +156,35 @@ export default function Billing() {
         })}
       </div>
       {!isOwner && <p className="text-xs text-slate-400">Only the workspace owner can change the plan.</p>}
+
+      <ConfirmDialog
+        open={confirmPlan !== null}
+        onClose={() => setConfirmPlan(null)}
+        onConfirm={() => {
+          const p = confirmPlan!;
+          setConfirmPlan(null);
+          commitPlanChange(p);
+        }}
+        title={`Switch to ${confirmPlan?.name}?`}
+        confirmLabel={confirmPlan ? `Switch to ${confirmPlan.name}` : "Confirm"}
+        tone="danger"
+        loading={busy}
+      >
+        {confirmPlan && (
+          <>
+            <p className="text-sm text-slate-600">
+              {confirmPlan.name} does not include the following module
+              {affectedModules(confirmPlan, modulesInfo.data ?? []).length > 1 ? "s" : ""}, currently in
+              use — switching will disable {affectedModules(confirmPlan, modulesInfo.data ?? []).length > 1 ? "them" : "it"}:
+            </p>
+            <ul className="mt-2 list-inside list-disc text-sm text-slate-700">
+              {affectedModules(confirmPlan, modulesInfo.data ?? []).map((m) => (
+                <li key={m.key}>{m.name}</li>
+              ))}
+            </ul>
+          </>
+        )}
+      </ConfirmDialog>
     </div>
   );
 }
