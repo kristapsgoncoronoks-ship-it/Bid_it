@@ -429,7 +429,23 @@ which modules are affected.
 
 ## P3/P4 items — one-line each (backlog, non-blocking)
 
-- **R8** (P3) — Add `webhooks.assert_public_url()`-style SSRF guard to `oidc.discover()`/`fetch_jwks()`.
+- **R8** (P3) — Add `webhooks.assert_public_url()`-style SSRF guard to `oidc.discover()`/`fetch_jwks()`
+  — **CLOSED (WO-37)**. `oidc.py` gained `_assert_safe_idp_url()`, which delegates to the existing
+  `webhooks.assert_public_url()` (no second implementation) and is called from `discover()` (on the
+  constructed `.well-known/openid-configuration` URL) and `fetch_jwks()` (on `jwks_uri`, itself sourced
+  from the issuer's own discovery response — a second, attacker-controlled hop) before any `httpx` GET is
+  made; a rejection raises `oidc.SsoError`, which the existing routes already turn into a 502
+  ("IdP unreachable") / error-redirect, so no route change was needed. New tests in
+  `backend/tests/test_sso_oidc.py`: `test_discover_rejects_private_or_reserved_issuer` /
+  `test_fetch_jwks_rejects_private_or_reserved_uri` (parametrized over loopback/cloud-metadata/RFC1918/
+  IPv6-loopback/`localhost`, asserting **zero** network attempts via a fake `httpx.AsyncClient` that
+  records whether `.get()` was ever called), `test_discover_allows_public_issuer` /
+  `test_fetch_jwks_allows_public_uri` (a normal public-looking issuer is unaffected), and
+  `test_authorize_502s_when_issuer_is_ssrf_unsafe` (end-to-end through the real, unauthenticated
+  `GET /auth/sso/{slug}/authorize` route with no monkeypatched `discover`, proving the fix is reachable
+  from the actual public route). Every pre-existing `test_sso_oidc.py` test passes unmodified (all
+  monkeypatch `discover`/`fetch_jwks` away, so none reaches the new guard). See
+  `docs/plan/plan-a/wo/WO-37-R8.md`.
 - **R9** (P3) — Extract the 3x-duplicated `_safe`/`_safe_cell` CSV helper to one shared module (pairs with R1)
   — **CLOSED (WO-36)**. WO-29/R1 had already extracted `app/core/csv_safety.py::sanitize_cell` and had
   `erp_export._safe`/`audit_export._safe`/`report_writers._safe_cell` delegate to it, but explicitly left

@@ -36,7 +36,7 @@ from app.core.security import hash_password
 from app.models.organization import Organization
 from app.models.sso import SsoConnection
 from app.models.user import User, UserRole
-from app.services import audit, sso_config
+from app.services import audit, sso_config, webhooks
 
 log = logging.getLogger("invoiceiq.oidc")
 
@@ -148,10 +148,34 @@ def validate_id_token(
 # --- network seams (injectable; exercised against a real IdP / Keycloak) ---
 
 
+def _assert_safe_idp_url(url: str) -> None:
+    """SSRF guard on every server-side fetch this module makes (R8).
+
+    An OIDC `issuer` is admin-supplied per-tenant configuration
+    (`sso_config.upsert_connection`, no URL restriction of its own), and
+    `jwks_uri` — along with every other endpoint URL — comes straight out of
+    that issuer's `.well-known/openid-configuration` discovery *response*,
+    which is attacker-controlled the moment the issuer host is malicious or
+    compromised. Both `discover()` and `fetch_jwks()` are unauthenticated,
+    server-side GETs, so without this guard a hostile/compromised admin (or a
+    hostile IdP) could make the server fetch an internal service or the cloud
+    metadata endpoint (169.254.169.254) — the same class of bug the webhook
+    delivery path already closes. Reuses `webhooks.assert_public_url` rather
+    than a second implementation; fails CLOSED (raises) on a private/
+    loopback/link-local/reserved target, fails OPEN on a DNS resolution
+    error (matching the webhook guard's own documented trade-off — an
+    unreachable host just won't connect, offline/dev-safe)."""
+    try:
+        webhooks.assert_public_url(url)
+    except webhooks.UnsafeWebhookUrl as exc:
+        raise SsoError(f"identity provider URL is not allowed: {exc}") from exc
+
+
 async def discover(issuer: str) -> dict:
     import httpx
 
     url = issuer.rstrip("/") + "/.well-known/openid-configuration"
+    _assert_safe_idp_url(url)
     async with httpx.AsyncClient(timeout=15.0) as c:
         r = await c.get(url)
         r.raise_for_status()
@@ -161,6 +185,7 @@ async def discover(issuer: str) -> dict:
 async def fetch_jwks(jwks_uri: str) -> dict:
     import httpx
 
+    _assert_safe_idp_url(jwks_uri)
     async with httpx.AsyncClient(timeout=15.0) as c:
         r = await c.get(jwks_uri)
         r.raise_for_status()

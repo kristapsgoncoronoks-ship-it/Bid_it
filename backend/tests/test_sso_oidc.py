@@ -6,6 +6,11 @@ three network seams (discover / exchange / JWKS) monkeypatched to fixtures.
 
 The remaining, un-provable-here part is the live HTTP to a real authorization
 server — the ADR-0021 "return to finish" boundary, exercised against Keycloak.
+
+The SSRF-guard tests at the bottom of this file (R8) exercise `discover()`/
+`fetch_jwks()` for real, with only `httpx.AsyncClient` faked out — proving the
+guard fires before any network attempt for a private/reserved target, and
+that a normal public-looking issuer still works.
 """
 
 import time
@@ -368,3 +373,115 @@ async def test_admin_config_requires_admin(auth_client, db_session):
     await db_session.commit()
     r = await auth_client.get("/api/v1/sso/connection")
     assert r.status_code == 403
+
+
+# --- SSRF guard on discover()/fetch_jwks() (R8) -----------------------------
+#
+# `issuer` is admin-supplied per-tenant config with no URL restriction of its
+# own, and `jwks_uri` comes straight out of that issuer's discovery *response*
+# — attacker-controlled the moment the issuer host is malicious/compromised.
+# Both are unauthenticated, server-side GETs, so a private/loopback/
+# link-local/reserved target (e.g. cloud metadata, 169.254.169.254) must never
+# be followed, mirroring the webhook delivery path's existing guard.
+
+
+class _FakeResponse:
+    def __init__(self, data: dict):
+        self._data = data
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict:
+        return self._data
+
+
+class _FakeAsyncClient:
+    """Stands in for `httpx.AsyncClient` so a "guard didn't block" bug would
+    still be proven by real GET traffic being attempted, without touching the
+    network."""
+
+    last_url: str | None = None
+
+    def __init__(self, *a, **kw) -> None:
+        pass
+
+    async def __aenter__(self) -> "_FakeAsyncClient":
+        return self
+
+    async def __aexit__(self, *a) -> bool:
+        return False
+
+    async def get(self, url: str, **kw) -> _FakeResponse:
+        _FakeAsyncClient.last_url = url
+        return _FakeResponse({"url": url, "jwks_uri": "https://idp.example.com/jwks", "keys": []})
+
+
+UNSAFE_URLS = [
+    "http://127.0.0.1:9999",
+    "http://169.254.169.254/latest/meta-data/",  # cloud metadata
+    "https://10.0.0.5",  # RFC1918
+    "http://[::1]",  # IPv6 loopback
+    "http://localhost:8080",
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_issuer", UNSAFE_URLS)
+async def test_discover_rejects_private_or_reserved_issuer(monkeypatch, bad_issuer):
+    import httpx
+
+    _FakeAsyncClient.last_url = None
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+    with pytest.raises(oidc.SsoError):
+        await oidc.discover(bad_issuer)
+    # The guard must fire BEFORE any network attempt.
+    assert _FakeAsyncClient.last_url is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_uri", UNSAFE_URLS)
+async def test_fetch_jwks_rejects_private_or_reserved_uri(monkeypatch, bad_uri):
+    import httpx
+
+    _FakeAsyncClient.last_url = None
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+    with pytest.raises(oidc.SsoError):
+        await oidc.fetch_jwks(bad_uri)
+    assert _FakeAsyncClient.last_url is None
+
+
+@pytest.mark.asyncio
+async def test_discover_allows_public_issuer(monkeypatch):
+    import httpx
+
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+    # RFC 2606 `.test` — guaranteed never to resolve, so this hits the same
+    # DNS-fails-open branch the webhook guard's own test relies on
+    # (`test_webhook_accepts_public_url_and_rechecks_on_update`), not a real
+    # network call, and proves the guard doesn't over-block a normal issuer.
+    issuer = "https://idp.example.test"
+    result = await oidc.discover(issuer)
+    assert result["url"] == f"{issuer}/.well-known/openid-configuration"
+
+
+@pytest.mark.asyncio
+async def test_fetch_jwks_allows_public_uri(monkeypatch):
+    import httpx
+
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+    result = await oidc.fetch_jwks("https://idp.example.test/jwks")
+    assert result["url"] == "https://idp.example.test/jwks"
+
+
+@pytest.mark.asyncio
+async def test_authorize_502s_when_issuer_is_ssrf_unsafe(auth_client, db_session):
+    """End-to-end proof through the real route (no monkeypatched `discover`):
+    an admin-configured issuer pointing at the cloud metadata address never
+    reaches the network — the route's existing broad `except Exception`
+    (IdP-unreachable handling) turns the SSRF guard's rejection into the same
+    502 an unreachable IdP would produce, never a 500 and never a fetch."""
+    org_id = await db_session.scalar(select(Organization.id))
+    await _connection(db_session, org_id, issuer="http://169.254.169.254")
+    r = await auth_client.get("/api/v1/auth/sso/acme/authorize", follow_redirects=False)
+    assert r.status_code == 502
