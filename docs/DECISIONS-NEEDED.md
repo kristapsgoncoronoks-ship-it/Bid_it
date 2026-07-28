@@ -255,6 +255,38 @@ reimbursement batch or a SEPA file (it refuses, naming the line).
 
 ---
 
+## 10. Transport module pricing tier (M3 / WO-49)
+**Status:** 🔓 (built, inert until priced)  ·  **Raised by:** WO-49  ·  **ADR:** [0023](architecture/adr/0023-platform-evolution-and-transport-seam.md)
+
+**Built:** the `transport` module entitlement (`app/services/modules.py`) —
+default **OFF**, following the exact `issuing`/`expenses` plan-gated pattern.
+A tenant can only self-service-enable it via `PUT /api/v1/modules/transport`
+once it appears in a plan's `modules` set.
+
+**Deliberately NOT decided:** which subscription plan(s) (`starter`/`pro`/
+`enterprise`) include `transport`, and whether it carries its own price
+(the harvested Fleet Fuel system charged the VAT-refund service as a
+contingency fee on recovered cash, not a flat monthly add-on — see
+`docs/plan/shared/specs/BA_fleet_fuel.md` C10/C11 `compute_fee`). Inventing
+either would be exactly the kind of commercial fact §9 of the master context
+forbids guessing. Until this is decided, `transport` is absent from every
+`PLANS[...].modules` set, so `PUT /modules/transport` 402s for every plan —
+a sysadmin can still turn it on for a specific tenant directly via
+`modules.set_enabled` (bypassing the plan gate, the same escape hatch already
+used for early-access add-ons) while the pricing decision is pending.
+
+**Decision needed:** (a) which plan tier(s) unlock `transport`; (b) flat
+monthly add-on price vs. a contingency-fee-on-recovered-VAT model (or both —
+a monthly platform fee plus a success fee, mirroring the harvested spec); (c)
+whether the five pilot Baltic entities the Fleet Fuel BA describes carry
+forward as design partners for this vertical specifically.
+
+**Owner:** product/pricing lead. **Interim controls:** the module is fully
+built and inert — no revenue is lost by waiting, and no customer can reach it
+by accident (`PUT /modules/transport` always 402s until a plan is priced).
+
+---
+
 *Not blocked — I can keep building these without you:* enhancements to shipped
 features, tests/coverage, docs, and any of the above up to its stated boundary.
 Tell me which to prioritise next.

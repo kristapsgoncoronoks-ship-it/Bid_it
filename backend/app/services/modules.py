@@ -70,6 +70,20 @@ MODULES: tuple[Module, ...] = (
         core=False,
         default=False,
     ),
+    # Transport vertical (M3, ADR-P3 / ADR-0023): EU cross-border VAT refund
+    # claims (Dir. 2008/9/EC), fuel/toll analytics, diesel excise. Default OFF,
+    # plan-gated exactly like `issuing`/`expenses` — a tenant that hasn't
+    # bought it gets no nav, no routes (403 from this same guard once the
+    # transport routes exist), zero extra query cost. Deliberately absent from
+    # every PLANS[...].modules set for now: which pricing tier includes it is
+    # a commercial decision, not one this order makes (docs/DECISIONS-NEEDED.md).
+    Module(
+        "transport",
+        "Transport & VAT refunds (EU cross-border)",
+        "EU cross-border VAT refund claims (Dir. 2008/9/EC), fuel/toll line-item analytics and diesel excise for road-transport fleets.",
+        core=False,
+        default=False,
+    ),
 )
 MODULES_BY_KEY = {m.key: m for m in MODULES}
 

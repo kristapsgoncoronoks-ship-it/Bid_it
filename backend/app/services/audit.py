@@ -135,6 +135,10 @@ class A:
     CURRENCY_SET_ACTIVE = "currency.set_active"
     MASTER_CREATE = "master.create"
     MASTER_UPDATE = "master.update"
+    # Transport vertical — EU cross-border VAT refund claims (M3 / WO-49, ADR-P3).
+    # Only the grain-construction action exists yet; submission/lock/fee actions
+    # land with the future work orders that build them.
+    TRANSPORT_CLAIM_CREATE = "transport.claim_create"
 
 
 def _hash(

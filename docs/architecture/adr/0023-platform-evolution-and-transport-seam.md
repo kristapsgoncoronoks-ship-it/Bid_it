@@ -3,6 +3,20 @@
 **Status:** Accepted (contexts + projection rules are in effect today; the transport
 vertical itself is future work — this ADR fixes its binding rules *before* it is built).
 Extends ADR-0001 (modular monolith), ADR-0004 (tenant isolation).
+
+**Implementation status (WO-49, M3 opener):** rules 1-5 are now CI-enforced, not
+just documented. `app/models/transport/vat_claim.py` (`VatRefundClaim`/
+`VatRefundClaimLine`, the `(org, entity, refund_country, ref_period)` grain,
+R1), `app/services/transport/claim_gates.py::is_synthetic()` (R3, the single
+predicate every future gate must call), the `transport` module entitlement
+(default off, `app/services/modules.py`), and the four new `Permission`
+members (rule 5) have landed. `tests/test_boundaries.py::
+test_transport_services_do_not_import_other_domain_models` makes rule 2 an
+enforced CI assertion, not a promise. Still future work (tracked as ADR-P3's
+G2.2 onward in `docs/plan/plan-a/ARCH_plan.md`): the lock table
+(`vat_claimed_invoices`, R4/R5), the checklist/period-end/minimum/deadline
+gate stack, fee freezing, status derivation, and every `api/routes/transport/*`
+route — none of rules 1-5 above required them to exist first.
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,

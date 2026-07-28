@@ -27,8 +27,18 @@ class _U:
 
 def test_deny_by_default_read_only_has_only_reads():
     perms = authz.ROLE_PERMISSIONS[Role.READ_ONLY]
+    # M3/WO-49: vat.read + transport.read joined the set — a VAT refund claim
+    # is a money surface like any other this role already reads.
     assert perms == frozenset(
-        {P.INVOICE_READ, P.EXPENSE_READ, P.ISSUED_READ, P.PAYMENT_READ, P.REPORT_READ}
+        {
+            P.INVOICE_READ,
+            P.EXPENSE_READ,
+            P.ISSUED_READ,
+            P.PAYMENT_READ,
+            P.REPORT_READ,
+            P.VAT_READ,
+            P.TRANSPORT_READ,
+        }
     )
     # Nothing write/admin/export leaks in.
     for denied in (
@@ -53,11 +63,18 @@ def test_role_boundaries():
     fm = authz.ROLE_PERMISSIONS[Role.FINANCE_MANAGER]
     assert P.EXPENSE_APPROVE in fm and P.EXPORT_RUN in fm and P.AUDIT_READ in fm
     assert P.MEMBER_MANAGE not in fm and P.BILLING_MANAGE not in fm  # not an admin
+    # M3/WO-49: full VAT claim read/write/submit — a money surface this role
+    # already owns the peers of (invoices, expenses, issuing, payments).
+    assert P.VAT_READ in fm and P.VAT_WRITE in fm and P.VAT_SUBMIT in fm and P.TRANSPORT_READ in fm
 
     acc = authz.ROLE_PERMISSIONS[Role.ACCOUNTANT]
     assert P.INVOICE_WRITE in acc and P.EXPORT_RUN in acc
     assert P.PAYMENT_READ in acc and P.PAYMENT_WRITE in acc  # applies cash
     assert P.EXPENSE_APPROVE not in acc and P.ISSUED_SEND not in acc  # books, doesn't approve/send
+    # M3/WO-49: books VAT claim data but does not SUBMIT one (mirrors the
+    # ISSUED_WRITE-without-ISSUED_SEND split immediately above).
+    assert P.VAT_READ in acc and P.VAT_WRITE in acc and P.TRANSPORT_READ in acc
+    assert P.VAT_SUBMIT not in acc
 
     appr = authz.ROLE_PERMISSIONS[Role.APPROVER]
     assert appr == frozenset(
@@ -69,11 +86,19 @@ def test_role_boundaries():
             P.REPORT_READ,
         }
     )
+    # M3/WO-49: transport is outside this role's narrow AP/expense-approval
+    # remit — it holds no ISSUED_READ/PAYMENT_READ either.
+    assert not (appr & {P.VAT_READ, P.VAT_WRITE, P.VAT_SUBMIT, P.TRANSPORT_READ})
+
+    emp = authz.ROLE_PERMISSIONS[Role.EMPLOYEE]
+    assert not (emp & {P.VAT_READ, P.VAT_WRITE, P.VAT_SUBMIT, P.TRANSPORT_READ})
 
     aud = authz.ROLE_PERMISSIONS[Role.AUDITOR]
     assert P.AUDIT_READ in aud and P.EXPORT_RUN in aud and P.PAYMENT_READ in aud
     # read-only assurance — no write of any money surface, incl. cash application.
     assert not (aud & {P.INVOICE_WRITE, P.EXPENSE_WRITE, P.ISSUED_WRITE, P.PAYMENT_WRITE})
+    # M3/WO-49: read-everything-for-assurance includes VAT claims.
+    assert P.VAT_READ in aud and P.TRANSPORT_READ in aud and P.VAT_SUBMIT not in aud
 
 
 def test_stored_legacy_roles_map_to_business_roles():

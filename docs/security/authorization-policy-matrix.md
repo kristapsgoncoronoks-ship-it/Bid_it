@@ -44,6 +44,10 @@ perform this action", assuming the object is already in their org.
 | role.assign      | ✓ | ✓ |   |   |   |   |   |   |
 | settings.manage  | ✓ | ✓ |   |   |   |   |   |   |
 | billing.manage   | ✓ |   |   |   |   |   |   |   |
+| vat.read         | ✓ | ✓ | ✓ | ✓ |   |   | ✓ | ✓ |
+| vat.write        | ✓ | ✓ | ✓ | ✓ |   |   |   |   |
+| vat.submit       | ✓ | ✓ | ✓ |   |   |   |   |   |
+| transport.read   | ✓ | ✓ | ✓ | ✓ |   |   | ✓ | ✓ |
 
 The runtime source is `ROLE_PERMISSIONS` in `app/core/authz.py`; this table is
 generated from the same data (`GET /api/v1/auth/authz-matrix`) and the test
@@ -189,3 +193,20 @@ Partner (issuing-counterparty) routes carry **two orthogonal gates, both live**:
   fully-permissioned Owner in a non-issuing org is still refused (403 from the
   module gate), and an issuing-org Employee is refused by the permission gate.
   Neither check substitutes for the other.
+
+## Transport vertical (M3, ADR-P3 / ADR-0023) — permissions land ahead of routes
+
+`vat.read`/`vat.write`/`vat.submit`/`transport.read` were added to the matrix
+in WO-49 (the M3 opener) alongside the `transport` module entitlement
+(default OFF, plan-gated exactly like `issuing`) — but **no `api/routes/
+transport/*` router exists yet**, so nothing can reach these permissions over
+HTTP today. This is deliberate: ADR-P3 rule 5 groups the permission additions
+with the rest of the foundational slice (grain schema + `is_synthetic()` +
+entitlement) so every future transport route only has to declare an
+ALREADY-REVIEWED permission, never invent one mid-epic. The one reachable
+entry point today, `app.services.transport.claim.get_or_create_claim`, checks
+the module entitlement directly (not yet a permission — there is no caller
+identity to check a permission against outside an HTTP request); the future
+`api/routes/transport/claims.py` will declare `vat.read`/`vat.write` at the
+router the same way `partners` declares `issued.read`/`issued.write` today,
+with `vat.submit` as the stricter per-route override on the submit action.

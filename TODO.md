@@ -19,12 +19,44 @@ aside; not executed.
 | **M0** | Security/correctness debt sprint | ✅ **Completed** — WO-1…11 (incl. B1.5). All 12 exit-gate criteria met. See `docs/M0-exit-gate.md`. |
 | **M1** | Feature completion + independent audit | ✅ **Completed** — WO-12…46. Every named epic shipped; 18-item audit (R1–R19) closed except two decision-gated/backlog items (below). |
 | **M2** | "We can take money" — billing go-live | 🔶 **In Progress** — WO-47 (quota model) + WO-48 (dogfood billing fallback) shipped. Three items still owner-blocked (below). |
-| M3 | Transport vertical phase 1 — VAT refund claim engine | `Planned` |
+| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) shipped. 70-100 day milestone; remaining slices tracked below. |
 | M4 | Payments & cash depth | `Planned` |
 | M5 | Transport vertical phase 2 — recovery intelligence | `Planned` |
 | M6 | Integrations & enterprise go-live | `Planned` |
 
-**Test suite:** 761 → 1169 passed (+408), 8 skipped (pg-only, verified separately on real Postgres), 0 known regressions, as of WO-48.
+**Test suite:** 761 → 1169 → 1216 passed (+455 total, +47 this session), 8 skipped (pg-only, verified
+separately on real Postgres), 0 known regressions, as of WO-49.
+
+---
+
+## M3 — In Progress
+
+- [x] **WO-49** — `Completed` — M3 opener: the transport-vertical foundation. `app/models/transport/
+  vat_claim.py` (`VatRefundClaim`/`VatRefundClaimLine`, the `(org, entity, refund_country, ref_period)`
+  claim grain, R1 — `entity_id` reuses the existing `issuer_profiles` registry rather than a new
+  legal-entity table); `app/services/transport/claim_gates.py::is_synthetic()` (R3, the ONE predicate
+  every future lock/checklist/readiness/workbook gate must import — harvested verbatim from
+  `BA_fleet_fuel.md` C2); `app/services/transport/claim.py::get_or_create_claim` (idempotent on the
+  grain, R1's acceptance test verbatim); the `transport` module entitlement (default OFF, absent from
+  every plan's module set — pricing is owner-blocked, `docs/DECISIONS-NEEDED.md` §10); 4 new
+  permissions (`vat.read/write/submit`, `transport.read`) in all 8 `ROLE_PERMISSIONS` rows ahead of any
+  route (ADR-P3 rule 5); migration `02d418169f97` (2 new tenant tables, RLS in the same migration,
+  defense-in-depth CHECK constraints for the period shape and R11's "goods code 9 never" rule); the
+  `test_boundaries.py` cross-domain-import CI assertion ADR-0023 promised. Explicitly NOT built (future
+  M3 work orders, `ARCH_plan.md` G2.2 onward): the lock table, any gate (period-end/deadline/minimum/
+  checklist/receipt-waiver), fee freezing, status derivation, goods-code mapping, `fuel_transactions`,
+  the monthly close job, capture/entity-resolution, and every `api/routes/transport/*` route. Detail:
+  `docs/plan/plan-a/wo/WO-49-G1.1-G2.1-G2.3.md`.
+
+### M3 — Next slice (recommended: WO-50)
+
+- [ ] **G1.2 — `fuel_transactions` model** (R29, R30) — the typed transaction model the claim-lines
+  materializer and the lock table's FK both need before either can do anything real. Natural
+  predecessor to G2.2 (locks) per `ARCH_plan.md`'s dependency chain
+  (`G0.1 → G0.2 → G1.1 → G1.2 → G2.1 → G2.2 → ...`).
+- [ ] **G2.2 — Locks: one invoice, one submission** (R4, R5) — `vat_claimed_invoices`, transactional
+  INSERT-not-upsert acquisition, withdraw-only release; needs a real-Postgres concurrency test in the
+  `postgres` CI job.
 
 ---
 

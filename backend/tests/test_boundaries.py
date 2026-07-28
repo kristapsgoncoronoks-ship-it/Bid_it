@@ -65,6 +65,44 @@ def test_services_do_not_import_the_web_layer():
     assert _violations("services", ("app.api",)) == []
 
 
+def test_transport_services_do_not_import_other_domain_models():
+    """ADR-P3 rule 2 / VAT_HARVEST E.2: transport reads the core through
+    SERVICES (`invoice_service`, `vendor_service`, `documents`, `fx`, `vat`),
+    never through a raw model join. A module under `services/transport/` may
+    import its OWN domain's models (`app.models.transport`, `app.models.base`
+    — the portable GUID type + mixins every model uses) but no other domain's
+    models. This is the CI assertion ADR-0023 rule 2 promised would land in
+    the same PR as the first transport module."""
+    allowed_model_prefixes = ("app.models.transport", "app.models.base")
+    out: list[str] = []
+    for f in _modules("services/transport"):
+        for imp in _imports(f):
+            if imp == "app.models" or imp.startswith("app.models."):
+                if not any(imp == p or imp.startswith(p + ".") for p in allowed_model_prefixes):
+                    out.append(f"{f.relative_to(APP.parent)} imports {imp}")
+    assert out == []
+
+
+def test_transport_boundary_check_catches_a_seeded_violation(tmp_path):
+    """A coverage/parity check that cannot fail proves nothing (WORK_ORDER_
+    TEMPLATE guidance). Seed a file importing a foreign domain's model and
+    prove the SAME detection logic `test_transport_services_do_not_import_
+    other_domain_models` uses actually flags it — a drift here would mean the
+    real test above could silently stop working."""
+    bad = tmp_path / "bad_transport_service.py"
+    bad.write_text("from app.models.vendor import Vendor\n")
+    imported = _imports(bad)
+    assert "app.models.vendor" in imported
+
+    allowed_model_prefixes = ("app.models.transport", "app.models.base")
+    flagged = imported and any(
+        (imp == "app.models" or imp.startswith("app.models."))
+        and not any(imp == p or imp.startswith(p + ".") for p in allowed_model_prefixes)
+        for imp in imported
+    )
+    assert flagged, "the boundary-check logic failed to catch a seeded cross-domain import"
+
+
 def test_app_package_is_importable():
     """Guards against a boundary rule accidentally introducing a circular import."""
     import importlib

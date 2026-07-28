@@ -65,6 +65,7 @@ from app.models.session import Session as SessionModel
 from app.models.sso import SsoConnection
 from app.models.supplier_payment import SupplierPayment
 from app.models.tax_code import TaxCode
+from app.models.transport.vat_claim import VatRefundClaim, VatRefundClaimLine
 from app.models.usage import UsageCounter
 from app.models.user import User
 from app.models.vendor import Vendor
@@ -135,6 +136,8 @@ TENANT_MODELS = (
     PaymentRun,
     DunningPolicy,
     CaptureFieldMemory,
+    VatRefundClaim,
+    VatRefundClaimLine,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.

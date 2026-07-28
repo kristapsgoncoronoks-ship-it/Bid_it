@@ -59,6 +59,14 @@ class Permission(str, enum.Enum):
     ROLE_ASSIGN = "role.assign"
     SETTINGS_MANAGE = "settings.manage"  # org settings, modules, issuer profile
     BILLING_MANAGE = "billing.manage"
+    # Transport vertical (M3, ADR-P3 rule 5 / ADR-0023) — permissions, not a new
+    # role tier. VAT_SUBMIT is split from VAT_WRITE because submitting a claim
+    # acquires invoice locks (a consequential, hard-to-reverse action), mirroring
+    # how ISSUED_SEND is split from ISSUED_WRITE.
+    VAT_READ = "vat.read"
+    VAT_WRITE = "vat.write"
+    VAT_SUBMIT = "vat.submit"
+    TRANSPORT_READ = "transport.read"  # fuel/toll analytics, excise (advisory)
 
 
 ALL_PERMISSIONS: frozenset[Permission] = frozenset(Permission)
@@ -84,6 +92,8 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
     Role.ADMINISTRATOR: frozenset(ALL_PERMISSIONS - {_P.BILLING_MANAGE}),
     # Runs the finance function: full invoices/expenses/issuing + approve, send,
     # export, reporting, and read the audit log. No member/role/settings/billing.
+    # Transport (M3): full VAT claim read/write/submit + advisory analytics —
+    # the VAT refund claim is a money surface this role already owns the peers of.
     Role.FINANCE_MANAGER: frozenset(
         {
             _P.INVOICE_READ,
@@ -101,10 +111,16 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             _P.REPORT_READ,
             _P.EXPORT_RUN,
             _P.AUDIT_READ,
+            _P.VAT_READ,
+            _P.VAT_WRITE,
+            _P.VAT_SUBMIT,
+            _P.TRANSPORT_READ,
         }
     ),
     # Books the numbers: read/write invoices/expenses/issuing + apply cash + export
-    # + report. No approving, no sending, no administration.
+    # + report. No approving, no sending, no administration. Transport (M3):
+    # books claim data (VAT_WRITE) but does not SUBMIT one — submission acquires
+    # invoice locks, a consequential action mirroring the ISSUED_SEND split above.
     Role.ACCOUNTANT: frozenset(
         {
             _P.INVOICE_READ,
@@ -117,9 +133,14 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             _P.PAYMENT_WRITE,
             _P.REPORT_READ,
             _P.EXPORT_RUN,
+            _P.VAT_READ,
+            _P.VAT_WRITE,
+            _P.TRANSPORT_READ,
         }
     ),
     # Approves expenses AND supplier invoices; otherwise read-only on the money surfaces.
+    # Transport is out of this role's remit today (it holds no ISSUED_READ/
+    # PAYMENT_READ either — narrow AP/expense-approval focus, not "every domain").
     Role.APPROVER: frozenset(
         {
             _P.EXPENSE_READ,
@@ -129,9 +150,12 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             _P.REPORT_READ,
         }
     ),
-    # Submits their own expenses; reads invoices.
+    # Submits their own expenses; reads invoices. No transport access (same
+    # narrow-remit reasoning as APPROVER above).
     Role.EMPLOYEE: frozenset({_P.EXPENSE_READ, _P.EXPENSE_WRITE, _P.INVOICE_READ}),
     # Read-everything for assurance + read the audit trail + run exports.
+    # Transport (M3): read-only visibility over VAT claims and analytics — this
+    # role's whole purpose is reading every money surface for assurance.
     Role.AUDITOR: frozenset(
         {
             _P.INVOICE_READ,
@@ -141,11 +165,22 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             _P.REPORT_READ,
             _P.AUDIT_READ,
             _P.EXPORT_RUN,
+            _P.VAT_READ,
+            _P.TRANSPORT_READ,
         }
     ),
-    # Pure read of the money surfaces.
+    # Pure read of the money surfaces. Transport (M3): a VAT refund claim is a
+    # money surface like any other read-only user already sees the peers of.
     Role.READ_ONLY: frozenset(
-        {_P.INVOICE_READ, _P.EXPENSE_READ, _P.ISSUED_READ, _P.PAYMENT_READ, _P.REPORT_READ}
+        {
+            _P.INVOICE_READ,
+            _P.EXPENSE_READ,
+            _P.ISSUED_READ,
+            _P.PAYMENT_READ,
+            _P.REPORT_READ,
+            _P.VAT_READ,
+            _P.TRANSPORT_READ,
+        }
     ),
 }
 

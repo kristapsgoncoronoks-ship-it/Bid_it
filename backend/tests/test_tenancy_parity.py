@@ -274,6 +274,20 @@ EXEMPT: dict[str, str] = {
         "the GET /access/usage response model (UsageOut) exposes only "
         "Invoice-derived counts, so no route returns these rows' content."
     ),
+    "vat_refund_claims": (
+        "M3 opener (WO-49): the transport vertical's foundational schema, "
+        "written only through services/transport/claim.get_or_create_claim "
+        "(tenant-scoped there via the same ORM guard this probe would exercise, "
+        "AND proven on real Postgres RLS in tests/transport/) — no "
+        "api/routes/transport/* route exists yet to drive an HTTP-level probe "
+        "through. Gains a probe with the first transport route (ARCH_plan.md "
+        "G2.x)."
+    ),
+    "vat_claim_lines": (
+        "Same as vat_refund_claims — no route-reachable read path yet; nothing "
+        "in this order even writes a row (claim-line materialization is future "
+        "work, ADR-P3's G2.4/G2.5)."
+    ),
 }
 
 
