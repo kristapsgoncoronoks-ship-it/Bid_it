@@ -68,6 +68,26 @@ async def test_list_filter_and_patch(auth_client):
 
 
 @pytest.mark.asyncio
+async def test_duplicate_candidates_scored_needs_all_four_params(auth_client):
+    # E1.4: `scored` only computes when vendor_id/total/currency/issue_date are
+    # ALL present — a partial set (e.g. only vendor_id + total) must not error
+    # or half-compute; it stays an empty, advisory no-op.
+    r = await auth_client.post("/api/v1/invoices", json=_invoice_payload())
+    inv = r.json()
+    dupes = await auth_client.get(
+        "/api/v1/invoices/duplicate-candidates",
+        params={
+            "invoice_number": inv["invoice_number"],
+            "vendor_id": inv["vendor_id"],
+            "total": inv["total"],
+            # currency and issue_date deliberately omitted
+        },
+    )
+    assert dupes.status_code == 200, dupes.text
+    assert dupes.json()["scored"] == []
+
+
+@pytest.mark.asyncio
 async def test_delete_invoice(auth_client):
     r = await auth_client.post("/api/v1/invoices", json=_invoice_payload())
     inv_id = r.json()["id"]

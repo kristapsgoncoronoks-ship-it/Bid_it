@@ -754,12 +754,22 @@ export interface DuplicateCandidate {
   status: string;
 }
 
+// E1.4: a same-VENDOR invoice with a DIFFERENT number but a close amount and
+// issue date — a weaker, advisory signal beyond exact-number matching.
+export interface ScoredCandidate extends DuplicateCandidate {
+  score: number; // 0-100, advisory only — never a gate
+  reason: string;
+}
+
 // Same-number invoices split by supplier: `exact` (same supplier — likely a true
-// duplicate) vs `cross_supplier` (usually a coincidence). Advisory, never blocks.
+// duplicate) vs `cross_supplier` (usually a coincidence). `scored` (E1.4) is
+// empty unless the caller supplies vendor/total/currency/issue_date. Advisory,
+// never blocks.
 export interface DuplicateReport {
   invoice_number: string;
   exact: DuplicateCandidate[];
   cross_supplier: DuplicateCandidate[];
+  scored: ScoredCandidate[];
 }
 
 export interface Summary {

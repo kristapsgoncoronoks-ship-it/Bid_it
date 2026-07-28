@@ -36,6 +36,7 @@ from app.schemas.invoice import (
     InvoiceUpdate,
     LineItemOut,
     ParsedInvoiceDraft,
+    ScoredCandidateOut,
     UploadAccepted,
 )
 from app.schemas.validation import ValidationDecision, ValidationFinding
@@ -316,10 +317,17 @@ async def duplicate_candidates(
     invoice_number: str = Query(..., min_length=1),
     vendor_id: str | None = Query(default=None),
     exclude_invoice_id: str | None = Query(default=None),
+    total: Decimal | None = Query(default=None, ge=0),
+    currency: str | None = Query(default=None, min_length=3, max_length=3),
+    issue_date: date | None = Query(default=None),
 ):
     """Same-number invoices in this org, split into likely duplicates (same
     supplier) vs cross-supplier candidates (a different supplier with the same
-    number). Advisory — never blocks a save."""
+    number), plus (E1.4) `scored`: same-VENDOR invoices with a DIFFERENT number
+    but a close amount and issue date — only computed when `vendor_id`, `total`,
+    `currency` and `issue_date` are all supplied (backward compatible: a caller
+    checking only by number gets `scored: []`, unchanged from before E1.4).
+    Advisory throughout — never blocks a save."""
     report = await duplicates.candidates(
         db,
         current.org_id,
@@ -340,10 +348,39 @@ async def duplicate_candidates(
             status=c.status,
         )
 
+    scored: list[ScoredCandidateOut] = []
+    if vendor_id and total is not None and currency and issue_date:
+        scored_rows = await duplicates.scored_candidates(
+            db,
+            current.org_id,
+            vendor_id=vendor_id,
+            total=total,
+            currency=currency.upper(),
+            issue_date=issue_date,
+            exclude_invoice_id=exclude_invoice_id,
+            exclude_invoice_number=invoice_number,
+        )
+        scored = [
+            ScoredCandidateOut(
+                invoice_id=c.invoice_id,
+                vendor_id=c.vendor_id,
+                vendor_name=c.vendor_name,
+                invoice_number=c.invoice_number,
+                issue_date=c.issue_date,
+                total=c.total,
+                currency=c.currency,
+                status=c.status,
+                score=c.score,
+                reason=c.reason,
+            )
+            for c in scored_rows
+        ]
+
     return DuplicateReportOut(
         invoice_number=report.invoice_number,
         exact=[_out(c) for c in report.exact],
         cross_supplier=[_out(c) for c in report.cross_supplier],
+        scored=scored,
     )
 
 

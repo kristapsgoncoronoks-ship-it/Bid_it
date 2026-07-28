@@ -159,13 +159,26 @@ class DuplicateCandidateOut(BaseModel):
     status: str
 
 
+class ScoredCandidateOut(DuplicateCandidateOut):
+    """E1.4: a same-vendor, DIFFERENT-number invoice with a close amount and
+    issue date — advisory only, never a gate. `score` is 0-100, `reason` is a
+    plain-English explanation for the review UI."""
+
+    score: int
+    reason: str
+
+
 class DuplicateReportOut(BaseModel):
     """Same-number invoices split by supplier — `exact` (same supplier, likely a true
-    duplicate) vs `cross_supplier` (a different supplier, usually a coincidence)."""
+    duplicate) vs `cross_supplier` (a different supplier, usually a coincidence).
+    `scored` (E1.4, additive) is a weaker, same-vendor amount/date-proximity signal
+    for a DIFFERENT invoice number — empty unless the caller supplies vendor/total/
+    currency/issue_date."""
 
     invoice_number: str
     exact: list[DuplicateCandidateOut] = Field(default_factory=list)
     cross_supplier: list[DuplicateCandidateOut] = Field(default_factory=list)
+    scored: list[ScoredCandidateOut] = Field(default_factory=list)
 
 
 class CaptureReviewItem(BaseModel):

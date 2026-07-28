@@ -254,12 +254,41 @@ export default function CaptureReview() {
     ? vendors.data?.find((v) => v.name.trim().toLowerCase() === vendorName)?.id
     : undefined;
   const number = draft?.invoice_number?.trim() ?? "";
+  // Gross total estimate (net + per-line tax), for the E1.4 scored-candidate
+  // signal only — an advisory heuristic, not the server's authoritative total
+  // (which is recomputed on save regardless — §4.10).
+  const estimatedTotal = draft
+    ? draft.line_items.reduce((sum, li) => {
+        const net = Number(li.amount ?? Number(li.quantity) * Number(li.unit_price));
+        const rate = Number(li.tax_rate ?? 0);
+        return sum + net * (1 + rate / 100);
+      }, 0)
+    : 0;
   const dupes = useQuery<DuplicateReport>({
-    queryKey: ["captures", runId, "dupes", number, vendorId ?? null],
+    queryKey: [
+      "captures",
+      runId,
+      "dupes",
+      number,
+      vendorId ?? null,
+      estimatedTotal,
+      draft?.issue_date ?? null,
+      draft?.currency ?? null,
+    ],
     queryFn: async () =>
       (
         await api.get("/invoices/duplicate-candidates", {
-          params: { invoice_number: number, ...(vendorId ? { vendor_id: vendorId } : {}) },
+          params: {
+            invoice_number: number,
+            ...(vendorId ? { vendor_id: vendorId } : {}),
+            ...(vendorId && estimatedTotal > 0 && draft?.currency && draft?.issue_date
+              ? {
+                  total: estimatedTotal.toFixed(2),
+                  currency: draft.currency,
+                  issue_date: draft.issue_date,
+                }
+              : {}),
+          },
         })
       ).data,
     enabled: parsed && number.length > 0,
@@ -451,6 +480,7 @@ export default function CaptureReview() {
   const warnings = run.draft?.warnings ?? [];
   const exact = dupes.data?.exact ?? [];
   const crossSupplier = dupes.data?.cross_supplier ?? [];
+  const scored = dupes.data?.scored ?? [];
   const subtotal = draft
     ? draft.line_items.reduce(
         (sum, li) => sum + Number(li.amount ?? Number(li.quantity) * Number(li.unit_price)),
@@ -492,6 +522,25 @@ export default function CaptureReview() {
                 <Link to={`/invoices/${c.invoice_id}`} className="underline">
                   {c.vendor_name} · {c.invoice_number} · {money(c.total, c.currency)}
                 </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {scored.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          <p className="font-medium">
+            Worth a look: {scored.length === 1 ? "a similar invoice" : `${scored.length} similar invoices`} from
+            this vendor — same amount and a nearby date, under a different number. Advisory only; nothing
+            is blocked.
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {scored.slice(0, 5).map((c) => (
+              <li key={c.invoice_id}>
+                <Link to={`/invoices/${c.invoice_id}`} className="underline">
+                  {c.vendor_name} · {c.invoice_number} · {money(c.total, c.currency)}
+                </Link>{" "}
+                <span className="text-amber-600">— {c.reason}</span>
               </li>
             ))}
           </ul>
