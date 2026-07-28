@@ -51,7 +51,7 @@ purchase path until R5 is closed.
 | ID | Item | Priority |
 |---|---|---|
 | R8 | OIDC discover()/fetch_jwks() has no SSRF guard | P3 |
-| R9 | Duplicate `_safe`/`_safe_cell` CSV-sanitization helper (3 copies, no shared module) | P3 |
+| R9 | Duplicate `_safe`/`_safe_cell` CSV-sanitization helper (3 copies, no shared module) | P3 — CLOSED (WO-36) |
 | R13 | `test_fx.py::test_refresh_owner_only_and_graceful` doesn't test "owner only" | P3 |
 | R15 | No load/concurrency/large-dataset performance testing has been performed | P3 |
 | R17 | Payment-run "Cancel" button fires with no confirmation | P3 |
@@ -351,6 +351,23 @@ since the product moves SEPA payment files and holds vendor IBANs. Acceptance: e
 periodically-tested DR runbook exists and is linked from `docs/DECISIONS-NEEDED.md`, or an explicit
 application-level backup/restore capability is scoped as a future work order.
 
+**Investigation note (WO-36, re-confirms the characterization above, does not close it):** re-checked
+whether a code-actionable slice exists that would not require a product/infra decision.
+`docs/DEPLOY-HOSTINGER.md` §"Backups (do this)" already documents a manual `pg_dump`/`tar` backup
+procedure, and `docs/architecture/deployment.md` §5 "Backup & recovery" already documents a restore
+runbook (provision from PITR/snapshot → repoint `DATABASE_URL` → `alembic upgrade head` →
+`integrity.verify_documents` + `/audit/verify` → resume traffic) with an explicit "drill this quarterly"
+instruction — so the roadmap's own acceptance bar is *already substantially met in prose*; it is just not
+cross-linked from `docs/DECISIONS-NEEDED.md`. What remains genuinely missing is an **automated
+restore-drill test** (`pg_dump`/`pg_restore` against a scratch Postgres, then `integrity.verify_documents`
+asserting zero corruption) — this is real and code-actionable in principle (`pg_dump`/`pg_restore`/`psql`
+are present in this environment), but it is a strictly larger undertaking than a same-day bounded WO: it
+needs a second scratch-database lifecycle inside the Postgres CI job, a decision about where the
+object-storage bytes for the drill come from, and it still sits on top of the same "what is our actual
+production backup story" question the roadmap explicitly defers to infra. Scoped out of WO-36 for that
+reason; left as a candidate future work order (add the cross-link from `docs/DECISIONS-NEEDED.md` +
+stand up the automated drill test), not selected this round.
+
 ### R16 — AR "Issue" screen: destructive actions (Void/Write off) have no confirmation — **CLOSED (WO-34)**
 Evidence: `commercial-readiness.md` §5. Unlike Payment Runs (which has `ConfirmDialog`s on re-export and
 missing-IBAN acknowledgement), `Issue.tsx`'s `Void`/`Write off` links fire immediately. Fix: add a
@@ -413,7 +430,23 @@ which modules are affected.
 ## P3/P4 items — one-line each (backlog, non-blocking)
 
 - **R8** (P3) — Add `webhooks.assert_public_url()`-style SSRF guard to `oidc.discover()`/`fetch_jwks()`.
-- **R9** (P3) — Extract the 3x-duplicated `_safe`/`_safe_cell` CSV helper to one shared module (pairs with R1).
+- **R9** (P3) — Extract the 3x-duplicated `_safe`/`_safe_cell` CSV helper to one shared module (pairs with R1)
+  — **CLOSED (WO-36)**. WO-29/R1 had already extracted `app/core/csv_safety.py::sanitize_cell` and had
+  `erp_export._safe`/`audit_export._safe`/`report_writers._safe_cell` delegate to it, but explicitly left
+  a **4th** independent copy out of scope: `backend/app/api/routes/issued.py::_csv_safe`, backing
+  `/issued/reports/{summary,receivables,partners,vat}?format=csv` — including `report_partners`'s
+  `partner` column, sourced from the unconstrained, buyer-supplied `buyer_name` field, with zero dedicated
+  test coverage. WO-36 deletes the local definition; `issued.py` now imports
+  `sanitize_cell as _csv_safe` from the shared module (same pattern as the other three), so the entire
+  codebase has exactly one implementation of the mitigation
+  (`grep -rn '\[:1\] in ("="' backend/app` returns zero hits outside `csv_safety.py` itself). New
+  `tests/test_issued_reports.py::test_reports_partners_csv_export_is_formula_injection_safe` proves a
+  `=`-leading `buyer_name` lands quote-prefixed in the export and a normal buyer name is untouched — a
+  refactor-safety proof (the duplicate was already behaviorally correct, so this is not a red-then-green
+  vulnerability fix). `test_reports_csv_export` and the rest of `test_issued_*` pass unmodified. Full
+  backend suite: 1115 passed, 8 skipped (baseline 1114 passed, 8 skipped — +1 new formula-injection
+  regression test, 0 assertions weakened). R9 is now fully closed; the only code touching this pattern
+  anywhere in the app is `app/core/csv_safety.py`.
 - **R13** (P3) — Fix `test_fx.py::test_refresh_owner_only_and_graceful` to actually assert non-owner rejection.
 - **R15** (P3) — Stand up a load/concurrency testing harness (none exists today; explicit scope gap, not a
   silent one — see `security-findings.md` §3).

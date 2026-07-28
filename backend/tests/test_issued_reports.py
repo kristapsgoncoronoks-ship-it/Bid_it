@@ -180,6 +180,36 @@ async def test_reports_csv_export(auth_client):
 
 
 @pytest.mark.asyncio
+async def test_reports_partners_csv_export_is_formula_injection_safe(auth_client):
+    """WO-36/R9: `issued.py::_csv_safe` used to be a 4th independent copy of the
+    formula-injection mitigation `app/core/csv_safety.py::sanitize_cell` centralizes
+    elsewhere (deliberately left untouched by WO-29/R1). It was already correct
+    before this WO's refactor to delegate to the shared helper — this is a
+    refactor-safety proof, not a red-then-green vulnerability fix — and it matters
+    because `partner` is sourced straight from the buyer-supplied, unconstrained
+    `buyer_name` field (`schemas/issued.py::IssuedInvoiceCreate.buyer_name`), the
+    same CSV-injection shape R1 fixed on the sibling exporters."""
+    await _activate(auth_client)
+    payload = "=cmd|'/c calc'!A1"
+    await auth_client.post(
+        "/api/v1/issued", json=_inv(payload, "100.00", issue="2026-01-10", due="2026-02-10")
+    )
+    await auth_client.post(
+        "/api/v1/issued", json=_inv("Acme", "50.00", issue="2026-01-11", due="2026-02-11")
+    )
+    csv = await auth_client.get("/api/v1/issued/reports/partners?format=csv")
+    assert csv.status_code == 200
+    body = csv.text
+    # The malicious buyer name is quote-prefixed so it can never be evaluated as a
+    # formula on open in Excel/Sheets/LibreOffice.
+    assert "'" + payload in body
+    assert payload not in body.replace("'" + payload, "")
+    # A normal buyer name in the same export is left byte-for-byte untouched.
+    assert "\r\nAcme,VAT-ACM," in body
+    assert "'Acme" not in body
+
+
+@pytest.mark.asyncio
 async def test_reports_require_module(auth_client):
     # Issuing module off → reports are gated.
     r = await auth_client.get("/api/v1/issued/reports/summary")

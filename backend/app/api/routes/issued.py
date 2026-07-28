@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz, money
+from app.core.csv_safety import sanitize_cell as _csv_safe
 from app.core.security_headers import content_disposition
 from app.models.customer import Customer
 from app.models.email_message import EmailMessage
@@ -1127,13 +1128,13 @@ async def list_emails(current: CurrentUser, db: DbSession):
 # --------------------------------------------------------------------------------
 
 
-def _csv_safe(value):
-    """Neutralise CSV/Excel formula injection: prefix a leading formula trigger
-    (= + - @ tab CR) with a single quote so a cell (e.g. a crafted buyer name) is
-    never evaluated as a formula on open. Mirrors erp_export._safe."""
-    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
-        return "'" + value
-    return value
+# `_csv_safe` is `app.core.csv_safety.sanitize_cell` imported under its original
+# local name (mirrors erp_export._safe/audit_export._safe/report_writers._safe_cell
+# — this was the 4th independent copy of the same formula-injection mitigation,
+# deliberately left out of scope by WO-29/R1 and closed here by WO-36/R9). It
+# neutralises a cell whose value starts with a formula trigger (= + - @ tab CR),
+# e.g. a crafted buyer name reaching the /issued/reports/partners CSV export, by
+# prefixing a single quote so it is never evaluated as a formula on open.
 
 
 def _csv(filename: str, header: list[str], rows: list[list]) -> Response:
