@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFi
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession, require_perm
+from app.api.deps import CurrentOrg, CurrentUser, DbSession, require_perm
 from app.core import authz, storage
 from app.core.dimensions import DIMENSION_KEYS
 from app.core.money import q2 as _q
@@ -209,13 +209,16 @@ async def persist_invoice(db: DbSession, org_id: str, body: InvoiceCreate) -> tu
 
 
 @router.post("", response_model=InvoiceDetailOut, status_code=status.HTTP_201_CREATED)
-async def create_invoice(body: InvoiceCreate, current: CurrentUser, db: DbSession):
+async def create_invoice(
+    body: InvoiceCreate, current: CurrentUser, current_org: CurrentOrg, db: DbSession
+):
     # NOTE: invoice capture (create/upload) is the metered data-entry flow open to
     # every billing tier — including `user_free` — and is governed by the usage
     # quota below, NOT by INVOICE_WRITE. Only the privileged operations (approve/
     # reject and delete) are permission-gated. See test_access (free-tier limits).
-    # System-matrix usage limit for the caller's access level.
-    await access.enforce_invoice_quota(db, current.org_id, current.role)
+    # System-matrix usage limit — WO-47: keyed by the ORG's plan (every member
+    # of the org shares this one cap), not the caller's own role.
+    await access.enforce_invoice_quota(db, current.org_id, current_org.plan)
     invoice, vendor_name = await persist_invoice(db, current.org_id, body)
     await audit.record(
         db,
@@ -774,7 +777,11 @@ async def delete_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
 
 @router.post("/upload", response_model=UploadAccepted, status_code=status.HTTP_202_ACCEPTED)
 async def upload_invoice(
-    current: CurrentUser, db: DbSession, file: UploadFile, override: bool = False
+    current: CurrentUser,
+    current_org: CurrentOrg,
+    db: DbSession,
+    file: UploadFile,
+    override: bool = False,
 ):
     """Accept an uploaded supplier invoice (PDF / JPEG / PNG / XML / CSV / JSON) and
     QUEUE it for parsing (Stage B). Images and scanned PDFs go through OCR.
@@ -787,9 +794,10 @@ async def upload_invoice(
 
     `override=true` bypasses the hash-based re-upload advisory (E1.3) — see
     `extraction.check_duplicate_upload`."""
-    # Metered usage: the acting role's monthly upload limit (0 = unlimited). Upload
-    # is metered data capture, open to every tier (see create_invoice) — not gated.
-    await access.enforce_upload_quota(db, current.org_id, current.role)
+    # Metered usage: the ORG's plan monthly upload limit (0 = unlimited; WO-47:
+    # keyed by the org's plan, not the caller's role). Upload is metered data
+    # capture, open to every tier (see create_invoice) — not gated.
+    await access.enforce_upload_quota(db, current.org_id, current_org.plan)
     content = await file.read()
     if len(content) > _MAX_UPLOAD:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File too large (max 15 MB)")

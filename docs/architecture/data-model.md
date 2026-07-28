@@ -28,7 +28,7 @@ InvoiceIQ is **not greenfield**: 64 tables and 64 migrations (single head) alrea
 | 2 | Legal entities | 🟡 | `issuer_profiles` (our issuing entities). **Target:** promote to `legal_entities` (own+counterparty), FK from invoices. |
 | 3 | Organization membership | ✅ | `memberships` — **authoritative since B1.5/WO-11**: every tenant-scoping decision (per-request live-membership gate, the users-table ORM guard + RLS policy, SCIM/DSAR/payee/approver resolution) reads memberships. `users.org_id` survives only as the **documented active-org pointer** (repointed by org-switching; never a membership assertion — see `app/models/user.py`). Dropping the column outright is deferred follow-up work (see `docs/security/multi-org-membership-plan.md`). |
 | 4 | Users & invitations | ✅ | `users`, `invitations` |
-| 5 | Roles & permissions | ✅ | `users.role` + `role_policies` (configurable matrix) + `core/roles` |
+| 5 | Roles & permissions | ✅ | `users.role` + `core/roles`/`core/authz` (permissions); usage quotas are separate — see `plan_policies` under Metering & Plans (WO-47: keyed by the org's plan, not the user's role) |
 | 6 | Departments | ✅ **(this slice)** | `departments` |
 | 7 | Cost centers | ✅ **(this slice)** | `cost_centers` (→ department, composite FK) |
 | 8 | Projects | ✅ **(this slice)** | `projects` |
@@ -67,7 +67,7 @@ InvoiceIQ is **not greenfield**: 64 tables and 64 migrations (single head) alrea
 | 41 | Usage records | ✅ | `usage_counters` (`count`/`reported`) |
 | 42 | Feature entitlements | ✅ | `org_modules` (+ plan→module derivation) |
 
-**Also built, beyond the list:** `processed_stripe_events` (billing idempotency ledger), `sso_connections` (SSO/SCIM/SAML), `sessions` (revocable auth sessions), `retention_policies` + `legal_holds`, `budget_targets`, `partner_documents`, `jobs`, `ecb_rates`, `bank_statements` + `bank_lines` (statement import + reconciliation), `dunning_policies`, `recurring_invoices`, `email_intakes` + `email_messages` (inbound address + outbound mail history), `expense_policies` + `expense_transactions` + `reimbursement_batches`, `role_policies`.
+**Also built, beyond the list:** `processed_stripe_events` (billing idempotency ledger), `sso_connections` (SSO/SCIM/SAML), `sessions` (revocable auth sessions), `retention_policies` + `legal_holds`, `budget_targets`, `partner_documents`, `jobs`, `ecb_rates`, `bank_statements` + `bank_lines` (statement import + reconciliation), `dunning_policies`, `recurring_invoices`, `email_intakes` + `email_messages` (inbound address + outbound mail history), `expense_policies` + `expense_transactions` + `reimbursement_batches`, `plan_policies`.
 
 ---
 

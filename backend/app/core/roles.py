@@ -1,11 +1,11 @@
 """Role ranking + privilege helpers for the original four per-company user
-groups (the LEGACY quota/administration ladder), plus rank entries for the
-four business roles A1.5 made directly assignable.
+groups (the LEGACY administration ladder), plus rank entries for the four
+business roles A1.5 made directly assignable.
 
 Order (low → high) of the legacy ladder: user_free < user < admin < owner.
 
-  • user_free — non-paying; limited access, usage limits from the system matrix
-  • user      — paying; usage limits from the system matrix
+  • user_free — read-only-tier permission role
+  • user      — standard permission role
   • admin     — business administration WITHIN the company (the admin panel)
   • owner     — the company's primary user; full administration of THEIR company
                 (user management + roles). NOT a system administrator.
@@ -18,12 +18,18 @@ flag — never a company role. `is_platform_admin` outranks any company role.
 This ladder is DISTINCT from (but keyed off the same `UserRole` storage as) the
 8-role business-permission matrix in `app.core.authz` — `ROLE_RANK`/`rank()`
 here only drive the coarse `is_admin_or_above`/`is_owner` defense-in-depth
-checks and the legacy free/paid quota split; the actual authorization decision
-is always `authz.permissions_for`/`authz.require`, never this module. The four
+checks; the actual authorization decision is always
+`authz.permissions_for`/`authz.require`, never this module. The four
 newly-reachable business roles (`finance_manager`/`accountant`/`approver`/
 `auditor`) rank alongside `user` (non-admin): none of them holds
 `SETTINGS_MANAGE` in the authz matrix, so none should ever read as
 `is_admin_or_above()` here either — that stays reserved for `admin`/`owner`.
+
+WO-47: usage QUOTAS are no longer part of this ladder at all — they key off
+the org's subscription plan (`app.services.access`/`app.services.plans`),
+org-wide, shared by every member regardless of rank. `ASSIGNABLE_ROLES` below
+is the role-assignment vocabulary only; it no longer doubles as the quota
+matrix's row set (that is now `app.services.plans.PLANS`).
 """
 
 from __future__ import annotations
@@ -44,9 +50,9 @@ ROLE_RANK: dict[UserRole, int] = {
     UserRole.auditor: 1,
 }
 
-# Roles that appear in the system quota matrix (`access.matrix()`) and that a
-# member may be assigned, low → high within the legacy ladder, then the four
-# newly-reachable business roles in the same order `authz.Role` declares them.
+# Roles a member may be assigned, low → high within the legacy ladder, then
+# the four newly-reachable business roles in the same order `authz.Role`
+# declares them. (WO-47: no longer doubles as the quota matrix's row set.)
 ASSIGNABLE_ROLES: tuple[UserRole, ...] = (
     UserRole.user_free,
     UserRole.user,

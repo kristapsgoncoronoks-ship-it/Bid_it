@@ -4,7 +4,7 @@ import { useToast } from "../components/Toast";
 import { useAuth } from "../auth/AuthContext";
 import { api, apiError } from "../lib/api";
 import { isPlatformOperator } from "../lib/roles";
-import type { RolePolicy, Usage } from "../lib/types";
+import type { PlanPolicy, Usage } from "../lib/types";
 
 export default function Access() {
   const { user } = useAuth();
@@ -12,7 +12,7 @@ export default function Access() {
   // edit it. A company owner administers their own company but not system limits.
   const canEdit = isPlatformOperator(user);
 
-  const matrix = useQuery<RolePolicy[]>({
+  const matrix = useQuery<PlanPolicy[]>({
     queryKey: ["access", "matrix"],
     queryFn: async () => (await api.get("/access/matrix")).data,
   });
@@ -26,16 +26,17 @@ export default function Access() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Access & limits matrix</h1>
         <p className="text-sm text-slate-500">
-          The four user groups and their monthly usage limits. Free and paying users are capped here;
-          admins and owners are unlimited. <span className="text-slate-400">A limit of 0 means unlimited.</span>
+          The subscription plan ladder and each plan's monthly usage limits. Every member of an
+          organization shares its plan's ONE org-wide cap, regardless of their own role.{" "}
+          <span className="text-slate-400">A limit of 0 means unlimited.</span>
         </p>
       </div>
 
       {usage.data && (
         <div className="card flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="text-sm font-medium text-slate-600">Your usage this month</div>
-            <div className="text-xs text-slate-400">Access level: {usage.data.role}</div>
+            <div className="text-sm font-medium text-slate-600">Your organization's usage this month</div>
+            <div className="text-xs text-slate-400">Plan: {usage.data.plan}</div>
           </div>
           <div className="text-right">
             <div className="text-2xl font-semibold text-brand-600">
@@ -59,7 +60,7 @@ export default function Access() {
         <table className="w-full text-sm">
           <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-4 py-3">User group</th>
+              <th className="px-4 py-3">Plan</th>
               <th className="px-4 py-3 text-right">Invoices / month</th>
               <th className="px-4 py-3 text-right">Uploads / month</th>
               {canEdit && <th className="px-4 py-3"></th>}
@@ -67,7 +68,7 @@ export default function Access() {
           </thead>
           <tbody>
             {matrix.data?.map((p) => (
-              <MatrixRow key={p.role} policy={p} canEdit={canEdit} />
+              <MatrixRow key={p.plan} policy={p} canEdit={canEdit} />
             ))}
           </tbody>
         </table>
@@ -76,7 +77,7 @@ export default function Access() {
   );
 }
 
-function MatrixRow({ policy, canEdit }: { policy: RolePolicy; canEdit: boolean }) {
+function MatrixRow({ policy, canEdit }: { policy: PlanPolicy; canEdit: boolean }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [inv, setInv] = useState(String(policy.monthly_invoice_limit));
@@ -87,7 +88,7 @@ function MatrixRow({ policy, canEdit }: { policy: RolePolicy; canEdit: boolean }
   const dirty = inv !== String(policy.monthly_invoice_limit) || up !== String(policy.monthly_upload_limit);
   const save = useMutation({
     mutationFn: async () =>
-      (await api.put(`/access/matrix/${policy.role}`, {
+      (await api.put(`/access/matrix/${policy.plan}`, {
         monthly_invoice_limit: Number(inv) || 0,
         monthly_upload_limit: Number(up) || 0,
       })).data,

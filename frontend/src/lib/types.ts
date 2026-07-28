@@ -20,8 +20,13 @@ export type UserRoleName =
   | "approver"
   | "auditor";
 
-export interface RolePolicy {
-  role: UserRoleName;
+// The subscription plan ladder (backend `app.services.plans.PLANS`).
+export type PlanKey = "trial" | "starter" | "pro" | "enterprise";
+
+// WO-47: the usage-limits matrix is keyed by PLAN, not by role — usage is
+// metered per-organization, so the cap must be too.
+export interface PlanPolicy {
+  plan: PlanKey;
   label: string;
   paid: boolean;
   description: string;
@@ -30,7 +35,7 @@ export interface RolePolicy {
 }
 
 export interface Usage {
-  role: UserRoleName;
+  plan: PlanKey;
   invoices_used: number;
   invoice_limit: number;
   invoices_remaining: number | null;

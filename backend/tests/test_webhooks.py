@@ -165,17 +165,13 @@ async def test_webhooks_tenant_isolated(auth_client, client):
 
 @pytest.mark.asyncio
 async def test_upload_quota_enforced(auth_client, db_session):
-    """A 'user' role with a monthly upload limit is blocked once it's reached."""
-    from sqlalchemy import update as _update
-
-    from app.models.user import User, UserRole
+    """WO-47: the org's PLAN monthly upload limit blocks once it's reached —
+    org-wide, regardless of the caller's role (the default org plan is
+    "trial")."""
     from app.services import access
 
-    org = await _org(db_session)
-    # Set this role's upload limit to 1 and downgrade the caller to a 'user'.
-    await access.set_limits(db_session, UserRole.user, invoice_limit=0, upload_limit=1)
-    await db_session.execute(_update(User).where(User.org_id == org).values(role=UserRole.user))
-    await db_session.commit()
+    # Set the (default "trial") plan's upload limit to 1.
+    await access.set_limits(db_session, "trial", invoice_limit=0, upload_limit=1)
 
     # A tiny valid CSV upload counts as one upload (accepted → queued for parse).
     csv = b"description,amount\nCoffee,3.50\n"

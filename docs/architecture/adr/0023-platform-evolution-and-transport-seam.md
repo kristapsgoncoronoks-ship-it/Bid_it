@@ -45,8 +45,8 @@ the context it feeds, behind an existing Protocol seam (`ExtractionProvider`,
 `BillingProvider`, the storage backend Protocol, the email-intake payload contract,
 the ERP exporter registry, `sso_connections`). New integrations add an adapter,
 never a module. **SaaS Administration** splits into Entitlements & Metering
-(`org_modules`, `plans`, `usage_counters`, `role_policies`) and Subscription Billing
-(`billing_*` behind `BillingProvider`).
+(`org_modules`, `plans`, `usage_counters`, `plan_policies` — WO-47: quota keyed by
+the org's plan) and Subscription Billing (`billing_*` behind `BillingProvider`).
 
 ### 2. The transport seam — six binding rules
 

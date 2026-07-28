@@ -35,7 +35,10 @@ SP metadata).
 
 **Built:** Both providers behind one seam — Stripe (Checkout + Portal + signed
 webhook), EveryPay (hosted page + server-side verify + MIT recurring), metered
-usage reporting. Nothing charges until keys are set.
+usage reporting. Nothing charges until keys are set. **WO-47** fixed the
+quota model this billing go-live will meter against — usage caps now key off
+the org's `plan` (`plan_policies`), not the acting user's role — so the
+metering substrate is ready independent of when credentials land.
 
 **Blocked / needs you:**
 - **Live credentials:** Stripe secret + webhook signing secret + per-plan Price
@@ -45,6 +48,45 @@ usage reporting. Nothing charges until keys are set.
   *calculate* it — *decision: enable Stripe Tax, and own the filing process.*
 - **Metered pricing:** create the Stripe **Billing Meter** and give me its
   `event_name` (→ `STRIPE_METER_UPLOAD`).
+
+---
+
+## 2a. Reconcile the plan ladder (M2 / H1.2)
+**Status:** 🔓  ·  **Raised by:** WO-47 — a pricing/business decision,
+deliberately **not** decided in code.
+
+**Situation:** two conflicting plan ladders exist in the repo simultaneously.
+`backend/app/services/plans.py::PLANS` (the ladder actually enforced in code —
+seats, module entitlements, and, since WO-47, usage quotas) has
+**trial / starter / pro / enterprise** at **€0 / €29 / €99 / custom**, seats
+3/2/10/200. `docs/product/pricing-hypothesis.md` proposes a *different* ladder:
+**Free / Starter €39 / Team €99 / Business €249 / Enterprise**, plus a
+per-seat **Practice** partner plan for accountancy firms. They name different
+plans at different price points for the same market. Engineering cannot pick
+between a shipped-in-code ladder and a hypothesis document — that is a
+commercial decision about what the product actually charges.
+
+**Blocked / needs you:**
+- **Pick one ladder** (or a reconciled merge of the two) as the SINGLE source
+  of truth — plan keys, seat counts, prices, and which add-on modules each
+  tier unlocks.
+- Decide whether the accountancy-practice **Practice** plan ships in this
+  milestone or is deferred.
+- Once decided, engineering implements it in `plans.py::PLANS` (which, since
+  WO-47, is also where the per-plan usage-quota defaults live —
+  `Plan.monthly_invoice_limit`/`monthly_upload_limit`) and deletes the other
+  ladder from `docs/product/pricing-hypothesis.md` (or marks it explicitly
+  superseded).
+
+**Interim state (WO-47):** the quota-enforcement FIX does not wait on this —
+it uses whichever ladder is live in `plans.py` today (currently
+trial/starter/pro/enterprise) as the quota key, carrying forward the
+pre-existing numeric limits (10/20 → trial, 1000/2000 → starter, unlimited →
+pro/enterprise) as *indicative* defaults, sysadmin-overridable per plan. When
+this decision lands, only `plans.py::PLANS` (and its `monthly_invoice_limit`/
+`monthly_upload_limit` fields) needs to change — the enforcement mechanism
+itself (`app/services/access.py`) is already plan-keyed and requires no
+further rework.
 
 ---
 

@@ -7,7 +7,7 @@ import hmac
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, select
 
-from app.api.deps import CurrentUser, DbSession, require_perm
+from app.api.deps import CurrentOrg, CurrentUser, DbSession, require_perm
 from app.api.routes.invoices import _detail, persist_invoice
 from app.core import authz
 from app.core.config import settings
@@ -312,14 +312,19 @@ async def get_inbound(inbound_id: str, current: CurrentUser, db: DbSession):
     dependencies=_CAPTURE,
 )
 async def confirm_inbound(
-    inbound_id: str, body: InboundConfirm, current: CurrentUser, db: DbSession
+    inbound_id: str,
+    body: InboundConfirm,
+    current: CurrentUser,
+    current_org: CurrentOrg,
+    db: DbSession,
 ):
     """Confirm a parsed inbound invoice into a real Invoice — using the same
     persistence path as a manual upload. Accepts an edited draft override."""
     # Same metered capture flow as /invoices and /invoices/upload — quota-governed,
-    # open to every tier; not INVOICE_WRITE-gated.
+    # open to every tier; not INVOICE_WRITE-gated. WO-47: keyed by the ORG's
+    # plan, not the caller's role.
     await _guard(db, current.org_id)
-    await access.enforce_invoice_quota(db, current.org_id, current.role)
+    await access.enforce_invoice_quota(db, current.org_id, current_org.plan)
     row = await _load(db, current.org_id, inbound_id)
     if row.status == "confirmed":
         raise HTTPException(status.HTTP_409_CONFLICT, "This invoice was already confirmed")

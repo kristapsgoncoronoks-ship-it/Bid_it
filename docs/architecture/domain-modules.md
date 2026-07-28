@@ -107,12 +107,12 @@ Legend: **Owns** = writes + schema authority. **Reads** = consumes read-only. Is
 
 | Module | Owns (tables) | Key services | Reads from | Notes |
 |---|---|---|---|---|
-| **Auth & Identity** | `users`, `invitations`, `role_policies` | `security`, `roles`, `team`, `access` | — | Platform actor identity; `is_platform_admin` is *not* a company role. |
+| **Auth & Identity** | `users`, `invitations` | `security`, `roles`, `team`, `access` | — | Platform actor identity; `is_platform_admin` is *not* a company role. |
 | **SSO (Enterprise)** | `sso_connections` | `oidc`, `scim`, `saml`, `sso_config` | users, orgs | Per-tenant OIDC/SCIM/SAML; JIT provisions into Auth; client secret **sealed** (keyvault). |
 | **Tenancy + residency** | `organizations` (incl. `region`) | `core/tenant`, `core/residency` | users | Owns the isolation guard, org lifecycle/plan, and the region-pinning backstop. |
 | **Audit** | `audit_events` | `audit`, `audit_export` | current actor/org | Append-only, hash-chained. Never edited; CSV/JSON export re-verifiable offline. |
 | **Jobs & Scheduler** | `jobs` | `jobs`, `scheduler`, `job_handlers`, `worker`, `queue_health` | all (as handlers) | Durable queue; handlers run in tenant scope; `/health/queue` SLO probe. |
-| **Metering & Plans** | `usage_counters` (incl. `reported`), `role_policies` (limits) | `access`, `plans`, `modules` | invoices (count) | Enforces quotas; module gating; `reported` watermark for metered billing. |
+| **Metering & Plans** | `usage_counters` (incl. `reported`), `plan_policies` (limits, keyed by plan — WO-47) | `access`, `plans`, `modules` | invoices (count), organizations (plan) | Enforces org-wide quotas off the org's subscription plan; module gating; `reported` watermark for metered billing. |
 | **Subscription billing** | `billing_payments`, `processed_stripe_events` | `billing`, `billing_provider`, `billing_usage` | orgs, usage_counters | Stripe + EveryPay behind one seam; webhook/verify is the authority; idempotent. |
 | **Retention & legal hold** | `retention_policies`, `legal_holds` | `retention` | all tenant tables | Purges past-window data unless on hold; audited; excludes audit + issued invoices. |
 | **GDPR erasure (DSAR)** | — (acts on Auth/expenses/intake) | `privacy` | users, expenses, inbound | Pseudonymise/redact/delete; retains statutory + audit; hashed-subject audit. |

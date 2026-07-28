@@ -22,11 +22,17 @@ class UserRole(str, enum.Enum):
 
     The original four values (low → high privilege):
 
-    - user_free : non-paying user; limited access, usage limits from the matrix
-    - user      : paying user; usage limits from the matrix
+    - user_free : read-only-tier permission role (maps to `authz.Role.READ_ONLY`)
+    - user      : standard permission role (maps to `authz.Role.EMPLOYEE`)
     - admin     : business administration WITHIN the company (the admin panel)
     - owner     : the company's primary user — full administration of THEIR company
                   (user management, roles, settings). Not a system administrator.
+
+    NOTE (WO-47): usage QUOTAS (monthly invoice/upload limits) are NOT a
+    function of this role — they key off the org's subscription `plan`
+    (`app.services.access`/`app.services.plans`), org-wide, shared by every
+    member regardless of role. `user_free`/`user` are permission tiers only;
+    the name `user_free` is a historical label, not a billing signal.
 
     Since A1.5, the column also accepts the remaining four business roles from
     the 8-role authorization matrix (`app.core.authz.Role`) directly by value —

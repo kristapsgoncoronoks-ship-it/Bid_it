@@ -45,10 +45,10 @@ from app.models.organization import Organization
 from app.models.partner import Partner, PartnerDocument
 from app.models.payment import Payment
 from app.models.payment_run import PaymentRun
+from app.models.plan_policy import PlanPolicy
 from app.models.receipt import Receipt
 from app.models.recurring_invoice import RecurringInvoice
 from app.models.retention import LegalHold, RetentionPolicy
-from app.models.role_policy import RolePolicy
 from app.models.session import Session
 from app.models.sso import SsoConnection
 from app.models.supplier_payment import SupplierPayment
@@ -97,7 +97,7 @@ __all__ = [
     "RecurringInvoice",
     "Invitation",
     "Membership",
-    "RolePolicy",
+    "PlanPolicy",
     "ExpenseReport",
     "ExpenseItem",
     "ExpenseTransaction",

@@ -1,5 +1,6 @@
 """The 8 stored roles (the original 4-tier ladder + the 4 A1.5-reachable
-business roles) + the system matrix (per-role usage limits) + quota gating."""
+business roles) + the system matrix (WO-47: per-PLAN usage limits, org-wide,
+NOT per-role) + quota gating."""
 
 import pytest
 
@@ -49,6 +50,20 @@ async def _make_platform_op(db_session, email="owner@acme.io"):
     await db_session.commit()
 
 
+async def _set_org_plan(db_session, plan, org_email="owner@acme.io"):
+    """Set the (single, in this fixture) organization's subscription plan."""
+    from sqlalchemy import select, update
+
+    from app.models.organization import Organization
+    from app.models.user import User
+
+    org_id = await db_session.scalar(select(User.org_id).where(User.email == org_email))
+    await db_session.execute(
+        update(Organization).where(Organization.id == org_id).values(plan=plan)
+    )
+    await db_session.commit()
+
+
 @pytest.mark.asyncio
 async def test_registrant_is_company_owner_not_sysadmin(auth_client):
     # The first registrant is the OWNER of their company, never a system admin.
@@ -58,46 +73,29 @@ async def test_registrant_is_company_owner_not_sysadmin(auth_client):
 
 
 @pytest.mark.asyncio
-async def test_matrix_has_eight_roles_with_defaults(auth_client):
-    # A1.5 widened the stored role vocabulary from 4 to 8 — the quota matrix
-    # must carry a row for every one of them (this is exactly the assertion
-    # that previously would have masked the latent access.py KeyError: had
-    # LIMIT_DEFAULTS/ROLE_META not been fixed, the 4 new roles simply
-    # wouldn't be here — see test_finance_manager_can_create_invoices_without_quota_crash
-    # below for the crash itself, proven through the real quota-enforcing path).
-    m = {r["role"]: r for r in (await auth_client.get("/api/v1/access/matrix")).json()}
-    assert set(m) == {
-        "user_free",
-        "user",
-        "admin",
-        "owner",
-        "finance_manager",
-        "accountant",
-        "approver",
-        "auditor",
-    }
-    assert m["user_free"]["monthly_invoice_limit"] == 10
-    assert m["user_free"]["paid"] is False
-    assert m["user"]["paid"] is True
-    assert m["admin"]["monthly_invoice_limit"] == 0  # unlimited
-    # The 4 newly-reachable business roles default unlimited + paid, matching
-    # the existing treatment of admin/owner (professional roles, not a
-    # free/paid-tier distinction).
-    for role in ("finance_manager", "accountant", "approver", "auditor"):
-        assert m[role]["monthly_invoice_limit"] == 0
-        assert m[role]["monthly_upload_limit"] == 0
-        assert m[role]["paid"] is True
+async def test_matrix_has_four_plans_with_defaults(auth_client, db_session):
+    # WO-47: the quota matrix is keyed by PLAN (trial/starter/pro/enterprise —
+    # `app.services.plans.PLANS`), not by the 8-role permission vocabulary.
+    await _make_platform_op(db_session)
+    m = {r["plan"]: r for r in (await auth_client.get("/api/v1/access/matrix")).json()}
+    assert set(m) == {"trial", "starter", "pro", "enterprise"}
+    assert m["trial"]["monthly_invoice_limit"] == 10
+    assert m["trial"]["paid"] is False
+    assert m["starter"]["paid"] is True
+    assert m["starter"]["monthly_invoice_limit"] == 1000
+    # The higher, business-oriented paid plans default unlimited.
+    for plan in ("pro", "enterprise"):
+        assert m[plan]["monthly_invoice_limit"] == 0
+        assert m[plan]["monthly_upload_limit"] == 0
+        assert m[plan]["paid"] is True
 
 
 @pytest.mark.asyncio
-async def test_finance_manager_can_create_invoices_without_quota_crash(
+async def test_finance_manager_can_create_invoices_under_the_org_plan(
     auth_client, client, db_session
 ):
-    """Regression test (A1.5): before LIMIT_DEFAULTS/ROLE_META gained entries for
-    the 4 newly-reachable roles, `access._get_or_seed` raised an unhandled
-    KeyError the moment any member holding one of them created an invoice or
-    uploaded a document (both call `enforce_*_quota(db, org_id, current.role)`
-    with the caller's raw stored role) — a 500, not a graceful denial."""
+    """A business role (finance_manager, A1.5) creates invoices fine and reads
+    its usage through the ORG's plan — no crash, no per-role special case."""
     from sqlalchemy import select
 
     from app.models.organization import Organization
@@ -109,8 +107,11 @@ async def test_finance_manager_can_create_invoices_without_quota_crash(
     created = await client.post("/api/v1/invoices", json=_inv(500), headers=_h(token))
     assert created.status_code == 201, created.text
 
+    # Default org plan is "trial" (limit 10) — the finance_manager shares that
+    # SAME org-wide cap; nothing about their role grants a different one.
     usage = (await client.get("/api/v1/access/usage", headers=_h(token))).json()
-    assert usage["unlimited"] is True and usage["invoices_remaining"] is None
+    assert usage["plan"] == "trial"
+    assert usage["unlimited"] is False and usage["invoice_limit"] == 10
 
 
 @pytest.mark.asyncio
@@ -119,7 +120,7 @@ async def test_only_platform_operator_edits_the_global_matrix(auth_client, clien
     u = await _member(auth_client, client, "u@acme.io", "user")
     assert (
         await client.put(
-            "/api/v1/access/matrix/user_free",
+            "/api/v1/access/matrix/trial",
             json={"monthly_invoice_limit": 5, "monthly_upload_limit": 5},
             headers=_h(u),
         )
@@ -127,7 +128,7 @@ async def test_only_platform_operator_edits_the_global_matrix(auth_client, clien
 
     # NEITHER can a company OWNER — the matrix is global, not their company's.
     denied = await auth_client.put(
-        "/api/v1/access/matrix/user_free",
+        "/api/v1/access/matrix/trial",
         json={"monthly_invoice_limit": 2, "monthly_upload_limit": 9},
     )
     assert denied.status_code == 403
@@ -135,7 +136,7 @@ async def test_only_platform_operator_edits_the_global_matrix(auth_client, clien
     # Only a platform operator can.
     await _make_platform_op(db_session)
     ok = await auth_client.put(
-        "/api/v1/access/matrix/user_free",
+        "/api/v1/access/matrix/trial",
         json={"monthly_invoice_limit": 2, "monthly_upload_limit": 9},
     )
     assert ok.status_code == 200
@@ -143,27 +144,33 @@ async def test_only_platform_operator_edits_the_global_matrix(auth_client, clien
 
 
 @pytest.mark.asyncio
-async def test_free_user_invoice_limit_enforced(auth_client, client, db_session):
-    # Tighten the free limit to 2, then a free user hits it on the 3rd invoice.
+async def test_unknown_plan_key_is_404(auth_client, db_session):
+    await _make_platform_op(db_session)
+    r = await auth_client.put(
+        "/api/v1/access/matrix/not-a-real-plan",
+        json={"monthly_invoice_limit": 1, "monthly_upload_limit": 1},
+    )
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_trial_plan_invoice_limit_enforced_org_wide(auth_client, client, db_session):
+    # Tighten the trial plan's limit to 2, then the org hits it on the 3rd
+    # invoice — the default org plan is "trial" (Organization.plan default).
     await _make_platform_op(db_session)
     await auth_client.put(
-        "/api/v1/access/matrix/user_free",
+        "/api/v1/access/matrix/trial",
         json={"monthly_invoice_limit": 2, "monthly_upload_limit": 5},
     )
-    free = await _member(auth_client, client, "free@acme.io", "user_free")
 
-    assert (
-        await client.post("/api/v1/invoices", json=_inv(1), headers=_h(free))
-    ).status_code == 201
-    assert (
-        await client.post("/api/v1/invoices", json=_inv(2), headers=_h(free))
-    ).status_code == 201
-    blocked = await client.post("/api/v1/invoices", json=_inv(3), headers=_h(free))
+    assert (await auth_client.post("/api/v1/invoices", json=_inv(1))).status_code == 201
+    assert (await auth_client.post("/api/v1/invoices", json=_inv(2))).status_code == 201
+    blocked = await auth_client.post("/api/v1/invoices", json=_inv(3))
     assert blocked.status_code == 402
     assert "limit" in blocked.json()["detail"].lower()
 
     # Usage endpoint reflects the cap (counts the org's 2 invoices this month).
-    usage = (await client.get("/api/v1/access/usage", headers=_h(free))).json()
+    usage = (await auth_client.get("/api/v1/access/usage")).json()
     assert (
         usage["invoice_limit"] == 2
         and usage["invoices_remaining"] == 0
@@ -172,19 +179,125 @@ async def test_free_user_invoice_limit_enforced(auth_client, client, db_session)
 
 
 @pytest.mark.asyncio
-async def test_admin_is_unlimited(auth_client, client, db_session):
+async def test_two_different_roles_share_one_org_level_cap(auth_client, client, db_session):
+    """WO-47's core acceptance criterion: two members of the SAME org, holding
+    DIFFERENT roles, share the SAME org-wide cap and the SAME running count —
+    a low-privilege member's invoices count against a high-privilege member's
+    remaining quota, and vice versa. This is the exact bug the role-keyed
+    model had: previously an `admin`'s own role carried a separate (usually
+    unlimited) limit, letting them blow straight through a cap a `user_free`
+    teammate in the identical org had already hit."""
     await _make_platform_op(db_session)
     await auth_client.put(
-        "/api/v1/access/matrix/user_free",
+        "/api/v1/access/matrix/trial",
+        json={"monthly_invoice_limit": 3, "monthly_upload_limit": 5},
+    )
+    free = await _member(auth_client, client, "free@acme.io", "user_free")
+    admin = await _member(auth_client, client, "admin3@acme.io", "admin")
+
+    # free-tier member uses 2 of the org's 3.
+    assert (
+        await client.post("/api/v1/invoices", json=_inv(10), headers=_h(free))
+    ).status_code == 201
+    assert (
+        await client.post("/api/v1/invoices", json=_inv(11), headers=_h(free))
+    ).status_code == 201
+    # admin (a role that was unconditionally unlimited before WO-47) uses the
+    # LAST slot of the SAME org cap...
+    assert (
+        await client.post("/api/v1/invoices", json=_inv(12), headers=_h(admin))
+    ).status_code == 201
+    # ...and is now blocked too — the cap is the ORG's, not per-role.
+    blocked = await client.post("/api/v1/invoices", json=_inv(13), headers=_h(admin))
+    assert blocked.status_code == 402
+
+    # Both members see the identical, shared usage figure.
+    for token in (free, admin):
+        usage = (await client.get("/api/v1/access/usage", headers=_h(token))).json()
+        assert usage["invoices_used"] == 3 and usage["invoice_limit"] == 3
+
+
+@pytest.mark.asyncio
+async def test_plan_governs_not_role_any_role_unlimited_on_an_unlimited_plan(
+    auth_client, client, db_session
+):
+    """The flip side: on a plan with an UNLIMITED cap (`pro`), even the LOWEST
+    permission role (`user_free`) is unlimited — proving the gate reads the
+    org's plan, never the caller's role."""
+    await _set_org_plan(db_session, "pro")
+    free = await _member(auth_client, client, "free2@acme.io", "user_free")
+    for n in range(3):
+        r = await client.post("/api/v1/invoices", json=_inv(200 + n), headers=_h(free))
+        assert r.status_code == 201, r.text
+    usage = (await client.get("/api/v1/access/usage", headers=_h(free))).json()
+    assert usage["plan"] == "pro"
+    assert usage["unlimited"] is True and usage["invoices_remaining"] is None
+
+
+@pytest.mark.asyncio
+async def test_admin_role_no_longer_bypasses_a_tight_org_cap(auth_client, client, db_session):
+    """The regression this order fixes, stated as its own test: before WO-47 an
+    `admin`'s role alone made them unconditionally unlimited (LIMIT_DEFAULTS
+    keyed `admin: (0, 0)`), regardless of the org's plan. Now, on a org whose
+    PLAN has a tight cap, an admin is blocked exactly like anyone else in that
+    org once the org-wide count is reached."""
+    await _make_platform_op(db_session)
+    await auth_client.put(
+        "/api/v1/access/matrix/trial",
         json={"monthly_invoice_limit": 1, "monthly_upload_limit": 1},
     )
-    admin = await _member(auth_client, client, "admin@acme.io", "admin")
-    # Admin has a 0 (unlimited) limit → can create beyond the free cap.
-    for n in range(3):
-        r = await client.post("/api/v1/invoices", json=_inv(100 + n), headers=_h(admin))
-        assert r.status_code == 201, r.text
+    admin = await _member(auth_client, client, "admin4@acme.io", "admin")
+    assert (
+        await client.post("/api/v1/invoices", json=_inv(300), headers=_h(admin))
+    ).status_code == 201
+    blocked = await client.post("/api/v1/invoices", json=_inv(301), headers=_h(admin))
+    assert blocked.status_code == 402
     usage = (await client.get("/api/v1/access/usage", headers=_h(admin))).json()
-    assert usage["unlimited"] is True and usage["invoices_remaining"] is None
+    assert usage["unlimited"] is False and usage["invoices_remaining"] == 0
+
+
+@pytest.mark.asyncio
+async def test_a_blocked_upload_never_stores_the_file_never_loses_it(
+    auth_client, client, db_session
+):
+    """The guardrail: 'never lose a document because of a limit'. The chosen
+    overage policy is BLOCK-AT-THE-CAP (auto-charge needs live billing — an
+    owner-blocked decision). Proven here as: hitting the upload cap returns
+    402 BEFORE anything is persisted — exactly the ONE upload that was under
+    the cap left a trace; the refused second upload left none at all, so
+    nothing was ever accepted and then discarded."""
+    from sqlalchemy import select
+
+    from app.models.extraction_run import ExtractionRun
+    from app.models.organization import Organization
+
+    await _make_platform_op(db_session)
+    r = await auth_client.put(
+        "/api/v1/access/matrix/trial",
+        json={"monthly_invoice_limit": 100, "monthly_upload_limit": 1},
+    )
+    assert r.status_code == 200
+
+    org_id = await db_session.scalar(select(Organization.id))
+
+    csv_a = b"description,category,quantity,unit_price,tax_rate,vendor,invoice_number,issue_date\n"
+    files = {"file": ("a.csv", csv_a, "text/csv")}
+    ok = await auth_client.post("/api/v1/invoices/upload", files=files)
+    assert ok.status_code == 202, ok.text
+
+    files2 = {"file": ("b.csv", csv_a, "text/csv")}
+    blocked = await auth_client.post("/api/v1/invoices/upload", files=files2)
+    assert blocked.status_code == 402
+    assert "limit" in blocked.json()["detail"].lower()
+
+    # Exactly one extraction run exists for the org (from the FIRST, allowed
+    # upload) — the refused second upload never queued or stored anything.
+    runs = (
+        (await db_session.execute(select(ExtractionRun).where(ExtractionRun.org_id == org_id)))
+        .scalars()
+        .all()
+    )
+    assert len(runs) == 1
 
 
 @pytest.mark.asyncio
