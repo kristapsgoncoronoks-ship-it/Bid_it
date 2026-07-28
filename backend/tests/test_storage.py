@@ -41,6 +41,19 @@ def test_local_storage_rejects_path_escape(tmp_path):
         store.put("../escape", b"x")
 
 
+def test_local_storage_containment_rejects_sibling_directory(tmp_path):
+    """R10: a bare `str(p).startswith(str(root))` prefix check would wrongly admit
+    a sibling directory whose name extends the root's (root=/x/store would accept
+    /x/store-evil/secret). `_path` must use true path-boundary containment."""
+    root = tmp_path / "store"
+    sibling = tmp_path / "store-evil"
+    sibling.mkdir()
+    (sibling / "secret").write_bytes(b"leaked")
+    store = storage.LocalStorage(str(root))
+    with pytest.raises(storage.StorageError):
+        store._path("../store-evil/secret")
+
+
 @pytest.mark.asyncio
 async def test_documents_store_and_load_roundtrip():
     # The autouse conftest fixture installs a MemoryStorage.

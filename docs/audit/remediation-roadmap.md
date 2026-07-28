@@ -13,25 +13,17 @@ schedulable) · **P3** (backlog, quality/hardening) · **P4** (informational / d
 
 ---
 
-## Status as of WO-41 — the entire bounded backlog is closed
+## Status as of WO-42 — the entire bounded backlog is closed
 
-As of WO-41, **every bounded, ready-now item that was actually picked up and
-worked in this backlog pass is CLOSED.** The items still open are the four
-this roadmap has always flagged as *not* ready-now work — **R5(a)**
-(owner/Stripe-account-blocked, not a code task), **R14** (decision-gated —
-needs a product/ops decision before any code is written), **R15** (a larger
-effort — standing up a load/concurrency testing harness from scratch), and
-**R19** (a larger, product-shaped effort — a guided onboarding/setup-wizard
-checklist) — plus one item, **R10**, that remains genuinely open and is
-called out explicitly here rather than silently rolled into "done": it is a
-cheap, one-line hardening (`LocalStorage._path`'s `startswith` containment
-check, currently unreachable from any live call site) that WO-40 identified
-as a candidate and explicitly declined to pick that round in favor of R12
-(see WO-40's own task-selection rationale); nothing in this WO-41 pass was
-scoped to touch it, so it was left as-is rather than closed as a drive-by. It
-is P4/no-material-risk (the same tier as R11 was), so its being open does not
-change the release-readiness picture, but this document does not claim it is
-closed when it isn't.
+As of WO-42, **every bounded, ready-now item identified by the functional
+audit is CLOSED**, including R10, which WO-41 correctly flagged as still
+open rather than silently claiming it closed, and which WO-42 closed
+immediately after. The only items still open are the four this roadmap has
+always flagged as *not* ready-now work — **R5(a)** (owner/Stripe-account-
+blocked, not a code task), **R14** (decision-gated — needs a product/ops
+decision before any code is written), **R15** (a larger effort — standing up
+a load/concurrency testing harness from scratch), and **R19** (a larger,
+product-shaped effort — a guided onboarding/setup-wizard checklist).
 
 **Closed items, in closure order, each with its work order:**
 
@@ -52,9 +44,10 @@ closed when it isn't.
 | R17 | Payment-run "Cancel" button fires with no confirmation | WO-39 |
 | R12 | Root `README.md`/`ARCHITECTURE.md` scale numbers were stale | WO-40 |
 | R11 | Stale TODO on `SsoConnection.client_secret` contradicted its own accurate docstring | WO-41 |
+| R10 | `LocalStorage._path` containment check used a bare `startswith` string prefix | WO-42 |
 
-(R2 and R3, Milestone A's two P0 items, and R10, a P4 item, are tracked in the
-tables below with their own status; see each entry for detail.)
+(R2 and R3, Milestone A's two P0 items, are tracked in the table below with
+their own status; see that entry for detail.)
 
 **Still open, by design, not oversight:**
 
@@ -72,8 +65,6 @@ tables below with their own status; see each entry for detail.)
 - **R19** — a guided onboarding/setup-wizard checklist is a multi-screen
   product feature (first vendor, bank connection, invite team), not a bounded
   fix; explicitly out of scope for this backlog pass.
-- **R10** — genuinely still open (see above); a legitimate one-line pick for a
-  future WO if this backlog reopens, same shape as R11 was for WO-40.
 
 ---
 
@@ -120,7 +111,7 @@ purchase path until R5 is closed.
 | R15 | No load/concurrency/large-dataset performance testing has been performed | P3 |
 | R17 | Payment-run "Cancel" button fires with no confirmation | P3 — CLOSED (WO-39) |
 | R19 | No guided onboarding/setup-wizard checklist | P3 |
-| R10 | `LocalStorage._path` containment check uses bare `startswith` (not currently reachable) | P4 |
+| R10 | `LocalStorage._path` containment check uses bare `startswith` (not currently reachable) | P4 — CLOSED (WO-42) |
 | R11 | Stale TODO on `SsoConnection.client_secret` contradicts accurate docstring | P4 — CLOSED (WO-41) |
 | R12 | Root `README.md`/`ARCHITECTURE.md` are stale (module/route/migration counts) | P4 — CLOSED (WO-40) |
 
@@ -560,7 +551,14 @@ which modules are affected.
   `docs/plan/plan-a/wo/WO-39-R17.md`.
 - **R19** (P3) — Add a guided onboarding/setup-wizard checklist (first vendor, bank connection, invite team).
 - **R10** (P4) — Harden `LocalStorage._path`'s `startswith` containment check (not currently reachable; cheap
-  defense-in-depth for a future caller).
+  defense-in-depth for a future caller) — **CLOSED (WO-42)**. Confirmed the check was genuinely wrong, not
+  just theoretically: `"/tmp/store-evil/secret".startswith("/tmp/store")` is `True` in Python, so a key
+  resolving into a sibling directory whose name textually extends the root's would have been wrongly
+  admitted. Replaced with `Path.is_relative_to` (a true path-boundary comparison — `p == root or
+  p.is_relative_to(root)`), and added `test_local_storage_containment_rejects_sibling_directory` which
+  constructs a real `<root>-evil` sibling directory and proves the new check rejects a key resolving into
+  it. No schema/API change; `ruff`/`ruff format --check`/`mypy app` clean; `tests/test_storage.py` — 11
+  passed (10 pre-existing + 1 new), all unmodified. See `docs/plan/plan-a/wo/WO-42-R10.md`.
 - **R11** (P4) — Delete the stale `# TODO: secret store` comment on `SsoConnection.client_secret` (sealing is
   already implemented and tested; the comment is simply wrong) — **CLOSED (WO-41)**. Verified the docstring
   immediately above the TODO (`backend/app/models/sso.py:17-20`) was already accurate — `sso_config.py:51`

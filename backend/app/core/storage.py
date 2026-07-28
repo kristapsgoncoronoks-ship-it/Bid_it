@@ -80,9 +80,14 @@ class LocalStorage:
         self.root.mkdir(parents=True, exist_ok=True)
 
     def _path(self, key: str) -> Path:
-        # Keys never contain '..'; they are derived from sha256 + org id.
+        # Keys never contain '..'; they are derived from sha256 + org id. Containment
+        # is checked via Path.is_relative_to (a true path-boundary comparison), not a
+        # bare string prefix: a bare `startswith` would wrongly admit a sibling
+        # directory whose name happens to extend the root's, e.g. root=/data/store
+        # would accept /data/store-evil/secret (R10).
+        root = self.root.resolve()
         p = (self.root / key).resolve()
-        if not str(p).startswith(str(self.root.resolve())):
+        if p != root and not p.is_relative_to(root):
             raise StorageError(f"illegal key path: {key}")
         return p
 
