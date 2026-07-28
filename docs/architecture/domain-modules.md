@@ -139,7 +139,7 @@ Legend: **Owns** = writes + schema authority. **Reads** = consumes read-only. Is
 | **Money** | — (pure) | `core/money` | — | Decimal quantization; no I/O. |
 | **FX** | `ecb_rates` | `fx` | ECB (external) | EUR conversion with provenance. |
 | **VAT** | — (pure) | `vat` | — | Scheme handling + breakdown. |
-| **Expenses (post-MVP)** | `expense_reports`, `expense_items`, `expense_transactions`, `expense_comments` | `expenses`, `bank_statement` | fx, dimensions | Approval + reimbursement + recon. |
+| **Expenses (post-MVP)** | `expense_reports`, `expense_items`, `expense_transactions`, `expense_comments` | `expenses`, `bank_statement` | fx, dimensions | Approval + reimbursement + recon. "Reclaimable VAT" (`/expenses/summary`, the PDF export) sums only `reclaimable_tax` items on reports past draft/rejected — ADR-0029/C1.8. |
 | **AP settlement (payment runs)** | `payment_runs`, `supplier_payments`, `reimbursement_batches` (with Expenses) | `payment_run`, `ap_payments`, `sepa`, `reimbursement` | invoices, vendors, issuer | Groups scheduled invoices, settles them via the append-only AP ledger, renders the pain.001 bank file. Carries the WO-9 settlement controls (below). |
 
 ### Settlement controls (WO-9)

@@ -41,5 +41,6 @@ Status values: **Accepted** (in effect), **Proposed** (agreed direction, not yet
 | [0026](./0026-one-validation-engine-one-fx-convention.md) | One validation engine, one FX convention, one currency/dimension registry | Accepted (C1.5–C1.7 pending) |
 | [0027](./0027-ai-capture-policy.md) | AI capture policy — decided before any model is wired | Accepted |
 | [0028](./0028-rls-unscoped-guc-sticky-empty-string.md) | RLS "unscoped" GUC: a custom `set_config` never restores SQL NULL (WO-27) | Accepted |
+| [0029](./0029-reclaimable-vat-figure.md) | `reclaimable_tax` is wired; the "Reclaimable VAT" figure excludes drafts/rejections (WO-43) | Accepted |
 
 **To add an ADR:** copy the shape above, take the next number, link it here. Never edit an Accepted ADR's decision in place — supersede it with a new one and mark the old one Superseded.

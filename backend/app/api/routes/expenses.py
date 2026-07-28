@@ -411,9 +411,7 @@ async def summary(current: CurrentUser, db: DbSession):
             mine, ExpenseReport.status.in_(("approved", "marked_for_reimbursement"))
         )
     ) or Decimal("0")
-    reclaimable_vat = await db.scalar(
-        select(func.coalesce(func.sum(ExpenseReport.vat_total), 0)).where(mine)
-    ) or Decimal("0")
+    reclaimable_vat = await expenses.reclaimable_vat_total(db, current.org_id, current.id)
     pending = 0
     if _can_oversee(current):
         # One definition (WO-16): the dashboard projects this same count.

@@ -11,12 +11,13 @@ Start here, in order:
 
 1. **[Overview](./docs/architecture/overview.md)** — stance, requirement
    challenges, the system at a glance. The authoritative architecture reference.
-2. **[ADR index](./docs/architecture/adr/README.md)** — 28 Architecture Decision
+2. **[ADR index](./docs/architecture/adr/README.md)** — 29 Architecture Decision
    Records; **the specification**. Notable: 0001 modular monolith · 0004 tenant
    isolation · 0010 money/FX/VAT · 0012 hash-chained audit · 0023 bounded
    contexts + transport seam · 0024 structural authorization · 0025 vendor
    bank-detail control · 0026 one validation engine / one FX convention ·
-   0027 AI capture policy · 0028 RLS unscoped-GUC sticky empty string.
+   0027 AI capture policy · 0028 RLS unscoped-GUC sticky empty string ·
+   0029 reclaimable-VAT figure.
 3. **[Domain modules](./docs/architecture/domain-modules.md)** — data ownership
    per module and the seams between them.
 4. **[Data model](./docs/architecture/data-model.md)** — tables, keys, tenancy

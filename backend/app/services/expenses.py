@@ -12,6 +12,7 @@ import io
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
@@ -19,6 +20,11 @@ from app.core.money import q2 as q
 from app.models.expense import ExpenseItem, ExpenseReport
 from app.models.fx import FxSource
 from app.services import fx as fx_service
+
+# Reports whose figures aren't final: a draft can still change, a rejected report
+# was never approved for reimbursement. Neither should count toward "cash we can
+# reclaim" (C1.8).
+_NOT_YET_RECLAIMABLE_STATUSES = ("draft", "rejected")
 
 # Precision for a stored/implied FX rate (matches the Numeric(18, 8) column).
 _RATE_EXP = Decimal("0.00000001")
@@ -28,6 +34,32 @@ def compute_totals(items: list) -> tuple[Decimal, Decimal]:
     total = q(sum((Decimal(i.amount) for i in items), start=Decimal("0")))
     vat = q(sum((Decimal(i.vat_amount) for i in items), start=Decimal("0")))
     return total, vat
+
+
+def reclaimable_vat_of(items: list) -> Decimal:
+    """The subset of `vat_total` that is actually reclaimable (ADR-0029/C1.8):
+    only items with `reclaimable_tax` set — some categories/countries don't allow
+    reclaiming VAT even though it was paid. Distinct from `compute_totals`'s `vat`,
+    which is the total tax paid on the report regardless of reclaimability."""
+    return q(sum((Decimal(i.vat_amount) for i in items if i.reclaimable_tax), start=Decimal("0")))
+
+
+async def reclaimable_vat_total(db: AsyncSession, org_id: str, employee_id: str) -> Decimal:
+    """An employee's total reclaimable VAT across their reports (the `/summary`
+    KPI, ADR-0029/C1.8): only `reclaimable_tax` items, and only on reports that
+    have left draft/rejected — a draft's figures aren't final and a rejected
+    report was never approved, so neither belongs in "cash we can reclaim"."""
+    total = await db.scalar(
+        select(func.coalesce(func.sum(ExpenseItem.vat_amount), 0))
+        .join(ExpenseReport, ExpenseReport.id == ExpenseItem.report_id)
+        .where(
+            ExpenseReport.org_id == org_id,
+            ExpenseReport.employee_id == employee_id,
+            ExpenseReport.status.notin_(_NOT_YET_RECLAIMABLE_STATUSES),
+            ExpenseItem.reclaimable_tax.is_(True),
+        )
+    )
+    return q(total or Decimal("0"))
 
 
 def derive_amount(payload) -> Decimal:
@@ -275,7 +307,8 @@ def build_pdf(report: ExpenseReport) -> bytes:
 
     totals = Table(
         [
-            ["Reclaimable VAT", money(report.vat_total)],
+            ["VAT", money(report.vat_total)],
+            ["Reclaimable VAT", money(reclaimable_vat_of(report.items))],
             ["Total", money(report.total)],
         ],
         colWidths=[40 * mm, 40 * mm],
@@ -286,9 +319,9 @@ def build_pdf(report: ExpenseReport) -> bytes:
             [
                 ("ALIGN", (1, 0), (1, -1), "RIGHT"),
                 ("FONTSIZE", (0, 0), (-1, -1), 10),
-                ("LINEABOVE", (0, 1), (-1, 1), 0.6, colors.HexColor(ink)),
-                ("FONTNAME", (0, 1), (-1, 1), "Helvetica-Bold"),
-                ("TEXTCOLOR", (0, 1), (-1, 1), colors.HexColor(brand)),
+                ("LINEABOVE", (0, 2), (-1, 2), 0.6, colors.HexColor(ink)),
+                ("FONTNAME", (0, 2), (-1, 2), "Helvetica-Bold"),
+                ("TEXTCOLOR", (0, 2), (-1, 2), colors.HexColor(brand)),
             ]
         )
     )

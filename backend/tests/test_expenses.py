@@ -241,6 +241,72 @@ async def test_foreign_currency_eur_and_summary(auth_client, client):
 
 
 @pytest.mark.asyncio
+async def test_reclaimable_vat_excludes_non_reclaimable_items(auth_client, client):
+    # C1.8: a non-reclaimable line's VAT (paid, but not claimable — e.g. client
+    # entertainment) must not inflate the "Reclaimable VAT" figure.
+    await _activate(auth_client)
+    emp = await _member(auth_client, client, "emp@corp.io")
+    payload = _payload()
+    payload["items"].append(
+        {
+            "spend_date": "2026-05-03",
+            "category": "meals",
+            "description": "Client entertainment",
+            "amount": "100.00",
+            "vat_amount": "12.00",
+            "reclaimable_tax": False,
+        }
+    )
+    rid = (await client.post("/api/v1/expenses", json=payload, headers=_h(emp))).json()["id"]
+    rep = (await client.get(f"/api/v1/expenses/{rid}", headers=_h(emp))).json()
+    assert rep["vat_total"] == "19.50"  # 7.50 + 12.00 — the total tax paid is unchanged
+
+    await _complete(client, rid, _h(emp))
+    await client.post(f"/api/v1/expenses/{rid}/submit", headers=_h(emp))
+
+    s = (await client.get("/api/v1/expenses/summary", headers=_h(emp))).json()
+    assert s["reclaimable_vat"] == "7.50"  # only the reclaimable line, not 19.50
+
+
+@pytest.mark.asyncio
+async def test_reclaimable_vat_excludes_draft_and_rejected_reports(auth_client, client):
+    # C1.8: a draft's figures aren't final and a rejected report was never
+    # approved for reimbursement — neither belongs in "cash we can reclaim."
+    await _activate(auth_client)
+    emp = await _member(auth_client, client, "emp@corp.io")
+
+    submitted_rid = (
+        await client.post("/api/v1/expenses", json=_payload(), headers=_h(emp))
+    ).json()["id"]
+    await _complete(client, submitted_rid, _h(emp))
+    await client.post(f"/api/v1/expenses/{submitted_rid}/submit", headers=_h(emp))
+
+    # a draft report — never submitted, still fully reclaimable-looking VAT
+    await client.post("/api/v1/expenses", json=_payload("Draft trip"), headers=_h(emp))
+
+    # a rejected report — submitted, then explicitly refused
+    rejected_rid = (
+        await client.post("/api/v1/expenses", json=_payload("Refused trip"), headers=_h(emp))
+    ).json()["id"]
+    await _complete(client, rejected_rid, _h(emp))
+    sub = await client.post(f"/api/v1/expenses/{rejected_rid}/submit", headers=_h(emp))
+    await auth_client.post(
+        f"/api/v1/expenses/{rejected_rid}/decision",
+        json={
+            "action": "reject",
+            "note": "no receipt policy match",
+            "version": sub.json()["version"],
+        },
+    )
+
+    s = (await client.get("/api/v1/expenses/summary", headers=_h(emp))).json()
+    assert s["my_draft"] == 1
+    # only the submitted report's 7.50 counts — the draft's and the rejected
+    # report's VAT (each 7.50) never enter the sum, not even partially.
+    assert s["reclaimable_vat"] == "7.50"
+
+
+@pytest.mark.asyncio
 async def test_pdf_export(auth_client, client):
     pytest.importorskip("reportlab")
     await _activate(auth_client)

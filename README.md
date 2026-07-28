@@ -14,7 +14,7 @@ zero-setup dev/test) · React 18 + Vite + TypeScript + Tailwind SPA · Docker.
 39 route modules, 45 SPA pages, 1136 collected backend tests, 8 CI jobs.
 
 > **The specification lives in [`docs/`](./docs), not here.**
-> [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (28 ADRs) and
+> [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (29 ADRs) and
 > [`docs/product/`](./docs/product) are authoritative; start with
 > [`docs/architecture/overview.md`](./docs/architecture/overview.md). This README
 > is only the front door.
