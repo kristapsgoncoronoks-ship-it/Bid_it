@@ -29,7 +29,7 @@ const ISSUER = {
   is_default: true,
   legal_name: "Fictional Freight OÜ",
   trade_name: null,
-  vat_number: "EE123456789",
+  vat_number: null,
   registration_number: "12345678",
   address_line1: "Testivälja 1",
   address_line2: null,
