@@ -1,0 +1,160 @@
+"""Idempotent fuel-transaction ingestion (G1.2).
+
+WO-49 shipped `claim.get_or_create_claim` as the one reachable entry point
+into the claim tables; `ingest_transaction` is the equivalent for
+`fuel_transactions` — the SINGLE service function any future parser/pipeline
+calls to record a fuel-card / toll-network line item. It is INSERT-OR-NO-OP
+on the natural key (`app/models/transport/fuel_transaction.py`'s
+`uq_fuel_transactions_natural_key`), never a delete-and-reinsert (that is the
+exact Fleet Fuel pattern section 8.1 item 6 identifies as dead weight) and
+never an update-on-conflict (a second call with the same key is a REPLAY —
+the ingestion source re-sending a file it already sent — not a correction; a
+correction is a separate future concern, out of this order's scope).
+
+This module deliberately does NOT: resolve `invoice_ref` to `invoice_id`
+(future note-matching service, G2.4/G2.5), materialize a `VatRefundClaimLine`
+(G2.4/G2.5), or run the monthly close (G1.3/G1.4). It ingests one row and
+stops.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+from decimal import Decimal
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.errors import NotFoundError, PermissionError
+from app.core.money import q2
+from app.models.transport.fuel_transaction import FuelTransaction
+from app.services import audit, issuer, modules
+from app.services.transport.product_group import derive_product_group
+
+
+async def ingest_transaction(
+    db: AsyncSession,
+    org_id: str,
+    *,
+    entity_id: str,
+    supplier: str,
+    period: str,
+    line_seq: int,
+    country: str,
+    vehicle_ref: str,
+    txn_date: date,
+    station: str,
+    product: str,
+    qty: Decimal,
+    currency: str,
+    net_local: Decimal,
+    vat_local: Decimal,
+    gross_local: Decimal,
+    net_eur: Decimal,
+    vat_eur: Decimal,
+    net_eur_eff: Decimal | None = None,
+    txn_time: str = "",
+    invoice_ref: str | None = None,
+    provenance_note: str | None = None,
+    fx_rate: Decimal | None = None,
+    fx_ecb_rate: Decimal | None = None,
+    fx_ecb_date: date | None = None,
+    fx_source: str | None = None,
+) -> FuelTransaction:
+    """Insert-or-no-op on `(org, entity, supplier, period, line_seq)`.
+
+    Calling this twice with the SAME natural key returns the SAME row, never
+    a duplicate (the `uq_fuel_transactions_natural_key` constraint is the
+    backstop if two callers ever race — see
+    `tests/transport/test_g1_2_fuel_transactions.py::
+    test_g1_2_natural_key_uniqueness_constraint_rejects_a_raw_duplicate_insert`).
+
+    Gated on the `transport` module entitlement FIRST, before any query —
+    identical reasoning to WO-49's `get_or_create_claim`: `modules.is_enabled`
+    (a bool), never `modules.require_enabled` (which raises
+    `fastapi.HTTPException`, the wrong shape for a service — see that
+    function's docstring for the full rationale, unchanged here).
+
+    Every monetary amount (`net_local`, `vat_local`, `gross_local`, `net_eur`,
+    `vat_eur`, `net_eur_eff`) is quantized via `app.core.money.q2`
+    (ROUND_HALF_UP) HERE, once, so no caller needs to remember to round.
+    `qty` is passed through UNCHANGED — it is deliberately NOT
+    money-quantized (the €/L denominator; master-context §4.9's own carve-out,
+    `BA_fleet_fuel.md` section 4.2 row 9).
+
+    `product_group` is always DERIVED from `product` via
+    `derive_product_group()` — never accepted as a caller-supplied value, so
+    there is exactly one place the precedence logic can live.
+    """
+    if not await modules.is_enabled(db, org_id, "transport"):
+        m = modules.MODULES_BY_KEY["transport"]
+        raise PermissionError(f"The {m.name} module is not activated.", code="module_not_enabled")
+
+    country = country.upper()
+
+    # Reads the AP/AR core through its OWN service (issuer.get_by_id), never a
+    # raw cross-domain join (ADR-P3 rule 2 / VAT_HARVEST E.2) — identical
+    # pattern to claim.get_or_create_claim.
+    entity = await issuer.get_by_id(db, org_id, entity_id)
+    if entity is None:
+        raise NotFoundError("Entity not found", code="entity_not_found")
+
+    existing = await db.scalar(
+        select(FuelTransaction).where(
+            FuelTransaction.org_id == org_id,
+            FuelTransaction.entity_id == entity_id,
+            FuelTransaction.supplier == supplier,
+            FuelTransaction.period == period,
+            FuelTransaction.line_seq == line_seq,
+        )
+    )
+    if existing is not None:
+        return existing
+
+    txn = FuelTransaction(
+        org_id=org_id,
+        entity_id=entity_id,
+        supplier=supplier,
+        period=period,
+        line_seq=line_seq,
+        country=country,
+        vehicle_ref=vehicle_ref,
+        txn_date=txn_date,
+        txn_time=txn_time,
+        station=station,
+        product=product,
+        product_group=derive_product_group(product),
+        qty=qty,  # NOT quantized — see docstring.
+        currency=currency,
+        net_local=q2(net_local),
+        vat_local=q2(vat_local),
+        gross_local=q2(gross_local),
+        net_eur=q2(net_eur),
+        vat_eur=q2(vat_eur),
+        net_eur_eff=q2(net_eur_eff if net_eur_eff is not None else net_eur),
+        invoice_ref=invoice_ref,
+        provenance_note=provenance_note,
+        fx_rate=fx_rate,
+        fx_ecb_rate=fx_ecb_rate,
+        fx_ecb_date=fx_ecb_date,
+        fx_source=fx_source,
+    )
+    db.add(txn)
+    await db.flush()
+    await audit.record(
+        db,
+        audit.A.FUEL_TRANSACTION_INGEST,
+        target_type="fuel_transaction",
+        target_id=txn.id,
+        meta={
+            "entity_id": entity_id,
+            "supplier": supplier,
+            "period": period,
+            "line_seq": line_seq,
+        },
+        org_id=org_id,  # explicit — this service is also callable from a
+        # worker/parser pipeline with no ambient request-scoped org context
+        # (audit.record's `org_id or get_current_org()` fallback would
+        # otherwise silently no-op, identical rationale to claim.py).
+    )
+    return txn

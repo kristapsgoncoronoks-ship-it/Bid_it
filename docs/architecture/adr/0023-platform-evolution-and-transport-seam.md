@@ -17,6 +17,26 @@ G2.2 onward in `docs/plan/plan-a/ARCH_plan.md`): the lock table
 (`vat_claimed_invoices`, R4/R5), the checklist/period-end/minimum/deadline
 gate stack, fee freezing, status derivation, and every `api/routes/transport/*`
 route — none of rules 1-5 above required them to exist first.
+
+**Implementation status (WO-50, G1.2):** the typed `fuel_transactions` model
+has landed — `app/models/transport/fuel_transaction.py` (`FuelTransaction`,
+natural key `(org, entity, supplier, period, line_seq)` so ingestion is
+insert-or-no-op, never Fleet Fuel's DELETE-by-period; the overloaded `note`
+column split into `invoice_ref`/`provenance_note`), `app/services/transport/
+product_group.py::derive_product_group()` (the centralized PROMO → HVO →
+{AdBlue,Parking,Toll/Fees} → Diesel → Service/Other precedence, mirroring
+`is_synthetic()`'s centralization for the same drift-prevention reason),
+`app/services/transport/fuel_ingest.py::ingest_transaction()` (module-gated,
+`q2`-quantized money, `qty` deliberately unquantized). Rule 1's nullable FK
+from transport into the AP invoice table is now proven twice
+(`vat_claim_lines.invoice_id` from WO-49, `fuel_transactions.invoice_id` from
+this order) — both target `invoices`, never each other, so the two transport
+tables "relate" only through the shared AP invoice, never a new transport-
+internal cross-reference. Still future work: the lock table
+(`vat_claimed_invoices`, R4/R5, G2.2), claim-line materialization from
+transactions (G2.4/G2.5), the monthly close (G1.3/G1.4), and the goods-code
+mapping table itself (G2.8 — `product_group` is derived now; the
+`product_group -> goods_code` lookup is not).
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,

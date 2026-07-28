@@ -139,6 +139,9 @@ class A:
     # Only the grain-construction action exists yet; submission/lock/fee actions
     # land with the future work orders that build them.
     TRANSPORT_CLAIM_CREATE = "transport.claim_create"
+    # G1.2 (WO-50): idempotent fuel-transaction ingestion. Fires once per
+    # actual insert; a natural-key replay is a no-op and audits nothing.
+    FUEL_TRANSACTION_INGEST = "transport.fuel_transaction_ingest"
 
 
 def _hash(

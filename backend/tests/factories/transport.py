@@ -124,6 +124,22 @@ def synthetic_company_name(*, seed: int | None = None) -> str:
     return _rng(seed).choice(_COMPANY_NAMES)
 
 
+_VEHICLE_REFS = [
+    "Fleet-A-001",
+    "Fleet-B-014",
+    "Card-9921",
+    "Card-4410",
+    "Plate-DEMO-01",
+    "Plate-DEMO-02",
+]
+
+
+def synthetic_vehicle_ref(*, seed: int | None = None) -> str:
+    """A vehicle/card identity from an obviously fictional set (G1.2/WO-50).
+    Synthetic, generated, never derived from client data."""
+    return _rng(seed).choice(_VEHICLE_REFS)
+
+
 def synthetic_invoice_number(kind: str = "generic", *, seed: int | None = None) -> str:
     """An invoice number matching a plausible fuel-card numbering *shape*
     without reusing any real number. Synthetic, generated, never derived
