@@ -37,7 +37,7 @@ module goes live with a real vendor.
 | R6 | Reimbursement payout has no maker≠checker (SoD) control | **P2** — CLOSED (WO-32) |
 | R7 | ClamAV fail-closed malware-scan branch has zero test coverage | **P2** — CLOSED (WO-33) |
 | R14 | No application-owned backup/restore tooling exists | **P2** — decision-gated, not code (see below) |
-| R16 | AR "Issue" screen: destructive actions (Void/Write off) have no confirmation | **P2** |
+| R16 | AR "Issue" screen: destructive actions (Void/Write off) have no confirmation | **P2** — CLOSED (WO-34) |
 | R18 | Billing downgrade silently disables modules with no confirmation | **P2** |
 
 *Rationale:* none of these block a **contract-supervised** pilot where InvoiceIQ's own team curates the
@@ -338,8 +338,9 @@ dedicated test; CI catches a regression to fail-open.
   `test_clamav_found_rejects_with_signature` and `test_clamav_non_ok_status_rejects` both failed; restored
   the original file (`git diff --stat` confirms zero change) and all tests pass green. Full backend suite:
   1114 passed, 8 skipped (baseline was 1107 passed, 8 skipped — +7 new ClamAV-branch tests, 0 assertions
-  weakened). Milestone B is now closed except for R14, which is explicitly decision-gated (see below), not
-  a pending code change.
+  weakened). **Correction (WO-34):** the note below originally claimed Milestone B was "closed except for
+  R14" at this point — that was wrong. R16 and R18 were still open (no `CLOSED` marker) when this WO
+  finished; see their own entries below for accurate status.
 
 ### R14 — No application-owned backup/restore tooling exists
 Evidence: `test-baseline.md` finding #4. `docs/DECISIONS-NEEDED.md` currently defers this to infrastructure.
@@ -350,13 +351,33 @@ since the product moves SEPA payment files and holds vendor IBANs. Acceptance: e
 periodically-tested DR runbook exists and is linked from `docs/DECISIONS-NEEDED.md`, or an explicit
 application-level backup/restore capability is scoped as a future work order.
 
-### R16 — AR "Issue" screen: destructive actions (Void/Write off) have no confirmation
+### R16 — AR "Issue" screen: destructive actions (Void/Write off) have no confirmation — **CLOSED (WO-34)**
 Evidence: `commercial-readiness.md` §5. Unlike Payment Runs (which has `ConfirmDialog`s on re-export and
 missing-IBAN acknowledgement), `Issue.tsx`'s `Void`/`Write off` links fire immediately. Fix: add a
 `ConfirmDialog` to `Void`/`Write off` (and ideally regroup the ~12-action list into safe-vs-destructive
 visual groups), consistent with the pattern already proven in `PaymentRuns.tsx`. Risk: pure frontend UX
 change, no backend risk. Acceptance: both actions require an explicit confirm step; existing
 `test_issued_*` backend tests unaffected.
+- **Closed by:** `docs/plan/plan-a/wo/WO-34-R16.md`. Pure frontend change — `VoidAction` and
+  `DisputeActions`' write-off button in `frontend/src/pages/Issue.tsx` now open the shared
+  `ConfirmDialog` (`tone="danger"`, explanatory body + optional reason field) instead of firing a bare
+  `window.prompt(...)` on click; cancelling issues no request. New
+  `frontend/e2e/issue-destructive-actions.spec.ts` (live-app + `page.route` mocking, mirroring
+  `upload-duplicate.spec.ts`) proves confirm/cancel/confirm for both actions — both new specs pass, and
+  the full 45-spec e2e suite (43 pre-existing + 2 new) passes with zero regressions. The secondary
+  "regroup the ~12-action list into safe-vs-destructive visual groups" suggestion was scoped OUT as a
+  separate, larger, non-required follow-up (the roadmap's own acceptance bar names only the confirm
+  step) — left as backlog, not started. No backend file changed (`backend/app/api/routes/issued.py`'s
+  `/void` and `/write-off` routes already validated state transitions and audited the action before this
+  WO); `git diff --stat` on the WO's commits confirms only `frontend/**` and `docs/**` touched. One
+  backend-suite regression was found and fixed during verification, unrelated to the route logic: the new
+  e2e fixture's synthetic issuer VAT number (`EE1########0`, an EE prefix + 9 digits) structurally matched
+  `scripts/pii_scan.py`'s EU-VAT-id pattern and correctly failed
+  `tests/test_pii_scan.py::test_scan_is_clean_on_the_current_tree`; fixed by nulling the unused field
+  (not needed by the test) rather than adding an allowlist entry. Full backend suite: 1114 passed, 8
+  skipped, 0 failed — unchanged from baseline (no backend test added or modified). Milestone B remains
+  open: R18 has no `CLOSED` marker (not started), and R14 stays explicitly decision-gated (not a code
+  fix) — Milestone B is NOT fully closed by this WO.
 
 ### R18 — Billing downgrade silently disables modules with no confirmation
 Evidence: `commercial-readiness.md` §7. Switching Trial→Starter instantly disables Invoice issuing with no
