@@ -15,9 +15,11 @@ class SsoConnection(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     first successful login, with `default_role`.
 
     Security note: `client_secret` is **sealed at rest** (AES-256-GCM via
-    `keyvault.py`, ADR-0016) — written encrypted by `sso_config`, read back with
-    `keyvault.read_secret`. The production KEK provider (env/BYOK vs cloud KMS) is
-    a deployment decision (see docs/DECISIONS-NEEDED.md §5).
+    `keyvault.py`, ADR-0016) — sealed on write by
+    `sso_config.upsert_connection`, read back on use by
+    `oidc.finish_login` via `keyvault.read_secret`. The production KEK
+    provider (env/BYOK vs cloud KMS) is a deployment decision (see
+    docs/DECISIONS-NEEDED.md §5).
     """
 
     __tablename__ = "sso_connections"
@@ -32,9 +34,7 @@ class SsoConnection(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # OIDC.
     issuer: Mapped[str | None] = mapped_column(String(400), nullable=True)  # discovery base URL
     client_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    client_secret: Mapped[str | None] = mapped_column(
-        String(512), nullable=True
-    )  # TODO: secret store (ADR-0016)
+    client_secret: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     # Provisioning policy.
     allowed_domain: Mapped[str | None] = mapped_column(
