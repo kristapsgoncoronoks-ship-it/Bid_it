@@ -64,7 +64,7 @@ Verify it resolves before requesting a certificate: `dig +short app.example.com`
 ```bash
 git clone https://github.com/kristapsgoncoronoks-ship-it/Bid_it.git
 cd Bid_it
-git checkout claude/invoice-data-analytics-qmjy7q     # or your release tag
+git checkout main     # production deploys track main; use a release tag if you cut one
 
 cp .env.hostinger.example .env
 nano .env
@@ -242,8 +242,8 @@ cat > /root/deploy.sh <<'SH'
 #!/bin/bash
 set -euo pipefail
 cd /root/Bid_it
-git fetch origin claude/invoice-data-analytics-qmjy7q
-git reset --hard origin/claude/invoice-data-analytics-qmjy7q
+git fetch origin main
+git reset --hard origin/main
 docker compose -f docker-compose.hostinger.yml up -d --build
 docker image prune -f
 SH
@@ -277,6 +277,6 @@ Repo → **Settings → Secrets and variables → Actions**:
 
 ### 3. Done
 
-The next green push to `claude/invoice-data-analytics-qmjy7q` deploys itself within
-~a minute of CI passing. To pause auto-deploy, set `DEPLOY_ENABLED` to `false` (or
-delete it) — the job goes back to being skipped. A failing build never deploys.
+The next green push to `main` deploys itself within ~a minute of CI passing. To
+pause auto-deploy, set `DEPLOY_ENABLED` to `false` (or delete it) — the job goes
+back to being skipped. A failing build never deploys.
