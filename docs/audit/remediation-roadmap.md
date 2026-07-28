@@ -38,7 +38,7 @@ module goes live with a real vendor.
 | R7 | ClamAV fail-closed malware-scan branch has zero test coverage | **P2** — CLOSED (WO-33) |
 | R14 | No application-owned backup/restore tooling exists | **P2** — decision-gated, not code (see below) |
 | R16 | AR "Issue" screen: destructive actions (Void/Write off) have no confirmation | **P2** — CLOSED (WO-34) |
-| R18 | Billing downgrade silently disables modules with no confirmation | **P2** |
+| R18 | Billing downgrade silently disables modules with no confirmation | **P2** — CLOSED (WO-35) |
 
 *Rationale:* none of these block a **contract-supervised** pilot where InvoiceIQ's own team curates the
 data, billing is arranged out-of-band, and expense-module concurrent double-decisions are operationally
@@ -379,12 +379,34 @@ change, no backend risk. Acceptance: both actions require an explicit confirm st
   open: R18 has no `CLOSED` marker (not started), and R14 stays explicitly decision-gated (not a code
   fix) — Milestone B is NOT fully closed by this WO.
 
-### R18 — Billing downgrade silently disables modules with no confirmation
+### R18 — Billing downgrade silently disables modules with no confirmation — **CLOSED (WO-35)**
 Evidence: `commercial-readiness.md` §7. Switching Trial→Starter instantly disables Invoice issuing with no
 warning (`Billing.tsx` has no `ConfirmDialog` on `choosePlan`, unlike `PaymentRuns.tsx`'s care). Fix: add a
 confirmation step listing which modules will be disabled before committing a downgrade. Risk: frontend-only.
 Acceptance: a downgrade that would disable ≥1 currently-enabled module requires an explicit confirm listing
 which modules are affected.
+- **Closed by:** `docs/plan/plan-a/wo/WO-35-R18.md`. Pure frontend change — `Billing.tsx`'s `choosePlan`
+  now computes, from data the app already fetches (the existing `useModules()` hook over `GET /modules`,
+  diffed against the target `PlanInfo.modules` already present in `GET /billing`'s `available_plans` — no
+  backend change needed, no guessed list), which currently-enabled non-core modules the target plan would
+  drop. If that set is non-empty it opens the shared `ConfirmDialog` (`tone="danger"`) naming every
+  affected module by name before calling `PUT /billing/plan` (or `POST /billing/checkout` on the
+  paid-provider path — both reconcile modules identically server-side, so both are gated); cancelling
+  issues no request. A plan change that drops nothing currently enabled proceeds exactly as before, with no
+  added friction. New `frontend/e2e/billing-downgrade-confirm.spec.ts` (live-app + `page.route` mocking,
+  mirroring `issue-destructive-actions.spec.ts`) proves confirm/cancel/confirm for a downgrade that drops
+  an enabled module, plus a no-dialog assertion for a plan change that drops nothing — both new specs pass,
+  and the full 47-spec e2e suite (45 pre-existing + 2 new) passes with zero regressions. `git diff --stat`
+  on the WO's commits confirms only `frontend/**` and `docs/**` touched — `backend/app/**` is byte-for-byte
+  unchanged, since `GET /modules`/`GET /billing` already exposed everything the dialog needed. Full backend
+  suite: 1114 passed, 8 skipped, 0 failed — unchanged from baseline (no backend test added or modified).
+  `python3 scripts/pii_scan.py --tree` clean. **This closes every remaining CODE-fixable item in
+  Milestone B** — independently re-verified by grepping every Milestone-B row in this document:
+  R4/R6/R7/R16/R18 now carry `CLOSED (WO-##)`, and R5's engineering half, R5(b), was already `CLOSED
+  (WO-31)`. Two rows stay open, and both are explicitly business/decision-gated, not engineering gaps: R14
+  (backup/restore tooling — decision-gated per its own entry above) and R5(a) (the Stripe/EveryPay-vs-manual-
+  invoicing GTM decision, tracked only in `docs/DECISIONS-NEEDED.md` item 2 — R5's own entry states "R5 as a
+  whole stays open" until that decision is made). Neither is in scope for this WO or R18's acceptance bar.
 
 ---
 
