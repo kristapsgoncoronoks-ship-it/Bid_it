@@ -44,6 +44,7 @@ from app.core.errors import ConflictError, NotFoundError, PermissionError, Valid
 from app.models.transport.lock import VatClaimedInvoice
 from app.models.transport.vat_claim import VatRefundClaim
 from app.services import audit, modules
+from app.services.transport.freeze import freeze_claim_lines
 
 # R5 — the set of claim statuses that currently hold locks. withdraw_claim
 # refuses any OTHER status (draft never held any; rejected/approved-then-
@@ -70,12 +71,16 @@ async def submit_claim(
     claim_id: str,
     invoices: list[tuple[str, str, str]],
 ) -> VatRefundClaim:
-    """Acquire one lock per invoice and flip the claim `draft` -> `submitted`,
-    in the same flush (see module docstring for the atomicity argument).
+    """Freeze the claim's lines (G2.5), acquire one lock per invoice, and flip
+    the claim `draft` -> `submitted`, ALL in the same flush (see module
+    docstring for the atomicity argument; `app.services.transport.freeze`'s
+    own docstring for why freezing belongs inside this same transaction —
+    "the linchpin", `ARCH_plan.md`'s own word for G2.5).
 
     `invoices` is a plain list of `(supplier, invoice_ref, fuel_transaction_id)`
-    tuples — never derived from `vat_claim_lines` (that table stays empty
-    until the future G2.4/G2.5 materialization service). `entity_id`/
+    tuples — still never derived from `vat_claim_lines` (a caller-supplied
+    list is what THIS lock primitive keys on; the future G2.6 gate stack is
+    what will derive it from the now-frozen lines automatically). `entity_id`/
     `refund_country` for every lock row are read off the CLAIM, never
     re-supplied per invoice — the claim's grain already fixes those two
     fields, so letting them vary per invoice would let a caller lock an
@@ -102,6 +107,12 @@ async def submit_claim(
             "Cannot submit a claim with an empty invoice set", code="empty_claim_set"
         )
 
+    # G2.5 — freeze the claim's lines + VAT base BEFORE flipping status, in
+    # the same flush as the lock inserts below: a lost lock race rolls back
+    # the freeze too (nothing partially applied), and a successful
+    # submission never leaves locks acquired against an unfrozen claim.
+    frozen_line_count = await freeze_claim_lines(db, org_id, claim)
+
     for supplier, invoice_ref, fuel_transaction_id in invoices:
         db.add(
             VatClaimedInvoice(
@@ -125,7 +136,7 @@ async def submit_claim(
         audit.A.TRANSPORT_CLAIM_SUBMIT,
         target_type="vat_refund_claim",
         target_id=claim.id,
-        meta={"invoice_count": len(invoices)},
+        meta={"invoice_count": len(invoices), "frozen_line_count": frozen_line_count},
         org_id=org_id,  # explicit — callable outside an HTTP request context.
     )
     return claim

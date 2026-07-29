@@ -113,6 +113,28 @@ period-then-reinsert. Still future work: everything G1.3/G1.4 were never
 meant to cover — the checklist/period-end/minimum/deadline gate stack (G2.6),
 freezing claim lines at submission (G2.5), and every `api/routes/transport/*`
 route.
+**Implementation status (WO-54, G2.5 — "the linchpin", `ARCH_plan.md`'s own
+word):** frozen claim lines + frozen VAT base at submission have landed.
+`app/services/transport/freeze.py::freeze_claim_lines` stamps `frozen_at` on
+every currently-unfrozen `VatRefundClaimLine` for a claim and sets
+`claim.vat_eur`/`vat_local`/`currency` from EXACTLY that claim's own lines
+(C10 — never a raw period `SUM`, which a claim's own G2.4-scoped lines make
+unnecessary here, unlike Fleet Fuel's live `invoice_lines()` query);
+`app/services/transport/lock.py::submit_claim` calls it in the SAME flush as
+lock acquisition + the status flip, so a lost lock race rolls back the
+freeze too. Refuses (`code="claim_currency_mismatch"`/
+`"claim_line_mixed_currency"`) rather than sum raw local-currency amounts
+across more than one currency, at both the per-line-bucket level
+(`build_claim_lines`) and the whole-claim level (`freeze_claim_lines`) —
+master-context invariant §4.14. `vat_claim_lines` gained 3 additive nullable
+columns (`net_local`/`vat_local`/`currency`, migration `bc783e1ec7c2`) so the
+local-currency figure is captured PER LINE by `build_claim_lines` (G2.4)
+rather than re-derived from `fuel_transactions` at freeze time. Fee freezing
+(R13/G2.9) is explicitly NOT this order's scope — `claim.fee_pct`/`fee_min`/
+`fee_eur` stay NULL. Still future work: the checklist/period-end/minimum/
+deadline gate stack (G2.6), fee freezing (G2.9), status derivation (G2.7),
+the goods-code mapping table (G2.8), and every `api/routes/transport/*`
+route.
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,

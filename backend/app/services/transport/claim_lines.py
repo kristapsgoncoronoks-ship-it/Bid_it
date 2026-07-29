@@ -18,16 +18,30 @@ here — G2.5), derive a goods_code (Art. 9 mapping is G2.8, independent of
 this order), or populate `vat_id` on a line (no per-line VAT-id capture
 exists yet; a synthetic line is still fully detected via `invoice_ref` alone,
 since `claim_gates.is_synthetic()` treats either input as sufficient).
+
+WO-54 (G2.5) EXTENDS THIS MODULE'S OUTPUT, NOT ITS SCOPE
+------------------------------------------------------------
+Each line also accumulates `net_local`/`vat_local`/`currency` off the
+underlying `FuelTransaction` rows (additive columns, `alembic/versions/
+bc783e1ec7c2_...py`) — needed so `app.services.transport.freeze.
+freeze_claim_lines` can freeze a claim's "VAT base" in the refund country's
+own currency (C10), not just EUR, without re-querying `fuel_transactions`
+at freeze time. A single (invoice, product_group) bucket whose underlying
+transactions disagree on `currency` refuses to build at all
+(`code="claim_line_mixed_currency"`) — summing raw local amounts across
+currencies would violate master-context invariant §4.14 ("no aggregate sums
+across currencies without a recorded conversion").
 """
 
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import ConflictError, NotFoundError, PermissionError
+from app.core.errors import ConflictError, NotFoundError, PermissionError, ValidationError
 from app.core.money import q2
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.models.transport.vat_claim import VatRefundClaim, VatRefundClaimLine
@@ -116,7 +130,11 @@ async def build_claim_lines(
 
     # Group by (resolved invoice ref or UNMATCHED, product_group) — C1: one
     # row per (invoice, product code), never an "ALL:" country aggregate.
-    groups: dict[tuple[str, str], dict[str, object]] = {}
+    # Also accumulates the LOCAL-currency amounts (net_local/vat_local,
+    # G2.5/WO-54) alongside the EUR ones, so a future freeze
+    # (`freeze.freeze_claim_lines`) can sum a claim's "VAT base" in both
+    # currencies without re-querying `fuel_transactions`.
+    groups: dict[tuple[str, str], dict[str, Any]] = {}
     for txn in txns:
         matched = await resolve_invoice_ref(
             db,
@@ -130,13 +148,38 @@ async def build_claim_lines(
         invoice_id = matched.invoice_id if matched is not None else None
         key = (ref, txn.product_group)
         bucket = groups.setdefault(
-            key, {"invoice_id": invoice_id, "net_eur": Decimal("0"), "vat_eur": Decimal("0")}
+            key,
+            {
+                "invoice_id": invoice_id,
+                "net_eur": Decimal("0"),
+                "vat_eur": Decimal("0"),
+                "net_local": Decimal("0"),
+                "vat_local": Decimal("0"),
+                "currencies": set(),
+            },
         )
         bucket["net_eur"] = bucket["net_eur"] + txn.net_eur  # type: ignore[operator]
         bucket["vat_eur"] = bucket["vat_eur"] + txn.vat_eur  # type: ignore[operator]
+        bucket["net_local"] = bucket["net_local"] + txn.net_local  # type: ignore[operator]
+        bucket["vat_local"] = bucket["vat_local"] + txn.vat_local  # type: ignore[operator]
+        bucket["currencies"].add(txn.currency)  # type: ignore[union-attr]
+
+    for (ref, product_group), bucket in groups.items():
+        currencies = bucket["currencies"]
+        if len(currencies) > 1:  # type: ignore[arg-type]
+            # Master-context §4.14 — never sum raw amounts across
+            # currencies. A single (invoice, product_group) bucket spanning
+            # more than one currency means the underlying transactions
+            # disagree about which currency they were captured in; refuse
+            # rather than silently mislabel the total.
+            raise ValidationError(
+                f"Claim line ({ref}, {product_group}) spans multiple currencies "
+                f"{sorted(currencies)} — cannot sum a single VAT/net amount across them",  # type: ignore[arg-type]
+                code="claim_line_mixed_currency",
+            )
 
     # Replace only the UNFROZEN lines — see docstring "frozen_at IS NULL
-    # scoping". A frozen line (future G2.5) is never touched here.
+    # scoping". A frozen line (G2.5) is never touched here.
     await db.execute(
         delete(VatRefundClaimLine).where(
             VatRefundClaimLine.org_id == org_id,
@@ -147,6 +190,7 @@ async def build_claim_lines(
 
     lines: list[VatRefundClaimLine] = []
     for (ref, product_group), bucket in sorted(groups.items(), key=lambda kv: kv[0]):
+        currencies = bucket["currencies"]
         line = VatRefundClaimLine(
             org_id=org_id,
             claim_id=claim.id,
@@ -155,6 +199,9 @@ async def build_claim_lines(
             product_group=product_group,
             net_eur=q2(bucket["net_eur"]),  # type: ignore[arg-type]
             vat_eur=q2(bucket["vat_eur"]),  # type: ignore[arg-type]
+            net_local=q2(bucket["net_local"]),  # type: ignore[arg-type]
+            vat_local=q2(bucket["vat_local"]),  # type: ignore[arg-type]
+            currency=next(iter(currencies)) if currencies else None,  # type: ignore[arg-type]
         )
         db.add(line)
         lines.append(line)

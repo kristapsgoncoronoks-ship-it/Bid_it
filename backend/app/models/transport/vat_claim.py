@@ -215,5 +215,16 @@ class VatRefundClaimLine(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     net_eur: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0, nullable=False)
     vat_eur: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0, nullable=False)
 
+    # Added in G2.5 (WO-54) — the refund country's LOCAL-currency amounts,
+    # needed so `freeze.freeze_claim_lines` can freeze the claim's "VAT
+    # base" in both EUR and local currency (C10) without re-querying
+    # `fuel_transactions`. NULL until `build_claim_lines` (G2.4) populates
+    # them; additive columns on an already-shipped table, per this
+    # codebase's append-only-migration convention (mirrors "R6 — reimbursement
+    # batch maker id: additive column only").
+    net_local: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    vat_local: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+
     # Stamped at materialization (submission) — NULL means "not yet frozen".
     frozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

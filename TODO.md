@@ -19,13 +19,13 @@ aside; not executed.
 | **M0** | Security/correctness debt sprint | ✅ **Completed** — WO-1…11 (incl. B1.5). All 12 exit-gate criteria met. See `docs/M0-exit-gate.md`. |
 | **M1** | Feature completion + independent audit | ✅ **Completed** — WO-12…46. Every named epic shipped; 18-item audit (R1–R19) closed except two decision-gated/backlog items (below). |
 | **M2** | "We can take money" — billing go-live | 🔶 **In Progress** — WO-47 (quota model) + WO-48 (dogfood billing fallback) shipped. Three items still owner-blocked (below). |
-| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) shipped. 70-100 day milestone; remaining slices tracked below. |
+| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") shipped. 70-100 day milestone; remaining slices tracked below. |
 | M4 | Payments & cash depth | `Planned` |
 | M5 | Transport vertical phase 2 — recovery intelligence | `Planned` |
 | M6 | Integrations & enterprise go-live | `Planned` |
 
-**Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 → 1303 passed (+542 total, +44 this session),
-10 skipped (pg-only, verified separately on real Postgres), 0 known regressions, as of WO-53.
+**Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 → 1303 → 1309 passed (+548 total, +50 this
+session), 10 skipped (pg-only, verified separately on real Postgres), 0 known regressions, as of WO-54.
 
 ---
 
@@ -129,6 +129,20 @@ aside; not executed.
   independently refuses a raw delete of a locked transaction at the database level — proven directly
   for the FIRST time by this order's own test, since no prior order had exercised that FK's
   delete-time behavior. No migration (no new model/table). Detail: `docs/plan/plan-a/wo/WO-53-G1.3-G1.4.md`.
+
+- [x] **WO-54** — `Completed` — G2.5 ("the linchpin", `ARCH_plan.md`'s own word): frozen claim
+  lines + frozen VAT base at submission. `app/services/transport/freeze.py::freeze_claim_lines`
+  stamps `frozen_at` on every currently-unfrozen `VatRefundClaimLine` and sets `claim.vat_eur`/
+  `vat_local`/`currency` from EXACTLY that claim's own lines (C10 — never a raw period `SUM`);
+  `lock.py::submit_claim` calls it in the SAME flush as lock acquisition + the status flip, so a
+  lost lock race rolls back the freeze too (proven by a same-session backstop test mirroring
+  WO-51's own). Refuses (`claim_currency_mismatch`/`claim_line_mixed_currency`) rather than sum raw
+  local-currency amounts across more than one currency, at both the per-line-bucket level
+  (`build_claim_lines`, extended) and the whole-claim level (`freeze_claim_lines`) — master-context
+  §4.14. `vat_claim_lines` gained 3 additive nullable columns (`net_local`/`vat_local`/`currency`,
+  migration `bc783e1ec7c2`, no RLS change — existing table) so `build_claim_lines` (G2.4) captures
+  the local-currency figure per line. Fee freezing (R13/G2.9) stays explicit future work. 70 tables,
+  77 revisions. Detail: `docs/plan/plan-a/wo/WO-54-G2.5.md`.
 
 ---
 
