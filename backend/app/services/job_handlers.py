@@ -25,6 +25,7 @@ from app.services import (
     retention,
     webhooks,
 )
+from app.services.transport import close as transport_close
 
 RECURRING_GENERATE = "recurring.generate"
 DUNNING_RUN = "dunning.run"
@@ -121,6 +122,16 @@ async def _upload_extract(db, payload: dict, job: Job) -> dict:
     """Parse one queued UI direct upload off the API tier (Stage B). Keeps
     CPU-heavy OCR out of the web request path."""
     return await extraction.extract_upload(db, payload["run_id"])
+
+
+@jobs.handler(transport_close.CLOSE_KIND)
+async def _transport_close(db, payload: dict, job: Job) -> dict:
+    """G1.3 — the transport-vertical monthly close: (re)build live claim
+    lines for every draft claim whose scope includes `payload["period"]`
+    (`"YYYY-MM"`). See `app.services.transport.close`'s module docstring for
+    why this fully satisfies R31/R60's durability requirements on the
+    existing job framework, with no new mechanism."""
+    return await transport_close.run_close(db, job.org_id, payload["period"])
 
 
 @jobs.handler(COSTING_BACKFILL)

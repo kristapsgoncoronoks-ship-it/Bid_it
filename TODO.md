@@ -19,13 +19,13 @@ aside; not executed.
 | **M0** | Security/correctness debt sprint | ✅ **Completed** — WO-1…11 (incl. B1.5). All 12 exit-gate criteria met. See `docs/M0-exit-gate.md`. |
 | **M1** | Feature completion + independent audit | ✅ **Completed** — WO-12…46. Every named epic shipped; 18-item audit (R1–R19) closed except two decision-gated/backlog items (below). |
 | **M2** | "We can take money" — billing go-live | 🔶 **In Progress** — WO-47 (quota model) + WO-48 (dogfood billing fallback) shipped. Three items still owner-blocked (below). |
-| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) shipped. 70-100 day milestone; remaining slices tracked below. |
+| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) shipped. 70-100 day milestone; remaining slices tracked below. |
 | M4 | Payments & cash depth | `Planned` |
 | M5 | Transport vertical phase 2 — recovery intelligence | `Planned` |
 | M6 | Integrations & enterprise go-live | `Planned` |
 
-**Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 passed (+529 total, +31 this session), 10 skipped
-(pg-only, verified separately on real Postgres), 0 known regressions, as of WO-52.
+**Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 → 1303 passed (+542 total, +44 this session),
+10 skipped (pg-only, verified separately on real Postgres), 0 known regressions, as of WO-53.
 
 ---
 
@@ -110,6 +110,25 @@ aside; not executed.
   `4cb7fca7e508` (1 table, RLS in the same migration). `tests/test_tenancy_parity.py`'s exemption
   registry gained a `vat_note_invoice_overrides` row (no route yet to drive an HTTP-level probe through).
   70 tables, 76 revisions, 83 service modules. Detail: `docs/plan/plan-a/wo/WO-52-G2.4.md`.
+
+- [x] **WO-53** — `Completed` — G1.3/G1.4: the monthly close as a durable job + locked-line
+  protection. `app/services/transport/close.py::run_close` (re)builds live claim lines (G2.4) for
+  every `draft` claim in scope for a closed `"YYYY-MM"` period, on the PRE-EXISTING
+  `app.services.jobs` durable-job framework — no new mechanism, since that framework already
+  provides idempotent-by-key enqueue, dead-letter + manual retry, and rollback-then-fail on any
+  handler exception (R31/R60 verbatim, with zero new infrastructure). `enqueue_close` keys the job
+  on `idempotency_key=f"transport.close:{period}"`; registered in `app.services.job_handlers`
+  (`transport.close`) so the close only ever runs through `jobs.run_once`, never inline in a web
+  request (no `api/routes/transport/*` route exists to call it synchronously either). Fleet Fuel's
+  own `consolidate→build_master→history→run_control→backup` ETL pipeline is deliberately NOT ported
+  — there is nothing to consolidate FROM, since `fuel_transactions` ingestion (G1.2) is already
+  insert-or-no-op, not Fleet Fuel's DELETE-by-period-then-reinsert. G1.4 ("locked lines are
+  protected from a re-close") turned out to be already STRUCTURALLY true from G2.2/G2.4 alone —
+  `run_close` only ever queries `status == "draft"` claims (a submitted claim's lines are invisible
+  to it) and `vat_claimed_invoices`' pre-existing `RESTRICT` FK into `fuel_transactions` (WO-51)
+  independently refuses a raw delete of a locked transaction at the database level — proven directly
+  for the FIRST time by this order's own test, since no prior order had exercised that FK's
+  delete-time behavior. No migration (no new model/table). Detail: `docs/plan/plan-a/wo/WO-53-G1.3-G1.4.md`.
 
 ---
 

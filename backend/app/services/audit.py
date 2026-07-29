@@ -156,6 +156,11 @@ class A:
     # action the way FUEL_TRANSACTION_INGEST is.
     TRANSPORT_NOTE_OVERRIDE_SET = "transport.note_override_set"
     TRANSPORT_CLAIM_LINES_BUILD = "transport.claim_lines_build"
+    # G1.3 (WO-53): the monthly close as a durable job. Fires once per close
+    # RUN (one audit trail per R31), whether it processed zero or many
+    # claims — never once per claim (that would be `claim_lines_build`'s job,
+    # already fired by `build_claim_lines` itself for each claim it touches).
+    TRANSPORT_CLOSE_RUN = "transport.close_run"
 
 
 def _hash(

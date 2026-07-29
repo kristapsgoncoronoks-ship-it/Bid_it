@@ -37,12 +37,17 @@ from app.services.transport.invoice_match import resolve_invoice_ref
 UNMATCHED = "UNMATCHED"
 
 
-def _period_months(ref_period: str) -> list[str]:
+def period_months(ref_period: str) -> list[str]:
     """`"YYYY-Qn"` / `"YYYY-YEAR"` -> the list of `"YYYY-MM"` months it spans
     (Art. 16: a quarter is 3 months, a year is 12) — `ref_period` is trusted
     here to already match `claim.validate_ref_period`'s shape (enforced at
     claim creation + the DB CHECK constraint), so no re-validation happens in
-    this purely-derived helper."""
+    this purely-derived helper. Public (not `_`-prefixed): `app.services.
+    transport.close` (G1.3) shares this exact mapping to decide which draft
+    claims are in scope for a given `"YYYY-MM"` close period — the same
+    reason `claim_gates.is_synthetic()`/`product_group.derive_product_group()`
+    are centralized, so the period-to-months mapping is computed in exactly
+    one place."""
     year, tail = ref_period.split("-", 1)
     if tail == "YEAR":
         return [f"{year}-{m:02d}" for m in range(1, 13)]
@@ -97,7 +102,7 @@ async def build_claim_lines(
             code="claim_not_draft",
         )
 
-    months = _period_months(claim.ref_period)
+    months = period_months(claim.ref_period)
     txns = list(
         await db.scalars(
             select(FuelTransaction).where(

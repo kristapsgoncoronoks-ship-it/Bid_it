@@ -85,6 +85,34 @@ Still future work: the checklist/period-end/minimum/deadline gate stack
 freezing claim lines at submission (G2.5), fee freezing and status
 derivation (G2.9/G2.7), the goods-code mapping table (G2.8), and every
 `api/routes/transport/*` route.
+**Implementation status (WO-53, G1.3/G1.4):** the monthly close has landed
+as a durable job on the PRE-EXISTING `app.services.jobs` framework — no new
+mechanism, since that framework already provides everything R31/R60 ask for
+(idempotent-by-key enqueue, dead-letter + manual retry, rollback-then-fail on
+any handler exception). `app/services/transport/close.py::run_close`
+(re)builds live claim lines (G2.4) for every `draft` claim in scope for a
+closed `"YYYY-MM"` period; `enqueue_close` keys the job on
+`idempotency_key=f"transport.close:{period}"` (R31's "idempotent... hand-off"
+verbatim) and the handler is registered in `app.services.job_handlers`
+(`transport.close`) — there is still no `api/routes/transport/*` route, so
+the close cannot run inline in a web request even by mistake (R60). G1.4
+("locked lines are protected from a re-close") turned out to already be
+STRUCTURALLY true from G2.4/G2.2 alone: `run_close` only ever queries
+`status == "draft"` claims (a submitted claim is invisible to its own filter,
+inherited from `build_claim_lines`'s existing refusal), and
+`vat_claimed_invoices`' pre-existing `RESTRICT` FK into `fuel_transactions`
+(WO-51) independently refuses a raw delete of a locked transaction row at
+the database level — proven directly for the first time by this order's own
+test (`test_g1_4_a_locked_transaction_cannot_be_deleted_the_database_refuses_it`),
+since no prior order had exercised that FK's actual delete-time behavior.
+Fleet Fuel's own `consolidate -> build_master -> history -> run_control ->
+backup` ETL pipeline is deliberately NOT ported — there is nothing to
+consolidate FROM, since `fuel_transactions` ingestion (G1.2) is already
+insert-or-no-op on a structural natural key, not Fleet Fuel's DELETE-by-
+period-then-reinsert. Still future work: everything G1.3/G1.4 were never
+meant to cover — the checklist/period-end/minimum/deadline gate stack (G2.6),
+freezing claim lines at submission (G2.5), and every `api/routes/transport/*`
+route.
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,
