@@ -68,6 +68,20 @@ async def get_or_create_vendor(db: AsyncSession, org_id: str, name: str) -> Vend
     return vendor
 
 
+async def get_by_name(db: AsyncSession, org_id: str, name: str) -> Vendor | None:
+    """Exact-match, read-only lookup by name (the same `org_id, name` key
+    `get_or_create_vendor` matches on) — unlike that function, this NEVER
+    creates a row. Added for the transport vertical's note→invoice resolution
+    (`app.services.transport.invoice_match`, G2.4): checking whether a
+    supplier is a registered vendor must not have the side effect of
+    registering one — ADR-P3 rule 2 ("reads the core through services, never
+    a raw model join") is exactly why this lives here rather than a
+    cross-domain `select(Vendor)` inside `services/transport/`."""
+    return await db.scalar(
+        select(Vendor).where(Vendor.org_id == org_id, Vendor.name == name.strip())
+    )
+
+
 async def list_vendors(db: AsyncSession, org_id: str) -> list[Vendor]:
     """Vendors feed pickers/filters; a defensive cap bounds the response without
     loading an unbounded tenant table into memory."""

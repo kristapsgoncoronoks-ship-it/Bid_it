@@ -19,13 +19,13 @@ aside; not executed.
 | **M0** | Security/correctness debt sprint | ✅ **Completed** — WO-1…11 (incl. B1.5). All 12 exit-gate criteria met. See `docs/M0-exit-gate.md`. |
 | **M1** | Feature completion + independent audit | ✅ **Completed** — WO-12…46. Every named epic shipped; 18-item audit (R1–R19) closed except two decision-gated/backlog items (below). |
 | **M2** | "We can take money" — billing go-live | 🔶 **In Progress** — WO-47 (quota model) + WO-48 (dogfood billing fallback) shipped. Three items still owner-blocked (below). |
-| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) shipped. 70-100 day milestone; remaining slices tracked below. |
+| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) shipped. 70-100 day milestone; remaining slices tracked below. |
 | M4 | Payments & cash depth | `Planned` |
 | M5 | Transport vertical phase 2 — recovery intelligence | `Planned` |
 | M6 | Integrations & enterprise go-live | `Planned` |
 
-**Test suite:** 761 → 1169 → 1216 → 1247 → 1259 passed (+498 total, +12 this session), 10 skipped
-(pg-only, verified separately on real Postgres), 0 known regressions, as of WO-51.
+**Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 passed (+529 total, +31 this session), 10 skipped
+(pg-only, verified separately on real Postgres), 0 known regressions, as of WO-52.
 
 ---
 
@@ -91,6 +91,25 @@ aside; not executed.
   `test_numbering_concurrency.py`, `test_payment_run_pay_concurrency.py`,
   `test_credit_note_lock_concurrency.py`, `test_expense_decision_concurrency.py`) re-verified green on
   the same scratch cluster. 69 tables, 75 revisions. Detail: `docs/plan/plan-a/wo/WO-51-G2.2.md`.
+
+- [x] **WO-52** — `Completed` — G2.4: claim-line construction + note→invoice resolution.
+  `app/services/transport/invoice_match.py::resolve_invoice_ref` — the ONE C3 resolution order (two
+  note-matching heuristics — prefix / stem-contained, a documented interpretation of an underspecified
+  BA phrase — then the admin-curated override, only consulted once both heuristics fail to resolve
+  uniquely and NEVER displacing a heuristic match, then the sole-registered-invoice fallback, else
+  UNMATCHED); `app/models/transport/note_override.py::VatNoteInvoiceOverride` (R16's admin override
+  table, `ondelete=CASCADE` on the target FK — a real defect caught live: a composite-FK `SET NULL`
+  would try to null the NOT-NULL `org_id` column too, so CASCADE deletes the dead override row instead);
+  `app/services/transport/claim_lines.py::build_claim_lines` (materializes the LIVE, unfrozen
+  `VatRefundClaimLine` rows for a `draft` claim from its in-scope `fuel_transactions` — R2, one row per
+  (invoice, product_group), never an `ALL:` aggregate; refuses a non-draft claim; only ever touches
+  `frozen_at IS NULL` rows, future-proofing G2.5's freeze). Two new read-only AP-domain seams
+  (`app.services.invoices`, `app.services.vendors.get_by_name`) fill the `invoice_service` gap ADR-0023
+  always named, so `services/transport/*` never imports `app.models.invoice`/`app.models.vendor`
+  directly (`test_transport_services_do_not_import_other_domain_models` stays green). Migration
+  `4cb7fca7e508` (1 table, RLS in the same migration). `tests/test_tenancy_parity.py`'s exemption
+  registry gained a `vat_note_invoice_overrides` row (no route yet to drive an HTTP-level probe through).
+  70 tables, 76 revisions, 83 service modules. Detail: `docs/plan/plan-a/wo/WO-52-G2.4.md`.
 
 ---
 

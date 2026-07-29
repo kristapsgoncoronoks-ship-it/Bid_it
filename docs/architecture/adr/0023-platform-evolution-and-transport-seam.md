@@ -58,6 +58,33 @@ checklist/period-end/minimum/deadline gate stack (G2.6), wiring
 `is_synthetic()` into the lock path (G2.3's consumer side), claim-line
 materialization/freezing (G2.4/G2.5), fee freezing and status derivation
 (G2.9/G2.7), and every `api/routes/transport/*` route.
+**Implementation status (WO-52, G2.4):** claim-line construction + note→
+invoice resolution has landed. `app/services/transport/invoice_match.py`
+implements C3's ONE resolution order (`resolve_invoice_ref`): two note-
+matching heuristics (prefix / stem-contained, a documented interpretation of
+an underspecified BA phrase — see the module docstring), then the admin-
+curated override (`app/models/transport/note_override.py`'s
+`VatNoteInvoiceOverride`, C4/R16 — never displaces a successful heuristic
+match, `ondelete=CASCADE` on the target FK rather than `SET NULL` because a
+composite-FK `SET NULL` would try to null the NOT-NULL `org_id` column too,
+caught live while writing this order's own de-registration test), then the
+sole-registered fallback, else UNMATCHED. `app/services/transport/
+claim_lines.py::build_claim_lines` MATERIALIZES the live (unfrozen)
+`VatRefundClaimLine` rows a `draft` claim's underlying `fuel_transactions`
+resolve to (R2 — one row per (invoice, product_group), never an `ALL:`
+aggregate) — rebuildable, refuses a non-draft claim, and only ever touches
+`frozen_at IS NULL` rows (future-proofing for G2.5's freeze). Two new
+read-only AP-domain seams landed alongside it, filling the `invoice_service`
+gap this ADR's rule 2 always named but the codebase didn't yet have:
+`app.services.invoices` (`list_by_vendor`, `get_by_id`) and
+`app.services.vendors.get_by_name` — so `services/transport/*` never has to
+import `app.models.invoice`/`app.models.vendor` directly (rule 2 stays CI-
+enforced, `test_transport_services_do_not_import_other_domain_models`).
+Still future work: the checklist/period-end/minimum/deadline gate stack
+(G2.6), wiring `is_synthetic()` into the lock path (G2.3's consumer side),
+freezing claim lines at submission (G2.5), fee freezing and status
+derivation (G2.9/G2.7), the goods-code mapping table (G2.8), and every
+`api/routes/transport/*` route.
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,

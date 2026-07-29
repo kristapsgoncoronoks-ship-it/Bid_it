@@ -67,6 +67,7 @@ from app.models.supplier_payment import SupplierPayment
 from app.models.tax_code import TaxCode
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.models.transport.lock import VatClaimedInvoice
+from app.models.transport.note_override import VatNoteInvoiceOverride
 from app.models.transport.vat_claim import VatRefundClaim, VatRefundClaimLine
 from app.models.usage import UsageCounter
 from app.models.user import User
@@ -142,6 +143,7 @@ TENANT_MODELS = (
     VatRefundClaimLine,
     FuelTransaction,
     VatClaimedInvoice,
+    VatNoteInvoiceOverride,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.

@@ -148,6 +148,14 @@ class A:
     # explicit release — the ONLY function that ever removes a lock row.
     TRANSPORT_CLAIM_SUBMIT = "transport.claim_submit"
     TRANSPORT_CLAIM_WITHDRAW = "transport.claim_withdraw"
+    # G2.4 (WO-52): note→invoice resolution + live claim-line construction.
+    # NOTE_OVERRIDE_SET fires on both create and update of an admin-curated
+    # override (C4/R16 — an override changes only the invoice ASSOCIATION,
+    # never an amount). CLAIM_LINES_BUILD fires once per (re)build call — a
+    # draft claim's lines are rebuildable, so this is NOT an insert-or-no-op
+    # action the way FUEL_TRANSACTION_INGEST is.
+    TRANSPORT_NOTE_OVERRIDE_SET = "transport.note_override_set"
+    TRANSPORT_CLAIM_LINES_BUILD = "transport.claim_lines_build"
 
 
 def _hash(
