@@ -142,6 +142,12 @@ class A:
     # G1.2 (WO-50): idempotent fuel-transaction ingestion. Fires once per
     # actual insert; a natural-key replay is a no-op and audits nothing.
     FUEL_TRANSACTION_INGEST = "transport.fuel_transaction_ingest"
+    # G2.2 (WO-51): the one-invoice-one-submission lock (R4/R5). SUBMIT fires
+    # once per successful draft->submitted transition (a lost lock race rolls
+    # back the whole transaction and audits nothing); WITHDRAW fires once per
+    # explicit release — the ONLY function that ever removes a lock row.
+    TRANSPORT_CLAIM_SUBMIT = "transport.claim_submit"
+    TRANSPORT_CLAIM_WITHDRAW = "transport.claim_withdraw"
 
 
 def _hash(

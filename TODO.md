@@ -19,13 +19,13 @@ aside; not executed.
 | **M0** | Security/correctness debt sprint | ✅ **Completed** — WO-1…11 (incl. B1.5). All 12 exit-gate criteria met. See `docs/M0-exit-gate.md`. |
 | **M1** | Feature completion + independent audit | ✅ **Completed** — WO-12…46. Every named epic shipped; 18-item audit (R1–R19) closed except two decision-gated/backlog items (below). |
 | **M2** | "We can take money" — billing go-live | 🔶 **In Progress** — WO-47 (quota model) + WO-48 (dogfood billing fallback) shipped. Three items still owner-blocked (below). |
-| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) shipped. 70-100 day milestone; remaining slices tracked below. |
+| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) shipped. 70-100 day milestone; remaining slices tracked below. |
 | M4 | Payments & cash depth | `Planned` |
 | M5 | Transport vertical phase 2 — recovery intelligence | `Planned` |
 | M6 | Integrations & enterprise go-live | `Planned` |
 
-**Test suite:** 761 → 1169 → 1216 → 1247 passed (+486 total, +31 this session), 8 skipped (pg-only,
-verified separately on real Postgres), 0 known regressions, as of WO-50.
+**Test suite:** 761 → 1169 → 1216 → 1247 → 1259 passed (+498 total, +12 this session), 10 skipped
+(pg-only, verified separately on real Postgres), 0 known regressions, as of WO-51.
 
 ---
 
@@ -67,12 +67,30 @@ verified separately on real Postgres), 0 known regressions, as of WO-50.
   returns zero rows, cross-tenant INSERT blocked by `WITH CHECK`). 68 tables, 74 revisions. Detail:
   `docs/plan/plan-a/wo/WO-50-G1.2.md`.
 
-### M3 — Next slice (recommended: WO-51)
-
-- [ ] **G2.2 — Locks: one invoice, one submission** (R4, R5) — `vat_claimed_invoices`, transactional
-  INSERT-not-upsert acquisition, withdraw-only release, composite RESTRICT FK into `fuel_transactions`;
-  needs a real-Postgres concurrency test in the `postgres` CI job. Now unblocked: `fuel_transactions`
-  (WO-50) gives the lock table's FK target something to mean.
+- [x] **WO-51** — `Completed` — G2.2: the one-invoice-one-submission lock table. `app/models/transport/
+  lock.py` (`VatClaimedInvoice`, `UNIQUE(org_id, entity_id, refund_country, supplier, invoice_ref)` IS
+  the lock, R4 — `entity_id`/`refund_country` denormalized so the constraint spans EVERY claim, not just
+  the one that currently holds a row, and widened with `org_id` per this codebase's standing convention
+  over the harvested BA text, which predates multi-tenancy); `app/services/transport/lock.py::
+  submit_claim` (a minimal stub `draft`→`submitted` transition — acquires one lock row per invoice via a
+  plain ORM INSERT, never an upsert, in the SAME flush as the claim's status mutation, so a lost race
+  raises `IntegrityError` and rolls back the whole transition, nothing partially applied) and
+  `withdraw_claim` (R5 — the ONLY function that deletes a lock row, proven both structurally via a
+  grep-based test and behaviorally via a test that directly mutates a claim's `status` and asserts no
+  lock release cascades). Three composite FKs off the lock row: `(org_id, claim_id)` CASCADE into
+  `vat_refund_claims`, `(org_id, entity_id)` RESTRICT into `issuer_profiles`, `(org_id,
+  fuel_transaction_id)` RESTRICT into `fuel_transactions` (WO-50's composite unique constraint existed
+  specifically for this FK target — one representative transaction row per lock; protecting every row
+  sharing an `invoice_ref` is a future close/re-close guard's job, flagged explicitly as NOT solved by
+  this FK alone). Migration `dea0a87e6b0d` (1 table, RLS in the same migration). The headline proof: a
+  real-Postgres concurrency test (`tests/test_transport_lock_concurrency.py`, added to the CI `postgres`
+  job) fires two DIFFERENT claims racing `asyncio.gather` over the SAME invoice key — exactly one wins,
+  the loser's status reads back its unchanged pre-submission value from a fresh query, proving the whole
+  transaction rolled back, not just the lock insert; a second test proves `withdraw_claim` then frees the
+  key for a third claim. All 6 pre-existing pg-only files (`test_rls.py`, `test_rls_connection_reuse.py`,
+  `test_numbering_concurrency.py`, `test_payment_run_pay_concurrency.py`,
+  `test_credit_note_lock_concurrency.py`, `test_expense_decision_concurrency.py`) re-verified green on
+  the same scratch cluster. 69 tables, 75 revisions. Detail: `docs/plan/plan-a/wo/WO-51-G2.2.md`.
 
 ---
 

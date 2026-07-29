@@ -297,6 +297,16 @@ EXEMPT: dict[str, str] = {
         "through. Gains a probe with the first transport route (ARCH_plan.md "
         "G2.x)."
     ),
+    "vat_claimed_invoices": (
+        "G2.2 (WO-51): the one-invoice-one-submission lock, written only "
+        "through services/transport/lock.submit_claim/withdraw_claim "
+        "(tenant-scoped there via the same ORM guard this probe would "
+        "exercise, AND proven on real Postgres with a genuine concurrent-"
+        "writer race — tests/test_transport_lock_concurrency.py) — no "
+        "api/routes/transport/* route exists yet to drive an HTTP-level probe "
+        "through. Gains a probe with the first transport route (ARCH_plan.md "
+        "G2.x)."
+    ),
 }
 
 

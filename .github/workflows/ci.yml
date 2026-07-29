@@ -120,7 +120,7 @@ jobs:
       - name: Postgres-only tests (RLS enforcement + concurrent numbering)
         env:
           RLS_TEST_DATABASE_URL: postgresql+asyncpg://appuser:apppw@localhost:5432/invoiceiq
-        run: python -m pytest tests/test_rls.py tests/test_numbering_concurrency.py -q
+        run: python -m pytest tests/test_rls.py tests/test_numbering_concurrency.py tests/test_transport_lock_concurrency.py -q
 
   frontend:
     runs-on: ubuntu-latest

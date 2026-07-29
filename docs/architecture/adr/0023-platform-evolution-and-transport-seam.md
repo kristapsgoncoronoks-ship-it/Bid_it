@@ -37,6 +37,27 @@ internal cross-reference. Still future work: the lock table
 transactions (G2.4/G2.5), the monthly close (G1.3/G1.4), and the goods-code
 mapping table itself (G2.8 — `product_group` is derived now; the
 `product_group -> goods_code` lookup is not).
+**Implementation status (WO-51, G2.2):** the one-invoice-one-submission lock
+has landed — `app/models/transport/lock.py` (`VatClaimedInvoice`,
+`UNIQUE(org_id, entity_id, refund_country, supplier, invoice_ref)` IS the
+lock, R4; `entity_id`/`refund_country` are denormalized so the constraint
+spans every claim, not just the one that currently holds a row), `app/
+services/transport/lock.py::submit_claim` (a minimal stub `draft`->
+`submitted` transition that acquires one lock row per invoice via a plain
+ORM INSERT in the SAME flush as the claim's status mutation — a lost race
+raises `IntegrityError` and rolls back the whole transition, proven on real
+Postgres with two genuinely concurrent submissions racing the same invoice
+key) and `withdraw_claim` (R5 — the ONLY function that deletes a lock row,
+proven both structurally, via a grep-based test, and behaviorally, via a
+test that directly mutates a claim's `status` and asserts no lock release
+cascades). The composite RESTRICT FK from `vat_claimed_invoices` into
+`fuel_transactions` is now proven end to end (one representative transaction
+row per lock; protecting every row sharing an `invoice_ref` is a future
+close/re-close guard's job, not this FK's). Still future work: the
+checklist/period-end/minimum/deadline gate stack (G2.6), wiring
+`is_synthetic()` into the lock path (G2.3's consumer side), claim-line
+materialization/freezing (G2.4/G2.5), fee freezing and status derivation
+(G2.9/G2.7), and every `api/routes/transport/*` route.
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,

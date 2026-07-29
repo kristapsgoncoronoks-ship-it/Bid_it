@@ -11,6 +11,7 @@ or `vendors` (ADR-P3 rule 1). See `docs/transport/rules.md` for the R-number
 from __future__ import annotations
 
 from app.models.transport.fuel_transaction import FuelTransaction
+from app.models.transport.lock import VatClaimedInvoice
 from app.models.transport.vat_claim import VatRefundClaim, VatRefundClaimLine
 
-__all__ = ["FuelTransaction", "VatRefundClaim", "VatRefundClaimLine"]
+__all__ = ["FuelTransaction", "VatClaimedInvoice", "VatRefundClaim", "VatRefundClaimLine"]
