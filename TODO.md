@@ -19,14 +19,14 @@ aside; not executed.
 | **M0** | Security/correctness debt sprint | ✅ **Completed** — WO-1…11 (incl. B1.5). All 12 exit-gate criteria met. See `docs/M0-exit-gate.md`. |
 | **M1** | Feature completion + independent audit | ✅ **Completed** — WO-12…46. Every named epic shipped; 18-item audit (R1–R19) closed except two decision-gated/backlog items (below). |
 | **M2** | "We can take money" — billing go-live | 🔶 **In Progress** — WO-47 (quota model) + WO-48 (dogfood billing fallback) shipped. Three items still owner-blocked (below). |
-| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) + WO-56 (G2.6 slice 1: period-end + Art. 17 minimum + deadline scanner, R7/R8/R9) shipped. 70-100 day milestone; remaining slices tracked below. |
+| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) + WO-56 (G2.6 slice 1: period-end + Art. 17 minimum + deadline scanner, R7/R8/R9) + WO-57 (G2.6 slice 2: annual mop-up + quarterly duplicate-block, R6) shipped. 70-100 day milestone; remaining slices tracked below. |
 | M4 | Payments & cash depth | `Planned` |
 | M5 | Transport vertical phase 2 — recovery intelligence | `Planned` |
 | M6 | Integrations & enterprise go-live | `Planned` |
 
-**Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 → 1303 → 1309 → 1322 → 1352 passed (+591
-total, +93 this session), 10 skipped (pg-only, verified separately on real Postgres), 0 known
-regressions, as of WO-56.
+**Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 → 1303 → 1309 → 1322 → 1352 → 1357 passed
+(+596 total, +98 this session), 10 skipped (pg-only, verified separately on real Postgres), 0 known
+regressions, as of WO-57.
 
 ---
 
@@ -172,6 +172,20 @@ regressions, as of WO-56.
   NOT attempted — `docs/DECISIONS-NEEDED.md` §10 updated: no established "customer"/fee-rate concept
   to build against without guessing the commercial model. No migration. Detail:
   `docs/plan/plan-a/wo/WO-56-G2.6-slice1.md`.
+
+- [x] **WO-57** — `Completed` — G2.6 slice 2: the annual claim mop-up + quarterly overlap
+  duplicate-block (R6). `lock.py::_apply_annual_mop_up_or_duplicate_block` runs after the R7/R8
+  gates, before the freeze: an ANNUAL claim silently excludes an invoice already locked by a
+  QUARTERLY claim (the mop-up, not a conflict) but still locks a genuinely new one; a QUARTERLY
+  claim treats ANY existing-lock overlap as a duplicate and blocks the WHOLE submission before any
+  mutation; an annual claim with nothing left after exclusion is refused ("nothing to claim
+  annually"). Two annual claims overlapping the same invoice is a fail-closed blocking duplicate
+  (an interpretation beyond the harvested text). One pre-existing WO-51 test now expects the new,
+  cleaner `ConflictError`/`duplicate_invoice_lock` instead of a raw DB `IntegrityError` — a real
+  improvement (catches an already-known duplicate before any mutation), not a weakened assertion;
+  the DB constraint and the genuine-concurrent-race case stay independently proven, re-verified on
+  a fresh scratch Postgres cluster after this order's `lock.py` changes. No migration. Detail:
+  `docs/plan/plan-a/wo/WO-57-G2.6-slice2.md`.
 
 ---
 

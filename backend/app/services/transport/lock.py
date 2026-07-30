@@ -5,12 +5,14 @@ WO-49 shipped the claim grain and WO-50 shipped the typed transaction line;
 this module is the primitive every future gate (checklist, period-end,
 deadline, minimum-amount — all G2.6) builds on top of: once an invoice is
 locked, a caller can trust that fact is durable and race-proof. WO-56 (G2.6
-slice 1) wires the first two REAL legal gates into `submit_claim` itself —
+slice 1) wired the first two REAL legal gates into `submit_claim` itself —
 the hard period-end gate (R7, `deadline.period_ended`) and the Art. 17
-minimum-amount gate (R8, `minimum.below_minimum`), in the SAME submission-
-gate order Fleet Fuel's own `set_status_code` used (D5: checklist ->
-period-end -> minimum -> then the lock/freeze machinery) — a below-minimum
-or not-yet-ended claim never freezes or locks at all.
+minimum-amount gate (R8, `minimum.below_minimum`). WO-57 (G2.6 slice 2)
+adds R6 — the annual mop-up / quarterly duplicate-block
+(`_apply_annual_mop_up_or_duplicate_block`) — in the SAME submission-gate
+order Fleet Fuel's own `set_status_code` used (D5: checklist -> period-end
+-> minimum -> the duplicate/lock machinery) — a below-minimum, not-yet-
+ended, or duplicate-overlapping claim never freezes or locks at all.
 
 `submit_claim` is a MINIMAL STUB status transition (draft -> submitted) that
 exists to prove the locking primitive — not the future G2.7 status machine.
@@ -74,6 +76,81 @@ async def _get_claim(db: AsyncSession, org_id: str, claim_id: str) -> VatRefundC
     return claim
 
 
+async def _existing_locks_by_key(
+    db: AsyncSession, org_id: str, entity_id: str, refund_country: str
+) -> dict[tuple[str, str], VatClaimedInvoice]:
+    """Every CURRENTLY-locked `(supplier, invoice_ref)` for this
+    (entity, refund_country) — across EVERY claim, not just the one being
+    submitted (R6 needs to see locks other claims already hold)."""
+    rows = await db.scalars(
+        select(VatClaimedInvoice).where(
+            VatClaimedInvoice.org_id == org_id,
+            VatClaimedInvoice.entity_id == entity_id,
+            VatClaimedInvoice.refund_country == refund_country,
+        )
+    )
+    return {(row.supplier, row.invoice_ref): row for row in rows}
+
+
+async def _apply_annual_mop_up_or_duplicate_block(
+    db: AsyncSession,
+    org_id: str,
+    claim: VatRefundClaim,
+    invoices: list[tuple[str, str, str]],
+) -> list[tuple[str, str, str]]:
+    """R6 (`BA_fleet_fuel.md` C6): an ANNUAL (`-YEAR`) claim is the MOP-UP —
+    an invoice already locked by a QUARTERLY claim is silently EXCLUDED
+    (`continue`, not a conflict); a QUARTERLY claim treats ANY existing lock
+    on one of its invoices as a duplicate and BLOCKS THE WHOLE SUBMISSION.
+    An invoice already locked by ANOTHER ANNUAL claim (a genuine annual-
+    annual duplicate — not the mop-up case the harvested text describes) is
+    also treated as a blocking duplicate, fail-closed, since the source text
+    only ever describes excluding a QUARTER's lock.
+
+    Returns the (possibly narrowed, for the annual case) list to actually
+    lock. Raises `ConflictError` (`code="duplicate_invoice_lock"`) for a
+    blocking duplicate, or `ValidationError`
+    (`code="empty_claim_set"`) if an annual claim's mop-up set is empty
+    after exclusion ("nothing to claim annually", C6 verbatim).
+    """
+    existing = await _existing_locks_by_key(db, org_id, claim.entity_id, claim.refund_country)
+    if not existing:
+        return invoices
+
+    is_annual = claim.ref_period.endswith("YEAR")
+
+    if not is_annual:
+        duplicates = [key for key in {(s, r) for s, r, _ in invoices} if key in existing]
+        if duplicates:
+            names = ", ".join(f"{s}/{r}" for s, r in sorted(duplicates))
+            raise ConflictError(
+                f"Invoice(s) already locked by another claim: {names}",
+                code="duplicate_invoice_lock",
+            )
+        return invoices
+
+    to_lock: list[tuple[str, str, str]] = []
+    for supplier, invoice_ref, fuel_transaction_id in invoices:
+        existing_row = existing.get((supplier, invoice_ref))
+        if existing_row is None:
+            to_lock.append((supplier, invoice_ref, fuel_transaction_id))
+            continue
+        owner = await db.get(VatRefundClaim, existing_row.claim_id)
+        if owner is not None and not owner.ref_period.endswith("YEAR"):
+            continue  # mop-up: a quarter already claimed it — silently excluded
+        raise ConflictError(
+            f"Invoice {supplier}/{invoice_ref} is already locked by another annual claim",
+            code="duplicate_invoice_lock",
+        )
+
+    if not to_lock:
+        raise ValidationError(
+            "Annual claim has nothing left to claim after excluding quarter-locked invoices",
+            code="empty_claim_set",
+        )
+    return to_lock
+
+
 async def submit_claim(
     db: AsyncSession,
     org_id: str,
@@ -83,17 +160,19 @@ async def submit_claim(
     override_minimum: bool = False,
     today: date | None = None,
 ) -> VatRefundClaim:
-    """Gate (period-end, R7; minimum-amount, R8), freeze the claim's lines
-    (G2.5), acquire one lock per invoice, and flip the claim `draft` ->
-    `submitted`, ALL in the same flush (see module docstring for the
-    atomicity argument; `app.services.transport.freeze`'s own docstring for
-    why freezing belongs inside this same transaction — "the linchpin",
-    `ARCH_plan.md`'s own word for G2.5).
+    """Gate (period-end, R7; minimum-amount, R8; annual mop-up / quarterly
+    duplicate-block, R6), freeze the claim's lines (G2.5), acquire one lock
+    per invoice, and flip the claim `draft` -> `submitted`, ALL in the same
+    flush (see module docstring for the atomicity argument;
+    `app.services.transport.freeze`'s own docstring for why freezing
+    belongs inside this same transaction — "the linchpin", `ARCH_plan.md`'s
+    own word for G2.5).
 
     Gate order (D5, verbatim): draft-status -> non-empty invoice set ->
-    period-end (R7) -> Art. 17 minimum (R8) -> freeze -> lock -> status flip.
-    A claim that fails EITHER gate never freezes or locks at all — nothing
-    is mutated before the LAST gate passes.
+    period-end (R7) -> Art. 17 minimum (R8) -> annual mop-up / quarterly
+    duplicate-block (R6) -> freeze -> lock -> status flip. A claim that
+    fails ANY gate never freezes or locks at all — nothing is mutated
+    before the LAST gate passes.
 
     `override_minimum=True` bypasses the below-minimum refusal (R8's
     "admin override allowed... recorded in `status_note`") — see
@@ -166,6 +245,13 @@ async def submit_claim(
             f"{threshold} {currency} (basis={basis})"
         )
         claim.status_note = f"{claim.status_note}\n{note}" if claim.status_note else note
+
+    # R6 — annual mop-up / quarterly-overlap-blocks (C6). Narrows `invoices`
+    # for an annual claim (excluding what a quarter already locked) or
+    # blocks the whole submission outright for a quarterly claim overlapping
+    # an existing lock. Runs BEFORE the freeze — a blocked/narrowed-to-empty
+    # submission never freezes or locks anything.
+    invoices = await _apply_annual_mop_up_or_duplicate_block(db, org_id, claim, invoices)
 
     # G2.5 — freeze the claim's lines + VAT base BEFORE flipping status, in
     # the same flush as the lock inserts below: a lost lock race rolls back

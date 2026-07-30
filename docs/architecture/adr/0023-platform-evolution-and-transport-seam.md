@@ -167,8 +167,33 @@ scanner) are pure functions NOT wired into the submission gate — this
 software never blocks a late filing attempt; only a future dashboard (G4.3)
 consumes them. Still future work: fee freezing (G2.9, decision-gated —
 see `docs/DECISIONS-NEEDED.md` §10), status derivation (G2.7), the checklist/
-annual-mop-up/document-presence/receipt-control-waiver remainder of the gate
-stack (G2.6 slices 2+, R6/R10/R15), and every `api/routes/transport/*` route.
+document-presence/receipt-control-waiver remainder of the gate stack (G2.6
+slice 3+, R10/R15), and every `api/routes/transport/*` route.
+**Implementation status (WO-57, G2.6 slice 2):** R6 (the annual mop-up /
+quarterly duplicate-block) has landed —
+`lock.py::_apply_annual_mop_up_or_duplicate_block` runs after the R7/R8
+gates and before the freeze: for an ANNUAL claim, an invoice already locked
+by a QUARTERLY claim is silently excluded from the set to lock (the
+"mop-up"); an invoice already locked by ANOTHER ANNUAL claim is treated as a
+fail-closed blocking duplicate (an interpretation beyond the harvested
+text, which only describes the quarter-exclusion case); a QUARTERLY claim
+treats ANY existing lock overlap as a duplicate and blocks the WHOLE
+submission before any mutation; an annual claim left with nothing after
+exclusion is refused (`code="empty_claim_set"`, C6's "nothing to claim
+annually" verbatim). One pre-existing WO-51 test
+(`test_g2_2_submit_claim_on_an_already_locked_invoice_...`) was updated to
+expect the NEW, cleaner `ConflictError`/`duplicate_invoice_lock` instead of
+the raw DB-level `IntegrityError` it used to prove — a real improvement
+(catching an already-known duplicate before any mutation, rather than
+after a failed insert), not a weakened assertion; the DB constraint itself
+stays independently proven by `test_g2_2_natural_key_uniqueness_
+constraint_rejects_a_raw_duplicate_insert` and the genuine-concurrent-race
+case by `tests/test_transport_lock_concurrency.py` on real Postgres
+(re-verified green on a fresh scratch cluster after this order's changes).
+Still future work: fee freezing (G2.9, decision-gated —
+see `docs/DECISIONS-NEEDED.md` §10), status derivation (G2.7), the checklist/
+document-presence/receipt-control-waiver remainder of the gate stack (G2.6
+slice 3+, R10/R15), and every `api/routes/transport/*` route.
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,

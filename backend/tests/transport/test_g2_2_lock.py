@@ -183,14 +183,23 @@ async def test_g2_2_natural_key_uniqueness_constraint_rejects_a_raw_duplicate_in
 
 
 @pytest.mark.asyncio
-async def test_g2_2_submit_claim_on_an_already_locked_invoice_raises_integrity_error_and_leaves_the_claim_status_unchanged(
+async def test_g2_2_submit_claim_on_an_already_locked_invoice_is_refused_and_leaves_the_claim_status_unchanged(
     db_session,
 ):
-    """Same-session proof: seed one lock row directly (a different claim
-    already holds it), then call `submit_claim` with an overlapping invoice
-    key; assert IntegrityError at flush and, after rollback(), THIS claim's
-    status column reads back 'draft' from a fresh query — not just unchanged
-    in memory."""
+    """Same-session proof: seed one lock row directly (a different QUARTERLY
+    claim already holds it), then call `submit_claim` with an overlapping
+    invoice key for ANOTHER quarterly claim. R6 (WO-57, G2.6 slice 2) now
+    catches this BEFORE any mutation — a clean `ConflictError` (`code=
+    "duplicate_invoice_lock"`), never even reaching the raw DB-level
+    IntegrityError this test proved before R6 existed (the DB constraint
+    itself is still independently proven by
+    `test_g2_2_natural_key_uniqueness_constraint_rejects_a_raw_duplicate_
+    insert`, and the genuine concurrent-race case by
+    `tests/test_transport_lock_concurrency.py` on real Postgres — this test
+    is the single-session, already-committed-duplicate case R6 now
+    pre-empts with a better error). THIS claim's status column reads back
+    'draft' from a fresh query — nothing was ever mutated, not merely rolled
+    back."""
     org = await make_org(db_session)
     await enable_transport(db_session, org.id)
     entity = await make_entity(db_session, org.id)
@@ -214,15 +223,16 @@ async def test_g2_2_submit_claim_on_an_already_locked_invoice_raises_integrity_e
     await db_session.commit()
     my_claim_id = my_claim.id  # capture before the rollback expires the instance
 
-    with pytest.raises(IntegrityError):
+    with pytest.raises(AppError) as exc:
         await lock.submit_claim(
             db_session,
             org.id,
             claim_id=my_claim_id,
             invoices=[("Q8", "INV-0001", txn.id)],
-            override_minimum=True,  # this test is about the lock race, not R8
+            override_minimum=True,  # this test is about the duplicate block, not R8
         )
-    await db_session.rollback()
+    assert exc.value.code == "duplicate_invoice_lock"
+    assert exc.value.status == 409
 
     fresh = await db_session.scalar(select(VatRefundClaim).where(VatRefundClaim.id == my_claim_id))
     assert fresh.status == "draft"
