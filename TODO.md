@@ -19,14 +19,14 @@ aside; not executed.
 | **M0** | Security/correctness debt sprint | ✅ **Completed** — WO-1…11 (incl. B1.5). All 12 exit-gate criteria met. See `docs/M0-exit-gate.md`. |
 | **M1** | Feature completion + independent audit | ✅ **Completed** — WO-12…46. Every named epic shipped; 18-item audit (R1–R19) closed except two decision-gated/backlog items (below). |
 | **M2** | "We can take money" — billing go-live | 🔶 **In Progress** — WO-47 (quota model) + WO-48 (dogfood billing fallback) shipped. Three items still owner-blocked (below). |
-| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) + WO-56 (G2.6 slice 1: period-end + Art. 17 minimum + deadline scanner, R7/R8/R9) + WO-57 (G2.6 slice 2: annual mop-up + quarterly duplicate-block, R6) + WO-58 (G2.6 slice 3: document-presence gate + receipt-control waivers, R10/R15) + WO-59 (G2.7: status lifecycle 1A→5, R12/R17) + WO-60 (G2.10 slice 1: the adjustable checklist engine, R45) shipped. G2.6 is now fully closed (R6-R10, R15 all real gates). 70-100 day milestone; remaining slices tracked below. |
+| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) + WO-56 (G2.6 slice 1: period-end + Art. 17 minimum + deadline scanner, R7/R8/R9) + WO-57 (G2.6 slice 2: annual mop-up + quarterly duplicate-block, R6) + WO-58 (G2.6 slice 3: document-presence gate + receipt-control waivers, R10/R15) + WO-59 (G2.7: status lifecycle 1A→5, R12/R17) + WO-60 (G2.10 slice 1: the adjustable checklist engine, R45) + WO-61 (G3.1 slice 1: per-country supplier legal-entity registry, R21/R22) shipped. G2.6 is now fully closed (R6-R10, R15 all real gates). 70-100 day milestone; remaining slices tracked below. |
 | M4 | Payments & cash depth | `Planned` |
 | M5 | Transport vertical phase 2 — recovery intelligence | `Planned` |
 | M6 | Integrations & enterprise go-live | `Planned` |
 
 **Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 → 1303 → 1309 → 1322 → 1352 → 1357 → 1369 → 1384 →
-1393 passed (+632 total, +36 this session), 10 skipped (pg-only, verified separately on real Postgres),
-0 known regressions, as of WO-60.
+1393 → 1402 passed (+641 total, +45 this session), 10 skipped (pg-only, verified separately on real
+Postgres), 0 known regressions, as of WO-61.
 
 ---
 
@@ -248,6 +248,25 @@ aside; not executed.
   (1 new tenant table, RLS in the same migration; up/down/up clean on real Postgres, 11 pg-only
   RLS/concurrency tests re-verified on a fresh scratch cluster). README/`test_docs_truth.py` truth-up
   (71→72 tables, 78→79 revisions, 1394→1403 collected tests). Detail: `docs/plan/plan-a/wo/WO-60-G2.10-slice1.md`.
+
+- [x] **WO-61** — `Completed` — G3.1 slice 1: the per-country supplier legal-entity registry (R21/R22),
+  a documented partial harvest of G3.1. New tenant table `supplier_vat_registrations`
+  (`(org, supplier, country)` → `vat_number`/`entity_name`/`source`) backs
+  `app/services/transport/supplier_entity.py`: `get_registration` (a single exact-key SELECT, R21 —
+  marker-only, no fuzzy matching anywhere), `set_registration` (the only admin-curated writer, ALWAYS
+  wins over a learned row), `learn_registration` (R22 — seeds a NEW `"capture"` row only when none
+  exists; never overwrites an existing row of either source, never touches a `Vendor`/group-primary row,
+  never queues a pending-change request — a deliberate contrast with A2.3's vendor-bank-detail dual
+  control since this is diagnostic/filing metadata, not a payment-redirection vector). **R20** (capture
+  actually reading the seller off a real invoice document — the Eurowag per-country footer, the E100
+  anchor) is **explicitly NOT closed** by this slice — that is text/PDF extraction, `G3.2` (the fuel-card
+  parser registry, a separate XL-effort, 7-network build, the natural next slice); `learn_registration`
+  has no real caller yet, proven correct at the function level with a synthetic "just-captured" input,
+  mirroring `is_synthetic()`'s own WO-49 debut with zero consumers wired in. Migration `4ae197627e35`
+  (1 new tenant table, RLS in the same migration; up/down/up clean on real Postgres, 11 pg-only
+  RLS/concurrency tests re-verified on a fresh scratch cluster). README/`test_docs_truth.py` truth-up
+  (72→73 tables, 79→80 revisions, 1403→1412 collected tests). Detail:
+  `docs/plan/plan-a/wo/WO-61-G3.1-slice1.md`.
 
 ---
 

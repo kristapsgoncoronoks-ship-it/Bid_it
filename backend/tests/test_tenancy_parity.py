@@ -340,6 +340,18 @@ EXEMPT: dict[str, str] = {
         "yet to drive an HTTP-level probe through. Gains a probe with the "
         "first transport route (ARCH_plan.md G2.x)."
     ),
+    "supplier_vat_registrations": (
+        "G3.1 slice 1 (WO-61): the per-country supplier legal-entity "
+        "registration (R21/R22), written only through services/transport/"
+        "supplier_entity.set_registration/learn_registration (tenant-"
+        "scoped there via the same ORM guard this probe would exercise, "
+        "AND proven on real Postgres RLS — tests/test_rls.py's set-"
+        "equality check). No caller exists yet (G3.2, the fuel-card "
+        "parser registry, is what will call learn_registration for real) "
+        "and no api/routes/transport/* route exists yet to drive an HTTP-"
+        "level probe through. Gains a probe with the first transport "
+        "route (ARCH_plan.md G2.x)."
+    ),
 }
 
 

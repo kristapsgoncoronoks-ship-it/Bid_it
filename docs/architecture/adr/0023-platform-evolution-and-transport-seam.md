@@ -266,6 +266,27 @@ WO-59's own two-check proxy exactly as that order's docstring anticipated.
 Still future work: G2.9 (decision-gated), G2.10 slice 2 (the `document`
 check_type, `nace_code`, country-scope rules), and every
 `api/routes/transport/*` route.
+**Implementation status (WO-61, G3.1 slice 1):** the per-country supplier
+legal-entity registry has landed — a new tenant table `supplier_vat_
+registrations` (`(org, supplier, country)` -> `vat_number`/`entity_name`/
+`source`) backs `app.services.transport.supplier_entity`:
+`get_registration` (a single exact-key SELECT, R21 — marker-only, no
+fuzzy matching anywhere), `set_registration` (the only admin-curated
+writer, ALWAYS wins), `learn_registration` (R22 — seeds a NEW `"capture"`
+row only when none exists; never overwrites an existing row of either
+source, and never touches a `Vendor`/group-primary row or queues a
+pending-change request, a deliberate contrast with A2.3's vendor-bank-
+detail dual control since this is diagnostic/filing metadata, not a
+payment-redirection vector). **R20 (capture actually reading the seller
+off a real invoice document — the Eurowag per-country footer, the E100
+anchor) is explicitly NOT closed by this slice** — that is text/PDF
+extraction, `G3.2` (the fuel-card parser registry, a separate XL-effort,
+7-network build); `learn_registration` has no real caller yet, proven
+correct at the function level with a synthetic "just-captured" input,
+mirroring `is_synthetic()`'s own WO-49 debut with zero consumers wired in.
+Still future work: G3.2 (the actual parsers, which would call
+`learn_registration` for real), G2.9 (decision-gated), G2.10 slice 2, and
+every `api/routes/transport/*` route.
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,

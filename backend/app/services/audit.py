@@ -178,6 +178,11 @@ class A:
     # also fires (a fact appearing), a repeat `seed_default_rules` call
     # audits nothing (a true no-op).
     TRANSPORT_CHECKLIST_RULE_SET_ACTIVE = "transport.checklist_rule_set_active"
+    # G3.1 slice 1 (WO-61): per-country supplier legal-entity registrations.
+    # Fires on every admin-curated `set_registration` write AND on a
+    # `learn_registration` call that actually inserts a NEW row; a
+    # no-op learn call (a row already exists) audits nothing.
+    TRANSPORT_SUPPLIER_REGISTRATION_SET = "transport.supplier_registration_set"
 
 
 def _hash(
