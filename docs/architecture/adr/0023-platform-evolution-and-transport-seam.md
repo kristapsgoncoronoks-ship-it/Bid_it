@@ -133,8 +133,21 @@ rather than re-derived from `fuel_transactions` at freeze time. Fee freezing
 (R13/G2.9) is explicitly NOT this order's scope — `claim.fee_pct`/`fee_min`/
 `fee_eur` stay NULL. Still future work: the checklist/period-end/minimum/
 deadline gate stack (G2.6), fee freezing (G2.9), status derivation (G2.7),
-the goods-code mapping table (G2.8), and every `api/routes/transport/*`
-route.
+and every `api/routes/transport/*` route.
+**Implementation status (WO-55, G2.8):** the Art. 9 goods-code mapping has
+landed — `app/services/transport/goods_code.py::GOODS_CODE` is harvested
+VERBATIM from `BA_fleet_fuel.md` A6 (Diesel/HVO/Promo adj -> "1", Toll/Fees
+-> "4", AdBlue/Parking/Service/Other -> "10"); `derive_goods_code()` defaults
+an unrecognised `product_group` to `"10"`, never `"9"` (R11), on top of the
+pre-existing DB CHECK constraint from WO-49
+(`ck_vat_claim_lines_goods_code_never_9`) — two independent layers, not one.
+`build_claim_lines` (G2.4) now populates every line's `goods_code` at
+construction time. This task depended on G1.2 ONLY (`ARCH_plan.md`'s own
+scoping) — it is a pure function of `product_group`, unrelated to the
+claim-freeze/submission machinery, and landed independently of G2.6/G2.7/
+G2.9. Still future work: the checklist/period-end/minimum/deadline gate
+stack (G2.6), fee freezing (G2.9), status derivation (G2.7), and every
+`api/routes/transport/*` route.
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,

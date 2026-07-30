@@ -14,10 +14,19 @@ and refuses to run at all once a claim leaves `draft` — see
 `build_claim_lines`'s docstring for why.
 
 This module deliberately does NOT: freeze anything (`frozen_at` stays NULL
-here — G2.5), derive a goods_code (Art. 9 mapping is G2.8, independent of
-this order), or populate `vat_id` on a line (no per-line VAT-id capture
+here — G2.5), or populate `vat_id` on a line (no per-line VAT-id capture
 exists yet; a synthetic line is still fully detected via `invoice_ref` alone,
 since `claim_gates.is_synthetic()` treats either input as sufficient).
+
+WO-55 (G2.8) EXTENDS THIS MODULE'S OUTPUT, NOT ITS SCOPE
+------------------------------------------------------------
+Each line's `goods_code` is derived from its `product_group` via
+`app.services.transport.goods_code.derive_goods_code()` (R11 — fuel -> "1",
+tolls -> "4", unknown -> "10", NEVER "9") at construction time. The mapping
+function has no dependency on claims/transactions at all (`ARCH_plan.md`
+scopes G2.8 as depending on G1.2 only); wiring it in here means every
+future line always carries a code, rather than every future consumer of a
+claim line having to remember to derive one itself.
 
 WO-54 (G2.5) EXTENDS THIS MODULE'S OUTPUT, NOT ITS SCOPE
 ------------------------------------------------------------
@@ -46,6 +55,7 @@ from app.core.money import q2
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.models.transport.vat_claim import VatRefundClaim, VatRefundClaimLine
 from app.services import audit, modules
+from app.services.transport.goods_code import derive_goods_code
 from app.services.transport.invoice_match import resolve_invoice_ref
 
 UNMATCHED = "UNMATCHED"
@@ -202,6 +212,7 @@ async def build_claim_lines(
             net_local=q2(bucket["net_local"]),  # type: ignore[arg-type]
             vat_local=q2(bucket["vat_local"]),  # type: ignore[arg-type]
             currency=next(iter(currencies)) if currencies else None,  # type: ignore[arg-type]
+            goods_code=derive_goods_code(product_group),
         )
         db.add(line)
         lines.append(line)

@@ -19,13 +19,13 @@ aside; not executed.
 | **M0** | Security/correctness debt sprint | ✅ **Completed** — WO-1…11 (incl. B1.5). All 12 exit-gate criteria met. See `docs/M0-exit-gate.md`. |
 | **M1** | Feature completion + independent audit | ✅ **Completed** — WO-12…46. Every named epic shipped; 18-item audit (R1–R19) closed except two decision-gated/backlog items (below). |
 | **M2** | "We can take money" — billing go-live | 🔶 **In Progress** — WO-47 (quota model) + WO-48 (dogfood billing fallback) shipped. Three items still owner-blocked (below). |
-| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") shipped. 70-100 day milestone; remaining slices tracked below. |
+| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) shipped. 70-100 day milestone; remaining slices tracked below. |
 | M4 | Payments & cash depth | `Planned` |
 | M5 | Transport vertical phase 2 — recovery intelligence | `Planned` |
 | M6 | Integrations & enterprise go-live | `Planned` |
 
-**Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 → 1303 → 1309 passed (+548 total, +50 this
-session), 10 skipped (pg-only, verified separately on real Postgres), 0 known regressions, as of WO-54.
+**Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 → 1303 → 1309 → 1322 passed (+561 total, +63
+this session), 10 skipped (pg-only, verified separately on real Postgres), 0 known regressions, as of WO-55.
 
 ---
 
@@ -143,6 +143,16 @@ session), 10 skipped (pg-only, verified separately on real Postgres), 0 known re
   migration `bc783e1ec7c2`, no RLS change — existing table) so `build_claim_lines` (G2.4) captures
   the local-currency figure per line. Fee freezing (R13/G2.9) stays explicit future work. 70 tables,
   77 revisions. Detail: `docs/plan/plan-a/wo/WO-54-G2.5.md`.
+
+- [x] **WO-55** — `Completed` — G2.8: the Art. 9 goods-code mapping, independent of the
+  G2.2-G2.7 critical-path chain (deps G1.2 only). `app/services/transport/goods_code.py::GOODS_CODE`
+  is harvested VERBATIM from `BA_fleet_fuel.md` A6 (Diesel/HVO/Promo adj → "1", Toll/Fees → "4",
+  AdBlue/Parking/Service/Other → "10"); `derive_goods_code()` defaults an unrecognised
+  `product_group` to "10", never "9" (R11), on top of the pre-existing DB CHECK constraint from
+  WO-49 — two independent layers. `build_claim_lines` (G2.4) now populates every line's
+  `goods_code` at construction time (additive change to an already-shipped function; the full
+  pre-existing transport suite passed unmodified). No migration (the column has been nullable
+  since WO-49). Detail: `docs/plan/plan-a/wo/WO-55-G2.8.md`.
 
 ---
 
