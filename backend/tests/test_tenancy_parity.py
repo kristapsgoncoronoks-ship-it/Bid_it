@@ -318,6 +318,17 @@ EXEMPT: dict[str, str] = {
         "through. Gains a probe with the first transport route (ARCH_plan.md "
         "G2.x)."
     ),
+    "vat_receipt_waivers": (
+        "G2.6 slice 3 (WO-58): receipt-control waivers (R15), written only "
+        "through services/transport/waiver.set_waiver/remove_waiver "
+        "(tenant-scoped there via the same ORM guard this probe would "
+        "exercise, AND proven on real Postgres RLS — tests/test_rls.py's "
+        "set-equality check). Also read by claim_lines.build_claim_lines/"
+        "lock.submit_claim, both org-scoped the same way — no "
+        "api/routes/transport/* route exists yet to drive an HTTP-level probe "
+        "through. Gains a probe with the first transport route (ARCH_plan.md "
+        "G2.x)."
+    ),
 }
 
 

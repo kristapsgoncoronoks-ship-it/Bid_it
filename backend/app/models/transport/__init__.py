@@ -13,12 +13,14 @@ from __future__ import annotations
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.models.transport.lock import VatClaimedInvoice
 from app.models.transport.note_override import VatNoteInvoiceOverride
+from app.models.transport.receipt_waiver import VatReceiptWaiver
 from app.models.transport.vat_claim import VatRefundClaim, VatRefundClaimLine
 
 __all__ = [
     "FuelTransaction",
     "VatClaimedInvoice",
     "VatNoteInvoiceOverride",
+    "VatReceiptWaiver",
     "VatRefundClaim",
     "VatRefundClaimLine",
 ]

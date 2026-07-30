@@ -19,14 +19,14 @@ aside; not executed.
 | **M0** | Security/correctness debt sprint | ✅ **Completed** — WO-1…11 (incl. B1.5). All 12 exit-gate criteria met. See `docs/M0-exit-gate.md`. |
 | **M1** | Feature completion + independent audit | ✅ **Completed** — WO-12…46. Every named epic shipped; 18-item audit (R1–R19) closed except two decision-gated/backlog items (below). |
 | **M2** | "We can take money" — billing go-live | 🔶 **In Progress** — WO-47 (quota model) + WO-48 (dogfood billing fallback) shipped. Three items still owner-blocked (below). |
-| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) + WO-56 (G2.6 slice 1: period-end + Art. 17 minimum + deadline scanner, R7/R8/R9) + WO-57 (G2.6 slice 2: annual mop-up + quarterly duplicate-block, R6) shipped. 70-100 day milestone; remaining slices tracked below. |
+| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) + WO-56 (G2.6 slice 1: period-end + Art. 17 minimum + deadline scanner, R7/R8/R9) + WO-57 (G2.6 slice 2: annual mop-up + quarterly duplicate-block, R6) + WO-58 (G2.6 slice 3: document-presence gate + receipt-control waivers, R10/R15) shipped. 70-100 day milestone; remaining slices tracked below. |
 | M4 | Payments & cash depth | `Planned` |
 | M5 | Transport vertical phase 2 — recovery intelligence | `Planned` |
 | M6 | Integrations & enterprise go-live | `Planned` |
 
-**Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 → 1303 → 1309 → 1322 → 1352 → 1357 passed
-(+596 total, +98 this session), 10 skipped (pg-only, verified separately on real Postgres), 0 known
-regressions, as of WO-57.
+**Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 → 1303 → 1309 → 1322 → 1352 → 1357 → 1369 passed
+(+608 total, +12 this session), 10 skipped (pg-only, verified separately on real Postgres), 0 known
+regressions, as of WO-58.
 
 ---
 
@@ -186,6 +186,29 @@ regressions, as of WO-57.
   the DB constraint and the genuine-concurrent-race case stay independently proven, re-verified on
   a fresh scratch Postgres cluster after this order's `lock.py` changes. No migration. Detail:
   `docs/plan/plan-a/wo/WO-57-G2.6-slice2.md`.
+
+- [x] **WO-58** — `Completed` — G2.6 slice 3: the document-presence gate (R10) + receipt-control
+  waivers (R15). `app/services/transport/document_gate.py::enforce_document_presence` checks every
+  real, RESOLVED `vat_claim_lines` row (never an `UNMATCHED` one) has >=1 captured document with real
+  stored bytes (`ExtractionRun.source_sha256 IS NOT NULL`) — reads the claim's own MATERIALIZED lines,
+  not `submit_claim`'s still-caller-supplied `invoices` tuple, since the lines are what actually gets
+  frozen; a new batch seam `app/services/extraction.py::invoice_ids_with_documents` (one query, no N+1)
+  is the AP-domain read this needed. A new tenant table `vat_receipt_waivers` (grain `(org, claim,
+  supplier)`) backs `app/services/transport/waiver.py` (`set_waiver`/`remove_waiver`/
+  `waived_suppliers`): `set_waiver` refuses (422 `waiver_supplier_has_invoices`) a supplier with any
+  registered invoice for the claim's refund country (reusing `invoice_match.registered_invoices`, never
+  a second implementation), otherwise records the waiver idempotently on a `draft` claim;
+  `claim_lines.build_claim_lines` excludes a waived supplier's transactions from grouping BEFORE the
+  resolution step (C9's "excluded from the claim by construction" — never even an `UNMATCHED` line);
+  `lock.submit_claim` stamps every active waiver into `status_note` at submission. Both gates wired
+  into `submit_claim`'s D5 order after the R6 mop-up/duplicate-block gate and before the freeze.
+  Migration `312f33068c4b` (1 new tenant table, RLS in the same migration; up/down/up clean on real
+  Postgres). README's "Scale of the codebase" truth-up sentence and `test_docs_truth.py`'s hard-coded
+  table count updated (70→71 tables, 77→78 revisions, 1332→1379 collected tests). Explicitly NOT
+  attempted: wiring `is_synthetic()` as an actual submission-blocking gate over a remaining, un-waived
+  `UNMATCHED` line (a real, pre-existing gap — flagged, not solved); G2.9 (fee freezing, still
+  decision-gated); G2.7/G2.10; any `api/routes/transport/*` route. Detail:
+  `docs/plan/plan-a/wo/WO-58-G2.6-slice3.md`.
 
 ---
 

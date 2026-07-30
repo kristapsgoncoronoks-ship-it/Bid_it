@@ -19,7 +19,7 @@ from app.models.transport.fuel_transaction import FuelTransaction
 from app.models.transport.vat_claim import VatRefundClaim, VatRefundClaimLine
 from app.models.vendor import Vendor
 from app.services.transport import claim as claim_svc
-from app.services.transport import claim_lines, fuel_ingest
+from app.services.transport import claim_lines, fuel_ingest, waiver
 from tests.factories.transport import synthetic_vehicle_ref
 from tests.transport.conftest import enable_transport, make_entity, make_org
 
@@ -205,6 +205,42 @@ async def test_g2_4_is_rebuildable_without_duplicating_unfrozen_lines(db_session
         )
     ).all()
     assert len(rows) == 1, "rebuilding must replace, never accumulate, unfrozen lines"
+
+
+@pytest.mark.asyncio
+async def test_g2_4_a_waived_suppliers_transaction_produces_zero_claim_lines(db_session):
+    """G2.6 slice 3 (R15, WO-58): a waived supplier's transaction is excluded
+    from the claim BY CONSTRUCTION — it never even becomes an UNMATCHED
+    line, alongside a normal supplier's transaction which still produces its
+    usual line."""
+    org = await make_org(db_session)
+    await enable_transport(db_session, org.id)
+    entity = await make_entity(db_session, org.id)
+    vendor = await _make_vendor(db_session, org)
+    await _make_invoice(db_session, org, vendor, number="INV-0001")
+    claim = await _make_claim(db_session, org, entity)
+    await db_session.commit()
+
+    await _make_txn(db_session, org, entity, supplier="Q8", invoice_ref="INV-0001", line_seq=1)
+    await _make_txn(
+        db_session,
+        org,
+        entity,
+        supplier="CASHCO",
+        invoice_ref="INPUT-CASH",
+        line_seq=2,
+        net_eur=Decimal("50.00"),
+        vat_eur=Decimal("10.50"),
+    )
+    await db_session.commit()
+
+    await waiver.set_waiver(db_session, org.id, claim_id=claim.id, supplier="CASHCO")
+    await db_session.commit()
+
+    lines = await claim_lines.build_claim_lines(db_session, org.id, claim.id)
+    assert len(lines) == 1
+    assert lines[0].invoice_ref == "INV-0001"
+    assert all(ln.invoice_ref != "UNMATCHED" for ln in lines)
 
 
 @pytest.mark.asyncio

@@ -161,6 +161,13 @@ class A:
     # claims — never once per claim (that would be `claim_lines_build`'s job,
     # already fired by `build_claim_lines` itself for each claim it touches).
     TRANSPORT_CLOSE_RUN = "transport.close_run"
+    # G2.6 slice 3 (WO-58): receipt-control waivers (R15). SET fires once per
+    # NEW waiver row (idempotent — a repeat call on the same (claim,
+    # supplier) key is a no-op and audits nothing); REMOVE fires once per
+    # actual un-waive (a no-op remove, nothing left to delete, audits
+    # nothing either).
+    TRANSPORT_RECEIPT_WAIVER_SET = "transport.receipt_waiver_set"
+    TRANSPORT_RECEIPT_WAIVER_REMOVE = "transport.receipt_waiver_remove"
 
 
 def _hash(

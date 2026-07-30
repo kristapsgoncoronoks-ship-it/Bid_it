@@ -18,6 +18,18 @@ here — G2.5), or populate `vat_id` on a line (no per-line VAT-id capture
 exists yet; a synthetic line is still fully detected via `invoice_ref` alone,
 since `claim_gates.is_synthetic()` treats either input as sufficient).
 
+WO-58 (G2.6 slice 3) EXTENDS THIS MODULE'S SCOPE: WAIVED SUPPLIERS ARE
+EXCLUDED "BY CONSTRUCTION"
+------------------------------------------------------------------------
+`app.services.transport.waiver.waived_suppliers` is fetched ONCE per call,
+before the grouping loop; any transaction whose `.supplier` is in that set
+is skipped entirely (`continue`) — it never reaches `invoice_match.
+resolve_invoice_ref`, never produces an `UNMATCHED` line, and never
+contributes to the frozen VAT base (`BA_fleet_fuel.md` C9's "excluded from
+the claim by construction"). This is deliberately a pre-grouping filter, not
+a post-filter on the built groups — a waived supplier's synthetic `INPUT`
+transactions must never even be handed to the resolution machinery.
+
 WO-55 (G2.8) EXTENDS THIS MODULE'S OUTPUT, NOT ITS SCOPE
 ------------------------------------------------------------
 Each line's `goods_code` is derived from its `product_group` via
@@ -57,6 +69,7 @@ from app.models.transport.vat_claim import VatRefundClaim, VatRefundClaimLine
 from app.services import audit, modules
 from app.services.transport.goods_code import derive_goods_code
 from app.services.transport.invoice_match import resolve_invoice_ref
+from app.services.transport.waiver import waived_suppliers
 
 UNMATCHED = "UNMATCHED"
 
@@ -138,6 +151,12 @@ async def build_claim_lines(
         )
     )
 
+    # G2.6 slice 3 (R15, WO-58) — a waived supplier's transactions are
+    # excluded from the claim BY CONSTRUCTION, fetched once before the
+    # grouping loop below. See module docstring "WAIVED SUPPLIERS ARE
+    # EXCLUDED..."
+    waived = await waived_suppliers(db, org_id, claim.id)
+
     # Group by (resolved invoice ref or UNMATCHED, product_group) — C1: one
     # row per (invoice, product code), never an "ALL:" country aggregate.
     # Also accumulates the LOCAL-currency amounts (net_local/vat_local,
@@ -146,6 +165,8 @@ async def build_claim_lines(
     # currencies without re-querying `fuel_transactions`.
     groups: dict[tuple[str, str], dict[str, Any]] = {}
     for txn in txns:
+        if txn.supplier in waived:
+            continue  # R15 — excluded from the claim by construction.
         matched = await resolve_invoice_ref(
             db,
             org_id,

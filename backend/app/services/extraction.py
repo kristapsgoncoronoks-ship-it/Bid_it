@@ -169,6 +169,27 @@ async def list_for_invoice(db: AsyncSession, org_id: str, invoice_id: str) -> li
     )
 
 
+async def invoice_ids_with_documents(
+    db: AsyncSession, org_id: str, invoice_ids: list[str]
+) -> set[str]:
+    """Which of `invoice_ids` have >=1 linked capture with REAL stored bytes
+    (`source_sha256 IS NOT NULL` — a manually-typed invoice with no captured
+    file is not "vaulted"). One query over the whole set, never a loop
+    calling `list_for_invoice` per invoice — the transport vertical's
+    document-presence gate (R10, `BA_fleet_fuel.md` C8's `docs_index()`)
+    needs exactly this "one-query set, avoids N+1" shape."""
+    if not invoice_ids:
+        return set()
+    rows = await db.scalars(
+        select(ExtractionRun.invoice_id).where(
+            ExtractionRun.org_id == org_id,
+            ExtractionRun.invoice_id.in_(invoice_ids),
+            ExtractionRun.source_sha256.is_not(None),
+        )
+    )
+    return {r for r in rows if r is not None}
+
+
 # --------------------------------------------------------------------------- #
 # Async direct-upload capture (Stage B): the parse/OCR runs on the WORKER tier,
 # not in the web request. The route stores the bytes + creates a QUEUED run and

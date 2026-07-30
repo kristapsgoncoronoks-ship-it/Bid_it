@@ -13,6 +13,15 @@ adds R6 — the annual mop-up / quarterly duplicate-block
 order Fleet Fuel's own `set_status_code` used (D5: checklist -> period-end
 -> minimum -> the duplicate/lock machinery) — a below-minimum, not-yet-
 ended, or duplicate-overlapping claim never freezes or locks at all.
+WO-58 (G2.6 slice 3) adds R10 (the document-presence gate,
+`document_gate.enforce_document_presence` — every real, resolved claim
+line needs a vaulted document) and R15 (receipt-control waivers,
+`waiver.waived_suppliers` — a genuinely-uninvoiced supplier's synthetic
+lines are already excluded by `claim_lines.build_claim_lines` before this
+function ever runs; this module only stamps the waiver's USE into
+`status_note` on submission). Both run AFTER the R6 mop-up/duplicate-block
+gate and BEFORE the freeze — matching D5's own ordering ("...then
+`set_status(engine)` which applies synthetic/duplicate/document gates").
 
 `submit_claim` is a MINIMAL STUB status transition (draft -> submitted) that
 exists to prove the locking primitive — not the future G2.7 status machine.
@@ -55,8 +64,10 @@ from app.models.transport.lock import VatClaimedInvoice
 from app.models.transport.vat_claim import VatRefundClaim
 from app.services import audit, modules
 from app.services.transport.deadline import period_ended
+from app.services.transport.document_gate import enforce_document_presence
 from app.services.transport.freeze import freeze_claim_lines, preview_vat_base
 from app.services.transport.minimum import below_minimum, min_for
+from app.services.transport.waiver import waived_suppliers
 
 # R5 — the set of claim statuses that currently hold locks. withdraw_claim
 # refuses any OTHER status (draft never held any; rejected/approved-then-
@@ -161,18 +172,20 @@ async def submit_claim(
     today: date | None = None,
 ) -> VatRefundClaim:
     """Gate (period-end, R7; minimum-amount, R8; annual mop-up / quarterly
-    duplicate-block, R6), freeze the claim's lines (G2.5), acquire one lock
-    per invoice, and flip the claim `draft` -> `submitted`, ALL in the same
-    flush (see module docstring for the atomicity argument;
+    duplicate-block, R6; document-presence, R10), stamp any active waiver's
+    use into `status_note` (R15), freeze the claim's lines (G2.5), acquire
+    one lock per invoice, and flip the claim `draft` -> `submitted`, ALL in
+    the same flush (see module docstring for the atomicity argument;
     `app.services.transport.freeze`'s own docstring for why freezing
     belongs inside this same transaction — "the linchpin", `ARCH_plan.md`'s
     own word for G2.5).
 
     Gate order (D5, verbatim): draft-status -> non-empty invoice set ->
     period-end (R7) -> Art. 17 minimum (R8) -> annual mop-up / quarterly
-    duplicate-block (R6) -> freeze -> lock -> status flip. A claim that
-    fails ANY gate never freezes or locks at all — nothing is mutated
-    before the LAST gate passes.
+    duplicate-block (R6) -> waiver status_note stamp (R15) -> document-
+    presence (R10) -> freeze -> lock -> status flip. A claim that fails ANY
+    gate never freezes or locks at all — nothing is mutated before the LAST
+    gate passes.
 
     `override_minimum=True` bypasses the below-minimum refusal (R8's
     "admin override allowed... recorded in `status_note`") — see
@@ -252,6 +265,29 @@ async def submit_claim(
     # an existing lock. Runs BEFORE the freeze — a blocked/narrowed-to-empty
     # submission never freezes or locks anything.
     invoices = await _apply_annual_mop_up_or_duplicate_block(db, org_id, claim, invoices)
+
+    # R15 — stamp every waiver currently active on this claim into
+    # `status_note` (C9: "the waiver use is stamped into the claim's
+    # status_note on submission"). The EXCLUSION itself already happened in
+    # `claim_lines.build_claim_lines` (a waived supplier's transactions
+    # never became a claim line in the first place); this is only the
+    # audit-trail note.
+    waived = await waived_suppliers(db, org_id, claim.id)
+    if waived:
+        names = ", ".join(sorted(waived))
+        waiver_note = (
+            f"Receipt-control waiver applied: {names} "
+            f"(no registered invoice for {claim.refund_country})"
+        )
+        claim.status_note = (
+            f"{claim.status_note}\n{waiver_note}" if claim.status_note else waiver_note
+        )
+
+    # R10 — document-presence gate. Every real, resolved claim line (never
+    # an UNMATCHED one) needs >=1 vaulted document; checked against the
+    # claim's own materialized lines, BEFORE the freeze — a claim missing a
+    # document never freezes or locks.
+    await enforce_document_presence(db, org_id, claim.id)
 
     # G2.5 — freeze the claim's lines + VAT base BEFORE flipping status, in
     # the same flush as the lock inserts below: a lost lock race rolls back

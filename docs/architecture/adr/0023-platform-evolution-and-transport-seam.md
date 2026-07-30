@@ -194,6 +194,32 @@ Still future work: fee freezing (G2.9, decision-gated —
 see `docs/DECISIONS-NEEDED.md` §10), status derivation (G2.7), the checklist/
 document-presence/receipt-control-waiver remainder of the gate stack (G2.6
 slice 3+, R10/R15), and every `api/routes/transport/*` route.
+**Implementation status (WO-58, G2.6 slice 3):** R10 (document-presence)
+and R15 (receipt-control waivers) have landed — `document_gate.
+enforce_document_presence` checks every real, resolved `vat_claim_lines`
+row (never an `UNMATCHED` one) has >=1 captured document with real stored
+bytes, via a new batch seam `extraction.invoice_ids_with_documents` (one
+query, no N+1 — the AP-domain read seam transport is allowed to add,
+mirroring the existing `app.services.invoices`/`app.services.vendors`
+imports); this reads the claim's own MATERIALIZED lines, not `submit_claim`'s
+still-caller-supplied `invoices` tuple, since the lines are what actually
+gets frozen. A new tenant table `vat_receipt_waivers` (grain `(org, claim,
+supplier)`, narrower than the harvested `(entity, refund_country,
+ref_period, supplier)` since a claim's own grain already fixes those three
+fields) backs `waiver.set_waiver`/`remove_waiver`/`waived_suppliers`:
+`set_waiver` refuses a supplier with any registered invoice for the claim's
+refund country (reusing `invoice_match.registered_invoices`, never a second
+implementation of that check); `claim_lines.build_claim_lines` excludes a
+waived supplier's transactions from grouping BEFORE the resolution step
+(C9's "excluded from the claim by construction" — never even an `UNMATCHED`
+line); `submit_claim` stamps every active waiver into `status_note` at
+submission. Both gates run after the R6 mop-up/duplicate-block gate and
+before the freeze, extending D5's order. Still NOT wired anywhere: R3's
+`is_synthetic()` as an actual submission-blocking gate over a REMAINING,
+un-waived `UNMATCHED` line — a real, pre-existing gap this order does not
+close (flagged explicitly in WO-58's own scope). Still future work: fee
+freezing (G2.9, decision-gated), status derivation (G2.7), the adjustable
+checklist as data (G2.10), and every `api/routes/transport/*` route.
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,
