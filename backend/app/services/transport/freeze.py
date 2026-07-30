@@ -49,6 +49,21 @@ whole transition rolls back together, WO-51's own guarantee), and a
 successful submission must never leave locks acquired with an unfrozen VAT
 base (or vice versa). `lock.submit_claim` calls `freeze_claim_lines` in the
 SAME flush as the lock inserts + the claim's status flip.
+
+WHY `preview_vat_base` EXISTS SEPARATELY FROM `freeze_claim_lines` (WO-56,
+G2.6 slice)
+------------------------------------------------------------------------------
+Fleet Fuel's own submission gate order (D5) checks the Art. 17 minimum-
+amount gate (R8) BEFORE the claim's figures are frozen/locked — a below-
+minimum claim must never freeze or lock at all. That means the minimum gate
+needs to know what the claim's `vat_eur`/`vat_local` WOULD BE, without yet
+committing to freezing them. `preview_vat_base` is the read-only half of
+`freeze_claim_lines`'s own computation (same currency-mismatch check, same
+summation), used by `app.services.transport.minimum.below_minimum` via
+`lock.submit_claim` BEFORE calling `freeze_claim_lines` for real. Both
+functions share the exact same arithmetic (`_sum_lines`) so the previewed
+figure and the frozen figure can never drift apart — the same drift-
+prevention discipline `is_synthetic()`'s centralization exists for.
 """
 
 from __future__ import annotations
@@ -64,27 +79,11 @@ from app.core.money import q2
 from app.models.transport.vat_claim import VatRefundClaim, VatRefundClaimLine
 
 
-async def freeze_claim_lines(db: AsyncSession, org_id: str, claim: VatRefundClaim) -> int:
-    """Freeze every currently-unfrozen `VatRefundClaimLine` for `claim` and
-    stamp the claim's own `vat_eur`/`vat_local`/`currency` from EXACTLY
-    those lines' totals (C10) — see module docstring. Returns the number of
-    lines frozen (0 for a claim with no lines yet — an empty claim set is a
-    future G2.6 gate's concern, not this function's).
-
-    Does NOT flush or commit — the caller (`lock.submit_claim`) does both,
-    in the same flush as its own lock-acquisition + status-flip writes, so
-    the whole submission is one atomic unit (module docstring).
-    """
-    lines = list(
-        await db.scalars(
-            select(VatRefundClaimLine).where(
-                VatRefundClaimLine.org_id == org_id,
-                VatRefundClaimLine.claim_id == claim.id,
-                VatRefundClaimLine.frozen_at.is_(None),
-            )
-        )
-    )
-
+def _sum_lines(lines: list[VatRefundClaimLine]) -> tuple[Decimal, Decimal, str | None]:
+    """The shared arithmetic: (vat_eur, vat_local, currency) summed over
+    `lines`, refusing (`code="claim_currency_mismatch"`) if they span more
+    than one distinct local currency (master-context §4.14) — see module
+    docstring "WHY A MIXED-CURRENCY CLAIM REFUSES TO FREEZE"."""
     currencies = {ln.currency for ln in lines if ln.currency is not None}
     if len(currencies) > 1:
         raise ConflictError(
@@ -100,12 +99,53 @@ async def freeze_claim_lines(db: AsyncSession, org_id: str, claim: VatRefundClai
         if ln.vat_local is not None:
             vat_local += ln.vat_local
 
+    return q2(vat_eur), q2(vat_local), next(iter(currencies), None)
+
+
+async def _unfrozen_lines(db: AsyncSession, org_id: str, claim_id: str) -> list[VatRefundClaimLine]:
+    return list(
+        await db.scalars(
+            select(VatRefundClaimLine).where(
+                VatRefundClaimLine.org_id == org_id,
+                VatRefundClaimLine.claim_id == claim_id,
+                VatRefundClaimLine.frozen_at.is_(None),
+            )
+        )
+    )
+
+
+async def preview_vat_base(
+    db: AsyncSession, org_id: str, claim_id: str
+) -> tuple[Decimal, Decimal, str | None]:
+    """Read-only: what `claim.vat_eur`/`vat_local`/`currency` WOULD be if
+    frozen right now, without mutating anything — see module docstring "WHY
+    `preview_vat_base` EXISTS SEPARATELY...". Raises the SAME
+    `claim_currency_mismatch` `freeze_claim_lines` would raise, so a caller
+    never sees a gate pass on a figure freezing would then refuse."""
+    lines = await _unfrozen_lines(db, org_id, claim_id)
+    return _sum_lines(lines)
+
+
+async def freeze_claim_lines(db: AsyncSession, org_id: str, claim: VatRefundClaim) -> int:
+    """Freeze every currently-unfrozen `VatRefundClaimLine` for `claim` and
+    stamp the claim's own `vat_eur`/`vat_local`/`currency` from EXACTLY
+    those lines' totals (C10) — see module docstring. Returns the number of
+    lines frozen (0 for a claim with no lines yet — an empty claim set is a
+    future G2.6 gate's concern, not this function's).
+
+    Does NOT flush or commit — the caller (`lock.submit_claim`) does both,
+    in the same flush as its own lock-acquisition + status-flip writes, so
+    the whole submission is one atomic unit (module docstring).
+    """
+    lines = await _unfrozen_lines(db, org_id, claim.id)
+    vat_eur, vat_local, currency = _sum_lines(lines)
+
     now = datetime.now(UTC)
     for ln in lines:
         ln.frozen_at = now
 
-    claim.vat_eur = q2(vat_eur)
-    claim.vat_local = q2(vat_local)
-    claim.currency = next(iter(currencies), None)
+    claim.vat_eur = vat_eur
+    claim.vat_local = vat_local
+    claim.currency = currency
 
     return len(lines)

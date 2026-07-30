@@ -19,13 +19,14 @@ aside; not executed.
 | **M0** | Security/correctness debt sprint | ✅ **Completed** — WO-1…11 (incl. B1.5). All 12 exit-gate criteria met. See `docs/M0-exit-gate.md`. |
 | **M1** | Feature completion + independent audit | ✅ **Completed** — WO-12…46. Every named epic shipped; 18-item audit (R1–R19) closed except two decision-gated/backlog items (below). |
 | **M2** | "We can take money" — billing go-live | 🔶 **In Progress** — WO-47 (quota model) + WO-48 (dogfood billing fallback) shipped. Three items still owner-blocked (below). |
-| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) shipped. 70-100 day milestone; remaining slices tracked below. |
+| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) + WO-56 (G2.6 slice 1: period-end + Art. 17 minimum + deadline scanner, R7/R8/R9) shipped. 70-100 day milestone; remaining slices tracked below. |
 | M4 | Payments & cash depth | `Planned` |
 | M5 | Transport vertical phase 2 — recovery intelligence | `Planned` |
 | M6 | Integrations & enterprise go-live | `Planned` |
 
-**Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 → 1303 → 1309 → 1322 passed (+561 total, +63
-this session), 10 skipped (pg-only, verified separately on real Postgres), 0 known regressions, as of WO-55.
+**Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 → 1303 → 1309 → 1322 → 1352 passed (+591
+total, +93 this session), 10 skipped (pg-only, verified separately on real Postgres), 0 known
+regressions, as of WO-56.
 
 ---
 
@@ -153,6 +154,24 @@ this session), 10 skipped (pg-only, verified separately on real Postgres), 0 kno
   `goods_code` at construction time (additive change to an already-shipped function; the full
   pre-existing transport suite passed unmodified). No migration (the column has been nullable
   since WO-49). Detail: `docs/plan/plan-a/wo/WO-55-G2.8.md`.
+
+- [x] **WO-56** — `Completed` — G2.6 slice 1: the hard period-end gate (R7) + the Art. 17
+  minimum-amount gate (R8) + the 30-Sep deadline risk scanner (R9) — closing `ARCH_plan.md`'s
+  own highest-scored risk item (L-1, score 6: the fatal 30-Sep time-bar). `app/services/transport/
+  deadline.py`/`minimum.py` (new, pure functions, no DB access); `lock.py::submit_claim` gains the
+  period-end gate (409 `period_not_ended`) and the minimum gate (409 `below_minimum`, an
+  `override_minimum` param that records the exact comparison in `status_note`), previewed via a new
+  `freeze.preview_vat_base` BEFORE the freeze/lock machinery — matching Fleet Fuel's own D5 gate
+  order, so a below-minimum or not-yet-ended claim never mutates anything. Sweden/Denmark compare
+  `vat_local` against their fixed statutory amounts (harvested verbatim); every other country
+  (including Poland, deliberately) compares `vat_eur` against €400/€50. Every pre-existing
+  `submit_claim` test call site (WO-51/54/55 + the real-Postgres concurrency test) was re-audited
+  and given `override_minimum=True` where its own purpose was unrelated to R8 — one fixture bug
+  (a not-yet-ended test period) caught and fixed while verifying on a scratch Postgres cluster
+  (7 pg-only RLS/concurrency files all green together on a fresh DB). G2.9 (fee freezing) explicitly
+  NOT attempted — `docs/DECISIONS-NEEDED.md` §10 updated: no established "customer"/fee-rate concept
+  to build against without guessing the commercial model. No migration. Detail:
+  `docs/plan/plan-a/wo/WO-56-G2.6-slice1.md`.
 
 ---
 

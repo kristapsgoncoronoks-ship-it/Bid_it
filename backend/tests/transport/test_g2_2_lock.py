@@ -85,6 +85,7 @@ async def test_g2_2_submit_claim_acquires_one_lock_row_per_invoice_and_flips_sta
         org.id,
         claim_id=claim.id,
         invoices=[("Q8", "INV-0001", txn1.id), ("Q8", "INV-0002", txn2.id)],
+        override_minimum=True,  # fixture VAT (21+21 EUR) is below the Art. 17 test threshold; this test is about locking, not R8
     )
     await db_session.commit()
 
@@ -215,7 +216,11 @@ async def test_g2_2_submit_claim_on_an_already_locked_invoice_raises_integrity_e
 
     with pytest.raises(IntegrityError):
         await lock.submit_claim(
-            db_session, org.id, claim_id=my_claim_id, invoices=[("Q8", "INV-0001", txn.id)]
+            db_session,
+            org.id,
+            claim_id=my_claim_id,
+            invoices=[("Q8", "INV-0001", txn.id)],
+            override_minimum=True,  # this test is about the lock race, not R8
         )
     await db_session.rollback()
 
@@ -277,7 +282,11 @@ async def test_g2_2_withdraw_claim_deletes_every_lock_row_for_that_claim_and_set
     await db_session.commit()
 
     await lock.submit_claim(
-        db_session, org.id, claim_id=claim.id, invoices=[("Q8", "INV-0001", txn.id)]
+        db_session,
+        org.id,
+        claim_id=claim.id,
+        invoices=[("Q8", "INV-0001", txn.id)],
+        override_minimum=True,  # this test is about withdraw/re-lock, not R8
     )
     await db_session.commit()
 
@@ -305,7 +314,11 @@ async def test_g2_2_withdraw_claim_deletes_every_lock_row_for_that_claim_and_set
     another_claim = await _make_claim(db_session, org, entity, ref_period="2026-Q2")
     await db_session.commit()
     result2 = await lock.submit_claim(
-        db_session, org.id, claim_id=another_claim.id, invoices=[("Q8", "INV-0001", txn.id)]
+        db_session,
+        org.id,
+        claim_id=another_claim.id,
+        invoices=[("Q8", "INV-0001", txn.id)],
+        override_minimum=True,
     )
     await db_session.commit()
     assert result2.status == "submitted"
@@ -375,7 +388,11 @@ async def test_g2_2_directly_flipping_claim_status_never_cascades_a_lock_release
     await db_session.commit()
 
     await lock.submit_claim(
-        db_session, org.id, claim_id=claim.id, invoices=[("Q8", "INV-0001", txn.id)]
+        db_session,
+        org.id,
+        claim_id=claim.id,
+        invoices=[("Q8", "INV-0001", txn.id)],
+        override_minimum=True,  # this test is about the withdraw-only-release invariant, not R8
     )
     await db_session.commit()
 

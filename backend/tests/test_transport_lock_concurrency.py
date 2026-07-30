@@ -147,6 +147,7 @@ async def test_two_concurrent_submissions_over_the_same_invoice_exactly_one_wins
                             org_id,
                             claim_id=claim_id,
                             invoices=[(_SUPPLIER, _INVOICE_REF, txn_id)],
+                            override_minimum=True,  # fixture VAT (21 EUR) is below R8's threshold; this test is about the lock race
                         )
                         await s.commit()
                         return "won"
@@ -213,6 +214,7 @@ async def test_withdraw_then_reclaim_by_a_different_claim_succeeds():
                     org_id,
                     claim_id=ids["claim_a_id"],
                     invoices=[(_SUPPLIER, _INVOICE_REF, txn_id)],
+                    override_minimum=True,
                 )
                 await s.commit()
 
@@ -223,7 +225,12 @@ async def test_withdraw_then_reclaim_by_a_different_claim_succeeds():
             async with sm() as s:
                 entity_id = ids["entity_id"]
                 claim_c = VatRefundClaim(
-                    org_id=org_id, entity_id=entity_id, refund_country="LV", ref_period="2026-Q3"
+                    # A period safely in the past (R7's period-end gate,
+                    # WO-56/G2.6) — distinct from claim_a/claim_b's own grain.
+                    org_id=org_id,
+                    entity_id=entity_id,
+                    refund_country="LV",
+                    ref_period="2025-Q4",
                 )
                 s.add(claim_c)
                 await s.commit()
@@ -231,7 +238,11 @@ async def test_withdraw_then_reclaim_by_a_different_claim_succeeds():
 
             async with sm() as s:
                 result = await lock.submit_claim(
-                    s, org_id, claim_id=claim_c_id, invoices=[(_SUPPLIER, _INVOICE_REF, txn_id)]
+                    s,
+                    org_id,
+                    claim_id=claim_c_id,
+                    invoices=[(_SUPPLIER, _INVOICE_REF, txn_id)],
+                    override_minimum=True,
                 )
                 await s.commit()
                 assert result.status == "submitted"

@@ -145,9 +145,30 @@ pre-existing DB CHECK constraint from WO-49
 construction time. This task depended on G1.2 ONLY (`ARCH_plan.md`'s own
 scoping) — it is a pure function of `product_group`, unrelated to the
 claim-freeze/submission machinery, and landed independently of G2.6/G2.7/
-G2.9. Still future work: the checklist/period-end/minimum/deadline gate
-stack (G2.6), fee freezing (G2.9), status derivation (G2.7), and every
-`api/routes/transport/*` route.
+G2.9. Still future work: fee freezing (G2.9, decision-gated —
+see `docs/DECISIONS-NEEDED.md` §10), status derivation (G2.7), the checklist/
+annual-mop-up/document-presence/receipt-control-waiver remainder of the gate
+stack (G2.6 slices 2+, R6/R10/R15), and every `api/routes/transport/*` route.
+**Implementation status (WO-56, G2.6 slice 1 — the highest-risk rule in the
+whole M3 plan, `ARCH_plan.md` risk register L-1, score 6):** the hard
+period-end gate (R7) and the Art. 17 minimum-amount gate (R8) have landed as
+REAL legal gates inside `lock.submit_claim` — the first two rules in the
+G2.6 stack to move past "schema exists" into "actually blocks a bad
+submission." `app/services/transport/deadline.py::period_ended` refuses
+(409 `period_not_ended`) before anything mutates; `app/services/transport/
+minimum.py::below_minimum` is previewed (`freeze.preview_vat_base`, a new
+read-only twin of `freeze_claim_lines`'s own arithmetic) BEFORE the freeze —
+matching Fleet Fuel's own D5 submission-gate order (checklist -> period-end
+-> minimum -> lock/freeze) — so a below-minimum claim never freezes or
+locks, unless explicitly overridden (`override_minimum=True`, recorded in
+`status_note`, not yet a permission-gated route param since no route exists
+yet). `deadline.py::filing_deadline`/`deadline_status` (R9, the 60-day risk
+scanner) are pure functions NOT wired into the submission gate — this
+software never blocks a late filing attempt; only a future dashboard (G4.3)
+consumes them. Still future work: fee freezing (G2.9, decision-gated —
+see `docs/DECISIONS-NEEDED.md` §10), status derivation (G2.7), the checklist/
+annual-mop-up/document-presence/receipt-control-waiver remainder of the gate
+stack (G2.6 slices 2+, R6/R10/R15), and every `api/routes/transport/*` route.
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,

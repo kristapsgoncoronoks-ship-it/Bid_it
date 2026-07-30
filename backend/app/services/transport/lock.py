@@ -3,8 +3,14 @@ release (G2.2; `BA_fleet_fuel.md` section 3.C5/C7, R4/R5).
 
 WO-49 shipped the claim grain and WO-50 shipped the typed transaction line;
 this module is the primitive every future gate (checklist, period-end,
-deadline, minimum-amount — all G2.6) will build on top of: once an invoice is
-locked, a caller can trust that fact is durable and race-proof.
+deadline, minimum-amount — all G2.6) builds on top of: once an invoice is
+locked, a caller can trust that fact is durable and race-proof. WO-56 (G2.6
+slice 1) wires the first two REAL legal gates into `submit_claim` itself —
+the hard period-end gate (R7, `deadline.period_ended`) and the Art. 17
+minimum-amount gate (R8, `minimum.below_minimum`), in the SAME submission-
+gate order Fleet Fuel's own `set_status_code` used (D5: checklist ->
+period-end -> minimum -> then the lock/freeze machinery) — a below-minimum
+or not-yet-ended claim never freezes or locks at all.
 
 `submit_claim` is a MINIMAL STUB status transition (draft -> submitted) that
 exists to prove the locking primitive — not the future G2.7 status machine.
@@ -37,6 +43,8 @@ future PR breaking that would trip.
 
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,7 +52,9 @@ from app.core.errors import ConflictError, NotFoundError, PermissionError, Valid
 from app.models.transport.lock import VatClaimedInvoice
 from app.models.transport.vat_claim import VatRefundClaim
 from app.services import audit, modules
-from app.services.transport.freeze import freeze_claim_lines
+from app.services.transport.deadline import period_ended
+from app.services.transport.freeze import freeze_claim_lines, preview_vat_base
+from app.services.transport.minimum import below_minimum, min_for
 
 # R5 — the set of claim statuses that currently hold locks. withdraw_claim
 # refuses any OTHER status (draft never held any; rejected/approved-then-
@@ -70,17 +80,33 @@ async def submit_claim(
     *,
     claim_id: str,
     invoices: list[tuple[str, str, str]],
+    override_minimum: bool = False,
+    today: date | None = None,
 ) -> VatRefundClaim:
-    """Freeze the claim's lines (G2.5), acquire one lock per invoice, and flip
-    the claim `draft` -> `submitted`, ALL in the same flush (see module
-    docstring for the atomicity argument; `app.services.transport.freeze`'s
-    own docstring for why freezing belongs inside this same transaction —
-    "the linchpin", `ARCH_plan.md`'s own word for G2.5).
+    """Gate (period-end, R7; minimum-amount, R8), freeze the claim's lines
+    (G2.5), acquire one lock per invoice, and flip the claim `draft` ->
+    `submitted`, ALL in the same flush (see module docstring for the
+    atomicity argument; `app.services.transport.freeze`'s own docstring for
+    why freezing belongs inside this same transaction — "the linchpin",
+    `ARCH_plan.md`'s own word for G2.5).
+
+    Gate order (D5, verbatim): draft-status -> non-empty invoice set ->
+    period-end (R7) -> Art. 17 minimum (R8) -> freeze -> lock -> status flip.
+    A claim that fails EITHER gate never freezes or locks at all — nothing
+    is mutated before the LAST gate passes.
+
+    `override_minimum=True` bypasses the below-minimum refusal (R8's
+    "admin override allowed... recorded in `status_note`") — see
+    `app.services.transport.minimum`'s module docstring for why this is a
+    plain boolean here, not yet a permission check (no route exists to
+    enforce one). `today` is a test seam (defaults to `date.today()` inside
+    `deadline.period_ended`) so period-end can be asserted deterministically
+    without patching the clock.
 
     `invoices` is a plain list of `(supplier, invoice_ref, fuel_transaction_id)`
     tuples — still never derived from `vat_claim_lines` (a caller-supplied
-    list is what THIS lock primitive keys on; the future G2.6 gate stack is
-    what will derive it from the now-frozen lines automatically). `entity_id`/
+    list is what THIS lock primitive keys on; a future slice of G2.6 is what
+    will derive it from the now-frozen lines automatically). `entity_id`/
     `refund_country` for every lock row are read off the CLAIM, never
     re-supplied per invoice — the claim's grain already fixes those two
     fields, so letting them vary per invoice would let a caller lock an
@@ -106,6 +132,40 @@ async def submit_claim(
         raise ValidationError(
             "Cannot submit a claim with an empty invoice set", code="empty_claim_set"
         )
+
+    # R7 — hard period-end gate. A claim period that has not fully closed
+    # cannot be filed at all; checked BEFORE anything else mutates.
+    if not period_ended(claim.ref_period, today=today):
+        raise ConflictError(
+            f"The '{claim.ref_period}' period has not ended yet — cannot submit",
+            code="period_not_ended",
+        )
+
+    # R8 — Art. 17 minimum, compared in the CORRECT currency for
+    # `claim.refund_country`. Previewed BEFORE freezing (D5's own gate
+    # order): a below-minimum claim never freezes or locks, unless
+    # explicitly overridden (recorded in `status_note`, never silent).
+    preview_eur, preview_local, _preview_currency = await preview_vat_base(db, org_id, claim.id)
+    if below_minimum(
+        country=claim.refund_country,
+        ref_period=claim.ref_period,
+        vat_eur=preview_eur,
+        vat_local=preview_local,
+    ):
+        if not override_minimum:
+            raise ConflictError(
+                f"Claim VAT amount is below the Art. 17 minimum for {claim.refund_country}",
+                code="below_minimum",
+            )
+        currency, threshold, basis = min_for(
+            claim.refund_country, is_annual=claim.ref_period.endswith("YEAR")
+        )
+        compared = preview_local if basis == "local" else preview_eur
+        note = (
+            f"Art. 17 minimum override: {compared} {currency} < threshold "
+            f"{threshold} {currency} (basis={basis})"
+        )
+        claim.status_note = f"{claim.status_note}\n{note}" if claim.status_note else note
 
     # G2.5 — freeze the claim's lines + VAT base BEFORE flipping status, in
     # the same flush as the lock inserts below: a lost lock race rolls back

@@ -82,7 +82,11 @@ async def test_g1_4_run_close_never_touches_a_submitted_claims_lines(db_session)
     assert len(pre_lines) == 1
 
     await lock.submit_claim(
-        db_session, org.id, claim_id=claim.id, invoices=[("Q8", "INV-0001", txn.id)]
+        db_session,
+        org.id,
+        claim_id=claim.id,
+        invoices=[("Q8", "INV-0001", txn.id)],
+        override_minimum=True,  # this test is about G1.4's re-close protection, not R8
     )
     await db_session.commit()
 
@@ -127,7 +131,11 @@ async def test_g1_4_a_locked_transaction_cannot_be_deleted_the_database_refuses_
 
     txn_id = txn.id  # captured BEFORE the rollback below expires it
     await lock.submit_claim(
-        db_session, org.id, claim_id=claim.id, invoices=[("Q8", "INV-0001", txn_id)]
+        db_session,
+        org.id,
+        claim_id=claim.id,
+        invoices=[("Q8", "INV-0001", txn_id)],
+        override_minimum=True,  # this test is about the RESTRICT FK proof, not R8
     )
     await db_session.commit()
 

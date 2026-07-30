@@ -87,6 +87,7 @@ async def test_g2_5_submit_claim_freezes_lines_and_computes_vat_base(db_session)
         org.id,
         claim_id=claim.id,
         invoices=[("Q8", "INV-0001", txn1.id)],
+        override_minimum=True,  # this test is about the freeze arithmetic, not R8
     )
     await db_session.commit()
 
@@ -121,7 +122,11 @@ async def test_g2_5_submit_claim_with_no_lines_freezes_to_zero(db_session):
     await db_session.commit()
 
     result = await lock.submit_claim(
-        db_session, org.id, claim_id=claim.id, invoices=[("Q8", "INV-0001", txn.id)]
+        db_session,
+        org.id,
+        claim_id=claim.id,
+        invoices=[("Q8", "INV-0001", txn.id)],
+        override_minimum=True,  # zero VAT is trivially below minimum; this test is about the empty-lines case
     )
     assert result.vat_eur == Decimal("0.00")
     assert result.vat_local == Decimal("0.00")
@@ -222,7 +227,11 @@ async def test_g2_5_lost_lock_race_leaves_the_claim_unfrozen(db_session):
     claim_id, org_id = claim.id, org.id
     with pytest.raises(Exception):  # IntegrityError at flush
         await lock.submit_claim(
-            db_session, org_id, claim_id=claim_id, invoices=[("Q8", "INV-0001", txn.id)]
+            db_session,
+            org_id,
+            claim_id=claim_id,
+            invoices=[("Q8", "INV-0001", txn.id)],
+            override_minimum=True,  # must reach the REAL lock race, not fail on R8 first
         )
     await db_session.rollback()
 
@@ -255,7 +264,11 @@ async def test_g2_5_audit_meta_records_the_frozen_line_count(db_session):
     await db_session.commit()
 
     await lock.submit_claim(
-        db_session, org.id, claim_id=claim.id, invoices=[("Q8", "INV-0001", txn.id)]
+        db_session,
+        org.id,
+        claim_id=claim.id,
+        invoices=[("Q8", "INV-0001", txn.id)],
+        override_minimum=True,  # this test is about the audit meta, not R8
     )
     await db_session.commit()
 
