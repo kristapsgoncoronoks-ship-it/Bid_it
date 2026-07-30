@@ -168,6 +168,11 @@ class A:
     # nothing either).
     TRANSPORT_RECEIPT_WAIVER_SET = "transport.receipt_waiver_set"
     TRANSPORT_RECEIPT_WAIVER_REMOVE = "transport.receipt_waiver_remove"
+    # G2.7 (WO-59): the workflow status_code LABEL (2A..5), never the coarse
+    # engine `status` column — see status.py's module docstring for why the
+    # engine-state transitions themselves are deferred (entangled with the
+    # decision-gated G2.9 fee engine).
+    TRANSPORT_STATUS_CODE_SET = "transport.status_code_set"
 
 
 def _hash(

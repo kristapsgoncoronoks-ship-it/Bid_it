@@ -19,14 +19,14 @@ aside; not executed.
 | **M0** | Security/correctness debt sprint | ✅ **Completed** — WO-1…11 (incl. B1.5). All 12 exit-gate criteria met. See `docs/M0-exit-gate.md`. |
 | **M1** | Feature completion + independent audit | ✅ **Completed** — WO-12…46. Every named epic shipped; 18-item audit (R1–R19) closed except two decision-gated/backlog items (below). |
 | **M2** | "We can take money" — billing go-live | 🔶 **In Progress** — WO-47 (quota model) + WO-48 (dogfood billing fallback) shipped. Three items still owner-blocked (below). |
-| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) + WO-56 (G2.6 slice 1: period-end + Art. 17 minimum + deadline scanner, R7/R8/R9) + WO-57 (G2.6 slice 2: annual mop-up + quarterly duplicate-block, R6) + WO-58 (G2.6 slice 3: document-presence gate + receipt-control waivers, R10/R15) shipped. 70-100 day milestone; remaining slices tracked below. |
+| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) + WO-56 (G2.6 slice 1: period-end + Art. 17 minimum + deadline scanner, R7/R8/R9) + WO-57 (G2.6 slice 2: annual mop-up + quarterly duplicate-block, R6) + WO-58 (G2.6 slice 3: document-presence gate + receipt-control waivers, R10/R15) + WO-59 (G2.7: status lifecycle 1A→5, R12/R17) shipped. G2.6 is now fully closed (R6-R10, R15 all real gates). 70-100 day milestone; remaining slices tracked below. |
 | M4 | Payments & cash depth | `Planned` |
 | M5 | Transport vertical phase 2 — recovery intelligence | `Planned` |
 | M6 | Integrations & enterprise go-live | `Planned` |
 
-**Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 → 1303 → 1309 → 1322 → 1352 → 1357 → 1369 passed
-(+608 total, +12 this session), 10 skipped (pg-only, verified separately on real Postgres), 0 known
-regressions, as of WO-58.
+**Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 → 1303 → 1309 → 1322 → 1352 → 1357 → 1369 → 1384
+passed (+623 total, +27 this session), 10 skipped (pg-only, verified separately on real Postgres), 0
+known regressions, as of WO-59.
 
 ---
 
@@ -209,6 +209,23 @@ regressions, as of WO-58.
   `UNMATCHED` line (a real, pre-existing gap — flagged, not solved); G2.9 (fee freezing, still
   decision-gated); G2.7/G2.10; any `api/routes/transport/*` route. Detail:
   `docs/plan/plan-a/wo/WO-58-G2.6-slice3.md`.
+
+- [x] **WO-59** — `Completed` — G2.7: the status lifecycle 1A→5 (R12/R17), narrowly scoped.
+  `app/services/transport/status.py::derive_stage` computes the system-derived `AUTO_CODES` value
+  (`1A`/`1B`/`1C`/`1E`) for a `draft` claim in D3's literal order — an unresolved `UNMATCHED` line or a
+  resolved invoice missing its document → `1A`; period not ended → `1B`; a "verdict caveat" (a
+  DOCUMENTED INTERPRETATION: below the Art. 17 minimum, or an active receipt-control waiver) → `1C`;
+  else `1E` — reusing WO-58's own `claim_gates.is_synthetic`/`document_gate` rather than re-deriving
+  either check (a new non-raising twin, `document_gate.missing_document_invoice_ids`, keeps the blocking
+  gate and this read-only preview on ONE query). `status.set_status_code` is the ONE writer of
+  `status_code`: refuses every `AUTO_CODES` value ("system-controlled") and refuses every `MANUAL_CODES`
+  value — INCLUDING `"2"` itself — while the claim is still `draft` (`claim_not_submitted`), matching
+  R17's own acceptance tests verbatim; on an already-locked claim it stamps the workflow-code LABEL (+
+  `action_deadline` for `2B`/`3D`'s soft reminder, R12) WITHOUT ever touching the coarse engine `status`
+  column — deliberately, since the real `ENGINE_OF` engine-state transitions for 3/3A/3B/3C/3D/4/4A/5
+  collide with G2.9's decision-gated fee engine. `lock.submit_claim` additively stamps
+  `status_code = "2"` in the same flush as its existing writes. No migration (`status_code`/
+  `action_deadline` are pre-existing nullable columns from WO-49). Detail: `docs/plan/plan-a/wo/WO-59-G2.7.md`.
 
 ---
 

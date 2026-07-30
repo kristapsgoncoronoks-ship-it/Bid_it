@@ -308,6 +308,12 @@ async def submit_claim(
             )
         )
     claim.status = "submitted"
+    # G2.7 (WO-59) — the workflow CODE mirrors the engine transition: "2"
+    # (Submit) is the ONLY manual code this codebase ever stamps outside
+    # `set_status_code` (which deliberately refuses to accept "2" at all —
+    # see `status.py`'s module docstring), since submission is this gated
+    # procedure, never a bare label write.
+    claim.status_code = "2"
     # A lost race on ANY lock row's UNIQUE constraint raises IntegrityError
     # HERE — still inside the caller's open transaction. The caller's
     # rollback() then discards every lock row added above AND the status

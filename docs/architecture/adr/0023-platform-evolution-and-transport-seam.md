@@ -220,6 +220,29 @@ un-waived `UNMATCHED` line — a real, pre-existing gap this order does not
 close (flagged explicitly in WO-58's own scope). Still future work: fee
 freezing (G2.9, decision-gated), status derivation (G2.7), the adjustable
 checklist as data (G2.10), and every `api/routes/transport/*` route.
+**Implementation status (WO-59, G2.7):** the status lifecycle 1A->5 has
+landed, narrowly scoped. `status.derive_stage` computes the correct
+system-derived `AUTO_CODES` value (`1A`/`1B`/`1C`/`1E`) for a `draft`
+claim in D3's literal order, reusing `claim_gates.is_synthetic` (unresolved
+lines) and `document_gate.missing_document_invoice_ids` (a new non-raising
+twin of WO-58's own R10 gate, extracted so the blocking check and this
+read-only preview share ONE query) as documented stand-ins for the still-
+unbuilt G2.10 checklist, and `minimum.below_minimum`/`waiver.
+waived_suppliers` as the documented "verdict caveat" (1C) signal.
+`status.set_status_code` is the ONE writer of `status_code`: refuses every
+`AUTO_CODES` value ("system-controlled") and refuses every `MANUAL_CODES`
+value — INCLUDING `"2"` itself — while the claim is still `draft`
+(`code="claim_not_submitted"`), R17 verbatim. `lock.submit_claim`
+additively stamps `status_code="2"` in the same flush as its existing
+lock/freeze/status writes. Deliberately NOT built: the `ENGINE_OF`-driven
+engine-state transitions for 3/3A/3B/3C/3D/4/4A/5 (moving the coarse
+`status` column itself to `approved`/`paid`/`rejected`) — entangled with
+G2.9's fee-freezing/settlement-route logic, which stays decision-gated;
+`set_status_code` manages ONLY the workflow-code LABEL (+ `action_deadline`,
+R12's soft `2B`/`3D` reminder) in this order, a documented, tested
+limitation rather than a silent gap. Still future work: G2.9 (decision-
+gated), G2.10 (the adjustable checklist, which will REPLACE `derive_stage`'s
+two-check proxy), and every `api/routes/transport/*` route.
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,

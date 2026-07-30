@@ -37,6 +37,18 @@ source_sha256 IS NOT NULL`) — Fleet Fuel's own `docs_index()` was built
 specifically to avoid an N+1 scan over each locked invoice; this codebase
 preserves that shape even though the underlying table (`ExtractionRun`)
 differs entirely from Fleet Fuel's `invoice_documents` vault index.
+
+WO-58 (G2.6 slice 3) SHIPPED THIS MODULE; WO-59 (G2.7) EXTRACTS THE
+NON-RAISING TWIN
+------------------------------------------------------------------------
+`missing_document_invoice_ids` is the same computation as
+`enforce_document_presence`, minus the raise — `app.services.transport.
+status.derive_stage` (G2.7) needs a non-blocking PREVIEW of "is a document
+missing" the same way `freeze.preview_vat_base` previews the frozen VAT
+base before `freeze_claim_lines` commits to it. Extracting the list-
+returning half means both the blocking gate (R10) and the read-only
+preview (G2.7) share exactly ONE query implementation — never two
+`ExtractionRun`/`invoice_ids_with_documents` call sites that could drift.
 """
 
 from __future__ import annotations
@@ -67,18 +79,29 @@ async def _resolved_invoice_ids(db: AsyncSession, org_id: str, claim_id: str) ->
     return sorted({r for r in rows if r is not None})
 
 
+async def missing_document_invoice_ids(db: AsyncSession, org_id: str, claim_id: str) -> list[str]:
+    """The non-raising half of R10: distinct `invoice_id`s among the claim's
+    resolved, currently-unfrozen lines that have ZERO vaulted documents.
+    Empty means every resolved invoice is documented (or there are no
+    resolved lines at all — nothing to check). One batch query
+    (`extraction.invoice_ids_with_documents`), shared by both
+    `enforce_document_presence` (the blocking gate) and
+    `app.services.transport.status.derive_stage` (the read-only preview,
+    G2.7) — never two independent implementations of the same check."""
+    invoice_ids = await _resolved_invoice_ids(db, org_id, claim_id)
+    if not invoice_ids:
+        return []
+    documented = await extraction.invoice_ids_with_documents(db, org_id, invoice_ids)
+    return sorted(i for i in invoice_ids if i not in documented)
+
+
 async def enforce_document_presence(db: AsyncSession, org_id: str, claim_id: str) -> None:
     """R10 — raise (409, `code="invoice_document_missing"`) naming every
     invoice number among the claim's resolved lines that has ZERO vaulted
     documents. A claim with no resolved lines at all (every line still
     `UNMATCHED`, or no lines built yet) passes trivially — there is nothing
     for this gate to check."""
-    invoice_ids = await _resolved_invoice_ids(db, org_id, claim_id)
-    if not invoice_ids:
-        return
-
-    documented = await extraction.invoice_ids_with_documents(db, org_id, invoice_ids)
-    missing_ids = [i for i in invoice_ids if i not in documented]
+    missing_ids = await missing_document_invoice_ids(db, org_id, claim_id)
     if not missing_ids:
         return
 

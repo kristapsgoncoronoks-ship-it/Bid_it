@@ -229,3 +229,4 @@ async def test_g2_6_submit_claim_refuses_when_the_locked_invoice_has_no_document
         today=date(2026, 7, 1),
     )
     assert result.status == "submitted"
+    assert result.status_code == "2", "G2.7 (WO-59) — submit_claim stamps the workflow code too"
