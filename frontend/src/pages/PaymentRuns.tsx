@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Badge, Button, Card, ConfirmDialog, type Tone } from "../components/ui";
+import { Badge, Button, Card, ConfirmDialog, EmptyState, PageHeader, QueryState, Skeleton, type Tone } from "../components/ui";
 import { api, apiError, apiErrorCode, downloadFile } from "../lib/api";
 import { money, shortDate } from "../lib/format";
 import type { PaymentRun, RunInvoice } from "../lib/types";
@@ -117,18 +117,15 @@ export default function PaymentRunsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">Payment runs</h1>
-          <p className="text-slate-500">
-            Pay approved, scheduled supplier invoices in a batch. A second user must approve a
-            run before it can be paid or exported (maker–checker).
-          </p>
-        </div>
-        <Link to="/invoices" className="text-sm text-brand-600 hover:underline">
-          ← Invoices
-        </Link>
-      </div>
+      <PageHeader
+        title="Payment runs"
+        description="Pay approved, scheduled supplier invoices in a batch. A second user must approve a run before it can be paid or exported (maker–checker)."
+        actions={
+          <Link to="/invoices" className="text-sm text-brand-600 hover:underline">
+            ← Invoices
+          </Link>
+        }
+      />
 
       {err && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
@@ -149,47 +146,58 @@ export default function PaymentRunsPage() {
             Create run ({money(selectedTotal, "EUR")})
           </Button>
         </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs text-slate-400">
-              <th className="py-1"></th>
-              <th className="py-1">Invoice</th>
-              <th className="py-1">Supplier</th>
-              <th className="py-1 text-right">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((i) => (
-              <tr key={i.id} className="border-t border-slate-100">
-                <td className="py-1">
-                  <input
-                    type="checkbox"
-                    checked={!!picked[i.id]}
-                    onChange={(e) => setPicked({ ...picked, [i.id]: e.target.checked })}
-                    aria-label={`Select ${i.invoice_number}`}
-                  />
-                </td>
-                <td className="py-1">{i.invoice_number}</td>
-                <td className="py-1 text-slate-500">{i.vendor_name ?? "—"}</td>
-                <td className="py-1 text-right tabular-nums">{money(i.total, i.currency)}</td>
-              </tr>
-            ))}
-            {items.length === 0 && (
-              <tr>
-                <td colSpan={4} className="py-3 text-slate-400">
-                  No scheduled invoices awaiting payment.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <QueryState
+          query={payable}
+          loading={<Skeleton className="h-16 w-full" />}
+          isEmpty={(d) => d.length === 0}
+          empty={<EmptyState title="No scheduled invoices awaiting payment" />}
+          errorTitle="Couldn’t load scheduled invoices"
+        >
+          {(d) => (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-slate-400">
+                  <th className="py-1"></th>
+                  <th className="py-1">Invoice</th>
+                  <th className="py-1">Supplier</th>
+                  <th className="py-1 text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.map((i) => (
+                  <tr key={i.id} className="border-t border-slate-100">
+                    <td className="py-1">
+                      <input
+                        type="checkbox"
+                        checked={!!picked[i.id]}
+                        onChange={(e) => setPicked({ ...picked, [i.id]: e.target.checked })}
+                        aria-label={`Select ${i.invoice_number}`}
+                      />
+                    </td>
+                    <td className="py-1">{i.invoice_number}</td>
+                    <td className="py-1 text-slate-500">{i.vendor_name ?? "—"}</td>
+                    <td className="py-1 text-right tabular-nums">{money(i.total, i.currency)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </QueryState>
       </Card>
 
       {/* Existing runs */}
       <Card>
         <h2 className="mb-3 text-sm font-semibold text-slate-700">Runs</h2>
+        <QueryState
+          query={runs}
+          loading={<Skeleton className="h-24 w-full" />}
+          isEmpty={(d) => d.length === 0}
+          empty={<EmptyState title="No payment runs yet" />}
+          errorTitle="Couldn’t load payment runs"
+        >
+          {(runData) => (
         <div className="space-y-3">
-          {(runs.data ?? []).map((r) => (
+          {runData.map((r) => (
             <div key={r.id} className="rounded-lg border border-slate-200 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
@@ -287,10 +295,9 @@ export default function PaymentRunsPage() {
               </div>
             </div>
           ))}
-          {(runs.data ?? []).length === 0 && (
-            <p className="text-sm text-slate-400">No payment runs yet.</p>
-          )}
         </div>
+          )}
+        </QueryState>
       </Card>
 
       <ConfirmDialog

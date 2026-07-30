@@ -1,9 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { KpiCard } from "../components/KpiCard";
 import { ModuleInactive } from "../components/ModuleGate";
 import { useAuth } from "../auth/AuthContext";
+import { EmptyState, PageHeader, QueryState, Skeleton } from "../components/ui";
 import { api, apiError } from "../lib/api";
 import { EXPENSE_STATUS_STYLES, money, shortDate } from "../lib/format";
 import { isAdminOrAbove } from "../lib/roles";
@@ -44,7 +45,7 @@ export default function Expenses() {
   if (modules.data && !enabled) {
     return (
       <div className="space-y-4">
-        <h1 className="text-2xl font-semibold tracking-tight">Expenses</h1>
+        <PageHeader title="Expenses" />
         <ModuleInactive name="employee expenses" />
       </div>
     );
@@ -54,14 +55,16 @@ export default function Expenses() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Expenses</h1>
-        {isManager && (
-          <Link to="/reimbursements" className="text-sm text-brand-600 hover:underline">
-            Reimbursements →
-          </Link>
-        )}
-      </div>
+      <PageHeader
+        title="Expenses"
+        actions={
+          isManager && (
+            <Link to="/reimbursements" className="text-sm text-brand-600 hover:underline">
+              Reimbursements →
+            </Link>
+          )
+        }
+      />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <KpiCard label="Awaiting reimbursement" value={s ? money(s.my_reimbursable) : "—"} accent="emerald" sub="approved · mine" />
@@ -76,11 +79,20 @@ export default function Expenses() {
 
       <NewReport />
 
-      {isManager && (pending.data?.total ?? 0) > 0 && (
-        <ReportTable title={`Awaiting my approval (${pending.data!.total})`} rows={pending.data!.items} showEmployee />
+      {isManager && (
+        <ReportTable
+          title={`Awaiting my approval${pending.data ? ` (${pending.data.total})` : ""}`}
+          query={pending}
+          showEmployee
+          emptyTitle="Nothing awaiting your approval"
+        />
       )}
 
-      <ReportTable title={`My reports (${mine.data?.total ?? 0})`} rows={mine.data?.items ?? []} />
+      <ReportTable
+        title={`My reports${mine.data ? ` (${mine.data.total})` : ""}`}
+        query={mine}
+        emptyTitle="No expense reports yet"
+      />
     </div>
   );
 }
@@ -186,40 +198,57 @@ function AvailableExpenses({ enabled }: { enabled: boolean }) {
   );
 }
 
-function ReportTable({ title, rows, showEmployee }: { title: string; rows: ExpenseReport[]; showEmployee?: boolean }) {
+function ReportTable({
+  title,
+  query,
+  showEmployee,
+  emptyTitle,
+}: {
+  title: string;
+  query: UseQueryResult<Paginated<ExpenseReport>>;
+  showEmployee?: boolean;
+  emptyTitle: string;
+}) {
   return (
     <div>
       <h2 className="mb-2 text-sm font-semibold text-slate-600">{title}</h2>
       <div className="card overflow-x-auto p-0">
-        <table className="w-full text-sm">
-          <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="px-4 py-3">Report</th>
-              {showEmployee && <th className="px-4 py-3">Employee</th>}
-              <th className="px-4 py-3">Submitted</th>
-              <th className="px-4 py-3 text-right">VAT</th>
-              <th className="px-4 py-3 text-right">Total</th>
-              <th className="px-4 py-3">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                <td className="px-4 py-3">
-                  <Link to={`/expenses/${r.id}`} className="font-medium text-brand-600 hover:underline">{r.title}</Link>
-                </td>
-                {showEmployee && <td className="px-4 py-3 text-slate-500">{r.employee_name}</td>}
-                <td className="px-4 py-3 text-slate-500">{r.submitted_at ? shortDate(r.submitted_at) : "—"}</td>
-                <td className="px-4 py-3 text-right text-slate-500">{money(r.vat_total, r.currency)}</td>
-                <td className="px-4 py-3 text-right font-medium">{money(r.total, r.currency)}</td>
-                <td className="px-4 py-3"><span className={`badge ${EXPENSE_STATUS_STYLES[r.status] ?? ""}`}>{r.status}</span></td>
-              </tr>
-            ))}
-            {rows.length === 0 && (
-              <tr><td colSpan={showEmployee ? 6 : 5} className="px-4 py-8 text-center text-slate-400">Nothing here.</td></tr>
-            )}
-          </tbody>
-        </table>
+        <QueryState
+          query={query}
+          loading={<Skeleton className="m-4 h-32 w-[calc(100%-2rem)]" />}
+          isEmpty={(d) => d.items.length === 0}
+          empty={<EmptyState title={emptyTitle} />}
+          errorTitle="Couldn’t load expense reports"
+        >
+          {(d) => (
+            <table className="w-full text-sm">
+              <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">Report</th>
+                  {showEmployee && <th className="px-4 py-3">Employee</th>}
+                  <th className="px-4 py-3">Submitted</th>
+                  <th className="px-4 py-3 text-right">VAT</th>
+                  <th className="px-4 py-3 text-right">Total</th>
+                  <th className="px-4 py-3">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.items.map((r) => (
+                  <tr key={r.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                    <td className="px-4 py-3">
+                      <Link to={`/expenses/${r.id}`} className="font-medium text-brand-600 hover:underline">{r.title}</Link>
+                    </td>
+                    {showEmployee && <td className="px-4 py-3 text-slate-500">{r.employee_name}</td>}
+                    <td className="px-4 py-3 text-slate-500">{r.submitted_at ? shortDate(r.submitted_at) : "—"}</td>
+                    <td className="px-4 py-3 text-right text-slate-500">{money(r.vat_total, r.currency)}</td>
+                    <td className="px-4 py-3 text-right font-medium">{money(r.total, r.currency)}</td>
+                    <td className="px-4 py-3"><span className={`badge ${EXPENSE_STATUS_STYLES[r.status] ?? ""}`}>{r.status}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </QueryState>
       </div>
     </div>
   );

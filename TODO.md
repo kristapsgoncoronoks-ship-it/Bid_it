@@ -340,9 +340,27 @@ learning loop) — all shipped, tested, documented. Full list: `docs/plan/plan-a
   already good, do not rebuild; two CRITICAL findings (silent-failure async states on 26 pages;
   unlabeled form controls, WCAG 1.3.1/4.1.2) and one HIGH (design system built but ~unused —
   migration, not new-build).
-- [ ] **WO-45-UX1** — `Planned` — fix `QueryState`'s error branch, adopt `QueryState`+`PageHeader` on
-  the 8 money-bearing pages, unclip the Invoices table, add a focus ring to `.btn`. Fully specified,
-  not yet implemented: `docs/plan/plan-a/wo/WO-45-UX1-async-state-and-page-header.md`.
+- [x] **WO-45-UX1** — `Completed` — `QueryState`'s error branch now renders `ErrorState`
+  (`role="alert"`, retry via `onRetry`) instead of `EmptyState` — the fix that upgrades every
+  current and future `QueryState` consumer at once. Adopted `QueryState`+`PageHeader` on all eight
+  money-bearing pages (`Invoices`, `Expenses`, `PaymentRuns`, `InvoiceDetail`, `CashPosition`,
+  `IssuedReports`, `Receipts`, `Review`) — each independently-failing region gets its own
+  `QueryState` (e.g. `Expenses.tsx`'s "awaiting my approval" vs "my reports" panels; `IssuedReports`'
+  4 tabs); `PageHeader` hoisted above the loading/error branch on every page, collapsing
+  `Expenses.tsx`/`IssuedReports.tsx`'s duplicate `<h1>`s. `CashPosition.tsx`'s WO-18 honesty copy
+  moved verbatim into `PageHeader`'s `description` — `e2e/cash-position.spec.ts` passes unmodified.
+  Unclipped the Invoices table (`overflow-hidden` → `overflow-x-auto`, Invoices.tsx only, per scope).
+  Added a focus ring to the legacy `btn` `@utility` — using `ring-brand-500` (the WO's `ring-brand-400`
+  does not exist as a theme token; adding one was explicitly out of scope, so this order used the
+  nearest real token rather than inventing one, flagged in the commit). New
+  `frontend/e2e/error-states.spec.ts` (7 tests: 500/empty/403/retry on Invoices, partial-failure on
+  Expenses, single-region failures on Review/PaymentRuns) + `nav.spec.ts` extended with a single-`<h1>`
+  guarantee across all eight routes + an invoice-detail route. All 5 "must pass unmodified" specs
+  (`cash-position`, `dashboard`, `smoke`, `masters`, `upload-duplicate`) pass byte-identical; visual
+  regression (`test:vr`) shows **zero** snapshot diffs (none of the `/design` showcase fixtures
+  exercise a focused button or a query-error state, so this is the correct, verified outcome, not a
+  missed change). Zero backend files touched. Detail:
+  `docs/plan/plan-a/wo/WO-45-UX1-async-state-and-page-header.md`.
 - [ ] Further UX slices (design-system migration across remaining pages, form-label pass, nav collapse
   rail/group-collapse/breadcrumbs, orphaned-route wiring for `/issuer` and `/reimbursements`) —
   `Backlog`, scoped in `docs/design/UX-AUDIT.md`'s phased plan, to be written up as WO-48+ in turn.

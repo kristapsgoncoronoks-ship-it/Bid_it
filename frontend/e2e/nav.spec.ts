@@ -194,3 +194,115 @@ test("breadcrumb reflects the current page", async ({ page }) => {
   await page.goto("/invoices");
   await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText("Invoices");
 });
+
+// ---------------------------------------------------------------------------
+// WO-45 (UX1): `PageHeader` is now the sole page-title mechanism on the eight
+// money-bearing pages it touched — each renders exactly ONE `<h1>` (a bare
+// `getByRole("heading", { level: 1 })` count), collapsing the duplicate
+// `<h1>`s `Expenses.tsx`/`IssuedReports.tsx` used to render across their two
+// branches (module-inactive/gated vs the live page).
+// ---------------------------------------------------------------------------
+
+const INVOICE_ITEM_H1 = {
+  id: "inv-1",
+  vendor_id: "vendor-1",
+  invoice_number: "INV-H1-TEST",
+  issue_date: "2026-05-01",
+  due_date: null,
+  currency: "EUR",
+  status: "pending",
+  subtotal: "100.00",
+  tax_amount: "21.00",
+  total: "121.00",
+  validation_status: "none",
+  source_filename: null,
+  cost_center: null,
+  department: null,
+  project: null,
+  vehicle: null,
+  property_ref: null,
+};
+
+async function mockApiForOneH1(page: Page): Promise<void> {
+  await page.addInitScript(() => localStorage.setItem("invoiceiq_token", "e2e-token"));
+  const user = { id: "user-1", email: "owner@test.io", name: "Owner", role: "owner", org_id: "org-1" };
+  const org = { id: "org-1", name: "Test Workspace", status: "active" };
+
+  const json = (body: unknown, status = 200) => ({
+    status,
+    contentType: "application/json",
+    body: JSON.stringify(body),
+  });
+
+  await page.route("**/api/v1/**", async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace(/^.*\/api\/v1/, "");
+
+    if (path === "/auth/me") return route.fulfill(json({ user, organization: org }));
+    if (path === "/auth/organizations") return route.fulfill(json([org]));
+    if (path === "/modules") {
+      return route.fulfill(
+        json([
+          { key: "expenses", name: "Expenses", description: "", core: false, enabled: true, requires_issuer: false, ready: true },
+          { key: "issuing", name: "Issuing", description: "", core: false, enabled: true, requires_issuer: false, ready: true },
+        ]),
+      );
+    }
+    if (path === "/invoices" && !url.searchParams.get("validation_status")) {
+      return route.fulfill(json({ items: [INVOICE_ITEM_H1], total: 1, page: 1, page_size: 20 }));
+    }
+    if (path === "/invoices" && url.searchParams.get("validation_status")) {
+      return route.fulfill(json({ items: [], total: 0, page: 1, page_size: 100 }));
+    }
+    if (path === "/invoices/inv-1") return route.fulfill(json({ ...INVOICE_ITEM_H1, vendor_name: "Fictional Vendor", notes: null, line_items: [], validation_findings: [], validated_by: null, validated_at: null, workflow_state: null, amount_paid: "0.00", paid_date: null, outstanding: "121.00" }));
+    if (path === "/invoices/inv-1/payments") return route.fulfill(json([]));
+    if (path === "/expenses/summary") return route.fulfill(json({ my_reimbursable: "0.00", reclaimable_vat: "0.00", my_submitted: 0, pending_approvals: 0 }));
+    if (path === "/expenses" || path === "/expenses/transactions") return route.fulfill(json(path === "/expenses" ? { items: [], total: 0 } : []));
+    if (path === "/payment-runs" || path === "/payment-runs/payable") return route.fulfill(json([]));
+    if (path === "/analytics/cash-position") {
+      return route.fulfill(
+        json({
+          currency: "EUR",
+          receivables: { outstanding: "0.00", overdue: "0.00", avg_days_to_pay: null, aging: [] },
+          payables: { outstanding: "0.00", overdue: "0.00", scheduled: 0, count: 0, in_run: 0 },
+          reconciliation: { unmatched: 0, matched: 0, ignored: 0, unmatched_amount: "0.00" },
+          net_position: "0.00",
+        }),
+      );
+    }
+    if (path === "/analytics/ap-aging") {
+      return route.fulfill(
+        json({ currency: "EUR", due_soon_count: 0, due_soon_amount: "0.00", overdue_count: 0, overdue_amount: "0.00", other_currencies: [], items: [] }),
+      );
+    }
+    if (path === "/analytics/cash-flow") return route.fulfill(json([]));
+    if (path === "/issued/reports/summary") {
+      return route.fulfill(
+        json({ count: 0, currency: "EUR", net: "0.00", vat: "0.00", gross: "0.00", collected: "0.00", outstanding: "0.00", series: [] }),
+      );
+    }
+    if (path === "/receipts") return route.fulfill(json([]));
+    if (path === "/settings/validation") return route.fulfill(json({ ai_validation_enabled: true, human_validation_enabled: true }));
+
+    return route.fulfill(json({}));
+  });
+}
+
+test("every audited page renders exactly one h1", async ({ page }) => {
+  await mockApiForOneH1(page);
+
+  const routes = [
+    "/invoices",
+    "/expenses",
+    "/payment-runs",
+    "/cash-position",
+    "/issue/reports",
+    "/receipts",
+    "/review",
+    "/invoices/inv-1",
+  ];
+  for (const route of routes) {
+    await page.goto(route);
+    await expect(page.getByRole("heading", { level: 1 }), `route ${route}`).toHaveCount(1);
+  }
+});

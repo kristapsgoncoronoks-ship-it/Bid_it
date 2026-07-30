@@ -72,6 +72,15 @@ and exported from the barrel.
 |---|---|---|
 | `AppShell` | `navGroups`, `orgs/currentOrgId/onSwitchOrg`, `entities?/currentEntityId?/onSwitchEntity?`, `user/onSignOut`, `search?/onSearch?`, `breadcrumbs`, `banner`, `userMenuExtraItems?`, `accountHref?`, `children` | Sidebar + top bar wrapping routed content. `navGroups` is caller-supplied (no built-in nav opinion); `entities`/`search` are optional — omit when the caller has no legal-entity or search backend behind them (the live app omits both today) |
 | `PageHeader` | `title`, `description`, `actions`, `breadcrumbs`, `meta` | The one place page `<h1>` + actions are composed |
+
+**`PageHeader` is the ONLY sanctioned mechanism for a page title** (WO-45 /
+UX1). A page renders exactly one `<h1>`, and it always comes from
+`PageHeader` — never a hand-rolled `<h1 className="text-2xl ...">`. Where a
+page has a loading/error/gated branch as well as its live-data branch,
+`PageHeader` is hoisted ABOVE that branch (rendered once, unconditionally)
+so the title stays stable while the data loads and no branch can produce a
+second `<h1>` — this is what collapsed the duplicate headings
+`Expenses.tsx`/`IssuedReports.tsx` used to render.
 | `Breadcrumbs` | `items: {label, to?}[]` | Labelled `<nav>`; last crumb `aria-current="page"` |
 | `Tabs` / `TabPanel` | `tabs`, `value`, `onChange`, `label`, `idBase` | WAI-ARIA tablist + linked panel |
 | `Dropdown` | `trigger(fn)`, `items`, `label`, `align` | Menu-button pattern; powers the switchers + user menu |
@@ -106,8 +115,22 @@ and exported from the barrel.
 | `Drawer` | `open`, `onClose`, `title`, `side`, `size` | Side panel (same a11y contract) |
 | `ConfirmDialog` | `open`, `onClose`, `onConfirm`, `title`, `tone`, `loading` | "Are you sure?" over `Modal` |
 | `EmptyState` / `ErrorState` | `title`, `description`, `action`/`onRetry` | "Nothing yet" vs "something failed" |
+| `QueryState` | `query`, `children(data)`, `loading`, `empty`, `isEmpty`, `errorTitle` | The async triad wrapper around one `useQuery` result |
 | `Toast` (`toast.success/error`) | module bridge | `role="alert"` transient notices |
 | `Spinner` / `Skeleton` / `SkeletonText` | — | Loading primitives |
+
+**`QueryState`'s error branch renders `ErrorState` (`role="alert"`), never
+`EmptyState`** (WO-45 / UX1 — before this, a failed request rendered
+pixel-identical to a genuinely empty dataset, with no toast and no retry).
+`EmptyState` means "no data yet, that's fine"; `ErrorState` means "the
+request failed" — these are two different FACTS about the world and must
+**never share copy** (e.g. "No invoices match these filters" vs "Couldn't
+load invoices" — never one generic string doing both jobs). Fail-open vs
+fail-closed: `QueryState` introduces no new gate and changes nothing about
+what a role/plan is allowed to see — a 403 renders the identical `ErrorState`
+a 500 would; the frontend still draws no authorization conclusion (master-
+context §6), it only makes an already-failed request visibly failed instead
+of silently empty.
 
 ---
 

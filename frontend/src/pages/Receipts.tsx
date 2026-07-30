@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Badge, Button, Card, type Tone } from "../components/ui";
+import { Badge, Button, Card, EmptyState, PageHeader, QueryState, Skeleton, type Tone } from "../components/ui";
 import { api, apiError } from "../lib/api";
 import { money, shortDate } from "../lib/format";
 import type { IssuedInvoice, Paginated, Receipt, ReceiptDetail } from "../lib/types";
@@ -40,17 +40,15 @@ export default function ReceiptsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">Receipts</h1>
-          <p className="text-slate-500">
-            Record money received and apply it across your customer invoices.
-          </p>
-        </div>
-        <Link to="/issue" className="text-sm text-brand-600 hover:underline">
-          ← Customer invoices
-        </Link>
-      </div>
+      <PageHeader
+        title="Receipts"
+        description="Record money received and apply it across your customer invoices."
+        actions={
+          <Link to="/issue" className="text-sm text-brand-600 hover:underline">
+            ← Customer invoices
+          </Link>
+        }
+      />
 
       {err && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
@@ -62,35 +60,42 @@ export default function ReceiptsPage() {
 
       <Card>
         <h2 className="mb-3 text-sm font-semibold text-slate-700">Received</h2>
-        <div className="space-y-3">
-          {(receipts.data ?? []).map((r) => (
-            <div key={r.id} className="rounded-lg border border-slate-200 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Badge tone={unallocatedTone(r)}>{unallocatedLabel(r)}</Badge>
-                  <span className="font-medium tabular-nums">{money(r.amount, "EUR")}</span>
-                  <span className="text-xs text-slate-400">
-                    {shortDate(r.received_on)} · {r.method}
-                    {r.reference ? ` · ${r.reference}` : ""}
-                  </span>
+        <QueryState
+          query={receipts}
+          loading={<Skeleton className="h-24 w-full" />}
+          isEmpty={(d) => d.length === 0}
+          empty={<EmptyState title="No receipts recorded yet" />}
+          errorTitle="Couldn’t load receipts"
+        >
+          {(d) => (
+            <div className="space-y-3">
+              {d.map((r) => (
+                <div key={r.id} className="rounded-lg border border-slate-200 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Badge tone={unallocatedTone(r)}>{unallocatedLabel(r)}</Badge>
+                      <span className="font-medium tabular-nums">{money(r.amount, "EUR")}</span>
+                      <span className="text-xs text-slate-400">
+                        {shortDate(r.received_on)} · {r.method}
+                        {r.reference ? ` · ${r.reference}` : ""}
+                      </span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setOpenId(openId === r.id ? null : r.id)}
+                    >
+                      {openId === r.id ? "Hide" : "Apply / details"}
+                    </Button>
+                  </div>
+                  {openId === r.id && (
+                    <ReceiptDetailPanel receiptId={r.id} onChanged={invalidate} onErr={onErr} />
+                  )}
                 </div>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => setOpenId(openId === r.id ? null : r.id)}
-                >
-                  {openId === r.id ? "Hide" : "Apply / details"}
-                </Button>
-              </div>
-              {openId === r.id && (
-                <ReceiptDetailPanel receiptId={r.id} onChanged={invalidate} onErr={onErr} />
-              )}
+              ))}
             </div>
-          ))}
-          {(receipts.data ?? []).length === 0 && (
-            <p className="text-sm text-slate-400">No receipts recorded yet.</p>
           )}
-        </div>
+        </QueryState>
       </Card>
     </div>
   );
@@ -214,17 +219,25 @@ function ReceiptDetailPanel({
   const open = (invoices.data?.items ?? []).filter(
     (i) => i.doc_type !== "credit_note" && i.status !== "void" && Number(i.outstanding) > 0,
   );
-  const free = Number(detail.data?.unallocated ?? 0);
-  // A reversal is itself a negative ledger row noted "reversal:<id>". Only a
-  // positive allocation that has not been reversed can be reversed.
-  const allocations = detail.data?.allocations ?? [];
-  const reversedIds = new Set(
-    allocations.filter((a) => a.note?.startsWith("reversal:")).map((a) => a.note!.slice(9)),
-  );
   const inputClass = "rounded-lg border border-slate-300 px-2 py-1 text-sm";
 
   return (
     <div className="mt-3 border-t border-slate-100 pt-3">
+      <QueryState
+        query={detail}
+        loading={<Skeleton className="h-16 w-full" />}
+        errorTitle="Couldn’t load this receipt's allocations"
+      >
+        {(d) => {
+          const free = Number(d.unallocated ?? 0);
+          // A reversal is itself a negative ledger row noted "reversal:<id>".
+          // Only a positive allocation that has not been reversed can be reversed.
+          const allocations = d.allocations ?? [];
+          const reversedIds = new Set(
+            allocations.filter((a) => a.note?.startsWith("reversal:")).map((a) => a.note!.slice(9)),
+          );
+          return (
+            <>
       {/* Existing allocations */}
       <table className="w-full text-sm">
         <thead>
@@ -314,13 +327,17 @@ function ReceiptDetailPanel({
             loading={allocate.isPending}
             onClick={() => allocate.mutate()}
           >
-            Apply {money(detail.data?.unallocated ?? 0, "EUR")} left
+            Apply {money(d.unallocated ?? 0, "EUR")} left
           </Button>
         </div>
       )}
       {free <= 0 && allocations.length > 0 && (
         <p className="mt-2 text-xs text-slate-400">This receipt is fully applied.</p>
       )}
+            </>
+          );
+        }}
+      </QueryState>
     </div>
   );
 }

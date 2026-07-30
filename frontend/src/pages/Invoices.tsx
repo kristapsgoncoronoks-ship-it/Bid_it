@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { EmptyState, PageHeader, QueryState, Skeleton } from "../components/ui";
 import { api, downloadFile } from "../lib/api";
 import { money, shortDate, STATUS_STYLES } from "../lib/format";
 import { isAdminOrAbove } from "../lib/roles";
@@ -40,7 +41,7 @@ export default function Invoices() {
   const [q, setQ] = useState(searchParams.get("q") ?? "");
   const [page, setPage] = useState(1);
 
-  const { data, isLoading } = useQuery<InvoiceList>({
+  const query = useQuery<InvoiceList>({
     queryKey: ["invoices", status, q, page, workflowState],
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(page), page_size: String(PAGE_SIZE) });
@@ -50,32 +51,35 @@ export default function Invoices() {
       return (await api.get(`/invoices?${params.toString()}`)).data;
     },
   });
+  const { data } = query;
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Invoices</h1>
-        <div className="flex items-center gap-2">
-          {isAdminOrAbove(user) && (
-            <div className="flex items-center gap-1 text-sm">
-              <span className="text-slate-400">Export:</span>
-              {EXPORTS.map((e) => (
-                <button
-                  key={e.fmt}
-                  className="btn-ghost py-1"
-                  title={`Export the invoice ledger for ${e.label}`}
-                  onClick={() => downloadFile(`/export/accounting?fmt=${e.fmt}`, `invoices-${e.fmt}.csv`)}
-                >
-                  {e.label}
-                </button>
-              ))}
-            </div>
-          )}
-          <Link to="/upload" className="btn-primary">Upload invoice</Link>
-        </div>
-      </div>
+      <PageHeader
+        title="Invoices"
+        actions={
+          <>
+            {isAdminOrAbove(user) && (
+              <div className="flex items-center gap-1 text-sm">
+                <span className="text-slate-400">Export:</span>
+                {EXPORTS.map((e) => (
+                  <button
+                    key={e.fmt}
+                    className="btn-ghost py-1"
+                    title={`Export the invoice ledger for ${e.label}`}
+                    onClick={() => downloadFile(`/export/accounting?fmt=${e.fmt}`, `invoices-${e.fmt}.csv`)}
+                  >
+                    {e.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <Link to="/upload" className="btn-primary">Upload invoice</Link>
+          </>
+        }
+      />
 
       <div className="flex flex-wrap items-end gap-3">
         <div>
@@ -126,55 +130,55 @@ export default function Invoices() {
         )}
       </div>
 
-      <div className="card overflow-hidden p-0">
-        <table className="w-full text-sm">
-          <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="px-4 py-3">Number</th>
-              <th className="px-4 py-3">Issue date</th>
-              <th className="px-4 py-3">Status</th>
-              {workflowState && <th className="px-4 py-3">Workflow</th>}
-              <th className="px-4 py-3 text-right">Tax</th>
-              <th className="px-4 py-3 text-right">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={workflowState ? 6 : 5} className="px-4 py-10 text-center text-slate-400">Loading…</td>
-              </tr>
-            )}
-            {data?.items.map((inv) => (
-              <tr key={inv.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                <td className="px-4 py-3">
-                  <Link to={`/invoices/${inv.id}`} className="font-medium text-brand-600 hover:underline">
-                    {inv.invoice_number}
-                  </Link>
-                </td>
-                <td className="px-4 py-3 text-slate-500">{shortDate(inv.issue_date)}</td>
-                <td className="px-4 py-3">
-                  <span className={`badge ${STATUS_STYLES[inv.status] ?? ""}`}>{inv.status}</span>
-                </td>
-                {workflowState && (
-                  <td className="px-4 py-3">
-                    <span className="badge bg-slate-100 text-slate-600">
-                      {(inv.workflow_state && WORKFLOW_LABELS[inv.workflow_state]) ??
-                        inv.workflow_state ??
-                        "—"}
-                    </span>
-                  </td>
-                )}
-                <td className="px-4 py-3 text-right text-slate-500">{money(inv.tax_amount, inv.currency)}</td>
-                <td className="px-4 py-3 text-right font-medium">{money(inv.total, inv.currency)}</td>
-              </tr>
-            ))}
-            {data && data.items.length === 0 && !isLoading && (
-              <tr>
-                <td colSpan={workflowState ? 6 : 5} className="px-4 py-10 text-center text-slate-400">No invoices found.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      <div className="card overflow-x-auto p-0">
+        <QueryState
+          query={query}
+          loading={<Skeleton className="m-4 h-40 w-[calc(100%-2rem)]" />}
+          isEmpty={(d) => d.items.length === 0}
+          empty={<EmptyState title="No invoices match these filters" />}
+          errorTitle="Couldn’t load invoices"
+        >
+          {(d) => (
+            <table className="w-full text-sm">
+              <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">Number</th>
+                  <th className="px-4 py-3">Issue date</th>
+                  <th className="px-4 py-3">Status</th>
+                  {workflowState && <th className="px-4 py-3">Workflow</th>}
+                  <th className="px-4 py-3 text-right">Tax</th>
+                  <th className="px-4 py-3 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.items.map((inv) => (
+                  <tr key={inv.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                    <td className="px-4 py-3">
+                      <Link to={`/invoices/${inv.id}`} className="font-medium text-brand-600 hover:underline">
+                        {inv.invoice_number}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 text-slate-500">{shortDate(inv.issue_date)}</td>
+                    <td className="px-4 py-3">
+                      <span className={`badge ${STATUS_STYLES[inv.status] ?? ""}`}>{inv.status}</span>
+                    </td>
+                    {workflowState && (
+                      <td className="px-4 py-3">
+                        <span className="badge bg-slate-100 text-slate-600">
+                          {(inv.workflow_state && WORKFLOW_LABELS[inv.workflow_state]) ??
+                            inv.workflow_state ??
+                            "—"}
+                        </span>
+                      </td>
+                    )}
+                    <td className="px-4 py-3 text-right text-slate-500">{money(inv.tax_amount, inv.currency)}</td>
+                    <td className="px-4 py-3 text-right font-medium">{money(inv.total, inv.currency)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </QueryState>
       </div>
 
       <div className="flex items-center justify-between text-sm text-slate-500">

@@ -488,9 +488,9 @@ The brief's six-phase structure, **adapted to the gap analysis**. Phases whose w
 
 Slices are numbered from **WO-45** (the highest existing work order in `docs/plan/plan-a/wo/` is `WO-44-E14.md`) and prefixed `UX` so they slot into the Plan A pipeline as a new UX epic alongside the `I` board.
 
-| WO | Slice | Phase | Effort | Priority | Depends on |
-|---|---|---|---|---|---|
-| **WO-45-UX1** | Async-state truth: fix `QueryState`'s error branch, then `QueryState` + `PageHeader` on the 8 money-bearing pages; `btn` focus ring | 3 | **M — 4d** | **P0** | nothing |
+| WO | Slice | Phase | Effort | Priority | Depends on | Status |
+|---|---|---|---|---|---|---|
+| **WO-45-UX1** | Async-state truth: fix `QueryState`'s error branch, then `QueryState` + `PageHeader` on the 8 money-bearing pages; `btn` focus ring | 3 | **M — 4d** | **P0** | nothing | ✅ **Completed** |
 | WO-46-UX2 | Form accessibility: `FormField`/`TextInput`/`Select` on auth + the 3 major forms; `autoComplete`; `aria-label` on the Expenses grid | 3 | M — 4d | P0 | nothing |
 | WO-47-UX3 | `Tooltip` primitive + move `Toast` into `ui/`; replace meaning-bearing `title` attributes | 2 | S — 2d | P1 | nothing |
 | WO-48-UX4 | Design tokens: semantic colours, contrast fix for `slate-400`, consolidate the 8 status vocabularies onto `Tone` | 2 | S — 2d | P1 | nothing |

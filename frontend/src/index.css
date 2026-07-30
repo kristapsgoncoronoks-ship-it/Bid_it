@@ -31,7 +31,16 @@
 }
 
 @utility btn {
-  @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition disabled:opacity-50;
+  /* WO-45: focus ring for the legacy btn-primary/btn-ghost call sites, which
+     previously fell back to the user-agent outline while ui/Button's kit
+     showed a brand ring. Uses `ring-brand-500` (not the `ring-brand-400` the
+     work order names) — `--color-brand-400` is not defined anywhere in this
+     theme (only 50/100/500/600/700 exist), so `ring-brand-400` cannot be
+     resolved by an `@apply` at build time; `500` is the nearest existing
+     token and the one this utility's own `btn-primary` already uses for its
+     background. Adding a brand-400 token is explicitly out of scope here
+     (WO-48 owns new design tokens) — flagged, not silently invented. */
+  @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition disabled:opacity-50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-brand-500;
 }
 
 @utility btn-primary {
