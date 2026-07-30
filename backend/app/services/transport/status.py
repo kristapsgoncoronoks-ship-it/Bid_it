@@ -28,17 +28,21 @@ This is the same fail-toward-blocking discipline `is_synthetic()`'s own
 docstring states: refusing to guess is safer than a wrong engine-state
 transition that silently bypasses a fee invariant nobody has built yet.
 
-WHY `derive_stage`'S "NON-PERIOD CHECKLIST ITEMS" ARE TWO CONCRETE CHECKS,
-NOT A DATA-DRIVEN RULE SET
+WHY `derive_stage`'S "NON-PERIOD CHECKLIST ITEMS" NOW CALL
+`checklist.submission_checklist` (G2.10 SLICE 1, WO-60)
 ------------------------------------------------------------------------
 D3's "all non-period checklist items pass?" describes `submission_
-checklist()` — G2.10 (the adjustable checklist as data), not yet built.
-Until it lands, this module's "non-period items" are the two concrete,
-already-shipped checks this codebase actually has: an un-waived, unresolved
-`UNMATCHED` claim line (R3's `is_synthetic()`, via `claim_gates`) and a
-resolved invoice missing its vaulted document (R10, via `document_gate.
-missing_document_invoice_ids`). A future G2.10 REPLACES this checklist
-proxy; it does not sit alongside it.
+checklist()` — G2.10, the adjustable checklist as data. WO-59 shipped a
+documented two-check PROXY for this (an unresolved line + a missing
+document) with an explicit note that G2.10 would REPLACE it, not sit
+alongside it. This module now does exactly that: every item
+`checklist.submission_checklist` returns except `"period_ended"` is a
+"non-period item"; any of them failing -> `"1A"`. The proxy's own two
+checks are still IN there (`unresolved_refs`/`receipt_control`,
+`documents_attached`), now alongside the two adjustable `customer`-scope
+DATA rules (`customer_data`, `bank_account`) — see `checklist.py`'s own
+module docstring for why only those two of the six harvested defaults are
+evaluable today.
 
 WHY THE "CAVEAT" (1C) SIGNAL IS A DOCUMENTED INTERPRETATION
 ------------------------------------------------------------
@@ -62,11 +66,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError, NotFoundError, PermissionError, ValidationError
-from app.models.transport.vat_claim import VatRefundClaim, VatRefundClaimLine
+from app.models.transport.vat_claim import VatRefundClaim
 from app.services import audit, modules
-from app.services.transport.claim_gates import is_synthetic
+from app.services.transport.checklist import submission_checklist
 from app.services.transport.deadline import period_ended
-from app.services.transport.document_gate import missing_document_invoice_ids
 from app.services.transport.freeze import preview_vat_base
 from app.services.transport.minimum import below_minimum
 from app.services.transport.waiver import waived_suppliers
@@ -98,22 +101,6 @@ async def _get_claim(db: AsyncSession, org_id: str, claim_id: str) -> VatRefundC
     return claim
 
 
-async def _has_unresolved_line(db: AsyncSession, org_id: str, claim_id: str) -> bool:
-    """True iff any currently-unfrozen claim line is still synthetic
-    (`UNMATCHED`, via `claim_gates.is_synthetic` — never a raw string
-    comparison). A waived supplier's transactions never became a line at
-    all (WO-58's `claim_lines.build_claim_lines`), so any synthetic line
-    remaining here is, by construction, un-waived."""
-    result = await db.execute(
-        select(VatRefundClaimLine.invoice_ref, VatRefundClaimLine.vat_id).where(
-            VatRefundClaimLine.org_id == org_id,
-            VatRefundClaimLine.claim_id == claim_id,
-            VatRefundClaimLine.frozen_at.is_(None),
-        )
-    )
-    return any(is_synthetic(ref, vat_id) for ref, vat_id in result.all())
-
-
 async def derive_stage(
     db: AsyncSession, org_id: str, claim_id: str, *, today: date | None = None
 ) -> str:
@@ -126,7 +113,9 @@ async def derive_stage(
     FIRST, even if the period also hasn't ended — the harvested order,
     preserved even though checking period-end first might seem more
     natural); else period not ended -> `"1B"`; else a caveat is present
-    (see module docstring) -> `"1C"`; else `"1E"`.
+    (see module docstring) -> `"1C"`; else `"1E"`. "Non-period items" are
+    every `checklist.submission_checklist` item except `"period_ended"`
+    (G2.10 slice 1, WO-60 — see module docstring).
 
     `today` is a test seam (defaults to `date.today()` inside `deadline.
     period_ended`), mirroring `lock.submit_claim`'s own `today` parameter —
@@ -144,10 +133,9 @@ async def derive_stage(
             code="claim_not_draft",
         )
 
-    if await _has_unresolved_line(db, org_id, claim_id):
-        return "1A"
-    missing_docs = await missing_document_invoice_ids(db, org_id, claim_id)
-    if missing_docs:
+    items = await submission_checklist(db, org_id, claim_id, today=today)
+    non_period = [i for i in items if i.key != "period_ended"]
+    if any(not i.ok for i in non_period):
         return "1A"
 
     if not period_ended(claim.ref_period, today=today):

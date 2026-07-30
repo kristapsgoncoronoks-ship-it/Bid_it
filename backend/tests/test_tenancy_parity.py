@@ -329,6 +329,17 @@ EXEMPT: dict[str, str] = {
         "through. Gains a probe with the first transport route (ARCH_plan.md "
         "G2.x)."
     ),
+    "vat_checklist_rules": (
+        "G2.10 slice 1 (WO-60): the adjustable submission-checklist rule "
+        "table (R45), written only through services/transport/checklist."
+        "seed_default_rules/set_active (tenant-scoped there via the same "
+        "ORM guard this probe would exercise, AND proven on real Postgres "
+        "RLS — tests/test_rls.py's set-equality check). Also read by "
+        "checklist.submission_checklist/status.derive_stage, both "
+        "org-scoped the same way — no api/routes/transport/* route exists "
+        "yet to drive an HTTP-level probe through. Gains a probe with the "
+        "first transport route (ARCH_plan.md G2.x)."
+    ),
 }
 
 

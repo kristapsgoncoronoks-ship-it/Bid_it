@@ -173,6 +173,11 @@ class A:
     # engine-state transitions themselves are deferred (entangled with the
     # decision-gated G2.9 fee engine).
     TRANSPORT_STATUS_CODE_SET = "transport.status_code_set"
+    # G2.10 slice 1 (WO-60): the adjustable submission-checklist rule table.
+    # Fires on `set_active` (old->new); a first-seed insert of a new rule
+    # also fires (a fact appearing), a repeat `seed_default_rules` call
+    # audits nothing (a true no-op).
+    TRANSPORT_CHECKLIST_RULE_SET_ACTIVE = "transport.checklist_rule_set_active"
 
 
 def _hash(

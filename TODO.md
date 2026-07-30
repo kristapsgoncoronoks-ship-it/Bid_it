@@ -19,14 +19,14 @@ aside; not executed.
 | **M0** | Security/correctness debt sprint | ✅ **Completed** — WO-1…11 (incl. B1.5). All 12 exit-gate criteria met. See `docs/M0-exit-gate.md`. |
 | **M1** | Feature completion + independent audit | ✅ **Completed** — WO-12…46. Every named epic shipped; 18-item audit (R1–R19) closed except two decision-gated/backlog items (below). |
 | **M2** | "We can take money" — billing go-live | 🔶 **In Progress** — WO-47 (quota model) + WO-48 (dogfood billing fallback) shipped. Three items still owner-blocked (below). |
-| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) + WO-56 (G2.6 slice 1: period-end + Art. 17 minimum + deadline scanner, R7/R8/R9) + WO-57 (G2.6 slice 2: annual mop-up + quarterly duplicate-block, R6) + WO-58 (G2.6 slice 3: document-presence gate + receipt-control waivers, R10/R15) + WO-59 (G2.7: status lifecycle 1A→5, R12/R17) shipped. G2.6 is now fully closed (R6-R10, R15 all real gates). 70-100 day milestone; remaining slices tracked below. |
+| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) + WO-56 (G2.6 slice 1: period-end + Art. 17 minimum + deadline scanner, R7/R8/R9) + WO-57 (G2.6 slice 2: annual mop-up + quarterly duplicate-block, R6) + WO-58 (G2.6 slice 3: document-presence gate + receipt-control waivers, R10/R15) + WO-59 (G2.7: status lifecycle 1A→5, R12/R17) + WO-60 (G2.10 slice 1: the adjustable checklist engine, R45) shipped. G2.6 is now fully closed (R6-R10, R15 all real gates). 70-100 day milestone; remaining slices tracked below. |
 | M4 | Payments & cash depth | `Planned` |
 | M5 | Transport vertical phase 2 — recovery intelligence | `Planned` |
 | M6 | Integrations & enterprise go-live | `Planned` |
 
-**Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 → 1303 → 1309 → 1322 → 1352 → 1357 → 1369 → 1384
-passed (+623 total, +27 this session), 10 skipped (pg-only, verified separately on real Postgres), 0
-known regressions, as of WO-59.
+**Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 → 1303 → 1309 → 1322 → 1352 → 1357 → 1369 → 1384 →
+1393 passed (+632 total, +36 this session), 10 skipped (pg-only, verified separately on real Postgres),
+0 known regressions, as of WO-60.
 
 ---
 
@@ -226,6 +226,28 @@ known regressions, as of WO-59.
   collide with G2.9's decision-gated fee engine. `lock.submit_claim` additively stamps
   `status_code = "2"` in the same flush as its existing writes. No migration (`status_code`/
   `action_deadline` are pre-existing nullable columns from WO-49). Detail: `docs/plan/plan-a/wo/WO-59-G2.7.md`.
+
+- [x] **WO-60** — `Completed` — G2.10 slice 1: the adjustable submission checklist as DATA (R45),
+  a documented PARTIAL harvest. New tenant table `vat_checklist_rules` (key/label/scope/check_type/
+  reference/active/sort) backs `app/services/transport/checklist.py`: `seed_default_rules` (idempotent),
+  `set_active` (the ONLY writer of `active` — "deactivate a rule ⇒ it disappears from the gate," proven
+  verbatim), `submission_checklist` (the evaluator). Only `customer_data`/`bank_account`
+  (`check_type="data"`, `scope="customer"`, evaluated against the claimant `IssuerProfile`'s
+  registration_number/vat_number/address_line1/iban — no new customer concept, ADR-P3 rule 2) are
+  seeded/evaluable — `contract`/`nace`/`trade_register`/`power_of_attorney` (needing a document-
+  requirements-with-expiry concept this codebase doesn't have yet, or a new `nace_code` column) are
+  explicitly deferred, not silently skipped. The four claim-level items (receipt control, unresolved
+  refs, documents attached, period ended) reuse WO-56/58's own pure checks — since a materialized
+  `vat_claim_lines` row collapses every unresolved transaction under one `"UNMATCHED"` ref with no
+  supplier retained, naming "the missing supplier" re-queries `fuel_transactions` directly (one
+  duplicated SELECT, zero duplicated resolution/waivability logic). `status.derive_stage` (G2.7) now
+  consults this evaluator, replacing WO-59's own two-check proxy exactly as that order's docstring
+  anticipated — `tests/transport/conftest.py::make_entity` gained synthetic registration_number/
+  address_line1/iban defaults so every pre-existing "clean claim" test fixture stays clean under the
+  new checks (raising fixture completeness, not weakening an assertion). Migration `920cbde1e481`
+  (1 new tenant table, RLS in the same migration; up/down/up clean on real Postgres, 11 pg-only
+  RLS/concurrency tests re-verified on a fresh scratch cluster). README/`test_docs_truth.py` truth-up
+  (71→72 tables, 78→79 revisions, 1394→1403 collected tests). Detail: `docs/plan/plan-a/wo/WO-60-G2.10-slice1.md`.
 
 ---
 

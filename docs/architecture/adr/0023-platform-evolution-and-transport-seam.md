@@ -243,6 +243,29 @@ R12's soft `2B`/`3D` reminder) in this order, a documented, tested
 limitation rather than a silent gap. Still future work: G2.9 (decision-
 gated), G2.10 (the adjustable checklist, which will REPLACE `derive_stage`'s
 two-check proxy), and every `api/routes/transport/*` route.
+**Implementation status (WO-60, G2.10 slice 1):** the adjustable
+submission checklist has landed as DATA — a new tenant table
+`vat_checklist_rules` (key/label/scope/check_type/reference/active/sort)
+backs `checklist.seed_default_rules`/`set_active`/`submission_checklist`.
+Only `customer_data` and `bank_account` (`check_type="data"`,
+`scope="customer"`, evaluated against the claimant `IssuerProfile` —
+`registration_number`+`vat_number`+`address_line1`, and `iban`
+respectively) are seeded/evaluable in this slice — a deliberate PARTIAL
+harvest of the six-rule `DEFAULT_CHECKLIST`, documented rather than
+silently short; `contract`/`nace`/`trade_register`/`power_of_attorney`
+need a document-requirements-with-expiry concept this codebase does not
+yet have, or a new `nace_code` column, both flagged for a follow-up slice.
+The four claim-level items (receipt control, unresolved refs, documents
+attached, period ended) reuse WO-56/58's own pure checks — a materialized
+`vat_claim_lines` row collapses every unresolved transaction under one
+literal `"UNMATCHED"` ref with no supplier retained, so naming "the
+missing supplier" re-queries `fuel_transactions` directly (one
+duplicated SELECT, zero duplicated resolution/waivability logic).
+`status.derive_stage` (G2.7) now consults this evaluator, replacing
+WO-59's own two-check proxy exactly as that order's docstring anticipated.
+Still future work: G2.9 (decision-gated), G2.10 slice 2 (the `document`
+check_type, `nace_code`, country-scope rules), and every
+`api/routes/transport/*` route.
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,

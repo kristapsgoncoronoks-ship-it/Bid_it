@@ -17,8 +17,8 @@ from app.models.invoice import Invoice
 from app.models.transport.vat_claim import VatRefundClaim
 from app.models.vendor import Vendor
 from app.services import extraction
+from app.services.transport import checklist, claim_lines, fuel_ingest, lock, status, waiver
 from app.services.transport import claim as claim_svc
-from app.services.transport import claim_lines, fuel_ingest, lock, status, waiver
 from tests.factories.transport import synthetic_vehicle_ref
 from tests.transport.conftest import enable_transport, make_entity, make_org
 
@@ -331,3 +331,32 @@ async def test_g2_7_submit_claim_stamps_status_code_2(db_session):
 
     fresh = await db_session.scalar(select(VatRefundClaim).where(VatRefundClaim.id == claim.id))
     assert fresh.status_code == "2"
+
+
+@pytest.mark.asyncio
+async def test_g2_7_derive_stage_is_1a_when_the_claimant_entity_has_no_iban(db_session):
+    """G2.10 slice 1 (WO-60): derive_stage now consults the adjustable
+    `bank_account` checklist rule, not just the two WO-59 proxy checks."""
+    org = await make_org(db_session)
+    await enable_transport(db_session, org.id)
+    entity = await make_entity(db_session, org.id)
+    entity.iban = None
+    claim, _inv, _txn = await _clean_claim(db_session, org, entity)
+
+    stage = await status.derive_stage(db_session, org.id, claim.id, today=PERIOD_ENDED)
+    assert stage == "1A"
+
+
+@pytest.mark.asyncio
+async def test_g2_7_deactivating_bank_account_rule_unblocks_derive_stage(db_session):
+    org = await make_org(db_session)
+    await enable_transport(db_session, org.id)
+    entity = await make_entity(db_session, org.id)
+    entity.iban = None
+    claim, _inv, _txn = await _clean_claim(db_session, org, entity)
+    assert await status.derive_stage(db_session, org.id, claim.id, today=PERIOD_ENDED) == "1A"
+
+    await checklist.set_active(db_session, org.id, "bank_account", False)
+    await db_session.commit()
+
+    assert await status.derive_stage(db_session, org.id, claim.id, today=PERIOD_ENDED) == "1E"
