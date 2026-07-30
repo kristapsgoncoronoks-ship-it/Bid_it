@@ -1,0 +1,224 @@
+"""Fuel-card statement ingestion (G3.2 slice 1) — the ONE service function
+that turns a raw statement file into `fuel_transactions` rows (G1.2,
+`fuel_ingest.ingest_transaction`) and learned per-country seller entities
+(G3.1, `supplier_entity.learn_registration`). This is the real caller both
+of those functions have been waiting for: `fuel_ingest.ingest_transaction`
+(WO-50) and `learn_registration` (WO-61) each shipped with "no real caller
+yet" — this module is that caller.
+
+TWO-PHASE WRITE: RESOLVE EVERYTHING BEFORE TOUCHING THE DATABASE
+------------------------------------------------------------------------
+`ingest_statement` resolves EVERY line's EUR figures (§4.15's FX
+convention) in a first pass, entirely in memory, before calling
+`fuel_ingest.ingest_transaction` for any of them. A statement with 40 lines
+where line 37 cannot be converted (no cached ECB rate for its currency on
+its date) therefore writes ZERO rows, not 36 — "nothing partially applied"
+without depending on a job-framework rollback wrapper this order does not
+have (unlike `close.run_close`, which gets that guarantee for free from
+`jobs.run_once`; see that module's docstring). This mirrors
+`app.services.expenses.build_items`' own behaviour: it loops calling
+`apply_item_fx` per item with NO try/except, so one unconvertible foreign
+item aborts the whole report build — the established codebase precedent
+for "a batch of money lines is all-or-nothing on FX", not "skip the bad one
+silently".
+
+FX PROVENANCE
+--------------
+EUR-currency lines are the identity conversion (`fx_source="eur"`, no ECB
+rate involved). A non-EUR line converts via `app.services.fx.to_eur` at the
+line's OWN `txn_date` — never a guessed/blended rate — and BOTH `net_local`
+and `vat_local` convert using the SAME resolved rate (one ECB lookup per
+line, not two; the platform's ECB convention divides foreign units by the
+rate to reach EUR). No cached rate for that (currency, date) ⇒ `to_eur`
+returns `(None, None)` ⇒ `ValidationError(code="fx_rate_unavailable")` —
+never a stored NULL (`fuel_transactions.net_eur`/`vat_eur` are NOT NULL)
+and never a guessed number (master-context §4.15 verbatim).
+
+WHAT "FLAGGED FOR REVIEW" MEANS IN THIS SLICE
+------------------------------------------------
+This codebase has no fuel-statement review-queue table yet (that is a
+FUTURE slice — see the work order's "Out of scope"). A parse failure or an
+FX-conversion failure raises (a hard refusal an eventual worker/route will
+catch and record, exactly how `app.services.extraction.extract_upload`
+already catches `parser.parse_invoice_file`'s `ValueError` and marks the
+`ExtractionRun` `failed` — this order does not build that wrapper, since no
+`api/routes/transport/*` route or worker kind consumes fuel-card statements
+yet). A parser-level AMBIGUITY that is NOT fatal to the transaction figures
+(e.g. no seller entity detected in the footer) surfaces in the returned
+`StatementIngestResult.warnings` instead of blocking — that list IS the
+review surface until a persisted one exists, mirroring every prior
+transport slice's "no real caller yet" honesty.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from datetime import date
+from decimal import Decimal
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.errors import PermissionError, ValidationError
+from app.models.transport.fuel_transaction import FuelTransaction
+from app.models.transport.supplier_registration import SupplierVatRegistration
+from app.services import fx, modules
+from app.services.transport import fuel_card_parser, fuel_ingest, supplier_entity
+from app.services.transport.fuel_card_parser import ParsedFuelLine
+
+_PERIOD_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+
+
+@dataclass
+class _ResolvedLine:
+    line: ParsedFuelLine
+    net_eur: Decimal
+    vat_eur: Decimal
+    fx_rate: Decimal | None
+    fx_ecb_rate: Decimal | None
+    fx_ecb_date: date | None
+    fx_source: str
+
+
+@dataclass
+class StatementIngestResult:
+    """What `ingest_statement` returns — the review surface for this slice
+    (see module docstring)."""
+
+    network: str
+    period: str
+    lines: list[FuelTransaction] = field(default_factory=list)
+    entities: list[SupplierVatRegistration] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+
+def _validate_period(period: str) -> None:
+    if not _PERIOD_RE.match(period):
+        raise ValidationError(
+            f"'{period}' is not a valid period — use YYYY-MM", code="invalid_period"
+        )
+
+
+async def _resolve_line(db: AsyncSession, line: ParsedFuelLine) -> _ResolvedLine:
+    """Resolve ONE line's EUR figures. Raises `ValidationError` (never
+    returns a guessed or NULL EUR amount) when no rate is available — see
+    module docstring."""
+    if line.currency == "EUR":
+        return _ResolvedLine(
+            line=line,
+            net_eur=line.net_local,
+            vat_eur=line.vat_local,
+            fx_rate=Decimal(1),
+            fx_ecb_rate=None,
+            fx_ecb_date=None,
+            fx_source="eur",
+        )
+
+    net_eur, resolved = await fx.to_eur(db, line.net_local, line.currency, line.txn_date)
+    if net_eur is None or resolved is None:
+        raise ValidationError(
+            f"No ECB exchange rate is available for {line.currency} on {line.txn_date} "
+            f"(statement line {line.line_seq}) — refresh the ECB rates before retrying.",
+            code="fx_rate_unavailable",
+        )
+    # Same resolved rate converts vat_local — one ECB lookup per line, not
+    # two; both amounts are as-of the SAME txn_date.
+    vat_eur = line.vat_local / resolved.rate
+    return _ResolvedLine(
+        line=line,
+        net_eur=net_eur,
+        vat_eur=vat_eur,
+        fx_rate=resolved.rate,
+        fx_ecb_rate=resolved.rate,
+        fx_ecb_date=resolved.rate_date,
+        fx_source="ecb",
+    )
+
+
+async def ingest_statement(
+    db: AsyncSession,
+    org_id: str,
+    *,
+    entity_id: str,
+    period: str,
+    filename: str,
+    content: bytes,
+) -> StatementIngestResult:
+    """Parse a fuel-card statement (network auto-detected — never
+    caller-asserted, so a mislabeled upload can't be miscategorized; see
+    `fuel_card_parser`'s "fail-closed network detection") and ingest every
+    line + learn every detected per-country seller entity.
+
+    Gated on the `transport` module entitlement FIRST, before parsing —
+    identical discipline to every other transport service (`ingest_
+    transaction`, `learn_registration`, `run_close`)."""
+    if not await modules.is_enabled(db, org_id, "transport"):
+        m = modules.MODULES_BY_KEY["transport"]
+        raise PermissionError(f"The {m.name} module is not activated.", code="module_not_enabled")
+
+    _validate_period(period)
+
+    try:
+        parsed = fuel_card_parser.run(filename, content)
+    except ValueError as exc:
+        raise ValidationError(str(exc), code="unrecognized_fuel_card_statement") from exc
+
+    # Phase 1 — resolve every line's EUR figures FIRST, no DB writes yet (see
+    # module docstring "two-phase write"). Any unconvertible line aborts the
+    # whole statement before a single row is added.
+    resolved_lines = [await _resolve_line(db, line) for line in parsed.lines]
+
+    # Phase 2 — only now write. `ingest_transaction` is itself insert-or-
+    # no-op on the natural key (WO-50), so re-ingesting the identical file is
+    # safe to retry.
+    transactions: list[FuelTransaction] = []
+    for r in resolved_lines:
+        line = r.line
+        txn = await fuel_ingest.ingest_transaction(
+            db,
+            org_id,
+            entity_id=entity_id,
+            supplier=parsed.network,
+            period=period,
+            line_seq=line.line_seq,
+            country=line.country,
+            vehicle_ref=line.vehicle_ref,
+            txn_date=line.txn_date,
+            txn_time=line.txn_time,
+            station=line.station,
+            product=line.product,
+            qty=line.qty,
+            currency=line.currency,
+            net_local=line.net_local,
+            vat_local=line.vat_local,
+            gross_local=line.gross_local,
+            net_eur=r.net_eur,
+            vat_eur=r.vat_eur,
+            invoice_ref=line.invoice_ref,
+            provenance_note=line.provenance_note,
+            fx_rate=r.fx_rate,
+            fx_ecb_rate=r.fx_ecb_rate,
+            fx_ecb_date=r.fx_ecb_date,
+            fx_source=r.fx_source,
+        )
+        transactions.append(txn)
+
+    entities: list[SupplierVatRegistration] = []
+    for detected in parsed.entities:
+        row = await supplier_entity.learn_registration(
+            db,
+            org_id,
+            supplier=parsed.network,
+            country=detected.country,
+            vat_number=detected.vat_number,
+            entity_name=detected.entity_name,
+        )
+        entities.append(row)
+
+    return StatementIngestResult(
+        network=parsed.network,
+        period=period,
+        lines=transactions,
+        entities=entities,
+        warnings=list(parsed.warnings),
+    )

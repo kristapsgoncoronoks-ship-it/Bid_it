@@ -287,6 +287,40 @@ mirroring `is_synthetic()`'s own WO-49 debut with zero consumers wired in.
 Still future work: G3.2 (the actual parsers, which would call
 `learn_registration` for real), G2.9 (decision-gated), G2.10 slice 2, and
 every `api/routes/transport/*` route.
+**Implementation status (WO-62, G3.2 slice 1):** the fuel-card parser
+registry has landed — `app.services.transport.fuel_card_parser` (the
+deterministic-first `FuelCardParser` registry, mirroring the AP-domain
+`extraction_provider.py` PATTERN over a fuel-transaction-shaped output,
+not its invoice-shaped type) plus the FIRST of seven networks,
+`parsers/eurowag.py` (`EurowagParser`): reads a statement's transaction
+CSV block into `fuel_transactions` rows and anchors the per-country seller
+footer (`"Pārdevējs / Verkoper:"` + the harvested legal-form token set,
+verbatim from `BA_fleet_fuel.md` §3.B1) into detected entities — the Czech
+"W.A.G. Issuing Services, a.s." factoring entity is structurally
+unreachable since the anchor only inspects lines carrying the literal
+seller label. `app.services.transport.statement_ingest.ingest_statement`
+is the REAL caller `fuel_ingest.ingest_transaction` (WO-50) and
+`supplier_entity.learn_registration` (WO-61) were both built for but never
+had — it resolves every line's EUR figure via `app.services.fx.to_eur`
+BEFORE writing anything (a statement with one unconvertible line writes
+ZERO rows, not "all but one"), reads the network off the PARSED statement
+(never a caller-supplied string, so a mislabeled upload can't be
+miscategorized), and is gated on the `transport` entitlement first,
+identical discipline to every other transport service. **R20 is now
+CLOSED for Eurowag** — the remaining six networks (E100, Q8/Port One, DKV,
+TFC, Moeve, BP/Aral) are explicit named future slices in
+`docs/plan/plan-a/wo/WO-62-G3.2-slice1.md`'s "Out of scope", each with its
+own real, learned format quirk (E100's VAT-inclusive gross and buyer-VAT-
+annexe hazard; Q8's off-invoice Port One rebate, the reason `net_eur_eff`
+exists as a distinct column; DKV's 5.63% service fee; TFC's hub-only
+discount; Moeve's 6-dp VAT-inclusive maths; BP's Polish split-payment).
+No migration — this order composes WO-50/WO-61's existing tables through
+their existing write services. Still future work: G3.2's remaining six
+networks, G3.3 (the two independent validation regimes — line-count tie-
+out + capture review gate — explicitly DEPENDS on G3.2 per `ARCH_plan.md`),
+a persisted statement review-queue (this slice's review surface is the
+returned `warnings` list only), G2.9 (decision-gated), G2.10 slice 2, and
+every `api/routes/transport/*` route.
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,

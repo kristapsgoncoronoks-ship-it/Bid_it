@@ -19,14 +19,14 @@ aside; not executed.
 | **M0** | Security/correctness debt sprint | ✅ **Completed** — WO-1…11 (incl. B1.5). All 12 exit-gate criteria met. See `docs/M0-exit-gate.md`. |
 | **M1** | Feature completion + independent audit | ✅ **Completed** — WO-12…46. Every named epic shipped; 18-item audit (R1–R19) closed except two decision-gated/backlog items (below). |
 | **M2** | "We can take money" — billing go-live | 🔶 **In Progress** — WO-47 (quota model) + WO-48 (dogfood billing fallback) shipped. Three items still owner-blocked (below). |
-| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) + WO-56 (G2.6 slice 1: period-end + Art. 17 minimum + deadline scanner, R7/R8/R9) + WO-57 (G2.6 slice 2: annual mop-up + quarterly duplicate-block, R6) + WO-58 (G2.6 slice 3: document-presence gate + receipt-control waivers, R10/R15) + WO-59 (G2.7: status lifecycle 1A→5, R12/R17) + WO-60 (G2.10 slice 1: the adjustable checklist engine, R45) + WO-61 (G3.1 slice 1: per-country supplier legal-entity registry, R21/R22) shipped. G2.6 is now fully closed (R6-R10, R15 all real gates). 70-100 day milestone; remaining slices tracked below. |
+| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) + WO-56 (G2.6 slice 1: period-end + Art. 17 minimum + deadline scanner, R7/R8/R9) + WO-57 (G2.6 slice 2: annual mop-up + quarterly duplicate-block, R6) + WO-58 (G2.6 slice 3: document-presence gate + receipt-control waivers, R10/R15) + WO-59 (G2.7: status lifecycle 1A→5, R12/R17) + WO-60 (G2.10 slice 1: the adjustable checklist engine, R45) + WO-61 (G3.1 slice 1: per-country supplier legal-entity registry, R21/R22) + WO-62 (G3.2 slice 1: the fuel-card parser registry + the Eurowag parser, R20) shipped. G2.6 is now fully closed (R6-R10, R15 all real gates); R20 is closed for Eurowag, six networks remain. 70-100 day milestone; remaining slices tracked below. |
 | M4 | Payments & cash depth | `Planned` |
 | M5 | Transport vertical phase 2 — recovery intelligence | `Planned` |
 | M6 | Integrations & enterprise go-live | `Planned` |
 
 **Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 → 1303 → 1309 → 1322 → 1352 → 1357 → 1369 → 1384 →
-1393 → 1402 passed (+641 total, +45 this session), 10 skipped (pg-only, verified separately on real
-Postgres), 0 known regressions, as of WO-61.
+1393 → 1402 → 1435 passed (+674 total, +33 this session), 10 skipped (pg-only, verified separately on real
+Postgres), 0 known regressions, as of WO-62.
 
 ---
 
@@ -267,6 +267,35 @@ Postgres), 0 known regressions, as of WO-61.
   RLS/concurrency tests re-verified on a fresh scratch cluster). README/`test_docs_truth.py` truth-up
   (72→73 tables, 79→80 revisions, 1403→1412 collected tests). Detail:
   `docs/plan/plan-a/wo/WO-61-G3.1-slice1.md`.
+
+- [x] **WO-62** — `Completed` — G3.2 slice 1: the fuel-card parser registry (R20), scoped down from
+  `ARCH_plan.md`'s XL/7-network G3.2 to shared infrastructure + ONE fully-specified network, the same
+  slicing discipline WO-56/57/58 used for G2.6. `app/services/transport/fuel_card_parser.py` is the
+  deterministic-first registry (`FuelCardParser` ABC, `register`/`select`/`run`, fail-closed — raises
+  rather than guessing which network a file belongs to) mirroring the AP-domain `extraction_provider.py`
+  PATTERN over a fuel-transaction-shaped output, not its invoice-shaped type; `app/services/transport/
+  parsers/eurowag.py` (`EurowagParser`) is the first network — Eurowag, because it is R20's own worked
+  example (`BA_fleet_fuel.md` §3.B1): anchors ONLY to lines carrying the literal `"Pārdevējs / Verkoper:"`
+  label against the harvested legal-form token set, so the Czech "W.A.G. Issuing Services, a.s." factoring
+  entity is structurally unreachable even when an unrelated disclosure sentence naming it sits elsewhere in
+  the same document. `app/services/transport/statement_ingest.py::ingest_statement` is the REAL caller
+  `fuel_ingest.ingest_transaction` (WO-50) and `supplier_entity.learn_registration` (WO-61) were built for
+  but never had: gates on the `transport` entitlement first, resolves EVERY line's EUR figure via
+  `app.services.fx.to_eur` in a first pass BEFORE writing anything (a statement with one unconvertible
+  line writes ZERO rows, not "all but one" — mirrors `expenses.build_items`'s existing all-or-nothing FX
+  precedent), reads the network off the PARSED statement rather than a caller-supplied string (a
+  mislabeled upload can't be miscategorized), and a malformed row aborts the whole statement at parse time
+  rather than being silently dropped. R22 proven END TO END for the first time through a real caller
+  (an admin-curated registration survives an ingest that would otherwise seed a conflicting one). No
+  migration — pure service/parser composition over WO-50/WO-61's existing tables. Explicitly NOT
+  attempted (named future slices, priority-ordered in the work order): the remaining six networks — E100
+  (VAT-inclusive gross, the buyer-VAT-annexe hazard, the OTHER R20 worked example), Q8/Port One (the
+  off-invoice rebate that is the entire reason `net_eur_eff` exists as its own column), DKV (5.63% service
+  fee), TFC by Moya (hub-only discount), Moeve (6-dp VAT-inclusive maths), BP/Aral (Polish split-payment);
+  G3.3 (the two independent validation regimes — line-count tie-out + capture review gate — explicitly
+  DEPENDS on G3.2 per `ARCH_plan.md`); a persisted statement review-queue (this slice's review surface is
+  the returned `warnings` list only); any `api/routes/transport/*` route. 73 tables, 80 revisions (both
+  unchanged — no migration), 1412→1445 collected tests. Detail: `docs/plan/plan-a/wo/WO-62-G3.2-slice1.md`.
 
 ---
 

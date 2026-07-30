@@ -42,6 +42,7 @@ VAT_DIGITS: dict[str, int] = {
     "IT": 11,
     "FR": 11,
     "DK": 8,
+    "EL": 9,  # Greece prints "EL", not "GR", on its VAT numbers (G3.2/WO-62)
 }
 
 # BBAN recipe per country: (prefix, filler_digit_count). The prefix is a
@@ -146,6 +147,79 @@ def synthetic_invoice_number(kind: str = "generic", *, seed: int | None = None) 
     from client data."""
     fmt = _INVOICE_FORMATS[kind]
     return fmt.format(n=_rng(seed).randrange(1, 10**6))
+
+
+_EUROWAG_COLUMNS = (
+    "txn_date",
+    "txn_time",
+    "vehicle_ref",
+    "station",
+    "country",
+    "product",
+    "qty",
+    "currency",
+    "net_local",
+    "vat_local",
+    "gross_local",
+    "invoice_ref",
+)
+_EUROWAG_MARKER = "EUROWAG STATEMENT"
+_EUROWAG_HEADER = ",".join(_EUROWAG_COLUMNS)
+
+
+def synthetic_eurowag_statement(
+    *,
+    rows: list[dict[str, object]] | None = None,
+    footer_lines: list[str] | None = None,
+    seed: int | None = None,
+) -> str:
+    """A synthetic Eurowag statement (G3.2/WO-62) matching the format
+    `app.services.transport.parsers.eurowag.EurowagParser` expects — a
+    literal `"EUROWAG STATEMENT"` marker, the transaction CSV block, a
+    `"---"` separator, then the free-text footer the seller entity is
+    anchored in. Synthetic, generated, never derived from client data.
+
+    `rows`/`footer_lines` are overridable so a test can build a deliberately
+    malformed row or a multi-entity / anti-example footer (e.g. a genuine
+    seller line plus an unrelated factoring-entity disclosure sentence that
+    must NOT be picked up) without hand-writing the whole file.
+    """
+    r = _rng(seed)
+    if rows is None:
+        litres = Decimal(r.randrange(5_000, 20_000)) / Decimal(100)
+        price = Decimal(r.randrange(9_000, 16_000)) / Decimal(10_000)
+        net = q2(litres * price)
+        vat_amt = q2(net * Decimal("0.21"))
+        gross = q2(net + vat_amt)
+        rows = [
+            {
+                "txn_date": "2026-06-03",
+                "txn_time": "08:12",
+                "vehicle_ref": synthetic_vehicle_ref(seed=seed),
+                "station": "Demo Fuel Hub",
+                "country": "BE",
+                "product": "DIESEL",
+                "qty": str(litres),
+                "currency": "EUR",
+                "net_local": str(net),
+                "vat_local": str(vat_amt),
+                "gross_local": str(gross),
+                "invoice_ref": synthetic_invoice_number("fuelcard-a", seed=seed),
+            }
+        ]
+    if footer_lines is None:
+        vat = synthetic_vat_id("BE", seed=seed)
+        footer_lines = [
+            f"Pārdevējs / Verkoper: Eurowag Belgium BVBA, 1 Demo Street, Brussels, "
+            f"PVN reg. Nr.: {vat}"
+        ]
+
+    lines = [_EUROWAG_MARKER, _EUROWAG_HEADER]
+    for row in rows:
+        lines.append(",".join(str(row.get(col, "")) for col in _EUROWAG_COLUMNS))
+    lines.append("---")
+    lines.extend(footer_lines)
+    return "\n".join(lines) + "\n"
 
 
 def synthetic_fuel_line(*, seed: int | None = None) -> dict[str, object]:
