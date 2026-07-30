@@ -285,6 +285,25 @@ forward as design partners for this vertical specifically.
 built and inert — no revenue is lost by waiting, and no customer can reach it
 by accident (`PUT /modules/transport` always 402s until a plan is priced).
 
+**Update (M3 sprint, after WO-56):** this decision now also blocks G2.9 (fee
+freezing, `ARCH_plan.md`) directly, not just module pricing. R13/C10/C11
+(`docs/plan/shared/specs/BA_fleet_fuel.md`) describe `compute_fee` as
+resolving a rate through a **per-(customer, country) override → customer
+default → (0, 0)** chain — but this codebase has no established mapping from
+a `VatRefundClaim` to a billable "customer" distinct from the claimant
+`entity_id` (`issuer_profiles`) itself, and `app.models.customer.Customer`
+(the AR sales-customer master) has no fee-rate concept today. Building G2.9
+now would mean inventing BOTH the customer-identity mapping and the fee-rate
+storage shape ahead of this decision — exactly the kind of commercial fact
+§9 of the master context forbids guessing, and infrastructure that could be
+built the wrong shape if the eventual model differs (a flat per-entity rate
+vs. a true multi-client-per-org billing rate vs. no per-claim fee at all,
+subscription-only). G2.6's period-end (R7) and Art. 17 minimum (R8) gates
+shipped independently in WO-56 — they needed no customer/fee concept. G2.9
+stays unbuilt pending this decision; the schema for it
+(`vat_refund_claims.fee_pct`/`fee_min`/`fee_eur`, nullable since WO-49) is
+already in place and costs nothing sitting empty.
+
 ---
 
 *Not blocked — I can keep building these without you:* enhancements to shipped
