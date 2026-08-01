@@ -19,7 +19,7 @@ aside; not executed.
 | **M0** | Security/correctness debt sprint | ✅ **Completed** — WO-1…11 (incl. B1.5). All 12 exit-gate criteria met. See `docs/M0-exit-gate.md`. |
 | **M1** | Feature completion + independent audit | ✅ **Completed** — WO-12…46. Every named epic shipped; 18-item audit (R1–R19) closed except two decision-gated/backlog items (below). |
 | **M2** | "We can take money" — billing go-live | 🔶 **In Progress** — WO-47 (quota model) + WO-48 (dogfood billing fallback) shipped. Three items still owner-blocked (below). |
-| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) + WO-56 (G2.6 slice 1: period-end + Art. 17 minimum + deadline scanner, R7/R8/R9) + WO-57 (G2.6 slice 2: annual mop-up + quarterly duplicate-block, R6) + WO-58 (G2.6 slice 3: document-presence gate + receipt-control waivers, R10/R15) + WO-59 (G2.7: status lifecycle 1A→5, R12/R17) + WO-60 (G2.10 slice 1: the adjustable checklist engine, R45) + WO-61 (G3.1 slice 1: per-country supplier legal-entity registry, R21/R22) + WO-62 (G3.2 slice 1: the fuel-card parser registry + the Eurowag parser, R20) shipped. G2.6 is now fully closed (R6-R10, R15 all real gates); R20 is closed for Eurowag, six networks remain. 70-100 day milestone; remaining slices tracked below. |
+| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) + WO-56 (G2.6 slice 1: period-end + Art. 17 minimum + deadline scanner, R7/R8/R9) + WO-57 (G2.6 slice 2: annual mop-up + quarterly duplicate-block, R6) + WO-58 (G2.6 slice 3: document-presence gate + receipt-control waivers, R10/R15) + WO-59 (G2.7: status lifecycle 1A→5, R12/R17) + WO-60 (G2.10 slice 1: the adjustable checklist engine, R45) + WO-61 (G3.1 slice 1: per-country supplier legal-entity registry, R21/R22) + WO-62 (G3.2 slice 1: the fuel-card parser registry + the Eurowag parser, R20) + WO-63 (G3.2 slice 2: the E100 fuel-card parser, R20's second worked example) shipped. G2.6 is now fully closed (R6-R10, R15 all real gates); R20 is closed for Eurowag AND E100, five networks remain. 70-100 day milestone; remaining slices tracked below. |
 | M4 | Payments & cash depth | `Planned` |
 | M5 | Transport vertical phase 2 — recovery intelligence | `Planned` |
 | M6 | Integrations & enterprise go-live | `Planned` |
@@ -296,6 +296,34 @@ Postgres), 0 known regressions, as of WO-62.
   DEPENDS on G3.2 per `ARCH_plan.md`); a persisted statement review-queue (this slice's review surface is
   the returned `warnings` list only); any `api/routes/transport/*` route. 73 tables, 80 revisions (both
   unchanged — no migration), 1412→1445 collected tests. Detail: `docs/plan/plan-a/wo/WO-62-G3.2-slice1.md`.
+
+- [x] **WO-63** — `Completed` — G3.2 slice 2: the E100 fuel-card parser (R20's second worked example),
+  the second network registered into WO-62's `fuel_card_parser` registry. `app/services/transport/
+  parsers/e100.py` (`E100Parser`) anchors ONLY to lines carrying the literal `"E100 International Trade"`
+  marker string (verbatim, `BA_fleet_fuel.md` §3.B1) — a co-present, unrelated buyer-VAT annexe line
+  ("repeats on every annexe page") is never inspected, so it can never enter `parsed.entities` (the direct
+  proof this order exists for). This is also the first parser to encounter a structurally DIFFERENT money
+  model: E100 supplies only VAT-inclusive `gross_local` + a per-line `vat_rate`, never independently-given
+  `net_local`/`vat_local` the way Eurowag's CSV does — `net_local`/`vat_local` are DERIVED by the reverse
+  calculation (`net_local = gross_local / (1 + vat_rate/100)`, `vat_local = gross_local - net_local`),
+  entirely in `Decimal`, proven numerically (`net_local + vat_local == gross_local`, pre-rounding); a
+  `vat_rate` outside `[0, 100]` raises `ValueError` (never silently clamped), and a malformed row (bad
+  decimal / out-of-range rate / bad country) aborts the WHOLE statement, unchanged discipline from
+  `eurowag.py`. `fuel_card_parser._default_parsers()` gains one line (`E100Parser()`, appended after
+  `EurowagParser()`); a registry-level test dispatches a well-formed file of EACH network to the correct
+  parser in the same test, proving they coexist without collision. `statement_ingest.ingest_statement`
+  needed ZERO changes — proven by re-running WO-62's own `test_g3_2_fuel_card_parser.py` and
+  `test_g3_2_statement_ingest.py` byte-for-byte unmodified, and by the new DB-touching suite re-proving R22
+  (learning never clobbers a curated registration), the two-phase FX guarantee, module-off inertness, and
+  cross-tenant isolation end to end for E100 specifically. No migration — pure parser addition over
+  WO-50/WO-61/WO-62's existing tables/services. Explicitly NOT attempted (named future slices, priority
+  order unchanged from WO-62's own list, now with E100 struck off): Q8/Port One (the off-invoice
+  `net_eur_eff` rebate), DKV (5.63% service fee), TFC by Moya (hub-only discount), Moeve (6-dp VAT-inclusive
+  maths, per-line IVA rate), BP/Aral (Polish split-payment); station-colour discount-tier modelling
+  (already folded into E100's given gross, per `BA_fleet_fuel.md` §4.2 — not a separate rebate layer);
+  semi-monthly cadence enforcement (G3.3); G3.3 itself; a persisted statement review-queue; any
+  `api/routes/transport/*` route. 73 tables, 80 revisions (both unchanged — no migration), 1445→1480
+  collected tests. Detail: `docs/plan/plan-a/wo/WO-63-G3.2-slice2.md`.
 
 ---
 

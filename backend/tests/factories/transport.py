@@ -222,6 +222,77 @@ def synthetic_eurowag_statement(
     return "\n".join(lines) + "\n"
 
 
+_E100_COLUMNS = (
+    "txn_date",
+    "txn_time",
+    "vehicle_ref",
+    "station",
+    "country",
+    "product",
+    "qty",
+    "currency",
+    "gross_local",
+    "vat_rate",
+    "invoice_ref",
+)
+_E100_MARKER = "E100 STATEMENT"
+_E100_HEADER = ",".join(_E100_COLUMNS)
+
+
+def synthetic_e100_statement(
+    *,
+    rows: list[dict[str, object]] | None = None,
+    footer_lines: list[str] | None = None,
+    seed: int | None = None,
+) -> str:
+    """A synthetic E100 statement (G3.2/WO-63) matching the format
+    `app.services.transport.parsers.e100.E100Parser` expects — a literal
+    `"E100 STATEMENT"` marker, the transaction CSV block (VAT-INCLUSIVE
+    `gross_local` + `vat_rate`, NOT independently-given net/vat the way
+    Eurowag's CSV supplies them), a `"---"` separator, then the free-text
+    footer the seller entity is anchored in (the literal
+    `"E100 International Trade"` marker string). Synthetic, generated,
+    never derived from client data.
+
+    `rows`/`footer_lines` are overridable so a test can build a deliberately
+    malformed row or a multi-entity / anti-example footer (e.g. a genuine
+    E100 marker line plus an unrelated buyer-VAT annexe line that must NOT
+    be picked up) without hand-writing the whole file.
+    """
+    r = _rng(seed)
+    if rows is None:
+        litres = Decimal(r.randrange(5_000, 20_000)) / Decimal(100)
+        price = Decimal(r.randrange(9_000, 16_000)) / Decimal(10_000)
+        net = q2(litres * price)
+        vat_amt = q2(net * Decimal("0.21"))
+        gross = q2(net + vat_amt)
+        rows = [
+            {
+                "txn_date": "2026-06-03",
+                "txn_time": "08:12",
+                "vehicle_ref": synthetic_vehicle_ref(seed=seed),
+                "station": "Demo Fuel Hub",
+                "country": "PL",
+                "product": "DIESEL",
+                "qty": str(litres),
+                "currency": "EUR",
+                "gross_local": str(gross),
+                "vat_rate": "21.00",
+                "invoice_ref": synthetic_invoice_number("fuelcard-a", seed=seed),
+            }
+        ]
+    if footer_lines is None:
+        vat = synthetic_vat_id("PL", seed=seed)
+        footer_lines = [f"E100 International Trade sp. z o.o., VAT reg. No.: {vat}"]
+
+    lines = [_E100_MARKER, _E100_HEADER]
+    for row in rows:
+        lines.append(",".join(str(row.get(col, "")) for col in _E100_COLUMNS))
+    lines.append("---")
+    lines.extend(footer_lines)
+    return "\n".join(lines) + "\n"
+
+
 def synthetic_fuel_line(*, seed: int | None = None) -> dict[str, object]:
     """A fuel line item with plausible litres and NET EUR/L prices.
 

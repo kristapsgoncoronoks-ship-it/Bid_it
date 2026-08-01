@@ -321,6 +321,32 @@ out + capture review gate — explicitly DEPENDS on G3.2 per `ARCH_plan.md`),
 a persisted statement review-queue (this slice's review surface is the
 returned `warnings` list only), G2.9 (decision-gated), G2.10 slice 2, and
 every `api/routes/transport/*` route.
+**Implementation status (WO-63, G3.2 slice 2):** the SECOND network,
+`parsers/e100.py` (`E100Parser`), has landed in the same registry —
+`fuel_card_parser._default_parsers()` now returns `[EurowagParser(),
+E100Parser()]`. E100 is R20's OWN SECOND worked example
+(`BA_fleet_fuel.md` §3.B1): `_detect_entities` anchors ONLY to lines
+carrying the literal `"E100 International Trade"` marker string — a
+co-present, unrelated buyer-VAT annexe line ("repeats on every annexe
+page") is never inspected. This order also proves the registry handles a
+structurally DIFFERENT money model for the first time: E100's statement
+supplies only `gross_local` (VAT-inclusive) and a per-line `vat_rate`, so
+`net_local`/`vat_local` are DERIVED by the reverse calculation
+(`net_local = gross_local / (1 + vat_rate/100)`, `vat_local = gross_local -
+net_local`), entirely in `Decimal`, with `vat_rate` bounded to `[0, 100]`
+(a `ValueError` outside that range, never silently clamped) — every
+subsequent VAT-inclusive network (Moeve is next) needs this exact code
+path. `statement_ingest.ingest_statement` required ZERO changes — proven
+directly by re-running WO-62's own `test_g3_2_fuel_card_parser.py` and
+`test_g3_2_statement_ingest.py` byte-for-byte unmodified alongside the new
+E100 suites, and by a registry-level test dispatching a well-formed file of
+each network to the correct parser in the same test. R22 (learning never
+clobbers a curated value) and the two-phase FX guarantee are both re-proven
+end to end for E100 specifically. No migration — pure parser addition.
+**R20 is now CLOSED for Eurowag AND E100** — the remaining five networks
+(Q8/Port One, DKV, TFC by Moya, Moeve, BP/Aral) are named future slices in
+`docs/plan/plan-a/wo/WO-63-G3.2-slice2.md`'s "Out of scope". Still future
+work: unchanged from the WO-62 note above, now with E100 struck off.
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,

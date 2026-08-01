@@ -141,9 +141,14 @@ class FuelCardParser(ABC):
 # try order is visible in one place — the same choice `extraction_provider.py`
 # makes with `_PROVIDERS: list[ExtractionProvider] = [PdfProvider(), ...]`.
 def _default_parsers() -> list[FuelCardParser]:
+    from app.services.transport.parsers.e100 import E100Parser
     from app.services.transport.parsers.eurowag import EurowagParser
 
-    return [EurowagParser()]
+    # Registration order = try order. The two networks' `handles()` markers
+    # cannot both match the same file, so append order does not affect
+    # correctness here — kept Eurowag-first to keep the existing behaviour
+    # visible (WO-63/G3.2 slice 2).
+    return [EurowagParser(), E100Parser()]
 
 
 _PARSERS: list[FuelCardParser] = _default_parsers()
