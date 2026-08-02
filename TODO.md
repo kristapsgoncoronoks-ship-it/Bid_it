@@ -25,8 +25,9 @@ aside; not executed.
 | M6 | Integrations & enterprise go-live | `Planned` |
 
 **Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 → 1303 → 1309 → 1322 → 1352 → 1357 → 1369 → 1384 →
-1393 → 1402 → 1435 → 1491 → 1521 passed (+760 total, +30 this session), 10 skipped (pg-only, verified
-separately on real Postgres), 0 known regressions, as of WO-65.
+1393 → 1402 → 1435 → 1497 → 1527 passed (+766 total, +30 this session; the 1497 baseline was measured
+directly before WO-65's changes), 10 skipped (pg-only, verified separately on real Postgres), 0 known
+regressions, as of WO-65.
 
 ---
 
@@ -395,7 +396,8 @@ separately on real Postgres), 0 known regressions, as of WO-65.
   contract, so the two validation regimes can be built against a stable `ParsedFuelLine`/
   `statement_ingest` shape and proven over THREE distinct money models); a persisted statement
   review-queue; any `api/routes/transport/*` route. 73 tables, 80 revisions (both unchanged),
-  1501→1531 collected tests (+30: 19 parser + 11 ingest). Detail:
+  1507→1537 collected tests (+30: 19 parser + 11 ingest; both endpoints measured live —
+  1497→1527 passed + 10 pg-only skips). Detail:
   `docs/plan/plan-a/wo/WO-65-G3.2-slice4.md`.
 
 ---
