@@ -19,14 +19,14 @@ aside; not executed.
 | **M0** | Security/correctness debt sprint | ✅ **Completed** — WO-1…11 (incl. B1.5). All 12 exit-gate criteria met. See `docs/M0-exit-gate.md`. |
 | **M1** | Feature completion + independent audit | ✅ **Completed** — WO-12…46. Every named epic shipped; 18-item audit (R1–R19) closed except two decision-gated/backlog items (below). |
 | **M2** | "We can take money" — billing go-live | 🔶 **In Progress** — WO-47 (quota model) + WO-48 (dogfood billing fallback) shipped. Three items still owner-blocked (below). |
-| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) + WO-56 (G2.6 slice 1: period-end + Art. 17 minimum + deadline scanner, R7/R8/R9) + WO-57 (G2.6 slice 2: annual mop-up + quarterly duplicate-block, R6) + WO-58 (G2.6 slice 3: document-presence gate + receipt-control waivers, R10/R15) + WO-59 (G2.7: status lifecycle 1A→5, R12/R17) + WO-60 (G2.10 slice 1: the adjustable checklist engine, R45) + WO-61 (G3.1 slice 1: per-country supplier legal-entity registry, R21/R22) + WO-62 (G3.2 slice 1: the fuel-card parser registry + the Eurowag parser, R20) + WO-63 (G3.2 slice 2: the E100 fuel-card parser, R20's second worked example) + WO-64 (G3.2 slice 3: the Q8/Kuwait Petroleum fuel-card parser — the first multi-country/multi-currency-in-one-statement proof, `net_eur_eff`/Port-One-rebate merge explicitly deferred to the future G4.2) shipped. G2.6 is now fully closed (R6-R10, R15 all real gates); R20 is closed for Eurowag AND E100 only (Q8 carries no R20 claim of its own); four fuel-card networks remain (DKV, TFC by Moya, Moeve, BP/Aral). 70-100 day milestone; remaining slices tracked below. |
+| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) + WO-56 (G2.6 slice 1: period-end + Art. 17 minimum + deadline scanner, R7/R8/R9) + WO-57 (G2.6 slice 2: annual mop-up + quarterly duplicate-block, R6) + WO-58 (G2.6 slice 3: document-presence gate + receipt-control waivers, R10/R15) + WO-59 (G2.7: status lifecycle 1A→5, R12/R17) + WO-60 (G2.10 slice 1: the adjustable checklist engine, R45) + WO-61 (G3.1 slice 1: per-country supplier legal-entity registry, R21/R22) + WO-62 (G3.2 slice 1: the fuel-card parser registry + the Eurowag parser, R20) + WO-63 (G3.2 slice 2: the E100 fuel-card parser, R20's second worked example) + WO-64 (G3.2 slice 3: the Q8/Kuwait Petroleum fuel-card parser — the first multi-country/multi-currency-in-one-statement proof, `net_eur_eff`/Port-One-rebate merge explicitly deferred to the future G4.2) + WO-65 (G3.2 slice 4: the DKV fuel-card parser — the supplier-STATED-EUR money model, `fx_source="stated"` reachable from transport for the first time) shipped. G2.6 is now fully closed (R6-R10, R15 all real gates); R20 is closed for Eurowag AND E100 only (Q8/DKV carry no R20 claim of their own); three fuel-card networks remain (TFC by Moya, Moeve, BP/Aral). 70-100 day milestone; remaining slices tracked below. |
 | M4 | Payments & cash depth | `Planned` |
 | M5 | Transport vertical phase 2 — recovery intelligence | `Planned` |
 | M6 | Integrations & enterprise go-live | `Planned` |
 
 **Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 → 1303 → 1309 → 1322 → 1352 → 1357 → 1369 → 1384 →
-1393 → 1402 → 1435 passed (+674 total, +33 this session), 10 skipped (pg-only, verified separately on real
-Postgres), 0 known regressions, as of WO-62.
+1393 → 1402 → 1435 → 1491 → 1521 passed (+760 total, +30 this session), 10 skipped (pg-only, verified
+separately on real Postgres), 0 known regressions, as of WO-65.
 
 ---
 
@@ -355,6 +355,48 @@ Postgres), 0 known regressions, as of WO-62.
   (G3.5/G3.3); G3.3 itself; a persisted statement review-queue; any `api/routes/transport/*` route. 73
   tables, 80 revisions (both unchanged — no migration), 1480→1501 collected tests. Detail:
   `docs/plan/plan-a/wo/WO-64-G3.2-slice3.md`.
+
+- [x] **WO-65** — `Completed` — G3.2 slice 4: the DKV Euro Service fuel-card parser + the
+  supplier-STATED-EUR money model, the fourth network registered into WO-62's `fuel_card_parser`
+  registry and the FIRST (and, per the harvested quirks, last) network to require a deliberate
+  extension of the shared parser/ingestion contract. `BA_fleet_fuel.md` §5.1's DKV row — *"SEK/EUR;
+  semi-monthly; flat 1.30 SEK/L diesel discount; 5.63% service fee on parking/services; trusts the
+  supplier's per-line EUR and pro-rates"* — is a THIRD distinct money model (after Eurowag/Q8's
+  independently-given figures and E100's VAT-inclusive reverse-calc): the statement's own per-line
+  EUR figure is the conversion's source of truth. `ParsedFuelLine` gained one additive field
+  (`stated_net_eur`, default `None` — every prior parser untouched by construction) and
+  `statement_ingest._resolve_line` gained the third branch between EUR-identity and cached-ECB:
+  `net_eur` = the supplier's figure AS GIVEN (never an ECB recomputation, even when a cached rate
+  exists — proven by a test whose seeded fallback SEK rate would have produced a DIFFERENT figure;
+  the invoice is what a refund state audits against), `vat_eur` PRO-RATED at the same implied basis
+  (`vat_local * stated_net_eur / net_local` — the harvested "and pro-rates" clause), `fx_rate` = the
+  implied applied rate (`net_local / stated_net_eur`, 6 dp), `fx_ecb_rate`/`fx_ecb_date` = the
+  OFFICIAL reference frozen BEST-EFFORT (NULL when uncached — a stated line NEVER fails on missing
+  ECB coverage, the observable difference from the ECB branch, proven with an uncached-currency
+  test), `fx_source="stated"` — the platform's pre-existing ADR-0010 enum value
+  (`expenses.apply_item_fx` precedent; WO-50's `FX_SOURCE_CHECK` always allowed it, nothing could
+  write it until now). Fail-CLOSED: a stated pair whose implied rate is not strictly positive
+  (zero/sign-flipped) refuses the WHOLE statement (`fx_stated_inconsistent`) before any write,
+  under the unchanged two-phase guarantee; an EUR-currency DKV row must state `net_eur == net_local`
+  (a mismatch is a malformed row → whole statement aborts) and rides the untouched identity branch.
+  The on-invoice 1.30 SEK/L discount + 5.63% service fee are ALREADY INSIDE the given figures
+  (`BA_fleet_fuel.md` §4.2 verbatim) — read, never recomputed (contract-term verification is
+  G3.4/M5 territory). Like Q8, `DKVParser` attempts NO seller-entity detection (`entities`
+  unconditionally `[]`, the "never attempted" warning; no R20 worked marker exists for DKV) —
+  **R20 stays CLOSED at exactly Eurowag and E100**. ONE changed assertion, aligned not weakened:
+  WO-64's `test_g3_2_registry_ships_eurowag_e100_and_q8` asserted the exact three-parser list
+  (encoding "no fourth network exists") and now asserts membership + relative order, WO-62/WO-63's
+  own future-proof registry-test style; the exact four-parser list is asserted by the new DKV suite.
+  No migration — pure code addition over existing tables/columns (`fx_source='stated'` was always
+  CHECK-allowed). Explicitly NOT attempted (named future slices, priority order unchanged, now with
+  DKV struck off): TFC by Moya (hub-only discount), Moeve (6-dp VAT-inclusive maths, per-line IVA
+  rate), BP/Aral (Polish split-payment); semi-monthly cadence enforcement (G3.5/G3.3); G3.3 itself
+  (now the recommended NEXT M3 item — DKV was the last network whose model touches the shared
+  contract, so the two validation regimes can be built against a stable `ParsedFuelLine`/
+  `statement_ingest` shape and proven over THREE distinct money models); a persisted statement
+  review-queue; any `api/routes/transport/*` route. 73 tables, 80 revisions (both unchanged),
+  1501→1531 collected tests (+30: 19 parser + 11 ingest). Detail:
+  `docs/plan/plan-a/wo/WO-65-G3.2-slice4.md`.
 
 ---
 

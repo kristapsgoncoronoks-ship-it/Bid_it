@@ -384,6 +384,52 @@ remaining four networks (DKV, TFC by Moya, Moeve, BP/Aral) are named
 future slices in `docs/plan/plan-a/wo/WO-64-G3.2-slice3.md`'s "Out of
 scope". Still future work: unchanged from the WO-62/WO-63 notes above,
 now with Q8 struck off.
+
+**Implementation status (WO-65, G3.2 slice 4):** the FOURTH network,
+`parsers/dkv.py` (`DKVParser`), has landed in the same registry —
+`fuel_card_parser._default_parsers()` now returns `[EurowagParser(),
+E100Parser(), Q8Parser(), DKVParser()]`. DKV brings the THIRD distinct
+money model and, with it, the first deliberate extension of the shared
+parser/ingestion contract since WO-62: `BA_fleet_fuel.md` §5.1's DKV row
+("trusts the supplier's per-line EUR and pro-rates") means the statement's
+own per-line EUR figure is the conversion's source of truth — so
+`ParsedFuelLine` gained one additive field (`stated_net_eur`, default
+`None`; every prior parser untouched by construction) and
+`statement_ingest._resolve_line` gained a third branch between
+EUR-identity and cached-ECB: `net_eur` is the supplier's stated figure AS
+GIVEN (never an ECB recomputation, even when a cached rate exists —
+proven by a test whose cached fallback SEK rate would have produced a
+DIFFERENT figure), `vat_eur` is PRO-RATED at the same implied basis
+(`vat_local * stated_net_eur / net_local`, the harvested "and pro-rates"
+clause), `fx_rate` records the implied applied rate (`net_local /
+stated_net_eur`, 6 dp), `fx_ecb_rate`/`fx_ecb_date` freeze the OFFICIAL
+reference best-effort (NULL when uncached — a stated line NEVER fails on
+missing ECB coverage, the observable difference from the ECB branch), and
+`fx_source="stated"` — the platform's pre-existing ADR-0010 enum value
+(`app/models/fx.py::FxSource.stated`, precedent
+`expenses.apply_item_fx`), reachable from transport for the first time
+(WO-50's `FX_SOURCE_CHECK` always allowed it; nothing could write it).
+Fail-closed guard: an implied rate that is not strictly positive (zero or
+sign-flipped stated pair) refuses the WHOLE statement
+(`fx_stated_inconsistent`) before any write, under the unchanged
+two-phase guarantee. An EUR-currency DKV row must state `net_eur ==
+net_local` (a mismatch is a malformed row) and rides the untouched
+identity branch. DKV's flat 1.30 SEK/L diesel discount and 5.63%
+parking/services service fee are ON-INVOICE — already inside the given
+figures (`BA_fleet_fuel.md` §4.2) — so the parser reads them and never
+recomputes them (verifying the contracted terms is G3.4's advisory
+post-capture territory). Like Q8, `DKVParser` attempts NO seller-entity
+detection (`entities` unconditionally `[]`, the "never attempted"
+warning; no R20 worked marker exists for DKV) — **R20 stays CLOSED at
+exactly Eurowag and E100**. One WO-64 assertion was aligned, not
+weakened: `test_g3_2_registry_ships_eurowag_e100_and_q8` asserted the
+exact three-parser list (encoding "no fourth network exists") and now
+asserts membership + relative order, WO-62/WO-63's own future-proof
+style; the exact four-parser list is asserted by the DKV suite. No
+migration — pure code addition over existing tables/columns. The
+remaining three networks (TFC by Moya, Moeve, BP/Aral) are named future
+slices in `docs/plan/plan-a/wo/WO-65-G3.2-slice4.md`'s "Out of scope";
+DKV's semi-monthly cadence enforcement stays G3.5/G3.3 territory.
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,

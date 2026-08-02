@@ -34,6 +34,35 @@ returns `(None, None)` ⇒ `ValidationError(code="fx_rate_unavailable")` —
 never a stored NULL (`fuel_transactions.net_eur`/`vat_eur` are NOT NULL)
 and never a guessed number (master-context §4.15 verbatim).
 
+THE SUPPLIER-STATED-EUR BRANCH (WO-65/G3.2 slice 4 — DKV's money model)
+------------------------------------------------------------------------
+A parser whose network's harvested money model is "trust the supplier's
+per-line EUR" (DKV: `BA_fleet_fuel.md` §5.1 "trusts the supplier's
+per-line EUR and pro-rates") carries that figure in
+`ParsedFuelLine.stated_net_eur`. For such a line the STATEMENT DOCUMENT is
+the conversion's source of truth — the same `FxSource.stated` convention
+`app.services.expenses.apply_item_fx` already ships ("the claimant stated
+the converted amount... record the implied rate so the conversion is fully
+documented", ADR-0010): `net_eur` is the stated figure AS GIVEN (never
+recomputed via ECB — the invoice is what a refund state audits against);
+`vat_eur` is PRO-RATED at the same implied basis (`vat_local *
+stated_net_eur / net_local`, pure Decimal, the harvested "and pro-rates"
+clause); `fx_rate` records the implied APPLIED rate (`net_local /
+stated_net_eur`, foreign units per 1 EUR — `BA_fleet_fuel.md` §4.2's own
+definition of the applied-rate column, quantized to the storage column's
+6 dp); `fx_ecb_rate`/`fx_ecb_date` freeze the OFFICIAL reference rate
+BEST-EFFORT when the cache has one (R56: both the applied and the official
+rate frozen per line, so drift is auditable) and stay NULL when it does
+not — a stated line NEVER fails on missing ECB coverage ("no coverage ⇒
+NULL is stored, never a fabricated pass", §4.2 verbatim), which is the
+observable difference from the ECB branch. Fail-CLOSED guard: an implied
+rate that is not strictly positive (a zero `net_local`, a zero
+`stated_net_eur`, or a sign flip between them) is refused with
+`ValidationError(code="fx_stated_inconsistent")` in phase 1 — a
+nonsensical implied rate would poison the pro-rated VAT figure that feeds
+the claim, so the whole statement writes zero rows (the existing two-phase
+guarantee, unchanged).
+
 WHAT "FLAGGED FOR REVIEW" MEANS IN THIS SLICE
 ------------------------------------------------
 This codebase has no fuel-statement review-queue table yet (that is a
@@ -112,6 +141,37 @@ async def _resolve_line(db: AsyncSession, line: ParsedFuelLine) -> _ResolvedLine
             fx_ecb_rate=None,
             fx_ecb_date=None,
             fx_source="eur",
+        )
+
+    if line.stated_net_eur is not None:
+        # The supplier-stated-EUR branch — see the module docstring. The
+        # document's own figure is the conversion; refuse an implied rate
+        # that is not strictly positive rather than pro-rate VAT off it.
+        stated = line.stated_net_eur
+        if line.net_local == 0 or stated == 0 or (line.net_local > 0) != (stated > 0):
+            raise ValidationError(
+                f"Statement line {line.line_seq} states net_eur={stated} against "
+                f"net_local={line.net_local} {line.currency} — the implied exchange "
+                "rate is not a positive number, so the stated conversion cannot be "
+                "trusted or pro-rated.",
+                code="fx_stated_inconsistent",
+            )
+        # Pro-rate VAT at the EXACT stated basis (unrounded until the
+        # ingestion service's q2); the stored applied rate is the implied
+        # foreign-units-per-1-EUR figure at the column's 6 dp.
+        vat_eur = line.vat_local * stated / line.net_local
+        implied_rate = (line.net_local / stated).quantize(Decimal("0.000001"))
+        # Best-effort OFFICIAL-reference freeze (R56) — never a failure path:
+        # the stated figure does not depend on ECB coverage existing.
+        reference = await fx.resolve_rate(db, line.currency, line.txn_date)
+        return _ResolvedLine(
+            line=line,
+            net_eur=stated,
+            vat_eur=vat_eur,
+            fx_rate=implied_rate,
+            fx_ecb_rate=reference.rate if reference is not None else None,
+            fx_ecb_date=reference.rate_date if reference is not None else None,
+            fx_source="stated",
         )
 
     net_eur, resolved = await fx.to_eur(db, line.net_local, line.currency, line.txn_date)

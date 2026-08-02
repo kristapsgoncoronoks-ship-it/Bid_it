@@ -34,8 +34,14 @@ def _bytes(text: str) -> bytes:
 
 
 def test_g3_2_registry_ships_eurowag_e100_and_q8():
+    # Membership + relative order, not exact-list equality — the WO-62/WO-63
+    # registry tests' own future-proof style (an exact list would re-encode
+    # "no further network exists" and break on every subsequent G3.2 slice;
+    # it did exactly that when WO-65 registered DKV fourth). The CURRENT
+    # exact four-parser list is asserted by
+    # `test_g3_2_dkv_fuel_card_parser.py::test_g3_2_registry_ships_four_networks_in_order`.
     names = [p.network for p in fuel_card_parser.parsers()]
-    assert names == ["Eurowag", "E100", "Q8"]
+    assert names.index("Eurowag") < names.index("E100") < names.index("Q8")
 
 
 def test_g3_2_select_dispatches_all_three_networks_without_crossing():

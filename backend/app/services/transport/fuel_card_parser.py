@@ -82,6 +82,16 @@ class ParsedFuelLine:
     txn_time: str = ""
     invoice_ref: str | None = None
     provenance_note: str | None = None
+    # The supplier's OWN per-line EUR figure, AS PRINTED on the statement —
+    # set only by a network whose harvested money model is "trust the
+    # supplier's per-line EUR" (DKV, `BA_fleet_fuel.md` §5.1: "trusts the
+    # supplier's per-line EUR and pro-rates"; WO-65/G3.2 slice 4). `None`
+    # (the default — every other parser) means the ingestion service
+    # converts via its own EUR-identity/cached-ECB paths; a value here means
+    # the ingestion service uses THIS figure verbatim (`fx_source="stated"`,
+    # the platform's ADR-0010 convention) and pro-rates the VAT at the same
+    # implied rate. Never set for an EUR-currency line (identity wins).
+    stated_net_eur: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -141,6 +151,7 @@ class FuelCardParser(ABC):
 # try order is visible in one place — the same choice `extraction_provider.py`
 # makes with `_PROVIDERS: list[ExtractionProvider] = [PdfProvider(), ...]`.
 def _default_parsers() -> list[FuelCardParser]:
+    from app.services.transport.parsers.dkv import DKVParser
     from app.services.transport.parsers.e100 import E100Parser
     from app.services.transport.parsers.eurowag import EurowagParser
     from app.services.transport.parsers.q8 import Q8Parser
@@ -149,8 +160,9 @@ def _default_parsers() -> list[FuelCardParser]:
     # distinct literal first-line string, so no two can ever both match the
     # same file — append order does not affect correctness here — kept
     # Eurowag/E100-first to keep the existing behaviour visible (WO-63/G3.2
-    # slice 2), Q8 appended (WO-64/G3.2 slice 3).
-    return [EurowagParser(), E100Parser(), Q8Parser()]
+    # slice 2), Q8 appended (WO-64/G3.2 slice 3), DKV appended (WO-65/G3.2
+    # slice 4).
+    return [EurowagParser(), E100Parser(), Q8Parser(), DKVParser()]
 
 
 _PARSERS: list[FuelCardParser] = _default_parsers()

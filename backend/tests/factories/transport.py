@@ -377,6 +377,110 @@ def synthetic_q8_statement(
     return "\n".join(lines) + "\n"
 
 
+# DKV's CSV shape is Eurowag's column layout PLUS the one `net_eur` column —
+# the supplier's own per-line EUR figure ("trusts the supplier's per-line EUR
+# and pro-rates", `BA_fleet_fuel.md` §5.1) — see
+# `app.services.transport.parsers.dkv`'s module docstring.
+_DKV_COLUMNS = (
+    "txn_date",
+    "txn_time",
+    "vehicle_ref",
+    "station",
+    "country",
+    "product",
+    "qty",
+    "currency",
+    "net_local",
+    "vat_local",
+    "gross_local",
+    "net_eur",
+    "invoice_ref",
+)
+_DKV_MARKER = "DKV STATEMENT"
+_DKV_HEADER = ",".join(_DKV_COLUMNS)
+
+
+def synthetic_dkv_statement(
+    *,
+    rows: list[dict[str, object]] | None = None,
+    seed: int | None = None,
+) -> str:
+    """A synthetic DKV Euro Service statement (G3.2/WO-65) matching the
+    format `app.services.transport.parsers.dkv.DKVParser` expects — a
+    literal `"DKV STATEMENT"` marker, then the transaction CSV block
+    (Eurowag's independently-given `net_local`/`vat_local`/`gross_local`
+    columns PLUS the per-line `net_eur` column carrying the SUPPLIER'S OWN
+    stated EUR figure). Synthetic, generated, never derived from client
+    data.
+
+    Like `synthetic_q8_statement`, there is no `footer_lines` parameter —
+    `DKVParser` never attempts seller-entity detection. The default two-row
+    fixture deliberately pairs a SE/SEK row (whose `net_eur` is the stated
+    supplier conversion) with a DE/EUR row (whose `net_eur` trivially equals
+    `net_local`) — the SEK/EUR currency mix `BA_fleet_fuel.md` §5.1's own
+    network-table row gives for DKV, so every test that does not override
+    `rows` exercises BOTH the stated and the identity conversion paths.
+
+    `rows` is overridable so a test can build a deliberately malformed or
+    inconsistent row without hand-writing the whole file.
+    """
+    r = _rng(seed)
+    if rows is None:
+        litres_se = Decimal(r.randrange(5_000, 20_000)) / Decimal(100)
+        price_se = Decimal(r.randrange(9_000, 16_000)) / Decimal(1_000)  # SEK/L ~9-16
+        net_se = q2(litres_se * price_se)
+        vat_se = q2(net_se * Decimal("0.25"))
+        gross_se = q2(net_se + vat_se)
+        # The supplier's own stated EUR conversion — a plausible ~11 SEK/EUR
+        # basis, deliberately NOT any rate a test could have cached.
+        stated_eur_se = q2(net_se / Decimal("11.05"))
+
+        litres_de = Decimal(r.randrange(5_000, 20_000)) / Decimal(100)
+        price_de = Decimal(r.randrange(9_000, 16_000)) / Decimal(10_000)
+        net_de = q2(litres_de * price_de)
+        vat_de = q2(net_de * Decimal("0.19"))
+        gross_de = q2(net_de + vat_de)
+
+        rows = [
+            {
+                "txn_date": "2026-06-04",
+                "txn_time": "06:55",
+                "vehicle_ref": synthetic_vehicle_ref(seed=seed),
+                "station": "Stockholm South Hub",
+                "country": "SE",
+                "product": "DIESEL",
+                "qty": str(litres_se),
+                "currency": "SEK",
+                "net_local": str(net_se),
+                "vat_local": str(vat_se),
+                "gross_local": str(gross_se),
+                "net_eur": str(stated_eur_se),
+                "invoice_ref": synthetic_invoice_number("fuelcard-a", seed=seed),
+            },
+            {
+                "txn_date": "2026-06-18",
+                "txn_time": "17:40",
+                "vehicle_ref": synthetic_vehicle_ref(seed=seed),
+                "station": "Hamburg Port Hub",
+                "country": "DE",
+                "product": "DIESEL",
+                "qty": str(litres_de),
+                "currency": "EUR",
+                "net_local": str(net_de),
+                "vat_local": str(vat_de),
+                "gross_local": str(gross_de),
+                "net_eur": str(net_de),
+                "invoice_ref": synthetic_invoice_number("fuelcard-b", seed=seed),
+            },
+        ]
+
+    lines = [_DKV_MARKER, _DKV_HEADER]
+    for row in rows:
+        lines.append(",".join(str(row.get(col, "")) for col in _DKV_COLUMNS))
+    lines.append("---")
+    return "\n".join(lines) + "\n"
+
+
 def synthetic_fuel_line(*, seed: int | None = None) -> dict[str, object]:
     """A fuel line item with plausible litres and NET EUR/L prices.
 

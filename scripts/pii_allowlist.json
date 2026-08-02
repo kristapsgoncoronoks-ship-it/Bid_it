@@ -204,6 +204,12 @@
       "kind": "vat_id",
       "justification": "Hand-fabricated decoy VAT id (9-leading synthetic body per the WO-6 factory convention, obviously sequential digits) planted by WO-64's adversarial test test_g3_2_q8_parse_entities_stay_empty_even_with_kp_looking_text_in_the_file to prove Q8Parser performs no entity scan. Never derived from any real registry or the Fleet Fuel archive.",
       "verified_by": "Claude (WO-64 CI fix, 2026-08-02)"
+    },
+    {
+      "value": "SE999999999901",
+      "kind": "vat_id",
+      "justification": "Hand-fabricated decoy VAT id (all-nines synthetic body + the Swedish '01' suffix shape) planted by WO-65's adversarial test test_g3_2_dkv_parse_entities_stay_empty_even_with_dkv_looking_text_in_the_file to prove DKVParser performs no entity scan. Never derived from any real registry or the Fleet Fuel archive.",
+      "verified_by": "Claude (WO-65, 2026-08-02)"
     }
   ]
 }
