@@ -307,6 +307,18 @@ EXEMPT: dict[str, str] = {
         "through. Gains a probe with the first transport route (ARCH_plan.md "
         "G2.x)."
     ),
+    "fuel_tieout_expectations": (
+        "G3.3 (WO-66): the engine tie-out targets a human types from the "
+        "invoice PDF, written only through services/transport/tie_out."
+        "set_expectation/remove_expectation (tenant-scoped there via the "
+        "same ORM guard this probe would exercise, cross-tenant-opaque by "
+        "test — tests/transport/test_g3_3_tie_out.py — AND proven on real "
+        "Postgres RLS via tests/test_rls.py's set-equality check). Read only "
+        "by tie_out.check_period (org-scoped, called from close.run_close on "
+        "the worker) — no api/routes/transport/* route exists yet to drive "
+        "an HTTP-level probe through. Gains a probe with the first transport "
+        "route (ARCH_plan.md G2.x)."
+    ),
     "vat_note_invoice_overrides": (
         "G2.4 (WO-52): the admin-curated note->invoice override, written only "
         "through services/transport/invoice_match.set_note_override "
