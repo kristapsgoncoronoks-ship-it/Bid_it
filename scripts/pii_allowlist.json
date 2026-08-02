@@ -198,6 +198,12 @@
       "kind": "iban",
       "justification": "Published ISO 13616 registry example IBAN for Portugal; standard documentation value used as a synthetic fixture.",
       "verified_by": "Claude (WO-6, 2026-07-25)"
+    },
+    {
+      "value": "EE912345678",
+      "kind": "vat_id",
+      "justification": "Hand-fabricated decoy VAT id (9-leading synthetic body per the WO-6 factory convention, obviously sequential digits) planted by WO-64's adversarial test test_g3_2_q8_parse_entities_stay_empty_even_with_kp_looking_text_in_the_file to prove Q8Parser performs no entity scan. Never derived from any real registry or the Fleet Fuel archive.",
+      "verified_by": "Claude (WO-64 CI fix, 2026-08-02)"
     }
   ]
 }
