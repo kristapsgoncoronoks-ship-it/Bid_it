@@ -183,6 +183,12 @@ class A:
     # `learn_registration` call that actually inserts a NEW row; a
     # no-op learn call (a row already exists) audits nothing.
     TRANSPORT_SUPPLIER_REGISTRATION_SET = "transport.supplier_registration_set"
+    # G3.3 (WO-66): the engine tie-out expectations a human types from the
+    # invoice PDF. SET fires on create AND on a retype (old->new both
+    # recorded); REMOVE fires on delete (the narrow un-halt for a
+    # mis-typed supplier).
+    TRANSPORT_TIEOUT_EXPECTATION_SET = "transport.tieout_expectation_set"
+    TRANSPORT_TIEOUT_EXPECTATION_REMOVE = "transport.tieout_expectation_remove"
 
 
 def _hash(

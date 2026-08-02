@@ -225,7 +225,17 @@ async def test_g3_2_dkv_ingest_statement_inconsistent_stated_line_refuses_and_wr
 @pytest.mark.asyncio
 async def test_g3_2_dkv_ingest_statement_zero_net_local_stated_line_is_refused(db_session):
     """`net_local=0` with a nonzero stated EUR figure has no derivable
-    implied rate — refused, never guessed."""
+    implied rate — refused, never guessed.
+
+    WO-66/G3.3 ALIGNMENT (not a weakening): the capture review gate now
+    refuses this line EARLIER — rule 5 (`net > 0`, error) blocks the batch
+    at review, before the FX phase's own `fx_stated_inconsistent` guard is
+    reached. The refusal is stricter, still writes nothing, and the FX
+    branch's zero-guard remains covered through ingest by
+    `test_g3_3_capture_gate_ingest.py::test_g3_3_stated_zero_eur_still_
+    hits_the_fx_guard_behind_the_gate` (a `net_local > 0`, `net_eur=0`
+    row, which passes the review gate and hits `fx_stated_inconsistent`).
+    """
     org = await make_org(db_session)
     await enable_transport(db_session, org.id)
     entity = await make_entity(db_session, org.id)
@@ -241,7 +251,7 @@ async def test_g3_2_dkv_ingest_statement_zero_net_local_stated_line_is_refused(d
             filename="dkv.csv",
             content=content,
         )
-    assert exc_info.value.code == "fx_stated_inconsistent"
+    assert exc_info.value.code == "capture_review_blocked"
     assert await _fuel_rows(db_session, org.id) == []
 
 

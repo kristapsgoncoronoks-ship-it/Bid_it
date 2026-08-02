@@ -82,6 +82,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import PermissionError, ValidationError
 from app.models.transport.vat_claim import VatRefundClaim
 from app.services import audit, jobs, modules
+from app.services.transport import tie_out
 from app.services.transport.claim_lines import build_claim_lines, period_months
 
 # The job kind registered with app.services.jobs / app.services.job_handlers.
@@ -134,6 +135,26 @@ async def run_close(db: AsyncSession, org_id: str, period: str) -> dict:
 
     validate_close_period(period)
 
+    # The engine tie-out (G3.3/WO-66 — R25's second regime): every
+    # expectation a human typed from the invoice PDFs for this period is
+    # checked BEFORE any claim-line rebuild. ALL rows are evaluated first
+    # and ONE error names every failure (the harvested "exit after
+    # processing every supplier so the operator sees all failures at
+    # once"); the raise propagates to `jobs.run_once`, whose whole-session
+    # rollback is what makes "the hand-off artifact is not written"
+    # literal — nothing of a failed close survives. An org with zero
+    # typed expectations is not checked (fail-open by absence — the
+    # expectation IS the opt-in training target, see `tie_out`'s
+    # docstring); once typed, any out-of-tolerance metric fails CLOSED.
+    tie_results = await tie_out.check_period(db, org_id, period)
+    tie_failures = [r for r in tie_results if not r.ok]
+    if tie_failures:
+        raise ValidationError(
+            f"Engine tie-out failed for period {period} — the close is halted: "
+            + tie_out.describe_failures(tie_failures),
+            code="tie_out_failed",
+        )
+
     claims = list(
         await db.scalars(
             select(VatRefundClaim).where(
@@ -154,7 +175,19 @@ async def run_close(db: AsyncSession, org_id: str, period: str) -> dict:
         audit.A.TRANSPORT_CLOSE_RUN,
         # No single target row — a whole-org batch summary, same pattern as
         # `retention.purge`'s own audit call (org_id + meta, no target_type/id).
-        meta={"period": period, "claims_processed": len(processed)},
+        meta={
+            "period": period,
+            "claims_processed": len(processed),
+            # How many typed tie-out expectations were verified for this
+            # period (0 = none typed; the close then ran unchecked, the
+            # documented fail-open-by-absence behaviour).
+            "tie_out_checked": len(tie_results),
+        },
         org_id=org_id,  # explicit — runs inside the job worker, not a request.
     )
-    return {"period": period, "claims_processed": len(processed), "claims": processed}
+    return {
+        "period": period,
+        "claims_processed": len(processed),
+        "claims": processed,
+        "tie_out_checked": len(tie_results),
+    }

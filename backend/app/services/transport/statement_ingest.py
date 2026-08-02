@@ -63,6 +63,22 @@ nonsensical implied rate would poison the pro-rated VAT figure that feeds
 the claim, so the whole statement writes zero rows (the existing two-phase
 guarantee, unchanged).
 
+THE CAPTURE REVIEW GATE (WO-66/G3.3 — R25's first regime)
+------------------------------------------------------------
+After parsing and BEFORE any FX resolution, the parsed batch passes
+through `capture_review.review_statement` — the harvested nine-rule
+verdict lattice plus the optional batch tie-out against the invoice
+coversheet total (`coversheet_total`, the figure printed on the statement
+document, captured by the operator; `None` = no coversheet figure, the
+tie constraint simply does not apply). `can_commit=False` (any ERROR
+finding, or a tie-out off by more than €0.02 on quantized Decimals)
+refuses the WHOLE statement with `code="capture_review_blocked"` before a
+single row is written — fail-CLOSED, and deliberately placed ahead of the
+FX machinery so the refusal names the actual capture defect ("net must be
+> 0") rather than a downstream FX symptom (`fx_stated_inconsistent`).
+WARN findings NEVER block (§2.1a verbatim) — they append to
+`StatementIngestResult.warnings`, the review surface of this slice.
+
 WHAT "FLAGGED FOR REVIEW" MEANS IN THIS SLICE
 ------------------------------------------------
 This codebase has no fuel-statement review-queue table yet (that is a
@@ -92,7 +108,7 @@ from app.core.errors import PermissionError, ValidationError
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.models.transport.supplier_registration import SupplierVatRegistration
 from app.services import fx, modules
-from app.services.transport import fuel_card_parser, fuel_ingest, supplier_entity
+from app.services.transport import capture_review, fuel_card_parser, fuel_ingest, supplier_entity
 from app.services.transport.fuel_card_parser import ParsedFuelLine
 
 _PERIOD_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
@@ -203,6 +219,7 @@ async def ingest_statement(
     period: str,
     filename: str,
     content: bytes,
+    coversheet_total: Decimal | None = None,
 ) -> StatementIngestResult:
     """Parse a fuel-card statement (network auto-detected — never
     caller-asserted, so a mislabeled upload can't be miscategorized; see
@@ -222,6 +239,35 @@ async def ingest_statement(
         parsed = fuel_card_parser.run(filename, content)
     except ValueError as exc:
         raise ValidationError(str(exc), code="unrecognized_fuel_card_statement") from exc
+
+    # The capture review gate (R25's first regime) — see the module
+    # docstring. Runs on the PARSED batch before any FX work; a blocked
+    # batch writes zero rows. The refusal message lists EVERY error (and
+    # the failed tie-out) so the operator sees all failures at once.
+    review = capture_review.review_statement(parsed, coversheet_total=coversheet_total)
+    if not review.can_commit:
+        problems = [
+            f"line {f.line_seq}: {f.message}" if f.line_seq is not None else f.message
+            for f in review.findings
+            if f.severity == capture_review.ERROR
+        ]
+        if review.tie is not None and not review.tie.ok:
+            problems.append(
+                f"batch tie-out failed: lines total {review.tie.computed_total} vs "
+                f"coversheet {review.tie.coversheet_total} "
+                f"(diff {review.tie.diff} > {capture_review.TIE_TOLERANCE})"
+            )
+        raise ValidationError(
+            "Capture review blocked registration: " + "; ".join(problems),
+            code="capture_review_blocked",
+        )
+    review_warnings = [
+        f"capture review: line {f.line_seq}: {f.message}"
+        if f.line_seq is not None
+        else f"capture review: {f.message}"
+        for f in review.findings
+        if f.severity == capture_review.WARN
+    ]
 
     # Phase 1 — resolve every line's EUR figures FIRST, no DB writes yet (see
     # module docstring "two-phase write"). Any unconvertible line aborts the
@@ -280,5 +326,5 @@ async def ingest_statement(
         period=period,
         lines=transactions,
         entities=entities,
-        warnings=list(parsed.warnings),
+        warnings=list(parsed.warnings) + review_warnings,
     )

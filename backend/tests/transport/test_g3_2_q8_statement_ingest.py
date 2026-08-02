@@ -275,7 +275,9 @@ async def test_g3_2_q8_ingest_statement_refuses_and_writes_nothing_when_no_fx_ra
             "net_local": "10.00",
             "vat_local": "2.00",
             "gross_local": "12.00",
-            "invoice_ref": "",
+            # WO-66/G3.3: refs added — the capture review gate (rule 1)
+            # otherwise refuses before the FX phase this test is about.
+            "invoice_ref": "FB/00000801",
         },
         {
             "txn_date": "2026-06-02",
@@ -292,7 +294,7 @@ async def test_g3_2_q8_ingest_statement_refuses_and_writes_nothing_when_no_fx_ra
             "net_local": "100.00",
             "vat_local": "25.00",
             "gross_local": "125.00",
-            "invoice_ref": "",
+            "invoice_ref": "FB/00000802",
         },
     ]
     content = synthetic_q8_statement(rows=rows, seed=6).encode("utf-8")

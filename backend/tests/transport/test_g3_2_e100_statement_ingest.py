@@ -287,7 +287,10 @@ async def test_g3_2_e100_ingest_statement_converts_a_non_eur_line_via_the_cached
             "currency": "PLN",
             "gross_local": "528.90",
             "vat_rate": "21",
-            "invoice_ref": "",
+            # WO-66/G3.3: the capture review gate now refuses a line with no
+            # invoice reference (rule 1, error) — this fixture's subject is
+            # the ECB conversion, so it carries a synthetic ref.
+            "invoice_ref": "E1-2026-000701",
         }
     ]
     content = synthetic_e100_statement(rows=rows, footer_lines=["No seller marker here."], seed=7)
@@ -334,7 +337,9 @@ async def test_g3_2_e100_ingest_statement_refuses_and_writes_nothing_when_no_fx_
             "currency": "EUR",
             "gross_local": "12.10",
             "vat_rate": "21",
-            "invoice_ref": "",
+            # WO-66/G3.3: refs added — the capture review gate (rule 1)
+            # otherwise refuses before the FX phase this test is about.
+            "invoice_ref": "E1-2026-000801",
         },
         {
             "txn_date": "2026-06-02",
@@ -350,7 +355,7 @@ async def test_g3_2_e100_ingest_statement_refuses_and_writes_nothing_when_no_fx_
             "currency": "ZAR",
             "gross_local": "125.00",
             "vat_rate": "25",
-            "invoice_ref": "",
+            "invoice_ref": "E1-2026-000802",
         },
     ]
     content = synthetic_e100_statement(rows=rows, seed=8)

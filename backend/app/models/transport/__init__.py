@@ -16,9 +16,11 @@ from app.models.transport.lock import VatClaimedInvoice
 from app.models.transport.note_override import VatNoteInvoiceOverride
 from app.models.transport.receipt_waiver import VatReceiptWaiver
 from app.models.transport.supplier_registration import SupplierVatRegistration
+from app.models.transport.tie_out import FuelTieOutExpectation
 from app.models.transport.vat_claim import VatRefundClaim, VatRefundClaimLine
 
 __all__ = [
+    "FuelTieOutExpectation",
     "FuelTransaction",
     "SupplierVatRegistration",
     "VatChecklistRule",

@@ -279,7 +279,10 @@ async def test_g3_2_ingest_statement_converts_a_non_eur_line_via_the_cached_ecb_
             "net_local": "430.00",
             "vat_local": "98.90",
             "gross_local": "528.90",
-            "invoice_ref": "",
+            # WO-66/G3.3: the capture review gate now refuses a line with no
+            # invoice reference (rule 1, error) — this fixture's subject is
+            # the ECB conversion, so it carries a synthetic ref.
+            "invoice_ref": "INV-000701",
         }
     ]
     content = synthetic_eurowag_statement(rows=rows, footer_lines=["No seller line here."], seed=7)
@@ -326,7 +329,9 @@ async def test_g3_2_ingest_statement_refuses_and_writes_nothing_when_no_fx_rate_
             "net_local": "10.00",
             "vat_local": "2.10",
             "gross_local": "12.10",
-            "invoice_ref": "",
+            # WO-66/G3.3: refs added — the capture review gate (rule 1)
+            # otherwise refuses before the FX phase this test is about.
+            "invoice_ref": "INV-000801",
         },
         {
             "txn_date": "2026-06-02",
@@ -343,7 +348,7 @@ async def test_g3_2_ingest_statement_refuses_and_writes_nothing_when_no_fx_rate_
             "net_local": "100.00",
             "vat_local": "25.00",
             "gross_local": "125.00",
-            "invoice_ref": "",
+            "invoice_ref": "INV-000802",
         },
     ]
     content = synthetic_eurowag_statement(rows=rows, seed=8)
