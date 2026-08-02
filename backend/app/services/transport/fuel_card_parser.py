@@ -143,12 +143,14 @@ class FuelCardParser(ABC):
 def _default_parsers() -> list[FuelCardParser]:
     from app.services.transport.parsers.e100 import E100Parser
     from app.services.transport.parsers.eurowag import EurowagParser
+    from app.services.transport.parsers.q8 import Q8Parser
 
-    # Registration order = try order. The two networks' `handles()` markers
-    # cannot both match the same file, so append order does not affect
-    # correctness here — kept Eurowag-first to keep the existing behaviour
-    # visible (WO-63/G3.2 slice 2).
-    return [EurowagParser(), E100Parser()]
+    # Registration order = try order. Each network's `handles()` marker is a
+    # distinct literal first-line string, so no two can ever both match the
+    # same file — append order does not affect correctness here — kept
+    # Eurowag/E100-first to keep the existing behaviour visible (WO-63/G3.2
+    # slice 2), Q8 appended (WO-64/G3.2 slice 3).
+    return [EurowagParser(), E100Parser(), Q8Parser()]
 
 
 _PARSERS: list[FuelCardParser] = _default_parsers()

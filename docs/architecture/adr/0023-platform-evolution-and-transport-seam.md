@@ -347,6 +347,43 @@ end to end for E100 specifically. No migration — pure parser addition.
 (Q8/Port One, DKV, TFC by Moya, Moeve, BP/Aral) are named future slices in
 `docs/plan/plan-a/wo/WO-63-G3.2-slice2.md`'s "Out of scope". Still future
 work: unchanged from the WO-62 note above, now with E100 struck off.
+**Implementation status (WO-64, G3.2 slice 3):** the THIRD network,
+`parsers/q8.py` (`Q8Parser`), has landed in the same registry —
+`fuel_card_parser._default_parsers()` now returns `[EurowagParser(),
+E100Parser(), Q8Parser()]`. Q8's own money model reuses Eurowag's shape
+(independently-given `net_local`/`vat_local`/`gross_local` — Q8 invoices
+at LIST price, not VAT-inclusive gross like E100), so no new arithmetic
+was needed; what this order proves for the first time is that a SINGLE
+statement can legitimately carry lines for more than one country and
+currency (`BA_fleet_fuel.md` §5.1's own "per-line country + currency"
+quirk for Q8) — neither `eurowag.py` nor `e100.py`'s fixtures ever
+exercised that before. `Q8Parser` deliberately attempts NO seller-entity
+detection at all (`entities` is unconditionally `[]`, with one
+explanatory warning distinguishing "never attempted" from
+`eurowag.py`/`e100.py`'s "attempted, none found") — `BA_fleet_fuel.md`
+gives no footer label or anchor marker for Q8 the way it does for
+Eurowag/E100, so R20 stays **CLOSED at exactly Eurowag and E100**,
+unchanged by this order; an adversarial test plants a "Kuwait
+Petroleum ... VAT: ..."-shaped decoy line in the raw file and confirms it
+is never picked up (no scan exists to accidentally match it). Q8's
+`net_eur_eff` (the Port One off-invoice-rebate figure — "the entire
+reason `net_eur_eff` exists", per the WO-62 note above) is likewise
+deliberately left at `ingest_transaction`'s existing default
+(`= net_eur`); reconciling Q8's list-price statement against a SEPARATE
+Port One rebate export is a cross-statement merge with no worked column
+layout given anywhere in the harvested spec, and `ARCH_plan.md` already
+scopes it as its own, later board item — **G4.2, "Price basis +
+`net_eur_eff` source guard"** (R49/R50, milestone M5) — not a G3.2 slice.
+`statement_ingest.ingest_statement` required ZERO changes — proven
+directly by re-running WO-62/WO-63's own suites byte-for-byte unmodified
+alongside the new Q8 suites, and by a registry-level test dispatching a
+well-formed file of each of the three networks to the correct parser in
+the same test. No migration — pure parser addition. **R20 stays CLOSED
+for Eurowag AND E100 only** — Q8 is G3.2 progress, not an R20 claim. The
+remaining four networks (DKV, TFC by Moya, Moeve, BP/Aral) are named
+future slices in `docs/plan/plan-a/wo/WO-64-G3.2-slice3.md`'s "Out of
+scope". Still future work: unchanged from the WO-62/WO-63 notes above,
+now with Q8 struck off.
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,

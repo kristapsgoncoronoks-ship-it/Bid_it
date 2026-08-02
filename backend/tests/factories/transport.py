@@ -293,6 +293,90 @@ def synthetic_e100_statement(
     return "\n".join(lines) + "\n"
 
 
+# Q8's CSV shape is byte-for-byte the same column layout as Eurowag's
+# (independently-given net_local/vat_local/gross_local — Q8 invoices at LIST
+# price, not VAT-inclusive gross the way E100 does) — see
+# `app.services.transport.parsers.q8`'s module docstring.
+_Q8_COLUMNS = _EUROWAG_COLUMNS
+_Q8_MARKER = "Q8 STATEMENT"
+_Q8_HEADER = ",".join(_Q8_COLUMNS)
+
+
+def synthetic_q8_statement(
+    *,
+    rows: list[dict[str, object]] | None = None,
+    seed: int | None = None,
+) -> str:
+    """A synthetic Q8/Kuwait Petroleum statement (G3.2/WO-64) matching the
+    format `app.services.transport.parsers.q8.Q8Parser` expects — a literal
+    `"Q8 STATEMENT"` marker, then the transaction CSV block (independently-
+    given `net_local`/`vat_local`/`gross_local`, same column shape as
+    Eurowag's — Q8 invoices at LIST price, never VAT-inclusive gross).
+    Synthetic, generated, never derived from client data.
+
+    Unlike `synthetic_eurowag_statement`/`synthetic_e100_statement`, there is
+    no `footer_lines` parameter — `Q8Parser` never attempts seller-entity
+    detection (see that module's docstring), so no footer/entity fixture is
+    needed. The default two-row fixture deliberately spans TWO different
+    countries and currencies (EE/EUR and PL/PLN) — the "per-line country +
+    currency" property this network's onboarding slice exists to prove, per
+    `BA_fleet_fuel.md` §5.1's own network-table row for Q8.
+
+    `rows` is overridable so a test can build a deliberately malformed row
+    or a single-country fixture without hand-writing the whole file.
+    """
+    r = _rng(seed)
+    if rows is None:
+        litres_ee = Decimal(r.randrange(5_000, 20_000)) / Decimal(100)
+        price_ee = Decimal(r.randrange(9_000, 16_000)) / Decimal(10_000)
+        net_ee = q2(litres_ee * price_ee)
+        vat_ee = q2(net_ee * Decimal("0.20"))
+        gross_ee = q2(net_ee + vat_ee)
+
+        litres_pl = Decimal(r.randrange(5_000, 20_000)) / Decimal(100)
+        price_pl = Decimal(r.randrange(9_000, 16_000)) / Decimal(10_000)
+        net_pl = q2(litres_pl * price_pl)
+        vat_pl = q2(net_pl * Decimal("0.23"))
+        gross_pl = q2(net_pl + vat_pl)
+
+        rows = [
+            {
+                "txn_date": "2026-06-05",
+                "txn_time": "07:45",
+                "vehicle_ref": synthetic_vehicle_ref(seed=seed),
+                "station": "Tallinn Ring Hub",
+                "country": "EE",
+                "product": "DIESEL",
+                "qty": str(litres_ee),
+                "currency": "EUR",
+                "net_local": str(net_ee),
+                "vat_local": str(vat_ee),
+                "gross_local": str(gross_ee),
+                "invoice_ref": synthetic_invoice_number("fuelcard-a", seed=seed),
+            },
+            {
+                "txn_date": "2026-06-12",
+                "txn_time": "14:20",
+                "vehicle_ref": synthetic_vehicle_ref(seed=seed),
+                "station": "Warsaw Bypass Hub",
+                "country": "PL",
+                "product": "DIESEL",
+                "qty": str(litres_pl),
+                "currency": "PLN",
+                "net_local": str(net_pl),
+                "vat_local": str(vat_pl),
+                "gross_local": str(gross_pl),
+                "invoice_ref": synthetic_invoice_number("fuelcard-b", seed=seed),
+            },
+        ]
+
+    lines = [_Q8_MARKER, _Q8_HEADER]
+    for row in rows:
+        lines.append(",".join(str(row.get(col, "")) for col in _Q8_COLUMNS))
+    lines.append("---")
+    return "\n".join(lines) + "\n"
+
+
 def synthetic_fuel_line(*, seed: int | None = None) -> dict[str, object]:
     """A fuel line item with plausible litres and NET EUR/L prices.
 
