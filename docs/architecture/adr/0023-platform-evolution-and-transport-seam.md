@@ -471,6 +471,49 @@ WO-64's exact-three-list test; the exact five-parser list is asserted by
 the TFC suite. No migration — pure code addition. The remaining two
 networks (Moeve, BP/Aral) are named future slices in
 `docs/plan/plan-a/wo/WO-67-G3.2-slice5.md`'s "Out of scope".
+
+**Implementation status (WO-68, G3.2 slice 6):** the SIXTH network,
+`parsers/moeve.py` (`MoeveParser`), has landed in the same registry —
+`fuel_card_parser._default_parsers()` now returns `[EurowagParser(),
+E100Parser(), Q8Parser(), DKVParser(), TFCParser(), MoeveParser()]`.
+Moeve (ex-Cepsa) varies E100's reverse VAT-inclusive-gross model three
+harvested ways (`BA_fleet_fuel.md` §5.1: "ALL amounts VAT-inclusive;
+per-line IVA rate (10% gasoleo / 21% EcoBlue); cash-at-pump nets
+against transfer; 6-dp internal calc"): the IVA rate genuinely varies
+LINE-BY-LINE within one statement (each line reverse-calculated at its
+own printed rate); the derivation runs at the harvested 6-dp internal
+precision (`net_local = q(gross/(1+rate/100), 6dp)` ROUND_HALF_UP,
+`vat_local = gross − net` EXACT — the `net+vat==gross` identity holds
+to the last digit and `q2` stays at the ingest boundary only, E100's
+own unrounded derivation untouched); and a per-line `payment`
+settlement channel, fail-closed on any unknown value. The documented
+cash-at-pump decision: a flagged row IS a `ParsedFuelLine` — invoiced,
+VAT-bearing fuel whose VAT is exactly as reclaimable — because "nets
+against transfer" describes SETTLEMENT (M4/G3.5 territory), so the flag
+rides `provenance_note` only, never mutates a figure, the batch
+tie-out ties the INVOICE total (all lines, cash included), and the
+parse surfaces one advisory count+gross-sum warning. Rate policy
+deliberately lives in the WO-66 gate, not the parser: `iva_rate` is
+bounded [0,100] with NO {10,21} whitelist and NO product→rate mapping —
+rule 9's harvested ES dual entry `(21, 10)` exists for exactly this
+network and is REUSED, proven both ways (10/21 ES lines raise no
+`vat_rate_incoherent`; a 15% ES line warns and still registers).
+Deliberately parser-LOCAL: `ParsedFuelLine` and `statement_ingest` are
+byte-identical to WO-67's tree (WO-65's contract-stability argument
+holds), every fixture line is EUR on the untouched identity branch,
+and `net_eur_eff` stays at the default (the ON-INVOICE PRN discount is
+inside the printed gross; G3.4/M5 owns verifying it). Like Q8/DKV/TFC,
+`MoeveParser` attempts NO seller-entity detection (`entities`
+unconditionally `[]`, the "never attempted" warning; no R20 worked
+marker exists for Moeve) — **R20 stays CLOSED at exactly Eurowag and
+E100**. One WO-67 assertion was aligned, not weakened:
+`test_g3_2_registry_ships_five_networks_in_order` asserted the exact
+five-parser list (encoding "no sixth network exists") and now asserts
+membership + relative order, the same fix WO-65/WO-67 applied before
+it; the exact six-parser list is asserted by the Moeve suite. No
+migration — pure code addition. The one remaining network (BP/Aral,
+PLN + Polish split-payment MPP + ORS toll-fee lines) is a named future
+slice in `docs/plan/plan-a/wo/WO-68-G3.2-slice6.md`'s "Out of scope".
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,

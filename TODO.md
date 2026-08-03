@@ -19,15 +19,15 @@ aside; not executed.
 | **M0** | Security/correctness debt sprint | ✅ **Completed** — WO-1…11 (incl. B1.5). All 12 exit-gate criteria met. See `docs/M0-exit-gate.md`. |
 | **M1** | Feature completion + independent audit | ✅ **Completed** — WO-12…46. Every named epic shipped; 18-item audit (R1–R19) closed except two decision-gated/backlog items (below). |
 | **M2** | "We can take money" — billing go-live | 🔶 **In Progress** — WO-47 (quota model) + WO-48 (dogfood billing fallback) shipped. Three items still owner-blocked (below). |
-| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) + WO-56 (G2.6 slice 1: period-end + Art. 17 minimum + deadline scanner, R7/R8/R9) + WO-57 (G2.6 slice 2: annual mop-up + quarterly duplicate-block, R6) + WO-58 (G2.6 slice 3: document-presence gate + receipt-control waivers, R10/R15) + WO-59 (G2.7: status lifecycle 1A→5, R12/R17) + WO-60 (G2.10 slice 1: the adjustable checklist engine, R45) + WO-61 (G3.1 slice 1: per-country supplier legal-entity registry, R21/R22) + WO-62 (G3.2 slice 1: the fuel-card parser registry + the Eurowag parser, R20) + WO-63 (G3.2 slice 2: the E100 fuel-card parser, R20's second worked example) + WO-64 (G3.2 slice 3: the Q8/Kuwait Petroleum fuel-card parser — the first multi-country/multi-currency-in-one-statement proof, `net_eur_eff`/Port-One-rebate merge explicitly deferred to the future G4.2) + WO-65 (G3.2 slice 4: the DKV fuel-card parser — the supplier-STATED-EUR money model, `fx_source="stated"` reachable from transport for the first time) + WO-66 (G3.3: the two independent validation regimes, R25 — the nine-rule capture review gate blocking registration at `statement_ingest`, and the human-typed engine tie-out halting `run_close`) + WO-67 (G3.2 slice 5: the TFC by Moya fuel-card parser — the DERIVED-NET hub-only discount money model, parser-local arithmetic over the unchanged shared contract, the first network onboarded against WO-66's live gate) shipped. G2.6 is now fully closed (R6-R10, R15 all real gates); R20 is closed for Eurowag AND E100 only (Q8/DKV/TFC carry no R20 claim of their own); R25 is closed (both regimes real gates); two fuel-card networks remain (Moeve, BP/Aral). 70-100 day milestone; remaining slices tracked below. |
+| **M3** | Transport vertical phase 1 — VAT refund claim engine | 🔶 **In Progress** — WO-49 (foundation: claim grain, `is_synthetic()`, module entitlement) + WO-50 (`fuel_transactions`: typed model, idempotent ingestion, `product_group` derivation) + WO-51 (`vat_claimed_invoices`: the one-invoice-one-submission lock, R4/R5) + WO-52 (claim-line construction + note→invoice resolution, R2/R16) + WO-53 (monthly close as a durable job + locked-line protection, R31/R60/R30) + WO-54 (frozen claim lines + frozen VAT base at submission, G2.5 "the linchpin") + WO-55 (Art. 9 goods-code mapping, G2.8, R11) + WO-56 (G2.6 slice 1: period-end + Art. 17 minimum + deadline scanner, R7/R8/R9) + WO-57 (G2.6 slice 2: annual mop-up + quarterly duplicate-block, R6) + WO-58 (G2.6 slice 3: document-presence gate + receipt-control waivers, R10/R15) + WO-59 (G2.7: status lifecycle 1A→5, R12/R17) + WO-60 (G2.10 slice 1: the adjustable checklist engine, R45) + WO-61 (G3.1 slice 1: per-country supplier legal-entity registry, R21/R22) + WO-62 (G3.2 slice 1: the fuel-card parser registry + the Eurowag parser, R20) + WO-63 (G3.2 slice 2: the E100 fuel-card parser, R20's second worked example) + WO-64 (G3.2 slice 3: the Q8/Kuwait Petroleum fuel-card parser — the first multi-country/multi-currency-in-one-statement proof, `net_eur_eff`/Port-One-rebate merge explicitly deferred to the future G4.2) + WO-65 (G3.2 slice 4: the DKV fuel-card parser — the supplier-STATED-EUR money model, `fx_source="stated"` reachable from transport for the first time) + WO-66 (G3.3: the two independent validation regimes, R25 — the nine-rule capture review gate blocking registration at `statement_ingest`, and the human-typed engine tie-out halting `run_close`) + WO-67 (G3.2 slice 5: the TFC by Moya fuel-card parser — the DERIVED-NET hub-only discount money model, parser-local arithmetic over the unchanged shared contract, the first network onboarded against WO-66's live gate) + WO-68 (G3.2 slice 6: the Moeve fuel-card parser — the per-line-IVA VAT-inclusive money model at the harvested 6-dp internal precision, the cash-at-pump settlement flag as provenance-only, rate policy reused from the WO-66 gate's harvested ES (21, 10) dual entry) shipped. G2.6 is now fully closed (R6-R10, R15 all real gates); R20 is closed for Eurowag AND E100 only (Q8/DKV/TFC/Moeve carry no R20 claim of their own); R25 is closed (both regimes real gates); one fuel-card network remains (BP/Aral). 70-100 day milestone; remaining slices tracked below. |
 | M4 | Payments & cash depth | `Planned` |
 | M5 | Transport vertical phase 2 — recovery intelligence | `Planned` |
 | M6 | Integrations & enterprise go-live | `Planned` |
 
 **Test suite:** 761 → 1169 → 1216 → 1247 → 1259 → 1290 → 1303 → 1309 → 1322 → 1352 → 1357 → 1369 → 1384 →
-1393 → 1402 → 1435 → 1497 → 1527 → 1578 → 1610 passed (+849 total, +32 this session; the 1578 baseline
-was measured directly before WO-67's changes), 10 skipped (pg-only, verified separately on real
-Postgres), 0 known regressions, as of WO-67.
+1393 → 1402 → 1435 → 1497 → 1527 → 1578 → 1610 → 1645 passed (+884 total, +35 this session; the 1610
+baseline was re-measured directly before WO-68's changes), 10 skipped (pg-only, verified separately on
+real Postgres), 0 known regressions, as of WO-68.
 
 ---
 
@@ -485,6 +485,43 @@ Postgres), 0 known regressions, as of WO-67.
   cadence enforcement (G3.5), tier-grant/contract verification (G3.4/M5 contract-audit), a
   persisted review-queue, any `api/routes/transport/*` route. 74 tables, 81 revisions, 1588→1620
   collected tests (+32: 22 parser + 10 ingest). Detail: `docs/plan/plan-a/wo/WO-67-G3.2-slice5.md`.
+
+- [x] **WO-68** — `Completed` — G3.2 slice 6: the MOEVE (ex-Cepsa) fuel-card parser
+  (`app/services/transport/parsers/moeve.py`, `MoeveParser`), the SIXTH network in WO-62's registry —
+  the per-line-IVA VAT-INCLUSIVE money model (`BA_fleet_fuel.md` §5.1: "ALL amounts VAT-inclusive;
+  per-line IVA rate (10% gasoleo / 21% EcoBlue); cash-at-pump nets against transfer; 6-dp internal
+  calc"), E100's reverse calculation varied three harvested ways. (1) The IVA rate genuinely varies
+  LINE-BY-LINE within one statement — each line is reverse-calculated at ITS OWN printed rate, never
+  a statement-wide constant. (2) The harvested 6-dp internal calc: `net_local = q(gross/(1+rate/100),
+  6dp)` ROUND_HALF_UP with `vat_local = gross − net` EXACT, so `net+vat==gross` holds identically and
+  the implied rate stays inside rule 9's ±0.5pp window; `q2` remains at the ingest boundary ONLY
+  (E100's unrounded derivation untouched — the 6-dp step is Moeve's quirk, not a shared convention).
+  (3) THE CASH-AT-PUMP DECISION (documented in the WO): a flagged row IS a `ParsedFuelLine` —
+  invoiced, VAT-bearing fuel whose VAT is exactly as reclaimable — because "nets against transfer" is
+  SETTLEMENT (M4/G3.5 territory, never capture): the per-line `payment` channel
+  (`transfer`/`cash_at_pump`, fail-closed on any other value — a settlement channel is never guessed)
+  rides `provenance_note` only, NEVER mutates a figure, the batch tie-out ties the INVOICE total (all
+  lines, cash included), and the parse surfaces ONE advisory count+gross-sum warning. Rate policy
+  provably lives in the WO-66 gate, not the parser: `iva_rate` bounded [0,100] (E100's defensive
+  bound), NO {10,21} whitelist, NO product→rate mapping — rule 9's HARVESTED ES dual entry `(21, 10)`
+  exists for exactly this network and is REUSED (ingest proves both ways: 10/21 ES lines emit no
+  `vat_rate_incoherent`; a 15% ES line warns and still registers — warnings never block).
+  Parser-LOCAL by design: `ParsedFuelLine`/`statement_ingest`/`capture_review`/`tie_out`
+  byte-identical to WO-67's tree; every fixture line is EUR on the untouched identity branch;
+  `net_eur_eff` = default (the ON-INVOICE "PRN off pump PVP" discount is inside the printed gross;
+  verifying it is G3.4/M5). Live-gate onboarding pair over the derived figures (Σ gross = 1001.00
+  exactly, cash lines included: 1001.02 registers / 1001.03 blocked, zero rows). Like Q8/DKV/TFC: NO
+  entity detection ever (`entities == []`, "never attempted" warning, ES all-nines decoy adversarial
+  test, allow-list entry landed in the same commit — the WO-67 lesson); R20 stays CLOSED at exactly
+  Eurowag+E100. ONE existing assertion aligned, none weakened: the TFC suite's exact-five-list
+  registry test (encoding "no sixth network exists") now asserts membership + relative order — the
+  WO-65/WO-67 precedent; the exact six-list moved to the Moeve suite. No migration, no schema/RLS
+  impact. Explicitly NOT attempted (named owners): BP/Aral (G3.2's last slice — PLN, Polish
+  split-payment MPP, ORS toll-fee lines; next), G3.3 slice 2 (anti-drift regression check),
+  settlement/transfer modelling (M4), cadence enforcement (G3.5), PRN-discount/product→rate
+  verification (G3.4/M5), a persisted review-queue, any `api/routes/transport/*` route. 74 tables,
+  81 revisions, 1620→1655 collected tests (+35: 24 parser + 11 ingest). Detail:
+  `docs/plan/plan-a/wo/WO-68-G3.2-slice6.md`.
 
 ---
 

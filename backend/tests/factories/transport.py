@@ -566,6 +566,92 @@ def synthetic_tfc_statement(
     return "\n".join(lines) + "\n"
 
 
+# Moeve's CSV shape is VAT-INCLUSIVE like E100's, but with a per-line
+# `iva_rate` that genuinely varies within one statement (10% gasoleo / 21%
+# EcoBlue) and a per-line `payment` settlement channel (`transfer` /
+# `cash_at_pump`) — see `app.services.transport.parsers.moeve`'s module
+# docstring.
+_MOEVE_COLUMNS = (
+    "txn_date",
+    "txn_time",
+    "vehicle_ref",
+    "station",
+    "country",
+    "product",
+    "qty",
+    "currency",
+    "gross_local",
+    "iva_rate",
+    "payment",
+    "invoice_ref",
+)
+_MOEVE_MARKER = "MOEVE STATEMENT"
+_MOEVE_HEADER = ",".join(_MOEVE_COLUMNS)
+
+
+def synthetic_moeve_statement(
+    *,
+    rows: list[dict[str, object]] | None = None,
+    seed: int | None = None,
+) -> str:
+    """A synthetic Moeve (ex-Cepsa) statement (G3.2/WO-68) matching the
+    format `app.services.transport.parsers.moeve.MoeveParser` expects — a
+    literal `"MOEVE STATEMENT"` marker, then the transaction CSV block
+    (VAT-INCLUSIVE `gross_local` + a per-line `iva_rate` + a per-line
+    `payment` settlement channel; the parser reverse-calculates net/VAT at
+    each line's own printed rate at the harvested 6-dp internal
+    precision). Synthetic, generated, never derived from client data.
+
+    Like `synthetic_q8_statement`/`synthetic_dkv_statement`/
+    `synthetic_tfc_statement`, there is no `footer_lines` parameter —
+    `MoeveParser` never attempts seller-entity detection. The default
+    three-row fixture deliberately MIXES the two harvested per-line IVA
+    rates in ONE statement (an ES `GASOLEO` 10% transfer row, an ES
+    `ECOBLUE` 21% transfer row, an ES `GASOLEO` 10% cash-at-pump row) —
+    both rates cohere under the WO-66 gate's harvested ES `(21, 10)` dual
+    entry, and every row carries an `invoice_ref` (gate rule 1).
+
+    `rows` is overridable so a test can build a deliberately malformed row
+    (out-of-range rate, unknown payment channel) without hand-writing the
+    whole file.
+    """
+    r = _rng(seed)
+    if rows is None:
+
+        def _moeve_row(
+            n: int, product: str, iva_rate: str, payment: str, invoice_kind: str
+        ) -> dict[str, object]:
+            litres = Decimal(r.randrange(5_000, 20_000)) / Decimal(100)
+            # A plausible VAT-inclusive pump total for the litres drawn.
+            gross = q2(litres * Decimal(r.randrange(11_000, 19_000)) / Decimal(10_000))
+            return {
+                "txn_date": f"2026-06-{n:02d}",
+                "txn_time": "11:05",
+                "vehicle_ref": synthetic_vehicle_ref(seed=seed),
+                "station": "Zaragoza Ring Station",
+                "country": "ES",
+                "product": product,
+                "qty": str(litres),
+                "currency": "EUR",
+                "gross_local": str(gross),
+                "iva_rate": iva_rate,
+                "payment": payment,
+                "invoice_ref": synthetic_invoice_number(invoice_kind, seed=seed),
+            }
+
+        rows = [
+            _moeve_row(3, "GASOLEO", "10", "transfer", "fuelcard-a"),
+            _moeve_row(11, "ECOBLUE", "21", "transfer", "fuelcard-b"),
+            _moeve_row(19, "GASOLEO", "10", "cash_at_pump", "generic"),
+        ]
+
+    lines = [_MOEVE_MARKER, _MOEVE_HEADER]
+    for row in rows:
+        lines.append(",".join(str(row.get(col, "")) for col in _MOEVE_COLUMNS))
+    lines.append("---")
+    return "\n".join(lines) + "\n"
+
+
 def synthetic_fuel_line(*, seed: int | None = None) -> dict[str, object]:
     """A fuel line item with plausible litres and NET EUR/L prices.
 

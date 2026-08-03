@@ -57,8 +57,22 @@ def _row(**overrides: object) -> dict[str, object]:
 
 
 def test_g3_2_registry_ships_five_networks_in_order():
+    # Membership + relative order, not exact-list equality — the WO-62/WO-63
+    # registry tests' own future-proof style (an exact list would re-encode
+    # "no further network exists" and break on every subsequent G3.2 slice;
+    # it did exactly that when WO-65 registered DKV fourth, when WO-67
+    # registered TFC fifth, and again when WO-68 registered Moeve sixth).
+    # The CURRENT exact six-parser list is asserted by
+    # `test_g3_2_moeve_fuel_card_parser.py::
+    # test_g3_2_registry_ships_six_networks_in_order`.
     names = [p.network for p in fuel_card_parser.parsers()]
-    assert names == ["Eurowag", "E100", "Q8", "DKV", "TFC"]
+    assert (
+        names.index("Eurowag")
+        < names.index("E100")
+        < names.index("Q8")
+        < names.index("DKV")
+        < names.index("TFC")
+    )
 
 
 def test_g3_2_select_dispatches_all_five_networks_without_crossing():

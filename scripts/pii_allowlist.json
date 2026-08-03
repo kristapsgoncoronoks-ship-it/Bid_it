@@ -216,6 +216,12 @@
       "kind": "vat_id",
       "justification": "Hand-fabricated decoy VAT id (all-nines synthetic body, 12-digit Lithuanian shape) planted by WO-67's adversarial test test_g3_2_tfc_parse_entities_stay_empty_even_with_tfc_looking_text_in_the_file to prove TFCParser performs no entity scan. Never derived from any real registry or the Fleet Fuel archive.",
       "verified_by": "Claude (WO-67, 2026-08-03)"
+    },
+    {
+      "value": "ES999999999902",
+      "kind": "vat_id",
+      "justification": "Hand-fabricated decoy VAT id (all-nines synthetic body + a sequential '02' suffix; deliberately NOT the real Spanish NIF letter+digits shape) planted by WO-68's adversarial test test_g3_2_moeve_parse_entities_stay_empty_even_with_moeve_looking_text_in_the_file to prove MoeveParser performs no entity scan. Never derived from any real registry or the Fleet Fuel archive.",
+      "verified_by": "Claude (WO-68, 2026-08-03)"
     }
   ]
 }
