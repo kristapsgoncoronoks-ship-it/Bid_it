@@ -481,6 +481,91 @@ def synthetic_dkv_statement(
     return "\n".join(lines) + "\n"
 
 
+# TFC's CSV shape prices each line as litres x a LIST price with a per-line
+# station classification — the parser DERIVES `net_local`/`vat_local`/
+# `gross_local` (hub-only on-invoice discount, flat 21% VAT) rather than
+# reading them off the file — see `app.services.transport.parsers.tfc`'s
+# module docstring.
+_TFC_COLUMNS = (
+    "txn_date",
+    "txn_time",
+    "vehicle_ref",
+    "station",
+    "station_class",
+    "country",
+    "product",
+    "qty",
+    "currency",
+    "list_price_eur_l",
+    "invoice_ref",
+)
+_TFC_MARKER = "TFC STATEMENT"
+_TFC_HEADER = ",".join(_TFC_COLUMNS)
+
+
+def synthetic_tfc_statement(
+    *,
+    rows: list[dict[str, object]] | None = None,
+    seed: int | None = None,
+) -> str:
+    """A synthetic TFC by Moya statement (G3.2/WO-67) matching the format
+    `app.services.transport.parsers.tfc.TFCParser` expects — a literal
+    `"TFC STATEMENT"` marker, then the transaction CSV block (litres +
+    LIST price + a per-line `station_class`; the parser derives the
+    invoiced figures by applying the harvested hub-discount tier and the
+    flat 21% VAT). Synthetic, generated, never derived from client data.
+
+    Like `synthetic_q8_statement`/`synthetic_dkv_statement`, there is no
+    `footer_lines` parameter — `TFCParser` never attempts seller-entity
+    detection. The default three-row fixture deliberately exercises ALL
+    THREE discount tiers (a BE `hub` row, a BE `meer` row, an NL
+    `third_party` row) in 21%-standard-rate countries, so every test that
+    does not override `rows` covers the whole tier table AND passes the
+    WO-66 capture-review gate's rule-9 coherence cleanly (the parser's
+    flat-21% derivation is exactly coherent for BE/NL). Every row carries
+    an `invoice_ref` (gate rule 1).
+
+    `rows` is overridable so a test can build a deliberately malformed row
+    (unknown tier, non-EUR currency, mis-keyed list price) without
+    hand-writing the whole file.
+    """
+    r = _rng(seed)
+    if rows is None:
+
+        def _tfc_row(
+            n: int, station: str, station_class: str, country: str, invoice_kind: str
+        ) -> dict[str, object]:
+            litres = Decimal(r.randrange(5_000, 20_000)) / Decimal(100)
+            # LIST price comfortably above the deepest tier (0.205 EUR/L) so
+            # the discounted unit price is always positive.
+            price = Decimal(r.randrange(12_000, 18_000)) / Decimal(10_000)
+            return {
+                "txn_date": f"2026-06-{n:02d}",
+                "txn_time": "09:15",
+                "vehicle_ref": synthetic_vehicle_ref(seed=seed),
+                "station": station,
+                "station_class": station_class,
+                "country": country,
+                "product": "DIESEL",
+                "qty": str(litres),
+                "currency": "EUR",
+                "list_price_eur_l": str(price),
+                "invoice_ref": synthetic_invoice_number(invoice_kind, seed=seed),
+            }
+
+        rows = [
+            _tfc_row(2, "Antwerp Ring Hub", "hub", "BE", "fuelcard-a"),
+            _tfc_row(9, "Meer Border Hub", "meer", "BE", "fuelcard-b"),
+            _tfc_row(16, "Utrecht Third-Party Station", "third_party", "NL", "generic"),
+        ]
+
+    lines = [_TFC_MARKER, _TFC_HEADER]
+    for row in rows:
+        lines.append(",".join(str(row.get(col, "")) for col in _TFC_COLUMNS))
+    lines.append("---")
+    return "\n".join(lines) + "\n"
+
+
 def synthetic_fuel_line(*, seed: int | None = None) -> dict[str, object]:
     """A fuel line item with plausible litres and NET EUR/L prices.
 

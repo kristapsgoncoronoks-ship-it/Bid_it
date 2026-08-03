@@ -430,6 +430,47 @@ migration — pure code addition over existing tables/columns. The
 remaining three networks (TFC by Moya, Moeve, BP/Aral) are named future
 slices in `docs/plan/plan-a/wo/WO-65-G3.2-slice4.md`'s "Out of scope";
 DKV's semi-monthly cadence enforcement stays G3.5/G3.3 territory.
+
+**Implementation status (WO-67, G3.2 slice 5):** the FIFTH network,
+`parsers/tfc.py` (`TFCParser`), has landed in the same registry —
+`fuel_card_parser._default_parsers()` now returns `[EurowagParser(),
+E100Parser(), Q8Parser(), DKVParser(), TFCParser()]`. TFC by Moya brings
+the FOURTH distinct money model — the DERIVED-NET hub-only discount
+(`BA_fleet_fuel.md` §5.1: "−0.205/L only at TFC hubs (Meer −0.19);
+third-party stations undiscounted. Flat 21% VAT"): the statement prints
+litres, a LIST unit price and a per-line station classification, and the
+parser derives `net_local = qty × (list_price_eur_l − tier)` (harvested
+tiers: 0.205 `hub` / 0.19 `meer` / 0 `third_party`), `vat_local` at the
+flat 21%, and `gross_local = net + vat`, pure unrounded Decimal with the
+derivation basis in `provenance_note` — the "station-classification
+concept" WO-62's slice list said this network would need. Deliberately
+parser-LOCAL: `ParsedFuelLine` and `statement_ingest` are byte-identical
+to WO-66's tree (WO-65's contract-stability argument — DKV was the last
+contract-touching network — holds), every TFC line is EUR and rides the
+untouched identity branch, and the on-invoice hub discount enters the
+figures BY the derivation (`net_eur_eff` stays at the default; no
+off-invoice layer, which remains G4.2's Port-One territory). Fail-closed
+refusals abort the whole statement: an unknown `station_class` (a
+guessed tier is an invented discount), a non-EUR row (the tier constants
+are EUR/L — the one parser where a currency check is load-bearing), and
+a non-positive discounted unit price (a mis-keyed list price named at
+the parser, not surfaced downstream as a review-gate symptom). TFC is
+the FIRST network onboarded against the LIVE G3.3 regimes: its ingest
+suite proves the €0.02-allowed/€0.03-blocked coversheet tie-out over the
+parser's DERIVED figures through `ingest_statement` itself — §5.1's
+"PASS = trained" onboarding contract run against the real WO-66 gate,
+exactly the sequencing `ARCH_plan.md` T-6 prescribed ("never port a
+parser without its tie-out fixture"). Like Q8/DKV, `TFCParser` attempts
+NO seller-entity detection (`entities` unconditionally `[]`, the "never
+attempted" warning; no R20 worked marker exists for TFC) — **R20 stays
+CLOSED at exactly Eurowag and E100**. One WO-65 assertion was aligned,
+not weakened: `test_g3_2_registry_ships_four_networks_in_order` asserted
+the exact four-parser list (encoding "no fifth network exists") and now
+asserts membership + relative order, the same fix WO-65 applied to
+WO-64's exact-three-list test; the exact five-parser list is asserted by
+the TFC suite. No migration — pure code addition. The remaining two
+networks (Moeve, BP/Aral) are named future slices in
+`docs/plan/plan-a/wo/WO-67-G3.2-slice5.md`'s "Out of scope".
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,

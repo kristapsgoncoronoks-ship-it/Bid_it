@@ -15,11 +15,15 @@ statement's own per-line EUR figure is trusted verbatim and the VAT is
 pro-rated at the same implied rate, `fx_source="stated"`, per
 `BA_fleet_fuel.md` §5.1's "trusts the supplier's per-line EUR and
 pro-rates"; likewise NO seller-entity detection, no R20 worked example —
-WO-65/G3.2 slice 4). The remaining three networks named in
-`BA_fleet_fuel.md` §5.1 (TFC by Moya, Moeve, BP/Aral) are explicitly
-future slices — see `docs/plan/plan-a/wo/WO-65-G3.2-slice4.md`'s "Out of
-scope" section for why each is its own work order rather than being
-attempted here.
+WO-65/G3.2 slice 4), and `tfc` (TFC by Moya — the DERIVED-NET hub-only
+discount money model: litres x LIST price minus the station-classified
+per-litre tier (−0.205/L hub, −0.19/L Meer, 0 third-party) at a flat 21%
+VAT, all parser-local arithmetic over the unchanged `ParsedFuelLine`
+contract; likewise NO seller-entity detection, no R20 worked example —
+WO-67/G3.2 slice 5). The remaining two networks named in
+`BA_fleet_fuel.md` §5.1 (Moeve, BP/Aral) are explicitly future slices —
+see `docs/plan/plan-a/wo/WO-67-G3.2-slice5.md`'s "Out of scope" section
+for why each is its own work order rather than being attempted here.
 """
 
 from __future__ import annotations
