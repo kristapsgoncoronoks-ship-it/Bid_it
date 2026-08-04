@@ -189,6 +189,13 @@ class A:
     # mis-typed supplier).
     TRANSPORT_TIEOUT_EXPECTATION_SET = "transport.tieout_expectation_set"
     TRANSPORT_TIEOUT_EXPECTATION_REMOVE = "transport.tieout_expectation_remove"
+    # G3.3 slice 2 (WO-70): the anti-drift extraction baseline. SET fires
+    # on the confirm-time first record (old=None) AND on an explicit,
+    # human-initiated rebaseline (old->new both recorded); REMOVE fires on
+    # delete (the narrow fail-open mitigation for a noisy digest). The
+    # drift CHECK itself is a read and deliberately audits nothing.
+    TRANSPORT_EXTRACTION_BASELINE_SET = "transport.extraction_baseline_set"
+    TRANSPORT_EXTRACTION_BASELINE_REMOVE = "transport.extraction_baseline_remove"
 
 
 def _hash(

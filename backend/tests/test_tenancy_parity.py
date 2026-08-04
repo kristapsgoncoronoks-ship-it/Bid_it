@@ -330,6 +330,19 @@ EXEMPT: dict[str, str] = {
         "through. Gains a probe with the first transport route (ARCH_plan.md "
         "G2.x)."
     ),
+    "fuel_extraction_baselines": (
+        "G3.3 slice 2 (WO-70): the anti-drift extraction baseline, written "
+        "only through services/transport/extraction_baseline.record/"
+        "rebaseline/remove_baseline (tenant-scoped there via the same ORM "
+        "guard this probe would exercise, cross-tenant-opaque by test — "
+        "tests/transport/test_g3_3s2_extraction_baseline.py — AND proven on "
+        "real Postgres RLS via tests/test_rls.py's set-equality check). "
+        "Read only by regression_check and the statement_ingest record-or-"
+        "compare wiring, both org-scoped the same way — no "
+        "api/routes/transport/* route exists yet to drive an HTTP-level "
+        "probe through. Gains a probe with the first transport route "
+        "(ARCH_plan.md G2.x)."
+    ),
     "vat_receipt_waivers": (
         "G2.6 slice 3 (WO-58): receipt-control waivers (R15), written only "
         "through services/transport/waiver.set_waiver/remove_waiver "

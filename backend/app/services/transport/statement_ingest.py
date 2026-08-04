@@ -79,6 +79,24 @@ FX machinery so the refusal names the actual capture defect ("net must be
 WARN findings NEVER block (§2.1a verbatim) — they append to
 `StatementIngestResult.warnings`, the review surface of this slice.
 
+THE ANTI-DRIFT EXTRACTION BASELINE (WO-70/G3.3 slice 2 — advisory)
+--------------------------------------------------------------------
+A statement's FIRST fully successful registration records its parsed
+per-currency aggregates (line count, q2'd net/vat totals in LOCAL
+currency) as the known-good `fuel_extraction_baselines` row set, keyed
+by the content's SHA-256 (`BA_fleet_fuel.md` §2.1a "Anti-drift"). A
+LATER ingest of the same bytes COMPARES instead of re-recording: net or
+vat moved by MORE than 0.02, a changed line count, or a changed
+currency set appends an "extraction drift: ..." WARNING — never a block
+(the harvested verb is "flags"; §4.19 advisory semantics — see
+`extraction_baseline`'s module docstring). This matters doubly here
+because `ingest_transaction` is insert-or-no-op on the natural key: a
+drifted re-parse writes nothing, so the drift warning is the ONLY
+visibility that the parser no longer reproduces the registered figures.
+The record/compare step runs AFTER phase 2 + entity learning — a
+statement refused by the capture gate or FX resolution leaves no
+baseline (only a CONFIRMED extraction is known-good).
+
 WHAT "FLAGGED FOR REVIEW" MEANS IN THIS SLICE
 ------------------------------------------------
 This codebase has no fuel-statement review-queue table yet (that is a
@@ -108,7 +126,13 @@ from app.core.errors import PermissionError, ValidationError
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.models.transport.supplier_registration import SupplierVatRegistration
 from app.services import fx, modules
-from app.services.transport import capture_review, fuel_card_parser, fuel_ingest, supplier_entity
+from app.services.transport import (
+    capture_review,
+    extraction_baseline,
+    fuel_card_parser,
+    fuel_ingest,
+    supplier_entity,
+)
 from app.services.transport.fuel_card_parser import ParsedFuelLine
 
 _PERIOD_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
@@ -321,10 +345,27 @@ async def ingest_statement(
         )
         entities.append(row)
 
+    # The anti-drift extraction baseline (WO-70) — record on first sight
+    # of these bytes, compare (ADVISORY — never a block) on a re-seen
+    # digest. See the module docstring; ordering is stable: parser
+    # warnings, then review warnings, then drift warnings.
+    sha = extraction_baseline.digest(content)
+    baselines = await extraction_baseline.get_baselines(db, org_id, sha)
+    drift_warnings: list[str] = []
+    if baselines:
+        drift_warnings = [
+            f"extraction drift: {f.message}"
+            for f in extraction_baseline.compare(baselines, extraction_baseline.aggregate(parsed))
+        ]
+    else:
+        await extraction_baseline.record(
+            db, org_id, parsed, statement_sha256=sha, filename=filename
+        )
+
     return StatementIngestResult(
         network=parsed.network,
         period=period,
         lines=transactions,
         entities=entities,
-        warnings=list(parsed.warnings) + review_warnings,
+        warnings=list(parsed.warnings) + review_warnings + drift_warnings,
     )
