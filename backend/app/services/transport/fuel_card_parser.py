@@ -151,6 +151,7 @@ class FuelCardParser(ABC):
 # try order is visible in one place — the same choice `extraction_provider.py`
 # makes with `_PROVIDERS: list[ExtractionProvider] = [PdfProvider(), ...]`.
 def _default_parsers() -> list[FuelCardParser]:
+    from app.services.transport.parsers.bp import BPParser
     from app.services.transport.parsers.dkv import DKVParser
     from app.services.transport.parsers.e100 import E100Parser
     from app.services.transport.parsers.eurowag import EurowagParser
@@ -164,8 +165,17 @@ def _default_parsers() -> list[FuelCardParser]:
     # Eurowag/E100-first to keep the existing behaviour visible (WO-63/G3.2
     # slice 2), Q8 appended (WO-64/G3.2 slice 3), DKV appended (WO-65/G3.2
     # slice 4), TFC appended (WO-67/G3.2 slice 5), Moeve appended
-    # (WO-68/G3.2 slice 6).
-    return [EurowagParser(), E100Parser(), Q8Parser(), DKVParser(), TFCParser(), MoeveParser()]
+    # (WO-68/G3.2 slice 6), BP appended (WO-69/G3.2 slice 7 — the LAST
+    # §5.1 network; G3.2 is closed).
+    return [
+        EurowagParser(),
+        E100Parser(),
+        Q8Parser(),
+        DKVParser(),
+        TFCParser(),
+        MoeveParser(),
+        BPParser(),
+    ]
 
 
 _PARSERS: list[FuelCardParser] = _default_parsers()

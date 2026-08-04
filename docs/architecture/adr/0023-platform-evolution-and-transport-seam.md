@@ -514,6 +514,61 @@ it; the exact six-parser list is asserted by the Moeve suite. No
 migration — pure code addition. The one remaining network (BP/Aral,
 PLN + Polish split-payment MPP + ORS toll-fee lines) is a named future
 slice in `docs/plan/plan-a/wo/WO-68-G3.2-slice6.md`'s "Out of scope".
+
+**Implementation status (WO-69, G3.2 slice 7 — G3.2 CLOSED):** the
+SEVENTH and LAST network, `parsers/bp.py` (`BPParser`, network code
+`"BP"` per `BA_fleet_fuel.md` §4.2's supplier column), has landed —
+`fuel_card_parser._default_parsers()` now returns all seven §5.1
+networks `[Eurowag, E100, Q8, DKV, TFC, Moeve, BP]`, so every network
+the harvested spec models has a deterministic path into the claim
+engine and **G3.2 is closed**. BP/Aral's money model is deliberately
+the SIMPLE one — figures are independently given (Eurowag/Q8's shape,
+read VERBATIM, no derivation); the network's quirks live elsewhere
+(§5.1: "PLN; monthly; Poland split-payment (MPP) mandatory; A2 toll
+~2.5% ORS fee lines; FX via dated ECB rate with `month_config.FX`
+fallback"). It is the first ALL-PLN network, so ingestion's EXISTING
+dated-ECB-rate branch (`fx.to_eur` at each line's own `txn_date`,
+`fx_source="ecb"`) is its DEFAULT conversion path; the harvested
+`month_config.FX` static fallback is deliberately NOT reproduced —
+master-context §4.15's refuse-never-guess wins (`fx_rate_unavailable`,
+zero rows, the two-phase guarantee, proven over a zero-coverage probe
+currency). THE ORS-FEE-LINE DECISION (documented in WO-69): an ORS fee
+line IS a `ParsedFuelLine` — an ordinary VAT-bearing statement line
+(never a coversheet adjustment, never merged into its toll line): its
+23% VAT is exactly as reclaimable, the batch tie-out ties the INVOICE
+total fee lines included, and the Art. 9 goods-code path stays honest
+(toll → `Toll/Fees` → code 4; ORS fee → `Service/Other` → code 10);
+the contracted ~2.5% ratio is NEVER verified at capture (G3.4/M5
+contract-audit, like TFC's tier grant and DKV's 5.63% fee) — one
+advisory warning surfaces count + per-currency ORS and toll gross sums.
+THE MPP DECISION (documented in WO-69): Polish split-payment is
+SETTLEMENT (the same boundary WO-68's cash-at-pump decision drew) — the
+parser scans for the statutory `MECHANIZM PODZIELONEJ PŁATNOŚCI`
+literal on the statement level; present ⇒ one advisory warning with the
+per-currency VAT total directed to the dedicated VAT account
+("settlement-side only"), absent ⇒ one fail-OPEN advisory (an absent
+settlement annotation corrupts no captured figure — blocking would
+invent policy); no figure ever changes, no per-line flag exists. The
+per-line `line_type` (`fuel`/`toll`/`ors_fee`) fails CLOSED on any
+other value (a guessed line kind would mis-map the goods code — the
+same discipline as TFC's `station_class` and Moeve's `payment`).
+Deliberately parser-LOCAL: `ParsedFuelLine` and `statement_ingest` are
+byte-identical to WO-68's tree; rule 9's harvested PL dual entry
+`(23, 8)` coheres the fuel/toll/ORS mix with no parser-side rate table
+(reused, never duplicated). Like Q8/DKV/TFC/Moeve, `BPParser` attempts
+NO seller-entity detection (`entities` unconditionally `[]`, the
+"never attempted" warning; no R20 worked marker exists for BP/Aral) —
+**R20 stays CLOSED at exactly Eurowag and E100**. One WO-68 assertion
+was aligned, not weakened:
+`test_g3_2_registry_ships_six_networks_in_order` asserted the exact
+six-parser list (encoding "no seventh network exists") and now asserts
+membership + relative order, the same fix WO-65/WO-67/WO-68 applied
+before it; the exact seven-parser list is asserted by the BP suite. No
+migration — pure code addition. With G3.2 closed, M3's remaining
+transport work is G3.3 slice 2 (anti-drift regression check), G3.4
+(advisory post-capture checks), G3.5 (receipt control / cadence),
+G2.9 (decision-gated), G2.11, G2.12, and the `api/routes/transport/*`
++ UI surface — see `TODO.md`.
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,

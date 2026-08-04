@@ -652,6 +652,108 @@ def synthetic_moeve_statement(
     return "\n".join(lines) + "\n"
 
 
+# BP/Aral's CSV shape is Eurowag's independently-given column layout PLUS
+# the one `line_type` column (`fuel` / `toll` / `ors_fee` — the harvested
+# A2-toll ~2.5% ORS fee lines ride as ordinary VAT-bearing lines), with a
+# statement-level Polish split-payment (MPP) annotation line — see
+# `app.services.transport.parsers.bp`'s module docstring.
+_BP_COLUMNS = (
+    "txn_date",
+    "txn_time",
+    "vehicle_ref",
+    "station",
+    "country",
+    "product",
+    "qty",
+    "currency",
+    "net_local",
+    "vat_local",
+    "gross_local",
+    "line_type",
+    "invoice_ref",
+)
+_BP_MARKER = "BP ARAL STATEMENT"
+_BP_HEADER = ",".join(_BP_COLUMNS)
+_BP_MPP_ANNOTATION = "MECHANIZM PODZIELONEJ PŁATNOŚCI / SPLIT PAYMENT (MPP)"
+
+
+def synthetic_bp_statement(
+    *,
+    rows: list[dict[str, object]] | None = None,
+    annotation_lines: list[str] | None = None,
+    seed: int | None = None,
+) -> str:
+    """A synthetic BP/Aral (B2Mobility) statement (G3.2/WO-69) matching the
+    format `app.services.transport.parsers.bp.BPParser` expects — a literal
+    `"BP ARAL STATEMENT"` marker, the statement-level MPP annotation line
+    (present by default — Polish split-payment is mandatory for this
+    network per `BA_fleet_fuel.md` §5.1), then the transaction CSV block
+    (independently-given `net_local`/`vat_local`/`gross_local` plus the
+    per-line `line_type`). Synthetic, generated, never derived from client
+    data.
+
+    Like `synthetic_q8_statement`/`synthetic_dkv_statement`/
+    `synthetic_tfc_statement`/`synthetic_moeve_statement`, there is no
+    `footer_lines` parameter — `BPParser` never attempts seller-entity
+    detection. The default three-row fixture is ALL-PLN (a PL `fuel`
+    DIESEL row at 23%, a PL `toll` A2-toll row at 8%, and a PL `ors_fee`
+    row at 23% whose net is 2.5% of the toll net) — all three cohere
+    under the WO-66 gate's harvested PL `(23, 8)` dual entry, and every
+    row carries an `invoice_ref` (gate rule 1).
+
+    `rows` is overridable so a test can build a deliberately malformed row
+    (unknown line_type, bad decimal) and `annotation_lines` so a test can
+    drop or replace the MPP annotation, without hand-writing the whole
+    file.
+    """
+    r = _rng(seed)
+    if rows is None:
+
+        def _pln_row(
+            n: int,
+            product: str,
+            line_type: str,
+            net: Decimal,
+            vat_pct: Decimal,
+            invoice_kind: str,
+            qty: str,
+        ) -> dict[str, object]:
+            vat_amt = q2(net * vat_pct / Decimal(100))
+            return {
+                "txn_date": f"2026-06-{n:02d}",
+                "txn_time": "10:20",
+                "vehicle_ref": synthetic_vehicle_ref(seed=seed),
+                "station": "Poznan A2 Services",
+                "country": "PL",
+                "product": product,
+                "qty": qty,
+                "currency": "PLN",
+                "net_local": str(net),
+                "vat_local": str(vat_amt),
+                "gross_local": str(q2(net + vat_amt)),
+                "line_type": line_type,
+                "invoice_ref": synthetic_invoice_number(invoice_kind, seed=seed),
+            }
+
+        litres = Decimal(r.randrange(5_000, 20_000)) / Decimal(100)
+        fuel_net = q2(litres * Decimal(r.randrange(5_000, 7_500)) / Decimal(1_000))  # PLN/L ~5-7.5
+        toll_net = Decimal(r.randrange(10_000, 40_000)) / Decimal(100)
+        ors_net = q2(toll_net * Decimal("0.025"))  # the harvested ~2.5% ORS fee shape
+        rows = [
+            _pln_row(4, "DIESEL", "fuel", fuel_net, Decimal(23), "fuelcard-a", str(litres)),
+            _pln_row(4, "A2 TOLL", "toll", toll_net, Decimal(8), "toll-operator", "1"),
+            _pln_row(4, "ORS FEE", "ors_fee", ors_net, Decimal(23), "generic", "1"),
+        ]
+    if annotation_lines is None:
+        annotation_lines = [_BP_MPP_ANNOTATION]
+
+    lines = [_BP_MARKER, *annotation_lines, _BP_HEADER]
+    for row in rows:
+        lines.append(",".join(str(row.get(col, "")) for col in _BP_COLUMNS))
+    lines.append("---")
+    return "\n".join(lines) + "\n"
+
+
 def synthetic_fuel_line(*, seed: int | None = None) -> dict[str, object]:
     """A fuel line item with plausible litres and NET EUR/L prices.
 
