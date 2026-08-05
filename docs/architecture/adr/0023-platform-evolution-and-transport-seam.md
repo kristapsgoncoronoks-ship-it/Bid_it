@@ -569,6 +569,31 @@ transport work is G3.3 slice 2 (anti-drift regression check), G3.4
 (advisory post-capture checks), G3.5 (receipt control / cadence),
 G2.9 (decision-gated), G2.11, G2.12, and the `api/routes/transport/*`
 + UI surface — see `TODO.md`.
+
+**Implementation status (WO-72, G3.5):** receipt control (cadence ×
+activity) has landed — the expectation model that sees what NEVER
+arrived, where every prior gate only validated what did.
+`vat_supplier_cadences` (the admin cadence per free-text supplier code,
+over the harvested §5.1 per-network defaults; no cadence = no
+expectation, opt-in by absence) and `vat_receipt_controls` (the
+persisted slot grid: monthly `M` / semi-monthly `H1`+`H2` days 1-15 and
+16-end / monthly-per-country one slot per country WITH activity; the
+four §3.J statuses `no_activity`/`received_doc`/`received_no_doc`/
+`missing`), both with FORCE RLS in their own migration
+(`d8e4f2a61b37`). "Covered by a registered invoice" is the ONE
+`invoice_match.resolve_invoice_ref` (rule-2 discipline — no second
+matching heuristic); the "+DOC" half is WO-58's
+`invoice_ids_with_documents` batch seam. Manual overrides
+(`waived`/`note`) survive re-runs because the upsert never writes them
+— `set_control_override` is their only writer (grep-proven). The whole
+surface is ADVISORY per §3.J's monitoring verbs (master-context §4.19):
+a `missing` slot / an orphan transaction gates nothing — the blocking
+side of receipt control stays with WO-58's claim-level waivers (R15)
+and the WO-60 checklist. `close.run_close` gained its `run_control`
+stage (§3.H H4's harvested stage list) after the claim-line rebuild:
+findings never fail the close; the R25 tie-out still halts before the
+stage runs. Remaining in M3: G2.9 (decision-gated), G2.11, G2.12, and
+the `api/routes/transport/*` + UI surface — see `TODO.md`.
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,
