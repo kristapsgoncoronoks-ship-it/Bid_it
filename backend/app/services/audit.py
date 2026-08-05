@@ -196,6 +196,18 @@ class A:
     # drift CHECK itself is a read and deliberately audits nothing.
     TRANSPORT_EXTRACTION_BASELINE_SET = "transport.extraction_baseline_set"
     TRANSPORT_EXTRACTION_BASELINE_REMOVE = "transport.extraction_baseline_remove"
+    # G3.5 (WO-72): receipt control (cadence × activity). CADENCE_SET fires
+    # on create AND on a changed value (old->new both recorded; an
+    # idempotent repeat audits nothing); CADENCE_REMOVE on delete.
+    # CONTROL_RUN is one whole-org batch summary per run (the CLOSE_RUN
+    # pattern). CONTROL_OVERRIDE fires when set_control_override — the ONLY
+    # writer of the waived/note override columns — actually changes one.
+    # The control's findings (missing slots, orphans) are advisory reads
+    # and deliberately audit nothing of their own (§4.19).
+    TRANSPORT_SUPPLIER_CADENCE_SET = "transport.supplier_cadence_set"
+    TRANSPORT_SUPPLIER_CADENCE_REMOVE = "transport.supplier_cadence_remove"
+    TRANSPORT_RECEIPT_CONTROL_RUN = "transport.receipt_control_run"
+    TRANSPORT_RECEIPT_CONTROL_OVERRIDE = "transport.receipt_control_override"
 
 
 def _hash(

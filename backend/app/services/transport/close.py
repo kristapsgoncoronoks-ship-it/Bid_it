@@ -82,7 +82,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import PermissionError, ValidationError
 from app.models.transport.vat_claim import VatRefundClaim
 from app.services import audit, jobs, modules
-from app.services.transport import tie_out
+from app.services.transport import receipt_control, tie_out
 from app.services.transport.claim_lines import build_claim_lines, period_months
 
 # The job kind registered with app.services.jobs / app.services.job_handlers.
@@ -170,6 +170,18 @@ async def run_close(db: AsyncSession, org_id: str, period: str) -> dict:
         lines = await build_claim_lines(db, org_id, claim.id)
         processed.append({"claim_id": claim.id, "line_count": len(lines)})
 
+    # The `run_control` stage (G3.5/WO-72 — §3.H H4's harvested stage list
+    # `consolidate → build_master → history → run_control → backup`): the
+    # close PERSISTS the period's receipt-control grid after rebuilding
+    # claim lines, and completes regardless of what the control FINDS — a
+    # `missing` slot is an advisory worklist row, never a halt (§3.J's
+    # verbs are "answers"/"persist"/"chase", in deliberate contrast to the
+    # tie-out's "halts" above; master-context §4.19). An EXCEPTION in the
+    # stage still propagates to `jobs.run_once`'s whole-session rollback —
+    # R31's "halts on the first failure" covers infrastructure failures,
+    # not findings.
+    control_summary = await receipt_control.run_receipt_control(db, org_id, period)
+
     await audit.record(
         db,
         audit.A.TRANSPORT_CLOSE_RUN,
@@ -182,6 +194,9 @@ async def run_close(db: AsyncSession, org_id: str, period: str) -> dict:
             # period (0 = none typed; the close then ran unchecked, the
             # documented fail-open-by-absence behaviour).
             "tie_out_checked": len(tie_results),
+            # G3.5: the receipt-control stage's summary (advisory — the
+            # close completes even when `missing` > 0).
+            "receipt_control": control_summary,
         },
         org_id=org_id,  # explicit — runs inside the job worker, not a request.
     )
@@ -190,4 +205,5 @@ async def run_close(db: AsyncSession, org_id: str, period: str) -> dict:
         "claims_processed": len(processed),
         "claims": processed,
         "tie_out_checked": len(tie_results),
+        "receipt_control": control_summary,
     }

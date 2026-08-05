@@ -343,6 +343,28 @@ EXEMPT: dict[str, str] = {
         "probe through. Gains a probe with the first transport route "
         "(ARCH_plan.md G2.x)."
     ),
+    "vat_supplier_cadences": (
+        "G3.5 (WO-72): the admin supplier-cadence assignment, written only "
+        "through services/transport/receipt_control.set_cadence/"
+        "remove_cadence (tenant-scoped there via the same ORM guard this "
+        "probe would exercise, AND proven on real Postgres RLS via "
+        "tests/test_rls.py's set-equality check). Read only by cadence_for/"
+        "list_cadences (org-scoped) — no api/routes/transport/* route "
+        "exists yet to drive an HTTP-level probe through. Gains a probe "
+        "with the first transport route (ARCH_plan.md G2.x)."
+    ),
+    "vat_receipt_controls": (
+        "G3.5 (WO-72): the persisted cadence × activity receipt-control "
+        "grid, written only through services/transport/receipt_control."
+        "run_receipt_control/set_control_override (tenant-scoped there via "
+        "the same ORM guard this probe would exercise, cross-tenant-opaque "
+        "by test — tests/transport/test_g3_5_receipt_control.py — AND "
+        "proven on real Postgres RLS via tests/test_rls.py's set-equality "
+        "check). Read only by list_controls (org-scoped, and by "
+        "close.run_close on the worker) — no api/routes/transport/* route "
+        "exists yet to drive an HTTP-level probe through. Gains a probe "
+        "with the first transport route (ARCH_plan.md G2.x)."
+    ),
     "vat_receipt_waivers": (
         "G2.6 slice 3 (WO-58): receipt-control waivers (R15), written only "
         "through services/transport/waiver.set_waiver/remove_waiver "
