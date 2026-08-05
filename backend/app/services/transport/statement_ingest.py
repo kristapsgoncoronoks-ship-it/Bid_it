@@ -127,6 +127,7 @@ from app.models.transport.fuel_transaction import FuelTransaction
 from app.models.transport.supplier_registration import SupplierVatRegistration
 from app.services import fx, modules
 from app.services.transport import (
+    capture_checks,
     capture_review,
     extraction_baseline,
     fuel_card_parser,
@@ -293,6 +294,23 @@ async def ingest_statement(
         if f.severity == capture_review.WARN
     ]
 
+    # Deterministic advisory post-capture checks (WO-71/G3.4 — R26). Run on
+    # the parsed batch BEFORE any write (pre-write placement keeps the
+    # duplicate scan's self-rows question moot; the current-group exclusion
+    # makes ordering irrelevant for correctness). Findings are ADVISORY —
+    # rendered as warnings, an `error`-severity finding still never blocks
+    # (§4.19; they deliberately do NOT feed `capture_review`'s lattice).
+    check_findings = await capture_checks.run_checks(
+        db,
+        org_id,
+        entity_id=entity_id,
+        supplier=parsed.network,
+        period=period,
+        lines=parsed.lines,
+        vat_ids=tuple(detected.vat_number for detected in parsed.entities),
+    )
+    check_warnings = [f"post-capture check ({f.severity}): {f.message}" for f in check_findings]
+
     # Phase 1 — resolve every line's EUR figures FIRST, no DB writes yet (see
     # module docstring "two-phase write"). Any unconvertible line aborts the
     # whole statement before a single row is added.
@@ -367,5 +385,5 @@ async def ingest_statement(
         period=period,
         lines=transactions,
         entities=entities,
-        warnings=list(parsed.warnings) + review_warnings + drift_warnings,
+        warnings=list(parsed.warnings) + review_warnings + check_warnings + drift_warnings,
     )
