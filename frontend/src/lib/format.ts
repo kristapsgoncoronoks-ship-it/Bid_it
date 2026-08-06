@@ -7,6 +7,59 @@ export function money(value: string | number, currency = "EUR"): string {
   }).format(Number.isFinite(n) ? n : 0);
 }
 
+// The currency's display symbol, derived once from Intl. `formatToParts(0)` is
+// used ONLY to read the symbol out of the locale data — the zero is never a
+// money value and never reaches the caller's amount.
+const SYMBOL_CACHE: Record<string, string> = {};
+function currencySymbol(currency: string): string {
+  const cached = SYMBOL_CACHE[currency];
+  if (cached !== undefined) return cached;
+  let symbol = currency;
+  try {
+    const parts = new Intl.NumberFormat("en-IE", { style: "currency", currency }).formatToParts(0);
+    symbol = parts.find((p) => p.type === "currency")?.value ?? currency;
+  } catch {
+    symbol = currency; // an unknown/invalid ISO code — show the code itself.
+  }
+  SYMBOL_CACHE[currency] = symbol;
+  return symbol;
+}
+
+/**
+ * Format a money amount that arrived on the wire as a DECIMAL STRING, without
+ * ever turning it into a JavaScript number (master-context §4.9).
+ *
+ * The backend types every money field `Decimal` over `Numeric(14,2)`, and
+ * pydantic v2 serializes it as a JSON string precisely so no float appears in a
+ * money path. `money()` above re-parses with `Number()` — fine for the dashboard
+ * aggregates it was written for, but a 14-digit `Numeric(14,2)` exceeds an IEEE
+ * 754 double's 15–17 significant digits, so the last cents can change. This
+ * formatter does string surgery instead: it groups the integer digits, keeps the
+ * fraction digits the server sent, and performs NO arithmetic and NO rounding.
+ *
+ * `null`/`undefined`/`""` render as an em dash, never `0.00` — on a VAT claim a
+ * null `vat_eur` means "not frozen yet", which is a different fact from zero.
+ * A value that is not a plain decimal is returned unchanged (fail-open on
+ * presentation: showing the server's own bytes beats swallowing them).
+ */
+export function decimalMoney(
+  value: string | null | undefined,
+  currency: string | null = "EUR",
+): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const m = /^([+-]?)(\d+)(?:\.(\d*))?$/.exec(value.trim());
+  if (!m) return value;
+  const [, rawSign, whole, frac = ""] = m;
+  const sign = rawSign === "-" ? "-" : "";
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  // Pad to 2dp; NEVER truncate beyond it — more precision than the column can
+  // hold is a fact worth showing, not a rounding decision for the UI to make.
+  const cents = frac.length <= 2 ? (frac + "00").slice(0, 2) : frac;
+  const symbol = currencySymbol(currency || "EUR");
+  const gap = /^[A-Za-z]/.test(symbol) ? " " : "";
+  return `${sign}${symbol}${gap}${grouped}.${cents}`;
+}
+
 export function compactMoney(value: string | number, currency = "EUR"): string {
   const n = typeof value === "string" ? Number(value) : value;
   return new Intl.NumberFormat("en-IE", {

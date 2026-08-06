@@ -41,6 +41,46 @@ export const ASSIGNABLE_ROLES: UserRoleName[] = [
   "auditor",
 ];
 
+// ---------------------------------------------------------------------------
+// Transport / VAT permission mirror (WO-78)
+//
+// The backend's authorization matrix is `app/core/authz.py::ROLE_PERMISSIONS`,
+// and the server is the ONLY control — this mirror exists so the UI does not
+// render an action the caller will only ever be refused (a dead button is worse
+// than no button). It is cosmetic, exactly like `ROLE_RANK` above: hiding a
+// control is never a security boundary, and every page still handles the
+// server's 403 if one arrives.
+//
+// The legacy stored roles map onto business roles the same way
+// `authz.business_role` maps them: owner→OWNER, admin→ADMINISTRATOR,
+// user→EMPLOYEE, user_free→READ_ONLY. Values taken verbatim from the matrix:
+// OWNER/ADMINISTRATOR/FINANCE_MANAGER hold all three; ACCOUNTANT holds
+// read+write but NOT submit (submitting acquires invoice locks — the WO-49
+// split); AUDITOR and READ_ONLY hold read; APPROVER and EMPLOYEE hold none.
+export type VatPermission = "vat.read" | "vat.write" | "vat.submit";
+
+const ALL_VAT: VatPermission[] = ["vat.read", "vat.write", "vat.submit"];
+
+export const VAT_PERMISSIONS: Record<UserRoleName, VatPermission[]> = {
+  owner: ALL_VAT,
+  admin: ALL_VAT,
+  finance_manager: ALL_VAT,
+  accountant: ["vat.read", "vat.write"],
+  auditor: ["vat.read"],
+  user_free: ["vat.read"],
+  approver: [],
+  user: [],
+};
+
+/** Does this user's role hold the given VAT permission? A platform operator
+ * (cross-tenant) is granted every permission by `authz.permissions_for`, so it
+ * short-circuits here too. Unknown/absent user → nothing (deny-by-default). */
+export function hasVatPerm(user: User | null | undefined, perm: VatPermission): boolean {
+  if (!user) return false;
+  if (user.is_platform_admin) return true;
+  return (VAT_PERMISSIONS[user.role] ?? []).includes(perm);
+}
+
 export function rank(user?: User | null): number {
   if (!user) return 0;
   if (user.is_platform_admin) return ROLE_RANK.owner;

@@ -1550,3 +1550,77 @@ export interface DashboardData {
   receivables: DashboardReceivables | null;
   cash: DashboardCash | null;
 }
+
+// ---------------------------------------------------------------------------
+// Transport vertical — EU cross-border VAT refund claims (WO-76/WO-77 routes).
+// Field-for-field from `backend/app/schemas/transport_claim.py` and
+// `transport_admin.py`. Money is `string` on purpose: the backend types those
+// columns `Decimal` over `Numeric(14,2)` and pydantic v2 serializes them as JSON
+// strings so no float ever appears in a money path (master-context §4.9).
+// Render them with `decimalMoney`; never with `Number()`.
+// ---------------------------------------------------------------------------
+
+export interface VatClaim {
+  id: string;
+  entity_id: string;
+  refund_country: string;
+  ref_period: string;
+  /** The coarse ENGINE status: draft/submitted/approved/paid/withdrawn/rejected. */
+  status: string;
+  /** The workflow code (1A/1B/1C/1E system-derived, 2/2A…5 manual). */
+  status_code: string | null;
+  status_note: string | null;
+  decision_date: string | null;
+  action_deadline: string | null;
+  submitted_date: string | null;
+  approved_date: string | null;
+  paid_date: string | null;
+  paid_amount: string | null;
+  /** Frozen at submission — `null` means "not yet frozen", NOT zero. */
+  vat_eur: string | null;
+  vat_local: string | null;
+  currency: string | null;
+  fee_pct: string | null;
+  fee_min: string | null;
+  fee_eur: string | null;
+  created_at: string;
+}
+
+export interface VatClaimLine {
+  id: string;
+  claim_id: string;
+  invoice_ref: string;
+  vat_id: string | null;
+  invoice_id: string | null;
+  goods_code: string | null;
+  product_group: string | null;
+  net_eur: string;
+  vat_eur: string;
+  net_local: string | null;
+  vat_local: string | null;
+  currency: string | null;
+  frozen_at: string | null;
+}
+
+export interface VatChecklistItem {
+  key: string;
+  label: string;
+  scope: string;
+  ok: boolean;
+  reason: string | null;
+}
+
+export interface VatStage {
+  stage: string;
+}
+
+export interface VatStatusCodes {
+  auto: string[];
+  manual: string[];
+}
+
+export interface VatSubmitInvoice {
+  supplier: string;
+  invoice_ref: string;
+  fuel_transaction_id: string;
+}
