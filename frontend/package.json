@@ -8,7 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
-    "test:e2e": "playwright test e2e/smoke.spec.ts e2e/dashboard.spec.ts e2e/masters.spec.ts e2e/nav.spec.ts e2e/cash-position.spec.ts e2e/upload-duplicate.spec.ts",
+    "test:e2e": "playwright test e2e/smoke.spec.ts e2e/dashboard.spec.ts e2e/masters.spec.ts e2e/nav.spec.ts e2e/cash-position.spec.ts e2e/upload-duplicate.spec.ts e2e/vat-claims.spec.ts",
     "test:vr": "playwright test e2e/visual.spec.ts",
     "test:vr:update": "playwright test e2e/visual.spec.ts --update-snapshots",
     "test:ui": "playwright test"

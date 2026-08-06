@@ -144,7 +144,13 @@ export default function VatClaimDetailPage() {
       setSubmitOpen(false);
       refresh();
     },
-    onError: onRefusal,
+    onError: (e) => {
+      // Close the dialog so the refusal — and, for `below_minimum`, its override
+      // action — is what the operator sees. The typed rows stay in state, so
+      // re-opening restores them; a refusal never costs re-entry.
+      setSubmitOpen(false);
+      onRefusal(e);
+    },
   });
   const withdraw = useMutation({
     mutationFn: async () => (await api.post(`/transport/claims/${id}/withdraw`)).data,
