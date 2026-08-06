@@ -8,9 +8,12 @@
 "A pack containing ANY synthetic line CANNOT be filed. The same predicate is
 used by: the lock gate ... the checklist gate ... the readiness check ... the
 workbook builder. This centralization is deliberate: so they all block the
-same set of synthetic refs." None of those four consumers exist yet (future
-M3 work); this test proves the ONE function they will all import behaves
-exactly per the harvested spec, clause by clause.
+same set of synthetic refs." The consumers are now wired — the workbook/
+evidence builders (WO-74, `claim_pack`), the LOCK GATE (WO-75,
+`lock.submit_claim` via `claim_gates.enforce_no_synthetic_lines`, proven in
+`test_r3_lock_gate.py`) and the checklist/stage view (WO-59/WO-60); this
+test proves the ONE function they all import behaves exactly per the
+harvested spec, clause by clause.
 """
 
 from __future__ import annotations

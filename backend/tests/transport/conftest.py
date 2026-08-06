@@ -3,6 +3,9 @@ synthetic (`tests/factories/transport.py`) — never derived from client data.""
 
 from __future__ import annotations
 
+from datetime import date
+from decimal import Decimal
+
 from app.models.issuer import IssuerProfile
 from app.models.organization import Organization
 from app.models.transport.customer_lifecycle import VatCountryActivation, VatCustomerLifecycle
@@ -62,3 +65,73 @@ async def activate_entity(db_session, org_id: str, entity_id: str, *countries: s
             )
         )
     await db_session.flush()
+
+
+async def register_documented_invoice(
+    db_session,
+    org_id: str,
+    *,
+    supplier: str = "Q8",
+    invoice_number: str = "INV-0001",
+    country: str | None = "LV",
+    issue_date: date | None = None,
+    subtotal: Decimal = Decimal("2000.00"),
+    tax_amount: Decimal = Decimal("420.00"),
+):
+    """Raise a fixture past BOTH line-level submission gates in one call
+    (the WO-73 `activate_entity` precedent — fixtures raised to satisfy a
+    gate, assertions never weakened): a registered vendor+invoice so a
+    transaction carrying `invoice_number` RESOLVES (never an `UNMATCHED`
+    line — WO-75's R3 lock gate), plus a vaulted document linked to it so
+    the resolved line passes R10 (WO-58's document-presence gate). Returns
+    the AP `Invoice` row. Idempotent per (supplier, invoice_number): reuses
+    an existing vendor/invoice rather than duplicating them."""
+    from app.models.invoice import Invoice
+    from app.models.vendor import Vendor
+    from app.services import documents, extraction, vendors
+    from app.services import invoices as ap_invoices
+
+    vendor = await vendors.get_by_name(db_session, org_id, supplier)
+    if vendor is None:
+        vendor = Vendor(org_id=org_id, name=supplier, country=country)
+        db_session.add(vendor)
+        await db_session.flush()
+
+    inv = next(
+        (
+            r
+            for r in await ap_invoices.list_by_vendor(db_session, org_id, vendor.id)
+            if r.invoice_number == invoice_number
+        ),
+        None,
+    )
+    if inv is None:
+        inv = Invoice(
+            org_id=org_id,
+            vendor_id=vendor.id,
+            invoice_number=invoice_number,
+            issue_date=issue_date or date(2026, 5, 1),
+            currency="EUR",
+            subtotal=subtotal,
+            tax_amount=tax_amount,
+            total=subtotal + tax_amount,
+        )
+        db_session.add(inv)
+        await db_session.flush()
+
+    sha, _size = await documents.store(
+        documents.UPLOADS,
+        org_id,
+        f"%PDF-1.4 synthetic fixture {supplier} {invoice_number}".encode(),
+    )
+    run = await extraction.record(
+        db_session,
+        org_id,
+        filename=f"{supplier.lower()}-{invoice_number.lower()}.pdf",
+        sha256=sha,
+        method="pdf-text",
+        status="parsed",
+    )
+    await extraction.link_to_invoice(db_session, org_id, run.id, inv.id)
+    await db_session.flush()
+    return inv

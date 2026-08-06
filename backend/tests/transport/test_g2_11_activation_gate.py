@@ -22,7 +22,13 @@ from app.services.transport import claim_lines, close, fuel_ingest, lock
 from app.services.transport import customer_lifecycle as lc
 from app.services.transport.checklist import submission_checklist
 from tests.factories.transport import synthetic_vehicle_ref
-from tests.transport.conftest import activate_entity, enable_transport, make_entity, make_org
+from tests.transport.conftest import (
+    activate_entity,
+    enable_transport,
+    make_entity,
+    make_org,
+    register_documented_invoice,
+)
 
 
 async def _make_claim(db_session, org, entity, **overrides) -> VatRefundClaim:
@@ -181,6 +187,10 @@ async def test_g2_11_an_active_customer_still_needs_the_refund_country_activated
     await lc.add_prospect(db_session, org.id, entity.id)
     await lc.promote_prospect(db_session, org.id, entity.id)
     await lc.set_activation(db_session, org.id, entity.id, True)
+    # WO-75 (R3): raised past the synthetic lock gate — a registered,
+    # documented invoice so the built line RESOLVES (the WO-73 fixture
+    # precedent; assertions unchanged).
+    await register_documented_invoice(db_session, org.id)
     claim = await _make_claim(db_session, org, entity)
     await db_session.commit()
     txn = await _make_txn(db_session, org, entity)
@@ -274,6 +284,10 @@ async def test_g2_11_gate_order_r44_fires_before_the_r6_duplicate_block(db_sessi
     await enable_transport(db_session, org.id)
     entity = await make_entity(db_session, org.id)
     await activate_entity(db_session, org.id, entity.id, "LV")
+    # WO-75 (R3): raised past the synthetic lock gate — a registered,
+    # documented invoice so the built line RESOLVES (the WO-73 fixture
+    # precedent; assertions unchanged).
+    await register_documented_invoice(db_session, org.id)
     claim = await _make_claim(db_session, org, entity)  # 2026-Q2
     await db_session.commit()
     txn = await _make_txn(db_session, org, entity)

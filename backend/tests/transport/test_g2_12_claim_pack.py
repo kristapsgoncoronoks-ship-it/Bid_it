@@ -195,24 +195,23 @@ async def test_g2_12_draft_claim_refuses_claim_not_frozen(db_session):
 @pytest.mark.asyncio
 async def test_g2_12_synthetic_unmatched_frozen_line_refuses_both_artifacts(db_session):
     """R3, the acceptance rule verbatim: 'a pack containing ANY synthetic
-    line cannot be filed'. No vendor/invoice registered -> the line freezes
-    as UNMATCHED (submission itself does not yet apply the synthetic lock
-    gate — WO-74 design decision 8) — and BOTH builders refuse with the
-    same code."""
+    line cannot be filed' — BOTH builders refuse with the same code.
+
+    WO-75 fixture note: submission now applies the R3 synthetic lock gate
+    itself (`lock.submit_claim` -> `claim_gates.enforce_no_synthetic_lines`),
+    so a frozen UNMATCHED line can no longer be seeded through the legal
+    path this test originally used. The corrupt state is seeded by DIRECT
+    tamper on the frozen row instead (this file's own `line.vat_id = "INPUT"`
+    precedent) — which is exactly what this gate now defends against:
+    defence-in-depth, all four R3 surfaces block independently. The
+    assertion set is unchanged."""
     org, entity = await _ready_org(db_session)
-    claim = await _make_claim(db_session, org, entity)
-    await db_session.commit()
-    await _make_txn(db_session, org, entity)  # no registered invoice -> UNMATCHED
-    await db_session.commit()
-    await claim_lines.build_claim_lines(db_session, org.id, claim.id)
-    await db_session.commit()
-    await lock.submit_claim(
-        db_session,
-        org.id,
-        claim_id=claim.id,
-        invoices=[("Q8", "INV-0001", "unused")],
-        today=TODAY,
+    claim, _inv, _sha = await _submitted_claim(db_session, org, entity)
+    line = await db_session.scalar(
+        select(VatRefundClaimLine).where(VatRefundClaimLine.claim_id == claim.id)
     )
+    line.invoice_ref = "UNMATCHED"  # simulated post-freeze corruption
+    line.invoice_id = None
     await db_session.commit()
 
     for builder in (claim_pack.build_workbook, claim_pack.build_evidence_pack):

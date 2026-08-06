@@ -23,11 +23,11 @@ WHY AN `UNMATCHED` LINE IS INVISIBLE TO THIS GATE
 --------------------------------------------------
 A synthetic/`UNMATCHED` claim line (`invoice_id IS NULL`) is not a real,
 registered invoice — it has no document to be missing in the first place.
-Blocking submission on an unresolved synthetic line at all is a SEPARATE,
-not-yet-built gate (R3's `is_synthetic()` is still not wired as an actual
-submission-blocking consumer anywhere — see WO-58's own "out of scope"
-note); this gate only ever inspects lines that DID resolve to a real
-`Invoice` row.
+Blocking submission on an unresolved synthetic line is a SEPARATE gate —
+R3's `claim_gates.enforce_no_synthetic_lines` (WO-75), which
+`lock.submit_claim` runs BEFORE this one (C9's internal order: the `bad`
+gate precedes the doc-gate); this gate only ever inspects lines that DID
+resolve to a real `Invoice` row.
 
 WHY THE DOCS CHECK IS ONE BATCH QUERY, NOT A LOOP
 ---------------------------------------------------

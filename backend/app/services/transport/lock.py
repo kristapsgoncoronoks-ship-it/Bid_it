@@ -22,6 +22,13 @@ function ever runs; this module only stamps the waiver's USE into
 `status_note` on submission). Both run AFTER the R6 mop-up/duplicate-block
 gate and BEFORE the freeze — matching D5's own ordering ("...then
 `set_status(engine)` which applies synthetic/duplicate/document gates").
+WO-75 completes that engine-gate group with its FIRST member: the R3
+synthetic gate (`claim_gates.enforce_no_synthetic_lines` — a claim whose
+materialized lines include ANY unresolved/synthetic ref never freezes or
+locks), positioned at the head of the group per C9's own internal order
+("dropped from `invs` before the `bad` gate, `claim_set`, locks, doc-gate
+and the frozen VAT base": bad/synthetic -> claim_set+locks (R6) -> doc-gate
+(R10) -> freeze) — closing the gap WO-74's design decision 8 recorded.
 
 `submit_claim` is a MINIMAL STUB status transition (draft -> submitted) that
 exists to prove the locking primitive — not the future G2.7 status machine.
@@ -63,6 +70,7 @@ from app.core.errors import ConflictError, NotFoundError, PermissionError, Valid
 from app.models.transport.lock import VatClaimedInvoice
 from app.models.transport.vat_claim import VatRefundClaim
 from app.services import audit, modules
+from app.services.transport.claim_gates import enforce_no_synthetic_lines
 from app.services.transport.customer_lifecycle import enforce_activation
 from app.services.transport.deadline import period_ended
 from app.services.transport.document_gate import enforce_document_presence
@@ -173,8 +181,8 @@ async def submit_claim(
     today: date | None = None,
 ) -> VatRefundClaim:
     """Gate (period-end, R7; minimum-amount, R8; customer-lifecycle +
-    per-country activation, R44; annual mop-up / quarterly
-    duplicate-block, R6; document-presence, R10), stamp any active waiver's
+    per-country activation, R44; synthetic-line refusal, R3; annual mop-up /
+    quarterly duplicate-block, R6; document-presence, R10), stamp any active waiver's
     use into `status_note` (R15), freeze the claim's lines (G2.5), acquire
     one lock per invoice, and flip the claim `draft` -> `submitted`, ALL in
     the same flush (see module docstring for the atomicity argument;
@@ -187,7 +195,10 @@ async def submit_claim(
     per-country activation (R44, WO-73 — §3.E places the activation gates
     "layered on top" of `set_status`, i.e. at the ENTRY of D5's engine-gate
     group "...then `set_status(engine)`", so it sits after the minimum and
-    before the R6 duplicate machinery) -> annual mop-up / quarterly
+    before the engine gates proper) -> synthetic-line refusal (R3, WO-75 —
+    the FIRST engine gate: D5 names "synthetic/duplicate/document" in that
+    order, and C9's internal `set_status` sequence puts the `bad` gate
+    before `claim_set`/locks/doc-gate) -> annual mop-up / quarterly
     duplicate-block (R6) -> waiver status_note stamp (R15) -> document-
     presence (R10) -> freeze -> lock -> status flip. A claim that fails ANY
     gate never freezes or locks at all — nothing is mutated before the LAST
@@ -275,6 +286,16 @@ async def submit_claim(
     await enforce_activation(
         db, org_id, entity_id=claim.entity_id, refund_country=claim.refund_country
     )
+
+    # R3 (WO-75) — the synthetic-line refusal, THE lock-gate consumer of the
+    # one `claim_gates.is_synthetic()` predicate (C2: "a pack containing ANY
+    # synthetic line CANNOT be filed"). First of D5's engine gates, per C9's
+    # internal order (the `bad` gate runs before `claim_set`/locks/doc-gate/
+    # freeze). Scans the claim's OWN materialized unfrozen lines — exactly
+    # what the freeze below would stamp — so an UNMATCHED/INPUT/aggregate
+    # line is refused while the claim is still `draft` and fixable, instead
+    # of freezing+locking now and failing later in `claim_pack`.
+    await enforce_no_synthetic_lines(db, org_id, claim.id)
 
     # R6 — annual mop-up / quarterly-overlap-blocks (C6). Narrows `invoices`
     # for an annual claim (excluding what a quarter already locked) or

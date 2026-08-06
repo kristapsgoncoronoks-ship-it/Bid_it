@@ -22,7 +22,13 @@ from app.models.transport.vat_claim import VatRefundClaim
 from app.services.transport import claim as claim_svc
 from app.services.transport import claim_lines, fuel_ingest, lock
 from tests.factories.transport import synthetic_vehicle_ref
-from tests.transport.conftest import activate_entity, enable_transport, make_entity, make_org
+from tests.transport.conftest import (
+    activate_entity,
+    enable_transport,
+    make_entity,
+    make_org,
+    register_documented_invoice,
+)
 
 
 async def _make_claim(db_session, org, entity, ref_period: str) -> VatRefundClaim:
@@ -72,6 +78,11 @@ async def test_g2_6_annual_claim_excludes_a_quarter_locked_invoice_not_a_conflic
     entity = await make_entity(db_session, org.id)
     # WO-73 (R44): raised past the activation gate — the WO-60 fixture precedent.
     await activate_entity(db_session, org.id, entity.id, "LV")
+    # WO-75 (R3): raised past the synthetic lock gate — registered,
+    # documented invoices so the built lines RESOLVE (the WO-73 fixture
+    # precedent; assertions unchanged).
+    await register_documented_invoice(db_session, org.id, invoice_number="INV-Q1")
+    await register_documented_invoice(db_session, org.id, invoice_number="INV-YEAR")
 
     q1 = await _make_claim(db_session, org, entity, "2026-Q1")
     txn_q1 = await _make_txn(db_session, org, entity, invoice_ref="INV-Q1", period="2026-01")
@@ -111,6 +122,10 @@ async def test_g2_6_annual_claim_with_nothing_left_after_exclusion_is_refused(db
     entity = await make_entity(db_session, org.id)
     # WO-73 (R44): raised past the activation gate — the WO-60 fixture precedent.
     await activate_entity(db_session, org.id, entity.id, "LV")
+    # WO-75 (R3): raised past the synthetic lock gate — registered,
+    # documented invoices so the built lines RESOLVE (the WO-73 fixture
+    # precedent; assertions unchanged).
+    await register_documented_invoice(db_session, org.id, invoice_number="INV-Q1")
 
     q1 = await _make_claim(db_session, org, entity, "2026-Q1")
     txn = await _make_txn(db_session, org, entity, invoice_ref="INV-Q1", period="2026-01")
@@ -144,6 +159,11 @@ async def test_g2_6_quarterly_claim_blocks_the_whole_submission_on_any_overlap(d
     entity = await make_entity(db_session, org.id)
     # WO-73 (R44): raised past the activation gate — the WO-60 fixture precedent.
     await activate_entity(db_session, org.id, entity.id, "LV")
+    # WO-75 (R3): raised past the synthetic lock gate — registered,
+    # documented invoices so the built lines RESOLVE (the WO-73 fixture
+    # precedent; assertions unchanged).
+    await register_documented_invoice(db_session, org.id, invoice_number="INV-SHARED")
+    await register_documented_invoice(db_session, org.id, invoice_number="INV-NEW")
 
     q1 = await _make_claim(db_session, org, entity, "2026-Q1")
     txn_shared = await _make_txn(
@@ -196,6 +216,11 @@ async def test_g2_6_two_annual_claims_overlapping_the_same_invoice_is_a_blocking
     entity = await make_entity(db_session, org.id)
     # WO-73 (R44): raised past the activation gate — the WO-60 fixture precedent.
     await activate_entity(db_session, org.id, entity.id, "LV")
+    # WO-75 (R3): raised past the synthetic lock gate — registered,
+    # documented invoices so the built lines RESOLVE (the WO-73 fixture
+    # precedent; assertions unchanged).
+    await register_documented_invoice(db_session, org.id, invoice_number="INV-A")
+    await register_documented_invoice(db_session, org.id, invoice_number="INV-B")
 
     year_a = await _make_claim(db_session, org, entity, "2025-YEAR")
     txn = await _make_txn(db_session, org, entity, invoice_ref="INV-A", period="2025-06")
@@ -235,6 +260,10 @@ async def test_g2_6_annual_mop_up_never_touches_a_different_entitys_locks(db_ses
     # WO-73 (R44): raised past the activation gate — the WO-60 fixture precedent.
     await activate_entity(db_session, org.id, entity_a.id, "LV")
     await activate_entity(db_session, org.id, entity_b.id, "LV")
+    # WO-75 (R3): raised past the synthetic lock gate — registered,
+    # documented invoices so the built lines RESOLVE (the WO-73 fixture
+    # precedent; assertions unchanged).
+    await register_documented_invoice(db_session, org.id, invoice_number="INV-SAME")
 
     claim_a = await claim_svc.get_or_create_claim(
         db_session, org.id, entity_id=entity_a.id, refund_country="LV", ref_period="2026-Q1"
