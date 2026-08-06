@@ -274,17 +274,6 @@ EXEMPT: dict[str, str] = {
         "the GET /access/usage response model (UsageOut) exposes only "
         "Invoice-derived counts, so no route returns these rows' content."
     ),
-    "fuel_transactions": (
-        "G1.2 (WO-50): the typed fuel-transaction line, written only through "
-        "services/transport/fuel_ingest.ingest_transaction (tenant-scoped "
-        "there via the same ORM guard this probe would exercise, AND proven "
-        "on real Postgres RLS — see docs/plan/plan-a/wo/WO-50-G1.2.md's RLS "
-        "proof). Still no route RETURNS these rows after WO-77: the transport "
-        "routes read claims/lines and the admin/config surfaces, and the "
-        "receipt-control grid exposes per-slot COUNTS derived from them, never "
-        "the transaction rows. Gains a probe when the fuel-analytics route "
-        "slice exposes them (ARCH_plan.md's fuel.py)."
-    ),
     "vat_claimed_invoices": (
         "G2.2 (WO-51): the one-invoice-one-submission lock, written only "
         "through services/transport/lock.submit_claim/withdraw_claim "
@@ -293,8 +282,9 @@ EXEMPT: dict[str, str] = {
         "writer race — tests/test_transport_lock_concurrency.py). The WO-76 "
         "submit/withdraw routes CREATE and DELETE lock rows but no route "
         "returns their content (the claim-lifecycle route suite asserts "
-        "their lifecycle directly), and WO-77 added no lock-reading surface "
-        "either. Gains a probe when a route lists them."
+        "their lifecycle directly); WO-77 added no lock-reading surface "
+        "either, and WO-79 routed the fuel TRANSACTIONS, not the locks over "
+        "them. Gains a probe when a route lists them."
     ),
     "fuel_extraction_baselines": (
         "G3.3 slice 2 (WO-70): the anti-drift extraction baseline, written "
@@ -303,9 +293,10 @@ EXEMPT: dict[str, str] = {
         "guard this "
         "probe would exercise, AND proven on real Postgres RLS via "
         "tests/test_rls.py's set-equality check). No route reads THESE rows "
-        "after WO-77 either — the baseline is consulted inside statement "
-        "ingestion, never served. Gains a probe when a capture-diagnostics "
-        "route slice exposes them (ARCH_plan.md)."
+        "after WO-77/WO-79 either — the baseline is consulted inside statement "
+        "ingestion, never served (WO-79 routed the fuel transactions the "
+        "baseline is computed OVER, not the baseline). Gains a probe when a "
+        "capture-diagnostics route slice exposes them (ARCH_plan.md)."
     ),
     "supplier_vat_registrations": (
         "G3.1 slice 1 (WO-61): the per-country supplier legal-entity "
@@ -314,10 +305,11 @@ EXEMPT: dict[str, str] = {
         "scoped there via the same ORM guard this "
         "probe would exercise, AND proven on real Postgres RLS via "
         "tests/test_rls.py's set-equality check). No route reads THESE rows "
-        "after WO-77 either — WO-77 routed the CLAIM-side admin surfaces "
+        "after WO-77/WO-79 either — WO-77 routed the CLAIM-side admin surfaces "
         "(waivers, checklist rules, cadences, note overrides, tie-out "
-        "expectations, lifecycle), not the supplier-entity registry. Gains a "
-        "probe when a supplier-master route slice exposes them (ARCH_plan.md)."
+        "expectations, lifecycle) and WO-79 the fuel transactions, not the "
+        "supplier-entity registry. Gains a probe when a supplier-master route "
+        "slice exposes them (ARCH_plan.md)."
     ),
 }
 
@@ -1777,6 +1769,71 @@ async def _p_transport_customer_lifecycle(ctx: Ctx) -> None:
     _assert_404(
         await ctx.b.post(f"/api/v1/transport/customers/{entities[ctx.a.name]}/promote"),
         "transport promote via A's entity",
+    )
+
+
+# --- Transport vertical (WO-79 fuel-transaction read surface) -----------------
+
+
+@probe("fuel_transactions")
+async def _p_transport_fuel_transactions(ctx: Ctx) -> None:
+    """WO-79 — `fuel_transactions` was an EXEMPT row from WO-50 until this
+    order, for one reason its own exemption text stated: no route RETURNED one.
+    `GET /transport/fuel-transactions` closes that, so the table now proves its
+    isolation over the REAL HTTP read path like every other claim table.
+
+    The rows are seeded through `fuel_ingest.ingest_transaction` (the only
+    writer there is — the route surface is read-only by design, so there is no
+    HTTP create to drive) with IDENTICAL business values in both orgs: same
+    supplier, period, country, station, product, litres and amounts. Only
+    tenancy discriminates, so a broken filter cannot pass by luck. Every
+    assertion under proof is the HTTP READ."""
+    from datetime import date
+    from decimal import Decimal as D
+
+    from app.services.transport import fuel_ingest
+
+    entities = await _transport_setup(ctx)
+    txn_ids = {}
+    for org in (ctx.a, ctx.b):
+        txn = await fuel_ingest.ingest_transaction(
+            ctx.db,
+            org.org_id,
+            entity_id=entities[org.name],
+            supplier="Q8",
+            period="2026-05",
+            line_seq=1,
+            country="LV",
+            vehicle_ref="TEST-CARD-0001",
+            txn_date=date(2026, 5, 15),
+            station="Overlap Station",
+            product="DIESEL",
+            qty=D("100.000"),
+            currency="EUR",
+            net_local=D("2000.00"),
+            vat_local=D("420.00"),
+            gross_local=D("2420.00"),
+            net_eur=D("2000.00"),
+            vat_eur=D("420.00"),
+            invoice_ref="INV-OVERLAP-1",
+        )
+        txn_ids[org.name] = txn.id
+    await ctx.db.commit()
+
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        listing = await me.get(
+            f"/api/v1/transport/fuel-transactions?entity_id={entities[me.name]}&period=2026-05"
+        )
+        assert listing.status_code == 200, listing.text
+        seen = {t["id"] for t in listing.json()["items"]}
+        _assert_isolated("fuel_transactions", {txn_ids[me.name]}, {txn_ids[other.name]}, seen)
+    # The only by-id surface this route exposes is the ENTITY filter — B naming
+    # A's entity must be an opaque 404, never a 403 (§4.4).
+    _assert_404(
+        await ctx.b.get(
+            f"/api/v1/transport/fuel-transactions?entity_id={entities[ctx.a.name]}&period=2026-05"
+        ),
+        "transport fuel transactions via A's entity",
     )
 
 
