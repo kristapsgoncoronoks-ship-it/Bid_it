@@ -594,6 +594,29 @@ stage (§3.H H4's harvested stage list) after the claim-line rebuild:
 findings never fail the close; the R25 tie-out still halts before the
 stage runs. Remaining in M3: G2.9 (decision-gated), G2.11, G2.12, and
 the `api/routes/transport/*` + UI surface — see `TODO.md`.
+
+**Implementation status (WO-73, G2.11):** the customer lifecycle +
+per-country activation gates (R44) have landed — the first gate that
+asks WHO the claim is for, where every prior gate asked what is in it.
+`vat_customer_lifecycles` (F1's `prospect → pending → active →
+inactive`, exactly the harvested edges; `inactive` terminal in this
+slice) and `vat_country_activations` (the `(none) → requested → active`
+per-refund-country ladder, each step an explicit audited admin call),
+both transport-local tables keyed to `issuer_profiles` via the
+composite RESTRICT FK (rule-1 discipline — no lifecycle column leaks
+into the shared AP/AR issuer model), both with FORCE RLS in their own
+migration (`e5b9c3d71a24`). `enforce_activation` is the ONE gate
+predicate (the `is_synthetic()` centralization rule), fail-CLOSED on
+absence, wired into `lock.submit_claim` after the R8 minimum and before
+the R6 duplicate block (D5's engine-gate group head per §3.E's "layered
+on top") — a refused claim never freezes or locks. Preparation surfaces
+(claim creation, line building, the checklist, `run_close`) stay
+deliberately ungated: F1 scopes the rule to legal/claim GATES, and the
+1A stage exists to describe an incomplete customer's draft claim.
+F3's `country_requirements`/`country_ready_to_activate` (informational,
+"not a gate") are deferred to the customer-document-store slice WO-60
+already named. Remaining in M3: G2.9 (decision-gated), G2.12, and the
+`api/routes/transport/*` + UI surface — see `TODO.md`.
 The Insight projection rule has its first composed endpoint: the home dashboard
 (`GET /dashboard`, `services/dashboard.py`, WO-16 / I1.1) — it consumes only
 canonical services (`approval_policy.waiting_for`, `expense_approval.pending_report_count`,
