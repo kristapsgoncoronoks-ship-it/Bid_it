@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { ModuleInactive } from "../components/ModuleGate";
+import { RefusalNotice } from "../components/RefusalNotice";
 import {
   Badge,
   Button,
@@ -29,7 +30,6 @@ import type {
   VatStatusCodes,
   VatSubmitInvoice,
 } from "../lib/types";
-import { RefusalNotice } from "./VatClaims";
 
 /**
  * A single VAT refund claim — the filing workspace (WO-78).
