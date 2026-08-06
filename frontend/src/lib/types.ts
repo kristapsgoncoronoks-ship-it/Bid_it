@@ -1685,3 +1685,123 @@ export interface FuelTransactionList {
   page: number;
   page_size: number;
 }
+
+// ---------------------------------------------------------------------------
+// Transport vertical — the ADMIN/CONFIG surfaces (WO-77's `admin.py` +
+// `customers.py`, given screens by WO-80). Field-for-field from
+// `backend/app/schemas/transport_admin.py`.
+//
+// Every `Decimal` field on that schema is `string` here for the reason the
+// claim types already record: pydantic v2 serializes `Decimal` as a JSON string
+// and nothing in the UI may round-trip a figure through a double
+// (master-context §4.9). Render with `decimalMoney`; post back the typed string.
+// ---------------------------------------------------------------------------
+
+/** `ChecklistRuleOut` — an adjustable submission-checklist rule as DATA (R45).
+ * The claim-scoped `VatChecklistItem` is its EVALUATION against one claim. */
+export interface VatChecklistRule {
+  id: string;
+  key: string;
+  label: string;
+  /** "customer" | "claim" — the grain the rule is evaluated at. */
+  scope: string;
+  /** "data" today; the evaluator refuses anything it has no verifier for. */
+  check_type: string;
+  reference: string | null;
+  active: boolean;
+  sort: number;
+}
+
+/** `CadenceOut` — an ADMIN cadence assignment. A supplier with no row still
+ * resolves through the service's harvested per-network default, so absence is
+ * not "no cadence". */
+export interface VatCadence {
+  id: string;
+  supplier: string;
+  cadence: string;
+}
+
+/** `ReceiptControlOut` — one persisted slot of the cadence × activity grid the
+ * close's `run_control` stage wrote. ADVISORY: a `missing` slot is a chase-list
+ * row, never a gate (master-context §4.19). */
+export interface VatReceiptControl {
+  id: string;
+  entity_id: string;
+  supplier: string;
+  /** "YYYY-MM". */
+  period: string;
+  /** "M" | "H1" | "H2" — the cadence's slot key. */
+  slot: string;
+  /** ISO country, or "" for a cadence that is not per-country. */
+  country: string;
+  /** "no_activity" | "received_doc" | "received_no_doc" | "missing". */
+  status: string;
+  txn_count: number;
+  /** A worklist MUTE ("stop chasing this slot") — NOT the claim-level legal
+   * waiver (R15), which is `VatWaiver` and lives on a claim. */
+  waived: boolean;
+  note: string | null;
+}
+
+/** `NoteOverrideOut` — an admin-curated note→invoice-ref override (R16/C4). It
+ * changes only the invoice ASSOCIATION, never an amount. */
+export interface VatNoteOverride {
+  id: string;
+  entity_id: string;
+  supplier: string;
+  refund_country: string;
+  invoice_ref: string;
+  target_invoice_id: string;
+}
+
+/** `TieOutExpectationOut` — the figures a HUMAN typed off a supplier's invoice
+ * PDF for a period. Once typed they HALT the close when the engine disagrees
+ * (R25 regime 2); absence is fail-open. */
+export interface VatTieOutExpectation {
+  id: string;
+  entity_id: string;
+  supplier: string;
+  /** "YYYY-MM". */
+  period: string;
+  currency: string;
+  expected_lines: number;
+  expected_gross_local: string | null;
+  gross_local_tolerance: string;
+  expected_net_eur: string | null;
+  expected_gross_eur: string | null;
+  expected_diesel_litres: string | null;
+}
+
+/** `CountryActivationOut` — one refund country's activation state for an
+ * entity. `status` is "requested" | "active"; the absence of a row is the
+ * third, unnamed state ((none)) and the R44 gate refuses it. */
+export interface VatCountryActivation {
+  id: string;
+  country: string;
+  status: string;
+}
+
+/** `LifecycleOut` — the customer lifecycle row plus every country activation.
+ * `id`/`status` are `null` when the entity was NEVER onboarded — a meaningful
+ * absence the R44 gate treats exactly like not-active, never a 404. */
+export interface VatLifecycle {
+  entity_id: string;
+  id: string | null;
+  /** "prospect" | "pending" | "active" | "inactive", or null. */
+  status: string | null;
+  countries: VatCountryActivation[];
+}
+
+/** `WaiverOut` — a claim-scoped receipt-control waiver (R15): a supplier that
+ * genuinely never invoiced for this claim's country. */
+export interface VatWaiver {
+  id: string;
+  claim_id: string;
+  supplier: string;
+}
+
+/** `RemovedOut` — `removed: false` is the services' idempotent no-op, not a
+ * failure. */
+export interface VatRemoved {
+  removed: boolean;
+}

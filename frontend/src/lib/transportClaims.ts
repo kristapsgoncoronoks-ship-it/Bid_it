@@ -125,6 +125,72 @@ const REFUSALS: Record<string, Refusal> = {
     title: "An invoice document in the pack can’t be read",
     next: "The workbook still downloads. Re-upload the invoice named below, then build the evidence pack again.",
   },
+
+  // --- the admin/config surfaces (WO-80's screens over the WO-77 routes) ----
+  // Every code below is raised by a service in `app/services/transport/`:
+  // `waiver.py`, `checklist.py`, `receipt_control.py`, `invoice_match.py`,
+  // `tie_out.py`, `customer_lifecycle.py`. Verified against the source, not
+  // guessed — the same discipline the D5 block above follows.
+  waiver_supplier_has_invoices: {
+    title: "That supplier does have a registered invoice for this country",
+    next: "Waiving it would drop claimable VAT. If a transaction looks unmatched, map its statement note to the invoice reference instead.",
+  },
+  checklist_rule_not_found: {
+    title: "That checklist rule doesn’t exist in this workspace",
+    next: "Seed the default rules first, then toggle the one you need.",
+  },
+  invalid_cadence: {
+    title: "That isn’t an invoicing cadence this service recognises",
+    next: "Choose semi-monthly, monthly, or monthly-per-country.",
+  },
+  receipt_control_not_found: {
+    title: "That receipt-control row isn’t available",
+    next: "The grid may have been rebuilt by a later close. Reload the period and try again.",
+  },
+  override_note_is_synthetic: {
+    title: "There’s nothing real to map that reference onto",
+    next: "A placeholder reference (UNMATCHED, an aggregate, an input line) can’t be overridden. Use the reference printed on the statement line.",
+  },
+  override_target_not_registered: {
+    title: "That invoice isn’t registered for this supplier and country",
+    next: "Register the supplier invoice for this refund country first, then point the override at it.",
+  },
+  invalid_currency: {
+    title: "That isn’t a currency code this service accepts",
+    next: "Use the three-letter ISO code the supplier invoiced in, e.g. EUR or PLN.",
+  },
+  invalid_expected_lines: {
+    title: "The expected line count can’t be negative",
+    next: "Type the number of lines printed on the supplier's invoice, or zero if it has none.",
+  },
+  invalid_gross_tolerance: {
+    title: "That tolerance is outside the band this service allows",
+    next: "Use a value between 0.02 and 0.05. The tolerance decides how far the engine may differ from the typed gross before the close halts.",
+  },
+  tieout_expectation_not_found: {
+    title: "There’s no typed expectation for that supplier, period and currency",
+    next: "It may already have been removed. Reload the period to see what is typed.",
+  },
+  not_a_prospect: {
+    title: "This customer isn’t a prospect any more",
+    next: "Promotion is the step from prospect to onboarding. Use the transition that matches the state shown above.",
+  },
+  lifecycle_transition_invalid: {
+    title: "That isn’t a step this customer can take from where it is",
+    next: "The ladder is prospect → pending → active → inactive, one step at a time. Reload to see the current state.",
+  },
+  invalid_country: {
+    title: "That isn’t a country code this service accepts",
+    next: "Use the two-letter ISO code of the refunding member state, e.g. LV.",
+  },
+  country_not_requested: {
+    title: "That country was never requested for this customer",
+    next: "Request it first — that step is where the country's registration and power of attorney are gathered — then activate it.",
+  },
+  country_transition_invalid: {
+    title: "That isn’t a step this country can take from where it is",
+    next: "A country goes requested → active, and back. Reload to see the current state.",
+  },
 };
 
 /**
