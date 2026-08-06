@@ -98,6 +98,24 @@ export const LIVE_NAV: LiveNavGroup[] = [
         perm: "vat.read",
         icon: icon("M6 3h9l3 3v15H6V3zM9 12l2 2 4-4"),
       },
+      {
+        // The R44 activation ladder. Same gating as the claims entry: the
+        // routes are VAT_READ (with VAT_WRITE on the transitions), so the
+        // destination is shown to anyone who can read it and the mutating
+        // controls hide themselves inside the page.
+        to: "/vat-customers",
+        label: "Customer activation",
+        module: "transport",
+        perm: "vat.read",
+        icon: icon("M16 20v-1a4 4 0 00-4-4H8a4 4 0 00-4 4v1M10 11a3 3 0 100-6 3 3 0 000 6zm10 9v-1a4 4 0 00-3-3.8"),
+      },
+      {
+        to: "/vat-admin",
+        label: "VAT configuration",
+        module: "transport",
+        perm: "vat.read",
+        icon: icon("M12 15a3 3 0 100-6 3 3 0 000 6zM19 12a7 7 0 00-.1-1l2-1.6-2-3.4-2.4 1a7 7 0 00-1.7-1L14.5 3h-4l-.3 2.4a7 7 0 00-1.7 1l-2.4-1-2 3.4 2 1.6a7 7 0 000 2l-2 1.6 2 3.4 2.4-1a7 7 0 001.7 1l.3 2.4h4l.3-2.4a7 7 0 001.7-1l2.4 1 2-3.4-2-1.6a7 7 0 00.1-1z"),
+      },
     ],
   },
   {

@@ -52,6 +52,8 @@ const CostObjects = lazy(() => import("./pages/CostObjects"));
 const Documents = lazy(() => import("./pages/Documents"));
 const VatClaims = lazy(() => import("./pages/VatClaims"));
 const VatClaimDetail = lazy(() => import("./pages/VatClaimDetail"));
+const VatAdmin = lazy(() => import("./pages/VatAdmin"));
+const VatCustomers = lazy(() => import("./pages/VatCustomers"));
 
 // Design-system showcase (public, fixtures-only). Lives under /design so the
 // living style guide + shell demo can be reviewed and visual/e2e-tested without a
@@ -155,6 +157,8 @@ export default function App() {
                 <Route path="/documents" element={<Documents />} />
                 <Route path="/vat-claims" element={<VatClaims />} />
                 <Route path="/vat-claims/:id" element={<VatClaimDetail />} />
+                <Route path="/vat-admin" element={<VatAdmin />} />
+                <Route path="/vat-customers" element={<VatCustomers />} />
                 <Route path="/team" element={<Team />} />
                 <Route path="/access" element={<Access />} />
                 <Route path="/sessions" element={<Sessions />} />
