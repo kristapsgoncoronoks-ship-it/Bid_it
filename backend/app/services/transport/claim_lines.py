@@ -104,6 +104,32 @@ async def _get_claim(db: AsyncSession, org_id: str, claim_id: str) -> VatRefundC
     return claim
 
 
+async def list_claim_lines(
+    db: AsyncSession, org_id: str, claim_id: str
+) -> list[VatRefundClaimLine]:
+    """The claim's materialized lines, in the deterministic build/freeze
+    order `(invoice_ref, product_group)` (WO-76 — the route-facing read).
+    Returns frozen and unfrozen lines alike: a draft claim shows its live
+    rebuild, a submitted claim shows exactly what was frozen. Module-gated
+    + opaque-404 claim fetch first, the transport-wide entry-point pattern
+    (fails CLOSED, ADR-P3 rule 3 / master-context §4.4)."""
+    if not await modules.is_enabled(db, org_id, "transport"):
+        m = modules.MODULES_BY_KEY["transport"]
+        raise PermissionError(f"The {m.name} module is not activated.", code="module_not_enabled")
+
+    claim = await _get_claim(db, org_id, claim_id)
+    return list(
+        await db.scalars(
+            select(VatRefundClaimLine)
+            .where(
+                VatRefundClaimLine.org_id == org_id,
+                VatRefundClaimLine.claim_id == claim.id,
+            )
+            .order_by(VatRefundClaimLine.invoice_ref, VatRefundClaimLine.product_group)
+        )
+    )
+
+
 async def build_claim_lines(
     db: AsyncSession, org_id: str, claim_id: str
 ) -> list[VatRefundClaimLine]:

@@ -42,6 +42,43 @@ def validate_ref_period(ref_period: str) -> None:
         )
 
 
+async def list_claims(db: AsyncSession, org_id: str) -> list[VatRefundClaim]:
+    """Every claim in the org, newest first (WO-76 — the first route-facing
+    read accessor). Module-gated exactly like every other transport service
+    entry point (defense-in-depth: the route layer's structural permission
+    check is the caller-facing gate, but the transport rule since WO-49 is
+    that NO service entry point trusts its caller to have checked the
+    entitlement — fails CLOSED so an un-entitled org stays byte-identical
+    to before the vertical existed, ADR-P3 rule 3)."""
+    if not await modules.is_enabled(db, org_id, "transport"):
+        m = modules.MODULES_BY_KEY["transport"]
+        raise PermissionError(f"The {m.name} module is not activated.", code="module_not_enabled")
+
+    return list(
+        await db.scalars(
+            select(VatRefundClaim)
+            .where(VatRefundClaim.org_id == org_id)
+            .order_by(VatRefundClaim.created_at.desc(), VatRefundClaim.id)
+        )
+    )
+
+
+async def get_claim(db: AsyncSession, org_id: str, claim_id: str) -> VatRefundClaim:
+    """Org-scoped by-id read (WO-76). A cross-tenant claim id is
+    indistinguishable from an unknown one (master-context §4.4: opaque 404,
+    never 403). Module gate first, same rationale as `list_claims`."""
+    if not await modules.is_enabled(db, org_id, "transport"):
+        m = modules.MODULES_BY_KEY["transport"]
+        raise PermissionError(f"The {m.name} module is not activated.", code="module_not_enabled")
+
+    claim = await db.scalar(
+        select(VatRefundClaim).where(VatRefundClaim.id == claim_id, VatRefundClaim.org_id == org_id)
+    )
+    if claim is None:
+        raise NotFoundError("Claim not found", code="claim_not_found")
+    return claim
+
+
 async def get_or_create_claim(
     db: AsyncSession,
     org_id: str,

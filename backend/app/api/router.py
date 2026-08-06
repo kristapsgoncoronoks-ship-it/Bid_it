@@ -38,6 +38,7 @@ from app.api.routes import (
     sso,
     tax_codes,
     team,
+    transport,
     vendors,
     webhooks,
 )
@@ -84,3 +85,6 @@ api_router.include_router(retention.router)
 api_router.include_router(privacy.router)
 api_router.include_router(sso.router)
 api_router.include_router(scim.router)
+# Transport vertical (ADR-P3, WO-76): the package router aggregates every
+# transport route slice (claims today; fuel/recovery/excise later).
+api_router.include_router(transport.router)
