@@ -1,4 +1,5 @@
 import { icon, type NavItem } from "../components/shell/nav";
+import type { VatPermission } from "./roles";
 
 /**
  * The live app's navigation IA (board I1.2). Mirrors `docs/DESIGN_SYSTEM.md`'s
@@ -19,6 +20,15 @@ export interface LiveNavItem extends NavItem {
   admin?: boolean;
   /** Only shown to the company owner (`isOwner`). */
   owner?: boolean;
+  /**
+   * Only shown when the user's role holds this permission in the backend
+   * matrix (`app/core/authz.py::ROLE_PERMISSIONS`, mirrored cosmetically by
+   * `lib/roles.ts::hasVatPerm`). Used by the transport vertical, whose routes
+   * gate on VAT_* permissions rather than on the admin/owner ladder — an
+   * EMPLOYEE holds no VAT permission at all, so the destination would 403.
+   * Absent on every other item, so filtering is unchanged for them.
+   */
+  perm?: VatPermission;
 }
 
 export interface LiveNavGroup {
@@ -73,6 +83,21 @@ export const LIVE_NAV: LiveNavGroup[] = [
       { to: "/fx", label: "FX", icon: icon("M7 8l4-4 4 4M11 4v12M17 16l-4 4-4-4M13 20V8") },
       { to: "/cash-position", label: "Cash position", icon: icon("M3 6h18v12H3V6zm0 4h18M7 14h4") },
       { to: "/budget", label: "Budget", module: "budget", icon: icon("M4 4h16v16H4V4zm4 12V8m4 8V11m4 5V6") },
+    ],
+  },
+  {
+    // The transport vertical (EU cross-border VAT refunds, Dir. 2008/9/EC) — a
+    // plug-in bounded context, so it is its own group and appears only for an
+    // org that has the `transport` module AND a role holding VAT_READ.
+    title: "Transport",
+    items: [
+      {
+        to: "/vat-claims",
+        label: "VAT claims",
+        module: "transport",
+        perm: "vat.read",
+        icon: icon("M6 3h9l3 3v15H6V3zM9 12l2 2 4-4"),
+      },
     ],
   },
   {

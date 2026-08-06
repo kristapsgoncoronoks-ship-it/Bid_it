@@ -1,6 +1,6 @@
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { isAdminOrAbove, isOwner } from "../lib/roles";
+import { hasVatPerm, isAdminOrAbove, isOwner, type VatPermission } from "../lib/roles";
 import { useModules } from "../lib/useModules";
 import { useOrgSwitcher } from "../lib/useOrgSwitcher";
 import { LIVE_NAV, matchNavItem, type LiveNavGroup, type LiveNavItem } from "../lib/nav";
@@ -22,13 +22,24 @@ import type { Crumb } from "./ui/Breadcrumbs";
  * the backend today (verified — no entity model, no search endpoint), and mounting
  * either with nothing behind it would be placeholder UI, not a feature.
  */
-function filterNav(groups: LiveNavGroup[], opts: { isEnabled: (m: string) => boolean; admin: boolean; owner: boolean }): NavGroup[] {
+function filterNav(
+  groups: LiveNavGroup[],
+  opts: {
+    isEnabled: (m: string) => boolean;
+    admin: boolean;
+    owner: boolean;
+    hasPerm: (p: VatPermission) => boolean;
+  },
+): NavGroup[] {
   return groups
     .map((g) => ({
       title: g.title,
       items: g.items.filter(
         (i: LiveNavItem) =>
-          (!i.module || opts.isEnabled(i.module)) && (!i.admin || opts.admin) && (!i.owner || opts.owner),
+          (!i.module || opts.isEnabled(i.module)) &&
+          (!i.admin || opts.admin) &&
+          (!i.owner || opts.owner) &&
+          (!i.perm || opts.hasPerm(i.perm)),
       ),
     }))
     .filter((g) => g.items.length > 0);
@@ -43,7 +54,12 @@ export function Layout() {
 
   const admin = isAdminOrAbove(user);
   const owner = isOwner(user);
-  const navGroups = filterNav(LIVE_NAV, { isEnabled, admin, owner });
+  const navGroups = filterNav(LIVE_NAV, {
+    isEnabled,
+    admin,
+    owner,
+    hasPerm: (p) => hasVatPerm(user, p),
+  });
   if (user?.is_platform_admin) {
     const workspace = navGroups.find((g) => g.title === "Workspace");
     const platformItem = { to: "/platform", label: "Platform", icon: icon("M4 4h16v16H4V4zm4 4h8v8H8V8z") };
