@@ -1,4 +1,8 @@
-"""Transport routes slice 1 — the VAT refund claim lifecycle (WO-76).
+"""Transport claim routes — the VAT refund claim lifecycle (WO-76) plus the
+claim-SCOPED admin surfaces and filing artifacts of slice 2 (WO-77: receipt-
+control waivers R15, the manual status code R17/R12, and the G2.12 workbook /
+evidence-pack downloads). Org-level configuration lives in `admin.py`, the
+customer lifecycle in `customers.py`.
 
 Thin controllers ONLY (engineering-rules §3): parse → structural permission
 gate → call the already-gated service → shape the response. Every refusal a
@@ -37,11 +41,19 @@ the real date.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
+from app.core.security_headers import content_disposition
+from app.models.transport.receipt_waiver import VatReceiptWaiver
 from app.models.transport.vat_claim import VatRefundClaim, VatRefundClaimLine
+from app.schemas.transport_admin import (
+    RemovedOut,
+    StatusCodeSetIn,
+    WaiverOut,
+    WaiverSetIn,
+)
 from app.schemas.transport_claim import (
     ChecklistItemOut,
     ClaimCreateIn,
@@ -53,8 +65,10 @@ from app.schemas.transport_claim import (
 from app.services.transport import checklist as checklist_svc
 from app.services.transport import claim as claim_svc
 from app.services.transport import claim_lines as claim_lines_svc
+from app.services.transport import claim_pack as claim_pack_svc
 from app.services.transport import lock as lock_svc
 from app.services.transport import status as status_svc
+from app.services.transport import waiver as waiver_svc
 
 # Structural authorization (ADR-0024): router-level VAT_READ; the mutating
 # routes declare the stricter VAT_WRITE / VAT_SUBMIT per-route below.
@@ -65,6 +79,11 @@ router = APIRouter(
 )
 _WRITE = [Depends(require_perm(authz.Permission.VAT_WRITE))]
 _SUBMIT = [Depends(require_perm(authz.Permission.VAT_SUBMIT))]
+
+# The two filing-artifact content types (WO-77): xlsx per the `analytics.py`
+# explore-xlsx precedent, zip per the `issued.py` batch-PDF precedent.
+_XLSX_CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_ZIP_CT = "application/zip"
 
 
 def _claim_out(claim: VatRefundClaim) -> ClaimOut:
@@ -202,3 +221,108 @@ async def withdraw_claim(claim_id: str, current: CurrentUser, db: DbSession):
     claim = await lock_svc.withdraw_claim(db, current.org_id, claim_id)
     await db.commit()
     return _claim_out(claim)
+
+
+# --------------------------------------------------------------------------- #
+# WO-77 — receipt-control waivers (R15), the manual status code (R17/R12) and
+# the two filing artifacts (G2.12). All claim-scoped, so they live here rather
+# than in the org-level `admin.py`.
+# --------------------------------------------------------------------------- #
+
+
+def _waiver_out(row: VatReceiptWaiver) -> WaiverOut:
+    return WaiverOut(id=row.id, claim_id=row.claim_id, supplier=row.supplier)
+
+
+@router.get("/{claim_id}/waivers", response_model=list[WaiverOut])
+async def list_waivers(claim_id: str, current: CurrentUser, db: DbSession):
+    """The claim's receipt-control waivers (R15) — the rows an operator set
+    because a supplier genuinely never invoiced."""
+    rows = await waiver_svc.list_waivers(db, current.org_id, claim_id)
+    return [_waiver_out(r) for r in rows]
+
+
+@router.post("/{claim_id}/waivers", response_model=WaiverOut, dependencies=_WRITE)
+async def set_waiver(claim_id: str, body: WaiverSetIn, current: CurrentUser, db: DbSession):
+    """Waive a supplier on a DRAFT claim (R15). VAT_WRITE, not VAT_SUBMIT: a
+    waiver configures how the claim's lines are BUILT (the service excludes
+    the supplier's transactions before resolution) — it flips no status and
+    takes no lock. Refuses 422 `waiver_supplier_has_invoices` when the
+    supplier HAS a registered invoice for the refund country (waiving would
+    drop claimable VAT), 409 `claim_not_draft` once the claim has left
+    draft. Idempotent on (claim, supplier) — a repeat returns the row."""
+    row = await waiver_svc.set_waiver(db, current.org_id, claim_id=claim_id, supplier=body.supplier)
+    await db.commit()
+    return _waiver_out(row)
+
+
+@router.delete("/{claim_id}/waivers/{supplier}", response_model=RemovedOut, dependencies=_WRITE)
+async def remove_waiver(claim_id: str, supplier: str, current: CurrentUser, db: DbSession):
+    """Un-waive a supplier on a draft claim. `removed=false` is the
+    idempotent no-op (nothing was waived), not a failure — the service's own
+    return contract."""
+    removed = await waiver_svc.remove_waiver(
+        db, current.org_id, claim_id=claim_id, supplier=supplier
+    )
+    await db.commit()
+    return RemovedOut(removed=removed)
+
+
+@router.post("/{claim_id}/status-code", response_model=ClaimOut, dependencies=_SUBMIT)
+async def set_status_code(
+    claim_id: str, body: StatusCodeSetIn, current: CurrentUser, db: DbSession
+):
+    """Stamp a MANUAL workflow code (R17) + optional R12 `action_deadline` on
+    an already-submitted claim. VAT_SUBMIT because this is the claim-STATUS
+    surface: it moves the claim through the post-filing workflow. The service
+    refuses a system-derived AUTO code (409 `status_code_system_controlled`),
+    an unknown code (422 `unknown_status_code`) and any manual code while the
+    claim is still draft (409 `claim_not_submitted`); it never touches the
+    coarse engine `status` column."""
+    claim = await status_svc.set_status_code(
+        db, current.org_id, claim_id, body.code, action_deadline=body.action_deadline
+    )
+    await db.commit()
+    return _claim_out(claim)
+
+
+@router.get("/{claim_id}/workbook")
+async def download_workbook(claim_id: str, current: CurrentUser, db: DbSession):
+    """The Excel claim workbook of a FROZEN claim (G2.12) — the figures
+    document filed with the refunding member state. VAT_READ (the
+    router-level default): it is a read-only rendering of claim data the
+    `/lines` route already serves, not an accounting-ledger export
+    (`EXPORT_RUN` guards that different surface). Every refusal is the
+    service's own and fails CLOSED: `claim_not_frozen` (a draft's lines can
+    still drift), `synthetic_line_in_pack` (R3), `claim_totals_drift`
+    (§4.10 — the renderer recomputes and refuses a drifted header),
+    `claim_currency_mismatch` (§4.14)."""
+    data = await claim_pack_svc.build_workbook(db, current.org_id, claim_id)
+    return Response(
+        content=data,
+        media_type=_XLSX_CT,
+        headers={
+            "Content-Disposition": content_disposition(f"claim-{claim_id}-workbook.xlsx"),
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.get("/{claim_id}/evidence")
+async def download_evidence_pack(claim_id: str, current: CurrentUser, db: DbSession):
+    """The ZIP evidence pack of a FROZEN claim (G2.12, §3.K K6): the same
+    workbook (rendered from the SAME loaded pack — identical lines and
+    totals by construction) plus every vaulted invoice document and a
+    SHA-256 `manifest.csv`, under the §3.M M1 vault tree. Same refusals as
+    the workbook, plus `evidence_document_unavailable` when a vaulted
+    document's bytes are gone — an incomplete filing bundle is worse than
+    none (a rejected claim's invoices stay locked, R5)."""
+    data = await claim_pack_svc.build_evidence_pack(db, current.org_id, claim_id)
+    return Response(
+        content=data,
+        media_type=_ZIP_CT,
+        headers={
+            "Content-Disposition": content_disposition(f"claim-{claim_id}-evidence.zip"),
+            "X-Content-Type-Options": "nosniff",
+        },
+    )

@@ -48,6 +48,26 @@ async def _get_claim(db: AsyncSession, org_id: str, claim_id: str) -> VatRefundC
     return claim
 
 
+async def list_waivers(db: AsyncSession, org_id: str, claim_id: str) -> list[VatReceiptWaiver]:
+    """The claim's waiver ROWS, ordered by supplier (WO-77 — the
+    route-facing read). Module-gated + opaque-404 claim fetch first, the
+    transport-wide entry-point pattern (fails CLOSED, ADR-P3 rule 3 /
+    master-context §4.4) — unlike `waived_suppliers`, which is the bare
+    internal set read whose callers gate first."""
+    if not await modules.is_enabled(db, org_id, "transport"):
+        m = modules.MODULES_BY_KEY["transport"]
+        raise PermissionError(f"The {m.name} module is not activated.", code="module_not_enabled")
+
+    claim = await _get_claim(db, org_id, claim_id)
+    return list(
+        await db.scalars(
+            select(VatReceiptWaiver)
+            .where(VatReceiptWaiver.org_id == org_id, VatReceiptWaiver.claim_id == claim.id)
+            .order_by(VatReceiptWaiver.supplier)
+        )
+    )
+
+
 async def waived_suppliers(db: AsyncSession, org_id: str, claim_id: str) -> set[str]:
     """Every supplier currently waived on this claim — read by
     `claim_lines.build_claim_lines` (to exclude their transactions) and

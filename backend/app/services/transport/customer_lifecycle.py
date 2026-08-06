@@ -84,6 +84,7 @@ __all__ = [
     "set_country_activation",
     "get_lifecycle",
     "get_country_activation",
+    "lifecycle_overview",
     "enforce_activation",
 ]
 
@@ -129,6 +130,34 @@ async def get_country_activation(
             VatCountryActivation.country == country.upper(),
         )
     )
+
+
+async def lifecycle_overview(
+    db: AsyncSession, org_id: str, entity_id: str
+) -> tuple[VatCustomerLifecycle | None, list[VatCountryActivation]]:
+    """The entity's lifecycle row plus every country-activation row,
+    ordered by country (WO-77 — the route-facing read). Module-gated +
+    opaque-404 ENTITY resolution first (§4.4: a cross-tenant entity id is
+    indistinguishable from an unknown one). A `None` lifecycle is a
+    MEANINGFUL absence — "never onboarded", which the R44 gate treats
+    exactly like not-active — so it is returned, never 404'd: the 404 keys
+    off the ENTITY, never off lifecycle absence (a customer an operator
+    still has to onboard must be visible in order to be onboarded)."""
+    await _require_module(db, org_id)
+    await _require_entity(db, org_id, entity_id)
+
+    lifecycle = await get_lifecycle(db, org_id, entity_id)
+    countries = list(
+        await db.scalars(
+            select(VatCountryActivation)
+            .where(
+                VatCountryActivation.org_id == org_id,
+                VatCountryActivation.entity_id == entity_id,
+            )
+            .order_by(VatCountryActivation.country)
+        )
+    )
+    return lifecycle, countries
 
 
 async def _audit_lifecycle(

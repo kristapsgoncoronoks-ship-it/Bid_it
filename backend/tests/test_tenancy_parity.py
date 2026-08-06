@@ -279,9 +279,11 @@ EXEMPT: dict[str, str] = {
         "services/transport/fuel_ingest.ingest_transaction (tenant-scoped "
         "there via the same ORM guard this probe would exercise, AND proven "
         "on real Postgres RLS — see docs/plan/plan-a/wo/WO-50-G1.2.md's RLS "
-        "proof). The WO-76 transport routes read only claims/lines — no "
-        "route reads THESE rows. Gains a probe when a later M3 route-batch "
-        "slice exposes them (ARCH_plan.md)."
+        "proof). Still no route RETURNS these rows after WO-77: the transport "
+        "routes read claims/lines and the admin/config surfaces, and the "
+        "receipt-control grid exposes per-slot COUNTS derived from them, never "
+        "the transaction rows. Gains a probe when the fuel-analytics route "
+        "slice exposes them (ARCH_plan.md's fuel.py)."
     ),
     "vat_claimed_invoices": (
         "G2.2 (WO-51): the one-invoice-one-submission lock, written only "
@@ -291,25 +293,8 @@ EXEMPT: dict[str, str] = {
         "writer race — tests/test_transport_lock_concurrency.py). The WO-76 "
         "submit/withdraw routes CREATE and DELETE lock rows but no route "
         "returns their content (the claim-lifecycle route suite asserts "
-        "their lifecycle directly). Gains a probe when a route lists them."
-    ),
-    "fuel_tieout_expectations": (
-        "G3.3 (WO-66): the engine tie-out targets a human types from the "
-        "invoice PDF, written only through services/transport/tie_out."
-        "set_expectation/remove_expectation (tenant-scoped there via the same "
-        "probe would exercise, AND proven on real Postgres RLS via "
-        "tests/test_rls.py's set-equality check). The WO-76 transport routes "
-        "read only claims/lines — no route reads THESE rows. Gains a probe "
-        "when a later M3 route-batch slice exposes them (ARCH_plan.md)."
-    ),
-    "vat_note_invoice_overrides": (
-        "G2.4 (WO-52): the admin-curated note->invoice override, written only "
-        "through services/transport/invoice_match.set_note_override "
-        "(tenant-scoped there via the same ORM guard this "
-        "probe would exercise, AND proven on real Postgres RLS via "
-        "tests/test_rls.py's set-equality check). The WO-76 transport routes "
-        "read only claims/lines — no route reads THESE rows. Gains a probe "
-        "when a later M3 route-batch slice exposes them (ARCH_plan.md)."
+        "their lifecycle directly), and WO-77 added no lock-reading surface "
+        "either. Gains a probe when a route lists them."
     ),
     "fuel_extraction_baselines": (
         "G3.3 slice 2 (WO-70): the anti-drift extraction baseline, written "
@@ -317,68 +302,10 @@ EXEMPT: dict[str, str] = {
         "rebaseline/remove_baseline (tenant-scoped there via the same ORM "
         "guard this "
         "probe would exercise, AND proven on real Postgres RLS via "
-        "tests/test_rls.py's set-equality check). The WO-76 transport routes "
-        "read only claims/lines — no route reads THESE rows. Gains a probe "
-        "when a later M3 route-batch slice exposes them (ARCH_plan.md)."
-    ),
-    "vat_supplier_cadences": (
-        "G3.5 (WO-72): the admin supplier-cadence assignment, written only "
-        "through services/transport/receipt_control.set_cadence/"
-        "remove_cadence (tenant-scoped there via the same ORM guard this "
-        "probe would exercise, AND proven on real Postgres RLS via "
-        "tests/test_rls.py's set-equality check). The WO-76 transport routes "
-        "read only claims/lines — no route reads THESE rows. Gains a probe "
-        "when a later M3 route-batch slice exposes them (ARCH_plan.md)."
-    ),
-    "vat_receipt_controls": (
-        "G3.5 (WO-72): the persisted cadence × activity receipt-control "
-        "grid, written only through services/transport/receipt_control."
-        "run_receipt_control/set_control_override (tenant-scoped there via "
-        "the same ORM guard this "
-        "probe would exercise, AND proven on real Postgres RLS via "
-        "tests/test_rls.py's set-equality check). The WO-76 transport routes "
-        "read only claims/lines — no route reads THESE rows. Gains a probe "
-        "when a later M3 route-batch slice exposes them (ARCH_plan.md)."
-    ),
-    "vat_customer_lifecycles": (
-        "G2.11 (WO-73): the customer lifecycle row (R44 — prospect/pending/"
-        "active/inactive), written only through services/transport/"
-        "customer_lifecycle.add_prospect/promote_prospect/set_activation/"
-        "set_inactive (tenant-scoped there via the same ORM guard this "
-        "probe would exercise, AND proven on real Postgres RLS via "
-        "tests/test_rls.py's set-equality check). The WO-76 transport routes "
-        "read only claims/lines — no route reads THESE rows. Gains a probe "
-        "when a later M3 route-batch slice exposes them (ARCH_plan.md)."
-    ),
-    "vat_country_activations": (
-        "G2.11 (WO-73): the per-(customer × refund country) activation "
-        "ladder (R44/F3 — requested/active), written only through "
-        "services/transport/customer_lifecycle.request_country/"
-        "set_country_activation (tenant-scoped there via the same ORM guard "
-        "this "
-        "probe would exercise, AND proven on real Postgres RLS via "
-        "tests/test_rls.py's set-equality check). The WO-76 transport routes "
-        "read only claims/lines — no route reads THESE rows. Gains a probe "
-        "when a later M3 route-batch slice exposes them (ARCH_plan.md)."
-    ),
-    "vat_receipt_waivers": (
-        "G2.6 slice 3 (WO-58): receipt-control waivers (R15), written only "
-        "through services/transport/waiver.set_waiver/remove_waiver "
-        "(tenant-scoped there via the same ORM guard this "
-        "probe would exercise, AND proven on real Postgres RLS via "
-        "tests/test_rls.py's set-equality check). The WO-76 transport routes "
-        "read only claims/lines — no route reads THESE rows. Gains a probe "
-        "when a later M3 route-batch slice exposes them (ARCH_plan.md)."
-    ),
-    "vat_checklist_rules": (
-        "G2.10 slice 1 (WO-60): the adjustable submission-checklist rule "
-        "table (R45), written only through services/transport/checklist."
-        "seed_default_rules/set_active (tenant-scoped there via the same ORM "
-        "guard this probe would exercise, AND proven on real Postgres RLS "
-        "via tests/test_rls.py's set-equality check). The WO-76 checklist "
-        "GET returns the EVALUATION (key/ok/reason items), never the rule "
-        "rows themselves, and commits nothing. Gains a probe when a "
-        "rule-admin route lists the rows."
+        "tests/test_rls.py's set-equality check). No route reads THESE rows "
+        "after WO-77 either — the baseline is consulted inside statement "
+        "ingestion, never served. Gains a probe when a capture-diagnostics "
+        "route slice exposes them (ARCH_plan.md)."
     ),
     "supplier_vat_registrations": (
         "G3.1 slice 1 (WO-61): the per-country supplier legal-entity "
@@ -386,9 +313,11 @@ EXEMPT: dict[str, str] = {
         "supplier_entity.set_registration/learn_registration (tenant-"
         "scoped there via the same ORM guard this "
         "probe would exercise, AND proven on real Postgres RLS via "
-        "tests/test_rls.py's set-equality check). The WO-76 transport routes "
-        "read only claims/lines — no route reads THESE rows. Gains a probe "
-        "when a later M3 route-batch slice exposes them (ARCH_plan.md)."
+        "tests/test_rls.py's set-equality check). No route reads THESE rows "
+        "after WO-77 either — WO-77 routed the CLAIM-side admin surfaces "
+        "(waivers, checklist rules, cadences, note overrides, tie-out "
+        "expectations, lifecycle), not the supplier-entity registry. Gains a "
+        "probe when a supplier-master route slice exposes them (ARCH_plan.md)."
     ),
 }
 
@@ -1615,6 +1544,239 @@ async def _p_transport_claims(ctx: Ctx) -> None:
     _assert_404(
         await ctx.b.get(f"/api/v1/transport/claims/{claim_ids[ctx.a.name]}/lines"),
         "transport claim lines via A's claim",
+    )
+
+
+# --- Transport vertical (WO-77 admin/config surfaces) -------------------------
+
+
+async def _transport_setup(ctx: Ctx) -> dict[str, str]:
+    """Both orgs: transport enabled + one issuer entity each, created over the
+    real HTTP registry route with the IDENTICAL body (the overlap discipline).
+    Returns {org name: entity id}. Module enablement is direct service setup —
+    `transport` is deliberately in no billing plan, so the HTTP toggle would
+    402 (WO-76's recorded rationale); every READ path under proof stays HTTP."""
+    from app.services import modules as modules_svc
+
+    entities: dict[str, str] = {}
+    for org in (ctx.a, ctx.b):
+        await modules_svc.set_enabled(ctx.db, org.org_id, "transport", True)
+        ent = await org.post("/api/v1/issuer/registry", json=ISSUER)
+        assert ent.status_code == 201, ent.text
+        entities[org.name] = ent.json()["id"]
+    await ctx.db.commit()
+    return entities
+
+
+@probe("vat_receipt_waivers")
+async def _p_transport_waivers(ctx: Ctx) -> None:
+    """WO-77 — waivers set and read entirely over HTTP, on each org's own
+    draft claim, with the SAME supplier code on both sides."""
+    entities = await _transport_setup(ctx)
+    ids, claim_ids = {}, {}
+    for org in (ctx.a, ctx.b):
+        claim = await org.post(
+            "/api/v1/transport/claims",
+            json={
+                "entity_id": entities[org.name],
+                "refund_country": "LV",
+                "ref_period": "2026-Q2",
+            },
+        )
+        assert claim.status_code == 200, claim.text
+        claim_ids[org.name] = claim.json()["id"]
+        r = await org.post(
+            f"/api/v1/transport/claims/{claim_ids[org.name]}/waivers", json={"supplier": "Q8"}
+        )
+        assert r.status_code == 200, r.text
+        ids[org.name] = r.json()["id"]
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        listing = await me.get(f"/api/v1/transport/claims/{claim_ids[me.name]}/waivers")
+        assert listing.status_code == 200, listing.text
+        seen = {w["id"] for w in listing.json()}
+        _assert_isolated("vat_receipt_waivers", {ids[me.name]}, {ids[other.name]}, seen)
+    _assert_404(
+        await ctx.b.get(f"/api/v1/transport/claims/{claim_ids[ctx.a.name]}/waivers"),
+        "transport waivers via A's claim",
+    )
+
+
+@probe("vat_checklist_rules")
+async def _p_transport_checklist_rules(ctx: Ctx) -> None:
+    """WO-77 — the rule rows are seeded over HTTP (identical `DEFAULT_RULES`
+    keys in both orgs, so only tenancy discriminates) and read back through
+    the admin route."""
+    await _transport_setup(ctx)
+    ids = {}
+    for org in (ctx.a, ctx.b):
+        seeded = await org.post("/api/v1/transport/checklist-rules/seed")
+        assert seeded.status_code == 200, seeded.text
+        ids[org.name] = {r["id"] for r in seeded.json()}
+        assert ids[org.name], "the probe seeded no rules — the probe is broken"
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        listing = await me.get("/api/v1/transport/checklist-rules")
+        assert listing.status_code == 200, listing.text
+        seen = {r["id"] for r in listing.json()}
+        _assert_isolated("vat_checklist_rules", ids[me.name], ids[other.name], seen)
+
+
+@probe("vat_supplier_cadences")
+async def _p_transport_cadences(ctx: Ctx) -> None:
+    """WO-77 — the SAME supplier code and cadence value in both orgs."""
+    await _transport_setup(ctx)
+    ids = {}
+    for org in (ctx.a, ctx.b):
+        r = await org.put("/api/v1/transport/cadences/Q8", json={"cadence": "monthly"})
+        assert r.status_code == 200, r.text
+        ids[org.name] = r.json()["id"]
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        listing = await me.get("/api/v1/transport/cadences")
+        assert listing.status_code == 200, listing.text
+        seen = {c["id"] for c in listing.json()}
+        _assert_isolated("vat_supplier_cadences", {ids[me.name]}, {ids[other.name]}, seen)
+
+
+@probe("vat_receipt_controls")
+async def _p_transport_receipt_controls(ctx: Ctx) -> None:
+    """WO-77 — the grid rows are seeded DIRECTLY with identical business
+    values (the `reimbursement_batches` precedent: the control RUN is the
+    close's stage, never a route — R60 — so the route under proof is the
+    READ), then read + overridden through the real routes."""
+    await _transport_setup(ctx)
+    from app.models.transport.receipt_control import VatReceiptControl
+
+    ids = {}
+    for org in (ctx.a, ctx.b):
+        row = VatReceiptControl(
+            org_id=org.org_id,
+            entity_id=str(uuid.uuid4()),
+            supplier="Q8",
+            period="2026-05",
+            slot="M",
+            country="",
+            status="missing",
+            txn_count=3,
+            waived=False,
+            note=None,
+        )
+        ctx.db.add(row)
+        await ctx.db.commit()
+        ids[org.name] = row.id
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        grid = await me.get("/api/v1/transport/receipt-controls?period=2026-05")
+        assert grid.status_code == 200, grid.text
+        seen = {r["id"] for r in grid.json()}
+        _assert_isolated("vat_receipt_controls", {ids[me.name]}, {ids[other.name]}, seen)
+    _assert_404(
+        await ctx.b.post(
+            f"/api/v1/transport/receipt-controls/{ids[ctx.a.name]}/override",
+            json={"waived": True},
+        ),
+        "transport receipt-control override on A's row",
+    )
+
+
+@probe("vat_note_invoice_overrides")
+async def _p_transport_note_overrides(ctx: Ctx) -> None:
+    """WO-77 — each org registers an IDENTICALLY-named vendor+invoice and
+    curates the SAME note key onto it; only tenancy discriminates."""
+    entities = await _transport_setup(ctx)
+    ids = {}
+    for org in (ctx.a, ctx.b):
+        inv = await org.post("/api/v1/invoices", json=INVOICE_BODY)
+        assert inv.status_code == 201, inv.text
+        r = await org.put(
+            "/api/v1/transport/note-overrides",
+            json={
+                "entity_id": entities[org.name],
+                "supplier": INVOICE_BODY["vendor_name"],
+                "refund_country": "NL",
+                "invoice_ref": "STMT-OVERLAP-1",
+                "target_invoice_id": inv.json()["id"],
+            },
+        )
+        assert r.status_code == 200, r.text
+        ids[org.name] = r.json()["id"]
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        listing = await me.get("/api/v1/transport/note-overrides")
+        assert listing.status_code == 200, listing.text
+        seen = {o["id"] for o in listing.json()}
+        _assert_isolated("vat_note_invoice_overrides", {ids[me.name]}, {ids[other.name]}, seen)
+
+
+@probe("fuel_tieout_expectations")
+async def _p_transport_tieout_expectations(ctx: Ctx) -> None:
+    """WO-77 — identical typed figures in both orgs, set and read over HTTP."""
+    entities = await _transport_setup(ctx)
+    ids = {}
+    for org in (ctx.a, ctx.b):
+        r = await org.put(
+            "/api/v1/transport/tie-out-expectations",
+            json={
+                "entity_id": entities[org.name],
+                "supplier": "Q8",
+                "period": "2026-05",
+                "currency": "EUR",
+                "expected_lines": 3,
+                "expected_net_eur": "2000.00",
+            },
+        )
+        assert r.status_code == 200, r.text
+        ids[org.name] = r.json()["id"]
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        listing = await me.get("/api/v1/transport/tie-out-expectations?period=2026-05")
+        assert listing.status_code == 200, listing.text
+        seen = {e["id"] for e in listing.json()}
+        _assert_isolated("fuel_tieout_expectations", {ids[me.name]}, {ids[other.name]}, seen)
+    # The by-natural-key delete is opaque across tenants too (§4.4).
+    _assert_404(
+        await ctx.b.delete(
+            "/api/v1/transport/tie-out-expectations"
+            f"?entity_id={entities[ctx.a.name]}&supplier=Q8&period=2026-05&currency=EUR"
+        ),
+        "transport tie-out delete on A's key",
+    )
+
+
+@probe("vat_customer_lifecycles", "vat_country_activations")
+async def _p_transport_customer_lifecycle(ctx: Ctx) -> None:
+    """WO-77 — the lifecycle ladder driven over HTTP in both orgs with the
+    same country; each org's overview shows only its own rows, and A's entity
+    id is an opaque 404 for B."""
+    entities = await _transport_setup(ctx)
+    life_ids, country_ids = {}, {}
+    for org in (ctx.a, ctx.b):
+        base = f"/api/v1/transport/customers/{entities[org.name]}"
+        assert (await org.post(f"{base}/prospect")).status_code == 200
+        requested = await org.post(f"{base}/countries/LV/request")
+        assert requested.status_code == 200, requested.text
+        body = requested.json()
+        life_ids[org.name] = body["id"]
+        country_ids[org.name] = {c["id"] for c in body["countries"]}
+        assert country_ids[org.name], "the probe seeded no country row — the probe is broken"
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        overview = await me.get(f"/api/v1/transport/customers/{entities[me.name]}/lifecycle")
+        assert overview.status_code == 200, overview.text
+        body = overview.json()
+        _assert_isolated(
+            "vat_customer_lifecycles",
+            {life_ids[me.name]},
+            {life_ids[other.name]},
+            {body["id"]},
+        )
+        _assert_isolated(
+            "vat_country_activations",
+            country_ids[me.name],
+            country_ids[other.name],
+            {c["id"] for c in body["countries"]},
+        )
+    _assert_404(
+        await ctx.b.get(f"/api/v1/transport/customers/{entities[ctx.a.name]}/lifecycle"),
+        "transport lifecycle via A's entity",
+    )
+    _assert_404(
+        await ctx.b.post(f"/api/v1/transport/customers/{entities[ctx.a.name]}/promote"),
+        "transport promote via A's entity",
     )
 
 

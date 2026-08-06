@@ -130,6 +130,16 @@ async def _get_claim(db: AsyncSession, org_id: str, claim_id: str) -> VatRefundC
 async def list_rules(
     db: AsyncSession, org_id: str, *, active_only: bool = False
 ) -> list[VatChecklistRule]:
+    """Module-gated since WO-77, when it became ROUTE-FACING; before that
+    its only callers (`seed_default_rules`/`submission_checklist`) gate
+    first, so for them the check is a redundant no-op and the change is
+    behaviour-preserving. The WO-49 convention: no transport service entry
+    point trusts its caller to have checked the entitlement — fails CLOSED
+    (ADR-P3 rule 3)."""
+    if not await modules.is_enabled(db, org_id, "transport"):
+        m = modules.MODULES_BY_KEY["transport"]
+        raise PermissionError(f"The {m.name} module is not activated.", code="module_not_enabled")
+
     stmt = select(VatChecklistRule).where(VatChecklistRule.org_id == org_id)
     if active_only:
         stmt = stmt.where(VatChecklistRule.active.is_(True))

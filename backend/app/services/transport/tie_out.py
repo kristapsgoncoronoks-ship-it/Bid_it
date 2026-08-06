@@ -237,6 +237,33 @@ async def set_expectation(
     return row
 
 
+async def list_expectations(
+    db: AsyncSession, org_id: str, period: str
+) -> list[FuelTieOutExpectation]:
+    """Every expectation typed for (org, period), in the same
+    (supplier, currency) order `check_period` evaluates them (WO-77 — the
+    route-facing read; `check_period` computes VERDICTS, this returns the
+    typed targets themselves). Module-gated + period-validated first, the
+    transport-wide entry-point pattern (fails CLOSED, ADR-P3 rule 3)."""
+    m_enabled = await modules.is_enabled(db, org_id, "transport")
+    _require_module_enabled(m_enabled)
+    _validate_period(period)
+    return list(
+        await db.scalars(
+            select(FuelTieOutExpectation)
+            .where(
+                FuelTieOutExpectation.org_id == org_id,
+                FuelTieOutExpectation.period == period,
+            )
+            .order_by(
+                FuelTieOutExpectation.supplier,
+                FuelTieOutExpectation.currency,
+                FuelTieOutExpectation.entity_id,
+            )
+        )
+    )
+
+
 async def remove_expectation(
     db: AsyncSession,
     org_id: str,

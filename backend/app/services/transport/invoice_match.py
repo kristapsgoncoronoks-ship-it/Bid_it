@@ -210,6 +210,33 @@ async def resolve_invoice_ref(
     return None
 
 
+async def list_note_overrides(db: AsyncSession, org_id: str) -> list[VatNoteInvoiceOverride]:
+    """Every admin-curated note→invoice override in the org, in the
+    deterministic (supplier, refund_country, invoice_ref) order (WO-77 —
+    the route-facing read; `set_note_override` was previously write-only
+    over the wire). Module-gated first, the transport-wide entry-point
+    pattern (fails CLOSED, ADR-P3 rule 3). Read-only, and deliberately NOT
+    re-validated against the live registered set: that read-time re-check
+    belongs to `resolve_invoice_ref` (C4), whereas listing what an admin
+    CURATED must show a row whose target has since been reassigned —
+    that is exactly the state an admin needs to see in order to fix it."""
+    if not await modules.is_enabled(db, org_id, "transport"):
+        m = modules.MODULES_BY_KEY["transport"]
+        raise PermissionError(f"The {m.name} module is not activated.", code="module_not_enabled")
+
+    return list(
+        await db.scalars(
+            select(VatNoteInvoiceOverride)
+            .where(VatNoteInvoiceOverride.org_id == org_id)
+            .order_by(
+                VatNoteInvoiceOverride.supplier,
+                VatNoteInvoiceOverride.refund_country,
+                VatNoteInvoiceOverride.invoice_ref,
+            )
+        )
+    )
+
+
 async def set_note_override(
     db: AsyncSession,
     org_id: str,

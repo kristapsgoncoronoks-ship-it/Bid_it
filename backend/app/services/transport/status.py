@@ -155,6 +155,23 @@ async def derive_stage(
     return "1E"
 
 
+async def list_status_codes(
+    db: AsyncSession, org_id: str
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The status-code VOCABULARY `(AUTO_CODES, MANUAL_CODES)` (WO-77 — the
+    route-facing read). This codebase deliberately has NO label mapping:
+    Fleet Fuel's `STATUS_LABELS` was never harvested as data (master-context
+    §10 — rules survive as specification, bytes are never copied), so the
+    two code tuples ARE the vocabulary a caller can offer. Module-gated even
+    though the tuples are static: an un-entitled org must stay byte-
+    identical to before the vertical existed (ADR-P3 rule 3 — the same
+    reason every transport surface 403s `module_not_enabled`)."""
+    if not await modules.is_enabled(db, org_id, "transport"):
+        m = modules.MODULES_BY_KEY["transport"]
+        raise PermissionError(f"The {m.name} module is not activated.", code="module_not_enabled")
+    return AUTO_CODES, MANUAL_CODES
+
+
 async def set_status_code(
     db: AsyncSession,
     org_id: str,
