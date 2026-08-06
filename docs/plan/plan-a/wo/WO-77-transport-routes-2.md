@@ -232,7 +232,7 @@ the one `app.main` handler as `{"detail","code"}` + `X-Request-ID`
 | File | Change |
 |---|---|
 | `app/api/routes/transport/claims.py` | +6 claim-scoped routes |
-| `app/api/routes/transport/admin.py` | **new** — 12 org-config routes |
+| `app/api/routes/transport/admin.py` | **new** — 14 org-config routes |
 | `app/api/routes/transport/customers.py` | **new** — 7 lifecycle routes |
 | `app/api/routes/transport/__init__.py` | include the two new routers |
 | `app/schemas/transport_admin.py` | **new** — In/Out models |
@@ -274,7 +274,7 @@ the one `app.main` handler as `{"detail","code"}` + `X-Request-ID`
   org-scoped `_get_claim`; entity-scoped routes resolve via
   `issuer.get_by_id`; `control_id` via the service's org-scoped select —
   cross-tenant probes assert 404-never-403 over HTTP.
-- **§4.6/§4.7 (deny-by-default, structural):** all 25 routes declare
+- **§4.6/§4.7 (deny-by-default, structural):** all 27 routes declare
   permissions structurally; granted/denied pairs proven (EMPLOYEE denied
   read; ACCOUNTANT granted config writes, denied `status-code`; OWNER
   full).
@@ -362,7 +362,7 @@ REPLACE exemptions with stronger HTTP probes.)
       .../activation` on a prospect → 409 (promotion is never skippable).
 - [ ] EMPLOYEE 403 on `GET /transport/checklist-rules`; ACCOUNTANT 200 on
       `PUT /transport/cadences/{s}` and 403 on `POST .../status-code`.
-- [ ] Org with the module off → 403 `module_not_enabled` on all 25 routes;
+- [ ] Org with the module off → 403 `module_not_enabled` on all 27 routes;
       org B probing A's claim/entity/control ids → 404, never 403.
 - [ ] The 8 named tables are PROBED, not EXEMPT, in the parity suite.
 - [ ] Full suite green from the 1817-passed baseline; pii-scan clean;

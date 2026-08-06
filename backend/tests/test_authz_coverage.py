@@ -50,14 +50,45 @@ def declared_permissions_of(route: APIRoute) -> list[object]:
     return found
 
 
+def _flatten(router) -> list[APIRoute]:
+    """Every `APIRoute` reachable from `router`, following nested inclusions.
+
+    A route module that is a PACKAGE (`app/api/routes/transport/`) aggregates
+    its slices with `include_router`, and FastAPI >= 0.13x records each of
+    those lazily as a `_IncludedRouter` wrapper rather than copying the child's
+    `APIRoute`s up — so a naive `router.routes` scan sees the package's routes
+    as ZERO and every one of them silently escapes this coverage check. That is
+    exactly the unclassified-route failure mode ADR-0024 exists to prevent, so
+    the walk recurses through `original_router` (the wrapper's own handle on
+    the child) instead of trusting the parent's flat list. Child paths already
+    carry their full prefix (the prefix is applied when a route is added to the
+    child router), so nothing is re-joined here.
+
+    Version-robustness: the recursion keys off the presence of
+    `original_router`/`routes`, never off the private wrapper CLASS, so a
+    future FastAPI that goes back to eager flattening still enumerates
+    correctly (the `isinstance(APIRoute)` branch simply matches first).
+    """
+    found: list[APIRoute] = []
+    for route in getattr(router, "routes", []):
+        if isinstance(route, APIRoute):
+            found.append(route)
+            continue
+        nested = getattr(route, "original_router", None)
+        if nested is not None:
+            found.extend(_flatten(nested))
+    return found
+
+
 def iter_app_routes() -> list[tuple[str, APIRoute]]:
     """Every (full mounted path, APIRoute) the application serves.
 
-    Enumerated from the route MODULES (each module's `router.routes` holds plain
-    `APIRoute`s with the router prefix already applied) plus the app-level meta
-    routes — deliberately NOT from FastAPI's lazily-flattened `app.routes`
-    internals, which changed shape across versions. `api_router` mounts every
-    module router under `settings.api_v1_prefix`."""
+    Enumerated from the route MODULES (each module's router holds `APIRoute`s
+    with the prefix already applied, plus — for a package — nested included
+    routers, see `_flatten`) plus the app-level meta routes; deliberately NOT
+    from FastAPI's lazily-flattened `app.routes` internals, which changed shape
+    across versions. `api_router` mounts every module router under
+    `settings.api_v1_prefix`."""
     entries: list[tuple[str, APIRoute]] = []
     for route in real_app.routes:
         if isinstance(route, APIRoute):
@@ -67,9 +98,8 @@ def iter_app_routes() -> list[tuple[str, APIRoute]]:
         router = getattr(module, "router", None)
         if router is None:
             continue
-        for route in router.routes:
-            if isinstance(route, APIRoute):
-                entries.append((settings.api_v1_prefix + route.path, route))
+        for route in _flatten(router):
+            entries.append((settings.api_v1_prefix + route.path, route))
     return entries
 
 
@@ -136,6 +166,45 @@ def test_coverage_checker_detects_an_unclassified_route():
     entries = [(r.path, r) for r in scratch_router.routes if isinstance(r, APIRoute)]
     assert scratch_app.routes is not real_app.routes  # paranoia: not the real app
     assert unclassified_routes(entries) == ["GET /scratch/open"]
+
+
+def test_enumeration_sees_through_a_nested_included_router():
+    """Regression (WO-77): a route module that is a PACKAGE aggregates its
+    slices with `include_router`, which current FastAPI records LAZILY — the
+    parent's `.routes` holds wrapper objects, not the child's `APIRoute`s. A
+    naive scan therefore saw a package's whole route surface as ZERO and every
+    route in it escaped this coverage check unnoticed (`MIN_EXPECTED_ROUTES`
+    cannot catch it — the total stays comfortably large).
+
+    Proven on a scratch parent/child pair, never the real app."""
+    child = APIRouter(prefix="/child")
+
+    @child.get("/leaf", dependencies=[Depends(require_perm(Permission.INVOICE_READ))])
+    async def leaf():  # pragma: no cover - never called
+        return {}
+
+    parent = APIRouter()
+    parent.include_router(child)
+
+    assert [r for r in parent.routes if isinstance(r, APIRoute)] == [], (
+        "this test is vacuous unless inclusion is lazy in this FastAPI version"
+    )
+    flat = _flatten(parent)
+    assert [r.path for r in flat] == ["/child/leaf"]
+    assert declared_permissions_of(flat[0]) == [Permission.INVOICE_READ]
+
+
+def test_transport_package_routes_are_inside_the_coverage_net():
+    """The concrete consequence of the fix above: every `api/routes/transport/*`
+    route (the WO-76 claim lifecycle + the WO-77 admin/config and filing-artifact
+    surfaces) is enumerated AND declares a permission. Asserted by count as well
+    as by classification, so silently dropping the package again fails here."""
+    transport = [(p, r) for p, r in iter_app_routes() if "/transport/" in p]
+    assert len(transport) >= 30, f"transport routes vanished from enumeration: {len(transport)}"
+    undeclared = sorted(
+        f"{sorted(r.methods)[0]} {p}" for p, r in transport if not declared_permissions_of(r)
+    )
+    assert undeclared == [], f"transport routes with no declared permission: {undeclared}"
 
 
 def test_declared_permissions_are_introspectable_without_execution():

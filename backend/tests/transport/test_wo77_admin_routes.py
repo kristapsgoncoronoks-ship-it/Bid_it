@@ -1,7 +1,7 @@
 """WO-77 — transport routes slice 2: the admin/config surfaces + the filing
 artifacts over HTTP.
 
-Proves the 25 new endpoints end to end: receipt-control waivers (R15), the
+Proves the 27 new endpoints end to end: receipt-control waivers (R15), the
 checklist-rule admin (R45 — deactivating a rule removes it from the gate),
 the manual status codes (R17/R12), the engine tie-out expectations (R25
 regime 2), the receipt-control cadences + persisted grid (G3.5, advisory),
