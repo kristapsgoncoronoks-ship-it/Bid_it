@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.core.tenant import reset_current_org, set_current_org
 from app.models.issuer import IssuerProfile
 from app.models.organization import Organization
+from app.models.transport.customer_lifecycle import VatCountryActivation, VatCustomerLifecycle
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.models.transport.lock import VatClaimedInvoice
 from app.models.transport.vat_claim import VatRefundClaim
@@ -99,6 +100,16 @@ async def _seed(sm, org_name: str) -> dict[str, str]:
                 invoice_ref=_INVOICE_REF,
             )
             s.add(txn)
+            await s.flush()
+
+            # WO-73 (R44): raised past the activation gate — the WO-60
+            # fixture precedent (an active lifecycle + LV activation).
+            s.add(VatCustomerLifecycle(org_id=org_id, entity_id=entity.id, status="active"))
+            s.add(
+                VatCountryActivation(
+                    org_id=org_id, entity_id=entity.id, country="LV", status="active"
+                )
+            )
             await s.flush()
 
             claim_a = VatRefundClaim(

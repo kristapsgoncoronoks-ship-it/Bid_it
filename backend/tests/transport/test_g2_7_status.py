@@ -20,7 +20,7 @@ from app.services import extraction
 from app.services.transport import checklist, claim_lines, fuel_ingest, lock, status, waiver
 from app.services.transport import claim as claim_svc
 from tests.factories.transport import synthetic_vehicle_ref
-from tests.transport.conftest import enable_transport, make_entity, make_org
+from tests.transport.conftest import activate_entity, enable_transport, make_entity, make_org
 
 PERIOD_ENDED = date(2026, 7, 1)  # the day after 2026-Q2 ends
 PERIOD_NOT_ENDED = date(2026, 6, 15)  # mid-2026-Q2
@@ -289,6 +289,8 @@ async def test_g2_7_set_status_code_2b_with_a_deadline_changes_nothing_else_and_
     org = await make_org(db_session)
     await enable_transport(db_session, org.id)
     entity = await make_entity(db_session, org.id)
+    # WO-73 (R44): raised past the activation gate — the WO-60 fixture precedent.
+    await activate_entity(db_session, org.id, entity.id, "LV")
     claim, _inv, txn = await _clean_claim(db_session, org, entity)
     result = await lock.submit_claim(
         db_session,
@@ -318,6 +320,8 @@ async def test_g2_7_submit_claim_stamps_status_code_2(db_session):
     org = await make_org(db_session)
     await enable_transport(db_session, org.id)
     entity = await make_entity(db_session, org.id)
+    # WO-73 (R44): raised past the activation gate — the WO-60 fixture precedent.
+    await activate_entity(db_session, org.id, entity.id, "LV")
     claim, _inv, txn = await _clean_claim(db_session, org, entity)
 
     result = await lock.submit_claim(

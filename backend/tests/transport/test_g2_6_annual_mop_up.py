@@ -22,7 +22,7 @@ from app.models.transport.vat_claim import VatRefundClaim
 from app.services.transport import claim as claim_svc
 from app.services.transport import claim_lines, fuel_ingest, lock
 from tests.factories.transport import synthetic_vehicle_ref
-from tests.transport.conftest import enable_transport, make_entity, make_org
+from tests.transport.conftest import activate_entity, enable_transport, make_entity, make_org
 
 
 async def _make_claim(db_session, org, entity, ref_period: str) -> VatRefundClaim:
@@ -70,6 +70,8 @@ async def test_g2_6_annual_claim_excludes_a_quarter_locked_invoice_not_a_conflic
     org = await make_org(db_session)
     await enable_transport(db_session, org.id)
     entity = await make_entity(db_session, org.id)
+    # WO-73 (R44): raised past the activation gate — the WO-60 fixture precedent.
+    await activate_entity(db_session, org.id, entity.id, "LV")
 
     q1 = await _make_claim(db_session, org, entity, "2026-Q1")
     txn_q1 = await _make_txn(db_session, org, entity, invoice_ref="INV-Q1", period="2026-01")
@@ -107,6 +109,8 @@ async def test_g2_6_annual_claim_with_nothing_left_after_exclusion_is_refused(db
     org = await make_org(db_session)
     await enable_transport(db_session, org.id)
     entity = await make_entity(db_session, org.id)
+    # WO-73 (R44): raised past the activation gate — the WO-60 fixture precedent.
+    await activate_entity(db_session, org.id, entity.id, "LV")
 
     q1 = await _make_claim(db_session, org, entity, "2026-Q1")
     txn = await _make_txn(db_session, org, entity, invoice_ref="INV-Q1", period="2026-01")
@@ -138,6 +142,8 @@ async def test_g2_6_quarterly_claim_blocks_the_whole_submission_on_any_overlap(d
     org = await make_org(db_session)
     await enable_transport(db_session, org.id)
     entity = await make_entity(db_session, org.id)
+    # WO-73 (R44): raised past the activation gate — the WO-60 fixture precedent.
+    await activate_entity(db_session, org.id, entity.id, "LV")
 
     q1 = await _make_claim(db_session, org, entity, "2026-Q1")
     txn_shared = await _make_txn(
@@ -188,6 +194,8 @@ async def test_g2_6_two_annual_claims_overlapping_the_same_invoice_is_a_blocking
     org = await make_org(db_session)
     await enable_transport(db_session, org.id)
     entity = await make_entity(db_session, org.id)
+    # WO-73 (R44): raised past the activation gate — the WO-60 fixture precedent.
+    await activate_entity(db_session, org.id, entity.id, "LV")
 
     year_a = await _make_claim(db_session, org, entity, "2025-YEAR")
     txn = await _make_txn(db_session, org, entity, invoice_ref="INV-A", period="2025-06")
@@ -224,6 +232,9 @@ async def test_g2_6_annual_mop_up_never_touches_a_different_entitys_locks(db_ses
     await enable_transport(db_session, org.id)
     entity_a = await make_entity(db_session, org.id, seed=1)
     entity_b = await make_entity(db_session, org.id, seed=2)
+    # WO-73 (R44): raised past the activation gate — the WO-60 fixture precedent.
+    await activate_entity(db_session, org.id, entity_a.id, "LV")
+    await activate_entity(db_session, org.id, entity_b.id, "LV")
 
     claim_a = await claim_svc.get_or_create_claim(
         db_session, org.id, entity_id=entity_a.id, refund_country="LV", ref_period="2026-Q1"

@@ -365,6 +365,33 @@ EXEMPT: dict[str, str] = {
         "exists yet to drive an HTTP-level probe through. Gains a probe "
         "with the first transport route (ARCH_plan.md G2.x)."
     ),
+    "vat_customer_lifecycles": (
+        "G2.11 (WO-73): the customer lifecycle row (R44 — prospect/pending/"
+        "active/inactive), written only through services/transport/"
+        "customer_lifecycle.add_prospect/promote_prospect/set_activation/"
+        "set_inactive (tenant-scoped there via the same ORM guard this "
+        "probe would exercise, cross-tenant-opaque by test — tests/"
+        "transport/test_g2_11_customer_lifecycle.py — AND proven on real "
+        "Postgres RLS via tests/test_rls.py's set-equality check). Read "
+        "only by get_lifecycle/enforce_activation (org-scoped, consumed by "
+        "lock.submit_claim's R44 gate) — no api/routes/transport/* route "
+        "exists yet to drive an HTTP-level probe through. Gains a probe "
+        "with the first transport route (ARCH_plan.md G2.x)."
+    ),
+    "vat_country_activations": (
+        "G2.11 (WO-73): the per-(customer × refund country) activation "
+        "ladder (R44/F3 — requested/active), written only through "
+        "services/transport/customer_lifecycle.request_country/"
+        "set_country_activation (tenant-scoped there via the same ORM "
+        "guard this probe would exercise, cross-tenant-opaque by test — "
+        "tests/transport/test_g2_11_customer_lifecycle.py — AND proven on "
+        "real Postgres RLS via tests/test_rls.py's set-equality check). "
+        "Read only by get_country_activation/enforce_activation "
+        "(org-scoped, consumed by lock.submit_claim's R44 gate) — no "
+        "api/routes/transport/* route exists yet to drive an HTTP-level "
+        "probe through. Gains a probe with the first transport route "
+        "(ARCH_plan.md G2.x)."
+    ),
     "vat_receipt_waivers": (
         "G2.6 slice 3 (WO-58): receipt-control waivers (R15), written only "
         "through services/transport/waiver.set_waiver/remove_waiver "

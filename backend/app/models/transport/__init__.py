@@ -11,6 +11,7 @@ or `vendors` (ADR-P3 rule 1). See `docs/transport/rules.md` for the R-number
 from __future__ import annotations
 
 from app.models.transport.checklist_rule import VatChecklistRule
+from app.models.transport.customer_lifecycle import VatCountryActivation, VatCustomerLifecycle
 from app.models.transport.extraction_baseline import FuelExtractionBaseline
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.models.transport.lock import VatClaimedInvoice
@@ -28,6 +29,8 @@ __all__ = [
     "SupplierVatRegistration",
     "VatChecklistRule",
     "VatClaimedInvoice",
+    "VatCountryActivation",
+    "VatCustomerLifecycle",
     "VatNoteInvoiceOverride",
     "VatReceiptControl",
     "VatReceiptWaiver",

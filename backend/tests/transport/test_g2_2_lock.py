@@ -26,7 +26,7 @@ from app.models.transport.vat_claim import VatRefundClaim
 from app.services.transport import claim as claim_svc
 from app.services.transport import fuel_ingest, lock
 from tests.factories.transport import synthetic_vehicle_ref
-from tests.transport.conftest import enable_transport, make_entity, make_org
+from tests.transport.conftest import activate_entity, enable_transport, make_entity, make_org
 
 _LOCK_PATH = "app/services/transport/lock.py"
 
@@ -75,6 +75,8 @@ async def test_g2_2_submit_claim_acquires_one_lock_row_per_invoice_and_flips_sta
     org = await make_org(db_session)
     await enable_transport(db_session, org.id)
     entity = await make_entity(db_session, org.id)
+    # WO-73 (R44): raised past the activation gate — the WO-60 fixture precedent.
+    await activate_entity(db_session, org.id, entity.id, "LV")
     claim = await _make_claim(db_session, org, entity)
     txn1 = await _make_txn(db_session, org, entity, invoice_ref="INV-0001", line_seq=1)
     txn2 = await _make_txn(db_session, org, entity, invoice_ref="INV-0002", line_seq=2)
@@ -203,6 +205,8 @@ async def test_g2_2_submit_claim_on_an_already_locked_invoice_is_refused_and_lea
     org = await make_org(db_session)
     await enable_transport(db_session, org.id)
     entity = await make_entity(db_session, org.id)
+    # WO-73 (R44): raised past the activation gate — the WO-60 fixture precedent.
+    await activate_entity(db_session, org.id, entity.id, "LV")
     other_claim = await _make_claim(db_session, org, entity, ref_period="2026-Q1")
     my_claim = await _make_claim(db_session, org, entity, ref_period="2026-Q2")
     txn = await _make_txn(db_session, org, entity, invoice_ref="INV-0001")
@@ -287,6 +291,8 @@ async def test_g2_2_withdraw_claim_deletes_every_lock_row_for_that_claim_and_set
     org = await make_org(db_session)
     await enable_transport(db_session, org.id)
     entity = await make_entity(db_session, org.id)
+    # WO-73 (R44): raised past the activation gate — the WO-60 fixture precedent.
+    await activate_entity(db_session, org.id, entity.id, "LV")
     claim = await _make_claim(db_session, org, entity, ref_period="2026-Q1")
     txn = await _make_txn(db_session, org, entity, invoice_ref="INV-0001")
     await db_session.commit()
@@ -393,6 +399,8 @@ async def test_g2_2_directly_flipping_claim_status_never_cascades_a_lock_release
     org = await make_org(db_session)
     await enable_transport(db_session, org.id)
     entity = await make_entity(db_session, org.id)
+    # WO-73 (R44): raised past the activation gate — the WO-60 fixture precedent.
+    await activate_entity(db_session, org.id, entity.id, "LV")
     claim = await _make_claim(db_session, org, entity)
     txn = await _make_txn(db_session, org, entity, invoice_ref="INV-0001")
     await db_session.commit()

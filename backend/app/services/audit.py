@@ -208,6 +208,16 @@ class A:
     TRANSPORT_SUPPLIER_CADENCE_REMOVE = "transport.supplier_cadence_remove"
     TRANSPORT_RECEIPT_CONTROL_RUN = "transport.receipt_control_run"
     TRANSPORT_RECEIPT_CONTROL_OVERRIDE = "transport.receipt_control_override"
+    # G2.11 (WO-73, R44): customer lifecycle + per-country activation.
+    # LIFECYCLE_SET fires on every REAL customer-state transition
+    # (add_prospect's create, promote/activate/deactivate/set_inactive),
+    # old->new in meta; the idempotent add_prospect repeat audits nothing.
+    # COUNTRY_ACTIVATION_SET is the same contract for the per-country rows.
+    # enforce_activation (the R44 gate) is a read and audits nothing —
+    # the refusal/success is already visible on the claim's own
+    # TRANSPORT_CLAIM_SUBMIT trail.
+    TRANSPORT_CUSTOMER_LIFECYCLE_SET = "transport.customer_lifecycle_set"
+    TRANSPORT_COUNTRY_ACTIVATION_SET = "transport.country_activation_set"
 
 
 def _hash(

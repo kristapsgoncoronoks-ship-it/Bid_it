@@ -63,6 +63,7 @@ from app.core.errors import ConflictError, NotFoundError, PermissionError, Valid
 from app.models.transport.lock import VatClaimedInvoice
 from app.models.transport.vat_claim import VatRefundClaim
 from app.services import audit, modules
+from app.services.transport.customer_lifecycle import enforce_activation
 from app.services.transport.deadline import period_ended
 from app.services.transport.document_gate import enforce_document_presence
 from app.services.transport.freeze import freeze_claim_lines, preview_vat_base
@@ -171,7 +172,8 @@ async def submit_claim(
     override_minimum: bool = False,
     today: date | None = None,
 ) -> VatRefundClaim:
-    """Gate (period-end, R7; minimum-amount, R8; annual mop-up / quarterly
+    """Gate (period-end, R7; minimum-amount, R8; customer-lifecycle +
+    per-country activation, R44; annual mop-up / quarterly
     duplicate-block, R6; document-presence, R10), stamp any active waiver's
     use into `status_note` (R15), freeze the claim's lines (G2.5), acquire
     one lock per invoice, and flip the claim `draft` -> `submitted`, ALL in
@@ -181,7 +183,11 @@ async def submit_claim(
     own word for G2.5).
 
     Gate order (D5, verbatim): draft-status -> non-empty invoice set ->
-    period-end (R7) -> Art. 17 minimum (R8) -> annual mop-up / quarterly
+    period-end (R7) -> Art. 17 minimum (R8) -> customer-lifecycle +
+    per-country activation (R44, WO-73 — §3.E places the activation gates
+    "layered on top" of `set_status`, i.e. at the ENTRY of D5's engine-gate
+    group "...then `set_status(engine)`", so it sits after the minimum and
+    before the R6 duplicate machinery) -> annual mop-up / quarterly
     duplicate-block (R6) -> waiver status_note stamp (R15) -> document-
     presence (R10) -> freeze -> lock -> status flip. A claim that fails ANY
     gate never freezes or locks at all — nothing is mutated before the LAST
@@ -258,6 +264,17 @@ async def submit_claim(
             f"{threshold} {currency} (basis={basis})"
         )
         claim.status_note = f"{claim.status_note}\n{note}" if claim.status_note else note
+
+    # R44 (G2.11, WO-73) — the customer must be a live, contracted client
+    # (`lifecycle status == 'active'`, F1: "every legal/claim gate keys off
+    # 'active' — a prospect is ignored exactly like a pending customer")
+    # AND the refund country separately activated (PoA received, §3.E's
+    # second bullet). Fails CLOSED: an absent lifecycle/activation row
+    # refuses. Positioned per §3.E "layered on top (set_status...)" — the
+    # head of D5's engine-gate group, after the minimum, before R6.
+    await enforce_activation(
+        db, org_id, entity_id=claim.entity_id, refund_country=claim.refund_country
+    )
 
     # R6 — annual mop-up / quarterly-overlap-blocks (C6). Narrows `invoices`
     # for an annual claim (excluding what a quarter already locked) or

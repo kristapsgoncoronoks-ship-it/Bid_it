@@ -27,7 +27,7 @@ from app.models.transport.vat_claim import VatRefundClaimLine
 from app.services.transport import claim as claim_svc
 from app.services.transport import close, fuel_ingest, lock
 from tests.factories.transport import synthetic_vehicle_ref
-from tests.transport.conftest import enable_transport, make_entity, make_org
+from tests.transport.conftest import activate_entity, enable_transport, make_entity, make_org
 
 
 async def _make_claim(db_session, org, entity, **overrides):
@@ -65,6 +65,8 @@ async def test_g1_4_run_close_never_touches_a_submitted_claims_lines(db_session)
     org = await make_org(db_session)
     await enable_transport(db_session, org.id)
     entity = await make_entity(db_session, org.id)
+    # WO-73 (R44): raised past the activation gate — the WO-60 fixture precedent.
+    await activate_entity(db_session, org.id, entity.id, "LV")
     claim = await _make_claim(db_session, org, entity)
     await db_session.commit()
     txn = await _make_txn(db_session, org, entity)
@@ -124,6 +126,8 @@ async def test_g1_4_a_locked_transaction_cannot_be_deleted_the_database_refuses_
     org = await make_org(db_session)
     await enable_transport(db_session, org.id)
     entity = await make_entity(db_session, org.id)
+    # WO-73 (R44): raised past the activation gate — the WO-60 fixture precedent.
+    await activate_entity(db_session, org.id, entity.id, "LV")
     claim = await _make_claim(db_session, org, entity)
     await db_session.commit()
     txn = await _make_txn(db_session, org, entity)

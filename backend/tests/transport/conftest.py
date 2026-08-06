@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from app.models.issuer import IssuerProfile
 from app.models.organization import Organization
+from app.models.transport.customer_lifecycle import VatCountryActivation, VatCustomerLifecycle
 from app.services import modules
 from tests.factories.transport import synthetic_company_name, synthetic_iban, synthetic_vat_id
 
@@ -44,3 +45,20 @@ async def make_entity(
 
 async def enable_transport(db_session, org_id: str) -> None:
     await modules.set_enabled(db_session, org_id, "transport", True)
+
+
+async def activate_entity(db_session, org_id: str, entity_id: str, *countries: str) -> None:
+    """Raise the entity past WO-73's R44 activation gate: an `active`
+    lifecycle row + an `active` country-activation row per named refund
+    country (the WO-60 `make_entity` precedent — fixtures raised to satisfy
+    a new gate, assertions never weakened). Inserts the rows directly (the
+    `make_entity` convention); the legal transition chain itself is proven
+    by tests/transport/test_g2_11_customer_lifecycle.py."""
+    db_session.add(VatCustomerLifecycle(org_id=org_id, entity_id=entity_id, status="active"))
+    for country in countries:
+        db_session.add(
+            VatCountryActivation(
+                org_id=org_id, entity_id=entity_id, country=country.upper(), status="active"
+            )
+        )
+    await db_session.flush()

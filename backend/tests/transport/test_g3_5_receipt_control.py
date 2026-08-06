@@ -20,7 +20,7 @@ from app.services import extraction
 from app.services.transport import claim as claim_svc
 from app.services.transport import claim_lines, fuel_ingest, lock, receipt_control
 from tests.factories.transport import synthetic_vehicle_ref
-from tests.transport.conftest import enable_transport, make_entity, make_org
+from tests.transport.conftest import activate_entity, enable_transport, make_entity, make_org
 
 PERIOD = "2026-05"
 
@@ -466,6 +466,8 @@ async def test_g3_5_missing_and_waived_slots_never_change_a_claim_submission(db_
     org = await make_org(db_session)
     await enable_transport(db_session, org.id)
     entity = await make_entity(db_session, org.id)
+    # WO-73 (R44): raised past the activation gate — the WO-60 fixture precedent.
+    await activate_entity(db_session, org.id, entity.id, "LV")
     vendor = await _make_vendor(db_session, org, name="Q8", country="LV")
     inv = await _make_invoice(db_session, org, vendor, number="INV-0001")
     claim = await claim_svc.get_or_create_claim(
