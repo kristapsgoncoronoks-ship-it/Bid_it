@@ -154,6 +154,75 @@ const BIG_MONEY_LINE = {
   vat_eur: "99999999999999.99",
 };
 
+// WO-79 — the fuel transactions the submit pick-list is built from. Field-for-
+// field from `backend/app/schemas/transport_fuel.py`. Synthetic throughout.
+const FUEL_TXNS = [
+  {
+    id: "txn-1",
+    entity_id: "ent-1",
+    supplier: "Q8",
+    period: "2026-05",
+    line_seq: 1,
+    country: "LV",
+    vehicle_ref: "CARD-0001",
+    txn_date: "2026-05-15",
+    txn_time: "07:42",
+    station: "Riga Ring Station",
+    product: "DIESEL",
+    product_group: "Diesel",
+    qty: "100.125",
+    currency: "EUR",
+    net_local: "2000.00",
+    vat_local: "420.00",
+    gross_local: "2420.00",
+    net_eur: "2000.00",
+    vat_eur: "420.00",
+    net_eur_eff: "2000.00",
+    invoice_ref: "INV-4001",
+    provenance_note: null,
+    invoice_id: null,
+    fx_rate: null,
+    fx_ecb_rate: null,
+    fx_ecb_date: null,
+    fx_source: "eur",
+    created_at: "2026-06-01T09:00:00Z",
+  },
+  {
+    // No invoice reference on the statement line (the nullable column's real
+    // case) AND a value no IEEE-754 double can hold — one row proving both.
+    id: "txn-2",
+    entity_id: "ent-1",
+    supplier: "BP",
+    period: "2026-06",
+    line_seq: 7,
+    country: "LV",
+    vehicle_ref: "CARD-0002",
+    txn_date: "2026-06-02",
+    txn_time: "",
+    station: "Daugavpils Depot",
+    product: "TOLL",
+    product_group: "Toll/Fees",
+    qty: "1.000",
+    currency: "EUR",
+    net_local: "99999999999999.99",
+    vat_local: "99999999999999.99",
+    gross_local: "99999999999999.99",
+    net_eur: "99999999999999.99",
+    vat_eur: "99999999999999.99",
+    net_eur_eff: "99999999999999.99",
+    invoice_ref: null,
+    provenance_note: null,
+    invoice_id: null,
+    fx_rate: null,
+    fx_ecb_rate: null,
+    fx_ecb_date: null,
+    fx_source: "eur",
+    created_at: "2026-07-01T09:00:00Z",
+  },
+];
+
+const FUEL_LIST = { items: FUEL_TXNS, total: 2, page: 1, page_size: 500 };
+
 const CHECKLIST = [
   { key: "period_ended", label: "Reference period has ended", scope: "claim", ok: true, reason: null },
   {
@@ -181,6 +250,11 @@ interface MockOpts {
   stage?: unknown;
   /** Refusals keyed by path suffix, e.g. "submit" | "workbook" | "evidence". */
   refuse?: Record<string, { status: number; code: string; detail: string }>;
+  /** WO-79 — the `GET /transport/fuel-transactions` body the pick-list reads. */
+  fuel?: unknown;
+  fuelStatus?: number;
+  /** Delay (ms) applied to the fuel read, to observe the pick-list loading state. */
+  fuelDelayMs?: number;
   /** Delay (ms) applied to GET /transport/claims, to observe the loading state. */
   listDelayMs?: number;
   /** Collects every POST body the page sends, keyed by path suffix. */
@@ -198,6 +272,9 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
     checklist = CHECKLIST,
     stage = { stage: "1A" },
     refuse = {},
+    fuel = FUEL_LIST,
+    fuelStatus,
+    fuelDelayMs = 0,
     listDelayMs = 0,
     captured,
   } = opts;
@@ -235,6 +312,12 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
       }
     }
 
+    if (path === "/transport/fuel-transactions") {
+      if (fuelDelayMs) await new Promise((res) => setTimeout(res, fuelDelayMs));
+      if (fuelStatus && fuelStatus >= 400)
+        return route.fulfill(json({ detail: "boom", code: "mocked_failure" }, fuelStatus));
+      return route.fulfill(json(fuel));
+    }
     if (path === "/transport/claims" && method === "GET") {
       if (listDelayMs) await new Promise((res) => setTimeout(res, listDelayMs));
       if (claimsStatus && claimsStatus >= 400)
@@ -607,4 +690,176 @@ test("artifacts: the evidence pack downloads on a filed claim", async ({ page })
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Evidence pack" }).click();
   expect((await download).suggestedFilename()).toBe("claim-claim-2-evidence.zip");
+});
+
+// ---------------------------------------------------------------------------
+// The submit PICK-LIST (WO-79) — the fuel-transaction read surface in the UI.
+//
+// What replaced what: WO-78's dialog asked an operator to TYPE a supplier and a
+// fuel-transaction UUID, because no route enumerated transactions. WO-79 routed
+// them, so the tuple `lock.submit_claim` keys its locks on now comes off the
+// selected row. These specs prove the payload is the transaction's own data,
+// that the typed path survives, and that money still never round-trips a float.
+// ---------------------------------------------------------------------------
+
+async function openPickList(page: Page, opts: MockOpts = {}) {
+  await mockApi(page, opts);
+  await page.goto("/vat-claims/claim-1");
+  await page.getByRole("button", { name: "Submit claim" }).click();
+}
+
+test("pick-list: renders the period's fuel transactions with their own values", async ({
+  page,
+}) => {
+  await openPickList(page);
+
+  await expect(page.getByRole("cell", { name: "Q8", exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "BP", exact: true })).toBeVisible();
+  await expect(page.getByText("Riga Ring Station")).toBeVisible();
+  await expect(page.getByText("Daugavpils Depot")).toBeVisible();
+  // Litres come off the wire as an exact string — no rounding, no arithmetic.
+  await expect(page.getByRole("cell", { name: "100.125" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "€2,000.00" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "€420.00" })).toBeVisible();
+});
+
+test("pick-list: money renders exactly from the wire string, with no float round-trip", async ({
+  page,
+}) => {
+  await openPickList(page);
+  // Number("99999999999999.99") is 100000000000000 — the exact digits below can
+  // only appear if the formatter never touched a double.
+  await expect(
+    page.getByRole("cell", { name: "€99,999,999,999,999.99" }).first(),
+  ).toBeVisible();
+  await expect(page.getByText("€100,000,000,000,000.00")).toHaveCount(0);
+});
+
+test("pick-list: ticking a transaction posts its supplier, reference and id verbatim", async ({
+  page,
+}) => {
+  const captured: Record<string, unknown[]> = {};
+  await openPickList(page, { captured });
+
+  await page.getByRole("checkbox", { name: /Include Q8/ }).check();
+  await page.getByRole("button", { name: "File claim" }).click();
+
+  await expect.poll(() => (captured.submit ?? []).length).toBe(1);
+  const body = captured.submit[0] as { invoices: unknown[]; override_minimum: boolean };
+  expect(body.invoices).toEqual([
+    { supplier: "Q8", invoice_ref: "INV-4001", fuel_transaction_id: "txn-1" },
+  ]);
+  expect(body.override_minimum).toBe(false);
+});
+
+test("pick-list: a transaction with no invoice reference takes the one typed on its row", async ({
+  page,
+}) => {
+  const captured: Record<string, unknown[]> = {};
+  await openPickList(page, { captured });
+
+  // `invoice_ref` is nullable by design on a fuel transaction, while the submit
+  // schema requires a non-empty one — so the field stays editable.
+  await page.getByRole("checkbox", { name: /Include BP/ }).check();
+  await page.getByRole("textbox", { name: /Invoice reference for BP/ }).fill("INV-7777");
+  await page.getByRole("button", { name: "File claim" }).click();
+
+  await expect.poll(() => (captured.submit ?? []).length).toBe(1);
+  const body = captured.submit[0] as { invoices: unknown[] };
+  expect(body.invoices).toEqual([
+    { supplier: "BP", invoice_ref: "INV-7777", fuel_transaction_id: "txn-2" },
+  ]);
+});
+
+test("pick-list: unticking a transaction takes it back out of the payload", async ({ page }) => {
+  const captured: Record<string, unknown[]> = {};
+  await openPickList(page, { captured });
+
+  const q8 = page.getByRole("checkbox", { name: /Include Q8/ });
+  const bp = page.getByRole("checkbox", { name: /Include BP/ });
+  await q8.check();
+  await bp.check();
+  await bp.uncheck();
+  await page.getByRole("button", { name: "File claim" }).click();
+
+  await expect.poll(() => (captured.submit ?? []).length).toBe(1);
+  const body = captured.submit[0] as { invoices: { fuel_transaction_id: string }[] };
+  expect(body.invoices.map((i) => i.fuel_transaction_id)).toEqual(["txn-1"]);
+});
+
+test("pick-list: a loading state renders before the fuel read resolves", async ({ page }) => {
+  await openPickList(page, { fuelDelayMs: 1500 });
+
+  await expect(page.getByText("No fuel transactions for this period")).toHaveCount(0);
+  await expect(page.getByRole("cell", { name: "Q8", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("cell", { name: "Q8", exact: true })).toBeVisible({
+    timeout: 10_000,
+  });
+});
+
+test("pick-list: an empty period shows the empty copy and falls back to the typed rows", async ({
+  page,
+}) => {
+  await openPickList(page, { fuel: { items: [], total: 0, page: 1, page_size: 500 } });
+
+  await expect(page.getByText("No fuel transactions for this period")).toBeVisible();
+  // WO-78's behaviour preserved: the manual section is pre-seeded with the
+  // non-synthetic references on the claim's materialized lines (INV-4001), and
+  // never with the synthetic "UNMATCHED" one.
+  await expect(page.getByRole("textbox", { name: "Invoice reference" })).toHaveValue("INV-4001");
+  await expect(page.getByRole("button", { name: "Add a row manually" })).toBeVisible();
+});
+
+test("pick-list: a fuel read failure shows the error state and the typed path still files", async ({
+  page,
+}) => {
+  const captured: Record<string, unknown[]> = {};
+  await openPickList(page, { captured, fuelStatus: 500 });
+
+  await expect(
+    page
+      .getByRole("alert")
+      .filter({ hasText: "Couldn’t load this period’s fuel transactions" }),
+  ).toBeVisible();
+
+  // The dialog is still usable: the pre-seeded typed row files as before.
+  await page.getByRole("textbox", { name: "Supplier" }).fill("Q8");
+  await page.getByRole("textbox", { name: "Fuel transaction id" }).fill("txn-manual");
+  await page.getByRole("button", { name: "File claim" }).click();
+
+  await expect.poll(() => (captured.submit ?? []).length).toBe(1);
+  const body = captured.submit[0] as { invoices: unknown[] };
+  expect(body.invoices).toEqual([
+    { supplier: "Q8", invoice_ref: "INV-4001", fuel_transaction_id: "txn-manual" },
+  ]);
+});
+
+test("pick-list: a manual row and a picked transaction can be filed together", async ({ page }) => {
+  const captured: Record<string, unknown[]> = {};
+  await openPickList(page, { captured });
+
+  await page.getByRole("checkbox", { name: /Include Q8/ }).check();
+  await page.getByRole("button", { name: "Add a row manually" }).click();
+  await page.getByRole("textbox", { name: "Supplier" }).fill("DKV");
+  await page.getByRole("textbox", { name: "Invoice reference", exact: true }).fill("INV-5555");
+  await page.getByRole("textbox", { name: "Fuel transaction id" }).fill("txn-manual");
+  await page.getByRole("button", { name: "File claim" }).click();
+
+  await expect.poll(() => (captured.submit ?? []).length).toBe(1);
+  const body = captured.submit[0] as { invoices: unknown[] };
+  expect(body.invoices).toEqual([
+    { supplier: "Q8", invoice_ref: "INV-4001", fuel_transaction_id: "txn-1" },
+    { supplier: "DKV", invoice_ref: "INV-5555", fuel_transaction_id: "txn-manual" },
+  ]);
+});
+
+test("pick-list: an advisory checklist failure never disables the file action", async ({
+  page,
+}) => {
+  // §4.19 re-proven at the dialog level: the checklist fixture fails
+  // `customer_data`, and the pick-list adds no gate of its own either.
+  await openPickList(page);
+  await expect(page.getByRole("button", { name: "File claim" })).toBeEnabled();
+  await page.getByRole("checkbox", { name: /Include Q8/ }).check();
+  await expect(page.getByRole("button", { name: "File claim" })).toBeEnabled();
 });

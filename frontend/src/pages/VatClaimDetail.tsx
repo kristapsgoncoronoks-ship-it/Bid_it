@@ -23,6 +23,7 @@ import { hasVatPerm } from "../lib/roles";
 import { claimableRefs, isSyntheticRef, stageLadder } from "../lib/transportClaims";
 import { useModules } from "../lib/useModules";
 import type {
+  FuelTransactionList,
   VatChecklistItem,
   VatClaim,
   VatClaimLine,
@@ -56,16 +57,38 @@ import type {
  * - It invents no status LABEL vocabulary. This codebase deliberately carries
  *   none (WO-77 decision 5), so the ladder renders the service's own codes.
  *
- * THE INVOICE SET IS OPERATOR-SUPPLIED, and that is a recorded limitation of the
- * current wire, not a design choice: `submit_claim` keys its locks on
- * `(supplier, invoice_ref, fuel_transaction_id)` tuples the caller passes, and no
- * route enumerates fuel transactions yet (`api/routes/transport/fuel.py` does not
- * exist — out of scope in both WO-76 and WO-77). The dialog pre-seeds a row per
- * non-synthetic materialized line so the invoice reference is at least filled in.
+ * THE INVOICE SET IS STILL OPERATOR-SUPPLIED — `submit_claim` keys its locks on
+ * `(supplier, invoice_ref, fuel_transaction_id)` tuples the caller passes, and
+ * deriving that list server-side from the frozen lines is explicitly "a future
+ * slice of G2.6" in `lock.py`'s own docstring. What WO-79 changed is HOW the
+ * operator supplies it: `GET /transport/fuel-transactions` now enumerates the
+ * claim's own (entity × period × refund country) transactions, so the dialog is a
+ * PICK-LIST — supplier and fuel-transaction id come straight off the selected
+ * row and are never typed. The invoice reference stays editable because that
+ * column is nullable by design ("often unresolved AT INGESTION time", the model's
+ * docstring) while the submit schema requires a non-empty one.
+ *
+ * The typed path survives verbatim ("Add a row manually"), and it is what the
+ * dialog falls back to when the period has no transactions or the fuel read
+ * fails — pre-seeded, exactly as WO-78 did, from the non-synthetic references on
+ * the materialized lines.
+ *
+ * WHAT IS STILL NOT SHOWN, AND WHY (WO-78 deviation 1, deliberately left open):
+ * the claim-line table carries NO supplier column. `VatClaimLine.invoice_ref` is
+ * the RESOLVED AP invoice number (or "UNMATCHED"), while a fuel transaction's is
+ * the RAW statement note — `invoice_match` exists precisely because those two
+ * strings differ. `FuelTransaction.invoice_id` (the one column that would tie
+ * them together) is never populated by any service today, and an "UNMATCHED" line
+ * aggregates every unresolved supplier into one row. There is therefore no
+ * unambiguous link on the wire, and a guessed supplier on a filing surface is
+ * worse than an absent one. The honest fix is a backend one (see
+ * `docs/plan/plan-a/wo/WO-79-fuel-read-surface.md`, Deviations).
  */
 
 const SYNTHETIC_HINT =
   "This reference is a placeholder, not a real invoice — resolve it before filing.";
+
+const BLANK_ROW: VatSubmitInvoice = { supplier: "", invoice_ref: "", fuel_transaction_id: "" };
 
 export default function VatClaimDetailPage() {
   const { id = "" } = useParams();
@@ -79,7 +102,15 @@ export default function VatClaimDetailPage() {
 
   const [refusal, setRefusal] = useState<{ code: string | null; detail: string } | null>(null);
   const [submitOpen, setSubmitOpen] = useState(false);
-  const [rows, setRows] = useState<VatSubmitInvoice[]>([]);
+  // The pick-list selection: fuel-transaction ids, plus the (editable) invoice
+  // reference for each. `refs` starts from the transaction's own raw
+  // `invoice_ref`, which is nullable by design — hence editable, not read-only.
+  const [picked, setPicked] = useState<string[]>([]);
+  const [refs, setRefs] = useState<Record<string, string>>({});
+  // The typed path (WO-78), kept. `null` = "not decided yet": the fallback seed
+  // is DERIVED at render from the fuel query's outcome rather than pushed in by
+  // an effect, so the dialog has no async state race.
+  const [rows, setRows] = useState<VatSubmitInvoice[] | null>(null);
   const [codeOpen, setCodeOpen] = useState(false);
   const [codeForm, setCodeForm] = useState({ code: "", action_deadline: "" });
 
@@ -110,6 +141,34 @@ export default function VatClaimDetailPage() {
     enabled: enabled && !!id && isDraft,
     retry: false,
   });
+  // The period's fuel transactions — WO-79's read surface, and the source of
+  // every value in the pick-list. Scoped to the CLAIM'S OWN grain (entity ×
+  // reference period × refund country), which is exactly the scope
+  // `claim_lines.build_claim_lines` materializes the lines from, so the dialog
+  // cannot offer a transaction the claim provably excludes. Fetched only while
+  // the dialog is open: a read-only viewer never triggers it.
+  const fuel = useQuery<FuelTransactionList>({
+    queryKey: [
+      "transport",
+      "fuel-transactions",
+      claim.data?.entity_id,
+      claim.data?.ref_period,
+      claim.data?.refund_country,
+    ],
+    queryFn: async () =>
+      (
+        await api.get("/transport/fuel-transactions", {
+          params: {
+            entity_id: claim.data?.entity_id,
+            period: claim.data?.ref_period,
+            country: claim.data?.refund_country,
+            page_size: 500,
+          },
+        })
+      ).data,
+    enabled: enabled && submitOpen && !!claim.data,
+    retry: false,
+  });
   const statusCodes = useQuery<VatStatusCodes>({
     queryKey: ["transport", "status-codes"],
     queryFn: async () => (await api.get("/transport/status-codes")).data,
@@ -128,15 +187,54 @@ export default function VatClaimDetailPage() {
     onSuccess: refresh,
     onError: onRefusal,
   });
+  // The typed rows actually in play. `rows === null` means the operator has not
+  // touched the manual section yet, so it falls back to WO-78's pre-seed — but
+  // only when the pick-list has nothing to offer (no transactions, or the fuel
+  // read failed); with a working pick-list the manual section starts empty.
+  const fuelItems = fuel.data?.items ?? [];
+  const pickListUnavailable = fuel.isError || (!fuel.isLoading && fuelItems.length === 0);
+  const seededRows = useMemo<VatSubmitInvoice[]>(() => {
+    const refsOnLines = claimableRefs(lines.data ?? []);
+    return refsOnLines.map((ref) => ({
+      supplier: "",
+      invoice_ref: ref,
+      fuel_transaction_id: "",
+    }));
+  }, [lines.data]);
+  const manualRows: VatSubmitInvoice[] =
+    rows ?? (pickListUnavailable ? (seededRows.length > 0 ? seededRows : [BLANK_ROW]) : []);
+
+  /** The exact `invoices` array posted to `POST .../submit`.
+   *
+   * Picked transactions contribute their OWN supplier and id — never retyped —
+   * with the (editable) invoice reference. Manual rows contribute what was
+   * typed. A row left entirely blank is dropped: it is a row the operator never
+   * filled in, not a gate being pre-empted. Nothing else is filtered — an
+   * invalid set still goes to the server, which is the control (§6/§4.19).
+   */
+  const submitInvoices = (): VatSubmitInvoice[] => {
+    const fromPicks = fuelItems
+      .filter((t) => picked.includes(t.id))
+      .map((t) => ({
+        supplier: t.supplier,
+        invoice_ref: (refs[t.id] ?? t.invoice_ref ?? "").trim(),
+        fuel_transaction_id: t.id,
+      }));
+    const fromTyped = manualRows
+      .map((r) => ({
+        supplier: r.supplier.trim(),
+        invoice_ref: r.invoice_ref.trim(),
+        fuel_transaction_id: r.fuel_transaction_id.trim(),
+      }))
+      .filter((r) => r.supplier || r.invoice_ref || r.fuel_transaction_id);
+    return [...fromPicks, ...fromTyped];
+  };
+
   const submit = useMutation({
     mutationFn: async (override: boolean) =>
       (
         await api.post(`/transport/claims/${id}/submit`, {
-          invoices: rows.map((r) => ({
-            supplier: r.supplier.trim(),
-            invoice_ref: r.invoice_ref.trim(),
-            fuel_transaction_id: r.fuel_transaction_id.trim(),
-          })),
+          invoices: submitInvoices(),
           override_minimum: override,
         })
       ).data,
@@ -191,16 +289,20 @@ export default function VatClaimDetailPage() {
   );
 
   const openSubmit = () => {
-    // Pre-seed one row per non-synthetic invoice reference on the materialized
-    // lines. Supplier and fuel-transaction id stay empty: no route serves them.
-    const refs = claimableRefs(lines.data ?? []);
-    setRows(
-      refs.length > 0
-        ? refs.map((ref) => ({ supplier: "", invoice_ref: ref, fuel_transaction_id: "" }))
-        : [{ supplier: "", invoice_ref: "", fuel_transaction_id: "" }],
-    );
+    // Reset to "nothing chosen, nothing typed" — the pick-list (WO-79) is the
+    // primary path and the manual section derives its fallback seed at render.
+    setPicked([]);
+    setRefs({});
+    setRows(null);
     setRefusal(null);
     setSubmitOpen(true);
+  };
+
+  const togglePick = (txnId: string, fallbackRef: string | null) => {
+    setPicked((prev) =>
+      prev.includes(txnId) ? prev.filter((x) => x !== txnId) : [...prev, txnId],
+    );
+    setRefs((prev) => (txnId in prev ? prev : { ...prev, [txnId]: fallbackRef ?? "" }));
   };
 
   if (modules.isLoading) return <Skeleton className="h-24 w-full" />;
@@ -504,52 +606,166 @@ export default function VatClaimDetailPage() {
           </>
         }
       >
-        <div className="space-y-3">
-          {rows.map((row, i) => (
-            <div key={i} className="grid gap-3 sm:grid-cols-3">
-              <TextInput
-                label={i === 0 ? "Supplier" : ""}
-                value={row.supplier}
-                onChange={(e) =>
-                  setRows(rows.map((r, j) => (j === i ? { ...r, supplier: e.target.value } : r)))
-                }
-                placeholder="Supplier"
-              />
-              <TextInput
-                label={i === 0 ? "Invoice reference" : ""}
-                value={row.invoice_ref}
-                onChange={(e) =>
-                  setRows(rows.map((r, j) => (j === i ? { ...r, invoice_ref: e.target.value } : r)))
-                }
-                placeholder="INV-…"
-              />
-              <TextInput
-                label={i === 0 ? "Fuel transaction id" : ""}
-                value={row.fuel_transaction_id}
-                onChange={(e) =>
-                  setRows(
-                    rows.map((r, j) =>
-                      j === i ? { ...r, fuel_transaction_id: e.target.value } : r,
-                    ),
-                  )
-                }
-                placeholder="Transaction id"
-              />
+        <div className="space-y-5">
+          <section>
+            <h3 className="text-sm font-semibold text-slate-700">
+              This period’s fuel transactions
+            </h3>
+            <p className="mt-1 text-xs text-slate-400">
+              Tick the transactions this claim covers. The supplier and the transaction id are
+              taken from the row itself — the invoice reference stays editable because a statement
+              line does not always carry one.
+            </p>
+            <QueryState
+              query={fuel}
+              loading={<Skeleton className="mt-3 h-24 w-full" />}
+              isEmpty={(list) => list.items.length === 0}
+              empty={
+                <EmptyState
+                  title="No fuel transactions for this period"
+                  description="Nothing has been captured for this entity, period and refund country yet. Add the invoices by hand below."
+                />
+              }
+              errorTitle="Couldn’t load this period’s fuel transactions"
+            >
+              {(list) => (
+                <>
+                  <div className="mt-3 max-h-72 overflow-auto rounded border border-slate-100">
+                    <table className="w-full text-sm">
+                      <caption className="sr-only">
+                        Fuel transactions available for this claim
+                      </caption>
+                      <thead className="sticky top-0 bg-white">
+                        <tr className="text-left text-xs text-slate-400">
+                          <th className="px-3 py-2">Use</th>
+                          <th className="px-3 py-2">Supplier</th>
+                          <th className="px-3 py-2">Date</th>
+                          <th className="px-3 py-2">Station / product</th>
+                          <th className="px-3 py-2 text-right">Qty</th>
+                          <th className="px-3 py-2 text-right">Net</th>
+                          <th className="px-3 py-2 text-right">VAT</th>
+                          <th className="px-3 py-2">Invoice reference</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {list.items.map((txn) => {
+                          const on = picked.includes(txn.id);
+                          return (
+                            <tr key={txn.id} className="border-t border-slate-100">
+                              <td className="px-3 py-2">
+                                <input
+                                  type="checkbox"
+                                  checked={on}
+                                  aria-label={`Include ${txn.supplier} ${txn.station} ${txn.txn_date}`}
+                                  onChange={() => togglePick(txn.id, txn.invoice_ref)}
+                                />
+                              </td>
+                              <td className="px-3 py-2 font-medium text-slate-700">
+                                {txn.supplier}
+                              </td>
+                              <td className="px-3 py-2 text-xs text-slate-500">
+                                {shortDate(txn.txn_date)}
+                              </td>
+                              <td className="px-3 py-2 text-xs text-slate-500">
+                                {txn.station}
+                                <span className="block text-slate-400">{txn.product_group}</span>
+                              </td>
+                              {/* Litres/units — an exact wire string, not money and never
+                                  arithmetic'd. */}
+                              <td className="px-3 py-2 text-right tabular-nums text-xs text-slate-500">
+                                {txn.qty}
+                              </td>
+                              <td className="px-3 py-2 text-right tabular-nums">
+                                {decimalMoney(txn.net_eur)}
+                              </td>
+                              <td className="px-3 py-2 text-right tabular-nums">
+                                {decimalMoney(txn.vat_eur)}
+                              </td>
+                              <td className="px-3 py-2">
+                                <TextInput
+                                  label=""
+                                  value={refs[txn.id] ?? txn.invoice_ref ?? ""}
+                                  disabled={!on}
+                                  aria-label={`Invoice reference for ${txn.supplier} ${txn.txn_date}`}
+                                  placeholder="INV-…"
+                                  onChange={(e) =>
+                                    setRefs({ ...refs, [txn.id]: e.target.value })
+                                  }
+                                />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {list.total > list.items.length && (
+                    <p className="mt-2 text-xs text-slate-400">
+                      Showing {list.items.length} of {list.total} transactions. Narrow the period
+                      or add the remaining invoices by hand.
+                    </p>
+                  )}
+                </>
+              )}
+            </QueryState>
+          </section>
+
+          <section>
+            <h3 className="text-sm font-semibold text-slate-700">Add an invoice by hand</h3>
+            <p className="mt-1 text-xs text-slate-400">
+              For anything the list above can’t cover. The supplier and the fuel transaction each
+              invoice settles identify the lock the service takes.
+            </p>
+            <div className="mt-3 space-y-3">
+              {manualRows.map((row, i) => (
+                <div key={i} className="grid gap-3 sm:grid-cols-3">
+                  <TextInput
+                    label={i === 0 ? "Supplier" : ""}
+                    value={row.supplier}
+                    onChange={(e) =>
+                      setRows(
+                        manualRows.map((r, j) =>
+                          j === i ? { ...r, supplier: e.target.value } : r,
+                        ),
+                      )
+                    }
+                    placeholder="Supplier"
+                  />
+                  <TextInput
+                    label={i === 0 ? "Invoice reference" : ""}
+                    value={row.invoice_ref}
+                    onChange={(e) =>
+                      setRows(
+                        manualRows.map((r, j) =>
+                          j === i ? { ...r, invoice_ref: e.target.value } : r,
+                        ),
+                      )
+                    }
+                    placeholder="INV-…"
+                  />
+                  <TextInput
+                    label={i === 0 ? "Fuel transaction id" : ""}
+                    value={row.fuel_transaction_id}
+                    onChange={(e) =>
+                      setRows(
+                        manualRows.map((r, j) =>
+                          j === i ? { ...r, fuel_transaction_id: e.target.value } : r,
+                        ),
+                      )
+                    }
+                    placeholder="Transaction id"
+                  />
+                </div>
+              ))}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setRows([...manualRows, BLANK_ROW])}
+              >
+                Add a row manually
+              </Button>
             </div>
-          ))}
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() =>
-              setRows([...rows, { supplier: "", invoice_ref: "", fuel_transaction_id: "" }])
-            }
-          >
-            Add another invoice
-          </Button>
-          <p className="text-xs text-slate-400">
-            Invoice references are pre-filled from the claim’s materialized lines. The supplier and
-            the fuel transaction each invoice settles identify the lock the service takes.
-          </p>
+          </section>
         </div>
       </Modal>
 

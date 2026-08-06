@@ -1624,3 +1624,64 @@ export interface VatSubmitInvoice {
   invoice_ref: string;
   fuel_transaction_id: string;
 }
+
+// ---------------------------------------------------------------------------
+// Transport vertical — fuel transactions (WO-79's `GET
+// /transport/fuel-transactions`). Field-for-field from
+// `backend/app/schemas/transport_fuel.py`, which is itself field-for-field from
+// `app/models/transport/fuel_transaction.py`.
+//
+// Every amount is `string` for the same reason the claim types are: the backend
+// types those columns `Decimal` and pydantic v2 serializes them as JSON strings
+// (master-context §4.9). `qty` is a string too — it is litres, not money, but it
+// crosses the wire as an exact decimal and three decimal places survive only if
+// nothing turns it into a double. Render with `decimalMoney`; never `Number()`.
+// ---------------------------------------------------------------------------
+
+export interface FuelTransaction {
+  id: string;
+  entity_id: string;
+  /** Fuel-card issuer / toll-network code — free text, admin-curated. */
+  supplier: string;
+  /** "YYYY-MM" — the accounting month. */
+  period: string;
+  line_seq: number;
+  /** ISO 3166-1 alpha-2 of the country of SUPPLY = the VAT jurisdiction. */
+  country: string;
+  vehicle_ref: string;
+  txn_date: string;
+  txn_time: string;
+  station: string;
+  product: string;
+  product_group: string;
+  /** Litres / units — NOT money, and deliberately not quantized. */
+  qty: string;
+  currency: string;
+  net_local: string;
+  vat_local: string;
+  gross_local: string;
+  net_eur: string;
+  vat_eur: string;
+  net_eur_eff: string;
+  /**
+   * The RAW matching reference off the source document — nullable by design
+   * (often unresolved at ingestion). NOT an AP invoice number: the resolved
+   * number lives on `VatClaimLine.invoice_ref`.
+   */
+  invoice_ref: string | null;
+  provenance_note: string | null;
+  /** The RESOLVED AP invoice — always null today; no service populates it. */
+  invoice_id: string | null;
+  fx_rate: string | null;
+  fx_ecb_rate: string | null;
+  fx_ecb_date: string | null;
+  fx_source: string | null;
+  created_at: string;
+}
+
+export interface FuelTransactionList {
+  items: FuelTransaction[];
+  total: number;
+  page: number;
+  page_size: number;
+}
