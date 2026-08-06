@@ -636,6 +636,11 @@ test("tieout: an upsert posts the typed decimal strings verbatim", async ({ page
   // The one integer field: a line COUNT, not money.
   expect(body.expected_lines).toBe(42);
   expect(body.supplier).toBe("Q8");
+  // The period the panel is showing is the period the expectation is typed for —
+  // the natural key must be complete or the upsert would land on the wrong row.
+  expect(body.period).toMatch(/^\d{4}-\d{2}$/);
+  expect(body.entity_id).toBe("ent-1");
+  expect(body.currency).toBe("EUR");
 });
 
 test("tieout: invalid_gross_tolerance renders the band, not the slug", async ({ page }) => {
