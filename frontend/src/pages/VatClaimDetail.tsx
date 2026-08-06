@@ -30,6 +30,7 @@ import type {
   VatStage,
   VatStatusCodes,
   VatSubmitInvoice,
+  VatWaiver,
 } from "../lib/types";
 
 /**
@@ -111,6 +112,7 @@ export default function VatClaimDetailPage() {
   // is DERIVED at render from the fuel query's outcome rather than pushed in by
   // an effect, so the dialog has no async state race.
   const [rows, setRows] = useState<VatSubmitInvoice[] | null>(null);
+  const [waiverSupplier, setWaiverSupplier] = useState("");
   const [codeOpen, setCodeOpen] = useState(false);
   const [codeForm, setCodeForm] = useState({ code: "", action_deadline: "" });
 
@@ -168,6 +170,15 @@ export default function VatClaimDetailPage() {
       ).data,
     enabled: enabled && submitOpen && !!claim.data,
     retry: false,
+  });
+  // WO-80 — the claim-scoped receipt waivers (R15). The one WO-77 surface that
+  // is claim-scoped rather than org-level, so it belongs here rather than on
+  // the configuration workspace: waiving a supplier changes what THIS claim's
+  // lines are built from.
+  const waivers = useQuery<VatWaiver[]>({
+    queryKey: ["transport", "claim", id, "waivers"],
+    queryFn: async () => (await api.get(`/transport/claims/${id}/waivers`)).data,
+    enabled: enabled && !!id,
   });
   const statusCodes = useQuery<VatStatusCodes>({
     queryKey: ["transport", "status-codes"],
@@ -252,6 +263,21 @@ export default function VatClaimDetailPage() {
   });
   const withdraw = useMutation({
     mutationFn: async () => (await api.post(`/transport/claims/${id}/withdraw`)).data,
+    onSuccess: refresh,
+    onError: onRefusal,
+  });
+  const addWaiver = useMutation({
+    mutationFn: async () =>
+      (await api.post(`/transport/claims/${id}/waivers`, { supplier: waiverSupplier.trim() })).data,
+    onSuccess: () => {
+      setWaiverSupplier("");
+      refresh();
+    },
+    onError: onRefusal,
+  });
+  const removeWaiver = useMutation({
+    mutationFn: async (supplier: string) =>
+      (await api.delete(`/transport/claims/${id}/waivers/${encodeURIComponent(supplier)}`)).data,
     onSuccess: refresh,
     onError: onRefusal,
   });
@@ -584,6 +610,68 @@ export default function VatClaimDetailPage() {
                   </div>
                 )}
               </QueryState>
+            </Card>
+
+            {/* R15 — the claim-scoped receipt waivers (WO-80). A waiver says a
+                supplier genuinely never invoiced for this claim's country, so
+                the service leaves its transactions out when the lines are
+                built. It is NOT the receipt-control grid's mute (that one is a
+                worklist row on the configuration page and changes nothing);
+                this one changes what the claim contains, which is why it is
+                only offered while the claim is still a draft. */}
+            <Card title="Suppliers waived on this claim" className="lg:col-span-3">
+              <p className="mb-3 text-xs text-slate-400">
+                Waive a supplier only when it genuinely issued no invoice for this country and
+                period — its transactions are then left out when the lines are built. If a
+                transaction has simply not been tied to its invoice yet, map its statement
+                reference to the right invoice instead; waiving would drop VAT you can reclaim.
+              </p>
+              <QueryState
+                query={waivers}
+                loading={<Skeleton className="h-16 w-full" />}
+                isEmpty={(rowsIn) => rowsIn.length === 0}
+                empty={<EmptyState title="No supplier is waived on this claim" />}
+                errorTitle="Couldn’t load the waivers"
+              >
+                {(rowsIn) => (
+                  <ul className="space-y-2 text-sm">
+                    {rowsIn.map((w) => (
+                      <li key={w.id} className="flex items-center justify-between gap-3">
+                        <span className="font-medium text-slate-700">{w.supplier}</span>
+                        {canWrite && isDraft && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            loading={removeWaiver.isPending && removeWaiver.variables === w.supplier}
+                            onClick={() => removeWaiver.mutate(w.supplier)}
+                          >
+                            Un-waive
+                          </Button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </QueryState>
+              {canWrite && isDraft && (
+                <div className="mt-4 flex flex-wrap items-end gap-3">
+                  <TextInput
+                    label="Waive a supplier"
+                    hint="The supplier code exactly as it appears on the transactions."
+                    value={waiverSupplier}
+                    onChange={(e) => setWaiverSupplier(e.target.value)}
+                    placeholder="Supplier code"
+                  />
+                  <Button
+                    variant="secondary"
+                    loading={addWaiver.isPending}
+                    disabled={waiverSupplier.trim() === ""}
+                    onClick={() => addWaiver.mutate()}
+                  >
+                    Waive
+                  </Button>
+                </div>
+              )}
             </Card>
           </div>
         )}

@@ -239,6 +239,9 @@ const STATUS_CODES = {
   manual: ["2A", "2B", "3", "3A", "3B", "3C", "3D", "4", "4A", "5"],
 };
 
+// WO-80 — the claim-scoped receipt waivers (R15). Synthetic supplier code.
+const WAIVERS = [{ id: "wv-1", claim_id: "claim-1", supplier: "TOLLCO" }];
+
 interface MockOpts {
   role?: Role;
   moduleEnabled?: boolean;
@@ -250,6 +253,8 @@ interface MockOpts {
   stage?: unknown;
   /** Refusals keyed by path suffix, e.g. "submit" | "workbook" | "evidence". */
   refuse?: Record<string, { status: number; code: string; detail: string }>;
+  /** WO-80 — the claim-scoped receipt waivers (R15). */
+  waivers?: unknown;
   /** WO-79 — the `GET /transport/fuel-transactions` body the pick-list reads. */
   fuel?: unknown;
   fuelStatus?: number;
@@ -271,6 +276,7 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
     lines = LINES,
     checklist = CHECKLIST,
     stage = { stage: "1A" },
+    waivers = WAIVERS,
     refuse = {},
     fuel = FUEL_LIST,
     fuelStatus,
@@ -329,6 +335,13 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
     if (/\/transport\/claims\/[^/]+$/.test(path)) return route.fulfill(json(claim));
     if (path.endsWith("/lines")) return route.fulfill(json(lines));
     if (path.endsWith("/checklist")) return route.fulfill(json(checklist));
+    // WO-80 — the waivers panel: the list read, plus the set/remove verbs whose
+    // bodies the `captured` collector already records.
+    if (path.endsWith("/waivers"))
+      return route.fulfill(
+        method === "GET" ? json(waivers) : json({ id: "wv-2", claim_id: "claim-1", supplier: "NEWCO" }),
+      );
+    if (/\/waivers\/[^/]+$/.test(path)) return route.fulfill(json({ removed: true }));
     if (path.endsWith("/stage")) return route.fulfill(json(stage));
     if (path.endsWith("/submit") || path.endsWith("/withdraw") || path.endsWith("/status-code"))
       return route.fulfill(json(FILED_CLAIM));
@@ -823,7 +836,9 @@ test("pick-list: a fuel read failure shows the error state and the typed path st
   ).toBeVisible();
 
   // The dialog is still usable: the pre-seeded typed row files as before.
-  await page.getByRole("textbox", { name: "Supplier" }).fill("Q8");
+  // Scoped to the submit dialog: WO-80 added a "Waive a supplier" field to the
+  // page behind it, and an unscoped accessible-name match would find both.
+  await page.getByRole("dialog").getByRole("textbox", { name: "Supplier" }).fill("Q8");
   await page.getByRole("textbox", { name: "Fuel transaction id" }).fill("txn-manual");
   await page.getByRole("button", { name: "File claim" }).click();
 
@@ -840,7 +855,9 @@ test("pick-list: a manual row and a picked transaction can be filed together", a
 
   await page.getByRole("checkbox", { name: /Include Q8/ }).check();
   await page.getByRole("button", { name: "Add a row manually" }).click();
-  await page.getByRole("textbox", { name: "Supplier" }).fill("DKV");
+  // Scoped to the submit dialog: WO-80 added a "Waive a supplier" field to the
+  // page behind it, and an unscoped accessible-name match would find both.
+  await page.getByRole("dialog").getByRole("textbox", { name: "Supplier" }).fill("DKV");
   await page.getByRole("textbox", { name: "Invoice reference", exact: true }).fill("INV-5555");
   await page.getByRole("textbox", { name: "Fuel transaction id" }).fill("txn-manual");
   await page.getByRole("button", { name: "File claim" }).click();
@@ -862,4 +879,75 @@ test("pick-list: an advisory checklist failure never disables the file action", 
   await expect(page.getByRole("button", { name: "File claim" })).toBeEnabled();
   await page.getByRole("checkbox", { name: /Include Q8/ }).check();
   await expect(page.getByRole("button", { name: "File claim" })).toBeEnabled();
+});
+
+// ---------------------------------------------------------------------------
+// Receipt waivers (R15) — WO-80's claim-scoped addition to this page
+// ---------------------------------------------------------------------------
+
+test("waivers: the claim lists the suppliers waived on it", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/vat-claims/claim-1");
+
+  await expect(page.getByRole("heading", { name: "Suppliers waived on this claim" })).toBeVisible();
+  await expect(page.getByText("TOLLCO")).toBeVisible();
+  // The copy must steer an operator away from waiving a merely-unresolved
+  // supplier — waiving one drops reclaimable VAT.
+  await expect(page.getByText("waiving would drop VAT you can reclaim")).toBeVisible();
+});
+
+test("waivers: an empty list shows the empty copy, never an alert", async ({ page }) => {
+  await mockApi(page, { waivers: [] });
+  await page.goto("/vat-claims/claim-1");
+
+  await expect(page.getByText("No supplier is waived on this claim")).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "Couldn’t load the waivers" })).toHaveCount(
+    0,
+  );
+});
+
+test("waivers: waiving a supplier posts its code", async ({ page }) => {
+  const captured: Record<string, unknown[]> = {};
+  await mockApi(page, { captured });
+  await page.goto("/vat-claims/claim-1");
+
+  await page.getByRole("textbox", { name: "Waive a supplier" }).fill("NEWCO");
+  await page.getByRole("button", { name: "Waive", exact: true }).click();
+
+  await expect.poll(() => (captured.waivers ?? []).length).toBe(1);
+  expect(captured.waivers[0]).toEqual({ supplier: "NEWCO" });
+});
+
+test("waivers: waiver_supplier_has_invoices renders its sentence, not the slug", async ({
+  page,
+}) => {
+  await mockApi(page, {
+    refuse: {
+      waivers: {
+        status: 422,
+        code: "waiver_supplier_has_invoices",
+        detail: "Supplier TOLLCO has 2 registered invoices for LV",
+      },
+    },
+  });
+  await page.goto("/vat-claims/claim-1");
+
+  await page.getByRole("textbox", { name: "Waive a supplier" }).fill("TOLLCO");
+  await page.getByRole("button", { name: "Waive", exact: true }).click();
+
+  await expect(
+    page.getByText("That supplier does have a registered invoice for this country"),
+  ).toBeVisible();
+  // The server's own specifics ride underneath; the raw slug never appears.
+  await expect(page.getByText("Supplier TOLLCO has 2 registered invoices for LV")).toBeVisible();
+  await expect(page.getByText("waiver_supplier_has_invoices")).toHaveCount(0);
+});
+
+test("waivers: a read-only role sees the list and no waive control", async ({ page }) => {
+  await mockApi(page, { role: "auditor" });
+  await page.goto("/vat-claims/claim-1");
+
+  await expect(page.getByText("TOLLCO")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Waive a supplier" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Un-waive" })).toHaveCount(0);
 });
