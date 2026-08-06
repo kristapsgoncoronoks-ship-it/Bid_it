@@ -274,157 +274,121 @@ EXEMPT: dict[str, str] = {
         "the GET /access/usage response model (UsageOut) exposes only "
         "Invoice-derived counts, so no route returns these rows' content."
     ),
-    "vat_refund_claims": (
-        "M3 opener (WO-49): the transport vertical's foundational schema, "
-        "written only through services/transport/claim.get_or_create_claim "
-        "(tenant-scoped there via the same ORM guard this probe would exercise, "
-        "AND proven on real Postgres RLS in tests/transport/) — no "
-        "api/routes/transport/* route exists yet to drive an HTTP-level probe "
-        "through. Gains a probe with the first transport route (ARCH_plan.md "
-        "G2.x)."
-    ),
-    "vat_claim_lines": (
-        "Same as vat_refund_claims — no route-reachable read path yet; nothing "
-        "in this order even writes a row (claim-line materialization is future "
-        "work, ADR-P3's G2.4/G2.5)."
-    ),
     "fuel_transactions": (
         "G1.2 (WO-50): the typed fuel-transaction line, written only through "
-        "services/transport/fuel_ingest.ingest_transaction (tenant-scoped there "
-        "via the same ORM guard this probe would exercise, AND proven on real "
-        "Postgres RLS — see docs/plan/plan-a/wo/WO-50-G1.2.md's RLS proof) — no "
-        "api/routes/transport/* route exists yet to drive an HTTP-level probe "
-        "through. Gains a probe with the first transport route (ARCH_plan.md "
-        "G2.x)."
+        "services/transport/fuel_ingest.ingest_transaction (tenant-scoped "
+        "there via the same ORM guard this probe would exercise, AND proven "
+        "on real Postgres RLS — see docs/plan/plan-a/wo/WO-50-G1.2.md's RLS "
+        "proof). The WO-76 transport routes read only claims/lines — no "
+        "route reads THESE rows. Gains a probe when a later M3 route-batch "
+        "slice exposes them (ARCH_plan.md)."
     ),
     "vat_claimed_invoices": (
         "G2.2 (WO-51): the one-invoice-one-submission lock, written only "
         "through services/transport/lock.submit_claim/withdraw_claim "
         "(tenant-scoped there via the same ORM guard this probe would "
         "exercise, AND proven on real Postgres with a genuine concurrent-"
-        "writer race — tests/test_transport_lock_concurrency.py) — no "
-        "api/routes/transport/* route exists yet to drive an HTTP-level probe "
-        "through. Gains a probe with the first transport route (ARCH_plan.md "
-        "G2.x)."
+        "writer race — tests/test_transport_lock_concurrency.py). The WO-76 "
+        "submit/withdraw routes CREATE and DELETE lock rows but no route "
+        "returns their content (the claim-lifecycle route suite asserts "
+        "their lifecycle directly). Gains a probe when a route lists them."
     ),
     "fuel_tieout_expectations": (
         "G3.3 (WO-66): the engine tie-out targets a human types from the "
         "invoice PDF, written only through services/transport/tie_out."
-        "set_expectation/remove_expectation (tenant-scoped there via the "
-        "same ORM guard this probe would exercise, cross-tenant-opaque by "
-        "test — tests/transport/test_g3_3_tie_out.py — AND proven on real "
-        "Postgres RLS via tests/test_rls.py's set-equality check). Read only "
-        "by tie_out.check_period (org-scoped, called from close.run_close on "
-        "the worker) — no api/routes/transport/* route exists yet to drive "
-        "an HTTP-level probe through. Gains a probe with the first transport "
-        "route (ARCH_plan.md G2.x)."
+        "set_expectation/remove_expectation (tenant-scoped there via the same "
+        "probe would exercise, AND proven on real Postgres RLS via "
+        "tests/test_rls.py's set-equality check). The WO-76 transport routes "
+        "read only claims/lines — no route reads THESE rows. Gains a probe "
+        "when a later M3 route-batch slice exposes them (ARCH_plan.md)."
     ),
     "vat_note_invoice_overrides": (
         "G2.4 (WO-52): the admin-curated note->invoice override, written only "
         "through services/transport/invoice_match.set_note_override "
-        "(tenant-scoped there via the same ORM guard this probe would "
-        "exercise, AND proven on real Postgres RLS — tests/test_rls.py's "
-        "set-equality check). Also read by resolve_invoice_ref/"
-        "build_claim_lines, both org-scoped the same way — no "
-        "api/routes/transport/* route exists yet to drive an HTTP-level probe "
-        "through. Gains a probe with the first transport route (ARCH_plan.md "
-        "G2.x)."
+        "(tenant-scoped there via the same ORM guard this "
+        "probe would exercise, AND proven on real Postgres RLS via "
+        "tests/test_rls.py's set-equality check). The WO-76 transport routes "
+        "read only claims/lines — no route reads THESE rows. Gains a probe "
+        "when a later M3 route-batch slice exposes them (ARCH_plan.md)."
     ),
     "fuel_extraction_baselines": (
         "G3.3 slice 2 (WO-70): the anti-drift extraction baseline, written "
         "only through services/transport/extraction_baseline.record/"
         "rebaseline/remove_baseline (tenant-scoped there via the same ORM "
-        "guard this probe would exercise, cross-tenant-opaque by test — "
-        "tests/transport/test_g3_3s2_extraction_baseline.py — AND proven on "
-        "real Postgres RLS via tests/test_rls.py's set-equality check). "
-        "Read only by regression_check and the statement_ingest record-or-"
-        "compare wiring, both org-scoped the same way — no "
-        "api/routes/transport/* route exists yet to drive an HTTP-level "
-        "probe through. Gains a probe with the first transport route "
-        "(ARCH_plan.md G2.x)."
+        "guard this "
+        "probe would exercise, AND proven on real Postgres RLS via "
+        "tests/test_rls.py's set-equality check). The WO-76 transport routes "
+        "read only claims/lines — no route reads THESE rows. Gains a probe "
+        "when a later M3 route-batch slice exposes them (ARCH_plan.md)."
     ),
     "vat_supplier_cadences": (
         "G3.5 (WO-72): the admin supplier-cadence assignment, written only "
         "through services/transport/receipt_control.set_cadence/"
         "remove_cadence (tenant-scoped there via the same ORM guard this "
         "probe would exercise, AND proven on real Postgres RLS via "
-        "tests/test_rls.py's set-equality check). Read only by cadence_for/"
-        "list_cadences (org-scoped) — no api/routes/transport/* route "
-        "exists yet to drive an HTTP-level probe through. Gains a probe "
-        "with the first transport route (ARCH_plan.md G2.x)."
+        "tests/test_rls.py's set-equality check). The WO-76 transport routes "
+        "read only claims/lines — no route reads THESE rows. Gains a probe "
+        "when a later M3 route-batch slice exposes them (ARCH_plan.md)."
     ),
     "vat_receipt_controls": (
         "G3.5 (WO-72): the persisted cadence × activity receipt-control "
         "grid, written only through services/transport/receipt_control."
         "run_receipt_control/set_control_override (tenant-scoped there via "
-        "the same ORM guard this probe would exercise, cross-tenant-opaque "
-        "by test — tests/transport/test_g3_5_receipt_control.py — AND "
-        "proven on real Postgres RLS via tests/test_rls.py's set-equality "
-        "check). Read only by list_controls (org-scoped, and by "
-        "close.run_close on the worker) — no api/routes/transport/* route "
-        "exists yet to drive an HTTP-level probe through. Gains a probe "
-        "with the first transport route (ARCH_plan.md G2.x)."
+        "the same ORM guard this "
+        "probe would exercise, AND proven on real Postgres RLS via "
+        "tests/test_rls.py's set-equality check). The WO-76 transport routes "
+        "read only claims/lines — no route reads THESE rows. Gains a probe "
+        "when a later M3 route-batch slice exposes them (ARCH_plan.md)."
     ),
     "vat_customer_lifecycles": (
         "G2.11 (WO-73): the customer lifecycle row (R44 — prospect/pending/"
         "active/inactive), written only through services/transport/"
         "customer_lifecycle.add_prospect/promote_prospect/set_activation/"
         "set_inactive (tenant-scoped there via the same ORM guard this "
-        "probe would exercise, cross-tenant-opaque by test — tests/"
-        "transport/test_g2_11_customer_lifecycle.py — AND proven on real "
-        "Postgres RLS via tests/test_rls.py's set-equality check). Read "
-        "only by get_lifecycle/enforce_activation (org-scoped, consumed by "
-        "lock.submit_claim's R44 gate) — no api/routes/transport/* route "
-        "exists yet to drive an HTTP-level probe through. Gains a probe "
-        "with the first transport route (ARCH_plan.md G2.x)."
+        "probe would exercise, AND proven on real Postgres RLS via "
+        "tests/test_rls.py's set-equality check). The WO-76 transport routes "
+        "read only claims/lines — no route reads THESE rows. Gains a probe "
+        "when a later M3 route-batch slice exposes them (ARCH_plan.md)."
     ),
     "vat_country_activations": (
         "G2.11 (WO-73): the per-(customer × refund country) activation "
         "ladder (R44/F3 — requested/active), written only through "
         "services/transport/customer_lifecycle.request_country/"
-        "set_country_activation (tenant-scoped there via the same ORM "
-        "guard this probe would exercise, cross-tenant-opaque by test — "
-        "tests/transport/test_g2_11_customer_lifecycle.py — AND proven on "
-        "real Postgres RLS via tests/test_rls.py's set-equality check). "
-        "Read only by get_country_activation/enforce_activation "
-        "(org-scoped, consumed by lock.submit_claim's R44 gate) — no "
-        "api/routes/transport/* route exists yet to drive an HTTP-level "
-        "probe through. Gains a probe with the first transport route "
-        "(ARCH_plan.md G2.x)."
+        "set_country_activation (tenant-scoped there via the same ORM guard "
+        "this "
+        "probe would exercise, AND proven on real Postgres RLS via "
+        "tests/test_rls.py's set-equality check). The WO-76 transport routes "
+        "read only claims/lines — no route reads THESE rows. Gains a probe "
+        "when a later M3 route-batch slice exposes them (ARCH_plan.md)."
     ),
     "vat_receipt_waivers": (
         "G2.6 slice 3 (WO-58): receipt-control waivers (R15), written only "
         "through services/transport/waiver.set_waiver/remove_waiver "
-        "(tenant-scoped there via the same ORM guard this probe would "
-        "exercise, AND proven on real Postgres RLS — tests/test_rls.py's "
-        "set-equality check). Also read by claim_lines.build_claim_lines/"
-        "lock.submit_claim, both org-scoped the same way — no "
-        "api/routes/transport/* route exists yet to drive an HTTP-level probe "
-        "through. Gains a probe with the first transport route (ARCH_plan.md "
-        "G2.x)."
+        "(tenant-scoped there via the same ORM guard this "
+        "probe would exercise, AND proven on real Postgres RLS via "
+        "tests/test_rls.py's set-equality check). The WO-76 transport routes "
+        "read only claims/lines — no route reads THESE rows. Gains a probe "
+        "when a later M3 route-batch slice exposes them (ARCH_plan.md)."
     ),
     "vat_checklist_rules": (
         "G2.10 slice 1 (WO-60): the adjustable submission-checklist rule "
         "table (R45), written only through services/transport/checklist."
-        "seed_default_rules/set_active (tenant-scoped there via the same "
-        "ORM guard this probe would exercise, AND proven on real Postgres "
-        "RLS — tests/test_rls.py's set-equality check). Also read by "
-        "checklist.submission_checklist/status.derive_stage, both "
-        "org-scoped the same way — no api/routes/transport/* route exists "
-        "yet to drive an HTTP-level probe through. Gains a probe with the "
-        "first transport route (ARCH_plan.md G2.x)."
+        "seed_default_rules/set_active (tenant-scoped there via the same ORM "
+        "guard this probe would exercise, AND proven on real Postgres RLS "
+        "via tests/test_rls.py's set-equality check). The WO-76 checklist "
+        "GET returns the EVALUATION (key/ok/reason items), never the rule "
+        "rows themselves, and commits nothing. Gains a probe when a "
+        "rule-admin route lists the rows."
     ),
     "supplier_vat_registrations": (
         "G3.1 slice 1 (WO-61): the per-country supplier legal-entity "
         "registration (R21/R22), written only through services/transport/"
         "supplier_entity.set_registration/learn_registration (tenant-"
-        "scoped there via the same ORM guard this probe would exercise, "
-        "AND proven on real Postgres RLS — tests/test_rls.py's set-"
-        "equality check). No caller exists yet (G3.2, the fuel-card "
-        "parser registry, is what will call learn_registration for real) "
-        "and no api/routes/transport/* route exists yet to drive an HTTP-"
-        "level probe through. Gains a probe with the first transport "
-        "route (ARCH_plan.md G2.x)."
+        "scoped there via the same ORM guard this "
+        "probe would exercise, AND proven on real Postgres RLS via "
+        "tests/test_rls.py's set-equality check). The WO-76 transport routes "
+        "read only claims/lines — no route reads THESE rows. Gains a probe "
+        "when a later M3 route-batch slice exposes them (ARCH_plan.md)."
     ),
 }
 
@@ -1589,6 +1553,69 @@ async def _p_budget(ctx: Ctx) -> None:
         assert Decimal(rows[0]["monthly_limit"]) == Decimal(limit), (
             "budget_targets: an org read back the OTHER org's limit"
         )
+
+
+# --- Transport vertical (WO-76) -----------------------------------------------
+
+
+@probe("vat_refund_claims", "vat_claim_lines")
+async def _p_transport_claims(ctx: Ctx) -> None:
+    """WO-76 — the first transport routes. Both orgs drive the SAME claim body
+    over the real HTTP path. Module enablement is direct service setup
+    (`transport` is deliberately in no billing plan yet, so the HTTP toggle
+    would 402 — a commercial decision, docs/DECISIONS-NEEDED.md); the READ
+    paths under proof stay HTTP. Claim lines are seeded directly with
+    identical business values (the `reimbursement_batches` precedent — the
+    route under proof is the read) and read back through the route."""
+    from decimal import Decimal as D
+
+    from app.models.transport.vat_claim import VatRefundClaimLine
+    from app.services import modules as modules_svc
+
+    claim_ids, line_ids = {}, {}
+    for org in (ctx.a, ctx.b):
+        await modules_svc.set_enabled(ctx.db, org.org_id, "transport", True)
+        ent = await org.post("/api/v1/issuer/registry", json=ISSUER)
+        assert ent.status_code == 201, ent.text
+        r = await org.post(
+            "/api/v1/transport/claims",
+            json={
+                "entity_id": ent.json()["id"],
+                "refund_country": "LV",
+                "ref_period": "2026-Q2",
+            },
+        )
+        assert r.status_code == 200, r.text
+        claim_ids[org.name] = r.json()["id"]
+        row = VatRefundClaimLine(
+            org_id=org.org_id,
+            claim_id=claim_ids[org.name],
+            invoice_ref="INV-OVERLAP-1",
+            product_group="Diesel",
+            goods_code="1",
+            net_eur=D("100.00"),
+            vat_eur=D("21.00"),
+        )
+        ctx.db.add(row)
+        await ctx.db.commit()
+        line_ids[org.name] = row.id
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        listing = await me.get("/api/v1/transport/claims")
+        assert listing.status_code == 200, listing.text
+        seen = {c["id"] for c in listing.json()}
+        _assert_isolated("vat_refund_claims", {claim_ids[me.name]}, {claim_ids[other.name]}, seen)
+        lines = await me.get(f"/api/v1/transport/claims/{claim_ids[me.name]}/lines")
+        assert lines.status_code == 200, lines.text
+        seen_lines = {ln["id"] for ln in lines.json()}
+        _assert_isolated("vat_claim_lines", {line_ids[me.name]}, {line_ids[other.name]}, seen_lines)
+    _assert_404(
+        await ctx.b.get(f"/api/v1/transport/claims/{claim_ids[ctx.a.name]}"),
+        "transport claim GET by id",
+    )
+    _assert_404(
+        await ctx.b.get(f"/api/v1/transport/claims/{claim_ids[ctx.a.name]}/lines"),
+        "transport claim lines via A's claim",
+    )
 
 
 # --------------------------------------------------------------------------- #
