@@ -175,6 +175,27 @@ the one `app.main` handler as `{"detail","code"}` + `X-Request-ID`
     `supplier_vat_registrations`) get their now-stale "WO-76 … read only
     claims/lines" wording trued up.
 
+11. **DEFECT FOUND AND FIXED IN FLIGHT — the transport package's routes
+    were outside the authz-coverage net.** WO-76 decision 2 chose an
+    aggregating package `__init__.router` *specifically* so
+    `tests/test_authz_coverage.py`'s `pkgutil` enumeration would keep the
+    transport routes inside the structural-coverage check. Verified here:
+    it did not. FastAPI 0.139 records `include_router` LAZILY as a
+    `_IncludedRouter` wrapper, so the package's `router.routes` contains no
+    `APIRoute` at all and the scan saw the whole package as ZERO routes —
+    all 9 WO-76 routes plus the 27 added here. `MIN_EXPECTED_ROUTES` cannot
+    catch it (the app-wide total stayed at 300, well above the floor). The
+    routes were always ENFORCED — the WO-76/WO-77 suites prove 403s and
+    opaque 404s over real HTTP — but the CI guarantee that a FUTURE
+    transport route cannot ship unclassified was absent. Fixed by a
+    `_flatten()` walk that recurses through `original_router`, keyed off
+    attribute presence rather than the private wrapper class (so an
+    eager-flattening FastAPI still enumerates correctly). Enumeration:
+    300 → 336 entries; all 36 transport routes resolve with their declared
+    permissions; app-wide unclassified set stays empty. Pinned by two new
+    regression tests. Per master-context §9 this is reported, not papered
+    over: WO-76's stated rationale was correct in intent and false in fact.
+
 ### Scope
 
 **In scope:**
