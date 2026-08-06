@@ -462,6 +462,17 @@ test("controls: receipt_control_not_found renders its human message", async ({ p
   await expect(page.getByText("receipt_control_not_found")).toHaveCount(0);
 });
 
+test("controls: a malformed period says so instead of spinning", async ({ page }) => {
+  await openTab(page, "Receipt control");
+
+  // No request is issued for a period that isn't YYYY-MM, so the panel must say
+  // what shape it wants rather than leave a skeleton running forever. A
+  // well-formed but wrong period is still the service's own `invalid_period`.
+  await page.getByRole("textbox", { name: "Period" }).fill("2026-1");
+  await expect(page.getByText("Type a period as YYYY-MM")).toBeVisible();
+  await expect(page.getByRole("cell", { name: "Q8" })).toHaveCount(0);
+});
+
 test("controls: an empty period shows the empty copy, never an alert", async ({ page }) => {
   await openTab(page, "Receipt control", { controls: [] });
 

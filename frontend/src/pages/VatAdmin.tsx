@@ -358,6 +358,15 @@ function ControlsPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelPro
       </Card>
 
       <Card padded={false}>
+        {/* A malformed period means the request is never issued, so say so
+            rather than leaving a skeleton spinning. The service is still the
+            judge of a well-formed-but-wrong period (`invalid_period`). */}
+        {!isPeriodShape(period) ? (
+          <EmptyState
+            title="Type a period as YYYY-MM"
+            description="For example 2026-05. The grid is stored one accounting month at a time."
+          />
+        ) : (
         <QueryState
           query={controls}
           loading={<Skeleton className="m-5 h-24 w-full" />}
@@ -435,6 +444,7 @@ function ControlsPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelPro
             </div>
           )}
         </QueryState>
+        )}
       </Card>
 
       <Modal
@@ -990,6 +1000,14 @@ function TieOutPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelProps
       </Card>
 
       <Card padded={false}>
+        {/* Same as the control grid: no request is issued for a malformed
+            period, so say so instead of spinning. */}
+        {!isPeriodShape(period) ? (
+          <EmptyState
+            title="Type a period as YYYY-MM"
+            description="For example 2026-05. An expectation is typed one accounting month at a time."
+          />
+        ) : (
         <QueryState
           query={expectations}
           loading={<Skeleton className="m-5 h-24 w-full" />}
@@ -1065,6 +1083,7 @@ function TieOutPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelProps
             </div>
           )}
         </QueryState>
+        )}
       </Card>
     </div>
   );
