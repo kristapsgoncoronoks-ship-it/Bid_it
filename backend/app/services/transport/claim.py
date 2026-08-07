@@ -42,22 +42,38 @@ def validate_ref_period(ref_period: str) -> None:
         )
 
 
-async def list_claims(db: AsyncSession, org_id: str) -> list[VatRefundClaim]:
+async def list_claims(
+    db: AsyncSession, org_id: str, *, year: int | None = None
+) -> list[VatRefundClaim]:
     """Every claim in the org, newest first (WO-76 — the first route-facing
     read accessor). Module-gated exactly like every other transport service
     entry point (defense-in-depth: the route layer's structural permission
     check is the caller-facing gate, but the transport rule since WO-49 is
     that NO service entry point trusts its caller to have checked the
     entitlement — fails CLOSED so an un-entitled org stays byte-identical
-    to before the vertical existed, ADR-P3 rule 3)."""
+    to before the vertical existed, ADR-P3 rule 3).
+
+    `year` (WO-81, additive — the default is byte-identical to WO-76's
+    behaviour) narrows to one REFUND year, matched on the claim's own
+    `ref_period` prefix: `"YYYY-Qn"`/`"YYYY-YEAR"` always begins with the
+    four-digit year (`_PERIOD_RE`), so a `LIKE 'YYYY-%'` is exact, not a
+    heuristic. It lives HERE rather than in the caller because the
+    cash-recovery dashboard (G4.3/R38) is per-year and R38's own acceptance
+    line forbids forking the claims query: one claim-listing query, one
+    filter, every consumer.
+    """
     if not await modules.is_enabled(db, org_id, "transport"):
         m = modules.MODULES_BY_KEY["transport"]
         raise PermissionError(f"The {m.name} module is not activated.", code="module_not_enabled")
 
+    where = [VatRefundClaim.org_id == org_id]
+    if year is not None:
+        where.append(VatRefundClaim.ref_period.like(f"{year}-%"))
+
     return list(
         await db.scalars(
             select(VatRefundClaim)
-            .where(VatRefundClaim.org_id == org_id)
+            .where(*where)
             .order_by(VatRefundClaim.created_at.desc(), VatRefundClaim.id)
         )
     )
