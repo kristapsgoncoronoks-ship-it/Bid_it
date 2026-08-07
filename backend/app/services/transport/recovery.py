@@ -111,14 +111,40 @@ and zeroes, not a 404 and not an exception. Only a malformed `year` refuses
 look exactly like "you have nothing to recover" — a materially different, and
 dangerous, answer.
 
+THE `overcharges` EURO — WO-81's DEVIATION 1, NOW CLOSED (WO-82, G4.5/R41)
+---------------------------------------------------------------------------
+§2.4/R38 list "overcharges" among the north-star euros. WO-81 shipped this
+module WITHOUT the field, because it comes from `contract_audit`/`overcharge.py`
+— board G4.5/R41 — and neither existed: emitting a zero labelled "overcharges"
+would have read as *"we found no supplier breaches"*, a different and false
+statement. G4.5 has since shipped, so the field is now REAL:
+
+    overcharges_eur = overcharge.recovered_total(db, org_id, year=year)
+
+Three things about it, each deliberate:
+
+1. **It is BOOKED CASH, not detected exposure.** §2.4 defines the figure in one
+   line — *"`recovered_total()` = the booked-cash north star"* — so it counts
+   only claim-backs that actually reached `recovered`. The €-exposure DETECTED
+   is a different number with a different name (`contract_audit.audit(...).
+   recover_eur`) and the two are never reported under one label (R52's
+   label-them-distinctly discipline).
+2. **It is CALLED, never re-derived** (R38's binding "never a forked query"):
+   this module holds no query over `vat_overcharge_claims` and no arithmetic of
+   its own — exactly the discipline every other figure here follows.
+3. **§4.14 needs no special handling for it.** It is natively EUR: it derives
+   from `FuelTransaction.net_eur`/`net_eur_eff`, the EUR columns, so unlike the
+   currency-ambiguous `paid_amount` below there is nothing to segregate or
+   refuse. Nothing is coerced.
+
+It is deliberately OUTSIDE the `recovered + awaiting + claimable` reconciliation
+R38's acceptance line demands: that identity is about the year's VAT and must
+stay exactly reconciled. Supplier overcharges are a SECOND cash stream over the
+same ledger, not a component of the first — folding them in would make the
+identity false and the euros meaningless.
+
 DEVIATIONS — what the spec defines that this data model cannot yet support
 ---------------------------------------------------------------------------
-* **The `overcharges` euro.** §2.4/R38 list it among the north-star figures, but
-  it comes from `contract_audit`/`overcharge.py` — board **G4.5 / R41**, which
-  does not exist in this codebase. Emitting a zero labelled "overcharges" would
-  read as "we found no supplier breaches", a different and false statement, so
-  the figure is OMITTED rather than faked (§10). It joins this response when
-  G4.5 ships.
 * **`median_days_to_refund` has no populated inputs yet.** Nothing writes
   `submitted_date`/`paid_date` on a claim today (`lock.submit_claim` sets
   `status` and `status_code`, not the dates; the engine-state transitions that
@@ -144,6 +170,7 @@ from app.services.transport.claim import list_claims
 from app.services.transport.deadline import DEADLINE_RISK_DAYS, deadline_status
 from app.services.transport.freeze import preview_vat_base
 from app.services.transport.minimum import below_minimum
+from app.services.transport.overcharge import recovered_total
 from app.services.transport.status import derive_stage
 
 # The six harvested readiness states, in `BA_fleet_fuel.md` §2.4's own order.
@@ -209,6 +236,10 @@ class RecoveryDashboard:
     recovered_eur: Decimal
     awaiting_eur: Decimal
     claimable_eur: Decimal
+    # The SECOND cash stream (G4.5/R41) — booked cash recovered from suppliers
+    # for contract breaches. Deliberately outside the VAT reconciliation above;
+    # see the module docstring.
+    overcharges_eur: Decimal
     deadline_risk_claims: int
     currency_mismatch_claims: int
     median_days_to_refund: Decimal | None
@@ -368,6 +399,7 @@ async def recovery_dashboard(
         recovered_eur=q2(euros["paid"]),
         awaiting_eur=q2(euros["submitted"]),
         claimable_eur=q2(sum((euros[s] for s in draft_states), Decimal("0"))),
+        overcharges_eur=await recovered_total(db, org_id, year=year),
         deadline_risk_claims=deadline_risk,
         currency_mismatch_claims=currency_mismatch,
         median_days_to_refund=_median(days),

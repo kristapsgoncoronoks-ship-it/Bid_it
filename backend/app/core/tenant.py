@@ -66,11 +66,13 @@ from app.models.sso import SsoConnection
 from app.models.supplier_payment import SupplierPayment
 from app.models.tax_code import TaxCode
 from app.models.transport.checklist_rule import VatChecklistRule
+from app.models.transport.contract_term import VatSupplierContractTerm
 from app.models.transport.customer_lifecycle import VatCountryActivation, VatCustomerLifecycle
 from app.models.transport.extraction_baseline import FuelExtractionBaseline
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.models.transport.lock import VatClaimedInvoice
 from app.models.transport.note_override import VatNoteInvoiceOverride
+from app.models.transport.overcharge import VatOverchargeClaim
 from app.models.transport.receipt_control import VatReceiptControl, VatSupplierCadence
 from app.models.transport.receipt_waiver import VatReceiptWaiver
 from app.models.transport.supplier_registration import SupplierVatRegistration
@@ -157,9 +159,11 @@ TENANT_MODELS = (
     VatCountryActivation,
     VatCustomerLifecycle,
     VatNoteInvoiceOverride,
+    VatOverchargeClaim,
     VatReceiptControl,
     VatReceiptWaiver,
     VatSupplierCadence,
+    VatSupplierContractTerm,
 )
 
 # None = unscoped (bootstrap / platform-operator); a string = scope to that org.

@@ -1837,6 +1837,99 @@ async def _p_transport_fuel_transactions(ctx: Ctx) -> None:
     )
 
 
+@probe("vat_supplier_contract_terms", "vat_overcharge_claims")
+async def _p_transport_overcharge(ctx: Ctx) -> None:
+    """WO-82 — the two G4.5 tables, both proven over the REAL HTTP routes and
+    both seeded with IDENTICAL business values in each org: the same supplier
+    code, the same country/product group, the same agreed €/L discount, the same
+    period, the same litres and the same amounts. Only tenancy discriminates,
+    so a broken filter cannot pass by luck.
+
+    The contract TERM is created over `PUT /transport/contract-terms` and read
+    over its GET. The claim-back is opened over `POST /transport/overcharges`
+    (which needs a real detected breach, hence the fuel line seeded through
+    `fuel_ingest.ingest_transaction` — the only writer there is) and read over
+    its list. Both by-id surfaces are checked for the §4.4 opaque 404."""
+    from datetime import date
+    from decimal import Decimal as D
+
+    from app.services.transport import fuel_ingest
+
+    entities = await _transport_setup(ctx)
+    term_ids, claim_ids = {}, {}
+    for org in (ctx.a, ctx.b):
+        term = await org.put(
+            "/api/v1/transport/contract-terms",
+            json={
+                "supplier": "Q8",
+                "country": "LV",
+                "product_group": "Diesel",
+                "expected_discount_eur_l": "0.20",
+            },
+        )
+        assert term.status_code == 200, term.text
+        term_ids[org.name] = term.json()["id"]
+
+        await fuel_ingest.ingest_transaction(
+            ctx.db,
+            org.org_id,
+            entity_id=entities[org.name],
+            supplier="Q8",
+            period="2026-05",
+            line_seq=1,
+            country="LV",
+            vehicle_ref="TEST-CARD-0001",
+            txn_date=date(2026, 5, 15),
+            station="Overlap Station",
+            product="DIESEL",
+            qty=D("1000.000"),
+            currency="EUR",
+            net_local=D("1350.00"),
+            vat_local=D("283.50"),
+            gross_local=D("1633.50"),
+            net_eur=D("1350.00"),
+            vat_eur=D("283.50"),
+            net_eur_eff=D("1300.00"),
+        )
+        await ctx.db.commit()
+
+        claim = await org.post(
+            "/api/v1/transport/overcharges", json={"supplier": "Q8", "period": "2026-05"}
+        )
+        assert claim.status_code == 200, claim.text
+        claim_ids[org.name] = claim.json()["id"]
+
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        terms = await me.get("/api/v1/transport/contract-terms")
+        assert terms.status_code == 200, terms.text
+        _assert_isolated(
+            "vat_supplier_contract_terms",
+            {term_ids[me.name]},
+            {term_ids[other.name]},
+            {t["id"] for t in terms.json()},
+        )
+        claims = await me.get("/api/v1/transport/overcharges")
+        assert claims.status_code == 200, claims.text
+        _assert_isolated(
+            "vat_overcharge_claims",
+            {claim_ids[me.name]},
+            {claim_ids[other.name]},
+            {c["id"] for c in claims.json()},
+        )
+
+    _assert_404(
+        await ctx.b.get(f"/api/v1/transport/overcharges/{claim_ids[ctx.a.name]}"),
+        "transport overcharge claim-back fetch on A's row",
+    )
+    _assert_404(
+        await ctx.b.post(
+            f"/api/v1/transport/overcharges/{claim_ids[ctx.a.name]}/advance",
+            json={"to_status": "packaged"},
+        ),
+        "transport overcharge claim-back advance on A's row",
+    )
+
+
 # --------------------------------------------------------------------------- #
 # The tests
 # --------------------------------------------------------------------------- #

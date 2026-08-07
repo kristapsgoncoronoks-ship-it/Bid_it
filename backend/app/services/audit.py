@@ -218,6 +218,18 @@ class A:
     # TRANSPORT_CLAIM_SUBMIT trail.
     TRANSPORT_CUSTOMER_LIFECYCLE_SET = "transport.customer_lifecycle_set"
     TRANSPORT_COUNTRY_ACTIVATION_SET = "transport.country_activation_set"
+    # G4.5 (WO-82, R41): supplier contract terms + the overcharge claim-back.
+    # CONTRACT_TERM_SET/REMOVE audit the agreed €/L figures old->new, because
+    # those figures determine a euro this platform then demands from a supplier.
+    # OVERCHARGE_OPEN records the FROZEN detected exposure the demand quotes;
+    # OVERCHARGE_TRANSITION records every real lifecycle move old->new
+    # (including the booked cash on `recovered`). Detection itself
+    # (`contract_audit.audit`) is a read and audits nothing — R41's own
+    # "read-only over the analytics" (§4.19).
+    TRANSPORT_CONTRACT_TERM_SET = "transport.contract_term_set"
+    TRANSPORT_CONTRACT_TERM_REMOVE = "transport.contract_term_remove"
+    TRANSPORT_OVERCHARGE_OPEN = "transport.overcharge_open"
+    TRANSPORT_OVERCHARGE_TRANSITION = "transport.overcharge_transition"
 
 
 def _hash(

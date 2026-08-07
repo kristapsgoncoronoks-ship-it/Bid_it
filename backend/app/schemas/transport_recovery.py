@@ -59,6 +59,15 @@ class RecoveryDashboardOut(BaseModel):
     awaiting_eur: Decimal
     claimable_eur: Decimal
 
+    # The SECOND cash stream (G4.5/R41, WO-82): booked cash recovered from
+    # suppliers for contract breaches — §2.4's *"recovered_total() = the
+    # booked-cash north star"*, NOT the €-exposure detected. Deliberately
+    # OUTSIDE the recovered+awaiting+claimable reconciliation above, which is
+    # about the year's VAT; folding a second stream into it would make that
+    # identity false. WO-81 omitted this field rather than emit a misleading
+    # zero; the hole is now closed.
+    overcharges_eur: Decimal
+
     # Counted across every unfiled claim regardless of its bucket — the "how
     # urgent" reading that sits beside the buckets' "what to do" (R38 lists the
     # deadline-risk count separately from the six states for exactly this).

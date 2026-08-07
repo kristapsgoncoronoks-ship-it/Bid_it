@@ -70,8 +70,10 @@ async def get_recovery_dashboard(
     north-star euros beside them: recovered, awaiting, claimable, the deadline-
     risk count and the median days-to-refund.
 
-    Basis: **NET EUR** — every amount is a `vat_eur` sum and crosses the wire as
-    an exact decimal STRING (§4.9). Nothing is summed across currencies (§4.14):
+    Basis: **NET EUR** — every VAT amount is a `vat_eur` sum and crosses the
+    wire as an exact decimal STRING (§4.9). `overcharges_eur` is the SECOND
+    cash stream (G4.5/R41): booked cash recovered from suppliers for contract
+    breaches, also EUR, deliberately outside the VAT reconciliation. Nothing is summed across currencies (§4.14):
     a draft whose lines span currencies is excluded from the euros and counted
     in `currency_mismatch_claims`.
 
@@ -92,6 +94,7 @@ async def get_recovery_dashboard(
         recovered_eur=dash.recovered_eur,
         awaiting_eur=dash.awaiting_eur,
         claimable_eur=dash.claimable_eur,
+        overcharges_eur=dash.overcharges_eur,
         deadline_risk_claims=dash.deadline_risk_claims,
         currency_mismatch_claims=dash.currency_mismatch_claims,
         median_days_to_refund=dash.median_days_to_refund,
