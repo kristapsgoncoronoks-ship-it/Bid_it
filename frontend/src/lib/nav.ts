@@ -92,6 +92,19 @@ export const LIVE_NAV: LiveNavGroup[] = [
     title: "Transport",
     items: [
       {
+        // The portfolio answer — "how much can we still recover this year, and
+        // what is stopping each euro of it?". Gated on `transport.read`, the
+        // permission `routes/transport/recovery.py` actually declares (WO-81
+        // reserved it for exactly the derived analytics slices), not on the
+        // `vat.read` the claim routes use. Identical role coverage today; the
+        // point is that a future split in the backend matrix lands here too.
+        to: "/recovery",
+        label: "Cash recovery",
+        module: "transport",
+        perm: "transport.read",
+        icon: icon("M12 3v18M8 7h6a3 3 0 010 6H9a3 3 0 000 6h7"),
+      },
+      {
         to: "/vat-claims",
         label: "VAT claims",
         module: "transport",
