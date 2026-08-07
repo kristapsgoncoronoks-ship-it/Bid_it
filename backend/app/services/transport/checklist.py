@@ -51,9 +51,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import NotFoundError, PermissionError, ValidationError
 from app.models.transport.checklist_rule import VatChecklistRule
-from app.models.transport.fuel_transaction import FuelTransaction
 from app.models.transport.vat_claim import VatRefundClaim
 from app.services import audit, issuer, modules
+from app.services.transport import queries
 from app.services.transport.claim_lines import period_months
 from app.services.transport.deadline import period_ended
 from app.services.transport.document_gate import missing_document_invoice_ids
@@ -234,11 +234,11 @@ async def _unresolved_suppliers(
     months = period_months(claim.ref_period)
     txns = list(
         await db.scalars(
-            select(FuelTransaction).where(
-                FuelTransaction.org_id == org_id,
-                FuelTransaction.entity_id == claim.entity_id,
-                FuelTransaction.country == claim.refund_country,
-                FuelTransaction.period.in_(months),
+            queries.claim_scope_transactions(
+                org_id,
+                entity_id=claim.entity_id,
+                refund_country=claim.refund_country,
+                months=months,
             )
         )
     )

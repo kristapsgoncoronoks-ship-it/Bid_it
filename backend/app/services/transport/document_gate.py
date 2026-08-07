@@ -53,13 +53,13 @@ preview (G2.7) share exactly ONE query implementation — never two
 
 from __future__ import annotations
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError
 from app.models.transport.vat_claim import VatRefundClaimLine
 from app.services import extraction
 from app.services import invoices as ap_invoices
+from app.services.transport import queries
 
 
 async def _resolved_invoice_ids(db: AsyncSession, org_id: str, claim_id: str) -> list[str]:
@@ -67,13 +67,8 @@ async def _resolved_invoice_ids(db: AsyncSession, org_id: str, claim_id: str) ->
     lines — the real, resolved lines about to be frozen (never an
     `UNMATCHED` line, whose `invoice_id` is always NULL)."""
     rows = await db.scalars(
-        select(VatRefundClaimLine.invoice_id)
-        .where(
-            VatRefundClaimLine.org_id == org_id,
-            VatRefundClaimLine.claim_id == claim_id,
-            VatRefundClaimLine.frozen_at.is_(None),
-            VatRefundClaimLine.invoice_id.is_not(None),
-        )
+        queries.resolved_vat_claim_lines(org_id, claim_id)
+        .with_only_columns(VatRefundClaimLine.invoice_id)
         .distinct()
     )
     return sorted({r for r in rows if r is not None})

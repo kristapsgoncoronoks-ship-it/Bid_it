@@ -42,11 +42,11 @@ convenience.
 
 from __future__ import annotations
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError
 from app.models.transport.vat_claim import VatRefundClaimLine
+from app.services.transport import queries
 
 
 def is_synthetic(ref: str, vat_id: str | None = None) -> bool:
@@ -94,10 +94,8 @@ async def unfrozen_synthetic_refs(db: AsyncSession, org_id: str, claim_id: str) 
     read-only preview — never two independent line-scans that could drift.
     """
     rows = await db.execute(
-        select(VatRefundClaimLine.invoice_ref, VatRefundClaimLine.vat_id).where(
-            VatRefundClaimLine.org_id == org_id,
-            VatRefundClaimLine.claim_id == claim_id,
-            VatRefundClaimLine.frozen_at.is_(None),
+        queries.vat_claim_lines(org_id, claim_id, frozen=False).with_only_columns(
+            VatRefundClaimLine.invoice_ref, VatRefundClaimLine.vat_id
         )
     )
     return sorted({ref for ref, vat_id in rows if is_synthetic(ref, vat_id)})

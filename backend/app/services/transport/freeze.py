@@ -71,12 +71,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError
 from app.core.money import q2
 from app.models.transport.vat_claim import VatRefundClaim, VatRefundClaimLine
+from app.services.transport import queries
 
 
 def _sum_lines(lines: list[VatRefundClaimLine]) -> tuple[Decimal, Decimal, str | None]:
@@ -103,15 +103,7 @@ def _sum_lines(lines: list[VatRefundClaimLine]) -> tuple[Decimal, Decimal, str |
 
 
 async def _unfrozen_lines(db: AsyncSession, org_id: str, claim_id: str) -> list[VatRefundClaimLine]:
-    return list(
-        await db.scalars(
-            select(VatRefundClaimLine).where(
-                VatRefundClaimLine.org_id == org_id,
-                VatRefundClaimLine.claim_id == claim_id,
-                VatRefundClaimLine.frozen_at.is_(None),
-            )
-        )
-    )
+    return list(await db.scalars(queries.vat_claim_lines(org_id, claim_id, frozen=False)))
 
 
 async def preview_vat_base(

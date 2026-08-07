@@ -64,9 +64,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError, NotFoundError, PermissionError, ValidationError
 from app.core.money import q2
-from app.models.transport.fuel_transaction import FuelTransaction
 from app.models.transport.vat_claim import VatRefundClaim, VatRefundClaimLine
 from app.services import audit, modules
+from app.services.transport import queries
 from app.services.transport.goods_code import derive_goods_code
 from app.services.transport.invoice_match import resolve_invoice_ref
 from app.services.transport.waiver import waived_suppliers
@@ -120,12 +120,9 @@ async def list_claim_lines(
     claim = await _get_claim(db, org_id, claim_id)
     return list(
         await db.scalars(
-            select(VatRefundClaimLine)
-            .where(
-                VatRefundClaimLine.org_id == org_id,
-                VatRefundClaimLine.claim_id == claim.id,
+            queries.vat_claim_lines(org_id, claim.id).order_by(
+                VatRefundClaimLine.invoice_ref, VatRefundClaimLine.product_group
             )
-            .order_by(VatRefundClaimLine.invoice_ref, VatRefundClaimLine.product_group)
         )
     )
 
@@ -168,11 +165,11 @@ async def build_claim_lines(
     months = period_months(claim.ref_period)
     txns = list(
         await db.scalars(
-            select(FuelTransaction).where(
-                FuelTransaction.org_id == org_id,
-                FuelTransaction.entity_id == claim.entity_id,
-                FuelTransaction.country == claim.refund_country,
-                FuelTransaction.period.in_(months),
+            queries.claim_scope_transactions(
+                org_id,
+                entity_id=claim.entity_id,
+                refund_country=claim.refund_country,
+                months=months,
             )
         )
     )
@@ -239,9 +236,7 @@ async def build_claim_lines(
     # scoping". A frozen line (G2.5) is never touched here.
     await db.execute(
         delete(VatRefundClaimLine).where(
-            VatRefundClaimLine.org_id == org_id,
-            VatRefundClaimLine.claim_id == claim.id,
-            VatRefundClaimLine.frozen_at.is_(None),
+            *queries.vat_claim_line_criteria(org_id, claim.id, frozen=False)
         )
     )
 

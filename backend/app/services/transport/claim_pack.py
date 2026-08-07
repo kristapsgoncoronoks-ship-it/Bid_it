@@ -105,6 +105,7 @@ from app.models.transport.vat_claim import VatRefundClaim, VatRefundClaimLine
 from app.services import documents, extraction, modules, vendors
 from app.services import invoices as ap_invoices
 from app.services import issuer as issuer_svc
+from app.services.transport import queries
 from app.services.transport.claim_gates import is_synthetic
 
 WORKBOOK_FILENAME = "claim-workbook.xlsx"
@@ -227,13 +228,9 @@ async def _load_pack(db: AsyncSession, org_id: str, claim_id: str) -> ClaimPack:
 
     lines = list(
         await db.scalars(
-            select(VatRefundClaimLine)
-            .where(
-                VatRefundClaimLine.org_id == org_id,
-                VatRefundClaimLine.claim_id == claim.id,
-                VatRefundClaimLine.frozen_at.is_not(None),
+            queries.vat_claim_lines(org_id, claim.id, frozen=True).order_by(
+                VatRefundClaimLine.invoice_ref, VatRefundClaimLine.product_group
             )
-            .order_by(VatRefundClaimLine.invoice_ref, VatRefundClaimLine.product_group)
         )
     )
     if not lines:
