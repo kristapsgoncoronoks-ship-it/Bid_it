@@ -53,10 +53,11 @@ docstring, so no consumer can render the euro without them.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
+from app.core.security_headers import content_disposition
 from app.models.transport.contract_term import VatSupplierContractTerm
 from app.models.transport.overcharge import VatOverchargeClaim
 from app.schemas.transport_overcharge import (
@@ -71,6 +72,7 @@ from app.schemas.transport_overcharge import (
 )
 from app.services.transport import contract_audit as audit_svc
 from app.services.transport import overcharge as overcharge_svc
+from app.services.transport import overcharge_pack as pack_svc
 
 # Structural authorization (ADR-0024): router-level TRANSPORT_READ; every
 # mutation declares the stricter VAT_WRITE per-route below.
@@ -84,6 +86,10 @@ _WRITE = [Depends(require_perm(authz.Permission.VAT_WRITE))]
 # Every euro and every €/L rate this module serves is EUR — see the module
 # docstring and `contract_audit.py`'s §4.14 section.
 _EUR = "EUR"
+
+# The WO-77 artifact-download precedent (`claims.py`), reused verbatim.
+_XLSX_CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_PDF_CT = "application/pdf"
 
 
 def _term_out(row: VatSupplierContractTerm) -> ContractTermOut:
@@ -341,3 +347,82 @@ async def advance_overcharge_claim(
     await db.commit()
     await db.refresh(row)
     return _claim_out(row)
+
+
+# --------------------------------------------------------------------------- #
+# R41's two send-ready artifacts (WO-83)
+# --------------------------------------------------------------------------- #
+
+
+@router.get("/overcharges/{claim_id}/packet")
+async def download_evidence_packet(
+    claim_id: str,
+    current: CurrentUser,
+    db: DbSession,
+    issuer_id: str | None = Query(
+        default=None, description="our letterhead company; default = the org's default issuer"
+    ),
+):
+    """R41's **Excel evidence packet** — the per-(supplier × period) breach lines
+    with their flags, gap, litres and recoverable euros, plus the total, carrying
+    R53's legal framing and §3.G G1's price basis.
+
+    `TRANSPORT_READ` (the router-level default): generating an artifact is a
+    read-only rendering of the analytics this router already serves as JSON —
+    nothing is persisted, mutated, audited or committed, so no write permission
+    is involved and none is invented (§10).
+
+    Available in EVERY lifecycle state, the terminal three included: the packet
+    is EVIDENCE and stays reproducible (the WO-74 precedent). Every refusal is
+    the service's own and fails CLOSED: `overcharge_claim_not_found` (opaque
+    404), `no_overcharge_detected` (the audit finds nothing today — refusing to
+    emit an empty document that reads as "nothing is owed"),
+    `overcharge_evidence_drift` (the frozen demand no longer equals what its own
+    lines sum to, §4.10).
+    """
+    data = await pack_svc.build_evidence_packet(db, current.org_id, claim_id, issuer_id=issuer_id)
+    return Response(
+        content=data,
+        media_type=_XLSX_CT,
+        headers={
+            "Content-Disposition": content_disposition(f"overcharge-{claim_id}-evidence.xlsx"),
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.get("/overcharges/{claim_id}/letter")
+async def download_claim_letter(
+    claim_id: str,
+    current: CurrentUser,
+    db: DbSession,
+    issuer_id: str | None = Query(
+        default=None, description="our letterhead company; default = the org's default issuer"
+    ),
+):
+    """R41's **formal PDF claim letter** — our letterhead from the issuer
+    registry, the supplier's own local legal entity (R20/R21, per country of
+    supply), the SAME lines and the SAME total as the evidence packet, and
+    §2.4's **30-day credit/refund demand**.
+
+    Identical lines and totals are STRUCTURAL, not coincidental: both artifacts
+    render from one `_load_packet()` result over the one line source
+    `contract_audit.audit()` and project the same column spec.
+
+    Two refusals the packet does not have, both the service's own and both
+    fail-CLOSED: `overcharge_claim_closed` (a claim-back in a terminal state
+    takes no new payment demand — the evidence packet stays available) and
+    `issuer_profile_incomplete` (a formal demand needs an Art. 226 letterhead;
+    the missing fields are named). `pdf_renderer_unavailable` (503) mirrors
+    `invoice_pdf.PdfUnavailable`, expressed as an `AppError` so the route stays
+    a thin controller.
+    """
+    data = await pack_svc.build_claim_letter(db, current.org_id, claim_id, issuer_id=issuer_id)
+    return Response(
+        content=data,
+        media_type=_PDF_CT,
+        headers={
+            "Content-Disposition": content_disposition(f"overcharge-{claim_id}-letter.pdf"),
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
