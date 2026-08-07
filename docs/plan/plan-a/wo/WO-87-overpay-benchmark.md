@@ -271,5 +271,5 @@ assert "owes" in contract_audit.LEGAL_FRAMING
 assert "NOT a contractual claim-back" in savings.LEGAL_FRAMING
 print(contract_audit.LEGAL_FRAMING); print(savings.LEGAL_FRAMING)
 PY
-python scripts/../../scripts/pii_scan.py --tree
+cd /home/user/Bid_it && python scripts/pii_scan.py --tree
 ```
