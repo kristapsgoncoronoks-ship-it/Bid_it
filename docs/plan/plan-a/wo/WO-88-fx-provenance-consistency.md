@@ -430,5 +430,5 @@ for ccy, src in (("EUR", None), ("EUR", "eur"), ("PLN", "ecb"), ("PLN", "stated"
     fuel_ingest._require_fx_provenance(ccy, src)
     print(f"{ccy}/{src} -> accepted")
 PY
-cd /home/user/Bid_it && python backend/scripts/pii_scan.py --tree 2>/dev/null || python scripts/pii_scan.py --tree
+cd /home/user/Bid_it && python scripts/pii_scan.py --tree
 ```
