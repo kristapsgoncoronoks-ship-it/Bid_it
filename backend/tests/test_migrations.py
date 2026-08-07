@@ -249,6 +249,108 @@ def test_wo88_fx_provenance_migration_refuses_to_run_over_a_violating_row(tmp_pa
 
 
 @pytest.mark.slow
+def test_wo89_wrong_provenance_migration_refuses_to_run_over_a_violating_row(tmp_path):
+    """WO-89 (a7f2e9c41b83): the widened constraints close the third
+    combination — a non-EUR currency claiming `fx_source='eur'`, the identity
+    provenance meaning *"the amount was already EUR"*. That row is LEGAL at the
+    WO-88 head, which is what makes this test's fixture buildable at all and
+    what makes the migration's pre-flight load-bearing.
+
+    Same refusal discipline as WO-88's: the rate the row should have used cannot
+    be reconstructed, the euro column is NOT NULL, and deleting transaction
+    history is a business decision (§9) — so the migration prints the offending
+    row and REFUSES. Both halves asserted, plus the drop-and-recreate leaving
+    every other constraint on the rebuilt table intact.
+    """
+    db_file = tmp_path / "wo89.db"
+    async_url = f"sqlite+aiosqlite:///{db_file}"
+
+    up = _run_alembic(["upgrade", "e4a7c1d92f08"], async_url)  # the WO-88 head
+    assert up.returncode == 0, f"{up.stdout}\n{up.stderr}"
+
+    # Built at runtime rather than written as a literal, so no fixture in the
+    # tree carries anything shaped like a real vehicle/registration identifier.
+    vehicle_ref = "-".join(["Fleet", "Test", "89"])
+    columns = (
+        "id, org_id, entity_id, supplier, period, line_seq, country, vehicle_ref, txn_date,"
+        " txn_time, station, product, product_group, qty, currency, net_local, vat_local,"
+        " gross_local, net_eur, vat_eur, net_eur_eff, fx_source"
+    )
+
+    eng = create_engine(f"sqlite:///{db_file}")
+    with eng.begin() as con:
+        # A PLN line asserting €1,400.00 with the EUR IDENTITY provenance. This
+        # INSERT succeeding at the WO-88 head is itself the finding WO-89 exists
+        # to close — if a future change makes it fail here, this test is telling
+        # you the fix landed one revision earlier than it claims to have.
+        con.exec_driver_sql(
+            f"INSERT INTO fuel_transactions ({columns}) VALUES ('bad89', 'org1', 'ent1', 'Q8',"
+            f" '2026-05', 1, 'LV', '{vehicle_ref}', '2026-05-14', '', 'Demo Station Riga',"
+            " 'DIESEL', 'Diesel', 1000.000, 'PLN', 6000.00, 1380.00, 7380.00, 1400.00,"
+            " 294.00, 1400.00, 'eur')"
+        )
+
+    refused = _run_alembic(["upgrade", "head"], async_url)
+    assert refused.returncode != 0, f"the migration must refuse:\n{refused.stdout}"
+    assert "[WO-89] 1 violating rows" in refused.stdout
+    assert "bad89" in refused.stdout
+    assert "refusing to migrate" in refused.stdout + refused.stderr
+
+    # …and the schema is untouched: the OLD constraint is still in place, which
+    # matters more here than in WO-88 because this migration DROPS before it
+    # creates. A failed run must not leave the table unprotected.
+    with eng.begin() as con:
+        ddl = con.exec_driver_sql(
+            "SELECT sql FROM sqlite_master WHERE name = 'fuel_transactions'"
+        ).scalar_one()
+        assert "ck_fuel_transactions_fx_provenance" in ddl
+        assert "fx_source <> 'eur'" not in ddl  # the WO-88 expression, not WO-89's
+        con.exec_driver_sql("DELETE FROM fuel_transactions WHERE id = 'bad89'")
+
+    ok = _run_alembic(["upgrade", "head"], async_url)
+    assert ok.returncode == 0, f"{ok.stdout}\n{ok.stderr}"
+    assert "[WO-89] 0 violating rows" in ok.stdout
+
+    with eng.begin() as con:
+        import sqlalchemy.exc
+
+        ddl = con.exec_driver_sql(
+            "SELECT sql FROM sqlite_master WHERE name = 'fuel_transactions'"
+        ).scalar_one()
+        assert "fx_source <> 'eur'" in ddl  # the third conjunct is live
+        # The SQLite batch rebuild kept everything else on the table.
+        for surviving in (
+            "ck_fuel_transactions_product_group",
+            "ck_fuel_transactions_fx_source",
+            "uq_fuel_transactions_natural_key",
+            "uq_fuel_transactions_org_id_id",
+            "fk_fuel_transactions_entity",
+            "fk_fuel_transactions_invoice",
+        ):
+            assert surviving in ddl, surviving
+
+        rebate_ddl = con.exec_driver_sql(
+            "SELECT sql FROM sqlite_master WHERE name = 'vat_off_invoice_rebates'"
+        ).scalar_one()
+        assert "fx_source <> 'eur'" in rebate_ddl
+        assert "ck_vat_off_invoice_rebates_fx_source" in rebate_ddl  # WO-88's, untouched
+        assert "ck_vat_off_invoice_rebates_eur_positive" in rebate_ddl
+
+        # And the database now refuses the row it accepted one revision ago.
+        try:
+            con.exec_driver_sql(
+                f"INSERT INTO fuel_transactions ({columns}) VALUES ('bad89b', 'org1', 'ent1',"
+                f" 'Q8', '2026-05', 2, 'LV', '{vehicle_ref}', '2026-05-14', '',"
+                " 'Demo Station Riga', 'DIESEL', 'Diesel', 1000.000, 'PLN', 6000.00, 1380.00,"
+                " 7380.00, 1400.00, 294.00, 1400.00, 'eur')"
+            )
+            raise AssertionError("a non-EUR line claiming the EUR identity must be refused")
+        except sqlalchemy.exc.IntegrityError:
+            pass
+    eng.dispose()
+
+
+@pytest.mark.slow
 def test_models_match_migration_head(tmp_path):
     # DB A: what the ORM models declare.
     models_file = tmp_path / "models.db"
