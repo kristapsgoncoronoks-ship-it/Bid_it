@@ -361,6 +361,46 @@ a correctness one, and nothing is being filed wrongly while it waits.
 
 ---
 
+## 12. Abandoning a supplier overcharge claim-back before it is sent (M5 / WO-82)
+
+**Context.** `BA_fleet_fuel.md` §4.5 and R41 give the claim-back lifecycle as a
+single line: `detected → packaged → claimed → recovered | rejected |
+written_off`. WO-82 implements exactly that chain, LITERALLY — the three
+outcomes are reachable only from `claimed`, because that is the only shape the
+harvested text draws and inventing an edge is master-context §10 territory (the
+WO-73 precedent, where `inactive` is terminal because no re-onboarding edge was
+harvested).
+
+That leaves one real operational move with nowhere to go: a breach is
+`detected`, an operator looks at it, and decides **not to pursue it** — the gap
+is €12, or the supplier relationship is worth more than the claim, or the term
+was mis-keyed and the "breach" is an artefact. Today that claim-back can only be
+walked forward through `packaged` and `claimed` (i.e. told the system a demand
+was sent when none was) or left sitting in `detected` forever, quietly inflating
+the worklist.
+
+**Decision needed:** should `written_off` also be reachable from `detected` and
+`packaged`?
+
+- **(a) Yes — allow `detected → written_off` and `packaged → written_off`.**
+  Matches how a chase list is actually worked, and keeps `recovered_total`'s
+  denominator honest (an abandoned item is closed, not pending). It adds two
+  edges the harvested text does not draw.
+- **(b) No — keep the chain literal.** Anything not worth claiming should not
+  have been opened; `open_claim` is deliberate and reversible only by not
+  calling it. Costs nothing, but leaves stale `detected` rows.
+- **(c) A separate `abandoned` state.** Cleanest semantically ("we never asked"
+  is not "we asked and gave up"), but it invents vocabulary the spec does not
+  have, which is exactly what §10 forbids without this decision.
+
+**Owner:** product, with whoever will actually work the supplier chase list.
+**Interim controls:** none of this can produce a wrong number. Only `recovered`
+books cash, it is bounded by the detected evidence, and a stale `detected` row
+contributes €0 to `recovered_total` — the north star the dashboard reports. The
+gap is worklist hygiene, not correctness.
+
+---
+
 *Not blocked — I can keep building these without you:* enhancements to shipped
 features, tests/coverage, docs, and any of the above up to its stated boundary.
 Tell me which to prioritise next.

@@ -5,6 +5,15 @@
 > rather than emit a zero, because a zero labelled "overcharges" reads as *"we
 > found no supplier breaches"* — a different and false statement. This order
 > builds the service that figure comes from, then wires it in.
+>
+> **Correction recorded during implementation:** the self-verification block's
+> "detection writes nothing" check originally scanned the WHOLE
+> `contract_audit` module for `db.add`. That is wrong — the term CRUD lives in
+> the same module and legitimately writes (audited old→new, §4.16). The check
+> below now targets the detection functions themselves, which is exactly what
+> the shipped test `test_wo82_detection_holds_no_writable_intent` asserts,
+> alongside a behavioural before/after comparison of every fuel-transaction
+> column.
 
 **WORK ORDER 82 — supplier overcharge detection (`app/services/transport/
 contract_audit.py`) + the per-(supplier × period) claim-back lifecycle
@@ -104,7 +113,8 @@ came back.
 | `backend/app/models/transport/contract_term.py` | **new** — `VatSupplierContractTerm` |
 | `backend/app/models/transport/overcharge.py` | **new** — `VatOverchargeClaim` |
 | `backend/alembic/versions/<rev>_overcharge_claimback.py` | **new** — both tables + RLS |
-| `backend/app/core/tenant.py` | register both models |
+| `backend/app/core/tenant.py` | register both models in `TENANT_MODELS` |
+| `backend/app/models/transport/__init__.py` | export both models |
 | `backend/app/services/transport/contract_audit.py` | **new** — terms + detection |
 | `backend/app/services/transport/overcharge.py` | **new** — the lifecycle |
 | `backend/app/services/transport/recovery.py` | `overcharges_eur`; DEVIATIONS updated |
@@ -120,6 +130,8 @@ came back.
 | `backend/tests/transport/test_wo81_recovery.py` | one added assertion for the new field |
 | `backend/tests/test_tenancy_parity.py` | probe for both new tables |
 | `docs/transport/rules.md` | R41 row; R38's consumer completed |
+| `backend/tests/test_docs_truth.py` | the hard-coded table count, 79 → 81 (a truth-up) |
+| `docs/DECISIONS-NEEDED.md` | §12 — abandoning a claim-back before it is sent (recorded only) |
 | `TODO.md` / `README.md` | boards, counts |
 
 ### The harvested definitions — every rule, with its citation
@@ -408,7 +420,11 @@ services stay intact and importable.
   that its deliberately-omitted `overcharges` deviation is now CLOSED.
 - `TODO.md` — the WO-82 row, the M5 cell (G4.5 shipped, artifacts pending), the
   M3 cell (`overcharges.py` now has a backing service), the suite line.
-- `README.md` — the scale line (counts verified, not assumed).
+- `README.md` — the scale line (counts verified, not assumed), and
+  `backend/tests/test_docs_truth.py`'s hard-coded table count with it.
+- `docs/DECISIONS-NEEDED.md` — §12, abandoning a claim-back before it is sent
+  (recorded, not decided: the harvested chain reaches `written_off` only from
+  `claimed`, and this order refuses to invent the missing edge).
 - No ADR is contradicted; ADR-P3's rules 1/2/3/5 are followed as-is (a
   transport-local tenant table, org-scoped service-level entity resolution,
   entitlement inside the service, existing permissions only).
@@ -432,8 +448,14 @@ src = inspect.getsource(ca)
 assert 'float' not in src, 'float in a money path'
 for col in ('net_local', 'vat_local', 'gross_local'):
     assert col not in src, f'{col} read in a EUR-only analysis (§4.14)'
-assert 'db.add' not in src, 'detection must write nothing'
-print('contract_audit.py is EUR-only, float-free and read-only')
+# The write check targets the DETECTION functions only: the term CRUD lives in
+# the same module and legitimately writes (audited old->new, §4.16). The
+# corresponding test is test_wo82_detection_holds_no_writable_intent.
+for fn in (ca.audit, ca._term_for, ca._breach_for, ca._finding):
+    fsrc = inspect.getsource(fn)
+    assert 'db.add' not in fsrc and 'db.delete' not in fsrc and 'db.flush' not in fsrc
+    assert 'audit_svc.record' not in fsrc
+print('contract_audit.py is EUR-only, float-free, and its detection half writes nothing')
 "
 grep -n "overcharges" app/api/routes/transport/__init__.py
 python ../scripts/pii_scan.py --tree
