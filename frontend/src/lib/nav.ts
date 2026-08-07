@@ -123,6 +123,27 @@ export const LIVE_NAV: LiveNavGroup[] = [
         icon: icon("M16 20v-1a4 4 0 00-4-4H8a4 4 0 00-4 4v1M10 11a3 3 0 100-6 3 3 0 000 6zm10 9v-1a4 4 0 00-3-3.8"),
       },
       {
+        // The supplier side of recovery — what a supplier owes US, as against
+        // what a member state owes us. Same `transport.read` gating as the
+        // dashboard: `overcharges.py` declares TRANSPORT_READ at router level
+        // and overrides the mutations to VAT_WRITE, which the page mirrors
+        // control by control.
+        to: "/overcharges",
+        label: "Supplier overcharges",
+        module: "transport",
+        perm: "transport.read",
+        icon: icon("M12 9v4m0 4h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"),
+      },
+      {
+        // The registry that keeps the overcharge demand honest: without the
+        // rebate document those litres are priced at list.
+        to: "/rebates",
+        label: "Off-invoice rebates",
+        module: "transport",
+        perm: "transport.read",
+        icon: icon("M9 14l6-6M9.5 8.5h.01M14.5 14.5h.01M7 3h10a4 4 0 014 4v10a4 4 0 01-4 4H7a4 4 0 01-4-4V7a4 4 0 014-4z"),
+      },
+      {
         to: "/vat-admin",
         label: "VAT configuration",
         module: "transport",
