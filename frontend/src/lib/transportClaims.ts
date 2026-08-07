@@ -191,6 +191,88 @@ const REFUSALS: Record<string, Refusal> = {
     title: "That isn’t a step this country can take from where it is",
     next: "A country goes requested → active, and back. Reload to see the current state.",
   },
+
+  // --- the RECOVERY INTELLIGENCE surfaces (WO-86's screens over the WO-81 /
+  // WO-82 / WO-83 / WO-84 routes). Every code below is raised by a service in
+  // `app/services/transport/`: `recovery.py`, `contract_audit.py`,
+  // `overcharge.py`, `overcharge_pack.py`, `rebate.py`. Read off the source,
+  // not guessed — the same discipline as the two blocks above.
+  invalid_year: {
+    title: "That isn’t a refund year this service can report on",
+    next: "Use a four-digit year, e.g. 2026. The year is refused rather than answered with an empty dashboard, because “nothing found” and “you typed it wrong” must never look the same.",
+  },
+  invalid_product_group: {
+    title: "That isn’t a product group this service recognises",
+    next: "Use the product group the fuel lines carry, e.g. diesel.",
+  },
+  term_has_no_figure: {
+    title: "An agreed term needs at least one figure",
+    next: "Give the expected discount per litre, the maximum net price per litre, or both. A term with neither can’t be breached, so it can’t be audited.",
+  },
+  invalid_term_rate: {
+    title: "That €/L figure is outside the range this service accepts",
+    next: "Type the rate as it appears in the contract, in euros per litre and greater than zero.",
+  },
+  no_overcharge_detected: {
+    title: "The audit finds no breach for this supplier and period",
+    next: "Nothing is claimed back and no document is produced — a demand at €0 would be a letter asking for nothing. Check the agreed terms cover this supplier, country and product group for the period.",
+  },
+  overcharge_claim_not_found: {
+    title: "This claim-back isn’t available",
+    next: "It may have been removed. Go back to the claim-back list and open it again.",
+  },
+  invalid_overcharge_status: {
+    title: "That isn’t a claim-back state this service recognises",
+    next: "Filter by one of: detected, packaged, claimed, recovered, rejected, written off.",
+  },
+  overcharge_transition_invalid: {
+    title: "That isn’t a step this claim-back can take from where it is",
+    next: "The chain is detected → packaged → claimed → recovered, rejected or written off, one step at a time, and the last three are final. Nothing was changed. Reload to see the current state.",
+  },
+  recovered_amount_required: {
+    title: "Marking a claim-back recovered needs the amount the supplier credited",
+    next: "Type the euro figure actually credited. It is the number that books into the recovered total, so it is never assumed from the demand.",
+  },
+  recovered_amount_invalid: {
+    title: "That recovered amount can’t be booked",
+    next: "It must be greater than zero and no more than the euro this claim-back demanded. Crediting more than was claimed is refused.",
+  },
+  recovered_amount_not_applicable: {
+    title: "Only a recovered claim-back carries an amount",
+    next: "Rejecting or writing off books no cash. Leave the amount empty for those moves.",
+  },
+  // The important one. It fires in the window between a claim-back freezing its
+  // demanded euro and a rebate merge (at the close) changing the effective net
+  // price the same lines are audited against — WO-84's whole reason for
+  // existing. The operator must learn what happened, not read a slug.
+  overcharge_evidence_drift: {
+    title: "The frozen demand no longer matches what its own evidence lines add up to",
+    next: "This claim-back was opened against the figures of the day; since then a recorded off-invoice rebate has been merged into the effective net price by a close, so the same lines now audit to a different euro. No packet and no letter are produced — we don’t send a demand its own attachment contradicts. Re-run the contract audit for this supplier and period to see the current findings, then open a new claim-back against them.",
+  },
+  overcharge_claim_closed: {
+    title: "This claim-back is closed, so no new payment demand goes out",
+    next: "A recovered, rejected or written-off matter takes no fresh demand letter. The evidence packet is still available and still downloads — it stays reproducible for the record.",
+  },
+  issuer_profile_incomplete: {
+    title: "The demand letter goes out on your own letterhead, and it’s incomplete",
+    next: "Fill in the missing company details named below under Issuer settings, then download the letter again. The evidence packet doesn’t need them and downloads either way.",
+  },
+  pdf_renderer_unavailable: {
+    title: "The PDF renderer isn’t available on this server",
+    next: "The Excel evidence packet still downloads and carries the same lines and the same total. Ask an administrator to install the PDF renderer if you need the formal letter.",
+  },
+  rebate_source_required: {
+    title: "A rebate needs the document it came from",
+    next: "Give both the rebate document number and who issued it. A rebate figure is never inferred — it may only enter the effective price from an identified document.",
+  },
+  rebate_amount_invalid: {
+    title: "That isn’t a rebate amount",
+    next: "Type the positive amount printed on the rebate document, in the currency it was issued in. A zero or negative rebate isn’t a rebate.",
+  },
+  fx_rate_unavailable: {
+    title: "No ECB rate is available for that currency on that document date — nothing was recorded",
+    next: "The rebate is refused rather than converted at a guessed rate, so no row was written and no figure changed. Check the rebate document’s own date, or record it once the rate for that date is available.",
+  },
 };
 
 /**

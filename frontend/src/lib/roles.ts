@@ -57,17 +57,28 @@ export const ASSIGNABLE_ROLES: UserRoleName[] = [
 // OWNER/ADMINISTRATOR/FINANCE_MANAGER hold all three; ACCOUNTANT holds
 // read+write but NOT submit (submitting acquires invoice locks — the WO-49
 // split); AUDITOR and READ_ONLY hold read; APPROVER and EMPLOYEE hold none.
-export type VatPermission = "vat.read" | "vat.write" | "vat.submit";
+// `transport.read` (WO-86) is the FOURTH member, and it is a real, separate
+// permission rather than an alias: `app/core/authz.py::Permission.TRANSPORT_READ`
+// is what `routes/transport/recovery.py`, `overcharges.py` and `rebates.py`
+// declare at router level, and `fuel.py` recorded the reservation in as many
+// words ("TRANSPORT_READ stays reserved for the derived analytics/excise
+// slices"). Its role coverage in the matrix is IDENTICAL to VAT_READ's today —
+// the same six roles hold it, APPROVER and EMPLOYEE hold neither — and the
+// backend pins that with
+// `test_wo79_vat_read_and_transport_read_have_identical_role_coverage`. Mirroring
+// it under its own name is what keeps the two from silently becoming synonyms
+// here if the matrix ever splits them.
+export type VatPermission = "vat.read" | "vat.write" | "vat.submit" | "transport.read";
 
-const ALL_VAT: VatPermission[] = ["vat.read", "vat.write", "vat.submit"];
+const ALL_VAT: VatPermission[] = ["vat.read", "vat.write", "vat.submit", "transport.read"];
 
 export const VAT_PERMISSIONS: Record<UserRoleName, VatPermission[]> = {
   owner: ALL_VAT,
   admin: ALL_VAT,
   finance_manager: ALL_VAT,
-  accountant: ["vat.read", "vat.write"],
-  auditor: ["vat.read"],
-  user_free: ["vat.read"],
+  accountant: ["vat.read", "vat.write", "transport.read"],
+  auditor: ["vat.read", "transport.read"],
+  user_free: ["vat.read", "transport.read"],
   approver: [],
   user: [],
 };

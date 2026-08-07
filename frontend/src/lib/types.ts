@@ -1805,3 +1805,173 @@ export interface VatWaiver {
 export interface VatRemoved {
   removed: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Transport vertical — the RECOVERY INTELLIGENCE surfaces (WO-81's
+// `recovery.py`, WO-82/WO-83's `overcharges.py`, WO-84's `rebates.py`, given
+// screens by WO-86). Field-for-field from `backend/app/schemas/
+// transport_recovery.py`, `transport_overcharge.py` and `transport_rebate.py`.
+//
+// Same money rule as every transport type above: each `Decimal` on those
+// schemas is `string` here, rendered with `decimalMoney` and posted back as the
+// typed string. Nothing on these screens is summed, re-rounded or converted —
+// the server already totalled it (master-context §4.9/§4.10).
+// ---------------------------------------------------------------------------
+
+/** `RecoveryBucketOut` — one of the six harvested readiness states
+ * (`ready · deadline · missing · below · submitted · paid`). All six always
+ * arrive, including the empty ones: a bucket that vanished at zero would make
+ * "nothing is at deadline risk" and "the dashboard forgot" identical. */
+export interface RecoveryBucket {
+  state: string;
+  claims: number;
+  vat_eur: string;
+}
+
+/** `RecoveryExcludedOut` — claims matching none of the six states, named by
+ * their engine status (`withdrawn`/`rejected`). Reported rather than dropped so
+ * `Σ buckets + Σ excluded == total_claims` holds exactly. */
+export interface RecoveryExcluded {
+  reason: string;
+  claims: number;
+}
+
+/** `RecoveryDashboardOut` — one refund year's portfolio. Basis: NET EUR.
+ *
+ * Two fields must never be rendered as a zero. `median_days_to_refund` is
+ * `null` until a paid claim carries BOTH a submitted and a paid date —
+ * `days_to_refund_sample` is what makes that legible instead of mysterious, and
+ * 0 would claim refunds arrive the same day they are filed.
+ * `currency_mismatch_claims` counts drafts whose lines span currencies: they
+ * are excluded from every euro below (§4.14), so a non-zero count is the
+ * explanation for a total that looks short. */
+export interface RecoveryDashboard {
+  year: number;
+  /** Always "EUR" — the basis of every figure here, stated not assumed. */
+  currency: string;
+  total_claims: number;
+  buckets: RecoveryBucket[];
+  excluded: RecoveryExcluded[];
+  recovered_eur: string;
+  awaiting_eur: string;
+  claimable_eur: string;
+  /** The SECOND cash stream — booked cash recovered from suppliers for contract
+   * breaches. Deliberately OUTSIDE the recovered+awaiting+claimable identity,
+   * which is about this year's VAT. */
+  overcharges_eur: string;
+  /** Counted across every unfiled claim REGARDLESS of its bucket: the buckets
+   * say what to do, this says how urgent. Not a seventh bucket. */
+  deadline_risk_claims: number;
+  currency_mismatch_claims: number;
+  median_days_to_refund: string | null;
+  days_to_refund_sample: number;
+}
+
+/** `ContractTermOut` — one agreed commercial term. Exactly two term types
+ * exist, both €/L; at least one figure is always present. */
+export interface ContractTerm {
+  id: string;
+  supplier: string;
+  country: string;
+  /** A LIKE pattern over the station column; "" = every station. */
+  station_like: string;
+  product_group: string;
+  expected_discount_eur_l: string | null;
+  max_net_eur_l: string | null;
+  active: boolean;
+}
+
+/** `BreachOut` — one fuel line that breaches one agreed term.
+ * Basis: NET EUR/L, final — VAT excluded, rebates applied. */
+export interface OverchargeBreach {
+  fuel_transaction_id: string;
+  entity_id: string;
+  supplier: string;
+  country: string;
+  station: string;
+  product_group: string;
+  txn_date: string;
+  qty: string;
+  /** PROVENANCE only — never summed, never the unit of any amount here. */
+  document_currency: string;
+  eur_l_doc: string;
+  eur_l_eff: string;
+  /** "short discount" | "over ceiling" — the service's own vocabulary. */
+  flag: string;
+  agreed_eur_l: string;
+  actual_eur_l: string;
+  gap_eur_l: string;
+  recover_eur: string;
+}
+
+/** `ContractAuditOut` — the read-only detection half of R41. Reading it changes
+ * nothing and gates nothing (§4.19). `price_basis` and `legal_framing` ride the
+ * response because the basis must be stated wherever the euro is shown. */
+export interface ContractAudit {
+  period: string;
+  supplier: string | null;
+  currency: string;
+  price_basis: string;
+  legal_framing: string;
+  breaches: OverchargeBreach[];
+  /** The €-exposure DETECTED — NOT cash recovered. */
+  recover_eur: string;
+  lines_audited: number;
+  lines_without_terms: number;
+  lines_skipped_zero_qty: number;
+  /** ADVISORY (§4.19): a `(supplier, country)` priced at LIST because its
+   * recorded rebate document is missing for this period. Never a gate. */
+  source_warnings: string[];
+}
+
+/** `OverchargeClaimOut` — one per-(supplier × period) claim-back.
+ * `detected_eur` is FROZEN at open (the euro the demand quotes) and never
+ * re-derived; `recovered_eur` is booked cash and stays null until the claim-back
+ * reaches `recovered`. */
+export interface OverchargeClaim {
+  id: string;
+  supplier: string;
+  period: string;
+  /** One of `overcharge.OVERCHARGE_STATES`. */
+  status: string;
+  detected_eur: string;
+  lines_count: number;
+  recovered_eur: string | null;
+  note: string | null;
+  currency: string;
+  created_at: string;
+}
+
+/** `OverchargeTotalOut` — the booked-cash north star alone on the wire. */
+export interface OverchargeTotal {
+  year: number | null;
+  currency: string;
+  recovered_eur: string;
+}
+
+/** `RebateOut` — one recorded off-invoice rebate document.
+ *
+ * `amount_eur` is SERVER-RESOLVED through the ECB rate at the document's own
+ * date (§4.10): there is no client-supplied EUR figure, and a rebate that could
+ * not reach EUR was refused rather than stored (§4.15), which is why
+ * `fx_source` here is only ever "eur" or "ecb" — never "unknown". */
+export interface OffInvoiceRebate {
+  id: string;
+  supplier: string;
+  country: string;
+  /** "YYYY-MM" — the fuel period this rebate ADJUSTS. */
+  period: string;
+  source_ref: string;
+  source_party: string;
+  /** The rebate document's OWN date — what the FX conversion is audited
+   * against, routinely a later month than `period`. */
+  rebate_date: string;
+  currency: string;
+  amount_local: string;
+  amount_eur: string;
+  fx_rate: string | null;
+  fx_ecb_rate: string | null;
+  fx_ecb_date: string | null;
+  fx_source: string | null;
+  note: string | null;
+}
