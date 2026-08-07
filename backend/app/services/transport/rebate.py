@@ -427,9 +427,7 @@ async def list_rebates(
     return list(await db.scalars(stmt))
 
 
-def _allocate(
-    rows: list[FuelTransaction], rebate_total: Decimal, source_refs: list[str]
-) -> list[RebateAllocation]:
+def _allocate(rows: list[FuelTransaction], rebate_total: Decimal) -> list[RebateAllocation]:
     """The pro-rata-by-litres allocation, cumulative so the shares sum EXACTLY
     to `rebate_total` (see the module docstring for both choices).
 
@@ -437,7 +435,6 @@ def _allocate(
     new figures WITHOUT writing any of them, which is what lets `merge_period`
     resolve every country before touching the database.
     """
-    del source_refs  # provenance travels on the audit meta, not the arithmetic
     eligible = [r for r in rows if Decimal(r.qty) > 0]
     total_qty = sum((Decimal(r.qty) for r in eligible), Decimal("0"))
     if total_qty <= 0:
@@ -549,7 +546,7 @@ async def merge_period(
                 "transaction exists for it — the rebate would vanish (R50).",
                 code="rebate_has_no_transactions",
             )
-        planned.extend(_allocate(rows, group_total, [r.source_ref for r in group]))
+        planned.extend(_allocate(rows, group_total))
         total_eur += group_total
 
     # Phase 2 — write only the rows whose figure actually moves.
