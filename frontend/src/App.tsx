@@ -55,6 +55,7 @@ const VatClaimDetail = lazy(() => import("./pages/VatClaimDetail"));
 const VatAdmin = lazy(() => import("./pages/VatAdmin"));
 const VatCustomers = lazy(() => import("./pages/VatCustomers"));
 const RecoveryDashboard = lazy(() => import("./pages/RecoveryDashboard"));
+const Overcharges = lazy(() => import("./pages/Overcharges"));
 
 // Design-system showcase (public, fixtures-only). Lives under /design so the
 // living style guide + shell demo can be reviewed and visual/e2e-tested without a
@@ -161,6 +162,7 @@ export default function App() {
                 <Route path="/vat-admin" element={<VatAdmin />} />
                 <Route path="/vat-customers" element={<VatCustomers />} />
                 <Route path="/recovery" element={<RecoveryDashboard />} />
+                <Route path="/overcharges" element={<Overcharges />} />
                 <Route path="/team" element={<Team />} />
                 <Route path="/access" element={<Access />} />
                 <Route path="/sessions" element={<Sessions />} />
