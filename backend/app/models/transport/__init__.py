@@ -17,6 +17,7 @@ from app.models.transport.extraction_baseline import FuelExtractionBaseline
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.models.transport.lock import VatClaimedInvoice
 from app.models.transport.note_override import VatNoteInvoiceOverride
+from app.models.transport.off_invoice_rebate import VatOffInvoiceRebate
 from app.models.transport.overcharge import VatOverchargeClaim
 from app.models.transport.receipt_control import VatReceiptControl, VatSupplierCadence
 from app.models.transport.receipt_waiver import VatReceiptWaiver
@@ -34,6 +35,7 @@ __all__ = [
     "VatCountryActivation",
     "VatCustomerLifecycle",
     "VatNoteInvoiceOverride",
+    "VatOffInvoiceRebate",
     "VatOverchargeClaim",
     "VatReceiptControl",
     "VatReceiptWaiver",
