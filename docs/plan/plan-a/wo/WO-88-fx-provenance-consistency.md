@@ -68,10 +68,22 @@ does, repeatedly.** Verified:
 * **but** `tests/transport/test_g3_3_tie_out.py:28-45` builds every one of its
   lines as `currency="SEK", net_eur=Decimal("90.00")` with **no `fx_source`**,
   and the same shape recurs in `test_g2_5_freeze.py`, `test_g2_6_submission_gates.py`,
-  `test_wo83_overcharge_artifacts.py`, `test_wo82_contract_audit.py` and
-  `test_wo85_canonical_queries.py` (`grep -c fx_source` = **0** in each of
-  those files). Those fixtures are the defect in miniature: a Swedish krona
-  line asserting €90.00 that no rate ever produced.
+  `test_wo83_overcharge_artifacts.py`, `test_wo82_contract_audit.py`,
+  `test_wo85_canonical_queries.py` and — found by CI rather than by this recon,
+  see the correction below — `test_wo81_recovery.py`. Those fixtures are the
+  defect in miniature: a Swedish krona line asserting €90.00 that no rate ever
+  produced.
+
+**Finding 4, CORRECTED — it is SEVEN fixtures, not six, and the seventh was
+found by CI.** The first sweep piped its grep through `head -30` and the
+`test_wo81_recovery.py:604` hit sat below the cut. The full backend suite found
+it (`test_wo81_a_cross_currency_draft_is_excluded_from_the_euros_and_counted`,
+the only failure in 2172 tests) exactly where the gate was designed to bite: a
+SEK line built with no provenance in order to construct a genuine cross-currency
+claim for the §4.14 dashboard proof. Recorded here rather than quietly fixed,
+because the miss is instructive — **a truncated grep is not a sweep**, and the
+regression net, not the recon, is what proved the fixture list complete. The
+re-run sweep is unbounded and is quoted in the *Testing requirements* section.
 
 **Finding 5 — the same inconsistency is representable on the OTHER money-bearing
 transport table, and worse.** `vat_off_invoice_rebates` (WO-84) carries
@@ -125,14 +137,32 @@ the ones that do not exist yet.
 - One new Alembic revision creating all three constraints, single head
   preserved, with a pre-flight violation report (see *Database / migration
   impact*).
-- The six test fixtures of finding 4, raised to record the provenance a real
-  ingestion would have recorded (`fx_source="ecb"`). No assertion is weakened.
+- The SEVEN test fixtures of finding 4 (six found by recon, the seventh by the
+  full suite), raised to record the provenance a real ingestion would have
+  recorded (`fx_source="ecb"`). No assertion is weakened, and the one
+  scenario that could plausibly have been broken by the raise — WO-81's
+  cross-currency dashboard proof — is verified still reachable and still
+  asserting the same six outcomes.
 - `docs/transport/rules.md` — **R56 gains its first ledger row** (it has none
   today: `grep -n "^| R56" docs/transport/rules.md` returns nothing) naming
   both enforcement layers.
 - `TODO.md` — the WO-88 row, the M5 cell, the suite line.
 - `README.md` — the pinned Alembic revision count 86 → 87, in the SAME commit
   as the migration (`tests/test_docs_truth.py::test_readme_scale_numbers_match_the_live_tree`).
+
+**The other transport tables — checked, and named so the check is on the record.**
+`grep -l currency app/models/transport/*.py` returns six modules; only TWO can
+represent this inconsistency, and both are in scope above:
+
+| table | EUR column | `fx_source`? | verdict |
+|---|---|---|---|
+| `fuel_transactions` | `net_eur`/`net_eur_eff`/`vat_eur` NOT NULL | yes | **in scope** (findings 1-2) |
+| `vat_off_invoice_rebates` | `amount_eur` NOT NULL | yes | **in scope** (finding 5) |
+| `vat_claim_lines` | `net_eur`/`vat_eur` NOT NULL, `currency` nullable | **no column** | nothing to contradict; the figures are DERIVED from `fuel_transactions` by `claim_lines.build_claim_lines`, so they inherit the provenance this order now guarantees upstream |
+| `vat_refund_claims` | `vat_eur`/`fee_eur` nullable | no | derived totals, no document currency pair |
+| `vat_overcharge_claims` | `detected_eur`/`recovered_eur` | no | *"Both are EUR by construction… the document-currency columns are never read"* (`overcharge.py:55-58`) |
+| `fuel_tieout_expectations` | `expected_*_eur` nullable | no | operator-entered expectations, per currency, nullable — a missing figure is already NULL |
+| `fuel_extraction_baselines` | — | no | LOCAL currency only, by design (`extraction_baseline.py:24`) |
 
 **Out of scope (named, with the reason):**
 - **A non-EUR row claiming `fx_source='eur'`** — a third representable
@@ -170,6 +200,8 @@ the ones that do not exist yet.
 | `backend/tests/transport/test_wo82_contract_audit.py` | same |
 | `backend/tests/transport/test_wo83_overcharge_artifacts.py` | same |
 | `backend/tests/transport/test_wo85_canonical_queries.py` | same |
+| `backend/tests/transport/test_wo81_recovery.py` | same (the seventh fixture — the cross-currency dashboard proof; scenario verified intact) |
+| `backend/tests/transport/test_g3_4_capture_checks.py` | a PLN line labelled `fx_source="eur"` (the identity provenance) now carries `ecb` |
 | `backend/tests/transport/test_wo87_savings.py` | the two §4.15 tests keep their names and their assertion; the now-unstorable row is exercised against the guard directly (see *Documented interpretations*) |
 | `backend/tests/transport/test_wo87_savings_routes.py` | same, for the wire test |
 | `README.md` | 86 → 87 Alembic revisions (same commit as the migration) |
@@ -344,6 +376,36 @@ clean and lossless (asserted by the existing
   `alembic upgrade head`, assert it **fails**, prints the offending row, and
   leaves the constraint uncreated; delete the row, re-run, assert it succeeds
   and the constraint is now live (a raw insert is refused).
+
+**The fixture sweep, unbounded** (finding 4's correction). Every non-EUR
+currency literal in `backend/tests` was re-listed with no `head` and classified:
+
+```bash
+grep -rn 'currency\s*=\s*"[A-Za-z][A-Za-z][A-Za-z]"' tests --include=*.py | grep -vi '"EUR"'
+```
+
+* **reaches the writer with no provenance ⇒ raised to `ecb`** — `test_g3_3_tie_out.py`,
+  `test_g2_5_freeze.py`, `test_g2_6_submission_gates.py`, `test_wo82_contract_audit.py`,
+  `test_wo83_overcharge_artifacts.py`, `test_wo85_canonical_queries.py`,
+  `test_wo81_recovery.py`;
+* **reaches the writer with a WRONG provenance** — `test_g3_4_capture_checks.py`
+  labelled a PLN line `fx_source="eur"` (the identity, which only a EUR line can
+  truthfully claim). The gate accepts it by design — WO-88 refuses a MISSING
+  provenance, not a wrong one — so this was not a failure, but a fixture should
+  not assert what no ingestion would write, and it now carries `ecb`. It is also
+  the only live instance of the out-of-scope third inconsistency, which is
+  evidence that rule is worth a follow-up order rather than a shrug;
+* **never reaches the writer** — ZAR/PLN statement cases (`test_g3_2_bp_*`,
+  `test_g3_2_dkv_*`, `test_wo84_rebate_*`) are refused UPSTREAM by
+  `statement_ingest` / `rebate` with the same `fx_rate_unavailable`; parser-row
+  (`test_g3_2_tfc_*`) and baseline-row (`test_g3_3s2_extraction_baseline.py`)
+  cases build no `fuel_transactions` row at all; `test_wo85:320` is a pure
+  Select-builder assertion; the AP/AR hits (`test_sepa`, `test_analytics`,
+  `test_expense_management`, `test_money_invariants`) are other tables entirely.
+
+`grep -rn 'fx_source="unknown"' tests` over the same tree: the only transport
+hits are WO-88's own negative tests; the rest are `invoices`/`expense_items`,
+where `total_eur` is nullable and the invariant already holds.
 
 Unchanged and re-run as the regression net: `tests/transport/test_wo87_savings.py`,
 `test_wo87_savings_routes.py`, `test_wo87_r53_framing.py`,
