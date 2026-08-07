@@ -306,6 +306,61 @@ already in place and costs nothing sitting empty.
 
 ---
 
+## 11. Claim-line supplier attribution — what an `UNMATCHED` bucket carries (M3 / WO-79, WO-80)
+**Status:** 🔓  ·  **Board:** G2.4 (`claim_lines.build_claim_lines`) / R2
+
+**Built:** claim lines materialize at the R2 grain — one row per (invoice
+reference × product group) — with the Art. 9 goods code, the EUR and local
+amounts, and the resolved AP invoice where one was found
+(`backend/app/services/transport/claim_lines.py`). The claim workspace renders
+them at exactly that grain (`frontend/src/pages/VatClaimDetail.tsx`).
+
+**Blocked / needs you.** A claim line carries **no supplier**, and both WO-79 and
+WO-80 stopped at the same wall rather than guess one. Two facts make this a
+decision and not a bug fix:
+
+1. **The two `invoice_ref` columns mean different things.** On a claim line
+   (`vat_claim_lines.invoice_ref`) it is the **resolved AP invoice number** —
+   the value `invoice_match.resolve_invoice_ref` returned after matching the
+   registered invoice set. On a fuel transaction
+   (`fuel_transactions.invoice_ref`) it is the **raw reference read off the
+   supplier's own statement** (Fleet Fuel's overloaded "note", split into
+   `invoice_ref` + `provenance_note` by WO-50). They are not the same string,
+   and joining a line back to its transactions on that column would be a false
+   equality, not a lookup.
+2. **An `UNMATCHED` line aggregates MULTIPLE suppliers.** Every transaction that
+   resolved to no registered invoice groups into one `UNMATCHED` line per
+   product group — so a single line can span Q8, BP and DKV at once. There is no
+   one supplier to display, and picking the first, the largest or the
+   alphabetically-first would be an invented attribution on a surface that ends
+   up in a **filing** (Art. 8(2) requires the supplier's name, address and VAT
+   number **per invoice**).
+
+**Decision needed:** what should an `UNMATCHED` multi-supplier bucket carry on a
+filing surface? The options, none of them obviously right:
+
+- **(a) Split the grain.** Make the line key `(supplier, invoice_ref,
+  product_group)` so an `UNMATCHED` line exists per supplier and always has
+  exactly one. Truest to Art. 8(2), but it changes the R2 grain the harvested
+  spec states, and it multiplies the unresolved-line count an operator sees.
+- **(b) Keep the grain, add a supplier LIST.** The line stays as-is and carries
+  the distinct suppliers behind it (a column or a derived field). Honest, shows
+  the operator exactly what to go fix — but a claim line that names three
+  suppliers cannot be filed, so the UI must present it as a work item, not a
+  claim row.
+- **(c) Keep the grain, show nothing.** Today's behaviour, made explicit: an
+  `UNMATCHED` line names no supplier because it has none. Cheapest, and safe
+  (R3 already refuses to file any synthetic line) — but it leaves the operator
+  with no route from "this line is unresolved" to "here is who to chase".
+
+**Owner:** product, with the VAT filing lead. **Interim controls:** none of this
+is reachable in a filing — `claim_gates.is_synthetic()` treats `UNMATCHED` as
+synthetic and R3's wired consumers (the lock gate, the workbook and the evidence
+pack) all refuse a pack containing one. The gap is an operator-workflow gap, not
+a correctness one, and nothing is being filed wrongly while it waits.
+
+---
+
 *Not blocked — I can keep building these without you:* enhancements to shipped
 features, tests/coverage, docs, and any of the above up to its stated boundary.
 Tell me which to prioritise next.
