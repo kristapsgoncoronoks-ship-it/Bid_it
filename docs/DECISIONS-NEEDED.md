@@ -401,6 +401,49 @@ gap is worklist hygiene, not correctness.
 
 ---
 
+## 13. Re-snapshotting a supplier overcharge claim-back whose evidence has moved (M5 / WO-83)
+
+**Context.** `overcharge.open_claim` FREEZES the detected euro onto the
+claim-back — *"the euro the demand letter quotes"* — while
+`contract_audit.audit()` stays LIVE over `fuel_transactions`. That freeze is
+deliberate and right (the G2.5/ADR-P3 reasoning: a figure quoted to a supplier
+must not move underneath the operator). But a later re-ingest, a corrected line
+or an edited contract term can make the live line source no longer reproduce the
+frozen figure.
+
+WO-83's two send-ready artifacts REFUSE in that state
+(`overcharge_evidence_drift`, 409): a demand letter quoting €8,000 whose
+attached evidence sums to €6,500 is exactly the misleading document R41's
+*"both artifacts show identical lines and totals"* acceptance exists to prevent,
+and choosing either figure silently would be worse than refusing. That is the
+correct fail-CLOSED behaviour — but it leaves the claim-back with **no way
+forward**: the harvested chain has no re-snapshot edge, and inventing one is
+master-context §10 territory.
+
+**Decision needed:** how does an operator resolve a drifted claim-back?
+
+- **(a) A `refresh` action on a `detected` claim-back** — re-runs the audit and
+  re-freezes `detected_eur` (audited old→new), refused once the claim-back has
+  been `packaged` (a figure already sent must never move). Smallest change,
+  keeps the freeze meaningful exactly where it matters.
+- **(b) Close and re-open** — allow a drifted claim-back to be abandoned (which
+  needs §12's decision first) and a fresh one opened on the same natural key.
+  No new semantics, but the audit trail records a chase that never happened.
+- **(c) Leave it** — the operator fixes the underlying line or term until the
+  figures agree again. Costs nothing, but a genuinely superseded claim-back can
+  become permanently unsendable.
+
+**Owner:** product, with whoever works the supplier chase list (the same person
+§12 needs).
+**Interim controls:** nothing here can produce a wrong number — the refusal is
+the control. A drifted claim-back contributes €0 to `recovered_total` until it
+reaches `recovered`, the live figure is always available at
+`GET /transport/overcharges/audit`, and the EVIDENCE PACKET is not affected by
+the decision (it refuses on drift for the same reason the letter does: it is the
+letter's own enclosure).
+
+---
+
 *Not blocked — I can keep building these without you:* enhancements to shipped
 features, tests/coverage, docs, and any of the above up to its stated boundary.
 Tell me which to prioritise next.
