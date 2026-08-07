@@ -58,6 +58,59 @@ async def _org_entity(db_session, *, name: str = "WO87 Org", seed: int = 1):
     return org.id, entity.id
 
 
+def _unstorable_line(org_id: str, entity_id: str, *, currency: str, fx_source: str | None):
+    """A line with no established EUR basis, built in memory and NEVER added to
+    a session — after WO-88 that is the only place this shape can exist
+    (`fuel_ingest._require_fx_provenance` and
+    `ck_fuel_transactions_fx_provenance` both refuse to create it). The §4.15
+    tests below still need one to prove the ANALYSIS layer refuses it too."""
+    return FuelTransaction(
+        org_id=org_id,
+        entity_id=entity_id,
+        supplier="ZZZ",
+        period=PERIOD,
+        line_seq=999,
+        country="LV",
+        vehicle_ref=synthetic_vehicle_ref(),
+        txn_date=D1,
+        station="Demo Station Riga",
+        product="DIESEL",
+        product_group="Diesel",
+        qty=Decimal("1000.000"),
+        currency=currency,
+        net_local=Decimal("1400.00"),
+        vat_local=Decimal("294.00"),
+        gross_local=Decimal("1694.00"),
+        net_eur=Decimal("1400.00"),
+        vat_eur=Decimal("294.00"),
+        net_eur_eff=Decimal("1400.00"),
+        fx_source=fx_source,
+    )
+
+
+class _PoisonedSession:
+    """A read-through proxy over the real `AsyncSession` that appends ONE
+    unstorable row to every row set the analyses read.
+
+    Normally a test drives the real path end to end (`WORK_ORDER_TEMPLATE.md`).
+    Here the real write path is precisely what WO-88 removed, so the row under
+    test can no longer be persisted — and a §4.15 assertion that could no
+    longer construct its input would have to be deleted, which §10 forbids.
+    Everything downstream of the fetch is the real code: the real registry
+    select, the real `savings._require_eur_basis`, the real error."""
+
+    def __init__(self, real, poison):
+        self._real = real
+        self._poison = poison
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+    async def scalars(self, statement, *args, **kwargs):
+        rows = list(await self._real.scalars(statement, *args, **kwargs))
+        return [*rows, self._poison]
+
+
 _SEQ = {"n": 0}
 
 
@@ -845,26 +898,44 @@ async def test_wo87_a_line_with_no_established_eur_basis_refuses(db_session):
     """§4.15 — refuse rather than guess, and refuse rather than quietly shrink
     the comparison set. A PLN line with no recorded conversion at all makes ALL
     THREE analyses refuse, because a comparison whose set silently lost a
-    supplier answers a different question than the one asked."""
+    supplier answers a different question than the one asked.
+
+    WO-88 CHANGED HOW THIS ROW REACHES THE ANALYSIS, NOT WHETHER IT IS REFUSED.
+    The writer (`fuel_ingest.ingest_transaction`) and the table CHECK
+    (`ck_fuel_transactions_fx_provenance`) now refuse to create it at all — so
+    the first assertion below is the NEW first layer, and the poisoned row set
+    then drives the SAME three analyses through the SAME unmodified guard
+    (`savings._require_eur_basis`), which is the layer this test has always
+    been about. Both layers, asserted together."""
     org_id, entity_id = await _org_entity(db_session)
     await _line(db_session, org_id, entity_id, supplier="AAA", net_eur=Decimal("1500.00"))
-    await _line(
-        db_session,
-        org_id,
-        entity_id,
-        supplier="BBB",
-        currency="PLN",
-        net_eur=Decimal("1400.00"),
-        fx_source=None,
-    )
 
+    # Layer 1 (WO-88): the row can no longer be written.
+    with pytest.raises(ValidationError) as writer:
+        await _line(
+            db_session,
+            org_id,
+            entity_id,
+            supplier="BBB",
+            currency="PLN",
+            net_eur=Decimal("1400.00"),
+            fx_source=None,
+        )
+    assert writer.value.code == "fx_rate_unavailable"
+    await db_session.rollback()
+
+    # Layer 2 (WO-87, unchanged): if one ever reached a row set anyway, every
+    # analysis refuses rather than comparing over a silently smaller set.
+    poisoned = _PoisonedSession(
+        db_session, _unstorable_line(org_id, entity_id, currency="PLN", fx_source=None)
+    )
     for call in (
         savings.same_day_overpay,
         savings.internal_benchmark,
         savings.expected_rebate,
     ):
         with pytest.raises(ValidationError) as exc:
-            await call(db_session, org_id, period=PERIOD)
+            await call(poisoned, org_id, period=PERIOD)
         assert exc.value.code == "fx_rate_unavailable"
         assert "PLN" in str(exc.value)
 
@@ -873,20 +944,27 @@ async def test_wo87_an_explicit_unknown_fx_source_refuses_even_in_eur(db_session
     """`fx_source == "unknown"` is the writer positively recording that no rate
     was available (`app/models/fx.py`). Whatever sits in `net_eur_eff` is not a
     converted euro, so it is refused regardless of what the currency column
-    says."""
+    says. Same two layers as the test above (WO-88)."""
     org_id, entity_id = await _org_entity(db_session)
     await _line(db_session, org_id, entity_id, supplier="AAA", net_eur=Decimal("1500.00"))
-    await _line(
-        db_session,
-        org_id,
-        entity_id,
-        supplier="BBB",
-        net_eur=Decimal("1400.00"),
-        fx_source="unknown",
-    )
 
+    with pytest.raises(ValidationError) as writer:
+        await _line(
+            db_session,
+            org_id,
+            entity_id,
+            supplier="BBB",
+            net_eur=Decimal("1400.00"),
+            fx_source="unknown",
+        )
+    assert writer.value.code == "fx_rate_unavailable"
+    await db_session.rollback()
+
+    poisoned = _PoisonedSession(
+        db_session, _unstorable_line(org_id, entity_id, currency="EUR", fx_source="unknown")
+    )
     with pytest.raises(ValidationError) as exc:
-        await savings.same_day_overpay(db_session, org_id, period=PERIOD)
+        await savings.same_day_overpay(poisoned, org_id, period=PERIOD)
     assert exc.value.code == "fx_rate_unavailable"
 
 

@@ -42,6 +42,10 @@ async def _make_txn(db_session, org, entity, *, line_seq=1, **overrides):
         invoice_ref="DKV-2026-000123",
     )
     kwargs.update(overrides)
+    # WO-88 (§4.15): a non-EUR line carries the FX provenance a real ingestion
+    # records; EUR is the identity and needs none. Fixture privilege raised —
+    # not one assertion below changes.
+    kwargs.setdefault("fx_source", None if str(kwargs["currency"]).upper() == "EUR" else "ecb")
     return await fuel_ingest.ingest_transaction(
         db_session, org.id, entity_id=entity.id, line_seq=line_seq, **kwargs
     )

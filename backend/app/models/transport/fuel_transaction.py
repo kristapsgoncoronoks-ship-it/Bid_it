@@ -106,6 +106,33 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
 from app.models.fx import FX_SOURCE_CHECK
 
+# WO-88 — the FX provenance CONSISTENCY invariant, as SQL.
+#
+# `FX_SOURCE_CHECK` above constrains only the value DOMAIN; it says nothing
+# about the combination, so until WO-88 a row could assert both "no rate was
+# available" (`fx_source='unknown'`, which `app/models/fx.py` defines as *"EUR
+# figure is NULL, never a guessed number"*) and a non-NULL `net_eur`. Two
+# clauses, one per way that assertion can be false:
+#
+#   1. `unknown` beside a stored EUR figure. `net_eur` is NOT NULL here, so on
+#      this table the honest outcome of "no rate" is NO ROW — the branch
+#      `statement_ingest` already takes. The `net_eur IS NULL` disjunct is kept
+#      deliberately even though it can never fire today: it states the
+#      invariant the way ADR-0010 states it, so a future order that makes the
+#      EUR columns nullable inherits a constraint that still means the right
+#      thing instead of one that has silently become wrong.
+#   2. a non-EUR document currency with NO provenance at all — master-context
+#      §4.14's *"it never labels a foreign amount EUR"*. A EUR row with a NULL
+#      `fx_source` stays legal: EUR is the identity and involves no rate.
+#
+# Plain portable SQL, the `FX_SOURCE_CHECK` precedent's form: no `IS DISTINCT
+# FROM` (SQLite gained it only in 3.39) and `upper()`, which is immutable —
+# and therefore legal inside a CHECK — on both SQLite and PostgreSQL.
+FX_PROVENANCE_CHECK = (
+    "(fx_source IS NULL OR fx_source <> 'unknown' OR net_eur IS NULL)"
+    " AND (upper(currency) = 'EUR' OR fx_source IS NOT NULL)"
+)
+
 # The exact 7-category set, `BA_fleet_fuel.md` section 4.2 row 8, verbatim.
 # `derive_product_group()` (app/services/transport/product_group.py) is the
 # ONLY code allowed to compute this value — never re-derive the precedence
@@ -166,6 +193,11 @@ class FuelTransaction(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         # goods_code <> '9' constraint).
         CheckConstraint(_PRODUCT_GROUP_CHECK, name="ck_fuel_transactions_product_group"),
         CheckConstraint(FX_SOURCE_CHECK, name="ck_fuel_transactions_fx_source"),
+        # WO-88 — the value domain above is not enough; the COMBINATION has to
+        # hold too. See FX_PROVENANCE_CHECK's comment, and
+        # `fuel_ingest._require_fx_provenance` for the same rule at the writer
+        # (both layers, always).
+        CheckConstraint(FX_PROVENANCE_CHECK, name="ck_fuel_transactions_fx_provenance"),
         Index("ix_fuel_transactions_org_entity", "org_id", "entity_id"),
         Index("ix_fuel_transactions_org_period", "org_id", "period"),
     )

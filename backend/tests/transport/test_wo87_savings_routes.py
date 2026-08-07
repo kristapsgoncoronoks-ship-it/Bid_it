@@ -25,8 +25,9 @@ from decimal import Decimal
 import pytest
 from httpx import AsyncClient
 
+from app.models.transport.fuel_transaction import FuelTransaction
 from app.services import modules
-from app.services.transport import fuel_ingest
+from app.services.transport import fuel_ingest, savings
 from tests.factories.transport import synthetic_vehicle_ref
 from tests.transport.conftest import make_entity
 
@@ -60,6 +61,35 @@ async def _register_org(client: AsyncClient):
 
 async def _enable_transport(db_session, org_id: str) -> None:
     await modules.set_enabled(db_session, org_id, "transport", True)
+
+
+def _unstorable_line(org_id: str, entity_id: str) -> FuelTransaction:
+    """A PLN line with no recorded conversion, built in memory and never added
+    to a session — after WO-88 the writer and the table CHECK both refuse to
+    create this shape, which is why the §4.15 wire test can no longer seed one
+    through storage (see that test's docstring)."""
+    return FuelTransaction(
+        org_id=org_id,
+        entity_id=entity_id,
+        supplier="ZZZ",
+        period=PERIOD,
+        line_seq=999,
+        country="LV",
+        vehicle_ref=synthetic_vehicle_ref(),
+        txn_date=DAY,
+        station="Demo Station Riga",
+        product="DIESEL",
+        product_group="Diesel",
+        qty=Decimal("1000.000"),
+        currency="PLN",
+        net_local=Decimal("1400.00"),
+        vat_local=Decimal("294.00"),
+        gross_local=Decimal("1694.00"),
+        net_eur=Decimal("1400.00"),
+        vat_eur=Decimal("294.00"),
+        net_eur_eff=Decimal("1400.00"),
+        fx_source=None,
+    )
 
 
 async def _member_with_role(client: AsyncClient, owner_headers, db_session, stored_role: str):
@@ -314,19 +344,32 @@ async def test_wo87_a_malformed_country_is_422_invalid_country(client, db_sessio
     assert r.json()["code"] == "invalid_country"
 
 
-async def test_wo87_a_line_with_no_eur_basis_refuses_on_the_wire(client, db_session):
-    """§4.15 over HTTP. The stored row is deliberately given the platform's
-    `"unknown"` FX provenance — *"no rate available → the EUR figure is NULL,
-    never a guessed number"* — and the analysis refuses rather than comparing at
-    a guessed rate or over a silently smaller set."""
+async def test_wo87_a_line_with_no_eur_basis_refuses_on_the_wire(client, db_session, monkeypatch):
+    """§4.15 over HTTP: the refusal reaches the wire as 422
+    `fx_rate_unavailable` with a request id, rather than a 500 or a comparison
+    run over a silently smaller set.
+
+    This test used to seed its fixture by tampering a stored row's `fx_source`
+    to `"unknown"`. WO-88 made that row unstorable — the writer refuses it and
+    `ck_fuel_transactions_fx_provenance` refuses it underneath — so the
+    untrustworthy row is now handed to the REAL guard
+    (`savings._require_eur_basis`, unmodified) at the one point storage can no
+    longer supply it. Everything else is the real path: the real route, the
+    real service, the real exception handler, the real response shape."""
     headers, org_id = await _register_org(client)
     await _enable_transport(db_session, org_id)
     entity = await make_entity(db_session, org_id, country="LV")
     await db_session.commit()
     await _line(db_session, org_id, entity.id, supplier="AAA", net_eur=Decimal("1500.00"))
-    bad = await _line(db_session, org_id, entity.id, supplier="CCC", net_eur=Decimal("1400.00"))
-    bad.fx_source = "unknown"
+    await _line(db_session, org_id, entity.id, supplier="CCC", net_eur=Decimal("1400.00"))
     await db_session.commit()
+
+    real_guard = savings._require_eur_basis
+    monkeypatch.setattr(
+        savings,
+        "_require_eur_basis",
+        lambda rows: real_guard([*rows, _unstorable_line(org_id, entity.id)]),
+    )
 
     r = await client.get(SAME_DAY, headers=headers, params={"period": PERIOD})
     assert r.status_code == 422, r.text

@@ -67,6 +67,10 @@ async def _make_txn(
         + (vat_local if vat_local is not None else vat_eur),
         net_eur=net_eur,
         vat_eur=vat_eur,
+        # WO-88 (§4.15): a non-EUR line carries the FX provenance a real
+        # ingestion records; EUR is the identity and needs none. Fixture
+        # privilege raised — not one assertion below changes.
+        fx_source=None if str(currency).upper() == "EUR" else "ecb",
         invoice_ref=invoice_ref,
     )
 

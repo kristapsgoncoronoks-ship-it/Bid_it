@@ -97,12 +97,26 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.fx import FX_SOURCE_CHECK
 
 # The source guard at the storage layer — see the module docstring. An empty
 # string is the failure mode these guard against (NULL is already refused by
 # nullable=False), because "" is what an unchecked form post produces.
 _SOURCE_REF_CHECK = "source_ref <> ''"
 _SOURCE_PARTY_CHECK = "source_party <> ''"
+
+# WO-88 — the same FX provenance invariant `fuel_transactions` carries, over
+# this table's own EUR column. WO-84 shipped this table with the FX quadruple
+# but NO `fx_source` constraint of any kind — not even the value-domain one
+# every other FX-bearing table has had since WO-8 (`ck_expense_items_fx_source`,
+# `ck_invoices_fx_source`, `ck_fuel_transactions_fx_source`) — so a raw writer
+# could store free text, or 'unknown' beside a positive `amount_eur`.
+# `rebate._resolve_eur` is already correct (it emits only 'eur'/'ecb' and
+# raises `fx_rate_unavailable` otherwise); this is the missing floor beneath it.
+_FX_PROVENANCE_CHECK = (
+    "(fx_source IS NULL OR fx_source <> 'unknown' OR amount_eur IS NULL)"
+    " AND (upper(currency) = 'EUR' OR fx_source IS NOT NULL)"
+)
 
 
 class VatOffInvoiceRebate(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -127,6 +141,8 @@ class VatOffInvoiceRebate(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         CheckConstraint(_SOURCE_PARTY_CHECK, name="ck_vat_off_invoice_rebates_source_party"),
         CheckConstraint("amount_local > 0", name="ck_vat_off_invoice_rebates_local_positive"),
         CheckConstraint("amount_eur > 0", name="ck_vat_off_invoice_rebates_eur_positive"),
+        CheckConstraint(FX_SOURCE_CHECK, name="ck_vat_off_invoice_rebates_fx_source"),
+        CheckConstraint(_FX_PROVENANCE_CHECK, name="ck_vat_off_invoice_rebates_fx_provenance"),
         Index("ix_vat_off_invoice_rebates_lookup", "org_id", "supplier", "period"),
     )
 

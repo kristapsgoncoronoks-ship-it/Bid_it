@@ -218,6 +218,9 @@ async def test_g2_6_a_national_minimum_country_compares_local_currency_not_eur(d
         net_eur=Decimal("2700.00"),  # would clear the €400 EUR base easily
         vat_eur=Decimal("270.00"),
         invoice_ref="INV-0001",
+        # WO-88 (§4.15): a SEK line carries the FX provenance a real ingestion
+        # records. Fixture privilege raised — not one assertion below changes.
+        fx_source="ecb",
     )
     await db_session.commit()
     await claim_lines.build_claim_lines(db_session, org.id, claim.id)

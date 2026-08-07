@@ -454,6 +454,10 @@ async def _ingest(
         gross_local=net_eur + vat_eur,
         net_eur=net_eur,
         vat_eur=vat_eur,
+        # WO-88 (§4.15): a non-EUR line carries the FX provenance a real
+        # ingestion records; EUR is the identity and needs none. Fixture
+        # privilege raised — not one assertion below changes.
+        fx_source=None if str(currency).upper() == "EUR" else "ecb",
         net_eur_eff=net_eur_eff if net_eur_eff is not None else net_eur,
     )
 
