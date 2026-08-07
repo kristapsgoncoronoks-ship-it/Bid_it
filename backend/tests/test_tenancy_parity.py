@@ -1930,6 +1930,50 @@ async def _p_transport_overcharge(ctx: Ctx) -> None:
     )
 
 
+@probe("vat_off_invoice_rebates")
+async def _p_transport_off_invoice_rebate(ctx: Ctx) -> None:
+    """WO-84 — the G4.2 off-invoice rebate registry, proven over the REAL HTTP
+    route and seeded with IDENTICAL business values in each org: the same fuel
+    network, the same country and period, the same rebate document NUMBER, the
+    same issuing party and the same amount. Only tenancy discriminates, so a
+    missing `org_id` filter leaks visibly instead of passing by accident.
+
+    Deliberately a real probe rather than an EXEMPT row, in the same commit that
+    created the table."""
+    from app.services import modules as modules_svc
+
+    rebate_ids: dict[str, str] = {}
+    for org in (ctx.a, ctx.b):
+        await modules_svc.set_enabled(ctx.db, org.org_id, "transport", True)
+        await ctx.db.commit()
+
+        created = await org.post(
+            "/api/v1/transport/rebates",
+            json={
+                "supplier": "Q8",
+                "country": "LV",
+                "period": "2026-05",
+                "source_ref": "RBT-PARITY-1",
+                "source_party": "Demo Rebate Partner",
+                "rebate_date": "2026-06-05",
+                "currency": "EUR",
+                "amount_local": "50.00",
+            },
+        )
+        assert created.status_code == 200, created.text
+        rebate_ids[org.name] = created.json()["id"]
+
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        listed = await me.get("/api/v1/transport/rebates")
+        assert listed.status_code == 200, listed.text
+        _assert_isolated(
+            "vat_off_invoice_rebates",
+            {rebate_ids[me.name]},
+            {rebate_ids[other.name]},
+            {r["id"] for r in listed.json()},
+        )
+
+
 # --------------------------------------------------------------------------- #
 # The tests
 # --------------------------------------------------------------------------- #
