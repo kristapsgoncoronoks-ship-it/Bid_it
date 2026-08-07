@@ -165,6 +165,90 @@ def test_wo8_fx_data_migration_corrects_multiplied_amounts(tmp_path):
 
 
 @pytest.mark.slow
+def test_wo88_fx_provenance_migration_refuses_to_run_over_a_violating_row(tmp_path):
+    """WO-88 (e4a7c1d92f08): the constraints close the combination
+    `fx_source='unknown'` + a stored EUR figure, and a non-EUR currency with no
+    provenance at all. A row that already violates the invariant cannot be
+    corrected — the rate does not exist, the column is NOT NULL, and deleting
+    transaction history is a business decision (§9) — so the migration prints
+    the offending row and REFUSES rather than guessing or deleting.
+
+    Both halves are asserted, because a migration that only ever ran over a
+    clean database would prove nothing about the branch that matters."""
+    db_file = tmp_path / "wo88.db"
+    async_url = f"sqlite+aiosqlite:///{db_file}"
+
+    up = _run_alembic(["upgrade", "b3d8f1c04e97"], async_url)  # the pre-WO-88 head
+    assert up.returncode == 0, f"{up.stdout}\n{up.stderr}"
+
+    eng = create_engine(f"sqlite:///{db_file}")
+    with eng.begin() as con:
+        con.exec_driver_sql(
+            "INSERT INTO fuel_transactions (id, org_id, entity_id, supplier, period, line_seq,"
+            " country, vehicle_ref, txn_date, txn_time, station, product, product_group, qty,"
+            " currency, net_local, vat_local, gross_local, net_eur, vat_eur, net_eur_eff,"
+            " fx_source) VALUES ('bad1', 'org1', 'ent1', 'Q8', '2026-05', 1, 'LV',"
+            " 'Fleet-Test-01', '2026-05-14', '', 'Demo Station Riga', 'DIESEL', 'Diesel',"
+            " 1000.000, 'PLN', 6000.00, 1380.00, 7380.00, 1400.00, 294.00, 1400.00, NULL)"
+        )
+
+    refused = _run_alembic(["upgrade", "head"], async_url)
+    assert refused.returncode != 0, f"the migration must refuse:\n{refused.stdout}"
+    assert "[WO-88] 1 violating rows" in refused.stdout
+    assert "bad1" in refused.stdout
+    assert "refusing to migrate" in refused.stdout + refused.stderr
+
+    # …and the schema is untouched: the constraint was never created.
+    with eng.begin() as con:
+        ddl = con.exec_driver_sql(
+            "SELECT sql FROM sqlite_master WHERE name = 'fuel_transactions'"
+        ).scalar_one()
+        assert "ck_fuel_transactions_fx_provenance" not in ddl
+        con.exec_driver_sql("DELETE FROM fuel_transactions WHERE id = 'bad1'")
+
+    ok = _run_alembic(["upgrade", "head"], async_url)
+    assert ok.returncode == 0, f"{ok.stdout}\n{ok.stderr}"
+    assert "[WO-88] 0 violating rows" in ok.stdout
+
+    with eng.begin() as con:
+        import sqlalchemy.exc
+
+        for name in (
+            "ck_fuel_transactions_fx_provenance",
+            "ck_vat_off_invoice_rebates_fx_source",
+            "ck_vat_off_invoice_rebates_fx_provenance",
+        ):
+            table = "fuel_transactions" if "fuel" in name else "vat_off_invoice_rebates"
+            ddl = con.exec_driver_sql(
+                f"SELECT sql FROM sqlite_master WHERE name = '{table}'"
+            ).scalar_one()
+            assert name in ddl, name
+        # The pre-existing constraints survived the SQLite table rebuild.
+        ddl = con.exec_driver_sql(
+            "SELECT sql FROM sqlite_master WHERE name = 'fuel_transactions'"
+        ).scalar_one()
+        assert "ck_fuel_transactions_product_group" in ddl
+        assert "ck_fuel_transactions_fx_source" in ddl
+        assert "uq_fuel_transactions_natural_key" in ddl
+
+        # And the database now refuses the row the service refuses.
+        try:
+            con.exec_driver_sql(
+                "INSERT INTO fuel_transactions (id, org_id, entity_id, supplier, period,"
+                " line_seq, country, vehicle_ref, txn_date, txn_time, station, product,"
+                " product_group, qty, currency, net_local, vat_local, gross_local, net_eur,"
+                " vat_eur, net_eur_eff, fx_source) VALUES ('bad2', 'org1', 'ent1', 'Q8',"
+                " '2026-05', 2, 'LV', 'Fleet-Test-01', '2026-05-14', '', 'Demo Station Riga',"
+                " 'DIESEL', 'Diesel', 1000.000, 'EUR', 1400.00, 294.00, 1694.00, 1400.00,"
+                " 294.00, 1400.00, 'unknown')"
+            )
+            raise AssertionError("an unknown fx_source beside a EUR figure must be refused")
+        except sqlalchemy.exc.IntegrityError:
+            pass
+    eng.dispose()
+
+
+@pytest.mark.slow
 def test_models_match_migration_head(tmp_path):
     # DB A: what the ORM models declare.
     models_file = tmp_path / "models.db"
