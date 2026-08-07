@@ -391,6 +391,28 @@ async def test_wo81_withdrawn_and_rejected_claims_are_excluded_with_a_reason(db_
 
 
 @pytest.mark.asyncio
+async def test_wo81_an_unrecognised_status_is_excluded_by_name_not_counted_as_awaiting(db_session):
+    """The dispatch is on the statuses this surface KNOWS; anything else is
+    excluded under its own name. A status this module has not met must never
+    fall through into a euro total — silently reporting an unknown claim as
+    "awaiting €900" is exactly the wrong-money-figure class of error this
+    surface exists to prevent."""
+    org_id, entity_id = await _org_with_entity(db_session)
+    c = await _make_claim(db_session, org_id, entity_id)
+    c.status = "escheated"  # not in CLAIM_STATUSES — a future/foreign value
+    c.vat_eur = Decimal("900.00")
+    await db_session.commit()
+
+    dash = await recovery.recovery_dashboard(db_session, org_id, 2026, today=PERIOD_ENDED)
+    assert [(e.reason, e.claims) for e in dash.excluded] == [("escheated", 1)]
+    assert all(b.claims == 0 for b in dash.buckets)
+    assert dash.awaiting_eur == Decimal("0.00")
+    assert dash.recovered_eur == Decimal("0.00")
+    assert dash.claimable_eur == Decimal("0.00")
+    assert dash.total_claims == 1
+
+
+@pytest.mark.asyncio
 async def test_wo81_every_claim_is_accounted_for_exactly_once(db_session):
     """`Σ buckets + Σ excluded == total_claims`, over a mixed portfolio."""
     org_id, entity_id = await _org_with_entity(db_session)

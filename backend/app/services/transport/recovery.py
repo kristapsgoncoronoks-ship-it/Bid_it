@@ -159,8 +159,13 @@ READINESS_STATES: tuple[str, ...] = (
     "paid",
 )
 
-# Engine statuses that match NO readiness state — reported with their reason
-# rather than dropped (interpretation 4 in the module docstring).
+# The engine statuses of `models.transport.vat_claim.CLAIM_STATUSES` that match
+# NO readiness state — reported with their reason rather than dropped
+# (interpretation 4 in the module docstring). Documentation of what the model
+# carries TODAY, not the dispatch rule: `recovery_dashboard` dispatches on the
+# statuses it KNOWS and excludes everything else by name, so a status added
+# later is excluded (visible, named, counted) rather than silently folded into
+# a euro total.
 EXCLUDED_STATUSES: tuple[str, ...] = ("withdrawn", "rejected")
 
 # `VatRefundClaim.ref_period` is `"YYYY-..."` — a four-digit year (the
@@ -323,23 +328,30 @@ async def recovery_dashboard(
     days: list[int] = []
 
     for claim in claims:
-        if claim.status in EXCLUDED_STATUSES:
-            excluded[claim.status] = excluded.get(claim.status, 0) + 1
-            continue
-
+        # Dispatch on the statuses this surface KNOWS, and exclude by name
+        # otherwise — never the reverse. A status added to `CLAIM_STATUSES`
+        # later (or already stored by a path this module has not met) must not
+        # fall through into a euro total: silently counting an unrecognised
+        # claim as "awaiting €X" would be a wrong money figure, which is the
+        # exact class of error this surface exists to prevent. `EXCLUDED_
+        # STATUSES` documents the two the model has today; the branch below
+        # catches anything else by the SAME mechanism, under its own name.
         if claim.status == "draft":
             state, vat_eur, at_risk, mismatch = await _bucket_draft(db, org_id, claim, today=today)
             if at_risk:
                 deadline_risk += 1
             if mismatch:
                 currency_mismatch += 1
-        else:
+        elif claim.status in ("paid", "submitted", "approved"):
             # Filed. The FROZEN figure is the claim's own (R13/C10) — never a
             # re-derivation, which is the whole point of freezing it.
             state = "paid" if claim.status == "paid" else "submitted"
             vat_eur = claim.vat_eur if claim.vat_eur is not None else Decimal("0")
             if state == "paid" and claim.submitted_date and claim.paid_date:
                 days.append((claim.paid_date - claim.submitted_date).days)
+        else:
+            excluded[claim.status] = excluded.get(claim.status, 0) + 1
+            continue
 
         counts[state] += 1
         euros[state] += vat_eur
