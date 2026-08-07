@@ -113,9 +113,17 @@ _SOURCE_PARTY_CHECK = "source_party <> ''"
 # could store free text, or 'unknown' beside a positive `amount_eur`.
 # `rebate._resolve_eur` is already correct (it emits only 'eur'/'ecb' and
 # raises `fx_rate_unavailable` otherwise); this is the missing floor beneath it.
+#
+# WO-89 adds the third conjunct in parity with `fuel_transactions`: a non-EUR
+# rebate document claiming the IDENTITY provenance `'eur'` ("the amount was
+# already EUR"). `_resolve_eur` cannot produce it — it returns `'eur'` only on
+# the `cur == "EUR"` branch — so no service gate is added here (a second check
+# would be dead code, WO-88's own reasoning for this table). The constraint is
+# the point: storage protects the writers that do not exist yet.
 _FX_PROVENANCE_CHECK = (
     "(fx_source IS NULL OR fx_source <> 'unknown' OR amount_eur IS NULL)"
     " AND (upper(currency) = 'EUR' OR fx_source IS NOT NULL)"
+    " AND (upper(currency) = 'EUR' OR fx_source <> 'eur')"
 )
 
 

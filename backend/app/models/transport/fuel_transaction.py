@@ -124,6 +124,15 @@ from app.models.fx import FX_SOURCE_CHECK
 #   2. a non-EUR document currency with NO provenance at all — master-context
 #      §4.14's *"it never labels a foreign amount EUR"*. A EUR row with a NULL
 #      `fx_source` stays legal: EUR is the identity and involves no rate.
+#   3. (WO-89) a non-EUR document currency claiming `fx_source='eur'` — the
+#      IDENTITY provenance, *"the amount was already EUR (identity, rate 1)"*.
+#      Clauses 1-2 both pass such a row: it is not `unknown`, and its provenance
+#      is not NULL. Where clauses 1-2 catch a euro that denies a rate was USED,
+#      this one catches a euro that denies a rate was NEEDED — a conversion
+#      asserted to have been unnecessary on an amount that demonstrably required
+#      one. It is written as a disjunction over `upper(currency)` rather than a
+#      negated conjunction so it reads as one rule with clause 2: on a non-EUR
+#      row the provenance must be present AND must not be the identity.
 #
 # Plain portable SQL, the `FX_SOURCE_CHECK` precedent's form: no `IS DISTINCT
 # FROM` (SQLite gained it only in 3.39) and `upper()`, which is immutable —
@@ -131,6 +140,7 @@ from app.models.fx import FX_SOURCE_CHECK
 FX_PROVENANCE_CHECK = (
     "(fx_source IS NULL OR fx_source <> 'unknown' OR net_eur IS NULL)"
     " AND (upper(currency) = 'EUR' OR fx_source IS NOT NULL)"
+    " AND (upper(currency) = 'EUR' OR fx_source <> 'eur')"
 )
 
 # The exact 7-category set, `BA_fleet_fuel.md` section 4.2 row 8, verbatim.

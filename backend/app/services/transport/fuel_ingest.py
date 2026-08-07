@@ -38,6 +38,25 @@ dashboard) summed it as a real conversion.
 for any writer that never comes through here. Both layers, always — and
 `savings`' refusal stays as the third, because it is the only one that can
 explain to an operator *why* a comparison was refused.
+
+WO-89 — AND THE ROW THAT DENIES IT EVER NEEDED A RATE
+----------------------------------------------------------------------
+WO-88 closed the two combinations where the euro denies that a rate was USED.
+It deliberately left open the one where the euro denies that a rate was NEEDED:
+a non-EUR document currency carrying `fx_source='eur'`, the identity provenance
+(`app/models/fx.py`: *"the amount was already EUR (identity, rate 1)"*). That
+row is not a hypothetical — before WO-89 THIS function accepted and stored it, a
+PLN line asserting `net_eur = 1400.00` with the provenance "no conversion was
+required". WO-88's gate passed it (its two clauses test `unknown` and a NULL
+provenance), its CHECK passed it (`fx_source IS NOT NULL` satisfied the second
+conjunct), and `savings._require_eur_basis` passes it too — so a fabricated
+conversion reached the claim lines, the WO-83 demand letter, the tie-out, the
+close and the recovery dashboard with nothing in its way.
+
+WO-89 adds the third clause to the SAME predicate (never a rival one) and the
+third conjunct to the SAME constraint, under a DISTINCT code —
+`fx_provenance_inconsistent` — because the operator remedy is not "go and get
+the rate". See `_require_fx_provenance` for the full reasoning.
 """
 
 from __future__ import annotations
@@ -63,6 +82,11 @@ from app.services.transport.product_group import derive_product_group
 # test_wo88_fx_provenance.py` pins this string against the real enum so the two
 # cannot drift apart.
 FX_SOURCE_UNKNOWN = "unknown"
+# The provenance meaning "the amount was already EUR (identity, rate 1)" —
+# `app/models/fx.py`. Only a EUR document currency can truthfully claim it
+# (WO-89). Restated as a literal for the same ADR-0023 rule-2 reason as
+# FX_SOURCE_UNKNOWN above, and pinned against the real enum by the same test.
+FX_SOURCE_EUR = "eur"
 # The currency that needs no conversion, and therefore no provenance.
 CURRENCY_EUR = "EUR"
 
@@ -70,8 +94,12 @@ CURRENCY_EUR = "EUR"
 def _require_fx_provenance(currency: str, fx_source: str | None) -> None:
     """Refuse a row whose EUR figure contradicts its own FX provenance (§4.15).
 
-    Exactly two combinations make the stored euro a number no rate ever
-    produced, and this gate refuses both, fail CLOSED:
+    THE one predicate for this rule — extended by WO-89, never forked into a
+    rival (WO-85's registry lesson, R3's one-gate precedent). Exactly three
+    combinations make the stored euro a number no rate ever produced, and this
+    gate refuses all three, fail CLOSED.
+
+    Two of them deny that a rate was USED (WO-88):
 
     * ``fx_source == "unknown"`` — the caller positively recorded that no rate
       was available (`app/models/fx.py`: *"no rate available → EUR figure is
@@ -82,15 +110,38 @@ def _require_fx_provenance(currency: str, fx_source: str | None) -> None:
       with no recorded conversion at all, which is master-context §4.14's
       *"it never labels a foreign amount EUR"*.
 
-    A EUR-currency row with a NULL `fx_source` is ACCEPTED: EUR is the identity
-    and involves no rate at all. That carve-out is deliberate — it is what keeps
-    every EUR line the tree has ever written valid, and `savings.
-    _require_eur_basis` makes the same carve-out for the same reason.
+    Both raise `ValidationError(code="fx_rate_unavailable")` — the code
+    `statement_ingest`, `rebate` and `savings` already raise for a rate that is
+    needed and missing.
 
-    Raises `ValidationError(code="fx_rate_unavailable")` — the code
-    `statement_ingest`, `rebate` and `savings` already raise for this class of
-    failure. No new slug is invented for a failure the wire contract already
-    names (§4.20).
+    The third denies that a rate was NEEDED (WO-89):
+
+    * a NON-EUR document currency with ``fx_source == "eur"`` — the identity
+      provenance, which `app/models/fx.py` defines as *"the amount was already
+      EUR (identity, rate 1)"*. If the document is denominated in zloty then the
+      amount was not already euros, so the row asserts a conversion that never
+      happened while claiming none was required. Until WO-89 this writer stored
+      it: a PLN line with `net_eur = 1400.00` and `fx_source = 'eur'` satisfied
+      every gate and every constraint, and flowed into the claim lines, the
+      overcharge demand letter, the tie-out, the close and the recovery
+      dashboard as if it were an honest euro.
+
+    It raises `ValidationError(code="fx_provenance_inconsistent")` — a DISTINCT
+    code, chosen rather than reusing `fx_rate_unavailable`, because the operator
+    remedy differs: every `fx_rate_unavailable` message in this tree ends in an
+    instruction to go and obtain the rate, and that instruction is wrong here.
+    The rate is very likely cached already; what is broken is the claim that
+    none was needed. The slug follows the tree's own `fx_stated_inconsistent`
+    (`statement_ingest`) — same prefix, same suffix, same meaning of "two things
+    this row says about itself cannot both be true". Additive to the wire
+    contract, never a change to its shape (§4.20).
+
+    A EUR-currency row with a NULL `fx_source` is ACCEPTED, and so is a
+    EUR-currency row claiming `"eur"`: EUR is the identity and involves no rate
+    at all. That carve-out is deliberate — it is what keeps every EUR line the
+    tree has ever written valid, and `savings._require_eur_basis` makes the same
+    carve-out for the same reason. Currency is compared case-insensitively, so a
+    caller storing `"eur"` is not refused for a conversion it never had to make.
     """
     cur = (currency or "").strip().upper()
     if fx_source == FX_SOURCE_UNKNOWN:
@@ -107,6 +158,15 @@ def _require_fx_provenance(currency: str, fx_source: str | None) -> None:
             "foreign amount is never labelled EUR without one. Convert it (fx_source="
             "'ecb') or record the document's own conversion (fx_source='stated').",
             code="fx_rate_unavailable",
+        )
+    if cur != CURRENCY_EUR and fx_source == FX_SOURCE_EUR:
+        raise ValidationError(
+            f"A {cur or '?'} fuel line was offered with fx_source='eur' — that provenance "
+            f"means the amount was ALREADY in euro and needed no conversion, which a "
+            f"{cur or '?'} amount was not. The stored EUR figure would be a conversion "
+            "nothing performed. Convert it (fx_source='ecb') or record the document's own "
+            "conversion (fx_source='stated').",
+            code="fx_provenance_inconsistent",
         )
 
 
