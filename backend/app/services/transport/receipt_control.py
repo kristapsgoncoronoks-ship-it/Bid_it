@@ -81,6 +81,7 @@ from app.models.transport.receipt_control import (
 )
 from app.services import audit, modules
 from app.services import extraction as extraction_svc
+from app.services.transport import queries
 from app.services.transport.invoice_match import MatchedInvoice, resolve_invoice_ref
 
 # §3.J item 1 / §5.1 — the harvested per-network cadence assignments, keyed
@@ -310,13 +311,7 @@ async def run_receipt_control(db: AsyncSession, org_id: str, period: str) -> dic
     await _require_module(db, org_id)
     _validate_period(period)
 
-    txns = list(
-        await db.scalars(
-            select(FuelTransaction).where(
-                FuelTransaction.org_id == org_id, FuelTransaction.period == period
-            )
-        )
-    )
+    txns = list(await db.scalars(queries.fuel_transactions(org_id, period=period)))
 
     pairs: dict[tuple[str, str], list[FuelTransaction]] = {}
     for txn in txns:
@@ -517,13 +512,7 @@ async def orphan_transactions(
     await _require_module(db, org_id)
     _validate_period(period)
 
-    txns = list(
-        await db.scalars(
-            select(FuelTransaction).where(
-                FuelTransaction.org_id == org_id, FuelTransaction.period == period
-            )
-        )
-    )
+    txns = list(await db.scalars(queries.fuel_transactions(org_id, period=period)))
 
     cache: dict[tuple[str, str, str, str | None], MatchedInvoice | None] = {}
     orphans: list[OrphanTransaction] = []

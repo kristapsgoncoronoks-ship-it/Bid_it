@@ -152,7 +152,7 @@ from app.models.transport.contract_term import ALL_STATIONS, VatSupplierContract
 from app.models.transport.fuel_transaction import PRODUCT_GROUPS, FuelTransaction
 from app.services import audit as audit_svc
 from app.services import modules
-from app.services.transport import rebate
+from app.services.transport import queries, rebate
 
 # `BA_fleet_fuel.md` §2.5, verbatim: "TOLERANCE = 0.005 €/L". A module constant,
 # not an env var: §2.5 names `AUDIT_TOLERANCE_EUR_L`, but a per-deployment env
@@ -673,14 +673,12 @@ async def audit(
         t for t in await list_terms(db, org_id, supplier=supplier, active_only=True) if t.active
     ]
 
-    where = [FuelTransaction.org_id == org_id, FuelTransaction.period == period]
-    if supplier:
-        where.append(FuelTransaction.supplier == supplier)
+    # `supplier or None` preserves this call site's pre-registry convention
+    # exactly: it used `if supplier:`, so an empty string meant "every
+    # supplier" (the registry's own convention is `is not None`).
     rows = list(
         await db.scalars(
-            select(FuelTransaction)
-            .where(*where)
-            .order_by(
+            queries.fuel_transactions(org_id, period=period, supplier=supplier or None).order_by(
                 FuelTransaction.supplier,
                 FuelTransaction.txn_date,
                 FuelTransaction.line_seq,

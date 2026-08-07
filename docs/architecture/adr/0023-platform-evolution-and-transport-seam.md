@@ -733,6 +733,15 @@ and fixes the hardest structural decision — how a legally-sensitive vertical p
 
 - The projection rule is discipline until the canonical query registry is complete —
   drift is possible in the interim (tracked as C1.6/C1.7 in ADR-0026).
+  **Retired for the TRANSPORT half (WO-85, board G4.1 / R51):**
+  `app/services/transport/queries.py` is the registry for the two money-bearing
+  transport tables (`fuel_transactions`, `vat_claim_lines`), and
+  `tests/transport/test_wo85_canonical_queries.py` enforces it structurally — an AST
+  scan refuses any `select()` over either model, or any `<Model>.org_id` filter,
+  outside the registry, and ships a seeded-violation self-test so the guard can
+  actually fail. The rule remains discipline for the non-transport projections
+  (Insight/Explore, Export & Reporting), and R51's materialised-metric half stays
+  unimplemented because no transport rollup table exists to drift-check.
 - The transport rules are asserted here before the code exists; the boundary test in
   rule 2 must land in the same PR as the first transport module, or the seam is
   fiction.

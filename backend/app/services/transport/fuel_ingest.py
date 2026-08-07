@@ -22,13 +22,13 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import NotFoundError, PermissionError
 from app.core.money import q2
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.services import audit, issuer, modules
+from app.services.transport import queries
 from app.services.transport.product_group import derive_product_group
 
 
@@ -100,12 +100,12 @@ async def ingest_transaction(
         raise NotFoundError("Entity not found", code="entity_not_found")
 
     existing = await db.scalar(
-        select(FuelTransaction).where(
-            FuelTransaction.org_id == org_id,
-            FuelTransaction.entity_id == entity_id,
-            FuelTransaction.supplier == supplier,
-            FuelTransaction.period == period,
-            FuelTransaction.line_seq == line_seq,
+        queries.fuel_transaction_by_natural_key(
+            org_id,
+            entity_id=entity_id,
+            supplier=supplier,
+            period=period,
+            line_seq=line_seq,
         )
     )
     if existing is not None:

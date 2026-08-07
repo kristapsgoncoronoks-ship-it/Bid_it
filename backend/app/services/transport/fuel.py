@@ -48,12 +48,13 @@ from __future__ import annotations
 
 import re
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import NotFoundError, PermissionError, ValidationError
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.services import issuer, modules
+from app.services.transport import queries
 from app.services.transport.claim import validate_ref_period
 from app.services.transport.claim_lines import period_months
 
@@ -98,28 +99,6 @@ def resolve_period_months(period: str) -> list[str]:
             code="invalid_period",
         ) from exc
     return period_months(period)
-
-
-def _filtered(
-    org_id: str,
-    *,
-    entity_id: str,
-    months: list[str],
-    supplier: str | None,
-    country: str | None,
-) -> list:
-    """The ONE filter set both the page query and the count query are built
-    from — so `total` can never describe a different set than `items`."""
-    where = [
-        FuelTransaction.org_id == org_id,
-        FuelTransaction.entity_id == entity_id,
-        FuelTransaction.period.in_(months),
-    ]
-    if supplier:
-        where.append(FuelTransaction.supplier == supplier)
-    if country:
-        where.append(FuelTransaction.country == country.upper())
-    return where
 
 
 async def list_fuel_transactions(
@@ -177,15 +156,24 @@ async def list_fuel_transactions(
     months = resolve_period_months(period)
     page = max(1, page)
     page_size = max(1, min(page_size, MAX_PAGE_SIZE))
-    where = _filtered(
-        org_id, entity_id=entity_id, months=months, supplier=supplier, country=country
+    # THE canonical cut, so `total` can never describe a different set than
+    # `items` (the reason this module carried its own `_filtered` helper before
+    # the registry existed). `or None` preserves this call site's own
+    # convention — it used `if supplier:`/`if country:`, so an empty string
+    # meant "every" — and the upper-casing stays HERE rather than in the
+    # registry: normalising centrally would change what every other consumer of
+    # `country` matches.
+    base = queries.fuel_transactions(
+        org_id,
+        entity_id=entity_id,
+        months=months,
+        supplier=supplier or None,
+        country=country.upper() if country else None,
     )
 
-    total = await db.scalar(select(func.count(FuelTransaction.id)).where(*where))
+    total = await db.scalar(base.with_only_columns(func.count(FuelTransaction.id)))
     stmt: Select = (
-        select(FuelTransaction)
-        .where(*where)
-        .order_by(
+        base.order_by(
             FuelTransaction.period,
             FuelTransaction.supplier,
             FuelTransaction.txn_date,

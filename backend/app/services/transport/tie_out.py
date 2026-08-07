@@ -50,6 +50,7 @@ from app.core.money import q2
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.models.transport.tie_out import FuelTieOutExpectation
 from app.services import audit, issuer, modules
+from app.services.transport import queries
 
 _PERIOD_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 _CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
@@ -394,18 +395,18 @@ async def check_period(db: AsyncSession, org_id: str, period: str) -> list[TieOu
     for exp in expectations:
         rows = (
             await db.execute(
-                select(
+                queries.fuel_transactions(
+                    org_id,
+                    entity_id=exp.entity_id,
+                    supplier=exp.supplier,
+                    period=period,
+                    currency=exp.currency,
+                ).with_only_columns(
                     FuelTransaction.qty,
                     FuelTransaction.product_group,
                     FuelTransaction.gross_local,
                     FuelTransaction.net_eur,
                     FuelTransaction.vat_eur,
-                ).where(
-                    FuelTransaction.org_id == org_id,
-                    FuelTransaction.entity_id == exp.entity_id,
-                    FuelTransaction.supplier == exp.supplier,
-                    FuelTransaction.period == period,
-                    FuelTransaction.currency == exp.currency,
                 )
             )
         ).all()

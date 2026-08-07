@@ -43,7 +43,7 @@ import re
 from dataclasses import dataclass
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.bank_id import IBAN_LENGTHS, is_valid_iban, normalize_iban
@@ -51,6 +51,7 @@ from app.core.errors import PermissionError
 from app.core.money import q2
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.services import modules
+from app.services.transport import queries
 from app.services.transport.fuel_card_parser import ParsedFuelLine
 
 ERROR = "error"
@@ -263,21 +264,20 @@ async def find_duplicates(
     # Prior duplicate: already-registered fuel_transactions in the SAME org
     # (any entity), grouped at invoice grain, normalized identically in SQL.
     normalized_refs = sorted({c.normalized for c in candidates})
-    norm_col = func.upper(func.replace(FuelTransaction.invoice_ref, " ", ""))
+    # ONE normalization expression for the projection, the filter and the
+    # grouping — a second spelling of it would group differently from the way
+    # it filters, which is why it lives in the registry beside the cut.
+    norm_col = queries.NORMALIZED_INVOICE_REF
     rows = (
         await db.execute(
-            select(
+            queries.fuel_transactions_by_normalized_invoice_ref(org_id, normalized_refs)
+            .with_only_columns(
                 FuelTransaction.entity_id,
                 FuelTransaction.supplier,
                 FuelTransaction.period,
                 norm_col.label("normalized"),
                 FuelTransaction.currency,
                 func.sum(FuelTransaction.net_local + FuelTransaction.vat_local).label("total"),
-            )
-            .where(
-                FuelTransaction.org_id == org_id,
-                FuelTransaction.invoice_ref.is_not(None),
-                norm_col.in_(normalized_refs),
             )
             .group_by(
                 FuelTransaction.entity_id,

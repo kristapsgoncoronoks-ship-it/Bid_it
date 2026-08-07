@@ -151,6 +151,7 @@ from app.core.money import q2
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.models.transport.off_invoice_rebate import VatOffInvoiceRebate
 from app.services import audit, fx, modules
+from app.services.transport import queries
 
 _PERIOD_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 _COUNTRY_RE = re.compile(r"^[A-Z]{2}$")
@@ -532,12 +533,7 @@ async def merge_period(
         group_total = q2(sum((Decimal(r.amount_eur) for r in group), Decimal("0")))
         rows = list(
             await db.scalars(
-                select(FuelTransaction).where(
-                    FuelTransaction.org_id == org_id,
-                    FuelTransaction.supplier == sup,
-                    FuelTransaction.country == ctry,
-                    FuelTransaction.period == period,
-                )
+                queries.fuel_transactions(org_id, supplier=sup, country=ctry, period=period)
             )
         )
         if not rows:
@@ -552,11 +548,7 @@ async def merge_period(
     # Phase 2 — write only the rows whose figure actually moves.
     by_id = {a.fuel_transaction_id: a for a in planned}
     changed = 0
-    for txn in await db.scalars(
-        select(FuelTransaction).where(
-            FuelTransaction.org_id == org_id, FuelTransaction.id.in_(list(by_id))
-        )
-    ):
+    for txn in await db.scalars(queries.fuel_transactions(org_id, ids=list(by_id))):
         alloc = by_id[txn.id]
         if Decimal(txn.net_eur_eff) == alloc.new_net_eur_eff:
             continue  # idempotent re-run — no write, no audit row
@@ -644,11 +636,9 @@ async def missing_source_warnings(
     if not missing:
         return ()
 
-    active_stmt = select(FuelTransaction.supplier, FuelTransaction.country).where(
-        FuelTransaction.org_id == org_id, FuelTransaction.period == period
-    )
-    if supplier is not None:
-        active_stmt = active_stmt.where(FuelTransaction.supplier == supplier)
+    active_stmt = queries.fuel_transactions(
+        org_id, period=period, supplier=supplier
+    ).with_only_columns(FuelTransaction.supplier, FuelTransaction.country)
     active = {(s, c) for s, c in await db.execute(active_stmt)}
 
     return tuple(
