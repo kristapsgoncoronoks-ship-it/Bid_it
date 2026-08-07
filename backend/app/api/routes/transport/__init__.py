@@ -24,6 +24,7 @@ from app.api.routes.transport import (
     overcharges,
     rebates,
     recovery,
+    savings,
 )
 
 router = APIRouter()
@@ -34,3 +35,4 @@ router.include_router(fuel.router)
 router.include_router(recovery.router)
 router.include_router(overcharges.router)
 router.include_router(rebates.router)
+router.include_router(savings.router)

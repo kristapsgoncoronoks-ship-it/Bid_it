@@ -87,10 +87,11 @@ NAMING — WHAT IS HARVESTED AND WHAT IS INTERPRETED
 ----------------------------------------------------
 The module NAME is the spec's own vocabulary: `BA_fleet_fuel.md` refers to
 `queries.q_savings` (§2.4) and `queries.q_ledger` (§N10) as members of the
-canonical layer. Neither is in this order's scope — `q_savings` is the same-day
-overpay grain (board G4.7) and `q_ledger` is the export hub's ledger source —
-and inventing their grain here would be inventing functionality (§10). They
-belong in this module when their boards land.
+canonical layer. `q_savings` — the same-day overpay grain — has since LANDED as
+`price_comparison_transactions` (G4.7/WO-87), exactly as this paragraph
+predicted it would when its board arrived. `q_ledger` is the export hub's
+ledger source and is still not in the tree; inventing its grain here would be
+inventing functionality (§10), so it belongs in this module when its board lands.
 
 The `q_` prefix is a Fleet Fuel stylistic detail rather than a rule; this
 codebase's own convention governs the function names (master-context §6:
@@ -136,6 +137,15 @@ NORMALIZED_INVOICE_REF: ColumnElement[str] = func.upper(
     func.replace(FuelTransaction.invoice_ref, " ", "")
 )
 
+# `BA_fleet_fuel.md` §2.5's "Avoidable overpay (same-day)" row, verbatim:
+# **"diesel only"**. It is a ROW-SELECTION predicate, so it lives here and is
+# written exactly once — the value is one of `PRODUCT_GROUPS`, asserted by
+# `tests/transport/test_wo87_savings.py` so a rename of the group cannot leave
+# this string silently matching nothing (a cut that matches nothing reads as
+# "no supplier ever overcharged you", the most dangerous wrong answer this
+# family can give).
+DIESEL = "Diesel"
+
 
 def fuel_transactions(
     org_id: str,
@@ -146,6 +156,7 @@ def fuel_transactions(
     period: str | None = None,
     months: Sequence[str] | None = None,
     currency: str | None = None,
+    product_group: str | None = None,
     ids: Sequence[str] | None = None,
 ) -> Select[tuple[FuelTransaction]]:
     """THE row-selection predicate over `fuel_transactions`.
@@ -154,6 +165,13 @@ def fuel_transactions(
     function with a different set of dimensions bound. Each optional dimension
     filters only when it is `is not None` (see the module docstring on why the
     call sites, not this function, normalise a falsy value).
+
+    `product_group` (G4.7/WO-87) is the seventh dimension and the one that
+    decides whether a €/L comparison is comparing like with like. It filters on
+    the exact `PRODUCT_GROUPS` value `product_group.derive_product_group`
+    assigned — never a pattern, never a case-fold — for the same reason nothing
+    else here normalises: a registry that normalised would change what every
+    other caller matches.
 
     `period` and `months` are the two period shapes the tree actually uses —
     `period == "YYYY-MM"` (the accounting month, half the WO-50 natural key) and
@@ -182,6 +200,8 @@ def fuel_transactions(
         stmt = stmt.where(FuelTransaction.period.in_(list(months)))
     if currency is not None:
         stmt = stmt.where(FuelTransaction.currency == currency)
+    if product_group is not None:
+        stmt = stmt.where(FuelTransaction.product_group == product_group)
     if ids is not None:
         stmt = stmt.where(FuelTransaction.id.in_(list(ids)))
     return stmt
@@ -209,6 +229,35 @@ def claim_scope_transactions(
     import the service layer it is read by).
     """
     return fuel_transactions(org_id, entity_id=entity_id, country=refund_country, months=months)
+
+
+def price_comparison_transactions(
+    org_id: str,
+    *,
+    period: str,
+    country: str | None = None,
+) -> Select[tuple[FuelTransaction]]:
+    """The rows BOTH overpay grains are computed over — `BA_fleet_fuel.md`
+    §2.4 names this cut `queries.q_savings` (G4.7).
+
+    §2.5's "Avoidable overpay (same-day)" row states the predicate in three
+    words that all live here: *"diesel only"*, one accounting month, and a
+    comparison that never leaves the **country of supply**. The country term is
+    optional because a same-day/same-country comparison is already PARTITIONED
+    on country by the consumer — narrowing the scope to one country cannot
+    change any group's contents, so it is a scope filter, not a maths change.
+
+    There is deliberately NO `supplier` parameter. Filtering the comparison set
+    by supplier would remove the very rows that decide who the *cheapest rival*
+    was, so the same query would silently answer a different question — the
+    exact failure mode this registry exists to make impossible. A consumer that
+    wants one supplier's findings filters the FINDINGS, never the rows.
+
+    Named for the cut it takes rather than harvested as `q_savings`: the `q_`
+    prefix is a Fleet Fuel stylistic detail and master-context §6 governs the
+    function names (the interpretation this module's docstring already records).
+    """
+    return fuel_transactions(org_id, period=period, country=country, product_group=DIESEL)
 
 
 def fuel_transaction_by_natural_key(
@@ -329,11 +378,13 @@ def resolved_vat_claim_lines(
 
 __all__ = [
     "CANONICAL_MODELS",
+    "DIESEL",
     "NORMALIZED_INVOICE_REF",
     "claim_scope_transactions",
     "fuel_transaction_by_natural_key",
     "fuel_transactions",
     "fuel_transactions_by_normalized_invoice_ref",
+    "price_comparison_transactions",
     "resolved_vat_claim_lines",
     "vat_claim_line_criteria",
     "vat_claim_lines",
