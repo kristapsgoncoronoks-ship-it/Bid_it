@@ -125,6 +125,12 @@ async def _make_txn(
         net_eur=net_eur,
         vat_eur=vat_eur,
         invoice_ref=invoice_ref,
+        # WO-88 (§4.15): a non-EUR line carries the FX provenance a real
+        # ingestion records; EUR is the identity and needs none. Fixture
+        # privilege raised — the cross-currency scenario below is unchanged
+        # (the claim still spans two currencies and `preview_vat_base` still
+        # refuses to sum them), and not one assertion moves.
+        fx_source=None if str(currency).upper() == "EUR" else "ecb",
     )
 
 

@@ -78,7 +78,11 @@ async def _ingest_group(
         net_eur=Decimal(net),
         vat_eur=Decimal(vat),
         invoice_ref=invoice_ref,
-        fx_source="eur",
+        # WO-88 (§4.15): `eur` is the IDENTITY provenance and only a EUR line
+        # can claim it — a PLN line converted at a rate carries `ecb`. The gate
+        # accepts either (it refuses a MISSING provenance, not a wrong one),
+        # but a fixture should not assert something no ingestion would write.
+        fx_source="eur" if str(currency).upper() == "EUR" else "ecb",
     )
 
 
