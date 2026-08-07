@@ -35,6 +35,26 @@ on-invoice discount is *"already inside `net_eur`"* and an off-invoice rebate
 *"lands ONLY in `net_eur_eff`"*, so their per-litre difference IS the applied
 rebate layer and nothing else.
 
+WHAT G4.2/WO-84 CHANGED HERE (and what it deliberately did not)
+-----------------------------------------------------------------
+When this module shipped (WO-82) the identity above was arithmetically correct
+and materially empty: `net_eur_eff` had no writer other than
+`fuel_ingest`'s `= net_eur` default, so `applied` was identically `0.0000` and
+every line governed by an `expected_discount_eur_l` term flagged `short
+discount` for the FULL contracted rebate — including for a supplier that pays
+its rebate off-invoice, which is exactly §4.2's canonical Q8/Port One case.
+`app/services/transport/rebate.py` (G4.2, R50) now merges recorded off-invoice
+rebate documents into `net_eur_eff` at the close, so `applied` is a real figure
+and this module's findings shrink to the genuinely short ones.
+
+**Not one line of the arithmetic below changed.** It reads a column that now
+carries what its name always claimed. What this module gained is R50's second
+half: `ContractAuditResult.source_warnings`, obtained by CALLING
+`rebate.missing_source_warnings` (never a forked query — an expectation gets one
+definition), advisory per §4.19, naming any (supplier, country) whose rebate
+layer has gone missing so that a LIST-price `eur_l_eff` can never be published
+here in silence.
+
 `recover_eur = gap × litres`, dropped when it is not positive.
 
 §4.14 — WHY THIS IS EUR-ONLY AND CANNOT BE A CROSS-CURRENCY SUM
@@ -132,6 +152,7 @@ from app.models.transport.contract_term import ALL_STATIONS, VatSupplierContract
 from app.models.transport.fuel_transaction import PRODUCT_GROUPS, FuelTransaction
 from app.services import audit as audit_svc
 from app.services import modules
+from app.services.transport import rebate
 
 # `BA_fleet_fuel.md` §2.5, verbatim: "TOLERANCE = 0.005 €/L". A module constant,
 # not an env var: §2.5 names `AUDIT_TOLERANCE_EUR_L`, but a per-deployment env
@@ -203,6 +224,17 @@ class ContractAuditResult:
     lines_audited: int
     lines_without_terms: int
     lines_skipped_zero_qty: int
+    # R50's source guard, ADVISORY (§4.19) — one string per (supplier, country)
+    # whose off-invoice rebate layer has GONE MISSING for this period (it
+    # carried a recorded rebate document before, has litres now, and has no
+    # recorded source for this month). It changes no euro above and blocks
+    # nothing; it exists so that R50's *"it does not silently produce
+    # list-price analytics"* is literally true AT the surface that produces
+    # them. `eur_l_eff` on every Breach below is a LIST price wherever one of
+    # these fires. Empty for a supplier that never had an off-invoice layer —
+    # with no history there is no expectation (see
+    # `rebate.missing_source_warnings`).
+    source_warnings: tuple[str, ...] = ()
 
 
 async def _require_module(db: AsyncSession, org_id: str) -> None:
@@ -684,6 +716,12 @@ async def audit(
         lines_audited=audited,
         lines_without_terms=without_terms,
         lines_skipped_zero_qty=skipped_zero_qty,
+        # R50 (G4.2/WO-84): the off-invoice rebate SOURCE GUARD, read straight
+        # off `rebate` rather than reimplemented — this module never forks a
+        # query, and a rebate expectation must have exactly one definition.
+        source_warnings=await rebate.missing_source_warnings(
+            db, org_id, period=period, supplier=supplier
+        ),
     )
 
 

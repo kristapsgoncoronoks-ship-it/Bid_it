@@ -253,6 +253,7 @@ async def audit_contract_terms(
         lines_audited=result.lines_audited,
         lines_without_terms=result.lines_without_terms,
         lines_skipped_zero_qty=result.lines_skipped_zero_qty,
+        source_warnings=list(result.source_warnings),
     )
 
 

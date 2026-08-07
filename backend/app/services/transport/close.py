@@ -82,7 +82,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import PermissionError, ValidationError
 from app.models.transport.vat_claim import VatRefundClaim
 from app.services import audit, jobs, modules
-from app.services.transport import receipt_control, tie_out
+from app.services.transport import rebate, receipt_control, tie_out
 from app.services.transport.claim_lines import build_claim_lines, period_months
 
 # The job kind registered with app.services.jobs / app.services.job_handlers.
@@ -134,6 +134,29 @@ async def run_close(db: AsyncSession, org_id: str, period: str) -> dict:
         raise PermissionError(f"The {m.name} module is not activated.", code="module_not_enabled")
 
     validate_close_period(period)
+
+    # The OFF-INVOICE REBATE MERGE (G4.2/WO-84 — R50), FIRST: a transaction's
+    # effective net is finalized before anything derives from it. This is the
+    # stage that makes `net_eur_eff` mean what §4.2 says it means — the
+    # as-invoiced net after the rebate layers that arrive on a SEPARATE
+    # document (the canonical Q8/Port One case), which no parser can see.
+    #
+    # It lives HERE and not in a web request for the §3.H reason `close.py`
+    # exists at all: `net_eur_eff` on an already-validated transaction is
+    # product data the ENGINE owns. `rebate.record_rebate` (web-reachable)
+    # writes only the rebate registry; this stage is the only writer of the
+    # derived figure.
+    #
+    # Idempotent — `merge_period` recomputes from the AS-INVOICED `net_eur`,
+    # never from the column's current value, so a re-close changes nothing and
+    # audits nothing. A refusal (an unallocatable or oversized rebate)
+    # propagates to `jobs.run_once`'s whole-session rollback, so a half-merged
+    # period cannot survive: "halts on the first failure", per the module
+    # docstring, applied to money.
+    #
+    # Its `source_warnings` are ADVISORY (§4.19) — a rebate layer that has gone
+    # missing is recorded on the close's audit trail and returned, never a halt.
+    merge = await rebate.merge_period(db, org_id, period)
 
     # The engine tie-out (G3.3/WO-66 — R25's second regime): every
     # expectation a human typed from the invoice PDFs for this period is
@@ -197,6 +220,14 @@ async def run_close(db: AsyncSession, org_id: str, period: str) -> dict:
             # G3.5: the receipt-control stage's summary (advisory — the
             # close completes even when `missing` > 0).
             "receipt_control": control_summary,
+            # G4.2 (R50): what the rebate merge did, and every rebate layer
+            # that has gone missing — both on the ONE close audit trail.
+            "rebate_merge": {
+                "rebate_total_eur": str(merge.rebate_total_eur),
+                "lines_allocated": merge.lines_allocated,
+                "changed": merge.changed,
+                "source_warnings": list(merge.source_warnings),
+            },
         },
         org_id=org_id,  # explicit — runs inside the job worker, not a request.
     )
@@ -206,4 +237,10 @@ async def run_close(db: AsyncSession, org_id: str, period: str) -> dict:
         "claims": processed,
         "tie_out_checked": len(tie_results),
         "receipt_control": control_summary,
+        "rebate_merge": {
+            "rebate_total_eur": str(merge.rebate_total_eur),
+            "lines_allocated": merge.lines_allocated,
+            "changed": merge.changed,
+            "source_warnings": list(merge.source_warnings),
+        },
     }

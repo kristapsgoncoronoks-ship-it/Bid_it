@@ -16,7 +16,15 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.routes.transport import admin, claims, customers, fuel, overcharges, recovery
+from app.api.routes.transport import (
+    admin,
+    claims,
+    customers,
+    fuel,
+    overcharges,
+    rebates,
+    recovery,
+)
 
 router = APIRouter()
 router.include_router(claims.router)
@@ -25,3 +33,4 @@ router.include_router(customers.router)
 router.include_router(fuel.router)
 router.include_router(recovery.router)
 router.include_router(overcharges.router)
+router.include_router(rebates.router)

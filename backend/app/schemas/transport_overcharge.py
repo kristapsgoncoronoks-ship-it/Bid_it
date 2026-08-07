@@ -94,6 +94,12 @@ class ContractAuditOut(BaseModel):
     lines_audited: int
     lines_without_terms: int
     lines_skipped_zero_qty: int
+    # R50's off-invoice rebate SOURCE GUARD (G4.2) — advisory, never a gate.
+    # Non-empty means at least one (supplier, country) in this period is being
+    # priced at LIST because its recorded rebate document is missing, so
+    # `eur_l_eff` above is not effective for it. Additive (§4.20): defaults to
+    # empty, so an existing consumer is unaffected.
+    source_warnings: list[str] = []
 
 
 class OverchargeClaimOpenIn(BaseModel):

@@ -230,6 +230,16 @@ class A:
     TRANSPORT_CONTRACT_TERM_REMOVE = "transport.contract_term_remove"
     TRANSPORT_OVERCHARGE_OPEN = "transport.overcharge_open"
     TRANSPORT_OVERCHARGE_TRANSITION = "transport.overcharge_transition"
+    # G4.2 (WO-84, R50): the off-invoice rebate layer.
+    # REBATE_RECORD/REBATE_UPDATE audit the recorded rebate document and its
+    # resolved EUR figure old->new, because that figure is the ONLY thing
+    # permitted to move an already-validated `net_eur_eff`. REBATE_MERGE is the
+    # per-transaction figure change itself: one event per CHANGED row carrying
+    # old->new (§4.16), which is also what makes the merge's idempotency
+    # assertable — a re-run changes nothing and therefore emits nothing.
+    TRANSPORT_REBATE_RECORD = "transport.rebate_record"
+    TRANSPORT_REBATE_UPDATE = "transport.rebate_update"
+    TRANSPORT_REBATE_MERGE = "transport.rebate_merge"
 
 
 def _hash(
