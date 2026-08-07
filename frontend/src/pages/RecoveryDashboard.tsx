@@ -329,12 +329,7 @@ export default function RecoveryDashboardPage() {
                 <>
                   <p className="text-lg font-semibold text-slate-700">Not yet measurable</p>
                   <p className="mt-2 text-sm text-slate-600">
-                    Measuring this needs a refunded claim carrying both the date it was filed and
-                    the date the money arrived. So far {d.days_to_refund_sample} claim
-                    {d.days_to_refund_sample === 1 ? "" : "s"} in {d.year} carr
-                    {d.days_to_refund_sample === 1 ? "ies" : "y"} both dates, so there is no
-                    median to report — which is a different fact from a refund arriving the same
-                    day it is filed.
+                    {`Measuring this needs a refunded claim carrying both the date it was filed and the date the money arrived. So far ${d.days_to_refund_sample} ${d.days_to_refund_sample === 1 ? "claim carries" : "claims carry"} both dates in ${d.year}, so there is no median to report — which is a different fact from a refund arriving the same day it is filed.`}
                   </p>
                 </>
               ) : (
@@ -343,9 +338,7 @@ export default function RecoveryDashboardPage() {
                     {d.median_days_to_refund} days
                   </p>
                   <p className="mt-2 text-sm text-slate-600">
-                    Median time from filing to the money arriving, over{" "}
-                    {d.days_to_refund_sample} refunded claim
-                    {d.days_to_refund_sample === 1 ? "" : "s"} of {d.year} carrying both dates.
+                    {`Median time from filing to the money arriving, over ${d.days_to_refund_sample} refunded ${d.days_to_refund_sample === 1 ? "claim" : "claims"} of ${d.year} carrying both dates.`}
                   </p>
                 </>
               )}
