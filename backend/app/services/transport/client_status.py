@@ -212,7 +212,7 @@ CLIENT_STAGES: tuple[str, ...] = (
 # surface describes where a claim IS, never what anyone should do about it.
 STAGE_LABELS: dict[str, str] = {
     "prep": "In preparation",
-    "ready": "Ready to file",
+    "ready": "Ready for filing",
     "filed": "Filed with the tax authority",
     "awaiting": "Decision received, money on its way",
     "refunded": "Refunded",

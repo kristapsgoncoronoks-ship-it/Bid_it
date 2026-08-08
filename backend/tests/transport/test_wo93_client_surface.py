@@ -353,7 +353,7 @@ def test_wo93_the_frontend_holds_no_stage_label_of_its_own():
     subject. Pinned as literals so a re-wording is a deliberate act."""
     assert client_status.STAGE_LABELS == {
         "prep": "In preparation",
-        "ready": "Ready to file",
+        "ready": "Ready for filing",
         "filed": "Filed with the tax authority",
         "awaiting": "Decision received, money on its way",
         "refunded": "Refunded",
