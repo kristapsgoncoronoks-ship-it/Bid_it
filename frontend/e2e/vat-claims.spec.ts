@@ -522,7 +522,13 @@ test("detail: renders the grain, the lines and the server's own totals", async (
     page.getByRole("heading", { name: "LV · 2026-Q2" }),
   ).toBeVisible();
   await expect(page.getByText("INV-4001")).toBeVisible();
-  await expect(page.getByText("diesel")).toBeVisible();
+  // SCOPED, not weakened (the WO-80 decision-2 precedent). The assertion was
+  // always about the product-group CELL of the claim's line table; a bare
+  // `getByText("diesel")` was unambiguous only while nothing else in the shell
+  // said "diesel", and WO-92's "Diesel excise" nav destination — which is on
+  // every page — made it ambiguous. Naming the role the cell always had is
+  // strictly stronger than the substring match it replaces.
+  await expect(page.getByRole("cell", { name: "diesel" })).toBeVisible();
   await expect(
     page.getByText("Filed under the standard fee schedule."),
   ).toBeVisible();
