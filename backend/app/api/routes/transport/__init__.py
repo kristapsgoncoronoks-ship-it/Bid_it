@@ -18,6 +18,7 @@ from fastapi import APIRouter
 
 from app.api.routes.transport import (
     admin,
+    claim_status,
     claims,
     customers,
     excise,
@@ -38,3 +39,4 @@ router.include_router(overcharges.router)
 router.include_router(rebates.router)
 router.include_router(savings.router)
 router.include_router(excise.router)
+router.include_router(claim_status.router)
