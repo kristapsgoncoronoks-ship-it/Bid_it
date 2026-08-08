@@ -22,10 +22,12 @@ WHAT THIS FILE IS DELIBERATELY STRICT ABOUT
 
 from __future__ import annotations
 
+import ast
 import inspect
 import io
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from openpyxl import load_workbook
@@ -38,6 +40,12 @@ from tests.transport.conftest import enable_transport, make_entity, make_org
 
 PERIOD = "2026-05"
 DAY = date(2026, 5, 12)
+
+# The module's own source, read once from the FILE. Every structural assertion
+# below reads THIS rather than `inspect.getsource`'s line-cached view.
+SOURCE = (
+    Path(__file__).resolve().parents[2] / "app" / "services" / "transport" / "excise.py"
+).read_text(encoding="utf-8")
 
 _SEQ = {"n": 0}
 
@@ -101,11 +109,29 @@ def test_wo91_the_renderer_is_sync_and_holds_no_session():
     assert signature.parameters["report"].annotation in ("ExciseReport", excise.ExciseReport)
 
 
+def _function_source(name: str) -> str:
+    """The source of one top-level function, read from the FILE rather than via
+    `inspect.getsource`.
+
+    Deliberate: `inspect.getsource` resolves a function to a LINE RANGE in a
+    cached copy of the file, so if the module on disk moves while the process
+    holds an older import it silently returns a DIFFERENT function's body — an
+    assertion that then fails (or, worse, passes) for a reason that has nothing
+    to do with the code under test. Parsing the file we actually want to make a
+    claim about removes that whole class of false signal.
+    """
+    tree = ast.parse(SOURCE, filename="excise.py")
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name == name:
+            return ast.get_source_segment(SOURCE, node) or ""
+    raise AssertionError(f"excise.py defines no top-level function named {name!r}")
+
+
 def test_wo91_the_loader_is_the_analysis_itself():
     """`evidence_workbook` calls `excise_report` — the SAME function the JSON
     route calls — and then renders. There is no second query anywhere in the
     packet path, so the two artifacts cannot look at different rows."""
-    source = inspect.getsource(excise.evidence_workbook)
+    source = _function_source("evidence_workbook")
     assert "await excise_report(" in source
     assert "queries." not in source, "the packet loader issues a query of its own"
     assert "build_evidence_workbook(report)" in source
@@ -115,9 +141,19 @@ def test_wo91_both_projections_come_from_the_one_column_spec():
     """`packet_row` IS the projection the renderer uses, so a test can assert
     the workbook against it rather than against a re-typed expectation — and a
     column added to `_COLUMNS` reaches both at once."""
-    source = inspect.getsource(excise.build_evidence_workbook)
+    source = _function_source("build_evidence_workbook")
     assert "packet_row(cell_row, report)" in source
     assert "_COLUMNS" in source
+
+
+def test_wo91_the_source_reader_finds_the_right_function():
+    """`WORK_ORDER_TEMPLATE.md` rule 6 — the reader's own self-test. It must
+    return the NAMED function and not its neighbour, which is exactly the
+    failure mode `inspect.getsource` exhibits against a moved file."""
+    assert _function_source("packet_row").startswith("def packet_row(")
+    assert "packet_row" not in _function_source("_excel_cell")
+    with pytest.raises(AssertionError):
+        _function_source("no_such_function_exists")
 
 
 # --------------------------------------------------------------------------- #

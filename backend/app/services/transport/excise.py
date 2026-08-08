@@ -364,6 +364,11 @@ async def rate_for(db: AsyncSession, org_id: str, country: str) -> Decimal | Non
     `None` is not zero and must never be rendered as one — see the module
     docstring. A country outside the seven resolves to `None` and produces no
     finding at all.
+
+    A HELPER, not an entry point: it applies no module gate, because every
+    caller (`excise_report`, and the rate CRUD) has already passed one. Nothing
+    route-facing calls it directly, and nothing should — an ungated entry point
+    is exactly what ADR-P3 rule 3 exists to prevent.
     """
     row = await get_rate_row(db, org_id, country)
     if row is not None:
