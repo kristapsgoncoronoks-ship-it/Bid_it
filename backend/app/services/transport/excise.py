@@ -150,14 +150,17 @@ WHAT THIS MODULE DELIBERATELY DOES NOT CONTAIN
 from __future__ import annotations
 
 import re
+from collections import defaultdict
+from dataclasses import dataclass
 from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import PermissionError, ValidationError
+from app.core.money import q2
 from app.models.transport.excise_rate import VatExciseRate
 from app.services import audit as audit_svc
-from app.services import modules
+from app.services import issuer, modules
 from app.services.transport import queries
 
 # `BA_fleet_fuel.md` §2.4 *"7 countries (BE·FR·IT·SI·HU·ES·HR)"* and Appendix B
@@ -458,6 +461,215 @@ async def remove_rate(db: AsyncSession, org_id: str, *, country: str) -> bool:
     return True
 
 
+# --------------------------------------------------------------------------- #
+# The analysis — READ-ONLY from here down (§4.19 / §3.L)
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class ExciseCell:
+    """One (entity × country) cell of the period — R42's own grain.
+
+    `litres` is the EXACT sum of the cell's validated diesel quantities, never
+    money-quantized (§4.2 row 9). `rate_eur_per_1000l` is the rate that was
+    actually applied and `rate_is_override` says whether a human verified it or
+    it is the harvested placeholder — a customs packet that could not tell those
+    apart would be presenting a placeholder as a statutory figure.
+
+    `indicative_excise_eur` is named for what it is. See the module docstring:
+    the qualification lives in the field name because a renderer can lose a
+    caveat string and cannot lose an identifier.
+    """
+
+    entity_id: str
+    entity_name: str
+    country: str
+    litres: Decimal
+    rate_eur_per_1000l: Decimal
+    rate_is_override: bool
+    indicative_excise_eur: Decimal
+    lines: int
+
+
+@dataclass(frozen=True)
+class SkippedCountry:
+    """A country whose validated diesel litres are in scope but for which this
+    product holds NO rate — reported rather than silently dropped.
+
+    Silence would be the dangerous answer: an operator who saw only the seven
+    refunding states could not tell "we hold no rate for PL" from "you burned no
+    diesel in PL". The litres are stated so the size of what is NOT being
+    reported is visible, and `indicative_excise_eur` is deliberately absent from
+    this shape — there is no figure, which is not the same as a figure of zero.
+    """
+
+    country: str
+    litres: Decimal
+    lines: int
+
+
+@dataclass(frozen=True)
+class ExciseReport:
+    """R42's analysis over one accounting month.
+
+    Every caveat is a REQUIRED field, not optional metadata: R42's acceptance is
+    *"The UI shows the indicative-rate and eligibility caveats on **every
+    surface that shows the number**"*, and the only way to guarantee that is to
+    make the number un-renderable without them. `eligibility_asserted` is always
+    `False` and exists so the denial survives a surface that truncates prose.
+    """
+
+    period: str
+    entity_id: str | None
+    country: str | None
+    currency: str
+    product_group: str
+    litre_basis: str
+    legal_framing: str
+    eligibility: str
+    eligibility_asserted: bool
+    rate_caveat: str
+    filed_with: str
+    rows: tuple[ExciseCell, ...]
+    skipped_countries: tuple[SkippedCountry, ...]
+    litres: Decimal
+    indicative_excise_eur: Decimal
+    lines_examined: int
+
+
+async def _entity_names(db: AsyncSession, org_id: str, entity_ids: set[str]) -> dict[str, str]:
+    """Display names for the claimant entities in scope, read through the issuer
+    SERVICE (`issuer.get_by_id`) rather than a raw cross-domain join — ADR-P3
+    rule 2, the path `claim.py`/`fuel.py`/`claim_pack.py` all take. An entity
+    that cannot be resolved falls back to its id rather than to an invented
+    name (§10)."""
+    out: dict[str, str] = {}
+    for entity_id in sorted(entity_ids):
+        profile = await issuer.get_by_id(db, org_id, entity_id)
+        name = None if profile is None else (profile.legal_name or profile.name)
+        out[entity_id] = name or entity_id
+    return out
+
+
+async def excise_report(
+    db: AsyncSession,
+    org_id: str,
+    *,
+    period: str,
+    entity_id: str | None = None,
+    country: str | None = None,
+) -> ExciseReport:
+    """`BA_fleet_fuel.md` R42's diesel excise-duty refund, complete.
+
+    *"over the same validated diesel lines, per (entity × country), `litres ×
+    rate/1,000 L`"* — one accounting month, optionally scoped to one claimant
+    entity or one country of supply.
+
+    **This figure asserts NO eligibility** (§3.L): vehicle weight (>= 7.5 t) and
+    carrier registration are deliberately not modelled, so it is excise that may
+    be reclaimable IF the haulier qualifies, never excise it is owed. The
+    statement rides the result as `eligibility`, and `eligibility_asserted` is
+    `False`. Framing: **indicative / advisory — verify before relying** (R53's
+    third framing). Filed with **CUSTOMS**, a separate regime from the VAT
+    refund (§2.4, §1.2, §6.1).
+
+    Gate order, fails CLOSED: module entitlement -> `period` shape -> `country`
+    shape. There is no FX gate and there is nothing for one to do: this function
+    reads `qty` and no currency amount at all, so nothing is converted and
+    nothing is summed across currencies (§4.14/§4.15 — see the module
+    docstring for why that is a deliberate divergence from `savings.py`).
+
+    A country this product holds no rate for produces **no row** and is reported
+    in `skipped_countries` with its litres. A cell whose litres are not positive
+    produces no row either: a promo correction can legitimately net a cell to
+    zero or below, and a EUR 0.00 line on a customs packet is noise at best and
+    a misstatement at worst.
+
+    Read-only (§4.19 / §3.L): no write of any kind, and a test compares every
+    `fuel_transactions` row column by column before and after a run.
+    """
+    await _require_module(db, org_id)
+    validate_period(period)
+    scope_country = _validate_country(country) if country is not None else None
+
+    rows = list(
+        await db.scalars(
+            queries.excise_transactions(
+                org_id, period=period, entity_id=entity_id, country=scope_country
+            )
+        )
+    )
+
+    # The rate resolution is done ONCE per country, from the one registry query,
+    # rather than per row: a rate that changed mid-loop would produce a report
+    # whose own cells disagree.
+    overrides = {r.country: Decimal(r.rate_eur_per_1000l) for r in await list_rate_rows(db, org_id)}
+
+    litres: dict[tuple[str, str], Decimal] = defaultdict(lambda: Decimal("0"))
+    lines: dict[tuple[str, str], int] = defaultdict(int)
+    for row in rows:
+        key = (row.entity_id, row.country)
+        litres[key] += Decimal(row.qty)
+        lines[key] += 1
+
+    rated: list[tuple[str, str]] = []
+    unrated_litres: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    unrated_lines: dict[str, int] = defaultdict(int)
+    for key in sorted(litres):
+        _entity, cell_country = key
+        if overrides.get(cell_country, default_rate_for(cell_country)) is None:
+            unrated_litres[cell_country] += litres[key]
+            unrated_lines[cell_country] += lines[key]
+            continue
+        rated.append(key)
+
+    names = await _entity_names(db, org_id, {entity for entity, _ in rated})
+
+    cells: list[ExciseCell] = []
+    for entity, cell_country in rated:
+        cell_litres = litres[(entity, cell_country)]
+        if cell_litres <= 0:
+            continue
+        override = overrides.get(cell_country)
+        rate = override if override is not None else DEFAULT_RATE_EUR_PER_1000L
+        cells.append(
+            ExciseCell(
+                entity_id=entity,
+                entity_name=names[entity],
+                country=cell_country,
+                litres=cell_litres,
+                rate_eur_per_1000l=rate,
+                rate_is_override=override is not None,
+                # §4.9 — ONE q2, ROUND_HALF_UP, from the EXACT litre total and
+                # the exact rate. Never from a rounded intermediate.
+                indicative_excise_eur=q2(cell_litres / RATE_LITRES * rate),
+                lines=lines[(entity, cell_country)],
+            )
+        )
+
+    return ExciseReport(
+        period=period,
+        entity_id=entity_id,
+        country=scope_country,
+        currency=CURRENCY,
+        product_group=queries.DIESEL,
+        litre_basis=LITRE_BASIS,
+        legal_framing=LEGAL_FRAMING,
+        eligibility=ELIGIBILITY_STATEMENT,
+        eligibility_asserted=False,
+        rate_caveat=RATE_CAVEAT,
+        filed_with=FILED_WITH,
+        rows=tuple(cells),
+        skipped_countries=tuple(
+            SkippedCountry(country=c, litres=unrated_litres[c], lines=unrated_lines[c])
+            for c in sorted(unrated_litres)
+        ),
+        litres=sum((c.litres for c in cells), Decimal("0")),
+        indicative_excise_eur=q2(sum((c.indicative_excise_eur for c in cells), Decimal("0"))),
+        lines_examined=len(rows),
+    )
+
+
 __all__ = [
     "CURRENCY",
     "DEFAULT_RATE_EUR_PER_1000L",
@@ -469,7 +681,11 @@ __all__ = [
     "RATE_LITRES",
     "REFUND_COUNTRIES",
     "REPORTED_RATE_BAND_EUR",
+    "ExciseCell",
+    "ExciseReport",
+    "SkippedCountry",
     "default_rate_for",
+    "excise_report",
     "get_rate_row",
     "list_rate_rows",
     "list_rates",

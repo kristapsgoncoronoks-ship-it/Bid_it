@@ -48,7 +48,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
-from app.schemas.transport_excise import ExciseRateIn, ExciseRateOut, ExciseRatesOut
+from app.schemas.transport_excise import (
+    ExciseCellOut,
+    ExciseRateIn,
+    ExciseRateOut,
+    ExciseRatesOut,
+    ExciseReportOut,
+    SkippedCountryOut,
+)
 from app.services.transport import excise as excise_svc
 
 # Structural authorization (ADR-0024): router-level TRANSPORT_READ; the two rate
@@ -88,6 +95,80 @@ async def _current_rates(db: AsyncSession, org_id: str) -> ExciseRatesOut:
     resolved = await excise_svc.list_rates(db, org_id)
     rows = await excise_svc.list_rate_rows(db, org_id)
     return _rates_out(resolved, {r.country for r in rows})
+
+
+@router.get("/excise", response_model=ExciseReportOut)
+async def get_excise_report(
+    current: CurrentUser,
+    db: DbSession,
+    period: str = Query(description="YYYY-MM — the accounting month"),
+    entity_id: str | None = Query(default=None, description="claimant legal entity scope filter"),
+    country: str | None = Query(
+        default=None, min_length=2, max_length=2, description="ISO 3166-1 alpha-2 scope filter"
+    ),
+):
+    """R42's diesel excise-duty refund: the period's validated **diesel** litres
+    per **(entity × country)**, at `litres × rate/1,000 L`.
+
+    **This figure asserts NO eligibility.** The conditions that qualify a
+    haulier — vehicle weight (>= 7.5 t) and carrier registration — are
+    deliberately not modelled by this product (`BA_fleet_fuel.md` §3.L, §9.2
+    item 14). Read it as excise that may be reclaimable IF you qualify, never as
+    excise you are owed. `eligibility` carries the full statement and
+    `eligibility_asserted` is always `false`.
+
+    Rates are **indicative defaults**: EUR 30.00 per 1,000 litres is an explicit
+    placeholder in a reported EUR 25-33 band, the duty is not harmonised and
+    national rates are revised, so `rate_caveat` rides the response and
+    `rate_is_override` says per row whether a human verified the rate.
+    Framing: **indicative / advisory — verify before relying** (R53). Filed with
+    **customs** (`filed_with`) — a separate regime from the VAT refund.
+
+    Every figure crosses the wire as an exact decimal STRING (§4.9), litres
+    included. A country this product holds no rate for produces no row and is
+    reported in `skipped_countries` with its litres — never a EUR 0.00 line,
+    because "we hold no rate for this state" and "this state refunds you
+    nothing" are different facts.
+
+    A month with no qualifying litres is a 200 with no rows and a zero total,
+    never a 404. A malformed period refuses 422 `invalid_period`.
+    """
+    result = await excise_svc.excise_report(
+        db, current.org_id, period=period, entity_id=entity_id, country=country
+    )
+    return ExciseReportOut(
+        period=result.period,
+        entity_id=result.entity_id,
+        country=result.country,
+        currency=result.currency,
+        product_group=result.product_group,
+        litre_basis=result.litre_basis,
+        legal_framing=result.legal_framing,
+        eligibility=result.eligibility,
+        eligibility_asserted=result.eligibility_asserted,
+        rate_caveat=result.rate_caveat,
+        filed_with=result.filed_with,
+        rows=[
+            ExciseCellOut(
+                entity_id=c.entity_id,
+                entity_name=c.entity_name,
+                country=c.country,
+                litres=c.litres,
+                rate_eur_per_1000l=c.rate_eur_per_1000l,
+                rate_is_override=c.rate_is_override,
+                indicative_excise_eur=c.indicative_excise_eur,
+                lines=c.lines,
+            )
+            for c in result.rows
+        ],
+        skipped_countries=[
+            SkippedCountryOut(country=s.country, litres=s.litres, lines=s.lines)
+            for s in result.skipped_countries
+        ],
+        litres=result.litres,
+        indicative_excise_eur=result.indicative_excise_eur,
+        lines_examined=result.lines_examined,
+    )
 
 
 @router.get("/excise/rates", response_model=ExciseRatesOut)

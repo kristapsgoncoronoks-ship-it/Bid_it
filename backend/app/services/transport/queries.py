@@ -261,6 +261,46 @@ def price_comparison_transactions(
     return fuel_transactions(org_id, period=period, country=country, product_group=DIESEL)
 
 
+def excise_transactions(
+    org_id: str,
+    *,
+    period: str,
+    entity_id: str | None = None,
+    country: str | None = None,
+) -> Select[tuple[FuelTransaction]]:
+    """The rows the diesel excise-duty refund is computed over (G4.6/WO-91).
+
+    `BA_fleet_fuel.md` R42 states the cut in one clause — *"over the same
+    validated **diesel** lines, per (entity × country)"* — and §2.4 gives the
+    mechanism it feeds, `litres × rate/1,000 L`. Three predicates, all of them
+    row-selection and therefore all of them here: `product_group == DIESEL`, one
+    accounting month, and the optional scope dimensions.
+
+    WHY THIS IS NOT `price_comparison_transactions` WITH AN EXTRA ARGUMENT. That
+    function's own docstring forbids the shape this analysis needs — *"There is
+    deliberately NO `supplier` parameter. Filtering the comparison set by
+    supplier would remove the very rows that decide who the cheapest rival
+    was"* — because an overpay comparison is a RELATIVE measure whose answer
+    depends on which rows are in the set. Excise is an ABSOLUTE one: a cell's
+    litres are its own, so scoping to one entity or one country cannot change
+    any other cell's figure. Two questions with genuinely different scoping
+    semantics get two named cuts over the same one `fuel_transactions`
+    predicate, rather than one cut with a parameter that means different things
+    to its two callers.
+
+    `entity_id` is the claimant legal entity (`issuer_profiles`) — R42's own
+    grain dimension. Like every other builder here this filters on
+    `is not None` and normalises nothing (see the module docstring).
+    """
+    return fuel_transactions(
+        org_id,
+        period=period,
+        entity_id=entity_id,
+        country=country,
+        product_group=DIESEL,
+    )
+
+
 def excise_rates(org_id: str, *, country: str | None = None) -> Select[tuple[VatExciseRate]]:
     """The org's typed diesel-excise rate overrides — every one, or the single
     `(org, country)` natural-key row (G4.6/WO-91).
@@ -400,6 +440,7 @@ __all__ = [
     "NORMALIZED_INVOICE_REF",
     "claim_scope_transactions",
     "excise_rates",
+    "excise_transactions",
     "fuel_transaction_by_natural_key",
     "fuel_transactions",
     "fuel_transactions_by_normalized_invoice_ref",

@@ -71,6 +71,63 @@ class ExciseRatesOut(BaseModel):
     currency: str
 
 
+class ExciseCellOut(BaseModel):
+    """One (entity × country) cell — R42's grain. `litres` is a `Decimal`
+    because it is the figure's multiplicand: a float round-trip of a
+    three-decimal litre total would move the euro computed from it.
+
+    `rate_is_override` distinguishes a rate a human verified with customs from
+    the harvested EUR 30.00 placeholder. A packet that could not tell them apart
+    would present a placeholder as a statutory figure.
+    """
+
+    entity_id: str
+    entity_name: str
+    country: str
+    litres: Decimal
+    rate_eur_per_1000l: Decimal
+    rate_is_override: bool
+    indicative_excise_eur: Decimal
+    lines: int
+
+
+class SkippedCountryOut(BaseModel):
+    """A country with validated diesel litres in scope for which this product
+    holds no rate. It carries litres and a line count and **no euro** — there is
+    no figure, which is not the same as a figure of zero."""
+
+    country: str
+    litres: Decimal
+    lines: int
+
+
+class ExciseReportOut(BaseModel):
+    """The diesel excise-duty refund over one accounting month.
+
+    Every caveat field is REQUIRED — see the module docstring. `filed_with`
+    names the addressee because §2.4/§1.2/§6.1 all stress that this is a
+    SEPARATE regime from the VAT refund, claimed from customs; a surface that
+    lost that would invite the figure onto a VAT filing.
+    """
+
+    period: str
+    entity_id: str | None
+    country: str | None
+    currency: str
+    product_group: str
+    litre_basis: str
+    legal_framing: str
+    eligibility: str
+    eligibility_asserted: bool
+    rate_caveat: str
+    filed_with: str
+    rows: list[ExciseCellOut]
+    skipped_countries: list[SkippedCountryOut]
+    litres: Decimal
+    indicative_excise_eur: Decimal
+    lines_examined: int
+
+
 class ExciseRateIn(BaseModel):
     """Type the rate a customs authority actually applies for one state.
 

@@ -1,6 +1,7 @@
-"""WO-91 — transport routes slice 8: the diesel-excise RATE registry over HTTP.
+"""WO-91 — transport routes slice 8: the diesel excise-duty refund over HTTP.
 
-Proves the rate half of `api/routes/transport/excise.py` end to end, plus the
+Proves `api/routes/transport/excise.py` end to end — the report and the rate
+registry — plus the
 route matrix every transport slice ships: the structural permission pair
 (EMPLOYEE denied / ACCOUNTANT granted), the read/write split (an AUDITOR reads
 but cannot type a rate), the module entitlement (ADR-P3 rule 3), an org-scoped
@@ -22,18 +23,56 @@ about what the API returned goes through the API.
 from __future__ import annotations
 
 import uuid
+from datetime import date
+from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
 
+from app.core.money import q2
 from app.services import modules
-from app.services.transport import excise
-from tests.transport.conftest import make_entity  # noqa: F401  (shared fixture module import)
+from app.services.transport import excise, fuel_ingest
+from tests.factories.transport import synthetic_vehicle_ref
+from tests.transport.conftest import make_entity
 
 pytestmark = pytest.mark.asyncio
 
 V = "/api/v1"
+REPORT = f"{V}/transport/excise"
 RATES = f"{V}/transport/excise/rates"
+PERIOD = "2026-05"
+DAY = date(2026, 5, 12)
+
+_SEQ = {"n": 0}
+
+
+async def _diesel(db_session, org_id: str, entity_id: str, *, country: str, qty: str) -> None:
+    """One validated diesel line, written through the REAL ingestion path — the
+    only writer of `fuel_transactions` (WO-50/G1.2)."""
+    _SEQ["n"] += 1
+    net_eur = Decimal("1500.00")
+    vat_eur = q2(net_eur * Decimal("0.21"))
+    await fuel_ingest.ingest_transaction(
+        db_session,
+        org_id,
+        entity_id=entity_id,
+        supplier="Q8",
+        period=PERIOD,
+        line_seq=_SEQ["n"],
+        country=country,
+        vehicle_ref=synthetic_vehicle_ref(),
+        txn_date=DAY,
+        station="Demo Station Riga",
+        product="DIESEL",
+        qty=Decimal(qty),
+        currency="EUR",
+        net_local=net_eur,
+        vat_local=vat_eur,
+        gross_local=net_eur + vat_eur,
+        net_eur=net_eur,
+        vat_eur=vat_eur,
+    )
+    await db_session.commit()
 
 
 async def _register_org(client: AsyncClient):
@@ -198,6 +237,153 @@ async def test_wo91_the_service_refusals_reach_the_wire_verbatim(client, db_sess
     bad_delete = await client.delete(RATES, headers=headers, params={"country": "LV"})
     assert bad_delete.status_code == 422
     assert bad_delete.json()["code"] == "excise_country_not_supported"
+
+
+# --------------------------------------------------------------------------- #
+# The report
+# --------------------------------------------------------------------------- #
+
+
+async def test_wo91_the_report_returns_the_figure_as_decimal_strings(client, db_session):
+    """HAND-COMPUTED on the wire: 1,234.567 L in FR at the harvested
+    EUR 30.0000/1,000 L is EUR 37.04. Every figure — litres included — crosses
+    as an exact decimal STRING (§4.9); a float round-trip of the litre total
+    would be visible in the euro."""
+    headers, org_id = await _register_org(client)
+    await _enable_transport(db_session, org_id)
+    entity = await make_entity(db_session, org_id, country="LV", seed=41)
+    await db_session.commit()
+    await _diesel(db_session, org_id, entity.id, country="FR", qty="1234.567")
+
+    r = await client.get(REPORT, headers=headers, params={"period": PERIOD})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body["rows"]) == 1
+    row = body["rows"][0]
+    assert row["litres"] == "1234.567"
+    assert row["rate_eur_per_1000l"] == "30.0000"
+    assert row["indicative_excise_eur"] == "37.04"
+    assert row["rate_is_override"] is False
+    assert row["country"] == "FR"
+    assert body["indicative_excise_eur"] == "37.04"
+    assert body["currency"] == "EUR"
+    assert body["product_group"] == "Diesel"
+    for value in (row["litres"], row["indicative_excise_eur"], body["indicative_excise_eur"]):
+        assert isinstance(value, str)
+
+
+async def test_wo91_every_report_response_carries_the_eligibility_denial(client, db_session):
+    """R42's acceptance on the surface that actually shows the euro. The
+    statement and the boolean are the service's own single constants, so a
+    softened wording cannot appear downstream."""
+    headers, org_id = await _register_org(client)
+    await _enable_transport(db_session, org_id)
+    entity = await make_entity(db_session, org_id, country="LV", seed=42)
+    await db_session.commit()
+    await _diesel(db_session, org_id, entity.id, country="FR", qty="1000.000")
+
+    body = (await client.get(REPORT, headers=headers, params={"period": PERIOD})).json()
+    assert body["eligibility"] == excise.ELIGIBILITY_STATEMENT
+    assert body["eligibility_asserted"] is False
+    assert body["rate_caveat"] == excise.RATE_CAVEAT
+    assert body["legal_framing"] == excise.LEGAL_FRAMING
+    assert body["filed_with"] == excise.FILED_WITH
+    assert body["litre_basis"] == excise.LITRE_BASIS
+
+
+async def test_wo91_a_state_outside_the_regime_is_skipped_not_zeroed_on_the_wire(
+    client, db_session
+):
+    """ "We hold no rate for this state" and "this state refunds you nothing" are
+    different facts, and the wire keeps them different: the skipped entry has
+    litres and a line count and no euro field at all."""
+    headers, org_id = await _register_org(client)
+    await _enable_transport(db_session, org_id)
+    entity = await make_entity(db_session, org_id, country="LV", seed=43)
+    await db_session.commit()
+    await _diesel(db_session, org_id, entity.id, country="LV", qty="9000.000")
+
+    body = (await client.get(REPORT, headers=headers, params={"period": PERIOD})).json()
+    assert body["rows"] == []
+    assert body["indicative_excise_eur"] == "0.00"
+    assert body["skipped_countries"] == [
+        {"country": "LV", "litres": "9000.000", "lines": 1},
+    ]
+
+
+async def test_wo91_an_admin_override_moves_the_reported_figure(client, db_session):
+    """The two surfaces meet: a rate typed through `PUT /excise/rates` changes
+    the euro `GET /excise` reports, and the row says the rate was verified."""
+    headers, org_id = await _register_org(client)
+    await _enable_transport(db_session, org_id)
+    entity = await make_entity(db_session, org_id, country="LV", seed=44)
+    await db_session.commit()
+    await _diesel(db_session, org_id, entity.id, country="FR", qty="1000.000")
+
+    before = (await client.get(REPORT, headers=headers, params={"period": PERIOD})).json()
+    assert before["rows"][0]["indicative_excise_eur"] == "30.00"
+
+    put = await client.put(
+        RATES, headers=headers, json={"country": "FR", "rate_eur_per_1000l": "22.5000"}
+    )
+    assert put.status_code == 200, put.text
+
+    after = (await client.get(REPORT, headers=headers, params={"period": PERIOD})).json()
+    assert after["rows"][0]["indicative_excise_eur"] == "22.50"
+    assert after["rows"][0]["rate_is_override"] is True
+
+
+async def test_wo91_a_malformed_period_refuses_invalid_period_on_the_wire(client, db_session):
+    headers, org_id = await _register_org(client)
+    await _enable_transport(db_session, org_id)
+
+    r = await client.get(REPORT, headers=headers, params={"period": "2026-13"})
+    assert r.status_code == 422, r.text
+    body = r.json()
+    assert body["code"] == "invalid_period"
+    assert "YYYY-MM" in body["detail"]
+
+
+async def test_wo91_an_empty_period_is_a_200_with_no_rows(client, db_session):
+    """Never a 404: "you burned no diesel in a refunding state this month" is an
+    answer, and the caveats still ride it."""
+    headers, org_id = await _register_org(client)
+    await _enable_transport(db_session, org_id)
+
+    r = await client.get(REPORT, headers=headers, params={"period": PERIOD})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["rows"] == [] and body["skipped_countries"] == []
+    assert body["indicative_excise_eur"] == "0.00"
+    assert body["eligibility_asserted"] is False
+
+
+async def test_wo91_another_orgs_entity_id_is_an_opaque_empty_scope(client, db_session):
+    """§4.4 — org B naming org A's entity must learn nothing. This route's
+    `entity_id` is a SCOPE filter rather than a fetch-by-id, so the honest
+    answer is an empty report: A's litres are never returned, and B cannot tell
+    a foreign entity from one of its own that had no diesel."""
+    a_headers, a_org = await _register_org(client)
+    b_headers, b_org = await _register_org(client)
+    await _enable_transport(db_session, a_org)
+    await _enable_transport(db_session, b_org)
+    a_entity = await make_entity(db_session, a_org, country="LV", seed=45)
+    await db_session.commit()
+    await _diesel(db_session, a_org, a_entity.id, country="FR", qty="1000.000")
+
+    mine = await client.get(REPORT, headers=a_headers, params={"period": PERIOD})
+    assert mine.json()["indicative_excise_eur"] == "30.00"
+
+    theirs = await client.get(
+        REPORT, headers=b_headers, params={"period": PERIOD, "entity_id": a_entity.id}
+    )
+    assert theirs.status_code != 403, "a 403 would confirm the entity exists (§4.4)"
+    assert theirs.status_code == 200, theirs.text
+    assert theirs.json()["rows"] == []
+    assert theirs.json()["indicative_excise_eur"] == "0.00"
+
+    unscoped = await client.get(REPORT, headers=b_headers, params={"period": PERIOD})
+    assert unscoped.json()["rows"] == []
 
 
 # --------------------------------------------------------------------------- #
