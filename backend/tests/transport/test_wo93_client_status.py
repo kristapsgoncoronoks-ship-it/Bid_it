@@ -438,24 +438,42 @@ async def test_wo93_a_filed_claim_with_an_unrecognised_code_falls_back_not_forwa
 
 @pytest.mark.asyncio
 async def test_wo93_a_withdrawn_claim_is_not_shown_and_its_stale_code_is_never_read(db_session):
-    """`lock.withdraw_claim` sets `status = "withdrawn"` but LEAVES
-    `status_code` populated, while §3.D D7 says withdrawal also NULLs it — a
-    G2.7 gap this order does not fix (§4.20 additive). Dispatching on the
-    engine status FIRST makes this surface immune to it: the withdrawn claim
-    is not shown, and its stale `"2"` never reaches the code map. This test
-    pins the immunity so a future fix cannot silently change the portal."""
+    """A withdrawn claim is not shown, WHATEVER `status_code` it carries.
+
+    When this test was written, `lock.withdraw_claim` left `status_code`
+    populated against §3.D D7, and the immunity pinned here was immunity to a
+    live defect. WO-94 fixed the cause — withdrawal now NULLs the code — so
+    the first half asserts the fix. The pin STAYS, and is now stronger than it
+    was: after asserting the fix, the test writes a stale code back onto the
+    row by hand (the shape any pre-WO-94 database still holds, and the shape a
+    future lifecycle change could reintroduce) and asserts the portal still
+    shows nothing. Dispatching on the ENGINE STATUS first is what makes that
+    true, and that dispatch order is what this test defends."""
     org_id, entity_id = await _org_with_entity(db_session, activate=True)
     claim = await _submitted_claim(db_session, org_id, entity_id)
     withdrawn = await lock.withdraw_claim(db_session, org_id, claim.id)
     await db_session.commit()
     assert withdrawn.status == "withdrawn"
-    assert withdrawn.status_code == "2", "the stale code this surface must not read"
+    assert withdrawn.status_code is None, "WO-94/D7 — withdrawal NULLs the code"
 
     view = await client_status.client_claim_status(db_session, org_id, 2026, today=PERIOD_ENDED)
     assert all(s.claims == 0 for s in view.stages)
     assert view.claims == ()
     assert view.not_shown_claims == 1
     assert view.total_claims == 1
+
+    # The immunity itself: a withdrawn row carrying a code — impossible through
+    # the services now, still possible in a restored older database — reaches
+    # neither the code map nor the page.
+    withdrawn.status_code = "2"
+    await db_session.commit()
+    stale_view = await client_status.client_claim_status(
+        db_session, org_id, 2026, today=PERIOD_ENDED
+    )
+    assert all(s.claims == 0 for s in stale_view.stages)
+    assert stale_view.claims == ()
+    assert stale_view.not_shown_claims == 1
+    assert stale_view.total_claims == 1
 
 
 @pytest.mark.asyncio

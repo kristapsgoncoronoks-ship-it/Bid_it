@@ -370,8 +370,9 @@ async def submit_claim(
 
 async def withdraw_claim(db: AsyncSession, org_id: str, claim_id: str) -> VatRefundClaim:
     """The ONLY function that deletes a `VatClaimedInvoice` row (R5). Deletes
-    every lock row this claim currently holds and sets `status='withdrawn'` —
-    after which the freed invoice key can be locked by a DIFFERENT claim.
+    every lock row this claim currently holds, sets `status='withdrawn'` and
+    CLEARS the workflow `status_code` — after which the freed invoice key can
+    be locked by a DIFFERENT claim.
 
     Refuses (409, `code="claim_not_locked"`) unless the claim is currently in
     a lock-holding status (`submitted`/`approved`/`paid`) — R5's "only an
@@ -379,6 +380,22 @@ async def withdraw_claim(db: AsyncSession, org_id: str, claim_id: str) -> VatRef
     modeled here by there being no OTHER function that could reach a locking
     state and shed its locks, since no reject/approve/pay transition exists
     yet (see module docstring).
+
+    WHY THE CODE IS NULLED HERE (D7, WO-94)
+    ---------------------------------------
+    §3.D **D7** reads: *"Only `withdraw_claim` releases, and it also NULLs
+    `status_code`."* Until WO-94 this function left the code populated, so
+    every withdrawn claim carried the `"2"` `submit_claim` stamps (or whatever
+    `status.set_status_code` last wrote) and read as *submitted* / *under
+    appeal* beside its `withdrawn` engine status.
+
+    The clear belongs HERE, at the one transition that owns the withdrawal,
+    and not in `status.set_status_code`: that function is the MANUAL-code
+    writer and already refuses a withdrawn claim (`claim_not_submitted`), so
+    it can neither reach this state nor undo it. Both columns move in the same
+    flush as the lock deletion, inside the caller's open transaction — a
+    rollback discards the release, the status and the code together, exactly
+    as it already did for the first two.
     """
     if not await modules.is_enabled(db, org_id, "transport"):
         m = modules.MODULES_BY_KEY["transport"]
@@ -397,14 +414,21 @@ async def withdraw_claim(db: AsyncSession, org_id: str, claim_id: str) -> VatRef
             VatClaimedInvoice.org_id == org_id, VatClaimedInvoice.claim_id == claim.id
         )
     )
+    old_code = claim.status_code
     claim.status = "withdrawn"
+    # D7 (WO-94) — the withdrawal NULLs the workflow code. Same statement
+    # group, same flush, same transaction as the status flip above.
+    claim.status_code = None
     await db.flush()
     await audit.record(
         db,
         audit.A.TRANSPORT_CLAIM_WITHDRAW,
         target_type="vat_refund_claim",
         target_id=claim.id,
-        meta=None,
+        # §4.16 — old->new for the value that changed, in the SAME transaction.
+        # The field names are `status.set_status_code`'s, reused rather than
+        # re-invented, so an audit consumer needs ONE shape for this column.
+        meta={"old_status_code": old_code, "new_status_code": None},
         org_id=org_id,  # explicit — callable outside an HTTP request context.
     )
     return claim

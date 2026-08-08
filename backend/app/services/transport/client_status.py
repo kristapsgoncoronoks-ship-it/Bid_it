@@ -114,13 +114,14 @@ not_shown_claims == total_claims` holds exactly, and is asserted). Unlike
 `recovery.py`'s `excluded`, no REASON is emitted — `"withdrawn"`/`"rejected"`
 are internal engine vocabulary, and this is the surface that does not show it.
 
-Status-first also makes this module immune to a real defect in the tree:
-`lock.withdraw_claim` sets `status = "withdrawn"` but leaves `status_code`
-populated, while §3.D **D7** says withdrawal *"also NULLs `status_code`"*. That
-is a G2.7 gap (recorded in `docs/plan/plan-a/wo/WO-93-client-claim-status.md`,
-not fixed here — §4.20 additive). Because the engine status is read first, a
-withdrawn claim never reaches the code map, and a test pins that immunity so a
-future fix cannot silently change this surface.
+Status-first also made this module immune to a real defect WO-93 found and
+recorded: `lock.withdraw_claim` set `status = "withdrawn"` but left
+`status_code` populated, against §3.D **D7** (*"also NULLs `status_code`"*).
+WO-94 fixed it at the lifecycle — withdrawal now clears the code, audited
+old→new — so no such row can be produced any more. The immunity test stays and
+now proves MORE than it did: it asserts the fix, then writes a stale code back
+by hand (the shape a pre-WO-94 database still holds) and asserts this surface
+still shows nothing. Reading the engine status first is what makes that true.
 
 MONEY: NET EUR, AND WHY `None` IS A REAL ANSWER
 -------------------------------------------------
