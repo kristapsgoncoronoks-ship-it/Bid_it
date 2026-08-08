@@ -68,6 +68,7 @@ from app.models.tax_code import TaxCode
 from app.models.transport.checklist_rule import VatChecklistRule
 from app.models.transport.contract_term import VatSupplierContractTerm
 from app.models.transport.customer_lifecycle import VatCountryActivation, VatCustomerLifecycle
+from app.models.transport.excise_rate import VatExciseRate
 from app.models.transport.extraction_baseline import FuelExtractionBaseline
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.models.transport.lock import VatClaimedInvoice
@@ -159,6 +160,7 @@ TENANT_MODELS = (
     VatClaimedInvoice,
     VatCountryActivation,
     VatCustomerLifecycle,
+    VatExciseRate,
     VatNoteInvoiceOverride,
     VatOffInvoiceRebate,
     VatOverchargeClaim,

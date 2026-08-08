@@ -115,6 +115,7 @@ from collections.abc import Sequence
 
 from sqlalchemy import ColumnElement, Select, func, select
 
+from app.models.transport.excise_rate import VatExciseRate
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.models.transport.vat_claim import VatRefundClaimLine
 
@@ -260,6 +261,23 @@ def price_comparison_transactions(
     return fuel_transactions(org_id, period=period, country=country, product_group=DIESEL)
 
 
+def excise_rates(org_id: str, *, country: str | None = None) -> Select[tuple[VatExciseRate]]:
+    """The org's typed diesel-excise rate overrides — every one, or the single
+    `(org, country)` natural-key row (G4.6/WO-91).
+
+    Registered here even though `vat_excise_rates` is a small configuration
+    table rather than one of `CANONICAL_MODELS`: this predicate decides WHICH
+    RATE multiplies a haulier's litres into the figure it files with customs, so
+    a forked spelling of it would silently apply the wrong state's rate — the
+    same class of wrong-denominator error the registry exists to prevent. It is
+    also the only place the `org_id` filter for this table is written.
+    """
+    stmt = select(VatExciseRate).where(VatExciseRate.org_id == org_id)
+    if country is not None:
+        stmt = stmt.where(VatExciseRate.country == country)
+    return stmt
+
+
 def fuel_transaction_by_natural_key(
     org_id: str,
     *,
@@ -381,6 +399,7 @@ __all__ = [
     "DIESEL",
     "NORMALIZED_INVOICE_REF",
     "claim_scope_transactions",
+    "excise_rates",
     "fuel_transaction_by_natural_key",
     "fuel_transactions",
     "fuel_transactions_by_normalized_invoice_ref",

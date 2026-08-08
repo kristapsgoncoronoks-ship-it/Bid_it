@@ -7,9 +7,9 @@ routes.__path__)` and reads each entry's top-level `router` attribute — for
 a PACKAGE that means THIS module. Aggregating every slice's router here
 keeps the transport routes inside the structural-coverage net (a package
 without a top-level `router` would silently escape the CI check — the exact
-unclassified-route failure mode ADR-0024 exists to prevent). Future slices
-(`excise.py` — the remaining ARCH_plan file list) include themselves HERE,
-not in `app/api/router.py`.
+unclassified-route failure mode ADR-0024 exists to prevent). `excise.py`
+(G4.6/WO-91) is the slice this paragraph named while it was still missing;
+it, and every future one, includes itself HERE, not in `app/api/router.py`.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from app.api.routes.transport import (
     admin,
     claims,
     customers,
+    excise,
     fuel,
     overcharges,
     rebates,
@@ -36,3 +37,4 @@ router.include_router(recovery.router)
 router.include_router(overcharges.router)
 router.include_router(rebates.router)
 router.include_router(savings.router)
+router.include_router(excise.router)

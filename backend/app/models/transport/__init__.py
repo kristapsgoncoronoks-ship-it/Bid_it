@@ -13,6 +13,7 @@ from __future__ import annotations
 from app.models.transport.checklist_rule import VatChecklistRule
 from app.models.transport.contract_term import VatSupplierContractTerm
 from app.models.transport.customer_lifecycle import VatCountryActivation, VatCustomerLifecycle
+from app.models.transport.excise_rate import VatExciseRate
 from app.models.transport.extraction_baseline import FuelExtractionBaseline
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.models.transport.lock import VatClaimedInvoice
@@ -34,6 +35,7 @@ __all__ = [
     "VatClaimedInvoice",
     "VatCountryActivation",
     "VatCustomerLifecycle",
+    "VatExciseRate",
     "VatNoteInvoiceOverride",
     "VatOffInvoiceRebate",
     "VatOverchargeClaim",

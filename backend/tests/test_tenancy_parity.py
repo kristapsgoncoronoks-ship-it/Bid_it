@@ -1974,6 +1974,65 @@ async def _p_transport_off_invoice_rebate(ctx: Ctx) -> None:
         )
 
 
+@probe("vat_excise_rates")
+async def _p_transport_excise_rates(ctx: Ctx) -> None:
+    """WO-91 — the G4.6 diesel-excise rate registry, proven over the REAL HTTP
+    routes. Deliberately a real probe rather than an EXEMPT row, in the same
+    commit that creates the table.
+
+    THE DISCRIMINATOR IS THE RATE, NOT A ROW ID, AND THAT IS DELIBERATE. This
+    table's natural key is `(org, country)` and its wire shape carries no `id`
+    (the resolved-rate view is keyed by country, so an id would be noise a
+    client could not use). The overlap discipline is therefore applied to the
+    VALUES: both orgs override the SAME state (`FR`) — same table, same country,
+    same shape — at DIFFERENT rates, and B additionally overrides `IT` while A
+    leaves it on the harvested default.
+
+    A missing `org_id` filter is then visible three separate ways, in both
+    directions: A would read B's FR rate, A's `IT` would flip from the EUR 30.00
+    default to B's override, and `is_override` would be true for a state the
+    reader never configured. Values that a broken filter cannot reproduce by
+    luck are exactly what `_assert_isolated`'s id sets buy elsewhere.
+    """
+    from app.services import modules as modules_svc
+
+    await _transport_setup(ctx)
+
+    seeded = {ctx.a.name: {"FR": "22.5000"}, ctx.b.name: {"FR": "27.7500", "IT": "19.0000"}}
+    for org in (ctx.a, ctx.b):
+        await modules_svc.set_enabled(ctx.db, org.org_id, "transport", True)
+        await ctx.db.commit()
+        for country, rate in seeded[org.name].items():
+            put = await org.put(
+                "/api/v1/transport/excise/rates",
+                json={"country": country, "rate_eur_per_1000l": rate},
+            )
+            assert put.status_code == 200, put.text
+
+    for me in (ctx.a, ctx.b):
+        listed = await me.get("/api/v1/transport/excise/rates")
+        assert listed.status_code == 200, listed.text
+        by_country = {r["country"]: r for r in listed.json()["rates"]}
+        mine = seeded[me.name]
+        for country, rate in mine.items():
+            assert by_country[country]["rate_eur_per_1000l"] == rate, (
+                f"vat_excise_rates: {me.name}'s own {country} rate is not what it typed"
+            )
+            assert by_country[country]["is_override"] is True
+        for country in ("FR", "IT"):
+            if country in mine:
+                continue
+            # Not configured by this org: it must read as the harvested default,
+            # never as the OTHER org's typed override (the leak this catches).
+            assert by_country[country]["is_override"] is False, (
+                f"vat_excise_rates: TENANT LEAK — {me.name} sees an override it never typed "
+                f"for {country}"
+            )
+            assert by_country[country]["rate_eur_per_1000l"] == "30.0000", (
+                f"vat_excise_rates: TENANT LEAK — {me.name}'s {country} rate is not the default"
+            )
+
+
 # --------------------------------------------------------------------------- #
 # The tests
 # --------------------------------------------------------------------------- #

@@ -241,6 +241,14 @@ class A:
     TRANSPORT_REBATE_UPDATE = "transport.rebate_update"
     TRANSPORT_REBATE_MERGE = "transport.rebate_merge"
 
+    # WO-91 / G4.6 — the diesel-excise refund RATE an operator types over the
+    # harvested indicative default (`BA_fleet_fuel.md` §2.4: *"admin-
+    # overridable"*). A rate multiplies real litres into a figure a haulier
+    # takes to customs, so every change to one carries an actor and old->new
+    # (§4.16) even though the analysis reading it mutates nothing.
+    TRANSPORT_EXCISE_RATE_SET = "transport.excise_rate_set"
+    TRANSPORT_EXCISE_RATE_REMOVE = "transport.excise_rate_remove"
+
 
 def _hash(
     prev_hash: str | None,
