@@ -217,10 +217,12 @@ async function open(page: Page, opts: MockOpts = {}) {
   await page.goto("/claim-status");
 }
 
-/** The results panel — everything the portal itself renders. Scoping to it
- * keeps every assertion off the app shell's own nav and chrome. */
+/** The page body — the `<main>` landmark the app shell already renders (no test
+ * hook is added to production code for this: every other spec in this suite
+ * selects by role and name, and so does this one). Scoping to it keeps every
+ * assertion off the shell's own navigation and chrome. */
 function panel(page: Page) {
-  return page.getByTestId("claim-status");
+  return page.getByRole("main");
 }
 
 // ---------------------------------------------------------------------------
@@ -366,7 +368,7 @@ test("module: transport off renders the module notice and no nav entry", async (
   await mockApi(page, { moduleEnabled: false });
   await page.goto("/claim-status");
   await expect(page.getByText(/Transport & VAT refunds/).first()).toBeVisible();
-  await expect(panel(page)).toHaveCount(0);
+  await expect(page.getByRole("table")).toHaveCount(0);
   await expect(
     page.getByRole("navigation").getByRole("link", { name: "Claim status" }),
   ).toHaveCount(0);
@@ -422,12 +424,17 @@ test("constraint: every stage cell carries a label from the response, nothing el
 test("constraint: the results panel renders no control at all", async ({ page }) => {
   await open(page);
   await expect(panel(page).getByRole("table")).toBeVisible();
-  // A read-only view means NO control, not a disabled one. The year filter sits
-  // outside this panel (it selects what to read, it does nothing to a claim).
+  // A read-only view means NO control, not a disabled one. The ONLY interactive
+  // element on the whole page is the year filter — which selects what to READ
+  // and does nothing to a claim — so it is named explicitly and everything else
+  // is asserted absent.
   await expect(panel(page).getByRole("button")).toHaveCount(0);
   await expect(panel(page).getByRole("link")).toHaveCount(0);
-  await expect(panel(page).getByRole("textbox")).toHaveCount(0);
   await expect(panel(page).getByRole("combobox")).toHaveCount(0);
+  await expect(panel(page).getByRole("checkbox")).toHaveCount(0);
+  const boxes = panel(page).getByRole("textbox");
+  await expect(boxes).toHaveCount(1);
+  await expect(boxes).toHaveValue(/^\d{4}$/);
 });
 
 /**

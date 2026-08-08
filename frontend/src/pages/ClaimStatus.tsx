@@ -153,7 +153,7 @@ export default function ClaimStatusPage() {
           errorTitle="Couldn’t load your claims"
         >
           {(d) => (
-            <div className="space-y-6" data-testid="claim-status">
+            <div className="space-y-6">
               {/* --------------- the stages, all six, always --------------- */}
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {d.stages.map((s) => (
