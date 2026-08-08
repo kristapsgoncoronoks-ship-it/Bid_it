@@ -375,3 +375,54 @@ cd /home/user/Bid_it && python scripts/pii_scan.py --tree
 ```
 
 ---
+
+## As built — what changed while implementing, and why
+
+**1. The scanner's second signal was narrowed, and the narrowing is asserted.**
+The order specified *"any `len(...) > <not a filesec.max_bytes call>` comparison
+in a route module"*. Run over the tree, that flagged five lines that are not
+byte caps at all — `len(parts) >= hops` (`core/ratelimit.py`), `len(items) >=
+limit` (`services/approval_policy.py`), `len(text) >= _TEXT_LAYER_MIN_CHARS`
+(`services/pdf_ocr.py`) and two `len(msg_id) > MSG_ID_MAX` (`services/sepa.py`).
+Signal 2 is now keyed on the BUFFER NAME (`BYTE_BUFFERS` — the identifiers
+every upload path binds `await file.read()` to), and a fourth self-test
+asserts those five shapes stay unflagged. A scan whose output an author learns
+to ignore is worse than no scan.
+
+**2. The megabyte-literal signal folds the constant chain.** `N * 1024 * 1024`
+parses as `(N * 1024) * 1024`, so matching a `1024 * 1024` node misses every
+cap actually written in this codebase. The detector evaluates the constant
+multiplication chain instead and flags any product that is a whole number of
+megabytes.
+
+**3. The scan covers all of `app/`, not just the route package.** A service
+growing its own `25 * 1024 * 1024` forks the truth exactly as effectively, and
+a routes-only scan would not see it.
+
+**4. `_max_bytes()` was removed rather than kept as a private alias.** With
+every caller on `max_bytes()`, leaving it would have been a second name for
+one thing — the shape this order exists to remove. An unknown purpose raises
+`KeyError` rather than silently falling back to the general cap: a typo that
+quietly LOOSENS a limit is the failure mode worth being loud about.
+
+**5. A `updated_at` carve-out in the "nothing else changed" test.** The claim's
+own change stamp is supposed to move on any write, so asserting it did not
+would assert nothing about the lifecycle. Every other mapped column is
+compared, and the exclusion is named in the test.
+
+**6. One deviation from the process, recorded rather than hidden.** The
+migration commit `21f31ab` did not carry README's Alembic revision count, which
+`tests/test_docs_truth.py` pins — so that commit does not build on its own. It
+was repaired in the next commit (`00324d9`) rather than at the end of the
+order. The rule ("a commit changing a docs-truth-pinned number MUST update
+README.md in that SAME commit") was known and still missed; the honest record
+is that the repair is one commit late.
+
+**7. The Postgres gate was run even though no tenant table was added.** A
+migration lands, so `alembic upgrade head`, `downgrade -1`, `upgrade head` and
+`alembic check` were exercised on a real PostgreSQL 16 cluster under a
+`NOSUPERUSER` `appuser` role, and the backfill was proven there on a seeded
+legacy row (`withdrawn/3B` + `submitted/2` → *"clearing status_code on 1
+withdrawn claim(s)"* → `withdrawn/NULL` + `submitted/2`).
+
+---
