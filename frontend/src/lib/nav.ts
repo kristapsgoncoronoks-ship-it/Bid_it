@@ -157,6 +157,21 @@ export const LIVE_NAV: LiveNavGroup[] = [
         icon: icon("M3 17l6-6 4 4 8-8M21 7h-5m5 0v5"),
       },
       {
+        // The SECOND recoverable-cash stream, over the same validated diesel
+        // lines — a separate regime handled by a customs authority, not by a tax
+        // authority, which is why it is its own destination rather than a tab on
+        // a VAT screen. Same `transport.read` gating as the analytics entries:
+        // `routes/transport/excise.py` declares it at router level and overrides
+        // only the two rate mutations to `vat.write`, which the page mirrors
+        // control by control. Labelled for the regime, never for an entitlement:
+        // the figure asserts no eligibility and the page must not imply one.
+        to: "/excise",
+        label: "Diesel excise",
+        module: "transport",
+        perm: "transport.read",
+        icon: icon("M3 22h12V9l-3-3H3v16zM7 10h4M7 14h4M18 8v9a2 2 0 01-4 0"),
+      },
+      {
         to: "/vat-admin",
         label: "VAT configuration",
         module: "transport",
