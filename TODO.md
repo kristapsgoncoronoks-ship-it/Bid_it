@@ -31,6 +31,39 @@ separately on real Postgres), 0 known regressions, as of WO-70. WO-71: 1699 → 
 
 ---
 
+## Dependency & CI health (out-of-band, 2026-08-08)
+
+The eight Dependabot PRs were merged to `main` at the owner's direction. Five landed
+(both minor/patch groups, reportlab 5, pypdf 6, vite 8); three conflicted. Two of the
+conflicted three — react and react-dom — are a MATCHED PAIR and must land together or
+not at all. What that episode taught, twice over:
+
+- [x] **`main`'s frontend was un-installable** — vite 8 landed while `@vitejs/plugin-react`
+  stayed on 4, whose peer range stops at vite 7, so `npm ci` failed repo-wide (every
+  frontend job, on every branch). Fixed by merging the rebased #32 (plugin-react 6.0.5).
+- [x] **The build then failed underneath it** (`manualChunks is not a function`): vite 8
+  bundles with rolldown, which accepts only the FUNCTION form. Fixed portably in
+  `frontend/vite.config.ts` (commit `9540ab3`) — one shape that builds on rollup AND
+  rolldown, chunk boundaries unchanged (vendor/recharts still emit separately, verified
+  under Vite 6 here and Vite 8 against a `main` checkout).
+- [x] **`@playwright/test` and the CI container image are a matched pair too** — the group
+  bump moved the library to 1.62.1 while `frontend-e2e` stayed pinned to
+  `v1.61.1-jammy`. The skew failed the specs in the most misleading way available (five
+  passes, then a wall of "did not run"). Fixed to `v1.62.1-jammy` **plus a guard step**
+  that compares the resolved library against the tag parsed out of `ci.yml` and fails
+  with an explanation (commit `3c651f1`). A version pinned in two files WILL drift; the
+  guard makes the next drift a one-line message instead of an investigation.
+- [ ] **`main` still cannot build** until the `manualChunks` fix reaches it — either this
+  branch merges, or that single edit is applied to `main` directly. `npm ci` works there
+  now; `npm run build` does not.
+- [ ] **react / react-dom (#28, #27) remain conflicted and unmerged.** Land them together
+  (React 19 across 53 SPA pages) or leave both. One alone breaks `main` exactly as vite did.
+
+All eight PR checks are green at `3c651f1` — backend, frontend, frontend-e2e,
+docker-build, lint, pii-scan and postgres.
+
+---
+
 ## M3 — In Progress
 
 - [x] **WO-49** — `Completed` — M3 opener: the transport-vertical foundation. `app/models/transport/
