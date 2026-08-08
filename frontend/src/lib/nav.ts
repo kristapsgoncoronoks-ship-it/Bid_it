@@ -144,6 +144,19 @@ export const LIVE_NAV: LiveNavGroup[] = [
         icon: icon("M9 14l6-6M9.5 8.5h.01M14.5 14.5h.01M7 3h10a4 4 0 014 4v10a4 4 0 01-4 4H7a4 4 0 01-4-4V7a4 4 0 014-4z"),
       },
       {
+        // The other price analysis, and deliberately not next to the supplier
+        // one in vocabulary: these figures are negotiation evidence, not a
+        // contractual entitlement (R53's second framing, which the backend
+        // enforces structurally and `pages/Savings.tsx` must not undo). Same
+        // `transport.read` gating — `routes/transport/savings.py` declares it at
+        // router level and declares no write verb at all.
+        to: "/savings",
+        label: "Negotiation evidence",
+        module: "transport",
+        perm: "transport.read",
+        icon: icon("M3 17l6-6 4 4 8-8M21 7h-5m5 0v5"),
+      },
+      {
         to: "/vat-admin",
         label: "VAT configuration",
         module: "transport",
