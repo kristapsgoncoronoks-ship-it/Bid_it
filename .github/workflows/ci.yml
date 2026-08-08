@@ -143,16 +143,35 @@ jobs:
   # the showcase is fixtures-only, and selectors are role/name-based. Visual-
   # regression snapshots (npm run test:vr) are a LOCAL gate — pixel baselines are
   # environment-specific, so they aren't run here.
+  # NOTE: the image tag and @playwright/test are a MATCHED PAIR — the image ships
+  # exactly the browser build the library expects. Bump both or neither; the
+  # guard step below fails loudly rather than letting a skew read as a test
+  # failure (a dependency bump split this pair once already).
   frontend-e2e:
     runs-on: ubuntu-latest
     container:
-      image: mcr.microsoft.com/playwright:v1.61.1-jammy
+      image: mcr.microsoft.com/playwright:v1.62.1-jammy
     defaults:
       run:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v7
       - run: npm ci
+      - name: Playwright library and container image must agree
+        run: |
+          lib="$(npx playwright --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+          img="$(grep -oE 'mcr\.microsoft\.com/playwright:v[0-9]+\.[0-9]+\.[0-9]+' \
+                 "$GITHUB_WORKSPACE/.github/workflows/ci.yml" \
+                 | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+          if [ "$lib" != "$img" ]; then
+            echo "::error::Playwright library $lib but container image v$img."
+            echo "These are a matched pair: the image ships the browser build the"
+            echo "library expects, so a skew fails every spec for a reason that"
+            echo "looks nothing like the real cause. Bump the image tag in"
+            echo ".github/workflows/ci.yml and @playwright/test together."
+            exit 1
+          fi
+          echo "Playwright $lib matches the container image."
       - run: npm run test:e2e
 
   # Prove both images build (catches Dockerfile / .dockerignore regressions).
