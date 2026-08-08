@@ -39,6 +39,7 @@ pytestmark = pytest.mark.asyncio
 
 V = "/api/v1"
 REPORT = f"{V}/transport/excise"
+PACKET = f"{V}/transport/excise/packet"
 RATES = f"{V}/transport/excise/rates"
 PERIOD = "2026-05"
 DAY = date(2026, 5, 12)
@@ -384,6 +385,79 @@ async def test_wo91_another_orgs_entity_id_is_an_opaque_empty_scope(client, db_s
 
     unscoped = await client.get(REPORT, headers=b_headers, params={"period": PERIOD})
     assert unscoped.json()["rows"] == []
+
+
+# --------------------------------------------------------------------------- #
+# The customs packet
+# --------------------------------------------------------------------------- #
+
+
+async def test_wo91_the_packet_downloads_as_a_workbook_matching_the_report(client, db_session):
+    """R42's *"Excel packet for customs"* over HTTP, and the one-source rule on
+    the wire: the workbook's TOTAL is the same euro the JSON route returns."""
+    import io
+
+    from openpyxl import load_workbook
+
+    headers, org_id = await _register_org(client)
+    await _enable_transport(db_session, org_id)
+    entity = await make_entity(db_session, org_id, country="LV", seed=46)
+    await db_session.commit()
+    await _diesel(db_session, org_id, entity.id, country="FR", qty="1234.567")
+
+    r = await client.get(PACKET, headers=headers, params={"period": PERIOD})
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert "excise-2026-05-customs-packet.xlsx" in r.headers["content-disposition"]
+    assert r.headers["x-content-type-options"] == "nosniff"
+
+    wb = load_workbook(io.BytesIO(r.content))
+    assert wb.sheetnames == [excise.PACKET_SHEET_COVER, excise.PACKET_SHEET_LITRES]
+    sheet = wb[excise.PACKET_SHEET_LITRES]
+    labels = [c.value for c in sheet[1]]
+    total = [c.value for c in sheet[3]]
+    assert total[0] == excise.TOTAL_LABEL
+    packet_eur = Decimal(str(total[labels.index("Indicative excise EUR")]))
+
+    body = (await client.get(REPORT, headers=headers, params={"period": PERIOD})).json()
+    assert packet_eur == Decimal(body["indicative_excise_eur"]) == Decimal("37.04")
+
+    # R42's acceptance again — the caveats are on the sheet that shows the
+    # number, not only on its cover.
+    text = "\n".join(str(c.value) for row in sheet.iter_rows() for c in row if c.value is not None)
+    assert excise.ELIGIBILITY_STATEMENT in text
+    assert excise.RATE_CAVEAT in text
+
+
+async def test_wo91_an_empty_period_refuses_the_packet_on_the_wire(client, db_session):
+    """422 `no_excise_findings`, fail-CLOSED. Handing back an empty workbook
+    would hand back a document that looks like a customs filing."""
+    headers, org_id = await _register_org(client)
+    await _enable_transport(db_session, org_id)
+
+    r = await client.get(PACKET, headers=headers, params={"period": PERIOD})
+    assert r.status_code == 422, r.text
+    assert r.json()["code"] == "no_excise_findings"
+
+
+async def test_wo91_the_packet_is_a_read_not_a_write(client, db_session):
+    """`TRANSPORT_READ` alone. Generating an artifact persists nothing, so an
+    AUDITOR — who holds no `VAT_WRITE` — can still download it."""
+    owner_headers, org_id = await _register_org(client)
+    await _enable_transport(db_session, org_id)
+    entity = await make_entity(db_session, org_id, country="LV", seed=47)
+    await db_session.commit()
+    await _diesel(db_session, org_id, entity.id, country="FR", qty="1000.000")
+
+    auditor = await _member_with_role(client, owner_headers, db_session, "auditor")
+    assert (await client.get(PACKET, headers=auditor, params={"period": PERIOD})).status_code == 200
+
+    employee = await _member_with_role(client, owner_headers, db_session, "user")
+    assert (
+        await client.get(PACKET, headers=employee, params={"period": PERIOD})
+    ).status_code == 403
 
 
 # --------------------------------------------------------------------------- #

@@ -43,11 +43,12 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
+from app.core.security_headers import content_disposition
 from app.schemas.transport_excise import (
     ExciseCellOut,
     ExciseRateIn,
@@ -66,6 +67,9 @@ router = APIRouter(
     dependencies=[Depends(require_perm(authz.Permission.TRANSPORT_READ))],
 )
 _WRITE = [Depends(require_perm(authz.Permission.VAT_WRITE))]
+
+# The WO-77 artifact-download precedent (`claims.py`/`overcharges.py`), reused.
+_XLSX_CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def _rates_out(resolved: dict[str, Decimal], overridden: set[str]) -> ExciseRatesOut:
@@ -168,6 +172,51 @@ async def get_excise_report(
         litres=result.litres,
         indicative_excise_eur=result.indicative_excise_eur,
         lines_examined=result.lines_examined,
+    )
+
+
+@router.get("/excise/packet")
+async def download_excise_packet(
+    current: CurrentUser,
+    db: DbSession,
+    period: str = Query(description="YYYY-MM — the accounting month"),
+    entity_id: str | None = Query(default=None, description="claimant legal entity scope filter"),
+    country: str | None = Query(
+        default=None, min_length=2, max_length=2, description="ISO 3166-1 alpha-2 scope filter"
+    ),
+):
+    """R42's **Excel packet for customs** — the period's diesel litres per
+    (entity × country), the rate applied to each, and the indicative figure,
+    with a TOTAL row.
+
+    The packet and `GET /transport/excise` render from ONE loaded report through
+    one column spec, so their cells cannot disagree — the WO-74/WO-83
+    one-source-two-renderers rule, made structural (the renderer is a sync
+    function holding no session and cannot reach a second source).
+
+    Both sheets carry the eligibility statement, the rate caveat, the framing
+    and the customs addressee: a numbers sheet detached from its cover page is
+    one of R42's *"surfaces that show the number"*.
+
+    `TRANSPORT_READ` (the router-level default): generating an artifact is a
+    read-only rendering of the analytics this router already serves as JSON —
+    nothing is persisted, mutated, audited or committed, so no write permission
+    is involved and none is invented (§10).
+
+    Refuses 422 `no_excise_findings` when the period has no qualifying litres,
+    rather than emitting an empty document: a customs packet with no lines in it
+    looks like a filing and supports nothing.
+    """
+    data = await excise_svc.evidence_workbook(
+        db, current.org_id, period=period, entity_id=entity_id, country=country
+    )
+    return Response(
+        content=data,
+        media_type=_XLSX_CT,
+        headers={
+            "Content-Disposition": content_disposition(f"excise-{period}-customs-packet.xlsx"),
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 

@@ -149,13 +149,16 @@ WHAT THIS MODULE DELIBERATELY DOES NOT CONTAIN
 
 from __future__ import annotations
 
+import io
 import re
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.csv_safety import sanitize_cell
 from app.core.errors import PermissionError, ValidationError
 from app.core.money import q2
 from app.models.transport.excise_rate import VatExciseRate
@@ -670,6 +673,221 @@ async def excise_report(
     )
 
 
+# --------------------------------------------------------------------------- #
+# The customs evidence packet — ONE source, and a second renderer over it
+# --------------------------------------------------------------------------- #
+
+# The sheet a haulier hands to customs, and the one that explains it. Two sheets
+# rather than one because R42's acceptance requires the caveats on *"every
+# surface that shows the number"* — so BOTH carry them, and the numbers sheet
+# does not depend on someone having read the cover.
+PACKET_SHEET_COVER = "Excise refund"
+PACKET_SHEET_LITRES = "Litres"
+TOTAL_LABEL = "TOTAL"
+
+
+class _Fmt:
+    """How a column's value is rendered. The only place the report and the
+    workbook are allowed to differ, and only in FORMATTING, never in value."""
+
+    TEXT = "text"  # free text -> sanitized (CWE-1236)
+    MONEY = "money"  # EUR, 2 dp
+    RATE = "rate"  # EUR / 1,000 L, 4 dp
+    QTY = "qty"  # litres, 3 dp (`FuelTransaction.qty`'s own scale)
+    COUNT = "count"  # a line count — a number, never sanitized into text
+
+
+# The two words the "Rate source" column may print — the `is_override`
+# distinction §9.2 item 13 exists for, in the words a customs officer reads.
+RATE_SOURCE_OVERRIDE = "verified override"
+RATE_SOURCE_DEFAULT = "indicative default"
+
+
+@dataclass(frozen=True)
+class _Column:
+    """One column of the litres table: its heading, how to read it off a
+    `(cell, report)` pair, and how to format it. The accessor takes BOTH
+    because a couple of columns are properties of the report rather than of the
+    cell — and a renderer that reached for `report` directly could drift from
+    the spec, while an accessor cannot."""
+
+    label: str
+    value: Callable[[ExciseCell, ExciseReport], object]
+    fmt: str
+    totalled: bool = False
+
+
+# THE one column spec. Every accessor reads an `ExciseCell` (or the report's own
+# constant) and DERIVES nothing, so a cell in the workbook can only differ from
+# the JSON report if the two are looking at different ROWS — which one loader
+# makes impossible.
+_COLUMNS: tuple[_Column, ...] = (
+    _Column("Claimant entity", lambda c, r: c.entity_name, _Fmt.TEXT),
+    _Column("Entity reference", lambda c, r: c.entity_id, _Fmt.TEXT),
+    _Column("Country of supply", lambda c, r: c.country, _Fmt.TEXT),
+    _Column("Product group", lambda c, r: r.product_group, _Fmt.TEXT),
+    _Column("Litres", lambda c, r: c.litres, _Fmt.QTY, totalled=True),
+    _Column("Lines", lambda c, r: c.lines, _Fmt.COUNT),
+    _Column("Rate EUR / 1,000 L", lambda c, r: c.rate_eur_per_1000l, _Fmt.RATE),
+    _Column(
+        "Rate source",
+        lambda c, r: RATE_SOURCE_OVERRIDE if c.rate_is_override else RATE_SOURCE_DEFAULT,
+        _Fmt.TEXT,
+    ),
+    _Column(
+        "Indicative excise EUR", lambda c, r: c.indicative_excise_eur, _Fmt.MONEY, totalled=True
+    ),
+)
+
+
+def packet_row(cell: ExciseCell, report: ExciseReport) -> list[object]:
+    """One typed row of the litres table. Money, rates and litres stay
+    `Decimal` (§4.9) so the spreadsheet holds real numbers; formatting for a
+    medium happens in the renderer, never here.
+
+    Public so a test can assert the workbook cell-for-cell against the SAME
+    projection the renderer uses, rather than against a re-typed expectation."""
+    return [column.value(cell, report) for column in _COLUMNS]
+
+
+def _excel_cell(column: _Column, value: object) -> object:
+    """A cell rendered into a spreadsheet. Free text goes through the ONE shared
+    `core.csv_safety.sanitize_cell` (CWE-1236); money, rate and litre cells are
+    written as raw `Decimal`s — a leading `-` there is a negative quantity, not
+    an injection (`csv_safety`'s own rule), and quoting them would turn the
+    numbers a customs officer re-adds into text."""
+    if column.fmt == _Fmt.TEXT:
+        return sanitize_cell(value)
+    return value
+
+
+def build_evidence_workbook(report: ExciseReport) -> bytes:
+    """R42's *"Excel packet for customs"*, rendered from an `ExciseReport`.
+
+    ONE SOURCE, TWO RENDERERS — the WO-74/WO-83 precedent, made structural the
+    same way `overcharge_pack` makes it structural:
+
+    * this is a **sync** function taking a LOADED report. It holds no
+      `AsyncSession`, so it cannot query a second source even by accident;
+    * it projects `_COLUMNS` off the report's own `ExciseCell` objects and
+      derives nothing, so a cell can only differ from the JSON response if the
+      two are looking at different rows — which one loader makes impossible;
+    * the TOTAL row prints `report.indicative_excise_eur`, the figure the
+      service already computed, never a second summation (§4.10).
+
+    Both sheets carry `ELIGIBILITY_STATEMENT`, `RATE_CAVEAT`, `LEGAL_FRAMING`
+    and `FILED_WITH`, because R42's acceptance is *"the caveats on **every
+    surface that shows the number**"* and a numbers sheet detached from its
+    cover page is exactly such a surface. R53's *"each workbook carries its
+    framing text"* is the same requirement from the other side.
+
+    A report with no rows RAISES rather than rendering (`no_excise_findings`) —
+    see `evidence_workbook`.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = PACKET_SHEET_COVER
+    header_rows: list[tuple[str, object]] = [
+        ("Period", sanitize_cell(report.period)),
+        ("Product group", sanitize_cell(report.product_group)),
+        ("Currency", sanitize_cell(report.currency)),
+        ("Litre basis", sanitize_cell(report.litre_basis)),
+        ("Total litres", report.litres),
+        ("Indicative excise EUR", report.indicative_excise_eur),
+        ("Cells", len(report.rows)),
+        ("Lines examined", report.lines_examined),
+        ("File with", sanitize_cell(report.filed_with)),
+        ("Framing", sanitize_cell(report.legal_framing)),
+        ("Eligibility", sanitize_cell(report.eligibility)),
+        ("Rate basis", sanitize_cell(report.rate_caveat)),
+    ]
+    for label, value in header_rows:
+        ws.append([label, value])
+    for row in ws.iter_rows(min_row=1, max_row=len(header_rows), max_col=1):
+        row[0].font = Font(bold=True)
+
+    if report.skipped_countries:
+        # Stated on the COVER, not buried: an operator must see how many litres
+        # are outside the figure, or they will read the total as "all my
+        # foreign diesel". No euro is printed for these — there is none.
+        ws.append([])
+        ws.append(["Litres in scope for which no rate is held (no figure is reported)"])
+        ws[ws.max_row][0].font = Font(bold=True)
+        ws.append(["Country of supply", "Litres", "Lines"])
+        for cell in ws[ws.max_row]:
+            cell.font = Font(bold=True)
+        for skipped in report.skipped_countries:
+            ws.append([sanitize_cell(skipped.country), skipped.litres, skipped.lines])
+
+    sheet = wb.create_sheet(PACKET_SHEET_LITRES)
+    sheet.append([c.label for c in _COLUMNS])
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+    for cell_row in report.rows:
+        values = packet_row(cell_row, report)
+        sheet.append([_excel_cell(_COLUMNS[i], v) for i, v in enumerate(values)])
+
+    total_row: list[object] = []
+    for idx, column in enumerate(_COLUMNS):
+        if idx == 0:
+            total_row.append(TOTAL_LABEL)
+        elif column.label == "Litres":
+            total_row.append(report.litres)
+        elif column.totalled:
+            total_row.append(report.indicative_excise_eur)
+        else:
+            total_row.append("")
+    sheet.append(total_row)
+    for cell in sheet[sheet.max_row]:
+        cell.font = Font(bold=True)
+
+    # R42 / R53 on the sheet that carries the numbers, not only on the cover.
+    sheet.append([])
+    sheet.append([report.legal_framing])
+    sheet.append([report.eligibility])
+    sheet.append([report.rate_caveat])
+    sheet.append([report.filed_with])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+async def evidence_workbook(
+    db: AsyncSession,
+    org_id: str,
+    *,
+    period: str,
+    entity_id: str | None = None,
+    country: str | None = None,
+) -> bytes:
+    """R42's Excel packet for **customs**, for one accounting month.
+
+    Loads through the SAME `excise_report` the JSON surface returns — one
+    source, so the packet and the API can never disagree — and renders it.
+
+    REFUSES rather than emitting an empty document (422 `no_excise_findings`).
+    A customs packet with no litres in it is not an empty report: it is a
+    document that looks like a filing and supports nothing, and the honest
+    answer to *"there is nothing to file"* is to say so rather than to hand
+    someone a sheet they might send. The `overcharge_pack.no_overcharge_detected`
+    precedent, applied to the other regime.
+
+    Read-only: nothing is persisted, mutated, audited or committed (§4.19).
+    """
+    report = await excise_report(db, org_id, period=period, entity_id=entity_id, country=country)
+    if not report.rows:
+        raise ValidationError(
+            f"No diesel litres in {period} fall in a state this product holds an excise rate "
+            "for — refusing to produce a customs packet with no lines in it",
+            code="no_excise_findings",
+        )
+    return build_evidence_workbook(report)
+
+
 __all__ = [
     "CURRENCY",
     "DEFAULT_RATE_EUR_PER_1000L",
@@ -680,13 +898,21 @@ __all__ = [
     "RATE_CAVEAT",
     "RATE_LITRES",
     "REFUND_COUNTRIES",
+    "PACKET_SHEET_COVER",
+    "PACKET_SHEET_LITRES",
+    "RATE_SOURCE_DEFAULT",
+    "RATE_SOURCE_OVERRIDE",
     "REPORTED_RATE_BAND_EUR",
+    "TOTAL_LABEL",
     "ExciseCell",
     "ExciseReport",
     "SkippedCountry",
+    "build_evidence_workbook",
     "default_rate_for",
+    "evidence_workbook",
     "excise_report",
     "get_rate_row",
+    "packet_row",
     "list_rate_rows",
     "list_rates",
     "rate_for",
