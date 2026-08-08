@@ -557,7 +557,7 @@ function RebatePanel({ period, periodReady }: { period: string; periodReady: boo
                 <Counter
                   label="Lines carrying a rebate"
                   value={d.lines_with_a_rebate}
-                  hint={`Above the ${d.tolerance_eur_l} €/L threshold`}
+                  hint={`At or above the ${d.tolerance_eur_l} €/L threshold`}
                 />
                 <Counter
                   label="Lines with no expectation"
