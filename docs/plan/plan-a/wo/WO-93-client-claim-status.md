@@ -372,18 +372,21 @@ stubbing the mapper:
 with the self-test that proves the scan can fail:
 
 - `test_wo93_no_internal_status_code_reaches_the_wire` (every leaf string of a
-  real response, over a portfolio carrying EVERY code)
+  real response, over a portfolio carrying EVERY code) +
+  `test_wo93_all_six_stages_are_always_present_with_their_server_owned_wording`
 - `test_wo93_the_code_scan_detects_a_seeded_code_value`
 - `test_wo93_no_field_name_carries_code_fee_or_action_vocabulary` (service
   dataclasses + response schemas)
 - `test_wo93_the_field_name_scan_detects_a_seeded_violation`
-- `test_wo93_the_service_never_reads_a_fee_column` (AST over `fee_pct`,
-  `fee_min`, `fee_eur`)
+- `test_wo93_the_service_never_reads_a_fee_or_currency_ambiguous_column` (AST
+  over `fee_pct`, `fee_min`, `fee_eur`, `vat_local`, `paid_amount`)
 - `test_wo93_no_service_owned_string_carries_action_vocabulary` (the labels and
   descriptions the wire carries)
 - `test_wo93_the_route_path_and_query_carry_no_internal_vocabulary`
-- `test_wo93_the_stage_labels_are_server_owned` (present, non-empty, one per
-  stage)
+- `test_wo93_the_stage_labels_are_server_owned_and_readable`,
+  `test_wo93_every_stage_has_a_server_owned_label_and_sentence`,
+  `test_wo93_the_frontend_holds_no_stage_label_of_its_own`,
+  `test_wo93_the_schema_exposes_no_claim_identifier`
 
 `backend/tests/transport/test_wo93_claim_status_routes.py` — the HTTP half
 (the `test_wo81_recovery.py` fixture strategy):
@@ -512,3 +515,52 @@ npm run test:e2e                          # 248 -> 248 + N, zero pre-existing sp
 grep -nE "parseFloat|Number\(|toFixed|Math\." src/pages/ClaimStatus.tsx src/lib/transportClaimStatus.ts
 cd /home/user/Bid_it && python scripts/pii_scan.py --tree
 ```
+
+---
+
+## As built — what changed while implementing, and why
+
+Recorded here rather than left to the diff (master-context §11 "deviations").
+
+1. **The `ready` stage label is "Ready for filing", not "Ready to file".** The
+   Playwright scan that proves the SPA holds no stage wording of its own found
+   `lib/transportRecovery.ts` already holding *"Ready to file"* — the OPERATOR
+   readiness-bucket label from WO-86. The two mean different things (the
+   operator bucket additionally requires the filing deadline not to be close),
+   so making them read alike would be a real confusion, not a naming
+   coincidence. The client label was renamed; no operator string was touched.
+
+2. **That same scan is scoped in two tiers, for the same finding.** Short labels
+   legitimately recur across surfaces — `lib/transportRecovery.ts` also says
+   *"Refunded"*, `pages/CashPosition.tsx` says *"Needs attention"* — and neither
+   can reach this page. So the six unique SENTENCES are scanned tree-wide (a
+   copy of one anywhere is unambiguous drift) and the LABELS are scanned in the
+   two new modules, which are the only files that could render a hard-coded one.
+   Reasoned in the test rather than silently narrowed.
+
+3. **No `data-testid` was added to production code.** The first draft put one on
+   the results container purely so the spec could scope its assertions — it
+   would have been the only `data-testid` under `src/`, against this suite's
+   role/name-based convention (which `.github/workflows/ci.yml` states in as
+   many words). The specs scope onto the `<main>` landmark the shell already
+   renders, and the "no control at all" assertion got STRONGER as a result: it
+   now covers the whole page body, names the single interactive element (the
+   year filter — it selects what to read and does nothing to a claim) and
+   asserts every other control role absent.
+
+4. **`status.MANUAL_CODES` excludes `"2"`,** because only `lock.submit_claim`
+   stamps that code and `set_status_code` refuses it. `STAGE_BY_CODE` is
+   therefore total over `AUTO_CODES + MANUAL_CODES + ("2",)` — fifteen codes,
+   exactly §3.D's table — and the completeness test says so explicitly rather
+   than asserting a number.
+
+5. **The `Numeric(14, 2)` column caps the Decimal-as-string fixture** at
+   `999999999999.99`. The frontend fixture keeps `99999999999999.99` (a value no
+   IEEE-754 double can hold) because it never goes through the column; the
+   backend test's proof is the JSON STRING TYPE on every amount, asserted on
+   each one, with the widest storable value proving the column width survives
+   quantization.
+
+6. **Test names.** 47 test functions across the three backend files (59 cases
+   with parametrization) and 22 Playwright specs — a few names differ in wording
+   from the list above; the list has been corrected to the shipped names.
