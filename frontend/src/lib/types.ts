@@ -1975,3 +1975,162 @@ export interface OffInvoiceRebate {
   fx_source: string | null;
   note: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// The overpay / benchmark analyses (WO-90's screen over the WO-87 routes).
+// Field-for-field from `app/schemas/transport_savings.py`.
+//
+// Two things about these shapes are deliberate and load-bearing.
+//
+// R52 — THE TWO GRAINS DO NOT RECONCILE. `SameDayOverpay.avoidable_eur` and
+// `InternalBenchmark.benchmark_gap_eur` measure different things over the same
+// rows at different grains. They are typed under DIFFERENT NAMES for the reason
+// the schema module states: a consumer that wanted to add them would have to
+// write two different field names to do it. Nothing in this file gives them a
+// common supertype, and no helper sums them.
+//
+// R53 — NO CLAIM-BACK VOCABULARY. Not one field below contains `recover`,
+// `owed`, `owes`, `claim`, `demand`, `due`, `debt` or `payable`, because the
+// backend has none — an overpay figure is negotiation evidence and not a debt,
+// and a field named otherwise would be a false assertion the moment a client
+// rendered it. The savings page's spec scans these interfaces for exactly that.
+//
+// Every money field, every €/L rate and `litres` itself arrive as decimal
+// STRINGS (§4.9). `litres` is a string because it is the €/L denominator: a
+// float round-trip of it would move the prices computed from it.
+// ---------------------------------------------------------------------------
+
+/** One (country × day × supplier) cell that paid above the cheapest RIVAL
+ * network trading that day. Basis: NET EUR/L, final. */
+export interface SameDayOverpayLine {
+  country: string;
+  txn_date: string;
+  supplier: string;
+  litres: string;
+  eur_l_eff: string;
+  cheapest_rival_supplier: string;
+  cheapest_rival_eur_l_eff: string;
+  delta_eur_l: string;
+  avoidable_eur: string;
+  /** Never below 2 — a cell only exists where a real comparison was possible. */
+  suppliers_that_day: number;
+  lines: number;
+}
+
+/** The attribution the analysis is defined to produce: the country of supply and
+ * the supplier that charged the premium. */
+export interface SupplierOverpayTotal {
+  country: string;
+  supplier: string;
+  litres: string;
+  avoidable_eur: string;
+  days: number;
+}
+
+/** R52 grain (a) — same-day, same-country cheapest rival, diesel only.
+ *
+ * `days_without_a_rival` is a FACT, not a zero: a day on which only one supplier
+ * traded produces no finding because there was no rival to compare against,
+ * which is materially different from "you were competitive that day". The screen
+ * renders it as its own count and never as a €0.00 line. */
+export interface SameDayOverpay {
+  period: string;
+  country: string | null;
+  currency: string;
+  price_basis: string;
+  legal_framing: string;
+  /** The service's own grain label — rendered, never restated (R52). */
+  grain: string;
+  product_group: string;
+  findings: SameDayOverpayLine[];
+  by_supplier: SupplierOverpayTotal[];
+  avoidable_eur: string;
+  lines_compared: number;
+  days_compared: number;
+  days_without_a_rival: number;
+  lines_skipped_zero_qty: number;
+}
+
+/** One (country × supplier) cell of the month against the best of your own
+ * suppliers in that country — including itself, so the best supplier appears
+ * with a zero gap: it is the supplier volume would be routed to. */
+export interface InternalBenchmarkRow {
+  country: string;
+  supplier: string;
+  litres: string;
+  eur_l_eff: string;
+  best_supplier: string;
+  best_eur_l_eff: string;
+  gap_eur_l: string;
+  benchmark_gap_eur: string;
+  lines: number;
+}
+
+/** R52 grain (b) — country × month, best-of-your-own-suppliers. Self-sourced:
+ * every price in it is one this organization itself paid. */
+export interface InternalBenchmark {
+  period: string;
+  country: string | null;
+  currency: string;
+  price_basis: string;
+  legal_framing: string;
+  grain: string;
+  product_group: string;
+  rows: InternalBenchmarkRow[];
+  benchmark_gap_eur: string;
+  countries_compared: number;
+  suppliers_compared: number;
+  lines_compared: number;
+  lines_skipped_zero_qty: number;
+}
+
+/** What a (supplier, country) pair's rebate usually looks like.
+ * `learned_from_lines` is the sample behind it — an expectation formed from two
+ * lines deserves less trust than one formed from two hundred, and the service
+ * states that rather than encoding a minimum it was never given. */
+export interface LearnedRebate {
+  supplier: string;
+  country: string;
+  typical_eur_l: string;
+  learned_from_lines: number;
+}
+
+/** One line whose pair has a learned rebate and which carries none. Both prices
+ * are exposed (R49) because their difference is the subject. */
+export interface MissingRebateLine {
+  fuel_transaction_id: string;
+  entity_id: string;
+  supplier: string;
+  country: string;
+  station: string;
+  txn_date: string;
+  litres: string;
+  eur_l_doc: string;
+  eur_l_eff: string;
+  applied_eur_l: string;
+  typical_eur_l: string;
+  /** An advisory MAGNITUDE — typical €/L × litres. Never an entitlement. */
+  expected_rebate_eur: string;
+  learned_from_lines: number;
+}
+
+/** The per-LINE half of the rebate analysis (the per-pair existence half is
+ * `ContractAudit.source_warnings`). A pair with no rebate-bearing history is
+ * SILENT: with no history there is no expectation, and
+ * `lines_without_an_expectation` reports how many lines that was. */
+export interface ExpectedRebate {
+  period: string;
+  supplier: string | null;
+  currency: string;
+  price_basis: string;
+  legal_framing: string;
+  /** The €/L threshold under which a line counts as carrying no rebate. */
+  tolerance_eur_l: string;
+  expectations: LearnedRebate[];
+  findings: MissingRebateLine[];
+  expected_rebate_eur: string;
+  lines_examined: number;
+  lines_with_a_rebate: number;
+  lines_without_an_expectation: number;
+  lines_skipped_zero_qty: number;
+}
