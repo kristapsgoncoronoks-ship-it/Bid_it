@@ -2134,3 +2134,95 @@ export interface ExpectedRebate {
   lines_without_an_expectation: number;
   lines_skipped_zero_qty: number;
 }
+
+// ---------------------------------------------------------------------------
+// The diesel excise-duty refund (WO-92's screen over the WO-91 routes).
+// Field-for-field from `app/schemas/transport_excise.py`.
+//
+// THE CAVEAT FIELDS ARE REQUIRED, AND THAT IS THE POINT. `eligibility`,
+// `rate_caveat`, `legal_framing` and `eligibility_asserted` ride every shape
+// that carries a euro or a rate, because the conditions that decide whether a
+// haulier qualifies for this refund — vehicle weight and carrier registration —
+// are deliberately NOT modelled by this product. They are typed non-optional
+// here so a panel physically cannot render the number without having received
+// the denial beside it, and they are rendered VERBATIM: the strings live in
+// `app/services/transport/excise.py` and nowhere in this codebase, so no
+// wording can be softened on the way to a screen.
+//
+// `litres` is a STRING like every euro and every rate. It is the figure's
+// multiplicand (`litres / 1000 × rate`), so a float round-trip of a three-
+// decimal litre total would move the euro the server computed from it (§4.9).
+// Nothing in the SPA re-derives that product — the server has already done it
+// once, with one ROUND_HALF_UP, and the screen renders the result (§4.10).
+// ---------------------------------------------------------------------------
+
+/** One state's rate as the figure will actually use it. `is_override`
+ * distinguishes a rate an operator verified with customs from the harvested
+ * EUR 30.00 placeholder — a rate shown without it presents a placeholder as a
+ * statutory figure. */
+export interface ExciseRate {
+  country: string;
+  rate_eur_per_1000l: string;
+  is_override: boolean;
+  rate_caveat: string;
+}
+
+/** Every state this product records as operating the regime, each with its
+ * resolved rate. A state absent from `countries` has no rate at all, which is
+ * not the same as a rate of zero. */
+export interface ExciseRates {
+  countries: string[];
+  default_rate_eur_per_1000l: string;
+  rates: ExciseRate[];
+  eligibility: string;
+  eligibility_asserted: boolean;
+  rate_caveat: string;
+  legal_framing: string;
+  currency: string;
+}
+
+/** One (entity × country) cell — the grain of the whole analysis. */
+export interface ExciseCell {
+  entity_id: string;
+  entity_name: string;
+  country: string;
+  litres: string;
+  rate_eur_per_1000l: string;
+  rate_is_override: boolean;
+  indicative_excise_eur: string;
+  lines: number;
+}
+
+/** A country with validated diesel litres in scope for which this product holds
+ * no rate. It carries litres and a line count and **no euro field at all** —
+ * there is no figure, which is a different fact from a figure of zero, and the
+ * shape makes rendering one impossible. */
+export interface ExciseSkippedCountry {
+  country: string;
+  litres: string;
+  lines: number;
+}
+
+/** The diesel excise-duty analysis over one accounting month.
+ *
+ * `filed_with` names the addressee because this is a SEPARATE regime from the
+ * VAT refund, handled by a customs authority; a surface that lost it would
+ * invite the figure onto a VAT filing. */
+export interface ExciseReport {
+  period: string;
+  entity_id: string | null;
+  country: string | null;
+  currency: string;
+  product_group: string;
+  litre_basis: string;
+  legal_framing: string;
+  eligibility: string;
+  eligibility_asserted: boolean;
+  rate_caveat: string;
+  filed_with: string;
+  rows: ExciseCell[];
+  skipped_countries: ExciseSkippedCountry[];
+  litres: string;
+  indicative_excise_eur: string;
+  lines_examined: number;
+}

@@ -283,6 +283,27 @@ const REFUSALS: Record<string, Refusal> = {
       "No ECB rate is available for that currency on that document date — nothing was recorded",
     next: "The rebate is refused rather than converted at a guessed rate, so no row was written and no figure changed. Check the rebate document’s own date, or record it once the rate for that date is available.",
   },
+
+  // --- the DIESEL EXCISE surface (WO-92's screen over the WO-91 routes) ------
+  // Three codes raised by `app/services/transport/excise.py`. The other three
+  // that surface reaches (`module_not_enabled`, `invalid_period`,
+  // `invalid_country`) are already mapped above and are reused unchanged — this
+  // block is purely additive. Each sentence carries the service's OWN
+  // fail-CLOSED reasoning, because in every one of the three the refusal is
+  // protecting a figure a haulier would otherwise put in front of a customs
+  // authority.
+  excise_country_not_supported: {
+    title: "This product records no diesel-excise refund regime in that state",
+    next: "A rate is only accepted for the states listed on the rates panel. Storing one anywhere else would assert that a refund regime exists where this product records none — so it is refused rather than saved. If a state does operate one, that is a change to what the product records, not a rate to type.",
+  },
+  invalid_excise_rate: {
+    title: "That isn’t a usable excise rate",
+    next: "A rate is euros per 1,000 litres and must be greater than zero. A state that refunds nothing is expressed by holding no rate for it — never by a rate of zero, which would publish a €0.00 figure and say something different.",
+  },
+  no_excise_findings: {
+    title: "This month has nothing for a customs packet",
+    next: "No packet is generated rather than an empty one: a filing with no litres in it looks like a filing and supports nothing. Check the month and the country filter, and check the rates panel — a state with no rate held produces no figure at all.",
+  },
 };
 
 /**
