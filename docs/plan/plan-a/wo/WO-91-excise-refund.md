@@ -124,7 +124,9 @@ what is *not* modelled and stops there (§10: no invented functionality).
   and the four month-shaped pages — the `invalid_period` split (Part 4).
 - `README.md` (table count 82 → 83, Alembic 88 → 89) and
   `backend/tests/test_docs_truth.py`'s pinned literal, **in the migration commit**.
-- `docs/transport/rules.md` (the G4.6/R42 row + R53's third consumer) and `TODO.md`.
+- `docs/transport/rules.md` (the G4.6/R42 row + R53's third consumer), `TODO.md`,
+and `docs/DECISIONS-NEEDED.md` §14 (the two open owner questions §9.2 items 13
+and 14 record, plus the lapsed-regime consequence of the country gate).
 
 **Out of scope (named, with the board that owns it):**
 - **An `/excise` SPA page.** Board G4.6's UI half; R42's acceptance line (*"the UI
@@ -161,6 +163,7 @@ what is *not* modelled and stops there (§10: no invented functionality).
 | `backend/app/api/routes/transport/excise.py` | **new** |
 | `backend/app/api/routes/transport/__init__.py` | include the router |
 | `backend/tests/transport/test_wo91_excise.py` | **new** — the analysis |
+| `backend/tests/transport/test_wo91_excise_rates.py` | **new** — the rate registry |
 | `backend/tests/transport/test_wo91_excise_eligibility.py` | **new** — the honesty constraint |
 | `backend/tests/transport/test_wo91_excise_packet.py` | **new** — the workbook |
 | `backend/tests/transport/test_wo91_excise_routes.py` | **new** — the routes |

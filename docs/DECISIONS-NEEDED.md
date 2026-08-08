@@ -444,6 +444,45 @@ letter's own enclosure).
 
 ---
 
+## 14. Diesel excise — the two questions the spec itself leaves open (M5 / WO-91)
+
+`BA_fleet_fuel.md` §9.2 records both of these as open, and WO-91 shipped G4.6
+without deciding either (master-context §10). Neither blocks the feature: the
+figure is explicitly advisory and says so on every surface it appears on.
+
+**(a) Who owns the real per-country statutory rates** (§9.2 item 13, verbatim:
+*"The excise rates are a single EUR 30/1,000 L placeholder for all seven
+countries. Who owns the real per-country statutory rates, and how often do they
+change (quarterly, per the research)?"*). The platform ships §2.4's own
+placeholder, labels it as one on every surface (`excise.RATE_CAVEAT`,
+`is_override`, the workbook's "Rate source" column) and lets an operator type
+the verified rate per country. What is undecided is whether the OPERATOR
+maintains those seven rates centrally as reference data, or each client does.
+Options: **(a)** a platform-maintained rate table with a quarterly review owner;
+**(b)** client-maintained only, as shipped; **(c)** a licensed rate feed.
+
+**(b) Who confirms eligibility** (§9.2 item 14, verbatim: *"Who confirms
+eligibility for excise (vehicle >= 7.5 t, carrier registration)? It is
+deliberately not modelled."*). WO-91 makes the non-assertion structural rather
+than modelling the conditions — one `ELIGIBILITY_STATEMENT`, a required
+`eligibility_asserted: false`, and no claim vocabulary anywhere on the surface.
+Modelling it would mean holding vehicle weights and carrier registrations per
+entity, which is a data-collection commitment, not a code change.
+
+**A smaller consequence of (a) worth deciding with it:** `set_rate` accepts only
+the seven states the spec records as operating the regime, so a state whose
+regime LAPSES can be re-rated but not switched off. An `active` flag would fix
+it; no such lifecycle is harvested anywhere in the spec, so WO-91 recorded the
+gap rather than inventing one.
+
+**Owner:** product, with whoever would own the rate review.
+**Interim controls:** the figure asserts no eligibility and no entitlement, in a
+constant every surface renders; a state with no rate produces no row rather than
+a EUR 0.00 one; and the customs packet refuses to render at all when there is
+nothing to file.
+
+---
+
 *Not blocked — I can keep building these without you:* enhancements to shipped
 features, tests/coverage, docs, and any of the above up to its stated boundary.
 Tell me which to prioritise next.
