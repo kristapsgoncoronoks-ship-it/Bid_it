@@ -2,7 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { EntityPicker, entityLabel, useEntities } from "../components/EntityPicker";
+import {
+  EntityPicker,
+  entityLabel,
+  useEntities,
+} from "../components/EntityPicker";
 import { ModuleInactive } from "../components/ModuleGate";
 import { RefusalNotice } from "../components/RefusalNotice";
 import {
@@ -84,7 +88,13 @@ import type {
  *   place that quantizes (§4.9/§4.10).
  */
 
-type TabKey = "rules" | "controls" | "cadences" | "overrides" | "tieout" | "codes";
+type TabKey =
+  | "rules"
+  | "controls"
+  | "cadences"
+  | "overrides"
+  | "tieout"
+  | "codes";
 
 const TABS: { value: TabKey; label: string }[] = [
   { value: "rules", label: "Checklist rules" },
@@ -107,12 +117,16 @@ export default function VatAdminPage() {
   const modules = useModules();
   const canWrite = hasVatPerm(user, "vat.write"); // cosmetic — the server enforces
   const [tab, setTab] = useState<TabKey>("rules");
-  const [refusal, setRefusal] = useState<{ code: string | null; detail: string } | null>(null);
+  const [refusal, setRefusal] = useState<{
+    code: string | null;
+    detail: string;
+  } | null>(null);
 
   const enabled = modules.isEnabled("transport");
   const entities = useEntities(enabled);
 
-  const onRefusal = (e: unknown) => setRefusal({ code: apiErrorCode(e), detail: apiError(e) });
+  const onRefusal = (e: unknown) =>
+    setRefusal({ code: apiErrorCode(e), detail: apiError(e) });
   const clearRefusal = () => setRefusal(null);
 
   if (modules.isLoading) return <Skeleton className="h-24 w-full" />;
@@ -125,7 +139,12 @@ export default function VatAdminPage() {
     );
   }
 
-  const panel: PanelProps = { canWrite, onRefusal, clearRefusal, entities: entities.data };
+  const panel: PanelProps = {
+    canWrite,
+    onRefusal,
+    clearRefusal,
+    entities: entities.data,
+  };
 
   return (
     <div className="space-y-6">
@@ -140,7 +159,12 @@ export default function VatAdminPage() {
       />
 
       {refusal && (
-        <RefusalNotice code={refusal.code} detail={refusal.detail} onDismiss={clearRefusal} />
+        <RefusalNotice
+          code={refusal.code}
+          detail={refusal.detail}
+          onDismiss={clearRefusal}
+          periodShape="month"
+        />
       )}
 
       <Tabs
@@ -204,13 +228,18 @@ function RulesPanel({ canWrite, onRefusal, clearRefusal }: PanelProps) {
     qc.invalidateQueries({ queryKey: ["transport", "checklist-rules"] });
   };
   const seed = useMutation({
-    mutationFn: async () => (await api.post("/transport/checklist-rules/seed")).data,
+    mutationFn: async () =>
+      (await api.post("/transport/checklist-rules/seed")).data,
     onSuccess: done,
     onError: onRefusal,
   });
   const toggle = useMutation({
     mutationFn: async (v: { key: string; active: boolean }) =>
-      (await api.post(`/transport/checklist-rules/${v.key}/active`, { active: v.active })).data,
+      (
+        await api.post(`/transport/checklist-rules/${v.key}/active`, {
+          active: v.active,
+        })
+      ).data,
     onSuccess: done,
     onError: onRefusal,
   });
@@ -221,16 +250,22 @@ function RulesPanel({ canWrite, onRefusal, clearRefusal }: PanelProps) {
       padded={false}
       actions={
         canWrite && (
-          <Button size="sm" variant="secondary" loading={seed.isPending} onClick={() => seed.mutate()}>
+          <Button
+            size="sm"
+            variant="secondary"
+            loading={seed.isPending}
+            onClick={() => seed.mutate()}
+          >
             Seed the default rules
           </Button>
         )
       }
     >
       <p className="px-5 pt-4 text-xs text-slate-400">
-        These rules are what the claim checklist evaluates. Deactivating one removes it from every
-        claim’s checklist. Reading a claim’s checklist never creates these rows — seeding is the
-        only thing that does, which is why an empty table below is a first run, not a fault.
+        These rules are what the claim checklist evaluates. Deactivating one
+        removes it from every claim’s checklist. Reading a claim’s checklist
+        never creates these rows — seeding is the only thing that does, which is
+        why an empty table below is a first run, not a fault.
       </p>
       <QueryState
         query={rules}
@@ -265,10 +300,14 @@ function RulesPanel({ canWrite, onRefusal, clearRefusal }: PanelProps) {
                 {rows.map((rule) => (
                   <tr key={rule.id} className="border-t border-slate-100">
                     <td className="px-5 py-2 text-slate-700">{rule.label}</td>
-                    <td className="px-5 py-2 font-mono text-xs text-slate-500">{rule.key}</td>
+                    <td className="px-5 py-2 font-mono text-xs text-slate-500">
+                      {rule.key}
+                    </td>
                     <td className="px-5 py-2 text-xs text-slate-500">
                       {rule.scope}
-                      <span className="ml-1 text-slate-400">({rule.check_type})</span>
+                      <span className="ml-1 text-slate-400">
+                        ({rule.check_type})
+                      </span>
                     </td>
                     <td className="px-5 py-2">
                       <Badge tone={rule.active ? "success" : "neutral"}>
@@ -280,8 +319,16 @@ function RulesPanel({ canWrite, onRefusal, clearRefusal }: PanelProps) {
                         <Button
                           size="sm"
                           variant="secondary"
-                          loading={toggle.isPending && toggle.variables?.key === rule.key}
-                          onClick={() => toggle.mutate({ key: rule.key, active: !rule.active })}
+                          loading={
+                            toggle.isPending &&
+                            toggle.variables?.key === rule.key
+                          }
+                          onClick={() =>
+                            toggle.mutate({
+                              key: rule.key,
+                              active: !rule.active,
+                            })
+                          }
                         >
                           {rule.active ? "Switch off" : "Switch on"}
                         </Button>
@@ -302,7 +349,12 @@ function RulesPanel({ canWrite, onRefusal, clearRefusal }: PanelProps) {
 // 2. Receipt control — the persisted slot grid (G3.5). ADVISORY.
 // --------------------------------------------------------------------------- //
 
-function ControlsPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelProps) {
+function ControlsPanel({
+  canWrite,
+  onRefusal,
+  clearRefusal,
+  entities,
+}: PanelProps) {
   const qc = useQueryClient();
   const [period, setPeriod] = useState(currentPeriod());
   const [editing, setEditing] = useState<VatReceiptControl | null>(null);
@@ -311,12 +363,17 @@ function ControlsPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelPro
   const controls = useQuery<VatReceiptControl[]>({
     queryKey: ["transport", "receipt-controls", period],
     queryFn: async () =>
-      (await api.get("/transport/receipt-controls", { params: { period } })).data,
+      (await api.get("/transport/receipt-controls", { params: { period } }))
+        .data,
     enabled: isPeriodShape(period),
   });
 
   const override = useMutation({
-    mutationFn: async (v: { id: string; waived: boolean; note: string | null }) =>
+    mutationFn: async (v: {
+      id: string;
+      waived: boolean;
+      note: string | null;
+    }) =>
       (
         await api.post(`/transport/receipt-controls/${v.id}/override`, {
           waived: v.waived,
@@ -340,11 +397,13 @@ function ControlsPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelPro
     <div className="space-y-4">
       <Card title="Receipt control — did each supplier invoice us?">
         <p className="text-xs text-slate-500">
-          One row per supplier, slot and country for the period, exactly as the monthly close
-          computed it. <strong>This board is a chase list.</strong> A slot showing “Chase the
-          supplier” blocks no claim, halts no close and changes no figure — the gates that do stop
-          a filing are the document check and the submission checklist, on the claim itself.
-          Muting a slot here only takes it off this list; it is not the claim-level waiver.
+          One row per supplier, slot and country for the period, exactly as the
+          monthly close computed it.{" "}
+          <strong>This board is a chase list.</strong> A slot showing “Chase the
+          supplier” blocks no claim, halts no close and changes no figure — the
+          gates that do stop a filing are the document check and the submission
+          checklist, on the claim itself. Muting a slot here only takes it off
+          this list; it is not the claim-level waiver.
         </p>
         <div className="mt-4 max-w-xs">
           <TextInput
@@ -367,83 +426,101 @@ function ControlsPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelPro
             description="For example 2026-05. The grid is stored one accounting month at a time."
           />
         ) : (
-        <QueryState
-          query={controls}
-          loading={<Skeleton className="m-5 h-24 w-full" />}
-          isEmpty={(rows) => rows.length === 0}
-          empty={
-            <EmptyState
-              title="Nothing recorded for this period"
-              description="The grid is written by the monthly close. If the close hasn’t run for this period there is nothing to chase yet."
-            />
-          }
-          errorTitle="Couldn’t load the receipt-control grid"
-        >
-          {(rows) => (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <caption className="sr-only">Receipt-control grid for {period}</caption>
-                <thead>
-                  <tr className="text-left text-xs text-slate-400">
-                    <th className="px-5 py-2">Entity</th>
-                    <th className="px-5 py-2">Supplier</th>
-                    <th className="px-5 py-2">Slot</th>
-                    <th className="px-5 py-2">Country</th>
-                    <th className="px-5 py-2">Finding</th>
-                    <th className="px-5 py-2 text-right">Transactions</th>
-                    <th className="px-5 py-2">Note</th>
-                    {canWrite && <th className="px-5 py-2"></th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => {
-                    const copy = RECEIPT_STATUS_COPY[row.status];
-                    return (
-                      <tr key={row.id} className="border-t border-slate-100">
-                        <td className="px-5 py-2 text-xs text-slate-600">
-                          {entityLabel(entities, row.entity_id)}
-                        </td>
-                        <td className="px-5 py-2 font-medium text-slate-700">{row.supplier}</td>
-                        <td className="px-5 py-2 font-mono text-xs">{row.slot}</td>
-                        <td className="px-5 py-2 font-mono text-xs">{row.country || "—"}</td>
-                        <td className="px-5 py-2">
-                          <Badge
-                            tone={
-                              row.status === "missing"
-                                ? "warning"
-                                : row.status === "received_doc"
-                                  ? "success"
-                                  : "neutral"
-                            }
-                          >
-                            {copy?.label ?? row.status}
-                          </Badge>
-                          {row.waived && (
-                            <span className="ml-2 inline-block">
-                              <Badge tone="neutral">Muted</Badge>
-                            </span>
-                          )}
-                          {copy && (
-                            <span className="block text-xs text-slate-400">{copy.meaning}</span>
-                          )}
-                        </td>
-                        <td className="px-5 py-2 text-right tabular-nums">{row.txn_count}</td>
-                        <td className="px-5 py-2 text-xs text-slate-500">{row.note ?? "—"}</td>
-                        {canWrite && (
-                          <td className="px-5 py-2 text-right">
-                            <Button size="sm" variant="secondary" onClick={() => openEdit(row)}>
-                              Mute or annotate
-                            </Button>
+          <QueryState
+            query={controls}
+            loading={<Skeleton className="m-5 h-24 w-full" />}
+            isEmpty={(rows) => rows.length === 0}
+            empty={
+              <EmptyState
+                title="Nothing recorded for this period"
+                description="The grid is written by the monthly close. If the close hasn’t run for this period there is nothing to chase yet."
+              />
+            }
+            errorTitle="Couldn’t load the receipt-control grid"
+          >
+            {(rows) => (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <caption className="sr-only">
+                    Receipt-control grid for {period}
+                  </caption>
+                  <thead>
+                    <tr className="text-left text-xs text-slate-400">
+                      <th className="px-5 py-2">Entity</th>
+                      <th className="px-5 py-2">Supplier</th>
+                      <th className="px-5 py-2">Slot</th>
+                      <th className="px-5 py-2">Country</th>
+                      <th className="px-5 py-2">Finding</th>
+                      <th className="px-5 py-2 text-right">Transactions</th>
+                      <th className="px-5 py-2">Note</th>
+                      {canWrite && <th className="px-5 py-2"></th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => {
+                      const copy = RECEIPT_STATUS_COPY[row.status];
+                      return (
+                        <tr key={row.id} className="border-t border-slate-100">
+                          <td className="px-5 py-2 text-xs text-slate-600">
+                            {entityLabel(entities, row.entity_id)}
                           </td>
-                        )}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </QueryState>
+                          <td className="px-5 py-2 font-medium text-slate-700">
+                            {row.supplier}
+                          </td>
+                          <td className="px-5 py-2 font-mono text-xs">
+                            {row.slot}
+                          </td>
+                          <td className="px-5 py-2 font-mono text-xs">
+                            {row.country || "—"}
+                          </td>
+                          <td className="px-5 py-2">
+                            <Badge
+                              tone={
+                                row.status === "missing"
+                                  ? "warning"
+                                  : row.status === "received_doc"
+                                    ? "success"
+                                    : "neutral"
+                              }
+                            >
+                              {copy?.label ?? row.status}
+                            </Badge>
+                            {row.waived && (
+                              <span className="ml-2 inline-block">
+                                <Badge tone="neutral">Muted</Badge>
+                              </span>
+                            )}
+                            {copy && (
+                              <span className="block text-xs text-slate-400">
+                                {copy.meaning}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-5 py-2 text-right tabular-nums">
+                            {row.txn_count}
+                          </td>
+                          <td className="px-5 py-2 text-xs text-slate-500">
+                            {row.note ?? "—"}
+                          </td>
+                          {canWrite && (
+                            <td className="px-5 py-2 text-right">
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => openEdit(row)}
+                              >
+                                Mute or annotate
+                              </Button>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </QueryState>
         )}
       </Card>
 
@@ -484,8 +561,8 @@ function ControlsPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelPro
             <span>
               Stop chasing this slot
               <span className="block text-xs text-slate-400">
-                Survives the next close. It is not the claim-level waiver — that one lives on the
-                claim and does affect what the claim contains.
+                Survives the next close. It is not the claim-level waiver — that
+                one lives on the claim and does affect what the claim contains.
               </span>
             </span>
           </label>
@@ -508,7 +585,10 @@ function ControlsPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelPro
 
 function CadencesPanel({ canWrite, onRefusal, clearRefusal }: PanelProps) {
   const qc = useQueryClient();
-  const [form, setForm] = useState({ supplier: "", cadence: CADENCES[1] as string });
+  const [form, setForm] = useState({
+    supplier: "",
+    cadence: CADENCES[1] as string,
+  });
 
   const cadences = useQuery<VatCadence[]>({
     queryKey: ["transport", "cadences"],
@@ -522,9 +602,12 @@ function CadencesPanel({ canWrite, onRefusal, clearRefusal }: PanelProps) {
   const save = useMutation({
     mutationFn: async () =>
       (
-        await api.put(`/transport/cadences/${encodeURIComponent(form.supplier.trim())}`, {
-          cadence: form.cadence,
-        })
+        await api.put(
+          `/transport/cadences/${encodeURIComponent(form.supplier.trim())}`,
+          {
+            cadence: form.cadence,
+          },
+        )
       ).data,
     onSuccess: () => {
       setForm({ supplier: "", cadence: CADENCES[1] as string });
@@ -534,7 +617,8 @@ function CadencesPanel({ canWrite, onRefusal, clearRefusal }: PanelProps) {
   });
   const remove = useMutation({
     mutationFn: async (supplier: string) =>
-      (await api.delete(`/transport/cadences/${encodeURIComponent(supplier)}`)).data,
+      (await api.delete(`/transport/cadences/${encodeURIComponent(supplier)}`))
+        .data,
     onSuccess: done,
     onError: onRefusal,
   });
@@ -543,9 +627,9 @@ function CadencesPanel({ canWrite, onRefusal, clearRefusal }: PanelProps) {
     <div className="space-y-4">
       <Card title="How often each supplier invoices">
         <p className="text-xs text-slate-500">
-          Receipt control expects an invoice per slot, and the cadence decides what a slot is. A
-          supplier with no row here is not “no cadence”: the service falls back to the default it
-          holds for that network.
+          Receipt control expects an invoice per slot, and the cadence decides
+          what a slot is. A supplier with no row here is not “no cadence”: the
+          service falls back to the default it holds for that network.
         </p>
         {canWrite && (
           <div className="mt-4 grid gap-4 sm:grid-cols-3">
@@ -597,7 +681,9 @@ function CadencesPanel({ canWrite, onRefusal, clearRefusal }: PanelProps) {
           {(rows) => (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <caption className="sr-only">Supplier invoicing cadences</caption>
+                <caption className="sr-only">
+                  Supplier invoicing cadences
+                </caption>
                 <thead>
                   <tr className="text-left text-xs text-slate-400">
                     <th className="px-5 py-2">Supplier</th>
@@ -608,14 +694,21 @@ function CadencesPanel({ canWrite, onRefusal, clearRefusal }: PanelProps) {
                 <tbody>
                   {rows.map((row) => (
                     <tr key={row.id} className="border-t border-slate-100">
-                      <td className="px-5 py-2 font-medium text-slate-700">{row.supplier}</td>
-                      <td className="px-5 py-2 font-mono text-xs">{row.cadence}</td>
+                      <td className="px-5 py-2 font-medium text-slate-700">
+                        {row.supplier}
+                      </td>
+                      <td className="px-5 py-2 font-mono text-xs">
+                        {row.cadence}
+                      </td>
                       {canWrite && (
                         <td className="px-5 py-2 text-right">
                           <Button
                             size="sm"
                             variant="secondary"
-                            loading={remove.isPending && remove.variables === row.supplier}
+                            loading={
+                              remove.isPending &&
+                              remove.variables === row.supplier
+                            }
                             onClick={() => remove.mutate(row.supplier)}
                           >
                             Back to the default
@@ -638,7 +731,12 @@ function CadencesPanel({ canWrite, onRefusal, clearRefusal }: PanelProps) {
 // 4. Note→invoice-ref overrides (R16/C4)
 // --------------------------------------------------------------------------- //
 
-function OverridesPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelProps) {
+function OverridesPanel({
+  canWrite,
+  onRefusal,
+  clearRefusal,
+  entities,
+}: PanelProps) {
   const qc = useQueryClient();
   const [form, setForm] = useState({
     entity_id: "",
@@ -658,7 +756,8 @@ function OverridesPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelPr
   // can't the target stays a typed id. No transport route enumerates invoices.
   const invoices = useQuery<InvoiceList>({
     queryKey: ["invoices", "override-targets"],
-    queryFn: async () => (await api.get("/invoices", { params: { page_size: 100 } })).data,
+    queryFn: async () =>
+      (await api.get("/invoices", { params: { page_size: 100 } })).data,
     enabled: canWrite,
     retry: false,
   });
@@ -692,9 +791,10 @@ function OverridesPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelPr
     <div className="space-y-4">
       <Card title="Point a statement reference at the right invoice">
         <p className="text-xs text-slate-500">
-          When a fuel statement’s reference doesn’t match the supplier invoice it belongs to, this
-          is where you say which invoice it means. It changes the association only — never an
-          amount. Re-saving the same supplier, country and reference retargets it.
+          When a fuel statement’s reference doesn’t match the supplier invoice
+          it belongs to, this is where you say which invoice it means. It
+          changes the association only — never an amount. Re-saving the same
+          supplier, country and reference retargets it.
         </p>
         {canWrite && (
           <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -717,7 +817,9 @@ function OverridesPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelPr
               required
               maxLength={2}
               value={form.refund_country}
-              onChange={(e) => setForm({ ...form, refund_country: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, refund_country: e.target.value })
+              }
               placeholder="LV"
             />
             <TextInput
@@ -725,7 +827,9 @@ function OverridesPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelPr
               hint="The reference printed on the statement line."
               required
               value={form.invoice_ref}
-              onChange={(e) => setForm({ ...form, invoice_ref: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, invoice_ref: e.target.value })
+              }
               placeholder="REF-…"
             />
             {invoices.data && invoices.data.items.length > 0 ? (
@@ -733,7 +837,9 @@ function OverridesPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelPr
                 label="Supplier invoice it means"
                 required
                 value={form.target_invoice_id}
-                onChange={(e) => setForm({ ...form, target_invoice_id: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, target_invoice_id: e.target.value })
+                }
               >
                 <option value="">Choose…</option>
                 {invoices.data.items.map((inv) => (
@@ -748,12 +854,18 @@ function OverridesPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelPr
                 hint="The registered invoice’s id."
                 required
                 value={form.target_invoice_id}
-                onChange={(e) => setForm({ ...form, target_invoice_id: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, target_invoice_id: e.target.value })
+                }
                 placeholder="Invoice id"
               />
             )}
             <div className="flex items-end">
-              <Button loading={save.isPending} disabled={!ready} onClick={() => save.mutate()}>
+              <Button
+                loading={save.isPending}
+                disabled={!ready}
+                onClick={() => save.mutate()}
+              >
                 Save mapping
               </Button>
             </div>
@@ -763,8 +875,8 @@ function OverridesPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelPr
 
       <Card padded={false}>
         <p className="px-5 pt-4 text-xs text-slate-400">
-          A mapping stops applying on its own when its target invoice is de-registered, so there is
-          no remove action here.
+          A mapping stops applying on its own when its target invoice is
+          de-registered, so there is no remove action here.
         </p>
         <QueryState
           query={overrides}
@@ -781,7 +893,9 @@ function OverridesPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelPr
           {(rows) => (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <caption className="sr-only">Note to invoice reference mappings</caption>
+                <caption className="sr-only">
+                  Note to invoice reference mappings
+                </caption>
                 <thead>
                   <tr className="text-left text-xs text-slate-400">
                     <th className="px-5 py-2">Entity</th>
@@ -797,9 +911,15 @@ function OverridesPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelPr
                       <td className="px-5 py-2 text-xs text-slate-600">
                         {entityLabel(entities, row.entity_id)}
                       </td>
-                      <td className="px-5 py-2 font-medium text-slate-700">{row.supplier}</td>
-                      <td className="px-5 py-2 font-mono text-xs">{row.refund_country}</td>
-                      <td className="px-5 py-2 font-mono text-xs">{row.invoice_ref}</td>
+                      <td className="px-5 py-2 font-medium text-slate-700">
+                        {row.supplier}
+                      </td>
+                      <td className="px-5 py-2 font-mono text-xs">
+                        {row.refund_country}
+                      </td>
+                      <td className="px-5 py-2 font-mono text-xs">
+                        {row.invoice_ref}
+                      </td>
                       <td className="px-5 py-2 font-mono text-xs text-slate-500">
                         {row.target_invoice_id}
                       </td>
@@ -839,7 +959,12 @@ function decimalOrNull(value: string): string | null {
   return trimmed === "" ? null : trimmed;
 }
 
-function TieOutPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelProps) {
+function TieOutPanel({
+  canWrite,
+  onRefusal,
+  clearRefusal,
+  entities,
+}: PanelProps) {
   const qc = useQueryClient();
   const [period, setPeriod] = useState(currentPeriod());
   const [form, setForm] = useState({ ...BLANK_TIEOUT });
@@ -847,7 +972,8 @@ function TieOutPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelProps
   const expectations = useQuery<VatTieOutExpectation[]>({
     queryKey: ["transport", "tie-out-expectations", period],
     queryFn: async () =>
-      (await api.get("/transport/tie-out-expectations", { params: { period } })).data,
+      (await api.get("/transport/tie-out-expectations", { params: { period } }))
+        .data,
     enabled: isPeriodShape(period),
   });
 
@@ -909,10 +1035,11 @@ function TieOutPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelProps
       <Card title="What the supplier’s own invoice says">
         <p className="text-xs text-slate-500">
           Type the figures printed on the supplier’s invoice for the period.{" "}
-          <strong>These stop the monthly close.</strong> Once a supplier has an expectation typed
-          here, a close whose own figures disagree by more than the tolerance halts for that
-          supplier instead of publishing. Leaving a supplier untyped leaves it unchecked — absence
-          never halts anything.
+          <strong>These stop the monthly close.</strong> Once a supplier has an
+          expectation typed here, a close whose own figures disagree by more
+          than the tolerance halts for that supplier instead of publishing.
+          Leaving a supplier untyped leaves it unchecked — absence never halts
+          anything.
         </p>
         <div className="mt-4 max-w-xs">
           <TextInput
@@ -951,7 +1078,9 @@ function TieOutPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelProps
               required
               inputMode="numeric"
               value={form.expected_lines}
-              onChange={(e) => setForm({ ...form, expected_lines: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, expected_lines: e.target.value })
+              }
               placeholder="0"
             />
             <TextInput
@@ -959,7 +1088,9 @@ function TieOutPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelProps
               hint="In the invoice currency."
               inputMode="decimal"
               value={form.expected_gross_local}
-              onChange={(e) => setForm({ ...form, expected_gross_local: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, expected_gross_local: e.target.value })
+              }
               placeholder="0.00"
             />
             <TextInput
@@ -967,31 +1098,43 @@ function TieOutPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelProps
               hint="Between 0.02 and 0.05."
               inputMode="decimal"
               value={form.gross_local_tolerance}
-              onChange={(e) => setForm({ ...form, gross_local_tolerance: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, gross_local_tolerance: e.target.value })
+              }
             />
             <TextInput
               label="Net, in EUR"
               inputMode="decimal"
               value={form.expected_net_eur}
-              onChange={(e) => setForm({ ...form, expected_net_eur: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, expected_net_eur: e.target.value })
+              }
               placeholder="0.00"
             />
             <TextInput
               label="Gross, in EUR"
               inputMode="decimal"
               value={form.expected_gross_eur}
-              onChange={(e) => setForm({ ...form, expected_gross_eur: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, expected_gross_eur: e.target.value })
+              }
               placeholder="0.00"
             />
             <TextInput
               label="Diesel litres"
               inputMode="decimal"
               value={form.expected_diesel_litres}
-              onChange={(e) => setForm({ ...form, expected_diesel_litres: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, expected_diesel_litres: e.target.value })
+              }
               placeholder="0.000"
             />
             <div className="flex items-end">
-              <Button loading={save.isPending} disabled={!ready} onClick={() => save.mutate()}>
+              <Button
+                loading={save.isPending}
+                disabled={!ready}
+                onClick={() => save.mutate()}
+              >
                 Save expectation
               </Button>
             </div>
@@ -1008,81 +1151,94 @@ function TieOutPanel({ canWrite, onRefusal, clearRefusal, entities }: PanelProps
             description="For example 2026-05. An expectation is typed one accounting month at a time."
           />
         ) : (
-        <QueryState
-          query={expectations}
-          loading={<Skeleton className="m-5 h-24 w-full" />}
-          isEmpty={(rows) => rows.length === 0}
-          empty={
-            <EmptyState
-              title="Nothing typed for this period"
-              description="No supplier is being tied out for this period, so the close runs unchecked against an invoice."
-            />
-          }
-          errorTitle="Couldn’t load the expectations"
-        >
-          {(rows) => (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <caption className="sr-only">Typed tie-out expectations for {period}</caption>
-                <thead>
-                  <tr className="text-left text-xs text-slate-400">
-                    <th className="px-5 py-2">Entity</th>
-                    <th className="px-5 py-2">Supplier</th>
-                    <th className="px-5 py-2">Currency</th>
-                    <th className="px-5 py-2 text-right">Lines</th>
-                    <th className="px-5 py-2 text-right">Gross, as invoiced</th>
-                    <th className="px-5 py-2 text-right">Tolerance</th>
-                    <th className="px-5 py-2 text-right">Net EUR</th>
-                    <th className="px-5 py-2 text-right">Gross EUR</th>
-                    <th className="px-5 py-2 text-right">Diesel litres</th>
-                    {canWrite && <th className="px-5 py-2"></th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.id} className="border-t border-slate-100">
-                      <td className="px-5 py-2 text-xs text-slate-600">
-                        {entityLabel(entities, row.entity_id)}
-                      </td>
-                      <td className="px-5 py-2 font-medium text-slate-700">{row.supplier}</td>
-                      <td className="px-5 py-2 font-mono text-xs">{row.currency}</td>
-                      <td className="px-5 py-2 text-right tabular-nums">{row.expected_lines}</td>
-                      <td className="px-5 py-2 text-right tabular-nums">
-                        {decimalMoney(row.expected_gross_local, row.currency)}
-                      </td>
-                      {/* A tolerance is a band, not an amount — shown as the exact
-                          string it is, with no currency symbol attached. */}
-                      <td className="px-5 py-2 text-right tabular-nums text-xs text-slate-500">
-                        {row.gross_local_tolerance}
-                      </td>
-                      <td className="px-5 py-2 text-right tabular-nums">
-                        {decimalMoney(row.expected_net_eur)}
-                      </td>
-                      <td className="px-5 py-2 text-right tabular-nums">
-                        {decimalMoney(row.expected_gross_eur)}
-                      </td>
-                      <td className="px-5 py-2 text-right tabular-nums text-xs text-slate-500">
-                        {row.expected_diesel_litres ?? "—"}
-                      </td>
-                      {canWrite && (
-                        <td className="px-5 py-2 text-right">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            loading={remove.isPending && remove.variables?.id === row.id}
-                            onClick={() => remove.mutate(row)}
-                          >
-                            Stop checking
-                          </Button>
-                        </td>
-                      )}
+          <QueryState
+            query={expectations}
+            loading={<Skeleton className="m-5 h-24 w-full" />}
+            isEmpty={(rows) => rows.length === 0}
+            empty={
+              <EmptyState
+                title="Nothing typed for this period"
+                description="No supplier is being tied out for this period, so the close runs unchecked against an invoice."
+              />
+            }
+            errorTitle="Couldn’t load the expectations"
+          >
+            {(rows) => (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <caption className="sr-only">
+                    Typed tie-out expectations for {period}
+                  </caption>
+                  <thead>
+                    <tr className="text-left text-xs text-slate-400">
+                      <th className="px-5 py-2">Entity</th>
+                      <th className="px-5 py-2">Supplier</th>
+                      <th className="px-5 py-2">Currency</th>
+                      <th className="px-5 py-2 text-right">Lines</th>
+                      <th className="px-5 py-2 text-right">
+                        Gross, as invoiced
+                      </th>
+                      <th className="px-5 py-2 text-right">Tolerance</th>
+                      <th className="px-5 py-2 text-right">Net EUR</th>
+                      <th className="px-5 py-2 text-right">Gross EUR</th>
+                      <th className="px-5 py-2 text-right">Diesel litres</th>
+                      {canWrite && <th className="px-5 py-2"></th>}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </QueryState>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr key={row.id} className="border-t border-slate-100">
+                        <td className="px-5 py-2 text-xs text-slate-600">
+                          {entityLabel(entities, row.entity_id)}
+                        </td>
+                        <td className="px-5 py-2 font-medium text-slate-700">
+                          {row.supplier}
+                        </td>
+                        <td className="px-5 py-2 font-mono text-xs">
+                          {row.currency}
+                        </td>
+                        <td className="px-5 py-2 text-right tabular-nums">
+                          {row.expected_lines}
+                        </td>
+                        <td className="px-5 py-2 text-right tabular-nums">
+                          {decimalMoney(row.expected_gross_local, row.currency)}
+                        </td>
+                        {/* A tolerance is a band, not an amount — shown as the exact
+                          string it is, with no currency symbol attached. */}
+                        <td className="px-5 py-2 text-right tabular-nums text-xs text-slate-500">
+                          {row.gross_local_tolerance}
+                        </td>
+                        <td className="px-5 py-2 text-right tabular-nums">
+                          {decimalMoney(row.expected_net_eur)}
+                        </td>
+                        <td className="px-5 py-2 text-right tabular-nums">
+                          {decimalMoney(row.expected_gross_eur)}
+                        </td>
+                        <td className="px-5 py-2 text-right tabular-nums text-xs text-slate-500">
+                          {row.expected_diesel_litres ?? "—"}
+                        </td>
+                        {canWrite && (
+                          <td className="px-5 py-2 text-right">
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              loading={
+                                remove.isPending &&
+                                remove.variables?.id === row.id
+                              }
+                              onClick={() => remove.mutate(row)}
+                            >
+                              Stop checking
+                            </Button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </QueryState>
         )}
       </Card>
     </div>
@@ -1109,10 +1265,12 @@ function StatusCodesPanel() {
         {(data) => (
           <div className="grid gap-6 sm:grid-cols-2">
             <div>
-              <h3 className="text-sm font-semibold text-slate-700">Set by the service</h3>
+              <h3 className="text-sm font-semibold text-slate-700">
+                Set by the service
+              </h3>
               <p className="mt-1 text-xs text-slate-400">
-                Derived from the submission checklist while a claim is still in preparation. These
-                can’t be set by hand.
+                Derived from the submission checklist while a claim is still in
+                preparation. These can’t be set by hand.
               </p>
               <ul className="mt-3 flex flex-wrap gap-2">
                 {data.auto.map((code) => (
@@ -1123,10 +1281,13 @@ function StatusCodesPanel() {
               </ul>
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-slate-700">Set by you, after filing</h3>
+              <h3 className="text-sm font-semibold text-slate-700">
+                Set by you, after filing
+              </h3>
               <p className="mt-1 text-xs text-slate-400">
-                Where a filed claim stands with the refunding authority. Set one on the claim
-                itself — it’s part of the filing workflow, not configuration.
+                Where a filed claim stands with the refunding authority. Set one
+                on the claim itself — it’s part of the filing workflow, not
+                configuration.
               </p>
               <ul className="mt-3 flex flex-wrap gap-2">
                 {data.manual.map((code) => (

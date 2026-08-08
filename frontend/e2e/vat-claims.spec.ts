@@ -224,7 +224,13 @@ const FUEL_TXNS = [
 const FUEL_LIST = { items: FUEL_TXNS, total: 2, page: 1, page_size: 500 };
 
 const CHECKLIST = [
-  { key: "period_ended", label: "Reference period has ended", scope: "claim", ok: true, reason: null },
+  {
+    key: "period_ended",
+    label: "Reference period has ended",
+    scope: "claim",
+    ok: true,
+    reason: null,
+  },
   {
     key: "customer_data",
     label: "Customer master data complete",
@@ -253,6 +259,10 @@ interface MockOpts {
   stage?: unknown;
   /** Refusals keyed by path suffix, e.g. "submit" | "workbook" | "evidence". */
   refuse?: Record<string, { status: number; code: string; detail: string }>;
+  /** A refusal for `POST /transport/claims` only. It needs its own option
+   * because that path's suffix ("claims") is shared with the LIST read, and
+   * refusing both would stop the page rendering at all. */
+  refuseCreate?: { status: number; code: string; detail: string };
   /** WO-80 — the claim-scoped receipt waivers (R15). */
   waivers?: unknown;
   /** WO-79 — the `GET /transport/fuel-transactions` body the pick-list reads. */
@@ -278,6 +288,7 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
     stage = { stage: "1A" },
     waivers = WAIVERS,
     refuse = {},
+    refuseCreate,
     fuel = FUEL_LIST,
     fuelStatus,
     fuelDelayMs = 0,
@@ -285,7 +296,9 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
     captured,
   } = opts;
 
-  await page.addInitScript(() => localStorage.setItem("invoiceiq_token", "e2e-token"));
+  await page.addInitScript(() =>
+    localStorage.setItem("invoiceiq_token", "e2e-token"),
+  );
 
   const json = (body: unknown, status = 200) => ({
     status,
@@ -302,9 +315,12 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
       return route.fulfill(json({ user: user(role), organization: ORG }));
     if (path === "/auth/organizations") return route.fulfill(json([ORG]));
     if (path === "/modules")
-      return route.fulfill(json([{ ...TRANSPORT_MODULE, enabled: moduleEnabled }]));
+      return route.fulfill(
+        json([{ ...TRANSPORT_MODULE, enabled: moduleEnabled }]),
+      );
     if (path === "/issuer/registry") return route.fulfill(json([ENTITY]));
-    if (path === "/transport/status-codes") return route.fulfill(json(STATUS_CODES));
+    if (path === "/transport/status-codes")
+      return route.fulfill(json(STATUS_CODES));
 
     // Record every mutating body so a test can assert what was actually sent.
     if (captured && method === "POST") {
@@ -314,41 +330,71 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
 
     for (const [suffix, r] of Object.entries(refuse)) {
       if (path.endsWith(`/${suffix}`)) {
-        return route.fulfill(json({ detail: r.detail, code: r.code }, r.status));
+        return route.fulfill(
+          json({ detail: r.detail, code: r.code }, r.status),
+        );
       }
     }
 
     if (path === "/transport/fuel-transactions") {
       if (fuelDelayMs) await new Promise((res) => setTimeout(res, fuelDelayMs));
       if (fuelStatus && fuelStatus >= 400)
-        return route.fulfill(json({ detail: "boom", code: "mocked_failure" }, fuelStatus));
+        return route.fulfill(
+          json({ detail: "boom", code: "mocked_failure" }, fuelStatus),
+        );
       return route.fulfill(json(fuel));
     }
     if (path === "/transport/claims" && method === "GET") {
       if (listDelayMs) await new Promise((res) => setTimeout(res, listDelayMs));
       if (claimsStatus && claimsStatus >= 400)
-        return route.fulfill(json({ detail: "boom", code: "mocked_failure" }, claimsStatus));
+        return route.fulfill(
+          json({ detail: "boom", code: "mocked_failure" }, claimsStatus),
+        );
       return route.fulfill(json(claims));
     }
-    if (path === "/transport/claims" && method === "POST")
+    if (path === "/transport/claims" && method === "POST") {
+      if (refuseCreate)
+        return route.fulfill(
+          json(
+            { detail: refuseCreate.detail, code: refuseCreate.code },
+            refuseCreate.status,
+          ),
+        );
       return route.fulfill(json(DRAFT_CLAIM));
-    if (/\/transport\/claims\/[^/]+$/.test(path)) return route.fulfill(json(claim));
+    }
+    if (/\/transport\/claims\/[^/]+$/.test(path))
+      return route.fulfill(json(claim));
     if (path.endsWith("/lines")) return route.fulfill(json(lines));
     if (path.endsWith("/checklist")) return route.fulfill(json(checklist));
     // WO-80 — the waivers panel: the list read, plus the set/remove verbs whose
     // bodies the `captured` collector already records.
     if (path.endsWith("/waivers"))
       return route.fulfill(
-        method === "GET" ? json(waivers) : json({ id: "wv-2", claim_id: "claim-1", supplier: "NEWCO" }),
+        method === "GET"
+          ? json(waivers)
+          : json({ id: "wv-2", claim_id: "claim-1", supplier: "NEWCO" }),
       );
-    if (/\/waivers\/[^/]+$/.test(path)) return route.fulfill(json({ removed: true }));
+    if (/\/waivers\/[^/]+$/.test(path))
+      return route.fulfill(json({ removed: true }));
     if (path.endsWith("/stage")) return route.fulfill(json(stage));
-    if (path.endsWith("/submit") || path.endsWith("/withdraw") || path.endsWith("/status-code"))
+    if (
+      path.endsWith("/submit") ||
+      path.endsWith("/withdraw") ||
+      path.endsWith("/status-code")
+    )
       return route.fulfill(json(FILED_CLAIM));
     if (path.endsWith("/workbook"))
-      return route.fulfill({ status: 200, contentType: "application/octet-stream", body: "xlsx" });
+      return route.fulfill({
+        status: 200,
+        contentType: "application/octet-stream",
+        body: "xlsx",
+      });
     if (path.endsWith("/evidence"))
-      return route.fulfill({ status: 200, contentType: "application/zip", body: "zip" });
+      return route.fulfill({
+        status: 200,
+        contentType: "application/zip",
+        body: "zip",
+      });
 
     return route.fulfill(json({}));
   });
@@ -358,13 +404,21 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
 // List
 // ---------------------------------------------------------------------------
 
-test("list: renders each claim's grain, status and frozen total", async ({ page }) => {
+test("list: renders each claim's grain, status and frozen total", async ({
+  page,
+}) => {
   await mockApi(page);
   await page.goto("/vat-claims");
 
-  await expect(page.getByRole("heading", { name: "VAT refund claims" })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "Northwind Haulage" }).first()).toBeVisible();
-  await expect(page.getByRole("cell", { name: "2026-Q2" }).first()).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "VAT refund claims" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "Northwind Haulage" }).first(),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "2026-Q2" }).first(),
+  ).toBeVisible();
   await expect(page.getByRole("cell", { name: "LV" }).first()).toBeVisible();
   // The filed claim's frozen total, formatted from the wire string.
   await expect(page.getByRole("cell", { name: "€1,234.56" })).toBeVisible();
@@ -373,27 +427,35 @@ test("list: renders each claim's grain, status and frozen total", async ({ page 
   await expect(page.getByText("€0.00")).toHaveCount(0);
 });
 
-test("list: shows a loading state before the API resolves", async ({ page }) => {
+test("list: shows a loading state before the API resolves", async ({
+  page,
+}) => {
   await mockApi(page, { listDelayMs: 1500 });
   await page.goto("/vat-claims");
   // The QueryState loading branch renders a skeleton (aria-hidden shimmer), and
   // no row and no empty copy are on screen yet.
   await expect(page.getByText("No VAT refund claims yet")).toHaveCount(0);
   await expect(page.getByRole("cell", { name: "€1,234.56" })).toHaveCount(0);
-  await expect(page.getByRole("cell", { name: "€1,234.56" })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("cell", { name: "€1,234.56" })).toBeVisible({
+    timeout: 10_000,
+  });
 });
 
-test("list: a genuinely empty result shows the empty copy, never an alert", async ({ page }) => {
+test("list: a genuinely empty result shows the empty copy, never an alert", async ({
+  page,
+}) => {
   await mockApi(page, { claims: [] });
   await page.goto("/vat-claims");
 
   await expect(page.getByText("No VAT refund claims yet")).toBeVisible();
-  await expect(page.getByRole("alert").filter({ hasText: "Couldn’t load VAT claims" })).toHaveCount(
-    0,
-  );
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Couldn’t load VAT claims" }),
+  ).toHaveCount(0);
 });
 
-test("list: a 500 shows the error state, never the empty copy", async ({ page }) => {
+test("list: a 500 shows the error state, never the empty copy", async ({
+  page,
+}) => {
   await mockApi(page, { claimsStatus: 500 });
   await page.goto("/vat-claims");
 
@@ -403,11 +465,15 @@ test("list: a 500 shows the error state, never the empty copy", async ({ page })
   await expect(page.getByText("No VAT refund claims yet")).toHaveCount(0);
 });
 
-test("list: the module being off shows the module notice, not a table", async ({ page }) => {
+test("list: the module being off shows the module notice, not a table", async ({
+  page,
+}) => {
   await mockApi(page, { moduleEnabled: false });
   await page.goto("/vat-claims");
 
-  await expect(page.getByText("Transport & VAT refunds", { exact: false })).toBeVisible();
+  await expect(
+    page.getByText("Transport & VAT refunds", { exact: false }),
+  ).toBeVisible();
   await expect(page.getByText("isn't active", { exact: false })).toBeVisible();
   await expect(page.getByRole("cell", { name: "€1,234.56" })).toHaveCount(0);
 });
@@ -416,44 +482,58 @@ test("list: the module being off shows the module notice, not a table", async ({
 // Navigation gating
 // ---------------------------------------------------------------------------
 
-test("nav: a VAT_READ role sees the Transport group; an employee does not", async ({ page }) => {
+test("nav: a VAT_READ role sees the Transport group; an employee does not", async ({
+  page,
+}) => {
   await mockApi(page, { role: "auditor" });
   await page.goto("/vat-claims");
-  await expect(page.getByRole("navigation").getByRole("link", { name: "VAT claims" })).toBeVisible();
+  await expect(
+    page.getByRole("navigation").getByRole("link", { name: "VAT claims" }),
+  ).toBeVisible();
 
   await mockApi(page, { role: "user" });
   await page.goto("/vat-claims");
-  await expect(page.getByRole("navigation").getByRole("link", { name: "VAT claims" })).toHaveCount(
-    0,
-  );
+  await expect(
+    page.getByRole("navigation").getByRole("link", { name: "VAT claims" }),
+  ).toHaveCount(0);
 });
 
-test("nav: the entry is hidden when the transport module is off", async ({ page }) => {
+test("nav: the entry is hidden when the transport module is off", async ({
+  page,
+}) => {
   await mockApi(page, { moduleEnabled: false });
   await page.goto("/vat-claims");
-  await expect(page.getByRole("navigation").getByRole("link", { name: "VAT claims" })).toHaveCount(
-    0,
-  );
+  await expect(
+    page.getByRole("navigation").getByRole("link", { name: "VAT claims" }),
+  ).toHaveCount(0);
 });
 
 // ---------------------------------------------------------------------------
 // Detail
 // ---------------------------------------------------------------------------
 
-test("detail: renders the grain, the lines and the server's own totals", async ({ page }) => {
+test("detail: renders the grain, the lines and the server's own totals", async ({
+  page,
+}) => {
   await mockApi(page, { claim: FILED_CLAIM });
   await page.goto("/vat-claims/claim-2");
 
-  await expect(page.getByRole("heading", { name: "LV · 2026-Q2" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "LV · 2026-Q2" }),
+  ).toBeVisible();
   await expect(page.getByText("INV-4001")).toBeVisible();
   await expect(page.getByText("diesel")).toBeVisible();
-  await expect(page.getByText("Filed under the standard fee schedule.")).toBeVisible();
+  await expect(
+    page.getByText("Filed under the standard fee schedule."),
+  ).toBeVisible();
   // The unresolved line is flagged from the is_synthetic mirror.
   await expect(page.getByText("UNMATCHED")).toBeVisible();
   await expect(page.getByText("unresolved")).toBeVisible();
 });
 
-test("detail: the header total is the server's, never a sum of the lines", async ({ page }) => {
+test("detail: the header total is the server's, never a sum of the lines", async ({
+  page,
+}) => {
   await mockApi(page, { claim: FILED_CLAIM });
   await page.goto("/vat-claims/claim-2");
 
@@ -475,14 +555,20 @@ test("detail: money renders exactly from the wire string, with no float round-tr
   await expect(page.getByText("€100,000,000,000,000.00")).toHaveCount(0);
 });
 
-test("detail: a failing checklist item is shown and never disables Submit", async ({ page }) => {
+test("detail: a failing checklist item is shown and never disables Submit", async ({
+  page,
+}) => {
   await mockApi(page);
   await page.goto("/vat-claims/claim-1");
 
   await expect(page.getByText("Customer master data complete")).toBeVisible();
-  await expect(page.getByText("Bank account is missing on the customer record")).toBeVisible();
+  await expect(
+    page.getByText("Bank account is missing on the customer record"),
+  ).toBeVisible();
   // §4.19 — advisory never blocks.
-  await expect(page.getByRole("button", { name: "Submit claim" })).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Submit claim" }),
+  ).toBeEnabled();
 });
 
 test("detail: the stage ladder marks the service-derived stage on a draft claim", async ({
@@ -493,35 +579,54 @@ test("detail: the stage ladder marks the service-derived stage on a draft claim"
 
   const ladder = page.getByRole("list", { name: "Claim stage" });
   await expect(ladder).toBeVisible();
-  await expect(ladder.getByText("1C", { exact: true })).toHaveAttribute("aria-current", "step");
+  await expect(ladder.getByText("1C", { exact: true })).toHaveAttribute(
+    "aria-current",
+    "step",
+  );
 });
 
 // ---------------------------------------------------------------------------
 // Permission-gated action visibility
 // ---------------------------------------------------------------------------
 
-test("permissions: an accountant sees Build lines but no Submit or Withdraw", async ({ page }) => {
+test("permissions: an accountant sees Build lines but no Submit or Withdraw", async ({
+  page,
+}) => {
   await mockApi(page, { role: "accountant" });
   await page.goto("/vat-claims/claim-1");
 
   await expect(page.getByRole("button", { name: "Build lines" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Submit claim" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Submit claim" })).toHaveCount(
+    0,
+  );
   await expect(page.getByRole("button", { name: "Withdraw" })).toHaveCount(0);
 });
 
-test("permissions: a read-only auditor sees no mutating action at all", async ({ page }) => {
+test("permissions: a read-only auditor sees no mutating action at all", async ({
+  page,
+}) => {
   await mockApi(page, { role: "auditor", claim: FILED_CLAIM });
   await page.goto("/vat-claims/claim-2");
 
-  await expect(page.getByRole("button", { name: "Build lines" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Submit claim" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Build lines" })).toHaveCount(
+    0,
+  );
+  await expect(page.getByRole("button", { name: "Submit claim" })).toHaveCount(
+    0,
+  );
   await expect(page.getByRole("button", { name: "Withdraw" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Set status code" })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Set status code" }),
+  ).toHaveCount(0);
   // Reads are still available.
-  await expect(page.getByRole("button", { name: "Claim workbook" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Claim workbook" }),
+  ).toBeVisible();
 });
 
-test("permissions: an accountant sees no create form on the list", async ({ page }) => {
+test("permissions: an accountant sees no create form on the list", async ({
+  page,
+}) => {
   await mockApi(page, { role: "auditor" });
   await page.goto("/vat-claims");
   await expect(page.getByText("Start a claim")).toHaveCount(0);
@@ -531,18 +636,59 @@ test("permissions: an accountant sees no create form on the list", async ({ page
   await expect(page.getByText("Start a claim")).toBeVisible();
 });
 
+test("create refusal: invalid_period keeps the CLAIM instruction (quarter or year)", async ({
+  page,
+}) => {
+  // WO-91's split, from the other side. `invalid_period` is one wire code shared
+  // by seven services; the ACTION depends on the period shape the PAGE asks for.
+  // This page asks for a claim reference period, so it must keep saying
+  // "2026-Q2 / 2026-YEAR" — the split must not have flipped it to a month.
+  await mockApi(page, {
+    refuseCreate: {
+      status: 422,
+      code: "invalid_period",
+      detail:
+        "'2026-04' is not a valid claim period — use YYYY-Q1..YYYY-Q4 or YYYY-YEAR",
+    },
+  });
+  await page.goto("/vat-claims");
+  await page.getByLabel("Legal entity").selectOption(ENTITY.id);
+  await page.getByLabel("Refunding country").fill("LV");
+  await page.getByLabel("Reference period").fill("2026-04");
+  await page.getByRole("button", { name: "Open or create" }).click();
+
+  const alert = page.getByRole("alert");
+  await expect(alert).toContainText(
+    "isn\u2019t a reference period this service can file",
+  );
+  await expect(alert).toContainText("Use a quarter such as 2026-Q2");
+  // The month-shaped instruction must NOT appear on a claim-shaped page.
+  await expect(alert).not.toContainText("Use a month such as 2026-04.");
+  await expect(page.getByText("invalid_period")).toHaveCount(0);
+});
+
 // ---------------------------------------------------------------------------
 // The D5 submit refusal vocabulary — one case per code
 // ---------------------------------------------------------------------------
 
-async function submitWith(page: Page, code: string, detail: string, status = 409) {
+async function submitWith(
+  page: Page,
+  code: string,
+  detail: string,
+  status = 409,
+) {
   await mockApi(page, { refuse: { submit: { status, code, detail } } });
   await page.goto("/vat-claims/claim-1");
   await page.getByRole("button", { name: "Submit claim" }).click();
   await page.getByRole("button", { name: "File claim" }).click();
 }
 
-const REFUSALS: { code: string; detail: string; status?: number; expect: string }[] = [
+const REFUSALS: {
+  code: string;
+  detail: string;
+  status?: number;
+  expect: string;
+}[] = [
   {
     code: "period_not_ended",
     detail: "The '2026-Q2' period has not ended yet — cannot submit",
@@ -593,7 +739,9 @@ const REFUSALS: { code: string; detail: string; status?: number; expect: string 
 ];
 
 for (const r of REFUSALS) {
-  test(`submit refusal: ${r.code} renders its human message, never the slug`, async ({ page }) => {
+  test(`submit refusal: ${r.code} renders its human message, never the slug`, async ({
+    page,
+  }) => {
     await submitWith(page, r.code, r.detail, r.status ?? 409);
 
     const alert = page.getByRole("alert").filter({ hasText: r.expect });
@@ -624,15 +772,18 @@ test("submit refusal: below_minimum offers the override and re-posts with overri
   await page.getByRole("button", { name: "File claim" }).click();
 
   const alert = page.getByRole("alert").filter({
-    hasText: "The claim is below the minimum refundable amount for this country",
+    hasText:
+      "The claim is below the minimum refundable amount for this country",
   });
   await expect(alert).toBeVisible();
-  await expect(page.getByText("below_minimum", { exact: false })).toHaveCount(0);
+  await expect(page.getByText("below_minimum", { exact: false })).toHaveCount(
+    0,
+  );
 
-  await alert.getByRole("button", { name: "File it anyway and record the override" }).click();
-  await expect
-    .poll(() => (captured.submit ?? []).length)
-    .toBeGreaterThan(1);
+  await alert
+    .getByRole("button", { name: "File it anyway and record the override" })
+    .click();
+  await expect.poll(() => (captured.submit ?? []).length).toBeGreaterThan(1);
   const bodies = captured.submit as { override_minimum: boolean }[];
   expect(bodies[0].override_minimum).toBe(false);
   expect(bodies[bodies.length - 1].override_minimum).toBe(true);
@@ -644,7 +795,9 @@ test("submit refusal: an accountant never gets the override action (VAT_SUBMIT o
   await mockApi(page, { role: "accountant" });
   await page.goto("/vat-claims/claim-1");
   await expect(
-    page.getByRole("button", { name: "File it anyway and record the override" }),
+    page.getByRole("button", {
+      name: "File it anyway and record the override",
+    }),
   ).toHaveCount(0);
 });
 
@@ -668,9 +821,13 @@ test("artifacts: a workbook refusal renders its human message, never the slug", 
   await page.getByRole("button", { name: "Claim workbook" }).click();
 
   await expect(
-    page.getByRole("alert").filter({ hasText: "The filing pack isn’t available until the claim is filed" }),
+    page.getByRole("alert").filter({
+      hasText: "The filing pack isn’t available until the claim is filed",
+    }),
   ).toBeVisible();
-  await expect(page.getByText("claim_not_frozen", { exact: false })).toHaveCount(0);
+  await expect(
+    page.getByText("claim_not_frozen", { exact: false }),
+  ).toHaveCount(0);
 });
 
 test("artifacts: an evidence-pack refusal explains that the workbook still downloads", async ({
@@ -696,13 +853,17 @@ test("artifacts: an evidence-pack refusal explains that the workbook still downl
   await expect(alert).toContainText("The workbook still downloads");
 });
 
-test("artifacts: the evidence pack downloads on a filed claim", async ({ page }) => {
+test("artifacts: the evidence pack downloads on a filed claim", async ({
+  page,
+}) => {
   await mockApi(page, { claim: FILED_CLAIM });
   await page.goto("/vat-claims/claim-2");
 
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Evidence pack" }).click();
-  expect((await download).suggestedFilename()).toBe("claim-claim-2-evidence.zip");
+  expect((await download).suggestedFilename()).toBe(
+    "claim-claim-2-evidence.zip",
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -726,8 +887,12 @@ test("pick-list: renders the period's fuel transactions with their own values", 
 }) => {
   await openPickList(page);
 
-  await expect(page.getByRole("cell", { name: "Q8", exact: true })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "BP", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "Q8", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "BP", exact: true }),
+  ).toBeVisible();
   await expect(page.getByText("Riga Ring Station")).toBeVisible();
   await expect(page.getByText("Daugavpils Depot")).toBeVisible();
   // Litres come off the wire as an exact string — no rounding, no arithmetic.
@@ -758,7 +923,10 @@ test("pick-list: ticking a transaction posts its supplier, reference and id verb
   await page.getByRole("button", { name: "File claim" }).click();
 
   await expect.poll(() => (captured.submit ?? []).length).toBe(1);
-  const body = captured.submit[0] as { invoices: unknown[]; override_minimum: boolean };
+  const body = captured.submit[0] as {
+    invoices: unknown[];
+    override_minimum: boolean;
+  };
   expect(body.invoices).toEqual([
     { supplier: "Q8", invoice_ref: "INV-4001", fuel_transaction_id: "txn-1" },
   ]);
@@ -774,7 +942,9 @@ test("pick-list: a transaction with no invoice reference takes the one typed on 
   // `invoice_ref` is nullable by design on a fuel transaction, while the submit
   // schema requires a non-empty one — so the field stays editable.
   await page.getByRole("checkbox", { name: /Include BP/ }).check();
-  await page.getByRole("textbox", { name: /Invoice reference for BP/ }).fill("INV-7777");
+  await page
+    .getByRole("textbox", { name: /Invoice reference for BP/ })
+    .fill("INV-7777");
   await page.getByRole("button", { name: "File claim" }).click();
 
   await expect.poll(() => (captured.submit ?? []).length).toBe(1);
@@ -784,7 +954,9 @@ test("pick-list: a transaction with no invoice reference takes the one typed on 
   ]);
 });
 
-test("pick-list: unticking a transaction takes it back out of the payload", async ({ page }) => {
+test("pick-list: unticking a transaction takes it back out of the payload", async ({
+  page,
+}) => {
   const captured: Record<string, unknown[]> = {};
   await openPickList(page, { captured });
 
@@ -796,31 +968,49 @@ test("pick-list: unticking a transaction takes it back out of the payload", asyn
   await page.getByRole("button", { name: "File claim" }).click();
 
   await expect.poll(() => (captured.submit ?? []).length).toBe(1);
-  const body = captured.submit[0] as { invoices: { fuel_transaction_id: string }[] };
+  const body = captured.submit[0] as {
+    invoices: { fuel_transaction_id: string }[];
+  };
   expect(body.invoices.map((i) => i.fuel_transaction_id)).toEqual(["txn-1"]);
 });
 
-test("pick-list: a loading state renders before the fuel read resolves", async ({ page }) => {
+test("pick-list: a loading state renders before the fuel read resolves", async ({
+  page,
+}) => {
   await openPickList(page, { fuelDelayMs: 1500 });
 
-  await expect(page.getByText("No fuel transactions for this period")).toHaveCount(0);
-  await expect(page.getByRole("cell", { name: "Q8", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("cell", { name: "Q8", exact: true })).toBeVisible({
-    timeout: 10_000,
-  });
+  await expect(
+    page.getByText("No fuel transactions for this period"),
+  ).toHaveCount(0);
+  await expect(page.getByRole("cell", { name: "Q8", exact: true })).toHaveCount(
+    0,
+  );
+  await expect(page.getByRole("cell", { name: "Q8", exact: true })).toBeVisible(
+    {
+      timeout: 10_000,
+    },
+  );
 });
 
 test("pick-list: an empty period shows the empty copy and falls back to the typed rows", async ({
   page,
 }) => {
-  await openPickList(page, { fuel: { items: [], total: 0, page: 1, page_size: 500 } });
+  await openPickList(page, {
+    fuel: { items: [], total: 0, page: 1, page_size: 500 },
+  });
 
-  await expect(page.getByText("No fuel transactions for this period")).toBeVisible();
+  await expect(
+    page.getByText("No fuel transactions for this period"),
+  ).toBeVisible();
   // WO-78's behaviour preserved: the manual section is pre-seeded with the
   // non-synthetic references on the claim's materialized lines (INV-4001), and
   // never with the synthetic "UNMATCHED" one.
-  await expect(page.getByRole("textbox", { name: "Invoice reference" })).toHaveValue("INV-4001");
-  await expect(page.getByRole("button", { name: "Add a row manually" })).toBeVisible();
+  await expect(
+    page.getByRole("textbox", { name: "Invoice reference" }),
+  ).toHaveValue("INV-4001");
+  await expect(
+    page.getByRole("button", { name: "Add a row manually" }),
+  ).toBeVisible();
 });
 
 test("pick-list: a fuel read failure shows the error state and the typed path still files", async ({
@@ -838,18 +1028,29 @@ test("pick-list: a fuel read failure shows the error state and the typed path st
   // The dialog is still usable: the pre-seeded typed row files as before.
   // Scoped to the submit dialog: WO-80 added a "Waive a supplier" field to the
   // page behind it, and an unscoped accessible-name match would find both.
-  await page.getByRole("dialog").getByRole("textbox", { name: "Supplier" }).fill("Q8");
-  await page.getByRole("textbox", { name: "Fuel transaction id" }).fill("txn-manual");
+  await page
+    .getByRole("dialog")
+    .getByRole("textbox", { name: "Supplier" })
+    .fill("Q8");
+  await page
+    .getByRole("textbox", { name: "Fuel transaction id" })
+    .fill("txn-manual");
   await page.getByRole("button", { name: "File claim" }).click();
 
   await expect.poll(() => (captured.submit ?? []).length).toBe(1);
   const body = captured.submit[0] as { invoices: unknown[] };
   expect(body.invoices).toEqual([
-    { supplier: "Q8", invoice_ref: "INV-4001", fuel_transaction_id: "txn-manual" },
+    {
+      supplier: "Q8",
+      invoice_ref: "INV-4001",
+      fuel_transaction_id: "txn-manual",
+    },
   ]);
 });
 
-test("pick-list: a manual row and a picked transaction can be filed together", async ({ page }) => {
+test("pick-list: a manual row and a picked transaction can be filed together", async ({
+  page,
+}) => {
   const captured: Record<string, unknown[]> = {};
   await openPickList(page, { captured });
 
@@ -857,16 +1058,27 @@ test("pick-list: a manual row and a picked transaction can be filed together", a
   await page.getByRole("button", { name: "Add a row manually" }).click();
   // Scoped to the submit dialog: WO-80 added a "Waive a supplier" field to the
   // page behind it, and an unscoped accessible-name match would find both.
-  await page.getByRole("dialog").getByRole("textbox", { name: "Supplier" }).fill("DKV");
-  await page.getByRole("textbox", { name: "Invoice reference", exact: true }).fill("INV-5555");
-  await page.getByRole("textbox", { name: "Fuel transaction id" }).fill("txn-manual");
+  await page
+    .getByRole("dialog")
+    .getByRole("textbox", { name: "Supplier" })
+    .fill("DKV");
+  await page
+    .getByRole("textbox", { name: "Invoice reference", exact: true })
+    .fill("INV-5555");
+  await page
+    .getByRole("textbox", { name: "Fuel transaction id" })
+    .fill("txn-manual");
   await page.getByRole("button", { name: "File claim" }).click();
 
   await expect.poll(() => (captured.submit ?? []).length).toBe(1);
   const body = captured.submit[0] as { invoices: unknown[] };
   expect(body.invoices).toEqual([
     { supplier: "Q8", invoice_ref: "INV-4001", fuel_transaction_id: "txn-1" },
-    { supplier: "DKV", invoice_ref: "INV-5555", fuel_transaction_id: "txn-manual" },
+    {
+      supplier: "DKV",
+      invoice_ref: "INV-5555",
+      fuel_transaction_id: "txn-manual",
+    },
   ]);
 });
 
@@ -885,25 +1097,35 @@ test("pick-list: an advisory checklist failure never disables the file action", 
 // Receipt waivers (R15) — WO-80's claim-scoped addition to this page
 // ---------------------------------------------------------------------------
 
-test("waivers: the claim lists the suppliers waived on it", async ({ page }) => {
+test("waivers: the claim lists the suppliers waived on it", async ({
+  page,
+}) => {
   await mockApi(page);
   await page.goto("/vat-claims/claim-1");
 
-  await expect(page.getByRole("heading", { name: "Suppliers waived on this claim" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Suppliers waived on this claim" }),
+  ).toBeVisible();
   await expect(page.getByText("TOLLCO")).toBeVisible();
   // The copy must steer an operator away from waiving a merely-unresolved
   // supplier — waiving one drops reclaimable VAT.
-  await expect(page.getByText("waiving would drop VAT you can reclaim")).toBeVisible();
+  await expect(
+    page.getByText("waiving would drop VAT you can reclaim"),
+  ).toBeVisible();
 });
 
-test("waivers: an empty list shows the empty copy, never an alert", async ({ page }) => {
+test("waivers: an empty list shows the empty copy, never an alert", async ({
+  page,
+}) => {
   await mockApi(page, { waivers: [] });
   await page.goto("/vat-claims/claim-1");
 
-  await expect(page.getByText("No supplier is waived on this claim")).toBeVisible();
-  await expect(page.getByRole("alert").filter({ hasText: "Couldn’t load the waivers" })).toHaveCount(
-    0,
-  );
+  await expect(
+    page.getByText("No supplier is waived on this claim"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Couldn’t load the waivers" }),
+  ).toHaveCount(0);
 });
 
 test("waivers: waiving a supplier posts its code", async ({ page }) => {
@@ -936,18 +1158,26 @@ test("waivers: waiver_supplier_has_invoices renders its sentence, not the slug",
   await page.getByRole("button", { name: "Waive", exact: true }).click();
 
   await expect(
-    page.getByText("That supplier does have a registered invoice for this country"),
+    page.getByText(
+      "That supplier does have a registered invoice for this country",
+    ),
   ).toBeVisible();
   // The server's own specifics ride underneath; the raw slug never appears.
-  await expect(page.getByText("Supplier TOLLCO has 2 registered invoices for LV")).toBeVisible();
+  await expect(
+    page.getByText("Supplier TOLLCO has 2 registered invoices for LV"),
+  ).toBeVisible();
   await expect(page.getByText("waiver_supplier_has_invoices")).toHaveCount(0);
 });
 
-test("waivers: a read-only role sees the list and no waive control", async ({ page }) => {
+test("waivers: a read-only role sees the list and no waive control", async ({
+  page,
+}) => {
   await mockApi(page, { role: "auditor" });
   await page.goto("/vat-claims/claim-1");
 
   await expect(page.getByText("TOLLCO")).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Waive a supplier" })).toHaveCount(0);
+  await expect(
+    page.getByRole("textbox", { name: "Waive a supplier" }),
+  ).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Un-waive" })).toHaveCount(0);
 });

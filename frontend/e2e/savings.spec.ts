@@ -32,7 +32,13 @@ import { dirname, join } from "node:path";
 
 const ORG = { id: "org-1", name: "Test Workspace", status: "active" };
 
-type Role = "owner" | "finance_manager" | "accountant" | "auditor" | "user" | "user_free";
+type Role =
+  | "owner"
+  | "finance_manager"
+  | "accountant"
+  | "auditor"
+  | "user"
+  | "user_free";
 
 function user(role: Role) {
   return {
@@ -105,8 +111,20 @@ const SAME_DAY = {
     },
   ],
   by_supplier: [
-    { country: "LV", supplier: "CARDNET", litres: "12400.000", avoidable_eur: HUGE, days: 1 },
-    { country: "PL", supplier: "NORDROUTE", litres: "2100.000", avoidable_eur: "31.50", days: 1 },
+    {
+      country: "LV",
+      supplier: "CARDNET",
+      litres: "12400.000",
+      avoidable_eur: HUGE,
+      days: 1,
+    },
+    {
+      country: "PL",
+      supplier: "NORDROUTE",
+      litres: "2100.000",
+      avoidable_eur: "31.50",
+      days: 1,
+    },
   ],
   avoidable_eur: HUGE,
   lines_compared: 9,
@@ -182,8 +200,18 @@ const REBATE = {
   legal_framing: FRAMING,
   tolerance_eur_l: "0.005",
   expectations: [
-    { supplier: "CARDNET", country: "LV", typical_eur_l: "0.0350", learned_from_lines: 214 },
-    { supplier: "NORDROUTE", country: "PL", typical_eur_l: "0.0180", learned_from_lines: 7 },
+    {
+      supplier: "CARDNET",
+      country: "LV",
+      typical_eur_l: "0.0350",
+      learned_from_lines: 214,
+    },
+    {
+      supplier: "NORDROUTE",
+      country: "PL",
+      typical_eur_l: "0.0180",
+      learned_from_lines: 7,
+    },
   ],
   findings: [
     {
@@ -245,7 +273,9 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
     delayMs = 0,
   } = opts;
 
-  await page.addInitScript(() => localStorage.setItem("invoiceiq_token", "e2e-token"));
+  await page.addInitScript(() =>
+    localStorage.setItem("invoiceiq_token", "e2e-token"),
+  );
 
   const json = (body: unknown, code = 200) => ({
     status: code,
@@ -257,23 +287,31 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
     const url = new URL(route.request().url());
     const path = url.pathname.replace(/^.*\/api\/v1/, "");
 
-    if (path === "/auth/me") return route.fulfill(json({ user: user(role), organization: ORG }));
+    if (path === "/auth/me")
+      return route.fulfill(json({ user: user(role), organization: ORG }));
     if (path === "/auth/organizations") return route.fulfill(json([ORG]));
     if (path === "/modules")
-      return route.fulfill(json([{ ...TRANSPORT_MODULE, enabled: moduleEnabled }]));
+      return route.fulfill(
+        json([{ ...TRANSPORT_MODULE, enabled: moduleEnabled }]),
+      );
 
     for (const [fragment, r] of Object.entries(refuse)) {
       if (path.includes(fragment)) {
-        return route.fulfill(json({ detail: r.detail, code: r.code }, r.status));
+        return route.fulfill(
+          json({ detail: r.detail, code: r.code }, r.status),
+        );
       }
     }
 
     if (path.startsWith("/transport/savings/")) {
       if (delayMs) await new Promise((res) => setTimeout(res, delayMs));
       if (status && status >= 400)
-        return route.fulfill(json({ detail: "boom", code: "mocked_failure" }, status));
+        return route.fulfill(
+          json({ detail: "boom", code: "mocked_failure" }, status),
+        );
       if (path.includes("same-day")) return route.fulfill(json(sameDay));
-      if (path.includes("internal-benchmark")) return route.fulfill(json(benchmark));
+      if (path.includes("internal-benchmark"))
+        return route.fulfill(json(benchmark));
       if (path.includes("expected-rebate")) return route.fulfill(json(rebate));
     }
 
@@ -284,7 +322,8 @@ async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
 async function open(page: Page, tab: string, opts: MockOpts = {}) {
   await mockApi(page, opts);
   await page.goto("/savings");
-  if (tab !== "Same-day overpay") await page.getByRole("tab", { name: tab }).click();
+  if (tab !== "Same-day overpay")
+    await page.getByRole("tab", { name: tab }).click();
 }
 
 // ---------------------------------------------------------------------------
@@ -306,69 +345,101 @@ test("same-day: each finding renders its litres, both prices, the delta and the 
   await expect(row).toContainText("3 suppliers that day");
 });
 
-test("same-day: the per-supplier attribution renders with its days count", async ({ page }) => {
+test("same-day: the per-supplier attribution renders with its days count", async ({
+  page,
+}) => {
   await open(page, "Same-day overpay");
-  const card = page.locator("section,div").filter({ hasText: "By supplier and country" }).last();
+  const card = page
+    .locator("section,div")
+    .filter({ hasText: "By supplier and country" })
+    .last();
   await expect(card).toContainText("NORDROUTE");
   await expect(card).toContainText("2100.000");
 });
 
-test("same-day: the total renders exactly as the wire string", async ({ page }) => {
+test("same-day: the total renders exactly as the wire string", async ({
+  page,
+}) => {
   await open(page, "Same-day overpay");
   await expect(page.getByText("€99,999,999,999,999.99").first()).toBeVisible();
 });
 
-test("same-day: a day with no rival is a named count, never a €0.00 finding", async ({ page }) => {
+test("same-day: a day with no rival is a named count, never a €0.00 finding", async ({
+  page,
+}) => {
   await open(page, "Same-day overpay", { sameDay: SAME_DAY_NOTHING });
   await expect(page.getByText("Days with no rival")).toBeVisible();
-  await expect(page.getByText("3 days this month had no rival to compare against")).toBeVisible();
   await expect(
-    page.getByText(/no rival price to compare against and no finding was produced/),
+    page.getByText("3 days this month had no rival to compare against"),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      /no rival price to compare against and no finding was produced/,
+    ),
   ).toBeVisible();
   // The zero-state says the comparison could not be made — it never prints a
   // euro figure for those days.
-  await expect(page.getByText("No day in this month priced above a rival")).toBeVisible();
+  await expect(
+    page.getByText("No day in this month priced above a rival"),
+  ).toBeVisible();
 });
 
 test("same-day: a month with nothing found renders the zero-state, not an error", async ({
   page,
 }) => {
   await open(page, "Same-day overpay", { sameDay: SAME_DAY_NOTHING });
-  await expect(page.getByText("No day in this month priced above a rival")).toBeVisible();
-  await expect(page.getByText("Couldn’t run the same-day comparison")).toHaveCount(0);
+  await expect(
+    page.getByText("No day in this month priced above a rival"),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Couldn’t run the same-day comparison"),
+  ).toHaveCount(0);
   await expect(page.getByText("Nothing to attribute")).toBeVisible();
 });
 
-test("same-day: the response's own grain string is rendered", async ({ page }) => {
+test("same-day: the response's own grain string is rendered", async ({
+  page,
+}) => {
   await open(page, "Same-day overpay");
   await expect(page.getByText(GRAIN_SAME_DAY, { exact: false })).toBeVisible();
 });
 
-test("same-day: the page states why there is no supplier filter", async ({ page }) => {
+test("same-day: the page states why there is no supplier filter", async ({
+  page,
+}) => {
   await open(page, "Same-day overpay");
   await expect(page.getByText(/deliberately no supplier filter/)).toBeVisible();
   await expect(page.getByLabel("Supplier")).toHaveCount(0);
 });
 
-test("same-day: a loading state renders before the API resolves", async ({ page }) => {
+test("same-day: a loading state renders before the API resolves", async ({
+  page,
+}) => {
   await mockApi(page, { delayMs: 1500 });
   await page.goto("/savings");
-  await expect(page.getByRole("heading", { name: "Negotiation evidence" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Negotiation evidence" }),
+  ).toBeVisible();
   await expect(page.getByText(GRAIN_SAME_DAY, { exact: false })).toHaveCount(0);
 });
 
 test("same-day: a 500 renders the error state", async ({ page }) => {
   await open(page, "Same-day overpay", { status: 500 });
-  await expect(page.getByText("Couldn’t run the same-day comparison")).toBeVisible();
+  await expect(
+    page.getByText("Couldn’t run the same-day comparison"),
+  ).toBeVisible();
 });
 
-test("same-day: fx_rate_unavailable renders its sentence, not the slug", async ({ page }) => {
+test("same-day: fx_rate_unavailable renders its sentence, not the slug", async ({
+  page,
+}) => {
   await open(page, "Same-day overpay", {
     refuse: {
       "savings/same-day": {
         status: 422,
         code: "fx_rate_unavailable",
-        detail: "2 line(s) in scope have no established EUR basis — PLN (2 lines).",
+        detail:
+          "2 line(s) in scope have no established EUR basis — PLN (2 lines).",
       },
     },
   });
@@ -378,7 +449,36 @@ test("same-day: fx_rate_unavailable renders its sentence, not the slug", async (
   await expect(page.getByText("fx_rate_unavailable")).toHaveCount(0);
 });
 
-test("same-day: invalid_country renders its sentence, not the slug", async ({ page }) => {
+test("same-day: invalid_period gives the MONTH instruction, not the claim one", async ({
+  page,
+}) => {
+  // WO-91's split. `invalid_period` is one wire code shared by seven services
+  // with three different server sentences; the ACTION depends on which period
+  // shape the PAGE asks for. This page reads an accounting month, so it must
+  // say "2026-04" — before the split it told the operator to type a quarter
+  // into a YYYY-MM field.
+  await open(page, "Same-day overpay", {
+    refuse: {
+      "savings/same-day": {
+        status: 422,
+        code: "invalid_period",
+        detail: "'2026-Q2' is not a valid period — use YYYY-MM",
+      },
+    },
+  });
+  const alert = page.getByRole("alert");
+  await expect(alert).toContainText(
+    "isn’t an accounting month this service can read",
+  );
+  await expect(alert).toContainText("Use a month such as 2026-04");
+  // The claim-shaped instruction must NOT appear on a month-shaped page.
+  await expect(alert).not.toContainText("2026-Q2, or a year");
+  await expect(page.getByText("invalid_period")).toHaveCount(0);
+});
+
+test("same-day: invalid_country renders its sentence, not the slug", async ({
+  page,
+}) => {
   await open(page, "Same-day overpay", {
     refuse: {
       "savings/same-day": {
@@ -388,7 +488,9 @@ test("same-day: invalid_country renders its sentence, not the slug", async ({ pa
       },
     },
   });
-  await expect(page.getByRole("alert")).toContainText("isn’t a country code this service accepts");
+  await expect(page.getByRole("alert")).toContainText(
+    "isn’t a country code this service accepts",
+  );
   await expect(page.getByText("invalid_country")).toHaveCount(0);
 });
 
@@ -396,7 +498,9 @@ test("same-day: invalid_country renders its sentence, not the slug", async ({ pa
 // 2. Internal benchmark — R52 grain (b)
 // ---------------------------------------------------------------------------
 
-test("benchmark: each row renders its price, the best supplier and the gap", async ({ page }) => {
+test("benchmark: each row renders its price, the best supplier and the gap", async ({
+  page,
+}) => {
   await open(page, "Internal benchmark");
   const row = page.getByRole("row", { name: /CARDNET/ }).first();
   await expect(row).toContainText("18200.000");
@@ -406,14 +510,18 @@ test("benchmark: each row renders its price, the best supplier and the gap", asy
   await expect(row).toContainText("€3,180.00");
 });
 
-test("benchmark: the best supplier stays on the table with a zero gap", async ({ page }) => {
+test("benchmark: the best supplier stays on the table with a zero gap", async ({
+  page,
+}) => {
   await open(page, "Internal benchmark");
   const row = page.getByRole("row", { name: /NORDROUTE/ }).last();
   await expect(row).toContainText("0.0000");
   await expect(row).toContainText("€0.00");
 });
 
-test("benchmark: the total renders exactly as the wire string", async ({ page }) => {
+test("benchmark: the total renders exactly as the wire string", async ({
+  page,
+}) => {
   await open(page, "Internal benchmark");
   await expect(page.getByText("Gap to your own best supplier")).toBeVisible();
   await expect(page.getByText("€3,180.00").first()).toBeVisible();
@@ -421,25 +529,37 @@ test("benchmark: the total renders exactly as the wire string", async ({ page })
 
 test("benchmark: an empty month renders the zero-state", async ({ page }) => {
   await open(page, "Internal benchmark", { benchmark: BENCHMARK_EMPTY });
-  await expect(page.getByText("No diesel volume to benchmark in this month")).toBeVisible();
+  await expect(
+    page.getByText("No diesel volume to benchmark in this month"),
+  ).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------
 // 3. R52 — the two grains, and the fact that they do not reconcile
 // ---------------------------------------------------------------------------
 
-test("r52: both grains are labelled with the service's own grain string", async ({ page }) => {
+test("r52: both grains are labelled with the service's own grain string", async ({
+  page,
+}) => {
   await open(page, "Same-day overpay");
   await expect(page.getByText(GRAIN_SAME_DAY, { exact: false })).toBeVisible();
   await page.getByRole("tab", { name: "Internal benchmark" }).click();
-  await expect(page.getByText(GRAIN_COUNTRY_MONTH, { exact: false })).toBeVisible();
+  await expect(
+    page.getByText(GRAIN_COUNTRY_MONTH, { exact: false }),
+  ).toBeVisible();
 });
 
-test("r52: the page states that the two grains do not reconcile, and why", async ({ page }) => {
+test("r52: the page states that the two grains do not reconcile, and why", async ({
+  page,
+}) => {
   await open(page, "Same-day overpay");
   await expect(page.getByText(/not expected to agree/)).toBeVisible();
-  await expect(page.getByText(/Different comparison, different denominator/)).toBeVisible();
-  await expect(page.getByText(/neither number should be added to the other/)).toBeVisible();
+  await expect(
+    page.getByText(/Different comparison, different denominator/),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/neither number should be added to the other/),
+  ).toBeVisible();
 });
 
 test("r52: the two totals never appear as one figure", async ({ page }) => {
@@ -476,21 +596,31 @@ test("rebate: a flagged line renders both prices, what was applied and the magni
   await expect(row).toContainText("€28.70");
 });
 
-test("rebate: the tolerance the flag fires under is rendered", async ({ page }) => {
+test("rebate: the tolerance the flag fires under is rendered", async ({
+  page,
+}) => {
   await open(page, "Expected rebate");
   await expect(page.getByText(/below 0.005 €\/L/)).toBeVisible();
 });
 
-test("rebate: lines with no expectation are counted, not warned about", async ({ page }) => {
+test("rebate: lines with no expectation are counted, not warned about", async ({
+  page,
+}) => {
   await open(page, "Expected rebate");
   await expect(page.getByText("Lines with no expectation")).toBeVisible();
-  await expect(page.getByText("No rebate history for that supplier and country yet")).toBeVisible();
+  await expect(
+    page.getByText("No rebate history for that supplier and country yet"),
+  ).toBeVisible();
 });
 
-test("rebate: with nothing learned yet the analysis is silent, not alarming", async ({ page }) => {
+test("rebate: with nothing learned yet the analysis is silent, not alarming", async ({
+  page,
+}) => {
   await open(page, "Expected rebate", { rebate: REBATE_SILENT });
   await expect(page.getByText("Nothing learned yet")).toBeVisible();
-  await expect(page.getByText("Every line in scope carries its usual rebate")).toBeVisible();
+  await expect(
+    page.getByText("Every line in scope carries its usual rebate"),
+  ).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------
@@ -508,7 +638,9 @@ test("r53: the legal framing is rendered verbatim from the wire on all three pan
   await expect(page.getByText(FRAMING)).toBeVisible();
 });
 
-test("r53: the price basis is rendered verbatim on all three panels", async ({ page }) => {
+test("r53: the price basis is rendered verbatim on all three panels", async ({
+  page,
+}) => {
   await open(page, "Same-day overpay");
   await expect(page.getByText(PRICE_BASIS)).toBeVisible();
   await page.getByRole("tab", { name: "Internal benchmark" }).click();
@@ -517,13 +649,17 @@ test("r53: the price basis is rendered verbatim on all three panels", async ({ p
   await expect(page.getByText(PRICE_BASIS)).toBeVisible();
 });
 
-test("r53: the page states plainly that these figures oblige nobody", async ({ page }) => {
+test("r53: the page states plainly that these figures oblige nobody", async ({
+  page,
+}) => {
   await open(page, "Same-day overpay");
   await expect(
     page.getByText("Evidence for a negotiation — not an obligation on anyone"),
   ).toBeVisible();
   await expect(
-    page.getByText(/nothing on this page is money anybody is contractually obliged to pay you/i),
+    page.getByText(
+      /nothing on this page is money anybody is contractually obliged to pay you/i,
+    ),
   ).toBeVisible();
 });
 
@@ -546,7 +682,10 @@ function readSource(rel: string): string {
 
 test("r53: the new modules carry no contract-breach vocabulary", () => {
   for (const rel of ["src/pages/Savings.tsx", "src/lib/transportSavings.ts"]) {
-    expect(forbiddenHits(readSource(rel)), `${rel} must carry none of it`).toEqual([]);
+    expect(
+      forbiddenHits(readSource(rel)),
+      `${rel} must carry none of it`,
+    ).toEqual([]);
   }
 });
 
@@ -563,7 +702,9 @@ test("r53: the new wire interfaces carry no contract-breach vocabulary", () => {
     "ExpectedRebate",
   ];
   for (const name of names) {
-    const m = new RegExp(`export interface ${name}\\s*\\{([^}]*)\\}`).exec(types);
+    const m = new RegExp(`export interface ${name}\\s*\\{([^}]*)\\}`).exec(
+      types,
+    );
     expect(m, `${name} must exist in lib/types.ts`).not.toBeNull();
     // Field names only — the surrounding prose explains WHY the vocabulary is
     // absent and necessarily names it.
@@ -579,15 +720,21 @@ test("r53: the vocabulary scan detects a seeded violation", () => {
   // A scan that cannot fail proves nothing (WO-87 shipped its own seeded
   // violation for the same reason). Each of these is a plausible way the
   // separation would be undone by a well-meaning edit.
-  expect(forbiddenHits("export const recoverable_eur = row.avoidable_eur;")).not.toEqual([]);
+  expect(
+    forbiddenHits("export const recoverable_eur = row.avoidable_eur;"),
+  ).not.toEqual([]);
   expect(forbiddenHits("<th>Amount owed by the supplier</th>")).not.toEqual([]);
-  expect(forbiddenHits('<Button>Open a claim-back</Button>')).not.toEqual([]);
+  expect(forbiddenHits("<Button>Open a claim-back</Button>")).not.toEqual([]);
   expect(forbiddenHits("// send the demand letter from here")).not.toEqual([]);
   // …and does not fire on an innocent substring.
-  expect(forbiddenHits("the lowest price of the day was the cheapest rival")).toEqual([]);
+  expect(
+    forbiddenHits("the lowest price of the day was the cheapest rival"),
+  ).toEqual([]);
 });
 
-test("r53: there is no route from this page into the contract-breach flow", async ({ page }) => {
+test("r53: there is no route from this page into the contract-breach flow", async ({
+  page,
+}) => {
   // Source: the page names no such path at all.
   expect(readSource("src/pages/Savings.tsx")).not.toContain("/overcharges");
 
@@ -615,28 +762,38 @@ test("r53: the page exposes no mutating control", async ({ page }) => {
 // 6. Permission, module and money
 // ---------------------------------------------------------------------------
 
-test("perm: a read-only role sees every figure on the surface", async ({ page }) => {
+test("perm: a read-only role sees every figure on the surface", async ({
+  page,
+}) => {
   await open(page, "Same-day overpay", { role: "user_free" });
   await expect(page.getByText("€99,999,999,999,999.99").first()).toBeVisible();
   await expect(page.getByText(FRAMING)).toBeVisible();
   await expect(page.locator("main form")).toHaveCount(0);
 });
 
-test("perm: transport.read gates the nav entry (granted / denied)", async ({ page }) => {
+test("perm: transport.read gates the nav entry (granted / denied)", async ({
+  page,
+}) => {
   await mockApi(page, { role: "auditor" }); // AUDITOR holds TRANSPORT_READ
   await page.goto("/savings");
   await expect(
-    page.getByRole("navigation").getByRole("link", { name: "Negotiation evidence" }),
+    page
+      .getByRole("navigation")
+      .getByRole("link", { name: "Negotiation evidence" }),
   ).toBeVisible();
 
   await mockApi(page, { role: "user" }); // EMPLOYEE holds neither VAT_READ nor TRANSPORT_READ
   await page.goto("/savings");
   await expect(
-    page.getByRole("navigation").getByRole("link", { name: "Negotiation evidence" }),
+    page
+      .getByRole("navigation")
+      .getByRole("link", { name: "Negotiation evidence" }),
   ).toHaveCount(0);
 });
 
-test("perm: a server 403 renders through the refusal path", async ({ page }) => {
+test("perm: a server 403 renders through the refusal path", async ({
+  page,
+}) => {
   await open(page, "Same-day overpay", {
     refuse: {
       "savings/same-day": {
@@ -646,16 +803,24 @@ test("perm: a server 403 renders through the refusal path", async ({ page }) => 
       },
     },
   });
-  await expect(page.getByRole("alert")).toContainText("module isn’t active for this workspace");
+  await expect(page.getByRole("alert")).toContainText(
+    "module isn’t active for this workspace",
+  );
 });
 
-test("module: transport off renders the module notice and no nav entry", async ({ page }) => {
+test("module: transport off renders the module notice and no nav entry", async ({
+  page,
+}) => {
   await mockApi(page, { moduleEnabled: false });
   await page.goto("/savings");
   await expect(page.getByText(/Transport & VAT refunds/).first()).toBeVisible();
-  await expect(page.getByRole("tab", { name: "Same-day overpay" })).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "Same-day overpay" })).toHaveCount(
+    0,
+  );
   await expect(
-    page.getByRole("navigation").getByRole("link", { name: "Negotiation evidence" }),
+    page
+      .getByRole("navigation")
+      .getByRole("link", { name: "Negotiation evidence" }),
   ).toHaveCount(0);
 });
 
@@ -668,7 +833,9 @@ test("money: the new modules perform no float arithmetic on an amount", () => {
   for (const rel of ["src/pages/Savings.tsx", "src/lib/transportSavings.ts"]) {
     const src = readSource(rel);
     for (const pattern of banned) {
-      expect(pattern.test(src), `${rel} must not contain ${pattern}`).toBe(false);
+      expect(pattern.test(src), `${rel} must not contain ${pattern}`).toBe(
+        false,
+      );
     }
   }
 });

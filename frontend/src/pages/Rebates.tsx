@@ -86,7 +86,10 @@ export default function RebatesPage() {
   const modules = useModules();
   const canWrite = hasVatPerm(user, "vat.write"); // cosmetic — the server enforces it
   const [form, setForm] = useState(EMPTY);
-  const [refusal, setRefusal] = useState<{ code: string | null; detail: string } | null>(null);
+  const [refusal, setRefusal] = useState<{
+    code: string | null;
+    detail: string;
+  } | null>(null);
   const [recorded, setRecorded] = useState<OffInvoiceRebate | null>(null);
 
   const enabled = modules.isEnabled("transport");
@@ -157,6 +160,7 @@ export default function RebatesPage() {
           code={refusal.code}
           detail={refusal.detail}
           onDismiss={() => setRefusal(null)}
+          periodShape="month"
         />
       )}
 
@@ -166,11 +170,13 @@ export default function RebatesPage() {
           className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"
         >
           <p className="font-semibold">
-            Recorded {recorded.source_ref} — {decimalMoney(recorded.amount_eur, "EUR")}
+            Recorded {recorded.source_ref} —{" "}
+            {decimalMoney(recorded.amount_eur, "EUR")}
           </p>
           <p className="mt-1 text-emerald-800">
-            No transaction figure has changed yet. The effective net price is recomputed by the
-            monthly close, so this rebate applies at the next close for {recorded.period}.
+            No transaction figure has changed yet. The effective net price is
+            recomputed by the monthly close, so this rebate applies at the next
+            close for {recorded.period}.
           </p>
         </div>
       )}
@@ -184,12 +190,13 @@ export default function RebatesPage() {
           Recording a rebate does not change any figure until the close runs
         </p>
         <p className="mt-1">
-          This registry stores the rebate document. The effective net price on the fuel
-          transactions it adjusts is recomputed by the monthly close, which is the only thing
-          allowed to write a validated transaction's derived figure — so there is no “apply now”
-          here, and no preview of the result: the number does not exist until the close computes
-          it. Until then, a contract audit for that supplier and period is still reading the list
-          price, and{" "}
+          This registry stores the rebate document. The effective net price on
+          the fuel transactions it adjusts is recomputed by the monthly close,
+          which is the only thing allowed to write a validated transaction's
+          derived figure — so there is no “apply now” here, and no preview of
+          the result: the number does not exist until the close computes it.
+          Until then, a contract audit for that supplier and period is still
+          reading the list price, and{" "}
           <Link to="/overcharges" className="font-medium underline">
             supplier overcharges
           </Link>{" "}
@@ -241,7 +248,9 @@ export default function RebatesPage() {
               hint="The rebate partner, often not the fuel supplier"
               required
               value={form.source_party}
-              onChange={(e) => setForm({ ...form, source_party: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, source_party: e.target.value })
+              }
             />
             <TextInput
               label="Currency"
@@ -256,7 +265,9 @@ export default function RebatesPage() {
               hint="In the currency above"
               required
               value={form.amount_local}
-              onChange={(e) => setForm({ ...form, amount_local: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, amount_local: e.target.value })
+              }
               placeholder="0.00"
             />
             <TextInput
@@ -277,11 +288,12 @@ export default function RebatesPage() {
             </div>
           </div>
           <p className="mt-3 text-xs text-slate-400">
-            There is no euro field: the amount is stated in the currency the document was issued
-            in, and the server converts it at the ECB rate for the document's own date. If no rate
-            exists for that date the rebate is refused and nothing is recorded — a rebate is never
-            stored at a guessed rate. Re-posting the same document number for the same supplier,
-            country and period corrects that document in place.
+            There is no euro field: the amount is stated in the currency the
+            document was issued in, and the server converts it at the ECB rate
+            for the document's own date. If no rate exists for that date the
+            rebate is refused and nothing is recorded — a rebate is never stored
+            at a guessed rate. Re-posting the same document number for the same
+            supplier, country and period corrects that document in place.
           </p>
         </Card>
       )}
@@ -306,7 +318,9 @@ export default function RebatesPage() {
           {(rows) => (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <caption className="sr-only">Recorded off-invoice rebate documents</caption>
+                <caption className="sr-only">
+                  Recorded off-invoice rebate documents
+                </caption>
                 <thead>
                   <tr className="text-left text-xs text-slate-400">
                     <th className="px-5 py-2">Supplier</th>
@@ -324,10 +338,18 @@ export default function RebatesPage() {
                   {rows.map((r) => (
                     <tr key={r.id} className="border-t border-slate-100">
                       <td className="px-5 py-2">{r.supplier}</td>
-                      <td className="px-5 py-2 font-mono text-xs">{r.country}</td>
-                      <td className="px-5 py-2 font-mono text-xs">{r.period}</td>
-                      <td className="px-5 py-2 font-mono text-xs">{r.source_ref}</td>
-                      <td className="px-5 py-2 text-xs text-slate-500">{r.source_party}</td>
+                      <td className="px-5 py-2 font-mono text-xs">
+                        {r.country}
+                      </td>
+                      <td className="px-5 py-2 font-mono text-xs">
+                        {r.period}
+                      </td>
+                      <td className="px-5 py-2 font-mono text-xs">
+                        {r.source_ref}
+                      </td>
+                      <td className="px-5 py-2 text-xs text-slate-500">
+                        {r.source_party}
+                      </td>
                       <td className="px-5 py-2 text-xs text-slate-500">
                         {shortDate(r.rebate_date)}
                       </td>
@@ -340,7 +362,9 @@ export default function RebatesPage() {
                       <td className="px-5 py-2">
                         {r.fx_source ? (
                           <>
-                            <Badge tone={r.fx_source === "eur" ? "neutral" : "info"}>
+                            <Badge
+                              tone={r.fx_source === "eur" ? "neutral" : "info"}
+                            >
                               {r.fx_source}
                             </Badge>
                             <span className="mt-0.5 block text-xs text-slate-400">
@@ -362,8 +386,9 @@ export default function RebatesPage() {
           )}
         </QueryState>
         <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-400">
-          The document amount and its EUR value are shown side by side and are never added
-          together — they are one figure in two currencies, not two figures.
+          The document amount and its EUR value are shown side by side and are
+          never added together — they are one figure in two currencies, not two
+          figures.
         </p>
       </Card>
     </div>

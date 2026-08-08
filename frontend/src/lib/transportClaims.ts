@@ -39,9 +39,14 @@ const REFUSALS: Record<string, Refusal> = {
     title: "That legal entity doesn’t exist in this workspace",
     next: "Pick an entity from the list, or add it under Issuer settings first.",
   },
+  // The shape-independent fallback. The ACTIONABLE wording lives in
+  // `PERIOD_SHAPE_REFUSALS` below, because what to type depends on which period
+  // shape the page asks for — a claim's quarter/year or an accounting month.
+  // This entry is what a caller that names no shape still gets, and it names
+  // neither shape rather than naming the wrong one.
   invalid_period: {
-    title: "That isn’t a reference period this service can file",
-    next: "Use a quarter such as 2026-Q2, or a year such as 2026-YEAR.",
+    title: "That isn’t a period this service can use",
+    next: "Check the format the field above asks for, then try again.",
   },
 
   // --- lifecycle ------------------------------------------------------------
@@ -168,7 +173,8 @@ const REFUSALS: Record<string, Refusal> = {
     next: "Use a value between 0.02 and 0.05. The tolerance decides how far the engine may differ from the typed gross before the close halts.",
   },
   tieout_expectation_not_found: {
-    title: "There’s no typed expectation for that supplier, period and currency",
+    title:
+      "There’s no typed expectation for that supplier, period and currency",
     next: "It may already have been removed. Reload the period to see what is typed.",
   },
   not_a_prospect: {
@@ -230,7 +236,8 @@ const REFUSALS: Record<string, Refusal> = {
     next: "The chain is detected → packaged → claimed → recovered, rejected or written off, one step at a time, and the last three are final. Nothing was changed. Reload to see the current state.",
   },
   recovered_amount_required: {
-    title: "Marking a claim-back recovered needs the amount the supplier credited",
+    title:
+      "Marking a claim-back recovered needs the amount the supplier credited",
     next: "Type the euro figure actually credited. It is the number that books into the recovered total, so it is never assumed from the demand.",
   },
   recovered_amount_invalid: {
@@ -246,7 +253,8 @@ const REFUSALS: Record<string, Refusal> = {
   // price the same lines are audited against — WO-84's whole reason for
   // existing. The operator must learn what happened, not read a slug.
   overcharge_evidence_drift: {
-    title: "The frozen demand no longer matches what its own evidence lines add up to",
+    title:
+      "The frozen demand no longer matches what its own evidence lines add up to",
     next: "This claim-back was opened against the figures of the day; since then a recorded off-invoice rebate has been merged into the effective net price by a close, so the same lines now audit to a different euro. No packet and no letter are produced — we don’t send a demand its own attachment contradicts. Re-run the contract audit for this supplier and period to see the current findings, then open a new claim-back against them.",
   },
   overcharge_claim_closed: {
@@ -254,7 +262,8 @@ const REFUSALS: Record<string, Refusal> = {
     next: "A recovered, rejected or written-off matter takes no fresh demand letter. The evidence packet is still available and still downloads — it stays reproducible for the record.",
   },
   issuer_profile_incomplete: {
-    title: "The demand letter goes out on your own letterhead, and it’s incomplete",
+    title:
+      "The demand letter goes out on your own letterhead, and it’s incomplete",
     next: "Fill in the missing company details named below under Issuer settings, then download the letter again. The evidence packet doesn’t need them and downloads either way.",
   },
   pdf_renderer_unavailable: {
@@ -270,8 +279,47 @@ const REFUSALS: Record<string, Refusal> = {
     next: "Type the positive amount printed on the rebate document, in the currency it was issued in. A zero or negative rebate isn’t a rebate.",
   },
   fx_rate_unavailable: {
-    title: "No ECB rate is available for that currency on that document date — nothing was recorded",
+    title:
+      "No ECB rate is available for that currency on that document date — nothing was recorded",
     next: "The rebate is refused rather than converted at a guessed rate, so no row was written and no figure changed. Check the rebate document’s own date, or record it once the rate for that date is available.",
+  },
+};
+
+/**
+ * WHICH PERIOD SHAPE A PAGE ASKS FOR — the WO-91 split.
+ *
+ * `invalid_period` is ONE stable wire code raised by seven backend services
+ * carrying three different sentences: `use YYYY-MM` (`savings`,
+ * `contract_audit`, `rebate`, `receipt_control`, `tie_out`,
+ * `statement_ingest`), `use YYYY-Q1..YYYY-Q4 or YYYY-YEAR`
+ * (`claim.validate_ref_period`) and both (`fuel.resolve_period_months`). The
+ * code is correct — the refusal really is "that period is not usable here" in
+ * every case — so nothing on the wire changes (master-context §4.20). What
+ * differs is the ACTION, and the action is a property of the page: a claim page
+ * asks for a reference period, an analytics page asks for an accounting month.
+ *
+ * Before WO-91 there was one entry and it carried the CLAIM instruction, so
+ * four month-shaped pages (Savings, Overcharges, Rebates, VAT admin) told an
+ * operator to type `2026-Q2` into a field that only accepts `2026-04`. The map
+ * below overrides only the codes whose ACTION depends on the shape; everything
+ * else still resolves through `REFUSALS`.
+ */
+export type PeriodShape = "claim" | "month";
+
+const PERIOD_SHAPE_REFUSALS: Record<PeriodShape, Record<string, Refusal>> = {
+  // The pre-WO-91 wording, unchanged, and still correct for the claim routes.
+  claim: {
+    invalid_period: {
+      title: "That isn’t a reference period this service can file",
+      next: "Use a quarter such as 2026-Q2, or a year such as 2026-YEAR.",
+    },
+  },
+  // The analytics/admin surfaces, which read one accounting month.
+  month: {
+    invalid_period: {
+      title: "That isn’t an accounting month this service can read",
+      next: "Use a month such as 2026-04. Quarters and years aren’t accepted here.",
+    },
   },
 };
 
@@ -285,8 +333,18 @@ const REFUSALS: Record<string, Refusal> = {
  * The `detail` is returned alongside so the caller can render the specifics the
  * service named (which suppliers, which invoice refs, which period) verbatim
  * underneath: this map adds the action, it never replaces the server's facts.
+ *
+ * `periodShape` selects the period instruction (see `PERIOD_SHAPE_REFUSALS`).
+ * It defaults to `"claim"`, which is exactly the pre-WO-91 behaviour, so no
+ * existing call site changed meaning when the split landed.
  */
-export function claimRefusal(code: string | null, detail: string): Refusal {
+export function claimRefusal(
+  code: string | null,
+  detail: string,
+  periodShape: PeriodShape = "claim",
+): Refusal {
+  const shaped = code ? PERIOD_SHAPE_REFUSALS[periodShape][code] : undefined;
+  if (shaped) return shaped;
   const mapped = code ? REFUSALS[code] : undefined;
   if (mapped) return mapped;
   return { title: detail, next: "" };
@@ -319,7 +377,8 @@ export function isSyntheticRef(ref: string, vatId?: string | null): boolean {
 export function claimableRefs(lines: VatClaimLine[]): string[] {
   const seen = new Set<string>();
   for (const line of lines) {
-    if (!isSyntheticRef(line.invoice_ref, line.vat_id)) seen.add(line.invoice_ref);
+    if (!isSyntheticRef(line.invoice_ref, line.vat_id))
+      seen.add(line.invoice_ref);
   }
   return [...seen].sort();
 }
@@ -358,6 +417,13 @@ export function stageLadder(
   const index = at ? sequence.indexOf(at) : -1;
   return sequence.map((code, i) => ({
     code,
-    state: index < 0 ? "todo" : i < index ? "done" : i === index ? "current" : "todo",
+    state:
+      index < 0
+        ? "todo"
+        : i < index
+          ? "done"
+          : i === index
+            ? "current"
+            : "todo",
   }));
 }

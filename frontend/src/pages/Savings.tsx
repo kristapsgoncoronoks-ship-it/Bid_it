@@ -29,7 +29,11 @@ import {
   type SavingsTabKey,
 } from "../lib/transportSavings";
 import { useModules } from "../lib/useModules";
-import type { ExpectedRebate, InternalBenchmark, SameDayOverpay } from "../lib/types";
+import type {
+  ExpectedRebate,
+  InternalBenchmark,
+  SameDayOverpay,
+} from "../lib/types";
 
 /**
  * The negotiation-evidence workspace (WO-90) — three panels over the three
@@ -88,7 +92,13 @@ function currentPeriod(): string {
 
 /** The basis + framing strip every panel renders from its OWN response. Both
  * strings are the service's; this component chooses only where they sit. */
-function BasisAndFraming({ priceBasis, framing }: { priceBasis: string; framing: string }) {
+function BasisAndFraming({
+  priceBasis,
+  framing,
+}: {
+  priceBasis: string;
+  framing: string;
+}) {
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
       <p className="font-medium text-slate-700">{priceBasis}</p>
@@ -99,11 +109,21 @@ function BasisAndFraming({ priceBasis, framing }: { priceBasis: string; framing:
 
 /** A small labelled count. Counts are integers the service reports, never money
  * and never derived here. */
-function Counter({ label, value, hint }: { label: string; value: number; hint?: string }) {
+function Counter({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: number;
+  hint?: string;
+}) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
       <p className="text-xs font-medium text-slate-500">{label}</p>
-      <p className="mt-1 text-lg font-semibold tabular-nums text-slate-800">{value}</p>
+      <p className="mt-1 text-lg font-semibold tabular-nums text-slate-800">
+        {value}
+      </p>
       {hint && <p className="mt-1 text-xs text-slate-400">{hint}</p>}
     </div>
   );
@@ -134,12 +154,15 @@ export default function SavingsPage() {
       />
 
       <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
-        <p className="font-semibold">Evidence for a negotiation — not an obligation on anyone</p>
+        <p className="font-semibold">
+          Evidence for a negotiation — not an obligation on anyone
+        </p>
         <p className="mt-1 text-sky-800">
-          Nobody agreed that a supplier would match the cheapest rival network on the day, so nothing
-          on this page is money anybody is contractually obliged to pay you. These figures exist to
-          be put on the table at a supplier meeting. Each panel shows the service's own wording of
-          this beneath its price basis.
+          Nobody agreed that a supplier would match the cheapest rival network
+          on the day, so nothing on this page is money anybody is contractually
+          obliged to pay you. These figures exist to be put on the table at a
+          supplier meeting. Each panel shows the service's own wording of this
+          beneath its price basis.
         </p>
         <p className="mt-2 text-xs text-sky-700">{ADVISORY_NOTE}</p>
       </div>
@@ -194,7 +217,13 @@ export default function SavingsPage() {
 // 1. Same-day overpay — R52 grain (a)
 // ---------------------------------------------------------------------------
 
-function SameDayPanel({ period, periodReady }: { period: string; periodReady: boolean }) {
+function SameDayPanel({
+  period,
+  periodReady,
+}: {
+  period: string;
+  periodReady: boolean;
+}) {
   const [country, setCountry] = useState("");
   const countryReady = isCountryShape(country);
   const scope = country.trim().toUpperCase();
@@ -216,10 +245,20 @@ function SameDayPanel({ period, periodReady }: { period: string; periodReady: bo
 
   return (
     <div className="space-y-6">
-      <CountryFilter value={country} onChange={setCountry} valid={countryReady} />
+      <CountryFilter
+        value={country}
+        onChange={setCountry}
+        valid={countryReady}
+      />
       <p className="text-xs text-slate-400">{NO_SUPPLIER_FILTER_REASON}</p>
 
-      {refused && <RefusalNotice code={failureCode} detail={apiError(q.error)} />}
+      {refused && (
+        <RefusalNotice
+          code={failureCode}
+          detail={apiError(q.error)}
+          periodShape="month"
+        />
+      )}
 
       {!refused && (
         <QueryState
@@ -229,7 +268,10 @@ function SameDayPanel({ period, periodReady }: { period: string; periodReady: bo
         >
           {(d) => (
             <div className="space-y-6">
-              <BasisAndFraming priceBasis={d.price_basis} framing={d.legal_framing} />
+              <BasisAndFraming
+                priceBasis={d.price_basis}
+                framing={d.legal_framing}
+              />
 
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <StatCard
@@ -252,7 +294,9 @@ function SameDayPanel({ period, periodReady }: { period: string; periodReady: bo
               </div>
 
               <p className="text-xs text-slate-500">
-                Grain: <span className="font-medium text-slate-700">{d.grain}</span>. {NON_RECONCILIATION}
+                Grain:{" "}
+                <span className="font-medium text-slate-700">{d.grain}</span>.{" "}
+                {NON_RECONCILIATION}
               </p>
 
               <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
@@ -265,8 +309,9 @@ function SameDayPanel({ period, periodReady }: { period: string; periodReady: bo
                 {d.lines_skipped_zero_qty > 0 && (
                   <p className="mt-2 text-xs text-slate-400">
                     {d.lines_skipped_zero_qty} line
-                    {d.lines_skipped_zero_qty === 1 ? " was" : "s were"} skipped for carrying no
-                    litres — a price per litre cannot be formed from them.
+                    {d.lines_skipped_zero_qty === 1 ? " was" : "s were"} skipped
+                    for carrying no litres — a price per litre cannot be formed
+                    from them.
                   </p>
                 )}
               </div>
@@ -281,7 +326,8 @@ function SameDayPanel({ period, periodReady }: { period: string; periodReady: bo
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <caption className="sr-only">
-                        Same-day, same-country comparison against the cheapest rival network
+                        Same-day, same-country comparison against the cheapest
+                        rival network
                       </caption>
                       <thead>
                         <tr className="text-left text-xs text-slate-400">
@@ -292,8 +338,12 @@ function SameDayPanel({ period, periodReady }: { period: string; periodReady: bo
                           <th className="px-5 py-2 text-right">Paid €/L</th>
                           <th className="px-5 py-2">Cheapest rival</th>
                           <th className="px-5 py-2 text-right">Rival €/L</th>
-                          <th className="px-5 py-2 text-right">Difference €/L</th>
-                          <th className="px-5 py-2 text-right">Avoidable ({d.currency})</th>
+                          <th className="px-5 py-2 text-right">
+                            Difference €/L
+                          </th>
+                          <th className="px-5 py-2 text-right">
+                            Avoidable ({d.currency})
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -302,11 +352,21 @@ function SameDayPanel({ period, periodReady }: { period: string; periodReady: bo
                             key={`${f.country}-${f.txn_date}-${f.supplier}`}
                             className="border-t border-slate-100"
                           >
-                            <td className="px-5 py-2 text-slate-600">{f.txn_date}</td>
-                            <td className="px-5 py-2 text-slate-600">{f.country}</td>
-                            <td className="px-5 py-2 font-medium text-slate-700">{f.supplier}</td>
-                            <td className="px-5 py-2 text-right tabular-nums">{f.litres}</td>
-                            <td className="px-5 py-2 text-right tabular-nums">{f.eur_l_eff}</td>
+                            <td className="px-5 py-2 text-slate-600">
+                              {f.txn_date}
+                            </td>
+                            <td className="px-5 py-2 text-slate-600">
+                              {f.country}
+                            </td>
+                            <td className="px-5 py-2 font-medium text-slate-700">
+                              {f.supplier}
+                            </td>
+                            <td className="px-5 py-2 text-right tabular-nums">
+                              {f.litres}
+                            </td>
+                            <td className="px-5 py-2 text-right tabular-nums">
+                              {f.eur_l_eff}
+                            </td>
                             <td className="px-5 py-2 text-slate-600">
                               {f.cheapest_rival_supplier}
                               <span className="ml-2 text-xs text-slate-400">
@@ -316,7 +376,9 @@ function SameDayPanel({ period, periodReady }: { period: string; periodReady: bo
                             <td className="px-5 py-2 text-right tabular-nums">
                               {f.cheapest_rival_eur_l_eff}
                             </td>
-                            <td className="px-5 py-2 text-right tabular-nums">{f.delta_eur_l}</td>
+                            <td className="px-5 py-2 text-right tabular-nums">
+                              {f.delta_eur_l}
+                            </td>
                             <td className="px-5 py-2 text-right font-medium tabular-nums">
                               {decimalMoney(f.avoidable_eur, d.currency)}
                             </td>
@@ -331,13 +393,15 @@ function SameDayPanel({ period, periodReady }: { period: string; periodReady: bo
               <Card title="By supplier and country">
                 {d.by_supplier.length === 0 ? (
                   <p className="text-sm text-slate-500">
-                    Nothing to attribute — no day in {d.period} priced above a rival.
+                    Nothing to attribute — no day in {d.period} priced above a
+                    rival.
                   </p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <caption className="sr-only">
-                        Same-day difference attributed to the country of supply and the supplier
+                        Same-day difference attributed to the country of supply
+                        and the supplier
                       </caption>
                       <thead>
                         <tr className="text-left text-xs text-slate-400">
@@ -345,16 +409,27 @@ function SameDayPanel({ period, periodReady }: { period: string; periodReady: bo
                           <th className="py-2">Country</th>
                           <th className="py-2 text-right">Litres</th>
                           <th className="py-2 text-right">Days</th>
-                          <th className="py-2 text-right">Avoidable ({d.currency})</th>
+                          <th className="py-2 text-right">
+                            Avoidable ({d.currency})
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {d.by_supplier.map((t) => (
-                          <tr key={`${t.country}-${t.supplier}`} className="border-t border-slate-100">
-                            <td className="py-2 font-medium text-slate-700">{t.supplier}</td>
+                          <tr
+                            key={`${t.country}-${t.supplier}`}
+                            className="border-t border-slate-100"
+                          >
+                            <td className="py-2 font-medium text-slate-700">
+                              {t.supplier}
+                            </td>
                             <td className="py-2 text-slate-600">{t.country}</td>
-                            <td className="py-2 text-right tabular-nums">{t.litres}</td>
-                            <td className="py-2 text-right tabular-nums">{t.days}</td>
+                            <td className="py-2 text-right tabular-nums">
+                              {t.litres}
+                            </td>
+                            <td className="py-2 text-right tabular-nums">
+                              {t.days}
+                            </td>
                             <td className="py-2 text-right font-medium tabular-nums">
                               {decimalMoney(t.avoidable_eur, d.currency)}
                             </td>
@@ -377,7 +452,13 @@ function SameDayPanel({ period, periodReady }: { period: string; periodReady: bo
 // 2. Internal benchmark — R52 grain (b)
 // ---------------------------------------------------------------------------
 
-function BenchmarkPanel({ period, periodReady }: { period: string; periodReady: boolean }) {
+function BenchmarkPanel({
+  period,
+  periodReady,
+}: {
+  period: string;
+  periodReady: boolean;
+}) {
   const [country, setCountry] = useState("");
   const countryReady = isCountryShape(country);
   const scope = country.trim().toUpperCase();
@@ -399,9 +480,19 @@ function BenchmarkPanel({ period, periodReady }: { period: string; periodReady: 
 
   return (
     <div className="space-y-6">
-      <CountryFilter value={country} onChange={setCountry} valid={countryReady} />
+      <CountryFilter
+        value={country}
+        onChange={setCountry}
+        valid={countryReady}
+      />
 
-      {refused && <RefusalNotice code={failureCode} detail={apiError(q.error)} />}
+      {refused && (
+        <RefusalNotice
+          code={failureCode}
+          detail={apiError(q.error)}
+          periodShape="month"
+        />
+      )}
 
       {!refused && (
         <QueryState
@@ -411,7 +502,10 @@ function BenchmarkPanel({ period, periodReady }: { period: string; periodReady: 
         >
           {(d) => (
             <div className="space-y-6">
-              <BasisAndFraming priceBasis={d.price_basis} framing={d.legal_framing} />
+              <BasisAndFraming
+                priceBasis={d.price_basis}
+                framing={d.legal_framing}
+              />
 
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <StatCard
@@ -420,30 +514,42 @@ function BenchmarkPanel({ period, periodReady }: { period: string; periodReady: 
                   sub={`${d.product_group} only, ${d.period}`}
                   accent="brand"
                 />
-                <Counter label="Countries compared" value={d.countries_compared} />
-                <Counter label="Suppliers compared" value={d.suppliers_compared} />
+                <Counter
+                  label="Countries compared"
+                  value={d.countries_compared}
+                />
+                <Counter
+                  label="Suppliers compared"
+                  value={d.suppliers_compared}
+                />
                 <Counter label="Lines compared" value={d.lines_compared} />
               </div>
 
               <p className="text-xs text-slate-500">
-                Grain: <span className="font-medium text-slate-700">{d.grain}</span>. {NON_RECONCILIATION}
+                Grain:{" "}
+                <span className="font-medium text-slate-700">{d.grain}</span>.{" "}
+                {NON_RECONCILIATION}
               </p>
 
               <p className="text-sm text-slate-600">
-                Every price here is one you yourself paid, so this figure is what routing the same
-                volume to the cheaper supplier you were already using would have cost instead. The
-                best supplier in each country stays on the table with a zero gap — it is the
-                supplier the volume would move to.
+                Every price here is one you yourself paid, so this figure is
+                what routing the same volume to the cheaper supplier you were
+                already using would have cost instead. The best supplier in each
+                country stays on the table with a zero gap — it is the supplier
+                the volume would move to.
                 {d.lines_skipped_zero_qty > 0 && (
                   <span className="ml-1 text-slate-400">
                     {d.lines_skipped_zero_qty} line
-                    {d.lines_skipped_zero_qty === 1 ? " was" : "s were"} skipped for carrying no
-                    litres.
+                    {d.lines_skipped_zero_qty === 1 ? " was" : "s were"} skipped
+                    for carrying no litres.
                   </span>
                 )}
               </p>
 
-              <Card title="Supplier against the best of your own" padded={false}>
+              <Card
+                title="Supplier against the best of your own"
+                padded={false}
+              >
                 {d.rows.length === 0 ? (
                   <EmptyState
                     title="No diesel volume to benchmark in this month"
@@ -453,7 +559,8 @@ function BenchmarkPanel({ period, periodReady }: { period: string; periodReady: 
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <caption className="sr-only">
-                        Country × month comparison against the best of your own suppliers
+                        Country × month comparison against the best of your own
+                        suppliers
                       </caption>
                       <thead>
                         <tr className="text-left text-xs text-slate-400">
@@ -464,19 +571,38 @@ function BenchmarkPanel({ period, periodReady }: { period: string; periodReady: 
                           <th className="px-5 py-2">Best supplier</th>
                           <th className="px-5 py-2 text-right">Best €/L</th>
                           <th className="px-5 py-2 text-right">Gap €/L</th>
-                          <th className="px-5 py-2 text-right">Gap ({d.currency})</th>
+                          <th className="px-5 py-2 text-right">
+                            Gap ({d.currency})
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {d.rows.map((r) => (
-                          <tr key={`${r.country}-${r.supplier}`} className="border-t border-slate-100">
-                            <td className="px-5 py-2 text-slate-600">{r.country}</td>
-                            <td className="px-5 py-2 font-medium text-slate-700">{r.supplier}</td>
-                            <td className="px-5 py-2 text-right tabular-nums">{r.litres}</td>
-                            <td className="px-5 py-2 text-right tabular-nums">{r.eur_l_eff}</td>
-                            <td className="px-5 py-2 text-slate-600">{r.best_supplier}</td>
-                            <td className="px-5 py-2 text-right tabular-nums">{r.best_eur_l_eff}</td>
-                            <td className="px-5 py-2 text-right tabular-nums">{r.gap_eur_l}</td>
+                          <tr
+                            key={`${r.country}-${r.supplier}`}
+                            className="border-t border-slate-100"
+                          >
+                            <td className="px-5 py-2 text-slate-600">
+                              {r.country}
+                            </td>
+                            <td className="px-5 py-2 font-medium text-slate-700">
+                              {r.supplier}
+                            </td>
+                            <td className="px-5 py-2 text-right tabular-nums">
+                              {r.litres}
+                            </td>
+                            <td className="px-5 py-2 text-right tabular-nums">
+                              {r.eur_l_eff}
+                            </td>
+                            <td className="px-5 py-2 text-slate-600">
+                              {r.best_supplier}
+                            </td>
+                            <td className="px-5 py-2 text-right tabular-nums">
+                              {r.best_eur_l_eff}
+                            </td>
+                            <td className="px-5 py-2 text-right tabular-nums">
+                              {r.gap_eur_l}
+                            </td>
                             <td className="px-5 py-2 text-right font-medium tabular-nums">
                               {decimalMoney(r.benchmark_gap_eur, d.currency)}
                             </td>
@@ -499,7 +625,13 @@ function BenchmarkPanel({ period, periodReady }: { period: string; periodReady: 
 // 3. Expected rebate — the per-line half of §2.5's learning analysis
 // ---------------------------------------------------------------------------
 
-function RebatePanel({ period, periodReady }: { period: string; periodReady: boolean }) {
+function RebatePanel({
+  period,
+  periodReady,
+}: {
+  period: string;
+  periodReady: boolean;
+}) {
   const [supplier, setSupplier] = useState("");
   const supplierReady = isSupplierShape(supplier);
   const scope = supplier.trim();
@@ -534,7 +666,13 @@ function RebatePanel({ period, periodReady }: { period: string; periodReady: boo
         </div>
       </Card>
 
-      {refused && <RefusalNotice code={failureCode} detail={apiError(q.error)} />}
+      {refused && (
+        <RefusalNotice
+          code={failureCode}
+          detail={apiError(q.error)}
+          periodShape="month"
+        />
+      )}
 
       {!refused && (
         <QueryState
@@ -544,7 +682,10 @@ function RebatePanel({ period, periodReady }: { period: string; periodReady: boo
         >
           {(d) => (
             <div className="space-y-6">
-              <BasisAndFraming priceBasis={d.price_basis} framing={d.legal_framing} />
+              <BasisAndFraming
+                priceBasis={d.price_basis}
+                framing={d.legal_framing}
+              />
 
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <StatCard
@@ -568,20 +709,23 @@ function RebatePanel({ period, periodReady }: { period: string; periodReady: boo
 
               <p className="text-sm text-slate-600">{EXPECTED_REBATE_NOTE}</p>
               <p className="text-xs text-slate-400">
-                A line counts as carrying no rebate when what was applied is below{" "}
-                {d.tolerance_eur_l} €/L. A supplier and country pair with no rebate history produces
-                nothing at all rather than a warning — with no history there is no expectation to
-                measure against.
+                A line counts as carrying no rebate when what was applied is
+                below {d.tolerance_eur_l} €/L. A supplier and country pair with
+                no rebate history produces nothing at all rather than a warning
+                — with no history there is no expectation to measure against.
                 {d.lines_skipped_zero_qty > 0 && (
                   <span className="ml-1">
                     {d.lines_skipped_zero_qty} line
-                    {d.lines_skipped_zero_qty === 1 ? " was" : "s were"} skipped for carrying no
-                    litres.
+                    {d.lines_skipped_zero_qty === 1 ? " was" : "s were"} skipped
+                    for carrying no litres.
                   </span>
                 )}
               </p>
 
-              <Card title="What each supplier and country usually grants" padded={false}>
+              <Card
+                title="What each supplier and country usually grants"
+                padded={false}
+              >
                 {d.expectations.length === 0 ? (
                   <EmptyState
                     title="Nothing learned yet"
@@ -591,7 +735,8 @@ function RebatePanel({ period, periodReady }: { period: string; periodReady: boo
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <caption className="sr-only">
-                        Typical rebate per supplier and country, learned from history
+                        Typical rebate per supplier and country, learned from
+                        history
                       </caption>
                       <thead>
                         <tr className="text-left text-xs text-slate-400">
@@ -603,10 +748,19 @@ function RebatePanel({ period, periodReady }: { period: string; periodReady: boo
                       </thead>
                       <tbody>
                         {d.expectations.map((e) => (
-                          <tr key={`${e.supplier}-${e.country}`} className="border-t border-slate-100">
-                            <td className="px-5 py-2 font-medium text-slate-700">{e.supplier}</td>
-                            <td className="px-5 py-2 text-slate-600">{e.country}</td>
-                            <td className="px-5 py-2 text-right tabular-nums">{e.typical_eur_l}</td>
+                          <tr
+                            key={`${e.supplier}-${e.country}`}
+                            className="border-t border-slate-100"
+                          >
+                            <td className="px-5 py-2 font-medium text-slate-700">
+                              {e.supplier}
+                            </td>
+                            <td className="px-5 py-2 text-slate-600">
+                              {e.country}
+                            </td>
+                            <td className="px-5 py-2 text-right tabular-nums">
+                              {e.typical_eur_l}
+                            </td>
                             <td className="px-5 py-2 text-right tabular-nums text-slate-500">
                               {e.learned_from_lines} lines
                             </td>
@@ -628,8 +782,8 @@ function RebatePanel({ period, periodReady }: { period: string; periodReady: boo
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <caption className="sr-only">
-                        Lines whose supplier and country pair has a learned rebate and which carry
-                        none
+                        Lines whose supplier and country pair has a learned
+                        rebate and which carry none
                       </caption>
                       <thead>
                         <tr className="text-left text-xs text-slate-400">
@@ -639,23 +793,46 @@ function RebatePanel({ period, periodReady }: { period: string; periodReady: boo
                           <th className="px-5 py-2">Station</th>
                           <th className="px-5 py-2 text-right">Litres</th>
                           <th className="px-5 py-2 text-right">Invoiced €/L</th>
-                          <th className="px-5 py-2 text-right">Effective €/L</th>
+                          <th className="px-5 py-2 text-right">
+                            Effective €/L
+                          </th>
                           <th className="px-5 py-2 text-right">Applied €/L</th>
                           <th className="px-5 py-2 text-right">Typical €/L</th>
-                          <th className="px-5 py-2 text-right">Magnitude ({d.currency})</th>
+                          <th className="px-5 py-2 text-right">
+                            Magnitude ({d.currency})
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {d.findings.map((f) => (
-                          <tr key={f.fuel_transaction_id} className="border-t border-slate-100">
-                            <td className="px-5 py-2 text-slate-600">{f.txn_date}</td>
-                            <td className="px-5 py-2 font-medium text-slate-700">{f.supplier}</td>
-                            <td className="px-5 py-2 text-slate-600">{f.country}</td>
-                            <td className="px-5 py-2 text-slate-600">{f.station}</td>
-                            <td className="px-5 py-2 text-right tabular-nums">{f.litres}</td>
-                            <td className="px-5 py-2 text-right tabular-nums">{f.eur_l_doc}</td>
-                            <td className="px-5 py-2 text-right tabular-nums">{f.eur_l_eff}</td>
-                            <td className="px-5 py-2 text-right tabular-nums">{f.applied_eur_l}</td>
+                          <tr
+                            key={f.fuel_transaction_id}
+                            className="border-t border-slate-100"
+                          >
+                            <td className="px-5 py-2 text-slate-600">
+                              {f.txn_date}
+                            </td>
+                            <td className="px-5 py-2 font-medium text-slate-700">
+                              {f.supplier}
+                            </td>
+                            <td className="px-5 py-2 text-slate-600">
+                              {f.country}
+                            </td>
+                            <td className="px-5 py-2 text-slate-600">
+                              {f.station}
+                            </td>
+                            <td className="px-5 py-2 text-right tabular-nums">
+                              {f.litres}
+                            </td>
+                            <td className="px-5 py-2 text-right tabular-nums">
+                              {f.eur_l_doc}
+                            </td>
+                            <td className="px-5 py-2 text-right tabular-nums">
+                              {f.eur_l_eff}
+                            </td>
+                            <td className="px-5 py-2 text-right tabular-nums">
+                              {f.applied_eur_l}
+                            </td>
                             <td className="px-5 py-2 text-right tabular-nums">
                               {f.typical_eur_l}
                               <span className="ml-2 text-xs text-slate-400">
@@ -712,8 +889,8 @@ function CountryFilter({
         )}
       </div>
       <p className="mt-3 text-xs text-slate-400">
-        Narrowing by country cannot change any comparison: every comparison is made inside one
-        country already.
+        Narrowing by country cannot change any comparison: every comparison is
+        made inside one country already.
       </p>
     </Card>
   );

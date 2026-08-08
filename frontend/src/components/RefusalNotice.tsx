@@ -1,22 +1,33 @@
 import type { ReactNode } from "react";
 import { Button } from "./ui";
-import { claimRefusal, isMappedRefusal } from "../lib/transportClaims";
+import {
+  claimRefusal,
+  isMappedRefusal,
+  type PeriodShape,
+} from "../lib/transportClaims";
 
-/** The refusal banner both claim pages use — the mapped sentence, the action to
- * take, and (when we mapped the code) the server's own detail as the specifics
- * it named. The raw slug is never shown. */
+/** The refusal banner every transport page uses — the mapped sentence, the
+ * action to take, and (when we mapped the code) the server's own detail as the
+ * specifics it named. The raw slug is never shown.
+ *
+ * `periodShape` (WO-91) tells the map WHICH period instruction to give for
+ * `invalid_period`: a claim page asks for `2026-Q2`, a month-grained analytics
+ * or admin page asks for `2026-04`. It defaults to `"claim"`, so a page that
+ * never shows a period field is unaffected. */
 export function RefusalNotice({
   code,
   detail,
   onDismiss,
   action,
+  periodShape,
 }: {
   code: string | null;
   detail: string;
   onDismiss?: () => void;
   action?: ReactNode;
+  periodShape?: PeriodShape;
 }) {
-  const refusal = claimRefusal(code, detail);
+  const refusal = claimRefusal(code, detail, periodShape);
   return (
     <div
       role="alert"
@@ -40,4 +51,3 @@ export function RefusalNotice({
     </div>
   );
 }
-

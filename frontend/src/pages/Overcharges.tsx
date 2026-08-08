@@ -31,7 +31,12 @@ import {
   statusTone,
 } from "../lib/transportRecovery";
 import { useModules } from "../lib/useModules";
-import type { ContractAudit, ContractTerm, OverchargeClaim, OverchargeTotal } from "../lib/types";
+import type {
+  ContractAudit,
+  ContractTerm,
+  OverchargeClaim,
+  OverchargeTotal,
+} from "../lib/types";
 
 /**
  * The supplier-overcharge workspace (WO-86) — one tabbed page over the WO-82
@@ -104,7 +109,8 @@ export default function OverchargesPage() {
   const [refusal, setRefusal] = useState<Refusal | null>(null);
 
   const enabled = modules.isEnabled("transport");
-  const onRefusal = (e: unknown) => setRefusal({ code: apiErrorCode(e), detail: apiError(e) });
+  const onRefusal = (e: unknown) =>
+    setRefusal({ code: apiErrorCode(e), detail: apiError(e) });
 
   if (modules.isLoading) return <Skeleton className="h-24 w-full" />;
   if (!enabled) {
@@ -128,6 +134,7 @@ export default function OverchargesPage() {
           code={refusal.code}
           detail={refusal.detail}
           onDismiss={() => setRefusal(null)}
+          periodShape="month"
         />
       )}
 
@@ -144,21 +151,33 @@ export default function OverchargesPage() {
 
       {tab === "detection" && (
         <TabPanel idBase="overcharges" value="detection">
-          <DetectionPanel canWrite={canWrite} onRefusal={onRefusal} onOpened={() => {
-            setRefusal(null);
-            qc.invalidateQueries({ queryKey: ["transport", "overcharges"] });
-            setTab("claims");
-          }} />
+          <DetectionPanel
+            canWrite={canWrite}
+            onRefusal={onRefusal}
+            onOpened={() => {
+              setRefusal(null);
+              qc.invalidateQueries({ queryKey: ["transport", "overcharges"] });
+              setTab("claims");
+            }}
+          />
         </TabPanel>
       )}
       {tab === "claims" && (
         <TabPanel idBase="overcharges" value="claims">
-          <ClaimBackPanel canWrite={canWrite} onRefusal={onRefusal} clearRefusal={() => setRefusal(null)} />
+          <ClaimBackPanel
+            canWrite={canWrite}
+            onRefusal={onRefusal}
+            clearRefusal={() => setRefusal(null)}
+          />
         </TabPanel>
       )}
       {tab === "terms" && (
         <TabPanel idBase="overcharges" value="terms">
-          <ContractTermsPanel canWrite={canWrite} onRefusal={onRefusal} clearRefusal={() => setRefusal(null)} />
+          <ContractTermsPanel
+            canWrite={canWrite}
+            onRefusal={onRefusal}
+            clearRefusal={() => setRefusal(null)}
+          />
         </TabPanel>
       )}
     </div>
@@ -187,7 +206,10 @@ function DetectionPanel({
     queryFn: async () =>
       (
         await api.get("/transport/overcharges/audit", {
-          params: { period, ...(supplier.trim() ? { supplier: supplier.trim() } : {}) },
+          params: {
+            period,
+            ...(supplier.trim() ? { supplier: supplier.trim() } : {}),
+          },
         })
       ).data,
     enabled: ready,
@@ -221,8 +243,9 @@ function DetectionPanel({
           />
         </div>
         <p className="mt-3 text-xs text-slate-400">
-          Running this audit reads the validated fuel lines and writes nothing. It changes no
-          figure, blocks no claim and halts no close — it tells you what to go and ask for.
+          Running this audit reads the validated fuel lines and writes nothing.
+          It changes no figure, blocks no claim and halts no close — it tells
+          you what to go and ask for.
         </p>
       </Card>
 
@@ -248,12 +271,14 @@ function DetectionPanel({
                   {a.lines_audited}
                 </p>
                 <p className="mt-1 text-xs text-slate-400">
-                  {a.lines_without_terms} had no agreed term; {a.lines_skipped_zero_qty} carried no
-                  litres.
+                  {a.lines_without_terms} had no agreed term;{" "}
+                  {a.lines_skipped_zero_qty} carried no litres.
                 </p>
               </Card>
               <Card title="Basis">
-                <p className="text-sm font-medium text-slate-700">{a.price_basis}</p>
+                <p className="text-sm font-medium text-slate-700">
+                  {a.price_basis}
+                </p>
                 <p className="mt-2 text-xs text-slate-500">{a.legal_framing}</p>
               </Card>
             </div>
@@ -267,14 +292,19 @@ function DetectionPanel({
                 className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
               >
                 <p className="font-semibold">
-                  Some suppliers are being priced at list because a rebate document is missing
+                  Some suppliers are being priced at list because a rebate
+                  document is missing
                 </p>
                 <p className="mt-1 text-amber-800">
-                  These have paid an off-invoice rebate in an earlier period but none is recorded
-                  for {a.period}: <span className="font-mono">{a.source_warnings.join(", ")}</span>.
-                  Their effective price below is therefore not effective, and a demand built on it
-                  could ask for money already paid. This is a warning only — it blocks nothing and
-                  changes no figure. Record the document under{" "}
+                  These have paid an off-invoice rebate in an earlier period but
+                  none is recorded for {a.period}:{" "}
+                  <span className="font-mono">
+                    {a.source_warnings.join(", ")}
+                  </span>
+                  . Their effective price below is therefore not effective, and
+                  a demand built on it could ask for money already paid. This is
+                  a warning only — it blocks nothing and changes no figure.
+                  Record the document under{" "}
                   <Link to="/rebates" className="font-medium underline">
                     off-invoice rebates
                   </Link>
@@ -287,12 +317,13 @@ function DetectionPanel({
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
                 <p className="font-medium text-slate-700">
                   No breach found — but {a.lines_without_terms} line
-                  {a.lines_without_terms === 1 ? " has" : "s have"} no agreed term to check against
+                  {a.lines_without_terms === 1 ? " has" : "s have"} no agreed
+                  term to check against
                 </p>
                 <p className="mt-1">
-                  “We have not told the system what was agreed” is not “the supplier honoured the
-                  contract”. Add the terms under Contract terms before reading this as a clean
-                  period.
+                  “We have not told the system what was agreed” is not “the
+                  supplier honoured the contract”. Add the terms under Contract
+                  terms before reading this as a clean period.
                 </p>
               </div>
             )}
@@ -304,7 +335,12 @@ function DetectionPanel({
                 canWrite && a.breaches.length > 0 && a.supplier ? (
                   <Button
                     size="sm"
-                    onClick={() => open.mutate({ supplier: a.supplier as string, period: a.period })}
+                    onClick={() =>
+                      open.mutate({
+                        supplier: a.supplier as string,
+                        period: a.period,
+                      })
+                    }
                     loading={open.isPending}
                   >
                     Open a claim-back
@@ -320,7 +356,9 @@ function DetectionPanel({
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                    <caption className="sr-only">Contract breaches in {a.period}</caption>
+                    <caption className="sr-only">
+                      Contract breaches in {a.period}
+                    </caption>
                     <thead>
                       <tr className="text-left text-xs text-slate-400">
                         <th className="px-5 py-2">Date</th>
@@ -338,24 +376,41 @@ function DetectionPanel({
                     </thead>
                     <tbody>
                       {a.breaches.map((b) => (
-                        <tr key={b.fuel_transaction_id} className="border-t border-slate-100">
+                        <tr
+                          key={b.fuel_transaction_id}
+                          className="border-t border-slate-100"
+                        >
                           <td className="px-5 py-2 text-xs text-slate-500">
                             {shortDate(b.txn_date)}
                           </td>
                           <td className="px-5 py-2">{b.supplier}</td>
-                          <td className="px-5 py-2 font-mono text-xs">{b.country}</td>
-                          <td className="px-5 py-2 text-xs text-slate-500">{b.station}</td>
-                          <td className="px-5 py-2 text-xs">{b.product_group}</td>
+                          <td className="px-5 py-2 font-mono text-xs">
+                            {b.country}
+                          </td>
+                          <td className="px-5 py-2 text-xs text-slate-500">
+                            {b.station}
+                          </td>
+                          <td className="px-5 py-2 text-xs">
+                            {b.product_group}
+                          </td>
                           <td className="px-5 py-2">
                             <Badge tone="warning">{b.flag}</Badge>
                             <span className="mt-0.5 block text-xs text-slate-400">
                               {BREACH_FLAG_COPY[b.flag] ?? ""}
                             </span>
                           </td>
-                          <td className="px-5 py-2 text-right tabular-nums">{b.qty}</td>
-                          <td className="px-5 py-2 text-right tabular-nums">{b.agreed_eur_l}</td>
-                          <td className="px-5 py-2 text-right tabular-nums">{b.actual_eur_l}</td>
-                          <td className="px-5 py-2 text-right tabular-nums">{b.gap_eur_l}</td>
+                          <td className="px-5 py-2 text-right tabular-nums">
+                            {b.qty}
+                          </td>
+                          <td className="px-5 py-2 text-right tabular-nums">
+                            {b.agreed_eur_l}
+                          </td>
+                          <td className="px-5 py-2 text-right tabular-nums">
+                            {b.actual_eur_l}
+                          </td>
+                          <td className="px-5 py-2 text-right tabular-nums">
+                            {b.gap_eur_l}
+                          </td>
                           <td className="px-5 py-2 text-right font-medium tabular-nums">
                             {decimalMoney(b.recover_eur, a.currency)}
                           </td>
@@ -366,8 +421,9 @@ function DetectionPanel({
                 </div>
               )}
               <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-400">
-                €/L figures are the basis stated above. A line's own document currency is
-                provenance and is never added to anything — every euro here is EUR.
+                €/L figures are the basis stated above. A line's own document
+                currency is provenance and is never added to anything — every
+                euro here is EUR.
               </p>
             </Card>
           </div>
@@ -391,7 +447,10 @@ function ClaimBackPanel({
   clearRefusal: () => void;
 }) {
   const qc = useQueryClient();
-  const [advancing, setAdvancing] = useState<{ claim: OverchargeClaim; to: string } | null>(null);
+  const [advancing, setAdvancing] = useState<{
+    claim: OverchargeClaim;
+    to: string;
+  } | null>(null);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
 
@@ -408,7 +467,12 @@ function ClaimBackPanel({
   });
 
   const advance = useMutation({
-    mutationFn: async (vars: { id: string; to_status: string; recovered_eur?: string; note?: string }) =>
+    mutationFn: async (vars: {
+      id: string;
+      to_status: string;
+      recovered_eur?: string;
+      note?: string;
+    }) =>
       (
         await api.post(`/transport/overcharges/${vars.id}/advance`, {
           to_status: vars.to_status,
@@ -429,7 +493,10 @@ function ClaimBackPanel({
   // The artifacts are READS (the router-level TRANSPORT_READ), so they are not
   // hidden behind `canWrite`. `downloadFile` re-inflates a blob error body into
   // the {detail, code} shape, which is what lets a refusal render a sentence.
-  const download = async (claim: OverchargeClaim, kind: "packet" | "letter") => {
+  const download = async (
+    claim: OverchargeClaim,
+    kind: "packet" | "letter",
+  ) => {
     clearRefusal();
     const ext = kind === "packet" ? "xlsx" : "pdf";
     try {
@@ -455,8 +522,9 @@ function ClaimBackPanel({
                 {decimalMoney(total.data.recovered_eur, total.data.currency)}
               </p>
               <p className="mt-1 text-xs text-slate-400">
-                Actually credited back by suppliers — not the exposure a contract audit detects.
-                The two are never reported under one name.
+                Actually credited back by suppliers — not the exposure a
+                contract audit detects. The two are never reported under one
+                name.
               </p>
             </>
           ) : (
@@ -468,8 +536,9 @@ function ClaimBackPanel({
             detected → packaged → claimed → recovered, rejected or written off.
           </p>
           <p className="mt-2 text-xs text-slate-400">
-            One step at a time, and the last three are final. The euro demanded is frozen when the
-            claim-back is opened and is never re-derived — it is the figure the supplier was sent.
+            One step at a time, and the last three are final. The euro demanded
+            is frozen when the claim-back is opened and is never re-derived — it
+            is the figure the supplier was sent.
           </p>
         </Card>
       </div>
@@ -490,7 +559,9 @@ function ClaimBackPanel({
           {(rows) => (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <caption className="sr-only">Supplier overcharge claim-backs</caption>
+                <caption className="sr-only">
+                  Supplier overcharge claim-backs
+                </caption>
                 <thead>
                   <tr className="text-left text-xs text-slate-400">
                     <th className="px-5 py-2">Supplier</th>
@@ -508,9 +579,14 @@ function ClaimBackPanel({
                   {rows.map((c) => {
                     const actions = overchargeActions(c.status);
                     return (
-                      <tr key={c.id} className="border-t border-slate-100 align-top">
+                      <tr
+                        key={c.id}
+                        className="border-t border-slate-100 align-top"
+                      >
                         <td className="px-5 py-3">{c.supplier}</td>
-                        <td className="px-5 py-3 font-mono text-xs">{c.period}</td>
+                        <td className="px-5 py-3 font-mono text-xs">
+                          {c.period}
+                        </td>
                         <td className="px-5 py-3">
                           <Badge tone={statusTone(c.status)}>{c.status}</Badge>
                           <span className="mt-0.5 block max-w-56 text-xs text-slate-400">
@@ -520,7 +596,9 @@ function ClaimBackPanel({
                         <td className="px-5 py-3 text-right font-medium tabular-nums">
                           {decimalMoney(c.detected_eur, c.currency)}
                         </td>
-                        <td className="px-5 py-3 text-right tabular-nums">{c.lines_count}</td>
+                        <td className="px-5 py-3 text-right tabular-nums">
+                          {c.lines_count}
+                        </td>
                         <td className="px-5 py-3 text-right tabular-nums">
                           {decimalMoney(c.recovered_eur, c.currency)}
                         </td>
@@ -529,10 +607,18 @@ function ClaimBackPanel({
                         </td>
                         <td className="px-5 py-3">
                           <div className="flex flex-col items-start gap-1">
-                            <Button size="sm" variant="ghost" onClick={() => download(c, "packet")}>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => download(c, "packet")}
+                            >
                               Evidence packet
                             </Button>
-                            <Button size="sm" variant="ghost" onClick={() => download(c, "letter")}>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => download(c, "letter")}
+                            >
                               Claim letter
                             </Button>
                           </div>
@@ -575,9 +661,10 @@ function ClaimBackPanel({
           )}
         </QueryState>
         <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-400">
-          Both documents render from the same lines and the same total. If a recorded rebate has
-          since changed the effective price those lines are audited against, neither document is
-          produced — a demand its own attachment contradicts is exactly what that refusal prevents.
+          Both documents render from the same lines and the same total. If a
+          recorded rebate has since changed the effective price those lines are
+          audited against, neither document is produced — a demand its own
+          attachment contradicts is exactly what that refusal prevents.
         </p>
       </Card>
 
@@ -603,13 +690,14 @@ function ClaimBackPanel({
                   placeholder="0.00"
                 />
                 <p className="text-xs text-slate-400">
-                  This is the figure that books into the recovered total, so it is never assumed
-                  from the demand — type what actually arrived.
+                  This is the figure that books into the recovered total, so it
+                  is never assumed from the demand — type what actually arrived.
                 </p>
               </>
             ) : (
               <p className="text-sm text-slate-600">
-                No amount is recorded for this move — only a recovered claim-back books cash.
+                No amount is recorded for this move — only a recovered
+                claim-back books cash.
               </p>
             )}
             <TextInput
@@ -724,7 +812,8 @@ function ContractTermsPanel({
   });
 
   const hasFigure =
-    isDecimalShape(form.expected_discount_eur_l) || isDecimalShape(form.max_net_eur_l);
+    isDecimalShape(form.expected_discount_eur_l) ||
+    isDecimalShape(form.max_net_eur_l);
   const formReady =
     form.supplier.trim() !== "" &&
     form.country.trim().length === 2 &&
@@ -754,26 +843,34 @@ function ContractTermsPanel({
               label="Product group"
               required
               value={form.product_group}
-              onChange={(e) => setForm({ ...form, product_group: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, product_group: e.target.value })
+              }
               placeholder="diesel"
             />
             <TextInput
               label="Station pattern"
               hint="Blank = every station"
               value={form.station_like}
-              onChange={(e) => setForm({ ...form, station_like: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, station_like: e.target.value })
+              }
             />
             <div />
             <TextInput
               label="Expected discount €/L"
               value={form.expected_discount_eur_l}
-              onChange={(e) => setForm({ ...form, expected_discount_eur_l: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, expected_discount_eur_l: e.target.value })
+              }
               placeholder="0.0000"
             />
             <TextInput
               label="Max net €/L"
               value={form.max_net_eur_l}
-              onChange={(e) => setForm({ ...form, max_net_eur_l: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, max_net_eur_l: e.target.value })
+              }
               placeholder="0.0000"
             />
             <div className="flex items-end">
@@ -786,7 +883,8 @@ function ContractTermsPanel({
                     country: form.country.trim().toUpperCase(),
                     product_group: form.product_group.trim(),
                     station_like: form.station_like.trim(),
-                    expected_discount_eur_l: form.expected_discount_eur_l.trim() || null,
+                    expected_discount_eur_l:
+                      form.expected_discount_eur_l.trim() || null,
                     max_net_eur_l: form.max_net_eur_l.trim() || null,
                     active: true,
                   })
@@ -797,9 +895,10 @@ function ContractTermsPanel({
             </div>
           </div>
           <p className="mt-3 text-xs text-slate-400">
-            Only two kinds of term exist, and at least one figure is required — a term with neither
-            cannot be breached, so it cannot be audited. Saving the same supplier, country, product
-            group and station pattern again updates that term rather than adding a second one.
+            Only two kinds of term exist, and at least one figure is required —
+            a term with neither cannot be breached, so it cannot be audited.
+            Saving the same supplier, country, product group and station pattern
+            again updates that term rather than adding a second one.
           </p>
         </Card>
       )}
@@ -824,14 +923,18 @@ function ContractTermsPanel({
           {(rows) => (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <caption className="sr-only">Agreed supplier contract terms</caption>
+                <caption className="sr-only">
+                  Agreed supplier contract terms
+                </caption>
                 <thead>
                   <tr className="text-left text-xs text-slate-400">
                     <th className="px-5 py-2">Supplier</th>
                     <th className="px-5 py-2">Country</th>
                     <th className="px-5 py-2">Product</th>
                     <th className="px-5 py-2">Stations</th>
-                    <th className="px-5 py-2 text-right">Expected discount €/L</th>
+                    <th className="px-5 py-2 text-right">
+                      Expected discount €/L
+                    </th>
                     <th className="px-5 py-2 text-right">Max net €/L</th>
                     <th className="px-5 py-2">State</th>
                     {canWrite && <th className="px-5 py-2"></th>}
@@ -841,7 +944,9 @@ function ContractTermsPanel({
                   {rows.map((t) => (
                     <tr key={t.id} className="border-t border-slate-100">
                       <td className="px-5 py-2">{t.supplier}</td>
-                      <td className="px-5 py-2 font-mono text-xs">{t.country}</td>
+                      <td className="px-5 py-2 font-mono text-xs">
+                        {t.country}
+                      </td>
                       <td className="px-5 py-2 text-xs">{t.product_group}</td>
                       <td className="px-5 py-2 text-xs text-slate-500">
                         {t.station_like || "every station"}
@@ -860,10 +965,18 @@ function ContractTermsPanel({
                       {canWrite && (
                         <td className="px-5 py-2 text-right">
                           <div className="flex justify-end gap-1">
-                            <Button size="sm" variant="ghost" onClick={() => toggle.mutate(t)}>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => toggle.mutate(t)}
+                            >
                               {t.active ? "Deactivate" : "Reactivate"}
                             </Button>
-                            <Button size="sm" variant="ghost" onClick={() => remove.mutate(t)}>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => remove.mutate(t)}
+                            >
                               Delete
                             </Button>
                           </div>
@@ -877,8 +990,9 @@ function ContractTermsPanel({
           )}
         </QueryState>
         <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-400">
-          Deactivate a contract that simply lapsed — a past period can then still be audited
-          against the terms that applied to it. Delete only a term that was mis-keyed.
+          Deactivate a contract that simply lapsed — a past period can then
+          still be audited against the terms that applied to it. Delete only a
+          term that was mis-keyed.
         </p>
       </Card>
     </div>
