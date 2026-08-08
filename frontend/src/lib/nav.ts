@@ -172,6 +172,20 @@ export const LIVE_NAV: LiveNavGroup[] = [
         icon: icon("M3 22h12V9l-3-3H3v16zM7 10h4M7 14h4M18 8v9a2 2 0 01-4 0"),
       },
       {
+        // The one transport destination written for the CLIENT rather than the
+        // operator (`BA_fleet_fuel.md` §1.2: the read-only `user` role sees only
+        // "open" pages, of which `/claim-status` is one). Gated on `vat.read` —
+        // the permission `routes/transport/claim_status.py` declares at router
+        // level, and the one the READ_ONLY role already holds — rather than the
+        // `transport.read` the derived-analytics screens use: this surface
+        // returns the CLAIMS themselves, translated, not portfolio aggregates.
+        to: "/claim-status",
+        label: "Claim status",
+        module: "transport",
+        perm: "vat.read",
+        icon: icon("M12 8v4l3 2M12 3a9 9 0 100 18 9 9 0 000-18z"),
+      },
+      {
         to: "/vat-admin",
         label: "VAT configuration",
         module: "transport",

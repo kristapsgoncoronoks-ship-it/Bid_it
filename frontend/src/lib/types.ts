@@ -2226,3 +2226,65 @@ export interface ExciseReport {
   indicative_excise_eur: string;
   lines_examined: number;
 }
+
+// ---------------------------------------------------------------------------
+// The client claim-status portal (WO-93, G4.4/R39) — field-for-field from
+// `app/schemas/transport_client_status.py`.
+//
+// THE FIELD NAMES ARE THE DELIVERABLE. R39's acceptance line is an absence —
+// "a client-role session cannot see a status code or a fee anywhere" — and a
+// wire type is where that gets undone first: a `status_code` here would be
+// rendered by the next person who wrote a column heading. There is no internal
+// code, no fee figure and no action verb in any name below, and the backend
+// scans both layers for exactly that (`test_wo93_client_surface.py`).
+//
+// `label` and `description` are the SERVER's plain-language wording, carried on
+// the wire. The SPA holds no stage label of its own — a string the SPA owned
+// would be a string the SPA could re-word, and this surface's vocabulary is the
+// spec's (`BA_fleet_fuel.md` §3.D), not ours.
+// ---------------------------------------------------------------------------
+
+/** One of the six harvested client stages: `prep · ready · filed · awaiting ·
+ * refunded · needs_attention`. All six always arrive, including the empty ones
+ * — a stage that vanished at zero would make "you have nothing in preparation"
+ * and "the page forgot" identical. */
+export interface ClientClaimStage {
+  stage: string;
+  /** The server's plain-language name. Rendered verbatim; never re-worded. */
+  label: string;
+  /** The server's one-sentence explanation. Rendered verbatim. */
+  description: string;
+  claims: number;
+  vat_eur: string;
+}
+
+/** One claim, as its owner sees it. No id — a read-only view offers no
+ * drill-down, and (entity × country × period) already identifies the row.
+ *
+ * `vat_eur` is `null` when no single-currency figure can be stated for the
+ * claim yet. It is NEVER `"0.00"` as a stand-in, and the page must render the
+ * null as a dash rather than as a zero: a client reading €0.00 learns something
+ * false. */
+export interface ClientClaimRow {
+  entity_name: string;
+  refund_country: string;
+  period: string;
+  stage: string;
+  vat_eur: string | null;
+}
+
+/** `ClientClaimStatusOut` — "where are my claims?", for one refund year.
+ * Basis: NET EUR, stated in `currency`.
+ *
+ * `not_shown_claims` counts claims in an engine state outside the six-stage
+ * ladder. It is a COUNT only: the arithmetic stays honest (Σ stages +
+ * not_shown === total) while the reason stays internal, which is the whole
+ * point of this surface. */
+export interface ClientClaimStatus {
+  year: number;
+  currency: string;
+  total_claims: number;
+  stages: ClientClaimStage[];
+  claims: ClientClaimRow[];
+  not_shown_claims: number;
+}

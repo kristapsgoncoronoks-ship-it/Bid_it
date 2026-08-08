@@ -59,6 +59,7 @@ const Overcharges = lazy(() => import("./pages/Overcharges"));
 const Rebates = lazy(() => import("./pages/Rebates"));
 const Savings = lazy(() => import("./pages/Savings"));
 const Excise = lazy(() => import("./pages/Excise"));
+const ClaimStatus = lazy(() => import("./pages/ClaimStatus"));
 
 // Design-system showcase (public, fixtures-only). Lives under /design so the
 // living style guide + shell demo can be reviewed and visual/e2e-tested without a
@@ -169,6 +170,7 @@ export default function App() {
                 <Route path="/rebates" element={<Rebates />} />
                 <Route path="/savings" element={<Savings />} />
                 <Route path="/excise" element={<Excise />} />
+                <Route path="/claim-status" element={<ClaimStatus />} />
                 <Route path="/team" element={<Team />} />
                 <Route path="/access" element={<Access />} />
                 <Route path="/sessions" element={<Sessions />} />
