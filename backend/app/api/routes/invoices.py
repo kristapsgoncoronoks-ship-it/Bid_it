@@ -70,8 +70,6 @@ router = APIRouter(
     dependencies=[Depends(require_perm(authz.Permission.INVOICE_READ))],
 )
 
-_MAX_UPLOAD = 15 * 1024 * 1024  # 15 MB (scanned PDFs run larger)
-
 
 async def _resolve_vendor(db: DbSession, org_id: str, body: InvoiceCreate) -> Vendor:
     if body.vendor_id:
@@ -799,8 +797,12 @@ async def upload_invoice(
     # capture, open to every tier (see create_invoice) — not gated.
     await access.enforce_upload_quota(db, current.org_id, current_org.plan)
     content = await file.read()
-    if len(content) > _MAX_UPLOAD:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File too large (max 15 MB)")
+    # WO-94/N3 — the ONE configured cap (`settings.max_upload_mb`), read from
+    # `filesec` rather than re-typed here. The check stays at the boundary so
+    # an over-sized body is refused as 413 before anything is read further;
+    # the limit itself is the service's.
+    if len(content) > filesec.max_bytes():
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, filesec.too_large_message())
     # Security gate: type-validate + malware-scan BEFORE storing or queuing.
     try:
         filesec.check(file.filename or "upload", content, allowed=filesec.SUPPLIER_UPLOAD_KINDS)

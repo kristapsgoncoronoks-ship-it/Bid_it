@@ -1264,8 +1264,6 @@ async def report_vat(
 # lifecycle may carry attachments; they are never part of the legal invoice PDF.
 # --------------------------------------------------------------------------------
 
-_ATTACH_MAX = 25 * 1024 * 1024  # 25 MB per attachment
-
 
 @router.get("/{invoice_id}/attachments", response_model=list[IssuedAttachmentOut])
 async def list_issued_attachments(invoice_id: str, current: CurrentUser, db: DbSession):
@@ -1303,10 +1301,8 @@ async def add_issued_attachment(
     data = await file.read()
     if not data:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Empty file.")
-    if len(data) > _ATTACH_MAX:
-        raise HTTPException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Attachment too large (25 MB)."
-        )
+    if len(data) > filesec.max_bytes():
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, filesec.too_large_message())
     # Security gate (filesec choke point): block executables / archives / scripts
     # + malware-scan BEFORE storing — attacker-supplied bytes. Inert docs allowed.
     try:

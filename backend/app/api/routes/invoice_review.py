@@ -70,7 +70,6 @@ _APPROVE = [Depends(require_perm(authz.Permission.INVOICE_APPROVE))]
 _ADMIN = [Depends(require_perm(authz.Permission.SETTINGS_MANAGE))]
 
 _P = authz.Permission
-_ATTACH_MAX = 25 * 1024 * 1024  # 25 MB per internal attachment
 
 
 # --------------------------------------------------------------------------- #
@@ -798,10 +797,8 @@ async def add_attachment(
     data = await file.read()
     if not data:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Empty file.")
-    if len(data) > _ATTACH_MAX:
-        raise HTTPException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Attachment too large (25 MB)."
-        )
+    if len(data) > filesec.max_bytes():
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, filesec.too_large_message())
     # Security gate (filesec choke point): block executables / archives / scripts
     # + malware-scan BEFORE storing — an internal attachment is still attacker-
     # supplied bytes. A plain text / PDF / image contract-or-PO is allowed.

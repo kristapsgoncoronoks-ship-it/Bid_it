@@ -86,8 +86,49 @@ class FileRejected(Exception):
         super().__init__(reason)
 
 
-def _max_bytes() -> int:
-    return int(getattr(settings, "max_upload_mb", 15)) * 1024 * 1024
+_MB = 1024 * 1024
+
+# Purposes whose cap is deliberately TIGHTER than the general configured one.
+# Each entry is a policy decision about a specific surface, NOT a second copy
+# of the general limit: a receipt photo or a company logo has no legitimate
+# reason to be invoice-sized, and holding the line low there bounds both the
+# OCR cost and the stored-blob blast radius. `max_bytes()` clamps every one of
+# them by the configured cap, so lowering `MAX_UPLOAD_MB` always takes effect
+# everywhere and a purpose can never widen the limit.
+PURPOSE_MB: dict[str, int] = {
+    "receipt": 5,
+    "logo": 2,
+}
+
+
+def _max_mb(purpose: str | None = None) -> int:
+    general = int(getattr(settings, "max_upload_mb", 15))
+    if purpose is None:
+        return general
+    return min(PURPOSE_MB[purpose], general)
+
+
+def max_bytes(purpose: str | None = None) -> int:
+    """THE upload size cap, in bytes — the one place it is defined (WO-94/N3).
+
+    `purpose=None` is the general configured cap (`settings.max_upload_mb`);
+    a named purpose is a tighter policy from `PURPOSE_MB`, clamped by it.
+
+    Every caller reads this rather than re-typing a byte literal. Before
+    WO-94 seven routes carried their own constant: three duplicated the
+    configured default (so raising `MAX_UPLOAD_MB` silently did nothing on
+    the primary capture endpoint), and two attachment routes advertised
+    25 MB that `reject_active_content` had already made unreachable at 15.
+    `tests/test_wo94_upload_cap.py` refuses a second definition structurally.
+    """
+    return _max_mb(purpose) * _MB
+
+
+def too_large_message(purpose: str | None = None) -> str:
+    """The refusal sentence for `max_bytes(purpose)`, rendered from the SAME
+    number the gate enforces — so no caller can quote a limit it does not
+    apply (two of them did, before WO-94)."""
+    return f"File too large (max {_max_mb(purpose)} MB)"
 
 
 def _looks_scripted(content: bytes) -> bool:
@@ -121,10 +162,8 @@ def validate(filename: str, content: bytes, allowed: frozenset[str] = INVOICE_KI
     """Structural validation. Returns the detected kind or raises FileRejected."""
     if not content:
         raise FileRejected("Empty file")
-    if len(content) > _max_bytes():
-        raise FileRejected(
-            f"File too large (max {settings.max_upload_mb if hasattr(settings, 'max_upload_mb') else 15} MB)"
-        )
+    if len(content) > max_bytes():
+        raise FileRejected(too_large_message())
 
     # Universal: reject executables / archives / active content up front.
     if content.startswith(_DANGEROUS_MAGICS):
@@ -175,8 +214,8 @@ def reject_active_content(content: bytes) -> None:
     script, macro-bearing archive or HTML/JS payload must never be stored."""
     if not content:
         raise FileRejected("Empty file")
-    if len(content) > _max_bytes():
-        raise FileRejected(f"File too large (max {getattr(settings, 'max_upload_mb', 15)} MB)")
+    if len(content) > max_bytes():
+        raise FileRejected(too_large_message())
     if content.startswith(_DANGEROUS_MAGICS):
         raise FileRejected("Executable, archive or active-content files are not allowed")
     if _looks_scripted(content):
