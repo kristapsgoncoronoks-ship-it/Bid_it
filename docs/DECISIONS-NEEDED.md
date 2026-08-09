@@ -9,6 +9,51 @@ Legend: 🔓 ready for your input · ⏳ waiting on you · ✅ resolved
 
 ---
 
+## Decisions taken — 2026-08-08
+
+Four answered in session. Recorded verbatim in intent, with what each one
+actually costs to build. Two went beyond the options offered and opened new
+work rather than closing a question — flagged as such rather than trimmed to
+fit.
+
+**§10 transport pricing — DECIDED: contingency fee on recovered VAT
+(no-win-no-fee).** Unblocks G2.9. The claim already carries frozen
+`fee_pct`/`fee_min`/`fee_eur` columns, so the engine has somewhere to land.
+**Still open: the actual percentage and any minimum.** Building the mechanism
+with the rate as an org-level setting that FAILS CLOSED when unset — a fee
+figure is what a client is charged, so no default may be invented (the excise
+placeholder precedent does not transfer: a labelled indicative rate on an
+advisory figure is not the same as a live charge).
+
+**§11 unmatched bucket — DECIDED: keep the line grain, carry the supplier
+list.** Buildable as specified. These lines are already refused at submit by
+R3, so no filed document changes; the list serves the preparation surface.
+
+**§12 supplier overcharge — DECIDED, and WIDENED.** The answer given: an
+overcharge must be VISIBLE, and the operator decides whether to react or
+ignore it. That resolves the abandonment question — an explicit, audited
+`ignore` action, not a silent dead end. It also adds a NEW requirement not in
+the register: **every supplier carries a reliability rating**, computed from
+multiple criteria, three of them named — overcharges, exchange-rate treatment,
+and lines charged that were never agreed. This is G4.7's deferred "supplier
+reliability" board, now with its criteria specified by the owner. It needs its
+own order and a design pass: what each criterion contributes, over what window,
+and how a rating is presented so it reads as evidence rather than a verdict on
+a counterparty.
+
+**§13 drifted evidence — DECIDED in principle, scope needs confirming.** The
+answer given: *figures do not change after a claim is submitted; they change
+only on partial rejection, when some invoices in a claim are rejected.* Two
+consequences. (1) For the VAT claim this confirms the existing freeze and adds
+a capability that **does not exist yet** — partial rejection, which
+`status.py` already names as an unbuilt transition colliding with G2.9. (2)
+The question asked was about the supplier overcharge claim-back, not the VAT
+claim; the principle transfers cleanly (freeze when sent, change only when the
+counterparty rejects part of it), but that reading is mine and is flagged here
+rather than assumed silently.
+
+---
+
 ## 1. Enterprise SSO / SCIM / SAML — finish against a real IdP
 **Status:** 🔓  ·  **ADR:** [0021](architecture/adr/0021-sso-scim.md)
 
