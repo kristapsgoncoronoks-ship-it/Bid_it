@@ -10,6 +10,7 @@ from app.models.issuer import IssuerProfile
 from app.models.organization import Organization
 from app.models.transport.customer_lifecycle import VatCountryActivation, VatCustomerLifecycle
 from app.services import modules
+from app.services.transport import fee
 from tests.factories.transport import synthetic_company_name, synthetic_iban, synthetic_vat_id
 
 
@@ -46,8 +47,44 @@ async def make_entity(
     return entity
 
 
-async def enable_transport(db_session, org_id: str) -> None:
+# The synthetic standard contingency rate every transport fixture org carries.
+# NOT a product default and NOT the harvested Appendix B figure repackaged: the
+# real percentage is an open owner decision (`docs/DECISIONS-NEEDED.md` §10) and
+# `app/services/transport/fee.py` refuses to invent one. These are test values,
+# chosen so a €400 claim (the Art. 17 quarterly threshold most fixtures sit just
+# above) clears the minimum comfortably and the arithmetic stays checkable by
+# hand.
+FIXTURE_FEE_PCT = Decimal("10.00")
+FIXTURE_FEE_MIN = Decimal("25.00")
+
+
+async def enable_transport(db_session, org_id: str, *, fee_rate: bool = True) -> None:
+    """Activate the vertical, and (by default) configure the org's STANDARD
+    contingency-fee rate.
+
+    WHY THE RATE IS SEEDED HERE (WO-95, G2.9)
+    -----------------------------------------
+    Since WO-95, `lock.submit_claim` freezes a service fee alongside the VAT
+    base (C10) and REFUSES (`fee_rate_not_configured`) when no rate is
+    configured — a fee figure is what a client is charged, so the engine never
+    defaults one. Seeding the standard rate in this shared helper is the WO-73
+    `activate_entity` / WO-60 `make_entity` precedent applied at the one place
+    every transport fixture org already passes through: fixtures are RAISED to
+    satisfy a new gate, no assertion anywhere is weakened, and no existing test
+    module changes.
+
+    It also does something WO-95 needed for its own reasons: every pre-existing
+    submitted-claim fixture in the tree now carries REAL frozen
+    `fee_pct`/`fee_min`/`fee_eur` values, which is what makes WO-93's
+    client-surface guarantee (R39 — no fee reaches the client wire) provable
+    rather than vacuously true over three NULL columns.
+
+    Pass `fee_rate=False` for a test that must exercise the refusal itself.
+    """
     await modules.set_enabled(db_session, org_id, "transport", True)
+    if fee_rate:
+        await fee.set_rate(db_session, org_id, fee_pct=FIXTURE_FEE_PCT, fee_min=FIXTURE_FEE_MIN)
+        await db_session.flush()
 
 
 async def activate_entity(db_session, org_id: str, entity_id: str, *countries: str) -> None:

@@ -249,6 +249,16 @@ class A:
     TRANSPORT_EXCISE_RATE_SET = "transport.excise_rate_set"
     TRANSPORT_EXCISE_RATE_REMOVE = "transport.excise_rate_remove"
 
+    # WO-95 / G2.9 — the CONTINGENCY FEE rate an operator configures
+    # (`BA_fleet_fuel.md` C11's three rungs, R40's *"standard fee is
+    # admin-editable; a per-client fee overrides it"*). This pair decides what a
+    # client is billed on a recovered refund, so every change carries an actor
+    # and old->new (§4.16). The FREEZE itself gets no action of its own: it
+    # happens at submission and rides `TRANSPORT_CLAIM_SUBMIT`'s meta, the WO-94
+    # precedent (one event per lifecycle moment, not two).
+    TRANSPORT_FEE_RATE_SET = "transport.fee_rate_set"
+    TRANSPORT_FEE_RATE_REMOVE = "transport.fee_rate_remove"
+
 
 def _hash(
     prev_hash: str | None,

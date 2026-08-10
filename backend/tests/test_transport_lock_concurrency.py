@@ -37,6 +37,7 @@ from app.core.tenant import reset_current_org, set_current_org
 from app.models.issuer import IssuerProfile
 from app.models.organization import Organization
 from app.models.transport.customer_lifecycle import VatCountryActivation, VatCustomerLifecycle
+from app.models.transport.fee_rate import VatFeeRate
 from app.models.transport.fuel_transaction import FuelTransaction
 from app.models.transport.lock import VatClaimedInvoice
 from app.models.transport.vat_claim import VatRefundClaim
@@ -108,6 +109,22 @@ async def _seed(sm, org_name: str) -> dict[str, str]:
             s.add(
                 VatCountryActivation(
                     org_id=org_id, entity_id=entity.id, country="LV", status="active"
+                )
+            )
+            # WO-95 (G2.9/R13): raised past the fee gate — `submit_claim`
+            # now freezes a contingency fee and REFUSES when no rate is
+            # configured (`fee_rate_not_configured`), so a racer with no rate
+            # would lose to that refusal instead of to the lock. The row is
+            # added directly, the `make_entity`/`activate_entity` convention
+            # in this file; the audited service path is proven in
+            # tests/transport/test_wo95_fee_rates.py.
+            s.add(
+                VatFeeRate(
+                    org_id=org_id,
+                    entity_id=None,
+                    country="",
+                    fee_pct=Decimal("10.00"),
+                    fee_min=Decimal("25.00"),
                 )
             )
             await s.flush()

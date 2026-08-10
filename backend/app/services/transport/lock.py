@@ -29,6 +29,16 @@ locks), positioned at the head of the group per C9's own internal order
 ("dropped from `invs` before the `bad` gate, `claim_set`, locks, doc-gate
 and the frozen VAT base": bad/synthetic -> claim_set+locks (R6) -> doc-gate
 (R10) -> freeze) — closing the gap WO-74's design decision 8 recorded.
+WO-95 (G2.9) adds the LAST gate and the second half of the freeze: the
+CONTINGENCY FEE (R13, C10/C11). `fee.resolve_fee_rate` runs after every
+statutory gate — a pure read that refuses (`fee_rate_not_configured`) when
+no rate is configured for this client, so a missing COMMERCIAL setting is
+reported after every LEGAL problem and while the session is still
+unmutated — and `fee.freeze_fee` then stamps `fee_pct`/`fee_min`/`fee_eur`
+from the base `freeze_claim_lines` just froze, in the SAME flush. C10 names
+the VAT base and the fee in one sentence because they are one atomic act.
+See `app/services/transport/fee.py` for why that gate fails CLOSED rather
+than defaulting to any percentage.
 
 `submit_claim` is a MINIMAL STUB status transition (draft -> submitted) that
 exists to prove the locking primitive — not the future G2.7 status machine.
@@ -74,6 +84,7 @@ from app.services.transport.claim_gates import enforce_no_synthetic_lines
 from app.services.transport.customer_lifecycle import enforce_activation
 from app.services.transport.deadline import period_ended
 from app.services.transport.document_gate import enforce_document_presence
+from app.services.transport.fee import freeze_fee, resolve_fee_rate
 from app.services.transport.freeze import freeze_claim_lines, preview_vat_base
 from app.services.transport.minimum import below_minimum, min_for
 from app.services.transport.waiver import waived_suppliers
@@ -200,9 +211,17 @@ async def submit_claim(
     order, and C9's internal `set_status` sequence puts the `bad` gate
     before `claim_set`/locks/doc-gate) -> annual mop-up / quarterly
     duplicate-block (R6) -> waiver status_note stamp (R15) -> document-
-    presence (R10) -> freeze -> lock -> status flip. A claim that fails ANY
-    gate never freezes or locks at all — nothing is mutated before the LAST
-    gate passes.
+    presence (R10) -> **fee-rate resolution (G2.9/R13, WO-95 — the last
+    gate)** -> freeze (lines + VAT base + fee) -> lock -> status flip. A
+    claim that fails ANY gate never freezes or locks at all — nothing is
+    mutated before the LAST gate passes.
+
+    **Behaviour change, WO-95:** an org with the transport module enabled but
+    NO configured contingency-fee rate can no longer submit a claim; the
+    refusal is 409 `fee_rate_not_configured` and it names what to configure.
+    That is deliberate and is argued in `fee.py`'s module docstring — a fee
+    figure is what a client is charged, so the engine refuses rather than
+    freezing a percentage nobody chose.
 
     `override_minimum=True` bypasses the below-minimum refusal (R8's
     "admin override allowed... recorded in `status_note`") — see
@@ -327,11 +346,33 @@ async def submit_claim(
     # document never freezes or locks.
     await enforce_document_presence(db, org_id, claim.id)
 
+    # G2.9 (WO-95) — the CONTINGENCY FEE rate, resolved as the LAST gate.
+    # C11's chain (per-(customer, country) -> customer default) plus R40's
+    # org-level standard, and then a REFUSAL where the harvested text had
+    # `(0, 0)`: `fee_rate_not_configured`. A pure read, so a missing rate
+    # refuses while the session is still unmutated — this function's own
+    # contract ("nothing is mutated before the LAST gate passes") holds
+    # exactly. It runs AFTER every statutory gate on purpose: a period that
+    # has not ended, a missing document or a below-minimum claim is what an
+    # operator most needs to hear about first; our own billing configuration
+    # is the least urgent refusal. See `fee.py`'s module docstring for why
+    # this fails CLOSED rather than defaulting to any number.
+    fee_rate = await resolve_fee_rate(
+        db, org_id, entity_id=claim.entity_id, country=claim.refund_country
+    )
+
     # G2.5 — freeze the claim's lines + VAT base BEFORE flipping status, in
     # the same flush as the lock inserts below: a lost lock race rolls back
     # the freeze too (nothing partially applied), and a successful
     # submission never leaves locks acquired against an unfrozen claim.
     frozen_line_count = await freeze_claim_lines(db, org_id, claim)
+
+    # G2.9 — C10 names the VAT base and the fee in ONE sentence ("freeze
+    # `vat_eur` and `vat_local` ... Freeze `fee_pct`, `fee_min`, `fee_eur`")
+    # because they are one atomic act. Stamped from the base just frozen
+    # above, never a live recomputation, and in the same flush as the locks
+    # below — so a lost lock race rolls the fee back with everything else.
+    fee_eur, fee_basis = freeze_fee(claim, fee_rate)
 
     for supplier, invoice_ref, fuel_transaction_id in invoices:
         db.add(
@@ -362,7 +403,27 @@ async def submit_claim(
         audit.A.TRANSPORT_CLAIM_SUBMIT,
         target_type="vat_refund_claim",
         target_id=claim.id,
-        meta={"invoice_count": len(invoices), "frozen_line_count": frozen_line_count},
+        meta={
+            "invoice_count": len(invoices),
+            "frozen_line_count": frozen_line_count,
+            # §4.16 — old->new for the three columns this transition freezes.
+            # The old side is always NULL (the freeze happens once, at first
+            # entry to a locking state, C10) and is recorded anyway so an
+            # audit consumer reads one shape. The RUNG and the BASIS are
+            # carried because a fee dispute turns on them and neither can be
+            # reconstructed later from a rate table that has since changed.
+            # No separate `transport.fee_freeze` action: submission IS the
+            # moment the fee freezes — WO-94's one-event-per-lifecycle-moment
+            # precedent for the withdrawal.
+            "old_fee_pct": None,
+            "new_fee_pct": str(fee_rate.fee_pct),
+            "old_fee_min": None,
+            "new_fee_min": str(fee_rate.fee_min),
+            "old_fee_eur": None,
+            "new_fee_eur": str(fee_eur),
+            "fee_basis": fee_basis,
+            "fee_rate_scope": fee_rate.scope,
+        },
         org_id=org_id,  # explicit — callable outside an HTTP request context.
     )
     return claim
