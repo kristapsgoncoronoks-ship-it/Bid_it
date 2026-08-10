@@ -23,7 +23,11 @@ fit.
 with the rate as an org-level setting that FAILS CLOSED when unset — a fee
 figure is what a client is charged, so no default may be invented (the excise
 placeholder precedent does not transfer: a labelled indicative rate on an
-advisory figure is not the same as a live charge).
+advisory figure is not the same as a live charge). **BUILT by WO-95** (G2.9,
+R13): C11's formula and resolution chain, the `vat_fee_rates` table, and the
+freeze inside `lock.submit_claim`. §10 records exactly what is left — the
+percentage and the minimum, nothing else, and until they are typed no claim can
+be filed.
 
 **§11 unmatched bucket — DECIDED: keep the line grain, carry the supplier
 list.** Buildable as specified. These lines are already refused at submit by
@@ -301,7 +305,82 @@ reimbursement batch or a SEPA file (it refuses, naming the line).
 ---
 
 ## 10. Transport module pricing tier (M3 / WO-49)
-**Status:** 🔓 (built, inert until priced)  ·  **Raised by:** WO-49  ·  **ADR:** [0023](architecture/adr/0023-platform-evolution-and-transport-seam.md)
+**Status:** 🔶 **PARTLY RESOLVED (2026-08-08)** — the MODEL is decided and BUILT
+(WO-95); **the NUMBER is still open** and is now the only thing outstanding on
+this item.  ·  **Raised by:** WO-49  ·  **Built against by:** WO-95  ·  **ADR:** [0023](architecture/adr/0023-platform-evolution-and-transport-seam.md)
+
+### What is now decided and shipped (WO-95, G2.9)
+
+The 2026-08-08 answer — **a contingency fee on recovered VAT, no-win-no-fee** —
+is implemented end to end. `app/services/transport/fee.py` carries C11's formula
+(`max(pct% × base, min)`, returning C11's own `(fee, basis)` pair) and its
+resolution chain, widened by the org-level STANDARD rung this decision and R40
+both name:
+
+    per-(customer, country) override  ->  customer default  ->  org standard  ->  REFUSE
+
+Rates live in the new tenant table `vat_fee_rates`; `lock.submit_claim` resolves
+one as its LAST gate and freezes `fee_pct`/`fee_min`/`fee_eur` onto the claim in
+the same flush as the VAT base, the locks and the status flip (C10). A filed
+claim is never re-rated — changing or even DELETING the configured rate
+afterwards leaves all three columns untouched (R13's acceptance line, asserted
+both ways).
+
+The blocker this item recorded in its M3 update is **retired**: it said the
+codebase had *"no established mapping from a `VatRefundClaim` to a billable
+'customer'"*. WO-73 had already shipped one — `VatCustomerLifecycle`, keyed
+`(org, entity_id)`, literally named for the customer, and gating every
+submission. The claimant entity IS the client; no second identity was invented.
+
+### What is still open — precisely
+
+**Only two numbers, and they are the two the decision explicitly deferred:**
+
+1. **the standard contingency PERCENTAGE** (`fee_pct`), and
+2. **the standard per-declaration MINIMUM** (`fee_min`), if there is to be one
+   (a minimum of €0.00 is a legitimate answer, and is stored as such).
+
+Both are typed per org through `fee.set_rate`, and a per-client or
+per-(client, country) override can differ from whatever standard is chosen. So
+the answer needed is a STARTING standard, not a policy that binds every client.
+
+**Until they are typed, the engine FAILS CLOSED**: an org with the transport
+module enabled and no configured rate cannot submit a claim — 409
+`fee_rate_not_configured`, with a message naming what to configure. That is
+deliberate and is argued in `fee.py`'s module docstring. Two candidate defaults
+were available and both were refused: `BA_fleet_fuel.md` Appendix B's
+`pricing_fee_pct 15%` (a figure from the retired system, not a decision about
+this product) and C11's own terminal `(0, 0)` rung (which would freeze
+`fee_eur = 0.00` — a positive assertion that a filing earns nothing, which
+nobody made). The diesel-excise placeholder precedent does not transfer: that
+rate is advisory, labelled as indicative on every surface, and belongs to a
+member state; this one is ours and binding, and the first place a wrong one
+surfaces is an invoice a client pays.
+
+**Note that this is now an OPERATIONAL blocker, not only a commercial one.** No
+transport claim can be filed by any tenant until a rate is typed. The narrowest
+unblock is a single number for the standard rung; the rest of the mechanism
+needs nothing further.
+
+### What remains undecided beyond the rate
+
+- **(a) which plan tier(s) unlock `transport`** — unchanged, still open; the
+  module is still absent from every `PLANS[...].modules` set, so
+  `PUT /modules/transport` still 402s and a sysadmin escape hatch is still the
+  only way in.
+- **(b) a flat monthly add-on price alongside the success fee** — the harvested
+  model prices the module at €0/mo and monetises the contingency instead
+  (`BA_fleet_fuel.md` line 125); whether this product does the same, or charges
+  both, is still open. Nothing in WO-95 assumes either.
+- **(c) the five pilot Baltic entities as design partners** — unchanged.
+- **(d) `payout_to` / fee invoicing** (C12: fee receivable vs deduct-and-remit,
+  `F<year>-<NNNN>` numbering) — a separate board, deliberately untouched by
+  WO-95, and it needs (b) settled first.
+- **(e) partial rejection** (see §13) — the transition that would recompute a
+  frozen fee over a reduced base. WO-95 leaves a documented seam and no
+  implementation.
+
+### Original entry (retained for the record)
 
 **Built:** the `transport` module entitlement (`app/services/modules.py`) —
 default **OFF**, following the exact `issuing`/`expenses` plan-gated pattern.
@@ -348,6 +427,15 @@ shipped independently in WO-56 — they needed no customer/fee concept. G2.9
 stays unbuilt pending this decision; the schema for it
 (`vat_refund_claims.fee_pct`/`fee_min`/`fee_eur`, nullable since WO-49) is
 already in place and costs nothing sitting empty.
+
+> **Superseded by WO-95 (2026-08-10).** Both halves of that reasoning have since
+> resolved. The customer-identity mapping was NOT invented — WO-73 had already
+> shipped `VatCustomerLifecycle`, keyed `(org, entity_id)` and named for the
+> customer, which `lock.submit_claim` already gates on. The fee-rate storage
+> shape is `vat_fee_rates`, built to C11's own three rungs plus the org-level
+> standard the 2026-08-08 decision names, with the terminal `(0, 0)` rung
+> replaced by a refusal rather than a guess. The three claim columns are no
+> longer empty.
 
 ---
 

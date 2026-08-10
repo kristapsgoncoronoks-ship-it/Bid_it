@@ -541,3 +541,75 @@ python ../scripts/pii_scan.py --tree
 grep -rn "fee_pct\|fee_min\|fee_eur" app/services/transport/lock.py app/services/transport/fee.py
 grep -rn "15\b" app/services/transport/fee.py   # must return NO rate constant
 ```
+
+---
+
+## As built — what changed while implementing, and why
+
+**1. The customer-rung storage shape landed exactly as planned, but the
+uniqueness needed a partial index the plan only half-anticipated.** The plan
+named it; implementing it confirmed why it is not optional. `UNIQUE(org_id,
+entity_id, country)` is satisfied by two rows that both carry `entity_id IS
+NULL`, because SQL treats NULLs as distinct — so without
+`uq_vat_fee_rates_org_standard` an org could hold two standard rates and
+`resolve_fee_rate`'s walk would return whichever the query planner surfaced
+first. `test_wo95_only_one_org_standard_can_exist` drives a raw INSERT at it.
+
+**2. The minimum-bites test could not be written the obvious way.** The plan
+assumed a small VAT base would make the minimum bite. It cannot: R8's Art. 17
+gate refuses a quarterly LV claim below €400 long before the fee is reached, so
+a €120 base fails on `below_minimum` and never sees the fee at all. The test
+instead makes the RATE small (2% of €420.00 = €8.40 against a €25.00 minimum),
+which exercises the same branch on a claim that legitimately passes every
+statutory gate. Recorded rather than quietly adjusted, because it is a real fact
+about the gate stack: the two "minimums" in this vertical (Art. 17's statutory
+threshold and C11's per-declaration fee floor) constrain each other, and a fee
+minimum above ~10% of the Art. 17 threshold can only ever bite via a low rate.
+
+**3. The "nothing written" test needed its ids captured before the refusal.**
+`db_session.rollback()` expires every ORM object in the session, so reading
+`claim.id` afterwards is a lazy load against dead state and raises
+`MissingGreenlet` rather than failing the assertion. The ids are read up front.
+This is a test-mechanics note, not a product one, but it is the kind of thing
+that reads as a flaky test later if it is not written down.
+
+**4. A positive control was added beside the fail-closed test.** Asserting that
+a submission refuses proves nothing on its own — a broken fixture refuses too.
+`test_wo95_the_same_claim_submits_once_a_rate_is_configured` takes the SAME
+claim that just refused, configures a rate, and submits it successfully. The
+refusal is therefore provably the fee gate.
+
+**5. Two gate-ORDER tests, not one.** The plan asked for a test that the fee
+gate runs after the legal gates. It is asserted twice — against R7 (period not
+ended) and against R10 (missing document, the last statutory gate before this
+one) — because "after the legal gates" is a claim about a position in a
+sequence, and one probe only pins one end of it.
+
+**6. The no-invented-rate constraint is asserted structurally, and the first
+attempt was wrong.** The initial scan banned every numeric literal in `fee.py`
+outside `{0, 100}` and failed on `True` (a `bool` is an `int` in Python's AST)
+and on `2` (the country-code length check) — noise, not rates. It was replaced
+by a scan of MODULE-LEVEL numeric constants, which is the only shape a default
+rate could actually take (`DEFAULT_FEE_PCT = Decimal("15.00")`, exactly the form
+`excise.py` legitimately uses for its advisory placeholder), plus a ban on any
+`Decimal("...")` literal in the module other than the `"100"` divisor. Both ship
+with a seeded-violation self-test.
+
+**7. `withdraw_claim` was not touched, and that is the deliverable.** The order
+asked whether withdrawal should clear a frozen fee. The answer harvested from
+D7 is no, so the code change is nothing and the artifact is a test
+(`test_wo95_a_withdrawn_claim_keeps_its_frozen_fee`) plus the citation in
+`fee.py`'s docstring and in R5's ledger row. A decision that results in no code
+still has to be recorded, or the next order re-litigates it.
+
+**8. Deviation from the plan's testing list: no dedicated route test was
+written.** The plan listed `test_wo95_the_frozen_fee_reaches_the_operator_claim_route`
+and a denied-role case. Neither is a WO-95 test: this order changes no route,
+adds no field to `ClaimOut` (WO-49 put the three fields there) and creates no
+new permission, so those cases are already covered by
+`tests/transport/test_wo76_claim_routes.py`'s existing granted/denied matrix
+over the same endpoint. Writing them again here would assert WO-76's contract in
+WO-95's name. What IS asserted is the schema exposure itself
+(`test_wo95_the_frozen_fee_is_still_visible_to_the_operator`), which is the fact
+this order actually depends on — the fee is hidden from the CLIENT surface, not
+from the platform.
