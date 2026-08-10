@@ -37,6 +37,7 @@ from tests.transport.conftest import (
     activate_entity,
     make_entity,
     register_documented_invoice,
+    seed_fee_rate,
 )
 
 V = "/api/v1"
@@ -71,6 +72,13 @@ async def _enable_transport(db_session, org_id: str) -> None:
     # yet (a commercial decision, docs/DECISIONS-NEEDED.md), so the HTTP
     # module toggle would 402. Setup only — the paths under test stay HTTP.
     await modules.set_enabled(db_session, org_id, "transport", True)
+    # WO-95 (G2.9/R13): raised past the fee gate — `submit_claim` now freezes
+    # a contingency fee and REFUSES (`fee_rate_not_configured`) when no rate
+    # is configured, so a submit route test would otherwise 409 on a
+    # commercial setting rather than exercise the path under test. Seeded as
+    # a row, not through `fee.set_rate`, so no audit event enters the window
+    # this file's trail assertions read (the `activate_entity` convention).
+    await seed_fee_rate(db_session, org_id)
 
 
 async def _member_with_role(client: AsyncClient, owner_headers, db_session, stored_role: str):

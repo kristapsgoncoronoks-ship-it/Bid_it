@@ -10,7 +10,6 @@ from app.models.issuer import IssuerProfile
 from app.models.organization import Organization
 from app.models.transport.customer_lifecycle import VatCountryActivation, VatCustomerLifecycle
 from app.services import modules
-from app.services.transport import fee
 from tests.factories.transport import synthetic_company_name, synthetic_iban, synthetic_vat_id
 
 
@@ -83,8 +82,52 @@ async def enable_transport(db_session, org_id: str, *, fee_rate: bool = True) ->
     """
     await modules.set_enabled(db_session, org_id, "transport", True)
     if fee_rate:
-        await fee.set_rate(db_session, org_id, fee_pct=FIXTURE_FEE_PCT, fee_min=FIXTURE_FEE_MIN)
-        await db_session.flush()
+        await seed_fee_rate(db_session, org_id)
+
+
+async def seed_fee_rate(
+    db_session,
+    org_id: str,
+    *,
+    entity_id: str | None = None,
+    country: str = "",
+    fee_pct: Decimal = FIXTURE_FEE_PCT,
+    fee_min: Decimal = FIXTURE_FEE_MIN,
+) -> None:
+    """Insert one `VatFeeRate` row DIRECTLY, without going through
+    `fee.set_rate`.
+
+    WHY DIRECTLY, AND NOT THROUGH THE SERVICE
+    -----------------------------------------
+    This is exactly the `activate_entity` convention, and for the same two
+    reasons. First, a fixture's job is to put the world in a state, not to
+    re-prove a transition — the audited `set_rate` path has its own suite
+    (`tests/transport/test_wo95_fee_rates.py`).
+
+    Second, and decisively: `fee.set_rate` EMITS AN AUDIT EVENT, and several
+    pre-existing suites assert the EXACT list of `transport.*` audit events an
+    org has accumulated (`test_wo88_fx_provenance.py` and
+    `test_wo89_fx_wrong_provenance.py` prove a refused ingestion writes NO audit
+    event; `test_wo91_excise_rates.py` pins the excise CRUD's own three-event
+    trail). Seeding through the service would inject a
+    `transport.fee_rate_set` event into every one of those windows and force
+    those assertions to be loosened — which is precisely the thing that must
+    never happen (master-context §9: raise the fixture, never weaken the
+    assertion). Inserting the row leaves the audit trail exactly as those tests
+    already describe it.
+    """
+    from app.models.transport.fee_rate import VatFeeRate
+
+    db_session.add(
+        VatFeeRate(
+            org_id=org_id,
+            entity_id=entity_id,
+            country=country,
+            fee_pct=fee_pct,
+            fee_min=fee_min,
+        )
+    )
+    await db_session.flush()
 
 
 async def activate_entity(db_session, org_id: str, entity_id: str, *countries: str) -> None:
