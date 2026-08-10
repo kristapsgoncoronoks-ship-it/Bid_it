@@ -298,6 +298,19 @@ EXEMPT: dict[str, str] = {
         "baseline is computed OVER, not the baseline). Gains a probe when a "
         "capture-diagnostics route slice exposes them (ARCH_plan.md)."
     ),
+    "vat_fee_rates": (
+        "G2.9 (WO-95): the configured contingency-fee rate (C11's three rungs), "
+        "written only through services/transport/fee.set_rate/remove_rate and "
+        "read only by fee.resolve_fee_rate inside lock.submit_claim (tenant-"
+        "scoped there via the same ORM guard this probe would exercise, AND "
+        "proven on real Postgres RLS via tests/test_rls.py's set-equality "
+        "check). No route reads or writes THESE rows: WO-95 ships the service "
+        "surface only, because the rate a client is charged has no admin screen "
+        "yet and the percentage itself is still an open owner decision "
+        "(docs/DECISIONS-NEEDED.md §10). The FROZEN copy a claim carries is "
+        "route-reachable and already probed via vat_refund_claims. Gains a "
+        "probe in the same commit that gives the rate a route."
+    ),
     "supplier_vat_registrations": (
         "G3.1 slice 1 (WO-61): the per-country supplier legal-entity "
         "registration (R21/R22), written only through services/transport/"
