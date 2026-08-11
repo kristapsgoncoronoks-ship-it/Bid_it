@@ -199,7 +199,7 @@ an hour earlier; caught here only by stashing the fix and watching the test stil
   see layout. Seven cases were rasterised and looked at: simple, three VAT rates, 28 lines
   across three pages, credit note, reverse-charge exemption, seven-figure + negative amounts,
   no PO.
-- [x] **A credit note no longer asks to be paid** (`610016e`). It printed the collection IBAN
+- [x] **A credit note no longer asks to be paid** (`b6d12db`). It printed the collection IBAN
   under a "Payment" heading beside the seller's `payment_instructions` — free text written for
   invoices, in practice a due-in-N-days demand — on a document that is not payable. Only the
   reference wording had been made conditional, which made the rest read as deliberate. Now:
