@@ -346,4 +346,63 @@ cd .. && python scripts/pii_scan.py --tree
 
 ## RESULTS
 
-_Filled in per stage as the order executes._
+### Baseline at `6a3a43b`
+
+```
+2403 passed, 10 skipped, 2 warnings in 2037.98s (0:33:57)
+```
+
+`npm run test:e2e` → `270 passed (2.4m)`. Both match the figures
+`docs/RELEASE-READINESS.md` §2 records, re-derived here rather than quoted.
+
+Golden samples of the rendered documents were captured **before** any bump
+(`report_writers.to_pdf` over a money-edge-case cut, `to_xlsx` over the same,
+and a `PdfWriter.add_attachment` → `PdfReader.attachments` factur-x round-trip),
+because a green suite is not sufficient evidence for a renderer major. The
+capture prints parsed text, page geometry and attachment bytes; only reportlab's
+`Generated at` stamp is non-deterministic and is normalised when diffing. The
+methodology was validated by re-running it under Stage A, where reportlab and
+pypdf are unchanged: the diff came back empty.
+
+### Stage A — patches and minors (commit `<this>`)
+
+Backend: fastapi 0.139.2→0.141.1, uvicorn 0.51.0→0.52.1, alembic 1.18.5→1.19.1,
+pydantic-settings 2.14.2→2.15.0, boto3 1.43.55→1.43.68,
+prometheus-client 0.25.0→0.26.0, ruff 0.16.0→0.16.2, pre-commit 4.6.1→4.6.2.
+Frontend: axios 1.18.1→1.19.0, react-router-dom 7.18.1→7.18.2,
+recharts 3.10.0→3.10.1, postcss 8.5.22→8.5.26, **@playwright/test 1.61.1→1.62.1**.
+
+```
+ruff 0.16.2 → All checks passed! · 563 files already formatted
+mypy app    → Success: no issues found in 328 source files
+alembic heads → d4c7b1e93f27 (head)   count=1
+alembic upgrade head → applied to Postgres 16.13 clean
+alembic check → No new upgrade operations detected.
+pytest tests/test_rls.py tests/test_numbering_concurrency.py \
+       tests/test_transport_lock_concurrency.py -q → 6 passed
+python -m pytest -q → 2403 passed, 10 skipped, 2 warnings in 1979.76s (0:32:59)
+npm run build → ✓ built in 5.65s (vendor-*.js 273.49 kB, recharts-*.js 418.11 kB)
+npm run test:e2e → 270 passed (2.4m)
+lib=1.62.1 img=1.62.1 → GUARD PASS
+```
+
+**The Playwright pair skew is closed.** Before: `lib=1.61.1 img=1.62.1 →
+GUARD_FAIL`. `main` carried `^1.62.1`; only the `ci.yml` half of the `3c651f1`
+fix had reached this branch, so the guard added to catch exactly this drift was
+itself red here. The library moved to the image, not the image to the library —
+1.62.1 is also latest, so the pair converges on `main` rather than away from it.
+
+**Security, unlooked for:** `npm ci` at `6a3a43b` reported *"4 vulnerabilities
+(1 moderate, 3 high)"*. After Stage A: *"found 0 vulnerabilities"* — carried by
+the axios and postcss bumps.
+
+**Behaviour changes:** none observed. FastAPI 0.140/0.141 are a dependency
+memory optimisation, an `app.frontend()` dev-server feature this app does not
+use, and a bug fix inside it — no change to error serialization, `response_model`
+handling or OpenAPI generation, which is what §4.20's frozen wire contract would
+have felt. `openapi.json` is generated on demand and not checked in, so there is
+no schema artifact to drift. The golden document samples are byte-identical
+after normalisation.
+
+**Baseline delta: 0.** 2403 → 2403 passed, 10 → 10 skipped, 270 → 270 e2e.
+Zero assertions weakened, zero tests skipped, zero fixtures touched.
