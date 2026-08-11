@@ -285,15 +285,27 @@ def build_pdf(
         pay.append(seller["notes"])
     if pay:
         story += [Paragraph("<br/>".join(pay), small)]
-    story += [
-        Spacer(1, 8),
-        Paragraph("Invoice compliant with EN 16931 · Factur-X XML embedded.", small),
-    ]
+    # The compliance line is a CLAIM ABOUT THIS DOCUMENT, so it is printed only
+    # when the claim is true. `build_pdf` is a public entry point and its
+    # `xml_bytes` can be empty; printing the sentence unconditionally would put
+    # "Factur-X XML embedded" on a PDF carrying no XML — a false statement on a
+    # financial document, and one a reader has no way to check. Production
+    # (`issued._render_pdf`) always supplies real CII, so this is a latent case
+    # rather than a live one, but the sentence should never be able to lie.
+    if xml_bytes:
+        story += [
+            Spacer(1, 8),
+            Paragraph("Invoice compliant with EN 16931 · Factur-X XML embedded.", small),
+        ]
 
     doc.build(story)
     pdf_bytes = buf.getvalue()
 
-    # Embed the CII XML → hybrid Factur-X.
+    # Embed the CII XML → hybrid Factur-X. An EMPTY attachment is worse than no
+    # attachment: a consuming system finds `factur-x.xml`, parses it, and fails,
+    # rather than simply seeing a plain PDF. So attach only what exists.
+    if not xml_bytes:
+        return pdf_bytes
     reader = PdfReader(io.BytesIO(pdf_bytes))
     writer = PdfWriter()
     writer.append_pages_from_reader(reader)
