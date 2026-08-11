@@ -1,11 +1,11 @@
 fastapi==0.141.1
-uvicorn[standard]==0.52.0
+uvicorn[standard]==0.52.1
 sqlalchemy[asyncio]==2.0.51
 asyncpg==0.31.0
 aiosqlite==0.22.1
-alembic==1.18.5
+alembic==1.19.0
 pydantic==2.13.4
-pydantic-settings==2.14.2
+pydantic-settings==2.15.0
 python-jose[cryptography]==3.5.0
 # Password hashing calls bcrypt directly (see app/core/security.py). passlib was
 # dropped: 1.7.4 is unmaintained and incompatible with bcrypt >= 5 (its backend
@@ -17,12 +17,12 @@ email-validator==2.3.0
 
 # Object storage for document bytes (ADR-0008). Imported lazily and only when
 # STORAGE_BACKEND=s3; the default local/memory backends need nothing extra.
-boto3==1.43.62
+boto3==1.43.67
 
 # PDF ingestion + OCR. Text-layer extraction needs only pdfplumber; the OCR
 # fallback also needs the system `tesseract-ocr` binary on PATH (see Dockerfile).
 pdfplumber==0.11.10
-pypdf==6.14.2
+pypdf==6.15.0
 pypdfium2==5.12.1
 pytesseract==0.3.13
 pillow==12.3.0
