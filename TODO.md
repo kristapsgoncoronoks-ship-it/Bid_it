@@ -171,6 +171,46 @@ stage. No test weakened, skipped or deleted; no fixture touched. Every dependenc
 
 ---
 
+### WO-97 — the issued-invoice PDF, redesigned (2026-08-11)
+
+**Completed.** `docs/plan/plan-a/wo/WO-97-invoice-layout.md`, design record
+`docs/design/invoice-layout.md`, code `5de37fa`. Three complete A4 candidates were rendered
+from one synthetic dataset; the owner chose **A, the refined ledger**, and A was then built
+into the production renderer — not shipped as the prototype, which had a real defect (a
+reportlab cell holding a `Paragraph` ignores the table's `ALIGN`, so every figure came out
+flush left).
+
+Preceded by `c1e5ee8`: the **Factur-X claim can no longer lie**. `build_pdf` printed
+"EN 16931 · Factur-X XML embedded" unconditionally and attached an empty `factur-x.xml`, so a
+PDF carrying no structured data asserted that it did. Production always supplies real CII, so
+the case was latent — `tests/test_invoice_pdf_facturx_claim.py` keeps it that way. The
+empty-attachment test was **rewritten before it landed**: its first form asserted only that
+the payload was truthy, which the unfixed code passed with `b"\n"`. It now requires the
+attachment to parse as XML. Same vacuous-assertion pattern this programme criticised in WO-95
+an hour earlier; caught here only by stashing the fix and watching the test still pass.
+
+- [x] **The totals can no longer be orphaned from the lines they total.** `KeepTogether`
+  prevents a block being *split*; it does not bind it to the table above. At 30 lines the
+  totals landed alone on page 3. They are now the final column-spanning row of the line table
+  with a `NOSPLIT` over *(last line, totals)*. `rowSplitRange` looks right and is not —
+  reportlab drops it from the continuation table after the first split.
+- [x] **Verified by rendering, not only by asserting.** Every assertion in
+  `test_invoice_pdf_layout.py` passes on a page whose columns collide; text extraction cannot
+  see layout. Seven cases were rasterised and looked at: simple, three VAT rates, 28 lines
+  across three pages, credit note, reverse-charge exemption, seven-figure + negative amounts,
+  no PO.
+- [ ] **OPEN — a credit note still prints a payment block headed "Payment".** The heading,
+  the seller's "payment within N days" instruction and the `DUE` date are all rendered on a
+  document that is not payable, even though the title and `Total credited` correctly are not.
+  Small, real, and a content decision rather than a layout one — own order.
+- [ ] **OPEN — the corrected invoice's number is not printed on a credit note.** Art. 219
+  treats a corrective document as referring to the original. `build_pdf` receives
+  `corrected_invoice_id` but not the corrected invoice; wiring a DB read into a pure renderer
+  is a signature change. Recorded in `docs/design/invoice-layout.md` §5 with the other four
+  deliberate gaps.
+
+---
+
 ## M3 — In Progress
 
 - [x] **WO-49** — `Completed` — M3 opener: the transport-vertical foundation. `app/models/transport/
