@@ -513,6 +513,51 @@ a risk.
 > database to match CI, after which all 6 pass. **No test was touched.** Worth
 > knowing that this gate assumes a virgin database.
 
+### Stage D — pypdf 5.1.0 → 6.15.0 (MAJOR)
+
+Fifteen minor releases plus a major. pypdf carries the structured e-invoice: it
+reads the embedded `factur-x.xml` out of a hybrid Factur-X/ZUGFeRD PDF on the way
+in, and attaches it to the issued sales invoice on the way out.
+
+```
+python golden2.py (e-invoice canary) → E-INVOICE EXTRACTION IDENTICAL
+python golden.py  (text/geometry)    → GOLDEN IDENTICAL
+pytest <12 pypdf canary modules> -q  → 107 passed in 106.85s
+ruff check / ruff format --check     → clean, 563 files
+mypy app                             → Success: no issues found in 328 source files
+python -m pytest -q                  → 2403 passed, 10 skipped in 1897.80s (0:31:37)
+alembic heads → 1 · alembic check → No new upgrade operations detected.
+postgres gates                       → 6 passed (NOSUPERUSER, fresh database)
+```
+
+**The silent-failure probe.** `einvoice.extract_embedded_xml` reads
+`PdfReader.attachments`, documented in the code as `{name: [bytes, ...]}`, and
+it wraps the whole read in `except Exception: return None`. If pypdf 6 had
+changed that mapping's shape, a hybrid PDF would have stopped being recognised
+as an e-invoice and fallen through to the OCR/AI chain **silently, with the
+suite still green**. So it was probed through the real product function rather
+than inferred: the canonical filename resolves, a non-preferred `.xml` name
+still resolves via the `looks_like_einvoice` sniff, a `.txt` attachment is
+correctly *not* mistaken for one, an attachment-free PDF and outright garbage
+both return `None` rather than raise, and the payable amount `1234567.89`
+survives byte-identical. Every line identical to pypdf 5.1.0.
+
+**pypdf 6.0.0's own breaking changes are thin**: drop Python 3.8 (we are on
+3.11), a deprecation cleanup, and one security change — a FlateDecode
+decompressed-size limit, `ZLIB_MAX_OUTPUT_LENGTH = 75,000,000` bytes per stream.
+
+**Exposure to that cap, measured rather than assumed: very low.** pypdf is *not*
+on the uploaded-PDF text-extraction path — `extraction_provider` reaches
+`pdf_ocr`, which uses **pdfplumber** for the text layer and **pypdfium2** to
+rasterise for OCR (`grep -rn "pypdf" extraction_provider.py pdf_ocr.py` returns
+only `pypdfium2`). The only upload-reachable pypdf call is
+`einvoice.extract_embedded_xml`, which decompresses the embedded XML attachment
+— kilobytes, four orders of magnitude under the 75 MB cap — and the only write
+path clones a PDF this application generated itself. The general upload cap is
+`filesec.max_bytes()` = `MAX_UPLOAD_MB` (default 15 MB) anyway.
+
+**Baseline delta: 0.** 2403 → 2403 passed, 10 → 10 skipped.
+
 ### Stage E — React 18.3.1 → 19.2.8 (MAJOR quartet)
 
 `react`, `react-dom`, `@types/react` 18.3.31→19.2.18 and `@types/react-dom`
