@@ -31,6 +31,67 @@ separately on real Postgres), 0 known regressions, as of WO-70. WO-71: 1699 → 
 
 ---
 
+## Release status — 2026-08-09
+
+**Verdict: release-PREPARED, not released.** Ready for a supervised pilot with
+a client who knows they are one; not ready for self-serve. Full gate,
+evidence and criteria: [`docs/RELEASE-READINESS.md`](docs/RELEASE-READINESS.md).
+
+**Verified at `97fc5e3`** (executed, not recalled): browser suite 270 passed ·
+ruff clean · 563 files formatted · mypy clean over 328 files · single head
+`d4c7b1e93f27` · `alembic check` no drift on real Postgres 16 · Postgres-only
+gates (RLS + numbering + lock concurrency) 6 passed under a NOSUPERUSER role ·
+pii-scan clean. Backend suite reported 2403/10 by WO-95; an independent re-run
+is in flight and that row is marked to be confirmed or corrected from it.
+
+**Blocking release, none of it engineering's to clear:**
+- [ ] **GitHub Actions has no runners** — every job fails in ~1s with
+  `runner_id: 0` and no logs (account/quota condition). Consequence: no
+  independent verification of anything, no routine Postgres gate, no docker
+  build per change. **This alone disqualifies a release.**
+- [ ] **Branch never merged; `main` cannot build** until the `manualChunks`
+  fix reaches it.
+- [ ] **No fee rate configured** — by WO-95's fail-closed design, no claim can
+  be filed until the percentage and minimum are typed.
+- [ ] **R14 backup/restore** — still decision-gated. No client data should
+  enter a system whose restore has never been rehearsed.
+- [ ] **Nothing validated against real data.** Every test is self-authored
+  over fixtures derived from a harvested spec: they prove internal
+  consistency, not correctness. WO-84 is the evidence — `net_eur_eff` was
+  silently identical to `net_eur`, so the platform demanded money from
+  suppliers who had already paid, and every test passed. **A shadow run (one
+  real client, one real quarter, reconciled against what was actually filed
+  and recovered) is the cheapest way to find the next one.**
+
+---
+
+## New work created by the 2026-08-08 decisions
+
+Recorded in `docs/DECISIONS-NEEDED.md` → "Decisions taken". Two answers went
+beyond the question and opened work rather than closing it.
+
+- [ ] **Supplier reliability rating** (from §12) — owner-specified criteria:
+  overcharges, exchange-rate treatment, and lines charged that were never
+  agreed. This is G4.7's deferred reliability board arriving with its spec.
+  Needs a design pass before code: each criterion's contribution, the window,
+  and a presentation that reads as evidence rather than a verdict on a
+  counterparty.
+- [ ] **Partial rejection of a VAT claim** (from §13) — does not exist;
+  `status.py` names the "decision received"/"rejected" transitions as unbuilt
+  and entangled with G2.9. `fee.py` documents the seam it would use
+  (recompute over a reduced base at the *frozen* rate).
+- [ ] **§11 supplier list** on an `UNMATCHED` claim line — small, specified,
+  serves the preparation surface only (these lines are already refused at
+  submit by R3).
+- [ ] **§12 explicit `ignore`** on a detected overcharge — audited, so a
+  breach nobody intends to chase can leave the worklist without pretending it
+  was written off.
+- [ ] **Still open from the owner:** the fee percentage and minimum; and
+  whether §13's freeze-until-partial-rejection applies to supplier overcharge
+  claim-backs or only to VAT claims.
+
+---
+
 ## Dependency & CI health (out-of-band, 2026-08-08)
 
 The eight Dependabot PRs were merged to `main` at the owner's direction. Five landed
