@@ -612,3 +612,55 @@ it.** It stays recorded as the Stage B follow-up. Stated here so nobody reads
 the restored chunk sizes as the regression having gone away.
 
 **Baseline delta: 0.** 270 → 270 e2e.
+
+---
+
+## Deferred, with reasons
+
+**`stripe` stays at the commented `11.4.1`** (latest 15.5.0). It is commented
+out in `requirements.txt`, is not installed, and `billing_provider.py` imports
+it *lazily* and only when a Stripe secret key is set — so **no test in the suite
+can execute a single line of that path**. Moving the number would be moving a
+pin on faith, which is the one thing this order set out not to do, and 11→15 is
+four majors over an API surface (`stripe.Customer.create`,
+`stripe.checkout.Session.create`, `stripe.Webhook.construct_event`,
+`stripe.billing.MeterEvent.create`) that Stripe has been migrating toward a
+`StripeClient` pattern throughout. It belongs to the billing go-live under
+ADR-0013, where a sandbox key makes it verifiable. `clamd` is already at latest.
+
+Nothing else is deferred: **every** other pin in `requirements.txt`,
+`requirements-dev.txt` and `package.json` is at its latest release, re-checked
+against the registries at the end of the session to confirm nothing moved during
+it.
+
+## Left undone / follow-ups
+
+1. **The Vite 8 first-load regression (§3.8 of `docs/RELEASE-READINESS.md`).**
+   Needs its own order. The measurement is done and recorded above so whoever
+   takes it starts from evidence; the open question is a product one — accept a
+   ~2.3× first-load cost, or adopt a rolldown-specific chunking config and give
+   up the portable one-config property. Estimate: S, once that call is made.
+2. **`tests/test_rls.py` assumes a virgin database.**
+   `test_rls_users_visibility_is_membership_driven` inserts a fixed
+   `switched@x.io` and fails on a re-used cluster. Harmless in CI, which builds
+   a fresh service container per job; a papercut for anyone running the gate
+   locally twice. Not fixed here — changing a test to suit a bump, even
+   cosmetically, is exactly what this order forbade itself. Estimate: XS.
+3. **None of this has independent verification.** See §3.2 — every figure came
+   from one machine because CI has no runners.
+
+## What a reviewer should re-check by hand
+
+- Re-run `python -m pytest -q` and `npm run test:e2e` and confirm **2403/10**
+  and **270**. That is the whole regression net, and it is the claim everything
+  else rests on.
+- `git log --oneline 6a3a43b..HEAD` — confirm each major is **alone** in its
+  commit, so any one can be reverted without the others.
+- `git diff 6a3a43b..HEAD -- backend/app frontend/src` — should be **empty**.
+  No application code changed anywhere in this order; if that diff is not empty,
+  something was smuggled into a version bump.
+- The Playwright pair guard: `npx playwright --version` against the image tag in
+  `.github/workflows/ci.yml`.
+- The document renderers, if you trust nothing else: render an invoice and a
+  claim letter and read the money on them. reportlab and pypdf both moved a
+  major under documents that go to a tax authority.
