@@ -406,3 +406,62 @@ after normalisation.
 
 **Baseline delta: 0.** 2403 → 2403 passed, 10 → 10 skipped, 270 → 270 e2e.
 Zero assertions weakened, zero tests skipped, zero fixtures touched.
+
+### Stage B — vite 6.4.3 → 8.2.1 + @vitejs/plugin-react 4.7.0 → 6.0.5 (MAJOR pair)
+
+Moved together, as the pair analysis required. Frontend-only: no backend run.
+
+```
+npm ls --depth=0 → @vitejs/plugin-react@6.0.5 · vite@8.2.1
+npm run build    → ✓ built in 695ms   (tsc --noEmit clean)
+npm run test:e2e → 270 passed (1.9m)
+grep -n "manualChunks(id: string)" vite.config.ts → 28:  (function form NOT regressed)
+ls dist/assets | grep -E '^(vendor|recharts)-' → both chunks still emit
+```
+
+`vite.config.ts` is **byte-identical** — `git diff --stat vite.config.ts` empty.
+The function form of `manualChunks` did its job: the same config built on rollup
+under vite 6 and on rolldown under vite 8.
+
+#### BEHAVIOUR CHANGE — a first-load regression that passes every test
+
+The chunk *names* survive, so nothing in the suite notices. What moved is which
+modules land in them. Measured by building both versions and reading the
+**sourcemap `sources` lists**, not by grepping minified output:
+
+| | vite 6 (rollup) | vite 8 (rolldown) |
+|---|---|---|
+| `react.production.min.js`, `react-dom.production.min.js`, `scheduler` | **`vendor`** | **`recharts`** |
+| `vendor` chunk | 273.49 kB | 77.18 kB |
+| `recharts` chunk | 418.11 kB | 544.26 kB |
+| `index.html` modulepreloads | `index`, `vendor` | `index`, `vendor`, **`recharts`**, `rolldown-runtime`, `chunk-62JRHF6Z` |
+| total JS emitted | 1,304,910 B / 96 files | 1,290,897 B / 79 files |
+
+Because the React runtime now lives inside the `recharts` chunk, and React is
+needed on every page, **the 544 kB chart bundle is now modulepreloaded on every
+page load — including pages with no chart.** Under vite 6 it was fetched only by
+the pages that render charts. Critical-path JS goes from roughly
+`index 55.93 + vendor 273.49 ≈ 329 kB` to
+`index 61.64 + vendor 77.18 + recharts 544.26 + chunk 39.33 + runtime ≈ 722 kB`.
+
+Total emitted bytes actually fell 14,013 B (−1.1%) and the file count fell from
+96 to 79, so an aggregate size check would have called this an improvement. It
+is not one: the aggregate got smaller while the *first paint* roughly doubled.
+
+**Cause: rolldown, not our config.** Tested directly — reordering the
+`manualChunks` rules so the `VENDOR_CHUNK` match wins before the `recharts`
+match produced a byte-identical result (`vendor` 77.22 kB, `recharts` 544.30 kB,
+same preload set). Rolldown treats `manualChunks` as a hint and reassigns the
+shared runtime itself. The experiment was reverted; `vite.config.ts` is unchanged.
+
+**Not fixed here, deliberately.** The only levers that would move it are
+rolldown-specific (`build.rolldownOptions.output.codeSplitting`, which the build
+warning itself suggests, or `advancedChunks`). Adopting one would destroy the
+property this repo deliberately bought at `9540ab3` — *one config shape that
+builds on rollup AND rolldown* — and would be inventing a chunking strategy
+under cover of a version bump. Correctness is unaffected: 270 e2e green, build
+clean, every chunk the config asks for still emitted. **Recorded as a follow-up**
+(see "Left undone"), with the measurement above so whoever picks it up starts
+from evidence rather than from a rebuild.
+
+**Baseline delta: 0.** 270 → 270 e2e. No backend surface touched.
