@@ -466,6 +466,53 @@ from evidence rather than from a rebuild.
 
 **Baseline delta: 0.** 270 → 270 e2e. No backend surface touched.
 
+### Stage C — reportlab 4.2.5 → 5.0.0 (MAJOR)
+
+The renderer behind the VAT claim pack, the supplier overcharge demand letter,
+the issued sales invoice and the expense report.
+
+```
+pytest <11 PDF canary modules> -q → 128 passed in 118.38s
+ruff check / ruff format --check  → clean, 563 files
+mypy app                          → Success: no issues found in 328 source files
+python -m pytest -q               → 2403 passed, 10 skipped in 1893.43s (0:31:33)
+postgres gates                    → 6 passed (NOSUPERUSER, fresh database)
+```
+
+**Parsed-sample verification — the green suite was not treated as sufficient.**
+The golden capture was re-run under 5.0.0 and diffed against the 4.2.5 output
+with only reportlab's `Generated at` stamp and the version banner normalised:
+
+```
+GOLDEN IDENTICAL — no rendering or money-formatting change
+```
+
+That covers page geometry (`595.28x841.89`), the full extracted text in order,
+and every money edge case rendered exactly as the server quantized it —
+`1234567.89`, `0.01`, `-100.00`, `0.00`, `2.005`. **§4.9 holds:** the renderer
+reproduces the Decimal-derived strings and does not reformat them.
+
+**The one real breaking change in 5.0.0, assessed and closed.** Its changelog
+carries exactly one behavioural entry: *"make `trustedHosts` None mean no hosts
+are trusted in `open_for_read`"* — a security inversion, where `None` previously
+meant *trust everything*. It can only bite a renderer that fetches a resource by
+URL. Ours never does: the only image path is
+`app/services/invoice_pdf.py:148`, `Image(io.BytesIO(logo[1]), …)`, whose logo
+arrives as `tuple[str, bytes]` already in memory. `grep` for
+`trustedHosts|open_for_read|https?://` across all four renderer modules returns
+nothing. So the change is inert here — and it is an improvement in posture, not
+a risk.
+
+**Baseline delta: 0.** 2403 → 2403 passed, 10 → 10 skipped.
+
+> **Environment note, not a defect in this order.** The first Postgres-gate run
+> failed `test_rls_users_visibility_is_membership_driven` with a duplicate
+> `ix_users_email` on `switched@x.io` — a row left by the Stage A run in the
+> scratch cluster I was *reusing*. CI provisions a fresh `postgres:16-alpine`
+> service per job, so it never sees this. Fixed by dropping and recreating the
+> database to match CI, after which all 6 pass. **No test was touched.** Worth
+> knowing that this gate assumes a virgin database.
+
 ### Stage E — React 18.3.1 → 19.2.8 (MAJOR quartet)
 
 `react`, `react-dom`, `@types/react` 18.3.31→19.2.18 and `@types/react-dom`
