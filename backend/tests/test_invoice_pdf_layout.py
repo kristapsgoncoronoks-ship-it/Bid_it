@@ -354,6 +354,35 @@ def test_seller_payment_instructions_and_notes_are_rendered():
     assert "Registered in Estonia." in text
 
 
+def test_a_credit_note_does_not_ask_to_be_paid():
+    """A credit note owes the READER money. It printed the seller's collection
+    IBAN under a "Payment" heading beside `payment_instructions` — free text
+    written for invoices, so in practice a due-in-N-days demand — on a document
+    that is not payable at all.
+
+    The IBAN is the load-bearing assertion: a bank account on a credit note is
+    not merely confusing, it is an instruction a reader can act on wrongly.
+    """
+    seller = _seller(payment_instructions="Payment within 14 days.", notes="Registered in Estonia.")
+    invoice = _invoice(doc_type="credit_note", number="CN-2026-0007", due_date=None)
+    text = _text(_render(invoice=invoice, seller=seller))
+
+    assert seller["iban"] not in text, "the collection IBAN is on a credit note"
+    assert seller["bic"] not in text
+    assert "Payment within 14 days." not in text, "an invoice instruction on a credit note"
+    # Capitalised: the block heading. "No payment is due" keeps the lower-case word.
+    assert "Payment" not in text, "a credit note still headed as a payment"
+
+    # What replaces it must be true of every credit note and claim nothing about
+    # HOW the credit is settled — offset or refund is not known at this layer.
+    assert "Credit" in text
+    assert "No payment is due on this document." in text
+    assert "Please quote CN-2026-0007 as the reference." in text
+    assert "Registered in Estonia." in text, "the seller's own note still carries"
+    for invented in ("refund", "offset", "will be credited to your account"):
+        assert invented not in text.lower(), f"the renderer guessed at settlement: {invented}"
+
+
 # --- the logo ------------------------------------------------------------------
 
 

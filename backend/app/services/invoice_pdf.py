@@ -436,18 +436,34 @@ def build_pdf(
     story += [tbl, Spacer(1, 18)]
 
     # ── Payment details ───────────────────────────────────────────────────────
-    pay = ["<b>Payment</b>"]
-    if seller.get("iban"):
-        pay.append(
-            _join([f"IBAN {seller['iban']}", f"BIC {seller['bic']}" if seller.get("bic") else ""])
-        )
-    if number:
-        pay.append(
-            f"Please quote {number} as the reference."
-            if is_credit
-            else f"Please quote {number} as the payment reference."
-        )
-    for key in ("payment_instructions", "email", "notes"):
+    # A credit note is NOT payable — it reduces what the buyer owes. The heading,
+    # the seller's collection IBAN and `payment_instructions` (free text written
+    # for invoices, typically "payment within N days") were printed on it
+    # unchanged, so a document that owes the reader money asked them to pay it.
+    # Only the reference wording had been made conditional, which made the rest
+    # read as deliberate.
+    #
+    # On a credit note the block therefore states the one thing true of EVERY
+    # credit note and stops. Whether this credit is offset against the account or
+    # refunded to a bank account is not known at this layer, so it is not
+    # guessed; the seller's own `notes` remain the place to say so.
+    if is_credit:
+        pay = ["<b>Credit</b>", "No payment is due on this document."]
+        if number:
+            pay.append(f"Please quote {number} as the reference.")
+        seller_keys = ("email", "notes")
+    else:
+        pay = ["<b>Payment</b>"]
+        if seller.get("iban"):
+            pay.append(
+                _join(
+                    [f"IBAN {seller['iban']}", f"BIC {seller['bic']}" if seller.get("bic") else ""]
+                )
+            )
+        if number:
+            pay.append(f"Please quote {number} as the payment reference.")
+        seller_keys = ("payment_instructions", "email", "notes")
+    for key in seller_keys:
         if seller.get(key):
             pay.append(str(seller[key]))
     story += [KeepTogether([Paragraph("<br/>".join(pay), quiet)])]

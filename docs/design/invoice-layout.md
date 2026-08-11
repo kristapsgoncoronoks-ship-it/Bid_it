@@ -92,11 +92,24 @@ does not match the document is a statement a reader cannot check. Continuation
 pages repeat the document heading and number so a detached sheet is
 identifiable.
 
-**Compliance text is conditional on being true.** The Factur-X line (`a9f6be9` /
-`c1e5ee8`) prints only when XML is really embedded, and an empty attachment is
-never written. The same principle governs `Total credited` on a credit note
-(which is not payable) and the `DUE` column (dropped, not printed blank, when
-there is no due date).
+**Compliance text is conditional on being true.** The Factur-X line (`c1e5ee8`)
+prints only when XML is really embedded, and an empty attachment is never
+written. The same principle governs `Total credited` on a credit note (which is
+not payable) and the `DUE` column (dropped, not printed blank, when there is no
+due date — and `issued_service` sets `due_date=None` on every credit note, so a
+credit note never shows one).
+
+**A credit note never asks to be paid.** It reduces what the buyer owes, so the
+block that on an invoice carries the collection IBAN and the seller's
+`payment_instructions` is replaced on a credit note by the heading `Credit`, the
+sentence *No payment is due on this document.*, and the reference. The IBAN is
+the load-bearing omission: a bank account on a credit note is not merely
+confusing, it is an instruction a reader can act on wrongly. What it must **not**
+do is say how the credit settles — offset against the account or refunded to a
+bank account is not known at this layer, so it is not guessed; the seller's own
+`notes` remain the place to say so. Pinned by
+`test_a_credit_note_does_not_ask_to_be_paid`, which fails against the previous
+renderer.
 
 **The logo gate fails open.** A corrupt or unreadable logo is logged and
 dropped. The document is legally complete without a mark and incomplete without

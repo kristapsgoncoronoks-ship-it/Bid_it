@@ -199,10 +199,17 @@ an hour earlier; caught here only by stashing the fix and watching the test stil
   see layout. Seven cases were rasterised and looked at: simple, three VAT rates, 28 lines
   across three pages, credit note, reverse-charge exemption, seven-figure + negative amounts,
   no PO.
-- [ ] **OPEN — a credit note still prints a payment block headed "Payment".** The heading,
-  the seller's "payment within N days" instruction and the `DUE` date are all rendered on a
-  document that is not payable, even though the title and `Total credited` correctly are not.
-  Small, real, and a content decision rather than a layout one — own order.
+- [x] **A credit note no longer asks to be paid** (`610016e`). It printed the collection IBAN
+  under a "Payment" heading beside the seller's `payment_instructions` — free text written for
+  invoices, in practice a due-in-N-days demand — on a document that is not payable. Only the
+  reference wording had been made conditional, which made the rest read as deliberate. Now:
+  `Credit` / *No payment is due on this document.* / the reference, and **no guess** at whether
+  the credit is offset or refunded, since this layer does not know.
+  **Correction to the first report of this:** the `DUE` date was also flagged and was **not** a
+  product defect — `issued_service` sets `due_date=None` on every credit note and the renderer
+  already drops the column. It appeared only because the throwaway render harness invented a
+  due date. Rendering a case the product cannot produce is a way to report a bug that is not
+  there; the fix is to build the stress case from the shape the service actually writes.
 - [ ] **OPEN — the corrected invoice's number is not printed on a credit note.** Art. 219
   treats a corrective document as referring to the original. `build_pdf` receives
   `corrected_invoice_id` but not the corrected invoice; wiring a DB read into a pure renderer
