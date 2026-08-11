@@ -7,7 +7,7 @@ A transport vertical (EU cross-border VAT refunds, Dir. 2008/9/EC) is planned as
 plug-in bounded context ([ADR-0023](./docs/architecture/adr/0023-platform-evolution-and-transport-seam.md)).
 
 **Stack:** FastAPI + async SQLAlchemy 2.0 + Alembic on PostgreSQL (SQLite for
-zero-setup dev/test) · React 18 + Vite + TypeScript + Tailwind SPA · Docker.
+zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 
 **Scale of the codebase (verified against this tree):** 84 database tables
 (91 Alembic revisions, single head), 47 model modules, 83 service modules,

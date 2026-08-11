@@ -465,3 +465,58 @@ clean, every chunk the config asks for still emitted. **Recorded as a follow-up*
 from evidence rather than from a rebuild.
 
 **Baseline delta: 0.** 270 → 270 e2e. No backend surface touched.
+
+### Stage E — React 18.3.1 → 19.2.8 (MAJOR quartet)
+
+`react`, `react-dom`, `@types/react` 18.3.31→19.2.18 and `@types/react-dom`
+18.3.7→19.2.4 moved as one commit. Owner action 5 in
+`docs/RELEASE-READINESS.md` — *"land react/react-dom together, or neither"* — is
+now answered on this branch.
+
+```
+npx tsc --noEmit → TSC_EXIT=0        (clean on the first attempt, 55 pages)
+npm run build    → ✓ built in 1.01s
+npm run test:e2e → 270 passed (2.8m)
+```
+
+**No application code needed changing.** That was not luck; it was checked before
+bumping. The SPA was already clear of every removed React 19 API:
+`src/main.tsx` already uses `ReactDOM.createRoot` (not the removed
+`ReactDOM.render`); no `propTypes` or `defaultProps` on any function component;
+no string refs and no `findDOMNode`; every `useRef` call already passes an
+argument (React 19 made it required); no `JSX.*` namespace references (the
+namespace moved); no `React.FC`. The single `forwardRef` (`components/ui/Button.tsx`)
+is deprecated in 19 but still supported, so it is left alone — rewriting it would
+be scope creep, not a forced change.
+
+**No React deprecation warnings at runtime.** The e2e output carries 100
+warning-shaped lines; all 100 are `[WebServer] … vite http proxy error … connect
+ECONNREFUSED …:8000`, which is expected — the browser suite runs against the
+`/design` fixture showcase with no backend behind the dev proxy — and the same
+lines appear in the Stage A run under React 18. Filtering for React/hydration/
+deprecation vocabulary returns nothing.
+
+#### The Stage B regression: rebalanced, NOT resolved
+
+React 19 changes the chunk split again, because its build layout differs from
+18's. Measured the same way (sourcemap `sources`):
+
+| Critical-path JS (`index.html` preloads) | bytes |
+|---|---|
+| vite 6 + React 18 — `index` + `vendor` | **~329 kB** |
+| vite 8 + React 18 — `index` + `runtime` + `recharts` + `vendor` + `chunk` | ~723 kB |
+| vite 8 + React 19 — same five | **772,780 B** |
+
+Under React 19 the *sizes* return close to the original split (`vendor`
+77.18→255.31 kB, `recharts` 544.26→415.77 kB, both near their vite 6 values),
+but **the preload set is unchanged: `recharts` is still fetched on every page**,
+because `react.production.js` / `react-dom.production.js` still land in that
+chunk while `react-dom-client.production.js` and `scheduler` land in `vendor`.
+So the critical path stays roughly 2.3× the vite 6 baseline — very slightly
+worse than Stage B, not better.
+
+**This is a vite 8 / rolldown property, and React 19 neither causes nor cures
+it.** It stays recorded as the Stage B follow-up. Stated here so nobody reads
+the restored chunk sizes as the regression having gone away.
+
+**Baseline delta: 0.** 270 → 270 e2e.
