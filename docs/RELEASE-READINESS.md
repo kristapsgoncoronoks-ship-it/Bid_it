@@ -1,6 +1,6 @@
 # Release readiness — go/no-go gate
 
-**Commit:** `97fc5e3` · **Branch:** `claude/bidit-invoice-data-analytics` · **Assessed:** 2026-08-09
+**Commit:** `ce37708` · **Branch:** `claude/bidit-invoice-data-analytics` · **Assessed:** 2026-08-11
 
 This is the release gate for InvoiceIQ. It records what is **verified by
 evidence**, what is **not verified and why**, and the criteria each release
@@ -24,22 +24,41 @@ verification pipeline is currently blind.
 
 ---
 
-## 2. Verified at `97fc5e3`
+## 2. Verified at `ce37708`
 
 Every line below was executed against this commit. Where a claim could not be
 executed, it is in §3 instead.
 
 | Check | Result | How |
 |---|---|---|
-| Backend suite | **2403 passed, 10 skipped** — independently re-run against this commit and confirmed, matching WO-95's reported figure exactly | `pytest -q`, full run, 52m |
+| Backend suite | **2403 passed, 10 skipped** — unchanged across every dependency bump in WO-96 | `pytest -q`, full run, 31m 37s |
 | Browser suite | **270 passed** | `npm run test:e2e`, the CI list |
-| Lint | clean | `ruff check app tests` |
+| Lint | clean | `ruff check app tests` (ruff 0.16.2) |
 | Format | 563 files clean | `ruff format --check` |
 | Types | no issues, 328 files | `mypy app` |
-| Migrations | single head `d4c7b1e93f27` | `alembic heads` |
+| Migrations | single head `d4c7b1e93f27` | `alembic heads` (alembic 1.19.1) |
 | Migration drift | none | `alembic check` on Postgres 16 |
 | Postgres gates | **6 passed** | RLS + numbering + lock concurrency, NOSUPERUSER role |
 | PII quarantine | clean | `scripts/pii_scan.py --tree` |
+| Dependency currency | **every backend and frontend dependency at latest** | WO-96, five staged commits |
+| Playwright pair | library 1.62.1 = CI image `v1.62.1-jammy` | the `ci.yml` guard, reproduced locally |
+| `npm audit` | **0 vulnerabilities** (was 1 moderate + 3 high) | `npm ci` |
+
+**Dependencies (WO-96, 2026-08-11).** Every pin is now at the latest release,
+converging on what `main` already carried. Two backend majors (reportlab 4→5,
+pypdf 5→6) and two frontend majors (vite 6→8 with `@vitejs/plugin-react` 4→6;
+React 18→19 with both type packages) each landed in their own commit with their
+own full verification. The suites did not move: 2403/10 and 270 before and after
+each stage, with **no test weakened, skipped or deleted**.
+
+The document renderers were verified by **parsing generated output**, not by
+trusting a green suite: page geometry, extracted text in order, the money edge
+cases `1234567.89 / 0.01 / -100.00 / 0.00 / 2.005`, and the embedded
+`factur-x.xml` attachment bytes were all identical before and after. This
+matters because those documents go to a tax authority and to suppliers.
+
+**One behaviour change is open and is a performance regression, not a
+correctness one** — see §3.8.
 
 **Structural guarantees** (each proven by a test that fails when violated,
 several with seeded-violation self-tests):
@@ -76,9 +95,19 @@ not a code fault. Consequence: the only verification is a developer running
 the suite locally. No independent check, no routine Postgres gate, no docker
 build per change.
 
-**3.3 The branch has never merged.** 95 work orders on one pull request, and
-`main` cannot currently build (it needs the `manualChunks` fix that lives on
-this branch). Long-lived divergence is itself a release risk.
+This is now load-bearing rather than merely inconvenient. WO-96 moved four
+majors across both halves of the stack with **no independent confirmation
+available at all** — every figure in §2 comes from one machine, including the
+Postgres gates, which had to be run against a hand-built scratch cluster with a
+`NOSUPERUSER` role rather than the CI service container. A reviewer cannot
+currently check any of it by clicking a green tick.
+
+**3.3 The branch has never merged.** 96 work orders on one pull request. The
+`manualChunks` fix `main` needs still lives only here — but the gap has narrowed
+in the other direction: WO-96 brought this branch onto the same versions `main`
+already carried (reportlab 5, pypdf 6, vite 8, plugin-react 6, both minor/patch
+groups) and past it on react/react-dom, so the merge is a smaller event than it
+was. Long-lived divergence remains a release risk.
 
 **3.4 No backup/restore tooling** (audit item **R14**, decision-gated). The
 system would hold client invoice documents and VAT claims with no tested
@@ -95,6 +124,26 @@ Fleet Fuel values.
 
 **3.7 No filing is possible until a fee rate is configured** (WO-95, by
 design — fail-closed rather than invent a charge).
+
+**3.8 The SPA's first-load payload roughly doubled under Vite 8** (WO-96 Stage
+B, open). Vite 8 bundles with rolldown, which reassigns the shared React runtime
+regardless of what `manualChunks` asks for. The consequence is that the 416 kB
+`recharts` chunk is now `modulepreload`ed on **every** page, including pages
+with no chart; under Vite 6 it was fetched only where charts render.
+Critical-path JS measured from `index.html`: **~329 kB → 772,780 B**.
+
+Correctness is unaffected — 270 browser specs green, both named chunks still
+emitted, `vite.config.ts` byte-identical. Two traps worth recording: total
+emitted bytes *fell* 1.1% and the file count fell 96→79, so an aggregate size
+check scores this an improvement; and React 19 restored the chunk *sizes* to
+near their Vite 6 values, which reads like a fix but is not one — the preload
+set is unchanged.
+
+Not fixed in WO-96 deliberately: the only levers are rolldown-specific
+(`rolldownOptions.output.codeSplitting`, `advancedChunks`) and adopting one
+would destroy the one-config-builds-on-either-bundler property bought at
+`9540ab3`, under cover of a version bump. It needs its own order. Measurements
+are in `docs/plan/plan-a/wo/WO-96-dependency-modernisation.md`.
 
 ---
 
@@ -139,8 +188,11 @@ design — fail-closed rather than invent a charge).
 3. **Set the fee percentage and minimum.** No filing is possible without it.
 4. **Decide R14** — infrastructure DR runbook, or app-owned backup/restore —
    then run the drill.
-5. **Land react/react-dom (#28/#27) together, or neither.** They are a matched
-   pair; one alone breaks `main` exactly as vite did.
+5. ~~**Land react/react-dom (#28/#27) together, or neither.**~~ **Done on this
+   branch** (WO-96 Stage E, `0377b66`): react, react-dom and both `@types`
+   packages moved to 19.2.8/19.2.x in one commit, with no application code
+   change needed and 270 browser specs green. It still has to reach `main` via
+   action 2.
 6. **Provide the PII deny-list and salt** from the offline archive.
 7. **Confirm §13's scope** — does freeze-until-partial-rejection apply to
    supplier overcharge claim-backs, or only to VAT claims?
