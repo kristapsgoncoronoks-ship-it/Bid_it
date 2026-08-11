@@ -31,7 +31,7 @@ executed, it is in §3 instead.
 
 | Check | Result | How |
 |---|---|---|
-| Backend suite | **2403 passed, 10 skipped** — reported by WO-95 at this commit; independent re-run in progress at the time of writing, and this row is to be re-confirmed or corrected from it | `pytest -q`, full run |
+| Backend suite | **2403 passed, 10 skipped** — independently re-run against this commit and confirmed, matching WO-95's reported figure exactly | `pytest -q`, full run, 52m |
 | Browser suite | **270 passed** | `npm run test:e2e`, the CI list |
 | Lint | clean | `ruff check app tests` |
 | Format | 563 files clean | `ruff format --check` |
