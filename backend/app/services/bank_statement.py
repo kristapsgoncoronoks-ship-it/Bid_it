@@ -34,6 +34,12 @@ class Txn:
     amount: Decimal  # positive magnitude
     direction: str  # "debit" (money out) | "credit" (money in)
     balance: Decimal | None = None
+    # The currency the BANK stated for this entry, when it stated one (camt
+    # carries `Amt/@Ccy`). None means the source did not say — a CSV or PDF
+    # statement usually does not — and None is never filled in by guessing the
+    # organisation's currency: an amount whose unit is assumed is how a USD
+    # receipt silently settles a EUR invoice.
+    currency: str | None = None
 
 
 @dataclass
@@ -203,6 +209,15 @@ def _looks_like_camt(content: bytes) -> bool:
     return b"camt.053" in head or b"bktocstmrstmt" in head
 
 
+def fsum_eq(priced, total: Decimal) -> bool:
+    """Do the priced details account for the whole entry, exactly?
+
+    Exactly, not approximately: a tolerance here would let a batch whose parts
+    do not add up be silently rewritten into parts that do.
+    """
+    return sum((a for _, (a, _c) in priced), Decimal("0")) == total
+
+
 def _parse_camt053(content: bytes, warnings: list[str]) -> list[Txn]:
     from defusedxml import ElementTree as DET  # XXE-hardened parse
 
@@ -225,17 +240,53 @@ def _parse_camt053(content: bytes, warnings: list[str]) -> list[Txn]:
         ]
         return "; ".join(parts)[:300] or "Transaction"
 
-    txns: list[Txn] = []
-    for ntry in (e for e in root.iter() if _local(e.tag) == "Ntry"):
-        amt_el = child(ntry, "Amt")
-        cd_el = child(ntry, "CdtDbtInd")
-        if amt_el is None or amt_el.text is None or cd_el is None:
-            continue
+    def status_of(el) -> str:
+        """`Sts` is a bare code in camt.053.001.02 and a nested `<Sts><Cd>` from
+        .001.08 onward. Absent means booked — the statement is a booked-entry
+        report — so only an explicit non-BOOK code is treated as unsettled."""
+        sts = child(el, "Sts")
+        if sts is None:
+            return "BOOK"
+        cd = child(sts, "Cd")
+        raw = (cd.text if cd is not None else sts.text) or ""
+        return raw.strip().upper() or "BOOK"
+
+    def reversed_(el) -> bool:
+        """`RvslInd` true means this entry REVERSES an earlier one, so a CRDT
+        reversal is money going OUT. Ignoring it books the clawback as a second
+        payment — the account gains twice what the bank says it did."""
+        r = child(el, "RvslInd")
+        return r is not None and (r.text or "").strip().lower() in ("true", "1")
+
+    def amount_of(el) -> tuple[Decimal, str | None] | None:
+        a = child(el, "Amt")
+        if a is None or a.text is None:
+            return None
         try:
-            amount = Decimal(amt_el.text.strip()).quantize(_CENTS)
+            return Decimal(a.text.strip()).quantize(_CENTS), (a.get("Ccy") or "").strip() or None
         except (ArithmeticError, ValueError):
+            return None
+
+    txns: list[Txn] = []
+    skipped_pending = 0
+    saw_reversal = False
+    for ntry in (e for e in root.iter() if _local(e.tag) == "Ntry"):
+        status = status_of(ntry)
+        if status != "BOOK":
+            # PDNG (and any other non-booked code) is money the bank has not
+            # settled. Importing it as cash overstates the balance and can
+            # settle an invoice against a payment that may still fail.
+            skipped_pending += 1
             continue
+        amt = amount_of(ntry)
+        cd_el = child(ntry, "CdtDbtInd")
+        if amt is None or cd_el is None:
+            continue
+        amount, ccy = amt
         direction = "credit" if (cd_el.text or "").strip().upper() == "CRDT" else "debit"
+        if reversed_(ntry):
+            direction = "debit" if direction == "credit" else "credit"
+            saw_reversal = True
         # NB: `X or Y` is unsafe for ElementTree elements — an element with no
         # sub-elements is FALSY — so resolve the date holder/field with `is None`.
         dt_holder = child(ntry, "BookgDt")
@@ -253,7 +304,64 @@ def _parse_camt053(content: bytes, warnings: list[str]) -> list[Txn]:
                     d = None
         if d is None:
             continue  # a bookable entry must carry a date
-        txns.append(Txn(date=d, description=descr(ntry), amount=amount, direction=direction))
+
+        # A BATCHED entry (one booking covering many payments) carries a
+        # `TxDtls` per underlying payment. Collapsed to the batch total it is
+        # one unmatchable blob: a collection covering forty invoices arrives as
+        # a single figure with forty references crammed into its description.
+        #
+        # The split is taken ONLY when it is provably complete — every detail
+        # carries its own amount and they sum to the entry. A partial split
+        # would invent a breakdown the bank did not give, so in that case the
+        # entry stays whole and says so.
+        details = [
+            (t, amount_of(t)) for t in ntry.iter() if _local(t.tag) == "TxDtls" and t is not ntry
+        ]
+        priced = [(t, a) for t, a in details if a is not None]
+        if len(priced) > 1 and fsum_eq(priced, amount):
+            for det, (det_amount, det_ccy) in priced:
+                txns.append(
+                    Txn(
+                        date=d,
+                        description=descr(det),
+                        amount=det_amount,
+                        direction=direction,
+                        currency=det_ccy or ccy,
+                    )
+                )
+            continue
+        if len(details) > 1:
+            warnings.append(
+                f"A batched entry of {amount} on {d} covers {len(details)} payments the bank did "
+                "not price individually; it is imported as one line."
+            )
+        txns.append(
+            Txn(
+                date=d,
+                description=descr(ntry),
+                amount=amount,
+                direction=direction,
+                currency=ccy,
+            )
+        )
+
+    if skipped_pending:
+        warnings.append(
+            f"{skipped_pending} "
+            + ("entry was" if skipped_pending == 1 else "entries were")
+            + " not booked (pending) and left out — pending money is not in the account yet."
+        )
+    if saw_reversal:
+        warnings.append(
+            "This statement contains reversal entries; each is imported in the direction that "
+            "REVERSES the original booking."
+        )
+    seen_ccy = {t.currency for t in txns if t.currency}
+    if len(seen_ccy) > 1:
+        warnings.append(
+            "This statement mixes currencies (" + ", ".join(sorted(seen_ccy)) + "). Amounts in "
+            "different currencies are not comparable and must not be summed or matched across."
+        )
     if not txns:
         raise ValueError("No bookable entries (Ntry) found in the camt.053 statement.")
     return txns
