@@ -9,6 +9,31 @@ Legend: 🔓 ready for your input · ⏳ waiting on you · ✅ resolved
 
 ---
 
+## Decisions taken — 2026-08-12 (the path to a pilot)
+
+Asked because each answer changed what gets built, not to confirm a plan.
+
+| | Decision | What it settles |
+|---|---|---|
+| Beta scope | **Supervised pilot, named clients** — not an open beta | The bar is: close the three open money defects + pass a restore drill. Real-data validation, PII deny-list, a11y and load work move to the open-beta gate, not this one. |
+| Fee rate | **15% of recovered VAT, €50 minimum** | Unblocks filing (`resolve_fee_rate` refuses until a rate exists). Per-client overrides still apply; this is the default, not a ceiling. |
+| Late-payment interest | **Fix the defects only** — do NOT build the EU statutory model now | Scope stays: stop the double-billing, stop the cross-currency sum. Directive 2011/7/EU (ECB reference + 8pp, resetting 1 Jan / 1 Jul, plus the €40 Art. 6 recovery fee) is NOT modelled, so the platform under-claims where a creditor is statutorily entitled to more. That is a deliberate, recorded gap — reopen it before the open beta. |
+| Backup / restore (R14) | **Infrastructure DR + a real drill** — not app-owned tooling | Hostinger snapshots plus the `pg_dump`/`tar` commands already in the deploy docs. The deliverable is a *documented restore that actually ran*, not a backup that has never been read back. No new product code. |
+
+**Still needed from the owner, not decidable here:**
+
+1. **GitHub Actions runners.** Every run on every branch fails in ~1s with no
+   logs — an account/billing condition. Until it clears there is no independent
+   verification of anything, and the CI-gated deploy cannot fire.
+2. **One real supplier statement and one real fuel invoice** (redacted is fine).
+   Every fixture in the suite is synthetic by design; the pilot bar does not
+   require real-data validation, but a single genuine document would be the
+   cheapest evidence available that capture works outside our own imagination.
+3. **Running the deploy.** Production is still on `15116e1`. Nothing shipped
+   today is live until `DEPLOY-RUNBOOK-2026-08-12.md` is executed.
+
+---
+
 ## Decisions taken — 2026-08-08
 
 Four answered in session. Recorded verbatim in intent, with what each one
