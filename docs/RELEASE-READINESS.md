@@ -18,6 +18,15 @@ of them cannot be performed by engineering at all.
 **Ready for a supervised pilot with a client who knows they are a pilot.
 Not ready for self-serve release.**
 
+**Revised 2026-08-12 — not ready for an open beta.** The merge blocker is gone
+(§3.3) but four money defects surfaced the same day (§3.9), three still open.
+A beta means strangers putting real invoices through it unsupervised, and two
+of those defects overcharge a customer — interest billed twice, and figures
+summed across currencies. Neither was caught by 2445 passing tests, which is
+the more important signal: the suite does not currently catch a wrong *figure*,
+only a wrong *shape*. That is what §3.1 has always meant, now demonstrated
+rather than asserted.
+
 The engineering is in good order. The gap is not code quality — it is that
 the system has never been validated against real data, and that its
 verification pipeline is currently blind.
@@ -102,16 +111,32 @@ Postgres gates, which had to be run against a hand-built scratch cluster with a
 `NOSUPERUSER` role rather than the CI service container. A reviewer cannot
 currently check any of it by clicking a green tick.
 
-**3.3 The branch has never merged.** 96 work orders on one pull request. The
-`manualChunks` fix `main` needs still lives only here — but the gap has narrowed
-in the other direction: WO-96 brought this branch onto the same versions `main`
-already carried (reportlab 5, pypdf 6, vite 8, plugin-react 6, both minor/patch
-groups) and past it on react/react-dom, so the merge is a smaller event than it
-was. Long-lived divergence remains a release risk.
+**3.3 ~~The branch has never merged.~~ RESOLVED 2026-08-12.** Merged to `main`
+at `ec93e4b` as a clean fast-forward; `main` had 9 Dependabot merges, every one
+superseded by WO-96, so all four conflicts resolved to ours and the merged tree
+was byte-identical to the verified tip. This also repaired `main`, which could
+not build (`TypeError: manualChunks is not a function`). **Production has not
+been updated** — the VPS still runs `15116e1` until the runbook in
+`DEPLOY-RUNBOOK-2026-08-12.md` is executed by hand.
 
 **3.4 No backup/restore tooling** (audit item **R14**, decision-gated). The
 system would hold client invoice documents and VAT claims with no tested
 restore path. **A restore drill must pass before any client data enters it.**
+
+**3.9 FOUR MONEY DEFECTS found 2026-08-12, one fixed.** Found by exercising the
+code with realistic inputs and reading the output — every one passed the
+existing suite. They are listed here rather than only in `TODO.md` because each
+produces a wrong figure in front of a customer:
+
+| | Defect | Evidence | State |
+|---|---|---|---|
+| a | camt.053 booked reversals as payments, dropped `Amt/@Ccy`, imported pending entries as settled, collapsed batched entries | 5-entry statement read as 3,577.00 credited; truth is 300.00 EUR + 500.00 USD | **fixed** `8fb0333` |
+| b | `bank_lines` stores no currency, so the currency (a) now reads is neither persisted nor enforced when matching | a USD credit can settle a EUR invoice | **open** |
+| c | Late-payment interest can be billed repeatedly for the same days | generating twice produced two invoices of €73.32 for €73.32 of interest | **open** |
+| d | `penalty_summary` sums across currencies and labels the total with whichever row the DB returned last (no `ORDER BY`) | 73.32 EUR + 73.32 USD = "146.64 USD" | **open** |
+
+Until (b), (c) and (d) close, **this release must not be used to bill
+late-payment interest or to reconcile a bank statement.**
 
 **3.5 No load or large-dataset testing** (audit item **R15**). Performance is
 untested beyond current fixture scale. `expected_rebate` loads a tenant's
