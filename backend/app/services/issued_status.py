@@ -139,12 +139,54 @@ def penalty_of(inv: IssuedInvoice, today: date | None = None) -> Decimal:
     Only invoices that CARRY a `penalty_rate` accrue. Simple interest on the
     still-owed balance: outstanding × rate%/year × days_overdue/365 (ACT/365).
     Zero unless the invoice is overdue with a balance and a rate set.
+
+    This is the TOTAL accrued since the due date — the right figure to SHOW
+    ("this debt has cost you X"). It is the wrong figure to BILL once any of it
+    has been billed already; use `billable_penalty_of` for that.
     """
     rate = inv.penalty_rate
     if not rate or Decimal(rate) <= _ZERO:
         return _ZERO
     outstanding = outstanding_of(inv)
     days = days_overdue_of(inv, today)
+    if outstanding <= _ZERO or days <= 0:
+        return _ZERO
+    return money.q2(outstanding * Decimal(rate) / Decimal(100) * Decimal(days) / Decimal(365))
+
+
+def unbilled_days_of(inv: IssuedInvoice, today: date | None = None) -> int:
+    """Days of lateness NOT yet covered by a penalty invoice.
+
+    Accrual starts at the due date, or at `interest_billed_through` once
+    interest has been billed — whichever is later. Without this the second
+    penalty invoice re-bills from the due date, so a debtor billed monthly pays
+    month 1 again in month 2 and a third time in month 3.
+    """
+    today = today or date.today()
+    if inv.due_date is None:
+        return 0
+    start = inv.due_date
+    billed_through = getattr(inv, "interest_billed_through", None)
+    if billed_through is not None and billed_through > start:
+        start = billed_through
+    if start >= today:
+        return 0
+    return (today - start).days
+
+
+def billable_penalty_of(inv: IssuedInvoice, today: date | None = None) -> Decimal:
+    """Interest that may still be CHARGED — the accrual not already invoiced.
+
+    Same arithmetic as `penalty_of` over `unbilled_days_of` instead of the whole
+    overdue span. Equal to `penalty_of` until the first penalty invoice, and
+    zero immediately after one, which is the property that stops the same days
+    being billed twice.
+    """
+    rate = inv.penalty_rate
+    if not rate or Decimal(rate) <= _ZERO:
+        return _ZERO
+    outstanding = outstanding_of(inv)
+    days = unbilled_days_of(inv, today)
     if outstanding <= _ZERO or days <= 0:
         return _ZERO
     return money.q2(outstanding * Decimal(rate) / Decimal(100) * Decimal(days) / Decimal(365))

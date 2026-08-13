@@ -269,16 +269,35 @@ class PenaltySummary:
     total_outstanding: Decimal
     max_days_overdue: int
     lines: list[PenaltyLine] = field(default_factory=list)
+    # Every currency this partner owes overdue money in, this one included. A
+    # partner can be billed in more than one; each is summarised separately.
+    currencies: list[str] = field(default_factory=list)
 
 
 async def penalty_summary(
-    db: AsyncSession, org_id: str, partner_id: str, today: date | None = None
+    db: AsyncSession,
+    org_id: str,
+    partner_id: str,
+    today: date | None = None,
+    currency: str | None = None,
 ) -> PenaltySummary:
-    """Accrued late-payment interest across a partner's OVERDUE invoices.
+    """Interest still BILLABLE across a partner's overdue invoices, in ONE currency.
 
-    Overdue days and penalty are computed per invoice, then aggregated by partner.
-    Penalty invoices themselves (kind='penalty') are excluded so interest never
-    compounds on interest.
+    Two things this deliberately does not do:
+
+    * It does not SUM ACROSS CURRENCIES. It used to add every overdue invoice's
+      penalty into one total and label it with `inv.currency` from the last row
+      the database happened to return — an unordered query, so even *which*
+      currency it claimed was not deterministic. 73.32 EUR + 73.32 USD became
+      "146.64 USD". Lines are now bucketed by currency and one bucket is
+      returned; `currencies` lists the rest.
+    * It does not report interest that has already been billed. It uses
+      `billable_penalty_of`, which accrues from `interest_billed_through`
+      onward, so generating a second penalty invoice cannot charge the same
+      days twice.
+
+    Penalty invoices themselves (kind='penalty') stay excluded, so interest
+    never compounds on interest.
     """
     today = today or date.today()
     rows = list(
@@ -290,25 +309,38 @@ async def penalty_summary(
             )
         )
     )
-    lines: list[PenaltyLine] = []
-    total_pen, total_out, max_days = _ZERO, _ZERO, 0
-    currency = "EUR"
+    buckets: dict[str, list[tuple[PenaltyLine, Decimal]]] = {}
     for inv in rows:
         if issued_status.status_of(inv, today) != issued_status.OVERDUE:
             continue
         if inv.number is None:  # unissued invoices carry no number — never overdue
             continue
-        pen = issued_status.penalty_of(inv, today)
+        pen = issued_status.billable_penalty_of(inv, today)
         if pen <= _ZERO:
             continue
-        days = issued_status.days_overdue_of(inv, today)
+        days = issued_status.unbilled_days_of(inv, today)
         out = issued_status.outstanding_of(inv)
-        currency = inv.currency
-        lines.append(PenaltyLine(inv.id, inv.number, days, out, pen))
-        total_pen += pen
-        total_out += out
-        max_days = max(max_days, days)
-    return PenaltySummary(currency, money.q2(total_pen), money.q2(total_out), max_days, lines)
+        line = PenaltyLine(inv.id, inv.number, days, out, pen)
+        buckets.setdefault(inv.currency, []).append((line, out))
+
+    # Deterministic pick when the caller names no currency: the largest amount
+    # owed, ties broken alphabetically. Never "whichever row came back last".
+    present = sorted(buckets)
+    if not present:
+        return PenaltySummary("EUR", _ZERO, _ZERO, 0, [], [])
+    if currency is None:
+        currency = max(present, key=lambda c: (sum(ln.penalty for ln, _ in buckets[c]), c))
+    chosen = buckets.get(currency, [])
+
+    lines = [ln for ln, _ in chosen]
+    return PenaltySummary(
+        currency=currency,
+        total_penalty=money.q2(sum((ln.penalty for ln in lines), _ZERO)),
+        total_outstanding=money.q2(sum((out for _, out in chosen), _ZERO)),
+        max_days_overdue=max((ln.days_overdue for ln in lines), default=0),
+        lines=lines,
+        currencies=present,
+    )
 
 
 class PenaltyBlocked(Exception):
@@ -316,10 +348,21 @@ class PenaltyBlocked(Exception):
 
 
 async def generate_penalty_invoice(
-    db: AsyncSession, org_id: str, partner: Partner, today: date | None = None
+    db: AsyncSession,
+    org_id: str,
+    partner: Partner,
+    today: date | None = None,
+    currency: str | None = None,
 ) -> IssuedInvoice:
     """Create a penalty (late-interest) invoice for a partner. Requires the
-    partner to allow penalties AND to have a signed contract."""
+    partner to allow penalties AND to have a signed contract.
+
+    Bills ONE currency (see `penalty_summary`) and STAMPS every invoice it
+    charged with `interest_billed_through`, so the days on this invoice can
+    never appear on the next one. Before that stamp existed, generating twice
+    in a row produced two identical invoices — €73.32 of interest billed as
+    €146.64 — and a monthly billing habit multiplied the overcharge.
+    """
     today = today or date.today()
     if not partner.penalty_enabled:
         raise PenaltyBlocked("Penalty invoicing is not enabled for this partner.")
@@ -328,7 +371,7 @@ async def generate_penalty_invoice(
             "A signed contract is required before a penalty invoice can be generated."
         )
 
-    summary = await penalty_summary(db, org_id, partner.id, today)
+    summary = await penalty_summary(db, org_id, partner.id, today, currency=currency)
     if summary.total_penalty <= _ZERO:
         raise PenaltyBlocked("This partner has no accrued late-payment interest to bill.")
 
@@ -376,4 +419,17 @@ async def generate_penalty_invoice(
         ],
     )
     db.add(inv)
+
+    # Mark what was billed. Without this the accrual clock never advances and
+    # the next generation charges these same days again. Stamped only on the
+    # invoices this document actually charged — a partner's other-currency
+    # invoices are untouched, because they were not billed here.
+    billed_ids = {ln.invoice_id for ln in summary.lines}
+    for row in await db.scalars(
+        select(IssuedInvoice).where(
+            IssuedInvoice.org_id == org_id, IssuedInvoice.id.in_(billed_ids)
+        )
+    ):
+        row.interest_billed_through = today
+
     return inv

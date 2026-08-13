@@ -145,11 +145,18 @@ async def delete_document(partner_id: str, doc_id: str, current: CurrentUser, db
 
 
 @router.get("/{partner_id}/penalty", response_model=PenaltySummaryOut)
-async def partner_penalty(partner_id: str, current: CurrentUser, db: DbSession):
-    """Accrued late-payment interest across the partner's overdue invoices."""
+async def partner_penalty(
+    partner_id: str, current: CurrentUser, db: DbSession, currency: str | None = None
+):
+    """Late-payment interest still BILLABLE across the partner's overdue invoices.
+
+    `currency` selects which one to summarise; omitted, the largest is used and
+    `currencies` reports the rest. Totals cover one currency only — they are
+    never summed across.
+    """
     await _guard(db, current.org_id)
     p = await _load(db, current.org_id, partner_id)
-    s = await partners.penalty_summary(db, current.org_id, p.id)
+    s = await partners.penalty_summary(db, current.org_id, p.id, currency=currency)
 
     blocked = None
     if not p.penalty_enabled:
@@ -157,7 +164,7 @@ async def partner_penalty(partner_id: str, current: CurrentUser, db: DbSession):
     elif not partners.has_signed_contract(p):
         blocked = "A signed contract is required before a penalty invoice can be generated."
     elif s.total_penalty <= 0:
-        blocked = "This partner has no accrued late-payment interest to bill."
+        blocked = "This partner has no unbilled late-payment interest to bill."
 
     return PenaltySummaryOut(
         currency=s.currency,
@@ -176,6 +183,7 @@ async def partner_penalty(partner_id: str, current: CurrentUser, db: DbSession):
         ],
         can_generate=blocked is None,
         blocked_reason=blocked,
+        currencies=s.currencies,
     )
 
 
@@ -185,13 +193,15 @@ async def partner_penalty(partner_id: str, current: CurrentUser, db: DbSession):
     status_code=status.HTTP_201_CREATED,
     dependencies=_WRITE,
 )
-async def generate_penalty_invoice(partner_id: str, current: CurrentUser, db: DbSession):
+async def generate_penalty_invoice(
+    partner_id: str, current: CurrentUser, db: DbSession, currency: str | None = None
+):
     """Generate a penalty (late-interest) invoice for the partner. Requires the
     partner to allow penalties and to have a signed contract."""
     await _guard(db, current.org_id)
     p = await _load(db, current.org_id, partner_id)
     try:
-        inv = await partners.generate_penalty_invoice(db, current.org_id, p)
+        inv = await partners.generate_penalty_invoice(db, current.org_id, p, currency=currency)
     except partners.PenaltyBlocked as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))
     await audit.record(

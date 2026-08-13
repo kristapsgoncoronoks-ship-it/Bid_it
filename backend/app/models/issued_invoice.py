@@ -182,6 +182,11 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     penalty_rate: Mapped[Decimal | None] = mapped_column(
         Numeric(5, 2), nullable=True
     )  # % per annum
+    # The date through which interest on this invoice has already been BILLED on a
+    # penalty invoice. NULL means none has been. Accrual for billing purposes runs
+    # from max(due_date, this) — without it every penalty invoice re-bills from the
+    # due date and a debtor billed monthly pays month 1 again in month 2.
+    interest_billed_through: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     # Dunning: how many reminders sent and when the last went out.
     reminder_count: Mapped[int] = mapped_column(default=0, nullable=False)

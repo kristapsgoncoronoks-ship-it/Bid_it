@@ -109,3 +109,8 @@ class PenaltySummaryOut(BaseModel):
     lines: list[PenaltyLineOut]
     can_generate: bool  # penalty enabled + contract signed + penalty > 0
     blocked_reason: str | None = None
+    # Every currency this partner owes overdue money in. The totals above cover
+    # `currency` ALONE — amounts in different currencies are not comparable and
+    # are never added together. More than one entry means the caller should
+    # offer a choice and bill each separately.
+    currencies: list[str] = []
