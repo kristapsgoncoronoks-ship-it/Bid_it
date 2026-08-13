@@ -96,6 +96,7 @@ async def import_statement(
                 description=(t.description or "")[:300],
                 amount=signed,
                 direction=t.direction,
+                currency=(t.currency or None),
                 balance=money.q2(t.balance) if t.balance is not None else None,
                 status="unmatched",
             )
@@ -168,12 +169,39 @@ def _rank(days_off: int, ref_hit: bool) -> int:
     return (100 - min(days_off, 100)) + (25 if ref_hit else 0)
 
 
+# Every reconcilable target is denominated in the organisation's base currency:
+# receipts and direct payments carry no currency of their own, and reimbursement
+# batches and payment runs are stored as `total_eur` by name. A bank line the
+# bank stated in some OTHER currency is therefore not comparable to any of them —
+# only its magnitude would match, which is exactly how a USD credit settles a EUR
+# invoice of the same number.
+_BASE_CURRENCY = "EUR"
+
+
+def foreign_currency_of(line: BankLine) -> str | None:
+    """The line's currency when it is stated AND is not the base — else None.
+
+    A NULL currency is not treated as foreign. The source said nothing, and
+    guessing that silence means "foreign" would block every CSV and PDF
+    statement ever imported.
+    """
+    ccy = (getattr(line, "currency", None) or "").strip().upper()
+    return ccy if ccy and ccy != _BASE_CURRENCY else None
+
+
 async def suggest_matches(
     db: AsyncSession, org_id: str, line: BankLine, limit: int = 8
 ) -> list[Candidate]:
     """Rank the cash movements that plausibly correspond to this bank line. A credit
     (money in) is matched to receipts; a debit (money out) to paid reimbursement
-    payouts. Candidates already reconciled to another line are excluded (1:1)."""
+    payouts. Candidates already reconciled to another line are excluded (1:1).
+
+    A line in a currency other than the base has NO candidates — not a ranked
+    list the user might accept anyway. Suggesting one would mean offering a
+    500.00 USD credit as settlement for a 500.00 EUR receivable.
+    """
+    if foreign_currency_of(line) is not None:
+        return []
     magnitude = money.q2(abs(Decimal(line.amount)))
     desc = (line.description or "").lower()
     out: list[Candidate] = []
@@ -281,6 +309,15 @@ async def confirm_match(
     below, and is rejected (on SQLite writes serialize anyway)."""
     if kind not in KINDS:
         raise ReconError("unknown match kind")
+    # Checked here as well as in `suggest_matches`, because confirm takes a
+    # caller-supplied target id and is reachable without ever asking for a
+    # suggestion. A gate that only filters the suggestion list is decoration.
+    foreign = foreign_currency_of(line)
+    if foreign is not None:
+        raise ReconError(
+            f"this line is in {foreign} and cannot be reconciled against "
+            f"{_BASE_CURRENCY} records; convert or record it separately"
+        )
     signed = Decimal(line.amount)
     magnitude = money.q2(abs(signed))
 

@@ -123,8 +123,8 @@ been updated** — the VPS still runs `15116e1` until the runbook in
 system would hold client invoice documents and VAT claims with no tested
 restore path. **A restore drill must pass before any client data enters it.**
 
-**3.9 FOUR MONEY DEFECTS found 2026-08-12, one fixed.** Found by exercising the
-code with realistic inputs and reading the output — every one passed the
+**3.9 FOUR MONEY DEFECTS found 2026-08-12, three fixed.** Found by exercising
+the code with realistic inputs and reading the output — every one passed the
 existing suite. They are listed here rather than only in `TODO.md` because each
 produces a wrong figure in front of a customer:
 
@@ -132,11 +132,11 @@ produces a wrong figure in front of a customer:
 |---|---|---|---|
 | a | camt.053 booked reversals as payments, dropped `Amt/@Ccy`, imported pending entries as settled, collapsed batched entries | 5-entry statement read as 3,577.00 credited; truth is 300.00 EUR + 500.00 USD | **fixed** `8fb0333` |
 | b | `bank_lines` stores no currency, so the currency (a) now reads is neither persisted nor enforced when matching | a USD credit can settle a EUR invoice | **open** |
-| c | Late-payment interest can be billed repeatedly for the same days | generating twice produced two invoices of €73.32 for €73.32 of interest | **open** |
-| d | `penalty_summary` sums across currencies and labels the total with whichever row the DB returned last (no `ORDER BY`) | 73.32 EUR + 73.32 USD = "146.64 USD" | **open** |
+| c | Late-payment interest could be billed repeatedly for the same days | generating twice produced two invoices of €73.32 for €73.32 of interest | **fixed** `4cfc365` |
+| d | `penalty_summary` summed across currencies and labelled the total with whichever row the DB returned last (no `ORDER BY`) | 73.32 EUR + 73.32 USD = "146.64 USD" | **fixed** `4cfc365` |
 
-Until (b), (c) and (d) close, **this release must not be used to bill
-late-payment interest or to reconcile a bank statement.**
+Until (b) closes, **this release must not be used to reconcile a bank
+statement.** Late-payment interest is safe to bill again.
 
 **3.5 No load or large-dataset testing** (audit item **R15**). Performance is
 untested beyond current fixture scale. `expected_rebate` loads a tenant's

@@ -76,6 +76,11 @@ class BankLine(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Signed: credit (money in) positive, debit (money out) negative.
     amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
     direction: Mapped[str] = mapped_column(String(8), default="credit", nullable=False)
+    # The currency the BANK stated for this line (camt `Amt/@Ccy`). NULL means the
+    # source stated none — a CSV/PDF statement usually does not — which is NOT the
+    # same as "the org's currency". A stated currency that is not the base currency
+    # blocks matching: every reconcilable target is denominated in the base.
+    currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
     balance: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
     # unmatched | matched | ignored
     status: Mapped[str] = mapped_column(String(12), default="unmatched", nullable=False)
