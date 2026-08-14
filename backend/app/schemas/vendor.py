@@ -83,3 +83,34 @@ class ChangeDecisionIn(BaseModel):
     records WHY a captured value was refused); optional on approve."""
 
     note: str | None = Field(default=None, max_length=2000)
+
+
+class VendorCandidateOut(BaseModel):
+    """A supplier that ALMOST matches the captured name, with the reason it is
+    close. A reason, not a similarity score: "87% similar" tells the operator
+    nothing they can check, whereas "the same name apart from the company-form
+    suffix" is something they can agree or disagree with."""
+
+    vendor_id: str
+    name: str
+    near_kind: str
+    reason: str
+
+
+class VendorResolutionOut(BaseModel):
+    """H-3 — how a captured supplier name resolves, and why.
+
+    `needs_decision` means the machine ABSTAINED: nothing matched exactly, but
+    something nearly did, so nothing has been chosen. `outcome` states plainly
+    what confirming unchanged will do — including "a NEW supplier will be
+    created", which is the consequence an operator most needs to see BEFORE it
+    happens rather than after."""
+
+    captured_name: str
+    basis: str  # exact_name | none
+    reason: str
+    vendor_id: str | None = None
+    vendor_name: str | None = None
+    needs_decision: bool = False
+    candidates: list[VendorCandidateOut] = Field(default_factory=list)
+    outcome: str = ""

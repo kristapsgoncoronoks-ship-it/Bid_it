@@ -12,6 +12,7 @@ import type {
   InvoiceCreate,
   InvoiceDetail,
   Vendor,
+  VendorResolution,
 } from "../lib/types";
 
 /**
@@ -253,6 +254,17 @@ export default function CaptureReview() {
   const vendorId = vendorName
     ? vendors.data?.find((v) => v.name.trim().toLowerCase() === vendorName)?.id
     : undefined;
+  // H-3: say WHY this supplier was matched — or, when nothing matched exactly
+  // and something nearly did, that nothing was chosen and confirming unchanged
+  // will fork the master data. The server owns both the rule and the wording;
+  // this screen renders them rather than composing advice of its own.
+  const resolution = useQuery<VendorResolution>({
+    queryKey: ["vendors", "resolve", draft?.vendor_name ?? ""],
+    queryFn: async () =>
+      (await api.get("/vendors/resolve", { params: { name: draft?.vendor_name ?? "" } })).data,
+    enabled: parsed && !!draft?.vendor_name?.trim(),
+  });
+
   const number = draft?.invoice_number?.trim() ?? "";
   // Gross total estimate (net + per-line tax), for the E1.4 scored-candidate
   // signal only — an advisory heuristic, not the server's authoritative total
@@ -508,6 +520,37 @@ export default function CaptureReview() {
             <li key={i}>• {w}</li>
           ))}
         </ul>
+      )}
+      {resolution.data && (
+        <div
+          className={
+            "rounded-lg border px-4 py-3 text-sm " +
+            (resolution.data.needs_decision
+              ? "border-amber-200 bg-amber-50 text-amber-800"
+              : "border-slate-200 bg-slate-50 text-slate-600")
+          }
+        >
+          <p>{resolution.data.reason}</p>
+          <p className="mt-1">{resolution.data.outcome}</p>
+          {resolution.data.candidates.length > 0 && (
+            <ul className="mt-2 space-y-1">
+              {resolution.data.candidates.map((c) => (
+                <li key={c.vendor_id} className="flex flex-wrap items-center gap-2">
+                  <span>{c.reason}</span>
+                  <button
+                    type="button"
+                    className="font-medium underline"
+                    onClick={() =>
+                      setDraft((d) => (d ? { ...d, vendor_name: c.name } : d))
+                    }
+                  >
+                    Use “{c.name}” instead
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
       {(exact.length > 0 || crossSupplier.length > 0) && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">

@@ -1132,16 +1132,23 @@ ours, it is small, and it is a correctness bug rather than a feature.
 **1. P0 retry fix — SETTLED (shipped).** `342c1fa`, `docs/plan/plan-a/wo/
 WO-98-capture-retry-review-guard.md`.
 
-**2. BUILD NOW scope — H-1 SHIPPED, H-2/H-3 still open.** H-1 (the failed-capture
-worklist) is built: `docs/plan/plan-a/wo/WO-99-failed-capture-worklist.md`. It was
-the recommended first order and it is additive, so it did not need the decision
-that H-2 and H-3 still do. **Open question for the owner: do H-2 and H-3 follow
-now, or does something else come first?**
+**2. BUILD NOW scope — SETTLED: all three shipped.** The owner chose "both H-2
+and H-3" after H-1 landed.
+* H-1 · failed-capture worklist — `WO-99-failed-capture-worklist.md`
+* H-2 · inbound-channel health — `WO-100-inbound-channel-health.md`
+* H-3 · automation provenance — `WO-101-automation-provenance.md`
 
-**3. L-4 bulk operations — STILL OPEN, and still the decision that matters most.**
-A1's warning stands (bulk collides with per-record audit old→new, per-record SoD,
-opaque 404 and quota metering) and the answer changes several later designs.
-Nothing has been built that presumes an answer either way.
+**3. L-4 bulk operations — SETTLED: yes, build it carefully.** The owner chose to
+build multi-select WITH the guards, so A1's warning becomes a design constraint
+rather than a reason to skip. The agreed shape:
+* the client sends the COUNT it displayed; the server aborts on mismatch (the
+  list moved under them, so their selection is not what they think it is);
+* structured per-record outcomes, with domain skips first-class — not a boolean
+  and not an exception count;
+* a reversal record derived MECHANICALLY from the write, never hand-authored;
+* filter-selection ("everything matching this filter") refused outright for
+  irreversible actions — only an explicit, enumerated selection may destroy.
+Not yet built; this is the next work order.
 
 **4. L-3 mail-account secret custody — ANSWERED, and it is a non-issue.**
 Verified in code rather than assumed:

@@ -59,6 +59,7 @@ from app.services import (
     invoice_workflow,
     jobs,
     validation,
+    vendor_resolution,
     webhooks,
 )
 from app.services.vendors import get_or_create_vendor
@@ -82,7 +83,25 @@ async def _resolve_vendor(db: DbSession, org_id: str, body: InvoiceCreate) -> Ve
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Vendor not found")
         return vendor
     if body.vendor_name and body.vendor_name.strip():
-        return await get_or_create_vendor(db, org_id, body.vendor_name)
+        # H-3: resolving a supplier from a NAME is an automation decision, so it
+        # goes on the permanent record with its reason. The audit chain is where
+        # "why did the machine do this" belongs — immutable, and already the
+        # thing someone reads when they ask months later. Storing the sentence on
+        # the invoice instead would go stale the moment a supplier is renamed,
+        # and would then be a confident false account of history.
+        #
+        # Read BEFORE the create, or the resolution would describe the row it
+        # just made and always report an exact match.
+        res = await vendor_resolution.resolve(db, org_id, body.vendor_name)
+        vendor = await get_or_create_vendor(db, org_id, body.vendor_name)
+        await audit.record(
+            db,
+            action="vendor.auto_resolved",
+            target_type="vendor",
+            target_id=vendor.id,
+            meta=vendor_resolution.audit_meta(res),
+        )
+        return vendor
     raise HTTPException(
         status.HTTP_422_UNPROCESSABLE_CONTENT, "vendor_id or vendor_name is required"
     )

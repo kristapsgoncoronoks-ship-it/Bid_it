@@ -757,6 +757,32 @@ export interface CaptureReviewQueue {
  * provably cannot work (an unreadable format, a lost original) wastes the
  * operator's time and teaches them the button is meaningless.
  */
+/**
+ * H-3 — how a captured supplier name resolves, and why.
+ *
+ * `needs_decision` means the machine ABSTAINED: nothing matched exactly but
+ * something nearly did, so nothing was chosen. The UI must not pick one for the
+ * user — that is the whole point. `outcome` states what confirming unchanged
+ * will do, including "a NEW supplier will be created".
+ */
+export interface VendorCandidate {
+  vendor_id: string;
+  name: string;
+  near_kind: string;
+  reason: string;
+}
+
+export interface VendorResolution {
+  captured_name: string;
+  basis: "exact_name" | "none";
+  reason: string;
+  vendor_id?: string | null;
+  vendor_name?: string | null;
+  needs_decision: boolean;
+  candidates: VendorCandidate[];
+  outcome: string;
+}
+
 export interface CaptureFailure {
   channel: "upload" | "email";
   ref_id: string;

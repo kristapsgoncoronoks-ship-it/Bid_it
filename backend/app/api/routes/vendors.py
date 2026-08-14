@@ -27,8 +27,10 @@ from app.schemas.vendor import (
     VendorChangeRequestOut,
     VendorCreate,
     VendorOut,
+    VendorResolutionOut,
     VendorUpdate,
 )
+from app.services import vendor_resolution
 from app.services import vendors as vendor_service
 
 router = APIRouter(
@@ -59,6 +61,26 @@ async def list_vendors(current: CurrentUser, db: DbSession) -> list[VendorOut]:
     rows = await vendor_service.list_vendors(db, current.org_id)
     pending = await vendor_service.pending_requests_for(db, current.org_id, [v.id for v in rows])
     return [_vendor_out(v, pending.get(v.id, [])) for v in rows]
+
+
+@router.get("/resolve", response_model=VendorResolutionOut)
+async def resolve_vendor_name(name: str, current: CurrentUser, db: DbSession):
+    """Explain how a captured supplier name would resolve — H-3, before it does.
+
+    Supplier resolution is exact-name and silent, so both of its outcomes are
+    invisible today: the operator cannot see WHY a match was made, and a captured
+    name with one character wrong quietly forks the master data into two
+    suppliers that will never agree on a balance.
+
+    This states the rule that will run, names the supplier it would match, and —
+    when nothing matches exactly but something nearly does — picks NOTHING and
+    hands back the candidates with a reason each. Never taking first-match is the
+    point: silently attaching an invoice to a supplier because the names nearly
+    agree is exactly the failure this exists to prevent.
+
+    Read-only. No vendor is created, renamed or linked here."""
+    res = await vendor_resolution.resolve(db, current.org_id, name)
+    return VendorResolutionOut.model_validate(res, from_attributes=True)
 
 
 @router.post("", response_model=VendorOut, status_code=status.HTTP_201_CREATED, dependencies=_WRITE)
