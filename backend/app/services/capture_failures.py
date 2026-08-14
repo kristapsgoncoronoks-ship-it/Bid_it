@@ -57,6 +57,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.capture_acknowledgement import CaptureAcknowledgement
 from app.models.email_intake import InboundInvoice
 from app.models.extraction_run import ExtractionRun
+from app.services import bulk
 
 # The two channels a document can arrive through. `upload` is a direct UI/API
 # upload (an `extraction_runs` row); `email` is an inbound attachment (an
@@ -483,6 +484,75 @@ async def acknowledge(
     )
     db.add(row)
     return row
+
+
+async def bulk_acknowledge(
+    db: AsyncSession,
+    org_id: str,
+    *,
+    items: list[tuple[str, str]],
+    selection: bulk.Selection,
+    agreed_count: int | None,
+    actor: str | None,
+    note: str | None,
+) -> bulk.BulkResult:
+    """Acknowledge many failed captures at once, under the L-4 guards.
+
+    `items` are (channel, ref_id) pairs — a worklist spans both channels, and the
+    operator selects from one list, so a batch may mix them.
+
+    Acknowledging is REVERSIBLE (the table is append-only; the record stands and a
+    later failure resurfaces the item regardless), so a filter-based selection is
+    permitted here. `require_explicit_selection` is deliberately NOT called — it
+    is reserved for operations that cannot be undone, and calling it everywhere
+    would make it meaningless where it matters.
+
+    Does NOT commit: the caller commits the whole batch with its audit event, so a
+    bulk acknowledge is one transaction and cannot half-apply.
+    """
+    ids = bulk.normalise_ids([ref for _, ref in items])
+    bulk.check_agreed_count(ids, agreed_count)
+    channel_of = {ref: ch for ch, ref in items}
+
+    # One read of the current worklist, not one per record: the per-item state we
+    # need (is it still failing, is an acknowledgement already current) is exactly
+    # what `worklist` computes, and recomputing it per id would be N+1.
+    current = {
+        it.ref_id: it for it in (await worklist(db, org_id, include_acknowledged=True)).items
+    }
+
+    result = bulk.BulkResult()
+    for ref_id in ids:
+        item = current.get(ref_id)
+        if item is None:
+            # Not a failed capture in this workspace. Reported as a SKIP with a
+            # reason rather than an error: for the operator this is information,
+            # not a fault, and a cross-tenant id is indistinguishable from a
+            # nonexistent one exactly as it is on the single-record route.
+            result.outcomes.append(
+                bulk.Outcome(ref_id, bulk.SKIPPED, "No longer a failed capture in this workspace.")
+            )
+            continue
+        if item.acknowledged_at is not None:
+            result.outcomes.append(
+                bulk.Outcome(ref_id, bulk.SKIPPED, "Already acknowledged since this failure.")
+            )
+            continue
+        ack = await acknowledge(
+            db,
+            org_id,
+            channel=channel_of.get(ref_id, item.channel),
+            ref_id=ref_id,
+            actor=actor,
+            note=note,
+        )
+        if ack is None:
+            result.outcomes.append(
+                bulk.Outcome(ref_id, bulk.SKIPPED, "No longer a failed capture in this workspace.")
+            )
+        else:
+            result.outcomes.append(bulk.Outcome(ref_id, bulk.APPLIED))
+    return result
 
 
 async def _failed_at(db: AsyncSession, org_id: str, channel: str, ref_id: str) -> datetime | None:

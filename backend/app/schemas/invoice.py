@@ -247,6 +247,51 @@ class CaptureFailureWorklistOut(BaseModel):
     unacknowledged: int
 
 
+class BulkOutcomeOut(BaseModel):
+    """What happened to ONE record in a batch. `result` is applied | skipped |
+    failed; a SKIP is an ordinary outcome carrying a reason, not a failure —
+    burying "already acknowledged" in an error count teaches operators to ignore
+    error counts."""
+
+    ref_id: str
+    result: str
+    reason: str | None = None
+
+
+class BulkAcknowledgeItem(BaseModel):
+    channel: str = Field(min_length=1, max_length=12)
+    ref_id: str = Field(min_length=1, max_length=64)
+
+
+class BulkAcknowledgeIn(BaseModel):
+    """Acknowledge many failed captures at once.
+
+    `agreed_count` is the number of records the client DISPLAYED when the human
+    clicked. If it disagrees with what the server received, the list moved under
+    them and the whole batch is refused rather than applied to a set they never
+    saw. Omit it (null) only for a script, which has no displayed list to protect.
+
+    `selection` records HOW the records were chosen. `filter` is accepted here
+    because acknowledging is reversible; it is refused for anything that is not.
+    """
+
+    items: list[BulkAcknowledgeItem] = Field(min_length=1)
+    agreed_count: int | None = Field(default=None, ge=0)
+    selection: str = Field(default="explicit")
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class BulkAcknowledgeOut(BaseModel):
+    applied: int
+    skipped: int
+    failed: int
+    outcomes: list[BulkOutcomeOut] = Field(default_factory=list)
+    # The ids that ACTUALLY changed, derived from the write rather than from what
+    # was requested — the mechanical basis for an undo.
+    applied_ids: list[str] = Field(default_factory=list)
+    worklist: CaptureFailureWorklistOut
+
+
 class CaptureAcknowledgeIn(BaseModel):
     """Acknowledging a failed capture — an optional note saying what was decided.
     Who and when are taken from the session, never from the client."""

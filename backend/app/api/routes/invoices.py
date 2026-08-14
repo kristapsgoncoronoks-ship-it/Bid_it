@@ -20,6 +20,9 @@ from app.models.organization import Organization
 from app.models.vendor import Vendor
 from app.schemas.ap_payment import SupplierPaymentOut, SupplierPaymentRecord
 from app.schemas.invoice import (
+    BulkAcknowledgeIn,
+    BulkAcknowledgeOut,
+    BulkOutcomeOut,
     CaptureAcknowledgeIn,
     CaptureFailureGroup,
     CaptureFailureItem,
@@ -48,6 +51,7 @@ from app.services import (
     ap_payments,
     ap_status,
     audit,
+    bulk,
     capture_failures,
     capture_memory,
     costing,
@@ -582,6 +586,82 @@ async def acknowledge_capture_failure(
         groups=[CaptureFailureGroup.model_validate(g, from_attributes=True) for g in wl.groups],
         total=wl.total,
         unacknowledged=wl.unacknowledged,
+    )
+
+
+@router.post(
+    "/captures/failures/acknowledge",
+    response_model=BulkAcknowledgeOut,
+    dependencies=[Depends(require_perm(authz.Permission.INVOICE_WRITE))],
+)
+async def bulk_acknowledge_capture_failures(
+    body: BulkAcknowledgeIn, current: CurrentUser, db: DbSession
+):
+    """Acknowledge many failed captures in one action — L-4, under its guards.
+
+    `agreed_count` is the count the CLIENT displayed. If it disagrees with what
+    arrived, the list moved under the operator and the whole batch is refused
+    (409 `bulk_count_mismatch`) rather than applied to a set they never saw.
+
+    Every record comes back with its own outcome. A SKIP is an ordinary result
+    carrying a reason ("already acknowledged since this failure") — not a failure,
+    because burying the system working correctly in an error count is how error
+    counts stop being read.
+
+    `applied_ids` is derived from what the write actually did, not from what was
+    requested, so an undo is mechanically correct rather than hand-authored.
+
+    A filter-based selection is permitted here because acknowledging is
+    reversible — the record stands and a LATER failure resurfaces the item
+    regardless. Irreversible bulk actions must call
+    `bulk.require_explicit_selection`; reserving that guard for the cases that
+    need it is what keeps it meaningful."""
+    try:
+        selection = bulk.Selection(body.selection)
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Unknown selection mode"
+        ) from None
+
+    result = await capture_failures.bulk_acknowledge(
+        db,
+        current.org_id,
+        items=[(i.channel, i.ref_id) for i in body.items],
+        selection=selection,
+        agreed_count=body.agreed_count,
+        actor=current.email,
+        note=body.note,
+    )
+    if result.applied:
+        # ONE audit event for the batch, carrying the ids that actually changed —
+        # the mechanical reversal record (§4.16: same transaction as the writes).
+        await audit.record(
+            db,
+            action="capture.failures_bulk_acknowledged",
+            target_type="capture_failure",
+            target_id=None,
+            meta={
+                "applied_ids": result.applied_ids,
+                "applied": result.applied,
+                "skipped": result.skipped,
+                "selection": selection.value,
+                "note": body.note,
+            },
+        )
+    await db.commit()
+    wl = await capture_failures.worklist(db, current.org_id)
+    return BulkAcknowledgeOut(
+        applied=result.applied,
+        skipped=result.skipped,
+        failed=result.failed,
+        outcomes=[BulkOutcomeOut.model_validate(o, from_attributes=True) for o in result.outcomes],
+        applied_ids=result.applied_ids,
+        worklist=CaptureFailureWorklistOut(
+            items=[CaptureFailureItem.model_validate(i, from_attributes=True) for i in wl.items],
+            groups=[CaptureFailureGroup.model_validate(g, from_attributes=True) for g in wl.groups],
+            total=wl.total,
+            unacknowledged=wl.unacknowledged,
+        ),
     )
 
 
