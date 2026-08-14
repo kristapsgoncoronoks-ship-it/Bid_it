@@ -52,6 +52,7 @@ from app.schemas.transport_admin import (
     ChecklistRuleActiveIn,
     ChecklistRuleOut,
     ControlOverrideIn,
+    FeeRateDiscountIn,
     FeeRateOut,
     FeeRateSetIn,
     NoteOverrideOut,
@@ -381,13 +382,25 @@ async def remove_tie_out_expectation(
 # stays in the service, which remains the only writer.
 
 
-def _fee_rate_out(row: VatFeeRate) -> FeeRateOut:
+def _fee_rate_out(row: VatFeeRate, standard: VatFeeRate | None = None) -> FeeRateOut:
+    """The stored pair, plus how it sits against the STANDARD.
+
+    The comparison is derived on the way out, never stored: a stored discount
+    would be a live reference to the standard, so raising the standard would
+    silently re-rate every negotiated client.
+    """
+    c = fee_svc.compare_rate(row.fee_pct, row.fee_min, standard)
     return FeeRateOut(
         id=row.id,
         entity_id=row.entity_id,
         country=row.country,
         fee_pct=row.fee_pct,
         fee_min=row.fee_min,
+        kind=c.kind,
+        standard_pct=c.standard_pct,
+        standard_min=c.standard_min,
+        pct_discount=c.pct_discount,
+        min_discount=c.min_discount,
     )
 
 
@@ -396,7 +409,9 @@ async def list_fee_rates(current: CurrentUser, db: DbSession):
     """Every configured rung, MOST SPECIFIC FIRST — the order
     `resolve_fee_rate` walks, so a reader sees the chain as it resolves rather
     than in insertion order. An empty list means no claim can be submitted."""
-    return [_fee_rate_out(r) for r in await fee_svc.list_rates(db, current.org_id)]
+    standard = await fee_svc.standard_rate(db, current.org_id)
+    rows = await fee_svc.list_rates(db, current.org_id)
+    return [_fee_rate_out(r, standard) for r in rows]
 
 
 @router.put("/fee-rates", response_model=FeeRateOut, dependencies=_WRITE)
@@ -413,7 +428,24 @@ async def set_fee_rate(body: FeeRateSetIn, current: CurrentUser, db: DbSession):
         fee_min=body.fee_min,
     )
     await db.commit()
-    return _fee_rate_out(row)
+    return _fee_rate_out(row, await fee_svc.standard_rate(db, current.org_id))
+
+
+@router.put("/fee-rates/discount", response_model=FeeRateOut, dependencies=_WRITE)
+async def set_fee_rate_by_discount(body: FeeRateDiscountIn, current: CurrentUser, db: DbSession):
+    """Negotiate a client off the standard — the discount applies to BOTH the
+    percentage and the minimum, and what is stored is the resulting absolute
+    pair. A negative discount is a premium and is allowed. Refused when no
+    standard exists: a discount off nothing is not a price."""
+    row = await fee_svc.set_rate_by_discount(
+        db,
+        current.org_id,
+        entity_id=body.entity_id,
+        country=body.country,
+        discount_pct=body.discount_pct,
+    )
+    await db.commit()
+    return _fee_rate_out(row, await fee_svc.standard_rate(db, current.org_id))
 
 
 @router.delete("/fee-rates", response_model=RemovedOut, dependencies=_WRITE)

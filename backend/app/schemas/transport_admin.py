@@ -217,3 +217,27 @@ class FeeRateOut(BaseModel):
     country: str
     fee_pct: Decimal
     fee_min: Decimal
+    # How this price sits against the STANDARD — derived by comparing two rows,
+    # never stored. `standard` / `discount` / `premium` / `no_standard`.
+    # The discounts are percentages OFF the standard: 20 means 20% cheaper,
+    # -10 means 10% dearer. None where there is no standard to compare with, or
+    # where the standard figure is zero — "no discount" and "nothing to compare
+    # with" are different statements.
+    kind: str = "no_standard"
+    standard_pct: Decimal | None = None
+    standard_min: Decimal | None = None
+    pct_discount: Decimal | None = None
+    min_discount: Decimal | None = None
+
+
+class FeeRateDiscountIn(BaseModel):
+    """Negotiate a client off the standard. The discount is how the numbers are
+    ARRIVED at; what gets stored is the resulting absolute pair, so a later
+    change to the standard leaves this client where they were agreed.
+
+    Negative is legal and means a premium above standard.
+    """
+
+    entity_id: str
+    country: str | None = Field(default=None, max_length=2)
+    discount_pct: Decimal

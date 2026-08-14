@@ -553,3 +553,143 @@ __all__ = [
     "resolve_fee_rate",
     "set_rate",
 ]
+
+
+# --------------------------------------------------------------------------- #
+# Standard pricing vs a negotiated client price
+# --------------------------------------------------------------------------- #
+# The commercial model (owner decision, 2026-08-12): there is a STANDARD price,
+# and an individual client is negotiated to a price expressed as a DISCOUNT from
+# it. Four choices shape the code below, and each was taken deliberately:
+#
+# 1. The negotiated price is stored as an ABSOLUTE `(fee_pct, fee_min)` on the
+#    client rung — never as a discount percentage. A stored discount would be a
+#    live reference to the standard, so raising the standard would silently
+#    re-rate every negotiated client, including ones with a signed contract
+#    saying otherwise. Storing absolutes makes grandfathering the default and
+#    re-rating a deliberate, audited act. Nothing new is stored for this: the
+#    rate table already holds absolutes, so there is no migration.
+#
+# 2. The discount is therefore DERIVED for display — a fact computed by
+#    comparing two rows, never a fact of record.
+#
+# 3. A discount applies to BOTH the percentage and the minimum. "20% off"
+#    means 12% and €40, not 12% and an unchanged €50 floor.
+#
+# 4. A negotiated price may be ABOVE standard (a premium for difficult work), so
+#    the derived discount can legitimately be negative. `kind` names which it is
+#    rather than leaving a reader to work out the sign.
+
+STANDARD = "standard"
+DISCOUNT = "discount"
+PREMIUM = "premium"
+NO_STANDARD = "no_standard"
+
+
+@dataclass(frozen=True)
+class RateComparison:
+    """A client's price set against the standard, for display and for a quote.
+
+    `pct_discount` / `min_discount` are percentages OFF the standard: 20 means
+    20% cheaper, -10 means 10% dearer. They are `None` when there is no standard
+    to compare against, because "no discount" and "nothing to compare with" are
+    different statements and a zero would blur them.
+    """
+
+    kind: str
+    fee_pct: Decimal
+    fee_min: Decimal
+    standard_pct: Decimal | None
+    standard_min: Decimal | None
+    pct_discount: Decimal | None
+    min_discount: Decimal | None
+
+
+def _discount_between(negotiated: Decimal, standard: Decimal) -> Decimal | None:
+    """How far below the standard a figure sits, as a percentage of it.
+
+    `None` when the standard is zero: nothing is a meaningful percentage of
+    zero, and returning 0 or 100 there would both be inventions.
+    """
+    if standard == 0:
+        return None
+    return q2((standard - negotiated) / standard * _HUNDRED)
+
+
+def apply_discount(
+    standard_pct: Decimal, standard_min: Decimal, discount_pct: Decimal
+) -> tuple[Decimal, Decimal]:
+    """Standard price minus a discount, applied to BOTH figures.
+
+    A negative discount is a premium and is allowed. The result is clamped only
+    by the same validators any typed rate passes, so a discount cannot produce a
+    percentage outside 0..100 or a negative minimum by arithmetic when it could
+    not be typed directly.
+    """
+    factor = (_HUNDRED - Decimal(discount_pct)) / _HUNDRED
+    return _validate_pct(q2(standard_pct * factor)), _validate_min(q2(standard_min * factor))
+
+
+async def standard_rate(db: AsyncSession, org_id: str) -> VatFeeRate | None:
+    """The ORG STANDARD rung, or `None` when none is configured."""
+    await _require_module(db, org_id)
+    return await get_rate_row(db, org_id, entity_id=None, country=ANY_COUNTRY)
+
+
+def compare_rate(fee_pct: Decimal, fee_min: Decimal, standard: VatFeeRate | None) -> RateComparison:
+    """Set one price against the standard. Pure — no I/O, no rounding of the
+    inputs, and it never decides anything: it only reports the relationship."""
+    if standard is None:
+        return RateComparison(NO_STANDARD, fee_pct, fee_min, None, None, None, None)
+
+    std_pct, std_min = q2(standard.fee_pct), q2(standard.fee_min)
+    pct_off = _discount_between(q2(fee_pct), std_pct)
+    min_off = _discount_between(q2(fee_min), std_min)
+
+    if q2(fee_pct) == std_pct and q2(fee_min) == std_min:
+        kind = STANDARD
+    elif q2(fee_pct) > std_pct or (q2(fee_pct) == std_pct and q2(fee_min) > std_min):
+        kind = PREMIUM
+    else:
+        kind = DISCOUNT
+    return RateComparison(kind, q2(fee_pct), q2(fee_min), std_pct, std_min, pct_off, min_off)
+
+
+async def set_rate_by_discount(
+    db: AsyncSession,
+    org_id: str,
+    *,
+    entity_id: str,
+    country: str | None = None,
+    discount_pct: Decimal,
+) -> VatFeeRate:
+    """Negotiate a client off the STANDARD by a discount, applied to both the
+    percentage and the minimum.
+
+    The discount is a way of ARRIVING at the numbers, not a thing that is kept:
+    the standard is read once, the two figures are computed, and `set_rate`
+    stores them as absolutes. So the client's price is captured at the moment it
+    was agreed and a later change to the standard leaves it alone — which is the
+    behaviour a signed rate card implies, and the reason a stored discount was
+    rejected.
+
+    Refuses when no standard exists: a discount off nothing is not a price, and
+    inventing a base here would be the same invention `resolve_fee_rate` refuses
+    to make. Refuses for the org rung too — the standard cannot be a discount
+    off itself.
+    """
+    if entity_id is None:
+        raise ValidationError(
+            "The standard rate cannot be a discount off itself — set it directly",
+            code="discount_needs_a_client",
+        )
+    standard = await standard_rate(db, org_id)
+    if standard is None:
+        raise ValidationError(
+            "No standard rate is configured, so there is nothing to discount from",
+            code="no_standard_rate",
+        )
+    pct, minimum = apply_discount(q2(standard.fee_pct), q2(standard.fee_min), discount_pct)
+    return await set_rate(
+        db, org_id, entity_id=entity_id, country=country, fee_pct=pct, fee_min=minimum
+    )
