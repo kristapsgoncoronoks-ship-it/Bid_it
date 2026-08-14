@@ -1040,6 +1040,41 @@ async def _p_extraction_fields(ctx: Ctx) -> None:
     )
 
 
+@probe("inbound_channel_health")
+async def _p_inbound_channel_health(ctx: Ctx) -> None:
+    """H-2: both orgs activate email intake and state a DIFFERENT expected
+    delivery cadence for the SAME channel key. The channel key is identical by
+    construction, so only tenancy can discriminate — a missing `org_id` filter
+    would show one org the other's expectation, and the whole point of the value
+    is that it decides when THAT workspace is told its intake has gone quiet.
+
+    The discriminator is the VALUE, not a row id: this table's natural key is
+    (org, channel) and its wire shape carries no id, so an id would be noise a
+    client could not use.
+
+    Deliberately a real probe rather than an EXEMPT row, in the same commit that
+    creates the table."""
+    from app.services import modules as modules_svc
+
+    cadence = {ctx.a.name: 3, ctx.b.name: 21}
+    for org in (ctx.a, ctx.b):
+        await modules_svc.set_enabled(ctx.db, org.org_id, "email_intake", True)
+        await ctx.db.commit()
+        put = await org.put(
+            "/api/v1/email/health/email", json={"expected_cadence_days": cadence[org.name]}
+        )
+        assert put.status_code == 200, put.text
+
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        seen = await me.get("/api/v1/email/health")
+        assert seen.status_code == 200, seen.text
+        row = next(c for c in seen.json() if c["channel"] == "email")
+        assert row["expected_cadence_days"] == cadence[me.name], row
+        assert row["expected_cadence_days"] != cadence[other.name], (
+            "inbound_channel_health: one org is reading the other's stated cadence"
+        )
+
+
 @probe("capture_acknowledgements")
 async def _p_capture_acknowledgements(ctx: Ctx) -> None:
     """H-1: both orgs upload an IDENTICAL unparseable file, so both get a failed

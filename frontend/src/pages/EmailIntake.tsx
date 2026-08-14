@@ -7,7 +7,7 @@ import { useToast } from "../components/Toast";
 import { api, apiError, downloadFile } from "../lib/api";
 import { INBOUND_STATUS_STYLES as STATUS_STYLES, METHOD_STYLES, methodLabel, money, shortDate } from "../lib/format";
 import { isAdminOrAbove } from "../lib/roles";
-import type { EmailSettings, InboundInvoiceDetail, InboundList } from "../lib/types";
+import type { ChannelHealth, EmailSettings, InboundInvoiceDetail, InboundList } from "../lib/types";
 
 export default function EmailIntake() {
   const { user } = useAuth();
@@ -24,6 +24,20 @@ export default function EmailIntake() {
     queryKey: ["email-inbox"],
     queryFn: async () => (await api.get("/email/inbox")).data,
   });
+  // H-2: an inbound channel can die while every other panel on this page stays
+  // green, because "no invoices arrived" and "nothing could get through" look
+  // identical from a count. This states which one it is.
+  const health = useQuery<ChannelHealth[]>({
+    queryKey: ["email-health"],
+    queryFn: async () => (await api.get("/email/health")).data,
+  });
+  const cadence = useMutation({
+    mutationFn: async (days: number | null) =>
+      (await api.put("/email/health/email", { expected_cadence_days: days })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["email-health"] }),
+    onError: (e) => toast.error(apiError(e)),
+  });
+  const email = health.data?.find((c) => c.channel === "email");
 
   const rotate = useMutation({
     mutationFn: async () => (await api.post("/email/settings/rotate")).data,
@@ -69,6 +83,51 @@ export default function EmailIntake() {
           Anything sent here lands in the inbox below.
         </p>
       </div>
+
+      {email && (
+        <div
+          className={
+            "card space-y-2 " +
+            (email.state === "failing"
+              ? "border-rose-200 bg-rose-50"
+              : email.state === "silent"
+                ? "border-amber-200 bg-amber-50"
+                : "")
+          }
+        >
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-700">Is this address still working?</h2>
+            {isAdminOrAbove(user) && (
+              <label className="flex items-center gap-2 text-xs text-slate-500">
+                Tell us when to worry:
+                <select
+                  className="input py-1 text-xs"
+                  value={email.expected_cadence_days ?? ""}
+                  onChange={(e) =>
+                    cadence.mutate(e.target.value === "" ? null : Number(e.target.value))
+                  }
+                >
+                  {/* An empty value is not "no setting" — it is an explicit refusal
+                      to guess, and the label says so. */}
+                  <option value="">don’t judge my quiet periods</option>
+                  <option value="1">I expect invoices daily</option>
+                  <option value="7">at least weekly</option>
+                  <option value="14">at least fortnightly</option>
+                  <option value="30">at least monthly</option>
+                </select>
+              </label>
+            )}
+          </div>
+          <p className="text-sm text-slate-700">{email.headline}</p>
+          {email.consecutive_failures > 0 && (
+            <p className="text-xs text-slate-500">
+              {email.consecutive_failures}{" "}
+              {email.consecutive_failures === 1 ? "delivery has" : "deliveries have"} failed since
+              the last success.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-5">
         <div className="lg:col-span-2">

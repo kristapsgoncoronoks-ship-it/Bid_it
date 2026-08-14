@@ -30,6 +30,7 @@ from app.models.expense_approval import ExpenseApprovalPolicy, ExpenseApprovalSt
 from app.models.extraction_field import ExtractionField
 from app.models.extraction_run import ExtractionRun
 from app.models.fx import EcbRate
+from app.models.inbound_channel_health import InboundChannelHealth
 from app.models.invitation import Invitation
 from app.models.invoice import Invoice, InvoiceStatus, LineItem, WorkflowState
 from app.models.invoice_collab import InvoiceAttachment, InvoiceComment
@@ -135,6 +136,7 @@ __all__ = [
     "Project",
     "CaptureAcknowledgement",
     "CaptureFieldMemory",
+    "InboundChannelHealth",
     "VatRefundClaim",
     "VatRefundClaimLine",
     "FuelTransaction",

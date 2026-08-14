@@ -15,6 +15,40 @@ class EmailSettingsOut(BaseModel):
     total: int = 0
 
 
+class ChannelHealthOut(BaseModel):
+    """H-2 — the health of one inbound channel.
+
+    `headline` is the sentence the UI shows. It is composed server-side and
+    states the situation POSITIVELY ("last successful delivery: 4 days ago"),
+    because absence is the whole signal here and an empty screen reads as fine.
+
+    `overdue` is True only when a cadence was STATED and the gap exceeds it. With
+    `expected_cadence_days` unset we report the elapsed time and make no claim —
+    one customer's fortnight of quiet is another's outage.
+    """
+
+    channel: str
+    state: str  # ok | failing | silent | never_used
+    headline: str
+    last_attempt_at: datetime | None = None
+    last_success_at: datetime | None = None
+    days_since_success: int | None = None
+    consecutive_failures: int = 0
+    last_error_kind: str | None = None
+    last_error_text: str | None = None
+    last_error_at: datetime | None = None
+    expected_cadence_days: int | None = None
+    overdue: bool = False
+
+
+class ChannelCadenceIn(BaseModel):
+    """How often this workspace expects deliveries. `null` withdraws the
+    expectation rather than resetting it to a default — there is no honest
+    default, and a guessed threshold produces alarms nobody trusts."""
+
+    expected_cadence_days: int | None = Field(default=None, ge=1, le=365)
+
+
 class InboundAttachment(BaseModel):
     filename: str = Field(min_length=1, max_length=300)
     content_type: str | None = Field(default=None, max_length=120)

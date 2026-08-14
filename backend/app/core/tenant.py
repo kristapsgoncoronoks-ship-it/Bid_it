@@ -48,6 +48,7 @@ from app.models.expense import (
 from app.models.expense_approval import ExpenseApprovalPolicy, ExpenseApprovalStep
 from app.models.extraction_field import ExtractionField
 from app.models.extraction_run import ExtractionRun
+from app.models.inbound_channel_health import InboundChannelHealth
 from app.models.invitation import Invitation
 from app.models.invoice import Invoice
 from app.models.invoice_collab import InvoiceAttachment, InvoiceComment
@@ -134,6 +135,7 @@ TENANT_MODELS = (
     ExtractionRun,
     ExtractionField,
     CaptureAcknowledgement,
+    InboundChannelHealth,
     Receipt,
     Document,
     DocumentVersion,

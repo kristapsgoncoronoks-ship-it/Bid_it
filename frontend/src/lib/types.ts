@@ -776,6 +776,29 @@ export interface CaptureFailure {
   acknowledgement_note?: string | null;
 }
 
+/**
+ * H-2 — the health of one inbound channel. `headline` is composed server-side
+ * and states the situation POSITIVELY ("last successful delivery: 4 days ago"),
+ * because absence is the whole signal and an empty screen reads as fine.
+ *
+ * `overdue` is true ONLY when a cadence was stated and the gap exceeds it. With
+ * `expected_cadence_days` null we show elapsed time and make no claim.
+ */
+export interface ChannelHealth {
+  channel: string;
+  state: "ok" | "failing" | "silent" | "never_used";
+  headline: string;
+  last_attempt_at?: string | null;
+  last_success_at?: string | null;
+  days_since_success?: number | null;
+  consecutive_failures: number;
+  last_error_kind?: string | null;
+  last_error_text?: string | null;
+  last_error_at?: string | null;
+  expected_cadence_days?: number | null;
+  overdue: boolean;
+}
+
 export interface CaptureFailureGroup {
   code: string;
   summary: string;
