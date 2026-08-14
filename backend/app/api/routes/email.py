@@ -215,15 +215,6 @@ async def inbound_mailgun(request: Request, db: DbSession):
     if org_id is None:
         raise _inbound_auth_failed()
 
-    if not await modules.is_enabled(db, org_id, "email_intake"):
-        await inbound_health.record_failure(
-            db, org_id, inbound_health.CHANNEL_EMAIL, inbound_health.ERR_NOT_ACTIVATED
-        )
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN, "Email invoice intake is not activated for this workspace"
-        )
-    await inbound_health.begin_attempt(db, org_id, inbound_health.CHANNEL_EMAIL)
-
     sender = _s("sender") or _s("from")
     subject = _s("subject")
     try:
@@ -234,6 +225,21 @@ async def inbound_mailgun(request: Request, db: DbSession):
     queued = rejected = 0
     scope = set_current_org(org_id)
     try:
+        # The module gate and the health writes run INSIDE the tenant scope, exactly
+        # as the generic /inbound route does. Both queries filter `org_id`
+        # explicitly, so running them outside was not a leak — but it left the
+        # ORM tenant guard (the second of the three isolation layers) switched off
+        # for those statements, and left two sibling routes doing the same thing
+        # differently, which is how the next person copies the wrong one.
+        if not await modules.is_enabled(db, org_id, "email_intake"):
+            await inbound_health.record_failure(
+                db, org_id, inbound_health.CHANNEL_EMAIL, inbound_health.ERR_NOT_ACTIVATED
+            )
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Email invoice intake is not activated for this workspace",
+            )
+        await inbound_health.begin_attempt(db, org_id, inbound_health.CHANNEL_EMAIL)
         for i in range(1, count + 1):
             upload = form.get(f"attachment-{i}")
             if upload is None or isinstance(upload, str):

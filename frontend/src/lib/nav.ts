@@ -53,7 +53,11 @@ export const LIVE_NAV: LiveNavGroup[] = [
       // something in the navigation says it exists.
       {
         to: "/captures/failures",
-        label: "Unread documents",
+        // NOT "Unread documents": the Workspace group already has a "Documents"
+        // item for the document store, and a label that contains another item's
+        // label reads as a sub-page of it. "Failed captures" also pairs with the
+        // "Captures" item directly above, which is exactly the relationship.
+        label: "Failed captures",
         icon: icon("M12 9v4m0 4h.01M10.3 3.9l-8 14A2 2 0 004 21h16a2 2 0 001.7-3.1l-8-14a2 2 0 00-3.4 0z"),
       },
       { to: "/review", label: "Review", icon: icon("M9 12l2 2 4-4M12 3l8 4v5c0 4.5-3.4 7.7-8 9-4.6-1.3-8-4.5-8-9V7l8-4z") },

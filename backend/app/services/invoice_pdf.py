@@ -447,6 +447,10 @@ def build_pdf(
     # credit note and stops. Whether this credit is offset against the account or
     # refunded to a bank account is not known at this layer, so it is not
     # guessed; the seller's own `notes` remain the place to say so.
+    # Annotated because the two branches carry different arities (2 and 3), and
+    # mypy would otherwise fix the type from whichever branch it saw first and
+    # reject the other.
+    seller_keys: tuple[str, ...]
     if is_credit:
         pay = ["<b>Credit</b>", "No payment is due on this document."]
         if number:

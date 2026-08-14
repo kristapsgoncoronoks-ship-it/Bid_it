@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
-import { useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Button, ConfirmDialog, EmptyState, ErrorState, Skeleton, Spinner } from "../components/ui";
 import { api, apiError } from "../lib/api";
@@ -258,11 +258,17 @@ export default function CaptureReview() {
   // and something nearly did, that nothing was chosen and confirming unchanged
   // will fork the master data. The server owns both the rule and the wording;
   // this screen renders them rather than composing advice of its own.
+  //
+  // Keyed off a DEFERRED copy of the name, not the live one. The vendor input
+  // calls setDraft on every keystroke, and each resolve scans the supplier master
+  // server-side — without this, typing a 20-character supplier name fires 20 of
+  // those. The answer is only useful once the user stops typing anyway.
+  const deferredVendorName = useDeferredValue(draft?.vendor_name ?? "");
   const resolution = useQuery<VendorResolution>({
-    queryKey: ["vendors", "resolve", draft?.vendor_name ?? ""],
+    queryKey: ["vendors", "resolve", deferredVendorName],
     queryFn: async () =>
-      (await api.get("/vendors/resolve", { params: { name: draft?.vendor_name ?? "" } })).data,
-    enabled: parsed && !!draft?.vendor_name?.trim(),
+      (await api.get("/vendors/resolve", { params: { name: deferredVendorName } })).data,
+    enabled: parsed && !!deferredVendorName.trim(),
   });
 
   const number = draft?.invoice_number?.trim() ?? "";

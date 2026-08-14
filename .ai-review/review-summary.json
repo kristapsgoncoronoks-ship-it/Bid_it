@@ -1,0 +1,63 @@
+{
+  "decision": "GO_WITH_CONDITIONS",
+  "risk_level": "MEDIUM",
+  "risk_score": null,
+  "risk_score_note": "No graph tooling was available, so no computed risk score exists. MEDIUM is a judgement, not a measurement.",
+  "critical_findings": 0,
+  "high_findings": 2,
+  "medium_findings": 5,
+  "low_findings": 2,
+  "findings_fixed": 4,
+  "findings_open": 5,
+  "tests_passed": null,
+  "tests_passed_note": "Full `pytest -q` was still running when this file was written; see the run log in 05-testing.md for the completed targeted suites (494 passed / 1 skipped; 428 passed / 1 skipped) and the full e2e set (270 passed).",
+  "gates": {
+    "ruff_check": "pass",
+    "ruff_format": "pass",
+    "mypy": "pass (was failing before F-01 fix)",
+    "alembic_single_head": "pass",
+    "frontend_typecheck": "pass",
+    "frontend_build": "pass",
+    "playwright_e2e": "pass (270 passed; was failing before F-02 fix)",
+    "backend_full_suite": null,
+    "github_actions_ci": null,
+    "postgres_rls_job": null
+  },
+  "security_review_passed": null,
+  "security_review_note": "No vulnerability found in the reviewed scope, and one defense-in-depth gap was fixed. Set to null rather than true because the independent security reviewer was killed by a session limit before producing findings, and one disclosure question remains NEEDS VERIFICATION.",
+  "architecture_review_passed": true,
+  "code_review_graph_used": false,
+  "code_review_graph_note": "Verified unavailable: no CLI on PATH, no python module, no npm global, no MCP tools, no existing graph artifacts. The user explicitly cancelled adding the skill, so it was not installed. Structural review performed by repository inspection.",
+  "multi_agent_review_completed": false,
+  "multi_agent_review_note": "Four independent reviewers (security, skeptical-correctness, QA, architecture/performance) were launched and all four terminated on an account session limit before producing findings. Reviews were performed directly instead, and are narrower as a result.",
+  "remaining_risks": [
+    "GitHub Actions CI has never run on this branch (runners billing-blocked); all results are local",
+    "The Postgres CI job could not be reproduced here, so the two new RLS policies have never executed",
+    "Production is on 15116e1 — 355 commits and two migrations behind; the deploy runbook predates both",
+    "F-05: the failed-capture worklist is unpaginated; load correlates with the failure it surfaces",
+    "F-06: updated_at is used as a proxy for failed_at — correct today, fragile by construction",
+    "F-07: the email channel of the worklist is untested",
+    "F-08: no test proves the new mutating routes reject a caller lacking INVOICE_WRITE",
+    "F-09: the new frontend page has no automated coverage; the repo has no frontend unit-test runner",
+    "inbound_health.consecutive_failures under concurrent deliveries is unproven in either direction"
+  ],
+  "changed_files": [
+    "backend/app/services/invoice_pdf.py",
+    "backend/app/api/routes/email.py",
+    "frontend/src/lib/nav.ts",
+    "frontend/src/pages/CaptureReview.tsx"
+  ],
+  "changed_files_note": "These are the files modified BY THIS REVIEW. The change set under review is c2948cb..HEAD (33 code files), listed in 02-change-impact.md.",
+  "reports": [
+    ".ai-review/00-executive-summary.md",
+    ".ai-review/01-architecture.md",
+    ".ai-review/02-change-impact.md",
+    ".ai-review/03-code-quality.md",
+    ".ai-review/04-security.md",
+    ".ai-review/05-testing.md",
+    ".ai-review/06-performance-reliability.md",
+    ".ai-review/07-implementation-log.md",
+    ".ai-review/08-final-review.md",
+    ".ai-review/review-summary.json"
+  ]
+}
