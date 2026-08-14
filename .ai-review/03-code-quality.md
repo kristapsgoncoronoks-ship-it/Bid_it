@@ -170,8 +170,18 @@ suspicions I could not prove and have not asserted as facts.
   is evaluated.
   I am NOT claiming a fix and NOT claiming the flake is resolved: it was observed once and
   has not been reproduced.
-- **Status:** OPEN — promoted. This is now the highest-value open finding: it is a silent
-  wrong-answer (a real failure stays hidden), and it has been seen once for real.
+- **Resolution:** **FIXED (the mechanism), flake NOT proven resolved.** Coverage is now
+  decided by a monotonic per-record `failure_seq` (migration `e5f1a72c9d84`), incremented at
+  every transition into a failed state and stored on the acknowledgement. Integers cannot
+  collide, so the timestamp-equality path is structurally gone. A test drives the
+  pathological case directly — identical timestamps, new failure event — and reverting the
+  SQL predicate to the old timestamp rule turns it red.
+  **Honesty about the flake:** it recurred once AFTER this fix, so the timestamp collision
+  was NOT its only cause. A second candidate was found and removed — the test drain loop
+  exited on the FIRST empty poll, so a job not yet visible was never run. That is now a
+  drain-until-idle-three-times helper. The flake has not reproduced in 6 subsequent group
+  runs, which is not the same as being fixed, and I am not claiming it is.
+- **Status:** MECHANISM FIXED · flake UNCONFIRMED — watch for recurrence.
 
 ---
 

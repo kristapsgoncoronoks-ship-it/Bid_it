@@ -67,6 +67,16 @@ class ExtractionRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # NULL on a successful run, and on a failure recorded before this contract
     # existed (read as `unknown_failure`, which does not claim a cause).
     failure_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # F-06: how many times this record has FAILED. Incremented on each transition
+    # into a failed state, and what an acknowledgement is pinned to.
+    #
+    # It replaces a wall-clock timestamp as the failure IDENTITY. Coverage used to
+    # be `ack.failure_seen_at >= failed_at`, so a re-failure recorded in the same
+    # timestamp tick as the acknowledgement was wrongly treated as covered and
+    # stayed hidden — a real failure the operator never saw again. That was
+    # observed as a flaky test. Any timestamp column collides at its own
+    # resolution; an integer does not.
+    failure_seq: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     # Async direct-upload capture (Stage B): the serialized ParsedInvoiceDraft the
     # worker produced, so the client can fetch it after the parse runs OFF the API
     # tier. NULL for a synchronous/email run or one still queued.

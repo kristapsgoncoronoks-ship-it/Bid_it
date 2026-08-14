@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -40,4 +40,10 @@ class CaptureAcknowledgement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     acknowledged_by: Mapped[str | None] = mapped_column(String(320), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     # The failure this acknowledgement covers. A later failure is not covered.
+    # F-06: the failure SEQUENCE this acknowledgement covers. Coverage is
+    # `ack.failure_seq >= record.failure_seq` — integers, so a re-failure can
+    # never collide with the acknowledgement that preceded it.
+    failure_seq: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    # Kept as information ("acknowledged against the failure of 14 Aug"), no
+    # longer the basis of the coverage decision.
     failure_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

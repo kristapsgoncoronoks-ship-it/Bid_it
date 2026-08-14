@@ -338,6 +338,9 @@ async def extract_upload(db: AsyncSession, run_id: str) -> dict:
         run.status = "failed"
         run.note = "stored upload missing"
         run.failure_code = capture_failures.STORED_FILE_MISSING
+        # F-06: a new failure EVENT, so an acknowledgement of the previous one
+        # stops covering it.
+        run.failure_seq = (run.failure_seq or 0) + 1
         await db.commit()
         return {"status": "failed", "reason": "missing bytes"}
 
@@ -356,6 +359,7 @@ async def extract_upload(db: AsyncSession, run_id: str) -> dict:
         # H-1: classify the cause into the stable vocabulary the failed-capture
         # worklist reads. `note` above stays the raw message for an engineer.
         run.failure_code = capture_failures.code_for(exc)
+        run.failure_seq = (run.failure_seq or 0) + 1
         await db.commit()
         return {"status": "failed", "reason": exc.__class__.__name__}
 

@@ -312,6 +312,7 @@ def _sources(org_id: str):
         ExtractionRun.source_filename.label("filename"),
         ExtractionRun.source_sha256.label("sha"),
         ExtractionRun.updated_at.label("failed_at"),
+        ExtractionRun.failure_seq.label("failure_seq"),
     ).where(ExtractionRun.org_id == org_id, ExtractionRun.status == "failed")
 
     inbound = select(
@@ -330,6 +331,7 @@ def _sources(org_id: str):
         InboundInvoice.filename.label("filename"),
         InboundInvoice.sha256.label("sha"),
         InboundInvoice.updated_at.label("failed_at"),
+        InboundInvoice.failure_seq.label("failure_seq"),
     ).where(
         InboundInvoice.org_id == org_id,
         InboundInvoice.status.in_(("failed", "rejected")),
@@ -350,8 +352,9 @@ def _unacknowledged(src, org_id: str):
             CaptureAcknowledgement.org_id == org_id,
             CaptureAcknowledgement.ref_id == src.c.ref_id,
             CaptureAcknowledgement.channel == src.c.channel,
-            CaptureAcknowledgement.failure_seen_at.is_not(None),
-            CaptureAcknowledgement.failure_seen_at >= src.c.failed_at,
+            # F-06: integers, so a re-failure can never collide with the
+            # acknowledgement that preceded it.
+            CaptureAcknowledgement.failure_seq >= src.c.failure_seq,
         )
     )
 
@@ -447,6 +450,7 @@ async def worklist_page(
             filename=r.filename,
             sha=r.sha,
             failed_at=r.failed_at,
+            failure_seq=r.failure_seq,
             repeats=repeats,
             acks=acks,
         )
@@ -479,6 +483,7 @@ async def items_for_refs(
             filename=r.filename,
             sha=r.sha,
             failed_at=r.failed_at,
+            failure_seq=r.failure_seq,
             repeats={},
             acks=acks,
         )
@@ -538,6 +543,7 @@ async def worklist(
                 filename=r.source_filename,
                 sha=r.source_sha256,
                 failed_at=r.updated_at,
+                failure_seq=r.failure_seq,
                 repeats=repeats,
                 acks=acks,
             )
@@ -553,6 +559,7 @@ async def worklist(
                 filename=i.filename,
                 sha=i.sha256,
                 failed_at=i.updated_at,
+                failure_seq=i.failure_seq,
                 repeats=repeats,
                 acks=acks,
             )
@@ -591,6 +598,7 @@ def _item(
     filename: str | None,
     sha: str | None,
     failed_at: datetime,
+    failure_seq: int,
     repeats: dict[str, int],
     acks: dict[tuple[str, str], CaptureAcknowledgement],
 ) -> WorklistItem:
@@ -599,7 +607,7 @@ def _item(
     # An ack made BEFORE the most recent failure does not cover it. Compared
     # naively (`ack is not None`) a re-failure would inherit the old dismissal
     # and vanish, which is the exact silence this worklist exists to break.
-    current = ack if (ack is not None and not _superseded(ack, failed_at)) else None
+    current = ack if (ack is not None and not _superseded(ack, failure_seq)) else None
     return WorklistItem(
         channel=channel,
         ref_id=ref_id,
@@ -622,18 +630,16 @@ def _item(
     )
 
 
-def _superseded(ack: CaptureAcknowledgement, failed_at: datetime) -> bool:
-    """True when the capture failed again after this acknowledgement was made.
+def _superseded(ack: CaptureAcknowledgement, failure_seq: int) -> bool:
+    """True when the record has failed AGAIN since this acknowledgement was made.
 
-    Both sides are stored as timezone-aware UTC, but a naive value can reach here
-    from a driver that drops the offset (SQLite). Comparing a naive to an aware
-    datetime raises, and a raise here would take down the whole worklist, so an
-    unknown offset is read as UTC rather than allowed to throw.
+    Compares failure SEQUENCES, not timestamps (F-06). The previous rule was
+    `failed_at > ack.failure_seen_at`, which meant a re-failure recorded in the
+    same clock tick as the acknowledgement compared equal and was treated as
+    already covered — so a genuine new failure stayed hidden. Integers cannot
+    collide that way.
     """
-    seen = ack.failure_seen_at
-    if seen is None:
-        return True  # an ack that recorded no failure time cannot cover any failure
-    return _as_utc(failed_at) > _as_utc(seen)
+    return int(failure_seq or 0) > int(ack.failure_seq or 0)
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -662,15 +668,19 @@ async def acknowledge(
     """
     if channel not in CHANNELS:
         return None
-    failed_at = await _failed_at(db, org_id, channel, ref_id)
-    if failed_at is None:
+    state = await _failure_state(db, org_id, channel, ref_id)
+    if state is None:
         return None
+    failed_at, failure_seq = state
     row = CaptureAcknowledgement(
         org_id=org_id,
         channel=channel,
         ref_id=ref_id,
         acknowledged_by=(actor[:320] if actor else None),
         note=(note[:1000] if note else None),
+        # WHICH failure this covers (F-06). The timestamp rides along as
+        # information; the sequence is what the coverage decision reads.
+        failure_seq=failure_seq,
         failure_seen_at=failed_at,
     )
     db.add(row)
@@ -744,7 +754,11 @@ async def bulk_acknowledge(
     return result
 
 
-async def _failed_at(db: AsyncSession, org_id: str, channel: str, ref_id: str) -> datetime | None:
+async def _failure_state(
+    db: AsyncSession, org_id: str, channel: str, ref_id: str
+) -> tuple[datetime, int] | None:
+    """(when it failed, which failure it is) for a record that IS currently
+    failed, or None when it is not one in this tenant."""
     if channel == CHANNEL_UPLOAD:
         run = await db.scalar(
             select(ExtractionRun).where(
@@ -753,7 +767,7 @@ async def _failed_at(db: AsyncSession, org_id: str, channel: str, ref_id: str) -
                 ExtractionRun.status == "failed",
             )
         )
-        return run.updated_at if run else None
+        return (run.updated_at, run.failure_seq or 0) if run else None
     row = await db.scalar(
         select(InboundInvoice).where(
             InboundInvoice.org_id == org_id,
@@ -761,4 +775,4 @@ async def _failed_at(db: AsyncSession, org_id: str, channel: str, ref_id: str) -
             InboundInvoice.status.in_(("failed", "rejected")),
         )
     )
-    return row.updated_at if row else None
+    return (row.updated_at, row.failure_seq or 0) if row else None

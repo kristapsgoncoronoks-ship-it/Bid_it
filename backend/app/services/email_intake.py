@@ -120,6 +120,7 @@ async def process_attachment(
         row.status = "rejected"
         row.error = str(exc)
         row.failure_code = capture_failures.SECURITY_REJECTED
+        row.failure_seq = (row.failure_seq or 0) + 1  # F-06: a new failure event
         db.add(row)
         return row
 
@@ -166,6 +167,7 @@ async def extract_inbound(db: AsyncSession, inbound_id: str) -> dict:
         row.status = "failed"
         row.error = "stored attachment missing"
         row.failure_code = capture_failures.STORED_FILE_MISSING
+        row.failure_seq = (row.failure_seq or 0) + 1
         await db.commit()
         return {"status": "failed", "reason": "missing bytes"}
 
@@ -182,5 +184,6 @@ async def extract_inbound(db: AsyncSession, inbound_id: str) -> dict:
         row.error = str(exc)
         # H-1: classify into the vocabulary the failed-capture worklist reads.
         row.failure_code = capture_failures.code_for(exc)
+        row.failure_seq = (row.failure_seq or 0) + 1
     await db.commit()
     return {"status": row.status, "method": row.method}

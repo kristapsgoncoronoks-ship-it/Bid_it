@@ -39,10 +39,29 @@ _GOOD = (
 )
 
 
+async def _drain(db_session, *, idle_rounds: int = 3) -> None:
+    """Run the worker until the queue is EMPTY several polls in a row.
+
+    Breaking on the first empty poll is fragile: a job enqueued moments earlier
+    may not be visible yet, and the loop then exits before doing the work the
+    test is about to assert on. That is a plausible source of the intermittent
+    failure recorded against F-06, and it costs nothing to remove.
+    """
+    from app.services import jobs
+
+    idle = 0
+    for _ in range(120):
+        if await jobs.run_once(db_session, "test-worker") is None:
+            idle += 1
+            if idle >= idle_rounds:
+                return
+        else:
+            idle = 0
+
+
 async def _upload_and_drain(auth_client, db_session, content: bytes, name: str) -> str:
     """Upload a file and run the worker, WITHOUT asserting the outcome — unlike
     the `parse_upload` fixture, which requires a successful parse."""
-    from app.services import jobs
 
     r = await auth_client.post(
         "/api/v1/invoices/upload",
@@ -50,9 +69,7 @@ async def _upload_and_drain(auth_client, db_session, content: bytes, name: str) 
     )
     assert r.status_code == 202, r.text
     run_id = r.json()["extraction_run_id"]
-    for _ in range(30):
-        if await jobs.run_once(db_session, "test-worker") is None:
-            break
+    await _drain(db_session)
     return run_id
 
 
@@ -133,11 +150,8 @@ async def test_a_successful_capture_is_not_on_the_worklist(auth_client, db_sessi
             files={"file": ("good.csv", io.BytesIO(_GOOD), "text/csv")},
         )
     ).json()["extraction_run_id"]
-    from app.services import jobs
 
-    for _ in range(30):
-        if await jobs.run_once(db_session, "test-worker") is None:
-            break
+    await _drain(db_session)
 
     body = await _worklist(auth_client)
 
@@ -190,13 +204,10 @@ async def test_a_capture_that_fails_again_returns_to_the_worklist(auth_client, d
     assert all(i["ref_id"] != run_id for i in ack.json()["items"])
 
     # Retry the same (still unparseable) bytes — it fails again.
-    from app.services import jobs
 
     retry = await auth_client.post(f"/api/v1/invoices/upload/{run_id}/retry")
     assert retry.status_code == 202, retry.text
-    for _ in range(30):
-        if await jobs.run_once(db_session, "test-worker") is None:
-            break
+    await _drain(db_session)
     assert (await auth_client.get(f"/api/v1/invoices/upload/{run_id}")).json()["status"] == "failed"
 
     body = await _worklist(auth_client)
@@ -214,7 +225,7 @@ async def test_a_retry_that_succeeds_clears_the_failure(auth_client, db_session)
     # Replace the stored bytes with a parseable file, keyed by the run's sha, so
     # the SAME run re-parses successfully.
     run = await db_session.scalar(select(ExtractionRun).where(ExtractionRun.id == run_id))
-    from app.services import documents, jobs
+    from app.services import documents
     from app.services.extraction import sha256_hex
 
     await documents.store(documents.UPLOADS, run.org_id, _GOOD, "text/csv", db=db_session)
@@ -223,9 +234,7 @@ async def test_a_retry_that_succeeds_clears_the_failure(auth_client, db_session)
 
     retry = await auth_client.post(f"/api/v1/invoices/upload/{run_id}/retry")
     assert retry.status_code == 202, retry.text
-    for _ in range(30):
-        if await jobs.run_once(db_session, "test-worker") is None:
-            break
+    await _drain(db_session)
     assert (await auth_client.get(f"/api/v1/invoices/upload/{run_id}")).json()["status"] == "parsed"
 
     body = await _worklist(auth_client, include_acknowledged=True)
@@ -276,11 +285,8 @@ async def test_acknowledging_a_capture_that_did_not_fail_is_refused(
             files={"file": ("good.csv", io.BytesIO(_GOOD), "text/csv")},
         )
     ).json()["extraction_run_id"]
-    from app.services import jobs
 
-    for _ in range(30):
-        if await jobs.run_once(db_session, "test-worker") is None:
-            break
+    await _drain(db_session)
 
     r = await auth_client.post(
         f"/api/v1/invoices/captures/failures/upload/{ok}/acknowledge", json={"note": "x"}
@@ -385,7 +391,6 @@ def test_every_failure_kind_carries_advice_an_operator_can_act_on():
 
 
 async def _n_failed(auth_client, db_session, n: int) -> list[str]:
-    from app.services import jobs
 
     ids = []
     for i in range(n):
@@ -396,9 +401,7 @@ async def _n_failed(auth_client, db_session, n: int) -> list[str]:
         )
         assert r.status_code == 202, r.text
         ids.append(r.json()["extraction_run_id"])
-    for _ in range(120):
-        if await jobs.run_once(db_session, "test-worker") is None:
-            break
+    await _drain(db_session)
     return ids
 
 
@@ -459,3 +462,44 @@ async def test_the_sql_filter_and_the_python_rule_agree_about_coverage(auth_clie
     assert item["acknowledged_at"] is not None
     assert shown["total"] == 2
     assert shown["unacknowledged"] == 1, "the two rules disagree about what is covered"
+
+
+@pytest.mark.asyncio
+async def test_coverage_is_decided_by_the_failure_SEQUENCE_not_the_clock(auth_client, db_session):
+    """F-06. An acknowledgement used to be pinned to a wall-clock timestamp, and
+    coverage was `ack.failure_seen_at >= failed_at`. A re-failure recorded in the
+    SAME tick therefore compared equal and was treated as already covered, so a
+    genuine new failure stayed hidden — the exact silence this worklist exists to
+    break.
+
+    This drives the collision directly rather than hoping to catch it by timing:
+    the acknowledgement and the new failure are given the SAME timestamp, and the
+    item must still come back."""
+    from datetime import UTC, datetime
+
+    from app.models.capture_acknowledgement import CaptureAcknowledgement
+
+    run_id = await _failed_run(auth_client, db_session)
+    ack = await auth_client.post(
+        f"/api/v1/invoices/captures/failures/upload/{run_id}/acknowledge", json={"note": "seen"}
+    )
+    assert ack.status_code == 200, ack.text
+    assert all(i["ref_id"] != run_id for i in (await _worklist(auth_client))["items"])
+
+    run = await db_session.scalar(select(ExtractionRun).where(ExtractionRun.id == run_id))
+    row = await db_session.scalar(
+        select(CaptureAcknowledgement).where(CaptureAcknowledgement.ref_id == run_id)
+    )
+    # The pathological case: identical timestamps, but a NEW failure event.
+    same_instant = datetime.now(UTC)
+    row.failure_seen_at = same_instant
+    run.updated_at = same_instant
+    run.failure_seq = (run.failure_seq or 0) + 1
+    await db_session.commit()
+
+    body = await _worklist(auth_client)
+
+    assert any(i["ref_id"] == run_id for i in body["items"]), (
+        "a new failure sharing the acknowledgement's timestamp stayed hidden"
+    )
+    assert body["unacknowledged"] >= 1

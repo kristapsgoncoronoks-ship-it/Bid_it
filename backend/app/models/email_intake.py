@@ -50,6 +50,16 @@ class InboundInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # H-1: the CLASSIFIED cause when the row is `failed`/`rejected` — a stable
     # code from `capture_failures.KINDS`. `error` above keeps the raw message.
     failure_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # F-06: how many times this record has FAILED. Incremented on each transition
+    # into a failed state, and what an acknowledgement is pinned to.
+    #
+    # It replaces a wall-clock timestamp as the failure IDENTITY. Coverage used to
+    # be `ack.failure_seen_at >= failed_at`, so a re-failure recorded in the same
+    # timestamp tick as the acknowledgement was wrongly treated as covered and
+    # stayed hidden — a real failure the operator never saw again. That was
+    # observed as a flaky test. Any timestamp column collides at its own
+    # resolution; an integer does not.
+    failure_seq: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
     invoice_id: Mapped[str | None] = mapped_column(
         GUID(), ForeignKey("invoices.id", ondelete="SET NULL"), nullable=True
