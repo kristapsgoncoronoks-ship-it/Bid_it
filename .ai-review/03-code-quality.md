@@ -212,7 +212,13 @@ suspicions I could not prove and have not asserted as facts.
 - **Recommendation:** either add a `captures-failures.spec.ts` to the e2e allow-list, or
   accept the gap explicitly. This is a pre-existing repository condition, not something this
   change set introduced.
-- **Status:** OPEN / pre-existing
+- **Resolution:** **FIXED for this page** — `frontend/e2e/captures-failures.spec.ts` (6 tests)
+  is in the `test:e2e` allow-list. It covers the remediation rendering, the multi-select, and
+  most importantly asserts the client posts a CORRECT `agreed_count`: that value is half of
+  L-4's guard 1, and a client that computes it wrongly disables the guard while every
+  server-side test still passes. Proven by seeding a wrong count (two tests go red).
+  The repository still has no frontend UNIT-test runner — that part of F-09 stands.
+- **Status:** PARTIALLY FIXED
 
 ---
 

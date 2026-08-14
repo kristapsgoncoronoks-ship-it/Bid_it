@@ -833,6 +833,27 @@ export interface CaptureFailureGroup {
   unacknowledged: number;
 }
 
+/**
+ * L-4 — the result of a bulk action. `outcomes` carries one entry per record:
+ * a SKIP is an ordinary result with a reason, not a failure, so the UI must not
+ * render skips as errors. `applied_ids` is derived from what the write actually
+ * did, which is what an undo would be built from.
+ */
+export interface BulkOutcome {
+  ref_id: string;
+  result: "applied" | "skipped" | "failed";
+  reason?: string | null;
+}
+
+export interface BulkAcknowledgeResult {
+  applied: number;
+  skipped: number;
+  failed: number;
+  outcomes: BulkOutcome[];
+  applied_ids: string[];
+  worklist: CaptureFailureWorklist;
+}
+
 export interface CaptureFailureWorklist {
   items: CaptureFailure[];
   groups: CaptureFailureGroup[];
