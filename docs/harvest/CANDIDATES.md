@@ -1020,4 +1020,117 @@ most likely to cause a costly incident.
 
 ---
 
-## ASSESSMENT (A1 inventory, A2 invariants, A3 product fit) — pending
+## ASSESSMENT — candidates vs. what we already have  ✅ complete
+
+A1 built the InvoiceIQ capability inventory without ever opening paperless-ngx.
+Assessment below is the coordinator's, applying it. Most candidates die here.
+That is the intended outcome.
+
+### ⛔ REJECTED — we already have this, equal or stronger
+
+| Candidate | Why it dies |
+|---|---|
+| **S1-4** worker death / re-run safety | We are strictly stronger: atomic guarded claim, `UniqueConstraint(org,kind,idempotency_key)`, exponential backoff, **leases + `reclaim_stale`**, dead-letter, missing-handler dead-letters immediately. They have early-ack and no lease. |
+| **S1-1** content-addressed store | Already ours: `content_key(prefix, org, sha256)` → `prefix/org/ab/cd/<sha>`, `Path.is_relative_to` traversal guard, `Storage` protocol (Memory/Local/S3). The reconciliation-sweep idea is partly covered by `services/integrity.py`. |
+| **S1-6** hostile input | `filesec.py` is a stronger gate than theirs: magic-byte sniff + per-kind structural recheck + universal executable/archive rejection + EICAR/clamd **fail-CLOSED** + one single definition of the size cap with a structural test forbidding a second. |
+| **S1-5** duplicate detection | Have both layers already: byte-identical `check_duplicate_upload` (409 `duplicate_upload`, explicit override) **and** `services/duplicates.py` with three never-conflated signals (exact / cross-supplier / scored ±1% in 14 days), all advisory. |
+| **S2-6** credential custody | *Partially* — see LATER. Our secret-at-rest story for mail accounts is **NEEDS VERIFICATION**; A1 found no envelope-encryption module in this repo. |
+| **S3-1/3/4/6** index lock, wipe-rebuild, dual-write | We have **no search index at all** (ADR-0014 is "Proposed"; zero `tsvector` hits). Nothing to fix. Retained purely as **design constraints for the search we have not built** — see BUILD LATER. |
+| **S4-4** custom fields | Their model is the anti-pattern here: money as a currency-prefixed **display string** recovered by a generated column. That violates our §4.14 outright. We have five registry-defined dimensions with master data. Not adopting theirs. |
+| **S4-6** duplicate/version UX | Versions exist (`document_versions.py`, one `is_current`). The *advisory business-duplicate* layer exists. Only the "pin the specific version id on anything legally referenced" rule is worth carrying — folded into LATER. |
+| all **S4 rejected-as-bad-fit** | Storage-path templating, archive serials, user-authored document links, share links, more-like-this, tag hierarchies, **bulk PDF surgery over a filtered selection**, icon enums, globally suppressible confirmations. Recorded so they are not re-harvested. |
+
+### ✅ BUILD NOW — real gaps, high value, additive
+
+**H-1 · Failed-capture worklist** *(from S1-2, S1-3, S4-7; confirmed gap in A1 §10)*
+A1: *"there is no failed-capture worklist — no route or page enumerates failed
+extraction runs for a tenant… a silently failed capture is a document the
+customer thinks was processed."* `extraction.pending_review_filters` covers only
+`status=="parsed"`. Today a failed run is visible only by polling
+`GET /invoices/upload/{run_id}` — you must already know the id.
+Take from S4-7: a typed outcome contract (never free-form JSON), a stable error
+**code plus a remediation sentence written for a finance operator**, grouped
+repeats, and acknowledgement as a *record* (who/when/note) not a boolean. Take
+from S1-2: never let a post-commit side-effect failure mark the whole thing
+failed without naming what did succeed.
+Additive, no invariant conflict, no migration to existing semantics.
+
+**H-2 · Inbound-channel health** *(from S2-1, S2-7)*
+Their inbound channel dies silently while every dashboard stays green, because
+success is reported from a *document count*. We have `email_intake` and a
+`/health/queue` SLO, but A1 found no per-channel health state.
+Durable per-channel record: last attempt, last success, consecutive failures,
+classified error (auth / network / folder-missing / server-refused / internal).
+Sticky failures alarm on the first occurrence; transient after N. Render absence
+as a positive statement — *"last successful fetch: 4 days ago"* in red — never as
+an empty list. And **timeouts**: S2-7 found none anywhere in their remote I/O;
+we must set connect, read and per-poll wall-clock deadlines.
+
+**H-3 · Automation provenance shown to the operator** *(from S4-5)*
+We already refuse to let derived values overwrite humans (I-18, `capture_memory`
+is read-only by construction). What we lack is S4-5's third leg: **the reason,
+on the record, in the UI**. "Supplier matched: VAT number LT1234… found in
+footer." Their explanations exist only in server logs, which is why their users
+cannot interrogate automation. Trust in automation is bounded by the ability to
+interrogate one instance of it.
+Plus **abstain-on-ambiguity**: never take first-match; leave empty, set a
+needs-decision marker carrying the candidates and their reasons.
+
+### 🕐 BUILD LATER — valuable, bigger, or needs a decision first
+
+- **L-1 · Saved working sets** *(S4-1, S4-8)* — we have **zero** saved views and
+  a single-column `ILIKE` on invoice number. Highest operator value in the whole
+  harvest, but a real build. When we do it: **string operator keys, never
+  positional integers**; JSON operands, not truncated strings; a
+  `predicate_schema_version` where an unknown version opens read-only with a
+  banner; period-relativity as a **first-class operand type**
+  (`previous_quarter`, `deadline_within_days:<n>`) resolved against the tenant's
+  fiscal calendar — never as phrases inside a text query recovered by regex.
+- **L-2 · Search** *(design constraints from all of S3)* — ADR-0014 is unbuilt.
+  When built: in-row `tsvector` maintained **in the same transaction**, so
+  "committed" and "searchable" are the same event; a drift probe reporting
+  **missing** and **orphaned** separately; a health check that is semantic
+  (canary findable) or reports `unknown`, never `OK`; targeted/incremental/full
+  repair, all restartable, coordinated by a **database advisory lock**, never a
+  file lock; and **never authorise from a snapshot** — type-ahead included.
+- **L-3 · Mail-account secret custody** *(S2-6)* — **NEEDS VERIFICATION** of how
+  `email_intake` credentials are stored today. If plaintext: envelope encryption,
+  never return the secret even masked, express "unchanged" by **omitting the
+  field** rather than an asterisk sentinel, and refresh proactively on a margin.
+- **L-4 · Bulk operations** *(S4-2, S4-3)* — we have no multi-select anywhere.
+  A1 warns bulk collides with per-record audit old→new, per-record SoD, opaque
+  404 and quota metering. **If** we build it: the agreed-count guard (client
+  sends the count it displayed; server aborts on mismatch), structured outcomes
+  with domain skips first-class, a reversal record derived *mechanically from the
+  write*, and **filter-selection refused outright for irreversible actions**.
+- **L-5 · Version pinning on legally-referenced documents** *(S4-6)* — anything
+  filed, snapshotted or exported pins the specific version id, never the root,
+  so a later re-upload cannot retroactively change what was filed.
+
+### 🔴 P0 — NOT a harvest item: a live defect A1 found in our own code
+
+`POST /invoices/upload/{run_id}/retry` (`api/routes/invoices.py:879-884`) deletes
+**every** `ExtractionField` row for the run — including `reviewed_value`s a human
+typed. The guard only refuses when `run.invoice_id is not None or status ==
+"saved"`, so a capture that is parsed **and human-reviewed but not yet saved** is
+in scope. The audit chain records the corrections, so it is forensically
+recoverable, but the human's work is silently discarded from the live record and
+the docstring does not warn.
+Human-triggered, so it does not violate §4.19 literally. It is still the sharpest
+edge in the codebase and it is thematically identical to the harvest's dominant
+lesson: **automation must not destroy human work**. Fix before any harvest item.
+
+### Recommended first work order
+**H-1, the failed-capture worklist.** It closes a hole where a customer believes
+a document was processed and it was not; it is additive; it conflicts with no
+invariant; and it is the natural place to land S4-7's typed-outcome contract that
+several later items depend on. **P0 (the retry data-loss fix) goes first** — it is
+ours, it is small, and it is a correctness bug rather than a feature.
+
+### Owner decisions needed before Phase 3
+1. Confirm the **P0 retry fix** ships first, ahead of harvest work.
+2. Pick the BUILD NOW scope: all three of H-1/H-2/H-3, or H-1 alone.
+3. **L-4 bulk operations** — do you want multi-select at all? A1's warning is
+   real and the answer changes several designs.
+4. **L-3** — how are mail-account secrets stored today? Needs verification before
+   it can be scoped.
