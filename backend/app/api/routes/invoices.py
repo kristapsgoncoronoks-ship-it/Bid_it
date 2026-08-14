@@ -521,6 +521,8 @@ async def capture_failure_worklist(
     current: CurrentUser,
     db: DbSession,
     include_acknowledged: bool = Query(default=False),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
 ):
     """Every capture in this tenant that FAILED, from both channels (direct upload
     and emailed attachment), newest first — H-1.
@@ -536,8 +538,12 @@ async def capture_failure_worklist(
     repeats of one cause into a single line. Acknowledged items are hidden by
     default — but an acknowledgement covers only the failure it was made against,
     so a capture that fails again comes back. Read-only, tenant-scoped."""
-    wl = await capture_failures.worklist(
-        db, current.org_id, include_acknowledged=include_acknowledged
+    wl = await capture_failures.worklist_page(
+        db,
+        current.org_id,
+        page=page,
+        page_size=page_size,
+        include_acknowledged=include_acknowledged,
     )
     return CaptureFailureWorklistOut(
         items=[CaptureFailureItem.model_validate(i, from_attributes=True) for i in wl.items],

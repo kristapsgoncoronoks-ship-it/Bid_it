@@ -131,9 +131,12 @@ suspicions I could not prove and have not asserted as facts.
   (hundreds) this is fine.
 - **Recommendation:** paginate the items and compute `groups`/`total` with SQL aggregates so
   the header stays truthful across pages. Mirror the sibling's `page`/`page_size` contract.
-- **Status:** OPEN — not fixed. It is a real design change (the group counts must move to
-  SQL to stay consistent with a paged list), and doing it inside a review would be exactly
-  the unscoped refactor the brief forbids.
+- **Resolution:** **FIXED.** The two sources are now unioned in SQL and the total, the
+  per-code grouping and the page all come from that one definition, so the header describes
+  the whole filtered set while the items are the page. Enrichment (acknowledgement details,
+  repeat counts) is bounded to the page. `bulk_acknowledge` no longer materialises the whole
+  worklist to ask about twenty ids — it looks up those ids (`items_for_refs`).
+- **Status:** FIXED
 
 ---
 
@@ -151,8 +154,24 @@ suspicions I could not prove and have not asserted as facts.
 - **Impact:** it is correct by coincidence of the current write set, not by construction. The
   day someone adds a field to either table and updates it in place on a failed row, every
   acknowledged failure silently resurfaces.
-- **Recommendation:** an explicit `failed_at` column set only when the status becomes failed.
-- **Status:** OPEN — recorded rather than silently assumed away.
+- **Recommendation:** ~~an explicit `failed_at` column~~ — **stronger, after new evidence
+  below: a monotonic per-record FAILURE COUNTER.** Any wall-clock column, however explicit,
+  still collides at its own resolution; an integer does not.
+- **NEW EVIDENCE (2026-08-14): this produced an observed flaky test.**
+  `test_a_capture_that_fails_again_returns_to_the_worklist` failed once during the F-05 work
+  and did not reproduce in 8 subsequent runs (5 of the file alone, 3 of the three-file group).
+  The mechanism is consistent with the rarity: coverage is `ack.failure_seen_at >=
+  failed_at`, so a re-failure recorded in the SAME timestamp tick as the acknowledgement is
+  wrongly treated as already covered and stays hidden. In tests the acknowledge → retry →
+  re-fail sequence can complete inside one tick; in production a human acknowledges and a
+  retry follows seconds later, which is why this is rare rather than routine.
+  **This is not caused by the SQL rewrite** — the Python rule had identical semantics
+  (`failed_at > seen` → not covered, equality → covered). The rewrite only changed where it
+  is evaluated.
+  I am NOT claiming a fix and NOT claiming the flake is resolved: it was observed once and
+  has not been reproduced.
+- **Status:** OPEN — promoted. This is now the highest-value open finding: it is a silent
+  wrong-answer (a real failure stays hidden), and it has been seen once for real.
 
 ---
 

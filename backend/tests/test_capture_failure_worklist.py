@@ -375,3 +375,87 @@ def test_every_failure_kind_carries_advice_an_operator_can_act_on():
         lowered = f"{kind.summary} {kind.remediation}".lower()
         for jargon in ("traceback", "exception", "null", "sha256", "stacktrace"):
             assert jargon not in lowered, f"{code}: operator prose contains {jargon!r}"
+
+
+# --------------------------------------------------------------------------- #
+# Pagination (F-05). The worklist used to load every failed row for a tenant and
+# do the counting and grouping in Python — correct, and growing with exactly the
+# failure the screen exists to surface.
+# --------------------------------------------------------------------------- #
+
+
+async def _n_failed(auth_client, db_session, n: int) -> list[str]:
+    from app.services import jobs
+
+    ids = []
+    for i in range(n):
+        content = _UNPARSEABLE + f"row,{i},x\n".encode()  # distinct bytes: the dup guard
+        r = await auth_client.post(
+            "/api/v1/invoices/upload",
+            files={"file": (f"p{i}.csv", io.BytesIO(content), "text/csv")},
+        )
+        assert r.status_code == 202, r.text
+        ids.append(r.json()["extraction_run_id"])
+    for _ in range(120):
+        if await jobs.run_once(db_session, "test-worker") is None:
+            break
+    return ids
+
+
+@pytest.mark.asyncio
+async def test_the_header_counts_the_whole_set_not_the_page(auth_client, db_session):
+    """A header that counted only the rows in front of you would say "3 problems"
+    on page one of forty. The items are the page; the numbers are the truth about
+    all of it."""
+    await _n_failed(auth_client, db_session, 7)
+
+    r = await auth_client.get("/api/v1/invoices/captures/failures?page=1&page_size=3")
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body["items"]) == 3
+    assert body["total"] == 7, "total described the page instead of the set"
+    assert body["unacknowledged"] == 7
+    group = next(g for g in body["groups"] if g["code"] == capture_failures.MALFORMED_DOCUMENT)
+    assert group["count"] == 7, "the grouping counted the page instead of the set"
+
+
+@pytest.mark.asyncio
+async def test_a_second_page_returns_different_records(auth_client, db_session):
+    await _n_failed(auth_client, db_session, 5)
+
+    first = (await auth_client.get("/api/v1/invoices/captures/failures?page=1&page_size=2")).json()
+    second = (await auth_client.get("/api/v1/invoices/captures/failures?page=2&page_size=2")).json()
+
+    a = {i["ref_id"] for i in first["items"]}
+    b = {i["ref_id"] for i in second["items"]}
+    assert len(a) == 2 and len(b) == 2
+    assert not (a & b), "the same record appeared on two pages"
+    assert first["total"] == second["total"] == 5
+
+
+@pytest.mark.asyncio
+async def test_the_sql_filter_and_the_python_rule_agree_about_coverage(auth_client, db_session):
+    """The "is this acknowledgement still current" rule now exists twice: in SQL,
+    so the database can filter and count on it, and in Python, so an item can
+    report who acknowledged it. If they disagree the page and its header disagree,
+    which is why both are driven here rather than trusted."""
+    ids = await _n_failed(auth_client, db_session, 2)
+    ack = await auth_client.post(
+        f"/api/v1/invoices/captures/failures/upload/{ids[0]}/acknowledge", json={"note": "seen"}
+    )
+    assert ack.status_code == 200, ack.text
+
+    # SQL: the acknowledged one is filtered out and not counted.
+    hidden = (await auth_client.get("/api/v1/invoices/captures/failures")).json()
+    assert {i["ref_id"] for i in hidden["items"]} == {ids[1]}
+    assert hidden["total"] == 1
+
+    # Python: the same record, when shown, reports itself as acknowledged.
+    shown = (
+        await auth_client.get("/api/v1/invoices/captures/failures?include_acknowledged=true")
+    ).json()
+    item = next(i for i in shown["items"] if i["ref_id"] == ids[0])
+    assert item["acknowledged_at"] is not None
+    assert shown["total"] == 2
+    assert shown["unacknowledged"] == 1, "the two rules disagree about what is covered"

@@ -58,7 +58,8 @@ export default function CaptureFailures() {
     queryFn: async () =>
       (
         await api.get(
-          `/invoices/captures/failures${showAcknowledged ? "?include_acknowledged=true" : ""}`,
+          `/invoices/captures/failures?page_size=${MAX_BATCH}` +
+            (showAcknowledged ? "&include_acknowledged=true" : ""),
         )
       ).data,
   });
@@ -266,7 +267,12 @@ export default function CaptureFailures() {
 
             <div className="flex items-center justify-between gap-4 text-sm">
               <span className="text-slate-500">
-                {data.unacknowledged} unresolved of {data.total} shown
+                {/* `total` counts the whole filtered set, not this page, so this
+                    sentence stays true when the list is longer than the page. */}
+                {data.unacknowledged} unresolved of {data.total}
+                {data.total > data.items.length
+                  ? ` (showing the newest ${data.items.length})`
+                  : ""}
                 {data.items.some((i) => !i.acknowledged_at) && (
                   <>
                     {" · "}

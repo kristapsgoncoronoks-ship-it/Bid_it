@@ -51,7 +51,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import case, exists, func, literal, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.capture_acknowledgement import CaptureAcknowledgement
@@ -295,6 +295,197 @@ async def _latest_acks(
     return out
 
 
+def _sources(org_id: str):
+    """The two failure sources projected onto ONE column set, as a UNION ALL.
+
+    Doing the union in SQL (rather than loading both tables and concatenating in
+    Python) is what lets the count, the grouping and the page all be computed by
+    the database over the SAME definition. The previous version derived them from
+    a fully-materialised list, which is correct and does not scale — and the load
+    grows with exactly the failure this screen exists to surface.
+    """
+    runs = select(
+        literal(CHANNEL_UPLOAD).label("channel"),
+        ExtractionRun.id.label("ref_id"),
+        func.coalesce(ExtractionRun.failure_code, literal(UNKNOWN_FAILURE)).label("code"),
+        ExtractionRun.note.label("detail"),
+        ExtractionRun.source_filename.label("filename"),
+        ExtractionRun.source_sha256.label("sha"),
+        ExtractionRun.updated_at.label("failed_at"),
+    ).where(ExtractionRun.org_id == org_id, ExtractionRun.status == "failed")
+
+    inbound = select(
+        literal(CHANNEL_EMAIL).label("channel"),
+        InboundInvoice.id.label("ref_id"),
+        func.coalesce(
+            InboundInvoice.failure_code,
+            # A `rejected` row predating the failure-code column was refused by
+            # the security gate; that is knowable from its status alone.
+            case(
+                (InboundInvoice.status == "rejected", literal(SECURITY_REJECTED)),
+                else_=literal(UNKNOWN_FAILURE),
+            ),
+        ).label("code"),
+        InboundInvoice.error.label("detail"),
+        InboundInvoice.filename.label("filename"),
+        InboundInvoice.sha256.label("sha"),
+        InboundInvoice.updated_at.label("failed_at"),
+    ).where(
+        InboundInvoice.org_id == org_id,
+        InboundInvoice.status.in_(("failed", "rejected")),
+    )
+    return union_all(runs, inbound).subquery("failures")
+
+
+def _unacknowledged(src, org_id: str):
+    """The predicate for "no acknowledgement currently covers this failure".
+
+    An ack covers a failure only when it was made AT OR AFTER it — the same rule
+    `_superseded` applies in Python, expressed once more in SQL because the
+    database has to filter and count on it. If the two ever disagree the page and
+    its header disagree, so a test drives both.
+    """
+    return ~exists(
+        select(literal(1)).where(
+            CaptureAcknowledgement.org_id == org_id,
+            CaptureAcknowledgement.ref_id == src.c.ref_id,
+            CaptureAcknowledgement.channel == src.c.channel,
+            CaptureAcknowledgement.failure_seen_at.is_not(None),
+            CaptureAcknowledgement.failure_seen_at >= src.c.failed_at,
+        )
+    )
+
+
+async def worklist_page(
+    db: AsyncSession,
+    org_id: str,
+    *,
+    page: int = 1,
+    page_size: int = 50,
+    include_acknowledged: bool = False,
+) -> Worklist:
+    """One PAGE of the worklist, with the totals and grouping computed in SQL.
+
+    `total`, `unacknowledged` and `groups` describe the whole filtered set, not
+    the page — a header that only counted the rows in front of you would say
+    "3 problems" on page one of forty. The items are the page; the numbers are
+    the truth about all of it.
+    """
+    page = max(1, page)
+    page_size = max(1, min(page_size, 200))
+    src = _sources(org_id)
+    where = [] if include_acknowledged else [_unacknowledged(src, org_id)]
+
+    total = int(await db.scalar(select(func.count()).select_from(src).where(*where)) or 0)
+    unack = int(
+        await db.scalar(
+            select(func.count()).select_from(src).where(*where, _unacknowledged(src, org_id))
+        )
+        or 0
+    )
+
+    group_rows = list(
+        await db.execute(
+            select(src.c.code, func.count().label("n"))
+            .where(*where)
+            .group_by(src.c.code)
+            .order_by(func.count().desc(), src.c.code.asc())
+        )
+    )
+    unack_by_code = {
+        r.code: r.n
+        for r in await db.execute(
+            select(src.c.code, func.count().label("n"))
+            .where(*where, _unacknowledged(src, org_id))
+            .group_by(src.c.code)
+        )
+    }
+    groups = []
+    for r in group_rows:
+        k = kind_for(r.code)
+        groups.append(
+            FailureGroup(
+                code=k.code,
+                summary=k.summary,
+                remediation=k.remediation,
+                count=r.n,
+                unacknowledged=int(unack_by_code.get(r.code, 0)),
+            )
+        )
+
+    rows = list(
+        await db.execute(
+            select(src)
+            .where(*where)
+            .order_by(src.c.failed_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    )
+
+    # Enrichment is bounded to the PAGE: acknowledgement details and repeat
+    # counts are looked up for these rows only, never for the whole table.
+    acks = await _latest_acks(db, org_id, [_ack_key(r.channel, r.ref_id) for r in rows])
+    shas = [r.sha for r in rows if r.sha]
+    repeats: dict[str, int] = {}
+    if shas:
+        repeats = {
+            r.sha: r.n
+            for r in await db.execute(
+                select(src.c.sha, func.count().label("n"))
+                .where(src.c.sha.in_(shas))
+                .group_by(src.c.sha)
+            )
+        }
+
+    items = [
+        _item(
+            channel=r.channel,
+            ref_id=r.ref_id,
+            code=r.code,
+            detail=r.detail,
+            filename=r.filename,
+            sha=r.sha,
+            failed_at=r.failed_at,
+            repeats=repeats,
+            acks=acks,
+        )
+        for r in rows
+    ]
+    return Worklist(items=items, groups=groups, total=total, unacknowledged=unack)
+
+
+async def items_for_refs(
+    db: AsyncSession, org_id: str, ref_ids: list[str]
+) -> dict[str, WorklistItem]:
+    """The worklist state of SPECIFIC references only.
+
+    The bulk path needs to know, per requested id, whether it is still a failure
+    and whether an acknowledgement already covers it. It used to get that by
+    materialising the entire worklist, which made a 20-record batch cost a full
+    table scan. This asks about the ids in hand.
+    """
+    if not ref_ids:
+        return {}
+    src = _sources(org_id)
+    rows = list(await db.execute(select(src).where(src.c.ref_id.in_(ref_ids))))
+    acks = await _latest_acks(db, org_id, [_ack_key(r.channel, r.ref_id) for r in rows])
+    return {
+        r.ref_id: _item(
+            channel=r.channel,
+            ref_id=r.ref_id,
+            code=r.code,
+            detail=r.detail,
+            filename=r.filename,
+            sha=r.sha,
+            failed_at=r.failed_at,
+            repeats={},
+            acks=acks,
+        )
+        for r in rows
+    }
+
+
 async def worklist(
     db: AsyncSession, org_id: str, *, include_acknowledged: bool = False
 ) -> Worklist:
@@ -514,12 +705,10 @@ async def bulk_acknowledge(
     bulk.check_agreed_count(ids, agreed_count)
     channel_of = {ref: ch for ch, ref in items}
 
-    # One read of the current worklist, not one per record: the per-item state we
-    # need (is it still failing, is an acknowledgement already current) is exactly
-    # what `worklist` computes, and recomputing it per id would be N+1.
-    current = {
-        it.ref_id: it for it in (await worklist(db, org_id, include_acknowledged=True)).items
-    }
+    # The state of THESE ids only. Materialising the whole worklist to answer a
+    # question about twenty records made a small batch cost a full scan, and the
+    # tenants with the most failures are exactly the ones who reach for bulk.
+    current = await items_for_refs(db, org_id, ids)
 
     result = bulk.BulkResult()
     for ref_id in ids:
