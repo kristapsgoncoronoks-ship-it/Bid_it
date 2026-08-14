@@ -292,6 +292,28 @@ class BulkAcknowledgeOut(BaseModel):
     worklist: CaptureFailureWorklistOut
 
 
+class BulkDeleteIn(BaseModel):
+    """Delete many DRAFT invoices.
+
+    `selection` must be `explicit`. Deleting cannot be undone, so "everything
+    matching this filter" — a set the operator never enumerated — is refused
+    outright (422 `bulk_filter_not_allowed`) rather than quietly narrowed."""
+
+    invoice_ids: list[str] = Field(min_length=1)
+    agreed_count: int | None = Field(default=None, ge=0)
+    selection: str = Field(default="explicit")
+
+
+class BulkDeleteOut(BaseModel):
+    deleted: int
+    skipped: int
+    failed: int
+    outcomes: list[BulkOutcomeOut] = Field(default_factory=list)
+    # What was destroyed, read off each row immediately before it stopped
+    # existing. An id alone identifies nothing once the row is gone.
+    deleted_records: list[dict] = Field(default_factory=list)
+
+
 class CaptureAcknowledgeIn(BaseModel):
     """Acknowledging a failed capture — an optional note saying what was decided.
     Who and when are taken from the session, never from the client."""

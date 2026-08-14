@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
@@ -22,6 +23,8 @@ from app.schemas.ap_payment import SupplierPaymentOut, SupplierPaymentRecord
 from app.schemas.invoice import (
     BulkAcknowledgeIn,
     BulkAcknowledgeOut,
+    BulkDeleteIn,
+    BulkDeleteOut,
     BulkOutcomeOut,
     CaptureAcknowledgeIn,
     CaptureFailureGroup,
@@ -65,6 +68,9 @@ from app.services import (
     validation,
     vendor_resolution,
     webhooks,
+)
+from app.services import (
+    invoices as invoice_service,
 )
 from app.services.vendors import get_or_create_vendor
 
@@ -953,6 +959,58 @@ async def delete_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
     )
     await db.delete(invoice)
     await db.commit()
+
+
+@router.post(
+    "/bulk-delete",
+    response_model=BulkDeleteOut,
+    dependencies=[Depends(require_perm(authz.Permission.INVOICE_DELETE))],
+)
+async def bulk_delete_invoices(body: BulkDeleteIn, current: CurrentUser, db: DbSession):
+    """Delete many DRAFT invoices in one action — L-4's first irreversible bulk op.
+
+    Guard 4 fires here for real: `selection` must be `explicit`. A filter-based
+    selection is refused outright, because the gap between what the operator
+    believed they were destroying and what the server resolves is unrecoverable.
+
+    Only a draft with no payment and no payment run is deleted. Anything else is
+    SKIPPED with a reason naming its state — an approved or paid invoice being
+    left alone is the system working, not an error.
+
+    The audit event carries what each deleted invoice WAS, captured before it
+    stopped existing: once the row is gone an id identifies nothing, so an id-only
+    trail could not answer "what did we delete?"."""
+    try:
+        selection = bulk.Selection(body.selection)
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Unknown selection mode"
+        ) from None
+
+    result, snapshots = await invoice_service.bulk_delete_drafts(
+        db,
+        current.org_id,
+        ids=body.invoice_ids,
+        selection=selection,
+        agreed_count=body.agreed_count,
+    )
+    records = [asdict(s) for s in snapshots]
+    if records:
+        await audit.record(
+            db,
+            audit.A.INVOICE_DELETE,
+            target_type="invoice",
+            target_id=None,
+            meta={"bulk": True, "deleted": len(records), "records": records},
+        )
+    await db.commit()
+    return BulkDeleteOut(
+        deleted=result.applied,
+        skipped=result.skipped,
+        failed=result.failed,
+        outcomes=[BulkOutcomeOut.model_validate(o, from_attributes=True) for o in result.outcomes],
+        deleted_records=records,
+    )
 
 
 @router.post("/upload", response_model=UploadAccepted, status_code=status.HTTP_202_ACCEPTED)
