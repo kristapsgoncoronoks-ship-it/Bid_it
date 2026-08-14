@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import cast
 
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import CursorResult, func, select, update
+from sqlalchemy import CursorResult, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError
@@ -266,6 +266,56 @@ async def get_capture(db: AsyncSession, org_id: str, run_id: str) -> ExtractionR
     return await db.scalar(
         select(ExtractionRun).where(ExtractionRun.id == run_id, ExtractionRun.org_id == org_id)
     )
+
+
+async def clear_fields_for_retry(
+    db: AsyncSession, org_id: str, run: ExtractionRun, *, discard_review: bool
+) -> int:
+    """Drop a capture's provenance rows so a retry can re-parse from scratch, and
+    REFUSE when that would silently destroy a human's corrections.
+
+    A retry deletes every `ExtractionField` for the run. For a failed capture
+    that is exactly right — there is nothing there but a machine's first guess.
+    For a capture someone has already reviewed it is not: the `reviewed_value`
+    rows they typed go with the rest, and the previous guard did not cover it
+    (it refused only once the run had become an invoice or was `saved`), so a
+    capture that was parsed AND reviewed BUT NOT YET SAVED was in scope.
+
+    The fix is deliberately NOT to preserve the corrections across the re-parse.
+    A re-parse may use a different provider and produce a different field set,
+    so re-applying an old correction could attach a human's decision to a field
+    they never saw — a worse failure than losing it, because it looks like a
+    decision. Discarding is the honest behaviour; what was missing is that the
+    human must ask for it.
+
+    Returns the number of corrections discarded (0 when there were none).
+    """
+    reviewed = int(
+        await db.scalar(
+            select(func.count())
+            .select_from(ExtractionField)
+            .where(
+                ExtractionField.org_id == org_id,
+                ExtractionField.extraction_run_id == run.id,
+                ExtractionField.reviewed_value.is_not(None),
+            )
+        )
+        or 0
+    )
+    if reviewed and not discard_review:
+        raise ConflictError(
+            f"This capture carries {reviewed} correction(s) someone has already made. "
+            "Re-extracting replaces them with a fresh machine read. "
+            "Retry with discard_review=true if that is what you want.",
+            code="capture_has_review",
+        )
+    await db.execute(
+        delete(ExtractionField).where(
+            ExtractionField.org_id == org_id,
+            ExtractionField.extraction_run_id == run.id,
+        )
+    )
+    return reviewed
 
 
 async def extract_upload(db: AsyncSession, run_id: str) -> dict:

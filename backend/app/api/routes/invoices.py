@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentOrg, CurrentUser, DbSession, require_perm
@@ -14,7 +14,6 @@ from app.core.dimensions import DIMENSION_KEYS
 from app.core.money import q2 as _q
 from app.core.security_headers import content_disposition
 from app.models.document import Document
-from app.models.extraction_field import ExtractionField
 from app.models.extraction_run import ExtractionRun
 from app.models.invoice import Invoice, InvoiceStatus, LineItem, WorkflowState
 from app.models.organization import Organization
@@ -857,11 +856,18 @@ async def upload_status(run_id: str, current: CurrentUser, db: DbSession):
 @router.post(
     "/upload/{run_id}/retry", response_model=UploadAccepted, status_code=status.HTTP_202_ACCEPTED
 )
-async def retry_upload(run_id: str, current: CurrentUser, db: DbSession):
+async def retry_upload(
+    run_id: str, current: CurrentUser, db: DbSession, discard_review: bool = False
+):
     """Manually re-run extraction for a FAILED or PARSED-but-unsaved capture — e.g.
     after a transient OCR failure, or to re-parse with an updated provider. Re-queues
     the SAME stored bytes (the original file is never re-uploaded or mutated) and
-    clears the previous parse's provenance. Tenant-scoped."""
+    clears the previous parse's provenance. Tenant-scoped.
+
+    A capture someone has already CORRECTED is refused (`capture_has_review`)
+    unless `discard_review=true`: re-extracting replaces a human's typed values
+    with a fresh machine read, and that must be asked for rather than assumed.
+    The discard is audited."""
     run = await extraction.get_capture(db, current.org_id, run_id)
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Upload not found")
@@ -872,16 +878,23 @@ async def retry_upload(run_id: str, current: CurrentUser, db: DbSession):
     if not run.source_sha256:
         raise HTTPException(status.HTTP_409_CONFLICT, "No stored file to re-extract")
 
+    # Refuses BEFORE anything is mutated, so a rejected retry is a true no-op —
+    # a guard that rejects after deleting the rows would be worse than none.
+    discarded = await extraction.clear_fields_for_retry(
+        db, current.org_id, run, discard_review=discard_review
+    )
     run.status = "queued"
     run.method = "pending"
     run.note = None
     run.draft_json = None
-    await db.execute(
-        delete(ExtractionField).where(
-            ExtractionField.org_id == current.org_id,
-            ExtractionField.extraction_run_id == run.id,
+    if discarded:
+        await audit.record(
+            db,
+            action="capture.review_discarded",
+            target_type="extraction_run",
+            target_id=run.id,
+            meta={"discarded_reviews": discarded},
         )
-    )
     await db.flush()
     # A fresh (unkeyed) job so a prior finished upload-extract job doesn't dedupe
     # this deliberate retry; the handler re-runs because status is "queued".
