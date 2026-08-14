@@ -949,15 +949,24 @@ async def human_validate(
     dependencies=[Depends(require_perm(authz.Permission.INVOICE_DELETE))],
 )
 async def delete_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
-    invoice = await _load_scoped(db, current.org_id, invoice_id)
+    """Delete ONE invoice — only while it is a draft no money has touched.
+
+    This route previously deleted an invoice in ANY state, including paid: the
+    record of a commitment the organisation made could be removed without trace
+    beyond its number. It now enforces the SAME rule as the bulk path
+    (`invoices.deletion_refusal`, one definition so the two cannot drift) and
+    refuses with 409 `invoice_not_deletable`, naming the state.
+
+    The audit event carries what the invoice WAS, not just its number: once the
+    row is gone, a number alone cannot answer what was destroyed."""
+    snap = await invoice_service.delete_one(db, current.org_id, invoice_id)
     await audit.record(
         db,
         audit.A.INVOICE_DELETE,
         target_type="invoice",
         target_id=invoice_id,
-        meta={"number": invoice.invoice_number},
+        meta={"bulk": False, "deleted": 1, "records": [asdict(snap)]},
     )
-    await db.delete(invoice)
     await db.commit()
 
 

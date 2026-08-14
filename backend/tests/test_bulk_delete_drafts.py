@@ -207,3 +207,92 @@ async def test_bulk_delete_needs_the_delete_permission(role_client):
     )
 
     assert r.status_code == 403, r.text
+
+
+# --------------------------------------------------------------------------- #
+# The SINGLE-invoice delete route, which until now removed an invoice in any
+# state including paid. It enforces the same rule as the bulk path — and these
+# tests prove it is the SAME rule, not a second copy that happens to agree today.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_deleting_one_draft_still_works(auth_client):
+    """The narrowing must not break the legitimate case."""
+    iid = await _draft(auth_client, "INV-SD-DRAFT")
+
+    r = await auth_client.delete(f"/api/v1/invoices/{iid}")
+
+    assert r.status_code == 204, r.text
+    assert (await auth_client.get(f"/api/v1/invoices/{iid}")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_deleting_one_approved_invoice_is_refused(auth_client, db_session):
+    """Previously this destroyed the record. An invoice past draft is evidence of
+    a decision the organisation made."""
+    iid = await _draft(auth_client, "INV-SD-APPROVED")
+    inv = await db_session.scalar(select(Invoice).where(Invoice.id == iid))
+    inv.workflow_state = WorkflowState.approved
+    await db_session.commit()
+
+    r = await auth_client.delete(f"/api/v1/invoices/{iid}")
+
+    assert r.status_code == 409, r.text
+    assert r.json()["code"] == "invoice_not_deletable"
+    assert "approved" in r.json()["detail"]
+    assert iid in set(await db_session.scalars(select(Invoice.id)))
+
+
+@pytest.mark.asyncio
+async def test_deleting_one_paid_invoice_is_refused(auth_client, db_session):
+    iid = await _draft(auth_client, "INV-SD-PAID")
+    inv = await db_session.scalar(select(Invoice).where(Invoice.id == iid))
+    inv.amount_paid = 10
+    await db_session.commit()
+
+    r = await auth_client.delete(f"/api/v1/invoices/{iid}")
+
+    assert r.status_code == 409, r.text
+    assert iid in set(await db_session.scalars(select(Invoice.id)))
+
+
+@pytest.mark.asyncio
+async def test_both_delete_paths_refuse_for_the_SAME_stated_reason(auth_client, db_session):
+    """The anti-drift test. Two copies of a deletion rule drift, and the direction
+    they drift in is the dangerous one — the path someone forgot to update is the
+    path that deletes a paid invoice. Driving BOTH and comparing the wording is
+    what makes a single definition observable from outside."""
+    single = await _draft(auth_client, "INV-SAME-1")
+    batch = await _draft(auth_client, "INV-SAME-2")
+    for iid in (single, batch):
+        inv = await db_session.scalar(select(Invoice).where(Invoice.id == iid))
+        inv.workflow_state = WorkflowState.approved
+    await db_session.commit()
+
+    one = await auth_client.delete(f"/api/v1/invoices/{single}")
+    many = await _delete(auth_client, [batch])
+
+    assert one.status_code == 409, one.text
+    single_reason = one.json()["detail"]
+    bulk_reason = many.json()["outcomes"][0]["reason"]
+    assert single_reason == bulk_reason, (
+        "the single and bulk delete paths gave different reasons — the rule has forked"
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_single_delete_audit_records_what_was_destroyed(auth_client, db_session):
+    """It used to record only the number. After the row is gone, a number cannot
+    say what the invoice was worth or who it was from."""
+    iid = await _draft(auth_client, "INV-SD-AUDIT")
+
+    assert (await auth_client.delete(f"/api/v1/invoices/{iid}")).status_code == 204
+
+    event = await db_session.scalar(select(AuditEvent).where(AuditEvent.action == "invoice.delete"))
+    meta = json.loads(event.meta)
+    assert meta["bulk"] is False
+    rec = meta["records"][0]
+    assert rec["invoice_number"] == "INV-SD-AUDIT"
+    assert rec["total"] is not None
+    assert rec["currency"] == "EUR"

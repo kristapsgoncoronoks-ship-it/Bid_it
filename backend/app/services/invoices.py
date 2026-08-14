@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import ConflictError, NotFoundError
 from app.models.invoice import Invoice, WorkflowState
 from app.services import bulk
 
@@ -69,6 +70,60 @@ class DeletedSnapshot:
     total: str | None
 
 
+def deletion_refusal(inv: Invoice) -> str | None:
+    """Why this invoice must NOT be deleted, or None when it may be.
+
+    THE single definition, used by both the one-at-a-time route and the bulk one.
+    Two copies of this rule would drift, and the direction they drift in is the
+    dangerous one: the path someone forgot to update is the path that deletes a
+    paid invoice.
+
+    An invoice is deletable only while it is a DRAFT that no money has touched.
+    Past that it is a record of a commitment — deleting it destroys the evidence
+    of a decision the organisation made, which is the one thing an audit trail
+    exists to prevent.
+    """
+    if inv.workflow_state is not WorkflowState.draft:
+        return f"Only a draft can be deleted; this one is {inv.workflow_state.value}."
+    if inv.amount_paid and inv.amount_paid > 0:
+        return "A payment is recorded against it."
+    if inv.payment_run_id:
+        return "It is part of a payment run."
+    return None
+
+
+def deletion_snapshot(inv: Invoice) -> DeletedSnapshot:
+    """What this invoice IS, captured so the audit trail still means something
+    after the row stops existing. Read off the live row; never reconstructed."""
+    return DeletedSnapshot(
+        invoice_id=inv.id,
+        invoice_number=inv.invoice_number,
+        vendor_id=inv.vendor_id,
+        issue_date=inv.issue_date.isoformat() if inv.issue_date else None,
+        currency=inv.currency,
+        total=str(inv.total) if inv.total is not None else None,
+    )
+
+
+async def delete_one(db: AsyncSession, org_id: str, invoice_id: str) -> DeletedSnapshot:
+    """Delete ONE invoice, under the same rule the bulk path uses.
+
+    Raises NotFoundError for an unknown or cross-tenant id (an opaque 404 — the
+    two are indistinguishable, §4.4) and ConflictError naming the reason when the
+    invoice is not deletable. Does NOT commit; the caller commits with the audit
+    event so the deletion and the record of it are one transaction.
+    """
+    inv = await db.scalar(select(Invoice).where(Invoice.org_id == org_id, Invoice.id == invoice_id))
+    if inv is None:
+        raise NotFoundError("Invoice not found")
+    refusal = deletion_refusal(inv)
+    if refusal:
+        raise ConflictError(refusal, code="invoice_not_deletable")
+    snap = deletion_snapshot(inv)
+    await db.delete(inv)
+    return snap
+
+
 async def bulk_delete_drafts(
     db: AsyncSession,
     org_id: str,
@@ -112,37 +167,15 @@ async def bulk_delete_drafts(
                 bulk.Outcome(invoice_id, bulk.SKIPPED, "Not an invoice in this workspace.")
             )
             continue
-        if inv.workflow_state is not WorkflowState.draft:
-            result.outcomes.append(
-                bulk.Outcome(
-                    invoice_id,
-                    bulk.SKIPPED,
-                    f"Only a draft can be deleted; this one is {inv.workflow_state.value}.",
-                )
-            )
-            continue
-        if inv.amount_paid and inv.amount_paid > 0:
-            result.outcomes.append(
-                bulk.Outcome(invoice_id, bulk.SKIPPED, "A payment is recorded against it.")
-            )
-            continue
-        if inv.payment_run_id:
-            result.outcomes.append(
-                bulk.Outcome(invoice_id, bulk.SKIPPED, "It is part of a payment run.")
-            )
+        refusal = deletion_refusal(inv)
+        if refusal:
+            # The SAME rule the single-delete route enforces — a skip here and a
+            # 409 there are the same decision, worded identically.
+            result.outcomes.append(bulk.Outcome(invoice_id, bulk.SKIPPED, refusal))
             continue
 
         # Snapshot BEFORE the delete — afterwards there is nothing left to read.
-        snapshots.append(
-            DeletedSnapshot(
-                invoice_id=inv.id,
-                invoice_number=inv.invoice_number,
-                vendor_id=inv.vendor_id,
-                issue_date=inv.issue_date.isoformat() if inv.issue_date else None,
-                currency=inv.currency,
-                total=str(inv.total) if inv.total is not None else None,
-            )
-        )
+        snapshots.append(deletion_snapshot(inv))
         await db.delete(inv)
         result.outcomes.append(bulk.Outcome(invoice_id, bulk.APPLIED))
     return result, snapshots
