@@ -6,7 +6,7 @@ invoice PDF redesign, and WO-96's dependency modernisation.
 
 **Why this needs a runbook rather than the two-line update in
 `DEPLOY-HOSTINGER.md#operate`:** that procedure assumes an incremental update.
-This one applies **22 new Alembic migrations** in a single step, on a database
+This one applies **24 new Alembic migrations** in a single step, on a database
 that has never seen any of them. Migrations are the part of a deploy that a
 `git reset` does not undo.
 
@@ -38,7 +38,7 @@ suite runs SQLite except where a scratch cluster is used.
 
 ## 1. Pre-flight — back up first, and prove the backup exists
 
-**Do not skip this.** 22 migrations run automatically when the backend
+**Do not skip this.** 24 migrations run automatically when the backend
 container starts. If one fails halfway, the rollback in §4 needs this dump.
 
 ```bash
@@ -98,7 +98,7 @@ curl -fsS https://srv1760867.hstgr.cloud/health && echo
 
 # the schema really reached head
 docker compose -f docker-compose.hostinger.yml exec -T backend alembic current
-#   expect: d4c7b1e93f27 (head)
+#   expect: b2d84f1e6c37 (head)
 
 # stored documents still hash to what the database says they do
 #   log in as an admin, then:
@@ -115,7 +115,7 @@ Then open the UI and confirm, by eye:
 
 ## 4. Rollback
 
-Application code rolls back cleanly. **The database does not** — the 22
+Application code rolls back cleanly. **The database does not** — the 24
 migrations will already have applied.
 
 ```bash
@@ -142,16 +142,18 @@ These ship in this release and are not fixed by it:
 
 - **No claim can be filed until a contingency fee rate is configured.** The
   gate is deliberate; the value is a business decision that has not been made.
-- **Late-payment interest can be billed twice.** Generating a penalty invoice
-  a second time re-bills from the original due date — reproduced at
-  €73.32 → €146.64. Do not run penalty invoicing on this release.
-- **`penalty_summary` sums across currencies**, labelling the total with
-  whichever row the database returned last.
-- **camt.053 import mis-reads four cases**: reversals (`RvslInd`) are booked as
-  real credits, `Ccy` is dropped, `PDNG` entries are treated as settled, and
-  batched `TxDtls` collapse into one line. On a five-entry test statement this
-  overstated cash by €2,277. Do not rely on bank-statement reconciliation on
-  this release.
+- ~~Late-payment interest billed twice~~ — **fixed**, and a restore drill now
+  passes. See `RELEASE-READINESS.md` §3.9 for the full defect table; all four
+  money defects found on 2026-08-12 are closed.
+- **A contingency fee rate must be configured before any claim can be filed.**
+  The gate is deliberate (`fee_rate_not_configured`). The owner's decision is
+  **15% with a €50 minimum**; set it once after deploying:
+
+  ```
+  PUT /api/v1/transport/fee-rates   {"fee_pct": "15", "fee_min": "50"}
+  ```
+
+  Until this returns 200, `submit_claim` refuses every claim.
 - **The sign-in form's labels are not programmatically associated** with their
   inputs (no `htmlFor`/`id`), so a screen reader announces unlabelled fields.
 - **The SPA's first-load payload roughly doubled under Vite 8** (~329 kB →

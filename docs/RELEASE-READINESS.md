@@ -119,9 +119,30 @@ not build (`TypeError: manualChunks is not a function`). **Production has not
 been updated** — the VPS still runs `15116e1` until the runbook in
 `DEPLOY-RUNBOOK-2026-08-12.md` is executed by hand.
 
-**3.4 No backup/restore tooling** (audit item **R14**, decision-gated). The
-system would hold client invoice documents and VAT claims with no tested
-restore path. **A restore drill must pass before any client data enters it.**
+**3.4 ~~No backup/restore tooling~~ RESTORE DRILL PASSED 2026-08-12** (audit
+item **R14**). The owner chose infrastructure DR plus a drill over app-owned
+tooling, so the deliverable is a restore that **actually ran**, not a backup
+nobody has read back. `scripts/restore_drill.sh` builds a throwaway Postgres 16
+cluster, migrates it to head, plants a row through the app's own models, dumps
+it, **destroys the database**, restores from the dump alone, and compares:
+
+```
+alembic head: b2d84f1e6c37
+fingerprint before: 1896c293ba21d5ec5d344b7c93e181b3
+dump: 24K, integrity OK
+DESTROY the database → gone (verified)
+fingerprint after : 1896c293ba21d5ec5d344b7c93e181b3
+alembic after     : b2d84f1e6c37
+tables restored   : 85
+RESTORE DRILL PASSED
+```
+
+It destroys its subject deliberately: a drill that skips the destroy step only
+proves `pg_dump` exits zero. Exit status is the verdict, so it can be run before
+any risky deploy. **What it does not prove:** the document-bytes volume
+(`invoiceiq_storagedata`) has not been restore-tested, and no drill has been run
+against the production VPS — only against a cluster built to the same schema.
+Both are in §5.
 
 **3.9 FOUR MONEY DEFECTS found 2026-08-12, three fixed.** Found by exercising
 the code with realistic inputs and reading the output — every one passed the

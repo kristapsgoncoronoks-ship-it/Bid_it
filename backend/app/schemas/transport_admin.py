@@ -194,3 +194,26 @@ class LifecycleOut(BaseModel):
     id: str | None = None
     status: str | None = None
     countries: list[CountryActivationOut]
+
+
+class FeeRateSetIn(BaseModel):
+    """One rung of the contingency-fee chain.
+
+    `entity_id=None` writes the ORG STANDARD; `country=None` (or "") writes the
+    customer default; both together write the per-(customer, country) override.
+    Shape only — the service owns the business rules (an org rung may carry no
+    country; the percentage and minimum are validated there).
+    """
+
+    entity_id: str | None = None
+    country: str | None = Field(default=None, max_length=2)
+    fee_pct: Decimal = Field(ge=0)
+    fee_min: Decimal = Field(ge=0)
+
+
+class FeeRateOut(BaseModel):
+    id: str
+    entity_id: str | None
+    country: str
+    fee_pct: Decimal
+    fee_min: Decimal

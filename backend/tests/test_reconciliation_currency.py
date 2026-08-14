@@ -107,9 +107,7 @@ async def test_confirming_a_foreign_line_is_refused(db_session):
 async def test_the_refusal_names_the_currency_and_what_to_do(db_session):
     """An error a user cannot act on sends them to support."""
     with pytest.raises(reconciliation.ReconError) as e:
-        await reconciliation.confirm_match(
-            db_session, "org", _line(currency="GBP"), "receipt", "x"
-        )
+        await reconciliation.confirm_match(db_session, "org", _line(currency="GBP"), "receipt", "x")
     msg = str(e.value)
     assert "GBP" in msg and "EUR" in msg
     assert "separately" in msg or "convert" in msg

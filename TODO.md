@@ -31,6 +31,41 @@ separately on real Postgres), 0 known regressions, as of WO-70. WO-71: 1699 → 
 
 ---
 
+## Pilot status — 2026-08-12
+
+**Scope decided: a SUPERVISED PILOT with named clients**, not an open beta
+(`docs/DECISIONS-NEEDED.md`). Four gates; three are closed.
+
+| Gate | State |
+|---|---|
+| The four money defects | **closed** — `8fb0333` (camt.053), `4cfc365` (penalty double-billing + cross-currency sum), `4b47c4a` (foreign bank line cannot settle a EUR record) |
+| Restore drill (R14) | **passed** — `scripts/restore_drill.sh`, evidence in `RELEASE-READINESS.md` §3.4 |
+| Fee rate configurable | **surface built** — `set_rate` had NO HTTP route, so the `fee_rate_not_configured` gate could only be opened from a Python shell. `GET/PUT/DELETE /api/v1/transport/fee-rates` closes that. The VALUE (15% / €50) is one call after deploy, in the runbook |
+| Merged to `main` | **done** — `ec93e4b`, clean fast-forward, and it repaired `main`'s build |
+
+**The lesson from the four defects, worth keeping:** every one passed 2445
+tests. The suite catches a wrong *shape*, not a wrong *figure*. All four were
+found by running the code on realistic input and reading the output — and three
+times a first-draft test passed against the unfixed code, so each fix was only
+trusted after watching the test go red with the fix stashed.
+
+**Still open for the pilot, owner-side:**
+- [ ] Run the deploy — production is still `15116e1`, nothing from 2026-08-12 is live.
+- [ ] Set the fee rate once deployed (`PUT /api/v1/transport/fee-rates`).
+- [ ] GitHub Actions runners (billing) — still no independent verification.
+- [ ] One real supplier statement / invoice, redacted, for a first real-data pass.
+
+**Still open, engineering, NOT pilot-blocking:**
+- [ ] The document-bytes volume has not been restore-tested (only the database has).
+- [ ] Sign-in form labels are not programmatically associated (`Login.tsx` — no
+      `htmlFor`/`id`), so a screen reader announces unlabelled fields.
+- [ ] MT940 unsupported; the unsupported-format message omits XML, which IS supported.
+- [ ] Vite 8 first-load payload roughly doubled (perf, not correctness).
+- [ ] EU statutory late-payment interest (2011/7/EU: ECB + 8pp, €40 Art. 6) is
+      deliberately NOT modelled — we under-claim. Reopen before the open beta.
+
+---
+
 ## Release status — 2026-08-09
 
 **Verdict: release-PREPARED, not released.** Ready for a supervised pilot with

@@ -42,6 +42,7 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.models.transport.checklist_rule import VatChecklistRule
+from app.models.transport.fee_rate import VatFeeRate
 from app.models.transport.note_override import VatNoteInvoiceOverride
 from app.models.transport.receipt_control import VatReceiptControl, VatSupplierCadence
 from app.models.transport.tie_out import FuelTieOutExpectation
@@ -51,6 +52,8 @@ from app.schemas.transport_admin import (
     ChecklistRuleActiveIn,
     ChecklistRuleOut,
     ControlOverrideIn,
+    FeeRateOut,
+    FeeRateSetIn,
     NoteOverrideOut,
     NoteOverrideSetIn,
     ReceiptControlOut,
@@ -60,6 +63,7 @@ from app.schemas.transport_admin import (
     TieOutExpectationSetIn,
 )
 from app.services.transport import checklist as checklist_svc
+from app.services.transport import fee as fee_svc
 from app.services.transport import invoice_match as invoice_match_svc
 from app.services.transport import receipt_control as receipt_control_svc
 from app.services.transport import status as status_svc
@@ -365,3 +369,63 @@ async def remove_tie_out_expectation(
     )
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --- Contingency fee rates (R13 / C11 / the 2026-08-08 decision) ----------------
+#
+# `fee.set_rate` existed with NO HTTP surface, so the gate that refuses
+# `fee_rate_not_configured` had no way to be opened except a Python shell: an
+# org could not file a single claim through the product it had bought. These
+# routes are that surface and nothing more — every rule (org rung carries no
+# country, percentage/minimum validation, idempotent no-op, audited old→new)
+# stays in the service, which remains the only writer.
+
+
+def _fee_rate_out(row: VatFeeRate) -> FeeRateOut:
+    return FeeRateOut(
+        id=row.id,
+        entity_id=row.entity_id,
+        country=row.country,
+        fee_pct=row.fee_pct,
+        fee_min=row.fee_min,
+    )
+
+
+@router.get("/fee-rates", response_model=list[FeeRateOut])
+async def list_fee_rates(current: CurrentUser, db: DbSession):
+    """Every configured rung, MOST SPECIFIC FIRST — the order
+    `resolve_fee_rate` walks, so a reader sees the chain as it resolves rather
+    than in insertion order. An empty list means no claim can be submitted."""
+    return [_fee_rate_out(r) for r in await fee_svc.list_rates(db, current.org_id)]
+
+
+@router.put("/fee-rates", response_model=FeeRateOut, dependencies=_WRITE)
+async def set_fee_rate(body: FeeRateSetIn, current: CurrentUser, db: DbSession):
+    """Type the contingency rate for one rung. This pair decides what a client
+    is billed, so the service audits every real change old→new in the same
+    transaction; an identical repeat is a silent no-op."""
+    row = await fee_svc.set_rate(
+        db,
+        current.org_id,
+        entity_id=body.entity_id,
+        country=body.country,
+        fee_pct=body.fee_pct,
+        fee_min=body.fee_min,
+    )
+    await db.commit()
+    return _fee_rate_out(row)
+
+
+@router.delete("/fee-rates", response_model=RemovedOut, dependencies=_WRITE)
+async def remove_fee_rate(
+    current: CurrentUser,
+    db: DbSession,
+    entity_id: str | None = Query(default=None),
+    country: str | None = Query(default=None),
+):
+    """Drop one rung so resolution falls through to the next — and, if it was
+    the last, to the refusal. Claims already filed keep their own frozen
+    fee and are untouched. `removed=false` is the idempotent no-op."""
+    removed = await fee_svc.remove_rate(db, current.org_id, entity_id=entity_id, country=country)
+    await db.commit()
+    return RemovedOut(removed=removed)
