@@ -7,8 +7,8 @@
   "high_findings": 2,
   "medium_findings": 5,
   "low_findings": 2,
-  "findings_fixed": 4,
-  "findings_open": 5,
+  "findings_fixed": 6,
+  "findings_open": 3,
   "tests_passed": null,
   "tests_passed_note": "Full `pytest -q` was still running when this file was written; see the run log in 05-testing.md for the completed targeted suites (494 passed / 1 skipped; 428 passed / 1 skipped) and the full e2e set (270 passed).",
   "gates": {
@@ -36,8 +36,6 @@
     "Production is on 15116e1 — 355 commits and two migrations behind; the deploy runbook predates both",
     "F-05: the failed-capture worklist is unpaginated; load correlates with the failure it surfaces",
     "F-06: updated_at is used as a proxy for failed_at — correct today, fragile by construction",
-    "F-07: the email channel of the worklist is untested",
-    "F-08: no test proves the new mutating routes reject a caller lacking INVOICE_WRITE",
     "F-09: the new frontend page has no automated coverage; the repo has no frontend unit-test runner",
     "inbound_health.consecutive_failures under concurrent deliveries is unproven in either direction"
   ],

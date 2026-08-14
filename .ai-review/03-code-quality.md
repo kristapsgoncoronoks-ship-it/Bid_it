@@ -170,7 +170,11 @@ suspicions I could not prove and have not asserted as facts.
 - **Recommendation:** one test posting a hostile attachment through `POST /email/inbound`,
   asserting it appears on the worklist with `channel == "email"` and code
   `security_rejected`, and that acknowledging it via the email channel works.
-- **Status:** OPEN
+- **Resolution:** **FIXED** — `backend/tests/test_capture_failure_email_channel.py` does
+  exactly that, plus a test that BOTH channels appear on one worklist (each half looks
+  healthy alone if the union breaks, so it is asserted explicitly). Proven non-vacuous by
+  seeding: dropping the `inbound_invoices` half of the union turns all three red.
+- **Status:** FIXED
 
 ---
 
@@ -187,7 +191,12 @@ suspicions I could not prove and have not asserted as facts.
   silently. The declaration itself was read and is correct.
 - **Recommendation:** one test per new mutating route asserting a role without the permission
   gets 403.
-- **Status:** OPEN
+- **Resolution:** **FIXED** — same file. An EMPLOYEE (holds INVOICE_READ, lacks
+  INVOICE_WRITE) can READ the worklist but is refused 403 on acknowledge. The assertion is
+  403 and not 404 on purpose: the gate must fire BEFORE the handler resolves the reference,
+  or a caller without permission could probe which references exist from the error shape.
+  Proven non-vacuous by seeding: removing the route's `require_perm` turns it red.
+- **Status:** FIXED
 
 ---
 
