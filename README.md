@@ -134,4 +134,4 @@ Deployment (TLS, Cloudflare, Hostinger): [`docs/DEPLOYMENT.md`](./docs/DEPLOYMEN
 
 ## License
 
-MIT.
+GNU GPL.
