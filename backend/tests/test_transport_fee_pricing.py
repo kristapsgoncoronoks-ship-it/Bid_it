@@ -100,7 +100,7 @@ def test_matching_the_standard_reads_as_standard():
 
 
 def test_with_no_standard_the_discount_is_unknown_not_zero():
-    """"No discount" and "nothing to compare with" are different statements, and
+    """ "No discount" and "nothing to compare with" are different statements, and
     a zero would blur them."""
     c = fee_svc.compare_rate(Decimal("12"), Decimal("40"), None)
     assert c.kind == fee_svc.NO_STANDARD
@@ -159,9 +159,7 @@ async def test_a_client_can_be_negotiated_off_the_standard(auth_client, db_sessi
     await auth_client.put(_RATES, json={"fee_pct": "15", "fee_min": "50"})
     entity = await _client_entity(auth_client)
 
-    made = await auth_client.put(
-        _DISCOUNT, json={"entity_id": entity, "discount_pct": "20"}
-    )
+    made = await auth_client.put(_DISCOUNT, json={"entity_id": entity, "discount_pct": "20"})
     assert made.status_code == 200, made.text
     body = made.json()
     assert float(body["fee_pct"]) == 12.0, "20% off 15%"
@@ -171,9 +169,7 @@ async def test_a_client_can_be_negotiated_off_the_standard(auth_client, db_sessi
 
 
 @pytest.mark.asyncio
-async def test_raising_the_standard_does_not_move_a_negotiated_client(
-    auth_client, db_session
-):
+async def test_raising_the_standard_does_not_move_a_negotiated_client(auth_client, db_session):
     """The whole reason the negotiated price is stored absolute. A client on a
     signed rate card must not be re-rated because we changed our list price.
 

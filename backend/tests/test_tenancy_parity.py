@@ -1040,6 +1040,67 @@ async def _p_extraction_fields(ctx: Ctx) -> None:
     )
 
 
+@probe("capture_acknowledgements")
+async def _p_capture_acknowledgements(ctx: Ctx) -> None:
+    """H-1: both orgs upload an IDENTICAL unparseable file, so both get a failed
+    capture with the same code, same filename and same content hash — only
+    tenancy discriminates. Each org acknowledges its OWN failure and must see
+    only its own worklist; acknowledging A's failure under B's context is an
+    opaque 404, and must not silence it for A.
+
+    Deliberately a real probe rather than an EXEMPT row, in the same commit that
+    creates the table."""
+    from app.services import jobs
+
+    # Valid UTF-8 CSV that passes the security gate and then fails to PARSE
+    # (no recognisable line-item columns) — a real failed capture, not a mock.
+    bad = b"not,an,invoice\nnothing,here,at all\n"
+    run_ids = {}
+    for org in (ctx.a, ctx.b):
+        up = await org.post(
+            "/api/v1/invoices/upload",
+            files={"file": ("unparseable.csv", io.BytesIO(bad), "text/csv")},
+        )
+        assert up.status_code == 202, up.text
+        run_ids[org.name] = up.json()["extraction_run_id"]
+    for _ in range(30):
+        if await jobs.run_once(ctx.db, "parity-worker") is None:
+            break
+
+    for org in (ctx.a, ctx.b):
+        wl = await org.get("/api/v1/invoices/captures/failures")
+        assert wl.status_code == 200, wl.text
+        assert any(i["ref_id"] == run_ids[org.name] for i in wl.json()["items"]), wl.text
+        ack = await org.post(
+            f"/api/v1/invoices/captures/failures/upload/{run_ids[org.name]}/acknowledge",
+            json={"note": f"seen by {org.name}"},
+        )
+        assert ack.status_code == 200, ack.text
+
+    # B cannot acknowledge A's failure...
+    _assert_404(
+        await ctx.b.post(
+            f"/api/v1/invoices/captures/failures/upload/{run_ids[ctx.a.name]}/acknowledge",
+            json={"note": "pwned"},
+        ),
+        "acknowledge A's failed capture as B",
+    )
+    # ...and each org's acknowledgement history is its own: A's worklist with
+    # acknowledged rows included shows A's ack note and never B's.
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        seen = await me.get("/api/v1/invoices/captures/failures?include_acknowledged=true")
+        assert seen.status_code == 200, seen.text
+        notes = {i["acknowledgement_note"] for i in seen.json()["items"]}
+        assert f"seen by {me.name}" in notes, notes
+        assert f"seen by {other.name}" not in notes, notes
+        _assert_isolated(
+            "capture_acknowledgements",
+            {run_ids[me.name]},
+            {run_ids[other.name]},
+            {i["ref_id"] for i in seen.json()["items"]},
+        )
+
+
 @probe("capture_field_memory")
 async def _p_capture_field_memory(ctx: Ctx) -> None:
     """E1.5: both orgs correct the SAME field for an IDENTICALLY-spelled vendor

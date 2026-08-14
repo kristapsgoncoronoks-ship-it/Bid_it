@@ -26,6 +26,7 @@ from app.models.audit import AuditEvent
 from app.models.bank_import import BankLine, BankStatement
 from app.models.billing_payment import BillingPayment
 from app.models.budget import BudgetTarget
+from app.models.capture_acknowledgement import CaptureAcknowledgement
 from app.models.capture_field_memory import CaptureFieldMemory
 from app.models.costing import CostCenter, Department, Project
 from app.models.currency import Currency
@@ -132,6 +133,7 @@ TENANT_MODELS = (
     Currency,
     ExtractionRun,
     ExtractionField,
+    CaptureAcknowledgement,
     Receipt,
     Document,
     DocumentVersion,

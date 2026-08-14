@@ -61,6 +61,12 @@ class ExtractionRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )  # line items parsed
     warning_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)  # first warning / error message
+    # H-1: the CLASSIFIED cause when `status == "failed"` — a stable code from
+    # `capture_failures.KINDS`, never prose. `note` above keeps the raw library
+    # message for an engineer; this is what the operator's worklist reasons over.
+    # NULL on a successful run, and on a failure recorded before this contract
+    # existed (read as `unknown_failure`, which does not claim a cause).
+    failure_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
     # Async direct-upload capture (Stage B): the serialized ParsedInvoiceDraft the
     # worker produced, so the client can fetch it after the parse runs OFF the API
     # tier. NULL for a synchronous/email run or one still queued.

@@ -48,6 +48,14 @@ export const LIVE_NAV: LiveNavGroup[] = [
     items: [
       { to: "/invoices", label: "Invoices", icon: icon("M6 3h9l3 3v15H6V3zM9 8h6M9 12h6M9 16h4") },
       { to: "/captures", label: "Captures", icon: icon("M4 7l8-4 8 4v10l-8 4-8-4V7zm8-4v18") },
+      // H-1: failures need their own entry, not a tab inside the queue of things
+      // that worked. A document that never became an invoice is invisible unless
+      // something in the navigation says it exists.
+      {
+        to: "/captures/failures",
+        label: "Unread documents",
+        icon: icon("M12 9v4m0 4h.01M10.3 3.9l-8 14A2 2 0 004 21h16a2 2 0 001.7-3.1l-8-14a2 2 0 00-3.4 0z"),
+      },
       { to: "/review", label: "Review", icon: icon("M9 12l2 2 4-4M12 3l8 4v5c0 4.5-3.4 7.7-8 9-4.6-1.3-8-4.5-8-9V7l8-4z") },
       { to: "/payment-runs", label: "Payment runs", icon: icon("M3 6h18v12H3V6zm0 4h18M7 14h4") },
       { to: "/vendors", label: "Suppliers", icon: icon("M4 21V10l8-6 8 6v11h-5v-6H9v6H4z") },

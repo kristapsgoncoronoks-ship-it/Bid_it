@@ -1128,9 +1128,35 @@ several later items depend on. **P0 (the retry data-loss fix) goes first** — i
 ours, it is small, and it is a correctness bug rather than a feature.
 
 ### Owner decisions needed before Phase 3
-1. Confirm the **P0 retry fix** ships first, ahead of harvest work.
-2. Pick the BUILD NOW scope: all three of H-1/H-2/H-3, or H-1 alone.
-3. **L-4 bulk operations** — do you want multi-select at all? A1's warning is
-   real and the answer changes several designs.
-4. **L-3** — how are mail-account secrets stored today? Needs verification before
-   it can be scoped.
+
+**1. P0 retry fix — SETTLED (shipped).** `342c1fa`, `docs/plan/plan-a/wo/
+WO-98-capture-retry-review-guard.md`.
+
+**2. BUILD NOW scope — H-1 SHIPPED, H-2/H-3 still open.** H-1 (the failed-capture
+worklist) is built: `docs/plan/plan-a/wo/WO-99-failed-capture-worklist.md`. It was
+the recommended first order and it is additive, so it did not need the decision
+that H-2 and H-3 still do. **Open question for the owner: do H-2 and H-3 follow
+now, or does something else come first?**
+
+**3. L-4 bulk operations — STILL OPEN, and still the decision that matters most.**
+A1's warning stands (bulk collides with per-record audit old→new, per-record SoD,
+opaque 404 and quota metering) and the answer changes several later designs.
+Nothing has been built that presumes an answer either way.
+
+**4. L-3 mail-account secret custody — ANSWERED, and it is a non-issue.**
+Verified in code rather than assumed:
+
+* We store **no mail-account credentials at all.** Email intake is PUSH, not
+  pull: each org gets an inbound address token (`email_intakes.token`) and the
+  provider POSTs the message to us. There is no mailbox we log into, so there is
+  no mailbox password, OAuth token or refresh cycle to protect. The paperless-ngx
+  finding (S2-6) is about a pull-based IMAP fetcher we do not have.
+* The only mail secret is the **outbound** SMTP password
+  (`config.smtp_password`), which lives in environment config and is never
+  written to the database.
+* A1's "no envelope-encryption module in this repo" is **wrong**:
+  `app/core/keyvault.py` exists (ADR-0016) and SSO client secrets are sealed
+  through it (`sso_config.py`, `oidc.py`). If we ever add IMAP pull, the seam is
+  already there — `keyvault.seal` with a context-bound AAD.
+
+L-3 is therefore closed, not deferred.

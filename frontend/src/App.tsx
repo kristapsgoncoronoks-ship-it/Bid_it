@@ -22,6 +22,7 @@ const Review = lazy(() => import("./pages/Review"));
 const ReviewInvoice = lazy(() => import("./pages/ReviewInvoice"));
 const CaptureQueue = lazy(() => import("./pages/CaptureQueue"));
 const CaptureReview = lazy(() => import("./pages/CaptureReview"));
+const CaptureFailures = lazy(() => import("./pages/CaptureFailures"));
 const Reimbursements = lazy(() => import("./pages/Reimbursements"));
 const Settings = lazy(() => import("./pages/Settings"));
 const Issuer = lazy(() => import("./pages/Issuer"));
@@ -138,6 +139,10 @@ export default function App() {
                 <Route path="/invoices/:id/review" element={<ReviewInvoice />} />
                 <Route path="/review" element={<Review />} />
                 <Route path="/captures" element={<CaptureQueue />} />
+                {/* Static segment before the dynamic one: "failures" is a page,
+                    not a run id. React Router ranks static above dynamic, but the
+                    order is kept explicit so a reader is not left guessing. */}
+                <Route path="/captures/failures" element={<CaptureFailures />} />
                 <Route path="/captures/:runId" element={<CaptureReview />} />
                 <Route path="/upload" element={<Upload />} />
                 <Route path="/email" element={<EmailIntake />} />

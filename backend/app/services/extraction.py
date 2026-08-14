@@ -323,7 +323,7 @@ async def extract_upload(db: AsyncSession, run_id: str) -> dict:
     bytes, runs the deterministic-first parser (OCR fallback) OFF the API tier,
     and stores the draft on the run (`parsed`) or the reason (`failed`). Runs in
     the job's tenant scope. Mirrors `email_intake.extract_inbound`."""
-    from app.services import documents
+    from app.services import capture_failures, documents
     from app.services.parser import parse_invoice_file
 
     run = await db.scalar(select(ExtractionRun).where(ExtractionRun.id == run_id))
@@ -337,6 +337,7 @@ async def extract_upload(db: AsyncSession, run_id: str) -> dict:
         run.method = "failed"
         run.status = "failed"
         run.note = "stored upload missing"
+        run.failure_code = capture_failures.STORED_FILE_MISSING
         await db.commit()
         return {"status": "failed", "reason": "missing bytes"}
 
@@ -352,6 +353,9 @@ async def extract_upload(db: AsyncSession, run_id: str) -> dict:
         run.method = "failed"
         run.status = "failed"
         run.note = str(exc)[:2000] or exc.__class__.__name__
+        # H-1: classify the cause into the stable vocabulary the failed-capture
+        # worklist reads. `note` above stays the raw message for an engineer.
+        run.failure_code = capture_failures.code_for(exc)
         await db.commit()
         return {"status": "failed", "reason": exc.__class__.__name__}
 
@@ -359,6 +363,9 @@ async def extract_upload(db: AsyncSession, run_id: str) -> dict:
     draft.extraction_run_id = run.id
     run.method = draft.method
     run.status = "parsed"
+    # A retry that succeeds must not leave the previous attempt's cause behind,
+    # or the worklist would keep explaining a failure that no longer exists.
+    run.failure_code = None
     run.field_count = len(draft.draft.line_items)
     run.warning_count = len(draft.warnings)
     run.note = draft.warnings[0] if draft.warnings else None

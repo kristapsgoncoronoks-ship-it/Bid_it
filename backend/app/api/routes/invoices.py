@@ -20,6 +20,10 @@ from app.models.organization import Organization
 from app.models.vendor import Vendor
 from app.schemas.ap_payment import SupplierPaymentOut, SupplierPaymentRecord
 from app.schemas.invoice import (
+    CaptureAcknowledgeIn,
+    CaptureFailureGroup,
+    CaptureFailureItem,
+    CaptureFailureWorklistOut,
     CaptureReviewIn,
     CaptureReviewItem,
     CaptureReviewQueueOut,
@@ -44,6 +48,7 @@ from app.services import (
     ap_payments,
     ap_status,
     audit,
+    capture_failures,
     capture_memory,
     costing,
     documents,
@@ -482,6 +487,85 @@ async def capture_review_queue(
     return CaptureReviewQueueOut(items=items, total=total or 0)
 
 
+@router.get("/captures/failures", response_model=CaptureFailureWorklistOut)
+async def capture_failure_worklist(
+    current: CurrentUser,
+    db: DbSession,
+    include_acknowledged: bool = Query(default=False),
+):
+    """Every capture in this tenant that FAILED, from both channels (direct upload
+    and emailed attachment), newest first — H-1.
+
+    Before this route a failed capture was reachable only by polling its own id,
+    which you had to already know. That is the worst shape a document pipeline can
+    take: the customer believes the document was processed, it was not, and no
+    screen disagrees.
+
+    Each item carries a stable `code` plus the `summary`/`remediation` written for
+    a finance operator, `retry_helps` (so a screen never offers a retry that
+    cannot work) and `document_retained` (what DID survive). `groups` folds
+    repeats of one cause into a single line. Acknowledged items are hidden by
+    default — but an acknowledgement covers only the failure it was made against,
+    so a capture that fails again comes back. Read-only, tenant-scoped."""
+    wl = await capture_failures.worklist(
+        db, current.org_id, include_acknowledged=include_acknowledged
+    )
+    return CaptureFailureWorklistOut(
+        items=[CaptureFailureItem.model_validate(i, from_attributes=True) for i in wl.items],
+        groups=[CaptureFailureGroup.model_validate(g, from_attributes=True) for g in wl.groups],
+        total=wl.total,
+        unacknowledged=wl.unacknowledged,
+    )
+
+
+@router.post(
+    "/captures/failures/{channel}/{ref_id}/acknowledge",
+    response_model=CaptureFailureWorklistOut,
+    dependencies=[Depends(require_perm(authz.Permission.INVOICE_WRITE))],
+)
+async def acknowledge_capture_failure(
+    channel: str,
+    ref_id: str,
+    body: CaptureAcknowledgeIn,
+    current: CurrentUser,
+    db: DbSession,
+):
+    """Record that a human has seen this failure and decided what to do about it.
+
+    An acknowledgement is a RECORD (who, when, an optional note) appended to a
+    history, not a boolean flipped on the capture — and it is pinned to the
+    failure it was made against, so acknowledging cannot silence a LATER failure
+    of the same document. Returns the refreshed worklist so the caller does not
+    have to re-request it. Opaque 404 (§4.4) for a reference that is not a failed
+    capture in this tenant."""
+    ack = await capture_failures.acknowledge(
+        db,
+        current.org_id,
+        channel=channel,
+        ref_id=ref_id,
+        actor=current.email,
+        note=body.note,
+    )
+    if ack is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Failed capture not found")
+    # §4.16: the acknowledgement and its audit event commit together.
+    await audit.record(
+        db,
+        action="capture.failure_acknowledged",
+        target_type="capture_failure",
+        target_id=ref_id,
+        meta={"channel": channel, "note": body.note},
+    )
+    await db.commit()
+    wl = await capture_failures.worklist(db, current.org_id)
+    return CaptureFailureWorklistOut(
+        items=[CaptureFailureItem.model_validate(i, from_attributes=True) for i in wl.items],
+        groups=[CaptureFailureGroup.model_validate(g, from_attributes=True) for g in wl.groups],
+        total=wl.total,
+        unacknowledged=wl.unacknowledged,
+    )
+
+
 @router.post("/captures/{run_id}/review", response_model=list[FieldProvenanceOut])
 async def review_capture_fields(
     run_id: str, body: CaptureReviewIn, current: CurrentUser, db: DbSession
@@ -886,6 +970,7 @@ async def retry_upload(
     run.status = "queued"
     run.method = "pending"
     run.note = None
+    run.failure_code = None
     run.draft_json = None
     if discarded:
         await audit.record(

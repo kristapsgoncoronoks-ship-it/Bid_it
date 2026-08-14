@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.email_intake import EmailIntake, InboundInvoice
-from app.services import documents, filesec, jobs
+from app.services import capture_failures, documents, filesec, jobs
 from app.services.parser import parse_invoice_file
 
 # Job kind for out-of-band attachment extraction (registered in job_handlers).
@@ -119,6 +119,7 @@ async def process_attachment(
         # Quarantine: keep the metadata for the audit trail, drop the bytes.
         row.status = "rejected"
         row.error = str(exc)
+        row.failure_code = capture_failures.SECURITY_REJECTED
         db.add(row)
         return row
 
@@ -164,6 +165,7 @@ async def extract_inbound(db: AsyncSession, inbound_id: str) -> dict:
     if content is None:
         row.status = "failed"
         row.error = "stored attachment missing"
+        row.failure_code = capture_failures.STORED_FILE_MISSING
         await db.commit()
         return {"status": "failed", "reason": "missing bytes"}
 
@@ -173,8 +175,12 @@ async def extract_inbound(db: AsyncSession, inbound_id: str) -> dict:
         row.method = draft.method if draft.method and draft.method != "unknown" else row.method
         row.status = "pending"
         row.error = None
+        # A retry that succeeds must not leave the previous cause behind.
+        row.failure_code = None
     except ValueError as exc:
         row.status = "failed"
         row.error = str(exc)
+        # H-1: classify into the vocabulary the failed-capture worklist reads.
+        row.failure_code = capture_failures.code_for(exc)
     await db.commit()
     return {"status": row.status, "method": row.method}

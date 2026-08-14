@@ -50,9 +50,7 @@ async def _reviewed_run(auth_client, parse_upload) -> str:
 
 
 @pytest.mark.asyncio
-async def test_retry_refuses_a_capture_that_carries_human_corrections(
-    auth_client, parse_upload
-):
+async def test_retry_refuses_a_capture_that_carries_human_corrections(auth_client, parse_upload):
     run_id = await _reviewed_run(auth_client, parse_upload)
 
     r = await auth_client.post(f"/api/v1/invoices/upload/{run_id}/retry")

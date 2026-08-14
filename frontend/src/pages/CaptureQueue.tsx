@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { Button, EmptyState, Pagination, QueryState, Skeleton } from "../components/ui";
 import { api } from "../lib/api";
 import { METHOD_STYLES, methodLabel, shortDate } from "../lib/format";
-import type { CaptureReviewQueue } from "../lib/types";
+import type { CaptureFailureWorklist, CaptureReviewQueue } from "../lib/types";
 
 const PAGE_SIZE = 20;
 
@@ -21,9 +21,32 @@ export default function CaptureQueue() {
     queryFn: async () =>
       (await api.get(`/invoices/captures/review?page=${page}&page_size=${PAGE_SIZE}`)).data,
   });
+  // H-1: this queue only ever shows what we COULD read. Without this banner an
+  // empty queue reads as "all clear" when documents may have failed capture
+  // entirely — the absence has to be stated, not inferred.
+  const failures = useQuery<CaptureFailureWorklist>({
+    queryKey: ["captures", "failures", false],
+    queryFn: async () => (await api.get("/invoices/captures/failures")).data,
+  });
 
   return (
     <div className="space-y-6">
+      {(failures.data?.unacknowledged ?? 0) > 0 && (
+        <Link
+          to="/captures/failures"
+          className="flex items-center justify-between gap-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 hover:bg-amber-100"
+        >
+          <span>
+            <strong className="font-semibold">
+              {failures.data?.unacknowledged}{" "}
+              {failures.data?.unacknowledged === 1 ? "document" : "documents"}
+            </strong>{" "}
+            arrived but could not be read, so {failures.data?.unacknowledged === 1 ? "it" : "they"}{" "}
+            never became invoices.
+          </span>
+          <span className="shrink-0 font-medium underline">See what to do →</span>
+        </Link>
+      )}
       <div className="flex items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Captures</h1>

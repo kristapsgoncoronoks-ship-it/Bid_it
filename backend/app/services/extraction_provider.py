@@ -25,6 +25,8 @@ from dataclasses import field as dc_field
 from decimal import Decimal
 
 from app.schemas.invoice import InvoiceCreate, ParsedInvoiceDraft
+from app.services import capture_failures
+from app.services.capture_failures import CaptureError
 
 LOW_CONFIDENCE_THRESHOLD = Decimal("0.75")
 
@@ -204,9 +206,10 @@ class PdfProvider(ExtractionProvider):
         try:
             parsed = pdf_ocr.parse_pdf(filename, content)
         except pdf_ocr.OcrUnavailable as exc:
-            raise ValueError(
+            raise CaptureError(
+                capture_failures.CAPTURE_UNAVAILABLE,
                 "PDF support is not installed on the server "
-                f"(pdfplumber/pypdfium2/pytesseract + tesseract binary): {exc}"
+                f"(pdfplumber/pypdfium2/pytesseract + tesseract binary): {exc}",
             )
         # pdf_ocr reports the method (embedded XML / text-layer / OCR); label the
         # provider accordingly so the metadata reflects the real backend used.
@@ -338,11 +341,14 @@ class ImageProvider(ExtractionProvider):
             import pytesseract
             from PIL import Image
         except Exception as exc:  # noqa: BLE001 - report as a clean parse failure
-            raise ValueError(f"Image OCR is not installed on the server: {exc}")
+            raise CaptureError(
+                capture_failures.CAPTURE_UNAVAILABLE,
+                f"Image OCR is not installed on the server: {exc}",
+            )
         try:
             text = pytesseract.image_to_string(Image.open(io.BytesIO(content)))
         except Exception as exc:  # noqa: BLE001 - unreadable image
-            raise ValueError(f"Could not OCR the image: {exc}")
+            raise CaptureError(capture_failures.UNREADABLE_SCAN, f"Could not OCR the image: {exc}")
 
         from app.services import pdf_ocr
 
@@ -388,7 +394,13 @@ def select(filename: str, content: bytes) -> ExtractionProvider:
                 return p
         except Exception:  # noqa: BLE001 - a provider's sniff must never break selection
             continue
-    raise ValueError("Unsupported file type. Upload a .pdf, .xml, .csv, or .json file.")
+    # A CaptureError (a ValueError subclass, so every existing `except ValueError`
+    # behaves identically) states the classified cause at the site that knows it,
+    # so the failed-capture worklist never has to guess it from the message.
+    raise CaptureError(
+        capture_failures.UNSUPPORTED_FORMAT,
+        "Unsupported file type. Upload a .pdf, .xml, .csv, or .json file.",
+    )
 
 
 def run(filename: str, content: bytes) -> ProviderResult:

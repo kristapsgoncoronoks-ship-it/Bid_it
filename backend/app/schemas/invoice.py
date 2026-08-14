@@ -202,6 +202,58 @@ class CaptureReviewQueueOut(BaseModel):
     total: int
 
 
+class CaptureFailureItem(BaseModel):
+    """One capture that failed, as an operator sees it (H-1).
+
+    `summary` and `remediation` come from the closed vocabulary in
+    `services/capture_failures.py::KINDS`, keyed by the stable `code`. `detail` is
+    the raw library message — shown behind a disclosure for support, never as THE
+    explanation. `document_retained` is the "what DID succeed" half of the record:
+    the original is still stored and re-readable.
+    """
+
+    channel: str  # upload | email
+    ref_id: str
+    code: str
+    summary: str
+    remediation: str
+    retry_helps: bool
+    user_fixable: bool
+    detail: str | None = None
+    source_filename: str | None = None
+    sha256: str | None = None
+    document_retained: bool
+    failed_at: datetime
+    repeat_count: int = 1
+    acknowledged_at: datetime | None = None
+    acknowledged_by: str | None = None
+    acknowledgement_note: str | None = None
+
+
+class CaptureFailureGroup(BaseModel):
+    """Repeats of one cause, so a systemic breakage reads as a single line."""
+
+    code: str
+    summary: str
+    remediation: str
+    count: int
+    unacknowledged: int
+
+
+class CaptureFailureWorklistOut(BaseModel):
+    items: list[CaptureFailureItem]
+    groups: list[CaptureFailureGroup] = Field(default_factory=list)
+    total: int
+    unacknowledged: int
+
+
+class CaptureAcknowledgeIn(BaseModel):
+    """Acknowledging a failed capture — an optional note saying what was decided.
+    Who and when are taken from the session, never from the client."""
+
+    note: str | None = Field(default=None, max_length=1000)
+
+
 class FieldReviewIn(BaseModel):
     field: str = Field(min_length=1, max_length=40)
     reviewed_value: str = Field(max_length=500)

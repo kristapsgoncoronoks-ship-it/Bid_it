@@ -748,6 +748,49 @@ export interface CaptureReviewQueue {
   total: number;
 }
 
+/**
+ * H-1 — one capture that FAILED. `summary`/`remediation` come from a closed
+ * server-side vocabulary keyed by `code`; the UI renders them, it never invents
+ * advice of its own. `detail` is the raw library message, for support only.
+ *
+ * `retry_helps` is why the Retry button is conditional: offering a retry that
+ * provably cannot work (an unreadable format, a lost original) wastes the
+ * operator's time and teaches them the button is meaningless.
+ */
+export interface CaptureFailure {
+  channel: "upload" | "email";
+  ref_id: string;
+  code: string;
+  summary: string;
+  remediation: string;
+  retry_helps: boolean;
+  user_fixable: boolean;
+  detail?: string | null;
+  source_filename?: string | null;
+  sha256?: string | null;
+  document_retained: boolean;
+  failed_at: string;
+  repeat_count: number;
+  acknowledged_at?: string | null;
+  acknowledged_by?: string | null;
+  acknowledgement_note?: string | null;
+}
+
+export interface CaptureFailureGroup {
+  code: string;
+  summary: string;
+  remediation: string;
+  count: number;
+  unacknowledged: number;
+}
+
+export interface CaptureFailureWorklist {
+  items: CaptureFailure[];
+  groups: CaptureFailureGroup[];
+  total: number;
+  unacknowledged: number;
+}
+
 export interface DuplicateCandidate {
   invoice_id: string;
   vendor_id: string;
