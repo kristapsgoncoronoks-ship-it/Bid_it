@@ -32,6 +32,13 @@ import type {
  *    work teaches the operator to distrust every button;
  *  - "nothing here" is rendered as a POSITIVE statement, not an empty table.
  */
+// Mirrors `bulk.MAX_BATCH` server-side. Duplicated deliberately rather than
+// fetched: a settings round-trip just to render a button is worse than a number
+// with a comment naming its source. If they drift the server still refuses
+// (`bulk_too_many`) — this cap only decides whether the operator hits that
+// refusal or is told before they act.
+const MAX_BATCH = 200;
+
 export default function CaptureFailures() {
   const qc = useQueryClient();
   const [showAcknowledged, setShowAcknowledged] = useState(false);
@@ -219,6 +226,12 @@ export default function CaptureFailures() {
               <div className="flex flex-wrap items-center gap-3 rounded-md border border-brand-200 bg-brand-50 px-4 py-3 text-sm">
                 <span className="font-medium text-slate-800">
                   {selected.size} selected
+                  {selected.size >= MAX_BATCH && (
+                    <span className="ml-1 font-normal text-slate-600">
+                      (the most that can be acknowledged at once — do these,
+                      then select again)
+                    </span>
+                  )}
                 </span>
                 <label className="sr-only" htmlFor="bulk-note">
                   What did you decide about these?
@@ -265,12 +278,17 @@ export default function CaptureFailures() {
                           new Set(
                             data.items
                               .filter((i) => !i.acknowledged_at)
+                              .slice(0, MAX_BATCH)
                               .map((i) => i.ref_id),
                           ),
                         )
                       }
                     >
                       Select all unresolved
+                      {data.items.filter((i) => !i.acknowledged_at).length >
+                      MAX_BATCH
+                        ? ` (first ${MAX_BATCH})`
+                        : ""}
                     </button>
                   </>
                 )}

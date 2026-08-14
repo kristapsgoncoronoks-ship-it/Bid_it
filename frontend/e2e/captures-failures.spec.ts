@@ -225,6 +225,31 @@ test("a skipped record is reported as information, never as an error", async ({ 
   expect(colour).not.toMatch(/rgb\(2[0-9]{2}, [0-9]{1,2}, [0-9]{1,2}\)/);
 });
 
+test("select-all never builds a batch the server would refuse", async ({ page }) => {
+  // The worklist is UNPAGINATED, and the server caps a batch at 200
+  // (`bulk_too_many`). Without a client cap, "Select all unresolved" on a large
+  // tenant builds a selection that can only ever be rejected — a button that is
+  // guaranteed to fail is worse than no button.
+  let posted: Record<string, unknown> | null = null;
+  const many = Array.from({ length: 250 }, (_, i) =>
+    failure({ ref_id: `run-${i}`, source_filename: `f${i}.csv` }),
+  );
+  await open(page, {
+    items: many,
+    onBulk: (body) => {
+      posted = body;
+    },
+  });
+
+  await page.getByRole("button", { name: /Select all unresolved/ }).click();
+  await page.getByRole("button", { name: /Acknowledge 200/ }).click();
+
+  await expect.poll(() => posted).not.toBeNull();
+  const body = posted as unknown as { agreed_count: number; items: unknown[] };
+  expect(body.items).toHaveLength(200);
+  expect(body.agreed_count).toBe(200);
+});
+
 test("nothing failed is stated positively, not as an empty table", async ({ page }) => {
   await open(page, { items: [] });
 
