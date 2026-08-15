@@ -36,6 +36,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import tenant
 from app.models.invoice import Invoice
 from app.models.plan_policy import PlanPolicy
 from app.models.usage import UsageCounter
@@ -124,14 +125,25 @@ async def invoice_limit_for(db: AsyncSession, plan_key: str) -> int:
 
 
 async def invoices_this_month(db: AsyncSession, org_id: str) -> int:
-    return (
-        await db.scalar(
-            select(func.count(Invoice.id)).where(
-                Invoice.org_id == org_id, Invoice.created_at >= _month_start()
+    """Invoices CREATED this month — counted including binned ones.
+
+    `include_deleted()` is not an oversight here, it is the point. A quota meters
+    what the tenant created, not what is currently visible, and the recycle bin
+    made those two different things. Without it: hit the cap, delete N invoices
+    (reversible), create N more, then restore the first N from the bin inside 30
+    days — a plan limit bypassed for free and repeatable every cycle. Hard delete
+    allowed the same reset but destroyed the data, so it was self-punishing; the
+    bin removed the punishment and left the loophole.
+    """
+    with tenant.include_deleted():
+        return (
+            await db.scalar(
+                select(func.count(Invoice.id)).where(
+                    Invoice.org_id == org_id, Invoice.created_at >= _month_start()
+                )
             )
+            or 0
         )
-        or 0
-    )
 
 
 async def enforce_invoice_quota(db: AsyncSession, org_id: str, plan_key: str) -> None:

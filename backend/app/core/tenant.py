@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
+from functools import lru_cache
 
 from sqlalchemy import event, select, text
 from sqlalchemy.orm import Session, with_loader_criteria
@@ -261,27 +262,66 @@ def include_deleted():
         _include_deleted.reset(token)
 
 
+@lru_cache(maxsize=512)
+def _tenant_options(org: str, models: tuple) -> tuple:
+    """The 80 tenant criteria for one org, built ONCE.
+
+    These objects are immutable and read-only during compilation, so sharing one
+    tuple across every statement for an org is safe — and rebuilding them per
+    query was measured at ~1.6 ms of pure Python on every SELECT the process
+    issues, which at ~5-7 scoped selects per request is the dominant cost of a
+    request against Postgres.
+
+    Cached on the org id (a bind parameter inside the criteria, so the compiled-
+    statement cache key is unaffected either way). Bounded, because an unbounded
+    cache keyed by tenant is a slow memory leak in a multi-tenant process.
+
+    NOT the lambda form of `with_loader_criteria`: SQLAlchemy caches the lambda's
+    analysed closure, which would risk baking one tenant's org id in permanently.
+    That is a cross-tenant leak, not an optimisation.
+
+    `models` is a parameter rather than a read of the module global, so the model
+    registry is part of the cache KEY. Reading the global instead would freeze it
+    at first use: `tests/test_tenancy_parity.py` neutralises layer 2 by patching
+    `TENANT_MODELS` to `()` and asserting the leak is then detected, and against a
+    cache that ignored the patch the guard would stay silently on — a self-test
+    that can no longer fail, which is worse than no self-test.
+    """
+    return tuple(
+        with_loader_criteria(model, _scope_criteria(model, org), include_aliases=True)
+        for model in models
+    )
+
+
+@lru_cache(maxsize=8)
+def _deleted_options(models: tuple) -> tuple:
+    """The soft-delete criteria. No per-request input, so this is effectively
+    built once — keyed on the registry for the same reason as above."""
+    return tuple(
+        with_loader_criteria(model, model.deleted_at.is_(None), include_aliases=True)
+        for model in models
+    )
+
+
 @event.listens_for(Session, "do_orm_execute")
 def _apply_tenant_scope(orm_execute_state) -> None:
     if not orm_execute_state.is_select:
         return  # writes are guarded by loading the row scoped first
-    options = []
+    if orm_execute_state.is_relationship_load or orm_execute_state.is_column_load:
+        # A relationship load already carries these criteria: they propagate from
+        # the parent statement (`propagate_to_loaders` defaults True), so adding
+        # them again appended a SECOND identical predicate per hop — three copies
+        # two hops down — for no behavioural gain. A column load (refresh /
+        # expired attribute) discards loader criteria entirely, so the work was
+        # wasted outright. SQLAlchemy's own `do_orm_execute` docs say not to add
+        # options on either.
+        return
+
+    options = () if _include_deleted.get() else _deleted_options(SOFT_DELETE_MODELS)
 
     org = _current_org.get()
     if org is not None:  # None = unscoped context (bootstrap / operator)
-        options += [
-            with_loader_criteria(model, _scope_criteria(model, org), include_aliases=True)
-            for model in TENANT_MODELS
-        ]
-
-    # Applied REGARDLESS of tenant context: a platform operator reading across
-    # tenants has no more business seeing a client's binned invoice than the
-    # client's own dashboard does.
-    if not _include_deleted.get():
-        options += [
-            with_loader_criteria(model, model.deleted_at.is_(None), include_aliases=True)
-            for model in SOFT_DELETE_MODELS
-        ]
+        options = _tenant_options(org, TENANT_MODELS) + options
 
     if options:
         orm_execute_state.statement = orm_execute_state.statement.options(*options)

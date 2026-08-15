@@ -2,8 +2,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, ConfirmDialog } from "./ui";
+import { toast } from "./Toast";
 import { api, apiError } from "../lib/api";
 import type { DeletionWarning } from "../lib/types";
+
+// Mirrors `invoices.BIN_RETENTION_DAYS`. The Trash screen reads the real value
+// off its own response; this path has no response body to read it from, so the
+// number is duplicated here with its source named rather than left unsaid.
+const BIN_RETENTION_DAYS = 30;
 
 /**
  * Deleting one invoice, with the consent gate
@@ -42,6 +48,14 @@ export function DeleteInvoiceButton({ invoiceId }: { invoiceId: string }) {
       });
     },
     onSuccess: () => {
+      // The moment the operator's belief that this is recoverable is either
+      // formed or lost. Deleting used to navigate away in silence: the page you
+      // were reading vanished and nothing said where the record went, on the
+      // one path in the whole feature where somebody might panic. The bulk path
+      // always said it; the single one — higher stakes — did not.
+      toast.success(
+        `Moved to Deleted invoices. Restorable for ${BIN_RETENTION_DAYS} days.`,
+      );
       qc.invalidateQueries({ queryKey: ["invoices"] });
       navigate("/invoices");
     },

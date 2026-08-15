@@ -15,17 +15,21 @@ route); this module is deliberately small and read-only.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core import tenant
 from app.core.errors import ConflictError, NotFoundError
+from app.models.extraction_run import ExtractionRun
 from app.models.invoice import Invoice, LineItem
 from app.services import bulk, deletion_consent
+
+log = logging.getLogger("invoiceiq.invoices")
 
 
 async def list_by_vendor(db: AsyncSession, org_id: str, vendor_id: str) -> list[Invoice]:
@@ -61,6 +65,11 @@ async def get_by_id(db: AsyncSession, org_id: str, invoice_id: str) -> Invoice |
 BIN_RETENTION_DAYS = 30
 """Fixed, not per-tenant configurable (owner decision). One number is easy to
 state in a UI and in a contract; a per-tenant one is a support question forever."""
+
+PURGE_BATCH = 500
+"""Rows destroyed per statement. Bounded so a large bin cannot exceed a driver's
+bind-parameter ceiling (Postgres 65535, SQLite 32766) — which would make the job
+fail, be re-enqueued daily, and fail forever, so the bin never empties."""
 
 
 class ConsentRequiredError(ConflictError):
@@ -359,17 +368,27 @@ async def restore_one(db: AsyncSession, org_id: str, invoice_id: str) -> Invoice
         # conflict. Two records sitting in the bin with the same number are not a
         # problem until one of them comes back, and checking against binned rows
         # too would make the bin progressively harder to escape the more it held.
+        #
+        # Scoped to the SAME VENDOR. The docstring above says two invoices may
+        # legitimately share a number across vendors, and the first version of
+        # this check then ignored that and compared org-wide — refusing to give a
+        # client their record back because an unrelated supplier happened to use
+        # the same number, and telling them to go and resolve that one. A false
+        # refusal on the RECOVERY path is worse than the duplicate it prevents.
         clash = await db.scalar(
-            select(Invoice.id).where(
+            select(Invoice.id)
+            .where(
                 Invoice.org_id == org_id,
+                Invoice.vendor_id == inv.vendor_id,
                 Invoice.invoice_number == inv.invoice_number,
                 Invoice.id != inv.id,
             )
+            .limit(1)
         )
         if clash:
             raise ConflictError(
-                f"A live invoice already uses number {inv.invoice_number}. "
-                "Resolve that one before restoring this.",
+                f"A live invoice from this supplier already uses number "
+                f"{inv.invoice_number}. Resolve that one before restoring this.",
                 code="invoice_number_in_use",
             )
 
@@ -413,24 +432,155 @@ async def purge_expired_bin(db: AsyncSession, org_id: str, *, now: datetime | No
         return {"held": True, "purged": 0, "records": []}
 
     cutoff = (now or datetime.now(UTC)) - timedelta(days=BIN_RETENTION_DAYS)
-    with tenant.include_deleted():
-        expired = list(
+    records: list[dict] = []
+    purged = 0
+
+    while True:
+        # ONE BATCH AT A TIME. An unbounded `id.in_(...)` hits Postgres's 65535
+        # bind-parameter ceiling (SQLite's is 32766) and the job then fails, is
+        # re-enqueued daily, and fails forever — so the bin would never empty,
+        # inverting the exact promise this function exists to keep. Columns, not
+        # entities: hydrating rows about to be destroyed just to read six scalars
+        # off them costs hundreds of MB on a large bin.
+        with tenant.include_deleted():
+            batch = list(
+                await db.execute(
+                    select(
+                        Invoice.id,
+                        Invoice.invoice_number,
+                        Invoice.vendor_id,
+                        Invoice.issue_date,
+                        Invoice.currency,
+                        Invoice.total,
+                    )
+                    .where(
+                        Invoice.org_id == org_id,
+                        Invoice.deleted_at.is_not(None),
+                        Invoice.deleted_at < cutoff,
+                    )
+                    .limit(PURGE_BATCH)
+                )
+            )
+        if not batch:
+            break
+
+        ids = [row.id for row in batch]
+        records += [
+            asdict(
+                DeletedSnapshot(
+                    invoice_id=row.id,
+                    invoice_number=row.invoice_number,
+                    vendor_id=row.vendor_id,
+                    issue_date=row.issue_date.isoformat() if row.issue_date else None,
+                    currency=row.currency,
+                    total=str(row.total) if row.total is not None else None,
+                )
+            )
+            for row in batch
+        ]
+
+        # Read the stored-document hashes BEFORE the delete: `extraction_runs`
+        # cascades away with the invoice, taking the last pointer to the bytes
+        # with it.
+        shas = set(
             await db.scalars(
-                select(Invoice).where(
-                    Invoice.org_id == org_id,
-                    Invoice.deleted_at.is_not(None),
-                    Invoice.deleted_at < cutoff,
+                select(ExtractionRun.source_sha256).where(
+                    ExtractionRun.org_id == org_id,
+                    ExtractionRun.invoice_id.in_(ids),
+                    ExtractionRun.source_sha256.is_not(None),
                 )
             )
         )
-    if not expired:
-        return {"held": False, "purged": 0, "records": []}
 
-    records = [asdict(deletion_snapshot(inv)) for inv in expired]
-    ids = [inv.id for inv in expired]
-    # Children first, then the parent — identical behaviour on SQLite and
-    # Postgres regardless of whether FK cascades are enforced, the same reason
-    # `retention.purge` does it this way.
-    await db.execute(delete(LineItem).where(LineItem.invoice_id.in_(ids)))
-    await db.execute(delete(Invoice).where(Invoice.id.in_(ids)))
-    return {"held": False, "purged": len(ids), "records": records}
+        # UNLINK the composite-FK referrers BEFORE the parent goes.
+        #
+        # `vat_claim_lines` and `fuel_transactions` reference invoices through a
+        # COMPOSITE key `(org_id, invoice_id)` declared `ON DELETE SET NULL`.
+        # SET NULL on a multi-column FK nulls EVERY referencing column — org_id
+        # included — and org_id is NOT NULL on both tables, so the database
+        # raises rather than nulling. Verified directly:
+        #     NOT NULL constraint failed: fuel_transactions.org_id
+        # This repo already documents the trap in the `vat_note_invoice_overrides`
+        # migration, which chose CASCADE for exactly this reason; these two
+        # tables never got the same treatment.
+        #
+        # Left unhandled, the daily purge raises for any tenant using the
+        # transport module, retries, dead-letters, and repeats tomorrow — so that
+        # tenant's bin is never emptied and its records are invisible AND
+        # immortal, the precise failure this function exists to prevent.
+        #
+        # Nulling `invoice_id` ourselves keeps the referencing row and its
+        # tenancy intact (a fuel transaction is analytics history the client did
+        # not ask to delete) and means the FK's SET NULL never fires.
+        await _unlink_purged_invoices(db, org_id, ids)
+
+        # Children first, then the parent — identical behaviour on SQLite and
+        # Postgres regardless of whether FK cascades are enforced, the same
+        # reason `retention.purge` does it this way.
+        await db.execute(delete(LineItem).where(LineItem.invoice_id.in_(ids)))
+        # The org and bin predicates are RE-ASSERTED on the delete itself, not
+        # inherited from the select above. Two reasons, both real:
+        #   - the tenant guard does NOT touch a non-SELECT statement, so without
+        #     `org_id` here one WHERE clause in one SELECT is the entire tenant
+        #     boundary on the only irreversible path in the product;
+        #   - a `restore_one` that commits between the select and the delete
+        #     would otherwise be silently undone, destroying a record a client
+        #     had just recovered — and day 29-31 is exactly when they go looking.
+        result = await db.execute(
+            delete(Invoice).where(
+                Invoice.org_id == org_id,
+                Invoice.id.in_(ids),
+                Invoice.deleted_at.is_not(None),
+                Invoice.deleted_at < cutoff,
+            )
+        )
+        purged += int(getattr(result, "rowcount", 0) or 0)
+
+        await _delete_purged_bytes(org_id, shas)
+
+        if len(batch) < PURGE_BATCH:
+            break
+
+    return {"held": False, "purged": purged, "records": records}
+
+
+async def _unlink_purged_invoices(db: AsyncSession, org_id: str, ids: list[str]) -> None:
+    """Clear `invoice_id` on rows whose composite FK would otherwise SET NULL.
+
+    Imported locally, like `retention`'s own cross-domain reach: the AP service
+    must not take a module-level dependency on the transport vertical, but the
+    database constraint is real and has to be satisfied somewhere. If a future
+    table gains the same `(org_id, invoice_id) ON DELETE SET NULL` shape it must
+    be added here — `tests/test_recycle_bin_purge_fk.py` fails loudly if one is
+    missed, which is the intended way to find out.
+    """
+    from app.models.transport.fuel_transaction import FuelTransaction
+    from app.models.transport.vat_claim import VatRefundClaimLine
+
+    for model in (FuelTransaction, VatRefundClaimLine):
+        await db.execute(
+            update(model)
+            .where(model.org_id == org_id, model.invoice_id.in_(ids))
+            .values(invoice_id=None)
+        )
+
+
+async def _delete_purged_bytes(org_id: str, shas: set[str | None]) -> None:
+    """Remove the stored source documents of invoices being purged.
+
+    Without this the consent warning's "it leaves your workspace" is untrue: the
+    row goes, and the client's original invoice PDF stays in object storage
+    forever with nothing left pointing at it. That relocates the storage-
+    limitation problem rather than solving it, and leaves debris nothing will
+    ever collect.
+
+    Best-effort, exactly like `retention._delete_object_bytes`: failing to remove
+    bytes must not abort a purge that has already deleted rows.
+    """
+    from app.services import documents
+
+    for sha in {s for s in shas if s}:
+        try:
+            await documents.delete(documents.UPLOADS, org_id, sha)
+        except Exception as exc:  # noqa: BLE001 - cleanup must not block the purge
+            log.warning("bin purge: object cleanup failed for %s/%s: %s", org_id, sha, exc)

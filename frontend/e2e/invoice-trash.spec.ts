@@ -55,6 +55,10 @@ interface MockOpts {
   items?: Record<string, unknown>[];
   role?: string;
   retentionDays?: number;
+  /** Overrides the count the server reports, so the truncated case is testable. */
+  total?: number;
+  /** Records the `offset` the SPA asked for. */
+  onList?: (offset: string) => void;
   /** Records the invoice id the SPA asked to restore. */
   onRestore?: (invoiceId: string) => void;
 }
@@ -85,10 +89,16 @@ async function open(page: Page, opts: MockOpts = {}) {
       return route.fulfill(json({ id: restore[1] }));
     }
 
-    if (path.startsWith("/invoices/trash"))
+    if (path.startsWith("/invoices/trash")) {
+      opts.onList?.(url.searchParams.get("offset") ?? "");
       return route.fulfill(
-        json({ items, total: items.length, retention_days: opts.retentionDays ?? 30 }),
+        json({
+          items,
+          total: opts.total ?? items.length,
+          retention_days: opts.retentionDays ?? 30,
+        }),
       );
+    }
 
     return route.fulfill(json({ items: [], total: 0 }));
   });
@@ -159,4 +169,30 @@ test("the bin is reachable from the invoice list", async ({ page }) => {
   await page.getByRole("link", { name: "Deleted", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: "Deleted invoices" })).toBeVisible();
+});
+
+test("the bin does not claim more rows than it can show", async ({ page }) => {
+  // The defect this replaced: the page asked for no page size, took the server's
+  // default 50, and printed the UNPAGINATED total above them. After one bulk
+  // delete it read "120 invoices deleted" over 50 rows with no way to reach the
+  // rest — the screen stating something untrue about deleted records.
+  const rows = Array.from({ length: 50 }, (_, i) =>
+    binned({ invoice_id: `inv-${i}`, invoice_number: `INV-${i}` }),
+  );
+  await open(page, { items: rows, total: 120 });
+
+  await expect(page.getByText("Showing 50 of 120 deleted invoices.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Next" })).toBeEnabled();
+});
+
+test("the pager asks the server for the next page", async ({ page }) => {
+  const offsets: string[] = [];
+  const rows = Array.from({ length: 50 }, (_, i) =>
+    binned({ invoice_id: `inv-${i}`, invoice_number: `INV-${i}` }),
+  );
+  await open(page, { items: rows, total: 120, onList: (o) => offsets.push(o) });
+
+  await page.getByRole("button", { name: "Next" }).click();
+
+  await expect.poll(() => offsets).toContain("50");
 });

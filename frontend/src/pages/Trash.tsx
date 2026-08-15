@@ -32,15 +32,30 @@ import type { BinList } from "../lib/types";
  *    reason attached tells them who to ask; a button that is simply absent
  *    leaves them thinking the record is unrecoverable.
  */
+// Mirrors the route's own default (`Query(50, ge=1, le=200)`).
+const PAGE_SIZE = 50;
+
 export default function Trash() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const mayRestore = isAdminOrAbove(user);
   const [err, setErr] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
 
   const bin = useQuery<BinList>({
-    queryKey: ["invoices", "trash"],
-    queryFn: async () => (await api.get("/invoices/trash")).data,
+    queryKey: ["invoices", "trash", page],
+    // The server pages this and ALWAYS did; the first version of this screen
+    // simply never asked, took the default 50, and then printed the unpaginated
+    // `total` above them. After one bulk delete that read "200 invoices deleted"
+    // over 50 rows with no way to reach the rest — the screen stating something
+    // untrue about deleted records, which is the exact failure the whole feature
+    // exists to prevent.
+    queryFn: async () =>
+      (
+        await api.get(
+          `/invoices/trash?limit=${PAGE_SIZE}&offset=${(page - 1) * PAGE_SIZE}`,
+        )
+      ).data,
   });
 
   const restore = useMutation({
@@ -94,7 +109,9 @@ export default function Trash() {
         {(data) => (
           <>
             <p className="text-sm text-slate-500">
-              {data.total} {data.total === 1 ? "invoice" : "invoices"} deleted.
+              {data.total === data.items.length
+                ? `${data.total} ${data.total === 1 ? "invoice" : "invoices"} deleted.`
+                : `Showing ${data.items.length} of ${data.total} deleted invoices.`}{" "}
               Each one can be restored for {data.retention_days} days.
             </p>
 
@@ -162,6 +179,30 @@ export default function Trash() {
                 </tbody>
               </table>
             </div>
+
+            {data.total > PAGE_SIZE && (
+              <div className="flex items-center justify-between text-sm text-slate-500">
+                <span>
+                  Page {page} / {Math.max(1, Math.ceil(data.total / PAGE_SIZE))}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="btn-ghost"
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => p - 1)}
+                  >
+                    Prev
+                  </button>
+                  <button
+                    className="btn-ghost"
+                    disabled={page >= Math.ceil(data.total / PAGE_SIZE)}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         )}
       </QueryState>
