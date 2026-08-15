@@ -1,0 +1,129 @@
+"""The platform archive — the CLIENT's own view of it.
+
+`docs/design/platform-archive.md`. When an invoice's 30-day recycle bin expires,
+the row is destroyed and a copy lands in the archive. The owner's decision is
+that the client's own company owner can still see it there, for the retention
+period, and download the source document.
+
+That decision is what makes the archive defensible. A store clients cannot see
+is retention done TO them and has to be explained; a store they can read is a
+feature they use, and "your records are kept for N years and you can look at
+them" is a sentence that goes in a DPA and an onboarding screen.
+
+READ-ONLY. There is no restore-from-archive route and there should not be: the
+bin restores into live books, the archive only shows. Pulling a three-year-old
+invoice back into the ledger would reopen a closed accounting period and can
+collide with invoice numbers issued since.
+
+Router-level `ARCHIVE_READ`, which is held by OWNER and ADMINISTRATOR and by no
+other business role. An archive holds the records a client believes they deleted;
+"anyone who can read invoices" is the wrong audience for it.
+"""
+
+from __future__ import annotations
+
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+
+from app.api.deps import CurrentUser, DbSession, require_perm
+from app.core import authz
+from app.core.security_headers import content_disposition
+from app.schemas.archive import ArchivedInvoiceOut, ArchiveListOut
+from app.services import archive as svc
+from app.services import documents
+
+router = APIRouter(
+    prefix="/archive",
+    tags=["archive"],
+    dependencies=[Depends(require_perm(authz.Permission.ARCHIVE_READ))],
+)
+
+
+def _out(row) -> ArchivedInvoiceOut:
+    try:
+        lines = json.loads(row.line_items_json or "[]")
+    except ValueError:
+        lines = []
+    return ArchivedInvoiceOut(
+        id=row.id,
+        original_invoice_id=row.original_invoice_id,
+        invoice_number=row.invoice_number,
+        vendor_name=row.vendor_name,
+        issue_date=row.issue_date.isoformat() if row.issue_date else None,
+        currency=row.currency,
+        total=str(row.total) if row.total is not None else None,
+        line_items=lines,
+        has_document=bool(row.source_sha256),
+        source_filename=row.source_filename,
+        original_deleted_at=row.original_deleted_at.isoformat()
+        if row.original_deleted_at
+        else None,
+        original_deleted_by=row.original_deleted_by,
+        archived_at=row.archived_at.isoformat(),
+        expires_at=row.expires_at.isoformat(),
+    )
+
+
+@router.get("", response_model=ArchiveListOut)
+async def list_archive(
+    current: CurrentUser,
+    db: DbSession,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """This organisation's archive, newest first.
+
+    Paged from the first version, deliberately: the recycle-bin screen shipped
+    without asking for a page size, took the server's default, and then printed
+    the unpaginated total above a truncated table — a screen stating something
+    untrue about deleted records. An archive holding years of them would make the
+    same mistake worse.
+    """
+    page = await svc.page(db, current.org_id, limit=limit, offset=offset)
+    return ArchiveListOut(
+        items=[_out(r) for r in page.items],
+        total=page.total,
+        retention_years=page.retention_years,
+    )
+
+
+@router.get("/{archive_id}", response_model=ArchivedInvoiceOut)
+async def get_archived(archive_id: str, current: CurrentUser, db: DbSession):
+    row = await svc.get(db, current.org_id, archive_id)
+    if row is None:
+        # Opaque: unknown and cross-tenant are indistinguishable (§4.4).
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    return _out(row)
+
+
+@router.get("/{archive_id}/document")
+async def download_archived_document(archive_id: str, current: CurrentUser, db: DbSession):
+    """The original invoice PDF, kept with the record.
+
+    This is most of the value of the archive: the record says what the invoice
+    was, the document proves it to a tax authority. Served inert (attachment +
+    nosniff) exactly as the live document routes are — an archived file is still
+    attacker-influenced bytes that once came in over the internet.
+    """
+    row = await svc.get(db, current.org_id, archive_id)
+    if row is None or not row.source_sha256:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    try:
+        data = await documents.load(documents.UPLOADS, current.org_id, row.source_sha256)
+    except FileNotFoundError:
+        # The row outlived its bytes. A 404 says so without leaking storage
+        # internals; the integrity sweep is where this should be noticed.
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored document missing") from None
+    if data is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored document missing")
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": content_disposition(
+                row.source_filename or "document", fallback="attachment"
+            ),
+            "X-Content-Type-Options": "nosniff",
+        },
+    )

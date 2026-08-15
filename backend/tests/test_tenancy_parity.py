@@ -2146,6 +2146,54 @@ async def _p_transport_excise_rates(ctx: Ctx) -> None:
 # The tests
 # --------------------------------------------------------------------------- #
 
+
+@probe("archived_invoices")
+async def _archived_invoices(ctx: Ctx) -> None:
+    """The platform archive — records kept after their recycle bin expired.
+
+    A real probe rather than an EXEMPT row, in the same commit that created the
+    table. This one earns the probe more than most: it holds the records clients
+    believe they DELETED, and the owner's decision that a client's own company
+    owner may read it turns its org filter from a backstop into a primary
+    control read by every client owner.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from app.models.archived_invoice import ArchivedInvoice
+
+    ids: dict[str, str] = {}
+    for org in (ctx.a, ctx.b):
+        row = ArchivedInvoice(
+            org_id=org.org_id,
+            original_invoice_id=str(uuid.uuid4()),
+            invoice_number=f"ARC-PARITY-{org.name}",
+            vendor_name="Fictional Fuels OU",
+            currency="EUR",
+            archived_at=datetime.now(UTC),
+            expires_at=datetime.now(UTC) + timedelta(days=365),
+        )
+        ctx.db.add(row)
+        await ctx.db.commit()
+        ids[org.name] = row.id
+
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        listed = await me.get("/api/v1/archive")
+        assert listed.status_code == 200, listed.text
+        seen = {i["id"] for i in listed.json()["items"]}
+        assert ids[other.name] not in seen, (
+            f"TENANT LEAK: {me.name} saw {other.name}'s archived invoice in the list"
+        )
+        fetched = await me.get(f"/api/v1/archive/{ids[other.name]}")
+        assert fetched.status_code == 404, (
+            f"TENANT LEAK: {me.name} fetched {other.name}'s archived invoice "
+            f"({fetched.status_code})"
+        )
+        doc = await me.get(f"/api/v1/archive/{ids[other.name]}/document")
+        assert doc.status_code == 404, (
+            f"TENANT LEAK: {me.name} reached {other.name}'s archived document ({doc.status_code})"
+        )
+
+
 ALL_TABLES = sorted(m.__tablename__ for m in TENANT_MODELS)
 
 

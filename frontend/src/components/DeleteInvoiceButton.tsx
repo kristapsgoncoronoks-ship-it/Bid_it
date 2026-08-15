@@ -100,15 +100,21 @@ export function DeleteInvoiceButton({ invoiceId }: { invoiceId: string }) {
       >
         {warning && (
           <div className="space-y-3 text-sm text-slate-700">
-            {/* Rendered from the response, never composed here. */}
-            <p>{warning.text}</p>
+            {/* Consequences FIRST. The general paragraph is 70 words of
+                necessary hedging, and putting it above trains the eye to skim
+                past the specific facts that would actually stop a bad decision.
+                Both are rendered from the response, never composed here. */}
             {warning.consequences.length > 0 && (
-              <ul className="list-disc space-y-1 pl-5">
-                {warning.consequences.map((c) => (
-                  <li key={c.code}>{c.message}</li>
-                ))}
-              </ul>
+              <>
+                <p className="font-medium text-slate-800">Why this one matters:</p>
+                <ul className="list-disc space-y-1 pl-5">
+                  {warning.consequences.map((c) => (
+                    <li key={c.code}>{c.message}</li>
+                  ))}
+                </ul>
+              </>
             )}
+            <p>{warning.text}</p>
           </div>
         )}
       </ConfirmDialog>

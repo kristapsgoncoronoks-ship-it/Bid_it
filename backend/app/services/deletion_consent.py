@@ -32,23 +32,41 @@ from dataclasses import dataclass
 
 from app.models.invoice import Invoice, WorkflowState
 
-WARNING_VERSION = "2026-08-15"
+WARNING_VERSION = "2026-08-15.2"
 """Bump on ANY change to `WARNING_TEXT` or to the consequence sentences. Old
 acknowledgements then stop being accepted, which is the point — the alternative
 is an audit trail claiming someone agreed to words they never saw."""
 
 WARNING_TEXT = (
-    "Deleting this invoice removes a financial record from your books. "
-    "Depending on where you are established, keeping source documents for a "
-    "statutory period may be a legal obligation, and removing one can affect a "
-    "tax return, a VAT refund claim or an audit that relies on it. "
-    "Only you can decide whether to delete it. "
-    "It will be recoverable from your deleted items for 30 days; after that it "
-    "leaves your workspace. Your confirmation is recorded."
+    "You're about to remove an invoice from your accounting records. "
+    "Accounting records normally have to be kept for several years, and removing "
+    "this one can affect a VAT return, a refund claim, or an audit that relies "
+    "on it. Whether that applies to you is a question for you and your "
+    "accountant. "
+    "It goes to Deleted invoices for 30 days, where an administrator or the "
+    "company owner can put it back. After that it leaves your live books and "
+    "moves to your archive, where the company owner can still view and download "
+    "it. "
+    "We save this confirmation with the invoice's history, so your books can "
+    "still be explained later."
 )
-"""Deliberately does NOT say "permanently deleted": the platform retains the
-record after the bin expires, and telling a client something is gone when it is
-not is a larger exposure than the retention itself."""
+"""Never says "permanently deleted", and now says where the record actually goes.
+
+Two corrections, each of which required a VERSION BUMP because consent to
+different words is not consent to these:
+
+- the previous text said the invoice "will be recoverable from your deleted
+  items for 30 days" without qualification. Deleting needs INVOICE_DELETE;
+  restoring needs INVOICE_RESTORE, which a finance manager does NOT hold. So the
+  person most likely to read this was being promised something they could not do,
+  and would only find out in the Trash screen afterwards.
+- it ended "after that it leaves your workspace", written when the archive was a
+  platform-only store the client could not see. The client's own company owner
+  can now read and download it there, so the honest sentence names the archive.
+
+Deliberately reordered too: the specific consequences render ABOVE this paragraph
+in the dialog, because the facts that would actually stop a bad decision should
+be read before the general hedging."""
 
 
 @dataclass(frozen=True)

@@ -40,6 +40,13 @@ class Permission(str, enum.Enum):
     # decision: restore is admin/owner only, narrower than who may delete.
     INVOICE_RESTORE = "invoice.restore"
     INVOICE_APPROVE = "invoice.approve"  # decide an approval step (Phase 08)
+    # The platform archive — records kept after their recycle bin expired. The
+    # owner's decision is that the CLIENT's company owner reads their own
+    # organisation's archive, so this is an ordinary tenant permission. Held by
+    # OWNER and ADMINISTRATOR via ALL_PERMISSIONS and omitted from every explicit
+    # role set below: an archive is the records a client believes they deleted,
+    # and "everyone who can read invoices" is the wrong audience for it.
+    ARCHIVE_READ = "archive.read"
     # Expenses
     EXPENSE_READ = "expense.read"
     EXPENSE_WRITE = "expense.write"

@@ -24,6 +24,7 @@ from sqlalchemy import event, select, text
 from sqlalchemy.orm import Session, with_loader_criteria
 
 from app.models.approval import ApprovalPolicy, ApprovalStep
+from app.models.archived_invoice import ArchivedInvoice
 from app.models.audit import AuditEvent
 from app.models.bank_import import BankLine, BankStatement
 from app.models.billing_payment import BillingPayment
@@ -96,6 +97,7 @@ from app.models.webhook import WebhookDelivery, WebhookEndpoint
 # parent. ExpenseItem now carries a denormalised org_id (Slice 2b) so it is
 # scoped directly here rather than trusting the report join.
 TENANT_MODELS = (
+    ArchivedInvoice,
     Vendor,
     VendorChangeRequest,
     Invoice,

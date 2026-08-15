@@ -27,6 +27,7 @@ from app.core import tenant
 from app.core.errors import ConflictError, NotFoundError
 from app.models.extraction_run import ExtractionRun
 from app.models.invoice import Invoice, LineItem
+from app.models.vendor import Vendor
 from app.services import bulk, deletion_consent
 
 log = logging.getLogger("invoiceiq.invoices")
@@ -451,7 +452,12 @@ async def purge_expired_bin(db: AsyncSession, org_id: str, *, now: datetime | No
                         Invoice.vendor_id,
                         Invoice.issue_date,
                         Invoice.currency,
+                        Invoice.subtotal,
+                        Invoice.tax_amount,
                         Invoice.total,
+                        Invoice.source_filename,
+                        Invoice.deleted_at,
+                        Invoice.deleted_by,
                     )
                     .where(
                         Invoice.org_id == org_id,
@@ -479,18 +485,13 @@ async def purge_expired_bin(db: AsyncSession, org_id: str, *, now: datetime | No
             for row in batch
         ]
 
-        # Read the stored-document hashes BEFORE the delete: `extraction_runs`
-        # cascades away with the invoice, taking the last pointer to the bytes
-        # with it.
-        shas = set(
-            await db.scalars(
-                select(ExtractionRun.source_sha256).where(
-                    ExtractionRun.org_id == org_id,
-                    ExtractionRun.invoice_id.in_(ids),
-                    ExtractionRun.source_sha256.is_not(None),
-                )
-            )
-        )
+        # ARCHIVE BEFORE DESTROYING — the whole point of the archive.
+        #
+        # Written inside the SAME transaction as the delete below, so a record
+        # can never be destroyed without being archived: the two halves commit
+        # together or not at all. That single property is what makes this a
+        # backstop rather than a best-effort copy.
+        await _archive_batch(db, org_id, batch, ids)
 
         # UNLINK the composite-FK referrers BEFORE the parent goes.
         #
@@ -536,8 +537,6 @@ async def purge_expired_bin(db: AsyncSession, org_id: str, *, now: datetime | No
         )
         purged += int(getattr(result, "rowcount", 0) or 0)
 
-        await _delete_purged_bytes(org_id, shas)
-
         if len(batch) < PURGE_BATCH:
             break
 
@@ -565,22 +564,86 @@ async def _unlink_purged_invoices(db: AsyncSession, org_id: str, ids: list[str])
         )
 
 
-async def _delete_purged_bytes(org_id: str, shas: set[str | None]) -> None:
-    """Remove the stored source documents of invoices being purged.
+async def _archive_batch(db: AsyncSession, org_id: str, batch: list, ids: list[str]) -> None:
+    """Hand one batch of expiring invoices to the platform archive.
 
-    Without this the consent warning's "it leaves your workspace" is untrue: the
-    row goes, and the client's original invoice PDF stays in object storage
-    forever with nothing left pointing at it. That relocates the storage-
-    limitation problem rather than solving it, and leaves debris nothing will
-    ever collect.
+    THE SOURCE DOCUMENT IS DELIBERATELY NOT DELETED HERE ANY MORE. An earlier
+    version of the purge removed the stored PDF, on the reasoning that leaving it
+    made "it leaves your workspace" untrue. The owner has since decided the
+    archive keeps the record AND the document, because the PDF is what proves
+    anything to a tax authority years later — which is most of the reason to
+    archive at all. The bytes now live exactly as long as the archive row that
+    points at them, and are collected when THAT expires rather than here.
 
-    Best-effort, exactly like `retention._delete_object_bytes`: failing to remove
-    bytes must not abort a purge that has already deleted rows.
+    Line items and the document hash are read before the delete: `line_items`
+    goes with the parent, and `extraction_runs` cascades away with it, taking the
+    last pointer to the bytes.
     """
-    from app.services import documents
+    from app.services import archive
 
-    for sha in {s for s in shas if s}:
-        try:
-            await documents.delete(documents.UPLOADS, org_id, sha)
-        except Exception as exc:  # noqa: BLE001 - cleanup must not block the purge
-            log.warning("bin purge: object cleanup failed for %s/%s: %s", org_id, sha, exc)
+    shas = {
+        row.invoice_id: row.source_sha256
+        for row in await db.execute(
+            select(ExtractionRun.invoice_id, ExtractionRun.source_sha256).where(
+                ExtractionRun.org_id == org_id,
+                ExtractionRun.invoice_id.in_(ids),
+                ExtractionRun.source_sha256.is_not(None),
+            )
+        )
+    }
+    lines: dict[str, list[dict]] = {}
+    for li in await db.execute(
+        select(
+            LineItem.invoice_id,
+            LineItem.description,
+            LineItem.category,
+            LineItem.quantity,
+            LineItem.unit_price,
+            LineItem.amount,
+            LineItem.tax_rate,
+        ).where(LineItem.invoice_id.in_(ids))
+    ):
+        lines.setdefault(li.invoice_id, []).append(
+            {
+                "description": li.description,
+                "category": li.category,
+                "quantity": str(li.quantity) if li.quantity is not None else None,
+                "unit_price": str(li.unit_price) if li.unit_price is not None else None,
+                "amount": str(li.amount) if li.amount is not None else None,
+                "tax_rate": str(li.tax_rate) if li.tax_rate is not None else None,
+            }
+        )
+
+    vendors = {
+        v.id: v.name
+        for v in await db.execute(
+            select(Vendor.id, Vendor.name).where(
+                Vendor.org_id == org_id,
+                Vendor.id.in_({row.vendor_id for row in batch if row.vendor_id}),
+            )
+        )
+    }
+
+    await archive.archive_records(
+        db,
+        org_id,
+        [
+            archive.ArchivedRecord(
+                original_invoice_id=row.id,
+                invoice_number=row.invoice_number,
+                vendor_id=row.vendor_id,
+                vendor_name=vendors.get(row.vendor_id),
+                issue_date=row.issue_date,
+                currency=row.currency,
+                subtotal=row.subtotal,
+                tax_amount=row.tax_amount,
+                total=row.total,
+                line_items=lines.get(row.id, []),
+                source_sha256=shas.get(row.id),
+                source_filename=row.source_filename,
+                original_deleted_at=row.deleted_at,
+                original_deleted_by=row.deleted_by,
+            )
+            for row in batch
+        ],
+    )

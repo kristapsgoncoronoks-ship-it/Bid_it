@@ -1,6 +1,7 @@
 """SQLAlchemy models. Import all so metadata/Alembic sees them."""
 
 from app.models.approval import ApprovalPolicy, ApprovalStep
+from app.models.archived_invoice import ArchivedInvoice
 from app.models.audit import AuditEvent
 from app.models.bank_import import BankLine, BankStatement
 from app.models.base import Base
@@ -142,4 +143,5 @@ __all__ = [
     "FuelTransaction",
     "VatClaimedInvoice",
     "VatNoteInvoiceOverride",
+    "ArchivedInvoice",
 ]

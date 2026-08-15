@@ -3,7 +3,7 @@
 The detailed architecture documentation lives under **[`docs/architecture/`](./docs/architecture/)**.
 This file is deliberately a one-page pointer: the long-form document that used to
 live here described the project's earliest prototype (a dozen tests, 4 routers) and drifted
-fatally from the codebase (64 tables, 1136 backend tests, 39 route modules).
+fatally from the codebase (64 tables, 1136 backend tests, 40 route modules).
 A lying document is worse than no document — the detail now lives where it is
 kept true.
 

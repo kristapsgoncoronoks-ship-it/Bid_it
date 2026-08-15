@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.routes import (
     access,
     analytics,
+    archive,
     audit,
     auth,
     billing,
@@ -81,6 +82,7 @@ api_router.include_router(webhooks.router)
 api_router.include_router(integrity.router)
 api_router.include_router(documents.router)
 api_router.include_router(export.router)
+api_router.include_router(archive.router)
 api_router.include_router(retention.router)
 api_router.include_router(privacy.router)
 api_router.include_router(sso.router)
