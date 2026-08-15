@@ -27,9 +27,9 @@ wrong.
 | Who can restore | **Admin or company owner only** | Restoring puts a record back into the books — the more consequential half of the operation. |
 | Can a PAID invoice be deleted? | **Yes — the client's decision** | Overrides the engineer's recommendation to keep a draft-only rule. Taken knowingly: see the consent gate. |
 | Deleting past draft | **Warn every time + record the acceptance** | Never a "don't show again" — that is consent given once for decisions not yet made. |
-| Platform archive period | **~5 years, to be confirmed** | Baltic accounting law likely REQUIRES multi-year retention of source documents, which would make this a legal obligation (a clean lawful basis) rather than a preference. The exact period must be confirmed with the owner's accountant — it varies by country and document type, and 5 is the owner's estimate, not a verified figure. |
+| Platform archive period | ~~**~5 years, to be confirmed**~~ SUPERSEDED 2026-08-15 → **3 years included, longer paid** (see the next table) | The 5-year figure was the owner's first estimate. Baltic accounting law commonly requires LONGER than the new 3-year floor, which is why the pre-expiry notice in `platform-archive.md` is mandatory rather than nice-to-have. |
 | Archive storage | **A separate sealed store, not a flag on the live table** | A flag means every query, export and support tool can reach archived data, and one forgotten filter surfaces a client's deleted invoice. A separate store makes reaching it an act, not an accident. |
-| Who can read the archive | **Off by default; granted by sysadmin/owner to named, strictly limited personnel** | See the note below — this cannot simply be `is_platform_admin`. |
+| Who can read the archive | ~~**Platform personnel only**~~ SUPERSEDED 2026-08-15 → **the client's own company owner too** (see the next table) | "Activated by sysadmin or owner" meant the CLIENT's owner. Platform staff still need the named/time-boxed grant; it still cannot be `is_platform_admin`. |
 | Forensic logging | **Who, when, what, from which IP** | Standard practice. Note an IP is itself personal data and belongs in the privacy notice. |
 
 ## Decisions taken 2026-08-15, after the review cycle
@@ -42,7 +42,8 @@ wrong.
 | Build order | **Archive first**, then the two above. Follows from keeping the purge on. |
 | What the archive keeps | **Record AND source document.** The PDF is what proves anything to a tax authority years later, which is the point of retaining at all. |
 | Archive read access | **Named individual, time-boxed grant, reason recorded at every access.** Not a role, not a permanent grant, and explicitly not the platform-admin flag. |
-| Retention period | **Configurable, default 5 years, marked UNCONFIRMED** until the owner's accountant confirms it per country. Not to appear in any customer-facing claim before then. |
+| Retention period | **3 years included; longer is a PAID extension.** Configurable. Owners are notified BEFORE anything expires — never after — so a mismatch with a statutory minimum is survivable rather than silent. |
+| Who can read the archive | **The client's own company owner**, for their own org, read-only. Platform staff additionally, under the named/time-boxed/reason-logged grant. |
 
 ## The VAT-claim question — answered
 
@@ -80,19 +81,13 @@ re-propose the heuristic version.
 > with it; when it misses, the refusal they were promised does not happen. Both
 > failures are worse than not having the gate.
 
-So the consent gate ships warning only about facts the schema states with
+So the consent gate SHIPPED warning only about facts the schema states with
 certainty — the workflow state, a recorded payment, membership of a payment run.
-The VAT question is genuinely open and needs a decision on the *data* before a
-decision on the *rule*:
 
-1. should an AP invoice carry an explicit, non-heuristic link to a VAT claim
-   line (a real FK, set when the claim is built)? Without one, no reliable rule
-   is possible — only guesses.
-2. given such a link, is deleting a claimed invoice a **refusal** (withdraw the
-   claim first) or another **warned consequence**?
-
-Until (1) exists, (2) cannot be implemented honestly, and nothing in the code
-pretends otherwise.
+Both follow-up questions have since been answered (see the table above): the AP
+invoice gets an explicit, non-heuristic link to its claim line, and deleting a
+claimed invoice is then a REFUSAL rather than a warned consequence. Neither is
+built yet.
 
 ## Why archive access cannot just be `is_platform_admin`
 

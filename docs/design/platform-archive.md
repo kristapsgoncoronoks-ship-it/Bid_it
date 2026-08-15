@@ -49,9 +49,43 @@ Three things make it the former, and none of them are code:
 
 ## The retention period is a legal question, not a product one
 
-**DECIDED 2026-08-15: build it configurable, default 5 years, marked UNCONFIRMED.**
-Changing it after the accountant answers must be a settings change, never a
-migration. It must not appear in any customer-facing claim until confirmed.
+**DECIDED 2026-08-15: THREE years included; longer retention is a PAID extension.**
+Configurable, so changing it is a settings change and never a migration.
+
+This makes retention a commercial dimension, not just a compliance one — the
+included tier keeps three years, and a client who needs longer buys it. That is a
+normal and defensible SaaS model.
+
+### The risk it creates, and the mitigation that has to ship with it
+
+Baltic accounting law commonly requires source documents to be kept for LONGER
+than three years — frequently five to ten, varying by country and document type.
+So a client on the included tier who does not buy the extension will have records
+destroyed that they were legally obliged to keep.
+
+That obligation is the CLIENT's, not the platform's — we are a processor, and
+the contract can say so. But "your software deleted the invoice my tax authority
+just asked for" is a support and reputation event regardless of where the duty
+formally sits, and it lands on the client at the worst possible moment.
+
+**Mitigation, and it is also the better commercial design: NOTIFY BEFORE
+EXPIRY, never after.** Well ahead of the three-year mark the company owner is
+told what is about to leave the archive and offered the extension. Silence
+turns a liability into a complaint; a notice turns the same moment into an
+upsell. Nothing should ever be destroyed from the archive without the owner
+having been told first.
+
+Also required, and not negotiable given the above:
+
+- the included period must be stated plainly at onboarding and in the DPA, not
+  buried — a client choosing three years should know they are choosing it;
+- the extension must be purchasable at any time, including AFTER the notice.
+  A client who discovers the problem at month 35 must be able to fix it.
+
+**The exact statutory periods still need the owner's accountant, per country.**
+Three years is now the product decision; whether it clears the legal floor for a
+given client is a separate question, and the notice above is what makes a
+mismatch survivable rather than silent.
 
 **5 years is the owner's estimate and must not be shipped as a fact.** Baltic
 accounting law likely *requires* multi-year retention of source documents, which
@@ -181,7 +215,8 @@ destructive path to intercept.
 
 ## Open questions for the owner
 
-1. **The retention period**, per country, confirmed with an accountant (above).
+1. **The statutory minimums per country**, from the accountant — now to validate
+   the three-year included tier rather than to set it (above).
 2. ~~Do the document BYTES go to the archive?~~ **DECIDED 2026-08-15: record AND
    source document.** The PDF is what proves anything to a tax authority years
    later, which is most of the reason to retain at all. This makes the archive
