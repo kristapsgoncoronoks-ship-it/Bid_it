@@ -2446,3 +2446,16 @@ export interface DeletionWarning {
   text: string;
   consequences: DeletionConsequence[];
 }
+
+/** `BulkDeleteOut` — the result of a multi-select delete.
+ *
+ * `deleted` counts what moved to the recycle bin, not what was destroyed. Skips
+ * carry a reason and are INFORMATION, not errors: an approved or paid invoice
+ * being left alone is the system working. */
+export interface BulkDeleteResult {
+  deleted: number;
+  skipped: number;
+  failed: number;
+  outcomes: BulkOutcome[];
+  deleted_records: Record<string, unknown>[];
+}

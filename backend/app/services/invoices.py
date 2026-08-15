@@ -15,16 +15,16 @@ route); this module is deliberately small and read-only.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core import tenant
 from app.core.errors import ConflictError, NotFoundError
-from app.models.invoice import Invoice
+from app.models.invoice import Invoice, LineItem
 from app.services import bulk, deletion_consent
 
 
@@ -376,3 +376,61 @@ async def restore_one(db: AsyncSession, org_id: str, invoice_id: str) -> Invoice
     inv.deleted_at = None
     inv.deleted_by = None
     return inv
+
+
+# --------------------------------------------------------------------------- #
+# The 30-day purge (docs/design/deletion-and-archive.md, step 4).
+# --------------------------------------------------------------------------- #
+
+
+async def purge_expired_bin(db: AsyncSession, org_id: str, *, now: datetime | None = None) -> dict:
+    """Remove invoices whose 30 days in the bin have run out.
+
+    REFUSES (no-op) while a legal hold is active, reusing `retention.is_on_hold`
+    rather than a second check of its own. A hold is a preservation duty that
+    overrides data minimisation, and a bin that destroyed records on day 31
+    regardless would be the exact failure the hold exists to prevent — arriving
+    through the one deletion path nobody thought to wire it into.
+
+    Without this the bin is a leak in the other direction: records sit invisible
+    forever while the client is told they go after 30 days, which is a storage-
+    limitation problem rather than a loss-of-data one, but a problem either way.
+
+    Runs INSIDE `include_deleted()` for the selection, since the rows it is
+    looking for are by definition hidden from every ordinary read.
+
+    NOTE — for now this DESTROYS the row. The design doc's platform archive
+    (step 6) is where a purged record is meant to go instead; until it exists,
+    the audit event's snapshot of each destroyed invoice is the only remaining
+    trace, which is why it records the full record and not just an id.
+
+    Returns `{"held": bool, "purged": int, "records": [...]}`. Never raises on a
+    business outcome.
+    """
+    from app.services import retention
+
+    if await retention.is_on_hold(db, org_id):
+        return {"held": True, "purged": 0, "records": []}
+
+    cutoff = (now or datetime.now(UTC)) - timedelta(days=BIN_RETENTION_DAYS)
+    with tenant.include_deleted():
+        expired = list(
+            await db.scalars(
+                select(Invoice).where(
+                    Invoice.org_id == org_id,
+                    Invoice.deleted_at.is_not(None),
+                    Invoice.deleted_at < cutoff,
+                )
+            )
+        )
+    if not expired:
+        return {"held": False, "purged": 0, "records": []}
+
+    records = [asdict(deletion_snapshot(inv)) for inv in expired]
+    ids = [inv.id for inv in expired]
+    # Children first, then the parent — identical behaviour on SQLite and
+    # Postgres regardless of whether FK cascades are enforced, the same reason
+    # `retention.purge` does it this way.
+    await db.execute(delete(LineItem).where(LineItem.invoice_id.in_(ids)))
+    await db.execute(delete(Invoice).where(Invoice.id.in_(ids)))
+    return {"held": False, "purged": len(ids), "records": records}

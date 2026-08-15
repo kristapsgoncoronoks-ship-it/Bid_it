@@ -11,6 +11,7 @@ from __future__ import annotations
 from app.models.job import Job
 from app.services import (
     ap_alerts,
+    audit,
     billing,
     billing_usage,
     costing,
@@ -25,6 +26,7 @@ from app.services import (
     retention,
     webhooks,
 )
+from app.services import invoices as invoice_service
 from app.services.transport import close as transport_close
 
 RECURRING_GENERATE = "recurring.generate"
@@ -33,6 +35,7 @@ AP_DUE_ALERTS = "ap.due_alerts"
 INTEGRITY_VERIFY = "integrity.verify_documents"
 EVERYPAY_CHARGE = "everypay.charge_mit"
 RETENTION_PURGE = "retention.purge"
+BIN_PURGE = "invoice.bin_purge"
 USAGE_REPORT = "billing.report_usage"
 COSTING_BACKFILL = "costing.backfill_links"
 INTEGRITY_LEDGER = "integrity.verify_ledger"
@@ -83,6 +86,31 @@ async def _platform_billing_run(db, payload: dict, job: Job) -> dict:
 async def _retention_purge(db, payload: dict, job: Job) -> dict:
     """Purge one tenant's records past their retention window (unless on hold)."""
     return await retention.purge(db, job.org_id)
+
+
+@jobs.handler(BIN_PURGE)
+async def _bin_purge(db, payload: dict, job: Job) -> dict:
+    """Empty one tenant's recycle bin of anything past its 30 days.
+
+    Separate from RETENTION_PURGE on purpose. That one is an opt-in per-tenant
+    policy over a record's AGE; this is the fixed promise made when a client
+    deletes something, and it must run for every tenant whether or not they have
+    configured retention at all — otherwise a binned record is invisible AND
+    immortal, which is the worst of both.
+
+    Audited with what was destroyed, not just how many: until the platform
+    archive exists, this event is the only remaining trace of the record.
+    """
+    result = await invoice_service.purge_expired_bin(db, job.org_id)
+    if result["purged"]:
+        await audit.record(
+            db,
+            "invoice.bin_purge",
+            org_id=job.org_id,
+            meta={"purged": result["purged"], "records": result["records"]},
+        )
+        await db.commit()
+    return {"held": result["held"], "purged": result["purged"]}
 
 
 @jobs.handler(RECURRING_GENERATE)

@@ -23,6 +23,12 @@ DAILY_KINDS = (
     job_handlers.RECURRING_GENERATE,
     job_handlers.DUNNING_RUN,
     job_handlers.AP_DUE_ALERTS,
+    # The recycle bin's 30-day purge. In DAILY_KINDS (every tenant) rather than
+    # alongside the retention purge below (only tenants with a configured
+    # policy): 30 days is a promise made to every client the moment they delete
+    # something, not an opt-in setting. A tenant with no retention policy would
+    # otherwise keep a binned record invisible and immortal.
+    job_handlers.BIN_PURGE,
 )
 
 

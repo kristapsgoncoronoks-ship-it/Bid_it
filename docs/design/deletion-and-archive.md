@@ -133,6 +133,34 @@ for the owner, who should confirm with counsel:
    does is undoable.
 6. **The platform archive** — separate design, after the above.
 
+Steps 1–5 are built. Step 6 is not.
+
+### The gap that leaves, stated plainly
+
+Until the archive exists, the step-4 purge **destroys** the row. The build order
+above puts the archive last, which means the one genuinely irreversible action in
+the whole feature currently has no backstop — the opposite of the principle every
+other step was sequenced by.
+
+It was shipped that way on purpose, and the reasoning should be checked rather
+than assumed:
+
+- Without a purge, the bin never empties. A record would sit invisible and
+  immortal while the client has been told it goes after 30 days. That is the
+  system stating something untrue about its own data handling, and a
+  storage-limitation problem under GDPR Art. 5(1)(e), which is the one this
+  codebase's `retention.py` already exists to answer.
+- The purge is heavily fenced: it refuses entirely under a legal hold, it takes
+  nothing inside its window, and it writes a full snapshot of every destroyed
+  record into the audit trail — so even pre-archive, what was destroyed remains
+  answerable.
+
+**If the owner would rather no client data be destroyed at all before the archive
+is built, the fix is one line** — skip enqueuing `BIN_PURGE` — and the only cost
+is that bins do not empty until step 6 lands. That is the owner's call, not the
+engineer's; it is recorded here so the choice is visible rather than buried in a
+scheduler tuple.
+
 ## Related work already in the codebase
 
 - `services/retention.py` — per-category retention policies, legal holds, purge
