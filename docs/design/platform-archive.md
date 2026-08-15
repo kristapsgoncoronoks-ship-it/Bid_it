@@ -66,7 +66,49 @@ document type, and getting it wrong in either direction is a real exposure:
 country.** The implementation should therefore treat the period as configuration
 with a documented default, not a constant compiled into a purge.
 
-## Why archive access cannot be `is_platform_admin`
+## WHO the archive is for — decided 2026-08-15, and it changes the design
+
+**The client's own company OWNER can see their organisation's archive.** The
+earlier reading of "activated by sysadmin or owner" took "owner" to mean the
+platform operator; it means the CLIENT's owner. Both are true: a client owner
+sees their own org's archive, and platform staff see any client's only under the
+strict grant below.
+
+This is a better product and a better legal position than a platform-only store,
+and it should be treated as the headline rather than a detail:
+
+- retention stops being something done to the client and becomes something they
+  use. "Your records are kept for N years and you can look at them" is a
+  sentence you can put in a DPA, a sales deck and an onboarding screen. "We keep
+  copies of things you deleted" is a sentence you have to explain.
+- it removes the worst failure mode this document was written to avoid — a
+  client discovering a store they did not know existed.
+- GDPR erasure gets simpler, not harder: the data stays under the data subject's
+  own visibility, so a request is a conversation rather than a surprise.
+
+**Read-only, not restorable — an engineering assumption, flagged for correction.**
+The bin restores into live books; the archive only shows. Pulling a three-
+year-old invoice back into the ledger would reopen a closed accounting period and
+can collide with invoice numbers issued since. Download is fine and is most of
+the value; re-entering the books is not.
+
+### Consequences that must ship WITH this
+
+1. **The consent warning changes and `WARNING_VERSION` must be bumped.** It
+   currently ends "after that it leaves your workspace", which was written for a
+   platform-only store. With a client-visible archive the honest sentence is
+   closer to "after that it moves to your archive, where the company owner can
+   still view and download it for N years." Consent to the old words is not
+   consent to this arrangement — which is exactly what the versioning mechanism
+   exists to handle.
+2. **The archive needs a client-facing surface**, not just an operator one. That
+   is new UI scope this document did not previously carry.
+3. **Tenant scoping becomes load-bearing on the archive itself.** A platform-only
+   store is read by a handful of named staff; a client-visible one is read by
+   every client owner, so the archive's own org filter is now a primary control
+   rather than a backstop, and needs the same guard treatment as the live tables.
+
+## Why PLATFORM archive access cannot be `is_platform_admin`
 
 `app/core/authz.py` grants a platform admin **every** permission
 (`ALL_PERMISSIONS`). Hanging archive access off that flag would bundle "can read
@@ -145,7 +187,8 @@ destructive path to intercept.
    later, which is most of the reason to retain at all. This makes the archive
    the highest-risk store in the product, which is why the access controls above
    are non-negotiable rather than nice-to-have.
-3. **Does the archive follow a client who leaves?** Contract termination and
+3. **Read-only, or restorable into live books?** Assumed read-only above.
+4. **Does the archive follow a client who leaves?** Contract termination and
    statutory retention can point in opposite directions, and the answer belongs
    in the DPA before it belongs in code.
 4. ~~Should the purge run before this is built?~~ **DECIDED 2026-08-15: yes, it
