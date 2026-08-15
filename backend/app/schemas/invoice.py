@@ -315,6 +315,18 @@ class BulkDeleteOut(BaseModel):
     deleted_records: list[dict] = Field(default_factory=list)
 
 
+class DeleteInvoiceIn(BaseModel):
+    """Confirming a consequential deletion.
+
+    Carries the VERSION the client was shown, never the warning text itself: a
+    client that could supply its own wording could have the audit trail record an
+    acceptance of words nobody ever displayed. The server holds the text; the
+    client only says which one it read.
+    """
+
+    acknowledged_warning_version: str | None = Field(default=None, max_length=40)
+
+
 class BinnedInvoiceOut(BaseModel):
     """One row of the Trash screen."""
 

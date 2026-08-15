@@ -24,8 +24,8 @@ from sqlalchemy.orm import selectinload
 
 from app.core import tenant
 from app.core.errors import ConflictError, NotFoundError
-from app.models.invoice import Invoice, WorkflowState
-from app.services import bulk
+from app.models.invoice import Invoice
+from app.services import bulk, deletion_consent
 
 
 async def list_by_vendor(db: AsyncSession, org_id: str, vendor_id: str) -> list[Invoice]:
@@ -63,6 +63,27 @@ BIN_RETENTION_DAYS = 30
 state in a UI and in a contract; a per-tenant one is a support question forever."""
 
 
+class ConsentRequiredError(ConflictError):
+    """The deletion is consequential and has not been acknowledged.
+
+    Carries the CURRENT warning so the caller can show it and retry. A 409 that
+    merely said "consent required" would leave the client to compose its own
+    wording, which is how the words on screen and the words in the audit trail
+    come apart.
+    """
+
+    code = "deletion_consent_required"
+
+    def __init__(self, inv: Invoice):
+        super().__init__(
+            "This invoice is not a plain draft. Read the warning and confirm to delete it."
+        )
+        self._warning = deletion_consent.warning_for(inv)
+
+    def extra(self) -> dict:
+        return {"warning": self._warning}
+
+
 @dataclass
 class DeletedSnapshot:
     """What one invoice WAS at the moment it was binned.
@@ -84,25 +105,27 @@ class DeletedSnapshot:
 
 
 def deletion_refusal(inv: Invoice) -> str | None:
-    """Why this invoice must NOT be deleted, or None when it may be.
+    """Why this invoice must not be deleted IN BULK, or None when it may be.
 
-    THE single definition, used by both the one-at-a-time route and the bulk one.
-    Two copies of this rule would drift, and the direction they drift in is the
-    dangerous one: the path someone forgot to update is the path that deletes a
-    paid invoice.
+    Derived from `deletion_consent.consequences_for` — the same facts the
+    one-at-a-time path reads, so the two can never disagree about the state of an
+    invoice even though they apply different policies to it.
 
-    An invoice is deletable only while it is a DRAFT that no money has touched.
-    Past that it is a record of a commitment — deleting it destroys the evidence
-    of a decision the organisation made, which is the one thing an audit trail
-    exists to prevent.
+    The policies differ deliberately. The owner's decision is that a client may
+    delete a consequential invoice, warned every time and with the confirmation
+    recorded (`delete_one`). "Every time" is precisely what a bulk action cannot
+    deliver: one checkbox covering two hundred invoices is a single consent
+    standing in for two hundred decisions, several of which the operator has not
+    looked at. So bulk stays DRAFTS ONLY and refuses the rest as skips.
     """
-    if inv.workflow_state is not WorkflowState.draft:
-        return f"Only a draft can be deleted; this one is {inv.workflow_state.value}."
-    if inv.amount_paid and inv.amount_paid > 0:
-        return "A payment is recorded against it."
-    if inv.payment_run_id:
-        return "It is part of a payment run."
-    return None
+    consequences = deletion_consent.consequences_for(inv)
+    if not consequences:
+        return None
+    return (
+        "Only a draft can be deleted in bulk. "
+        + consequences[0].message
+        + " Delete it on its own if you intend to."
+    )
 
 
 def deletion_snapshot(inv: Invoice) -> DeletedSnapshot:
@@ -126,29 +149,47 @@ def _bin(inv: Invoice, actor: str | None) -> None:
 
 
 async def delete_one(
-    db: AsyncSession, org_id: str, invoice_id: str, *, actor: str | None = None
-) -> DeletedSnapshot:
-    """Move ONE invoice to the bin, under the same rule the bulk path uses.
+    db: AsyncSession,
+    org_id: str,
+    invoice_id: str,
+    *,
+    actor: str | None = None,
+    acknowledged_warning_version: str | None = None,
+) -> tuple[DeletedSnapshot, dict | None]:
+    """Move ONE invoice to the bin. Returns the snapshot and, when the deletion
+    was a consequential one, the consent record for the audit event.
 
     The row is NOT destroyed — it is stamped `deleted_at` and disappears from
     every read (`app.core.tenant`), recoverable for `BIN_RETENTION_DAYS`.
 
+    A CLEAN DRAFT deletes with no ceremony. Anything past draft, paid, or in a
+    payment run is the client's decision to make (owner decision) but only once
+    they have been warned: without a matching `acknowledged_warning_version` this
+    raises `ConsentRequiredError` carrying the current warning, so the words the
+    client sees are always the server's and can never drift from what the audit
+    trail records they accepted. An acknowledgement quoting an OLDER version is
+    refused for the same reason — consent to different words is not consent to
+    these.
+
     Raises NotFoundError for an unknown, cross-tenant, or ALREADY-BINNED id (all
     indistinguishable — an opaque 404, §4.4; a binned invoice is invisible to
-    this query for exactly the same reason a foreign tenant's is) and
-    ConflictError naming the reason when the invoice is not deletable. Does NOT
+    this query for exactly the same reason a foreign tenant's is). Does NOT
     commit; the caller commits with the audit event so the deletion and the
     record of it are one transaction.
     """
     inv = await db.scalar(select(Invoice).where(Invoice.org_id == org_id, Invoice.id == invoice_id))
     if inv is None:
         raise NotFoundError("Invoice not found")
-    refusal = deletion_refusal(inv)
-    if refusal:
-        raise ConflictError(refusal, code="invoice_not_deletable")
+
+    consent: dict | None = None
+    if deletion_consent.requires_consent(inv):
+        if acknowledged_warning_version != deletion_consent.WARNING_VERSION:
+            raise ConsentRequiredError(inv)
+        consent = deletion_consent.audit_record(inv)
+
     snap = deletion_snapshot(inv)
     _bin(inv, actor)
-    return snap
+    return snap, consent
 
 
 async def bulk_delete_drafts(

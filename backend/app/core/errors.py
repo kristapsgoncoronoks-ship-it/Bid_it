@@ -61,6 +61,18 @@ class AppError(Exception):
         # path except for the additive `code` field.
         self.headers = headers
 
+    def extra(self) -> dict:
+        """Additional top-level keys to merge into the error body.
+
+        For a refusal the client must ACT on rather than merely display — "here
+        is the warning you have to show and re-submit" — prose in `detail` is not
+        enough. Subclasses override; the handler in `app.main` merges the result
+        without knowing what any particular error is about, and cannot overwrite
+        `detail`/`code`. Empty by default, so every existing error is byte-
+        identical on the wire.
+        """
+        return {}
+
 
 class NotFoundError(AppError):
     status = 404

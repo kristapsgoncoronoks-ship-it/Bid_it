@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { DeleteInvoiceButton } from "../components/DeleteInvoiceButton";
 import { Field } from "../components/Field";
 import { Link, useParams } from "react-router-dom";
 import { PageHeader, QueryState, Skeleton } from "../components/ui";
@@ -85,6 +86,12 @@ export default function InvoiceDetailPage() {
                 <div className="text-right">
                   <div className="text-2xl font-semibold">{money(inv.total, inv.currency)}</div>
                   <span className={`badge mt-1 ${STATUS_STYLES[inv.status] ?? ""}`}>{inv.status}</span>
+                  {/* The SPA had no way to delete an invoice at all, which made
+                      the recycle bin unreachable in practice. The consent gate
+                      lives in the button, sourced from the server's 409. */}
+                  <div className="mt-3">
+                    <DeleteInvoiceButton invoiceId={id!} />
+                  </div>
                 </div>
               }
             />

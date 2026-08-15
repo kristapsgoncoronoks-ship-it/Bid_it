@@ -1,13 +1,21 @@
-"""L-4 slice 3 — the first bulk operation that cannot be undone.
+"""Deleting invoices — the bulk path's guards, and the single path's consent gate.
 
-Everything before this applied the guards to a REVERSIBLE action, which meant
-guard 4 (filter-selection refused for irreversible actions) was unit-tested and
-never actually load-bearing. Deleting draft invoices is where it fires for real.
+Originally L-4 slice 3: "the first bulk operation that cannot be undone". The
+recycle bin has since made deletion REVERSIBLE, so that framing no longer holds —
+but guard 4 (filter-selection refused) was deliberately kept, because reversible
+is not the same as harmless: hundreds of invoices vanishing from the books is a
+real incident for however long it takes to work out which ones they were.
 
-The bar is higher here for an obvious reason: every other guard failing produces
-an annoyance, and this one failing produces a financial record that no longer
-exists. So the tests are about what must NOT be destroyed at least as much as
-what must.
+The two paths now apply DIFFERENT policies to the same facts. Bulk stays
+drafts-only. Single-delete lets a client remove a consequential invoice — the
+owner's explicit decision — warned every time, with the acceptance recorded.
+"Every time" is exactly what one checkbox over two hundred invoices cannot
+deliver, which is why the split exists.
+
+"Deleted" throughout these tests means "invisible to every read": a binned row is
+excluded from `select(Invoice.id)` by the central guard in `app.core.tenant`, so
+these assertions read the same as they did when the row was destroyed.
+tests/test_recycle_bin_restore.py is where the row's SURVIVAL is asserted.
 """
 
 from __future__ import annotations
@@ -19,6 +27,7 @@ from sqlalchemy import select
 
 from app.models.audit import AuditEvent
 from app.models.invoice import Invoice, WorkflowState
+from app.services import deletion_consent
 
 
 async def _draft(auth_client, number: str) -> str:
@@ -228,24 +237,68 @@ async def test_deleting_one_draft_still_works(auth_client):
 
 
 @pytest.mark.asyncio
-async def test_deleting_one_approved_invoice_is_refused(auth_client, db_session):
-    """Previously this destroyed the record. An invoice past draft is evidence of
-    a decision the organisation made."""
+async def test_deleting_one_approved_invoice_needs_the_warning_accepted_first(
+    auth_client, db_session
+):
+    """The owner's decision, enforced on the SERVER: a client may delete an
+    invoice past draft — it is their record — but only having been warned, every
+    time, with the acceptance recorded.
+
+    Superseded an outright refusal. That was the engineer's preference; the owner
+    chose warn-and-confirm, knowingly."""
     iid = await _draft(auth_client, "INV-SD-APPROVED")
     inv = await db_session.scalar(select(Invoice).where(Invoice.id == iid))
     inv.workflow_state = WorkflowState.approved
     await db_session.commit()
 
-    r = await auth_client.delete(f"/api/v1/invoices/{iid}")
+    blocked = await auth_client.delete(f"/api/v1/invoices/{iid}")
+
+    assert blocked.status_code == 409, blocked.text
+    body = blocked.json()
+    assert body["code"] == "deletion_consent_required"
+    # The 409 CARRIES the warning, so the words shown to the client are always
+    # the server's current ones and cannot drift from what the audit trail says
+    # was accepted.
+    assert body["warning"]["version"] == deletion_consent.WARNING_VERSION
+    assert body["warning"]["text"] == deletion_consent.WARNING_TEXT
+    assert [c["code"] for c in body["warning"]["consequences"]] == ["not_draft"]
+    assert iid in set(await db_session.scalars(select(Invoice.id))), "it deleted anyway"
+
+    accepted = await auth_client.request(
+        "DELETE",
+        f"/api/v1/invoices/{iid}",
+        json={"acknowledged_warning_version": deletion_consent.WARNING_VERSION},
+    )
+
+    assert accepted.status_code == 204, accepted.text
+    assert iid not in set(await db_session.scalars(select(Invoice.id)))
+
+
+@pytest.mark.asyncio
+async def test_an_acknowledgement_of_an_OLDER_warning_is_refused(auth_client, db_session):
+    """Consent given to different words is not consent to these. Without this the
+    warning text could be rewritten and every stored acknowledgement would
+    silently start claiming agreement to wording nobody ever saw."""
+    iid = await _draft(auth_client, "INV-SD-STALE")
+    inv = await db_session.scalar(select(Invoice).where(Invoice.id == iid))
+    inv.workflow_state = WorkflowState.approved
+    await db_session.commit()
+
+    r = await auth_client.request(
+        "DELETE",
+        f"/api/v1/invoices/{iid}",
+        json={"acknowledged_warning_version": "2020-01-01"},
+    )
 
     assert r.status_code == 409, r.text
-    assert r.json()["code"] == "invoice_not_deletable"
-    assert "approved" in r.json()["detail"]
+    assert r.json()["code"] == "deletion_consent_required"
     assert iid in set(await db_session.scalars(select(Invoice.id)))
 
 
 @pytest.mark.asyncio
-async def test_deleting_one_paid_invoice_is_refused(auth_client, db_session):
+async def test_deleting_a_PAID_invoice_needs_the_warning_too_and_names_the_payment(
+    auth_client, db_session
+):
     iid = await _draft(auth_client, "INV-SD-PAID")
     inv = await db_session.scalar(select(Invoice).where(Invoice.id == iid))
     inv.amount_paid = 10
@@ -254,15 +307,74 @@ async def test_deleting_one_paid_invoice_is_refused(auth_client, db_session):
     r = await auth_client.delete(f"/api/v1/invoices/{iid}")
 
     assert r.status_code == 409, r.text
+    assert [c["code"] for c in r.json()["warning"]["consequences"]] == ["payment_recorded"]
     assert iid in set(await db_session.scalars(select(Invoice.id)))
 
 
 @pytest.mark.asyncio
-async def test_both_delete_paths_refuse_for_the_SAME_stated_reason(auth_client, db_session):
-    """The anti-drift test. Two copies of a deletion rule drift, and the direction
-    they drift in is the dangerous one — the path someone forgot to update is the
-    path that deletes a paid invoice. Driving BOTH and comparing the wording is
-    what makes a single definition observable from outside."""
+async def test_a_clean_draft_deletes_with_no_ceremony(auth_client, db_session):
+    """The gate must not fire on a record with no consequences. A warning shown
+    for everything is a warning read for nothing — and this one has to be read."""
+    iid = await _draft(auth_client, "INV-SD-CLEAN")
+
+    r = await auth_client.delete(f"/api/v1/invoices/{iid}")
+
+    assert r.status_code == 204, r.text
+
+
+@pytest.mark.asyncio
+async def test_the_accepted_warning_goes_into_the_audit_trail_verbatim(auth_client, db_session):
+    """The owner's requirement: log that the client confirmed they read the
+    warning. Storing a version alone would not survive the text being edited, so
+    the words themselves are frozen into the event."""
+    iid = await _draft(auth_client, "INV-SD-CONSENT-AUDIT")
+    inv = await db_session.scalar(select(Invoice).where(Invoice.id == iid))
+    inv.workflow_state = WorkflowState.approved
+    await db_session.commit()
+
+    await auth_client.request(
+        "DELETE",
+        f"/api/v1/invoices/{iid}",
+        json={"acknowledged_warning_version": deletion_consent.WARNING_VERSION},
+    )
+
+    event = await db_session.scalar(
+        select(AuditEvent).where(AuditEvent.action == "invoice.delete", AuditEvent.target_id == iid)
+    )
+    consent = json.loads(event.meta)["consent"]
+    assert consent["warning_version"] == deletion_consent.WARNING_VERSION
+    assert consent["warning_text"] == deletion_consent.WARNING_TEXT
+    assert consent["consequences"] == ["not_draft"]
+
+
+@pytest.mark.asyncio
+async def test_a_plain_draft_deletion_records_NO_consent(auth_client, db_session):
+    """An acceptance recorded for a decision nobody was asked about would make the
+    whole trail untrustworthy — every consent entry has to mean a person read
+    something."""
+    iid = await _draft(auth_client, "INV-SD-NO-CONSENT")
+
+    await auth_client.delete(f"/api/v1/invoices/{iid}")
+
+    event = await db_session.scalar(
+        select(AuditEvent).where(AuditEvent.action == "invoice.delete", AuditEvent.target_id == iid)
+    )
+    assert "consent" not in json.loads(event.meta)
+
+
+@pytest.mark.asyncio
+async def test_both_delete_paths_read_the_SAME_FACTS_though_their_policies_differ(
+    auth_client, db_session
+):
+    """The anti-drift test, restated for a policy that deliberately forked.
+
+    The two paths no longer agree on what to DO — single-delete warns and
+    proceeds, bulk refuses outright, because "warn every time" is precisely what
+    one checkbox over two hundred invoices cannot deliver. What they must never
+    disagree about is the FACTS: both read `deletion_consent.consequences_for`,
+    so an invoice cannot be consequential to one path and unremarkable to the
+    other. Driving both and comparing the sentence is what makes that observable
+    from outside."""
     single = await _draft(auth_client, "INV-SAME-1")
     batch = await _draft(auth_client, "INV-SAME-2")
     for iid in (single, batch):
@@ -274,10 +386,11 @@ async def test_both_delete_paths_refuse_for_the_SAME_stated_reason(auth_client, 
     many = await _delete(auth_client, [batch])
 
     assert one.status_code == 409, one.text
-    single_reason = one.json()["detail"]
-    bulk_reason = many.json()["outcomes"][0]["reason"]
-    assert single_reason == bulk_reason, (
-        "the single and bulk delete paths gave different reasons — the rule has forked"
+    stated_to_the_single_path = one.json()["warning"]["consequences"][0]["message"]
+    stated_by_the_bulk_path = many.json()["outcomes"][0]["reason"]
+    assert stated_to_the_single_path in stated_by_the_bulk_path, (
+        "the paths described the same invoice differently — the FACTS have forked, "
+        f"single said {stated_to_the_single_path!r}, bulk said {stated_by_the_bulk_path!r}"
     )
 
 

@@ -35,6 +35,7 @@ from app.schemas.invoice import (
     CaptureReviewIn,
     CaptureReviewItem,
     CaptureReviewQueueOut,
+    DeleteInvoiceIn,
     DuplicateCandidateOut,
     DuplicateReportOut,
     ExtractionResult,
@@ -984,25 +985,47 @@ async def human_validate(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_perm(authz.Permission.INVOICE_DELETE))],
 )
-async def delete_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
-    """Move ONE invoice to the recycle bin — only while it is a draft no money
-    has touched.
+async def delete_invoice(
+    invoice_id: str,
+    current: CurrentUser,
+    db: DbSession,
+    body: DeleteInvoiceIn | None = None,
+):
+    """Move ONE invoice to the recycle bin.
 
     The row is no longer destroyed. It is stamped `deleted_at`, disappears from
     every read, and an admin or the org owner can restore it for 30 days
     (docs/design/deletion-and-archive.md). Deleting one already in the bin is an
     opaque 404, the same as one that never existed.
 
-    The rule for WHAT may be deleted is unchanged and still shared with the bulk
-    path (`invoices.deletion_refusal`, one definition so the two cannot drift):
-    409 `invoice_not_deletable`, naming the state."""
-    snap = await invoice_service.delete_one(db, current.org_id, invoice_id, actor=current.email)
+    A CLEAN DRAFT deletes with no ceremony. Anything past draft, paid, or in a
+    payment run is the client's decision to make — the owner's explicit call —
+    but only after being warned every time: without a body carrying the current
+    `acknowledged_warning_version`, this answers 409 `deletion_consent_required`
+    WITH the warning to display, and the client re-submits with the version it
+    was given. The server, not the browser dialog, is the gate; a stale version
+    is refused, because consent to different words is not consent to these.
+
+    Bulk delete stays drafts-only. "Warn every time" is exactly what one checkbox
+    over two hundred invoices cannot deliver."""
+    snap, consent = await invoice_service.delete_one(
+        db,
+        current.org_id,
+        invoice_id,
+        actor=current.email,
+        acknowledged_warning_version=body.acknowledged_warning_version if body else None,
+    )
+    meta = {"bulk": False, "deleted": 1, "records": [asdict(snap)], "reversible": True}
+    if consent:
+        # The owner's requirement, in the permanent record: WHAT the client was
+        # told, not merely that something was shown.
+        meta["consent"] = consent
     await audit.record(
         db,
         audit.A.INVOICE_DELETE,
         target_type="invoice",
         target_id=invoice_id,
-        meta={"bulk": False, "deleted": 1, "records": [asdict(snap)], "reversible": True},
+        meta=meta,
     )
     await db.commit()
 

@@ -114,12 +114,16 @@ async def _scim_error_handler(request, exc: ScimError):
 @app.exception_handler(AppError)
 async def _app_error_handler(request, exc: AppError):
     """Map a framework-agnostic service error (app.core.errors) to the API's error
-    shape — {"detail", "code"}. The X-Request-ID header is added by the middleware."""
+    shape — {"detail", "code"} plus whatever `exc.extra()` adds. The X-Request-ID
+    header is added by the middleware.
+
+    `detail` and `code` are written LAST so an error's extra payload can never
+    shadow the two fields every client already relies on."""
     from fastapi.responses import JSONResponse
 
     return JSONResponse(
         status_code=exc.status,
-        content={"detail": exc.message, "code": exc.code},
+        content={**exc.extra(), "detail": exc.message, "code": exc.code},
         headers=exc.headers,
     )
 

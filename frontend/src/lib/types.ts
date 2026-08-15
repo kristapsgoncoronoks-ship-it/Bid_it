@@ -2426,3 +2426,23 @@ export interface BinList {
   total: number;
   retention_days: number;
 }
+
+/** One schema-certain reason a deletion is consequential — `services/
+ * deletion_consent.py::Consequence`. `code` is stable for branching; `message`
+ * is what the person reads. */
+export interface DeletionConsequence {
+  code: string;
+  message: string;
+}
+
+/** The warning the server returns with a 409 `deletion_consent_required`.
+ *
+ * `text` is rendered verbatim and never composed client-side: the audit trail
+ * records these exact words as what was accepted, so a locally-written version
+ * would make that record false. `version` is echoed back on the retry — consent
+ * is to a version, and a stale one is refused. */
+export interface DeletionWarning {
+  version: string;
+  text: string;
+  consequences: DeletionConsequence[];
+}

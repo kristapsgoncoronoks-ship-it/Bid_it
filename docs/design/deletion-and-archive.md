@@ -34,16 +34,41 @@ wrong.
 
 ## Open question, put to the owner and not yet answered
 
-**An invoice locked into a FILED VAT claim.** `vat_claimed_invoices` is an
-existing lock whose own docstring says it is released ONLY by withdrawing the
-claim. That invoice has been submitted to a foreign tax authority, so deleting it
-contradicts a document already filed with a third party — a different situation
-from a client removing their own record.
+**An invoice locked into a FILED VAT claim.**
 
-Proposed: **refuse** with an instruction to withdraw the claim first (a real,
-supported action, so not a dead end), rather than warn-and-confirm. The owner may
-choose to make it a warning like the rest; until they say so, refusal is the
-assumption.
+> **Corrected 2026-08-15, while building the consent gate.** The original
+> proposal here — refuse the delete, tell the client to withdraw the claim first
+> — rested on a premise that turned out to be wrong, so it is withdrawn rather
+> than implemented.
+>
+> `vat_claimed_invoices` does **not** lock an AP invoice. It locks a
+> `(supplier, invoice_ref)` pair against a representative `fuel_transactions`
+> row; there is no foreign key to `invoices` at all, and `supplier` is free text
+> captured at ingestion rather than a `vendor_id`. Getting from a locked claim
+> line to an AP invoice runs through
+> `services/transport/invoice_match.py`, which is explicitly a **heuristic**:
+> prefix matching, substring matching, an admin override table, and a
+> sole-registered fallback.
+>
+> A hard refusal built on that would be a legal-sounding gate resting on a fuzzy
+> string match. When the heuristic fires wrongly the client is blocked from
+> deleting their own record and told to withdraw a claim that has nothing to do
+> with it; when it misses, the refusal they were promised does not happen. Both
+> failures are worse than not having the gate.
+
+So the consent gate ships warning only about facts the schema states with
+certainty — the workflow state, a recorded payment, membership of a payment run.
+The VAT question is genuinely open and needs a decision on the *data* before a
+decision on the *rule*:
+
+1. should an AP invoice carry an explicit, non-heuristic link to a VAT claim
+   line (a real FK, set when the claim is built)? Without one, no reliable rule
+   is possible — only guesses.
+2. given such a link, is deleting a claimed invoice a **refusal** (withdraw the
+   claim first) or another **warned consequence**?
+
+Until (1) exists, (2) cannot be implemented honestly, and nothing in the code
+pretends otherwise.
 
 ## Why archive access cannot just be `is_platform_admin`
 
