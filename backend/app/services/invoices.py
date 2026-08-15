@@ -16,10 +16,13 @@ route); this module is deliberately small and read-only.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from app.core import tenant
 from app.core.errors import ConflictError, NotFoundError
 from app.models.invoice import Invoice, WorkflowState
 from app.services import bulk
@@ -47,19 +50,29 @@ async def get_by_id(db: AsyncSession, org_id: str, invoice_id: str) -> Invoice |
 
 
 # --------------------------------------------------------------------------- #
-# Bulk delete (L-4 slice 3) — the first IRREVERSIBLE bulk operation.
+# Delete and restore — the recycle bin (docs/design/deletion-and-archive.md).
+#
+# Deleting an invoice no longer destroys the row: it stamps `deleted_at`, and the
+# central guard in `app.core.tenant` hides the row from every read. For 30 days
+# the record can be restored by an admin or the org owner; after that the purge
+# takes it (a later step).
 # --------------------------------------------------------------------------- #
+
+BIN_RETENTION_DAYS = 30
+"""Fixed, not per-tenant configurable (owner decision). One number is easy to
+state in a UI and in a contract; a per-tenant one is a support question forever."""
 
 
 @dataclass
 class DeletedSnapshot:
-    """What one invoice WAS, captured before it stopped existing.
+    """What one invoice WAS at the moment it was binned.
 
-    Guard 3 says the reversal record is derived mechanically from the write. For a
-    delete, an id alone is not a reversal basis — the row is gone, so the id
-    identifies nothing. These fields are read off the row immediately before it is
-    destroyed, so the audit trail can still answer "what did we delete?" without
-    anyone having hand-written an inverse.
+    Guard 3 says the reversal record is derived mechanically from the write. The
+    row now survives the delete, so this is no longer the only trace of it — but
+    it is still what the audit event carries, because an audit entry saying only
+    "id X deleted" forces a reader to go and look up a row whose values may since
+    have changed. What the record looked like when the decision was taken is the
+    thing worth freezing.
     """
 
     invoice_id: str
@@ -93,8 +106,8 @@ def deletion_refusal(inv: Invoice) -> str | None:
 
 
 def deletion_snapshot(inv: Invoice) -> DeletedSnapshot:
-    """What this invoice IS, captured so the audit trail still means something
-    after the row stops existing. Read off the live row; never reconstructed."""
+    """What this invoice IS at the moment of the decision, frozen into the audit
+    event. Read off the live row; never reconstructed."""
     return DeletedSnapshot(
         invoice_id=inv.id,
         invoice_number=inv.invoice_number,
@@ -105,13 +118,27 @@ def deletion_snapshot(inv: Invoice) -> DeletedSnapshot:
     )
 
 
-async def delete_one(db: AsyncSession, org_id: str, invoice_id: str) -> DeletedSnapshot:
-    """Delete ONE invoice, under the same rule the bulk path uses.
+def _bin(inv: Invoice, actor: str | None) -> None:
+    """Move ONE loaded invoice into the bin. The only place `deleted_at` is set,
+    so "what does deleting actually do" has a single answer."""
+    inv.deleted_at = datetime.now(UTC)
+    inv.deleted_by = actor
 
-    Raises NotFoundError for an unknown or cross-tenant id (an opaque 404 — the
-    two are indistinguishable, §4.4) and ConflictError naming the reason when the
-    invoice is not deletable. Does NOT commit; the caller commits with the audit
-    event so the deletion and the record of it are one transaction.
+
+async def delete_one(
+    db: AsyncSession, org_id: str, invoice_id: str, *, actor: str | None = None
+) -> DeletedSnapshot:
+    """Move ONE invoice to the bin, under the same rule the bulk path uses.
+
+    The row is NOT destroyed — it is stamped `deleted_at` and disappears from
+    every read (`app.core.tenant`), recoverable for `BIN_RETENTION_DAYS`.
+
+    Raises NotFoundError for an unknown, cross-tenant, or ALREADY-BINNED id (all
+    indistinguishable — an opaque 404, §4.4; a binned invoice is invisible to
+    this query for exactly the same reason a foreign tenant's is) and
+    ConflictError naming the reason when the invoice is not deletable. Does NOT
+    commit; the caller commits with the audit event so the deletion and the
+    record of it are one transaction.
     """
     inv = await db.scalar(select(Invoice).where(Invoice.org_id == org_id, Invoice.id == invoice_id))
     if inv is None:
@@ -120,7 +147,7 @@ async def delete_one(db: AsyncSession, org_id: str, invoice_id: str) -> DeletedS
     if refusal:
         raise ConflictError(refusal, code="invoice_not_deletable")
     snap = deletion_snapshot(inv)
-    await db.delete(inv)
+    _bin(inv, actor)
     return snap
 
 
@@ -131,14 +158,17 @@ async def bulk_delete_drafts(
     ids: list[str],
     selection: bulk.Selection,
     agreed_count: int | None,
+    actor: str | None = None,
 ) -> tuple[bulk.BulkResult, list[DeletedSnapshot]]:
-    """Delete DRAFT invoices in one action, under the L-4 guards.
+    """Move DRAFT invoices to the bin in one action, under the L-4 guards.
 
-    This is the first bulk operation that cannot be undone, so guard 4 fires here
-    for real: a filter-based selection is REFUSED outright. "Everything matching
-    this filter" is a set the operator never enumerated and cannot verify, and the
-    difference between what they believed they were destroying and what the server
-    resolves is unrecoverable.
+    Guard 4 (a filter-based selection is refused) is KEPT even though the bin has
+    made this reversible and guard 4's stated justification therefore no longer
+    holds. Reversible is not the same as harmless: "everything matching this
+    filter" is still a set the operator never enumerated, and 300 invoices
+    vanishing from the books is a real incident for the hours or days before
+    anyone reconstructs which ones they were. The guard moves to the permanent
+    purge when that lands; it does not simply disappear here.
 
     Deliberately stricter than the single-invoice delete route, which today
     removes an invoice in ANY state including paid. Rather than quietly widen this
@@ -174,8 +204,134 @@ async def bulk_delete_drafts(
             result.outcomes.append(bulk.Outcome(invoice_id, bulk.SKIPPED, refusal))
             continue
 
-        # Snapshot BEFORE the delete — afterwards there is nothing left to read.
         snapshots.append(deletion_snapshot(inv))
-        await db.delete(inv)
+        _bin(inv, actor)
         result.outcomes.append(bulk.Outcome(invoice_id, bulk.APPLIED))
     return result, snapshots
+
+
+# --------------------------------------------------------------------------- #
+# The bin: what is in it, and getting something back out.
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class BinnedInvoice:
+    """One row of the Trash screen."""
+
+    invoice_id: str
+    invoice_number: str | None
+    vendor_name: str | None
+    issue_date: str | None
+    currency: str | None
+    total: str | None
+    deleted_at: str
+    deleted_by: str | None
+    days_left: int
+
+
+def _days_left(deleted_at: datetime) -> int:
+    """Whole days before the purge may take this record, floored at 0.
+
+    Floored rather than allowed to go negative because a record the purge has not
+    yet collected is still restorable, and showing "-2 days" invites the reading
+    that it is already gone when it is not.
+    """
+    if deleted_at.tzinfo is None:  # SQLite hands back naive datetimes
+        deleted_at = deleted_at.replace(tzinfo=UTC)
+    elapsed = datetime.now(UTC) - deleted_at
+    return max(0, BIN_RETENTION_DAYS - elapsed.days)
+
+
+async def binned_page(
+    db: AsyncSession, org_id: str, *, limit: int = 50, offset: int = 0
+) -> tuple[list[BinnedInvoice], int]:
+    """The bin's contents, newest deletion first, plus the total count.
+
+    The ONLY read in the AP domain that opts out of the hiding guard, and it does
+    so for the length of two statements. Ordering is by deletion time because the
+    question a Trash screen answers is "what did I just delete?", not "which
+    invoice is oldest".
+    """
+    with tenant.include_deleted():
+        total = await db.scalar(
+            select(func.count())
+            .select_from(Invoice)
+            .where(Invoice.org_id == org_id, Invoice.deleted_at.is_not(None))
+        )
+        rows = await db.scalars(
+            select(Invoice)
+            .where(Invoice.org_id == org_id, Invoice.deleted_at.is_not(None))
+            .order_by(Invoice.deleted_at.desc(), Invoice.id)
+            .limit(limit)
+            .offset(offset)
+            .options(selectinload(Invoice.vendor))
+        )
+        items: list[BinnedInvoice] = []
+        for inv in rows:
+            binned_at = inv.deleted_at
+            if binned_at is None:  # pragma: no cover - excluded by the query above
+                continue
+            items.append(
+                BinnedInvoice(
+                    invoice_id=inv.id,
+                    invoice_number=inv.invoice_number,
+                    vendor_name=inv.vendor.name if inv.vendor else None,
+                    issue_date=inv.issue_date.isoformat() if inv.issue_date else None,
+                    currency=inv.currency,
+                    total=str(inv.total) if inv.total is not None else None,
+                    deleted_at=binned_at.isoformat(),
+                    deleted_by=inv.deleted_by,
+                    days_left=_days_left(binned_at),
+                )
+            )
+    return items, int(total or 0)
+
+
+async def restore_one(db: AsyncSession, org_id: str, invoice_id: str) -> Invoice:
+    """Bring ONE binned invoice back into the books.
+
+    Refuses when a LIVE invoice already carries the same number. The scenario is
+    concrete and expensive: someone deletes INV-001 by mistake, re-keys it as a
+    new invoice, then restores the original — and the organisation now holds two
+    live copies of one supplier bill, which is how a bill gets paid twice. There
+    is no database constraint stopping that (two invoices may legitimately share a
+    number across vendors), so the check lives here, where the duplicate would be
+    created by a machine rather than chosen by a person.
+
+    Raises NotFoundError for an unknown, cross-tenant or NOT-binned id (opaque,
+    §4.4). Does NOT commit; the caller commits with the audit event.
+    """
+    with tenant.include_deleted():
+        inv = await db.scalar(
+            select(Invoice).where(
+                Invoice.org_id == org_id,
+                Invoice.id == invoice_id,
+                Invoice.deleted_at.is_not(None),
+            )
+        )
+    if inv is None:
+        raise NotFoundError("Invoice not found")
+
+    if inv.invoice_number:
+        # Outside include_deleted() ON PURPOSE: only a LIVE duplicate is a
+        # conflict. Two records sitting in the bin with the same number are not a
+        # problem until one of them comes back, and checking against binned rows
+        # too would make the bin progressively harder to escape the more it held.
+        clash = await db.scalar(
+            select(Invoice.id).where(
+                Invoice.org_id == org_id,
+                Invoice.invoice_number == inv.invoice_number,
+                Invoice.id != inv.id,
+            )
+        )
+        if clash:
+            raise ConflictError(
+                f"A live invoice already uses number {inv.invoice_number}. "
+                "Resolve that one before restoring this.",
+                code="invoice_number_in_use",
+            )
+
+    inv.deleted_at = None
+    inv.deleted_by = None
+    return inv

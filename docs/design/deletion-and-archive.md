@@ -87,12 +87,21 @@ for the owner, who should confirm with counsel:
    19 query sites across 11 modules read the invoice table. This is the risky
    step and ships alone. The precedent is the existing tenant guard: one hook
    that no query can forget, plus a test that fails if one escapes it.
-2. **The consent gate** — server-enforced acknowledgement (a browser dialog is
+2. **Delete becomes reversible, then the Trash screen** — the routes stop
+   destroying rows and start binning them; restore (admin/owner) and the bin
+   listing land with them, with a duplicate-number check so restoring cannot
+   create two live invoices sharing a number.
+3. **The consent gate** — server-enforced acknowledgement (a browser dialog is
    not a consent record; the API must refuse without it), versioned warning text
    so the audit says what was accepted, per deletion.
-3. **The Trash screen** — contents, days remaining, restore (admin/owner), with a
-   duplicate-number check so restoring cannot create two live invoices sharing a
-   number.
+
+   > **Swapped, 2026-08-15, during the build.** The original order put the
+   > consent gate second. It cannot go there. The gate's whole purpose is to
+   > permit deleting something past draft — which today's rule REFUSES outright —
+   > so building it against the current rule gates nothing and is dead code,
+   > while building it *with* the widening would make a paid invoice destroyable
+   > before anything could bring one back. Reversibility first is the only order
+   > in which no step temporarily makes an irreversible loss possible.
 4. **The 30-day purge** on the existing scheduler, honouring legal holds —
    otherwise records under a preservation duty are destroyed on day 31.
 5. **Multi-select on the invoice list** — safe by then, because everything it

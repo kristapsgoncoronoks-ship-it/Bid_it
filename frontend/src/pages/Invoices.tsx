@@ -76,6 +76,11 @@ export default function Invoices() {
                 ))}
               </div>
             )}
+            {/* Reachable from the list it came from rather than the global
+                nav: somebody who has just deleted an invoice by mistake looks
+                here, not in a sidebar. Deliberately NOT a nav item — a label
+                containing "Invoices" also collides with the existing one. */}
+            <Link to="/invoices/trash" className="btn-ghost">Deleted</Link>
             <Link to="/upload" className="btn-primary">Upload invoice</Link>
           </>
         }

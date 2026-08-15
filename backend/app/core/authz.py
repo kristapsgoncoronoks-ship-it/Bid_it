@@ -34,6 +34,11 @@ class Permission(str, enum.Enum):
     INVOICE_READ = "invoice.read"
     INVOICE_WRITE = "invoice.write"
     INVOICE_DELETE = "invoice.delete"
+    # Bringing a binned invoice back into the books is the more consequential
+    # half of the pair, so it is a SEPARATE permission rather than part of
+    # INVOICE_DELETE — the same split as ISSUED_SEND from ISSUED_WRITE. Owner
+    # decision: restore is admin/owner only, narrower than who may delete.
+    INVOICE_RESTORE = "invoice.restore"
     INVOICE_APPROVE = "invoice.approve"  # decide an approval step (Phase 08)
     # Expenses
     EXPENSE_READ = "expense.read"

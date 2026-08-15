@@ -23,6 +23,7 @@ const ReviewInvoice = lazy(() => import("./pages/ReviewInvoice"));
 const CaptureQueue = lazy(() => import("./pages/CaptureQueue"));
 const CaptureReview = lazy(() => import("./pages/CaptureReview"));
 const CaptureFailures = lazy(() => import("./pages/CaptureFailures"));
+const Trash = lazy(() => import("./pages/Trash"));
 const Reimbursements = lazy(() => import("./pages/Reimbursements"));
 const Settings = lazy(() => import("./pages/Settings"));
 const Issuer = lazy(() => import("./pages/Issuer"));
@@ -135,6 +136,8 @@ export default function App() {
                 <Route path="/benchmark" element={<Benchmark />} />
                 <Route path="/fx" element={<Fx />} />
                 <Route path="/invoices" element={<Invoices />} />
+                {/* Static before dynamic: "trash" is a page, not an id. */}
+                <Route path="/invoices/trash" element={<Trash />} />
                 <Route path="/invoices/:id" element={<InvoiceDetail />} />
                 <Route path="/invoices/:id/review" element={<ReviewInvoice />} />
                 <Route path="/review" element={<Review />} />

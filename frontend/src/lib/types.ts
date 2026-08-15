@@ -2401,3 +2401,28 @@ export interface ClientClaimStatus {
   claims: ClientClaimRow[];
   not_shown_claims: number;
 }
+
+/** `BinnedInvoiceOut` — one row of the recycle bin.
+ *
+ * `days_left` is floored at 0 by the server: a record the purge has not
+ * collected yet is still restorable, and a negative number would read as
+ * already gone. */
+export interface BinnedInvoice {
+  invoice_id: string;
+  invoice_number: string | null;
+  vendor_name: string | null;
+  issue_date: string | null;
+  currency: string | null;
+  total: string | null;
+  deleted_at: string;
+  deleted_by: string | null;
+  days_left: number;
+}
+
+/** `BinListOut`. `retention_days` comes from the server rather than being
+ * hardcoded here, so the promise shown on screen has exactly one source. */
+export interface BinList {
+  items: BinnedInvoice[];
+  total: number;
+  retention_days: number;
+}

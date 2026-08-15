@@ -36,6 +36,7 @@ class A:
     SWITCH_ORG = "auth.switch_org"
     INVOICE_CREATE = "invoice.create"
     INVOICE_DELETE = "invoice.delete"
+    INVOICE_RESTORE = "invoice.restore"
     INVOICE_VALIDATE = "invoice.validate"
     # AP review & approval lifecycle (Phase 08)
     INVOICE_EDIT = "invoice.edit"

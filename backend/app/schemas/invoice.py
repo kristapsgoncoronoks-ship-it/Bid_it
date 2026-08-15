@@ -309,9 +309,35 @@ class BulkDeleteOut(BaseModel):
     skipped: int
     failed: int
     outcomes: list[BulkOutcomeOut] = Field(default_factory=list)
-    # What was destroyed, read off each row immediately before it stopped
-    # existing. An id alone identifies nothing once the row is gone.
+    # What each invoice looked like at the moment it was binned — frozen so a
+    # reader of the audit trail need not go and look up a row whose values may
+    # since have changed.
     deleted_records: list[dict] = Field(default_factory=list)
+
+
+class BinnedInvoiceOut(BaseModel):
+    """One row of the Trash screen."""
+
+    invoice_id: str
+    invoice_number: str | None = None
+    vendor_name: str | None = None
+    issue_date: str | None = None
+    currency: str | None = None
+    total: str | None = None
+    deleted_at: str
+    deleted_by: str | None = None
+    # Whole days before the purge may take it. Floored at 0: a record the purge
+    # has not collected yet is still restorable, and a negative number reads as
+    # "already gone".
+    days_left: int
+
+
+class BinListOut(BaseModel):
+    items: list[BinnedInvoiceOut] = Field(default_factory=list)
+    total: int
+    # Stated by the server rather than hardcoded in the UI, so the retention
+    # promise has exactly one source.
+    retention_days: int
 
 
 class CaptureAcknowledgeIn(BaseModel):

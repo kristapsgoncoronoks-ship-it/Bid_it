@@ -21,6 +21,8 @@ from app.models.organization import Organization
 from app.models.vendor import Vendor
 from app.schemas.ap_payment import SupplierPaymentOut, SupplierPaymentRecord
 from app.schemas.invoice import (
+    BinListOut,
+    BinnedInvoiceOut,
     BulkAcknowledgeIn,
     BulkAcknowledgeOut,
     BulkDeleteIn,
@@ -798,6 +800,34 @@ async def _load_scoped(db: DbSession, org_id: str, invoice_id: str) -> Invoice:
     return invoice
 
 
+@router.get(
+    "/trash",
+    response_model=BinListOut,
+    dependencies=[Depends(require_perm(authz.Permission.INVOICE_DELETE))],
+)
+async def list_binned_invoices(
+    current: CurrentUser,
+    db: DbSession,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """The recycle bin — what this workspace has deleted and how long is left.
+
+    Declared BEFORE `/{invoice_id}`: FastAPI matches in declaration order, so
+    below it this path would be swallowed by the id parameter and answer 404.
+
+    Gated on INVOICE_DELETE rather than INVOICE_RESTORE deliberately: whoever can
+    delete needs to SEE what they deleted — that is how they discover the mistake
+    — even though only an admin or the owner can act on it.
+    """
+    items, total = await invoice_service.binned_page(db, current.org_id, limit=limit, offset=offset)
+    return BinListOut(
+        items=[BinnedInvoiceOut.model_validate(i, from_attributes=True) for i in items],
+        total=total,
+        retention_days=invoice_service.BIN_RETENTION_DAYS,
+    )
+
+
 @router.get("/{invoice_id}", response_model=InvoiceDetailOut)
 async def get_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
     invoice = await _load_scoped(db, current.org_id, invoice_id)
@@ -955,25 +985,54 @@ async def human_validate(
     dependencies=[Depends(require_perm(authz.Permission.INVOICE_DELETE))],
 )
 async def delete_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
-    """Delete ONE invoice — only while it is a draft no money has touched.
+    """Move ONE invoice to the recycle bin — only while it is a draft no money
+    has touched.
 
-    This route previously deleted an invoice in ANY state, including paid: the
-    record of a commitment the organisation made could be removed without trace
-    beyond its number. It now enforces the SAME rule as the bulk path
-    (`invoices.deletion_refusal`, one definition so the two cannot drift) and
-    refuses with 409 `invoice_not_deletable`, naming the state.
+    The row is no longer destroyed. It is stamped `deleted_at`, disappears from
+    every read, and an admin or the org owner can restore it for 30 days
+    (docs/design/deletion-and-archive.md). Deleting one already in the bin is an
+    opaque 404, the same as one that never existed.
 
-    The audit event carries what the invoice WAS, not just its number: once the
-    row is gone, a number alone cannot answer what was destroyed."""
-    snap = await invoice_service.delete_one(db, current.org_id, invoice_id)
+    The rule for WHAT may be deleted is unchanged and still shared with the bulk
+    path (`invoices.deletion_refusal`, one definition so the two cannot drift):
+    409 `invoice_not_deletable`, naming the state."""
+    snap = await invoice_service.delete_one(db, current.org_id, invoice_id, actor=current.email)
     await audit.record(
         db,
         audit.A.INVOICE_DELETE,
         target_type="invoice",
         target_id=invoice_id,
-        meta={"bulk": False, "deleted": 1, "records": [asdict(snap)]},
+        meta={"bulk": False, "deleted": 1, "records": [asdict(snap)], "reversible": True},
     )
     await db.commit()
+
+
+@router.post(
+    "/{invoice_id}/restore",
+    response_model=InvoiceDetailOut,
+    dependencies=[Depends(require_perm(authz.Permission.INVOICE_RESTORE))],
+)
+async def restore_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
+    """Bring a binned invoice back into the books — admin or org owner only.
+
+    A narrower permission than deleting it (owner decision): putting a record
+    back into the books is the more consequential half of the pair, and a
+    finance manager who can delete deliberately cannot restore.
+
+    Refuses with 409 `invoice_number_in_use` when a live invoice already carries
+    the same number — otherwise a delete-then-re-key-then-restore sequence leaves
+    two live copies of one supplier bill, which is how a bill gets paid twice."""
+    invoice = await invoice_service.restore_one(db, current.org_id, invoice_id)
+    await audit.record(
+        db,
+        audit.A.INVOICE_RESTORE,
+        target_type="invoice",
+        target_id=invoice_id,
+        meta={"invoice_number": invoice.invoice_number},
+    )
+    await db.commit()
+    invoice = await _load_scoped(db, current.org_id, invoice_id)
+    return _detail(invoice, invoice.vendor.name)
 
 
 @router.post(
@@ -982,19 +1041,20 @@ async def delete_invoice(invoice_id: str, current: CurrentUser, db: DbSession):
     dependencies=[Depends(require_perm(authz.Permission.INVOICE_DELETE))],
 )
 async def bulk_delete_invoices(body: BulkDeleteIn, current: CurrentUser, db: DbSession):
-    """Delete many DRAFT invoices in one action — L-4's first irreversible bulk op.
+    """Move many DRAFT invoices to the recycle bin in one action.
 
-    Guard 4 fires here for real: `selection` must be `explicit`. A filter-based
-    selection is refused outright, because the gap between what the operator
-    believed they were destroying and what the server resolves is unrecoverable.
+    Guard 4 still fires: `selection` must be `explicit`. The bin has made this
+    reversible, but "everything matching this filter" is still a set the operator
+    never enumerated, and hundreds of invoices vanishing from the books is a real
+    incident for however long it takes to work out which ones they were.
 
-    Only a draft with no payment and no payment run is deleted. Anything else is
+    Only a draft with no payment and no payment run is binned. Anything else is
     SKIPPED with a reason naming its state — an approved or paid invoice being
     left alone is the system working, not an error.
 
-    The audit event carries what each deleted invoice WAS, captured before it
-    stopped existing: once the row is gone an id identifies nothing, so an id-only
-    trail could not answer "what did we delete?"."""
+    The audit event freezes what each invoice looked like at the moment of the
+    decision, so reading the trail does not require looking up rows whose values
+    may since have changed."""
     try:
         selection = bulk.Selection(body.selection)
     except ValueError:
@@ -1008,6 +1068,7 @@ async def bulk_delete_invoices(body: BulkDeleteIn, current: CurrentUser, db: DbS
         ids=body.invoice_ids,
         selection=selection,
         agreed_count=body.agreed_count,
+        actor=current.email,
     )
     records = [asdict(s) for s in snapshots]
     if records:
