@@ -32,6 +32,23 @@ down_revision: Union[str, None] = "f2c8b31e4a97"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
+# Tables this migration puts under Postgres row-level security. Declared here and
+# aggregated by `tests/test_rls.py::test_rls_migration_covers_every_tenant_table`,
+# which asserts the union across all migrations equals `TENANT_MODELS` exactly —
+# so a new tenant table cannot ship with only the app-layer guard.
+#
+# That guard caught this table: the first version of this migration shipped
+# layers 1 (per-query filters) and 2 (the ORM hook) and forgot layer 3. On the
+# archive of all tables, "the database itself will not hand another tenant's rows
+# to a raw query" is the layer that matters most — it holds the records clients
+# believe they deleted.
+TENANT_TABLES = ("archived_invoices",)
+
+_PREDICATE = (
+    "current_setting('app.current_org', true) IS NULL "
+    "OR org_id::text = current_setting('app.current_org', true)"
+)
+
 
 def upgrade() -> None:
     op.create_table(
@@ -72,8 +89,22 @@ def upgrade() -> None:
     # The expiry sweep, and the notice that must run BEFORE it.
     op.create_index("ix_archived_invoices_expires", "archived_invoices", ["expires_at"])
 
+    if op.get_bind().dialect.name == "postgresql":
+        for t in TENANT_TABLES:
+            op.execute(f"ALTER TABLE {t} ENABLE ROW LEVEL SECURITY")
+            # FORCE so the policy applies to the table OWNER too — without it a
+            # superuser-ish connection silently bypasses the whole layer.
+            op.execute(f"ALTER TABLE {t} FORCE ROW LEVEL SECURITY")
+            op.execute(
+                f"CREATE POLICY tenant_isolation ON {t} "
+                f"USING ({_PREDICATE}) WITH CHECK ({_PREDICATE})"
+            )
+
 
 def downgrade() -> None:
+    if op.get_bind().dialect.name == "postgresql":
+        for t in TENANT_TABLES:
+            op.execute(f"DROP POLICY IF EXISTS tenant_isolation ON {t}")
     op.drop_index("ix_archived_invoices_expires", table_name="archived_invoices")
     op.drop_index("ix_archived_invoices_org_archived", table_name="archived_invoices")
     op.drop_index("ix_archived_invoices_invoice_number", table_name="archived_invoices")
