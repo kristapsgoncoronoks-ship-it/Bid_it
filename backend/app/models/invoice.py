@@ -169,6 +169,16 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # not in a run. Cleared if the run is cancelled.
     payment_run_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)
 
+    # --- Recycle bin (docs/design/deletion-and-archive.md) --------------------
+    # NULL = live. Set = the record is in the client's bin and is hidden
+    # everywhere by the central guard in `app/core/tenant.py`, exactly as a
+    # foreign tenant's rows are — one rule no query can forget, rather than 19
+    # query sites each remembering to exclude it.
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    deleted_by: Mapped[str | None] = mapped_column(String(320), nullable=True)
+
     # Cost-allocation dimensions (free-text tags; see app.core.dimensions). Any
     # combination may be set; each is independently filterable/groupable.
     cost_center: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)

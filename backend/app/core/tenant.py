@@ -16,6 +16,7 @@ Scoping is bypassed (context = None) for:
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from contextvars import ContextVar, Token
 
 from sqlalchemy import event, select, text
@@ -223,19 +224,67 @@ def _scope_criteria(model, org: str):
     return model.org_id == org
 
 
+# --------------------------------------------------------------------------- #
+# The recycle bin (docs/design/deletion-and-archive.md)
+#
+# A record in the client's bin must disappear from EVERYTHING — lists, totals,
+# aging, duplicate detection, exports, VAT figures — until it is restored or
+# purged. 19 query sites across 11 modules read the invoice table, and a bin that
+# depends on each of them remembering is a bin that quietly makes the numbers
+# wrong: today a mistaken delete is loud, but a half-applied bin is silent.
+#
+# So it is enforced the same way tenancy is: one criterion added to every SELECT,
+# which no query can forget. `include_deleted()` is the deliberate opt-out, for
+# the Trash screen, restore, and the purge — the only three things that have any
+# business seeing a binned record.
+# --------------------------------------------------------------------------- #
+
+# Models carrying `deleted_at`. Keep in step with the migrations; the guard test
+# fails if a model grows the column without being registered here.
+SOFT_DELETE_MODELS = (Invoice,)
+
+_include_deleted: ContextVar[bool] = ContextVar("include_deleted", default=False)
+
+
+@contextmanager
+def include_deleted():
+    """Show binned records for the duration of this block.
+
+    Deliberately a narrow, explicit scope rather than a flag someone sets and
+    forgets: the Trash screen, a restore and the purge are the whole list of
+    things that should ever see a deleted row.
+    """
+    token = _include_deleted.set(True)
+    try:
+        yield
+    finally:
+        _include_deleted.reset(token)
+
+
 @event.listens_for(Session, "do_orm_execute")
 def _apply_tenant_scope(orm_execute_state) -> None:
     if not orm_execute_state.is_select:
         return  # writes are guarded by loading the row scoped first
+    options = []
+
     org = _current_org.get()
-    if org is None:
-        return  # unscoped context (bootstrap / operator)
-    orm_execute_state.statement = orm_execute_state.statement.options(
-        *[
+    if org is not None:  # None = unscoped context (bootstrap / operator)
+        options += [
             with_loader_criteria(model, _scope_criteria(model, org), include_aliases=True)
             for model in TENANT_MODELS
         ]
-    )
+
+    # Applied REGARDLESS of tenant context: a platform operator reading across
+    # tenants has no more business seeing a client's binned invoice than the
+    # client's own dashboard does.
+    if not _include_deleted.get():
+        options += [
+            with_loader_criteria(model, model.deleted_at.is_(None), include_aliases=True)
+            for model in SOFT_DELETE_MODELS
+        ]
+
+    if options:
+        orm_execute_state.statement = orm_execute_state.statement.options(*options)
 
 
 # --------------------------------------------------------------------------- #
