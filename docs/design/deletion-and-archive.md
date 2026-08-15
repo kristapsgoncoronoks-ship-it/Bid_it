@@ -32,9 +32,33 @@ wrong.
 | Who can read the archive | **Off by default; granted by sysadmin/owner to named, strictly limited personnel** | See the note below — this cannot simply be `is_platform_admin`. |
 | Forensic logging | **Who, when, what, from which IP** | Standard practice. Note an IP is itself personal data and belongs in the privacy notice. |
 
-## Open question, put to the owner and not yet answered
+## Decisions taken 2026-08-15, after the review cycle
 
-**An invoice locked into a FILED VAT claim.**
+| Question | Decision |
+|---|---|
+| Purge before the archive exists? | **Leave it on.** Keep the 30-day promise; records are destroyed on day 31. |
+| Bin for entities other than invoices? | **Extend it to all of them** — expenses, expense reports, issued-invoice attachments, recurring schedules. One meaning of "Delete" across the product. |
+| Invoice locked in a FILED VAT claim? | **Add a real link, then refuse.** See below — the earlier heuristic-based proposal is withdrawn, and this replaces it. |
+| Build order | **Archive first**, then the two above. Follows from keeping the purge on. |
+| What the archive keeps | **Record AND source document.** The PDF is what proves anything to a tax authority years later, which is the point of retaining at all. |
+| Archive read access | **Named individual, time-boxed grant, reason recorded at every access.** Not a role, not a permanent grant, and explicitly not the platform-admin flag. |
+| Retention period | **Configurable, default 5 years, marked UNCONFIRMED** until the owner's accountant confirms it per country. Not to appear in any customer-facing claim before then. |
+
+## The VAT-claim question — answered
+
+**Decision: add a real link, then refuse the delete.**
+
+Store the invoice id on the claim line when the claim is built, so "this invoice
+is in a filed claim" becomes a fact rather than a guess; then refuse the deletion
+and instruct the client to withdraw the claim first, which is a real supported
+action rather than a dead end.
+
+This supersedes the withdrawal below — which stands as the reasoning for why the
+refusal could NOT be built on the existing data, and therefore why the link has
+to come first. The history is kept because the next engineer will otherwise
+re-propose the heuristic version.
+
+### Why the original proposal was withdrawn
 
 > **Corrected 2026-08-15, while building the consent gate.** The original
 > proposal here — refuse the delete, tell the client to withdraw the claim first
@@ -158,11 +182,12 @@ than assumed:
   record into the audit trail — so even pre-archive, what was destroyed remains
   answerable.
 
-**If the owner would rather no client data be destroyed at all before the archive
-is built, the fix is one line** — skip enqueuing `BIN_PURGE` — and the only cost
-is that bins do not empty until step 6 lands. That is the owner's call, not the
-engineer's; it is recorded here so the choice is visible rather than buried in a
-scheduler tuple.
+**Owner decision, 2026-08-15: the purge STAYS ON.** Put to the owner with the
+one-line off switch as the recommended option; they chose to keep the 30-day
+promise the UI makes, knowing records are destroyed on day 31 with only the audit
+snapshot behind them. Taken deliberately, and it is why the archive was
+re-prioritised ahead of the remaining deletion work (below) — with the purge
+running, the archive is the backstop rather than the finishing touch.
 
 ## Related work already in the codebase
 

@@ -1,4 +1,9 @@
-# The platform archive — design, before any of it is built
+# The platform archive — design
+
+**Status: owner decisions taken 2026-08-15; this is the next thing to build.**
+Four of the questions below are now answered inline. One remains open and is a
+legal question, not an engineering one: the retention period, per country, from
+the owner's accountant.
 
 Step 6 of `deletion-and-archive.md`. Steps 1–5 are built; this one is deliberately
 a written design first, because it is the only part of the feature where the
@@ -44,6 +49,10 @@ Three things make it the former, and none of them are code:
 
 ## The retention period is a legal question, not a product one
 
+**DECIDED 2026-08-15: build it configurable, default 5 years, marked UNCONFIRMED.**
+Changing it after the accountant answers must be a settings change, never a
+migration. It must not appear in any customer-facing claim until confirmed.
+
 **5 years is the owner's estimate and must not be shipped as a fact.** Baltic
 accounting law likely *requires* multi-year retention of source documents, which
 would make this a legal obligation with a clean lawful basis — a much stronger
@@ -78,6 +87,11 @@ default**. Concretely:
 - **time-boxed** — access that expires is far safer than access somebody forgets
   to revoke. A grant with an end date is the default; a permanent grant should
   require a deliberate, separately-audited act.
+
+**DECIDED 2026-08-15:** the strictest of the three options offered — named
+individual, time-boxed grant, and a reason recorded at EVERY read (not merely at
+grant time). The owner chose this over a permanent named grant and over an
+ordinary assignable role.
 
 ## Logging: the useful question is not "who has access"
 
@@ -126,11 +140,15 @@ destructive path to intercept.
 ## Open questions for the owner
 
 1. **The retention period**, per country, confirmed with an accountant (above).
-2. **Do the document BYTES go to the archive, or only the record?** An invoice's
-   source PDF is the thing an accountant would actually need years later; it is
-   also the most sensitive thing to retain. These can be answered differently.
+2. ~~Do the document BYTES go to the archive?~~ **DECIDED 2026-08-15: record AND
+   source document.** The PDF is what proves anything to a tax authority years
+   later, which is most of the reason to retain at all. This makes the archive
+   the highest-risk store in the product, which is why the access controls above
+   are non-negotiable rather than nice-to-have.
 3. **Does the archive follow a client who leaves?** Contract termination and
    statutory retention can point in opposite directions, and the answer belongs
    in the DPA before it belongs in code.
-4. **Should the purge run at all before this is built?** Today it destroys the
-   row — see the gap recorded at the end of `deletion-and-archive.md`.
+4. ~~Should the purge run before this is built?~~ **DECIDED 2026-08-15: yes, it
+   stays on.** Which is precisely why this document stopped being step 6 and
+   became the next thing built: with the purge running, the archive is the
+   backstop, not the finishing touch.
