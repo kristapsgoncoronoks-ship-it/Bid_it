@@ -131,9 +131,12 @@ for the owner, who should confirm with counsel:
    otherwise records under a preservation duty are destroyed on day 31.
 5. **Multi-select on the invoice list** — safe by then, because everything it
    does is undoable.
-6. **The platform archive** — separate design, after the above.
+6. **The platform archive** — separate design, after the above. Written up in
+   `platform-archive.md`; nothing built, and it carries four questions for the
+   owner (chiefly the retention period, which is a legal question rather than a
+   product one).
 
-Steps 1–5 are built. Step 6 is not.
+Steps 1–5 are built. Step 6 is designed, not built.
 
 ### The gap that leaves, stated plainly
 
