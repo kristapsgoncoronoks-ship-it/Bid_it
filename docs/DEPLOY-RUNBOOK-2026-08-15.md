@@ -27,7 +27,7 @@ Verified LOCALLY at this tree (executed, not recalled):
 
 | Check | Result |
 |---|---|
-| Backend suite | see §0.1 — re-state the figure from the run that gated this deploy |
+| Backend suite | **2633 passed, 10 skipped (41:02)** on 2026-08-16, at this tree |
 | `ruff check` / `ruff format --check` | clean |
 | `mypy app` | clean, 339 files |
 | Alembic | single head `a4d7e0c16b93` |
@@ -50,11 +50,17 @@ landed. It is no longer a pre-deploy chore.
 
 ### 0.1 Re-state the suite figure
 
-Do not copy a number from an older document. Run it and paste what you get:
+The figure in the table above was produced at THIS tree on 2026-08-16 and is not
+copied from an older document. If you deploy from a later commit, re-run it and
+replace the row rather than trusting this one:
 
 ```bash
 cd backend && python -m pytest tests/ -q -p no:randomly | tail -2
 ```
+
+Worth knowing what that run cost: the previous full run came back RED — three
+failures, two of them caused by a change that had already passed its own
+targeted tests. The targeted run is not a substitute for this one.
 
 ---
 
