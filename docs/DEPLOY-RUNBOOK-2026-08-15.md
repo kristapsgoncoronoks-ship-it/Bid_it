@@ -1,7 +1,7 @@
 # Deploy runbook — the 2026-08-15 release to the Hostinger VPS
 
 **What is being deployed:** the working branch at `HEAD`, which advances
-production from `15116e1` by **270 commits** and **30 Alembic migrations** (figures refreshed 2026-08-16; re-run `git rev-list --count 15116e1..HEAD` if you deploy a later commit).
+production from `15116e1` by **274 commits** and **31 Alembic migrations** (figures refreshed 2026-08-16; re-run `git rev-list --count 15116e1..HEAD` if you deploy a later commit).
 
 This supersedes `DEPLOY-RUNBOOK-2026-08-12.md`. That runbook was written for
 `ec93e4b` and **was never run** — production is still `15116e1`, so its 24
@@ -9,7 +9,7 @@ migrations are also still pending and are included in the 30 below. Read this
 file, not that one.
 
 **Why a runbook rather than the two-line update in `DEPLOY-HOSTINGER.md#operate`:**
-that procedure assumes an incremental update. This applies 30 migrations in one
+that procedure assumes an incremental update. This applies 31 migrations in one
 step to a database that has seen none of them. Migrations are the part of a
 deploy that `git reset` does not undo.
 
@@ -27,7 +27,7 @@ Verified LOCALLY at this tree (executed, not recalled):
 
 | Check | Result |
 |---|---|
-| Backend suite | **2651 passed, 11 skipped (37:16)** on 2026-08-16 — run at `929c9ae`; the only later commit (`5f1f958`) touches no backend file, so the figure holds for HEAD |
+| Backend suite | **2663 passed, 11 skipped (44:48)** on 2026-08-16 at `742f595` — covers the retention-chain rerouting, the archive expiry purge, the pre-expiry notice + paid extension, and the audit ip columns |
 | `ruff check` / `ruff format --check` | clean |
 | `mypy app` | clean, 339 files |
 | Alembic | single head `c9e4f1a7b2d8` (audit ip/session — additive, nullable) |
@@ -142,7 +142,7 @@ docker compose -f docker-compose.hostinger.yml ps
 docker compose -f docker-compose.hostinger.yml logs -f backend  # watch the migrations
 ```
 
-Expect 30 migrations to apply. If any fails the container will not become
+Expect 31 migrations to apply. If any fails the container will not become
 healthy — **stop and go to §6 rather than retrying**.
 
 ---
