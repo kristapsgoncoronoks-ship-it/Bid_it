@@ -71,8 +71,14 @@ trial/starter/pro/enterprise; the pricing doc proposes a different five-tier
 ladder). An add-on cannot be priced against a ladder nobody has chosen.
 **Blocks** building the paid extension at all.
 
-**C. Does the archive follow a client who leaves?** Termination and statutory
-retention point opposite ways. A DPA question before a code one.
+**C. Does the archive follow a client who leaves? — DECIDED 2026-08-15: it
+SURVIVES for the full retention period.** Statutory retention outlives the
+commercial relationship, which is the usual legal position. **This must be in the
+DPA before a client signs** — retaining an ex-client's records on a basis they
+never agreed to is the one version of this that is indefensible. Two consequences
+worth building for: an ex-client's owner arguably still needs read access to
+their own archive (they cannot log in), and the pre-expiry notice has nobody to
+send to. Both are open.
 
 ---
 
@@ -167,7 +173,42 @@ metering substrate is ready independent of when credentials land.
 
 ---
 
-## 2a. Reconcile the plan ladder (M2 / H1.2)
+## 2a. Reconcile the plan ladder (M2 / H1.2) — **RESOLVED 2026-08-15**
+
+**Decision: the pricing doc's ladder.** Free €0 · Starter €39 · Team €99 ·
+Business €249 · Enterprise custom · Practice (accountancy partner). Built in
+`app/services/plans.py`; the original entry is kept below for the record.
+
+Three departures from the doc, each stated in the module docstring rather than
+made silently:
+
+1. **`pro` keeps its KEY, gains the NAME "Team".** A key is an identifier stored
+   in `organizations.plan`, quoted by `config.stripe_price_for` and seeded in
+   `seed.py`; renaming it needs a data migration and a Stripe price remap to
+   change a label. The customer-facing rename lands; the identifier does not.
+2. **`trial` and `free` are both kept.** The doc describes Free as a perpetual
+   micro tier AND maps the 14-day trial onto `trial`. Those cannot be one row: a
+   trial that expires into nothing is not a free tier.
+3. **One "Docs/mo" allowance applied to BOTH counters**, which over-grants —
+   this code meters invoices and uploads separately, so Starter allows 150 of
+   each rather than 150 in total. Deliberately over- rather than under-generous;
+   cutting a customer off at a limit they were told they had is a refund
+   conversation. **Reconciling one allowance against two counters is a metering
+   decision for the billing work**, not a table edit.
+
+Not modelled: the doc's "Entities" column. There is no entity cap in the code and
+inventing one would be a silent, untested restriction on existing tenants.
+
+**A real defect this surfaced:** `access._PLAN_META` derived "paid" from
+`not p.trial`, correct only while `trial` was the sole €0 plan. Adding a
+perpetual free tier made it report Free as paid. Now derived from the price.
+
+**This unblocks** the archive's paid retention extension, which could not be
+priced against a ladder nobody had chosen.
+
+### Original entry (retained for the record)
+
+
 **Status:** 🔓  ·  **Raised by:** WO-47 — a pricing/business decision,
 deliberately **not** decided in code.
 

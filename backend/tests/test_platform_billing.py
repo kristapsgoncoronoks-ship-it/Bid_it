@@ -124,7 +124,7 @@ async def test_bills_every_active_paid_plan_org_once(auth_client, db_session, mo
     )
     assert len(rows) == 2
     by_sub = {r.subscription_org_id: r for r in rows}
-    assert by_sub[starter.id].total == 29
+    assert by_sub[starter.id].total == 39  # Starter €29 -> €39 (ladder switch, §2a)
     assert by_sub[pro.id].total == 99
     assert by_sub[starter.id].subscription_period == date(2026, 7, 1)
     assert by_sub[starter.id].buyer_name == "Subscriber Starter"
@@ -276,7 +276,11 @@ async def test_generated_invoice_is_ordinary_ar_from_here(auth_client, db_sessio
 
     # Collection: the pre-existing manual payment route (bank transfer, no Stripe).
     paid = await auth_client.patch(
-        f"/api/v1/issued/{inv_id}/payment", json={"amount_paid": "29.00"}
+        # €39, not €29 — Starter's price after the 2026-08-15 ladder switch (§2a).
+        # Paying the old price left the invoice PARTIALLY paid, and the assertion
+        # below caught it as `overdue`, which is the collection flow working.
+        f"/api/v1/issued/{inv_id}/payment",
+        json={"amount_paid": "39.00"},
     )
     assert paid.status_code == 200, paid.text
     assert paid.json()["status"] == "paid"

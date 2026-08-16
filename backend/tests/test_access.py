@@ -4,6 +4,8 @@ NOT per-role) + quota gating."""
 
 import pytest
 
+from app.services.plans import PLANS
+
 
 def _inv(n):
     return {
@@ -73,18 +75,32 @@ async def test_registrant_is_company_owner_not_sysadmin(auth_client):
 
 
 @pytest.mark.asyncio
-async def test_matrix_has_four_plans_with_defaults(auth_client, db_session):
-    # WO-47: the quota matrix is keyed by PLAN (trial/starter/pro/enterprise —
-    # `app.services.plans.PLANS`), not by the 8-role permission vocabulary.
+async def test_matrix_covers_every_plan_with_its_defaults(auth_client, db_session):
+    """WO-47: the quota matrix is keyed by PLAN (`app.services.plans.PLANS`), not
+    by the 8-role permission vocabulary.
+
+    Renamed from `..._has_four_plans_...`: the owner switched to the pricing
+    doc's ladder (2026-08-15, §2a), so there are now six plans plus the partner
+    tier. The count was never the subject — that the matrix is plan-keyed and
+    carries each plan's own defaults is."""
     await _make_platform_op(db_session)
     m = {r["plan"]: r for r in (await auth_client.get("/api/v1/access/matrix")).json()}
-    assert set(m) == {"trial", "starter", "pro", "enterprise"}
+    assert set(m) == set(PLANS), "the matrix and the plan table disagree"
+
+    # The free tiers.
     assert m["trial"]["monthly_invoice_limit"] == 10
     assert m["trial"]["paid"] is False
-    assert m["starter"]["paid"] is True
-    assert m["starter"]["monthly_invoice_limit"] == 1000
-    # The higher, business-oriented paid plans default unlimited.
-    for plan in ("pro", "enterprise"):
+    assert m["free"]["monthly_invoice_limit"] == 25
+    assert m["free"]["paid"] is False
+
+    # The metered paid tiers each carry a REAL cap — Team stopped being
+    # unlimited when the ladder switched, which is the substantive change.
+    for plan, cap in (("starter", 150), ("pro", 750), ("business", 3000)):
+        assert m[plan]["monthly_invoice_limit"] == cap, plan
+        assert m[plan]["paid"] is True, plan
+
+    # Only the custom-priced tiers default unlimited.
+    for plan in ("enterprise", "practice"):
         assert m[plan]["monthly_invoice_limit"] == 0
         assert m[plan]["monthly_upload_limit"] == 0
         assert m[plan]["paid"] is True
@@ -221,16 +237,22 @@ async def test_two_different_roles_share_one_org_level_cap(auth_client, client, 
 async def test_plan_governs_not_role_any_role_unlimited_on_an_unlimited_plan(
     auth_client, client, db_session
 ):
-    """The flip side: on a plan with an UNLIMITED cap (`pro`), even the LOWEST
-    permission role (`user_free`) is unlimited — proving the gate reads the
-    org's plan, never the caller's role."""
-    await _set_org_plan(db_session, "pro")
+    """The flip side: on a plan with an UNLIMITED cap, even the LOWEST permission
+    role (`user_free`) is unlimited — proving the gate reads the org's plan,
+    never the caller's role.
+
+    Uses `enterprise` rather than `pro`. When the owner switched to the pricing
+    doc's ladder (2026-08-15, §2a), Team (key `pro`) gained a real 750/month cap,
+    so it stopped being an example of an unlimited plan. The test's subject was
+    never `pro` — it is that the ROLE is irrelevant — so it moves to a plan that
+    still demonstrates it rather than being loosened to accommodate the change."""
+    await _set_org_plan(db_session, "enterprise")
     free = await _member(auth_client, client, "free2@acme.io", "user_free")
     for n in range(3):
         r = await client.post("/api/v1/invoices", json=_inv(200 + n), headers=_h(free))
         assert r.status_code == 201, r.text
     usage = (await client.get("/api/v1/access/usage", headers=_h(free))).json()
-    assert usage["plan"] == "pro"
+    assert usage["plan"] == "enterprise"
     assert usage["unlimited"] is True and usage["invoices_remaining"] is None
 
 

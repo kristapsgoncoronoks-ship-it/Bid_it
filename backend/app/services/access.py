@@ -47,14 +47,22 @@ from app.services import plans as plans_service
 _PLAN_META = {
     key: {
         "label": p.name,
-        "paid": not p.trial,  # only the trial plan is free; enterprise (custom price) is still paid
+        # "Paid" means "costs money", derived from the PRICE. It used to be
+        # `not p.trial`, which was correct only while `trial` was the sole €0
+        # plan; the 2026-08-15 ladder (§2a) adds a perpetual `free` tier, and the
+        # old rule reported it as paid. A custom-priced plan (None) IS paid.
+        "paid": p.price_eur != 0,
         "description": (
             f"{p.name} plan — {p.seats} seat"
             + ("s" if p.seats != 1 else "")
             + (
                 f", €{p.price_eur}/mo"
                 if p.price_eur
-                else (" (free trial)" if p.trial else " (custom pricing)")
+                else (
+                    " (free trial)"
+                    if p.trial
+                    else (" (free)" if p.price_eur == 0 else " (custom pricing)")
+                )
             )
         ),
     }
