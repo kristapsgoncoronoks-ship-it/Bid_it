@@ -33,7 +33,8 @@ from datetime import UTC, date, datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import tenant
@@ -193,29 +194,38 @@ async def usage_count(db: AsyncSession, org_id: str, metric: str) -> int:
 
 
 async def record_usage(db: AsyncSession, org_id: str, metric: str, n: int = 1) -> None:
-    """Increment this month's counter for `metric` (create the row if needed)."""
-    counter = await db.scalar(
-        select(UsageCounter).where(
-            UsageCounter.org_id == org_id,
-            UsageCounter.period == _period(),
-            UsageCounter.metric == metric,
+    """Increment this month's counter for `metric` (create the row if needed).
+
+    The increment is ATOMIC IN THE DATABASE — one upsert whose conflict arm is
+    `count = count + n` evaluated server-side. It used to be a read-modify-write
+    in Python (read N, write N+1), so two uploads landing at once both read the
+    same N and one increment was silently lost. That is not a cosmetic race:
+    this counter IS the upload quota, i.e. the paid boundary between plan tiers,
+    and it undercounted precisely on the tenants busy enough to be paying —
+    free uploads today, under-billing the day metering goes live. The old code's
+    `IntegrityError` guard only covered concurrent CREATION of the row, not
+    concurrent increment of it (docs/audit/2026-08-16-bug-scan.md, P2-1).
+
+    `ON CONFLICT DO UPDATE` is native on Postgres and supported by SQLite since
+    3.24 (2018), so one statement covers both backends via the dialect's insert.
+
+    Still commits, deliberately: the upload route has no commit of its own after
+    this call, so removing it here would leave the whole upload uncommitted.
+    Moving commit ownership to the caller (engineering-rules §3) is a separate,
+    behavioural change and is done as its own step, not smuggled into a race fix.
+    """
+    dialect = db.bind.dialect.name if db.bind is not None else "sqlite"
+    insert = pg_insert if dialect == "postgresql" else sqlite_insert
+    counters = UsageCounter.__table__
+    stmt = (
+        insert(UsageCounter)
+        .values(org_id=org_id, period=_period(), metric=metric, count=n)
+        .on_conflict_do_update(
+            index_elements=["org_id", "period", "metric"],
+            set_={"count": counters.c.count + n},
         )
     )
-    if counter is None:
-        counter = UsageCounter(org_id=org_id, period=_period(), metric=metric, count=0)
-        db.add(counter)
-        try:
-            await db.flush()
-        except IntegrityError:  # concurrent create — reload the winner
-            await db.rollback()
-            counter = await db.scalar(
-                select(UsageCounter).where(
-                    UsageCounter.org_id == org_id,
-                    UsageCounter.period == _period(),
-                    UsageCounter.metric == metric,
-                )
-            )
-    counter.count = (counter.count or 0) + n
+    await db.execute(stmt)
     await db.commit()
 
 

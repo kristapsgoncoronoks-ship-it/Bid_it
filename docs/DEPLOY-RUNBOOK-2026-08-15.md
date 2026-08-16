@@ -111,7 +111,8 @@ createuser --no-superuser appuser && createdb -O appuser invoiceiq_gate
 DATABASE_URL=postgresql+asyncpg://appuser@localhost/invoiceiq_gate \
   alembic upgrade head && alembic check          # expect no drift
 DATABASE_URL=... python -m pytest tests/test_rls.py \
-  tests/test_numbering_concurrency.py tests/test_transport_lock_concurrency.py -q
+  tests/test_numbering_concurrency.py tests/test_transport_lock_concurrency.py \
+  tests/test_usage_counter_concurrency.py -q
 ```
 
 Then confirm the new table is actually protected:
