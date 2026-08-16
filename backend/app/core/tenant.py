@@ -63,6 +63,7 @@ from app.models.module import OrgModule
 from app.models.partner import Partner, PartnerDocument
 from app.models.payment import Payment
 from app.models.payment_run import PaymentRun
+from app.models.project_link import ProjectCostEntry, ProjectDocument
 from app.models.receipt import Receipt
 from app.models.recurring_invoice import RecurringInvoice
 from app.models.retention import LegalHold, RetentionPolicy
@@ -98,6 +99,8 @@ from app.models.webhook import WebhookDelivery, WebhookEndpoint
 # scoped directly here rather than trusting the report join.
 TENANT_MODELS = (
     ArchivedInvoice,
+    ProjectDocument,
+    ProjectCostEntry,
     Vendor,
     VendorChangeRequest,
     Invoice,

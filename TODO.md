@@ -31,6 +31,47 @@ separately on real Postgres), 0 known regressions, as of WO-70. WO-71: 1699 → 
 
 ---
 
+## Project profitability — phase 1 shipped 2026-08-16 (PP-1)
+
+Design: [`docs/design/project-profitability.md`](docs/design/project-profitability.md)
+— INDUSTRY-NEUTRAL by owner requirement (industry words in examples only; the
+e2e suite literally greps the rendered page against the guard list). The loop,
+for any project-shaped business: open a project → attach the contract → issue
+sales invoices under it → allocate supplier/subcontractor invoices and expenses
+→ book wage/equipment cost lines → read revenue − costs.
+
+- [x] **The revenue link** — `issued_invoices.project_id` (composite tenant FK,
+  SET NULL — deleting a project never takes legal documents with it). Set in
+  `build_invoice` so the draft-edit copy path carries it; a credit note INHERITS
+  its parent's project (seed-verified: removing the inheritance turns the test
+  red) so reversals land where the revenue did.
+- [x] **The P&L** — `project_profit.pnl`, NET EUR, basis STATED ON THE WIRE
+  (`basis: net_eur_live`) and rendered from the wire, so the phase-2 freeze
+  changes the copy by changing the field. What counts is pinned test by test:
+  drafts are not revenue (seed-verified), unapproved expense reports are not
+  costs, binned invoices leave the P&L and return on restore — the recycle bin
+  composes for free via the central guard.
+- [x] **Manual cost lines** — `project_cost_entries` (wages/per_diem/equipment/
+  other, a closed generic set). NOT payroll, by owner decision. Negative
+  corrections allowed, zero refused; deletion audits WHAT was removed.
+  Mutations are INVOICE_WRITE (bookkeeping), not SETTINGS_MANAGE (org config) —
+  pinned by a test.
+- [x] **The contract on the project** — `project_documents` + upload/download
+  (attachment + nosniff), its own object-store prefix. The e-sign seam's slot.
+- [x] **Tenancy, all three layers in one commit** — TENANT_MODELS (83), two
+  real parity probes (cross-tenant list/fetch/delete/download all opaque), and
+  ENABLE+FORCE RLS in migration `e2b4d6f8a0c2` — the archived_invoices lesson
+  applied rather than relearned.
+- [x] **Screens** — `/projects/:id` (P&L card + cost-line form + contract
+  panel), project picker on the issue form, project codes on `/cost-objects`
+  link through. 5 e2e specs; the full browser suite is green at 339.
+
+Phase 2 (next): line-level + % allocation with the precedence rule, the
+close-time FREEZE + after-close adjustments, margin on the projects list, and
+the module-conditional recovered-VAT line.
+
+---
+
 ## Pilot status — 2026-08-15 (updates the 2026-08-12 entry below)
 
 Three of that entry's four gates stay closed. What changed since:

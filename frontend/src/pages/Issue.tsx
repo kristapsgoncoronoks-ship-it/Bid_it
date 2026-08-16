@@ -6,8 +6,8 @@ import { ConfirmDialog } from "../components/ui";
 import { ISSUED_STATUS_LABELS, ISSUED_STATUS_STYLES, money, shortDate } from "../lib/format";
 import { useModules } from "../lib/useModules";
 import type {
-  BulkReminderResult, GenerateResult, IssuedAttachment, IssuedInvoice, IssuedLineInput, IssuerProfile,
-  Paginated, Partner, RecurringFrequency, RecurringSchedule, SendResult, VatScheme,
+  BulkReminderResult, CostMaster, GenerateResult, IssuedAttachment, IssuedInvoice, IssuedLineInput,
+  IssuerProfile, Paginated, Partner, RecurringFrequency, RecurringSchedule, SendResult, VatScheme,
 } from "../lib/types";
 
 const SCHEMES: { value: VatScheme; label: string }[] = [
@@ -602,6 +602,7 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
   const [exemption, setExemption] = useState("");
   const [partnerId, setPartnerId] = useState("");
   const [issuerId, setIssuerId] = useState("");
+  const [projectId, setProjectId] = useState("");
   const [lines, setLines] = useState<IssuedLineInput[]>([emptyLine()]);
   const [error, setError] = useState<string | null>(null);
 
@@ -614,6 +615,12 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
   const issuers = useQuery<IssuerProfile[]>({
     queryKey: ["issuer-registry"],
     queryFn: async () => (await api.get("/issuer/registry")).data,
+  });
+  // The revenue side of the project P&L: an invoice issued under a project is
+  // what makes its profitability computable at all.
+  const projects = useQuery<CostMaster[]>({
+    queryKey: ["masters", "projects"],
+    queryFn: async () => (await api.get("/masters/projects")).data,
   });
   const selectedPartner = partners.data?.find((p) => p.id === partnerId);
 
@@ -642,6 +649,7 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
       };
       if (partnerId) payload.partner_id = partnerId;
       if (issuerId) payload.issuer_id = issuerId;
+      if (projectId) payload.project_id = projectId;
       if (penalty.trim() !== "") payload.penalty_rate = penalty;
       if (poRef.trim() !== "") payload.po_reference = poRef.trim();
       if (exemption.trim() !== "") payload.tax_exemption_reason = exemption.trim();
@@ -655,6 +663,7 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
       setExemption("");
       setPartnerId("");
       setIssuerId("");
+      setProjectId("");
       setError(null);
       onCreated();
     },
@@ -696,6 +705,29 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
           <p className="mt-1 text-xs text-slate-400">
             Each company keeps its own gap-free numbering series — manage them under{" "}
             <Link to="/issuer" className="underline">Company details</Link>.
+          </p>
+        </div>
+      )}
+
+      {(projects.data?.length ?? 0) > 0 && (
+        <div>
+          <label className="label">Project</label>
+          <select
+            className="input sm:w-1/2"
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+          >
+            <option value="">— No project —</option>
+            {projects.data
+              ?.filter((m) => m.status !== "archived")
+              .map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.code} · {m.name}
+                </option>
+              ))}
+          </select>
+          <p className="mt-1 text-xs text-slate-400">
+            Links this revenue to a project so its profitability can be calculated.
           </p>
         </div>
       )}

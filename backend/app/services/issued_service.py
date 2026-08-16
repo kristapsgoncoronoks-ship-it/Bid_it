@@ -71,6 +71,10 @@ def build_invoice(
     return IssuedInvoice(
         org_id=org_id,
         partner_id=partner.id if partner else None,
+        # The revenue side of the project P&L. Set here (not only in the route)
+        # so the draft-edit path's attribute copy carries it too — an edit that
+        # silently cleared the project would quietly remove revenue from a P&L.
+        project_id=body.project_id,
         issuer_id=profile.id,
         doc_type="invoice",
         lifecycle=lifecycle,

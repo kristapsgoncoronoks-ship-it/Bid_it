@@ -2493,3 +2493,46 @@ export interface BulkDeleteResult {
   outcomes: BulkOutcome[];
   deleted_records: Record<string, unknown>[];
 }
+
+/** `CostEntryOut` — one uninvoiced cost booked onto a project by hand.
+ * Deliberately not payroll: a labelled amount, nothing more. */
+export interface CostEntry {
+  id: string;
+  label: string;
+  category: string;
+  amount: string;
+  currency: string;
+  entry_date: string | null;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+/** `ProjectDocumentOut` — the signed contract (or other papers) on a project. */
+export interface ProjectDocument {
+  id: string;
+  kind: string;
+  filename: string;
+  content_type: string | null;
+  uploaded_by: string | null;
+  created_at: string;
+}
+
+/** `ProjectPnlOut`. Money is decimal STRINGS off the wire, and `basis` is the
+ * server's statement of what the figures are — the screen renders it, never
+ * asserts its own. */
+export interface ProjectPnl {
+  project_id: string;
+  code: string;
+  name: string;
+  status: string;
+  revenue: string;
+  credited: string;
+  costs: string;
+  invoice_costs: string;
+  expense_costs: string;
+  manual_costs: string;
+  profit: string;
+  margin_pct: string | null;
+  basis: string;
+}

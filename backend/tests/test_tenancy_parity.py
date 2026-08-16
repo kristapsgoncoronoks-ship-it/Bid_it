@@ -2194,6 +2194,90 @@ async def _archived_invoices(ctx: Ctx) -> None:
         )
 
 
+@probe("project_cost_entries")
+async def _project_cost_entries(ctx: Ctx) -> None:
+    """Manual cost lines on a project (project-profitability phase 1). The org
+    filter here guards a competitor-sensitive figure: what a rival tenant pays
+    its people for a job is exactly the number a leak would hand over."""
+    from decimal import Decimal
+
+    ids: dict[str, dict] = {}
+    for org in (ctx.a, ctx.b):
+        proj = await org.post(
+            "/api/v1/masters/projects",
+            json={"code": f"PAR-{org.name}", "name": f"Parity {org.name}"},
+        )
+        assert proj.status_code in (200, 201), proj.text
+        project_id = proj.json()["id"]
+        entry = await org.post(
+            f"/api/v1/masters/projects/{project_id}/cost-entries",
+            json={"label": f"Wages {org.name}", "category": "wages", "amount": "100.00"},
+        )
+        assert entry.status_code == 201, entry.text
+        ids[org.name] = {"project": project_id, "entry": entry.json()["id"]}
+
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        # The other tenant's project is opaque — so are everything under it.
+        listing = await me.get(
+            f"/api/v1/masters/projects/{ids[other.name]['project']}/cost-entries"
+        )
+        assert listing.status_code == 404, (
+            f"TENANT LEAK: {me.name} listed {other.name}'s cost entries ({listing.status_code})"
+        )
+        # And MY project's listing never contains THEIR entry.
+        mine = await me.get(f"/api/v1/masters/projects/{ids[me.name]['project']}/cost-entries")
+        assert mine.status_code == 200, mine.text
+        assert ids[other.name]["entry"] not in {e["id"] for e in mine.json()}, (
+            f"TENANT LEAK: {me.name} saw {other.name}'s cost entry"
+        )
+        # Cross-tenant delete: opaque 404, and the row survives.
+        gone = await me.delete(
+            f"/api/v1/masters/projects/{ids[other.name]['project']}"
+            f"/cost-entries/{ids[other.name]['entry']}"
+        )
+        assert gone.status_code == 404, (
+            f"TENANT LEAK: {me.name} deleted {other.name}'s cost entry ({gone.status_code})"
+        )
+        assert Decimal(
+            (await other.get(f"/api/v1/masters/projects/{ids[other.name]['project']}/pnl")).json()[
+                "manual_costs"
+            ]
+        ) == Decimal("100.00"), "a cross-tenant delete attempt must not touch the row"
+
+
+@probe("project_documents")
+async def _project_documents(ctx: Ctx) -> None:
+    """Contract files attached to a project. The bytes are a signed commercial
+    contract — the single most sensitive document a tenant stores."""
+    ids: dict[str, dict] = {}
+    for org in (ctx.a, ctx.b):
+        proj = await org.post(
+            "/api/v1/masters/projects",
+            json={"code": f"DOC-{org.name}", "name": f"Docs {org.name}"},
+        )
+        assert proj.status_code in (200, 201), proj.text
+        project_id = proj.json()["id"]
+        up = await org.post(
+            f"/api/v1/masters/projects/{project_id}/documents",
+            files={"file": (f"contract-{org.name}.pdf", b"%PDF-1.4 parity", "application/pdf")},
+        )
+        assert up.status_code == 201, up.text
+        ids[org.name] = {"project": project_id, "doc": up.json()["id"]}
+
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        listing = await me.get(f"/api/v1/masters/projects/{ids[other.name]['project']}/documents")
+        assert listing.status_code == 404, (
+            f"TENANT LEAK: {me.name} listed {other.name}'s project documents"
+        )
+        dl = await me.get(
+            f"/api/v1/masters/projects/{ids[other.name]['project']}"
+            f"/documents/{ids[other.name]['doc']}/download"
+        )
+        assert dl.status_code == 404, (
+            f"TENANT LEAK: {me.name} downloaded {other.name}'s contract ({dl.status_code})"
+        )
+
+
 ALL_TABLES = sorted(m.__tablename__ for m in TENANT_MODELS)
 
 

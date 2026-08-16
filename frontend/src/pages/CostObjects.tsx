@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { Badge, Button, Card, EmptyState, Modal, QueryState, Skeleton } from "../components/ui";
 import { api, apiError } from "../lib/api";
@@ -193,7 +194,15 @@ export default function CostObjectsPage() {
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.id} className="border-t border-slate-100">
-                    <td className="py-1 font-mono text-xs font-medium">{row.code}</td>
+                    <td className="py-1 font-mono text-xs font-medium">
+                      {kind === "projects" ? (
+                        <Link to={`/projects/${row.id}`} className="text-brand-600 hover:underline">
+                          {row.code}
+                        </Link>
+                      ) : (
+                        row.code
+                      )}
+                    </td>
                     <td className="py-1">{row.name}</td>
                     {kind === "cost-centers" && (
                       <td className="py-1 text-slate-500">{deptName(row.department_id)}</td>

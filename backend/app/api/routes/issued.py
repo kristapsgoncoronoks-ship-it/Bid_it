@@ -16,6 +16,7 @@ from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz, money
 from app.core.csv_safety import sanitize_cell as _csv_safe
 from app.core.security_headers import content_disposition
+from app.models.costing import Project as CostProject
 from app.models.customer import Customer
 from app.models.email_message import EmailMessage
 from app.models.issued_invoice import (
@@ -194,6 +195,19 @@ async def _resolve_links(db: DbSession, org_id: str, body: IssuedInvoiceCreate):
             status.HTTP_400_BAD_REQUEST, "A buyer name (or a customer_id) is required."
         )
 
+    if body.project_id:
+        # Same-org existence check, opaque on failure (§4.4: unknown and
+        # cross-tenant are indistinguishable). Any status is linkable — invoicing
+        # against a closed project is legitimate (the final invoice often
+        # follows the close) and phase 2 surfaces it as an after-close line.
+        found = await db.scalar(
+            select(CostProject.id).where(
+                CostProject.org_id == org_id, CostProject.id == body.project_id
+            )
+        )
+        if found is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+
     # Resolve any line tax-code to its catalogue rate (Slice 4b): the code drives
     # vat_rate; the canonical code is snapshotted onto the line.
     for li in body.lines:
@@ -294,6 +308,7 @@ async def edit_draft(
     for attr in (
         "issuer_id",
         "partner_id",
+        "project_id",
         "issue_date",
         "supply_date",
         "due_date",
@@ -658,6 +673,9 @@ async def create_credit_note(
         issue_date=body.issue_date,
         note=body.reason,
     )
+    # A credit note lands on its parent's project: revenue reversals must hit
+    # the P&L where the revenue did, or every credited project overstates.
+    cn.project_id = original.project_id
     # Enforce: total credited (existing + this) may not exceed the invoiced total.
     # Only the caller-supplied-lines path can over-credit; the omit path is bounded
     # to `remaining` by construction. Allow one cent of rounding tolerance.

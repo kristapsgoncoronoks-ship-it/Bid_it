@@ -27,6 +27,9 @@ class IssuedInvoiceCreate(BaseModel):
     issuer_id: str | None = None
     # Optional link to a Partner — when set, its pre-invoicing workflow is enforced.
     partner_id: str | None = None
+    # The project (won contract/job) this revenue belongs to — the revenue side
+    # of the project P&L (docs/design/project-profitability.md).
+    project_id: str | None = None
     # Optional link to a sales Customer — its billing details prefill the buyer
     # block (and payment terms / currency) when not given explicitly.
     customer_id: str | None = None

@@ -36,6 +36,17 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_issued_org_issue", "org_id", "issue_date"),
         # Target for the composite FK from the payment ledger (tenant-safe refs).
         UniqueConstraint("org_id", "id", name="uq_issued_invoices_org_id"),
+        # Revenue-side project link (docs/design/project-profitability.md phase 1)
+        # — the same composite tenant FK shape `invoices` and `expense_items`
+        # already use for their COST-side links. SET NULL: deleting a project
+        # must never take issued (legal) documents with it.
+        ForeignKeyConstraint(
+            ["org_id", "project_id"],
+            ["projects.org_id", "projects.id"],
+            name="fk_issued_invoices_project",
+            ondelete="SET NULL",
+        ),
+        Index("ix_issued_org_project", "org_id", "project_id"),
         # Numbering backstop: even if two issue transactions somehow raced past the
         # profile row lock, the DB refuses a duplicate document number per tenant.
         UniqueConstraint("org_id", "number", name="uq_issued_invoices_org_number"),
@@ -61,6 +72,9 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     org_id: Mapped[str] = mapped_column(
         GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # The project (won contract/job) this revenue belongs to. Nullable — not
+    # every invoice is project work — and the P&L is only computable when set.
+    project_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)
     # Optional link to a Partner (counterparty). When set, the partner's
     # pre-invoicing workflow gates issuance. `kind` distinguishes a normal
     # invoice from a penalty (late-interest) invoice.
