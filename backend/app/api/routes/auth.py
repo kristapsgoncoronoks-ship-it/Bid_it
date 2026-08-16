@@ -19,6 +19,7 @@ from app.api.deps import (
 )
 from app.core import authz, bank_id, residency
 from app.core.config import settings
+from app.core.ratelimit import client_ip
 from app.core.security import hash_password, verify_password
 from app.models.email_token import PURPOSE_PASSWORD_RESET, PURPOSE_VERIFY_EMAIL
 from app.models.invitation import Invitation
@@ -163,7 +164,17 @@ async def login(body: LoginRequest, request: Request, db: DbSession) -> AuthResp
     if user.failed_login_count or user.locked_until:
         user.failed_login_count = 0
         user.locked_until = None
-    await audit.record(db, audit.A.LOGIN, org_id=user.org_id, actor=(user.id, user.email))
+    # Login happens before deps' request-context hook (there is no bearer token
+    # yet), so the location is passed explicitly — resolved by the same
+    # XFF-resistant rule the rate limiter and deps use. No session_id: the
+    # session this login creates does not exist yet at the moment of the event.
+    await audit.record(
+        db,
+        audit.A.LOGIN,
+        org_id=user.org_id,
+        actor=(user.id, user.email),
+        ip=client_ip(request.scope),
+    )
     token = await sessions.start(db, user, user_agent=_ua(request), ip=_ip(request))
     await db.commit()
     return AuthResponse(

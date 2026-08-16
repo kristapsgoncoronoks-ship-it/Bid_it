@@ -1,15 +1,15 @@
 # Deploy runbook — the 2026-08-15 release to the Hostinger VPS
 
 **What is being deployed:** the working branch at `HEAD`, which advances
-production from `15116e1` by **262 commits** and **29 Alembic migrations**.
+production from `15116e1` by **270 commits** and **30 Alembic migrations** (figures refreshed 2026-08-16; re-run `git rev-list --count 15116e1..HEAD` if you deploy a later commit).
 
 This supersedes `DEPLOY-RUNBOOK-2026-08-12.md`. That runbook was written for
 `ec93e4b` and **was never run** — production is still `15116e1`, so its 24
-migrations are also still pending and are included in the 29 below. Read this
+migrations are also still pending and are included in the 30 below. Read this
 file, not that one.
 
 **Why a runbook rather than the two-line update in `DEPLOY-HOSTINGER.md#operate`:**
-that procedure assumes an incremental update. This applies 29 migrations in one
+that procedure assumes an incremental update. This applies 30 migrations in one
 step to a database that has seen none of them. Migrations are the part of a
 deploy that `git reset` does not undo.
 
@@ -27,10 +27,10 @@ Verified LOCALLY at this tree (executed, not recalled):
 
 | Check | Result |
 |---|---|
-| Backend suite | **2633 passed, 10 skipped (41:02)** on 2026-08-16, at this tree |
+| Backend suite | **2633 passed, 10 skipped (41:02)** on 2026-08-16 at `a986d8e`; the bug-scan fixes landed after — a fresh full run on the final tree is in flight and this row must be replaced with its figure before deploying |
 | `ruff check` / `ruff format --check` | clean |
 | `mypy app` | clean, 339 files |
-| Alembic | single head `a4d7e0c16b93` |
+| Alembic | single head `c9e4f1a7b2d8` (audit ip/session — additive, nullable) |
 | Browser suite | **334 passed (2.8m)** on 2026-08-16, at this tree |
 
 The browser gap the first draft of this runbook carried is CLOSED: the suite has
@@ -109,7 +109,7 @@ proves nothing):
 # On a scratch cluster, NOT production.
 createuser --no-superuser appuser && createdb -O appuser invoiceiq_gate
 DATABASE_URL=postgresql+asyncpg://appuser@localhost/invoiceiq_gate \
-  alembic upgrade head && alembic check          # expect no drift
+  alembic upgrade head && alembic check          # expect no drift, head c9e4f1a7b2d8
 DATABASE_URL=... python -m pytest tests/test_rls.py \
   tests/test_numbering_concurrency.py tests/test_transport_lock_concurrency.py \
   tests/test_usage_counter_concurrency.py -q
@@ -142,7 +142,7 @@ docker compose -f docker-compose.hostinger.yml ps
 docker compose -f docker-compose.hostinger.yml logs -f backend  # watch the migrations
 ```
 
-Expect 29 migrations to apply. If any fails the container will not become
+Expect 30 migrations to apply. If any fails the container will not become
 healthy — **stop and go to §6 rather than retrying**.
 
 ---

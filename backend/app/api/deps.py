@@ -13,15 +13,21 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import authz, residency
 from app.core.database import get_session
 from app.core.errors import AppError
+from app.core.ratelimit import client_ip
 from app.core.security import decode_access_token
-from app.core.tenant import apply_db_tenant, set_current_actor, set_current_org
+from app.core.tenant import (
+    apply_db_tenant,
+    set_current_actor,
+    set_current_org,
+    set_request_context,
+)
 from app.models.organization import Organization
 from app.models.session import Session
 from app.models.user import User
@@ -60,6 +66,7 @@ async def _authenticate(
 
 
 async def get_current_identity(
+    request: Request,
     db: DbSession,
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
 ) -> tuple[User, Organization]:
@@ -88,6 +95,12 @@ async def get_current_identity(
     # check just below is what makes acting in this org legitimate (B1.5).
     set_current_org(user.org_id)
     set_current_actor(user.id, user.email)
+    # The "from where" half of audit attribution: the caller's IP (via the same
+    # X-Forwarded-For-resistant rule the rate limiter keys on) and the session
+    # carrying this token. audit.record reads these into every event — the
+    # owner's deletion-trail requirement names the location explicitly, and
+    # without the session id one actor with two live sessions is unresolvable.
+    set_request_context(client_ip(request.scope), session.id)
     # Active-membership enforcement (Slice 6d): the user must hold a LIVE
     # membership in their active org — a suspended/removed membership is a hard
     # 401 even if the global account is still active. Scoped, so it reads the
@@ -181,6 +194,7 @@ CurrentOrg = Annotated[Organization, Depends(get_current_org)]
 
 
 async def get_current_user_unscoped(
+    request: Request,
     db: DbSession,
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
 ) -> User:
@@ -190,6 +204,7 @@ async def get_current_user_unscoped(
     themselves; they never issue an unfiltered tenant query."""
     user, session = await _authenticate(db, creds)
     set_current_actor(user.id, user.email)
+    set_request_context(client_ip(request.scope), session.id)
     await sessions.touch(db, session)
     return user
 

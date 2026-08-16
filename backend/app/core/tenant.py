@@ -208,6 +208,23 @@ def get_current_actor() -> tuple[str | None, str | None]:
     return _current_actor.get()
 
 
+# (client_ip, session_id) for the request being served — the "from where" half
+# of audit attribution, set next to the actor in deps and read by audit.record.
+# Defaults to (None, None) outside a request (worker jobs, scripts), which is
+# also the truthful value there: a purge job has no location worth inventing.
+_request_ctx: ContextVar[tuple[str | None, str | None]] = ContextVar(
+    "request_ctx", default=(None, None)
+)
+
+
+def set_request_context(ip: str | None, session_id: str | None) -> None:
+    _request_ctx.set((ip, session_id))
+
+
+def get_request_context() -> tuple[str | None, str | None]:
+    return _request_ctx.get()
+
+
 def _scope_criteria(model, org: str):
     """The tenant-visibility predicate for one model under the current org.
 

@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.tenant import get_current_actor, get_current_org
+from app.core.tenant import get_current_actor, get_current_org, get_request_context
 from app.models.audit import AuditEvent
 
 log = logging.getLogger("invoiceiq.audit")
@@ -271,21 +271,31 @@ def _hash(
     target_id: str | None,
     at_ms: int,
     meta_json: str | None,
+    ip: str | None = None,
+    session_id: str | None = None,
 ) -> str:
-    payload = "|".join(
-        [
-            prev_hash or "",
-            str(seq),
-            org_id,
-            actor_id or "",
-            action,
-            target_type or "",
-            target_id or "",
-            str(at_ms),
-            meta_json or "",
-        ]
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    parts = [
+        prev_hash or "",
+        str(seq),
+        org_id,
+        actor_id or "",
+        action,
+        target_type or "",
+        target_id or "",
+        str(at_ms),
+        meta_json or "",
+    ]
+    # APPEND-IF-PRESENT, deliberately: events written before ip/session existed
+    # hash over the original nine fields, and this recomputes them identically
+    # (both columns NULL → nothing appended), so verify_chain still passes on a
+    # pre-existing chain. Once either field is present it is INSIDE the hash —
+    # editing a stored ip, blanking it, or planting one on a legacy event all
+    # change the payload shape or content and break the chain. Recording the
+    # location outside the chain would have made it the one editable column in
+    # a tamper-evident table.
+    if ip is not None or session_id is not None:
+        parts += [ip or "", session_id or ""]
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
 async def record(
@@ -297,6 +307,8 @@ async def record(
     meta: dict | None = None,
     org_id: str | None = None,
     actor: tuple[str | None, str | None] | None = None,
+    ip: str | None = None,
+    session_id: str | None = None,
 ) -> AuditEvent | None:
     """Append one audit event (chained to the tenant's previous one). Best-effort:
     never raises — a failure is logged and returns None. The event is added to the
@@ -306,6 +318,10 @@ async def record(
         if org is None:
             return None  # no tenant context (bootstrap) — nothing to attribute
         actor_id, actor_email = actor if actor is not None else get_current_actor()
+        # "From where": explicit args win (pre-auth sites like login pass their
+        # own); otherwise the request context set by deps next to the actor.
+        if ip is None and session_id is None:
+            ip, session_id = get_request_context()
 
         # Serialize per-tenant audit appends so the hash-chain seq is collision-free
         # under concurrency: without this, two concurrent same-org writes compute the
@@ -330,7 +346,19 @@ async def record(
         prev_hash = latest.hash if latest else None
         at_ms = int(datetime.now(UTC).timestamp() * 1000)
         meta_json = json.dumps(meta, sort_keys=True, separators=(",", ":")) if meta else None
-        h = _hash(prev_hash, seq, org, actor_id, action, target_type, target_id, at_ms, meta_json)
+        h = _hash(
+            prev_hash,
+            seq,
+            org,
+            actor_id,
+            action,
+            target_type,
+            target_id,
+            at_ms,
+            meta_json,
+            ip,
+            session_id,
+        )
 
         event = AuditEvent(
             org_id=org,
@@ -342,6 +370,8 @@ async def record(
             target_id=target_id,
             meta=meta_json,
             at_ms=at_ms,
+            ip=ip,
+            session_id=session_id,
             prev_hash=prev_hash,
             hash=h,
         )
@@ -388,6 +418,8 @@ async def verify_chain(db: AsyncSession, org_id: str) -> ChainStatus:
             e.target_id,
             e.at_ms,
             e.meta,
+            e.ip,
+            e.session_id,
         )
         if recomputed != e.hash:
             return ChainStatus(False, len(rows), e.seq, "event hash does not match its contents")

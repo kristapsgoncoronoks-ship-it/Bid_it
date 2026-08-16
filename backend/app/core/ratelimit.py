@@ -93,6 +93,13 @@ def _client_ip(scope) -> str:
     return client[0] if client else "unknown"
 
 
+# Public alias: audit attribution (deps.py) resolves the caller's IP with the
+# SAME spoofing-resistant rule the rate limiter uses. Two IP derivations that
+# can disagree would mean the audit trail and the brute-force guard tell
+# different stories about the same request.
+client_ip = _client_ip
+
+
 def _bearer_key(scope) -> str | None:
     """A stable per-consumer key from the bearer token (hashed, never stored raw)."""
     for name, value in scope.get("headers", []):

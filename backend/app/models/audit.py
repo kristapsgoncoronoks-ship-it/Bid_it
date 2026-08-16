@@ -36,6 +36,18 @@ class AuditEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     target_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     meta: Mapped[str | None] = mapped_column(Text, nullable=True)  # small JSON, no secrets
 
+    # The "from where" half of attribution (the deletion-trail requirement names
+    # it explicitly: what, when, by whom, from what location). COLUMNS, not meta:
+    # meta is optional caller payload, while these are covered by the hash chain
+    # — an IP recorded outside the chain could be edited without breaking it,
+    # which defeats the reason for recording it. NULL for system/worker events
+    # (a purge job has no location worth inventing) and for events written
+    # before these columns existed; the hash covers them only when present, so
+    # legacy chains still verify. An IP is personal data — its basis and
+    # retention belong in the DPA alongside the audit trail's own.
+    ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    session_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
     at_ms: Mapped[int] = mapped_column(
         BigInteger, nullable=False
     )  # epoch ms, exact round-trip (hashed)
