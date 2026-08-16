@@ -27,7 +27,7 @@ Verified LOCALLY at this tree (executed, not recalled):
 
 | Check | Result |
 |---|---|
-| Backend suite | **2633 passed, 10 skipped (41:02)** on 2026-08-16 at `a986d8e`; the bug-scan fixes landed after — a fresh full run on the final tree is in flight and this row must be replaced with its figure before deploying |
+| Backend suite | **2651 passed, 11 skipped (37:16)** on 2026-08-16 — run at `929c9ae`; the only later commit (`5f1f958`) touches no backend file, so the figure holds for HEAD |
 | `ruff check` / `ruff format --check` | clean |
 | `mypy app` | clean, 339 files |
 | Alembic | single head `c9e4f1a7b2d8` (audit ip/session — additive, nullable) |
