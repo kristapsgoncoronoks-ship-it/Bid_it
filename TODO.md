@@ -115,6 +115,20 @@ by running it. The suite still catches a wrong shape, not a wrong figure.
   its first fetch, and went on passing with the notice window deliberately
   hardcoded.
 
+- [x] **Archive expiry purge** (2026-08-16, P0-1 of the bug scan) — until this,
+  `expires_at` was stamped, published and printed while NOTHING enforced it:
+  "kept for three years, then removed" was true only up to the comma, and the
+  document bytes were retained forever. `archive.purge_expired` + the
+  `ARCHIVE_PURGE` daily job: legal-hold refusal, batched, org re-asserted on the
+  DELETE, audit event carrying the destroyed records, and byte collection AFTER
+  the commit — only for shas referenced by no surviving archive row and no live
+  invoice's extraction run (content-addressed store, so reference-counted).
+  Seed record: org predicate off the DELETE alone stays green (the org-scoped
+  SELECT is the redundant second layer — that is the belt holding without the
+  braces, recorded here so nobody mistakes it for a vacuous test); both layers
+  off goes red; the live-reference check removed goes red; the schedule unwired
+  goes red.
+
 **Not built:**
 - [ ] **Pre-expiry notice + the paid retention extension.** `expiring_soon()`
       exists and is tested; the notification and billing do not. The more

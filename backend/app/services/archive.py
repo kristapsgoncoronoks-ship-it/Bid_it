@@ -32,10 +32,11 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.archived_invoice import ArchivedInvoice
+from app.models.extraction_run import ExtractionRun
 
 log = logging.getLogger("invoiceiq.archive")
 
@@ -212,3 +213,154 @@ async def expiring_soon(
         .order_by(ArchivedInvoice.expires_at)
     )
     return list(rows)
+
+
+# --------------------------------------------------------------------------- #
+# Expiry — the promise the read side was already making
+# --------------------------------------------------------------------------- #
+
+PURGE_BATCH = 500
+"""Same figure and same reason as `invoices.PURGE_BATCH`: an unbounded
+`id.in_(...)` hits Postgres's 65535 bind-parameter ceiling (SQLite's is 32766),
+and a job that fails on size is re-enqueued daily and fails forever."""
+
+
+async def purge_expired(db: AsyncSession, org_id: str, *, now: datetime | None = None) -> dict:
+    """Destroy archive rows past `expires_at` — the end of the deletion chain.
+
+    Until this existed, `expires_at` was stamped, indexed, published by the API
+    and printed on the client screen, and NOTHING enforced it: "kept for three
+    years, then removed" was true only up to the comma. Personal data retained
+    indefinitely past a stated period is the failure a retention window exists
+    to prevent (storage limitation), and it was happening on exactly the store
+    that holds records clients believe they deleted.
+
+    REFUSES (no-op) under an active legal hold, exactly as the bin purge does
+    and for the same reason: a preservation duty overrides a retention window on
+    EVERY destruction path, including the ones added after the hold was wired.
+
+    Batched, columns-not-entities, and the org and expiry predicates are
+    RE-ASSERTED on the DELETE itself rather than inherited from the select — the
+    tenant guard does not touch a non-SELECT statement, so on an irreversible
+    path the WHERE clause is the entire tenant boundary.
+
+    DOCUMENT BYTES ARE NOT DELETED HERE. The store is content-addressed and the
+    same sha can be referenced by another archive row still inside its window,
+    or by a LIVE invoice's extraction run (the same PDF uploaded twice is one
+    object). Deleting bytes inside this transaction would also mean a rollback
+    left surviving rows pointing at nothing. Instead the shas that are safe to
+    collect — referenced by NO remaining archive row and NO extraction run of
+    this org — are returned as `collectable_shas`, and the job handler deletes
+    them best-effort AFTER the commit.
+
+    Does NOT commit; the caller commits the destruction with its audit event so
+    the two are one transaction. Returns
+    `{"held": bool, "purged": int, "records": [...], "collectable_shas": [...]}`.
+    """
+    from app.services import retention
+
+    if await retention.is_on_hold(db, org_id):
+        return {"held": True, "purged": 0, "records": [], "collectable_shas": []}
+
+    stamp = now or datetime.now(UTC)
+    records: list[dict] = []
+    candidate_shas: set[str] = set()
+    purged = 0
+
+    while True:
+        batch = list(
+            await db.execute(
+                select(
+                    ArchivedInvoice.id,
+                    ArchivedInvoice.original_invoice_id,
+                    ArchivedInvoice.invoice_number,
+                    ArchivedInvoice.vendor_name,
+                    ArchivedInvoice.total,
+                    ArchivedInvoice.currency,
+                    ArchivedInvoice.source_sha256,
+                    ArchivedInvoice.archived_at,
+                    ArchivedInvoice.expires_at,
+                )
+                .where(
+                    ArchivedInvoice.org_id == org_id,
+                    ArchivedInvoice.expires_at <= stamp,
+                )
+                .limit(PURGE_BATCH)
+            )
+        )
+        if not batch:
+            break
+
+        ids = [row.id for row in batch]
+        # After this runs, the audit event is the only remaining trace of the
+        # record anywhere in the platform — so it records what was destroyed,
+        # not just how many.
+        records += [
+            {
+                "archive_id": row.id,
+                "original_invoice_id": row.original_invoice_id,
+                "invoice_number": row.invoice_number,
+                "vendor_name": row.vendor_name,
+                "total": str(row.total) if row.total is not None else None,
+                "currency": row.currency,
+                "archived_at": row.archived_at.isoformat() if row.archived_at else None,
+                "expired_at": row.expires_at.isoformat() if row.expires_at else None,
+            }
+            for row in batch
+        ]
+        candidate_shas.update(row.source_sha256 for row in batch if row.source_sha256)
+
+        result = await db.execute(
+            delete(ArchivedInvoice).where(
+                ArchivedInvoice.org_id == org_id,
+                ArchivedInvoice.id.in_(ids),
+                ArchivedInvoice.expires_at <= stamp,
+            )
+        )
+        purged += int(getattr(result, "rowcount", 0) or 0)
+
+        if len(batch) < PURGE_BATCH:
+            break
+
+    collectable: list[str] = []
+    if candidate_shas:
+        # Both checks run AFTER the deletes above (same transaction), so a sha
+        # shared only among rows expiring together is correctly collectable,
+        # while one referenced by a survivor — or by a live invoice — is not.
+        still_archived = set(
+            await db.scalars(
+                select(ArchivedInvoice.source_sha256).where(
+                    ArchivedInvoice.org_id == org_id,
+                    ArchivedInvoice.source_sha256.in_(sorted(candidate_shas)),
+                )
+            )
+        )
+        still_live = set(
+            await db.scalars(
+                select(ExtractionRun.source_sha256).where(
+                    ExtractionRun.org_id == org_id,
+                    ExtractionRun.source_sha256.in_(sorted(candidate_shas)),
+                )
+            )
+        )
+        collectable = sorted(candidate_shas - still_archived - still_live)
+
+    return {"held": False, "purged": purged, "records": records, "collectable_shas": collectable}
+
+
+async def collect_bytes(org_id: str, shas: list[str]) -> int:
+    """Best-effort removal of expired documents' bytes, AFTER the row commit.
+
+    A failure here leaves an orphaned object nothing references — logged, and
+    strictly better than the inverse (rows surviving a rollback while their
+    bytes are already gone). Returns how many were removed."""
+    from app.services import documents
+
+    removed = 0
+    for sha in shas:
+        try:
+            await documents.delete(documents.UPLOADS, org_id, sha)
+            removed += 1
+        except Exception as exc:  # noqa: BLE001 - cleanup must not fail the purge
+            log.warning("archive byte collection failed for %s/%s: %s", org_id, sha, exc)
+    return removed

@@ -11,6 +11,7 @@ from __future__ import annotations
 from app.models.job import Job
 from app.services import (
     ap_alerts,
+    archive,
     audit,
     billing,
     billing_usage,
@@ -36,6 +37,7 @@ INTEGRITY_VERIFY = "integrity.verify_documents"
 EVERYPAY_CHARGE = "everypay.charge_mit"
 RETENTION_PURGE = "retention.purge"
 BIN_PURGE = "invoice.bin_purge"
+ARCHIVE_PURGE = "archive.purge_expired"
 USAGE_REPORT = "billing.report_usage"
 COSTING_BACKFILL = "costing.backfill_links"
 INTEGRITY_LEDGER = "integrity.verify_ledger"
@@ -111,6 +113,38 @@ async def _bin_purge(db, payload: dict, job: Job) -> dict:
         )
         await db.commit()
     return {"held": result["held"], "purged": result["purged"]}
+
+
+@jobs.handler(ARCHIVE_PURGE)
+async def _archive_purge(db, payload: dict, job: Job) -> dict:
+    """Destroy one tenant's archive rows past `expires_at`, then their bytes.
+
+    The end of the deletion chain, and until it existed the chain had no end:
+    `expires_at` was stamped, published and printed on the client screen while
+    nothing enforced it — "kept for three years, then removed" was true only up
+    to the comma. In DAILY_KINDS for every tenant, like BIN_PURGE: expiry is a
+    promise stated on every archived record, not an opt-in policy.
+
+    Order matters here. The rows are destroyed and AUDITED in one commit (after
+    which that event is the only remaining trace of the records), and only then
+    are the document bytes collected, best-effort — so a rollback can never
+    leave surviving rows pointing at bytes that are already gone. The service
+    has already excluded every sha still referenced by a surviving archive row
+    or a live invoice's extraction run.
+    """
+    result = await archive.purge_expired(db, job.org_id)
+    if result["purged"]:
+        await audit.record(
+            db,
+            "archive.purge",
+            org_id=job.org_id,
+            meta={"purged": result["purged"], "records": result["records"]},
+        )
+        await db.commit()
+        collected = await archive.collect_bytes(job.org_id, result["collectable_shas"])
+    else:
+        collected = 0
+    return {"held": result["held"], "purged": result["purged"], "bytes_collected": collected}
 
 
 @jobs.handler(RECURRING_GENERATE)

@@ -29,6 +29,11 @@ DAILY_KINDS = (
     # something, not an opt-in setting. A tenant with no retention policy would
     # otherwise keep a binned record invisible and immortal.
     job_handlers.BIN_PURGE,
+    # The archive's expiry purge — the END of the chain the bin purge feeds.
+    # Every tenant, for the same reason as BIN_PURGE: "kept for N years, then
+    # removed" is stamped on every archived record, not an opt-in setting, and
+    # until this ran nothing enforced the "then removed" half.
+    job_handlers.ARCHIVE_PURGE,
 )
 
 
