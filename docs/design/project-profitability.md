@@ -198,17 +198,19 @@ Mapped against what exists:
 | Invoicing per contract | ✅ phase 1 (project picker) | plus an **invoicing plan**: the contract's agreed schedule (stage/advance/interim amounts) tracked against what was actually issued — "contracted 3 × 10,000, issued 2" is a live receivable the client can see instead of remember |
 | Project costs | ✅ phase 1 (invoices, expenses, manual lines incl. wages) · phase 2 allocation | generic cost categories already cover materials/consumables/transport via allocation + labelled manual lines — deliberately no industry taxonomy |
 | **Acceptance & handover** | ❌ nothing | a project state between "work done" and "closed": an acceptance document (act of acceptance/handover — standard commercial practice in this product's markets) generated from a template, countersigned by the customer (e-sign seam), stored on the project like the contract. Acceptance is what makes the final invoice UNARGUABLE — the customer has signed that the work is done. |
-| **Final invoicing** | ❌ as a concept | the closing invoice tied to acceptance: what remains of the contracted sum after advances/interim invoices, computed from the invoicing plan, issued at (or gated on) acceptance. Feeds phase 2's close-freeze naturally: acceptance → final invoice → close → frozen P&L. |
+| **Final invoicing** | ❌ as a concept | the closing invoice tied to acceptance. **ADJUSTABLE/DYNAMIC (owner decision 2026-08-16):** the invoicing plan's computed remainder is a starting point, and unexpected costs, damages and claims — either party's — are added as explicit, labelled adjustment lines, so the invoice reconciles as contracted sum ± named adjustments = final total and the P&L explains the difference instead of hiding it. A negative adjustment that flips the sign becomes a credit note through the existing machinery, never a negative invoice. Linked to acceptance by default, gate as a per-org toggle. Feeds phase 2's close-freeze naturally: acceptance → final invoice → close → frozen P&L. |
 
-**Standardized document templates (owner direction):** the platform provides
-contract and acceptance-document templates a customer can use — prefilled from
-the project (parties from the issuer registry + customer master, scope,
-amounts, dates), stored per-org so a business can adapt its own wording, and
-rendered through the existing PDF path. Same industry-neutral rule: templates
-carry placeholders, never industry nouns. **Legal review is required before
-any template ships as a default** — a platform handing out contract text is
-adjacent to legal advice, and the templates must say what they are and are not
-(recorded in DECISIONS-NEEDED).
+**Standardized document templates (owner direction, lawyer committed
+2026-08-16):** the platform provides contract and acceptance-document templates
+a customer can use — prefilled from the project (parties from the issuer
+registry + customer master, scope, amounts, dates), stored per-org so a
+business can adapt its own wording, and rendered through the existing PDF
+path. Same industry-neutral rule: templates carry placeholders, never industry
+nouns. **The owner's lawyer will produce the standardized base texts**; until
+they land, phase 5 builds and ships the template MACHINERY against per-org
+custom templates — it is identical either way, so legal is off the critical
+path. **Offer numbering is client-configurable** (per-org prefix/pattern/
+counter; the platform enforces only per-org uniqueness).
 
 Sequencing note: offer/estimate and the invoicing plan are the natural
 **phase 4** (they extend the revenue side phase 1 built); acceptance +

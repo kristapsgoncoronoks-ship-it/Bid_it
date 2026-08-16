@@ -762,20 +762,29 @@ acceptance & handover → final invoicing, with **standardized contract and
 acceptance templates for customers**. Phases 1–3 need nothing from this section;
 these block phases 4–5 only.
 
-**Blocked / needs you:**
+**All three ANSWERED by the owner, 2026-08-16 (same day):**
 
-1. **Template liability.** The platform shipping default contract/acceptance
-   text is adjacent to legal advice. Before ANY default template ships:
-   a lawyer reviews the base texts, the templates state plainly that they are
-   starting points and not legal advice, and we decide which
-   jurisdictions/languages the defaults cover (LV/LT/EE? EN?). Per-org
-   customized templates carry the org's own responsibility — the decision is
-   about OUR defaults.
-2. **Is final invoicing GATED on acceptance, or merely linked to it?** Gating
-   is the strong product ("the customer signed, now bill the remainder");
-   linking is the safe default (a business may bill before the act is signed).
-   Recommendation pending your call: link in phase 5, gate as a per-org toggle.
-3. **Offer numbering.** Offers get revised and referenced; do they need their
-   own gap-free per-issuer series like invoices and credit notes, or is a
-   simple version counter per offer enough? (Gap-free costs the same locking
-   machinery invoices use; a version counter is an afternoon.)
+1. **Templates → a lawyer will work on the standardized contract and
+   acceptance texts.** The review path is committed, not hypothetical. What
+   engineering still needs before phase 5 ships defaults: the reviewed base
+   texts themselves, and the jurisdictions/languages they cover — the build
+   can proceed against per-org custom templates in the meantime, because the
+   template MACHINERY (placeholders, prefill, per-org storage, PDF render) is
+   identical whether the text came from our lawyer or the client's.
+2. **Final invoicing is ADJUSTABLE/DYNAMIC, by owner requirement.** The
+   invoicing plan's computed remainder is a STARTING POINT, never a locked
+   figure: unexpected costs, damages and claims — in either party's favour —
+   are added as explicit, labelled adjustment lines on the final invoice. The
+   design consequence (recorded in the design doc §5a): the final invoice
+   reconciles as contracted sum ± named adjustments = final total, so the P&L
+   explains the difference instead of hiding it, and a negative adjustment
+   large enough to flip the sign becomes a credit note through the existing
+   machinery rather than a negative invoice. (Whether issuing the final
+   invoice is GATED on acceptance stays as recommended: linked by default,
+   gate as a per-org toggle — adjustability makes a hard gate even less
+   appropriate, since the adjusting party needs control of the moment.)
+3. **Offer numbering logic is set by the client** — a per-org configurable
+   scheme (prefix/pattern/counter), not a hardcoded gap-free series. The
+   platform enforces exactly one thing regardless of the chosen scheme:
+   uniqueness per org, so an offer reference is never ambiguous. No
+   invoice-grade locking machinery unless a client's scheme needs it.

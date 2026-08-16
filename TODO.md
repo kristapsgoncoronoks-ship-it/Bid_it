@@ -77,10 +77,15 @@ tracked against actually-issued) → project costs → **acceptance & handover**
 (a countersigned acceptance document, generated from a template) → **final
 invoicing** (the remainder of the contracted sum, gated on acceptance) →
 close → frozen P&L. Plus **standardized contract + acceptance templates**
-(per-org adaptable, prefilled from the project, legal review required before
-any default ships — see DECISIONS-NEEDED). Sequenced as phases 4 (offer +
-invoicing plan) and 5 (acceptance + templates + final invoice); nothing in
-phases 1–3 needs rework — the stages slot in front of and behind the loop.
+(per-org adaptable, prefilled from the project). Owner answers, same day:
+the **lawyer will produce the standardized texts** (machinery builds against
+per-org custom templates meanwhile); **final invoicing is ADJUSTABLE** —
+computed remainder ± explicit labelled adjustment lines for unexpected costs/
+damages either way, reconciling instead of hiding; **offer numbering is
+client-configurable** (per-org scheme, platform enforces only uniqueness).
+Sequenced as phases 4 (offer + invoicing plan) and 5 (acceptance + templates
++ final invoice); nothing in phases 1–3 needs rework — the stages slot in
+front of and behind the loop.
 
 ---
 
