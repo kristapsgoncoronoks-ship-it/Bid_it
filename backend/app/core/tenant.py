@@ -55,6 +55,7 @@ from app.models.inbound_channel_health import InboundChannelHealth
 from app.models.invitation import Invitation
 from app.models.invoice import Invoice
 from app.models.invoice_collab import InvoiceAttachment, InvoiceComment
+from app.models.invoice_project_split import InvoiceProjectSplit
 from app.models.issued_invoice import IssuedInvoice, IssuedInvoiceAttachment
 from app.models.issuer import IssuerProfile
 from app.models.job import Job
@@ -101,6 +102,7 @@ TENANT_MODELS = (
     ArchivedInvoice,
     ProjectDocument,
     ProjectCostEntry,
+    InvoiceProjectSplit,
     Vendor,
     VendorChangeRequest,
     Invoice,

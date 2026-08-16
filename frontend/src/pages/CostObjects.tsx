@@ -5,7 +5,7 @@ import { useAuth } from "../auth/AuthContext";
 import { Badge, Button, Card, EmptyState, Modal, QueryState, Skeleton } from "../components/ui";
 import { api, apiError } from "../lib/api";
 import { isAdminOrAbove } from "../lib/roles";
-import type { CostMaster, MasterStatus } from "../lib/types";
+import type { CostMaster, MasterStatus, ProjectPnl } from "../lib/types";
 
 type Kind = "departments" | "cost-centers" | "projects";
 
@@ -59,6 +59,14 @@ export default function CostObjectsPage() {
     queryFn: async () => (await api.get("/masters/departments")).data,
     enabled: kind === "cost-centers",
   });
+
+  // "Which contracts lose money" — the list's real question (projects only).
+  const summary = useQuery<ProjectPnl[]>({
+    queryKey: ["masters", "projects-pnl-summary"],
+    queryFn: async () => (await api.get("/masters/projects-pnl-summary")).data,
+    enabled: kind === "projects",
+  });
+  const pnlFor = (id: string) => summary.data?.find((r) => r.project_id === id);
 
   const refresh = () => {
     setErr(null);
@@ -187,6 +195,8 @@ export default function CostObjectsPage() {
                   <th className="py-1">Name</th>
                   {kind === "cost-centers" && <th className="py-1">Department</th>}
                   {kind === "projects" && <th className="py-1">Dates</th>}
+                  {kind === "projects" && <th className="py-1 text-right">Profit</th>}
+                  {kind === "projects" && <th className="py-1 text-right">Margin</th>}
                   <th className="py-1">Status</th>
                   {admin && <th className="py-1"></th>}
                 </tr>
@@ -210,6 +220,18 @@ export default function CostObjectsPage() {
                     {kind === "projects" && (
                       <td className="py-1 text-xs text-slate-500">
                         {row.start_date ?? "—"} → {row.end_date ?? "open"}
+                      </td>
+                    )}
+                    {kind === "projects" && (
+                      <td className="py-1 text-right tabular-nums text-xs">
+                        {pnlFor(row.id) ? `${pnlFor(row.id)!.profit} €` : "—"}
+                      </td>
+                    )}
+                    {kind === "projects" && (
+                      <td className="py-1 text-right tabular-nums text-xs">
+                        {pnlFor(row.id)?.margin_pct != null
+                          ? `${pnlFor(row.id)!.margin_pct}%`
+                          : "—"}
                       </td>
                     )}
                     <td className="py-1">

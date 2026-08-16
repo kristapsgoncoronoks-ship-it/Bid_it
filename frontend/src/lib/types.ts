@@ -2535,4 +2535,8 @@ export interface ProjectPnl {
   profit: string;
   margin_pct: string | null;
   basis: string;
+  /** Non-empty only on a frozen P&L: per-figure deltas for what arrived after
+   * the close — displayed drift, never silent drift. */
+  adjustments: Record<string, string>;
+  pnl_frozen_at: string | null;
 }

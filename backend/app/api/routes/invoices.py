@@ -51,6 +51,7 @@ from app.schemas.invoice import (
     ScoredCandidateOut,
     UploadAccepted,
 )
+from app.schemas.project_profit import AllocationIn
 from app.schemas.validation import ValidationDecision, ValidationFinding
 from app.services import (
     access,
@@ -1248,3 +1249,42 @@ async def retry_upload(
     )
     await db.commit()
     return UploadAccepted(extraction_run_id=run.id, status=run.status)
+
+
+@router.put(
+    "/{invoice_id}/allocation",
+    dependencies=[Depends(require_perm(authz.Permission.INVOICE_WRITE))],
+)
+async def set_project_allocation(
+    invoice_id: str, body: AllocationIn, current: CurrentUser, db: DbSession
+):
+    """Replace this invoice's project allocation — all three levels in one write
+    (project-profitability phase 2, precedence line > split > whole-invoice).
+    Splits must sum to exactly 100; every referenced project must be this
+    org's (opaque 404 otherwise)."""
+    from app.services import project_profit
+
+    try:
+        result = await project_profit.set_allocation(
+            db,
+            current.org_id,
+            invoice_id,
+            project_id=body.project_id,
+            splits=[(s.project_id, s.percent) for s in body.splits]
+            if body.splits is not None
+            else None,
+            lines=body.lines,
+        )
+    except project_profit.NotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from None
+    except project_profit.ProjectProfitError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    await audit.record(
+        db,
+        "invoice.project_allocation",
+        target_type="invoice",
+        target_id=invoice_id,
+        meta=result,
+    )
+    await db.commit()
+    return result

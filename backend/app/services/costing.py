@@ -159,8 +159,22 @@ async def update(
             raise CostingError(f"cannot move {_kind(model)} from '{row.status}' to '{status}'")
         if status != row.status:
             changed["status"] = {"old": row.status, "new": status}
+        prior = row.status
         row.status = status
         row.archived_at = datetime.now(UTC) if status == "archived" else None
+        # Project-profitability phase 2: closing a PROJECT freezes its P&L in
+        # the same transaction as the transition (the figure the client acted
+        # on commits with the close, or neither does); reopening clears the
+        # snapshot — a reopened project is live again by definition, and this
+        # audit event is where the discard is recorded.
+        if model is not None and _kind(model) == "project" and prior != status:
+            from app.services import project_profit
+
+            if status == "closed":
+                changed["pnl_frozen"] = await project_profit.snapshot_close(db, org_id, entity_id)
+            elif prior == "closed":
+                await project_profit.clear_snapshot(db, org_id, entity_id)
+                changed["pnl_snapshot_discarded"] = {"old": "frozen", "new": "live"}
     row.version += 1
     # §4.16: audited in the same commit as the mutation, with old→new meta.
     await audit.record(

@@ -190,6 +190,13 @@ async def update_project(entity_id: str, body: MasterUpdate, current: CurrentUse
 _BOOKKEEPING = [Depends(require_perm(authz.Permission.INVOICE_WRITE))]
 
 
+@router.get("/projects-pnl-summary", response_model=list[ProjectPnlOut])
+async def projects_pnl_summary(current: CurrentUser, db: DbSession):
+    """Every project's headline figures — the list screen's question is "which
+    contracts lose money", so profit and margin ride with code/name/status."""
+    return [ProjectPnlOut(**row) for row in await project_profit.pnl_summary(db, current.org_id)]
+
+
 @router.get("/projects/{entity_id}/pnl", response_model=ProjectPnlOut)
 async def project_pnl(entity_id: str, current: CurrentUser, db: DbSession):
     """The LIVE project P&L (revenue − costs, NET EUR — the response's `basis`

@@ -143,6 +143,13 @@ export default function ProjectDetail() {
                   live figures · net amounts, EUR
                 </span>
               )}
+              {data.basis === "net_eur_frozen" && (
+                <span className="text-xs text-slate-400">
+                  frozen at close
+                  {data.pnl_frozen_at ? ` (${shortDate(data.pnl_frozen_at)})` : ""} · net
+                  amounts, EUR
+                </span>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               <div>
@@ -177,6 +184,23 @@ export default function ProjectDetail() {
                 </p>
               </div>
             </div>
+            {Object.keys(data.adjustments ?? {}).length > 0 && (
+              <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <p className="font-medium">Arrived after close</p>
+                <p className="text-xs">
+                  These changes happened after this project&apos;s figures were frozen.
+                  The frozen numbers above are unchanged; reopen the project to
+                  recalculate.
+                </p>
+                <ul className="mt-1 text-xs">
+                  {Object.entries(data.adjustments).map(([k, v]) => (
+                    <li key={k} className="tabular-nums">
+                      {k.replace(/_/g, " ")}: {v} €
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
       </QueryState>

@@ -227,5 +227,11 @@ class LineItem(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     unit_price: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"), nullable=False)
     tax_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0"), nullable=False)
+    # Line-level project allocation (project-profitability phase 2): a line's
+    # explicit project WINS over the invoice's split and its own project_id.
+    # Plain GUID, not a composite tenant FK — line_items carries no org_id and
+    # is only reachable through its org-scoped invoice; the service validates
+    # the project is same-org before writing.
+    project_id: Mapped[str | None] = mapped_column(GUID(), nullable=True, index=True)
 
     invoice: Mapped[Invoice] = relationship(back_populates="line_items")

@@ -66,9 +66,27 @@ sales invoices under it → allocate supplier/subcontractor invoices and expense
   panel), project picker on the issue form, project codes on `/cost-objects`
   link through. 5 e2e specs; the full browser suite is green at 339.
 
-Phase 2 (next): line-level + % allocation with the precedence rule, the
-close-time FREEZE + after-close adjustments, margin on the projects list, and
-the module-conditional recovered-VAT line.
+- [x] **Phase 2 shipped (same day, PP-2):** line-level + % allocation under the
+  precedence rule (line > split > whole-invoice) via ONE write
+  (`PUT /invoices/{id}/allocation` — all three levels at once, so they can
+  never contradict), cent-exact with the rounding residue on the largest
+  PERCENT — the drift test (10.00 at 33.33/33.33/33.34) caught the first
+  implementation putting it on the largest rounded share, which degenerates to
+  an arbitrary id tiebreak when all shares round equal. The close-time FREEZE:
+  closing a project stores its P&L in the same transaction as the transition
+  (`costing.update` hook, `pnl_frozen` in the audit meta); late documents
+  surface as labelled `adjustments` deltas next to the frozen figure; reopening
+  discards the snapshot, audited. `basis` moves live→frozen on the wire and the
+  screen follows the field. Margin + profit columns on the projects list
+  (`/masters/projects-pnl-summary`). Seeds: residue rule removed → red (after
+  the drift case was added — the 60/40 case stayed green, a lesson recorded in
+  the test's docstring); freeze bypassed → red.
+
+Phase 2 remaining (small): the allocation EDITOR on the invoice detail screen
+(the API is live; the UI still only sets whole-invoice via the issue picker).
+Phase 3+: module-conditional recovered-VAT line, e-sign, budget-vs-actual;
+phases 4–5 per §5a (offer/estimate, invoicing plan, acceptance, templates,
+adjustable final invoicing).
 
 **The FULL lifecycle — owner vision 2026-08-16, recorded so it is not lost**
 (design: `docs/design/project-profitability.md` §5a): open project →

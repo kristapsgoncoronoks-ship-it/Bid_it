@@ -42,6 +42,8 @@ const PNL = {
   profit: "450.00",
   margin_pct: "45.0",
   basis: "net_eur_live",
+  adjustments: {},
+  pnl_frozen_at: null,
 };
 
 interface MockOpts {
@@ -135,13 +137,31 @@ test("the project page renders the wire's figures verbatim", async ({ page }) =>
 });
 
 test("a P&L with an unknown basis renders no basis claim", async ({ page }) => {
-  // Phase 2 will freeze closed projects and change `basis`; a screen that
-  // hardcoded "live" would then lie. Until the new copy exists, silence.
-  await open(page, { pnl: { basis: "net_eur_frozen" } });
+  // A basis this build does not know stays silent — the screen must never
+  // guess what the numbers are.
+  await open(page, { pnl: { basis: "some_future_basis" } });
   await page.goto("/projects/proj-1");
 
   await expect(page.getByRole("heading", { name: "JOB-7 · Won contract" })).toBeVisible();
-  await expect(page.getByText(/live figures/i)).toHaveCount(0);
+  await expect(page.getByText(/live figures|frozen at close/i)).toHaveCount(0);
+});
+
+test("a frozen P&L says so and shows what arrived after close", async ({ page }) => {
+  await open(page, {
+    pnl: {
+      status: "closed",
+      basis: "net_eur_frozen",
+      pnl_frozen_at: "2026-08-10T09:00:00Z",
+      adjustments: { costs: "50.00", profit: "-50.00" },
+    },
+  });
+  await page.goto("/projects/proj-1");
+
+  await expect(page.getByText(/frozen at close/i)).toBeVisible();
+  await expect(page.getByText("Arrived after close")).toBeVisible();
+  await expect(page.getByText("costs: 50.00 €")).toBeVisible();
+  // The frozen headline figure is untouched by the adjustment.
+  await expect(page.getByText("450.00 €")).toBeVisible();
 });
 
 test("adding a cost line posts what the operator typed", async ({ page }) => {

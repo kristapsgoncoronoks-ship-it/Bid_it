@@ -30,6 +30,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -106,5 +107,11 @@ class Project(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )  # active|closed|archived
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # The close-time P&L FREEZE (project-profitability phase 2): closing stores
+    # the figure the client acted on; a late document becomes a visible
+    # "arrived after close" adjustment instead of silent drift. Reopening
+    # clears it (audited) — a reopened project is live again by definition.
+    closed_pnl_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pnl_frozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)

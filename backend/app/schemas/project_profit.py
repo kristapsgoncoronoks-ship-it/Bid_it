@@ -58,3 +58,22 @@ class ProjectPnlOut(BaseModel):
     profit: str
     margin_pct: str | None = None
     basis: str
+    # Non-empty only on a FROZEN P&L: per-figure deltas for what arrived after
+    # the close — displayed drift, never silent drift.
+    adjustments: dict[str, str] = Field(default_factory=dict)
+    pnl_frozen_at: str | None = None
+
+
+class SplitIn(BaseModel):
+    project_id: str
+    percent: Decimal
+
+
+class AllocationIn(BaseModel):
+    """One invoice's allocation, all three levels in one write so they can never
+    contradict each other. `splits` replaces all existing rows (empty list
+    clears); `lines` tags only the lines it names."""
+
+    project_id: str | None = None
+    splits: list[SplitIn] | None = None
+    lines: dict[str, str | None] | None = None
