@@ -34,6 +34,48 @@ Asked because each answer changed what gets built, not to confirm a plan.
 
 ---
 
+## Decisions taken — 2026-08-15 (deletion, the recycle bin, the platform archive)
+
+Reasoning in [`design/deletion-and-archive.md`](design/deletion-and-archive.md)
+and [`design/platform-archive.md`](design/platform-archive.md).
+
+- **The 30-day purge stays ON**, offered with a one-line off switch as the
+  recommendation. The owner chose to keep the promise the UI makes. That choice
+  is what moved the archive from last to next.
+- **The bin extends to every entity** — expenses, expense reports,
+  issued-invoice attachments, recurring schedules.
+- **An invoice in a FILED VAT claim:** add a real invoice→claim-line link, then
+  REFUSE the delete. Supersedes an earlier proposal withdrawn because it rested
+  on a heuristic string match and would have misfired in both directions.
+- **The archive keeps the record AND the source document.**
+- **Archive read access:** the CLIENT's own company owner, read-only, own org —
+  plus platform staff under a distinct grant a platform admin does NOT hold by
+  default: named individual, time-boxed, reason recorded at every read.
+- **Retention: 3 years included; longer is a PAID extension.** `expires_at` is
+  stamped at write time so lowering the setting can never reach backwards into
+  records already kept under a longer promise.
+
+### Still open, and what each blocks
+
+**A. Statutory retention floors, per country — needs the owner's accountant.**
+Baltic law commonly requires source documents kept LONGER than three years, so a
+client who does not extend loses records they were obliged to keep. The
+obligation is theirs, not the platform's, but it lands on them at the worst
+moment. Mitigation designed and half-built: nothing leaves without the owner
+being told first (`archive.expiring_soon`). **Blocks** any customer-facing
+retention claim and the DPA clause.
+
+**B. Does the retention extension ride on the plan ladder, or sell standalone?**
+**Blocked by §2a** — the ladder itself is unresolved (code says
+trial/starter/pro/enterprise; the pricing doc proposes a different five-tier
+ladder). An add-on cannot be priced against a ladder nobody has chosen.
+**Blocks** building the paid extension at all.
+
+**C. Does the archive follow a client who leaves?** Termination and statutory
+retention point opposite ways. A DPA question before a code one.
+
+---
+
 ## Decisions taken — 2026-08-08
 
 Four answered in session. Recorded verbatim in intent, with what each one

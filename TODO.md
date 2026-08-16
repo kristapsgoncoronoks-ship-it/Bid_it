@@ -31,6 +31,103 @@ separately on real Postgres), 0 known regressions, as of WO-70. WO-71: 1699 → 
 
 ---
 
+## Pilot status — 2026-08-15 (updates the 2026-08-12 entry below)
+
+Three of that entry's four gates stay closed. What changed since:
+
+**Verified at `75befc4`** (executed, not recalled): backend suite **2633 passed,
+10 skipped** · ruff clean · ruff format clean · mypy clean over **339** files ·
+single head `a4d7e0c16b93` · browser suite **293 passed** at `1bbb154` — the
+consent dialog changed after that run and has NOT been re-verified in a browser.
+
+**Deletion is now a complete, audited chain** (next section). That closes a real
+diligence finding: "a clerk clicked Delete and the record was gone" no longer
+describes this product.
+
+**Still open for the pilot, owner-side — re-checked, not recalled:**
+- [ ] **Run the deploy.** Production is still `15116e1`. Nothing from 2026-08-12
+      is live, and nothing from 2026-08-14/15 either — that is now **56 commits
+      and 7 migrations** of undeployed work, including the whole deletion chain.
+- [ ] **Set the fee rate once deployed** — the VALUE is decided (15% / €50,
+      2026-08-15) and the HTTP surface exists; it is one call in the runbook.
+- [ ] **GitHub Actions runners (billing).** Confirmed still dead: no run since
+      2026-08-12, and that run's jobs each died in 2-10 seconds with no logs.
+      Every push since — twelve — has triggered nothing.
+- [ ] **One real supplier statement, redacted**, for a first real-data pass.
+      Unchanged and still the highest-value open item on this page. The ~250
+      tests added on 14/15 August do not move it: they are self-authored over
+      fixtures, exactly like the 2445 that passed while four money defects sat in
+      the code.
+
+**Engineering, not pilot-blocking, added 2026-08-15:**
+- [ ] Deploy runbook needs regenerating — `DEPLOY-RUNBOOK-2026-08-12.md` predates
+      seven migrations.
+- [ ] `main` is behind again: buildable (repaired at `ec93e4b`) but 56 commits
+      back.
+
+---
+
+## Deletion, the recycle bin, and the platform archive — 2026-08-14→15
+
+Not a numbered WO. Design and owner decisions:
+[`docs/design/deletion-and-archive.md`](docs/design/deletion-and-archive.md),
+[`docs/design/platform-archive.md`](docs/design/platform-archive.md).
+
+Deleting an invoice used to destroy the row outright. It is now a chain, every
+step audited and every destructive step fenced:
+
+> delete → recycle bin, 30 days, restorable by admin/owner → purge → platform
+> archive, 3 years, readable and downloadable by the company owner → expiry
+
+- [x] **Soft delete + one central hiding rule** — enforced through the existing
+  `do_orm_execute` hook so no query can forget it. Proven to cover column-only
+  selects, aggregates AND explicit-ON joins over line items; that last shape
+  decided whether every category, budget and benchmark figure would have been
+  silently wrong for 30 days.
+- [x] **Delete becomes reversible** — Trash screen, restore behind a separate
+  `INVOICE_RESTORE` permission (admin/owner only, narrower than who may delete).
+- [x] **Server-enforced consent gate** — a client may delete a paid or approved
+  invoice (owner decision) but only having been warned every time, the warning
+  VERSIONED and frozen verbatim into the audit event.
+- [x] **30-day purge** — refuses under a legal hold, batched, org-scoped on the
+  DELETE itself.
+- [x] **Multi-select delete** — held back until deletion was reversible.
+- [x] **Platform archive** — sealed `archived_invoices`, written in the SAME
+  transaction as the delete so a record cannot be destroyed without being
+  archived. Record + source PDF. Client's own company owner reads it. Under RLS.
+- [x] **P0/P1 defects found by an 8-role review of the above, and fixed** —
+  including a purge that would have raised on every transport tenant daily
+  forever (composite-FK `SET NULL` nulling a NOT NULL `org_id`), a Trash screen
+  that stated a false total, a silent single-delete, and a plan-quota bypass the
+  bin had made free and repeatable.
+
+**In the same spirit as the 2026-08-12 lesson:** the review found two P0s that
+2633 passing tests did not. Both were found by reading code against intent, not
+by running it. The suite still catches a wrong shape, not a wrong figure.
+
+**Not built:**
+- [ ] **Archive client-facing screen** — API exists (`GET /archive`,
+      `/archive/{id}`, `/archive/{id}/document`); nothing in the SPA reaches it.
+- [ ] **Pre-expiry notice + the paid retention extension.** `expiring_soon()`
+      exists and is tested; the notification and billing do not. The more
+      important of the two: three years is likely BELOW the Baltic statutory
+      floor, so a client who does not extend loses records they were obliged to
+      keep, and the notice is what makes that survivable.
+- [ ] **Extend the bin to other entities** (owner-approved). Expenses, expense
+      reports, issued-invoice attachments and recurring schedules are still
+      destroyed on click — one with no confirmation at all.
+- [ ] **Real invoice→VAT-claim link, then refuse those deletes**
+      (owner-approved). Today an invoice in a FILED claim can be bulk-deleted
+      with no warning; the only existing link is a heuristic string match.
+
+**Owner decisions 2026-08-15**, recorded in `docs/DECISIONS-NEEDED.md`: purge
+stays on · bin extends to all entities · add the claim link then refuse ·
+archive first · archive keeps record + document · archive read = the client's own
+company owner, plus platform staff under a named, time-boxed, reason-logged grant
+· **3 years included, longer is a PAID extension.**
+
+---
+
 ## Pilot status — 2026-08-12
 
 **Scope decided: a SUPERVISED PILOT with named clients**, not an open beta
