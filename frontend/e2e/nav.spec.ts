@@ -112,6 +112,12 @@ test("base user role hides admin/owner-gated items but keeps unrestricted ones",
   await page.goto("/");
   const nav = page.getByRole("navigation", { name: "Primary" });
 
+  // Anchors first (unrestricted items in the same groups stay visible) — they
+  // prove the nav actually rendered for this role, so the absences below
+  // cannot pass vacuously against a blank shell (check-e2e.mjs).
+  await expect(nav.getByRole("link", { name: "Team" })).toBeVisible();
+  await expect(nav.getByRole("link", { name: "Issue", exact: true })).toBeVisible();
+
   for (const label of [
     "Access",
     "Audit log",
@@ -124,15 +130,17 @@ test("base user role hides admin/owner-gated items but keeps unrestricted ones",
   ]) {
     await expect(nav.getByRole("link", { name: label })).toHaveCount(0);
   }
-  // Unrestricted items in the same groups stay visible.
-  await expect(nav.getByRole("link", { name: "Team" })).toBeVisible();
-  await expect(nav.getByRole("link", { name: "Issue", exact: true })).toBeVisible();
 });
 
 test("disabled modules remove their items and the now-empty Receivables group disappears", async ({ page }) => {
   await mockApi(page, { role: "owner", orgs: OWNER_SINGLE_ORG, modulesEnabled: false });
   await page.goto("/");
   const nav = page.getByRole("navigation", { name: "Primary" });
+
+  // Anchors first: Payables and Insights survive (they have non-module items),
+  // proving the nav rendered before any absence is asserted (check-e2e.mjs).
+  await expect(nav.getByText("Payables", { exact: true })).toBeVisible();
+  await expect(nav.getByText("Insights", { exact: true })).toBeVisible();
 
   for (const label of [
     "Issue",
@@ -151,9 +159,6 @@ test("disabled modules remove their items and the now-empty Receivables group di
   }
   // Every Receivables item was issuing-gated, so the group heading itself is gone.
   await expect(nav.getByText("Receivables", { exact: true })).toHaveCount(0);
-  // Payables and Insights survive (they have non-module items too).
-  await expect(nav.getByText("Payables", { exact: true })).toBeVisible();
-  await expect(nav.getByText("Insights", { exact: true })).toBeVisible();
 });
 
 test("org switcher: a single org renders static text", async ({ page }) => {

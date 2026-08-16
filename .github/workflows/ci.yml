@@ -136,6 +136,11 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run build   # tsc --noEmit + vite build (typecheck + bundle)
+      # Structural e2e-suite checks (scripts/check-e2e.mjs): no test whose first
+      # observable step asserts absence (one shipped and stayed green with its
+      # violation seeded), and no spec file silently missing from test:e2e's
+      # hand-kept list (five were).
+      - run: node scripts/check-e2e.mjs
 
   # Design-system end-to-end smoke tests (Playwright) over the /design showcase.
   # Runs in the version-matched Playwright container, so Chromium is preinstalled

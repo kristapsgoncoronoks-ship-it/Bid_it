@@ -496,6 +496,9 @@ test("dashboard: currency_mismatch_claims explains the €0.00 contribution", as
 test("dashboard: no mismatch notice when the count is zero", async ({ page }) => {
   await openDashboard(page);
 
+  // Anchor first: prove the page rendered, so the absence below cannot be
+  // true vacuously against a blank document (check-e2e.mjs).
+  await expect(page.getByRole("heading", { name: "Cash recovery" })).toBeVisible();
   await expect(page.getByText("span more than one currency", { exact: false })).toHaveCount(0);
 });
 
@@ -520,6 +523,9 @@ test("dashboard: a 500 renders the error state, never the zero-state copy", asyn
 test("dashboard: a loading state renders before the API resolves", async ({ page }) => {
   await openDashboard(page, { dashboardDelayMs: 1200 });
 
+  // e2e-anchor-exempt: the pre-render ABSENCE is the subject — this test
+  // asserts the content is missing WHILE loading, then arrives; the trailing
+  // positive assertion is what fails if the page never renders at all.
   await expect(page.getByText("Not in any readiness state")).toHaveCount(0);
   await expect(page.getByText("Not in any readiness state")).toBeVisible({ timeout: 10_000 });
 });

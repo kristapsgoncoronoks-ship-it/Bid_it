@@ -136,6 +136,9 @@ test("empty cash-flow series renders no chart card and no dangling caption", asy
   await mockApi(page, { net: "1480.00", cashFlow: [] });
   await page.goto("/cash-position");
 
+  // Anchor first: prove the page rendered, so the absence below cannot be
+  // true vacuously against a blank document (check-e2e.mjs).
+  await expect(page.getByRole("heading", { level: 1, name: "Cash position" })).toBeVisible();
   await expect(page.getByText(/Cash flow/, { exact: false })).toHaveCount(0);
   await expect(page.getByText(/look back, not a forecast/i)).toHaveCount(0);
 });

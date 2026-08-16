@@ -749,6 +749,9 @@ test("r53: there is no route from this page into the contract-breach flow", asyn
 
 test("r53: the page exposes no mutating control", async ({ page }) => {
   await open(page, "Same-day overpay");
+  // Anchor first: prove the page rendered, so the absence below cannot be
+  // true vacuously against a blank document (check-e2e.mjs).
+  await expect(page.getByRole("tab", { name: "Same-day overpay" })).toBeVisible();
   // No form to post, and every button on the surface is a tab (the tablist).
   await expect(page.locator("main form")).toHaveCount(0);
   const buttons = page.locator("main button");

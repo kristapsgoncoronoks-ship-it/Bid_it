@@ -355,6 +355,9 @@ test("rules: a 500 shows the error state, never the empty copy", async ({ page }
 test("rules: a loading state renders before the API resolves", async ({ page }) => {
   await openTab(page, "Checklist rules", { rulesDelayMs: 1200 });
 
+  // e2e-anchor-exempt: the pre-render ABSENCE is the subject — this test
+  // asserts the content is missing WHILE loading, then arrives; the trailing
+  // positive assertion is what fails if the page never renders at all.
   await expect(page.getByRole("cell", { name: "Customer master data complete" })).toHaveCount(0);
   await expect(page.getByRole("cell", { name: "Customer master data complete" })).toBeVisible({
     timeout: 10_000,

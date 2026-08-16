@@ -432,6 +432,9 @@ test("list: shows a loading state before the API resolves", async ({
 }) => {
   await mockApi(page, { listDelayMs: 1500 });
   await page.goto("/vat-claims");
+  // e2e-anchor-exempt: the pre-render ABSENCE is the subject — this test
+  // asserts the content is missing WHILE loading, then arrives; the trailing
+  // positive assertion is what fails if the page never renders at all.
   // The QueryState loading branch renders a skeleton (aria-hidden shimmer), and
   // no row and no empty copy are on screen yet.
   await expect(page.getByText("No VAT refund claims yet")).toHaveCount(0);
@@ -503,6 +506,9 @@ test("nav: the entry is hidden when the transport module is off", async ({
 }) => {
   await mockApi(page, { moduleEnabled: false });
   await page.goto("/vat-claims");
+  // Anchor first: prove the page rendered, so the absence below cannot be
+  // true vacuously against a blank document (check-e2e.mjs).
+  await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
   await expect(
     page.getByRole("navigation").getByRole("link", { name: "VAT claims" }),
   ).toHaveCount(0);
@@ -635,6 +641,9 @@ test("permissions: an accountant sees no create form on the list", async ({
 }) => {
   await mockApi(page, { role: "auditor" });
   await page.goto("/vat-claims");
+  // Anchor first: prove the page rendered, so the absence below cannot be
+  // true vacuously against a blank document (check-e2e.mjs).
+  await expect(page.getByRole("heading", { name: "VAT refund claims" })).toBeVisible();
   await expect(page.getByText("Start a claim")).toHaveCount(0);
 
   await mockApi(page, { role: "accountant" });
@@ -800,6 +809,9 @@ test("submit refusal: an accountant never gets the override action (VAT_SUBMIT o
 }) => {
   await mockApi(page, { role: "accountant" });
   await page.goto("/vat-claims/claim-1");
+  // Anchor first: prove the page rendered, so the absence below cannot be
+  // true vacuously against a blank document (check-e2e.mjs).
+  await expect(page.getByRole("heading", { name: "LV · 2026-Q2" })).toBeVisible();
   await expect(
     page.getByRole("button", {
       name: "File it anyway and record the override",
@@ -985,6 +997,9 @@ test("pick-list: a loading state renders before the fuel read resolves", async (
 }) => {
   await openPickList(page, { fuelDelayMs: 1500 });
 
+  // e2e-anchor-exempt: the pre-render ABSENCE is the subject — this test
+  // asserts the content is missing WHILE loading, then arrives; the trailing
+  // positive assertion is what fails if the page never renders at all.
   await expect(
     page.getByText("No fuel transactions for this period"),
   ).toHaveCount(0);
