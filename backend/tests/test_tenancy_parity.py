@@ -2278,6 +2278,73 @@ async def _project_documents(ctx: Ctx) -> None:
         )
 
 
+@probe("invoice_project_splits")
+async def _invoice_project_splits(ctx: Ctx) -> None:
+    """Percentage cost allocation (project-profitability phase 2). Shipped a run
+    late — the partition guard caught the table probeless in the full
+    regression, which is the guard doing its job; the probe now proves the
+    allocation surface end to end. What a rival tenant allocates to which jobs
+    is commercial structure a leak would hand over."""
+    ids: dict[str, dict] = {}
+    for org in (ctx.a, ctx.b):
+        proj = await org.post(
+            "/api/v1/masters/projects",
+            json={"code": f"ALC-{org.name}", "name": f"Alloc {org.name}"},
+        )
+        assert proj.status_code in (200, 201), proj.text
+        inv = await org.post(
+            "/api/v1/invoices",
+            json={
+                "vendor_name": f"Supplier {org.name} OU",
+                "invoice_number": f"ALC-INV-{org.name}",
+                "issue_date": "2026-08-01",
+                "currency": "EUR",
+                "line_items": [
+                    {
+                        "description": "Work",
+                        "quantity": "1",
+                        "unit_price": "100.00",
+                        "amount": "100.00",
+                        "tax_rate": "0",
+                    }
+                ],
+            },
+        )
+        assert inv.status_code == 201, inv.text
+        alloc = await org.put(
+            f"/api/v1/invoices/{inv.json()['id']}/allocation",
+            json={"splits": [{"project_id": proj.json()["id"], "percent": "100"}]},
+        )
+        assert alloc.status_code == 200, alloc.text
+        ids[org.name] = {"project": proj.json()["id"], "invoice": inv.json()["id"]}
+
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        # Writing an allocation on the OTHER tenant's invoice: opaque 404.
+        w = await me.put(
+            f"/api/v1/invoices/{ids[other.name]['invoice']}/allocation",
+            json={"splits": [{"project_id": ids[me.name]["project"], "percent": "100"}]},
+        )
+        assert w.status_code == 404, (
+            f"TENANT LEAK: {me.name} wrote an allocation on {other.name}'s invoice "
+            f"({w.status_code})"
+        )
+        # Splitting MY invoice to THEIR project: opaque 404 — a split row must
+        # never bridge two tenants.
+        x = await me.put(
+            f"/api/v1/invoices/{ids[me.name]['invoice']}/allocation",
+            json={"splits": [{"project_id": ids[other.name]["project"], "percent": "100"}]},
+        )
+        assert x.status_code == 404, (
+            f"TENANT LEAK: {me.name} split an invoice onto {other.name}'s project ({x.status_code})"
+        )
+        # And THEIR split never leaks into MY project's P&L.
+        pnl = await me.get(f"/api/v1/masters/projects/{ids[me.name]['project']}/pnl")
+        assert pnl.status_code == 200, pnl.text
+        assert pnl.json()["invoice_costs"] == "100.00", (
+            f"TENANT LEAK: {me.name}'s P&L moved after {other.name}'s writes"
+        )
+
+
 ALL_TABLES = sorted(m.__tablename__ for m in TENANT_MODELS)
 
 

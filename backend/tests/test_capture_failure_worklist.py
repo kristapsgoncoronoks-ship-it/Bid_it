@@ -49,6 +49,15 @@ async def _drain(db_session, *, idle_rounds: int = 3) -> None:
     """
     from app.services import jobs
 
+    # Release whatever snapshot this session holds BEFORE polling: the job was
+    # committed by the API's session, and a repeatable-read snapshot opened by
+    # an earlier statement in THIS session can hide it — the claim then sees an
+    # empty queue, the drain exits idle, and the test reads 'queued' where
+    # 'failed' was earned. The one full-suite failure of
+    # test_a_capture_that_fails_again_returns_to_the_worklist (2026-08-16)
+    # matched exactly this shape; it passes alone and in most full runs.
+    await db_session.rollback()
+
     idle = 0
     for _ in range(120):
         if await jobs.run_once(db_session, "test-worker") is None:
