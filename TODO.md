@@ -70,6 +70,18 @@ Phase 2 (next): line-level + % allocation with the precedence rule, the
 close-time FREEZE + after-close adjustments, margin on the projects list, and
 the module-conditional recovered-VAT line.
 
+**The FULL lifecycle — owner vision 2026-08-16, recorded so it is not lost**
+(design: `docs/design/project-profitability.md` §5a): open project →
+**offer/estimate** → contract → invoicing per contract (an **invoicing plan**
+tracked against actually-issued) → project costs → **acceptance & handover**
+(a countersigned acceptance document, generated from a template) → **final
+invoicing** (the remainder of the contracted sum, gated on acceptance) →
+close → frozen P&L. Plus **standardized contract + acceptance templates**
+(per-org adaptable, prefilled from the project, legal review required before
+any default ships — see DECISIONS-NEEDED). Sequenced as phases 4 (offer +
+invoicing plan) and 5 (acceptance + templates + final invoice); nothing in
+phases 1–3 needs rework — the stages slot in front of and behind the loop.
+
 ---
 
 ## Pilot status — 2026-08-15 (updates the 2026-08-12 entry below)

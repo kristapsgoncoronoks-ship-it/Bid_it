@@ -750,3 +750,32 @@ Four questions asked and answered in one sitting:
    retention) — agreed, never discovered.
 3. **Ex-client:** notices to the last owner address + one-time export on request.
 4. **Next build:** the pre-expiry notice + paid retention extension.
+
+
+---
+
+## 2026-08-16 — the full project lifecycle (owner vision, needs decisions before phases 4–5)
+
+The owner's complete arc is recorded in `docs/design/project-profitability.md`
+§5a: open → offer/estimate → contract → invoicing per contract → costs →
+acceptance & handover → final invoicing, with **standardized contract and
+acceptance templates for customers**. Phases 1–3 need nothing from this section;
+these block phases 4–5 only.
+
+**Blocked / needs you:**
+
+1. **Template liability.** The platform shipping default contract/acceptance
+   text is adjacent to legal advice. Before ANY default template ships:
+   a lawyer reviews the base texts, the templates state plainly that they are
+   starting points and not legal advice, and we decide which
+   jurisdictions/languages the defaults cover (LV/LT/EE? EN?). Per-org
+   customized templates carry the org's own responsibility — the decision is
+   about OUR defaults.
+2. **Is final invoicing GATED on acceptance, or merely linked to it?** Gating
+   is the strong product ("the customer signed, now bill the remainder");
+   linking is the safe default (a business may bill before the act is signed).
+   Recommendation pending your call: link in phase 5, gate as a per-org toggle.
+3. **Offer numbering.** Offers get revised and referenced; do they need their
+   own gap-free per-issuer series like invoices and credit notes, or is a
+   simple version counter per offer enough? (Gap-free costs the same locking
+   machinery invoices use; a version counter is an afternoon.)

@@ -172,12 +172,50 @@ allocation columns so a three-year-old P&L question remains answerable.
   on the list.
 - **Phase 3 — depth, each its own decision:** e-sign the contract in-app ·
   budget-vs-actual per project (extend `budget.py` beyond monthly categories) ·
-  per-km / per-delivery unit economics (needs quantity capture) · a
-  profitability report export.
+  per-unit economics (needs quantity capture) · a profitability report export.
 
 Phase 1 and 2 are each roughly the size of the recycle-bin build. Nothing here
 blocks, or is blocked by, the remaining approved backlog (bin for other
 entities, VAT-claim link).
+
+## 5a. The FULL project lifecycle — owner vision, recorded 2026-08-16
+
+The owner's complete picture, stated so it is not lost while phases 1–3 ship.
+Phase 1 built the middle of this arc; the vision is the WHOLE arc, and every
+stage is a document the client already produces somewhere else today:
+
+> **open project → offer/estimate → contract → invoicing according to the
+> contract → project costs (wages, materials, consumables, transport, and
+> others) → acceptance & handover → final invoicing**
+
+Mapped against what exists:
+
+| Stage | State today | What it becomes |
+|---|---|---|
+| Open project | ✅ phase 1 (`projects` master) | unchanged |
+| **Offer / estimate** | ❌ nothing | a priced offer document issued FROM the project before any contract — versionable (offers get revised), convertible: an accepted offer seeds the contract's scope and the invoicing plan. The project's first artifact, and the first number later compared against the final P&L (estimated vs. actual margin — the single most instructive figure a project business can see). |
+| Contract | ✅ phase 1 (attachment) · phase 3 e-sign | plus **standardized templates** (below) |
+| Invoicing per contract | ✅ phase 1 (project picker) | plus an **invoicing plan**: the contract's agreed schedule (stage/advance/interim amounts) tracked against what was actually issued — "contracted 3 × 10,000, issued 2" is a live receivable the client can see instead of remember |
+| Project costs | ✅ phase 1 (invoices, expenses, manual lines incl. wages) · phase 2 allocation | generic cost categories already cover materials/consumables/transport via allocation + labelled manual lines — deliberately no industry taxonomy |
+| **Acceptance & handover** | ❌ nothing | a project state between "work done" and "closed": an acceptance document (act of acceptance/handover — standard commercial practice in this product's markets) generated from a template, countersigned by the customer (e-sign seam), stored on the project like the contract. Acceptance is what makes the final invoice UNARGUABLE — the customer has signed that the work is done. |
+| **Final invoicing** | ❌ as a concept | the closing invoice tied to acceptance: what remains of the contracted sum after advances/interim invoices, computed from the invoicing plan, issued at (or gated on) acceptance. Feeds phase 2's close-freeze naturally: acceptance → final invoice → close → frozen P&L. |
+
+**Standardized document templates (owner direction):** the platform provides
+contract and acceptance-document templates a customer can use — prefilled from
+the project (parties from the issuer registry + customer master, scope,
+amounts, dates), stored per-org so a business can adapt its own wording, and
+rendered through the existing PDF path. Same industry-neutral rule: templates
+carry placeholders, never industry nouns. **Legal review is required before
+any template ships as a default** — a platform handing out contract text is
+adjacent to legal advice, and the templates must say what they are and are not
+(recorded in DECISIONS-NEEDED).
+
+Sequencing note: offer/estimate and the invoicing plan are the natural
+**phase 4** (they extend the revenue side phase 1 built); acceptance +
+templates + final invoicing are **phase 5** (they extend the close that
+phase 2 builds). Nothing in phases 1–3 needs rework to add them — the stages
+slot in front of and behind the existing loop, which is the test that the
+lifecycle model is right.
 
 ## 6. Invariants (the test list, in prose)
 
