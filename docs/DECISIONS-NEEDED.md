@@ -72,7 +72,11 @@ ladder). An add-on cannot be priced against a ladder nobody has chosen.
 **Blocks** building the paid extension at all.
 
 **C. Does the archive follow a client who leaves? — DECIDED 2026-08-15: it
-SURVIVES for the full retention period.** Statutory retention outlives the
+SURVIVES for the full retention period. Loose ends DECIDED 2026-08-16:** the
+pre-expiry notices keep going to the last recorded owner address, and an
+ex-client can request a one-time EXPORT of their archive; no live login is
+retained. (The export mechanism is buildable work; the notice recipient falls
+out of the notice feature itself.) Statutory retention outlives the
 commercial relationship, which is the usual legal position. **This must be in the
 DPA before a client signs** — retaining an ex-client's records on a basis they
 never agreed to is the one version of this that is indefensible. Two consequences
@@ -727,3 +731,22 @@ nothing to file.
 *Not blocked — I can keep building these without you:* enhancements to shipped
 features, tests/coverage, docs, and any of the above up to its stated boundary.
 Tell me which to prioritise next.
+
+
+---
+
+## 2026-08-16 — the retention/deletion-chain reconciliation (P0-2)
+
+Four questions asked and answered in one sitting:
+
+1. **Retention purge routes invoices THROUGH the chain.** No second destruction
+   path: the policy soft-deletes into the recycle bin (`deleted_by` = "retention
+   policy"), and the ordinary 30-days → archive → 3-years pipeline takes over.
+   Expenses and email attachments keep the direct hard delete until the bin
+   learns those entities (approved, tracked).
+2. **The archive keeps its full 3 years regardless of a shorter tenant policy.**
+   It is the platform's compliance backstop and deliberately outlives client-side
+   deletion. **Must be stated in the DPA** (basis: statutory accounting
+   retention) — agreed, never discovered.
+3. **Ex-client:** notices to the last owner address + one-time export on request.
+4. **Next build:** the pre-expiry notice + paid retention extension.

@@ -148,6 +148,15 @@ archive first · archive keeps record + document · archive read = the client's 
 company owner, plus platform staff under a named, time-boxed, reason-logged grant
 · **3 years included, longer is a PAID extension.**
 
+**Owner decisions 2026-08-16** (the P0-2 reconciliation, built same day —
+`tests/test_retention_chain.py`): retention purge routes invoices THROUGH the
+chain (soft-delete into the bin as "retention policy", then the ordinary
+30-days→archive→3-years pipeline; expenses/email keep hard delete until the bin
+learns them) · the archive keeps its FULL 3 years regardless of a shorter tenant
+policy — the platform's compliance backstop, to be stated in the DPA · ex-client
+gets pre-expiry notices at the last owner address + one-time export on request ·
+next build = the pre-expiry notice + paid extension.
+
 ---
 
 ## Pilot status — 2026-08-12

@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.email_intake import InboundInvoice
@@ -224,22 +224,83 @@ async def _delete_object_bytes(
         log.warning("object cleanup failed for %s/%s: %s", org_id, cat.key, exc)
 
 
+RETENTION_ACTOR = "retention policy"
+"""What `Invoice.deleted_by` says when the retention policy, not a person,
+moved the invoice to the bin. A Trash-screen reader deciding whether to restore
+needs to know the difference between a colleague's click and the org's own
+configured policy — and the policy will take the record again on its next run."""
+
+
 async def purge(db: AsyncSession, org_id: str, *, today: date | None = None) -> dict:
-    """Delete records past their retention window for every configured category.
+    """Enforce each configured retention policy — through ONE destruction path.
 
     Refuses (no-op) while a legal hold is active. Returns
     `{"held": bool, "purged": {category: count}}`. Audited when anything is
-    purged. Never raises on a business outcome."""
+    purged. Never raises on a business outcome.
+
+    INVOICES ROUTE THROUGH THE DELETION CHAIN (owner decision 2026-08-16,
+    resolving P0-2 of docs/audit/2026-08-16-bug-scan.md). This function used to
+    hard-delete invoices directly — no recycle bin, no archive copy — which made
+    it a second destruction path with strictly weaker guarantees than the one
+    clients see. Now it SOFT-DELETES them into the bin, exactly as a person's
+    delete does, and the ordinary chain takes over: 30 days restorable, then the
+    bin purge archives and destroys, then the archive holds its three years.
+    Consequences that fall out of that, all intended:
+
+      - a policy mistake is recoverable for 30 days instead of instantly fatal;
+      - the archive copy is made by the SAME code path as every other deletion,
+        so it cannot drift from it;
+      - rows already in the bin are naturally invisible to `_purgeable_ids`
+        (the central soft-delete guard hides them) and are simply left to the
+        bin's own clock — the old code could not see them either, but destroyed
+        nothing in their place, leaving them to outlive the policy unnoticed;
+      - a record restored from the bin whose age still exceeds the window is
+        re-binned on the next daily run. That is the policy working, and
+        `deleted_by` says so on the Trash screen;
+      - the archive's own three years then run REGARDLESS of the tenant's
+        shorter policy (owner decision, same date): the archive is the
+        platform's compliance backstop and deliberately outlives client-side
+        deletion. That sentence belongs in the DPA, not in a surprise.
+
+    No per-record consent gate applies here: configuring the policy IS the
+    standing consent, given once by an administrator instead of per click.
+
+    Expenses and inbound email attachments keep the direct hard-delete (with
+    their bytes) UNTIL the recycle bin learns those entities — extending the
+    chain to them is approved, tracked work, and routing them through a bin
+    that cannot hold them yet would just be a different silent hard delete.
+    """
     today = today or date.today()
     if await is_on_hold(db, org_id):
         return {"held": True, "purged": {}}
 
+    stamp = datetime.now(UTC)
     policies = await get_policies(db, org_id)
     purged: dict[str, int] = {}
     for key, retain_days in policies.items():
         cat = CATEGORIES[key]
         ids = await _purgeable_ids(db, org_id, cat, _cutoff(today, retain_days))
         if not ids:
+            continue
+        if key == "invoices":
+            # Batched: an unbounded IN hits the bind-parameter ceiling (65535
+            # Postgres / 32766 SQLite) and a daily job that fails on size fails
+            # forever — the same trap the bin purge documents.
+            for i in range(0, len(ids), 500):
+                chunk = ids[i : i + 500]
+                await db.execute(
+                    update(Invoice)
+                    .where(
+                        Invoice.org_id == org_id,
+                        Invoice.id.in_(chunk),
+                        # Re-asserted on the UPDATE: the tenant guard skips
+                        # non-SELECT statements, and racing a manual delete must
+                        # not overwrite who/when the bin already recorded.
+                        Invoice.deleted_at.is_(None),
+                    )
+                    .values(deleted_at=stamp, deleted_by=RETENTION_ACTOR)
+                )
+            purged[key] = len(ids)
             continue
         await _delete_object_bytes(org_id, cat, db, ids)
         for child_model, fk in cat.children:
