@@ -2419,6 +2419,40 @@ export interface BinnedInvoice {
   days_left: number;
 }
 
+/** `ArchivedInvoiceOut` — one sealed record in the platform archive.
+ *
+ * Deliberately NOT the live `Invoice` shape: an archived record is a historical
+ * fact, not a workflow object, so there is no status, no approval and nothing to
+ * pay. The field names say whose deletion `original_deleted_at` describes — on
+ * this table a bare `deleted_at` would read as "this archive row is deleted",
+ * the opposite of what it means. */
+export interface ArchivedInvoice {
+  id: string;
+  original_invoice_id: string;
+  invoice_number: string | null;
+  vendor_name: string | null;
+  issue_date: string | null;
+  currency: string | null;
+  total: string | null;
+  line_items: Record<string, unknown>[];
+  has_document: boolean;
+  source_filename: string | null;
+  original_deleted_at: string | null;
+  original_deleted_by: string | null;
+  archived_at: string;
+  expires_at: string;
+}
+
+/** `ArchiveListOut`. Both windows come off the server for the same reason
+ * `BinList.retention_days` does — the screen must not be able to promise a
+ * retention period the archive does not keep. */
+export interface ArchiveList {
+  items: ArchivedInvoice[];
+  total: number;
+  retention_years: number;
+  expiry_notice_days: number;
+}
+
 /** `BinListOut`. `retention_days` comes from the server rather than being
  * hardcoded here, so the promise shown on screen has exactly one source. */
 export interface BinList {

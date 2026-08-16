@@ -24,6 +24,7 @@ const CaptureQueue = lazy(() => import("./pages/CaptureQueue"));
 const CaptureReview = lazy(() => import("./pages/CaptureReview"));
 const CaptureFailures = lazy(() => import("./pages/CaptureFailures"));
 const Trash = lazy(() => import("./pages/Trash"));
+const Archive = lazy(() => import("./pages/Archive"));
 const Reimbursements = lazy(() => import("./pages/Reimbursements"));
 const Settings = lazy(() => import("./pages/Settings"));
 const Issuer = lazy(() => import("./pages/Issuer"));
@@ -138,6 +139,7 @@ export default function App() {
                 <Route path="/invoices" element={<Invoices />} />
                 {/* Static before dynamic: "trash" is a page, not an id. */}
                 <Route path="/invoices/trash" element={<Trash />} />
+                <Route path="/invoices/archive" element={<Archive />} />
                 <Route path="/invoices/:id" element={<InvoiceDetail />} />
                 <Route path="/invoices/:id/review" element={<ReviewInvoice />} />
                 <Route path="/review" element={<Review />} />

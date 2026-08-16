@@ -81,9 +81,18 @@ export default function Trash() {
             back into your books exactly as it was.
           </p>
         </div>
-        <Link to="/invoices" className="btn-secondary shrink-0">
-          Back to invoices
-        </Link>
+        <div className="flex shrink-0 items-center gap-2">
+          {/* The next step of the chain, and the only place a client can reach
+              it. Named without a retention figure: this response carries the
+              BIN's window, not the archive's, and a screen must not quote a
+              promise it has no source for. */}
+          <Link to="/invoices/archive" className="btn-ghost">
+            Archive
+          </Link>
+          <Link to="/invoices" className="btn-secondary">
+            Back to invoices
+          </Link>
+        </div>
       </div>
 
       {err && (
@@ -112,7 +121,12 @@ export default function Trash() {
               {data.total === data.items.length
                 ? `${data.total} ${data.total === 1 ? "invoice" : "invoices"} deleted.`
                 : `Showing ${data.items.length} of ${data.total} deleted invoices.`}{" "}
-              Each one can be restored for {data.retention_days} days.
+              Each one can be restored for {data.retention_days} days. After
+              that it leaves your books and a read-only copy is kept in the{" "}
+              <Link to="/invoices/archive" className="text-brand-600 hover:underline">
+                archive
+              </Link>
+              .
             </p>
 
             <div className="card overflow-x-auto p-0">
