@@ -33,10 +33,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, func, select
+from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.archived_invoice import ArchivedInvoice
 from app.models.extraction_run import ExtractionRun
+from app.models.organization import Organization
 
 log = logging.getLogger("invoiceiq.archive")
 
@@ -92,10 +94,18 @@ class ArchivedRecord:
 async def retention_years(db: AsyncSession, org_id: str) -> int:
     """How long THIS organisation's archive keeps a record.
 
-    The included tier for now; the paid extension will read a per-org value here
-    and nothing else in the module will need to change, which is why the lookup
-    exists as a function before it has anything to look up.
+    The per-org PAID extension (`organizations.archive_retention_years`,
+    operator-granted) when one is set and longer than the included tier;
+    the included tier otherwise. Deliberately a MAX, never a min: an override
+    below the included years is ignored rather than honoured, because the
+    included tier is the floor every client was promised on the archive screen
+    and in the DPA — a misconfigured override must not quietly shorten it.
     """
+    override = await db.scalar(
+        select(Organization.archive_retention_years).where(Organization.id == org_id)
+    )
+    if override is not None and override > INCLUDED_RETENTION_YEARS:
+        return int(override)
     return INCLUDED_RETENTION_YEARS
 
 
@@ -364,3 +374,167 @@ async def collect_bytes(org_id: str, shas: list[str]) -> int:
         except Exception as exc:  # noqa: BLE001 - cleanup must not fail the purge
             log.warning("archive byte collection failed for %s/%s: %s", org_id, sha, exc)
     return removed
+
+
+# --------------------------------------------------------------------------- #
+# The pre-expiry notice, and the paid extension it sells
+# --------------------------------------------------------------------------- #
+
+
+async def send_expiry_notices(
+    db: AsyncSession, org_id: str, *, now: datetime | None = None
+) -> dict:
+    """Warn the company's owners about records due to leave the archive.
+
+    The notice is not a nicety (module docstring): three years is likely BELOW
+    the statutory floor in this product's markets, so a client who does not
+    extend loses records they were obliged to keep — and the notice is both what
+    makes that survivable and the moment the paid extension sells itself.
+
+    One EMAIL PER OWNER per run, covering every un-noticed record inside the
+    window — never one email per record (a 200-invoice expiry as 200 emails is a
+    notice nobody reads). Sent to every ACTIVE OWNER membership: for a live
+    tenant that is the accountable audience; for an ex-client it degrades to the
+    last recorded owner address, which is exactly the owner's 2026-08-16
+    decision. Records are STAMPED (`expiry_notified_at`) so tomorrow's run does
+    not repeat them; granting an extension clears the stamp, so a fresh notice
+    precedes the NEW expiry too.
+
+    No owner has an email → records are left UNSTAMPED and the count is
+    reported, not swallowed: a notice that cannot be delivered must stay
+    visibly owed, not silently marked done.
+
+    Does NOT commit; the job handler commits the stamps, the audit event and
+    the recorded emails as one transaction.
+    """
+    stamp = now or datetime.now(UTC)
+    horizon = stamp + timedelta(days=EXPIRY_NOTICE_DAYS)
+    rows = list(
+        await db.execute(
+            select(
+                ArchivedInvoice.id,
+                ArchivedInvoice.invoice_number,
+                ArchivedInvoice.vendor_name,
+                ArchivedInvoice.expires_at,
+            )
+            .where(
+                ArchivedInvoice.org_id == org_id,
+                ArchivedInvoice.expiry_notified_at.is_(None),
+                ArchivedInvoice.expires_at <= horizon,
+                ArchivedInvoice.expires_at > stamp,
+            )
+            .order_by(ArchivedInvoice.expires_at)
+        )
+    )
+    if not rows:
+        return {"sent": 0, "records": 0, "skipped_no_email": 0}
+
+    from app.models.membership import Membership
+    from app.models.user import User, UserRole
+    from app.services import mailer
+
+    recipients = [
+        e
+        for e in await db.scalars(
+            select(User.email)
+            .join(Membership, Membership.user_id == User.id)
+            .where(
+                Membership.org_id == org_id,
+                Membership.role == UserRole.owner,
+                Membership.status == "active",
+                User.email.is_not(None),
+            )
+        )
+        if e
+    ]
+    if not recipients:
+        return {"sent": 0, "records": len(rows), "skipped_no_email": 1}
+
+    earliest = rows[0].expires_at
+    years = await retention_years(db, org_id)
+    subject, body = mailer.archive_expiry_email(
+        count=len(rows),
+        earliest=earliest,
+        notice_days=EXPIRY_NOTICE_DAYS,
+        retention_years=years,
+        examples=[(r.invoice_number or "(no number)", r.vendor_name or "") for r in rows[:5]],
+    )
+    for to_email in recipients:
+        await mailer.send(
+            db, org_id, kind="archive_expiry", to_email=to_email, subject=subject, body=body
+        )
+
+    await db.execute(
+        sa_update(ArchivedInvoice)
+        .where(
+            ArchivedInvoice.org_id == org_id,
+            ArchivedInvoice.id.in_([r.id for r in rows]),
+            # Only stamp what is still un-noticed: a concurrent grant of an
+            # extension may have cleared/queued differently mid-run.
+            ArchivedInvoice.expiry_notified_at.is_(None),
+        )
+        .values(expiry_notified_at=stamp)
+    )
+    return {
+        "sent": len(recipients),
+        "records": len(rows),
+        "skipped_no_email": 0,
+        "record_ids": [r.id for r in rows],
+        "earliest": earliest.isoformat() if earliest else None,
+    }
+
+
+async def apply_retention_override(db: AsyncSession, org_id: str, years: int | None) -> dict:
+    """Grant (or clear) the paid retention extension, and make it MEAN something.
+
+    `expires_at` is stamped at write time, so changing the org's years without
+    touching existing rows would sell an extension that only protects invoices
+    deleted AFTERWARDS — worthless at exactly the moment it is bought, which is
+    right after a pre-expiry notice about records already archived. So granting
+    an extension also RE-STAMPS existing rows to `archived_at + 365*years`,
+    and clears their notice stamp so a fresh notice precedes the new expiry.
+
+    ONLY EVER EXTENDS. A row whose current expiry is already later keeps it,
+    and clearing the override (years=None) re-stamps NOTHING: lowering a
+    setting must never reach backwards and destroy records already kept under
+    a longer promise (the module docstring's rule, enforced here).
+
+    Does NOT commit; the caller (the platform route) commits the grant with
+    its audit event.
+    """
+    org = await db.get(Organization, org_id)
+    if org is None:
+        raise ValueError(f"unknown organization: {org_id}")
+    old = org.archive_retention_years
+    org.archive_retention_years = years
+    # Flush before recomputing: `retention_years` reads via a SELECT, and the
+    # session may not autoflush the pending attribute change into it.
+    await db.flush()
+
+    extended = 0
+    effective = await retention_years(db, org_id)
+    if years is not None and years > INCLUDED_RETENTION_YEARS:
+        # Per-row, in Python: the new expiry is each row's OWN archived_at plus
+        # the window, and `column + timedelta` does not translate to portable
+        # SQL (SQLite silently matches nothing). A grant is a rare operator
+        # action over one tenant's archive, so row-at-a-time is fine — and the
+        # extend-only comparison stays explicit instead of buried in dialect
+        # date arithmetic.
+        window = timedelta(days=365 * effective)
+        rows = list(
+            await db.execute(
+                select(
+                    ArchivedInvoice.id, ArchivedInvoice.archived_at, ArchivedInvoice.expires_at
+                ).where(ArchivedInvoice.org_id == org_id)
+            )
+        )
+        for r in rows:
+            new_expiry = r.archived_at + window
+            if r.expires_at < new_expiry:
+                await db.execute(
+                    sa_update(ArchivedInvoice)
+                    .where(ArchivedInvoice.org_id == org_id, ArchivedInvoice.id == r.id)
+                    .values(expires_at=new_expiry, expiry_notified_at=None)
+                )
+                extended += 1
+    return {"old": old, "new": years, "effective_years": effective, "rows_extended": extended}

@@ -100,8 +100,14 @@ class TenantOut(BaseModel):
     status: str
     seats_used: int
     created_at: datetime
+    # The paid archive-retention extension: None = the included tier.
+    archive_retention_years: int | None = None
 
 
 class TenantUpdate(BaseModel):
     status: str | None = None
     plan: str | None = None
+    # Grant (or clear, with 0) the paid archive-retention extension. Operator-
+    # only, like everything on this schema; the commercial step happens
+    # out-of-band until billing is wired.
+    archive_retention_years: int | None = Field(default=None, ge=0, le=30)

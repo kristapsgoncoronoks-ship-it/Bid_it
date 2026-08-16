@@ -132,6 +132,42 @@ def _fmt(amount, currency: str) -> str:
     return f"{currency} {amount:,.2f}"
 
 
+def archive_expiry_email(
+    *,
+    count: int,
+    earliest,
+    notice_days: int,
+    retention_years: int,
+    examples: list[tuple[str, str]],
+) -> tuple[str, str]:
+    """The pre-expiry notice. Plain text, no urgency theatre — the reader is a
+    company owner deciding whether to extend or to download, and the email's one
+    job is that neither deadline nor option is a surprise. The examples give the
+    reader something concrete to recognise; the archive screen has the full list."""
+    when = earliest.date().isoformat() if hasattr(earliest, "date") else str(earliest)
+    plural = "records" if count != 1 else "record"
+    lines = [
+        f"{count} archived invoice {plural} will be permanently removed from your",
+        f"archive, the earliest on {when}.",
+        "",
+        f"Archived invoices are kept for {retention_years} years after deletion and",
+        f"this notice is sent {notice_days} days before the first removal, so you can:",
+        "",
+        "  - download the records or their documents from the Archive screen, or",
+        "  - ask us about extending your archive retention period.",
+        "",
+        "For example:",
+    ]
+    lines += [f"  - {num}" + (f" ({vendor})" if vendor else "") for num, vendor in examples]
+    lines += [
+        "",
+        "Nothing is removed before the date above. If your accountant requires these",
+        "records to be kept longer, act before that date - removal is permanent.",
+    ]
+    subject = f"{count} archived {plural} due for removal - earliest {when}"
+    return subject, "\n".join(lines)
+
+
 def invoice_email(
     *, seller_name: str, number: str, buyer_name: str, total, currency: str, due_date
 ) -> tuple[str, str]:

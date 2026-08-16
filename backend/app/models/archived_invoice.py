@@ -109,6 +109,15 @@ class ArchivedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     original_deleted_by: Mapped[str | None] = mapped_column(String(320), nullable=True)
 
+    # When the pre-expiry notice covering this record was sent (NULL = not yet).
+    # A stamp rather than a log: the notice's contract is "never a surprise",
+    # which needs exactly one bit per record — "has the owner been told" — and
+    # granting a retention extension CLEARS it so a fresh notice precedes the
+    # NEW expiry too.
+    expiry_notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     # Stamped at write time — see the module docstring on why this is stored
     # rather than derived.

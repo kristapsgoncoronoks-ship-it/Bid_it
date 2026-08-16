@@ -34,6 +34,10 @@ DAILY_KINDS = (
     # removed" is stamped on every archived record, not an opt-in setting, and
     # until this ran nothing enforced the "then removed" half.
     job_handlers.ARCHIVE_PURGE,
+    # The pre-expiry notice for the archive — every tenant, because "nothing
+    # leaves the archive without the owner having been told first" is a promise
+    # on the store itself, not a setting anyone opted into.
+    job_handlers.ARCHIVE_NOTICE,
 )
 
 

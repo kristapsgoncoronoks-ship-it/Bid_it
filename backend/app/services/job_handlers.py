@@ -38,6 +38,7 @@ EVERYPAY_CHARGE = "everypay.charge_mit"
 RETENTION_PURGE = "retention.purge"
 BIN_PURGE = "invoice.bin_purge"
 ARCHIVE_PURGE = "archive.purge_expired"
+ARCHIVE_NOTICE = "archive.expiry_notice"
 USAGE_REPORT = "billing.report_usage"
 COSTING_BACKFILL = "costing.backfill_links"
 INTEGRITY_LEDGER = "integrity.verify_ledger"
@@ -145,6 +146,40 @@ async def _archive_purge(db, payload: dict, job: Job) -> dict:
     else:
         collected = 0
     return {"held": result["held"], "purged": result["purged"], "bytes_collected": collected}
+
+
+@jobs.handler(ARCHIVE_NOTICE)
+async def _archive_notice(db, payload: dict, job: Job) -> dict:
+    """Warn one tenant's owners about archive records inside the notice window.
+
+    Its own daily kind rather than a rider on ARCHIVE_PURGE: the purge destroys
+    and the notice warns, and a failure emailing must never be able to delay a
+    purge (or the reverse). Audited with WHICH records were covered — the stamp
+    on the rows says "told", the event says told about what, when, to how many
+    addresses. `skipped_no_email` surfaces the one silent failure mode this has:
+    a tenant whose owners have no address is owed a notice nothing can deliver,
+    and the rows stay unstamped so it keeps being owed rather than marked done.
+    """
+    result = await archive.send_expiry_notices(db, job.org_id)
+    if result["sent"] or result["skipped_no_email"]:
+        await audit.record(
+            db,
+            "archive.expiry_notice",
+            org_id=job.org_id,
+            meta={
+                "records": result["records"],
+                "sent": result["sent"],
+                "skipped_no_email": result["skipped_no_email"],
+                "record_ids": result.get("record_ids", []),
+                "earliest": result.get("earliest"),
+            },
+        )
+        await db.commit()
+    return {
+        "sent": result["sent"],
+        "records": result["records"],
+        "skipped_no_email": result["skipped_no_email"],
+    }
 
 
 @jobs.handler(RECURRING_GENERATE)

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Date, String
+from sqlalchemy import Boolean, Date, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -27,6 +27,13 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     # Commercial tenancy: subscription plan + lifecycle status.
     plan: Mapped[str] = mapped_column(String(20), default="trial", nullable=False)
+    # The PAID archive-retention extension (owner decision 2026-08-16): NULL =
+    # the included tier (archive.INCLUDED_RETENTION_YEARS). Granted by a
+    # platform operator after the commercial step happens out-of-band — no
+    # billing provider is wired to this yet, deliberately, same pattern as
+    # every other not-yet-monetised seam: the entitlement exists, nothing
+    # charges anyone.
+    archive_retention_years: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(
         String(20), default="active", nullable=False
     )  # active|suspended|canceled

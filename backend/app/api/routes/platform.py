@@ -14,7 +14,7 @@ from app.core import authz
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.tenancy import TenantOut, TenantUpdate
-from app.services import audit, plans, sessions
+from app.services import archive, audit, plans, sessions
 
 router = APIRouter(prefix="/platform", tags=["platform"])
 
@@ -53,6 +53,7 @@ async def list_tenants(db: DbSession, _: User = Depends(require_platform_admin))
                 status=org.status,
                 seats_used=await plans.active_seats(db, org.id),
                 created_at=org.created_at,
+                archive_retention_years=org.archive_retention_years,
             )
         )
     return out
@@ -93,6 +94,18 @@ async def update_tenant(
         if body.plan != org.plan:
             changes["plan"] = {"old": org.plan, "new": body.plan}
         org.plan = body.plan
+    if body.archive_retention_years is not None:
+        # 0 clears the grant back to the included tier. The service only ever
+        # EXTENDS existing rows (never shortens), and clearing re-stamps
+        # nothing — records already kept under a longer promise keep it.
+        years = body.archive_retention_years or None
+        if years != org.archive_retention_years:
+            grant = await archive.apply_retention_override(db, org.id, years)
+            changes["archive_retention_years"] = {
+                "old": grant["old"],
+                "new": years,
+                "rows_extended": grant["rows_extended"],
+            }
     if changes:
         # Audit the operator action itself (old→new), attributed to the tenant's
         # own trail so the tenant's audit export shows who re-planned/suspended it.
@@ -112,4 +125,5 @@ async def update_tenant(
         status=org.status,
         seats_used=await plans.active_seats(db, org.id),
         created_at=org.created_at,
+        archive_retention_years=org.archive_retention_years,
     )

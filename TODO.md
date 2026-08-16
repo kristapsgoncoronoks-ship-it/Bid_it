@@ -129,8 +129,22 @@ by running it. The suite still catches a wrong shape, not a wrong figure.
   off goes red; the live-reference check removed goes red; the schedule unwired
   goes red.
 
-**Not built:**
-- [ ] **Pre-expiry notice + the paid retention extension.** `expiring_soon()`
+- [x] **Pre-expiry notice + the paid retention extension** (2026-08-16, the
+  owner's chosen next build) — `archive.send_expiry_notices` + the daily
+  `ARCHIVE_NOTICE` job for every tenant: ONE email per owner covering every
+  un-noticed record inside the 60-day window (never one per record), stamped so
+  it repeats never, and an undeliverable notice stays visibly OWED — rows
+  unstamped, `skipped_no_email` audited — instead of being marked done. The
+  extension is `organizations.archive_retention_years`, operator-granted over
+  `PATCH /platform/tenants/{id}` (billing wires up later): granting it REACHES
+  BACK — existing rows re-stamped to `archived_at + 365×years` and their notice
+  stamp cleared so a fresh notice precedes the new expiry — because an extension
+  bought after the notice must protect the records the notice was about.
+  Extend-only in both directions: a below-included override is ignored, clearing
+  re-stamps nothing. Both seeds went red (stamping undeliverable notices;
+  forgetting existing rows), 7 tests.
+
+**Not built:** `expiring_soon()`
       exists and is tested; the notification and billing do not. The more
       important of the two: three years is likely BELOW the Baltic statutory
       floor, so a client who does not extend loses records they were obliged to
