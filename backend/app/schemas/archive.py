@@ -43,3 +43,9 @@ class ArchiveListOut(BaseModel):
     # Stated by the server so the promise on screen has exactly one source —
     # the same rule the Trash screen follows.
     retention_years: int
+    # How far ahead of expiry a record counts as "leaving soon". Published for
+    # the same reason as `retention_years`: the screen highlights rows inside
+    # this window, and a client-side constant would keep flagging 60 days the
+    # day the archive warns at 90 — the drift the Trash screen was built to
+    # avoid, on the figure that decides whether somebody extends in time.
+    expiry_notice_days: int

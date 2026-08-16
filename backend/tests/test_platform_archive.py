@@ -209,6 +209,12 @@ async def test_the_company_owner_can_read_their_own_archive(auth_client, db_sess
     body = r.json()
     assert body["total"] == 1
     assert body["retention_years"] == 3
+    # Both windows are published rather than left to the client. The screen
+    # highlights records inside the notice window, and a hardcoded 60 there
+    # would keep flagging 60 days the day the archive warns at 90 — on the one
+    # figure that decides whether a client extends before losing records they
+    # are still obliged to hold.
+    assert body["expiry_notice_days"] == archive.EXPIRY_NOTICE_DAYS
     assert body["items"][0]["invoice_number"] == "INV-ARC-READ"
 
 

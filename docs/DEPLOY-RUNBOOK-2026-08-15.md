@@ -31,14 +31,14 @@ Verified LOCALLY at this tree (executed, not recalled):
 | `ruff check` / `ruff format --check` | clean |
 | `mypy app` | clean, 339 files |
 | Alembic | single head `a4d7e0c16b93` |
-| Browser suite | 293 passed at `1bbb154` — **stale**, see below |
+| Browser suite | **334 passed (2.8m)** on 2026-08-16, at this tree |
+
+The browser gap the first draft of this runbook carried is CLOSED: the suite has
+been re-run since the consent dialog was reordered, and since the archive screen
+landed. It is no longer a pre-deploy chore.
 
 **Known gaps in that evidence, stated plainly:**
 
-- **The browser suite has not been re-run since the consent dialog changed.** It
-  passed at `1bbb154`; the delete-confirmation dialog was reordered afterwards.
-  Re-run `npm run test:e2e` before deploying, or accept that one dialog is
-  unverified in a browser.
 - **The Postgres-only gates have not been run on this tree.** Production is
   Postgres 16; the local suite is SQLite except where a scratch cluster is used.
   This release adds a new tenant table (`archived_invoices`) with an RLS policy,
@@ -179,7 +179,11 @@ Then, signed in, check the things this release actually changed:
 4. **Delete an approved or paid invoice.** Expect a dialog whose specific
    consequences appear ABOVE the general warning; confirming it should succeed
    and the audit event should carry the warning text verbatim.
-5. **Check the plan matrix** (`/api/v1/access/matrix`): six plans plus Practice,
+5. **Open the Archive** (`/invoices/archive`, linked from Deleted invoices). It
+   will be EMPTY and should say so — no invoice can have completed its 30 days
+   yet. What is being checked is that the screen loads for the owner, states the
+   retention period, and is refused for a role below administrator.
+6. **Check the plan matrix** (`/api/v1/access/matrix`): six plans plus Practice,
    Free reported as `paid: false`, Starter €39 with a 150 cap.
 
 ---
@@ -230,7 +234,6 @@ never deployed, and the reason the pre-flight above is not optional.
 ## 8. After the deploy
 
 - [ ] Set the fee rate (§4.1) and verify it read back.
-- [ ] Re-run the browser suite if you did not before deploying.
 - [ ] Get one real supplier statement, redacted, through the system. This is the
       highest-value open item on the board and no amount of testing substitutes
       for it.

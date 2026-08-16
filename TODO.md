@@ -105,9 +105,17 @@ step audited and every destructive step fenced:
 2633 passing tests did not. Both were found by reading code against intent, not
 by running it. The suite still catches a wrong shape, not a wrong figure.
 
+- [x] **Archive client-facing screen** (2026-08-16) — `/invoices/archive`,
+  linked from Deleted invoices, which is the only route a client has to it. No
+  restore, and it says so rather than leaving people hunting. Both windows
+  (`retention_years`, `expiry_notice_days`) are published by the server so the
+  screen cannot promise a period the archive does not keep. 14 e2e specs — one
+  of which was proving nothing until a seeded violation exposed it: a negative
+  assertion with no positive anchor passed against a page that had not finished
+  its first fetch, and went on passing with the notice window deliberately
+  hardcoded.
+
 **Not built:**
-- [ ] **Archive client-facing screen** — API exists (`GET /archive`,
-      `/archive/{id}`, `/archive/{id}/document`); nothing in the SPA reaches it.
 - [ ] **Pre-expiry notice + the paid retention extension.** `expiring_soon()`
       exists and is tested; the notification and billing do not. The more
       important of the two: three years is likely BELOW the Baltic statutory

@@ -178,6 +178,12 @@ test("the notice window is the server's, not the page's", async ({ page }) => {
   // own 60 would flag it and be wrong.
   await open(page, { noticeDays: 5, items: [archived({ expires_at: SOON })] });
 
+  // Anchor on something PRESENT before asserting something absent. Without this
+  // the negative assertion resolved against a page that had not finished its
+  // first fetch — it passed with the row unrendered, and went on passing when
+  // the notice window was deliberately hardcoded back to 60. A "proves nothing"
+  // test is worse than no test: it is a green tick over an unchecked claim.
+  await expect(page.getByText("INV-2026-0041")).toBeVisible();
   await expect(page.getByText(/leaves in/i)).toHaveCount(0);
 });
 

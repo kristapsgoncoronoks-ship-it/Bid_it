@@ -150,6 +150,7 @@ class ArchivePage:
     items: list[ArchivedInvoice]
     total: int
     retention_years: int
+    expiry_notice_days: int
 
 
 async def page(db: AsyncSession, org_id: str, *, limit: int = 50, offset: int = 0) -> ArchivePage:
@@ -174,6 +175,7 @@ async def page(db: AsyncSession, org_id: str, *, limit: int = 50, offset: int = 
         items=list(rows),
         total=int(total or 0),
         retention_years=await retention_years(db, org_id),
+        expiry_notice_days=EXPIRY_NOTICE_DAYS,
     )
 
 

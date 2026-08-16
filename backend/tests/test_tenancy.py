@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy import select
 
 from app.models.user import User
+from app.services.plans import PLANS, plan_for
 
 
 @pytest.mark.asyncio
@@ -13,8 +14,15 @@ async def test_billing_defaults_trial(auth_client):
     assert b["plan"]["key"] == "trial"
     assert b["status"] == "active"
     assert b["seats_used"] == 1
-    assert b["seats_limit"] == 3
-    assert {p["key"] for p in b["available_plans"]} == {"trial", "starter", "pro", "enterprise"}
+    assert b["seats_limit"] == plan_for("trial").seats
+    # The route must offer the WHOLE ladder — nothing quietly hidden, nothing
+    # invented. Derived rather than frozen as a literal: this test's subject is
+    # the DEFAULT a new org lands on, and a second hand-written copy of the
+    # ladder here just goes stale the next time the commercial one changes (it
+    # did, on 2026-08-15 — §2a). What the ladder actually CONTAINS — the caps,
+    # the prices, which tiers are paid — is pinned in one place,
+    # `test_access.py::test_matrix_covers_every_plan_with_its_defaults`.
+    assert {p["key"] for p in b["available_plans"]} == set(PLANS)
 
 
 @pytest.mark.asyncio
@@ -59,12 +67,26 @@ async def test_invite_accept_creates_member_in_same_tenant(auth_client, client):
 
 @pytest.mark.asyncio
 async def test_seat_limit_enforced(auth_client):
-    # downgrade to Starter (2 seats). Owner already uses 1.
+    """Invites are refused once they would take the org past its plan's seats.
+
+    The seat count is read from the plan rather than written here. It used to be
+    hardcoded ("Starter, 2 seats") and the arithmetic silently stopped testing
+    anything the day Starter became 3 seats (§2a, 2026-08-15): the first extra
+    invite still returned 201, so the assertion that it *exceeded* the cap was
+    passing on a request that was simply within it. The subject is the refusal at
+    the boundary, not the number — so fill the plan up whatever it is, then prove
+    the next one is refused."""
     await auth_client.put("/api/v1/billing/plan", json={"plan": "starter"})
-    ok = await auth_client.post("/api/v1/team/invites", json={"email": "a@acme.io"})
-    assert ok.status_code == 201  # 1 used + 1 invite = 2 = limit
-    full = await auth_client.post("/api/v1/team/invites", json={"email": "b@acme.io"})
-    assert full.status_code == 402  # would exceed the plan
+    seats = plan_for("starter").seats
+    assert seats >= 2, "this test needs a plan with room for at least one invite"
+
+    # Owner already occupies one seat; fill the rest exactly.
+    for i in range(seats - 1):
+        ok = await auth_client.post("/api/v1/team/invites", json={"email": f"seat{i}@acme.io"})
+        assert ok.status_code == 201, ok.text
+
+    full = await auth_client.post("/api/v1/team/invites", json={"email": "overflow@acme.io"})
+    assert full.status_code == 402, full.text  # would exceed the plan
 
 
 @pytest.mark.asyncio

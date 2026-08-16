@@ -85,6 +85,7 @@ async def list_archive(
         items=[_out(r) for r in page.items],
         total=page.total,
         retention_years=page.retention_years,
+        expiry_notice_days=page.expiry_notice_days,
     )
 
 
