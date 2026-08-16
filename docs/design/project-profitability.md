@@ -8,25 +8,42 @@ degenerate case, not the model); **the P&L freezes at close**.
 
 ---
 
-## 1. The idea, in the owner's scenario
+## 1. The idea — industry-neutral by design (owner requirement, 2026-08-16)
 
-A transport company wins a cargo contract. In the system they:
+**This is a GENERAL feature for every kind of customer, not a transport
+feature.** The owner's explicit direction: a builder, a landscaping company, a
+consultancy, a transport operator — anyone whose work arrives as jobs/contracts
+must be able to run the same loop. Nothing in the model may assume an industry;
+industry words may appear in EXAMPLES only, never in schema, code, copy or
+tests' subjects. (The concrete guard: no field, enum value, label or route in
+this feature may name a vehicle, cargo, fuel, site, crew or any other
+industry noun — `docs/design` reviews check this list.)
 
-1. **open a project** for the contract and attach the signed contract document;
-2. **issue their sales invoice(s)** to their customer under the project — the
-   revenue side;
-3. **receive supplier invoices** (fuel card, tolls, repairs) whose lines are
-   allocated to the project — the cost side;
-4. add **driver expense reports** and a **wage cost line** for the job;
-5. **close the project** and read its profitability: revenue − costs = the
-   number that tells them whether the contract was worth having.
+The loop, generically:
 
-That last number is the point. Every existing feature (capture, VAT recovery,
-expense reports) feeds costs or recovers cash; this is the screen where a client
-finally sees per-contract profit, which is the question a transport operator
-actually runs their business on. It is also retention moat: the system that
-holds three years of per-contract profitability history is the system nobody
-churns off.
+1. **open a project** for a won contract/job and attach the signed contract;
+2. **issue sales invoice(s)** to the customer under the project — revenue;
+3. **allocate received supplier and SUBCONTRACTOR invoices** to it — costs
+   (a subcontractor's invoice is just a received invoice allocated to the
+   project; it needs no special machinery, and that is a feature);
+4. add **employee expense reports** and **manual cost lines** (wages, per
+   diems, equipment hire — whatever the industry calls its uninvoiced costs);
+5. **close the project** and read revenue − costs.
+
+The same five steps, three industries:
+
+| | Transport operator | Builder | Landscaping company |
+|---|---|---|---|
+| Project | cargo contract | house renovation | seasonal grounds contract |
+| Revenue | delivery invoices | stage invoices to the client | monthly service invoices |
+| Allocated costs | fuel card, tolls | materials, subcontractors | fuel, materials, equipment hire |
+| Expense reports | driver travel | site crew | field crew |
+| Cost lines | driver wages | crew wages | crew wages |
+
+That final number is the point: per-contract profit is the question every
+project-shaped business runs on, whatever the industry. It is also retention
+moat — the system holding three years of per-project profitability history is
+the system nobody churns off.
 
 ## 2. What already exists (verified against the tree, not recalled)
 
@@ -71,15 +88,16 @@ FX provenance rules), entry_date, created_by, note. Audited like every
 mutation.
 
 **Explicitly not payroll.** No employee master, no tax, no social
-contributions, no net/gross. A wage cost line makes the P&L honest — driver
-wages are a top-3 transport cost — without entering a regulated domain this
+contributions, no net/gross. A wage cost line makes the P&L honest — in most
+project businesses wages are a top-3 cost — without entering a regulated domain this
 product has no business in. The docstring will say so as loudly as this doc.
 
 ### 3.4 Line-level + percentage allocation (phase 2)
 
-The transport reality: one Eurowag invoice covers ten deliveries. Whole-invoice
-linking books it all on one project and the P&L is wrong precisely for the
-target client.
+The shared-cost reality, in every industry: one fuel-card invoice covers ten
+deliveries; one builders-merchant invoice covers three sites; one equipment
+lease covers every job that month. Whole-invoice linking books it all on one
+project and the P&L is wrong for exactly the clients who need it most.
 
 - `line_items.project_id` (nullable, same composite FK) — a line's explicit
   project wins over the invoice's.
@@ -108,7 +126,7 @@ profit     = revenue − costs;  margin = profit / revenue
 side effect: compute the P&L and store a snapshot (`projects.closed_pnl_json` +
 `closed_at`, audited). After close:
 
-- the stored figure is what every screen shows — a late fuel invoice cannot
+- the stored figure is what every screen shows — a late supplier invoice cannot
   silently change a number the client already reported to their customer or
   bank;
 - documents can still be allocated to the closed project (they genuinely
@@ -180,11 +198,14 @@ entities, VAT-claim link).
 ## 7. Open questions for the owner (none block phase 1)
 
 1. Should a **closed** project refuse new allocations outright instead of
-   accumulating adjustments? (Doc assumes: allow + display, because the fuel
+   accumulating adjustments? (Doc assumes: allow + display, because the supplier
    invoice for the job's last week genuinely arrives after the job ends.)
 2. Who may close/reopen a project — admin/owner only, or any processor?
    (Doc assumes admin/owner, matching restore's narrower-than-delete pattern.)
-3. Should the VAT actually **recovered** on a project's fuel/toll invoices
-   show as a P&L line (recovered cash is part of the contract's true economics,
-   and it is this product's signature move)? Doc assumes yes, as a separate
-   visible line, phase 2.
+3. Should VAT actually **recovered** on a project's invoices show as a P&L
+   line (recovered cash is part of the contract's true economics, and it is
+   this product's signature move)? Doc assumes yes, as a separate visible line,
+   phase 2 — and CONDITIONAL: it renders only for tenants with the VAT module
+   active, so the generic P&L stays generic and the line is an overlay, never
+   a dependency. A builder who never touches VAT recovery sees a P&L with no
+   empty slot where a transport feature would have been.
