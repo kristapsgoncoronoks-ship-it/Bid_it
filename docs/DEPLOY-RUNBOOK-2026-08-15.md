@@ -86,9 +86,15 @@ ls -lh ~/pre-deploy-*.sql.gz                  # expect a plausible size, not a f
 
 # 3. The document store. This release ARCHIVES invoice PDFs rather than
 #    deleting them, so these bytes now outlive the rows that referenced them.
+#    The bytes live on the `storagedata` volume, mounted at /app/var/storage
+#    (STORAGE_LOCAL_PATH) — an earlier draft of this runbook said
+#    /data/documents, which does not exist and produced a 45-byte "backup".
 docker compose -f docker-compose.hostinger.yml exec -T backend \
-  tar czf - /data/documents > ~/pre-deploy-docs-$(date +%F-%H%M).tar.gz
+  tar czf - /app/var/storage > ~/pre-deploy-docs-$(date +%F-%H%M).tar.gz
 ls -lh ~/pre-deploy-docs-*.tar.gz
+# If the backend container is not running, back the volume up directly:
+#   docker run --rm -v invoiceiq_storagedata:/data -v "$HOME":/out alpine \
+#     tar czf /out/pre-deploy-docs-$(date +%F-%H%M).tar.gz -C /data .
 
 # 4. Record the commit you are rolling back TO.
 git rev-parse HEAD > ~/pre-deploy-commit.txt && cat ~/pre-deploy-commit.txt
