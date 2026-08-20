@@ -305,7 +305,7 @@ Repo → **Settings → Secrets and variables → Actions**:
 
 - **Secrets** (New repository secret):
   - `DEPLOY_SSH_KEY` — the private key printed above (the whole block).
-  - `DEPLOY_HOST` — `srv1760867.hstgr.cloud`
+  - `DEPLOY_HOST` — `YOUR_VPS_HOST`
   - `DEPLOY_USER` — `root`
 - **Variables** (the Variables tab → New repository variable):
   - `DEPLOY_ENABLED` — `true`  ← this is the master switch; set it last.

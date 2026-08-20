@@ -42,7 +42,7 @@ suite runs SQLite except where a scratch cluster is used.
 container starts. If one fails halfway, the rollback in §4 needs this dump.
 
 ```bash
-ssh root@srv1760867.hstgr.cloud
+ssh root@YOUR_VPS_HOST
 cd /root/Bid_it
 
 # database → gzipped SQL dump
@@ -94,7 +94,7 @@ complete`. If a migration raises, **stop** and go to §4.
 
 ```bash
 # the app is up
-curl -fsS https://srv1760867.hstgr.cloud/health && echo
+curl -fsS https://YOUR_VPS_HOST/health && echo
 
 # the schema really reached head
 docker compose -f docker-compose.hostinger.yml exec -T backend alembic current
