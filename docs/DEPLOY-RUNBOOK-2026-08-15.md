@@ -1,7 +1,7 @@
 # Deploy runbook — the 2026-08-15 release to the Hostinger VPS
 
 **What is being deployed:** the working branch at `HEAD`, which advances
-production from `15116e1` by **282 commits** and **33 Alembic migrations** (figures refreshed 2026-08-16; re-run `git rev-list --count 15116e1..HEAD` if you deploy a later commit).
+production from `15116e1` by **287 commits** and **34 Alembic migrations** (figures refreshed 2026-08-16; re-run `git rev-list --count 15116e1..HEAD` if you deploy a later commit).
 
 This supersedes `DEPLOY-RUNBOOK-2026-08-12.md`. That runbook was written for
 `ec93e4b` and **was never run** — production is still `15116e1`, so its 24
@@ -9,7 +9,7 @@ migrations are also still pending and are included in the 30 below. Read this
 file, not that one.
 
 **Why a runbook rather than the two-line update in `DEPLOY-HOSTINGER.md#operate`:**
-that procedure assumes an incremental update. This applies 33 migrations in one
+that procedure assumes an incremental update. This applies 34 migrations in one
 step to a database that has seen none of them. Migrations are the part of a
 deploy that `git reset` does not undo.
 
@@ -27,7 +27,7 @@ Verified LOCALLY at this tree (executed, not recalled):
 
 | Check | Result |
 |---|---|
-| Backend suite | **2685 passed, 11 skipped (36:42)** on 2026-08-16 at `49d15c3` — additionally covers project profitability phases 1+2 (the P&L, allocation, close-freeze) and the parity probe the previous full run caught missing |
+| Backend suite | **2694 passed (39:57)** on 2026-08-16 at `56bcab7` — adds lifecycle phase 4 (offers, invoicing plan) and the allocation editor. The run's single failure was environmental (the session container lost the tesseract binary; reinstalled, the OCR suite passes 2/2) — stated here rather than laundered into the count |
 | `ruff check` / `ruff format --check` | clean |
 | `mypy app` | clean, 339 files |
 | Alembic | single head `c9e4f1a7b2d8` (audit ip/session — additive, nullable) |
@@ -142,7 +142,7 @@ docker compose -f docker-compose.hostinger.yml ps
 docker compose -f docker-compose.hostinger.yml logs -f backend  # watch the migrations
 ```
 
-Expect 33 migrations to apply. If any fails the container will not become
+Expect 34 migrations to apply. If any fails the container will not become
 healthy — **stop and go to §6 rather than retrying**.
 
 ---
