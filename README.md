@@ -16,7 +16,8 @@ zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 > **The specification lives in [`docs/`](./docs), not here.**
 > [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (29 ADRs) and
 > [`docs/product/`](./docs/product) are authoritative; start with
-> [`docs/architecture/overview.md`](./docs/architecture/overview.md). This README
+> [`docs/architecture/overview.md`](./docs/architecture/overview.md). The
+> user-facing guide is [`docs/MANUAL.md`](./docs/MANUAL.md). This README
 > is only the front door.
 
 ## What it does
@@ -45,6 +46,17 @@ zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 - **Expenses**: reports with standard/mileage/per-diem items, receipt capture,
   bank-statement inbox, an 11-rule policy engine, approval chains, reimbursement
   batches (CSV + SEPA).
+- **Project lifecycle & profitability**: open project → versioned
+  offers/estimates (client-configurable numbering) → contract (uploaded or
+  generated from adjustable **document templates** — platform masters a
+  workspace copies and owns; unknown placeholders stay visibly unreplaced) →
+  invoicing plan tracked against actually-issued → costs from allocated
+  supplier invoices (cent-exact % splits), expense links, and manual entries →
+  a per-project P&L whose wire states its own basis → **close-freeze** (the
+  snapshot commits with the status change; late documents surface as labelled
+  adjustments). Industry-neutral by rule — industry nouns appear only in
+  examples, never in schema or copy. Design:
+  [`docs/design/project-profitability.md`](./docs/design/project-profitability.md).
 - **Money correctness**: `Decimal` ROUND_HALF_UP everywhere, server-recomputed
   totals, **one FX convention** (ECB units-per-EUR, divide; `fx_source` a closed
   enum; `unknown` → NULL, never a guess; no cross-currency sums without a
@@ -61,7 +73,7 @@ zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
   hold, GDPR erasure, data-residency pinning, plans/entitlements/usage metering,
   and Stripe/EveryPay billing behind a provider seam (code-complete, not live).
 - **Tenant isolation, three layers, tested**: per-query `org_id` filters + an ORM
-  `do_orm_execute` guard over a 58-model registry + Postgres `FORCE ROW LEVEL
+  `do_orm_execute` guard over an 87-model registry + Postgres `FORCE ROW LEVEL
   SECURITY`; CI asserts RLS/model set-equality (`tests/test_rls.py`), behavioural
   isolation per table over the real query path (`tests/test_tenancy_parity.py`),
   and opaque 404s on cross-tenant ids.
@@ -134,4 +146,6 @@ Deployment (TLS, Cloudflare, Hostinger): [`docs/DEPLOYMENT.md`](./docs/DEPLOYMEN
 
 ## License
 
-GNU GPL.
+GNU General Public License v3.0 or later — see [LICENSE](./LICENSE).
+(SPDX: `GPL-3.0-or-later`, declared in `backend/pyproject.toml` and
+`frontend/package.json`.)

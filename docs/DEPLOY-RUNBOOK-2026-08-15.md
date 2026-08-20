@@ -1,7 +1,7 @@
 # Deploy runbook — the 2026-08-15 release to the Hostinger VPS
 
 **What is being deployed:** the working branch at `HEAD`, which advances
-production from `15116e1` by **287 commits** and **34 Alembic migrations** (figures refreshed 2026-08-16; re-run `git rev-list --count 15116e1..HEAD` if you deploy a later commit).
+production from `15116e1` by **290 commits** and **36 Alembic migrations** (figures refreshed 2026-08-20 — arithmetic from the last full-clone measurement plus commits since, because a shallow clone's `rev-list` counts are silently wrong; re-measure `git rev-list --count 15116e1..HEAD` on the VPS's full clone if you deploy a later commit).
 
 This supersedes `DEPLOY-RUNBOOK-2026-08-12.md`. That runbook was written for
 `ec93e4b` and **was never run** — production is still `15116e1`, so its 24
@@ -27,11 +27,12 @@ Verified LOCALLY at this tree (executed, not recalled):
 
 | Check | Result |
 |---|---|
-| Backend suite | **2694 passed (39:57)** on 2026-08-16 at `56bcab7` — adds lifecycle phase 4 (offers, invoicing plan) and the allocation editor. The run's single failure was environmental (the session container lost the tesseract binary; reinstalled, the OCR suite passes 2/2) — stated here rather than laundered into the count |
+| Backend suite | **2705 passed, 11 skipped, 0 failed (47:41)** on 2026-08-20 at `d2ba5b0` (code-identical to the deploy tip — the commits after it touch only package metadata and docs) — adds lifecycle phase 5a (dynamic document templates) on top of phases 1/2/4 |
 | `ruff check` / `ruff format --check` | clean |
-| `mypy app` | clean, 339 files |
-| Alembic | single head `c9e4f1a7b2d8` (audit ip/session — additive, nullable) |
-| Browser suite | **334 passed (2.8m)** on 2026-08-16, at this tree |
+| `mypy app` | clean, 348 files |
+| Alembic | single head `b6c8d0e2f4a6` (document templates) |
+| Browser suite | **346 passed (5.0m)** on 2026-08-20, at this tree — includes the templates specs AND the phase-1/2/4 project specs, which the e2e listing guard revealed had never been in the suite command before |
+| Prior certified run | 2694 passed on 2026-08-16 at `56bcab7` (single environmental failure — container lost the tesseract binary; reinstalled, OCR 2/2) |
 
 The browser gap the first draft of this runbook carried is CLOSED: the suite has
 been re-run since the consent dialog was reordered, and since the archive screen
@@ -99,17 +100,20 @@ git rev-parse HEAD > ~/pre-deploy-commit.txt && cat ~/pre-deploy-commit.txt
 
 ## 2. The Postgres gate — required for this release
 
-`archived_invoices` is a new tenant table carrying a row-level-security policy.
-On SQLite the coverage test proves only that the model registry and the migration
-agree; it cannot prove the policy itself. Run this against a real Postgres 16
-under a **NOSUPERUSER** role (RLS is bypassed by superusers, so a superuser run
-proves nothing):
+This release adds SEVEN new tenant tables carrying row-level-security policies:
+`archived_invoices`, `invoice_project_splits`, `project_cost_entries`,
+`project_documents`, `project_offers`, `invoicing_plan_rows`, `org_templates`
+(plus org-less `platform_templates`, deliberately NOT tenant-scoped — operator
+master documents, the `ecb_rates` pattern). On SQLite the coverage test proves
+only that the model registry and the migration agree; it cannot prove the policy
+itself. Run this against a real Postgres 16 under a **NOSUPERUSER** role (RLS is
+bypassed by superusers, so a superuser run proves nothing):
 
 ```bash
 # On a scratch cluster, NOT production.
 createuser --no-superuser appuser && createdb -O appuser invoiceiq_gate
 DATABASE_URL=postgresql+asyncpg://appuser@localhost/invoiceiq_gate \
-  alembic upgrade head && alembic check          # expect no drift, head c9e4f1a7b2d8
+  alembic upgrade head && alembic check          # expect no drift, head b6c8d0e2f4a6
 DATABASE_URL=... python -m pytest tests/test_rls.py \
   tests/test_numbering_concurrency.py tests/test_transport_lock_concurrency.py \
   tests/test_usage_counter_concurrency.py -q
@@ -118,12 +122,16 @@ DATABASE_URL=... python -m pytest tests/test_rls.py \
 Then confirm the new table is actually protected:
 
 ```sql
-SELECT relname, relrowsecurity, relforcerowsecurity
-  FROM pg_class WHERE relname = 'archived_invoices';
--- expect: archived_invoices | t | t
-SELECT polname FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
-  WHERE c.relname = 'archived_invoices';
--- expect: tenant_isolation
+SELECT relname, relrowsecurity, relforcerowsecurity FROM pg_class
+ WHERE relname IN ('archived_invoices','invoice_project_splits',
+   'project_cost_entries','project_documents','project_offers',
+   'invoicing_plan_rows','org_templates');
+-- expect: every row  t | t
+SELECT c.relname, polname FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+  WHERE c.relname IN ('archived_invoices','invoice_project_splits',
+   'project_cost_entries','project_documents','project_offers',
+   'invoicing_plan_rows','org_templates');
+-- expect: tenant_isolation on each
 ```
 
 `relforcerowsecurity` must be `t`. Without FORCE the policy does not apply to the
@@ -142,8 +150,17 @@ docker compose -f docker-compose.hostinger.yml ps
 docker compose -f docker-compose.hostinger.yml logs -f backend  # watch the migrations
 ```
 
-Expect 34 migrations to apply. If any fails the container will not become
+Expect 36 migrations to apply. If any fails the container will not become
 healthy — **stop and go to §6 rather than retrying**.
+
+Known first-time snag: `docker-compose.hostinger.yml` now REQUIRES
+`INBOUND_EMAIL_SECRET` in `.env` (the email-intake webhook secret). Every
+compose command — including the §1 backup `exec`s — fails on interpolation
+until it is set:
+
+```bash
+echo "INBOUND_EMAIL_SECRET=$(python3 -c 'import secrets;print(secrets.token_urlsafe(32))')" >> .env
+```
 
 ---
 
@@ -192,6 +209,11 @@ Then, signed in, check the things this release actually changed:
    retention period, and is refused for a role below administrator.
 6. **Check the plan matrix** (`/api/v1/access/matrix`): six plans plus Practice,
    Free reported as `paid: false`, Starter €39 with a 150 cap.
+7. **Open a project** (Workspace → Cost objects → a project) — the P&L card
+   renders and states "live figures".
+8. **Open Templates** — the three demo documents are there (they seed on first
+   read), each saying it is an example, not legal advice. Adjust one, save it,
+   and generate a PDF from a project's Contract card.
 
 ---
 
@@ -229,6 +251,17 @@ Design: `docs/design/deletion-and-archive.md`, `docs/design/platform-archive.md`
 — it carries a 750/month cap. Any existing tenant on `pro` is affected on
 deploy; there are none in production today, which is why this was safe to do
 before the pilot rather than after.
+
+**The project lifecycle (phases 1–5a, 2026-08-16→20).** Per-project P&L
+(revenue from issued invoices linked by project, net of credit notes; costs from
+allocated supplier invoices — line-level, cent-exact % splits, or whole-invoice
+— plus expense links and manual entries), close-freeze (the P&L snapshot
+commits in the same transaction as the close; late documents surface as
+labelled adjustments), versioned offers/estimates with client-configurable
+numbering, invoicing plans tracked against actually-issued, and dynamic
+document templates (operator masters a workspace adjusts into frozen own
+versions; `{{token}}` render leaves unknown tokens visible; generate → PDF into
+the project's documents). Design: `docs/design/project-profitability.md`.
 
 **Capture-failure worklist, inbound channel health, vendor resolution** — the
 H-1/H-2/H-3 work.

@@ -29,7 +29,10 @@ Start here, in order:
    **[Deployment](./docs/architecture/deployment.md)**.
 
 Product context: **[docs/product/](./docs/product/)** (PRD, personas, pricing
-hypothesis, metrics, risks, workflows). Security: **[docs/security/](./docs/security/)**.
+hypothesis, metrics, risks, workflows). Feature designs:
+**[docs/design/](./docs/design/)** (project profitability & lifecycle,
+deletion/archive, platform archive). User-facing guide:
+**[docs/MANUAL.md](./docs/MANUAL.md)**. Security: **[docs/security/](./docs/security/)**.
 Milestone gate: **[docs/M0-exit-gate.md](./docs/M0-exit-gate.md)**.
 
 Layering (machine-enforced by `backend/tests/test_boundaries.py`):

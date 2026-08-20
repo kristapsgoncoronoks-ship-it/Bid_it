@@ -151,6 +151,18 @@ stateDiagram-v2
 - Usage metering + per-plan limits (invoices, uploads) with clear in-product signalling at the cap.
 - Retention + legal hold (Should): documents kept per statutory period; erasure respects retention.
 
+### W9 — Project lifecycle (offer → profit)
+
+Open project → **offer/estimate** (versioned; accept/reject; org-configurable
+numbering) → **contract** (uploaded, or generated from an adjustable document
+template — placeholders filled from the project, unknown ones left visible) →
+**invoicing plan** (contracted vs issued vs remaining) → work (issued invoices
+linked by project, supplier-invoice allocation, expense links, manual cost
+entries) → **close** (P&L frozen in the same transaction; late documents appear
+as labelled adjustments). Next slice: acceptance & handover as a project state,
+and the adjustable final invoice. Design:
+[`../design/project-profitability.md`](../design/project-profitability.md).
+
 ---
 
 ## Workflow-to-status quick reference
@@ -165,3 +177,4 @@ stateDiagram-v2
 | W6 Issuing loop | ✅ | issue + credit notes + recurring + reminders shipped |
 | W7 Automate & integrate | ✅ webhooks, 🟡 API ingest | webhooks + queue shipped |
 | W8 Govern | ✅ audit/jobs/metering, ✅ retention + legal hold + GDPR erasure + audit export | SSO (OIDC+SCIM) ✅, SAML scaffold 🟡; residency seam ✅ |
+| W9 Project lifecycle | ✅ phases 1–5a, 🟡 acceptance / final invoice | per-project P&L + close-freeze + offers + invoicing plan + document templates shipped |

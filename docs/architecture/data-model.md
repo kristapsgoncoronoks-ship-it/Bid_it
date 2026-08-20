@@ -11,7 +11,7 @@
 
 ## 0. Approach — design complete, build incremental
 
-InvoiceIQ is **not greenfield**: 64 tables and 64 migrations (single head) already implement organizations, users/memberships, roles, suppliers (+ the protected-field change workflow), supplier + customer invoices, credit notes, payments/receipts/payment runs, expenses (+ approval chains and reimbursement batches), bank import/reconciliation, documents/versions/extraction provenance, audit, billing, SSO/SCIM, retention, and more, all under a defence-in-depth tenant guard + Postgres RLS + Decimal money. So this document does two things:
+InvoiceIQ is **not greenfield**: 94 tables and 104 migrations (single head; figures re-verified 2026-08-20) already implement organizations, users/memberships, roles, suppliers (+ the protected-field change workflow), supplier + customer invoices, credit notes, payments/receipts/payment runs, expenses (+ approval chains and reimbursement batches), bank import/reconciliation, documents/versions/extraction provenance, audit, billing, SSO/SCIM, retention, and more, all under a defence-in-depth tenant guard + Postgres RLS + Decimal money. So this document does two things:
 
 1. **Documents the complete target logical model** for every requested domain — including the ones already built (so the model is coherent end-to-end) and the ones not yet built (so the target is explicit).
 2. **Implements exactly one new vertical slice now** — **cost-allocation master data** (Departments, Cost centers, Projects) — because the code itself flagged it (`core/dimensions.py`: *"no master table yet … normalise later"*), it is foundational, and it lets us demonstrate every required data-principle without disturbing the working ledger.
@@ -67,7 +67,7 @@ InvoiceIQ is **not greenfield**: 64 tables and 64 migrations (single head) alrea
 | 41 | Usage records | ✅ | `usage_counters` (`count`/`reported`) |
 | 42 | Feature entitlements | ✅ | `org_modules` (+ plan→module derivation) |
 
-**Also built, beyond the list:** `processed_stripe_events` (billing idempotency ledger), `sso_connections` (SSO/SCIM/SAML), `sessions` (revocable auth sessions), `retention_policies` + `legal_holds`, `budget_targets`, `partner_documents`, `jobs`, `ecb_rates`, `bank_statements` + `bank_lines` (statement import + reconciliation), `dunning_policies`, `recurring_invoices`, `email_intakes` + `email_messages` (inbound address + outbound mail history), `expense_policies` + `expense_transactions` + `reimbursement_batches`, `plan_policies`.
+**Also built, beyond the list:** `processed_stripe_events` (billing idempotency ledger), `sso_connections` (SSO/SCIM/SAML), `sessions` (revocable auth sessions), `retention_policies` + `legal_holds`, `budget_targets`, `partner_documents`, `jobs`, `ecb_rates`, `bank_statements` + `bank_lines` (statement import + reconciliation), `dunning_policies`, `recurring_invoices`, `email_intakes` + `email_messages` (inbound address + outbound mail history), `expense_policies` + `expense_transactions` + `reimbursement_batches`, `plan_policies`, `archived_invoices` (the sealed post-trash archive), `capture_acknowledgements`, `capture_field_memory`, `inbound_channel_health`, `auth_tokens`, and the project-lifecycle set (§3.4): `invoice_project_splits`, `project_cost_entries`, `project_documents`, `project_offers`, `invoicing_plan_rows`, `org_templates` + the org-less `platform_templates`.
 
 ---
 
@@ -111,6 +111,14 @@ erDiagram
   INVOICES      ||--o{ EXTRACTION_RUNS : "built"
   EXTRACTION_RUNS ||--o{ EXTRACTION_FIELDS : "built"
   INVOICES      }o--o| DOCUMENTS : "sourced from"
+
+  PROJECTS      ||--o{ PROJECT_OFFERS : "versioned offers (built)"
+  PROJECTS      ||--o{ INVOICING_PLAN_ROWS : "instalment plan (built)"
+  PROJECTS      ||--o{ PROJECT_COST_ENTRIES : "manual costs (built)"
+  PROJECTS      ||--o{ PROJECT_DOCUMENTS : "contract + generated docs (built)"
+  INVOICES      ||--o{ INVOICE_PROJECT_SPLITS : "% allocation (built)"
+  PROJECTS      ||--o{ INVOICE_PROJECT_SPLITS : "allocated to"
+  ORGANIZATIONS ||--o{ ORG_TEMPLATES : "saved template versions (built)"
 
   ORGANIZATIONS ||--o{ AUDIT_EVENTS : records
   ORGANIZATIONS ||--o{ WEBHOOK_ENDPOINTS : has
@@ -173,6 +181,26 @@ Base columns + `start_date`/`end_date`, `status` (`active|closed|archived`). Con
 - **`integrations`** — per-tenant external-connection config (ERP, bank feed) following the `sso_connections` shape (sealed secrets).
 - **`subscription_plans`** / **`subscriptions`** — only if plans become operator-editable data (today code-defined + `org_modules`); explicit `subscriptions` if lifecycle needs more than `organizations.plan`.
 
+### 3.4 Project lifecycle & profitability (phases 1–5a, shipped 2026-08)
+
+Design: [`docs/design/project-profitability.md`](../design/project-profitability.md). Six tenant tables (each with FORCE RLS + ORM-guard registration + a tenancy-parity probe in the same commit) plus one org-less platform table:
+
+**`invoice_project_splits`** (`e2b4d6f8a0c2`) — percentage allocation of a received invoice across projects. `org_id` · `invoice_id` (composite FK) · `project_id` (composite FK) · `percent` · uq(org_id, invoice_id, project_id). Line-level allocation lives on `line_items.project_id`, the whole-invoice link on `invoices.project_id` (Slice 2). Precedence at P&L time: line links > splits > the whole-invoice link; splits are quantized per-share with the rounding residue landing deterministically on the largest **percent** (cent-exact).
+
+**`project_cost_entries`** (`e2b4d6f8a0c2`) — manual cost lines (wages, anything undocumented): label, category, amount/currency, entry date, note, created_by.
+
+**`project_documents`** (`e2b4d6f8a0c2`) — the project's papers (contract, generated documents, other): filename/content_type/size, `sha256` (bytes in object storage), uploaded_by.
+
+**`project_offers`** (`a5b7c9d1e3f5`) — offers/estimates with versioned negotiation history. `number` (org-configurable prefix; the platform enforces only per-org uniqueness) · `version` · `status` `draft|sent|accepted|rejected|superseded` · `total` · `line_items_json` (JSON lines — no line table until a query needs one). Revision supersedes the prior version; the latest accepted total ⇒ the P&L's `estimated_revenue`.
+
+**`invoicing_plan_rows`** (`a5b7c9d1e3f5`) — the contracted instalment plan (label, amount, position). The plan read reports contracted vs issued vs remaining using the SAME revenue figure the P&L computes — no forked math.
+
+**`org_templates`** (`b6c8d0e2f4a6`) — a workspace's saved document-template versions. `source_platform_id` is nullable and **lineage only — never a live pointer**: a platform edit must not reach a saved copy. `kind` `contract|acceptance|offer|other`, name, body, active, created_by.
+
+**`platform_templates`** (`b6c8d0e2f4a6`, **org-less** — the `ecb_rates` pattern) — the operator's master documents: `key` (unique slug), kind, name, description, body, active. Demo masters seed on first read (idempotent by key, so operator edits survive restarts); writable only via `PUT /platform/templates/{key}` behind `require_platform_admin`.
+
+Close-freeze: `projects` gained `closed_pnl_json`/`pnl_frozen_at` (`f3c5e7a9b1d4`) — closing stores the P&L snapshot **in the same transaction** as the status transition; documents arriving after close surface as labelled `adjustments` (the frozen headline never silently moves); reopening discards the snapshot (audited). The wire states its own basis (`net_eur_live|net_eur_frozen`) — screens render the server's claim, never a local guess.
+
 ---
 
 ## 4. Status & lifecycle definitions
@@ -183,6 +211,7 @@ Status is an **explicit column with enforced transitions** (in the owning servic
 |---|---|---|---|
 | **Department / Cost center** | `active`, `archived` | active↔archived | archive = soft delete; `archived_at` set/cleared |
 | **Project** | `active`, `closed`, `archived` | active→closed, active→archived, closed→{active,archived}, archived→active | closed = no new spend, still reportable |
+| **Project offer** | `draft`, `sent`, `accepted`, `rejected`, `superseded` | draft→sent, sent→draft (pull back), sent→accepted\|rejected, revise ⇒ new version + old→superseded | accepted/rejected/superseded terminal; latest accepted drives `estimated_revenue` |
 | Organization | `active`, `suspended`, `canceled` | active↔suspended, →canceled | billing/webhook driven |
 | Supplier invoice (draft) | draft (implicit) → confirmed | one-way to confirmed | editable only before confirm |
 | Issued invoice | issued → paid/partial/overdue/credited | monotonic; corrections via credit note | **immutable once issued** |
@@ -256,6 +285,8 @@ Migrations are the production schema source of truth; append-only, run before se
 - **Async direct-upload capture (`407cf4fff58b`):** `extraction_runs.draft_json` (nullable TEXT) holds the serialized `ParsedInvoiceDraft` a queued upload produces, so direct-upload OCR runs on the **worker tier** (`upload.extract` job) instead of inline in the web request. The upload endpoint returns `202` + a run id; the client polls `GET /invoices/upload/{id}`. Additive column, no backfill. See `deploy/SCALING.md` (worker lanes).
 - **Slice 5h (shipped, no migration):** **document-version integrity check** — extends the integrity feature (like Slice 5e did for the ledger) to guard the invariants Slice 5g introduced: every single-file slot has EXACTLY ONE current version, that current version's sha matches the owner's live `*_sha256` pointer, and no owner holds a file without a version history. `integrity.verify_versions` (never raises — a drift is a finding), admin `POST /integrity/versions/verify`, and the `integrity.verify_versions` background job. Reuses the `IntegrityReport` shape (no new schema/table).
 - **Slice 5+ (next, decision-gated):** approvals, polymorphic comments/notifications/attachments — DEFERRED as premature: the expense-approval flow is the only approval flow, `ExpenseComment` already exists, and no notification/attachment consumer is wired. Each would be an abstraction with one (or zero) consumers, against the "documented reason / no speculative complexity" rule. Revisit when a second consumer appears.
+
+- **Project profitability (`e2b4d6f8a0c2`, `f3c5e7a9b1d4`, `a5b7c9d1e3f5`, `b6c8d0e2f4a6`, shipped 2026-08):** the project-lifecycle slices — allocation + manual costs + project documents (phase 1), the close-freeze snapshot columns (phase 2), offers + the invoicing plan (phase 4), document templates (phase 5a). Every tenant table shipped with FORCE RLS + ORM-guard registration + a tenancy-parity probe in the SAME commit (§3.4).
 
 Each slice: additive first, dual-read during transition, contract-migrate (drop old) only after the new path is proven — the same pattern used to move blob bytes to object storage.
 

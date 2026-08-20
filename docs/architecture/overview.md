@@ -1,6 +1,6 @@
 # InvoiceIQ — Architecture Overview
 
-> **Status:** v2 (post-build review) · Owner: Tech Lead · Last updated: 2026-07-22
+> **Status:** v2.1 (post-build review; 2026-08-20 truth-up: project lifecycle & templates modules added — see domain-modules/data-model) · Owner: Tech Lead · Last updated: 2026-08-20
 > **Audience:** engineers, reviewers, future maintainers (5-year horizon).
 > **Companion docs:** [domain-modules](./domain-modules.md) · [data-flows](./data-flows.md) · [security-boundaries](./security-boundaries.md) · [deployment](./deployment.md) · [ADRs](./adr/)
 > **Product context:** [../product/product-requirements.md](../product/product-requirements.md)
@@ -220,7 +220,7 @@ graph LR
     DEPS[Deps<br/>get_current_user → sets tenant + actor]
     subgraph Routers
       R1[auth / team / access]
-      R2[invoices / vendors / upload]
+      R2[invoices / vendors / upload / costing / templates]
       R3[analytics / explore / budget]
       R4[issued / recurring / issuer / partners]
       R5[expenses]
@@ -233,6 +233,7 @@ graph LR
       S3[issued_service · recurring · vat · fx · money]
       S4[jobs · scheduler · webhooks · mailer]
       S5[access · plans · modules · audit]
+      S6[project_profit · project_offers · doc_templates]
     end
     subgraph Platform["Cross-cutting (core/)"]
       C1[tenant guard]
@@ -399,7 +400,7 @@ Bid_it/
 └── ARCHITECTURE.md                # lightweight intro (superseded by docs/architecture)
 ```
 
-**Landed since v1:** `core/storage.py`, `core/keyvault.py`, `core/ratelimit.py`, `core/residency.py`, `core/metrics.py`; services for `oidc`/`scim`/`saml`/`sso_config`, `retention`/`privacy`, `billing_provider`/`billing_usage`, `audit_export`, `queue_health`, `integrity`, `documents`, `erp_export`. **Still target:** `app/services/export/` package split for country-profiled SAF-T/DATEV, `infra/` (IaC — Terraform), a per-secret-DEK envelope + cloud-KMS provider behind the `keyvault` seam.
+**Landed since v1:** `core/storage.py`, `core/keyvault.py`, `core/ratelimit.py`, `core/residency.py`, `core/metrics.py`; services for `oidc`/`scim`/`saml`/`sso_config`, `retention`/`privacy`, `billing_provider`/`billing_usage`, `audit_export`, `queue_health`, `integrity`, `documents`, `erp_export`; since the 2026-08 build-out also `project_profit`, `project_offers`, `doc_templates`, `archive`, and the retention deletion chain. **Still target:** `app/services/export/` package split for country-profiled SAF-T/DATEV, `infra/` (IaC — Terraform), a per-secret-DEK envelope + cloud-KMS provider behind the `keyvault` seam.
 
 ---
 

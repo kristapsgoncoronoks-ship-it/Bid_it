@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Added (2026-08 build-out, post-audit)
+
+- **Deletion chain, recycle bin and the platform archive** — deleting an invoice
+  goes to a 30-day bin, then a sealed 3-year archive; server-enforced versioned
+  consent for anything past draft; reference-counted purge at expiry with
+  pre-expiry notices and a paid retention extension. Designs:
+  `docs/design/deletion-and-archive.md`, `docs/design/platform-archive.md`.
+- **Project lifecycle & profitability (phases 1–5a)** — per-project P&L with
+  cent-exact supplier-invoice allocation, expense links and manual cost entries;
+  close-freeze with labelled after-close adjustments; versioned offers/estimates
+  with org-configurable numbering; invoicing plans tracked against
+  actually-issued; **dynamic document templates** (operator masters, frozen
+  per-workspace versions, visible-gap rendering, PDF generation into the
+  project's documents). Design: `docs/design/project-profitability.md`.
+- **Plan ladder** — Free €0 · Starter €39 · Team €99 (750/mo cap) · Business
+  €249 · Enterprise · Practice.
+- **User manual** at `docs/MANUAL.md`; architecture set trued up 2026-08-20
+  (94 tables / 104 migrations / 87 tenant-guarded models).
+- License made machine-readable: SPDX `GPL-3.0-or-later` declared in
+  `backend/pyproject.toml` and `frontend/package.json` (LICENSE was already
+  GPLv3).
+
 ### Audit
 - **4-agent independent SaaS review board audit (Phases 1-11)** ran against branch
   `claude/bidit-invoice-data-analytics` — Lead Product Developer (functional), Lead System Architect

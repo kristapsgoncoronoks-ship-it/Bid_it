@@ -66,6 +66,12 @@ graph TB
     DUN[Dunning / reminders]
   end
 
+  subgraph Proj["Project lifecycle & profitability"]
+    PPL[Projects P&L + close-freeze]
+    POFF[Offers & invoicing plan]
+    PTPL[Document templates]
+  end
+
   subgraph Money["Money & Compliance"]
     MON[Money]
     FX[FX / ECB]
@@ -83,6 +89,10 @@ graph TB
   AR --> Money
   AR --> Record
   Exp --> Money
+  Record --> Proj
+  AR --> Proj
+  Exp --> Proj
+  Proj --> Money
   Ent -.governs.- Record
   Ent -.governs.- AR
   Platform -.underpins.- Intake
@@ -128,6 +138,8 @@ Legend: **Owns** = writes + schema authority. **Reads** = consumes read-only. Is
 | **Validation** | (findings on invoice) | `validation` | invoice, fx, ecb | ONE service-owned engine (WO-7; ADR forthcoming in WO-10): a single rule registry — `block` rules (zero tolerance) gate AP submit, `advise` rules are the opt-in AI findings; human-gate routes to `pending`. |
 | **Dimensions** | (columns on invoices/expense_items) | `core/dimensions` | — | Cost-allocation tags; catalog in one place. |
 | **Master-data catalogs** | `tax_codes`, `currencies`, `departments`, `cost_centers`, `projects` | `tax_codes`, `currencies`, `costing` (+ `/tax-codes`, `/currencies`, `/masters/*` routes) | dimensions (tag→FK backfill), fx | WO-14: costing masters gained their API surface (read `invoice.read`, manage `settings.manage`); every catalog mutation is audited (`tax_code.*`, `currency.*`, `master.*`) in the same commit; optimistic `version`; archive-never-delete. WO-23 (C1.5, ADR-0026): the `currencies` catalog's default seed and its `indicative` provenance now derive from `fx.CURRENCY_BY_CODE` — the one currency-identity registry also read by `/fx/currencies` — rather than a second hand-maintained list. |
+| **Project lifecycle** | `invoice_project_splits`, `project_cost_entries`, `project_documents`, `project_offers`, `invoicing_plan_rows` (+ `closed_pnl_json`/`pnl_frozen_at` on `projects`) | `project_profit`, `project_offers` | invoices, line_items, issued, expenses, customers, issuer | Per-project P&L: revenue = issued net of credits via `project_id`; costs = line/split/whole-invoice allocation (cent-exact, residue on largest percent) + expense links + manual entries. Close FREEZES the P&L in the same transaction; late docs = labelled adjustments; the wire states its basis. Offers: versioned, org-configurable numbering, latest accepted ⇒ `estimated_revenue`; the plan tracks contracted vs issued vs remaining with the P&L's own revenue figure. Industry-neutral by rule (industry nouns only in examples — e2e-greped). |
+| **Document templates** | `org_templates` (tenant) + `platform_templates` (org-less masters) | `doc_templates` | issuer, customers, projects, offers, invoicing plan | Owner trust model: operator-writable masters (demo texts seed on first read and self-describe as examples, not legal advice); a workspace's saved copy is FROZEN (`source_platform_id` = lineage only). `{{token}}` render leaves unknown tokens visibly unreplaced; generate → PDF → `project_documents`. Wording changes = org configuration (`settings.manage`). |
 | **Analytics** | (read models / metrics) | `analytics`, `explore`, `issued_reports`, `report_writers` | invoices, issued, dimensions | DB-side aggregation; single-currency. WO-15 (C1.6, ADR-0026): Explore and the fixed by-dimension report consume the one registry in `core/dimensions` — the five cost-allocation dimensions are pivotable in Explore and both paths return identical numbers for the same cut (shared `UNASSIGNED` bucket). WO-21 (I1.5): the general report-to-Excel/PDF gap (invoice PDF was production-grade but there was no general report writer) is closed for the Explore surface — `report_writers.to_xlsx`/`to_pdf` render any Explore cut, both formats consuming the exact same `explore.run()` result the JSON/CSV formats already do (no forked query), Excel cells formula-injection-safe using the same leading-`=`/`+`/`-`/`@`/tab/CR neutralisation CSV already uses. Scoped to Explore only — the fixed reports/audit export/ERP export do not yet have Excel/PDF output. |
 | **Home dashboard** | — (pure projection) | `dashboard` (`GET /dashboard`) | approvals, expenses, payment runs, vendor changes, captures, ap_aging, issued_reports, cash_position | WO-16 (I1.1, ADR-0023): the composed "what needs me today" read — per-section permission/module gating (a section the caller may not see is `null`), SoD-aware "waiting on me" counts, zero forked math (every figure is the canonical service's own). |
 | **Budget** | `budget_targets` | `budget` | invoices | Category budgets vs. spend. |
@@ -219,6 +231,7 @@ Everything else (auth, tenancy, invoices, money) stays in the core monolith. **W
 | Analytics | `analytics`, `budget` | `analytics`, `explore`, `budget` |
 | Issuing (AR) | `issued`, `recurring`, `issuer`, `partners` | `issued_service`, `recurring`, `dunning`, `facturx`, `invoice_pdf` |
 | Expenses | `expenses` | `expenses`, `bank_statement` |
+| Project lifecycle | `costing` (`/masters/*` incl. pnl, cost-entries, documents, offers, invoicing-plan, generate-document), `doc_templates` (`/templates`), `platform` (`/platform/templates`) | `project_profit`, `project_offers`, `doc_templates`, `costing` |
 | Exports | `export` | `erp_export`, `saft` |
 | Enterprise SSO | `sso`, `scim`, `auth` (`/sso/*`) | `oidc`, `scim`, `saml`, `sso_config`, `core/keyvault` |
 | Compliance | `retention`, `privacy`, `audit` (`/export`) | `retention`, `privacy`, `audit_export` |

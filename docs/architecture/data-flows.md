@@ -217,7 +217,39 @@ Both run through the standard job/handler path (§2) under tenant scope, are **b
 
 ---
 
-## 9. Data-flow invariants (must hold on every path)
+## 9. Project lifecycle flow (offer → contract → invoicing → close)
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant P as Project page
+  participant S as Services
+  participant DB
+  U->>P: create offer (draft) → send → accepted
+  P->>S: project_offers.transition
+  S->>DB: status + estimated_revenue (same txn, audited)
+  U->>P: define invoicing plan rows
+  U->>P: issue invoices with project_id · allocate supplier invoices · add cost entries
+  P->>S: project_profit.pnl (live)
+  S-->>P: revenue / costs / profit + basis: net_eur_live
+  U->>P: generate contract from a template
+  S->>S: doc_templates.render (unknown tokens stay visible) → PDF
+  S->>DB: project_documents row (audited)
+  U->>P: close project
+  S->>DB: snapshot P&L + status=closed (SAME transaction)
+  Note over S,DB: after close: late docs → labelled adjustments,<br/>frozen figure untouched; reopen discards snapshot (audited)
+```
+
+Invariants on this path: the invoicing plan and the P&L share ONE revenue
+computation (no forked math); the close snapshot commits atomically with the
+status change; allocation splits are cent-exact with a deterministic residue
+rule (largest percent); template rendering never silently drops an unknown
+token; a platform edit to a master template never reaches a workspace's saved
+copy.
+
+---
+
+## 10. Data-flow invariants (must hold on every path)
 
 1. Tenant scope is set from the server-side user row before any query, and reset after the request.
 2. Domain change + its audit event + its enqueued side effects **commit atomically or not at all**.
