@@ -207,3 +207,71 @@ test("the copy is industry-neutral", async ({ page }) => {
     expect(text).not.toContain(word);
   }
 });
+
+test("the invoice allocation editor saves one write with all levels", async ({ page }) => {
+  let put: Record<string, unknown> | null = null;
+  await page.addInitScript(() => localStorage.setItem("invoiceiq_token", "e2e-token"));
+  const json = (body: unknown, code = 200) => ({
+    status: code,
+    contentType: "application/json",
+    body: JSON.stringify(body),
+  });
+  await page.route("**/api/v1/**", async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace(/^.*\/api\/v1/, "");
+    const method = route.request().method();
+    if (path === "/auth/me") return route.fulfill(json({ user: USER, organization: ORG }));
+    if (path === "/auth/organizations") return route.fulfill(json([ORG]));
+    if (path === "/modules") return route.fulfill(json([]));
+    if (path === "/masters/projects")
+      return route.fulfill(
+        json([
+          { id: "proj-1", code: "JOB-7", name: "Won contract", status: "active", version: 1 },
+          { id: "proj-2", code: "JOB-8", name: "Second job", status: "active", version: 1 },
+        ]),
+      );
+    if (path === "/invoices/inv-1/allocation") {
+      if (method === "PUT") {
+        put = route.request().postDataJSON();
+        return route.fulfill(json({ invoice_id: "inv-1" }));
+      }
+      return route.fulfill(
+        json({ invoice_id: "inv-1", project_id: null, splits: [], lines: {} }),
+      );
+    }
+    if (path === "/invoices/inv-1")
+      return route.fulfill(
+        json({
+          id: "inv-1",
+          invoice_number: "SUP-1",
+          vendor_name: "Generic Supplier OU",
+          status: "pending",
+          workflow_state: "draft",
+          currency: "EUR",
+          subtotal: "100.00",
+          tax_amount: "0.00",
+          total: "100.00",
+          issue_date: "2026-08-01",
+          line_items: [],
+          validation_status: "none",
+          dimensions: {},
+        }),
+      );
+    if (path.startsWith("/invoices/inv-1/")) return route.fulfill(json([]));
+    return route.fulfill(json({ items: [], total: 0 }));
+  });
+  await page.goto("/invoices/inv-1");
+
+  await expect(page.getByText("Project allocation")).toBeVisible();
+  await page.locator('label:text-is("Project") ~ select').selectOption("proj-1");
+  await page.getByRole("button", { name: "+ Split by %" }).click();
+  await page.getByPlaceholder("%").fill("100");
+  await page.getByRole("button", { name: "Save allocation" }).click();
+
+  await expect.poll(() => put).toEqual({
+    project_id: "proj-1",
+    splits: [{ project_id: "proj-1", percent: "100" }],
+  });
+  await expect(page.getByText("Saved.")).toBeVisible();
+});
+

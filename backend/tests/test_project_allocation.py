@@ -295,3 +295,40 @@ async def test_the_summary_carries_every_project_with_margin(auth_client, db_ses
     rows = {row["code"]: row for row in r.json()}
     assert rows["SUM-1"]["costs"] == "80.00"
     assert rows["SUM-1"]["basis"] == "net_eur_live"
+
+
+@pytest.mark.asyncio
+async def test_allocation_reads_back_in_the_shape_the_put_accepts(auth_client, db_session):
+    """Read → edit → PUT back, no translation: the GET's body is a valid PUT
+    body, so a UI round-trip can never corrupt an allocation it didn't touch."""
+    org_id = await _org(db_session)
+    p1, p2 = await _project(auth_client, "RT-1"), await _project(auth_client, "RT-2")
+    invoice_id, line_ids = await _invoice(
+        db_session, org_id, subtotal="100.00", number="SUP-RT", lines=("40.00", "60.00")
+    )
+
+    put = await auth_client.put(
+        f"/api/v1/invoices/{invoice_id}/allocation",
+        json={
+            "project_id": p1,
+            "splits": [
+                {"project_id": p1, "percent": "70"},
+                {"project_id": p2, "percent": "30"},
+            ],
+            "lines": {line_ids[0]: p2},
+        },
+    )
+    assert put.status_code == 200, put.text
+
+    got = (await auth_client.get(f"/api/v1/invoices/{invoice_id}/allocation")).json()
+    assert got["project_id"] == p1
+    assert {(s["project_id"], s["percent"]) for s in got["splits"]} == {
+        (p1, "70.00"),
+        (p2, "30.00"),
+    }
+    assert got["lines"] == {line_ids[0]: p2}
+
+    # The GET body IS a valid PUT body — round-trip changes nothing.
+    again = await auth_client.put(f"/api/v1/invoices/{invoice_id}/allocation", json=got)
+    assert again.status_code == 200, again.text
+    assert (await auth_client.get(f"/api/v1/invoices/{invoice_id}/allocation")).json() == got

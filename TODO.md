@@ -82,8 +82,13 @@ sales invoices under it → allocate supplier/subcontractor invoices and expense
   the drift case was added — the 60/40 case stayed green, a lesson recorded in
   the test's docstring); freeze bypassed → red.
 
-Phase 2 remaining (small): the allocation EDITOR on the invoice detail screen
-(the API is live; the UI still only sets whole-invoice via the issue picker).
+- [x] **Phase 2 UI closed (PP-2b):** the allocation editor on the invoice
+  detail screen — one card, one write (whole-invoice project + % split rows in
+  a single PUT), hidden entirely for orgs that never opened a project. The GET
+  answers in exactly the shape the PUT accepts, pinned by a round-trip test, so
+  the editor cannot corrupt an allocation it didn't touch. Client-side the
+  sum-to-100 rule is guidance (disabled Save + amber total); the server remains
+  the control.
 Phase 3+: module-conditional recovered-VAT line, e-sign, budget-vs-actual;
 phases 4–5 per §5a (offer/estimate, invoicing plan, acceptance, templates,
 adjustable final invoicing).

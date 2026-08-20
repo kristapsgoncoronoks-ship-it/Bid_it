@@ -1288,3 +1288,15 @@ async def set_project_allocation(
     )
     await db.commit()
     return result
+
+
+@router.get("/{invoice_id}/allocation")
+async def get_project_allocation(invoice_id: str, current: CurrentUser, db: DbSession):
+    """The invoice's current project allocation, in the same shape the PUT
+    accepts — read, edit, PUT back."""
+    from app.services import project_profit
+
+    try:
+        return await project_profit.get_allocation(db, current.org_id, invoice_id)
+    except project_profit.NotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from None

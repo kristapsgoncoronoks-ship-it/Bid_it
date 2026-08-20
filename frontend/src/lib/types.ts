@@ -2540,3 +2540,12 @@ export interface ProjectPnl {
   adjustments: Record<string, string>;
   pnl_frozen_at: string | null;
 }
+
+/** GET/PUT /invoices/{id}/allocation — the same shape both ways, so the editor
+ * round-trips without translation. */
+export interface InvoiceAllocation {
+  invoice_id: string;
+  project_id: string | null;
+  splits: { project_id: string; percent: string }[];
+  lines: Record<string, string>;
+}

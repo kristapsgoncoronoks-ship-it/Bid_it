@@ -566,3 +566,34 @@ async def pnl_summary(db: AsyncSession, org_id: str) -> list[dict]:
         row = await pnl(db, org_id, pr.id)
         out.append(row)
     return out
+
+
+async def get_allocation(db: AsyncSession, org_id: str, invoice_id: str) -> dict:
+    """One invoice's current allocation, in exactly the shape `set_allocation`
+    accepts — read it, edit it, PUT it back, no translation in between."""
+    inv = await db.scalar(select(Invoice).where(Invoice.org_id == org_id, Invoice.id == invoice_id))
+    if inv is None:
+        raise NotFoundError("Invoice not found")
+    splits = list(
+        await db.scalars(
+            select(InvoiceProjectSplit)
+            .where(
+                InvoiceProjectSplit.org_id == org_id,
+                InvoiceProjectSplit.invoice_id == invoice_id,
+            )
+            .order_by(InvoiceProjectSplit.percent.desc(), InvoiceProjectSplit.project_id)
+        )
+    )
+    tagged = list(
+        await db.execute(
+            select(LineItem.id, LineItem.project_id).where(
+                LineItem.invoice_id == invoice_id, LineItem.project_id.is_not(None)
+            )
+        )
+    )
+    return {
+        "invoice_id": invoice_id,
+        "project_id": inv.project_id,
+        "splits": [{"project_id": s.project_id, "percent": str(s.percent)} for s in splits],
+        "lines": {row.id: row.project_id for row in tagged},
+    }

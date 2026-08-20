@@ -14,8 +14,10 @@ import {
   VALIDATION_STYLES,
 } from "../lib/format";
 import {
+  type CostMaster,
   DIMENSION_LABELS,
   type Dimensions,
+  type InvoiceAllocation,
   type InvoiceDetail,
   type InvoiceStatus,
   type SupplierPayment,
@@ -206,6 +208,8 @@ export default function InvoiceDetailPage() {
             </div>
 
             {inv.notes && <div className="card text-sm text-slate-600">{inv.notes}</div>}
+
+            <ProjectAllocation invoiceId={inv.id} onSaved={invalidate} />
           </div>
         )}
       </QueryState>
@@ -365,6 +369,163 @@ function CostAllocation({ inv, onSaved }: { inv: InvoiceDetail; onSaved: () => v
             />
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Project allocation (project-profitability phase 2). One card, one write:
+ * the whole-invoice project, the percentage split, and per-line tags travel in
+ * a single PUT so the three levels can never contradict each other. The GET's
+ * body IS a valid PUT body — the editor round-trips without translation.
+ *
+ * Percent rows must sum to exactly 100 (mirrored client-side only as guidance;
+ * the server is the control and refuses anything else).
+ */
+function ProjectAllocation({ invoiceId, onSaved }: { invoiceId: string; onSaved: () => void }) {
+  const [err, setErr] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [projectId, setProjectId] = useState<string>("");
+  const [splits, setSplits] = useState<{ project_id: string; percent: string }[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  const projects = useQuery<CostMaster[]>({
+    queryKey: ["masters", "projects"],
+    queryFn: async () => (await api.get("/masters/projects")).data,
+  });
+  const allocation = useQuery<InvoiceAllocation>({
+    queryKey: ["invoice", invoiceId, "allocation"],
+    queryFn: async () => (await api.get(`/invoices/${invoiceId}/allocation`)).data,
+  });
+
+  if (allocation.data && !loaded) {
+    setProjectId(allocation.data.project_id ?? "");
+    setSplits(allocation.data.splits);
+    setLoaded(true);
+  }
+
+  const save = useMutation({
+    mutationFn: async () =>
+      (
+        await api.put(`/invoices/${invoiceId}/allocation`, {
+          project_id: projectId || null,
+          splits,
+        })
+      ).data,
+    onSuccess: () => {
+      setErr(null);
+      setSaved(true);
+      onSaved();
+    },
+    onError: (e) => {
+      setSaved(false);
+      setErr(apiError(e));
+    },
+  });
+
+  // Hidden until the org uses projects at all — a picker over an empty master
+  // is noise on every invoice for clients who never open projects.
+  if ((projects.data?.length ?? 0) === 0) return null;
+
+  const active = projects.data!.filter((m) => m.status !== "archived");
+  const pctSum = splits.reduce((t, s) => t + Number(s.percent || 0), 0);
+
+  return (
+    <div className="card space-y-3">
+      <div>
+        <h2 className="text-sm font-semibold text-slate-600">Project allocation</h2>
+        <p className="text-xs text-slate-400">
+          Books this invoice&apos;s cost onto a project — one project, or split by
+          percentage when one invoice covers several jobs.
+        </p>
+      </div>
+      {err && (
+        <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+          {err}
+        </div>
+      )}
+      <div className="flex flex-wrap items-end gap-2">
+        <div>
+          <label className="label">Project</label>
+          <select
+            className="input"
+            value={projectId}
+            onChange={(e) => {
+              setProjectId(e.target.value);
+              setSaved(false);
+            }}
+          >
+            <option value="">— None —</option>
+            {active.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.code} · {m.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button
+          className="btn-ghost text-xs"
+          onClick={() => {
+            setSplits([...splits, { project_id: active[0]?.id ?? "", percent: "" }]);
+            setSaved(false);
+          }}
+        >
+          + Split by %
+        </button>
+      </div>
+      {splits.length > 0 && (
+        <div className="space-y-2">
+          {splits.map((s, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <select
+                className="input"
+                value={s.project_id}
+                onChange={(e) => {
+                  setSplits(splits.map((x, j) => (j === i ? { ...x, project_id: e.target.value } : x)));
+                  setSaved(false);
+                }}
+              >
+                {active.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.code} · {m.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="input w-24 text-right"
+                placeholder="%"
+                value={s.percent}
+                onChange={(e) => {
+                  setSplits(splits.map((x, j) => (j === i ? { ...x, percent: e.target.value } : x)));
+                  setSaved(false);
+                }}
+              />
+              <button
+                className="btn-ghost text-xs text-rose-500"
+                onClick={() => {
+                  setSplits(splits.filter((_, j) => j !== i));
+                  setSaved(false);
+                }}
+              >
+                remove
+              </button>
+            </div>
+          ))}
+          <p className={`text-xs ${pctSum === 100 ? "text-slate-400" : "text-amber-600"}`}>
+            Split total: {pctSum}% {pctSum !== 100 && "— must be exactly 100%"}
+          </p>
+        </div>
+      )}
+      <div className="flex items-center gap-2">
+        <button
+          className="btn-primary"
+          disabled={save.isPending || (splits.length > 0 && pctSum !== 100)}
+          onClick={() => save.mutate()}
+        >
+          Save allocation
+        </button>
+        {saved && <span className="text-xs text-emerald-600">Saved.</span>}
       </div>
     </div>
   );
