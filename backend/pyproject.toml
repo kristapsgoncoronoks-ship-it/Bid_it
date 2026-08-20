@@ -2,6 +2,7 @@
 name = "invoiceiq-backend"
 version = "0.1.0"
 description = "InvoiceIQ — invoice analytics platform (FastAPI backend)"
+license = { text = "GPL-3.0-or-later" }
 requires-python = ">=3.11"
 
 # Runtime dependencies live in requirements.txt (pinned, pip-installable in CI and
