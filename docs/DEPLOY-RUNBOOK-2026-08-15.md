@@ -148,6 +148,10 @@ would be present in the schema and absent in practice.
 
 ## 3. Deploy
 
+> Since 2026-08-20 the §1 backups + this section + the health wait are one
+> command: `./scripts/vps-deploy.sh claude/bidit-invoice-data-analytics`.
+> The manual steps below remain the reference for what it does.
+
 ```bash
 cd /root/Bid_it
 git fetch origin && git checkout claude/bidit-invoice-data-analytics && git pull

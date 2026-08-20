@@ -170,7 +170,19 @@ misconfigured deploy fails fast instead of running insecure.
 
 ## Operate
 
-**Update to a new version**
+**Update to a new version — one command**
+```bash
+cd /root/Bid_it && ./scripts/vps-deploy.sh          # deploys the branch you're on
+./scripts/vps-deploy.sh some-branch                  # or an explicit branch
+```
+The script refuses to proceed until its preflight passes (every `${VAR:?}` the
+compose file requires is present in `.env`, ≥2 GB disk free) and BOTH backups
+are taken **and verified** (dump ends with pg_dump's completion marker; the
+document-volume tarball lists real entries). It then pulls, rebuilds, waits up
+to 5 minutes for `/health` + `/health/ready`, and prints the rollback
+artifacts if the app never comes up. The manual equivalent remains below and
+in `docs/DEPLOY-RUNBOOK-2026-08-15.md`:
+
 ```bash
 cd /root/Bid_it && git pull
 docker compose -f docker-compose.hostinger.yml up -d --build   # migrations run automatically
@@ -225,6 +237,29 @@ docker compose -f docker-compose.hostinger.yml restart backend    # one service
   point `DATABASE_URL` at a managed Postgres with automated backups + PITR.
 
 ---
+
+## The "few clicks" ladder — how deploys get easier from here
+
+Where deployment effort actually goes, in order of payoff:
+
+1. **Today (shipped):** `./scripts/vps-deploy.sh` — one command on the VPS
+   does preflight → verified backups → pull → build → health-gate. No step
+   can be silently skipped or half-done.
+2. **One click (blocked only by GitHub Actions billing):** everything for the
+   CI-gated auto-deploy below already exists in the repo — the `deploy` job,
+   the restricted single-command SSH key design, the `DEPLOY_ENABLED` switch.
+   The account's Actions billing has been dead since 2026-08-12; once it is
+   restored and the secrets are set, deploying = merging to `main`. That IS
+   the few-clicks deploy, and no new code is needed for it.
+3. **Faster + smaller (next code change, only worth it after #2 lives):**
+   have CI build the images and push them to GHCR, and change the VPS update
+   to `docker compose pull && up -d` — the 4 GB box stops compiling
+   the frontend entirely (today's slowest, most OOM-prone step) and an update
+   drops from minutes to seconds. Requires adding a CI job (and bumping the
+   README's job count, which is machine-checked).
+4. **Not the path:** click-to-deploy PaaS (Vercel/Netlify-style) doesn't fit —
+   the stack needs Postgres, a worker, and a persistent document volume on
+   one machine; the VPS + compose shape is already the simple version.
 
 ## Automated CI-gated deploy
 
