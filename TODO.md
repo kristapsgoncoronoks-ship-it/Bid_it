@@ -115,6 +115,14 @@ plan and leaves unknown tokens visibly unreplaced; generate-document renders
 to PDF and files it with the project's documents. Templates page + picker on
 ProjectDetail. Wording changes need SETTINGS_MANAGE.
 
+**Owner idea 2026-08-20 — supplier cost analytics & external price data**
+(recorded in `docs/design/supplier-cost-analytics.md`, decision-gated): cost
+KPIs + cost-change graphs from existing invoice lines (phase 1, no external
+data), agreed-price lists + overcharge control via the validation engine
+(phase 2), opt-in external price-data module with per-source adapters —
+Scrapling assessed there, incl. the stealth-fetching compliance caveat
+(phase 3). Four owner questions listed in the design doc §3.
+
 Phase 3+: module-conditional recovered-VAT line, e-sign, budget-vs-actual;
 phase 5 remainder per §5a (acceptance & handover as a project state,
 adjustable final invoicing; the lawyer's standardized texts drop into the
