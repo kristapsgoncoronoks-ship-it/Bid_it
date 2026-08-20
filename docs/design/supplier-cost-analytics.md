@@ -61,6 +61,36 @@ worker-tier jobs; the fetch engine is a seam, with three source classes:
 - Deterministic-first, same as capture: a scraped price is advisory evidence
   with provenance, never the sole source of a booked figure.
 
+## 2b. Engine choice (owner question 2026-08-20: adopt e.g. Apache Spark, or build?)
+
+Neither — the engine already exists and is the right one at this scale.
+**Postgres with DB-side aggregation IS the analytics engine** (`analytics.py`,
+`explore.py`, `benchmark.py` all aggregate in the database), and it carries a
+property no external engine gives us for free: the three-layer tenant
+isolation (ORM guard + RLS) applies to every analytical query because the
+data never leaves the guarded database. Copying data into a separate engine
+means REIMPLEMENTING tenant isolation in that engine — a standing risk for
+the product's core promise, paid on every future query.
+
+**Spark specifically is the wrong size.** It is a JVM cluster platform for
+distributed petabyte processing; production here is a single 4–8 GB VPS, and
+an SME tenant's invoice history is thousands-to-millions of rows — Postgres
+territory by orders of magnitude. Spark would add cluster ops, JVM memory
+pressure, and a second data platform to secure, and would return answers no
+faster on this data.
+
+**The upgrade ladder if a MEASURED need appears** (in order, each step only
+on a real p95 breach, per the index-strategy rule):
+1. Postgres itself: covering/partial indexes, materialised read models,
+   partitioning (already the documented plan).
+2. **DuckDB** (MIT, in-process, zero-ops) embedded on the worker tier for
+   heavy one-off analytical jobs over Parquet exports — the "ready engine"
+   that actually fits this architecture if Postgres ever strains.
+3. A dedicated OLAP store (e.g. ClickHouse) only at real multi-tenant
+   platform-analytics scale — still simpler to run than Spark.
+
+Phases 1–2 above need nothing beyond step 0 (the current engine).
+
 ## 3. Open questions for the owner (decision-gated)
 
 1. Phase order confirmed? (1 → 2 → 3; phases 1–2 need no external data.)
