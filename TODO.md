@@ -103,9 +103,22 @@ sales invoices under it → allocate supplier/subcontractor invoices and expense
   an org-settings surface for `offer_prefix` (service honors it; only the
   editor UI is missing).
 
+**PP-5a (2026-08-20) — dynamic document templates SHIPPED** (§5a machinery):
+org-less `platform_templates` masters (operator-writable; demo contract/
+acceptance/offer-cover texts seed on first read and state they are examples,
+not legal advice — the lawyer's texts replace them by key with zero code
+change) + per-org `org_templates` saved versions (FORCE RLS + parity probe in
+the same commit). A client adjusts a master into a FROZEN own copy — platform
+edits never reach saved versions — keeps multiple named versions, and picks
+one when generating; `{{token}}` render fills issuer/customer/project/offer/
+plan and leaves unknown tokens visibly unreplaced; generate-document renders
+to PDF and files it with the project's documents. Templates page + picker on
+ProjectDetail. Wording changes need SETTINGS_MANAGE.
+
 Phase 3+: module-conditional recovered-VAT line, e-sign, budget-vs-actual;
-phase 5 per §5a (acceptance & handover, standardized templates once the
-owner's lawyer delivers the base texts, adjustable final invoicing).
+phase 5 remainder per §5a (acceptance & handover as a project state,
+adjustable final invoicing; the lawyer's standardized texts drop into the
+shipped template machinery when they arrive).
 
 **The FULL lifecycle — owner vision 2026-08-16, recorded so it is not lost**
 (design: `docs/design/project-profitability.md` §5a): open project →

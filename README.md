@@ -9,9 +9,9 @@ plug-in bounded context ([ADR-0023](./docs/architecture/adr/0023-platform-evolut
 **Stack:** FastAPI + async SQLAlchemy 2.0 + Alembic on PostgreSQL (SQLite for
 zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 
-**Scale of the codebase (verified against this tree):** 84 database tables
-(103 Alembic revisions, single head), 53 model modules, 91 service modules,
-40 route modules, 59 SPA pages, 2708 collected backend tests, 8 CI jobs.
+**Scale of the codebase (verified against this tree):** 94 database tables
+(104 Alembic revisions, single head), 54 model modules, 92 service modules,
+41 route modules, 60 SPA pages, 2716 collected backend tests, 8 CI jobs.
 
 > **The specification lives in [`docs/`](./docs), not here.**
 > [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (29 ADRs) and

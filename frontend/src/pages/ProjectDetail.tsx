@@ -4,7 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { Badge, Button, QueryState, Skeleton } from "../components/ui";
 import { api, apiError, downloadFile } from "../lib/api";
 import { shortDate } from "../lib/format";
-import type { CostEntry, PlanTracking, ProjectDocument, ProjectOffer, ProjectPnl } from "../lib/types";
+import type { CostEntry, PlanTracking, ProjectDocument, ProjectOffer, ProjectPnl, TemplateList } from "../lib/types";
 
 /**
  * One project's profitability (docs/design/project-profitability.md, phase 1).
@@ -297,6 +297,11 @@ export default function ProjectDetail() {
             The signed contract this project fulfils, kept with the numbers it
             explains.
           </p>
+          <GenerateDocument
+            projectId={id!}
+            onDone={() => qc.invalidateQueries({ queryKey: ["project-documents", id] })}
+            onError={(m) => setErr(m || null)}
+          />
           <label className="btn-secondary inline-block cursor-pointer">
             Attach document
             <input
@@ -601,6 +606,78 @@ function PlanCard({ projectId, onError }: { projectId: string; onError: (m: stri
           Add instalment
         </Button>
       </form>
+    </div>
+  );
+}
+
+/** Generate a document from a template — the client's saved version or a
+ * platform master — rendered against THIS project and filed with its papers. */
+function GenerateDocument({
+  projectId,
+  onDone,
+  onError,
+}: {
+  projectId: string;
+  onDone: () => void;
+  onError: (m: string) => void;
+}) {
+  const [choice, setChoice] = useState("");
+
+  const templates = useQuery<TemplateList>({
+    queryKey: ["templates"],
+    queryFn: async () => (await api.get("/templates")).data,
+  });
+
+  const generate = useMutation({
+    mutationFn: async () => {
+      const [scope, id] = choice.split(":");
+      return (
+        await api.post(`/masters/projects/${projectId}/generate-document`, {
+          template_scope: scope,
+          template_id: id,
+        })
+      ).data;
+    },
+    onSuccess: () => {
+      setChoice("");
+      onError("");
+      onDone();
+    },
+    onError: (e) => onError(apiError(e)),
+  });
+
+  const options = [
+    ...(templates.data?.own ?? [])
+      .filter((t) => t.active)
+      .map((t) => ({ value: `own:${t.id}`, label: `${t.name} (yours)` })),
+    ...(templates.data?.platform ?? []).map((t) => ({
+      value: `platform:${t.id}`,
+      label: `${t.name} (standard)`,
+    })),
+  ];
+  if (options.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <select
+        className="input grow"
+        value={choice}
+        onChange={(e) => setChoice(e.target.value)}
+      >
+        <option value="">Generate from template…</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <Button
+        variant="secondary"
+        disabled={!choice || generate.isPending}
+        onClick={() => generate.mutate()}
+      >
+        Generate
+      </Button>
     </div>
   );
 }

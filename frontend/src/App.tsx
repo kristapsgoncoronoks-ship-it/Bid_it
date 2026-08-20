@@ -53,6 +53,7 @@ const TaxCodes = lazy(() => import("./pages/TaxCodes"));
 const Currencies = lazy(() => import("./pages/Currencies"));
 const CostObjects = lazy(() => import("./pages/CostObjects"));
 const ProjectDetail = lazy(() => import("./pages/ProjectDetail"));
+const Templates = lazy(() => import("./pages/Templates"));
 const Documents = lazy(() => import("./pages/Documents"));
 const VatClaims = lazy(() => import("./pages/VatClaims"));
 const VatClaimDetail = lazy(() => import("./pages/VatClaimDetail"));
@@ -172,6 +173,7 @@ export default function App() {
                 <Route path="/currencies" element={<Currencies />} />
                 <Route path="/cost-objects" element={<CostObjects />} />
                 <Route path="/projects/:id" element={<ProjectDetail />} />
+                <Route path="/templates" element={<Templates />} />
                 <Route path="/documents" element={<Documents />} />
                 <Route path="/vat-claims" element={<VatClaims />} />
                 <Route path="/vat-claims/:id" element={<VatClaimDetail />} />

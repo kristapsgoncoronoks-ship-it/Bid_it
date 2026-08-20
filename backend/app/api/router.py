@@ -12,6 +12,7 @@ from app.api.routes import (
     currencies,
     customers,
     dashboard,
+    doc_templates,
     documents,
     dunning,
     email,
@@ -81,6 +82,7 @@ api_router.include_router(jobs.router)
 api_router.include_router(webhooks.router)
 api_router.include_router(integrity.router)
 api_router.include_router(documents.router)
+api_router.include_router(doc_templates.router)
 api_router.include_router(export.router)
 api_router.include_router(archive.router)
 api_router.include_router(retention.router)

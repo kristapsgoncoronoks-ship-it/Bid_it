@@ -13,6 +13,7 @@ from decimal import Decimal
 from typing import NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
+from pydantic import BaseModel
 
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
@@ -531,3 +532,51 @@ async def put_invoicing_plan(
     )
     await db.commit()
     return PlanTrackingOut(**await project_offers.plan_tracking(db, current.org_id, entity_id))
+
+
+class GenerateDocumentIn(BaseModel):
+    template_scope: str  # 'own' | 'platform'
+    template_id: str
+    customer_id: str | None = None
+
+
+@router.post(
+    "/projects/{entity_id}/generate-document",
+    response_model=ProjectDocumentOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=_BOOKKEEPING,
+)
+async def generate_project_document(
+    entity_id: str, body: GenerateDocumentIn, current: CurrentUser, db: DbSession
+):
+    """Render the chosen template (the client's saved version or a platform
+    master) against this project and attach the PDF to the project's documents
+    — one slot for a project's papers, however they came to exist."""
+    from app.services import doc_templates
+
+    try:
+        row, _text = await doc_templates.generate_project_document(
+            db,
+            current.org_id,
+            entity_id,
+            template_id=body.template_id,
+            template_scope=body.template_scope,
+            customer_id=body.customer_id,
+            uploaded_by=current.email,
+        )
+    except project_profit.ProjectProfitError as exc:
+        _raise_pp(exc)
+    await audit.record(
+        db,
+        "project.document_generate",
+        target_type="project",
+        target_id=entity_id,
+        meta={
+            "template_scope": body.template_scope,
+            "template_id": body.template_id,
+            "filename": row.filename,
+        },
+    )
+    await db.commit()
+    await db.refresh(row)
+    return _doc_out(row)

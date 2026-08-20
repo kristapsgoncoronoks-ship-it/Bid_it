@@ -35,6 +35,7 @@ from app.models.costing import CostCenter, Department, Project
 from app.models.currency import Currency
 from app.models.customer import Customer, CustomerContact
 from app.models.document import Document
+from app.models.document_template import OrgTemplate
 from app.models.document_version import DocumentVersion
 from app.models.dunning_policy import DunningPolicy
 from app.models.email_intake import EmailIntake, InboundInvoice
@@ -104,6 +105,7 @@ TENANT_MODELS = (
     ProjectDocument,
     ProjectCostEntry,
     InvoiceProjectSplit,
+    OrgTemplate,
     ProjectOffer,
     InvoicingPlanRow,
     Vendor,

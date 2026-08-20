@@ -212,6 +212,21 @@ custom templates — it is identical either way, so legal is off the critical
 path. **Offer numbering is client-configurable** (per-org prefix/pattern/
 counter; the platform enforces only per-org uniqueness).
 
+**SHIPPED (template machinery, 2026-08-20):** `platform_templates` (org-less
+masters, operator-writable via `PUT /platform/templates/{key}` — the lawyer's
+texts land there by key, e.g. `lawyer-contract`, with zero code change) +
+`org_templates` (per-org saved versions; FORCE RLS + probe). Demo masters
+seed on first read and say in their own body that they are examples, not
+legal advice. The trust model as built: a client "adjusts" a master into a
+FROZEN own copy (`source_platform_id` records lineage only — a later platform
+edit never reaches a saved copy), keeps as many named versions as they like,
+and picks one when generating. Rendering fills `{{token}}` placeholders from
+issuer/customer/project/offer/plan; unknown tokens stay VISIBLY unreplaced so
+a gap is seen before anyone signs. `POST /masters/projects/{id}/generate-document`
+renders → PDF → files it in the project's documents alongside the uploaded
+contract. Saving wording requires SETTINGS_MANAGE (contract text is org
+configuration, not bookkeeping).
+
 Sequencing note: offer/estimate and the invoicing plan are the natural
 **phase 4** (they extend the revenue side phase 1 built); acceptance +
 templates + final invoicing are **phase 5** (they extend the close that

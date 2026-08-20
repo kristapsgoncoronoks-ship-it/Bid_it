@@ -7,6 +7,7 @@ tenant's invoice data) and can suspend/reactivate or re-plan a tenant.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession, get_current_user_unscoped
@@ -127,3 +128,66 @@ async def update_tenant(
         created_at=org.created_at,
         archive_retention_years=org.archive_retention_years,
     )
+
+
+class PlatformTemplateBody(BaseModel):
+    kind: str
+    name: str = Field(min_length=1, max_length=200)
+    body: str = Field(min_length=1)
+    description: str | None = Field(default=None, max_length=500)
+    active: bool = True
+
+
+@router.get("/templates")
+async def list_platform_templates(db: DbSession, _: User = Depends(require_platform_admin)):
+    """The master documents, inactive included — the operator's own view."""
+    from app.services import doc_templates
+
+    if await doc_templates.ensure_demos(db):
+        await db.commit()
+    rows = await doc_templates.platform_list(db, include_inactive=True)
+    return [
+        {
+            "id": r.id,
+            "key": r.key,
+            "kind": r.kind,
+            "name": r.name,
+            "description": r.description,
+            "body": r.body,
+            "active": r.active,
+        }
+        for r in rows
+    ]
+
+
+@router.put("/templates/{key}")
+async def upsert_platform_template(
+    key: str, body: PlatformTemplateBody, db: DbSession, _: User = Depends(require_platform_admin)
+):
+    """Create or replace ONE master by its stable key — the surface the owner's
+    lawyer's standardized texts arrive through. Clients' saved copies are never
+    touched: an adjusted template is the client's document."""
+    from app.services import doc_templates
+    from app.services.project_profit import ProjectProfitError
+
+    try:
+        row = await doc_templates.platform_upsert(
+            db,
+            key=key,
+            kind=body.kind,
+            name=body.name,
+            body=body.body,
+            description=body.description,
+            active=body.active,
+        )
+    except ProjectProfitError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    await audit.record(
+        db,
+        "platform.template_upsert",
+        target_type="platform_template",
+        target_id=row.id,
+        meta={"key": key, "kind": body.kind, "active": body.active},
+    )
+    await db.commit()
+    return {"id": row.id, "key": row.key}

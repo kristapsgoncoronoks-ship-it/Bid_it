@@ -2575,3 +2575,26 @@ export interface InvoiceAllocation {
   splits: { project_id: string; percent: string }[];
   lines: Record<string, string>;
 }
+
+/** GET /templates — the platform's masters + this org's saved versions. */
+export interface TemplateList {
+  platform: {
+    id: string;
+    key: string;
+    kind: string;
+    name: string;
+    description: string | null;
+    body: string;
+    active: boolean;
+  }[];
+  own: {
+    id: string;
+    kind: string;
+    name: string;
+    body: string;
+    active: boolean;
+    source_platform_id: string | null;
+    created_by: string | null;
+    created_at: string;
+  }[];
+}

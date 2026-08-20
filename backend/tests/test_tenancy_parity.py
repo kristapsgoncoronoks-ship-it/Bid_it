@@ -2415,6 +2415,46 @@ async def _invoicing_plan_rows(ctx: Ctx) -> None:
         )
 
 
+@probe("org_templates")
+async def _org_templates(ctx: Ctx) -> None:
+    """A client's adjusted contract templates — the WORDING a business
+    negotiates by is competitively sensitive, and a rival tenant must see
+    none of it (the shared PLATFORM masters are global by design; only the
+    org's own saved versions are tenant data)."""
+    ids: dict[str, str] = {}
+    for org in (ctx.a, ctx.b):
+        saved = await org.post(
+            "/api/v1/templates",
+            json={
+                "name": f"House contract {org.name}",
+                "kind": "contract",
+                "body": f"SECRET CLAUSE OF {org.name}",
+            },
+        )
+        assert saved.status_code == 201, saved.text
+        ids[org.name] = saved.json()["id"]
+
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        mine = await me.get("/api/v1/templates")
+        assert mine.status_code == 200, mine.text
+        own_ids = {t["id"] for t in mine.json()["own"]}
+        assert ids[other.name] not in own_ids, (
+            f"TENANT LEAK: {me.name} listed {other.name}'s saved template"
+        )
+        bodies = " ".join(t["body"] for t in mine.json()["own"])
+        assert f"SECRET CLAUSE OF {other.name}" not in bodies, (
+            f"TENANT LEAK: {me.name} read {other.name}'s contract wording"
+        )
+        edit = await me.patch(f"/api/v1/templates/{ids[other.name]}", json={"body": "OVERWRITTEN"})
+        assert edit.status_code == 404, (
+            f"TENANT LEAK: {me.name} edited {other.name}'s template ({edit.status_code})"
+        )
+        wipe = await me.delete(f"/api/v1/templates/{ids[other.name]}")
+        assert wipe.status_code == 404, (
+            f"TENANT LEAK: {me.name} deleted {other.name}'s template ({wipe.status_code})"
+        )
+
+
 ALL_TABLES = sorted(m.__tablename__ for m in TENANT_MODELS)
 
 
