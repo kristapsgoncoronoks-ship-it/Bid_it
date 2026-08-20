@@ -4,7 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { Badge, Button, QueryState, Skeleton } from "../components/ui";
 import { api, apiError, downloadFile } from "../lib/api";
 import { shortDate } from "../lib/format";
-import type { CostEntry, ProjectDocument, ProjectPnl } from "../lib/types";
+import type { CostEntry, PlanTracking, ProjectDocument, ProjectOffer, ProjectPnl } from "../lib/types";
 
 /**
  * One project's profitability (docs/design/project-profitability.md, phase 1).
@@ -182,6 +182,11 @@ export default function ProjectDetail() {
                 <p className="text-xl font-semibold tabular-nums">
                   {data.margin_pct != null ? `${data.margin_pct}%` : "—"}
                 </p>
+                {data.estimated_revenue != null && (
+                  <p className="text-xs text-slate-400">
+                    estimated {data.estimated_revenue} € revenue
+                  </p>
+                )}
               </div>
             </div>
             {Object.keys(data.adjustments ?? {}).length > 0 && (
@@ -332,6 +337,270 @@ export default function ProjectDetail() {
           )}
         </div>
       </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <OffersCard projectId={id!} onChanged={refresh} onError={(m) => setErr(m || null)} />
+        <PlanCard projectId={id!} onError={(m) => setErr(m || null)} />
+      </div>
+    </div>
+  );
+}
+
+/** Offers/estimates — the project's first artifact (lifecycle phase 4). */
+function OffersCard({
+  projectId,
+  onChanged,
+  onError,
+}: {
+  projectId: string;
+  onChanged: () => void;
+  onError: (m: string) => void;
+}) {
+  const qc = useQueryClient();
+  const [title, setTitle] = useState("");
+  const [amount, setAmount] = useState("");
+
+  const offers = useQuery<ProjectOffer[]>({
+    queryKey: ["project-offers", projectId],
+    queryFn: async () => (await api.get(`/masters/projects/${projectId}/offers`)).data,
+  });
+
+  const refetch = () => {
+    qc.invalidateQueries({ queryKey: ["project-offers", projectId] });
+    qc.invalidateQueries({ queryKey: ["project-plan", projectId] });
+    onChanged();
+  };
+
+  const create = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post(`/masters/projects/${projectId}/offers`, {
+          title: title || null,
+          lines: [{ description: title || "Work as offered", amount }],
+        })
+      ).data,
+    onSuccess: () => {
+      setTitle("");
+      setAmount("");
+      onError("");
+      refetch();
+    },
+    onError: (e) => onError(apiError(e)),
+  });
+
+  const transition = useMutation({
+    mutationFn: async ({ offerId, status }: { offerId: string; status: string }) =>
+      (
+        await api.post(`/masters/projects/${projectId}/offers/${offerId}/transition`, {
+          status,
+        })
+      ).data,
+    onSuccess: () => {
+      onError("");
+      refetch();
+    },
+    onError: (e) => onError(apiError(e)),
+  });
+
+  const NEXT: Record<string, string[]> = {
+    draft: ["sent", "accepted", "rejected"],
+    sent: ["accepted", "rejected", "draft"],
+  };
+
+  return (
+    <div className="card space-y-4 p-6">
+      <div>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Offers &amp; estimates
+        </h2>
+        <p className="text-sm text-slate-500">
+          What was quoted for this work. Accepting an offer records the estimate
+          and seeds the invoicing plan.
+        </p>
+      </div>
+      <form
+        className="flex flex-wrap items-end gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          create.mutate();
+        }}
+      >
+        <div className="grow">
+          <label className="label">Title</label>
+          <input
+            className="input"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Offer for the work"
+          />
+        </div>
+        <div>
+          <label className="label">Amount (EUR)</label>
+          <input
+            className="input w-32"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="10000.00"
+            required
+          />
+        </div>
+        <Button type="submit" disabled={create.isPending}>
+          New offer
+        </Button>
+      </form>
+      {(offers.data?.length ?? 0) > 0 && (
+        <table className="w-full text-sm">
+          <tbody className="divide-y divide-slate-100">
+            {offers.data?.map((o) => (
+              <tr key={o.id}>
+                <td className="py-2 font-mono text-xs text-slate-600">
+                  {o.number} v{o.version}
+                </td>
+                <td className="py-2 text-slate-700">{o.title ?? "—"}</td>
+                <td className="py-2 text-right tabular-nums text-slate-700">{o.total} €</td>
+                <td className="py-2 pl-2">
+                  <Badge
+                    tone={
+                      o.status === "accepted"
+                        ? "success"
+                        : o.status === "rejected"
+                          ? "danger"
+                          : "neutral"
+                    }
+                  >
+                    {o.status}
+                  </Badge>
+                </td>
+                <td className="py-2 pl-2 text-right">
+                  {(NEXT[o.status] ?? []).map((next) => (
+                    <button
+                      key={next}
+                      className="btn-ghost text-xs"
+                      disabled={transition.isPending}
+                      onClick={() => transition.mutate({ offerId: o.id, status: next })}
+                    >
+                      {next === "draft" ? "back to draft" : next}
+                    </button>
+                  ))}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+/** The invoicing plan — contracted vs. actually issued (lifecycle phase 4). */
+function PlanCard({ projectId, onError }: { projectId: string; onError: (m: string) => void }) {
+  const qc = useQueryClient();
+  const [label, setLabel] = useState("");
+  const [amount, setAmount] = useState("");
+
+  const plan = useQuery<PlanTracking>({
+    queryKey: ["project-plan", projectId],
+    queryFn: async () => (await api.get(`/masters/projects/${projectId}/invoicing-plan`)).data,
+  });
+
+  const save = useMutation({
+    mutationFn: async (rows: { label: string; amount: string }[]) =>
+      (await api.put(`/masters/projects/${projectId}/invoicing-plan`, rows)).data,
+    onSuccess: () => {
+      setLabel("");
+      setAmount("");
+      onError("");
+      qc.invalidateQueries({ queryKey: ["project-plan", projectId] });
+    },
+    onError: (e) => onError(apiError(e)),
+  });
+
+  const rows = plan.data?.rows ?? [];
+
+  return (
+    <div className="card space-y-4 p-6">
+      <div>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Invoicing plan
+        </h2>
+        <p className="text-sm text-slate-500">
+          The agreed schedule, tracked against what has actually been invoiced —
+          the gap is what remains to bill.
+        </p>
+      </div>
+      {plan.data && (
+        <p className="text-sm tabular-nums text-slate-600">
+          Contracted {plan.data.contracted_total} € · invoiced {plan.data.issued_total} € ·{" "}
+          <span
+            className={
+              Number(plan.data.remaining) > 0 ? "font-medium text-amber-700" : "text-slate-400"
+            }
+          >
+            remaining {plan.data.remaining} €
+          </span>
+        </p>
+      )}
+      {rows.length > 0 && (
+        <table className="w-full text-sm">
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="py-2 text-slate-700">{r.label}</td>
+                <td className="py-2 text-right tabular-nums text-slate-700">{r.amount} €</td>
+                <td className="py-2 pl-3 text-right">
+                  <button
+                    className="btn-ghost text-xs"
+                    disabled={save.isPending}
+                    onClick={() =>
+                      save.mutate(
+                        rows
+                          .filter((x) => x.id !== r.id)
+                          .map((x) => ({ label: x.label, amount: x.amount })),
+                      )
+                    }
+                  >
+                    Remove
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <form
+        className="flex flex-wrap items-end gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save.mutate([
+            ...rows.map((x) => ({ label: x.label, amount: x.amount })),
+            { label, amount },
+          ]);
+        }}
+      >
+        <div className="grow">
+          <label className="label">Instalment</label>
+          <input
+            className="input"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="Advance on signing"
+            required
+          />
+        </div>
+        <div>
+          <label className="label">Amount (EUR)</label>
+          <input
+            className="input w-32"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="3000.00"
+            required
+          />
+        </div>
+        <Button type="submit" variant="secondary" disabled={save.isPending}>
+          Add instalment
+        </Button>
+      </form>
     </div>
   );
 }

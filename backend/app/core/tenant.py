@@ -65,6 +65,7 @@ from app.models.partner import Partner, PartnerDocument
 from app.models.payment import Payment
 from app.models.payment_run import PaymentRun
 from app.models.project_link import ProjectCostEntry, ProjectDocument
+from app.models.project_offer import InvoicingPlanRow, ProjectOffer
 from app.models.receipt import Receipt
 from app.models.recurring_invoice import RecurringInvoice
 from app.models.retention import LegalHold, RetentionPolicy
@@ -103,6 +104,8 @@ TENANT_MODELS = (
     ProjectDocument,
     ProjectCostEntry,
     InvoiceProjectSplit,
+    ProjectOffer,
+    InvoicingPlanRow,
     Vendor,
     VendorChangeRequest,
     Invoice,

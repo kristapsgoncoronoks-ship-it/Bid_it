@@ -10,7 +10,7 @@ plug-in bounded context ([ADR-0023](./docs/architecture/adr/0023-platform-evolut
 zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 
 **Scale of the codebase (verified against this tree):** 84 database tables
-(102 Alembic revisions, single head), 52 model modules, 90 service modules,
+(103 Alembic revisions, single head), 53 model modules, 91 service modules,
 40 route modules, 59 SPA pages, 2696 collected backend tests, 8 CI jobs.
 
 > **The specification lives in [`docs/`](./docs), not here.**

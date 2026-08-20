@@ -8,6 +8,8 @@ live in the service; these handlers only parse, call and map errors.
 
 from __future__ import annotations
 
+import json
+from decimal import Decimal
 from typing import NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
@@ -25,8 +27,18 @@ from app.schemas.costing import (
     ProjectCreate,
     ProjectOut,
 )
-from app.schemas.project_profit import CostEntryIn, CostEntryOut, ProjectDocumentOut, ProjectPnlOut
-from app.services import audit, costing, project_profit
+from app.schemas.project_profit import (
+    CostEntryIn,
+    CostEntryOut,
+    OfferIn,
+    OfferOut,
+    OfferTransitionIn,
+    PlanRowIn,
+    PlanTrackingOut,
+    ProjectDocumentOut,
+    ProjectPnlOut,
+)
+from app.services import audit, costing, project_offers, project_profit
 
 # Structural authorization (ADR-0024): the masters feed the cost-allocation
 # pickers on invoice and expense forms, so reading them declares INVOICE_READ —
@@ -368,3 +380,154 @@ async def download_project_document(
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+# --- Offers/estimates + the invoicing plan (lifecycle phase 4, §5a) ----------
+
+
+def _offer_out(o) -> OfferOut:
+    return OfferOut(
+        id=o.id,
+        number=o.number,
+        version=o.version,
+        status=o.status,
+        title=o.title,
+        currency=o.currency,
+        total=str(o.total),
+        lines=json.loads(o.line_items_json or "[]"),
+        note=o.note,
+        created_by=o.created_by,
+        created_at=o.created_at.isoformat(),
+    )
+
+
+@router.get("/projects/{entity_id}/offers", response_model=list[OfferOut])
+async def list_project_offers(entity_id: str, current: CurrentUser, db: DbSession):
+    try:
+        rows = await project_offers.list_offers(db, current.org_id, entity_id)
+    except project_profit.ProjectProfitError as exc:
+        _raise_pp(exc)
+    return [_offer_out(o) for o in rows]
+
+
+@router.post(
+    "/projects/{entity_id}/offers",
+    response_model=OfferOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=_BOOKKEEPING,
+)
+async def create_project_offer(entity_id: str, body: OfferIn, current: CurrentUser, db: DbSession):
+    try:
+        offer = await project_offers.create_offer(
+            db,
+            current.org_id,
+            entity_id,
+            title=body.title,
+            lines=[li.model_dump(mode="json") for li in body.lines],
+            note=body.note,
+            created_by=current.email,
+        )
+    except project_profit.ProjectProfitError as exc:
+        _raise_pp(exc)
+    await audit.record(
+        db,
+        "project.offer_create",
+        target_type="project",
+        target_id=entity_id,
+        meta={"number": offer.number, "version": offer.version, "total": str(offer.total)},
+    )
+    await db.commit()
+    await db.refresh(offer)
+    return _offer_out(offer)
+
+
+@router.post(
+    "/projects/{entity_id}/offers/{offer_id}/revise",
+    response_model=OfferOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=_BOOKKEEPING,
+)
+async def revise_project_offer(
+    entity_id: str, offer_id: str, body: OfferIn, current: CurrentUser, db: DbSession
+):
+    try:
+        revision = await project_offers.revise_offer(
+            db,
+            current.org_id,
+            offer_id,
+            title=body.title,
+            lines=[li.model_dump(mode="json") for li in body.lines],
+            note=body.note,
+            created_by=current.email,
+        )
+    except project_profit.ProjectProfitError as exc:
+        _raise_pp(exc)
+    await audit.record(
+        db,
+        "project.offer_revise",
+        target_type="project",
+        target_id=entity_id,
+        meta={"number": revision.number, "version": revision.version, "total": str(revision.total)},
+    )
+    await db.commit()
+    await db.refresh(revision)
+    return _offer_out(revision)
+
+
+@router.post(
+    "/projects/{entity_id}/offers/{offer_id}/transition",
+    response_model=OfferOut,
+    dependencies=_BOOKKEEPING,
+)
+async def transition_project_offer(
+    entity_id: str, offer_id: str, body: OfferTransitionIn, current: CurrentUser, db: DbSession
+):
+    try:
+        offer, seeded = await project_offers.transition_offer(
+            db, current.org_id, offer_id, body.status
+        )
+    except project_profit.ProjectProfitError as exc:
+        _raise_pp(exc)
+    await audit.record(
+        db,
+        "project.offer_transition",
+        target_type="project",
+        target_id=entity_id,
+        meta={"number": offer.number, "status": offer.status, "plan_rows_seeded": seeded},
+    )
+    await db.commit()
+    await db.refresh(offer)
+    return _offer_out(offer)
+
+
+@router.get("/projects/{entity_id}/invoicing-plan", response_model=PlanTrackingOut)
+async def get_invoicing_plan(entity_id: str, current: CurrentUser, db: DbSession):
+    try:
+        return PlanTrackingOut(**await project_offers.plan_tracking(db, current.org_id, entity_id))
+    except project_profit.ProjectProfitError as exc:
+        _raise_pp(exc)
+
+
+@router.put(
+    "/projects/{entity_id}/invoicing-plan",
+    response_model=PlanTrackingOut,
+    dependencies=_BOOKKEEPING,
+)
+async def put_invoicing_plan(
+    entity_id: str, body: list[PlanRowIn], current: CurrentUser, db: DbSession
+):
+    try:
+        await project_offers.set_plan(
+            db, current.org_id, entity_id, [(r.label, r.amount) for r in body]
+        )
+    except project_profit.ProjectProfitError as exc:
+        _raise_pp(exc)
+    await audit.record(
+        db,
+        "project.invoicing_plan_set",
+        target_type="project",
+        target_id=entity_id,
+        meta={"rows": len(body), "total": str(sum((r.amount for r in body), Decimal(0)))},
+    )
+    await db.commit()
+    return PlanTrackingOut(**await project_offers.plan_tracking(db, current.org_id, entity_id))

@@ -2539,6 +2539,32 @@ export interface ProjectPnl {
    * the close — displayed drift, never silent drift. */
   adjustments: Record<string, string>;
   pnl_frozen_at: string | null;
+  /** The latest ACCEPTED offer's total — null until an offer is accepted. */
+  estimated_revenue: string | null;
+}
+
+/** One version of one offer — a revision is a new row, history survives. */
+export interface ProjectOffer {
+  id: string;
+  number: string;
+  version: number;
+  status: string;
+  title: string | null;
+  currency: string;
+  total: string;
+  lines: { description?: string; amount?: string }[];
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+/** The contracted schedule vs. what was actually issued. */
+export interface PlanTracking {
+  project_id: string;
+  rows: { id: string; label: string; amount: string; position: number }[];
+  contracted_total: string;
+  issued_total: string;
+  remaining: string;
 }
 
 /** GET/PUT /invoices/{id}/allocation — the same shape both ways, so the editor

@@ -62,6 +62,8 @@ class ProjectPnlOut(BaseModel):
     # the close — displayed drift, never silent drift.
     adjustments: dict[str, str] = Field(default_factory=dict)
     pnl_frozen_at: str | None = None
+    # The latest accepted offer's total — None until an offer is accepted.
+    estimated_revenue: str | None = None
 
 
 class SplitIn(BaseModel):
@@ -77,3 +79,56 @@ class AllocationIn(BaseModel):
     project_id: str | None = None
     splits: list[SplitIn] | None = None
     lines: dict[str, str | None] | None = None
+
+
+class OfferLineIn(BaseModel):
+    description: str = Field(min_length=1, max_length=300)
+    amount: Decimal
+
+
+class OfferIn(BaseModel):
+    title: str | None = Field(default=None, max_length=200)
+    lines: list[OfferLineIn] = Field(min_length=1)
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class OfferOut(BaseModel):
+    id: str
+    number: str
+    version: int
+    status: str
+    title: str | None = None
+    currency: str
+    total: str
+    lines: list[dict] = Field(default_factory=list)
+    note: str | None = None
+    created_by: str | None = None
+    created_at: str
+
+
+class OfferTransitionIn(BaseModel):
+    status: str
+
+
+class PlanRowIn(BaseModel):
+    label: str = Field(min_length=1, max_length=200)
+    amount: Decimal
+
+
+class PlanRowOut(BaseModel):
+    id: str
+    label: str
+    amount: str
+    position: int
+
+
+class PlanTrackingOut(BaseModel):
+    """The contracted schedule vs. what was actually issued — the gap is a live
+    receivable, and later (phase 5) the ADJUSTABLE starting point of the final
+    invoice."""
+
+    project_id: str
+    rows: list[PlanRowOut] = Field(default_factory=list)
+    contracted_total: str
+    issued_total: str
+    remaining: str

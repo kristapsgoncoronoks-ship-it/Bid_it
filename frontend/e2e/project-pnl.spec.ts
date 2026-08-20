@@ -44,12 +44,17 @@ const PNL = {
   basis: "net_eur_live",
   adjustments: {},
   pnl_frozen_at: null,
+  estimated_revenue: null,
 };
 
 interface MockOpts {
   pnl?: Record<string, unknown>;
+  offers?: Record<string, unknown>[];
+  plan?: Record<string, unknown>;
   onCostEntry?: (body: Record<string, unknown>) => void;
   onIssue?: (body: Record<string, unknown>) => void;
+  onOffer?: (body: Record<string, unknown>) => void;
+  onTransition?: (body: Record<string, unknown>) => void;
 }
 
 async function open(page: Page, opts: MockOpts = {}) {
@@ -98,6 +103,60 @@ async function open(page: Page, opts: MockOpts = {}) {
       return route.fulfill(json([]));
     }
     if (path === "/masters/projects/proj-1/documents") return route.fulfill(json([]));
+    if (path === "/masters/projects/proj-1/offers") {
+      if (method === "POST") {
+        opts.onOffer?.(route.request().postDataJSON());
+        return route.fulfill(
+          json(
+            {
+              id: "off-1",
+              number: "OFF-1",
+              version: 1,
+              status: "draft",
+              title: "Quote",
+              currency: "EUR",
+              total: "10000.00",
+              lines: [],
+              note: null,
+              created_by: USER.email,
+              created_at: "2026-08-16T10:00:00Z",
+            },
+            201,
+          ),
+        );
+      }
+      return route.fulfill(json(opts.offers ?? []));
+    }
+    if (path === "/masters/projects/proj-1/offers/off-1/transition") {
+      opts.onTransition?.(route.request().postDataJSON());
+      return route.fulfill(
+        json({
+          id: "off-1",
+          number: "OFF-1",
+          version: 1,
+          status: "accepted",
+          title: "Quote",
+          currency: "EUR",
+          total: "10000.00",
+          lines: [],
+          note: null,
+          created_by: USER.email,
+          created_at: "2026-08-16T10:00:00Z",
+        }),
+      );
+    }
+    if (path === "/masters/projects/proj-1/invoicing-plan")
+      return route.fulfill(
+        json(
+          opts.plan ?? {
+            project_id: "proj-1",
+            rows: [],
+            contracted_total: "0.00",
+            issued_total: "0.00",
+            remaining: "0.00",
+          },
+        ),
+      );
     if (path === "/masters/projects")
       return route.fulfill(
         json([
@@ -275,3 +334,29 @@ test("the invoice allocation editor saves one write with all levels", async ({ p
   await expect(page.getByText("Saved.")).toBeVisible();
 });
 
+
+test("the plan card shows contracted vs invoiced and the accept flow posts", async ({ page }) => {
+  let transitioned: Record<string, unknown> | null = null;
+  await open(page, {
+    offers: [
+      {
+        id: "off-1", number: "OFF-1", version: 1, status: "sent", title: "Quote",
+        currency: "EUR", total: "10000.00", lines: [], note: null,
+        created_by: "someone@test.io", created_at: "2026-08-16T10:00:00Z",
+      },
+    ],
+    plan: {
+      project_id: "proj-1",
+      rows: [{ id: "row-1", label: "Advance", amount: "3000.00", position: 0 }],
+      contracted_total: "10000.00",
+      issued_total: "3000.00",
+      remaining: "7000.00",
+    },
+    onTransition: (b) => (transitioned = b),
+  });
+  await page.goto("/projects/proj-1");
+
+  await expect(page.getByText(/remaining 7000\.00/)).toBeVisible();
+  await page.getByRole("button", { name: "accepted", exact: true }).click();
+  await expect.poll(() => transitioned).toEqual({ status: "accepted" });
+});

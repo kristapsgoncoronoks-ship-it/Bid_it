@@ -323,6 +323,10 @@ async def pnl(db: AsyncSession, org_id: str, project_id: str) -> dict:
         figures = live
         basis = "net_eur_live"
 
+    from app.services import project_offers
+
+    estimate = await project_offers.estimated_revenue(db, org_id, project_id)
+
     revenue = Decimal(figures["revenue"])
     profit = Decimal(figures["profit"])
     margin = (
@@ -336,6 +340,8 @@ async def pnl(db: AsyncSession, org_id: str, project_id: str) -> dict:
         "status": project.status,
         **figures,
         "margin_pct": margin,
+        # The estimate half of estimated-vs-actual — the latest ACCEPTED offer.
+        "estimated_revenue": str(estimate) if estimate is not None else None,
         # Stated by the server so no screen can misstate it — the same rule the
         # Trash and Archive screens follow for their windows.
         "basis": basis,

@@ -2345,6 +2345,76 @@ async def _invoice_project_splits(ctx: Ctx) -> None:
         )
 
 
+@probe("project_offers")
+async def _project_offers(ctx: Ctx) -> None:
+    """Offers/estimates (lifecycle phase 4). An offer is a PRICE a tenant quoted
+    — the single most competitively sensitive number they hold before a
+    contract exists."""
+    ids: dict[str, dict] = {}
+    for org in (ctx.a, ctx.b):
+        proj = await org.post(
+            "/api/v1/masters/projects",
+            json={"code": f"OFR-{org.name}", "name": f"Offers {org.name}"},
+        )
+        assert proj.status_code in (200, 201), proj.text
+        offer = await org.post(
+            f"/api/v1/masters/projects/{proj.json()['id']}/offers",
+            json={
+                "title": f"Quote {org.name}",
+                "lines": [{"description": "Work", "amount": "500.00"}],
+            },
+        )
+        assert offer.status_code == 201, offer.text
+        ids[org.name] = {"project": proj.json()["id"], "offer": offer.json()["id"]}
+
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        listing = await me.get(f"/api/v1/masters/projects/{ids[other.name]['project']}/offers")
+        assert listing.status_code == 404, (
+            f"TENANT LEAK: {me.name} listed {other.name}'s offers ({listing.status_code})"
+        )
+        hijack = await me.post(
+            f"/api/v1/masters/projects/{ids[other.name]['project']}"
+            f"/offers/{ids[other.name]['offer']}/transition",
+            json={"status": "accepted"},
+        )
+        assert hijack.status_code == 404, (
+            f"TENANT LEAK: {me.name} transitioned {other.name}'s offer ({hijack.status_code})"
+        )
+
+
+@probe("invoicing_plan_rows")
+async def _invoicing_plan_rows(ctx: Ctx) -> None:
+    """The contracted invoicing schedule (lifecycle phase 4) — what a tenant's
+    customer agreed to pay and when. Cross-tenant reads and writes are opaque."""
+    ids: dict[str, str] = {}
+    for org in (ctx.a, ctx.b):
+        proj = await org.post(
+            "/api/v1/masters/projects",
+            json={"code": f"PLN-{org.name}", "name": f"Plan {org.name}"},
+        )
+        assert proj.status_code in (200, 201), proj.text
+        put = await org.put(
+            f"/api/v1/masters/projects/{proj.json()['id']}/invoicing-plan",
+            json=[{"label": f"Advance {org.name}", "amount": "1000.00"}],
+        )
+        assert put.status_code == 200, put.text
+        ids[org.name] = proj.json()["id"]
+
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        read = await me.get(f"/api/v1/masters/projects/{ids[other.name]}/invoicing-plan")
+        assert read.status_code == 404, (
+            f"TENANT LEAK: {me.name} read {other.name}'s invoicing plan ({read.status_code})"
+        )
+        wipe = await me.put(f"/api/v1/masters/projects/{ids[other.name]}/invoicing-plan", json=[])
+        assert wipe.status_code == 404, (
+            f"TENANT LEAK: {me.name} rewrote {other.name}'s invoicing plan ({wipe.status_code})"
+        )
+        mine = await me.get(f"/api/v1/masters/projects/{ids[me.name]}/invoicing-plan")
+        assert mine.json()["contracted_total"] == "1000.00", (
+            f"TENANT LEAK: {me.name}'s plan moved after {other.name}'s writes"
+        )
+
+
 ALL_TABLES = sorted(m.__tablename__ for m in TENANT_MODELS)
 
 

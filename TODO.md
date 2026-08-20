@@ -89,9 +89,23 @@ sales invoices under it → allocate supplier/subcontractor invoices and expense
   the editor cannot corrupt an allocation it didn't touch. Client-side the
   sum-to-100 rule is guidance (disabled Save + amber total); the server remains
   the control.
+- [x] **Phase 4 shipped (PP-4):** offers/estimates + the invoicing plan, per
+  §5a and the owner's answers. Offers are VERSIONABLE (a revision is a new row,
+  the prior flips to superseded — history survives every edit; seed-verified
+  both ways), numbering is CLIENT-SET (`organizations.offer_prefix`, platform
+  enforces per-org uniqueness only), and ACCEPTANCE seeds the invoicing plan —
+  but only an EMPTY one (a hand-shaped plan is never rewritten; seed-verified).
+  The plan tracks contracted vs. actually-issued using the SAME revenue figure
+  the P&L shows (pinned: the two screens cannot disagree), and the P&L gains
+  `estimated_revenue` (latest accepted offer) — estimated-vs-actual readable
+  from day one. Two new tenant tables with probes + FORCE RLS in the same
+  commit. ProjectDetail gains Offers and Invoicing-plan cards. Small follow-up:
+  an org-settings surface for `offer_prefix` (service honors it; only the
+  editor UI is missing).
+
 Phase 3+: module-conditional recovered-VAT line, e-sign, budget-vs-actual;
-phases 4–5 per §5a (offer/estimate, invoicing plan, acceptance, templates,
-adjustable final invoicing).
+phase 5 per §5a (acceptance & handover, standardized templates once the
+owner's lawyer delivers the base texts, adjustable final invoicing).
 
 **The FULL lifecycle — owner vision 2026-08-16, recorded so it is not lost**
 (design: `docs/design/project-profitability.md` §5a): open project →

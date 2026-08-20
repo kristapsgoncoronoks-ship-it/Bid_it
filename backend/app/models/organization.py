@@ -34,6 +34,10 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # every other not-yet-monetised seam: the entitlement exists, nothing
     # charges anyone.
     archive_retention_years: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Offer numbering is SET BY THE CLIENT (owner decision 2026-08-16): the org
+    # picks its prefix; the platform enforces only per-org uniqueness. NULL =
+    # the default "OFF-".
+    offer_prefix: Mapped[str | None] = mapped_column(String(20), nullable=True)
     status: Mapped[str] = mapped_column(
         String(20), default="active", nullable=False
     )  # active|suspended|canceled
