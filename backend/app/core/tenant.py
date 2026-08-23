@@ -63,6 +63,7 @@ from app.models.issuer import IssuerProfile
 from app.models.job import Job
 from app.models.membership import Membership
 from app.models.module import OrgModule
+from app.models.next_action import ActionDismissal, OrgDeadline
 from app.models.partner import Partner, PartnerDocument
 from app.models.payment import Payment
 from app.models.payment_run import PaymentRun
@@ -112,6 +113,8 @@ TENANT_MODELS = (
     InvoicingPlanRow,
     ProjectAssignment,
     CalendarFeedToken,
+    OrgDeadline,
+    ActionDismissal,
     Vendor,
     VendorChangeRequest,
     Invoice,

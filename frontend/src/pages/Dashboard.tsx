@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { CategoryPie, SpendChart, VendorBar } from "../components/Charts";
@@ -36,9 +36,93 @@ export default function Dashboard() {
         </p>
       </div>
 
+      <NextActions />
+
       <QueryState query={dash} loading={<TilesSkeleton />} errorTitle="Couldn’t load your dashboard">
         {(d) => <DashboardBody d={d} />}
       </QueryState>
+    </div>
+  );
+}
+
+interface NextAction {
+  kind: string;
+  ref_id: string;
+  title: string;
+  detail: string;
+  link: string;
+  age_days: number | null;
+  due_date: string | null;
+  dismissible: boolean;
+}
+
+/** Next actions (WO-C): DERIVED work items — an offer to follow up, an
+ * invoice to chase, uploads to confirm, a filing coming due. Every item
+ * clears itself when the underlying work happens; Dismiss silences one item
+ * permanently. Renders nothing for roles without planning rights (403) and
+ * nothing when the list is empty — an empty card would be noise. */
+function NextActions() {
+  const [err, setErr] = useState<string | null>(null);
+  const actions = useQuery<NextAction[] | null>({
+    queryKey: ["next-actions"],
+    queryFn: async () => {
+      try {
+        return (await api.get("/next-actions")).data;
+      } catch {
+        return null; // not a planner — the surface simply isn't theirs
+      }
+    },
+  });
+  const qc = useQueryClient();
+
+  const dismiss = async (a: NextAction) => {
+    try {
+      await api.post("/next-actions/dismiss", { kind: a.kind, ref_id: a.ref_id });
+      qc.invalidateQueries({ queryKey: ["next-actions"] });
+    } catch {
+      setErr("Couldn’t dismiss that item.");
+    }
+  };
+  const complete = async (a: NextAction) => {
+    try {
+      await api.post(`/next-actions/deadlines/${a.ref_id}/complete`);
+      qc.invalidateQueries({ queryKey: ["next-actions"] });
+    } catch {
+      setErr("Couldn’t mark that deadline done.");
+    }
+  };
+
+  if (!Array.isArray(actions.data) || actions.data.length === 0) return null;
+  return (
+    <div className="card space-y-2 p-6">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+        Next actions
+      </h2>
+      {err && <div className="text-sm text-rose-600">{err}</div>}
+      <ul className="divide-y divide-slate-100">
+        {actions.data.map((a) => (
+          <li key={`${a.kind}:${a.ref_id}`} className="flex items-start justify-between gap-3 py-2">
+            <div className="min-w-0">
+              <Link to={a.link} className="text-sm font-medium text-slate-700 hover:underline">
+                {a.title}
+              </Link>
+              <div className="text-xs text-slate-500">{a.detail}</div>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              {a.kind === "deadline" && (
+                <button className="btn-ghost text-xs" onClick={() => complete(a)}>
+                  Done
+                </button>
+              )}
+              {a.dismissible && (
+                <button className="btn-ghost text-xs text-slate-400" onClick={() => dismiss(a)}>
+                  Dismiss
+                </button>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

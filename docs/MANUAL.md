@@ -258,6 +258,16 @@ documents needs only the normal bookkeeping role.
 
 ---
 
+## 6b. Next actions
+
+The dashboard's **Next actions** card is the day's work, computed from your
+records: offers sitting unanswered past three days, invoices past due with
+money outstanding, uploads waiting for review, and your own recurring
+deadlines ("prepare the VAT report" — set the day, cadence and lead time
+once). Every item clears ITSELF when the work happens — accept the offer,
+receive the payment, confirm the upload — and **Dismiss** silences one item
+forever. Nothing piles up, by design.
+
 ## 7. Insights
 
 - **Dashboard** — "what needs me today": approvals waiting, captures to

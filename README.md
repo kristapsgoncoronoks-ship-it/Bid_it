@@ -9,9 +9,9 @@ plug-in bounded context ([ADR-0023](./docs/architecture/adr/0023-platform-evolut
 **Stack:** FastAPI + async SQLAlchemy 2.0 + Alembic on PostgreSQL (SQLite for
 zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 
-**Scale of the codebase (verified against this tree):** 96 database tables
-(106 Alembic revisions, single head), 56 model modules, 94 service modules,
-43 route modules, 61 SPA pages, 2731 collected backend tests, 8 CI jobs.
+**Scale of the codebase (verified against this tree):** 98 database tables
+(107 Alembic revisions, single head), 57 model modules, 95 service modules,
+44 route modules, 61 SPA pages, 2740 collected backend tests, 8 CI jobs.
 
 > **The specification lives in [`docs/`](./docs), not here.**
 > [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (29 ADRs) and
@@ -73,7 +73,7 @@ zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
   hold, GDPR erasure, data-residency pinning, plans/entitlements/usage metering,
   and Stripe/EveryPay billing behind a provider seam (code-complete, not live).
 - **Tenant isolation, three layers, tested**: per-query `org_id` filters + an ORM
-  `do_orm_execute` guard over an 89-model registry + Postgres `FORCE ROW LEVEL
+  `do_orm_execute` guard over a 91-model registry + Postgres `FORCE ROW LEVEL
   SECURITY`; CI asserts RLS/model set-equality (`tests/test_rls.py`), behavioural
   isolation per table over the real query path (`tests/test_tenancy_parity.py`),
   and opaque 404s on cross-tenant ids.

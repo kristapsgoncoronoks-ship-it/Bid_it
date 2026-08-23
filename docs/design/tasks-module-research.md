@@ -73,7 +73,18 @@ Jobber ships 5 views (day/week/month/map/list), drag-and-drop reassignment,
 color by assignee, push notification to the assignee on add/reschedule/cancel;
 simPRO adds a project-filtered scheduling view. Matches phase A/B as designed.
 
-## What v1 SHOULD be (evidence-backed)
+## What v1 SHOULD be (evidence-backed) — ✅ SHIPPED 2026-08-23 (WO-C)
+
+Shipped as designed: DERIVED items only (no task table), four generators
+(offer follow-up ≥3d in `sent`, invoice chase with outstanding math,
+capture backlog aggregate, deadline templates with per-period confirm-style
+completion), permanent per-item dismissals (audited; work-queue kinds
+refuse dismissal), the dashboard card that renders NOTHING when empty or
+unpermitted, and the self-completion contract pinned by a seeded violation
+that exposed — and fixed — a vacuous first version of the test (accepting
+an offer refreshes updated_at, which masked a broken status filter).
+
+## The original v1 spec (evidence-backed)
 
 One surface — **"Next actions"** — generalizing the dashboard's existing
 "what needs me today" into actionable, lifecycle-attached items, each with a

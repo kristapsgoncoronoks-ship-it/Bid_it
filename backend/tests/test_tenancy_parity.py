@@ -2546,6 +2546,40 @@ async def _calendar_feed_tokens(ctx: Ctx) -> None:
         )
 
 
+@probe("org_deadlines", "action_dismissals")
+async def _next_actions_tables(ctx: Ctx) -> None:
+    """A workspace's obligations (deadline names can reveal filings, clients,
+    strategy) and its dismissal history are tenant data. One probe proves both
+    tables — they share the /next-actions read path."""
+    ids: dict[str, str] = {}
+    for org in (ctx.a, ctx.b):
+        made = await org.post(
+            "/api/v1/next-actions/deadlines",
+            json={"name": f"SECRET FILING OF {org.name}", "cadence": "monthly", "due_day": 15},
+        )
+        assert made.status_code == 201, made.text
+        ids[org.name] = made.json()["id"]
+        # A dismissal row for a synthetic ref, to exercise the second table.
+        dis = await org.post(
+            "/api/v1/next-actions/dismiss",
+            json={"kind": "invoice_chase", "ref_id": f"ref-{org.name}"},
+        )
+        assert dis.status_code == 204, dis.text
+
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        listed = await me.get("/api/v1/next-actions/deadlines")
+        assert listed.status_code == 200
+        names = {d["name"] for d in listed.json()}
+        assert f"SECRET FILING OF {other.name}" not in names, (
+            f"TENANT LEAK: {me.name} listed {other.name}'s deadline"
+        )
+        # Cross-tenant mutation must 404 opaquely.
+        done = await me.post(f"/api/v1/next-actions/deadlines/{ids[other.name]}/complete")
+        _assert_404(done, f"{me.name} complete {other.name}'s deadline")
+        gone = await me.delete(f"/api/v1/next-actions/deadlines/{ids[other.name]}")
+        _assert_404(gone, f"{me.name} delete {other.name}'s deadline")
+
+
 ALL_TABLES = sorted(m.__tablename__ for m in TENANT_MODELS)
 
 

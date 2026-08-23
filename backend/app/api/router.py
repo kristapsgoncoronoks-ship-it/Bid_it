@@ -27,6 +27,7 @@ from app.api.routes import (
     issuer,
     jobs,
     modules,
+    next_actions,
     partners,
     payment_runs,
     platform,
@@ -87,6 +88,7 @@ api_router.include_router(documents.router)
 api_router.include_router(doc_templates.router)
 api_router.include_router(schedule.router)
 api_router.include_router(calendar_feed.router)
+api_router.include_router(next_actions.router)
 api_router.include_router(export.router)
 api_router.include_router(archive.router)
 api_router.include_router(retention.router)

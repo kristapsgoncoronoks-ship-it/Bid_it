@@ -34,7 +34,7 @@ Assign/change/cancel notifications + configurable reminder N hours before
 layer: per-user revocable feed token + .ics download — Google/Apple/
 Microsoft subscribe to US, zero external calls. Estimated: one session.
 
-**WO-C — "Next actions" v1 (the researched task module).**
+**WO-C — "Next actions" v1 (the researched task module). ✅ SHIPPED 2026-08-23.**
 One surface, four generators, everything self-completing/expiring: offer
 follow-up nudge (N days in `sent`, default 3, ≤2 nudges, one-click send);
 dunning surfaced as chase items (no second engine); recurring deadline
