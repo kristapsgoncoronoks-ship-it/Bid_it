@@ -38,12 +38,12 @@ Verified LOCALLY at this tree (executed, not recalled):
 
 | Check | Result |
 |---|---|
-| Backend suite | **2729 passed, 11 skipped, 0 failed (37:47)** on 2026-08-23 at the DEPLOYED tree (`ee37037` code; `16b91b6` adds compose config only) — adds WO-C (Next actions) and the Postgres migration-type fixes on top of WO-A/WO-B and lifecycle phases 1/2/4/5a |
+| Backend suite | **2737 passed, 11 skipped, 0 failed (43:13)** on 2026-08-23 at `df9642a` — adds WO-D (acceptance & final invoice) on top of the deployed tree. Production is one additive migration behind (`f0a2b4c6d8e0`, proven on scratch Postgres 16) |
 | `ruff check` / `ruff format --check` | clean |
 | `mypy app` | clean, 357 files |
-| Alembic | single head `e9f1a3b5c7d9` (next actions) — **applied in production** |
-| Browser suite | **355 passed (3.7m)** on 2026-08-23, at this tree |
-| Prior certified runs | 2720 passed 2026-08-23 at `60e1faf`; 2714 passed 2026-08-23 at `2c5e93a`; 2705 passed 2026-08-20 at `d2ba5b0`; 2694 passed 2026-08-16 at `56bcab7` (single environmental failure — container lost the tesseract binary; reinstalled, OCR 2/2) |
+| Alembic | single head `f0a2b4c6d8e0` (acceptance & final invoice) — production is at `e9f1a3b5c7d9`, one additive migration behind |
+| Browser suite | **359 passed (4.6m)** on 2026-08-23, at `df9642a` |
+| Prior certified runs | 2729 passed 2026-08-23 at the deployed tree `ee37037`; 2720 passed 2026-08-23 at `60e1faf`; 2714 passed 2026-08-23 at `2c5e93a`; 2705 passed 2026-08-20 at `d2ba5b0`; 2694 passed 2026-08-16 at `56bcab7` (single environmental failure — container lost the tesseract binary; reinstalled, OCR 2/2) |
 
 The browser gap the first draft of this runbook carried is CLOSED: the suite has
 been re-run since the consent dialog was reordered, and since the archive screen

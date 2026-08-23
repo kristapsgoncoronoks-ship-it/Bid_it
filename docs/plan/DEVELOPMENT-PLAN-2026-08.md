@@ -84,6 +84,20 @@ Magic-link access (revocable per-customer tokens): offer view/approve/
 decline with viewed_at stamped to the timeline, invoice list/status + pay,
 shared project documents. E-sign remains the later seam.
 
+**WO-J — Admin automation rules (researched 2026-08-23,
+`docs/design/workflow-builder-research.md`).**
+Platform-admin trigger-condition-action rules on the existing job-queue/
+audit/mailer rails: closed trigger enum over domain events, JSON Logic (or
+zen-engine) conditions, fixed action catalog, fire-once-per-record default,
+loop prevention + execution caps, draft→publish with immutable versions,
+runs log, dry-run. Form builder UI (no canvas). Embedding a ready platform
+was researched and rejected — n8n on license (SUL, paid Embed), Windmill/
+Kestra/Temporal/Trigger.dev on 4 GB-VPS footprint, Activepieces on paid
+multi-tenant features, Node-RED on tenancy. No embedded scripting, ever.
+Estimated: 2 sessions. Sits last because E/H/I each enrich the trigger/
+action catalog; pull earlier if multiple WOs start hand-rolling bespoke
+"when X do Y" settings.
+
 ## Owner-side track (parallel, not code)
 
 1. Finish the in-flight VPS deploy (`./scripts/vps-deploy.sh`).
