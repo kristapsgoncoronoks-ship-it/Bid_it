@@ -1,5 +1,16 @@
 # Deploy runbook — the 2026-08-15 release to the Hostinger VPS
 
+> **✅ DEPLOYED 2026-08-23.** Production runs commit `16b91b6` at migration
+> head `e9f1a3b5c7d9` — all four containers healthy (the first deploy since
+> `15116e1`, ~2 months of work). The deploy surfaced and fixed, in order:
+> a backup-verification bug in the deploy script (tail -1 vs pg_dump's
+> trailer), the UUID-vs-VARCHAR migration defect in every post-CI-death
+> migration (§2 below finally ran, on a real Postgres 16 scratch cluster),
+> the worker missing INBOUND_EMAIL_SECRET in compose, and the frontend's
+> misleading HTTP healthcheck under the HTTPS redirect. Remaining owner
+> steps: §4.1 fee rate, §5 click-through, a reboot for the pending kernel
+> update.
+
 **What is being deployed:** the working branch at `HEAD`, which advances
 production from `15116e1` by **308 commits** and **38 Alembic migrations** (figures refreshed 2026-08-23, evening; the clone is full again since 2026-08-23, so `git rev-list --count 15116e1..HEAD` is trustworthy — re-measure if you deploy a later commit).
 
@@ -27,12 +38,12 @@ Verified LOCALLY at this tree (executed, not recalled):
 
 | Check | Result |
 |---|---|
-| Backend suite | **2720 passed, 11 skipped, 0 failed (35:33)** on 2026-08-23 at `60e1faf` (the deploy tip) — adds WO-B (assignment notices, exact-time reminders, the ICS calendar feed) on top of WO-A and lifecycle phases 1/2/4/5a |
+| Backend suite | **2729 passed, 11 skipped, 0 failed (37:47)** on 2026-08-23 at the DEPLOYED tree (`ee37037` code; `16b91b6` adds compose config only) — adds WO-C (Next actions) and the Postgres migration-type fixes on top of WO-A/WO-B and lifecycle phases 1/2/4/5a |
 | `ruff check` / `ruff format --check` | clean |
-| `mypy app` | clean, 354 files |
-| Alembic | single head `d8e0f2a4b6c8` (calendar feed + reminders) |
-| Browser suite | **351 passed (3.7m)** on 2026-08-23, at this tree — includes the 5 schedule specs |
-| Prior certified runs | 2714 passed 2026-08-23 at `2c5e93a`; 2705 passed 2026-08-20 at `d2ba5b0`; 2694 passed 2026-08-16 at `56bcab7` (single environmental failure — container lost the tesseract binary; reinstalled, OCR 2/2) |
+| `mypy app` | clean, 357 files |
+| Alembic | single head `e9f1a3b5c7d9` (next actions) — **applied in production** |
+| Browser suite | **355 passed (3.7m)** on 2026-08-23, at this tree |
+| Prior certified runs | 2720 passed 2026-08-23 at `60e1faf`; 2714 passed 2026-08-23 at `2c5e93a`; 2705 passed 2026-08-20 at `d2ba5b0`; 2694 passed 2026-08-16 at `56bcab7` (single environmental failure — container lost the tesseract binary; reinstalled, OCR 2/2) |
 
 The browser gap the first draft of this runbook carried is CLOSED: the suite has
 been re-run since the consent dialog was reordered, and since the archive screen
@@ -40,10 +51,15 @@ landed. It is no longer a pre-deploy chore.
 
 **Known gaps in that evidence, stated plainly:**
 
-- **The Postgres-only gates have not been run on this tree.** Production is
-  Postgres 16; the local suite is SQLite except where a scratch cluster is used.
-  This release adds a new tenant table (`archived_invoices`) with an RLS policy,
-  so `tests/test_rls.py` under a NOSUPERUSER role is **not optional** — see §2.
+- ~~The Postgres-only gates have not been run on this tree.~~ **CLOSED
+  2026-08-23, the expensive way:** the first deploy attempt failed exactly
+  where this gap predicted — every migration authored after CI died
+  (2026-08-12) used VARCHAR(36) for GUID columns and an uncast RLS
+  predicate, which only real Postgres refuses. §2 was then executed for
+  real on a scratch Postgres 16 under a NOSUPERUSER role: all 107
+  migrations clean, `relforcerowsecurity = t` on all 11 new tenant tables,
+  `alembic check` clean (after registering seven model modules autogen had
+  gone blind to), RLS + concurrency suites 8/8.
 - **Nothing here has been validated against real data.** Every test is
   self-authored over fixtures. Four money defects once passed 2,445 tests; a
   review on 14/15 August found two P0s that 2,633 passing tests did not. The
