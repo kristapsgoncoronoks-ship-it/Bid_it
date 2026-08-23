@@ -72,6 +72,10 @@ services:
     environment:
       ENVIRONMENT: production
       SECRET_KEY: ${SECRET_KEY:?set a strong SECRET_KEY in .env}
+      # The production-config safety net validates in EVERY process, worker
+      # included — omitting this crash-looped the worker on the real VPS
+      # (2026-08-23) while the backend ran fine.
+      INBOUND_EMAIL_SECRET: ${INBOUND_EMAIL_SECRET:?set INBOUND_EMAIL_SECRET in .env (python -c "import secrets;print(secrets.token_urlsafe(32))")}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-invoiceiq}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-invoiceiq}
       STORAGE_BACKEND: local
       STORAGE_LOCAL_PATH: /app/var/storage
@@ -106,6 +110,15 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+    # The image's baked-in healthcheck probes http://localhost/ — the prod
+    # nginx 301s that to HTTPS, so the container reported "unhealthy" while
+    # serving perfectly. Probe over TLS (self-signed-tolerant) instead.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--no-check-certificate", "-O", "/dev/null", "https://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   pgdata:        # Postgres data — back this up (see the deploy doc).
