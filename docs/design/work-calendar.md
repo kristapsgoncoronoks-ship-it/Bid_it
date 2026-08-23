@@ -48,6 +48,30 @@ infrastructure); in-app inbox is the notifications target the data-model doc
 already reserves. SMS/push would mean an external provider — decision-gated
 under the zero-external-calls-by-default policy, same as AI capture.
 
+**Phase B2 — Google/Apple calendar sync (owner addition, same day).**
+The standards-based way, in two steps that require NO external API, OAuth,
+or vendor account — honouring zero-external-calls-by-default:
+
+1. **ICS download**: any assignment (or a person's whole schedule) exports
+   as a standard `.ics` file — opens in Google Calendar, Apple Calendar,
+   Outlook alike.
+2. **ICS feed subscription (the real "sync")**: a per-user secret feed URL
+   (`/calendar/feed/{token}.ics`) serving that user's OWN assignments as a
+   live iCalendar feed. The employee subscribes once from their phone
+   ("Subscribe to calendar" / webcal), and Google/Apple then POLL US —
+   assignments appear and update in their personal calendar automatically.
+   The token is a revocable capability (regenerate = old URL dead), scoped
+   to one user's schedule, event bodies carry project code + time + note,
+   never financial figures. Honest caveat: refresh cadence is the calendar
+   vendor's choice (Apple configurable to minutes; Google can take hours).
+
+**Deferred, decision-gated: two-way sync** (edit in Google → flows back).
+Requires per-user OAuth against Google's API (a verified Google Cloud app,
+quotas, webhooks) and CalDAV-against-iCloud for Apple, plus a "who wins"
+conflict policy — an external-provider decision like SMS. Only worth it if
+a pilot customer demands editing their schedule from Google; the feed
+covers "see my jobs on my phone", which is the actual need stated.
+
 **Phase C — photos from the job.**
 A mobile-friendly capture surface on the project page (camera input, EXIF
 timestamp kept, stored via the existing content-addressed document path into
