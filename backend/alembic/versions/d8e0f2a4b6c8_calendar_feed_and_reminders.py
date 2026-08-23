@@ -19,6 +19,8 @@ from typing import Union
 import sqlalchemy as sa
 from alembic import op
 
+from app.models.base import GUID
+
 revision: str = "d8e0f2a4b6c8"
 down_revision: Union[str, None] = "c7d9e1f3a5b7"
 branch_labels: Union[str, None] = None
@@ -32,14 +34,14 @@ def upgrade() -> None:
 
     op.create_table(
         "calendar_feed_tokens",
-        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("id", GUID(), primary_key=True),
         sa.Column(
             "org_id",
-            sa.String(36),
+            GUID(),
             sa.ForeignKey("organizations.id", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column("user_id", sa.String(36), nullable=False),
+        sa.Column("user_id", GUID(), nullable=False),
         sa.Column("token", sa.String(64), nullable=False),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
@@ -66,7 +68,7 @@ def upgrade() -> None:
             op.execute(f"ALTER TABLE {t} FORCE ROW LEVEL SECURITY")
             op.execute(
                 f"CREATE POLICY tenant_isolation ON {t} "
-                "USING (org_id = current_setting('app.current_org', true)::varchar)"
+                f"USING (current_setting('app.current_org', true) IS NULL OR org_id::text = current_setting('app.current_org', true)) WITH CHECK (current_setting('app.current_org', true) IS NULL OR org_id::text = current_setting('app.current_org', true))"
             )
 
 

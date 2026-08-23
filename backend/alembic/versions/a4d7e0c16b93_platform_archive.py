@@ -27,6 +27,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
+from app.models.base import GUID
+
 revision: str = "a4d7e0c16b93"
 down_revision: Union[str, None] = "f2c8b31e4a97"
 branch_labels: Union[str, Sequence[str], None] = None
@@ -53,11 +55,11 @@ _PREDICATE = (
 def upgrade() -> None:
     op.create_table(
         "archived_invoices",
-        sa.Column("id", sa.String(length=36), primary_key=True),
-        sa.Column("org_id", sa.String(length=36), nullable=False),
-        sa.Column("original_invoice_id", sa.String(length=36), nullable=False),
+        sa.Column("id", GUID(), primary_key=True),
+        sa.Column("org_id", GUID(), nullable=False),
+        sa.Column("original_invoice_id", GUID(), nullable=False),
         sa.Column("invoice_number", sa.String(length=120), nullable=True),
-        sa.Column("vendor_id", sa.String(length=36), nullable=True),
+        sa.Column("vendor_id", GUID(), nullable=True),
         sa.Column("vendor_name", sa.String(length=255), nullable=True),
         sa.Column("issue_date", sa.Date(), nullable=True),
         sa.Column("currency", sa.String(length=3), nullable=True),

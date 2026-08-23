@@ -22,6 +22,8 @@ from typing import Union
 import sqlalchemy as sa
 from alembic import op
 
+from app.models.base import GUID
+
 revision: str = "f3c5e7a9b1d4"
 down_revision: Union[str, None] = "e2b4d6f8a0c2"
 branch_labels: Union[str, None] = None
@@ -33,7 +35,7 @@ TENANT_TABLES = ("invoice_project_splits",)
 def upgrade() -> None:
     bind = op.get_bind()
 
-    op.add_column("line_items", sa.Column("project_id", sa.String(36), nullable=True))
+    op.add_column("line_items", sa.Column("project_id", GUID(), nullable=True))
     op.create_index("ix_line_items_project_id", "line_items", ["project_id"])
 
     op.add_column("projects", sa.Column("closed_pnl_json", sa.Text(), nullable=True))
@@ -43,15 +45,15 @@ def upgrade() -> None:
 
     op.create_table(
         "invoice_project_splits",
-        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("id", GUID(), primary_key=True),
         sa.Column(
             "org_id",
-            sa.String(36),
+            GUID(),
             sa.ForeignKey("organizations.id", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column("invoice_id", sa.String(36), nullable=False),
-        sa.Column("project_id", sa.String(36), nullable=False),
+        sa.Column("invoice_id", GUID(), nullable=False),
+        sa.Column("project_id", GUID(), nullable=False),
         sa.Column("percent", sa.Numeric(5, 2), nullable=False),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
@@ -90,7 +92,7 @@ def upgrade() -> None:
             op.execute(f"ALTER TABLE {t} FORCE ROW LEVEL SECURITY")
             op.execute(
                 f"CREATE POLICY tenant_isolation ON {t} "
-                "USING (org_id = current_setting('app.current_org', true)::varchar)"
+                f"USING (current_setting('app.current_org', true) IS NULL OR org_id::text = current_setting('app.current_org', true)) WITH CHECK (current_setting('app.current_org', true) IS NULL OR org_id::text = current_setting('app.current_org', true))"
             )
 
 

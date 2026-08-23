@@ -8,12 +8,14 @@ from app.models.base import Base
 from app.models.billing_event import ProcessedStripeEvent
 from app.models.billing_payment import BillingPayment
 from app.models.budget import BudgetTarget
+from app.models.calendar_token import CalendarFeedToken
 from app.models.capture_acknowledgement import CaptureAcknowledgement
 from app.models.capture_field_memory import CaptureFieldMemory
 from app.models.costing import CostCenter, Department, Project
 from app.models.currency import Currency
 from app.models.customer import Customer, CustomerContact
 from app.models.document import Document
+from app.models.document_template import OrgTemplate, PlatformTemplate
 from app.models.document_version import DocumentVersion
 from app.models.dunning_policy import DunningPolicy
 from app.models.email_intake import EmailIntake, InboundInvoice
@@ -35,6 +37,7 @@ from app.models.inbound_channel_health import InboundChannelHealth
 from app.models.invitation import Invitation
 from app.models.invoice import Invoice, InvoiceStatus, LineItem, WorkflowState
 from app.models.invoice_collab import InvoiceAttachment, InvoiceComment
+from app.models.invoice_project_split import InvoiceProjectSplit
 from app.models.issued_invoice import (
     IssuedInvoice,
     IssuedInvoiceAttachment,
@@ -44,11 +47,15 @@ from app.models.issuer import IssuerProfile
 from app.models.job import Job
 from app.models.membership import Membership
 from app.models.module import OrgModule
+from app.models.next_action import ActionDismissal, OrgDeadline
 from app.models.organization import Organization
 from app.models.partner import Partner, PartnerDocument
 from app.models.payment import Payment
 from app.models.payment_run import PaymentRun
 from app.models.plan_policy import PlanPolicy
+from app.models.project_assignment import ProjectAssignment
+from app.models.project_link import ProjectCostEntry, ProjectDocument
+from app.models.project_offer import InvoicingPlanRow, ProjectOffer
 from app.models.receipt import Receipt
 from app.models.recurring_invoice import RecurringInvoice
 from app.models.retention import LegalHold, RetentionPolicy
@@ -68,6 +75,18 @@ from app.models.webhook import WebhookDelivery, WebhookEndpoint
 
 __all__ = [
     "Base",
+    "ActionDismissal",
+    "CalendarFeedToken",
+    "InvoiceProjectSplit",
+    "InvoicingPlanRow",
+    "OrgDeadline",
+    "OrgTemplate",
+    "PlatformTemplate",
+    "ProjectAssignment",
+    "ProjectCostEntry",
+    "ProjectDocument",
+    "ProjectOffer",
+
     "AuditEvent",
     "Organization",
     "User",

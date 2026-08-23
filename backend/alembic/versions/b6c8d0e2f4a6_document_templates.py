@@ -18,6 +18,8 @@ from typing import Union
 import sqlalchemy as sa
 from alembic import op
 
+from app.models.base import GUID
+
 revision: str = "b6c8d0e2f4a6"
 down_revision: Union[str, None] = "a5b7c9d1e3f5"
 branch_labels: Union[str, None] = None
@@ -31,7 +33,7 @@ def upgrade() -> None:
 
     op.create_table(
         "platform_templates",
-        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("id", GUID(), primary_key=True),
         sa.Column("key", sa.String(60), nullable=False),
         sa.Column("kind", sa.String(16), nullable=False),
         sa.Column("name", sa.String(200), nullable=False),
@@ -49,14 +51,14 @@ def upgrade() -> None:
 
     op.create_table(
         "org_templates",
-        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("id", GUID(), primary_key=True),
         sa.Column(
             "org_id",
-            sa.String(36),
+            GUID(),
             sa.ForeignKey("organizations.id", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column("source_platform_id", sa.String(36), nullable=True),
+        sa.Column("source_platform_id", GUID(), nullable=True),
         sa.Column("kind", sa.String(16), nullable=False),
         sa.Column("name", sa.String(200), nullable=False),
         sa.Column("body", sa.Text(), nullable=False),
@@ -79,7 +81,7 @@ def upgrade() -> None:
             op.execute(f"ALTER TABLE {t} FORCE ROW LEVEL SECURITY")
             op.execute(
                 f"CREATE POLICY tenant_isolation ON {t} "
-                "USING (org_id = current_setting('app.current_org', true)::varchar)"
+                f"USING (current_setting('app.current_org', true) IS NULL OR org_id::text = current_setting('app.current_org', true)) WITH CHECK (current_setting('app.current_org', true) IS NULL OR org_id::text = current_setting('app.current_org', true))"
             )
 
 

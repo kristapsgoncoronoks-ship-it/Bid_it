@@ -28,6 +28,8 @@ from typing import Union
 import sqlalchemy as sa
 from alembic import op
 
+from app.models.base import GUID
+
 revision: str = "e2b4d6f8a0c2"
 down_revision: Union[str, None] = "d0f3e5a1c7b9"
 branch_labels: Union[str, None] = None
@@ -37,7 +39,7 @@ TENANT_TABLES = ("project_documents", "project_cost_entries")
 
 
 def _uuid() -> sa.types.TypeEngine:
-    return sa.String(36)
+    return GUID()
 
 
 def upgrade() -> None:
@@ -118,7 +120,7 @@ def upgrade() -> None:
             op.execute(f"ALTER TABLE {t} FORCE ROW LEVEL SECURITY")
             op.execute(
                 f"CREATE POLICY tenant_isolation ON {t} "
-                "USING (org_id = current_setting('app.current_org', true)::varchar)"
+                f"USING (current_setting('app.current_org', true) IS NULL OR org_id::text = current_setting('app.current_org', true)) WITH CHECK (current_setting('app.current_org', true) IS NULL OR org_id::text = current_setting('app.current_org', true))"
             )
 
 
