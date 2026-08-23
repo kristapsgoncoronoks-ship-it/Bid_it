@@ -52,7 +52,10 @@ echo "  ${avail_mb} MB available"
 say "Backup: database"
 db_dump="$HOME/pre-deploy-${STAMP}.sql.gz"
 "${COMPOSE[@]}" exec -T db pg_dump -U invoiceiq invoiceiq | gzip > "$db_dump"
-gunzip -c "$db_dump" | tail -1 | grep -q "PostgreSQL database dump complete" \
+# pg_dump ends with the marker followed by "--" and a blank line, so check the
+# TAIL REGION, not the literal last line (tail -1 here refused a good dump on
+# the real VPS, 2026-08-23).
+gunzip -c "$db_dump" | tail -5 | grep -q "PostgreSQL database dump complete" \
   || fail "dump is truncated or empty: $db_dump"
 echo "  OK: $db_dump ($(du -h "$db_dump" | cut -f1))"
 
