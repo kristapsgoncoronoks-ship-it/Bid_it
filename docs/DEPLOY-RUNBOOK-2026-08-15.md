@@ -1,7 +1,7 @@
 # Deploy runbook — the 2026-08-15 release to the Hostinger VPS
 
 **What is being deployed:** the working branch at `HEAD`, which advances
-production from `15116e1` by **305 commits** and **37 Alembic migrations** (figures refreshed 2026-08-23; the clone is full again since 2026-08-23, so `git rev-list --count 15116e1..HEAD` is trustworthy — re-measure if you deploy a later commit).
+production from `15116e1` by **308 commits** and **38 Alembic migrations** (figures refreshed 2026-08-23, evening; the clone is full again since 2026-08-23, so `git rev-list --count 15116e1..HEAD` is trustworthy — re-measure if you deploy a later commit).
 
 This supersedes `DEPLOY-RUNBOOK-2026-08-12.md`. That runbook was written for
 `ec93e4b` and **was never run** — production is still `15116e1`, so its 24
@@ -27,12 +27,12 @@ Verified LOCALLY at this tree (executed, not recalled):
 
 | Check | Result |
 |---|---|
-| Backend suite | **2714 passed, 11 skipped, 0 failed (38:55)** on 2026-08-23 at `2c5e93a` (code-identical to the deploy tip — commits after it are docs only) — adds WO-A work-planning assignments on top of lifecycle phases 1/2/4/5a |
+| Backend suite | **2720 passed, 11 skipped, 0 failed (35:33)** on 2026-08-23 at `60e1faf` (the deploy tip) — adds WO-B (assignment notices, exact-time reminders, the ICS calendar feed) on top of WO-A and lifecycle phases 1/2/4/5a |
 | `ruff check` / `ruff format --check` | clean |
-| `mypy app` | clean, 351 files |
-| Alembic | single head `c7d9e1f3a5b7` (project assignments) |
-| Browser suite | **350 passed (3.7m)** on 2026-08-23, at this tree — includes the 4 schedule specs |
-| Prior certified runs | 2705 passed 2026-08-20 at `d2ba5b0`; 2694 passed 2026-08-16 at `56bcab7` (single environmental failure — container lost the tesseract binary; reinstalled, OCR 2/2) |
+| `mypy app` | clean, 354 files |
+| Alembic | single head `d8e0f2a4b6c8` (calendar feed + reminders) |
+| Browser suite | **351 passed (3.7m)** on 2026-08-23, at this tree — includes the 5 schedule specs |
+| Prior certified runs | 2714 passed 2026-08-23 at `2c5e93a`; 2705 passed 2026-08-20 at `d2ba5b0`; 2694 passed 2026-08-16 at `56bcab7` (single environmental failure — container lost the tesseract binary; reinstalled, OCR 2/2) |
 
 The browser gap the first draft of this runbook carried is CLOSED: the suite has
 been re-run since the consent dialog was reordered, and since the archive screen
@@ -106,10 +106,10 @@ git rev-parse HEAD > ~/pre-deploy-commit.txt && cat ~/pre-deploy-commit.txt
 
 ## 2. The Postgres gate — required for this release
 
-This release adds EIGHT new tenant tables carrying row-level-security policies:
+This release adds NINE new tenant tables carrying row-level-security policies:
 `archived_invoices`, `invoice_project_splits`, `project_cost_entries`,
 `project_documents`, `project_offers`, `invoicing_plan_rows`, `org_templates`,
-`project_assignments`
+`project_assignments`, `calendar_feed_tokens`
 (plus org-less `platform_templates`, deliberately NOT tenant-scoped — operator
 master documents, the `ecb_rates` pattern). On SQLite the coverage test proves
 only that the model registry and the migration agree; it cannot prove the policy
@@ -120,7 +120,7 @@ bypassed by superusers, so a superuser run proves nothing):
 # On a scratch cluster, NOT production.
 createuser --no-superuser appuser && createdb -O appuser invoiceiq_gate
 DATABASE_URL=postgresql+asyncpg://appuser@localhost/invoiceiq_gate \
-  alembic upgrade head && alembic check          # expect no drift, head c7d9e1f3a5b7
+  alembic upgrade head && alembic check          # expect no drift, head d8e0f2a4b6c8
 DATABASE_URL=... python -m pytest tests/test_rls.py \
   tests/test_numbering_concurrency.py tests/test_transport_lock_concurrency.py \
   tests/test_usage_counter_concurrency.py -q
@@ -132,12 +132,14 @@ Then confirm the new table is actually protected:
 SELECT relname, relrowsecurity, relforcerowsecurity FROM pg_class
  WHERE relname IN ('archived_invoices','invoice_project_splits',
    'project_cost_entries','project_documents','project_offers',
-   'invoicing_plan_rows','org_templates','project_assignments');
+   'invoicing_plan_rows','org_templates','project_assignments',
+   'calendar_feed_tokens');
 -- expect: every row  t | t
 SELECT c.relname, polname FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
   WHERE c.relname IN ('archived_invoices','invoice_project_splits',
    'project_cost_entries','project_documents','project_offers',
-   'invoicing_plan_rows','org_templates','project_assignments');
+   'invoicing_plan_rows','org_templates','project_assignments',
+   'calendar_feed_tokens');
 -- expect: tenant_isolation on each
 ```
 
@@ -161,7 +163,7 @@ docker compose -f docker-compose.hostinger.yml ps
 docker compose -f docker-compose.hostinger.yml logs -f backend  # watch the migrations
 ```
 
-Expect 37 migrations to apply. If any fails the container will not become
+Expect 38 migrations to apply. If any fails the container will not become
 healthy — **stop and go to §6 rather than retrying**.
 
 Known first-time snag: `docker-compose.hostinger.yml` now REQUIRES
