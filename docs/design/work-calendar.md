@@ -75,6 +75,39 @@ conflict policy — an external-provider decision like SMS. Only worth it if
 a pilot customer demands editing their schedule from Google; the feed
 covers "see my jobs on my phone", which is the actual need stated.
 
+**Phase B3 — client notifications: "we arrive in 48h" (owner addition,
+same day).**
+A different audience from B: not the employee, the CUSTOMER. When a project
+has scheduled work, the customer contact gets a reminder 48h before the
+assignment starts ("Scheduled work on {date} at {time} for {project.name} —
+reply/call to reschedule"). No-show and locked-door visits are the classic
+margin-killer this addresses.
+
+Channel ladder:
+1. **Email first** — free, ships with B on the existing mailer/jobs rails,
+   no provider decision needed. Requires a contact email on the customer.
+2. **SMS** — the channel the owner asked for, and an EXTERNAL PROVIDER
+   (Twilio/Vonage/LINK-class). Under the zero-external-calls-by-default
+   policy this is an opt-in module behind a provider seam (the
+   billing-provider pattern: one interface, sealed credentials via
+   keyvault, swappable vendor). Design constraints, all server-enforced:
+   - **Transactional only** — service reminders about work the customer
+     ordered (contract-performance ground under GDPR), never marketing; an
+     opt-out stops future sends and is recorded.
+   - **Idempotent** — the queue is at-least-once; a per-assignment
+     sent-marker guarantees ONE message per reminder window, rescheduling
+     re-arms it.
+   - **Quiet hours** — a 48h-before moment that lands at 03:00 sends at
+     the next morning window instead.
+   - **Metered** — SMS costs real money per message; usage_counters +
+     plan gating decide who pays (platform re-bills or org brings its own
+     provider account — owner decision).
+   - Phone number lives on the customer master (customers/contacts), a
+     normal PII field under the existing retention/erasure machinery.
+
+Timing default: 48h before assignment start, per-org configurable
+(24h/48h/72h), per-assignment override, audited like every send.
+
 **Phase C — photos from the job.**
 A mobile-friendly capture surface on the project page (camera input, EXIF
 timestamp kept, stored via the existing content-addressed document path into
@@ -94,6 +127,8 @@ feeds them (last assignment done → suggest acceptance).
 2. Who may plan: any bookkeeping role, or a dedicated scheduling permission?
    (Proposal: managers plan everyone; employees see their own.)
 3. Reminder channel for v1: email only (no new infrastructure), or is SMS
-   worth an external-provider decision now?
+   worth an external-provider decision now? (B3 raises it for CUSTOMERS —
+   which provider, and who pays per message: platform re-bills, or each
+   org connects its own account?)
 4. Should "all assignments done" nudge the project toward acceptance
    automatically, or stay a purely manual step?
