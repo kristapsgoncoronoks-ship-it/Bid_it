@@ -48,7 +48,7 @@ infrastructure); in-app inbox is the notifications target the data-model doc
 already reserves. SMS/push would mean an external provider — decision-gated
 under the zero-external-calls-by-default policy, same as AI capture.
 
-**Phase B2 — Google/Apple calendar sync (owner addition, same day).**
+**Phase B2 — Google/Apple/Microsoft calendar sync (owner addition, same day).**
 The standards-based way, in two steps that require NO external API, OAuth,
 or vendor account — honouring zero-external-calls-by-default:
 
@@ -58,8 +58,10 @@ or vendor account — honouring zero-external-calls-by-default:
 2. **ICS feed subscription (the real "sync")**: a per-user secret feed URL
    (`/calendar/feed/{token}.ics`) serving that user's OWN assignments as a
    live iCalendar feed. The employee subscribes once from their phone
-   ("Subscribe to calendar" / webcal), and Google/Apple then POLL US —
-   assignments appear and update in their personal calendar automatically.
+   ("Subscribe to calendar" / webcal; in Outlook: "Add calendar → Subscribe
+   from web" — Outlook.com, desktop and Microsoft 365 all take ICS URLs),
+   and Google/Apple/Microsoft then POLL US — assignments appear and update
+   in the personal calendar automatically.
    The token is a revocable capability (regenerate = old URL dead), scoped
    to one user's schedule, event bodies carry project code + time + note,
    never financial figures. Honest caveat: refresh cadence is the calendar
@@ -67,7 +69,8 @@ or vendor account — honouring zero-external-calls-by-default:
 
 **Deferred, decision-gated: two-way sync** (edit in Google → flows back).
 Requires per-user OAuth against Google's API (a verified Google Cloud app,
-quotas, webhooks) and CalDAV-against-iCloud for Apple, plus a "who wins"
+quotas, webhooks), Microsoft Graph for Outlook/365 (an Entra ID app
+registration), and CalDAV-against-iCloud for Apple, plus a "who wins"
 conflict policy — an external-provider decision like SMS. Only worth it if
 a pilot customer demands editing their schedule from Google; the feed
 covers "see my jobs on my phone", which is the actual need stated.
