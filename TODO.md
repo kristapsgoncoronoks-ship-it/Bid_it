@@ -115,6 +115,14 @@ plan and leaves unknown tokens visibly unreplaced; generate-document renders
 to PDF and files it with the project's documents. Templates page + picker on
 ProjectDetail. Wording changes need SETTINGS_MANAGE.
 
+**Owner idea 2026-08-20 — work-planning calendar** (recorded in
+`docs/design/work-calendar.md`, decision-gated): the owner's quote→contract→
+invoice→schedule→photos→acceptance→final-invoice→paid loop is mostly the
+SHIPPED lifecycle — the new module is employee assignments on projects
+(tenant table + calendar/"my work" screens), reminders over the existing
+jobs+mailer rails, and mobile photo capture into project_documents; feeds
+the queued acceptance/final-invoice remainder. Four owner questions in §3.
+
 **Owner idea 2026-08-20 — supplier cost analytics & external price data**
 (recorded in `docs/design/supplier-cost-analytics.md`, decision-gated): cost
 KPIs + cost-change graphs from existing invoice lines (phase 1, no external
