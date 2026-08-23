@@ -121,6 +121,14 @@ plan and leaves unknown tokens visibly unreplaced; generate-document renders
 to PDF and files it with the project's documents. Templates page + picker on
 ProjectDetail. Wording changes need SETTINGS_MANAGE.
 
+**Owner research 2026-08-23 — CRM module + client portal**
+(`docs/design/crm-module-research.md`): embedding Twenty researched and
+REJECTED (mixed AGPL/commercial licensing, second 4-container platform,
+schema-per-workspace vs our RLS); build thin — WO-H CRM light (notes,
+derived timeline, lifecycle column, offers kanban + staleness) and WO-I
+magic-link client portal (offer approve/decline, invoices, documents).
+Folklore stats flagged for marketing copy hygiene.
+
 **Owner research 2026-08-23 — task/"next actions" module**
 (`docs/design/tasks-module-research.md`, deep-research with search-based
 corroboration): v1 = ONE lifecycle-attached "Next actions" surface — offer

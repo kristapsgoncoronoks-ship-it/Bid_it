@@ -70,6 +70,20 @@ engine (Postgres; the engine decision is settled in the design doc §2b).
 Phase 2: agreed-price lists + validation-rule overcharge flag (advisory,
 org-configurable block). Estimated: one session each.
 
+**WO-H — CRM light (researched 2026-08-23, `docs/design/crm-module-research.md`).**
+Customer notes + derived activity timeline (a view over existing audited
+events + one small notes table), `customers.lifecycle` status column (NO
+lead entity — documented anti-pattern), kanban over the existing offer
+pipeline with staleness flags + stage-history rows. Twenty et al. serve as
+design references only — embedding was researched and rejected (AGPL+
+commercial mixed licensing, 4-container Redis-dependent stack on a 4 GB
+VPS, schema-per-workspace tenancy incompatible with our RLS model).
+
+**WO-I — Client portal ("module for clients").**
+Magic-link access (revocable per-customer tokens): offer view/approve/
+decline with viewed_at stamped to the timeline, invoice list/status + pay,
+shared project documents. E-sign remains the later seam.
+
 ## Owner-side track (parallel, not code)
 
 1. Finish the in-flight VPS deploy (`./scripts/vps-deploy.sh`).
