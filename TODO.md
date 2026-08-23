@@ -115,6 +115,17 @@ plan and leaves unknown tokens visibly unreplaced; generate-document renders
 to PDF and files it with the project's documents. Templates page + picker on
 ProjectDetail. Wording changes need SETTINGS_MANAGE.
 
+**Owner research 2026-08-23 — task/"next actions" module**
+(`docs/design/tasks-module-research.md`, deep-research with search-based
+corroboration): v1 = ONE lifecycle-attached "Next actions" surface — offer
+follow-up nudges (N days, ≤2, self-completing), dunning made visible as chase
+items (no second engine), confirm-style recurring deadline templates
+(VAT/report prep), lifecycle nudges (acceptance suggestion, expiring offers)
+— rendered on dashboard + owning record + calendar as the same items.
+Explicitly excluded, with evidence: workflow builders, freeform to-do lists,
+dependencies/custom fields, unbounded reminders. Ready to build as its own
+work order; pairs naturally with calendar phase A.
+
 **Owner idea 2026-08-20 — work-planning calendar** (recorded in
 `docs/design/work-calendar.md`, decision-gated): the owner's quote→contract→
 invoice→schedule→photos→acceptance→final-invoice→paid loop is mostly the
