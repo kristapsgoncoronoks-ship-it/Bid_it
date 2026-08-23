@@ -2541,6 +2541,11 @@ export interface ProjectPnl {
   pnl_frozen_at: string | null;
   /** The latest ACCEPTED offer's total — null until an offer is accepted. */
   estimated_revenue: string | null;
+  /** Acceptance & handover (WO-D) — all null until acceptance is recorded. */
+  accepted_at: string | null;
+  accepted_by: string | null;
+  acceptance_document_id: string | null;
+  acceptance_note: string | null;
 }
 
 /** One version of one offer — a revision is a new row, history survives. */

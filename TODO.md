@@ -156,10 +156,19 @@ data), agreed-price lists + overcharge control via the validation engine
 Scrapling assessed there, incl. the stealth-fetching compliance caveat
 (phase 3). Four owner questions listed in the design doc §3.
 
+**Phase 5 remainder SHIPPED 2026-08-23 (WO-D):** acceptance & handover as a
+stamped, audited, revocable event on the project (with the acceptance-kind
+document from the shipped template machinery), the ADJUSTABLE final invoice
+(contracted remainder ± labelled adjustments, sign-flip refused toward the
+credit note, per-org acceptance gate, composed into the normal issuing
+form), the offer-prefix + gate settings UI, and two self-completing
+Next-actions nudges (suggest acceptance; issue the final invoice). The
+owner's full lifecycle — offer → contract → plan → work → acceptance →
+final invoice → frozen P&L — is complete end to end.
+
 Phase 3+: module-conditional recovered-VAT line, e-sign, budget-vs-actual;
-phase 5 remainder per §5a (acceptance & handover as a project state,
-adjustable final invoicing; the lawyer's standardized texts drop into the
-shipped template machinery when they arrive).
+the lawyer's standardized texts drop into the shipped template machinery
+when they arrive.
 
 **The FULL lifecycle — owner vision 2026-08-16, recorded so it is not lost**
 (design: `docs/design/project-profitability.md` §5a): open project →

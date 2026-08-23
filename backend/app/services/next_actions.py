@@ -33,7 +33,7 @@ from app.models.project_offer import ProjectOffer
 
 OFFER_FOLLOWUP_DAYS = 3
 
-DISMISSIBLE_KINDS = ("offer_followup", "invoice_chase")
+DISMISSIBLE_KINDS = ("offer_followup", "invoice_chase", "acceptance_suggest", "final_invoice")
 
 
 class NextActionsError(Exception):
@@ -165,6 +165,74 @@ async def list_actions(
                 link="/captures",
             )
         )
+
+    # --- WO-D lifecycle nudges: acceptance, then the final invoice -------- #
+    # Suggest recording acceptance when every assignment on an active project
+    # is finished (≥1 done, none still planned/confirmed) and no acceptance is
+    # recorded; suggest the final invoice when an ACCEPTED project still has
+    # contracted money uninvoiced. Both self-complete: recording acceptance
+    # kills the first, issuing the remainder kills the second.
+    from app.models.costing import Project
+    from app.models.project_assignment import ProjectAssignment
+    from app.models.project_offer import InvoicingPlanRow
+
+    active_projects = list(
+        await db.scalars(
+            select(Project).where(Project.org_id == org_id, Project.status == "active")
+        )
+    )
+    for p in active_projects:
+        if p.accepted_at is None:
+            statuses = set(
+                (
+                    await db.scalars(
+                        select(ProjectAssignment.status).where(
+                            ProjectAssignment.org_id == org_id,
+                            ProjectAssignment.project_id == p.id,
+                        )
+                    )
+                ).all()
+            )
+            if (
+                "done" in statuses
+                and not statuses & {"planned", "confirmed"}
+                and ("acceptance_suggest", p.id) not in dismissed
+            ):
+                out.append(
+                    Action(
+                        kind="acceptance_suggest",
+                        ref_id=p.id,
+                        title=f"Record acceptance for {p.code}",
+                        detail="All scheduled work is done and no acceptance is"
+                        " recorded — a signed acceptance makes the final"
+                        " invoice unarguable.",
+                        link=f"/projects/{p.id}",
+                        dismissible=True,
+                    )
+                )
+        else:
+            has_plan = await db.scalar(
+                select(func.count(InvoicingPlanRow.id)).where(
+                    InvoicingPlanRow.org_id == org_id, InvoicingPlanRow.project_id == p.id
+                )
+            )
+            if has_plan and ("final_invoice", p.id) not in dismissed:
+                from app.services import project_offers
+
+                tracking = await project_offers.plan_tracking(db, org_id, p.id)
+                remaining = Decimal(tracking["remaining"])
+                if remaining > 0:
+                    out.append(
+                        Action(
+                            kind="final_invoice",
+                            ref_id=p.id,
+                            title=f"Issue the final invoice for {p.code}",
+                            detail=f"Accepted, with {tracking['remaining']} of the"
+                            " contracted sum still uninvoiced.",
+                            link=f"/projects/{p.id}",
+                            dismissible=True,
+                        )
+                    )
 
     # --- recurring deadlines in their lead window ------------------------- #
     deadlines = await db.scalars(

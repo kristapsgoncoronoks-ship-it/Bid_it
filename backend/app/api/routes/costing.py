@@ -13,7 +13,7 @@ from decimal import Decimal
 from typing import NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
@@ -580,3 +580,121 @@ async def generate_project_document(
     await db.commit()
     await db.refresh(row)
     return _doc_out(row)
+
+
+# --------------------------------------------------------------------------- #
+# WO-D: acceptance & handover + the adjustable final invoice (composer).
+# --------------------------------------------------------------------------- #
+
+
+class AcceptanceIn(BaseModel):
+    document_id: str | None = None
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class AdjustmentIn(BaseModel):
+    label: str = Field(min_length=1, max_length=200)
+    amount: str  # signed decimal string — the service quantizes and refuses 0
+
+
+class FinalInvoiceDraftIn(BaseModel):
+    adjustments: list[AdjustmentIn] = Field(default_factory=list)
+
+
+class FinalInvoiceLineOut(BaseModel):
+    description: str
+    quantity: str
+    unit_price: str
+
+
+class FinalInvoiceDraftOut(BaseModel):
+    project_id: str
+    contracted_total: str
+    issued_total: str
+    remainder: str
+    lines: list[FinalInvoiceLineOut]
+    total: str
+    gate_required: bool
+    accepted_at: str | None
+
+
+@router.post(
+    "/projects/{entity_id}/acceptance",
+    response_model=ProjectPnlOut,
+    dependencies=_BOOKKEEPING,
+)
+async def record_acceptance(
+    entity_id: str, body: AcceptanceIn, current: CurrentUser, db: DbSession
+):
+    """Record the customer's acceptance — the sign-off that makes the final
+    invoice unarguable. The optional document is the countersigned acceptance
+    (generated from the acceptance template, or uploaded)."""
+    try:
+        await project_profit.record_acceptance(
+            db,
+            current.org_id,
+            entity_id,
+            document_id=body.document_id,
+            note=body.note,
+            accepted_by=current.email,
+        )
+    except project_profit.ProjectProfitError as exc:
+        _raise_pp(exc)
+    await audit.record(
+        db,
+        "project.acceptance_record",
+        target_type="project",
+        target_id=entity_id,
+        meta={"document_id": body.document_id, "note": body.note},
+    )
+    await db.commit()
+    return ProjectPnlOut(**await project_profit.pnl(db, current.org_id, entity_id))
+
+
+@router.delete(
+    "/projects/{entity_id}/acceptance",
+    response_model=ProjectPnlOut,
+    dependencies=_BOOKKEEPING,
+)
+async def revoke_acceptance(entity_id: str, current: CurrentUser, db: DbSession):
+    try:
+        prior = await project_profit.revoke_acceptance(db, current.org_id, entity_id)
+    except project_profit.ProjectProfitError as exc:
+        _raise_pp(exc)
+    # The audit meta carries WHAT was revoked — after commit it is the record.
+    await audit.record(
+        db,
+        "project.acceptance_revoke",
+        target_type="project",
+        target_id=entity_id,
+        meta=prior,
+    )
+    await db.commit()
+    return ProjectPnlOut(**await project_profit.pnl(db, current.org_id, entity_id))
+
+
+@router.post(
+    "/projects/{entity_id}/final-invoice-draft",
+    response_model=FinalInvoiceDraftOut,
+    dependencies=_BOOKKEEPING,
+)
+async def final_invoice_draft(
+    entity_id: str, body: FinalInvoiceDraftIn, current: CurrentUser, db: DbSession
+):
+    """Compose the final invoice for the issuing form: contracted remainder ±
+    labelled adjustments (owner decision: ADJUSTABLE — damages and unexpected
+    costs either way reconcile in the open). Refuses a non-positive total
+    (credit note territory) and honours the org's acceptance gate. Pure
+    composition — the invoice itself is issued through the normal flow."""
+    try:
+        draft = await project_profit.final_invoice_draft(
+            db,
+            current.org_id,
+            entity_id,
+            adjustments=[a.model_dump() for a in body.adjustments],
+        )
+    except project_profit.GateError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
+    except project_profit.ProjectProfitError as exc:
+        _raise_pp(exc)
+    return FinalInvoiceDraftOut(**draft)

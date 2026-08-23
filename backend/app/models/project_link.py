@@ -43,8 +43,8 @@ Money = Numeric(14, 2)
 COST_CATEGORIES = ("wages", "per_diem", "equipment", "other")
 _CATEGORY_CHECK = "category IN ('wages', 'per_diem', 'equipment', 'other')"
 
-DOCUMENT_KINDS = ("contract", "other")
-_KIND_CHECK = "kind IN ('contract', 'other')"
+DOCUMENT_KINDS = ("contract", "acceptance", "other")
+_KIND_CHECK = "kind IN ('contract', 'acceptance', 'other')"
 
 
 class ProjectDocument(UUIDPrimaryKeyMixin, TimestampMixin, Base):

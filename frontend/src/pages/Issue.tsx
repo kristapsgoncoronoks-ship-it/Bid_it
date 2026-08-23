@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { api, apiError, downloadFile, openFile } from "../lib/api";
 import { ConfirmDialog } from "../components/ui";
 import { ISSUED_STATUS_LABELS, ISSUED_STATUS_STYLES, money, shortDate } from "../lib/format";
@@ -595,6 +595,13 @@ function Gate({ children }: { children: React.ReactNode }) {
 const emptyBuyer = { buyer_name: "", buyer_email: "", buyer_vat_number: "", buyer_address_line1: "", buyer_postal_code: "", buyer_city: "", buyer_country: "" };
 
 function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defaultPenalty: string | null }) {
+  // WO-D: the project page's "Prepare final invoice" hands its composed lines
+  // (contracted remainder + labelled adjustments) here via router state — ONE
+  // issuing path for every invoice, final ones included. The human still sees,
+  // edits and issues; the composer only prefilled.
+  const prefill = (useLocation().state as
+    | { finalInvoice?: { project_id: string; lines: { description: string; quantity: string; unit_price: string }[] } }
+    | null)?.finalInvoice;
   const [buyer, setBuyer] = useState({ ...emptyBuyer });
   const [scheme, setScheme] = useState<VatScheme>("standard");
   const [penalty, setPenalty] = useState("");
@@ -602,8 +609,10 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
   const [exemption, setExemption] = useState("");
   const [partnerId, setPartnerId] = useState("");
   const [issuerId, setIssuerId] = useState("");
-  const [projectId, setProjectId] = useState("");
-  const [lines, setLines] = useState<IssuedLineInput[]>([emptyLine()]);
+  const [projectId, setProjectId] = useState(prefill?.project_id ?? "");
+  const [lines, setLines] = useState<IssuedLineInput[]>(
+    prefill ? prefill.lines.map((l) => ({ ...l, vat_rate: "21" })) : [emptyLine()],
+  );
   const [error, setError] = useState<string | null>(null);
 
   const partners = useQuery<Partner[]>({

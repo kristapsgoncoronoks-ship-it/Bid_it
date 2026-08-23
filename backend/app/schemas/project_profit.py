@@ -64,6 +64,11 @@ class ProjectPnlOut(BaseModel):
     pnl_frozen_at: str | None = None
     # The latest accepted offer's total — None until an offer is accepted.
     estimated_revenue: str | None = None
+    # Acceptance & handover (WO-D): all None until acceptance is recorded.
+    accepted_at: str | None = None
+    accepted_by: str | None = None
+    acceptance_document_id: str | None = None
+    acceptance_note: str | None = None
 
 
 class SplitIn(BaseModel):

@@ -38,6 +38,14 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # picks its prefix; the platform enforces only per-org uniqueness. NULL =
     # the default "OFF-".
     offer_prefix: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Final invoicing is LINKED to acceptance by default, gated only when the
+    # org opts in (owner decision 2026-08-16): with the toggle on, the final-
+    # invoice composer refuses until acceptance is recorded. A workflow aid,
+    # not a hard wall — any invoice can still be issued through the normal
+    # form; the gate guards the guided path.
+    final_invoice_requires_acceptance: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
     status: Mapped[str] = mapped_column(
         String(20), default="active", nullable=False
     )  # active|suspended|canceled

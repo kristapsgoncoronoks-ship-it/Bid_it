@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Badge, Button, QueryState, Skeleton } from "../components/ui";
 import { api, apiError, downloadFile } from "../lib/api";
 import { shortDate } from "../lib/format";
@@ -346,6 +346,184 @@ export default function ProjectDetail() {
       <div className="grid gap-6 lg:grid-cols-2">
         <OffersCard projectId={id!} onChanged={refresh} onError={(m) => setErr(m || null)} />
         <PlanCard projectId={id!} onError={(m) => setErr(m || null)} />
+      </div>
+
+      {pnl.data && (
+        <AcceptanceAndFinalInvoice
+          projectId={id!}
+          pnl={pnl.data}
+          docs={docs.data ?? []}
+          onChanged={() => qc.invalidateQueries({ queryKey: ["project-pnl", id] })}
+          onError={(m) => setErr(m || null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Acceptance & handover + the adjustable final invoice (WO-D — the close of
+ * the lifecycle). Acceptance is the customer's recorded sign-off; the final
+ * invoice starts from the contracted remainder and every deviation is an
+ * explicitly LABELLED adjustment line — reconciling in the open, per the
+ * owner's decision. The composed lines open in the normal issuing form. */
+function AcceptanceAndFinalInvoice({
+  projectId,
+  pnl,
+  docs,
+  onChanged,
+  onError,
+}: {
+  projectId: string;
+  pnl: ProjectPnl;
+  docs: ProjectDocument[];
+  onChanged: () => void;
+  onError: (m: string) => void;
+}) {
+  const navigate = useNavigate();
+  const [note, setNote] = useState("");
+  const [docId, setDocId] = useState("");
+  const [adjustments, setAdjustments] = useState<{ label: string; amount: string }[]>([]);
+
+  const record = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post(`/masters/projects/${projectId}/acceptance`, {
+          note: note || null,
+          document_id: docId || null,
+        })
+      ).data,
+    onSuccess: () => {
+      setNote("");
+      setDocId("");
+      onError("");
+      onChanged();
+    },
+    onError: (e) => onError(apiError(e)),
+  });
+
+  const revoke = useMutation({
+    mutationFn: async () => (await api.delete(`/masters/projects/${projectId}/acceptance`)).data,
+    onSuccess: () => {
+      onError("");
+      onChanged();
+    },
+    onError: (e) => onError(apiError(e)),
+  });
+
+  const prepare = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post(`/masters/projects/${projectId}/final-invoice-draft`, {
+          adjustments: adjustments.filter((a) => a.label.trim() || a.amount.trim()),
+        })
+      ).data,
+    onSuccess: (draft) => {
+      onError("");
+      // Hand the composed lines to the NORMAL issuing form — one issuing path.
+      navigate("/issue", {
+        state: { finalInvoice: { project_id: projectId, lines: draft.lines } },
+      });
+    },
+    onError: (e) => onError(apiError(e)),
+  });
+
+  const setAdj = (i: number, patch: Partial<{ label: string; amount: string }>) =>
+    setAdjustments(adjustments.map((a, j) => (j === i ? { ...a, ...patch } : a)));
+
+  return (
+    <div className="card space-y-4 p-6">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+        Acceptance &amp; final invoice
+      </h2>
+
+      {pnl.accepted_at ? (
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <Badge tone="success">accepted</Badge>
+          <span className="text-slate-600">
+            {new Date(pnl.accepted_at).toLocaleDateString()} · {pnl.accepted_by}
+            {pnl.acceptance_note ? ` — ${pnl.acceptance_note}` : ""}
+          </span>
+          <button
+            className="btn-ghost text-xs text-rose-500"
+            disabled={revoke.isPending}
+            onClick={() => revoke.mutate()}
+          >
+            Revoke
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-sm text-slate-500">
+            The customer's sign-off that the work is done — what makes the final
+            invoice unarguable. Generate the acceptance document above, get it
+            signed, then record it here.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <select className="input" value={docId} onChange={(e) => setDocId(e.target.value)}>
+              <option value="">No document linked</option>
+              {docs.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.filename}
+                </option>
+              ))}
+            </select>
+            <input
+              className="input grow"
+              placeholder="Note (optional) — e.g. signed at handover"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+            <Button disabled={record.isPending} onClick={() => record.mutate()}>
+              Record acceptance
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-2 border-t border-slate-100 pt-3">
+        <p className="text-sm text-slate-500">
+          <span className="font-medium text-slate-700">Final invoice:</span> the
+          contracted remainder, plus any adjustments — each one labelled, so the
+          difference explains itself. A total at or below zero belongs in a
+          credit note instead.
+        </p>
+        {adjustments.map((a, i) => (
+          <div key={i} className="flex flex-wrap gap-2">
+            <input
+              className="input grow"
+              placeholder="Adjustment label — e.g. extra work agreed on site"
+              value={a.label}
+              onChange={(e) => setAdj(i, { label: e.target.value })}
+            />
+            <input
+              className="input w-32"
+              placeholder="±0.00"
+              value={a.amount}
+              onChange={(e) => setAdj(i, { amount: e.target.value })}
+            />
+            <button
+              className="btn-ghost text-xs text-rose-500"
+              onClick={() => setAdjustments(adjustments.filter((_, j) => j !== i))}
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+        <div className="flex gap-2">
+          <button
+            className="btn-ghost text-xs"
+            onClick={() => setAdjustments([...adjustments, { label: "", amount: "" }])}
+          >
+            + Adjustment
+          </button>
+          <Button
+            variant="secondary"
+            disabled={prepare.isPending}
+            onClick={() => prepare.mutate()}
+          >
+            Prepare final invoice
+          </Button>
+        </div>
       </div>
     </div>
   );

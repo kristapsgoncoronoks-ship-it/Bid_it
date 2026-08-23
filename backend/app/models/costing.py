@@ -113,5 +113,16 @@ class Project(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # clears it (audited) — a reopened project is live again by definition.
     closed_pnl_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     pnl_frozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Acceptance & handover (WO-D, work-calendar/§5a): the customer's sign-off
+    # that the work is done, recorded as a stamped EVENT on the project — not a
+    # new status, so the active→closed lifecycle is untouched and acceptance
+    # can precede closing by any interval. The document link points at a
+    # project_documents row (typically kind='acceptance', generated from the
+    # acceptance template or uploaded countersigned). Revoking clears all
+    # three (audited) — e-sign is the later seam.
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    accepted_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    acceptance_document_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)
+    acceptance_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)

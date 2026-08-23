@@ -141,13 +141,12 @@ flowchart LR
   OFF -->|accepted| CT[Contract]
   CT --> PLAN[Invoicing plan]
   PLAN --> WORK[Work: invoices issued<br/>+ costs collected]
-  WORK --> ACC[Acceptance & handover*]
-  ACC --> FIN[Final invoicing*]
+  WORK --> ACC[Acceptance & handover]
+  ACC --> FIN[Final invoicing]
   FIN --> CLOSE[Close → P&L frozen]
 ```
 
-\* Acceptance-as-a-state and the adjustable final invoice are the next slice;
-everything else below is live.
+Every stage is live.
 
 ### 5.1 Open a project
 
@@ -210,6 +209,24 @@ Reopening a project discards the snapshot (audited) and returns to live
 figures.
 
 ---
+
+### 5.8 Acceptance and the final invoice
+
+The project page's **Acceptance & final invoice** card closes the loop. When
+the work is done (Next actions suggests it once all scheduled assignments
+are), generate the acceptance document from its template, get it signed, and
+**Record acceptance** — optionally linking the signed file and a note. The
+sign-off is stamped, audited, and revocable.
+
+Then **Prepare final invoice**: it starts from the contracted remainder
+(what the invoicing plan says is still uninvoiced) and you add **labelled
+adjustment lines** — extra work, damages, deductions, either direction — so
+the difference explains itself instead of hiding. The composed lines open in
+the normal issuing form for review and issue. Two rules the system holds:
+a total at or below zero is refused (money flowing back to the customer is a
+**credit note**, never a negative invoice), and — if you enable it in
+Settings → Projects & offers — the final invoice waits until acceptance is
+recorded. The offer numbering prefix lives in the same settings block.
 
 ## 5b. The schedule — planning the work
 

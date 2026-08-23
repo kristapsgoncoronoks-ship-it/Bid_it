@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { SettingRow } from "../components/SettingRow";
+import { Button } from "../components/ui";
 import { useToast } from "../components/Toast";
 import { api, apiError } from "../lib/api";
 import { isAdminOrAbove } from "../lib/roles";
@@ -123,6 +124,8 @@ export default function Settings() {
           With neither on, invoices save straight through (unvalidated).
         </p>
       </section>
+
+      {canEdit && <LifecycleSettingsCard />}
 
       {canEdit && <BackgroundJobs />}
       {canEdit && <Webhooks />}
@@ -715,6 +718,85 @@ function BackgroundJobs() {
             )}
           </tbody>
         </table>
+      </div>
+    </section>
+  );
+}
+
+/** Project-lifecycle settings (WO-D): the org's own offer numbering prefix
+ * (the scheme is the client's — the platform enforces only uniqueness) and
+ * the final-invoice acceptance gate (linked by default; gated on opt-in). */
+function LifecycleSettingsCard() {
+  const qc = useQueryClient();
+  const [prefix, setPrefix] = useState<string | null>(null);
+
+  const settings = useQuery<{ offer_prefix: string | null; final_invoice_requires_acceptance: boolean }>({
+    queryKey: ["settings", "lifecycle"],
+    queryFn: async () => (await api.get("/settings/lifecycle")).data,
+  });
+
+  const save = useMutation({
+    mutationFn: async (body: Record<string, unknown>) =>
+      (await api.put("/settings/lifecycle", body)).data,
+    onSuccess: (data) => {
+      qc.setQueryData(["settings", "lifecycle"], data);
+      setPrefix(null);
+    },
+  });
+
+  const s = settings.data;
+  if (!s) return null;
+  const shownPrefix = prefix ?? s.offer_prefix ?? "";
+
+  return (
+    <section className="space-y-2">
+      <div className="px-1">
+        <h2 className="text-sm font-semibold text-slate-600">Projects &amp; offers</h2>
+        <p className="text-sm text-slate-500">
+          How your offers are numbered, and whether the final invoice waits for
+          a recorded acceptance.
+        </p>
+      </div>
+      <div className="card space-y-3 p-4">
+        <div className="flex flex-wrap items-end gap-2">
+          <div>
+            <label className="label">Offer number prefix</label>
+            <input
+              className="input"
+              placeholder="OFF-"
+              value={shownPrefix}
+              onChange={(e) => setPrefix(e.target.value)}
+            />
+          </div>
+          <Button
+            variant="secondary"
+            disabled={save.isPending || prefix === null}
+            onClick={() =>
+              save.mutate(
+                shownPrefix.trim()
+                  ? { offer_prefix: shownPrefix.trim() }
+                  : { clear_offer_prefix: true },
+              )
+            }
+          >
+            Save prefix
+          </Button>
+        </div>
+        <label className="flex items-start gap-2 text-sm text-slate-600">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={s.final_invoice_requires_acceptance}
+            disabled={save.isPending}
+            onChange={(e) =>
+              save.mutate({ final_invoice_requires_acceptance: e.target.checked })
+            }
+          />
+          <span>
+            Require a recorded acceptance before preparing the final invoice.
+            Off = linked but not gated (the default).
+          </span>
+        </label>
       </div>
     </section>
   );

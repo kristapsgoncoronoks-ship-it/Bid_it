@@ -45,7 +45,7 @@ dashboard + owning record (+ calendar layer). Estimated: 1–2 sessions.
 Explicitly OUT per research: workflow builder, freeform lists,
 dependencies/custom fields, unbounded sequences.
 
-**WO-D — Lifecycle close: acceptance & handover + adjustable final invoice.**
+**WO-D — Lifecycle close: acceptance & handover + adjustable final invoice. ✅ SHIPPED 2026-08-23.**
 Acceptance as a project state between work-done and closed (generated from
 the shipped acceptance template, countersign seam left for e-sign);
 final invoice = plan remainder ± labelled adjustment lines (sign-flip →

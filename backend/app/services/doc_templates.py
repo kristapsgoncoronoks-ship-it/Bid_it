@@ -457,7 +457,7 @@ async def generate_project_document(
         data=pdf,
         filename=filename,
         content_type="application/pdf",
-        kind="contract" if kind == "contract" else "other",
+        kind=kind if kind in ("contract", "acceptance") else "other",
         uploaded_by=uploaded_by,
     )
     return row, text

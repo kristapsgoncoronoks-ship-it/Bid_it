@@ -342,6 +342,12 @@ async def pnl(db: AsyncSession, org_id: str, project_id: str) -> dict:
         "margin_pct": margin,
         # The estimate half of estimated-vs-actual — the latest ACCEPTED offer.
         "estimated_revenue": str(estimate) if estimate is not None else None,
+        # Acceptance & handover (WO-D): the customer's recorded sign-off. The
+        # screen renders whatever the wire says — no local acceptance logic.
+        "accepted_at": project.accepted_at.isoformat() if project.accepted_at else None,
+        "accepted_by": project.accepted_by,
+        "acceptance_document_id": project.acceptance_document_id,
+        "acceptance_note": project.acceptance_note,
         # Stated by the server so no screen can misstate it — the same rule the
         # Trash and Archive screens follow for their windows.
         "basis": basis,
@@ -602,4 +608,134 @@ async def get_allocation(db: AsyncSession, org_id: str, invoice_id: str) -> dict
         "project_id": inv.project_id,
         "splits": [{"project_id": s.project_id, "percent": str(s.percent)} for s in splits],
         "lines": {row.id: row.project_id for row in tagged},
+    }
+
+
+# --------------------------------------------------------------------------- #
+# WO-D: acceptance & handover + the adjustable final invoice.
+#
+# Acceptance is a stamped EVENT on the project (not a status): the customer
+# has signed that the work is done — the thing that makes the final invoice
+# unarguable (§5a). The final invoice itself is ISSUED THROUGH THE NORMAL
+# issuing flow; what lives here is the COMPOSER — plan remainder ± the
+# owner's explicitly labelled adjustment lines (adjustable by decision:
+# unexpected costs and damages either way reconcile in the open instead of
+# hiding) — plus the per-org acceptance gate and the sign rule: a total at
+# or below zero is a CREDIT NOTE's job, never a negative invoice.
+# --------------------------------------------------------------------------- #
+
+
+class GateError(ProjectProfitError):
+    """The org requires acceptance before the guided final invoice."""
+
+
+async def record_acceptance(
+    db: AsyncSession,
+    org_id: str,
+    project_id: str,
+    *,
+    document_id: str | None,
+    note: str | None,
+    accepted_by: str,
+) -> Project:
+    project = await _project(db, org_id, project_id)
+    if project.accepted_at is not None:
+        raise ProjectProfitError("already accepted — revoke the existing acceptance first")
+    if document_id is not None:
+        doc = await db.scalar(
+            select(ProjectDocument).where(
+                ProjectDocument.org_id == org_id,
+                ProjectDocument.project_id == project_id,
+                ProjectDocument.id == document_id,
+            )
+        )
+        if doc is None:
+            raise NotFoundError("acceptance document not found on this project")
+    project.accepted_at = datetime.now(UTC)
+    project.accepted_by = accepted_by
+    project.acceptance_document_id = document_id
+    project.acceptance_note = note
+    await db.flush()
+    return project
+
+
+async def revoke_acceptance(db: AsyncSession, org_id: str, project_id: str) -> dict:
+    """Clear the stamp; returns what was cleared so the audit can carry it."""
+    project = await _project(db, org_id, project_id)
+    if project.accepted_at is None:
+        raise ProjectProfitError("this project is not accepted")
+    prior = {
+        "accepted_at": project.accepted_at.isoformat(),
+        "accepted_by": project.accepted_by,
+        "acceptance_document_id": project.acceptance_document_id,
+    }
+    project.accepted_at = None
+    project.accepted_by = None
+    project.acceptance_document_id = None
+    project.acceptance_note = None
+    await db.flush()
+    return prior
+
+
+async def final_invoice_draft(
+    db: AsyncSession,
+    org_id: str,
+    project_id: str,
+    adjustments: list[dict] | None = None,
+) -> dict:
+    """Compose the final invoice's lines for the issuing form: the contracted
+    remainder plus each labelled adjustment (positive or negative). Refuses a
+    non-positive total (that is a credit note) and, when the org opted into
+    the gate, refuses until acceptance is recorded."""
+    from app.models.organization import Organization
+    from app.services import project_offers
+
+    project = await _project(db, org_id, project_id)
+    org = await db.get(Organization, org_id)
+    gate_required = bool(org and org.final_invoice_requires_acceptance)
+    if gate_required and project.accepted_at is None:
+        raise GateError(
+            "this workspace requires a recorded acceptance before the final invoice"
+        )
+
+    tracking = await project_offers.plan_tracking(db, org_id, project_id)
+    remainder = Decimal(tracking["remaining"])
+
+    lines: list[dict] = []
+    if remainder > 0:
+        lines.append(
+            {
+                "description": f"Final invoice — contracted remainder ({project.code})",
+                "quantity": "1",
+                "unit_price": str(money.q2(remainder)),
+            }
+        )
+    total = remainder if remainder > 0 else Decimal("0")
+    for adj in adjustments or []:
+        label = str(adj.get("label", "")).strip()
+        amount = money.q2(Decimal(str(adj.get("amount", "0"))))
+        if not label:
+            raise ProjectProfitError("every adjustment needs a label — that is the point")
+        if amount == 0:
+            raise ProjectProfitError(f"adjustment {label!r} is zero — remove it")
+        lines.append(
+            {"description": f"Adjustment — {label}", "quantity": "1", "unit_price": str(amount)}
+        )
+        total += amount
+
+    total = money.q2(total)
+    if total <= 0:
+        raise ProjectProfitError(
+            "the adjusted total is not positive — money flowing TO the customer "
+            "is a credit note against the original invoice, never a negative invoice"
+        )
+    return {
+        "project_id": project_id,
+        "contracted_total": tracking["contracted_total"],
+        "issued_total": tracking["issued_total"],
+        "remainder": str(money.q2(remainder)),
+        "lines": lines,
+        "total": str(total),
+        "gate_required": gate_required,
+        "accepted_at": project.accepted_at.isoformat() if project.accepted_at else None,
     }
