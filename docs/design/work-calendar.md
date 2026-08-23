@@ -108,6 +108,17 @@ Channel ladder:
 Timing default: 48h before assignment start, per-org configurable
 (24h/48h/72h), per-assignment override, audited like every send.
 
+**Provider recommendation (researched 2026-08-23):** primary **GatewayAPI**
+(Danish = EU company; EU hosting option; annual ISAE 3000/3402 GDPR
+auditor's statements; pure pay-as-you-go with no monthly fee — fits pilot
+volumes and the product's EU-residency positioning), with **Twilio** as the
+documented fallback adapter behind the same seam (best-in-class API/docs,
+Latvia ≈ $0.07/message, pay-as-you-go, now offers EU data residency for
+SMS). The seam makes switching a config change, so the choice is cheap to
+revise. Verify current per-country rates + Baltic alphanumeric-sender rules
+at signup; the WHO-PAYS question (platform re-bills vs per-org account)
+remains the open owner decision.
+
 **Phase C — photos from the job.**
 A mobile-friendly capture surface on the project page (camera input, EXIF
 timestamp kept, stored via the existing content-addressed document path into
