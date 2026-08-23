@@ -1,0 +1,99 @@
+# Development plan — from recorded ideas to work orders (2026-08-23)
+
+> The queue below sequences everything currently designed and unbuilt:
+> the phase-5 lifecycle remainder, the work-planning calendar
+> (`docs/design/work-calendar.md`), the researched task module
+> (`docs/design/tasks-module-research.md`), and supplier cost analytics
+> (`docs/design/supplier-cost-analytics.md`). Order optimises for (a) making
+> the product DAILY-active for a pilot customer, (b) closing the lifecycle
+> loop end to end, (c) never blocking on an owner decision — decision-gated
+> items sit outside the committed path.
+
+## Standing gates (every work order)
+
+Three-layer tenancy + parity probe in the same commit for every new tenant
+table · services never commit / routes commit mutation+audit together ·
+industry-neutral copy (guard list, e2e-greped) · ruff/mypy/docs-truth ·
+seeded-violation checks for new tests · full backend regression + full
+Playwright before certify · runbook row from actual output · push BOTH
+branches.
+
+## The committed queue
+
+**WO-A — Calendar phase A: assignments (next up).**
+`project_assignments` (org, project composite-FK, assignee, starts/ends,
+status planned|confirmed|done|cancelled, note) + calendar screen
+(month/week, filter person/project) + "My work" list. Employees see their
+own; planning needs manager rights; overlaps are advisory warnings.
+Estimated: one session incl. tests/e2e. Unlocks: B, B2, B3, D-hook, tasks
+integration.
+
+**WO-B — Calendar phase B + B2: reminders and phone sync.**
+Assign/change/cancel notifications + configurable reminder N hours before
+(jobs+mailer rails, per-org default, per-assignment override) and the ICS
+layer: per-user revocable feed token + .ics download — Google/Apple/
+Microsoft subscribe to US, zero external calls. Estimated: one session.
+
+**WO-C — "Next actions" v1 (the researched task module).**
+One surface, four generators, everything self-completing/expiring: offer
+follow-up nudge (N days in `sent`, default 3, ≤2 nudges, one-click send);
+dunning surfaced as chase items (no second engine); recurring deadline
+templates (name + recurrence + lead-time, confirm-style materialization —
+"prepare VAT report"); lifecycle nudges (capture backlog, expiring offers,
+all-assignments-done → suggest acceptance once WO-D lands). Rendered on
+dashboard + owning record (+ calendar layer). Estimated: 1–2 sessions.
+Explicitly OUT per research: workflow builder, freeform lists,
+dependencies/custom fields, unbounded sequences.
+
+**WO-D — Lifecycle close: acceptance & handover + adjustable final invoice.**
+Acceptance as a project state between work-done and closed (generated from
+the shipped acceptance template, countersign seam left for e-sign);
+final invoice = plan remainder ± labelled adjustment lines (sign-flip →
+credit note via existing machinery), linked-not-gated on acceptance with a
+per-org gate toggle. Completes the owner's original loop end to end.
+Estimated: 1–2 sessions. Includes the small `offer_prefix` settings UI.
+
+**WO-E — Client-facing arrival notices (calendar B3, email first).**
+48h-before notice to the customer contact (24/48/72 per org, per-assignment
+override), idempotent sent-marker, quiet hours. Email only — SMS stays
+decision-gated (provider + who-pays).
+
+**WO-F — Job photos (calendar phase C).**
+Mobile-friendly capture on the project page → content-addressed storage →
+`project_documents` kind `photo`; acceptance evidence hook into WO-D.
+Estimated: small.
+
+**WO-G — Supplier cost analytics phase 1 (then 2).**
+Phase 1: per supplier × item price history from invoice lines, change
+detection, cost-change graphs, KPI cards — read models only, current
+engine (Postgres; the engine decision is settled in the design doc §2b).
+Phase 2: agreed-price lists + validation-rule overcharge flag (advisory,
+org-configurable block). Estimated: one session each.
+
+## Owner-side track (parallel, not code)
+
+1. Finish the in-flight VPS deploy (`./scripts/vps-deploy.sh`).
+2. Repo public (pre-publication scan done; harden SSH first) → Actions free.
+3. CI alive → set 3 deploy secrets + DEPLOY_ENABLED → merge-to-main deploys.
+4. After that: GHCR prebuilt images (adds a CI job; README count bump).
+5. Still the highest-value validation item: one real redacted supplier
+   statement through the system.
+
+## Decision-gated (outside the committed path)
+
+SMS provider + who pays per message (B3/SMS) · e-sign provider (acceptance
+countersign, phase 3) · external price-data module incl. Scrapling stealth
+stance (cost analytics phase 3) · two-way calendar sync (Google/Graph/
+CalDAV) · recovered-VAT P&L line, budget-vs-actual, profitability export
+(phase-3 backlog) · recycle-bin extensions + invoice→VAT-claim link.
+
+## Sequencing rationale, in one paragraph
+
+A pilot customer opens the app daily for the calendar and Next actions —
+those two (WO-A→C) convert InvoiceIQ from a bookkeeping tool into an
+operating tool, and the research says exactly those loops (fast follow-up,
+visible chasing) carry independently-proven value. WO-D then closes the
+owner's full arc (offer → … → acceptance → final invoice → frozen P&L),
+which is the demo that sells the product. E/F/G add reach (customer
+notices, photos, analytics) without blocking anything upstream. Everything
+needing an owner decision is fenced off so the queue never stalls.

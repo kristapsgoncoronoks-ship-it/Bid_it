@@ -12,6 +12,12 @@ aside; not executed.
 
 ---
 
+> **The active development queue lives in
+> [`docs/plan/DEVELOPMENT-PLAN-2026-08.md`](./docs/plan/DEVELOPMENT-PLAN-2026-08.md)**
+> (WO-A calendar assignments → WO-B reminders/ICS → WO-C Next actions →
+> WO-D acceptance + final invoice → WO-E/F/G), sequencing the recorded
+> designs below into work orders. Decision-gated items are fenced there.
+
 ## Milestone status
 
 | Milestone | Theme | Status |
