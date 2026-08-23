@@ -30,7 +30,15 @@ project as its aggregate. No rework of phases 1–5a is needed.
 
 ## 2. The new module, phased
 
-**Phase A — assignments (the data + the screen).**
+**Phase A — assignments (the data + the screen). ✅ SHIPPED 2026-08-23 (WO-A):**
+`project_assignments` (three isolation layers + parity probe in the same
+commit), enforced transitions with assignee self-service (confirm/done on
+your OWN row; anything else fails opaquely §4.4), ADVISORY overlap warnings
+on every write, membership-validated assignees (B1.5 — memberships, not
+users.org_id), `/schedule` routes (calendar read narrows non-planners to
+their own rows server-side — the same endpoint IS "My work"), the Schedule
+page (week grid, filters, planning form that non-planners never see), and
+a planning-gated members picker. As designed below:
 `project_assignments` (tenant table, all three isolation layers + probe in
 the same commit): org_id · project_id (composite FK) · assignee user ·
 starts_at/ends_at (a day or a time window) · note · status

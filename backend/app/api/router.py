@@ -35,6 +35,7 @@ from app.api.routes import (
     recurring,
     reimbursements,
     retention,
+    schedule,
     scim,
     settings,
     sso,
@@ -83,6 +84,7 @@ api_router.include_router(webhooks.router)
 api_router.include_router(integrity.router)
 api_router.include_router(documents.router)
 api_router.include_router(doc_templates.router)
+api_router.include_router(schedule.router)
 api_router.include_router(export.router)
 api_router.include_router(archive.router)
 api_router.include_router(retention.router)

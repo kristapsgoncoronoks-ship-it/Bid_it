@@ -41,6 +41,7 @@ export const LIVE_NAV: LiveNavGroup[] = [
     title: "Overview",
     items: [
       { to: "/", label: "Dashboard", end: true, icon: icon("M4 13h6V4H4v9zm10 7h6V4h-6v16zM4 20h6v-4H4v4z") },
+      { to: "/schedule", label: "Schedule", icon: icon("M7 2v3M17 2v3M3 8h18M5 5h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1zM8 12h3v3H8v-3z") },
     ],
   },
   {

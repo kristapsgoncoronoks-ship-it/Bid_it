@@ -211,6 +211,17 @@ figures.
 
 ---
 
+## 5b. The schedule — planning the work
+
+`Overview → Schedule`. Put people on projects for a day or a time window.
+Planners (bookkeeping roles and up) see the whole workspace week, filter by
+person or project, and assign; everyone else automatically sees **only their
+own work** on the same screen — confirm an assignment when you accept it,
+mark it done when the work is. Double-bookings are **warned about, never
+blocked** — the warning names the colliding times and saves anyway, because
+real schedules overlap. Reminders, phone-calendar sync (Google/Apple/
+Microsoft), and customer arrival notices are the next slices of this module.
+
 ## 6. Document templates
 
 `Workspace → Templates`. The trust model, in one sentence: **the platform

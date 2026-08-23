@@ -2455,6 +2455,55 @@ async def _org_templates(ctx: Ctx) -> None:
         )
 
 
+@probe("project_assignments")
+async def _project_assignments(ctx: Ctx) -> None:
+    """Who works where and when is operational data a rival tenant must not
+    see; and a foreign assignment id must be untouchable OPAQUELY (§4.4) —
+    schedule probing must not confirm existence."""
+    ids: dict[str, str] = {}
+    for org in (ctx.a, ctx.b):
+        me = (await org.get("/api/v1/auth/me")).json()["user"]
+        pr = await org.post(
+            "/api/v1/masters/projects",
+            json={"code": f"ASG-{org.name}", "name": f"Job of {org.name}"},
+        )
+        assert pr.status_code in (200, 201), pr.text
+        made = await org.post(
+            "/api/v1/schedule/assignments",
+            json={
+                "project_id": pr.json()["id"],
+                "assignee_user_id": me["id"],
+                "starts_at": "2026-09-01T09:00:00+00:00",
+                "ends_at": "2026-09-01T17:00:00+00:00",
+                "note": f"SECRET SITE OF {org.name}",
+            },
+        )
+        assert made.status_code == 201, made.text
+        ids[org.name] = made.json()["assignment"]["id"]
+
+    window = {"start": "2026-09-01T00:00:00+00:00", "end": "2026-09-02T00:00:00+00:00"}
+    for me_org, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        listed = await me_org.get("/api/v1/schedule/assignments", params=window)
+        assert listed.status_code == 200, listed.text
+        seen = {a["id"] for a in listed.json()}
+        assert ids[other.name] not in seen, (
+            f"TENANT LEAK: {me_org.name} listed {other.name}'s assignment"
+        )
+        notes = " ".join(a["note"] or "" for a in listed.json())
+        assert f"SECRET SITE OF {other.name}" not in notes, (
+            f"TENANT LEAK: {me_org.name} read {other.name}'s schedule note"
+        )
+        edit = await me_org.patch(
+            f"/api/v1/schedule/assignments/{ids[other.name]}", json={"note": "OVERWRITTEN"}
+        )
+        _assert_404(edit, f"{me_org.name} PATCH {other.name}'s assignment")
+        move = await me_org.post(
+            f"/api/v1/schedule/assignments/{ids[other.name]}/transition",
+            json={"status": "cancelled"},
+        )
+        _assert_404(move, f"{me_org.name} transition {other.name}'s assignment")
+
+
 ALL_TABLES = sorted(m.__tablename__ for m in TENANT_MODELS)
 
 

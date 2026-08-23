@@ -20,7 +20,7 @@ branches.
 
 ## The committed queue
 
-**WO-A — Calendar phase A: assignments (next up).**
+**WO-A — Calendar phase A: assignments. ✅ SHIPPED 2026-08-23.**
 `project_assignments` (org, project composite-FK, assignee, starts/ends,
 status planned|confirmed|done|cancelled, note) + calendar screen
 (month/week, filter person/project) + "My work" list. Employees see their

@@ -65,6 +65,7 @@ from app.models.module import OrgModule
 from app.models.partner import Partner, PartnerDocument
 from app.models.payment import Payment
 from app.models.payment_run import PaymentRun
+from app.models.project_assignment import ProjectAssignment
 from app.models.project_link import ProjectCostEntry, ProjectDocument
 from app.models.project_offer import InvoicingPlanRow, ProjectOffer
 from app.models.receipt import Receipt
@@ -108,6 +109,7 @@ TENANT_MODELS = (
     OrgTemplate,
     ProjectOffer,
     InvoicingPlanRow,
+    ProjectAssignment,
     Vendor,
     VendorChangeRequest,
     Invoice,
