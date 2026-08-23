@@ -270,6 +270,16 @@ async def _integrity_versions(db, payload: dict, job: Job) -> dict:
     return _report_dict(await integrity.verify_versions(db, job.org_id))
 
 
+@jobs.handler("assignment.reminder")
+async def _assignment_reminder(db, payload: dict, job: Job) -> dict:
+    """One upcoming-work reminder to the assignee (WO-B). Armed at exact time
+    via run_after when the assignment is created/updated; the service re-checks
+    current state so stale jobs (rescheduled/cancelled) no-op or re-arm."""
+    from app.services import scheduling
+
+    return await scheduling.send_due_reminder(db, job.org_id, payload["assignment_id"])
+
+
 # Kinds an authenticated user is allowed to enqueue via the API (safe, tenant
 # -scoped periodic work). Other kinds can only be created internally.
 USER_ENQUEUEABLE = (

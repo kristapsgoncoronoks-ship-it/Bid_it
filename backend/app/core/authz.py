@@ -317,6 +317,14 @@ PUBLIC_ROUTES: dict[tuple[str, str], str] = {
         "/api/v1/auth/invite/{token}",
     ): "public: the invitation token is the credential (preview)",
     (
+        "GET",
+        "/api/v1/calendar/feed/{token}.ics",
+    ): (
+        "public: the per-user calendar-feed token is the credential — "
+        "Google/Apple/Microsoft calendar servers poll this URL unauthenticated; "
+        "serves only the token owner's own assignments, revocable by regenerate"
+    ),
+    (
         "POST",
         "/api/v1/auth/accept-invite",
     ): "public bootstrap: the invitation token is the credential",

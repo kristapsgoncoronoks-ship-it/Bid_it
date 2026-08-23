@@ -18,15 +18,30 @@ Phase A of `docs/design/work-calendar.md` (WO-A). The rules this module owns:
 
 from __future__ import annotations
 
-from datetime import datetime
+import secrets
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.calendar_token import CalendarFeedToken
 from app.models.costing import Project
 from app.models.membership import Membership
 from app.models.project_assignment import ProjectAssignment
 from app.models.user import User
+from app.services import jobs, mailer
+
+#: Default reminder lead time when the assignment carries no override (WO-B;
+#: the per-ORG default becomes configurable with the client-notice settings
+#: of phase B3 — one settings surface for both, not two).
+DEFAULT_REMIND_HOURS = 24
+
+ASSIGNMENT_REMINDER = "assignment.reminder"
+
+
+def _as_utc(dt: datetime) -> datetime:
+    """Normalize to aware-UTC on the way IN (SQLite hands back naive-UTC)."""
+    return dt.astimezone(UTC) if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
 
 
 class SchedulingError(Exception):
@@ -122,8 +137,11 @@ async def create(
     all_day: bool,
     note: str | None,
     created_by: str,
+    remind_hours_before: int | None = None,
 ) -> tuple[ProjectAssignment, list[ProjectAssignment]]:
-    """Create an assignment; returns (row, advisory overlaps)."""
+    """Create an assignment; returns (row, advisory overlaps). Sends the
+    assignee their notice and arms the reminder in the same transaction."""
+    starts_at, ends_at = _as_utc(starts_at), _as_utc(ends_at)
     _validate_window(starts_at, ends_at)
     await _project_or_404(db, org_id, project_id)
     assignee = await _member_or_invalid(db, org_id, assignee_user_id)
@@ -139,10 +157,13 @@ async def create(
         status="planned",
         note=note,
         created_by=created_by,
+        remind_hours_before=remind_hours_before,
     )
     warnings = await overlaps_for(db, org_id, assignee_user_id, starts_at, ends_at)
     db.add(row)
     await db.flush()
+    await notify_assigned(db, row)
+    await arm_reminder(db, row)
     return row, warnings
 
 
@@ -168,6 +189,8 @@ async def update(
     note: str | None = None,
     clear_note: bool = False,
     assignee_user_id: str | None = None,
+    remind_hours_before: int | None = None,
+    set_remind: bool = False,
 ) -> tuple[ProjectAssignment, list[ProjectAssignment]]:
     """Edit window/note/assignee on a non-terminal assignment; returns
     (row, advisory overlaps for the resulting window)."""
@@ -180,21 +203,25 @@ async def update(
         row.assignee_user_id = assignee_user_id
         row.assignee_email = assignee.email
     if starts_at is not None:
-        row.starts_at = starts_at
+        row.starts_at = _as_utc(starts_at)
     if ends_at is not None:
-        row.ends_at = ends_at
+        row.ends_at = _as_utc(ends_at)
     if all_day is not None:
         row.all_day = all_day
     if clear_note:
         row.note = None
     elif note is not None:
         row.note = note
+    if set_remind:
+        row.remind_hours_before = remind_hours_before
 
-    _validate_window(row.starts_at, row.ends_at)
+    _validate_window(_as_utc(row.starts_at), _as_utc(row.ends_at))
     warnings = await overlaps_for(
         db, org_id, row.assignee_user_id, row.starts_at, row.ends_at, exclude_id=row.id
     )
     await db.flush()
+    await notify_changed(db, row)
+    await arm_reminder(db, row)
     return row, warnings
 
 
@@ -220,7 +247,192 @@ async def transition(
             raise NotFoundError("assignment not found")  # opaque, §4.4
     row.status = new_status
     await db.flush()
+    if new_status == "cancelled":
+        await notify_cancelled(db, row)
     return row
+
+
+# --------------------------------------------------------------------------- #
+# WO-B: notifications + reminders. Notices go straight through the mailer
+# (recorded rows; delivered when SMTP is configured) and commit atomically
+# with the mutation. The exact-time reminder rides the durable queue:
+# enqueued at (starts_at − lead), idempotent per (assignment, due-moment),
+# and the handler re-checks CURRENT state — a reschedule simply enqueues a
+# new job and the stale one no-ops or re-arms itself.
+# --------------------------------------------------------------------------- #
+
+
+def _window_text(row: ProjectAssignment) -> str:
+    if row.all_day:
+        return f"{_as_utc(row.starts_at).date().isoformat()} (all day)"
+    s, e = _as_utc(row.starts_at), _as_utc(row.ends_at)
+    return f"{s.date().isoformat()} {s.strftime('%H:%M')}–{e.strftime('%H:%M')} UTC"
+
+
+async def _notify(
+    db: AsyncSession, row: ProjectAssignment, *, kind: str, subject: str, lead: str
+) -> None:
+    project = await db.scalar(select(Project).where(Project.id == row.project_id))
+    label = f"{project.code} · {project.name}" if project else "an assignment"
+    body = (
+        f"{lead}\n\n"
+        f"Project:  {label}\n"
+        f"When:     {_window_text(row)}\n"
+        + (f"Note:     {row.note}\n" if row.note else "")
+        + "\nThis is an automatic notice from your workspace's schedule."
+    )
+    await mailer.send(
+        db, row.org_id, kind=kind, to_email=row.assignee_email, subject=subject, body=body
+    )
+
+
+async def notify_assigned(db: AsyncSession, row: ProjectAssignment) -> None:
+    await _notify(
+        db,
+        row,
+        kind="assignment",
+        subject="New work assignment",
+        lead="You have been scheduled for work.",
+    )
+
+
+async def notify_changed(db: AsyncSession, row: ProjectAssignment) -> None:
+    await _notify(
+        db,
+        row,
+        kind="assignment",
+        subject="Your work assignment changed",
+        lead="One of your assignments was updated — check the new details.",
+    )
+
+
+async def notify_cancelled(db: AsyncSession, row: ProjectAssignment) -> None:
+    await _notify(
+        db,
+        row,
+        kind="assignment",
+        subject="Work assignment cancelled",
+        lead="This assignment was cancelled — you are no longer expected.",
+    )
+
+
+def reminder_due_at(row: ProjectAssignment) -> datetime:
+    lead = row.remind_hours_before if row.remind_hours_before is not None else DEFAULT_REMIND_HOURS
+    return _as_utc(row.starts_at) - timedelta(hours=lead)
+
+
+async def arm_reminder(db: AsyncSession, row: ProjectAssignment) -> None:
+    """Enqueue the reminder job for this assignment's CURRENT window. Keyed by
+    (assignment, due-moment) so a reschedule arms a fresh job; already-past due
+    moments are skipped (assigning tomorrow's work tonight sends no reminder —
+    the assignment notice itself just arrived)."""
+    due = reminder_due_at(row)
+    if due <= datetime.now(UTC):
+        return
+    await jobs.enqueue(
+        db,
+        ASSIGNMENT_REMINDER,
+        {"assignment_id": row.id},
+        org_id=row.org_id,
+        run_after=due,
+        idempotency_key=f"{ASSIGNMENT_REMINDER}:{row.id}:{due.isoformat()}",
+    )
+
+
+async def send_due_reminder(db: AsyncSession, org_id: str, assignment_id: str) -> dict:
+    """The queue handler's work. Re-checks CURRENT state: the job may be stale
+    (rescheduled later → re-arm; cancelled/done/deleted/already-reminded →
+    no-op). One reminder per assignment, ever — reminder_sent_at is the stamp."""
+    row = await db.scalar(
+        select(ProjectAssignment).where(
+            ProjectAssignment.org_id == org_id, ProjectAssignment.id == assignment_id
+        )
+    )
+    if row is None or row.status in ("cancelled", "done") or row.reminder_sent_at is not None:
+        return {"sent": False, "reason": "stale"}
+    now = datetime.now(UTC)
+    due = reminder_due_at(row)
+    if now < due - timedelta(seconds=60):
+        await arm_reminder(db, row)  # moved later since this job was armed
+        return {"sent": False, "reason": "rearmed"}
+    await _notify(
+        db,
+        row,
+        kind="assignment_reminder",
+        subject="Reminder: upcoming work assignment",
+        lead="A scheduled assignment is coming up.",
+    )
+    row.reminder_sent_at = now
+    await db.flush()
+    return {"sent": True}
+
+
+# --------------------------------------------------------------------------- #
+# WO-B2: the personal calendar feed. The token is a per-(org, user) secret
+# capability; regenerating replaces it (old URL dies). The public feed route
+# resolves it UNSCOPED — the email-intake pattern — then queries under the
+# resolved tenant.
+# --------------------------------------------------------------------------- #
+
+
+async def get_or_create_feed_token(db: AsyncSession, org_id: str, user_id: str) -> str:
+    row = await db.scalar(
+        select(CalendarFeedToken).where(
+            CalendarFeedToken.org_id == org_id, CalendarFeedToken.user_id == user_id
+        )
+    )
+    if row is None:
+        row = CalendarFeedToken(
+            org_id=org_id, user_id=user_id, token=secrets.token_urlsafe(32)
+        )
+        db.add(row)
+        await db.flush()
+    return row.token
+
+
+async def regenerate_feed_token(db: AsyncSession, org_id: str, user_id: str) -> str:
+    await get_or_create_feed_token(db, org_id, user_id)
+    row = await db.scalar(
+        select(CalendarFeedToken).where(
+            CalendarFeedToken.org_id == org_id, CalendarFeedToken.user_id == user_id
+        )
+    )
+    assert row is not None
+    row.token = secrets.token_urlsafe(32)
+    await db.flush()
+    return row.token
+
+
+async def resolve_feed_token(db: AsyncSession, token: str) -> tuple[str, str] | None:
+    """(org_id, user_id) for a live token — UNSCOPED, for the public route."""
+    row = await db.scalar(select(CalendarFeedToken).where(CalendarFeedToken.token == token))
+    return (row.org_id, row.user_id) if row else None
+
+
+async def feed_rows(
+    db: AsyncSession, org_id: str, user_id: str, *, now: datetime | None = None
+) -> tuple[list[ProjectAssignment], dict[str, str]]:
+    """The user's own non-cancelled assignments, recent past → next year,
+    plus the project-label map the ICS summary needs."""
+    now = now or datetime.now(UTC)
+    rows = [
+        a
+        for a in await list_window(
+            db,
+            org_id,
+            start=now - timedelta(days=30),
+            end=now + timedelta(days=365),
+            assignee_user_id=user_id,
+        )
+        if a.status != "cancelled"
+    ]
+    names: dict[str, str] = {}
+    if rows:
+        projects = await db.scalars(
+            select(Project).where(Project.id.in_({a.project_id for a in rows}))
+        )
+        names = {p.id: f"{p.code} · {p.name}" for p in projects}
+    return rows, names
 
 
 async def list_window(

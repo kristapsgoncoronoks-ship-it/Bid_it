@@ -48,7 +48,16 @@ the assigned employee — an employee sees their OWN schedule; planning others
 needs a manager permission. Conflict display (same person, overlapping
 window) is advisory, never blocking — real life double-books.
 
-**Phase B — notifications & reminders.**
+**Phase B — notifications & reminders. ✅ SHIPPED 2026-08-23 (WO-B):**
+assign/change/cancel notices to the assignee via the mailer, committed
+atomically with the mutation; the exact-time reminder rides the durable
+queue (`run_after` = start − lead, default 24h, per-assignment override
+1–336h), idempotent per (assignment, due-moment) with a one-reminder-ever
+`reminder_sent_at` stamp — an at-least-once queue can fire twice, the
+contract holds anyway; a stale job whose assignment moved later RE-ARMS
+itself instead of firing early; cancelled/done never remind. As designed:
+
+**Phase B (original design) — notifications & reminders.**
 Reuses the durable jobs queue + mailer + webhooks (all shipped): on assign /
 change / cancel → notify the assignee; reminder N hours before start
 (per-org default, per-assignment override). Email first (zero new
@@ -56,7 +65,17 @@ infrastructure); in-app inbox is the notifications target the data-model doc
 already reserves. SMS/push would mean an external provider — decision-gated
 under the zero-external-calls-by-default policy, same as AI capture.
 
-**Phase B2 — Google/Apple/Microsoft calendar sync (owner addition, same day).**
+**Phase B2 — Google/Apple/Microsoft calendar sync. ✅ SHIPPED 2026-08-23
+(WO-B):** `calendar_feed_tokens` (tenant table, three layers + probe in the
+same commit; the probe asserts org A's feed can never carry org B's project
+codes), public `/calendar/feed/{token}.ics` on the PUBLIC_ROUTES allow-list
+(the token is the credential — the email-intake resolution pattern),
+regenerate kills the old URL instantly, hand-rolled RFC 5545 renderer
+(CRLF, folding, escaping — wire format pinned by tests), cancelled
+assignments excluded, no money on the wire, `.ics` one-off download, and
+the Schedule page's "Your calendar on your phone" setup card. As designed:
+
+**Phase B2 (original design).**
 The standards-based way, in two steps that require NO external API, OAuth,
 or vendor account — honouring zero-external-calls-by-default:
 

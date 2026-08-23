@@ -18,11 +18,12 @@ from datetime import datetime
 from typing import NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
-from app.services import audit, scheduling, team
+from app.services import audit, ics, scheduling, team
 
 router = APIRouter(
     prefix="/schedule",
@@ -40,6 +41,7 @@ class AssignmentIn(BaseModel):
     ends_at: datetime
     all_day: bool = False
     note: str | None = Field(default=None, max_length=2000)
+    remind_hours_before: int | None = Field(default=None, ge=1, le=336)
 
 
 class AssignmentPatch(BaseModel):
@@ -49,6 +51,8 @@ class AssignmentPatch(BaseModel):
     note: str | None = Field(default=None, max_length=2000)
     clear_note: bool = False
     assignee_user_id: str | None = None
+    remind_hours_before: int | None = Field(default=None, ge=1, le=336)
+    set_remind: bool = False
 
 
 class TransitionIn(BaseModel):
@@ -157,6 +161,7 @@ async def create_assignment(body: AssignmentIn, current: CurrentUser, db: DbSess
             all_day=body.all_day,
             note=body.note,
             created_by=current.email,
+            remind_hours_before=body.remind_hours_before,
         )
     except scheduling.SchedulingError as exc:
         _raise(exc)
@@ -192,6 +197,8 @@ async def update_assignment(
             note=body.note,
             clear_note=body.clear_note,
             assignee_user_id=body.assignee_user_id,
+            remind_hours_before=body.remind_hours_before,
+            set_remind=body.set_remind,
         )
     except scheduling.SchedulingError as exc:
         _raise(exc)
@@ -240,3 +247,43 @@ async def transition_assignment(
     await db.commit()
     await db.refresh(row)
     return _out(row)
+
+
+class FeedTokenOut(BaseModel):
+    """The subscription URL parts. The token is a secret CAPABILITY —
+    regenerating kills the old URL instantly."""
+
+    token: str
+    path: str
+
+
+def _feed_out(token: str) -> FeedTokenOut:
+    return FeedTokenOut(token=token, path=f"/api/v1/calendar/feed/{token}.ics")
+
+
+@router.get("/feed-token", response_model=FeedTokenOut)
+async def my_feed_token(current: CurrentUser, db: DbSession):
+    """Get (or lazily create) YOUR calendar-feed token — INVOICE_READ, so an
+    employee can put their own schedule on their own phone."""
+    token = await scheduling.get_or_create_feed_token(db, current.org_id, current.id)
+    await db.commit()
+    return _feed_out(token)
+
+
+@router.post("/feed-token/regenerate", response_model=FeedTokenOut)
+async def regenerate_feed_token(current: CurrentUser, db: DbSession):
+    token = await scheduling.regenerate_feed_token(db, current.org_id, current.id)
+    await audit.record(db, "assignment.feed_regenerate", target_type="user", target_id=current.id)
+    await db.commit()
+    return _feed_out(token)
+
+
+@router.get("/export.ics")
+async def export_ics(current: CurrentUser, db: DbSession):
+    """One-off .ics download of YOUR schedule (the feed is the live version)."""
+    rows, names = await scheduling.feed_rows(db, current.org_id, current.id)
+    return Response(
+        content=ics.render(rows, names),
+        media_type="text/calendar",
+        headers={"Content-Disposition": 'attachment; filename="schedule.ics"'},
+    )

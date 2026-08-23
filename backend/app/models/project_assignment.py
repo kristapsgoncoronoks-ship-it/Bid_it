@@ -78,4 +78,11 @@ class ProjectAssignment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), default="planned", nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # WO-B reminders: per-assignment override of the default lead time (24h in
+    # code), and the one-reminder idempotency stamp (the queue is at-least-once).
+    remind_hours_before: Mapped[int | None] = mapped_column(nullable=True)
+    reminder_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     created_by: Mapped[str] = mapped_column(String(255), nullable=False)

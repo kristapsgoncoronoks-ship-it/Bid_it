@@ -40,6 +40,7 @@ interface MockOpts {
 
 async function open(page: Page, opts: MockOpts = {}) {
   const planner = opts.planner ?? true;
+  let feedToken = "tok-OLD"; // regenerate swaps it — the mock is stateful
   await page.addInitScript(() => localStorage.setItem("invoiceiq_token", "e2e-token"));
   await page.clock.setFixedTime(new Date("2026-09-02T10:00:00Z"));
 
@@ -94,6 +95,16 @@ async function open(page: Page, opts: MockOpts = {}) {
         );
       }
       return route.fulfill(json([ASSIGNMENT]));
+    }
+    if (path === "/schedule/feed-token")
+      return route.fulfill(
+        json({ token: feedToken, path: `/api/v1/calendar/feed/${feedToken}.ics` }),
+      );
+    if (path === "/schedule/feed-token/regenerate") {
+      feedToken = "tok-NEW";
+      return route.fulfill(
+        json({ token: feedToken, path: `/api/v1/calendar/feed/${feedToken}.ics` }),
+      );
     }
     if (path === "/masters/projects")
       return route.fulfill(
@@ -161,6 +172,21 @@ test("a non-planner gets the personal view: own rows, no planning surface", asyn
   // …but nothing lets them plan.
   await expect(page.getByRole("button", { name: "+ Assign" })).toHaveCount(0);
   await expect(page.getByText("Everyone")).toHaveCount(0);
+});
+
+test("phone sync reveals the personal feed URL and regenerate swaps it", async ({ page }) => {
+  await open(page);
+  await page.goto("/schedule");
+
+  await page.getByRole("button", { name: "Set up" }).click();
+  // The feed URL renders from the SERVER's path — the token is visible so the
+  // user can see exactly what they are sharing.
+  await expect(page.getByText(/calendar\/feed\/tok-OLD\.ics/)).toBeVisible();
+  await expect(page.getByText(/Google: Other calendars/)).toBeVisible();
+
+  await page.getByRole("button", { name: "Regenerate" }).click();
+  await expect(page.getByText(/calendar\/feed\/tok-NEW\.ics/)).toBeVisible();
+  await expect(page.getByText(/tok-OLD/)).toHaveCount(0);
 });
 
 test("the schedule copy is industry-neutral", async ({ page }) => {

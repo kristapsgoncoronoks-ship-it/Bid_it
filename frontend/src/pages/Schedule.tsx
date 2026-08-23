@@ -61,6 +61,77 @@ function fmtTime(iso: string): string {
   return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
+/** Your schedule on your phone: a per-person secret feed URL that Google,
+ * Apple and Microsoft calendars all subscribe to (they poll us — the platform
+ * makes no external calls). Regenerating kills the old link instantly. */
+function PhoneSync() {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const feed = useQuery<{ token: string; path: string }>({
+    queryKey: ["schedule-feed-token"],
+    queryFn: async () => (await api.get("/schedule/feed-token")).data,
+    enabled: open,
+  });
+
+  const regenerate = useMutation({
+    mutationFn: async () => (await api.post("/schedule/feed-token/regenerate")).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["schedule-feed-token"] }),
+  });
+
+  const url = feed.data ? `${window.location.origin}${feed.data.path}` : null;
+
+  return (
+    <div className="card space-y-2 p-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Your calendar on your phone
+        </h2>
+        <button className="btn-ghost text-xs" onClick={() => setOpen(!open)}>
+          {open ? "Hide" : "Set up"}
+        </button>
+      </div>
+      {open && (
+        <div className="space-y-2 text-sm text-slate-600">
+          <p>
+            Subscribe once and your assignments appear in Google, Apple or
+            Outlook calendar and stay updated. Anyone with this link can see
+            your schedule — regenerate it to cut off an old link.
+          </p>
+          {url && (
+            <div className="flex flex-wrap items-center gap-2">
+              <code className="max-w-full overflow-x-auto rounded bg-slate-100 px-2 py-1 text-xs">
+                {url}
+              </code>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  navigator.clipboard.writeText(url);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                }}
+              >
+                {copied ? "Copied" : "Copy link"}
+              </Button>
+              <Button variant="secondary" disabled={regenerate.isPending} onClick={() => regenerate.mutate()}>
+                Regenerate
+              </Button>
+              <a className="btn-ghost text-xs" href={`${url.replace(/^https?/, "webcal")}`}>
+                Open in calendar app
+              </a>
+            </div>
+          )}
+          <p className="text-xs text-slate-400">
+            Google: Other calendars → From URL. Apple: Add Subscription
+            Calendar. Outlook: Add calendar → Subscribe from web.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const STATUS_TONE: Record<string, "neutral" | "info" | "success" | "danger"> = {
   planned: "neutral",
   confirmed: "info",
@@ -351,6 +422,8 @@ export default function Schedule() {
           </div>
         </div>
       )}
+
+      <PhoneSync />
 
       <QueryState
         query={assignments}

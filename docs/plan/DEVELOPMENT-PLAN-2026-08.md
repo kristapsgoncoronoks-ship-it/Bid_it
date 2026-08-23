@@ -28,7 +28,7 @@ own; planning needs manager rights; overlaps are advisory warnings.
 Estimated: one session incl. tests/e2e. Unlocks: B, B2, B3, D-hook, tasks
 integration.
 
-**WO-B — Calendar phase B + B2: reminders and phone sync.**
+**WO-B — Calendar phase B + B2: reminders and phone sync. ✅ SHIPPED 2026-08-23.**
 Assign/change/cancel notifications + configurable reminder N hours before
 (jobs+mailer rails, per-org default, per-assignment override) and the ICS
 layer: per-user revocable feed token + .ics download — Google/Apple/

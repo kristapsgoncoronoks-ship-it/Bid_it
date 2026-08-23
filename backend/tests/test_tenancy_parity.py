@@ -2504,6 +2504,48 @@ async def _project_assignments(ctx: Ctx) -> None:
         _assert_404(move, f"{me_org.name} transition {other.name}'s assignment")
 
 
+@probe("calendar_feed_tokens")
+async def _calendar_feed_tokens(ctx: Ctx) -> None:
+    """The feed token is a personal capability. Cross-tenant safety here means:
+    each caller's token route returns THEIR token only, and the public feed a
+    token unlocks contains only its own tenant's schedule — org A's feed must
+    never leak org B's project codes."""
+    feeds: dict[str, tuple[str, str]] = {}  # org name -> (token, own project code)
+    for org in (ctx.a, ctx.b):
+        me = (await org.get("/api/v1/auth/me")).json()["user"]
+        code = f"FEED-{org.name}"
+        pr = await org.post(
+            "/api/v1/masters/projects", json={"code": code, "name": f"Feed job {org.name}"}
+        )
+        assert pr.status_code in (200, 201), pr.text
+        made = await org.post(
+            "/api/v1/schedule/assignments",
+            json={
+                "project_id": pr.json()["id"],
+                "assignee_user_id": me["id"],
+                "starts_at": "2026-09-10T09:00:00+00:00",
+                "ends_at": "2026-09-10T17:00:00+00:00",
+            },
+        )
+        assert made.status_code == 201, made.text
+        tok = await org.get("/api/v1/schedule/feed-token")
+        assert tok.status_code == 200, tok.text
+        feeds[org.name] = (tok.json()["token"], code)
+
+    assert feeds[ctx.a.name][0] != feeds[ctx.b.name][0], "two orgs share a feed token"
+
+    for me_org, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        token, own_code = feeds[me_org.name]
+        other_code = feeds[other.name][1]
+        # Any client may fetch the public feed; the token decides what it holds.
+        feed = await me_org.get(f"/api/v1/calendar/feed/{token}.ics")
+        assert feed.status_code == 200, feed.text
+        assert own_code in feed.text, "the feed must carry its owner's schedule"
+        assert other_code not in feed.text, (
+            f"TENANT LEAK: {me_org.name}'s feed contains {other.name}'s project"
+        )
+
+
 ALL_TABLES = sorted(m.__tablename__ for m in TENANT_MODELS)
 
 

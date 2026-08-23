@@ -219,8 +219,16 @@ person or project, and assign; everyone else automatically sees **only their
 own work** on the same screen — confirm an assignment when you accept it,
 mark it done when the work is. Double-bookings are **warned about, never
 blocked** — the warning names the colliding times and saves anyway, because
-real schedules overlap. Reminders, phone-calendar sync (Google/Apple/
-Microsoft), and customer arrival notices are the next slices of this module.
+real schedules overlap.
+
+Being assigned, rescheduled or cancelled emails you automatically, and a
+**reminder** arrives before each assignment starts (24 hours by default,
+adjustable per assignment). **Your calendar on your phone**: the Schedule
+page's setup card gives you a private subscription link — add it once in
+Google, Apple or Outlook calendar and your assignments appear and stay
+updated. Anyone with the link can see your schedule, so treat it like a
+password; **Regenerate** cuts off the old link instantly. Customer arrival
+notices are the next slice of this module.
 
 ## 6. Document templates
 
