@@ -79,9 +79,7 @@ def _due_date_for(row: OrgDeadline, today: date) -> date:
 
 
 async def _dismissed(db: AsyncSession, org_id: str) -> set[tuple[str, str]]:
-    rows = await db.scalars(
-        select(ActionDismissal).where(ActionDismissal.org_id == org_id)
-    )
+    rows = await db.scalars(select(ActionDismissal).where(ActionDismissal.org_id == org_id))
     return {(d.kind, d.ref_id) for d in rows}
 
 
@@ -110,8 +108,7 @@ async def list_actions(
                 kind="offer_followup",
                 ref_id=o.id,
                 title=f"Follow up on offer {o.number}",
-                detail=f"Sent {age} days ago with no answer — {o.title or 'offer'}"
-                f" v{o.version}.",
+                detail=f"Sent {age} days ago with no answer — {o.title or 'offer'} v{o.version}.",
                 link=f"/projects/{o.project_id}",
                 age_days=age,
                 dismissible=True,
@@ -277,9 +274,7 @@ async def dismiss(
         )
     )
     if exists is None:
-        db.add(
-            ActionDismissal(org_id=org_id, kind=kind, ref_id=ref_id, dismissed_by=dismissed_by)
-        )
+        db.add(ActionDismissal(org_id=org_id, kind=kind, ref_id=ref_id, dismissed_by=dismissed_by))
         await db.flush()
 
 

@@ -46,6 +46,14 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     final_invoice_requires_acceptance: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
     )
+    # Schedule notices (WO-E, work-calendar §B3) — ONE settings surface for both
+    # audiences, as the WO-B comment promised. NULL assignment_remind_hours =
+    # the code default (24h before, to the assigned employee). NULL
+    # client_notice_hours = client arrival notices OFF — emailing the org's
+    # CUSTOMERS automatically is outward-facing, so it is opt-in, and the UI
+    # offers 24/48/72 (a per-assignment override can still enable one-off).
+    assignment_remind_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    client_notice_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(
         String(20), default="active", nullable=False
     )  # active|suspended|canceled

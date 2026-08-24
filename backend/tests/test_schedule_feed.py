@@ -94,9 +94,7 @@ async def test_reminder_is_armed_fires_once_and_never_for_cancelled(auth_client,
     # Starts in 100h, remind 99.9h before → due ~6 minutes from now: armed, not due.
     a = await _assign(auth_client, project_id, me["id"], start_h=100, remind=None)
 
-    job = await db_session.scalar(
-        select(Job).where(Job.kind == scheduling.ASSIGNMENT_REMINDER)
-    )
+    job = await db_session.scalar(select(Job).where(Job.kind == scheduling.ASSIGNMENT_REMINDER))
     assert job is not None, "creating an assignment must arm the reminder job"
     assert job.payload_json and a["id"] in job.payload_json
 
@@ -137,7 +135,9 @@ async def test_stale_reminder_rearms_when_start_moved_later(auth_client, db_sess
     a = await _assign(auth_client, project_id, me["id"], start_h=30, remind=24)
 
     before = len(
-        list(await db_session.scalars(select(Job).where(Job.kind == scheduling.ASSIGNMENT_REMINDER)))
+        list(
+            await db_session.scalars(select(Job).where(Job.kind == scheduling.ASSIGNMENT_REMINDER))
+        )
     )
     # The job fires "now", but the assignment has been moved far later → the
     # handler must NOT send; it re-arms for the new due moment instead.
@@ -152,7 +152,9 @@ async def test_stale_reminder_rearms_when_start_moved_later(auth_client, db_sess
     await db_session.commit()
     assert out == {"sent": False, "reason": "rearmed"}
     after = len(
-        list(await db_session.scalars(select(Job).where(Job.kind == scheduling.ASSIGNMENT_REMINDER)))
+        list(
+            await db_session.scalars(select(Job).where(Job.kind == scheduling.ASSIGNMENT_REMINDER))
+        )
     )
     assert after >= before
     assert not list(

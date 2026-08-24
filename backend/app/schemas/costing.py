@@ -33,6 +33,7 @@ class CostCenterOut(DepartmentOut):
 class ProjectOut(DepartmentOut):
     start_date: date | None = None
     end_date: date | None = None
+    customer_id: str | None = None
 
 
 class MasterCreate(BaseModel):

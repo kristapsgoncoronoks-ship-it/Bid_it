@@ -14,11 +14,13 @@ from typing import NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.core.security_headers import content_disposition
 from app.models.costing import CostCenter, Department, Project
+from app.models.customer import Customer
 from app.schemas.costing import (
     CostCenterCreate,
     CostCenterOut,
@@ -189,6 +191,44 @@ async def update_project(entity_id: str, body: MasterUpdate, current: CurrentUse
         )
     except costing.CostingError as exc:
         _raise(exc)
+
+
+class ProjectCustomerIn(BaseModel):
+    """WO-E: which customer this project is FOR (None unlinks). The arrival
+    notice resolves its recipient through this link at send time."""
+
+    customer_id: str | None = None
+
+
+@router.put("/projects/{entity_id}/customer", response_model=ProjectOut, dependencies=_ADMIN)
+async def set_project_customer(
+    entity_id: str, body: ProjectCustomerIn, current: CurrentUser, db: DbSession
+):
+    project = await db.scalar(
+        select(Project).where(Project.org_id == current.org_id, Project.id == entity_id)
+    )
+    if project is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "project not found")
+    if body.customer_id is not None:
+        customer = await db.scalar(
+            select(Customer).where(
+                Customer.org_id == current.org_id, Customer.id == body.customer_id
+            )
+        )
+        if customer is None:  # unknown or other-tenant — indistinguishable, §4.4
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "customer not found")
+    prior = project.customer_id
+    project.customer_id = body.customer_id
+    await audit.record(
+        db,
+        "project.customer_set",
+        target_type="project",
+        target_id=project.id,
+        meta={"customer_id": body.customer_id, "prior_customer_id": prior},
+    )
+    await db.commit()
+    await db.refresh(project)
+    return project
 
 
 # --- Project profitability (phase 1, docs/design/project-profitability.md) ---

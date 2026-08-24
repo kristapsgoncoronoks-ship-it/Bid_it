@@ -44,9 +44,7 @@ async def _invite(auth_client, client, email: str, role: str) -> tuple[str, dict
     )
     assert acc.status_code in (200, 201), acc.text
     bearer = acc.json()["token"]["access_token"]
-    me = await client.get(
-        "/api/v1/auth/me", headers={"Authorization": f"Bearer {bearer}"}
-    )
+    me = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {bearer}"})
     return bearer, me.json()["user"]
 
 
@@ -211,9 +209,7 @@ async def test_transitions_are_enforced_and_terminal(auth_client):
     assert (await move("planned")).status_code == 400  # done is terminal
     assert (await move("nonsense")).status_code == 400
     # A terminal assignment can't be edited either.
-    r = await auth_client.patch(
-        f"/api/v1/schedule/assignments/{aid}", json={"note": "too late"}
-    )
+    r = await auth_client.patch(f"/api/v1/schedule/assignments/{aid}", json={"note": "too late"})
     assert r.status_code == 400
 
 
@@ -244,9 +240,7 @@ async def test_overlaps_warn_and_never_block(auth_client):
 
     adjacent = await mk("12", "13")  # touching endpoints do not overlap
     assert adjacent.status_code == 201
-    assert {o["id"] for o in adjacent.json()["overlaps"]} == {
-        clash.json()["assignment"]["id"]
-    }
+    assert {o["id"] for o in adjacent.json()["overlaps"]} == {clash.json()["assignment"]["id"]}
 
 
 @pytest.mark.asyncio

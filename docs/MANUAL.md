@@ -244,8 +244,19 @@ adjustable per assignment). **Your calendar on your phone**: the Schedule
 page's setup card gives you a private subscription link — add it once in
 Google, Apple or Outlook calendar and your assignments appear and stay
 updated. Anyone with the link can see your schedule, so treat it like a
-password; **Regenerate** cuts off the old link instantly. Customer arrival
-notices are the next slice of this module.
+password; **Regenerate** cuts off the old link instantly.
+
+**Customer arrival notices** — "we arrive on {date}" by email, so the door is
+open and the no-show visit stops eating your margin. Opt-in: turn it on in
+`Workspace → Settings → Schedule notices` (24, 48 or 72 hours before), and
+link each project to its customer on the project page (the customer needs an
+email address). Every assignment can override the timing — or enable a
+one-off notice even while the workspace default is off. Notices respect
+quiet hours (nothing lands at 03:00 — it waits for morning), are sent **once
+per assignment**, follow reschedules automatically, and appear in the sent
+log like every other email. The same settings card also sets your team's
+default reminder lead. SMS notices are a possible later addition (they cost
+money per message, so that needs a provider decision first).
 
 ## 6. Document templates
 

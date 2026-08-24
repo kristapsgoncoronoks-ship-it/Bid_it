@@ -53,10 +53,13 @@ credit note via existing machinery), linked-not-gated on acceptance with a
 per-org gate toggle. Completes the owner's original loop end to end.
 Estimated: 1–2 sessions. Includes the small `offer_prefix` settings UI.
 
-**WO-E — Client-facing arrival notices (calendar B3, email first).**
+**WO-E — Client-facing arrival notices (calendar B3, email first). ✅ SHIPPED 2026-08-24.**
 48h-before notice to the customer contact (24/48/72 per org, per-assignment
-override), idempotent sent-marker, quiet hours. Email only — SMS stays
-decision-gated (provider + who-pays).
+override), idempotent sent-marker, quiet hours (20:00–07:00 UTC, deferred to
+morning, never past the work). Brought the `projects.customer_id` link
+(WO-H/WO-I build on it) and the org-level reminder default on the same
+settings surface. Email only — SMS stays decision-gated (provider +
+who-pays).
 
 **WO-F — Job photos (calendar phase C).**
 Mobile-friendly capture on the project page → content-addressed storage →

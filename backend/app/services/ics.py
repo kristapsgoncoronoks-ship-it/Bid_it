@@ -21,9 +21,7 @@ _PRODID = "-//InvoiceIQ//Schedule//EN"
 
 def _esc(text: str) -> str:
     """RFC 5545 §3.3.11 TEXT escaping."""
-    return (
-        text.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
-    )
+    return text.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
 
 
 def _utc(dt: datetime) -> str:

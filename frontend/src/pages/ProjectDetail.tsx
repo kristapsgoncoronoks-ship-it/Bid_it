@@ -343,6 +343,8 @@ export default function ProjectDetail() {
         </div>
       </div>
 
+      <CustomerCard projectId={id!} onError={(m) => setErr(m || null)} />
+
       <div className="grid gap-6 lg:grid-cols-2">
         <OffersCard projectId={id!} onChanged={refresh} onError={(m) => setErr(m || null)} />
         <PlanCard projectId={id!} onError={(m) => setErr(m || null)} />
@@ -357,6 +359,86 @@ export default function ProjectDetail() {
           onError={(m) => setErr(m || null)}
         />
       )}
+    </div>
+  );
+}
+
+/** WO-E: which customer this project is FOR. The link powers the customer
+ * arrival notices (and, later, the CRM timeline and client portal): the
+ * notice resolves its recipient through project → customer → email at send
+ * time, so linking after scheduling still works. */
+function CustomerCard({
+  projectId,
+  onError,
+}: {
+  projectId: string;
+  onError: (m: string) => void;
+}) {
+  const qc = useQueryClient();
+
+  const projects = useQuery<{ id: string; customer_id: string | null }[]>({
+    queryKey: ["projects"],
+    queryFn: async () => (await api.get("/masters/projects")).data,
+  });
+  const customers = useQuery<{ id: string; name: string; email: string | null }[]>({
+    queryKey: ["customers"],
+    queryFn: async () => {
+      try {
+        return (await api.get("/customers")).data;
+      } catch {
+        return []; // issuing module off → no customers to link, hide quietly
+      }
+    },
+  });
+
+  const linked = projects.data?.find((p) => p.id === projectId)?.customer_id ?? "";
+
+  const save = useMutation({
+    mutationFn: async (customer_id: string) =>
+      (
+        await api.put(`/masters/projects/${projectId}/customer`, {
+          customer_id: customer_id || null,
+        })
+      ).data,
+    onSuccess: () => {
+      onError("");
+      qc.invalidateQueries({ queryKey: ["projects"] });
+    },
+    onError: (e) => onError(apiError(e)),
+  });
+
+  if (!customers.data || customers.data.length === 0) return null;
+  const current = customers.data.find((c) => c.id === linked);
+
+  return (
+    <div className="card space-y-2 p-6">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Customer</h2>
+      <p className="text-sm text-slate-500">
+        Who this work is for. With a customer (and their email) linked, scheduled
+        work can send them an arrival notice ahead of time — see Settings →
+        Schedule notices.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          className="input sm:w-80"
+          value={linked}
+          disabled={save.isPending}
+          onChange={(e) => save.mutate(e.target.value)}
+        >
+          <option value="">No customer linked</option>
+          {customers.data.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+              {c.email ? "" : " (no email — notices can’t send)"}
+            </option>
+          ))}
+        </select>
+        {current && !current.email && (
+          <span className="text-xs text-amber-600">
+            This customer has no email address — arrival notices will not send.
+          </span>
+        )}
+      </div>
     </div>
   );
 }

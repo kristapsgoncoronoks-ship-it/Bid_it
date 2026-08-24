@@ -86,7 +86,6 @@ __all__ = [
     "ProjectCostEntry",
     "ProjectDocument",
     "ProjectOffer",
-
     "AuditEvent",
     "Organization",
     "User",

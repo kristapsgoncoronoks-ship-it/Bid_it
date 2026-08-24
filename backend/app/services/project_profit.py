@@ -694,9 +694,7 @@ async def final_invoice_draft(
     org = await db.get(Organization, org_id)
     gate_required = bool(org and org.final_invoice_requires_acceptance)
     if gate_required and project.accepted_at is None:
-        raise GateError(
-            "this workspace requires a recorded acceptance before the final invoice"
-        )
+        raise GateError("this workspace requires a recorded acceptance before the final invoice")
 
     tracking = await project_offers.plan_tracking(db, org_id, project_id)
     remainder = Decimal(tracking["remaining"])

@@ -168,7 +168,12 @@ async def test_deadlines_surface_in_window_and_complete_per_period(auth_client):
     today = datetime.now(UTC).date()
     r = await auth_client.post(
         "/api/v1/next-actions/deadlines",
-        json={"name": "Prepare the VAT report", "cadence": "monthly", "due_day": min(today.day, 28), "lead_days": 7},
+        json={
+            "name": "Prepare the VAT report",
+            "cadence": "monthly",
+            "due_day": min(today.day, 28),
+            "lead_days": 7,
+        },
     )
     assert r.status_code == 201, r.text
     deadline = r.json()
@@ -216,7 +221,5 @@ async def test_surface_is_planner_facing(auth_client, client):
         json={"token": token, "name": "Crew", "password": "supersecret"},
     )
     bearer = acc.json()["token"]["access_token"]
-    r = await client.get(
-        "/api/v1/next-actions", headers={"Authorization": f"Bearer {bearer}"}
-    )
+    r = await client.get("/api/v1/next-actions", headers={"Authorization": f"Bearer {bearer}"})
     assert r.status_code == 403

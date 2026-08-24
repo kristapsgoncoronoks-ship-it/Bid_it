@@ -42,6 +42,7 @@ class AssignmentIn(BaseModel):
     all_day: bool = False
     note: str | None = Field(default=None, max_length=2000)
     remind_hours_before: int | None = Field(default=None, ge=1, le=336)
+    client_notice_hours_before: int | None = Field(default=None, ge=1, le=336)
 
 
 class AssignmentPatch(BaseModel):
@@ -53,6 +54,8 @@ class AssignmentPatch(BaseModel):
     assignee_user_id: str | None = None
     remind_hours_before: int | None = Field(default=None, ge=1, le=336)
     set_remind: bool = False
+    client_notice_hours_before: int | None = Field(default=None, ge=1, le=336)
+    set_client_notice: bool = False
 
 
 class TransitionIn(BaseModel):
@@ -70,6 +73,8 @@ class AssignmentOut(BaseModel):
     status: str
     note: str | None
     created_by: str
+    remind_hours_before: int | None = None
+    client_notice_hours_before: int | None = None
 
 
 class AssignmentWriteOut(BaseModel):
@@ -97,6 +102,8 @@ def _out(a) -> AssignmentOut:
         status=a.status,
         note=a.note,
         created_by=a.created_by,
+        remind_hours_before=a.remind_hours_before,
+        client_notice_hours_before=a.client_notice_hours_before,
     )
 
 
@@ -162,6 +169,7 @@ async def create_assignment(body: AssignmentIn, current: CurrentUser, db: DbSess
             note=body.note,
             created_by=current.email,
             remind_hours_before=body.remind_hours_before,
+            client_notice_hours_before=body.client_notice_hours_before,
         )
     except scheduling.SchedulingError as exc:
         _raise(exc)
@@ -182,7 +190,9 @@ async def create_assignment(body: AssignmentIn, current: CurrentUser, db: DbSess
     return AssignmentWriteOut(assignment=_out(row), overlaps=[_out(o) for o in overlaps])
 
 
-@router.patch("/assignments/{assignment_id}", response_model=AssignmentWriteOut, dependencies=_PLANNING)
+@router.patch(
+    "/assignments/{assignment_id}", response_model=AssignmentWriteOut, dependencies=_PLANNING
+)
 async def update_assignment(
     assignment_id: str, body: AssignmentPatch, current: CurrentUser, db: DbSession
 ):
@@ -199,6 +209,8 @@ async def update_assignment(
             assignee_user_id=body.assignee_user_id,
             remind_hours_before=body.remind_hours_before,
             set_remind=body.set_remind,
+            client_notice_hours_before=body.client_notice_hours_before,
+            set_client_notice=body.set_client_notice,
         )
     except scheduling.SchedulingError as exc:
         _raise(exc)

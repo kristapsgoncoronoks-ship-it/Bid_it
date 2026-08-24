@@ -166,6 +166,14 @@ Next-actions nudges (suggest acceptance; issue the final invoice). The
 owner's full lifecycle — offer → contract → plan → work → acceptance →
 final invoice → frozen P&L — is complete end to end.
 
+**Calendar B3 SHIPPED 2026-08-24 (WO-E):** client arrival notices by email —
+opt-in per org (24/48/72h, Settings → Schedule notices), per-assignment
+override, quiet hours (deferred to morning, never past the work), one
+notice per assignment with reschedule re-arming, recipient resolved at send
+time through the NEW `projects.customer_id` link (which WO-H CRM and WO-I
+portal build on). The org-level employee-reminder default landed on the
+same settings surface. SMS stays decision-gated (provider + who-pays).
+
 Phase 3+: module-conditional recovered-VAT line, e-sign, budget-vs-actual;
 the lawyer's standardized texts drop into the shipped template machinery
 when they arrive.

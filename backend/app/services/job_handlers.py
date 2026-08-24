@@ -280,6 +280,16 @@ async def _assignment_reminder(db, payload: dict, job: Job) -> dict:
     return await scheduling.send_due_reminder(db, job.org_id, payload["assignment_id"])
 
 
+@jobs.handler("assignment.client_notice")
+async def _assignment_client_notice(db, payload: dict, job: Job) -> dict:
+    """One arrival notice to the project's CUSTOMER (WO-E). Same exact-time
+    arming and staleness discipline as the assignee reminder; the recipient
+    (project → customer → email) is resolved at send time."""
+    from app.services import scheduling
+
+    return await scheduling.send_due_client_notice(db, job.org_id, payload["assignment_id"])
+
+
 # Kinds an authenticated user is allowed to enqueue via the API (safe, tenant
 # -scoped periodic work). Other kinds can only be created internally.
 USER_ENQUEUEABLE = (

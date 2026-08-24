@@ -26,17 +26,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.calendar_token import CalendarFeedToken
 from app.models.costing import Project
+from app.models.customer import Customer
 from app.models.membership import Membership
+from app.models.organization import Organization
 from app.models.project_assignment import ProjectAssignment
 from app.models.user import User
 from app.services import jobs, mailer
 
-#: Default reminder lead time when the assignment carries no override (WO-B;
-#: the per-ORG default becomes configurable with the client-notice settings
-#: of phase B3 — one settings surface for both, not two).
+#: Default reminder lead time when neither the assignment nor the org carries
+#: an override (WO-B; the org default arrived with the WO-E settings surface —
+#: one surface for both audiences, as promised).
 DEFAULT_REMIND_HOURS = 24
 
 ASSIGNMENT_REMINDER = "assignment.reminder"
+CLIENT_NOTICE = "assignment.client_notice"
+
+#: WO-E quiet hours, UTC: a notice whose due moment lands in [QUIET_START, 24)
+#: ∪ [0, QUIET_END) is deferred to QUIET_END that morning — "we arrive in 48h"
+#: must not reach a customer at 03:00. Fixed in code, not org config: one less
+#: knob, and the deferral never moves a notice past the work itself.
+QUIET_START = 20
+QUIET_END = 7
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -138,9 +148,11 @@ async def create(
     note: str | None,
     created_by: str,
     remind_hours_before: int | None = None,
+    client_notice_hours_before: int | None = None,
 ) -> tuple[ProjectAssignment, list[ProjectAssignment]]:
     """Create an assignment; returns (row, advisory overlaps). Sends the
-    assignee their notice and arms the reminder in the same transaction."""
+    assignee their notice and arms the reminder + client notice in the same
+    transaction."""
     starts_at, ends_at = _as_utc(starts_at), _as_utc(ends_at)
     _validate_window(starts_at, ends_at)
     await _project_or_404(db, org_id, project_id)
@@ -158,12 +170,14 @@ async def create(
         note=note,
         created_by=created_by,
         remind_hours_before=remind_hours_before,
+        client_notice_hours_before=client_notice_hours_before,
     )
     warnings = await overlaps_for(db, org_id, assignee_user_id, starts_at, ends_at)
     db.add(row)
     await db.flush()
     await notify_assigned(db, row)
     await arm_reminder(db, row)
+    await arm_client_notice(db, row)
     return row, warnings
 
 
@@ -191,6 +205,8 @@ async def update(
     assignee_user_id: str | None = None,
     remind_hours_before: int | None = None,
     set_remind: bool = False,
+    client_notice_hours_before: int | None = None,
+    set_client_notice: bool = False,
 ) -> tuple[ProjectAssignment, list[ProjectAssignment]]:
     """Edit window/note/assignee on a non-terminal assignment; returns
     (row, advisory overlaps for the resulting window)."""
@@ -214,6 +230,8 @@ async def update(
         row.note = note
     if set_remind:
         row.remind_hours_before = remind_hours_before
+    if set_client_notice:
+        row.client_notice_hours_before = client_notice_hours_before
 
     _validate_window(_as_utc(row.starts_at), _as_utc(row.ends_at))
     warnings = await overlaps_for(
@@ -222,6 +240,7 @@ async def update(
     await db.flush()
     await notify_changed(db, row)
     await arm_reminder(db, row)
+    await arm_client_notice(db, row)
     return row, warnings
 
 
@@ -316,8 +335,15 @@ async def notify_cancelled(db: AsyncSession, row: ProjectAssignment) -> None:
     )
 
 
-def reminder_due_at(row: ProjectAssignment) -> datetime:
-    lead = row.remind_hours_before if row.remind_hours_before is not None else DEFAULT_REMIND_HOURS
+async def _org_remind_default(db: AsyncSession, org_id: str) -> int:
+    org = await db.scalar(select(Organization).where(Organization.id == org_id))
+    if org is not None and org.assignment_remind_hours is not None:
+        return org.assignment_remind_hours
+    return DEFAULT_REMIND_HOURS
+
+
+def reminder_due_at(row: ProjectAssignment, default_hours: int = DEFAULT_REMIND_HOURS) -> datetime:
+    lead = row.remind_hours_before if row.remind_hours_before is not None else default_hours
     return _as_utc(row.starts_at) - timedelta(hours=lead)
 
 
@@ -326,7 +352,7 @@ async def arm_reminder(db: AsyncSession, row: ProjectAssignment) -> None:
     (assignment, due-moment) so a reschedule arms a fresh job; already-past due
     moments are skipped (assigning tomorrow's work tonight sends no reminder —
     the assignment notice itself just arrived)."""
-    due = reminder_due_at(row)
+    due = reminder_due_at(row, await _org_remind_default(db, row.org_id))
     if due <= datetime.now(UTC):
         return
     await jobs.enqueue(
@@ -351,7 +377,7 @@ async def send_due_reminder(db: AsyncSession, org_id: str, assignment_id: str) -
     if row is None or row.status in ("cancelled", "done") or row.reminder_sent_at is not None:
         return {"sent": False, "reason": "stale"}
     now = datetime.now(UTC)
-    due = reminder_due_at(row)
+    due = reminder_due_at(row, await _org_remind_default(db, org_id))
     if now < due - timedelta(seconds=60):
         await arm_reminder(db, row)  # moved later since this job was armed
         return {"sent": False, "reason": "rearmed"}
@@ -365,6 +391,129 @@ async def send_due_reminder(db: AsyncSession, org_id: str, assignment_id: str) -
     row.reminder_sent_at = now
     await db.flush()
     return {"sent": True}
+
+
+# --------------------------------------------------------------------------- #
+# WO-E (work-calendar §B3): the CLIENT arrival notice — "scheduled work on
+# {date}" to the project's customer, N hours before the assignment starts.
+# Same rails and the same staleness discipline as the employee reminder, with
+# three extra rules: the feature is OPT-IN (org default off; a per-assignment
+# override enables one-off), the due moment respects quiet hours, and the
+# recipient is resolved AT SEND TIME (project → customer → email), so pointing
+# the project at a customer after scheduling still works.
+# --------------------------------------------------------------------------- #
+
+
+async def _org_client_notice_hours(db: AsyncSession, org_id: str) -> int | None:
+    org = await db.scalar(select(Organization).where(Organization.id == org_id))
+    return org.client_notice_hours if org is not None else None
+
+
+def _effective_notice_hours(row: ProjectAssignment, org_hours: int | None) -> int | None:
+    """The lead actually in force: the assignment override wins; None = off."""
+    if row.client_notice_hours_before is not None:
+        return row.client_notice_hours_before
+    return org_hours
+
+
+def _defer_for_quiet(due: datetime, starts_at: datetime) -> datetime:
+    """Shift a due moment out of the quiet window (UTC) to QUIET_END that
+    morning, but never past the work itself."""
+    if QUIET_END <= due.hour < QUIET_START:
+        return due
+    morning = due.replace(hour=QUIET_END, minute=0, second=0, microsecond=0)
+    if due.hour >= QUIET_START:  # late evening → next morning
+        morning += timedelta(days=1)
+    return min(morning, starts_at)
+
+
+def client_notice_due_at(row: ProjectAssignment, org_hours: int | None) -> datetime | None:
+    lead = _effective_notice_hours(row, org_hours)
+    if lead is None:
+        return None
+    starts = _as_utc(row.starts_at)
+    return _defer_for_quiet(starts - timedelta(hours=lead), starts)
+
+
+async def arm_client_notice(db: AsyncSession, row: ProjectAssignment) -> None:
+    """Enqueue the client notice for the CURRENT window/lead. Skips when the
+    feature is off for this assignment, the notice already went out, or the
+    due moment is already past (scheduling tomorrow's work tonight sends no
+    "heads-up 48h before" — there is no such moment left)."""
+    if row.client_notice_sent_at is not None:
+        return
+    due = client_notice_due_at(row, await _org_client_notice_hours(db, row.org_id))
+    if due is None or due <= datetime.now(UTC):
+        return
+    await jobs.enqueue(
+        db,
+        CLIENT_NOTICE,
+        {"assignment_id": row.id},
+        org_id=row.org_id,
+        run_after=due,
+        idempotency_key=f"{CLIENT_NOTICE}:{row.id}:{due.isoformat()}",
+    )
+
+
+async def _client_recipient(
+    db: AsyncSession, org_id: str, project_id: str
+) -> tuple[Project, str] | None:
+    """(project, email) when the project has a customer with an email."""
+    project = await db.scalar(
+        select(Project).where(Project.org_id == org_id, Project.id == project_id)
+    )
+    if project is None or project.customer_id is None:
+        return None
+    customer = await db.scalar(
+        select(Customer).where(Customer.org_id == org_id, Customer.id == project.customer_id)
+    )
+    if customer is None or not customer.email:
+        return None
+    return project, customer.email
+
+
+async def send_due_client_notice(db: AsyncSession, org_id: str, assignment_id: str) -> dict:
+    """The queue handler's work. Stale checks mirror the employee reminder
+    (cancelled/done/deleted/already-sent → no-op; disabled since arming →
+    no-op; moved later → re-arm), then the recipient is resolved live. One
+    notice per assignment, ever — client_notice_sent_at is the stamp."""
+    row = await db.scalar(
+        select(ProjectAssignment).where(
+            ProjectAssignment.org_id == org_id, ProjectAssignment.id == assignment_id
+        )
+    )
+    if row is None or row.status in ("cancelled", "done") or row.client_notice_sent_at is not None:
+        return {"sent": False, "reason": "stale"}
+    due = client_notice_due_at(row, await _org_client_notice_hours(db, org_id))
+    if due is None:
+        return {"sent": False, "reason": "disabled"}
+    now = datetime.now(UTC)
+    if now < due - timedelta(seconds=60):
+        await arm_client_notice(db, row)  # moved later since this job was armed
+        return {"sent": False, "reason": "rearmed"}
+    recipient = await _client_recipient(db, org_id, row.project_id)
+    if recipient is None:
+        # No customer on the project, or no email on the customer. Not stamped:
+        # nothing was sent, and a later reschedule (which re-arms) may find one.
+        return {"sent": False, "reason": "no-recipient"}
+    project, email = recipient
+    body = (
+        "This is a scheduled-work notice from your service provider.\n\n"
+        f"Project:  {project.name}\n"
+        f"When:     {_window_text(row)}\n"
+        "\nIf this time does not suit you, please reply or call to reschedule."
+    )
+    await mailer.send(
+        db,
+        org_id,
+        kind="client_notice",
+        to_email=email,
+        subject="Upcoming scheduled work",
+        body=body,
+    )
+    row.client_notice_sent_at = now
+    await db.flush()
+    return {"sent": True, "to": email}
 
 
 # --------------------------------------------------------------------------- #
@@ -382,9 +531,7 @@ async def get_or_create_feed_token(db: AsyncSession, org_id: str, user_id: str) 
         )
     )
     if row is None:
-        row = CalendarFeedToken(
-            org_id=org_id, user_id=user_id, token=secrets.token_urlsafe(32)
-        )
+        row = CalendarFeedToken(org_id=org_id, user_id=user_id, token=secrets.token_urlsafe(32))
         db.add(row)
         await db.flush()
     return row.token

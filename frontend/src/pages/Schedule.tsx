@@ -155,6 +155,7 @@ export default function Schedule() {
     end: string;
     all_day: boolean;
     note: string;
+    client_notice: string;
   } | null>(null);
 
   const weekEnd = new Date(weekStart.getTime() + 7 * DAY_MS);
@@ -219,6 +220,9 @@ export default function Schedule() {
           ends_at: ends.toISOString(),
           all_day: form.all_day,
           note: form.note || null,
+          ...(form.client_notice
+            ? { client_notice_hours_before: Number(form.client_notice) }
+            : {}),
         })
       ).data;
     },
@@ -315,6 +319,7 @@ export default function Schedule() {
                 end: "17:00",
                 all_day: false,
                 note: "",
+                client_notice: "",
               })
             }
           >
@@ -408,6 +413,24 @@ export default function Schedule() {
               placeholder="Bring the signed contract"
               onChange={(e) => setForm({ ...form, note: e.target.value })}
             />
+          </div>
+          <div>
+            <label className="label">Customer arrival notice (this assignment)</label>
+            <select
+              className="input sm:w-72"
+              value={form.client_notice}
+              onChange={(e) => setForm({ ...form, client_notice: e.target.value })}
+            >
+              <option value="">Workspace default</option>
+              <option value="24">24 hours before</option>
+              <option value="48">48 hours before</option>
+              <option value="72">72 hours before</option>
+            </select>
+            <p className="mt-1 text-xs text-slate-500">
+              Emails the project&apos;s customer before this work — needs a customer with an
+              email on the project. Setting it here enables the notice even if the
+              workspace default is off.
+            </p>
           </div>
           <div className="flex gap-2">
             <Button

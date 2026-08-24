@@ -126,6 +126,7 @@ export default function Settings() {
       </section>
 
       {canEdit && <LifecycleSettingsCard />}
+      {canEdit && <ScheduleNoticesCard />}
 
       {canEdit && <BackgroundJobs />}
       {canEdit && <Webhooks />}
@@ -797,6 +798,91 @@ function LifecycleSettingsCard() {
             Off = linked but not gated (the default).
           </span>
         </label>
+      </div>
+    </section>
+  );
+}
+
+// WO-E: one surface for both schedule-notice audiences — the employee
+// reminder default and the customer arrival notice (opt-in, 24/48/72).
+function ScheduleNoticesCard() {
+  const qc = useQueryClient();
+  const [remind, setRemind] = useState<string | null>(null);
+
+  const settings = useQuery<{ assignment_remind_hours: number | null; client_notice_hours: number | null }>({
+    queryKey: ["settings", "schedule"],
+    queryFn: async () => (await api.get("/settings/schedule")).data,
+  });
+
+  const save = useMutation({
+    mutationFn: async (body: Record<string, unknown>) =>
+      (await api.put("/settings/schedule", body)).data,
+    onSuccess: (data) => {
+      qc.setQueryData(["settings", "schedule"], data);
+      setRemind(null);
+    },
+  });
+
+  const s = settings.data;
+  if (!s) return null;
+  const shownRemind = remind ?? (s.assignment_remind_hours == null ? "" : String(s.assignment_remind_hours));
+
+  return (
+    <section className="space-y-2">
+      <div className="px-1">
+        <h2 className="text-sm font-semibold text-slate-600">Schedule notices</h2>
+        <p className="text-sm text-slate-500">
+          When your team is reminded of upcoming work, and whether your customers
+          get an arrival notice by email before scheduled work. Notices respect
+          quiet hours and are sent once per assignment.
+        </p>
+      </div>
+      <div className="card flex flex-wrap items-end gap-4 p-4">
+        <div>
+          <label className="label">Team reminder (hours before)</label>
+          <input
+            className="input w-40"
+            type="number"
+            min={1}
+            max={336}
+            placeholder="24 (default)"
+            value={shownRemind}
+            onChange={(e) => setRemind(e.target.value)}
+          />
+        </div>
+        <Button
+          variant="secondary"
+          disabled={save.isPending || remind === null}
+          onClick={() =>
+            save.mutate(
+              shownRemind.trim()
+                ? { assignment_remind_hours: Number(shownRemind) }
+                : { clear_assignment_remind_hours: true },
+            )
+          }
+        >
+          Save reminder
+        </Button>
+        <div>
+          <label className="label">Customer arrival notice</label>
+          <select
+            className="input w-44"
+            value={s.client_notice_hours == null ? "" : String(s.client_notice_hours)}
+            disabled={save.isPending}
+            onChange={(e) =>
+              save.mutate(
+                e.target.value
+                  ? { client_notice_hours: Number(e.target.value) }
+                  : { clear_client_notice_hours: true },
+              )
+            }
+          >
+            <option value="">Off (default)</option>
+            <option value="24">24 hours before</option>
+            <option value="48">48 hours before</option>
+            <option value="72">72 hours before</option>
+          </select>
+        </div>
       </div>
     </section>
   );

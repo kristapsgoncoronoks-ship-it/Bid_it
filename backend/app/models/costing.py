@@ -120,6 +120,13 @@ class Project(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # project_documents row (typically kind='acceptance', generated from the
     # acceptance template or uploaded countersigned). Revoking clears all
     # three (audited) — e-sign is the later seam.
+    # The customer this project is FOR (WO-E; WO-H/WO-I build on it). Same
+    # reference style as ProjectAssignment.assignee_user_id: id validated
+    # org-scoped in the service at write time, no DB-level FK — customers are
+    # archived rather than deleted, and the composite-FK alternative cannot
+    # express SET NULL without nulling org_id. Nullable: plenty of projects
+    # (internal work) have no customer.
+    customer_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     accepted_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     acceptance_document_id: Mapped[str | None] = mapped_column(GUID(), nullable=True)

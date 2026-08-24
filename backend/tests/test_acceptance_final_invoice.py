@@ -68,9 +68,7 @@ async def test_acceptance_records_shows_on_wire_and_revokes_audited(auth_client,
     assert pnl["acceptance_note"] == "Handover walked through together"
 
     # Double-record refused; the stamp is not silently movable.
-    again = await auth_client.post(
-        f"/api/v1/masters/projects/{project_id}/acceptance", json={}
-    )
+    again = await auth_client.post(f"/api/v1/masters/projects/{project_id}/acceptance", json={})
     assert again.status_code == 400
 
     r = await auth_client.delete(f"/api/v1/masters/projects/{project_id}/acceptance")

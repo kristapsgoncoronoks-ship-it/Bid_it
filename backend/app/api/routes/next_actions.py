@@ -113,7 +113,10 @@ async def create_deadline(body: DeadlineIn, current: CurrentUser, db: DbSession)
     except next_actions.NextActionsError as exc:
         _raise(exc)
     await audit.record(
-        db, "next_action.deadline_create", target_type="deadline", target_id=row.id,
+        db,
+        "next_action.deadline_create",
+        target_type="deadline",
+        target_id=row.id,
         meta={"name": row.name, "cadence": row.cadence},
     )
     await db.commit()
@@ -128,7 +131,10 @@ async def complete_deadline(deadline_id: str, current: CurrentUser, db: DbSessio
     except next_actions.NextActionsError as exc:
         _raise(exc)
     await audit.record(
-        db, "next_action.deadline_complete", target_type="deadline", target_id=row.id,
+        db,
+        "next_action.deadline_complete",
+        target_type="deadline",
+        target_id=row.id,
         meta={"period": row.last_done_period},
     )
     await db.commit()
@@ -144,7 +150,10 @@ async def delete_deadline(deadline_id: str, current: CurrentUser, db: DbSession)
         _raise(exc)
     # The audit meta carries WHAT was removed — after commit it is the only trace.
     await audit.record(
-        db, "next_action.deadline_delete", target_type="deadline", target_id=deadline_id,
+        db,
+        "next_action.deadline_delete",
+        target_type="deadline",
+        target_id=deadline_id,
         meta={"name": row.name, "cadence": row.cadence},
     )
     await db.commit()

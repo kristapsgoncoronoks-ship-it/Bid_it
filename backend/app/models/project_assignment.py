@@ -58,7 +58,9 @@ class ProjectAssignment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         CheckConstraint("ends_at > starts_at", name="ck_project_assignments_window"),
         # The calendar's questions: "who is where this week" and "what is
         # planned on this project".
-        Index("ix_project_assignments_org_assignee_start", "org_id", "assignee_user_id", "starts_at"),
+        Index(
+            "ix_project_assignments_org_assignee_start", "org_id", "assignee_user_id", "starts_at"
+        ),
         Index("ix_project_assignments_org_start", "org_id", "starts_at"),
         Index("ix_project_assignments_org_project", "org_id", "project_id"),
     )
@@ -82,6 +84,14 @@ class ProjectAssignment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # code), and the one-reminder idempotency stamp (the queue is at-least-once).
     remind_hours_before: Mapped[int | None] = mapped_column(nullable=True)
     reminder_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # WO-E client arrival notice ("we arrive in 48h", to the project's CUSTOMER):
+    # per-assignment lead override — setting it also enables the notice for this
+    # assignment even when the org default is off — and the one-notice-ever stamp.
+    client_notice_hours_before: Mapped[int | None] = mapped_column(nullable=True)
+    client_notice_sent_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
