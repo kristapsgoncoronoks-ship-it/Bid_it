@@ -384,14 +384,17 @@ function CustomerCard({
     queryKey: ["customers"],
     queryFn: async () => {
       try {
-        return (await api.get("/customers")).data;
+        const data = (await api.get("/customers")).data;
+        return Array.isArray(data) ? data : []; // shape-guard, not just error-guard
       } catch {
         return []; // issuing module off → no customers to link, hide quietly
       }
     },
   });
 
-  const linked = projects.data?.find((p) => p.id === projectId)?.customer_id ?? "";
+  const linked =
+    (Array.isArray(projects.data) ? projects.data : []).find((p) => p.id === projectId)
+      ?.customer_id ?? "";
 
   const save = useMutation({
     mutationFn: async (customer_id: string) =>
