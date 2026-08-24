@@ -38,12 +38,12 @@ Verified LOCALLY at this tree (executed, not recalled):
 
 | Check | Result |
 |---|---|
-| Backend suite | **2737 passed, 11 skipped, 0 failed (43:13)** on 2026-08-23 at `df9642a` — adds WO-D (acceptance & final invoice) on top of the deployed tree. Production is one additive migration behind (`f0a2b4c6d8e0`, proven on scratch Postgres 16) |
+| Backend suite | **2745 passed, 11 skipped, 0 failed (38:13)** on 2026-08-24 at `3d0f3cb` — adds WO-E (client arrival notices) on top of WO-D. Production is two additive migrations behind (`f0a2b4c6d8e0`, `a1b3c5d7e9f1`, both proven on scratch Postgres 16 incl. RLS/tenancy suites there) |
 | `ruff check` / `ruff format --check` | clean |
 | `mypy app` | clean, 357 files |
-| Alembic | single head `f0a2b4c6d8e0` (acceptance & final invoice) — production is at `e9f1a3b5c7d9`, one additive migration behind |
-| Browser suite | **359 passed (4.6m)** on 2026-08-23, at `df9642a` |
-| Prior certified runs | 2729 passed 2026-08-23 at the deployed tree `ee37037`; 2720 passed 2026-08-23 at `60e1faf`; 2714 passed 2026-08-23 at `2c5e93a`; 2705 passed 2026-08-20 at `d2ba5b0`; 2694 passed 2026-08-16 at `56bcab7` (single environmental failure — container lost the tesseract binary; reinstalled, OCR 2/2) |
+| Alembic | single head `a1b3c5d7e9f1` (client arrival notices) — production is at `e9f1a3b5c7d9`, two additive migrations behind |
+| Browser suite | **363 passed** on 2026-08-24 at `3d0f3cb` (362 in the 4.1m batch + one vat-claims spec that timed out in-batch and passed clean on isolated re-run — a flake, not a regression; its whole file re-ran 45/45). The first WO-E round caught a real crash in the new Customer card, fixed in `3d0f3cb` before certifying |
+| Prior certified runs | 2737 passed 2026-08-23 at `df9642a`; 2729 passed 2026-08-23 at the deployed tree `ee37037`; 2720 passed 2026-08-23 at `60e1faf`; 2714 passed 2026-08-23 at `2c5e93a`; 2705 passed 2026-08-20 at `d2ba5b0`; 2694 passed 2026-08-16 at `56bcab7` (single environmental failure — container lost the tesseract binary; reinstalled, OCR 2/2) |
 
 The browser gap the first draft of this runbook carried is CLOSED: the suite has
 been re-run since the consent dialog was reordered, and since the archive screen
