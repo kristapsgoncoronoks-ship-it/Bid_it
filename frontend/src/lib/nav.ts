@@ -81,7 +81,6 @@ export const LIVE_NAV: LiveNavGroup[] = [
     items: [
       { to: "/issue", label: "Issue", module: "issuing", end: true, icon: icon("M6 3h12v18l-3-2-3 2-3-2-3 2V3zM9 8h6M9 12h6") },
       { to: "/customers", label: "Customers", module: "issuing", icon: icon("M16 20v-1a4 4 0 00-4-4H8a4 4 0 00-4 4v1M10 11a3 3 0 100-6 3 3 0 000 6zm10 9v-1a4 4 0 00-3-3.8") },
-      { to: "/pipeline", label: "Pipeline", icon: icon("M4 5h4v14H4V5zm6 0h4v9h-4V5zm6 0h4v5h-4V5z") },
       { to: "/receipts", label: "Receipts", module: "issuing", icon: icon("M6 2h12v20l-3-2-3 2-3-2-3 2V2zM9 7h6M9 11h6") },
       { to: "/reconciliation", label: "Reconciliation", module: "issuing", icon: icon("M4 4l16 16M20 4L4 20") },
       { to: "/issue/reports", label: "Invoice reports", module: "issuing", icon: icon("M4 20V10M10 20V4M16 20v-7M22 20H2") },
@@ -93,6 +92,7 @@ export const LIVE_NAV: LiveNavGroup[] = [
     title: "Insights",
     items: [
       { to: "/explore", label: "Explore", icon: icon("M11 4a7 7 0 105.3 12.6l4.05 4.05 1.4-1.4-4.05-4.05A7 7 0 0011 4zm0 2a5 5 0 110 10 5 5 0 010-10z") },
+      { to: "/pipeline", label: "Pipeline", icon: icon("M4 5h4v14H4V5zm6 0h4v9h-4V5zm6 0h4v5h-4V5z") },
       { to: "/benchmark", label: "Benchmark", icon: icon("M4 20V10M10 20V4M16 20v-7M22 20H2") },
       { to: "/supplier-costs", label: "Supplier costs", icon: icon("M3 17l5-5 4 3 6-7M21 8V5h-3") },
       { to: "/fx", label: "FX", icon: icon("M7 8l4-4 4 4M11 4v12M17 16l-4 4-4-4M13 20V8") },
