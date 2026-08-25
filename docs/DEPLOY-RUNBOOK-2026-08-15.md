@@ -40,13 +40,13 @@ Verified at this tree (executed, not recalled):
 
 | Check | Result |
 |---|---|
-| **CI (GitHub runners)** | **run #465 SUCCESS, all 8 jobs**, 2026-08-25 at `46d3167` (workflow_dispatch, 34m) |
-| Backend suite | **2754 passed, 11 skipped, 0 failed (36:36)** on 2026-08-25 at `46d3167` — adds WO-G (supplier cost analytics, no migration) on top of WO-D/E/F. Production is three additive migrations behind (`f0a2b4c6d8e0`, `a1b3c5d7e9f1`, `b2c4d6e8f0a2`, all proven on scratch Postgres 16) |
+| **CI (GitHub runners)** | run #468 at WO-H `56f80a3`: 6/8 jobs green incl. the full SQLite suite (31m) and the real-Postgres RLS job; its two failures were both fixed before certifying — the nav regression (`fb61138`) and a format drift in the docs tripwire CI caught that local gates missed (this tree). Prior: **run #465 SUCCESS, all 8 jobs** at `46d3167` |
+| Backend suite | **2761 passed, 11 skipped, 0 failed (33:36)** on 2026-08-25 at the WO-H tree — adds CRM light (customer notes, lifecycle, timeline, offer pipeline + stage events) on top of WO-D/E/F/G. Production is four additive migrations behind (`f0a2b4c6d8e0`, `a1b3c5d7e9f1`, `b2c4d6e8f0a2`, `c3d5e7f9a1b3`, all proven on scratch Postgres 16) |
 | `ruff check` / `ruff format --check` | clean |
-| `mypy app` | clean, 358 files |
-| Alembic | single head `b2c4d6e8f0a2` (job photos) — production is at `e9f1a3b5c7d9`, three additive migrations behind |
-| Browser suite | **369 passed (4.0m)** on 2026-08-25 at `46d3167`, no flakes |
-| Prior certified runs | 2748 / 366 browser 2026-08-24 at `31e0e0b`; 2745 / 363 browser 2026-08-24 at `3d0f3cb` (one vat-claims flake re-ran clean 45/45; the WO-E round caught a real Customer-card crash, fixed before certifying); 2737 passed 2026-08-23 at `df9642a`; 2729 passed 2026-08-23 at the deployed tree `ee37037`; 2720 passed 2026-08-23 at `60e1faf`; 2714 passed 2026-08-23 at `2c5e93a`; 2705 passed 2026-08-20 at `d2ba5b0`; 2694 passed 2026-08-16 at `56bcab7` (single environmental failure — tesseract reinstalled, OCR 2/2) |
+| `mypy app` | clean, 360 files |
+| Alembic | single head `c3d5e7f9a1b3` (CRM light) — production is at `e9f1a3b5c7d9`, four additive migrations behind |
+| Browser suite | **372 passed (3.9m)** on 2026-08-25 at the WO-H tree, no flakes. Round 1 caught a real nav regression (ungated Pipeline entry broke the empty-Receivables-disappears behavior), fixed in `fb61138` before certifying |
+| Prior certified runs | 2754 / 369 browser 2026-08-25 at `46d3167` (+ CI #465 all-green); 2748 / 366 browser 2026-08-24 at `31e0e0b`; 2745 / 363 browser 2026-08-24 at `3d0f3cb` (one vat-claims flake re-ran clean 45/45; the WO-E round caught a real Customer-card crash, fixed before certifying); 2737 passed 2026-08-23 at `df9642a`; 2729 passed 2026-08-23 at the deployed tree `ee37037`; 2720 at `60e1faf`; 2714 at `2c5e93a`; 2705 2026-08-20 at `d2ba5b0`; 2694 2026-08-16 at `56bcab7` (single environmental failure — tesseract reinstalled, OCR 2/2) |
 
 The browser gap the first draft of this runbook carried is CLOSED: the suite has
 been re-run since the consent dialog was reordered, and since the archive screen
