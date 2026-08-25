@@ -109,8 +109,11 @@ action catalog; pull earlier if multiple WOs start hand-rolling bespoke
 ## Owner-side track (parallel, not code)
 
 1. Finish the in-flight VPS deploy (`./scripts/vps-deploy.sh`).
-2. Repo public (pre-publication scan done; harden SSH first) → Actions free.
-3. CI alive → set 3 deploy secrets + DEPLOY_ENABLED → merge-to-main deploys.
+2. ~~Repo public~~ ✅ DONE 2026-08-25 → Actions free → **CI run #465 green
+   at `46d3167`** (first verdict since 2026-08-12).
+3. CI alive ✅ → set 3 deploy secrets + DEPLOY_ENABLED → merge-to-main
+   deploys. (Also recommended now public: secret scanning + push
+   protection in repo Settings → Security.)
 4. After that: GHCR prebuilt images (adds a CI job; README count bump).
 5. Still the highest-value validation item: one real redacted supplier
    statement through the system.

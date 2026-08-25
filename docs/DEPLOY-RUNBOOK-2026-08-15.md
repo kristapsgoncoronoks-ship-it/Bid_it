@@ -28,22 +28,24 @@ deploy that `git reset` does not undo.
 
 ## 0. Before you start — what has and has not been verified
 
-**CI has not verified this commit, or any commit since 2026-08-12.** Every
-GitHub Actions run fails within about a second with no logs, on every branch —
-the runners are not starting, which is an account/billing condition rather than a
-code fault. Twelve pushes have triggered nothing. So the checks the deploy job
-would normally gate on have not run.
+**✅ CI IS ALIVE AGAIN — and green.** The repo went public on 2026-08-25
+(Actions minutes free), and CI run #465 (workflow_dispatch, all 8 jobs)
+passed at `46d3167` on the development branch — the first CI verdict since
+the billing outage began 2026-08-12. Caveat: workflows were auto-disabled
+during the outage, so pushes from that window triggered nothing; the next
+push should trigger normally (verify once, then delete this sentence).
 
-Verified LOCALLY at this tree (executed, not recalled):
+Verified at this tree (executed, not recalled):
 
 | Check | Result |
 |---|---|
-| Backend suite | **2748 passed, 11 skipped, 0 failed (33:01)** on 2026-08-24 at `31e0e0b` — adds WO-F (job photos) on top of WO-D/WO-E. Production is three additive migrations behind (`f0a2b4c6d8e0`, `a1b3c5d7e9f1`, `b2c4d6e8f0a2`, all proven on scratch Postgres 16) |
+| **CI (GitHub runners)** | **run #465 SUCCESS, all 8 jobs**, 2026-08-25 at `46d3167` (workflow_dispatch, 34m) |
+| Backend suite | **2754 passed, 11 skipped, 0 failed (36:36)** on 2026-08-25 at `46d3167` — adds WO-G (supplier cost analytics, no migration) on top of WO-D/E/F. Production is three additive migrations behind (`f0a2b4c6d8e0`, `a1b3c5d7e9f1`, `b2c4d6e8f0a2`, all proven on scratch Postgres 16) |
 | `ruff check` / `ruff format --check` | clean |
-| `mypy app` | clean, 357 files |
+| `mypy app` | clean, 358 files |
 | Alembic | single head `b2c4d6e8f0a2` (job photos) — production is at `e9f1a3b5c7d9`, three additive migrations behind |
-| Browser suite | **366 passed (3.6m)** on 2026-08-24 at `31e0e0b`, no flakes |
-| Prior certified runs | 2745 passed / 363 browser 2026-08-24 at `3d0f3cb` (one vat-claims flake re-ran clean 45/45; the WO-E round caught a real Customer-card crash, fixed before certifying); 2737 passed 2026-08-23 at `df9642a`; 2729 passed 2026-08-23 at the deployed tree `ee37037`; 2720 passed 2026-08-23 at `60e1faf`; 2714 passed 2026-08-23 at `2c5e93a`; 2705 passed 2026-08-20 at `d2ba5b0`; 2694 passed 2026-08-16 at `56bcab7` (single environmental failure — container lost the tesseract binary; reinstalled, OCR 2/2) |
+| Browser suite | **369 passed (4.0m)** on 2026-08-25 at `46d3167`, no flakes |
+| Prior certified runs | 2748 / 366 browser 2026-08-24 at `31e0e0b`; 2745 / 363 browser 2026-08-24 at `3d0f3cb` (one vat-claims flake re-ran clean 45/45; the WO-E round caught a real Customer-card crash, fixed before certifying); 2737 passed 2026-08-23 at `df9642a`; 2729 passed 2026-08-23 at the deployed tree `ee37037`; 2720 passed 2026-08-23 at `60e1faf`; 2714 passed 2026-08-23 at `2c5e93a`; 2705 passed 2026-08-20 at `d2ba5b0`; 2694 passed 2026-08-16 at `56bcab7` (single environmental failure — tesseract reinstalled, OCR 2/2) |
 
 The browser gap the first draft of this runbook carried is CLOSED: the suite has
 been re-run since the consent dialog was reordered, and since the archive screen
@@ -309,5 +311,7 @@ never deployed, and the reason the pre-flight above is not optional.
 - [ ] Get one real supplier statement, redacted, through the system. This is the
       highest-value open item on the board and no amount of testing substitutes
       for it.
-- [ ] Chase the GitHub Actions billing condition. Until it is fixed every
-      release rests on one person's local runs.
+- [x] ~~Chase the GitHub Actions billing condition.~~ RESOLVED 2026-08-25:
+      repo public → Actions free → CI run #465 green. Next: set the three
+      deploy secrets (`DEPLOY_SSH_KEY`/`DEPLOY_HOST`/`DEPLOY_USER`) +
+      `DEPLOY_ENABLED=true` for merge-to-main auto-deploys (§ deploy job).
