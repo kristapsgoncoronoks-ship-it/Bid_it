@@ -33,6 +33,7 @@ from app.models.calendar_token import CalendarFeedToken
 from app.models.capture_acknowledgement import CaptureAcknowledgement
 from app.models.capture_field_memory import CaptureFieldMemory
 from app.models.costing import CostCenter, Department, Project
+from app.models.crm import CustomerNote, OfferStageEvent
 from app.models.currency import Currency
 from app.models.customer import Customer, CustomerContact
 from app.models.document import Document
@@ -170,6 +171,8 @@ TENANT_MODELS = (
     ExpenseApprovalStep,
     Customer,
     CustomerContact,
+    CustomerNote,
+    OfferStageEvent,
     BankStatement,
     BankLine,
     SupplierPayment,

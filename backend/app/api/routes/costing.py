@@ -41,7 +41,7 @@ from app.schemas.project_profit import (
     ProjectDocumentOut,
     ProjectPnlOut,
 )
-from app.services import audit, costing, project_offers, project_profit
+from app.services import audit, costing, crm, project_offers, project_profit
 
 # Structural authorization (ADR-0024): the masters feed the cost-allocation
 # pickers on invoice and expense forms, so reading them declares INVOICE_READ —
@@ -191,6 +191,14 @@ async def update_project(entity_id: str, body: MasterUpdate, current: CurrentUse
         )
     except costing.CostingError as exc:
         _raise(exc)
+
+
+@router.get("/offers-pipeline")
+async def offers_pipeline(current: CurrentUser, db: DbSession):
+    """CRM light (WO-H): the kanban read over the EXISTING offer pipeline —
+    offers grouped by status with days-in-stage and the staleness flag. Rides
+    the router-level INVOICE_READ like every other offers read."""
+    return await crm.pipeline(db, current.org_id)
 
 
 class ProjectCustomerIn(BaseModel):
@@ -525,7 +533,7 @@ async def transition_project_offer(
 ):
     try:
         offer, seeded = await project_offers.transition_offer(
-            db, current.org_id, offer_id, body.status
+            db, current.org_id, offer_id, body.status, actor=current.email
         )
     except project_profit.ProjectProfitError as exc:
         _raise_pp(exc)

@@ -188,6 +188,15 @@ change detection, KPI cards from the same fold as the table, per-item
 monthly price graph. Read models only — zero new tables, no external data
 (ADR-0027 untouched). Phase 2 (agreed prices + overcharge rule) queued.
 
+**CRM light SHIPPED 2026-08-25 (WO-H):** the customer page (notes + a
+DERIVED activity timeline over what the system already knows),
+`customers.lifecycle` prospect|active|dormant|lost (a column, no lead
+entity — documented anti-pattern), and the `/pipeline` kanban over the
+existing offer statuses with days-in-stage from new stamped
+`offer_stage_events` rows and the red staleness flag on quiet sent offers.
+Two small tenant tables with full three-layer tenancy + parity probes in
+the same commit; 100 tables, 93-model registry.
+
 Phase 3+: module-conditional recovered-VAT line, e-sign, budget-vs-actual;
 the lawyer's standardized texts drop into the shipped template machinery
 when they arrive.

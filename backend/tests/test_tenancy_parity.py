@@ -2580,6 +2580,53 @@ async def _next_actions_tables(ctx: Ctx) -> None:
         _assert_404(gone, f"{me.name} delete {other.name}'s deadline")
 
 
+@probe("customer_notes", "offer_stage_events")
+async def _crm_tables(ctx: Ctx) -> None:
+    """Notes carry relationship intelligence; stage history reveals a
+    workspace's pipeline. One probe proves both tables through their real
+    read paths (notes list / timeline / offers-pipeline)."""
+    notes: dict[str, tuple[str, str]] = {}  # org -> (customer_id, note_id)
+    numbers: dict[str, str] = {}  # org -> its offer number
+    for org in (ctx.a, ctx.b):
+        await org.put("/api/v1/modules/issuing", json={"enabled": True})
+        cust = await org.post(
+            "/api/v1/customers", json={"name": f"Client of {org.name}", "country": "LV"}
+        )
+        assert cust.status_code in (200, 201), cust.text
+        cid = cust.json()["id"]
+        note = await org.post(
+            f"/api/v1/customers/{cid}/notes", json={"body": f"SECRET TERMS OF {org.name}"}
+        )
+        assert note.status_code == 201, note.text
+        notes[org.name] = (cid, note.json()["id"])
+
+        pr = await org.post(
+            "/api/v1/masters/projects", json={"code": f"CRM-{org.name}", "name": "Pipeline job"}
+        )
+        assert pr.status_code in (200, 201), pr.text
+        off = await org.post(
+            f"/api/v1/masters/projects/{pr.json()['id']}/offers",
+            json={"title": "Quote", "lines": [{"description": "Work", "amount": "100.00"}]},
+        )
+        assert off.status_code == 201, off.text
+        numbers[org.name] = off.json()["number"]
+
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        other_cid, other_note = notes[other.name]
+        listed = await me.get(f"/api/v1/customers/{other_cid}/notes")
+        _assert_404(listed, f"{me.name} list {other.name}'s notes")
+        gone = await me.delete(f"/api/v1/customers/{other_cid}/notes/{other_note}")
+        _assert_404(gone, f"{me.name} delete {other.name}'s note")
+        tl = await me.get(f"/api/v1/customers/{other_cid}/timeline")
+        _assert_404(tl, f"{me.name} read {other.name}'s timeline")
+        pipe = await me.get("/api/v1/masters/offers-pipeline")
+        assert pipe.status_code == 200
+        projects_seen = {row["project"] for rows in pipe.json()["columns"].values() for row in rows}
+        assert not any(f"CRM-{other.name}" in p for p in projects_seen), (
+            f"TENANT LEAK: {me.name}'s pipeline shows {other.name}'s offer"
+        )
+
+
 ALL_TABLES = sorted(m.__tablename__ for m in TENANT_MODELS)
 
 

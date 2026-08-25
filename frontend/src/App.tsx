@@ -39,6 +39,8 @@ const DunningSettings = lazy(() => import("./pages/DunningSettings"));
 const Vendors = lazy(() => import("./pages/Vendors"));
 const Partners = lazy(() => import("./pages/Partners"));
 const Customers = lazy(() => import("./pages/Customers"));
+const CustomerDetail = lazy(() => import("./pages/CustomerDetail"));
+const Pipeline = lazy(() => import("./pages/Pipeline"));
 const Team = lazy(() => import("./pages/Team"));
 const Billing = lazy(() => import("./pages/Billing"));
 const Expenses = lazy(() => import("./pages/Expenses"));
@@ -167,6 +169,8 @@ export default function App() {
                 <Route path="/vendors" element={<Vendors />} />
                 <Route path="/partners" element={<Partners />} />
                 <Route path="/customers" element={<Customers />} />
+                <Route path="/customers/:id" element={<CustomerDetail />} />
+                <Route path="/pipeline" element={<Pipeline />} />
                 <Route path="/issuer" element={<Issuer />} />
                 <Route path="/expenses" element={<Expenses />} />
                 <Route path="/expenses/policy" element={<ExpensePolicy />} />

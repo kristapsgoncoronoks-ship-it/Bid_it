@@ -237,6 +237,17 @@ photo of the signed sheet is a perfectly good linked document — signed
 acceptance plus the pictures is what settles disputes about the final
 invoice. Only real images are accepted as photos.
 
+### 5.9 Customers as relationships
+
+Click any customer's name on the Customers list to open their page: a
+**stage** you can set (prospect → active → dormant → lost — no separate
+"leads" anywhere, on purpose), free-text **notes** ("prefers morning
+calls", "gate code 4711"), and an **activity feed** the system writes for
+you — offers sent and answered, projects, invoices, every email that
+actually went out, and your notes, newest first. Nobody curates it; if it
+happened, it's there. Every stage change and note is in the audit log like
+everything else.
+
 ## 5b. The schedule — planning the work
 
 `Overview → Schedule`. Put people on projects for a day or a time window.
@@ -310,6 +321,9 @@ forever. Nothing piles up, by design.
 - **Dashboard** — "what needs me today": approvals waiting, captures to
   review, aging, cash position; every section respects your role.
 - **Explore** — self-service pivot over spend by any dimension.
+- **Pipeline** — every offer as a board: Draft, Sent, Won, Lost. An offer
+  that sat with the customer past the threshold turns red with its age —
+  that is the one to chase today. Cards link to their project.
 - **Supplier costs** — what you actually pay per supplier and item, from the
   invoices already captured: an item appears after two priced purchases, the
   change compares the latest price with the weighted average of everything

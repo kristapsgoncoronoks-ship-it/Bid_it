@@ -78,14 +78,16 @@ tables/migrations, current engine (Postgres; settled in design doc §2b).
 Phase 2 (queued): agreed-price lists + validation-rule overcharge flag
 (advisory, org-configurable block) — the owner's "cost control" half.
 
-**WO-H — CRM light (researched 2026-08-23, `docs/design/crm-module-research.md`).**
-Customer notes + derived activity timeline (a view over existing audited
-events + one small notes table), `customers.lifecycle` status column (NO
-lead entity — documented anti-pattern), kanban over the existing offer
-pipeline with staleness flags + stage-history rows. Twenty et al. serve as
-design references only — embedding was researched and rejected (AGPL+
-commercial mixed licensing, 4-container Redis-dependent stack on a 4 GB
-VPS, schema-per-workspace tenancy incompatible with our RLS model).
+**WO-H — CRM light (researched 2026-08-23, `docs/design/crm-module-research.md`). ✅ SHIPPED 2026-08-25.**
+Customer page (notes + DERIVED activity timeline over existing audited
+events), `customers.lifecycle` column (NO lead entity — documented
+anti-pattern), `/pipeline` kanban over the existing offer statuses with
+days-in-stage from new `offer_stage_events` rows (stamped on create/
+transition/revise — cheap now, impossible to reconstruct later) and the
+staleness flag on quiet sent offers. Two small tenant tables, full
+three-layer tenancy + parity probes in the same commit (100 tables,
+93-model registry). Twenty et al. remain design references only —
+embedding was researched and rejected.
 
 **WO-I — Client portal ("module for clients").**
 Magic-link access (revocable per-customer tokens): offer view/approve/

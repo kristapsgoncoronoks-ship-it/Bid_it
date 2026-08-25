@@ -9,7 +9,16 @@ onto each issued invoice at issue time (the customer record may change later).
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -20,6 +29,10 @@ class Customer(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("org_id", "id", name="uq_customers_org_id"),
         Index("ix_customers_org_active", "org_id", "is_active"),
+        CheckConstraint(
+            "lifecycle IN ('prospect', 'active', 'dormant', 'lost')",
+            name="ck_customers_lifecycle",
+        ),
     )
 
     org_id: Mapped[str] = mapped_column(
@@ -33,6 +46,12 @@ class Customer(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Primary contact (a fuller list lives in CustomerContact).
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # CRM light (WO-H): the relationship stage as a COLUMN — prospect|active|
+    # dormant|lost. Deliberately NOT a lead entity (documented anti-pattern:
+    # the hard lead→customer conversion step manufactures duplicates).
+    lifecycle: Mapped[str] = mapped_column(
+        String(16), default="active", server_default="active", nullable=False
+    )
 
     # Billing address (appears on the invoice).
     address_line1: Mapped[str | None] = mapped_column(String(200), nullable=True)

@@ -33,6 +33,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import money
+from app.models.crm import OfferStageEvent
 from app.models.organization import Organization
 from app.models.project_offer import OFFER_STATUSES, InvoicingPlanRow, ProjectOffer
 from app.services.project_profit import NotFoundError, ProjectProfitError, _live_figures, _project
@@ -108,6 +109,14 @@ async def create_offer(
         created_by=created_by,
     )
     db.add(offer)
+    await db.flush()
+    # CRM light (WO-H): stage history is stamped at write time — cheap now,
+    # impossible to reconstruct later. from_status NULL = the offer was born.
+    db.add(
+        OfferStageEvent(
+            org_id=org_id, offer_id=offer.id, from_status=None, to_status="draft", actor=created_by
+        )
+    )
     return offer
 
 
@@ -141,8 +150,27 @@ async def revise_offer(
         note=note,
         created_by=created_by,
     )
-    prior.status = "superseded"
     db.add(revision)
+    await db.flush()
+    db.add(
+        OfferStageEvent(
+            org_id=org_id,
+            offer_id=prior.id,
+            from_status=prior.status,
+            to_status="superseded",
+            actor=created_by,
+        )
+    )
+    db.add(
+        OfferStageEvent(
+            org_id=org_id,
+            offer_id=revision.id,
+            from_status=None,
+            to_status="draft",
+            actor=created_by,
+        )
+    )
+    prior.status = "superseded"
     return revision
 
 
@@ -156,7 +184,7 @@ async def _offer(db: AsyncSession, org_id: str, offer_id: str) -> ProjectOffer:
 
 
 async def transition_offer(
-    db: AsyncSession, org_id: str, offer_id: str, status: str
+    db: AsyncSession, org_id: str, offer_id: str, status: str, *, actor: str | None = None
 ) -> tuple[ProjectOffer, int]:
     """Move an offer through its lifecycle. Returns (offer, plan_rows_seeded).
 
@@ -170,6 +198,15 @@ async def transition_offer(
     allowed = _TRANSITIONS.get(offer.status, set())
     if status not in allowed:
         raise ProjectProfitError(f"Cannot move an offer from '{offer.status}' to '{status}'")
+    db.add(
+        OfferStageEvent(
+            org_id=org_id,
+            offer_id=offer.id,
+            from_status=offer.status,
+            to_status=status,
+            actor=actor,
+        )
+    )
     offer.status = status
 
     seeded = 0

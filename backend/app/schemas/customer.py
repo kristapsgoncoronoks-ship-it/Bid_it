@@ -76,4 +76,5 @@ class CustomerOut(CustomerBase):
     model_config = ConfigDict(from_attributes=True)
     id: str
     created_at: datetime
+    lifecycle: str = "active"
     contacts: list[CustomerContactOut] = []

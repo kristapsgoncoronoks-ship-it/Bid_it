@@ -77,7 +77,15 @@ export default function CustomersPage() {
             {(customers.data ?? []).map((c) => (
               <tr key={c.id} className="border-b border-slate-100 last:border-0">
                 <td className="px-4 py-3 font-medium">
-                  {c.name}
+                  <Link to={`/customers/${c.id}`} className="hover:underline">
+                    {c.name}
+                  </Link>
+                  {(c as { lifecycle?: string }).lifecycle &&
+                    (c as { lifecycle?: string }).lifecycle !== "active" && (
+                      <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">
+                        {(c as { lifecycle?: string }).lifecycle}
+                      </span>
+                    )}
                   {c.email && <div className="text-xs text-slate-400">{c.email}</div>}
                 </td>
                 <td className="px-4 py-3 text-slate-500">{c.vat_number || "—"}</td>

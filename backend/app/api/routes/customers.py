@@ -8,6 +8,7 @@ survive.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -15,7 +16,7 @@ from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core.authz import Permission as _P
 from app.models.customer import Customer, CustomerContact
 from app.schemas.customer import CustomerCreate, CustomerOut, CustomerUpdate
-from app.services import modules
+from app.services import audit, crm, modules
 
 # Structural authorization (ADR-0024): every customer route needs at least
 # ISSUED_READ; the mutating routes declare ISSUED_WRITE per-route below.
@@ -130,3 +131,121 @@ async def delete_customer(customer_id: str, current: CurrentUser, db: DbSession)
     c = await _load(db, current.org_id, customer_id)
     c.is_active = False
     await db.commit()
+
+
+# --- CRM light (WO-H): notes, lifecycle, the derived timeline ---------------
+
+
+class NoteIn(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+
+
+class NoteOut(BaseModel):
+    id: str
+    body: str
+    created_by: str | None
+    created_at: str
+
+
+class LifecycleIn(BaseModel):
+    lifecycle: str
+
+
+def _note_out(n) -> NoteOut:
+    return NoteOut(
+        id=n.id, body=n.body, created_by=n.created_by, created_at=n.created_at.isoformat()
+    )
+
+
+def _raise_crm(exc: crm.CrmError) -> None:
+    if isinstance(exc, crm.NotFoundError):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
+    raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+
+
+@router.get("/{customer_id}/notes", response_model=list[NoteOut])
+async def list_customer_notes(customer_id: str, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    try:
+        return [_note_out(n) for n in await crm.list_notes(db, current.org_id, customer_id)]
+    except crm.CrmError as exc:
+        _raise_crm(exc)
+
+
+@router.post(
+    "/{customer_id}/notes",
+    response_model=NoteOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=_WRITE,
+)
+async def add_customer_note(customer_id: str, body: NoteIn, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    try:
+        note = await crm.add_note(
+            db, current.org_id, customer_id, body=body.body, created_by=current.email
+        )
+    except crm.CrmError as exc:
+        _raise_crm(exc)
+    await audit.record(
+        db,
+        "customer.note_add",
+        target_type="customer",
+        target_id=customer_id,
+        meta={"note_id": note.id},
+    )
+    await db.commit()
+    await db.refresh(note)
+    return _note_out(note)
+
+
+@router.delete(
+    "/{customer_id}/notes/{note_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=_WRITE,
+)
+async def delete_customer_note(customer_id: str, note_id: str, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    try:
+        destroyed = await crm.delete_note(db, current.org_id, customer_id, note_id)
+    except crm.CrmError as exc:
+        _raise_crm(exc)
+    await audit.record(
+        db,
+        "customer.note_delete",
+        target_type="customer",
+        target_id=customer_id,
+        meta=destroyed,
+    )
+    await db.commit()
+
+
+@router.put("/{customer_id}/lifecycle", response_model=CustomerOut, dependencies=_WRITE)
+async def set_customer_lifecycle(
+    customer_id: str, body: LifecycleIn, current: CurrentUser, db: DbSession
+):
+    await _guard(db, current.org_id)
+    try:
+        customer, prior = await crm.set_lifecycle(db, current.org_id, customer_id, body.lifecycle)
+    except crm.CrmError as exc:
+        _raise_crm(exc)
+    await audit.record(
+        db,
+        "customer.lifecycle_set",
+        target_type="customer",
+        target_id=customer_id,
+        meta={"lifecycle": customer.lifecycle, "prior": prior},
+    )
+    await db.commit()
+    await db.refresh(customer, attribute_names=["contacts"])
+    return CustomerOut.model_validate(customer)
+
+
+@router.get("/{customer_id}/timeline")
+async def customer_timeline(customer_id: str, current: CurrentUser, db: DbSession):
+    """The DERIVED activity stream — notes plus what the system already
+    knows (offers, projects, invoices, emails), newest first, never curated."""
+    await _guard(db, current.org_id)
+    try:
+        return {"events": await crm.timeline(db, current.org_id, customer_id)}
+    except crm.CrmError as exc:
+        _raise_crm(exc)
