@@ -38,12 +38,12 @@ Verified LOCALLY at this tree (executed, not recalled):
 
 | Check | Result |
 |---|---|
-| Backend suite | **2745 passed, 11 skipped, 0 failed (38:13)** on 2026-08-24 at `3d0f3cb` — adds WO-E (client arrival notices) on top of WO-D. Production is two additive migrations behind (`f0a2b4c6d8e0`, `a1b3c5d7e9f1`, both proven on scratch Postgres 16 incl. RLS/tenancy suites there) |
+| Backend suite | **2748 passed, 11 skipped, 0 failed (33:01)** on 2026-08-24 at `31e0e0b` — adds WO-F (job photos) on top of WO-D/WO-E. Production is three additive migrations behind (`f0a2b4c6d8e0`, `a1b3c5d7e9f1`, `b2c4d6e8f0a2`, all proven on scratch Postgres 16) |
 | `ruff check` / `ruff format --check` | clean |
 | `mypy app` | clean, 357 files |
-| Alembic | single head `a1b3c5d7e9f1` (client arrival notices) — production is at `e9f1a3b5c7d9`, two additive migrations behind |
-| Browser suite | **363 passed** on 2026-08-24 at `3d0f3cb` (362 in the 4.1m batch + one vat-claims spec that timed out in-batch and passed clean on isolated re-run — a flake, not a regression; its whole file re-ran 45/45). The first WO-E round caught a real crash in the new Customer card, fixed in `3d0f3cb` before certifying |
-| Prior certified runs | 2737 passed 2026-08-23 at `df9642a`; 2729 passed 2026-08-23 at the deployed tree `ee37037`; 2720 passed 2026-08-23 at `60e1faf`; 2714 passed 2026-08-23 at `2c5e93a`; 2705 passed 2026-08-20 at `d2ba5b0`; 2694 passed 2026-08-16 at `56bcab7` (single environmental failure — container lost the tesseract binary; reinstalled, OCR 2/2) |
+| Alembic | single head `b2c4d6e8f0a2` (job photos) — production is at `e9f1a3b5c7d9`, three additive migrations behind |
+| Browser suite | **366 passed (3.6m)** on 2026-08-24 at `31e0e0b`, no flakes |
+| Prior certified runs | 2745 passed / 363 browser 2026-08-24 at `3d0f3cb` (one vat-claims flake re-ran clean 45/45; the WO-E round caught a real Customer-card crash, fixed before certifying); 2737 passed 2026-08-23 at `df9642a`; 2729 passed 2026-08-23 at the deployed tree `ee37037`; 2720 passed 2026-08-23 at `60e1faf`; 2714 passed 2026-08-23 at `2c5e93a`; 2705 passed 2026-08-20 at `d2ba5b0`; 2694 passed 2026-08-16 at `56bcab7` (single environmental failure — container lost the tesseract binary; reinstalled, OCR 2/2) |
 
 The browser gap the first draft of this runbook carried is CLOSED: the suite has
 been re-run since the consent dialog was reordered, and since the archive screen
