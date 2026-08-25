@@ -31,9 +31,10 @@ deploy that `git reset` does not undo.
 **✅ CI IS ALIVE AGAIN — and green.** The repo went public on 2026-08-25
 (Actions minutes free), and CI run #465 (workflow_dispatch, all 8 jobs)
 passed at `46d3167` on the development branch — the first CI verdict since
-the billing outage began 2026-08-12. Caveat: workflows were auto-disabled
-during the outage, so pushes from that window triggered nothing; the next
-push should trigger normally (verify once, then delete this sentence).
+the billing outage began 2026-08-12. Note the trigger design: push-CI runs
+ONLY on main; branch work gets CI via a pull request or a manual dispatch
+(run #465 was a dispatch). So merges to main are CI-gated again; branch
+pushes stay covered by local certification + dispatch on demand.
 
 Verified at this tree (executed, not recalled):
 
