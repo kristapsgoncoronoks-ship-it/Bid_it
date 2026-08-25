@@ -361,6 +361,18 @@ forever. Nothing piles up, by design.
 - **Documents** — the content-addressed registry of every stored original.
 - **Billing** — plan, usage against limits, upgrade.
 - **Settings** — workspace configuration, validation toggles, SSO.
+- **Automation** (admin) — rules that watch your work and act for you: pick a
+  trigger (offer sent but gone quiet, invoice overdue, work accepted, all
+  visits done, customer dormant), add "only when…" conditions (e.g. *days
+  quiet > 7*), and choose ordered actions — email yourself, email the
+  customer, or drop a CRM note. Write `{{field}}` in a subject or body to
+  insert the record's value. A rule runs only after you **publish** it (each
+  publish is an immutable numbered version; revert re-publishes an old one as
+  a new version). The daily sweep evaluates published rules; by default a rule
+  fires **once per record** (cooldown and every-sweep policies available), at
+  most 25 fires per sweep — anything beyond shows as *throttled* in the run
+  log, which lists everything every rule did. **Dry run** shows what would
+  fire right now without sending anything.
 
 ---
 

@@ -2669,6 +2669,88 @@ async def _customer_portal_tokens(ctx: Ctx) -> None:
         assert f"Portal client of {other.name}" not in str(my_portal)
 
 
+@probe("automation_rules", "automation_rule_versions", "automation_runs")
+async def _p_automation(ctx: Ctx) -> None:
+    """Automation rules are org configuration with real side effects: one
+    workspace's rules, published version history, and run ledger must be
+    invisible — and unmanageable — from the other."""
+    rule_ids: dict[str, str] = {}
+    for org in (ctx.a, ctx.b):
+        r = await org.post(
+            "/api/v1/automation/rules",
+            json={
+                "name": "Chase stale offers",  # identical in both orgs — overlap by design
+                "trigger": "offer.sent_stale",
+                "condition": {">": [{"var": "days_quiet"}, 7]},
+                "actions": [
+                    {
+                        "kind": "notify_owner_email",
+                        "subject": "Offer {{offer_number}} is quiet",
+                        "body": "No reply for {{days_quiet}} days.",
+                    }
+                ],
+            },
+        )
+        assert r.status_code == 201, r.text
+        rule_ids[org.name] = r.json()["id"]
+        pub = await org.post(f"/api/v1/automation/rules/{rule_ids[org.name]}/publish")
+        assert pub.status_code == 200, pub.text
+
+    # Direct-seed one run row per org (the ledger is written by the sweep, which
+    # needs matcher data this probe doesn't care about) — verification still
+    # goes through the real GET /automation/runs read path.
+    from app.models.automation import AutomationRun
+
+    run_ids: dict[str, str] = {}
+    for org in (ctx.a, ctx.b):
+        row = AutomationRun(
+            org_id=org.org_id,
+            rule_id=rule_ids[org.name],
+            version=1,
+            ref_id="ref-overlap",
+            status="ok",
+        )
+        ctx.db.add(row)  # type: ignore[attr-defined]
+        await ctx.db.commit()  # type: ignore[attr-defined]
+        run_ids[org.name] = row.id
+
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        listed = await me.get("/api/v1/automation/rules")
+        assert listed.status_code == 200, listed.text
+        _assert_isolated(
+            "automation_rules",
+            {rule_ids[me.name]},
+            {rule_ids[other.name]},
+            {row["id"] for row in listed.json()},
+        )
+        other_rule = rule_ids[other.name]
+        _assert_404(
+            await me.patch(f"/api/v1/automation/rules/{other_rule}", json={"name": "Hijack"}),
+            f"{me.name} edit {other.name}'s rule",
+        )
+        _assert_404(
+            await me.post(f"/api/v1/automation/rules/{other_rule}/publish"),
+            f"{me.name} publish {other.name}'s rule",
+        )
+        # Revert reads the versions table — cross-tenant it must 404 opaquely.
+        _assert_404(
+            await me.post(f"/api/v1/automation/rules/{other_rule}/revert/1"),
+            f"{me.name} revert {other.name}'s rule",
+        )
+        _assert_404(
+            await me.post(f"/api/v1/automation/rules/{other_rule}/dry-run"),
+            f"{me.name} dry-run {other.name}'s rule",
+        )
+        runs = await me.get("/api/v1/automation/runs")
+        assert runs.status_code == 200, runs.text
+        _assert_isolated(
+            "automation_runs",
+            {run_ids[me.name]},
+            {run_ids[other.name]},
+            {row["id"] for row in runs.json()},
+        )
+
+
 ALL_TABLES = sorted(m.__tablename__ for m in TENANT_MODELS)
 
 

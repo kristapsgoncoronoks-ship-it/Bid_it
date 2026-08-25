@@ -220,6 +220,9 @@ export const LIVE_NAV: LiveNavGroup[] = [
       { to: "/access", label: "Access", owner: true, icon: icon("M12 15a3 3 0 100-6 3 3 0 000 6zM19 12a7 7 0 00-.1-1l2-1.6-2-3.4-2.4 1a7 7 0 00-1.7-1L14.5 3h-4l-.3 2.4a7 7 0 00-1.7 1l-2.4-1-2 3.4 2 1.6a7 7 0 000 2l-2 1.6 2 3.4 2.4-1a7 7 0 001.7 1l.3 2.4h4l.3-2.4a7 7 0 001.7-1l2.4 1 2-3.4-2-1.6a7 7 0 00.1-1z") },
       { to: "/templates", label: "Templates", icon: icon("M6 3h9l3 3v15H6V3zM9 9h6M9 13h6M9 17h4") },
       { to: "/audit", label: "Audit log", owner: true, icon: icon("M4 20V10M10 20V4M16 20v-7M22 20H2") },
+      // WO-J: the rule builder. `admin` mirrors the backend gate — every
+      // /automation route requires SETTINGS_MANAGE, which the admin ladder holds.
+      { to: "/automation", label: "Automation", admin: true, icon: icon("M13 2L4.5 12.5h5L11 22l8.5-10.5h-5L13 2z") },
       { to: "/billing", label: "Billing", icon: icon("M3 6h18v12H3V6zm0 4h18M7 14h4") },
       { to: "/settings", label: "Settings", icon: icon("M12 15a3 3 0 100-6 3 3 0 000 6zM19 12a7 7 0 00-.1-1l2-1.6-2-3.4-2.4 1a7 7 0 00-1.7-1L14.5 3h-4l-.3 2.4a7 7 0 00-1.7 1l-2.4-1-2 3.4 2 1.6a7 7 0 000 2l-2 1.6 2 3.4 2.4-1a7 7 0 001.7 1l.3 2.4h4l.3-2.4a7 7 0 001.7-1l2.4 1 2-3.4-2-1.6a7 7 0 00.1-1z") },
     ],

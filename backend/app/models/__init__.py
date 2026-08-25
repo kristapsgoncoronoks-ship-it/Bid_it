@@ -3,6 +3,7 @@
 from app.models.approval import ApprovalPolicy, ApprovalStep
 from app.models.archived_invoice import ArchivedInvoice
 from app.models.audit import AuditEvent
+from app.models.automation import AutomationRule, AutomationRuleVersion, AutomationRun
 from app.models.bank_import import BankLine, BankStatement
 from app.models.base import Base
 from app.models.billing_event import ProcessedStripeEvent
@@ -92,6 +93,9 @@ __all__ = [
     "ProjectDocument",
     "ProjectOffer",
     "AuditEvent",
+    "AutomationRule",
+    "AutomationRuleVersion",
+    "AutomationRun",
     "Organization",
     "User",
     "UserRole",

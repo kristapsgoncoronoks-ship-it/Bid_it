@@ -100,8 +100,22 @@ tenant table customer_portal_tokens with FORCE RLS + parity probe in the
 same commit; three PUBLIC_ROUTES entries with reasons. Pay-in-portal
 awaits the payment-rail decision; e-sign remains the later seam.
 
-**WO-J — Admin automation rules (researched 2026-08-23,
+**WO-J — Admin automation rules ✅ SHIPPED 2026-08-25 (researched 2026-08-23,
 `docs/design/workflow-builder-research.md`).**
+Shipped exactly as designed: three tenant tables (`automation_rules`,
+`automation_rule_versions`, `automation_runs`) with FORCE RLS + parity
+probes in the same commit; safe JSON-Logic-subset evaluator (closed
+operator set, validate-at-save, lookup-only `{{var}}` templating — never
+template code); five sweep-based matchers (stale offer, overdue invoice,
+accepted work, all-visits-done, dormant customer) derived from queries
+like the Next-actions generators; three actions on existing rails
+(owner email, customer email, CRM note); fire policies once-per-record/
+cooldown/every-time over the run ledger; MAX_FIRES_PER_SWEEP=25 with
+visible `throttled` rows; draft→publish immutable versions with revert-as-
+new-version; dry-run with zero side effects; daily `automation.sweep` in
+DAILY_KINDS; `/automation` builder page (condition rows composing the
+subset, ordered action cards, run log) gated admin like the backend's
+SETTINGS_MANAGE. Original scope note kept below for the record.
 Platform-admin trigger-condition-action rules on the existing job-queue/
 audit/mailer rails: closed trigger enum over domain events, JSON Logic (or
 zen-engine) conditions, fixed action catalog, fire-once-per-record default,

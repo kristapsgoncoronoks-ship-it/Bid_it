@@ -38,6 +38,9 @@ DAILY_KINDS = (
     # leaves the archive without the owner having been told first" is a promise
     # on the store itself, not a setting anyone opted into.
     job_handlers.ARCHIVE_NOTICE,
+    # WO-J: the automation sweep — every tenant daily; tenants without
+    # published rules no-op in one query.
+    "automation.sweep",
 )
 
 

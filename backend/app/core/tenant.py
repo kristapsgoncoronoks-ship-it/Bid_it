@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session, with_loader_criteria
 from app.models.approval import ApprovalPolicy, ApprovalStep
 from app.models.archived_invoice import ArchivedInvoice
 from app.models.audit import AuditEvent
+from app.models.automation import AutomationRule, AutomationRuleVersion, AutomationRun
 from app.models.bank_import import BankLine, BankStatement
 from app.models.billing_payment import BillingPayment
 from app.models.budget import BudgetTarget
@@ -107,6 +108,9 @@ from app.models.webhook import WebhookDelivery, WebhookEndpoint
 # scoped directly here rather than trusting the report join.
 TENANT_MODELS = (
     ArchivedInvoice,
+    AutomationRule,
+    AutomationRuleVersion,
+    AutomationRun,
     ProjectDocument,
     ProjectCostEntry,
     InvoiceProjectSplit,

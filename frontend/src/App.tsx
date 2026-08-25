@@ -52,6 +52,7 @@ const Budget = lazy(() => import("./pages/Budget"));
 const Access = lazy(() => import("./pages/Access"));
 const Sessions = lazy(() => import("./pages/Sessions"));
 const Audit = lazy(() => import("./pages/Audit"));
+const Automation = lazy(() => import("./pages/Automation"));
 const Platform = lazy(() => import("./pages/Platform"));
 const TaxCodes = lazy(() => import("./pages/TaxCodes"));
 const Currencies = lazy(() => import("./pages/Currencies"));
@@ -207,6 +208,7 @@ export default function App() {
                 <Route path="/access" element={<Access />} />
                 <Route path="/sessions" element={<Sessions />} />
                 <Route path="/audit" element={<Audit />} />
+                <Route path="/automation" element={<Automation />} />
                 <Route path="/billing" element={<Billing />} />
                 <Route path="/platform" element={<Platform />} />
                 <Route path="/settings" element={<Settings />} />

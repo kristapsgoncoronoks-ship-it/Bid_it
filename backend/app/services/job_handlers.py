@@ -280,6 +280,18 @@ async def _assignment_reminder(db, payload: dict, job: Job) -> dict:
     return await scheduling.send_due_reminder(db, job.org_id, payload["assignment_id"])
 
 
+@jobs.handler("automation.sweep")
+async def _automation_sweep(db, payload: dict, job: Job) -> dict:
+    """One tenant's daily automation sweep (WO-J): every published rule
+    evaluated over current state, fire-policy ledger consulted, results in
+    the visible runs log."""
+    from app.services import automation
+
+    result = await automation.sweep(db, job.org_id)
+    await db.commit()
+    return result
+
+
 @jobs.handler("assignment.client_notice")
 async def _assignment_client_notice(db, payload: dict, job: Job) -> dict:
     """One arrival notice to the project's CUSTOMER (WO-E). Same exact-time

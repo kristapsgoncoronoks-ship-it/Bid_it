@@ -6,6 +6,7 @@ from app.api.routes import (
     archive,
     audit,
     auth,
+    automation,
     billing,
     budget,
     calendar_feed,
@@ -83,6 +84,7 @@ api_router.include_router(email.router)
 api_router.include_router(budget.router)
 api_router.include_router(access.router)
 api_router.include_router(audit.router)
+api_router.include_router(automation.router)
 api_router.include_router(jobs.router)
 api_router.include_router(webhooks.router)
 api_router.include_router(integrity.router)

@@ -207,6 +207,22 @@ tenant table + FORCE RLS + parity probe in the same commit; 101 tables,
 94-model registry. Pay-in-portal awaits the payment-rail decision; e-sign
 stays the later seam.
 
+**Admin automation rules SHIPPED 2026-08-25 (WO-J, researched —
+`docs/design/workflow-builder-research.md`):** the bounded trigger-
+condition-action engine: five query-derived triggers (stale offer, overdue
+invoice, accepted work, all-visits-done, dormant customer), a safe
+JSON-Logic-subset condition evaluator (closed operator set, validated at
+save, lookup-only `{{var}}` templating), three actions on existing rails
+(owner email, customer email, CRM note), fire policies over a run ledger
+(once-per-record default / cooldown / every-time), a 25-fires-per-sweep cap
+with visible `throttled` rows, draft→publish immutable versions with
+revert-as-new-version, zero-side-effect dry-run, and the daily
+`automation.sweep` job for every tenant. `/automation` builder page
+(condition rows, ordered action cards, run log) admin-gated like the
+backend's SETTINGS_MANAGE routes. Three tenant tables + FORCE RLS + parity
+probes in the same commit; 104 tables, 97-model registry. No embedded
+scripting, no free-URL webhooks (phase 2 rides registered webhooks).
+
 **Demo dataset SHIPPED 2026-08-25 (owner request, research-backed —
 `docs/design/demo-dataset.md`):** `python -m app.seed` now seeds the full
 lifecycle storyline — five customers across stages with notes, four offers
