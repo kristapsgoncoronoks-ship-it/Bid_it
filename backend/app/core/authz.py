@@ -325,6 +325,29 @@ PUBLIC_ROUTES: dict[tuple[str, str], str] = {
         "serves only the token owner's own assignments, revocable by regenerate"
     ),
     (
+        "GET",
+        "/api/v1/portal/{token}",
+    ): (
+        "public: the per-customer portal token is the credential (magic link, "
+        "WO-I) — serves only that customer's offers/invoices/shared documents; "
+        "revocable, and regenerate kills the old URL"
+    ),
+    (
+        "POST",
+        "/api/v1/portal/{token}/offers/{offer_id}/decision",
+    ): (
+        "public: portal-token-authenticated offer accept/decline — rides the "
+        "one existing transition machinery, audited with the portal actor; "
+        "only the token's own customer's SENT offers are reachable (opaque 404)"
+    ),
+    (
+        "GET",
+        "/api/v1/portal/{token}/documents/{document_id}",
+    ): (
+        "public: portal-token-authenticated download of a document explicitly "
+        "shared with that customer (shared_with_customer flag); served inert"
+    ),
+    (
         "POST",
         "/api/v1/auth/accept-invite",
     ): "public bootstrap: the invitation token is the credential",

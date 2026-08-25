@@ -171,6 +171,18 @@ async def timeline(db: AsyncSession, org_id: str, customer_id: str) -> list[dict
                         f"/projects/{o.project_id}",
                     )
                 )
+            # WO-I: the quote-viewed signal — the customer opened it in the
+            # portal. A stamp on the offer, surfaced here, never a stage move.
+            for o in offers.values():
+                if o.viewed_at is not None:
+                    events.append(
+                        _event(
+                            o.viewed_at,
+                            "offer",
+                            f"Offer {o.number} v{o.version} viewed by the customer",
+                            f"/projects/{o.project_id}",
+                        )
+                    )
         for p in projects.values():
             events.append(
                 _event(p.created_at, "project", f"Project {p.code} · {p.name}", f"/projects/{p.id}")

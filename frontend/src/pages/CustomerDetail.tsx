@@ -48,6 +48,109 @@ const KIND_ICON: Record<string, string> = {
   email: "✉",
 };
 
+/** WO-I: the customer's magic link. The token is a credential the workspace
+ * hands out — treat it like a password: copy, send privately, regenerate to
+ * kill a leaked link, revoke to close the portal entirely. */
+function PortalLinkCard({
+  customerId,
+  onError,
+}: {
+  customerId: string;
+  onError: (m: string) => void;
+}) {
+  const [link, setLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const toUrl = (path: string) => `${window.location.origin}${path}`;
+
+  const fetchLink = useMutation({
+    mutationFn: async () =>
+      (await api.get(`/customers/${customerId}/portal-link`)).data as { path: string },
+    onSuccess: (d) => {
+      setLink(toUrl(d.path));
+      onError("");
+    },
+    onError: (e) => onError(apiError(e)),
+  });
+  const regenerate = useMutation({
+    mutationFn: async () =>
+      (await api.post(`/customers/${customerId}/portal-link/regenerate`)).data as {
+        path: string;
+      },
+    onSuccess: (d) => {
+      setLink(toUrl(d.path));
+      setCopied(false);
+      onError("");
+    },
+    onError: (e) => onError(apiError(e)),
+  });
+  const revoke = useMutation({
+    mutationFn: async () => api.delete(`/customers/${customerId}/portal-link`),
+    onSuccess: () => {
+      setLink(null);
+      setCopied(false);
+      onError("");
+    },
+    onError: (e) => onError(apiError(e)),
+  });
+
+  return (
+    <div className="card space-y-2 p-6">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+        Client portal
+      </h2>
+      <p className="text-sm text-slate-500">
+        A private link where this customer sees their offers (and can accept or
+        decline them), their invoices with status, and any documents you share.
+        The link is a key — send it privately; regenerate if it leaks.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        {link ? (
+          <>
+            <code className="max-w-full truncate rounded bg-slate-100 px-2 py-1 text-xs">
+              {link}
+            </code>
+            <button
+              className="btn-secondary"
+              onClick={() => {
+                navigator.clipboard?.writeText(link);
+                setCopied(true);
+              }}
+            >
+              {copied ? "Copied" : "Copy link"}
+            </button>
+          </>
+        ) : (
+          <button
+            className="btn-primary"
+            disabled={fetchLink.isPending}
+            onClick={() => fetchLink.mutate()}
+          >
+            Show portal link
+          </button>
+        )}
+        <button
+          className="btn-secondary"
+          disabled={regenerate.isPending}
+          onClick={() => regenerate.mutate()}
+        >
+          Regenerate
+        </button>
+        <button
+          className="btn-ghost text-rose-500"
+          disabled={revoke.isPending}
+          onClick={() => {
+            if (window.confirm("Revoke the portal link? The customer loses access."))
+              revoke.mutate();
+          }}
+        >
+          Revoke
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function CustomerDetail() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
@@ -147,6 +250,8 @@ export default function CustomerDetail() {
           {err}
         </div>
       )}
+
+      <PortalLinkCard customerId={id!} onError={(m) => setErr(m || null)} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="card space-y-3 p-6">

@@ -38,6 +38,7 @@ class ProjectDocumentOut(BaseModel):
     content_type: str | None = None
     uploaded_by: str | None = None
     created_at: str
+    shared_with_customer: bool = False
 
 
 class ProjectPnlOut(BaseModel):

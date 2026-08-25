@@ -197,6 +197,16 @@ existing offer statuses with days-in-stage from new stamped
 Two small tenant tables with full three-layer tenancy + parity probes in
 the same commit; 100 tables, 93-model registry.
 
+**Client portal SHIPPED 2026-08-25 (WO-I):** magic-link portal per customer
+(revocable; regenerate kills the old URL) — public /portal/{token} page
+with offers + Accept/Decline through the one existing transition machinery
+(plan seeding intact, audited with the portal actor), invoices with status
+(drafts hidden), per-document sharing (OFF by default), and the
+quote-viewed stamp surfaced on the CRM timeline. customer_portal_tokens
+tenant table + FORCE RLS + parity probe in the same commit; 101 tables,
+94-model registry. Pay-in-portal awaits the payment-rail decision; e-sign
+stays the later seam.
+
 Phase 3+: module-conditional recovered-VAT line, e-sign, budget-vs-actual;
 the lawyer's standardized texts drop into the shipped template machinery
 when they arrive.

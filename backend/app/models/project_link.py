@@ -22,6 +22,7 @@ from datetime import date as date_type
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     ForeignKey,
@@ -74,6 +75,11 @@ class ProjectDocument(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     project_id: Mapped[str] = mapped_column(GUID(), nullable=False)
     kind: Mapped[str] = mapped_column(String(16), default="contract", nullable=False)
+    # WO-I client portal: sharing is per-document and OFF by default — the
+    # portal shows exactly what someone chose to show, nothing else.
+    shared_with_customer: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0", nullable=False
+    )
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)

@@ -2627,6 +2627,48 @@ async def _crm_tables(ctx: Ctx) -> None:
         )
 
 
+@probe("customer_portal_tokens")
+async def _customer_portal_tokens(ctx: Ctx) -> None:
+    """The portal token is a customer-facing capability: each workspace's
+    token must open ONLY its own customer's world, and one workspace must
+    not be able to manage (or even see) another's link."""
+    links: dict[str, tuple[str, str]] = {}  # org -> (customer_id, token)
+    for org in (ctx.a, ctx.b):
+        await org.put("/api/v1/modules/issuing", json={"enabled": True})
+        cust = await org.post(
+            "/api/v1/customers", json={"name": f"Portal client of {org.name}", "country": "LV"}
+        )
+        assert cust.status_code in (200, 201), cust.text
+        cid = cust.json()["id"]
+        pr = await org.post(
+            "/api/v1/masters/projects",
+            json={"code": f"PORTAL-{org.name}", "name": f"Portal job {org.name}"},
+        )
+        assert pr.status_code in (200, 201), pr.text
+        link = await org.put(
+            f"/api/v1/masters/projects/{pr.json()['id']}/customer", json={"customer_id": cid}
+        )
+        assert link.status_code == 200, link.text
+        tok = await org.get(f"/api/v1/customers/{cid}/portal-link")
+        assert tok.status_code == 200, tok.text
+        links[org.name] = (cid, tok.json()["token"])
+
+    assert links[ctx.a.name][1] != links[ctx.b.name][1]
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        other_cid = links[other.name][0]
+        # Managing the OTHER workspace's link 404s opaquely.
+        _assert_404(
+            await me.get(f"/api/v1/customers/{other_cid}/portal-link"),
+            f"{me.name} fetch {other.name}'s portal link",
+        )
+        # The public portal a token opens holds only its own workspace's world.
+        my_portal = (await me.get(f"/api/v1/portal/{links[me.name][1]}")).json()
+        assert f"Portal job {other.name}" not in str(my_portal), (
+            f"TENANT LEAK: {me.name}'s portal shows {other.name}'s project"
+        )
+        assert f"Portal client of {other.name}" not in str(my_portal)
+
+
 ALL_TABLES = sorted(m.__tablename__ for m in TENANT_MODELS)
 
 

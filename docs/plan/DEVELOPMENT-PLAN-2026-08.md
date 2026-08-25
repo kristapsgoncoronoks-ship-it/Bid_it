@@ -89,10 +89,16 @@ three-layer tenancy + parity probes in the same commit (100 tables,
 93-model registry). Twenty et al. remain design references only —
 embedding was researched and rejected.
 
-**WO-I — Client portal ("module for clients").**
-Magic-link access (revocable per-customer tokens): offer view/approve/
-decline with viewed_at stamped to the timeline, invoice list/status + pay,
-shared project documents. E-sign remains the later seam.
+**WO-I — Client portal ("module for clients"). ✅ SHIPPED 2026-08-25.**
+Magic-link access (revocable per-customer tokens; regenerate kills the old
+URL): the public /portal/{token} page shows the customer's offers with
+Accept/Decline (rides the ONE existing transition machinery, audited with
+the portal actor, plan-seeding intact), invoices with status (drafts
+hidden), and per-document-shared project files (OFF by default). Opening
+the portal stamps the quote-viewed signal onto the CRM timeline. New
+tenant table customer_portal_tokens with FORCE RLS + parity probe in the
+same commit; three PUBLIC_ROUTES entries with reasons. Pay-in-portal
+awaits the payment-rail decision; e-sign remains the later seam.
 
 **WO-J — Admin automation rules (researched 2026-08-23,
 `docs/design/workflow-builder-research.md`).**

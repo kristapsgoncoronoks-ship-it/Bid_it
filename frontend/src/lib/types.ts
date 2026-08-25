@@ -2516,6 +2516,7 @@ export interface ProjectDocument {
   content_type: string | null;
   uploaded_by: string | null;
   created_at: string;
+  shared_with_customer: boolean;
 }
 
 /** `ProjectPnlOut`. Money is decimal STRINGS off the wire, and `basis` is the

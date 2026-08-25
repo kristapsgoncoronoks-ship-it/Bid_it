@@ -101,6 +101,21 @@ export default function ProjectDetail() {
     onError: (e) => setErr(apiError(e)),
   });
 
+  // WO-I: toggle a document's visibility in the customer's portal.
+  const shareDoc = useMutation({
+    mutationFn: async (arg: { docId: string; shared: boolean }) =>
+      (
+        await api.put(`/masters/projects/${id}/documents/${arg.docId}/share`, {
+          shared: arg.shared,
+        })
+      ).data,
+    onSuccess: () => {
+      setErr(null);
+      qc.invalidateQueries({ queryKey: ["project-documents", id] });
+    },
+    onError: (e) => setErr(apiError(e)),
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex items-end justify-between gap-4">
@@ -323,6 +338,15 @@ export default function ProjectDetail() {
                     <td className="py-2 text-slate-400">{d.kind}</td>
                     <td className="py-2 text-slate-400">{shortDate(d.created_at)}</td>
                     <td className="py-2 pl-3 text-right">
+                      <button
+                        className={`btn-ghost text-xs ${d.shared_with_customer ? "text-emerald-600" : ""}`}
+                        title="Show or hide in the customer's portal"
+                        onClick={() =>
+                          shareDoc.mutate({ docId: d.id, shared: !d.shared_with_customer })
+                        }
+                      >
+                        {d.shared_with_customer ? "Shared ✓" : "Share"}
+                      </button>
                       <button
                         className="btn-ghost text-xs"
                         onClick={() =>

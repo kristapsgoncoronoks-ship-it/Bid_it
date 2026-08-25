@@ -248,6 +248,20 @@ actually went out, and your notes, newest first. Nobody curates it; if it
 happened, it's there. Every stage change and note is in the audit log like
 everything else.
 
+### 5.10 The client portal
+
+Each customer can get a **private link** (their page: Client portal →
+Show portal link) — no account, no password; the link itself is the key.
+On it they see their **offers with the line items and Accept / Decline
+buttons** (accepting seeds your invoicing plan exactly as if you'd recorded
+it), their **invoices with status**, and any **documents you've shared** —
+each project document has a Share toggle, and nothing is visible until you
+turn it on. The moment they open an offer, your timeline shows "viewed by
+the customer" — you know the quote didn't sit unread. Treat the link like
+a password: send it privately, **Regenerate** if it leaks (the old link
+dies instantly), **Revoke** to close the portal. Every issue/regenerate/
+revoke and every portal decision lands in the audit log.
+
 ## 5b. The schedule — planning the work
 
 `Overview → Schedule`. Put people on projects for a day or a time window.

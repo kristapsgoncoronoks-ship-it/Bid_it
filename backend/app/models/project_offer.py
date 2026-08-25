@@ -18,9 +18,11 @@ query anyone runs.
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    DateTime,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
@@ -72,6 +74,11 @@ class ProjectOffer(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     line_items_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    # WO-I client portal: the quote-viewed signal — stamped the FIRST time the
+    # customer's portal renders this offer, surfaced on the CRM timeline.
+    # A stamp, not a stage event: viewing is information, not movement, so it
+    # must never reset the pipeline's days-in-stage.
+    viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class InvoicingPlanRow(UUIDPrimaryKeyMixin, TimestampMixin, Base):

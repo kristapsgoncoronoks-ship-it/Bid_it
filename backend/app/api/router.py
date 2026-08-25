@@ -31,6 +31,7 @@ from app.api.routes import (
     partners,
     payment_runs,
     platform,
+    portal,
     privacy,
     receipts,
     reconciliation,
@@ -72,6 +73,7 @@ api_router.include_router(receipts.router)
 api_router.include_router(reconciliation.router)
 api_router.include_router(payment_runs.router)
 api_router.include_router(partners.router)
+api_router.include_router(portal.router)
 api_router.include_router(team.router)
 api_router.include_router(billing.router)
 api_router.include_router(platform.router)

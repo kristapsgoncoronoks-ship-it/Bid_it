@@ -40,6 +40,7 @@ const Vendors = lazy(() => import("./pages/Vendors"));
 const Partners = lazy(() => import("./pages/Partners"));
 const Customers = lazy(() => import("./pages/Customers"));
 const CustomerDetail = lazy(() => import("./pages/CustomerDetail"));
+const PortalPage = lazy(() => import("./pages/Portal"));
 const Pipeline = lazy(() => import("./pages/Pipeline"));
 const Team = lazy(() => import("./pages/Team"));
 const Billing = lazy(() => import("./pages/Billing"));
@@ -98,6 +99,15 @@ export default function App() {
       <Route path="/verify-email" element={<VerifyEmail />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+      {/* The client portal (WO-I) — public; the token in the URL is the credential. */}
+      <Route
+        path="/portal/:token"
+        element={
+          <Suspense fallback={<PageFallback />}>
+            <PortalPage />
+          </Suspense>
+        }
+      />
 
       {/* Design-system showcase — public, fixtures-only (no auth, no backend). */}
       <Route

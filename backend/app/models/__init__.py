@@ -15,6 +15,7 @@ from app.models.costing import CostCenter, Department, Project
 from app.models.crm import CustomerNote, OfferStageEvent
 from app.models.currency import Currency
 from app.models.customer import Customer, CustomerContact
+from app.models.customer_portal_token import CustomerPortalToken
 from app.models.document import Document
 from app.models.document_template import OrgTemplate, PlatformTemplate
 from app.models.document_version import DocumentVersion
@@ -79,6 +80,7 @@ __all__ = [
     "ActionDismissal",
     "CalendarFeedToken",
     "CustomerNote",
+    "CustomerPortalToken",
     "OfferStageEvent",
     "InvoiceProjectSplit",
     "InvoicingPlanRow",

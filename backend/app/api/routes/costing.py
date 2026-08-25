@@ -21,6 +21,7 @@ from app.core import authz
 from app.core.security_headers import content_disposition
 from app.models.costing import CostCenter, Department, Project
 from app.models.customer import Customer
+from app.models.project_link import ProjectDocument
 from app.schemas.costing import (
     CostCenterCreate,
     CostCenterOut,
@@ -360,6 +361,7 @@ def _doc_out(d) -> ProjectDocumentOut:
         content_type=d.content_type,
         uploaded_by=d.uploaded_by,
         created_at=d.created_at.isoformat(),
+        shared_with_customer=d.shared_with_customer,
     )
 
 
@@ -405,6 +407,42 @@ async def attach_project_document(
         target_type="project",
         target_id=entity_id,
         meta={"kind": row.kind, "filename": row.filename, "sha256": row.sha256},
+    )
+    await db.commit()
+    await db.refresh(row)
+    return _doc_out(row)
+
+
+class DocumentShareIn(BaseModel):
+    shared: bool
+
+
+@router.put(
+    "/projects/{entity_id}/documents/{document_id}/share",
+    response_model=ProjectDocumentOut,
+    dependencies=_BOOKKEEPING,
+)
+async def share_project_document(
+    entity_id: str, document_id: str, body: DocumentShareIn, current: CurrentUser, db: DbSession
+):
+    """WO-I: per-document portal sharing, OFF by default — the client portal
+    shows exactly what someone chose to show. Toggling either way is audited."""
+    row = await db.scalar(
+        select(ProjectDocument).where(
+            ProjectDocument.org_id == current.org_id,
+            ProjectDocument.project_id == entity_id,
+            ProjectDocument.id == document_id,
+        )
+    )
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "document not found")
+    row.shared_with_customer = body.shared
+    await audit.record(
+        db,
+        "project.document_share",
+        target_type="project",
+        target_id=entity_id,
+        meta={"document_id": document_id, "filename": row.filename, "shared": body.shared},
     )
     await db.commit()
     await db.refresh(row)

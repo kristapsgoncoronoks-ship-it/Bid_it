@@ -16,7 +16,7 @@ from app.api.deps import CurrentUser, DbSession, require_perm
 from app.core.authz import Permission as _P
 from app.models.customer import Customer, CustomerContact
 from app.schemas.customer import CustomerCreate, CustomerOut, CustomerUpdate
-from app.services import audit, crm, modules
+from app.services import audit, crm, modules, portal
 
 # Structural authorization (ADR-0024): every customer route needs at least
 # ISSUED_READ; the mutating routes declare ISSUED_WRITE per-route below.
@@ -238,6 +238,86 @@ async def set_customer_lifecycle(
     await db.commit()
     await db.refresh(customer, attribute_names=["contacts"])
     return CustomerOut.model_validate(customer)
+
+
+# --- Client portal link management (WO-I). The token is a capability the
+# workspace HANDS OUT; issuing/regenerating/revoking are audited like every
+# credential event, and the portal path itself is assembled client-side.
+
+
+class PortalLinkOut(BaseModel):
+    token: str
+    path: str
+    created_at: str
+
+
+def _link_out(t) -> PortalLinkOut:
+    return PortalLinkOut(
+        token=t.token, path=f"/portal/{t.token}", created_at=t.created_at.isoformat()
+    )
+
+
+@router.get("/{customer_id}/portal-link", response_model=PortalLinkOut, dependencies=_WRITE)
+async def get_portal_link(customer_id: str, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    try:
+        row = await portal.get_or_create_link(
+            db, current.org_id, customer_id, created_by=current.email
+        )
+    except portal.NotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    await audit.record(
+        db,
+        "customer.portal_link_issue",
+        target_type="customer",
+        target_id=customer_id,
+        meta={"token_id": row.id},
+    )
+    await db.commit()
+    await db.refresh(row)
+    return _link_out(row)
+
+
+@router.post(
+    "/{customer_id}/portal-link/regenerate", response_model=PortalLinkOut, dependencies=_WRITE
+)
+async def regenerate_portal_link(customer_id: str, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    try:
+        row = await portal.regenerate_link(
+            db, current.org_id, customer_id, created_by=current.email
+        )
+    except portal.NotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    await audit.record(
+        db,
+        "customer.portal_link_regenerate",
+        target_type="customer",
+        target_id=customer_id,
+        meta={"token_id": row.id},
+    )
+    await db.commit()
+    await db.refresh(row)
+    return _link_out(row)
+
+
+@router.delete(
+    "/{customer_id}/portal-link", status_code=status.HTTP_204_NO_CONTENT, dependencies=_WRITE
+)
+async def revoke_portal_link(customer_id: str, current: CurrentUser, db: DbSession):
+    await _guard(db, current.org_id)
+    try:
+        revoked = await portal.revoke_link(db, current.org_id, customer_id)
+    except portal.NotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    await audit.record(
+        db,
+        "customer.portal_link_revoke",
+        target_type="customer",
+        target_id=customer_id,
+        meta={"revoked": revoked},
+    )
+    await db.commit()
 
 
 @router.get("/{customer_id}/timeline")
