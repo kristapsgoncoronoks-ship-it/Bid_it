@@ -11,7 +11,7 @@ import random
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.core.database import SessionLocal, engine
 from app.core.security import hash_password
@@ -153,7 +153,20 @@ async def seed() -> None:
                 items = []
                 for _ in range(n_lines):
                     qty = Decimal(rng.randint(1, 20))
-                    unit = _q(Decimal(rng.uniform(10, 900)))
+                    # Stable per-category base price ± small jitter, not pure
+                    # noise: random unit prices made the Supplier-costs page
+                    # scream fake ±80% "price changes" (the impossible-time-
+                    # series anti-pattern from the demo-data research).
+                    base = {
+                        "cloud": 240,
+                        "fuel": 62,
+                        "office": 35,
+                        "travel": 410,
+                        "software": 180,
+                        "logistics": 95,
+                        "rent": 800,
+                    }.get(vendor.category or "", 120)
+                    unit = _q(Decimal(base) * Decimal(str(rng.uniform(0.95, 1.06))))
                     amount = _q(qty * unit)
                     rate = Decimal(rng.choice([0, 9, 21]))
                     tax = _q(amount * rate / Decimal("100"))
@@ -272,7 +285,15 @@ async def seed() -> None:
         # payment-run workflow so `workflow_state` (what cash-position/payment
         # -runs/dashboard read) never diverges from the legacy `status` (what
         # the Invoices list badge reads) — see docs/plan/plan-a/wo/WO-28-R3.md.
+        # Planted price history (Supplier-costs movers) joins the AP pool
+        # BEFORE the workflow drive — every AP invoice rides the real rails.
+        price_invoices, price_points = await _seed_price_history(db, org.id)
+        ap_invoices.extend(price_invoices)
         ap_workflow = await _drive_ap_workflow(db, org.id, owner, ap_invoices, rng)
+        # --- The lifecycle storyline: customers → offers → schedule →
+        # acceptance → portal.
+        story = await _seed_lifecycle_demo(db, org.id, owner)
+        story["price_points"] = price_points
 
         await db.commit()
         print(f"Seeded '{org.name}' with {count} invoices across {len(vendors)} vendors.")
@@ -292,7 +313,342 @@ async def seed() -> None:
             f"workflow across {ap_workflow['_payment_runs']} payment run(s) "
             f"(workflow_state mix: {ap_workflow})."
         )
+        print(
+            f"Lifecycle storyline: {story['customers']} customers, {story['offers']} offers, "
+            f"{story['assignments']} schedule assignments, {story['price_points']} price-history "
+            f"purchases; acceptance recorded on the hero project."
+        )
+        print(f"Client portal (hero customer): /portal/{story['portal_token']}")
         print(f"Login: {DEMO_EMAIL} / demo1234")
+
+
+async def _seed_price_history(db, org_id: str) -> tuple[list[Invoice], int]:
+    """Supplier price history for the Supplier-costs movers: the same two
+    items bought month after month — one drifting up ~12%, one easing down.
+    Returned invoices join the AP pool so they ride the real workflow."""
+    supplier = Vendor(org_id=org_id, name="Būvmateriālu bāze SIA", country="LV", category="office")
+    db.add(supplier)
+    await db.flush()
+    today = date.today()
+    invoices: list[Invoice] = []
+    price_points = 0
+    riser = [Decimal(p) for p in ("3.20", "3.20", "3.35", "3.40", "3.55", "3.60")]
+    faller = [Decimal(p) for p in ("12.80", "12.80", "12.60", "12.40", "12.40", "12.10")]
+    for m in range(6):
+        when = today - timedelta(days=30 * (5 - m) + 3)
+        lines = [
+            ("Packing film roll", Decimal("40"), riser[m]),
+            ("Protective floor board", Decimal("15"), faller[m]),
+        ]
+        subtotal = _q(sum((q * p for _, q, p in lines), Decimal("0")))
+        inv = Invoice(
+            org_id=org_id,
+            vendor_id=supplier.id,
+            invoice_number=f"BMB-{when.year}-{m + 1:03d}",
+            issue_date=when,
+            due_date=when + timedelta(days=14),
+            currency="EUR",
+            status=InvoiceStatus.paid,
+            subtotal=subtotal,
+            tax_amount=Decimal("0"),
+            total=subtotal,
+        )
+        db.add(inv)
+        await db.flush()
+        for desc, qty, price in lines:
+            db.add(
+                LineItem(
+                    invoice_id=inv.id,
+                    description=desc,
+                    category="office",
+                    quantity=qty,
+                    unit_price=price,
+                    amount=_q(qty * price),
+                    tax_rate=Decimal("0"),
+                )
+            )
+            price_points += 1
+        invoices.append(inv)
+    await db.flush()
+    return invoices, price_points
+
+
+async def _seed_lifecycle_demo(db, org_id: str, owner) -> dict:
+    """The storyline workspace: five customers with legible arcs, so every
+    screen shipped in WO-A…WO-I has something true to show.
+
+    Research-backed rules (docs/design/demo-dataset.md): all identities are
+    SYNTHETIC-SAFE — emails only at IANA-held example.com, IBANs mod-97-valid
+    on the fictitious `BANK` code, 9-prefixed LV VAT numbers outside the real
+    register's ranges, +371 5-series phones (unassignable). All dates are
+    RELATIVE to today so the demo never stales, imperfect states are planted
+    on purpose (a stale offer, an overdue invoice, a dormant customer), and
+    everything flows through the SERVICE layer where invariants and audit
+    trails live — the demo workspace is built the way a real one is used.
+    """
+    from datetime import UTC, datetime
+
+    from app.models.customer import Customer
+    from app.models.issued_invoice import IssuedInvoice, IssuedInvoiceLine
+    from app.models.next_action import OrgDeadline
+    from app.services import crm, portal, project_offers, project_profit, scheduling
+
+    today = date.today()
+    now = datetime.now(UTC)
+
+    def _cust(name: str, email: str | None, lifecycle: str, phone_n: int) -> Customer:
+        c = Customer(
+            org_id=org_id,
+            name=name,
+            email=email,
+            phone=f"+371 5000 000{phone_n}",
+            vat_number=f"LV9{phone_n}00000000{phone_n}",
+            country="LV",
+            lifecycle=lifecycle,
+        )
+        db.add(c)
+        return c
+
+    hero = _cust('SIA "Upmala" birojs', "reception@example.com", "active", 1)
+    weekly = _cust('SIA "Ziedu darbnīca"', "darbnica@example.com", "active", 2)
+    prospect = _cust('SIA "Jaunais projekts"', "info@example.net", "prospect", 3)
+    dormant = _cust('SIA "Klusais nams"', "nams@example.org", "dormant", 4)
+    lost = _cust('SIA "Cits ceļš"', None, "lost", 5)
+    await db.flush()
+
+    await crm.add_note(
+        db, org_id, hero.id, body="Prefers morning calls; gate code 4711.", created_by=owner.email
+    )
+    await crm.add_note(
+        db,
+        org_id,
+        prospect.id,
+        body="Met at the trade fair — wants the quote revised down if possible.",
+        created_by=owner.email,
+    )
+    await crm.add_note(
+        db,
+        org_id,
+        lost.id,
+        body="Chose a cheaper competitor; keep for next season.",
+        created_by=owner.email,
+    )
+
+    # Projects, linked to their customers (the WO-E link every later module uses).
+    from app.models.costing import Project
+
+    def _project(code: str, name: str, customer: Customer) -> Project:
+        p = Project(org_id=org_id, code=code, name=name, status="active", customer_id=customer.id)
+        db.add(p)
+        return p
+
+    hero_prj = _project("PRJ-UPMALA", "Office refurbishment, phase 1", hero)
+    weekly_prj = _project("PRJ-ZIEDU", "Workshop fit-out", weekly)
+    prospect_prj = _project("PRJ-JAUNAIS", "Site survey & estimate", prospect)
+    lost_prj = _project("PRJ-CITS", "Annual maintenance bid", lost)
+    await db.flush()
+
+    offers = 0
+
+    async def _offer(project, lines: list[dict], *, days_ago: int):
+        nonlocal offers
+        o = await project_offers.create_offer(
+            db, org_id, project.id, title=None, lines=lines, created_by=owner.email
+        )
+        offers += 1
+        o.created_at = now - timedelta(days=days_ago)
+        return o
+
+    # HERO ARC: offer sent, viewed in the portal, accepted → plan seeded.
+    hero_offer = await _offer(
+        hero_prj,
+        [
+            {"description": "Demolition and preparation", "amount": "1800.00"},
+            {"description": "Materials and fit-out", "amount": "5200.00"},
+            {"description": "Finishing and handover", "amount": "2400.00"},
+        ],
+        days_ago=45,
+    )
+    await project_offers.transition_offer(db, org_id, hero_offer.id, "sent", actor=owner.email)
+    hero_offer.viewed_at = now - timedelta(days=43)  # the portal's quote-viewed stamp
+    await project_offers.transition_offer(
+        db, org_id, hero_offer.id, "accepted", actor="customer (portal)"
+    )
+
+    # PROSPECT: sent 20 days ago, silent — the Pipeline's red "chase" card.
+    stale = await _offer(
+        prospect_prj, [{"description": "Survey and estimate", "amount": "450.00"}], days_ago=20
+    )
+    await project_offers.transition_offer(db, org_id, stale.id, "sent", actor=owner.email)
+    from app.models.crm import OfferStageEvent
+
+    await db.flush()
+    for ev in await db.scalars(select(OfferStageEvent).where(OfferStageEvent.offer_id == stale.id)):
+        ev.created_at = now - timedelta(days=20)
+
+    # WEEKLY: a fresh draft still being shaped.
+    await _offer(
+        weekly_prj,
+        [{"description": "Workshop shelving and counters", "amount": "3100.00"}],
+        days_ago=2,
+    )
+
+    # LOST: sent and declined, so Won/Lost columns both carry history.
+    lost_offer = await _offer(
+        lost_prj, [{"description": "Annual maintenance", "amount": "6200.00"}], days_ago=60
+    )
+    await project_offers.transition_offer(db, org_id, lost_offer.id, "sent", actor=owner.email)
+    await project_offers.transition_offer(db, org_id, lost_offer.id, "rejected", actor=owner.email)
+
+    # Schedule: the hero's work is DONE (feeds the acceptance nudge); the
+    # weekly customer has work THIS WEEK (confirmed tomorrow, planned in 3 days
+    # — the latter arms a 48h arrival notice once the org opt-in below is on).
+    from app.models.organization import Organization
+
+    org_row = await db.get(Organization, org_id)
+    org_row.client_notice_hours = 48
+
+    assignments = 0
+
+    async def _assign(project: Project, start: datetime, hours: int, status: str, note: str | None):
+        nonlocal assignments
+        row, _warn = await scheduling.create(
+            db,
+            org_id,
+            project_id=project.id,
+            assignee_user_id=owner.id,
+            starts_at=start,
+            ends_at=start + timedelta(hours=hours),
+            all_day=False,
+            note=note,
+            created_by=owner.email,
+        )
+        assignments += 1
+        if status != "planned":
+            for step in ("confirmed", "done") if status == "done" else (status,):
+                await scheduling.transition(
+                    db,
+                    org_id,
+                    row.id,
+                    step,
+                    actor_user_id=owner.id,
+                    actor_may_plan=True,
+                )
+        return row
+
+    day9 = now.replace(hour=9, minute=0, second=0, microsecond=0)
+    done1 = await _assign(hero_prj, day9 - timedelta(days=30), 8, "done", "Demolition crew day")
+    done1.starts_at = day9 - timedelta(days=30)  # keep window honest after transition
+    await _assign(hero_prj, day9 - timedelta(days=12), 8, "done", "Fit-out and finishing")
+    await _assign(weekly_prj, day9 + timedelta(days=1), 6, "confirmed", "Bring the signed contract")
+    await _assign(weekly_prj, day9 + timedelta(days=3), 8, "planned", None)
+
+    # The hero's contract: generated bytes, shared into the portal; a site
+    # photo rides the same rail (WO-F).
+    contract = await project_profit.attach_document(
+        db,
+        org_id,
+        hero_prj.id,
+        data=b"%PDF-1.7 demo contract for PRJ-UPMALA" + b" " * 64,
+        filename="contract-signed.pdf",
+        content_type="application/pdf",
+        kind="contract",
+        uploaded_by=owner.email,
+    )
+    contract.shared_with_customer = True
+    await project_profit.attach_document(
+        db,
+        org_id,
+        hero_prj.id,
+        data=b"\xff\xd8\xff\xe0" + bytes(64),
+        filename="site-before.jpg",
+        content_type="image/jpeg",
+        kind="photo",
+        uploaded_by=owner.email,
+    )
+
+    # Acceptance recorded on the hero project (WO-D), evidence attached.
+    await project_profit.record_acceptance(
+        db,
+        org_id,
+        hero_prj.id,
+        document_id=contract.id,
+        note="Walk-through completed; snag list empty.",
+        accepted_by=owner.email,
+    )
+
+    # Two issued invoices carry the hero's revenue: one PAID instalment, one
+    # OPEN and 10 days overdue — the imperfection every real book has.
+    import json as _json
+
+    from app.services import issuer as issuer_svc
+
+    profile = await issuer_svc.get_or_create(db, org_id)
+    seller = _json.dumps(issuer_svc.seller_snapshot(profile))
+
+    def _issued_for(
+        customer, project_id: str | None, number: str, total: str, *, days_ago: int, overdue: bool
+    ) -> None:
+        net = Decimal(total)
+        vat = _q(net * Decimal("0.21"))
+        inv = IssuedInvoice(
+            org_id=org_id,
+            customer_id=customer.id,
+            project_id=project_id,
+            number=number,
+            buyer_name=customer.name,
+            buyer_vat_number=customer.vat_number,
+            currency="EUR",
+            vat_scheme="standard",
+            seller_json=seller,
+            subtotal=net,
+            tax_total=vat,
+            total=net + vat,
+            amount_paid=Decimal("0") if overdue else net + vat,
+            lifecycle="issued" if overdue else "paid",
+            issue_date=today - timedelta(days=days_ago),
+            due_date=today - timedelta(days=days_ago - 20),
+            issued_at=now - timedelta(days=days_ago),
+        )
+        inv.lines = [
+            IssuedInvoiceLine(
+                description="Contracted instalment",
+                quantity=Decimal("1"),
+                unit_price=net,
+                vat_rate=Decimal("21"),
+                net_amount=net,
+            )
+        ]
+        db.add(inv)
+
+    _issued_for(hero, hero_prj.id, "DEMO-UP-001", "4700.00", days_ago=35, overdue=False)
+    _issued_for(hero, hero_prj.id, "DEMO-UP-002", "2350.00", days_ago=30, overdue=True)
+
+    # A recurring obligation for Next actions ("prepare the VAT report").
+    db.add(
+        OrgDeadline(
+            org_id=org_id,
+            name="Prepare the VAT report",
+            cadence="monthly",
+            due_day=15,
+            lead_days=7,
+            created_by=owner.email,
+        )
+    )
+
+    # The hero's portal link — printed at the end of seeding.
+    link = await portal.get_or_create_link(db, org_id, hero.id, created_by=owner.email)
+
+    # The dormant customer's history: one old paid invoice, eight months back.
+    _issued_for(dormant, None, "DEMO-KN-001", "640.00", days_ago=240, overdue=False)
+
+    await db.flush()
+    return {
+        "customers": 5,
+        "offers": offers,
+        "assignments": assignments,
+        "portal_token": link.token,
+    }
 
 
 async def _seed_costing(db, org_id: str) -> int:

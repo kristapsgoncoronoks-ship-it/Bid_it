@@ -207,6 +207,16 @@ tenant table + FORCE RLS + parity probe in the same commit; 101 tables,
 94-model registry. Pay-in-portal awaits the payment-rail decision; e-sign
 stays the later seam.
 
+**Demo dataset SHIPPED 2026-08-25 (owner request, research-backed —
+`docs/design/demo-dataset.md`):** `python -m app.seed` now seeds the full
+lifecycle storyline — five customers across stages with notes, four offers
+(accepted-with-plan / red-stale / draft / rejected), this week's schedule,
+recorded acceptance with shared contract + site photo, hero portal link
+printed at the end, planted supplier price history riding the REAL AP
+workflow, and believable per-category prices (no more fake ±80% movers).
+All identities synthetic-safe (example.com, BANK-code IBANs, 9-prefixed
+LV VAT, +371 5-series phones); all dates relative to today.
+
 Phase 3+: module-conditional recovered-VAT line, e-sign, budget-vs-actual;
 the lawyer's standardized texts drop into the shipped template machinery
 when they arrive.
