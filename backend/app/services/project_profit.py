@@ -51,6 +51,7 @@ from app.models.issued_invoice import IssuedInvoice
 from app.models.project_link import (
     COST_CATEGORIES,
     DOCUMENT_KINDS,
+    PHOTO_CONTENT_TYPES,
     ProjectCostEntry,
     ProjectDocument,
 )
@@ -168,6 +169,21 @@ async def delete_cost_entry(
 # --------------------------------------------------------------------------- #
 
 
+def _require_image(data: bytes, content_type: str | None) -> None:
+    """WO-F: a 'photo' must actually be one — declared type in the closed set
+    AND leading bytes that agree (JPEG/PNG/WebP/HEIC magic). Declared-type-only
+    checks trust the attacker; bytes-only checks let a mislabelled download
+    masquerade later. Both must hold."""
+    if content_type not in PHOTO_CONTENT_TYPES:
+        raise ProjectProfitError("A photo must be a JPEG, PNG, WebP or HEIC image")
+    is_jpeg = data[:3] == b"\xff\xd8\xff"
+    is_png = data[:8] == b"\x89PNG\r\n\x1a\n"
+    is_webp = data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    is_heic = data[4:8] == b"ftyp" and data[8:12] in (b"heic", b"heix", b"heif", b"mif1", b"msf1")
+    if not (is_jpeg or is_png or is_webp or is_heic):
+        raise ProjectProfitError("The uploaded file does not look like an image")
+
+
 async def attach_document(
     db: AsyncSession,
     org_id: str,
@@ -185,6 +201,8 @@ async def attach_document(
         raise ProjectProfitError(f"Unknown document kind '{kind}'")
     if not data:
         raise ProjectProfitError("The uploaded file is empty")
+    if kind == "photo":
+        _require_image(data, content_type)
     sha, _size = await documents.store(
         PROJECT_DOCS, org_id, data, content_type, db=db, filename=filename, uploaded_by=uploaded_by
     )

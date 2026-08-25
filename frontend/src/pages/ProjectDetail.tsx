@@ -314,10 +314,10 @@ export default function ProjectDetail() {
               }}
             />
           </label>
-          {(docs.data?.length ?? 0) > 0 && (
+          {(docs.data?.filter((d) => d.kind !== "photo").length ?? 0) > 0 && (
             <table className="w-full text-sm">
               <tbody className="divide-y divide-slate-100">
-                {docs.data?.map((d) => (
+                {docs.data?.filter((d) => d.kind !== "photo").map((d) => (
                   <tr key={d.id}>
                     <td className="py-2 text-slate-700">{d.filename}</td>
                     <td className="py-2 text-slate-400">{d.kind}</td>
@@ -343,6 +343,13 @@ export default function ProjectDetail() {
         </div>
       </div>
 
+      <PhotosCard
+        projectId={id!}
+        photos={(docs.data ?? []).filter((d) => d.kind === "photo")}
+        onChanged={() => qc.invalidateQueries({ queryKey: ["project-documents", id] })}
+        onError={(m) => setErr(m || null)}
+      />
+
       <CustomerCard projectId={id!} onError={(m) => setErr(m || null)} />
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -358,6 +365,106 @@ export default function ProjectDetail() {
           onChanged={() => qc.invalidateQueries({ queryKey: ["project-pnl", id] })}
           onError={(m) => setErr(m || null)}
         />
+      )}
+    </div>
+  );
+}
+
+/** WO-F: job photos — the phone-first evidence trail. Capture goes straight
+ * from the camera into the project's content-addressed document store as
+ * kind='photo' (EXIF kept as shot — the timestamp IS the evidence); the grid
+ * fetches bytes through the same authenticated download route as every other
+ * document, so no second serving surface exists. "Signed acceptance + the
+ * pictures" is the dispute-killer the design doc promised. */
+function PhotoThumb({ projectId, doc }: { projectId: string; doc: ProjectDocument }) {
+  const blob = useQuery<string>({
+    queryKey: ["project-photo", projectId, doc.id],
+    staleTime: Infinity,
+    queryFn: async () => {
+      const r = await api.get(`/masters/projects/${projectId}/documents/${doc.id}/download`, {
+        responseType: "blob",
+      });
+      return URL.createObjectURL(
+        new Blob([r.data], { type: doc.content_type || "image/jpeg" }),
+      );
+    },
+  });
+  if (!blob.data)
+    return <div className="h-28 w-28 animate-pulse rounded-md bg-slate-100" aria-hidden />;
+  return (
+    <a href={blob.data} target="_blank" rel="noreferrer" title={doc.filename}>
+      <img
+        src={blob.data}
+        alt={doc.filename}
+        className="h-28 w-28 rounded-md border border-slate-200 object-cover"
+      />
+    </a>
+  );
+}
+
+function PhotosCard({
+  projectId,
+  photos,
+  onChanged,
+  onError,
+}: {
+  projectId: string;
+  photos: ProjectDocument[];
+  onChanged: () => void;
+  onError: (m: string) => void;
+}) {
+  const upload = useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      return (
+        await api.post(`/masters/projects/${projectId}/documents?kind=photo`, form)
+      ).data;
+    },
+    onSuccess: () => {
+      onError("");
+      onChanged();
+    },
+    onError: (e) => onError(apiError(e)),
+  });
+
+  return (
+    <div className="card space-y-3 p-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Job photos
+          </h2>
+          <p className="text-sm text-slate-500">
+            Before, during, after — pictures taken on site live with the project
+            and back up the acceptance when it matters.
+          </p>
+        </div>
+        <label className="btn-secondary inline-block cursor-pointer">
+          {upload.isPending ? "Uploading…" : "+ Add photo"}
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) upload.mutate(f);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      </div>
+      {photos.length === 0 ? (
+        <p className="text-sm text-slate-400">
+          No photos yet — on a phone, the button opens the camera.
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-3">
+          {photos.map((d) => (
+            <PhotoThumb key={d.id} projectId={projectId} doc={d} />
+          ))}
+        </div>
       )}
     </div>
   );

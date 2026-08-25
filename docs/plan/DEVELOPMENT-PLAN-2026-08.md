@@ -61,10 +61,13 @@ morning, never past the work). Brought the `projects.customer_id` link
 settings surface. Email only — SMS stays decision-gated (provider +
 who-pays).
 
-**WO-F — Job photos (calendar phase C).**
-Mobile-friendly capture on the project page → content-addressed storage →
-`project_documents` kind `photo`; acceptance evidence hook into WO-D.
-Estimated: small.
+**WO-F — Job photos (calendar phase C). ✅ SHIPPED 2026-08-24.**
+Mobile-friendly capture on the project page (camera input on phones) →
+content-addressed storage → `project_documents` kind `photo`, thumbnails
+served through the same authenticated download route (no second surface).
+Photos are the only kind with a server-enforced image check (declared type
+AND magic bytes must agree); EXIF kept as shot. They appear in the WO-D
+acceptance document picker — a photo of the signed sheet is valid evidence.
 
 **WO-G — Supplier cost analytics phase 1 (then 2).**
 Phase 1: per supplier × item price history from invoice lines, change

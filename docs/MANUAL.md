@@ -228,6 +228,15 @@ a total at or below zero is refused (money flowing back to the customer is a
 Settings → Projects & offers — the final invoice waits until acceptance is
 recorded. The offer numbering prefix lives in the same settings block.
 
+**Job photos.** The project page's **Job photos** card takes pictures
+straight from the phone camera (on a computer it's a normal file picker) —
+before, during, after. They're stored with the project like every other
+document, shown as a tap-to-open grid, and kept exactly as shot, so the
+photo's own timestamp stays intact. When it's time to record acceptance, a
+photo of the signed sheet is a perfectly good linked document — signed
+acceptance plus the pictures is what settles disputes about the final
+invoice. Only real images are accepted as photos.
+
 ## 5b. The schedule — planning the work
 
 `Overview → Schedule`. Put people on projects for a day or a time window.

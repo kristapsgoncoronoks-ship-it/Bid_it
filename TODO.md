@@ -174,6 +174,12 @@ time through the NEW `projects.customer_id` link (which WO-H CRM and WO-I
 portal build on). The org-level employee-reminder default landed on the
 same settings surface. SMS stays decision-gated (provider + who-pays).
 
+**Calendar phase C SHIPPED 2026-08-24 (WO-F):** job photos — camera-first
+capture on the project page into the content-addressed store as
+`project_documents` kind `photo` (server-enforced image check: declared
+type AND magic bytes; EXIF kept as shot), thumbnail grid over the existing
+authenticated download route, photos valid as WO-D acceptance evidence.
+
 Phase 3+: module-conditional recovered-VAT line, e-sign, budget-vs-actual;
 the lawyer's standardized texts drop into the shipped template machinery
 when they arrive.

@@ -43,8 +43,14 @@ Money = Numeric(14, 2)
 COST_CATEGORIES = ("wages", "per_diem", "equipment", "other")
 _CATEGORY_CHECK = "category IN ('wages', 'per_diem', 'equipment', 'other')"
 
-DOCUMENT_KINDS = ("contract", "acceptance", "other")
-_KIND_CHECK = "kind IN ('contract', 'acceptance', 'other')"
+DOCUMENT_KINDS = ("contract", "acceptance", "photo", "other")
+_KIND_CHECK = "kind IN ('contract', 'acceptance', 'photo', 'other')"
+
+# WO-F job photos ride this table as kind='photo' — same content-addressed
+# bytes, same download path. Photos are the only kind with a server-enforced
+# content check (they must actually BE images); EXIF is kept as shot, because
+# the capture timestamp is the evidentiary value.
+PHOTO_CONTENT_TYPES = ("image/jpeg", "image/png", "image/webp", "image/heic", "image/heif")
 
 
 class ProjectDocument(UUIDPrimaryKeyMixin, TimestampMixin, Base):
