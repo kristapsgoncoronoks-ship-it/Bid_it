@@ -40,13 +40,13 @@ Verified at this tree (executed, not recalled):
 
 | Check | Result |
 |---|---|
-| **CI (GitHub runners)** | **run #470 SUCCESS, all jobs**, 2026-08-25 at WO-I `5d121ee` (35m). Prior: #469 SUCCESS at `2903238`; #468 at `56f80a3` 6/8 (both failures fixed before certifying — nav regression `fb61138` + a real format drift CI caught); #465 SUCCESS at `46d3167` |
-| Backend suite | **2766 passed, 11 skipped, 0 failed (34:13)** on 2026-08-25 at WO-I `5d121ee` — adds the client portal on top of WO-D/E/F/G/H. Production is five additive migrations behind (`f0a2b4c6d8e0`, `a1b3c5d7e9f1`, `b2c4d6e8f0a2`, `c3d5e7f9a1b3`, `e5f7a9b1c3d5`, all proven on scratch Postgres 16) |
+| **CI (GitHub runners)** | **run #471 SUCCESS, all jobs**, 2026-08-25 at WO-J `7423dca` (35m). Prior: #470 SUCCESS at WO-I `5d121ee`; #469 SUCCESS at `2903238`; #468 at `56f80a3` 6/8 (both failures fixed before certifying); #465 SUCCESS at `46d3167` |
+| Backend suite | **2776 passed, 11 skipped, 0 failed (35:31)** on 2026-08-25 at WO-J `7423dca` — adds the automation-rules engine on top of WO-D/E/F/G/H/I. Production is six additive migrations behind (`f0a2b4c6d8e0`, `a1b3c5d7e9f1`, `b2c4d6e8f0a2`, `c3d5e7f9a1b3`, `e5f7a9b1c3d5`, `f6a8b0c2d4e6`, all proven on scratch Postgres 16 — full chain + `alembic check` + RLS set-equality + parity + automation suites) |
 | `ruff check` / `ruff format --check` | clean |
-| `mypy app` | clean, 363 files |
-| Alembic | single head `e5f7a9b1c3d5` (client portal) — production is at `e9f1a3b5c7d9`, five additive migrations behind |
-| Browser suite | **376 passed (3.9m)** on 2026-08-25 at `5d121ee`, no flakes |
-| Prior certified runs | 2761 / 372 browser 2026-08-25 at the WO-H tree; 2754 / 369 browser 2026-08-25 at `46d3167` (+ CI #465 all-green); 2748 / 366 browser 2026-08-24 at `31e0e0b`; 2745 / 363 browser 2026-08-24 at `3d0f3cb` (one vat-claims flake re-ran clean 45/45; the WO-E round caught a real Customer-card crash, fixed before certifying); 2737 passed 2026-08-23 at `df9642a`; 2729 passed 2026-08-23 at the deployed tree `ee37037`; 2720 at `60e1faf`; 2714 at `2c5e93a`; 2705 2026-08-20 at `d2ba5b0`; 2694 2026-08-16 at `56bcab7` (single environmental failure — tesseract reinstalled, OCR 2/2) |
+| `mypy app` | clean, 366 files |
+| Alembic | single head `f6a8b0c2d4e6` (automation rules) — production is at `e9f1a3b5c7d9`, six additive migrations behind |
+| Browser suite | **367 e2e + 13 visual = 380 passed** on 2026-08-25 at `7423dca`, no flakes |
+| Prior certified runs | 2766 / 376 browser 2026-08-25 at WO-I `5d121ee` (+ CI #470 all-green); 2761 / 372 browser 2026-08-25 at the WO-H tree; 2754 / 369 browser 2026-08-25 at `46d3167` (+ CI #465 all-green); 2748 / 366 browser 2026-08-24 at `31e0e0b`; 2745 / 363 browser 2026-08-24 at `3d0f3cb` (one vat-claims flake re-ran clean 45/45; the WO-E round caught a real Customer-card crash, fixed before certifying); 2737 passed 2026-08-23 at `df9642a`; 2729 passed 2026-08-23 at the deployed tree `ee37037`; 2720 at `60e1faf`; 2714 at `2c5e93a`; 2705 2026-08-20 at `d2ba5b0`; 2694 2026-08-16 at `56bcab7` (single environmental failure — tesseract reinstalled, OCR 2/2) |
 
 The browser gap the first draft of this runbook carried is CLOSED: the suite has
 been re-run since the consent dialog was reordered, and since the archive screen
