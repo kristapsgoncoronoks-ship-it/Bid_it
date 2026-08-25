@@ -69,12 +69,14 @@ Photos are the only kind with a server-enforced image check (declared type
 AND magic bytes must agree); EXIF kept as shot. They appear in the WO-D
 acceptance document picker — a photo of the signed sheet is valid evidence.
 
-**WO-G — Supplier cost analytics phase 1 (then 2).**
-Phase 1: per supplier × item price history from invoice lines, change
-detection, cost-change graphs, KPI cards — read models only, current
-engine (Postgres; the engine decision is settled in the design doc §2b).
-Phase 2: agreed-price lists + validation-rule overcharge flag (advisory,
-org-configurable block). Estimated: one session each.
+**WO-G — Supplier cost analytics phase 1 (then 2). Phase 1 ✅ SHIPPED 2026-08-24.**
+Phase 1: per supplier × item price history from invoice lines (item =
+normalised description; qty-weighted trailing baseline; single-currency
+C1.7 scope), change detection with top movers, KPI cards, per-item
+price-history graph — `/supplier-costs` page, read models only, zero new
+tables/migrations, current engine (Postgres; settled in design doc §2b).
+Phase 2 (queued): agreed-price lists + validation-rule overcharge flag
+(advisory, org-configurable block) — the owner's "cost control" half.
 
 **WO-H — CRM light (researched 2026-08-23, `docs/design/crm-module-research.md`).**
 Customer notes + derived activity timeline (a view over existing audited

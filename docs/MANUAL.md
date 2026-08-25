@@ -310,6 +310,12 @@ forever. Nothing piles up, by design.
 - **Dashboard** — "what needs me today": approvals waiting, captures to
   review, aging, cash position; every section respects your role.
 - **Explore** — self-service pivot over spend by any dimension.
+- **Supplier costs** — what you actually pay per supplier and item, from the
+  invoices already captured: an item appears after two priced purchases, the
+  change compares the latest price with the weighted average of everything
+  before it, and clicking any row draws its price history. Purchases in other
+  currencies are flagged, never silently mixed in. When a supplier quietly
+  raises a price, this page is where it shows.
 - **Benchmark, FX, Cash position, Budget** — supplier comparison, ECB-vs-paid
   FX markup, receivables/payables position, category budgets.
 - Exports are CSV/Excel/PDF, formula-injection-safe, with the basis (net, EUR)

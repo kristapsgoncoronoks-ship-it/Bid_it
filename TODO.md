@@ -180,6 +180,14 @@ capture on the project page into the content-addressed store as
 type AND magic bytes; EXIF kept as shot), thumbnail grid over the existing
 authenticated download route, photos valid as WO-D acceptance evidence.
 
+**Cost analytics phase 1 SHIPPED 2026-08-24 (WO-G):** the `/supplier-costs`
+page — per supplier × item price history from captured invoice lines
+(normalised-description item identity, quantity-weighted trailing baseline,
+C1.7 single-currency scope with other currencies surfaced), top-movers
+change detection, KPI cards from the same fold as the table, per-item
+monthly price graph. Read models only — zero new tables, no external data
+(ADR-0027 untouched). Phase 2 (agreed prices + overcharge rule) queued.
+
 Phase 3+: module-conditional recovered-VAT line, e-sign, budget-vs-actual;
 the lawyer's standardized texts drop into the shipped template machinery
 when they arrive.

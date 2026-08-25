@@ -28,6 +28,7 @@ from app.services import (
     cash_position,
     explore,
     report_writers,
+    supplier_costs,
 )
 
 # Structural authorization (ADR-0024): the whole analytics surface reads the
@@ -155,6 +156,45 @@ async def get_by_status(
     currency: str | None = _CurrencyQ,
 ):
     return await analytics.by_status(db, current.org_id, start, end, currency)
+
+
+# --- Supplier cost analytics (WO-G phase 1) --------------------------------
+# Read models over the tenant's own invoice lines; dict payloads (the service
+# documents the shape) on the same REPORT_READ router — no new surface class.
+
+
+@router.get("/supplier-costs/kpis")
+async def get_supplier_cost_kpis(
+    current: CurrentUser, db: DbSession, currency: str | None = _CurrencyQ
+):
+    return await supplier_costs.cost_kpis(db, current.org_id, currency=currency)
+
+
+@router.get("/supplier-costs/changes")
+async def get_supplier_cost_changes(
+    current: CurrentUser,
+    db: DbSession,
+    currency: str | None = _CurrencyQ,
+    window_days: int = Query(default=365, ge=30, le=1830),
+    limit: int = Query(default=50, ge=1, le=500),
+):
+    return await supplier_costs.cost_changes(
+        db, current.org_id, currency=currency, window_days=window_days, limit=limit
+    )
+
+
+@router.get("/supplier-costs/history")
+async def get_supplier_cost_history(
+    current: CurrentUser,
+    db: DbSession,
+    vendor_id: str,
+    item: str,
+    currency: str | None = _CurrencyQ,
+    months: int = Query(default=12, ge=1, le=60),
+):
+    return await supplier_costs.price_history(
+        db, current.org_id, vendor_id=vendor_id, item=item, currency=currency, months=months
+    )
 
 
 @router.get("/supplier-benchmark", response_model=SupplierBenchmarkListOut)

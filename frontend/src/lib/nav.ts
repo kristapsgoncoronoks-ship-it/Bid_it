@@ -93,6 +93,7 @@ export const LIVE_NAV: LiveNavGroup[] = [
     items: [
       { to: "/explore", label: "Explore", icon: icon("M11 4a7 7 0 105.3 12.6l4.05 4.05 1.4-1.4-4.05-4.05A7 7 0 0011 4zm0 2a5 5 0 110 10 5 5 0 010-10z") },
       { to: "/benchmark", label: "Benchmark", icon: icon("M4 20V10M10 20V4M16 20v-7M22 20H2") },
+      { to: "/supplier-costs", label: "Supplier costs", icon: icon("M3 17l5-5 4 3 6-7M21 8V5h-3") },
       { to: "/fx", label: "FX", icon: icon("M7 8l4-4 4 4M11 4v12M17 16l-4 4-4-4M13 20V8") },
       { to: "/cash-position", label: "Cash position", icon: icon("M3 6h18v12H3V6zm0 4h18M7 14h4") },
       { to: "/budget", label: "Budget", module: "budget", icon: icon("M4 4h16v16H4V4zm4 12V8m4 8V11m4 5V6") },

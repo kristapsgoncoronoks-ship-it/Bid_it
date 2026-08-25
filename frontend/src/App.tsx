@@ -16,6 +16,7 @@ const Invoices = lazy(() => import("./pages/Invoices"));
 const InvoiceDetail = lazy(() => import("./pages/InvoiceDetail"));
 const Upload = lazy(() => import("./pages/Upload"));
 const Benchmark = lazy(() => import("./pages/Benchmark"));
+const SupplierCosts = lazy(() => import("./pages/SupplierCosts"));
 const Explore = lazy(() => import("./pages/Explore"));
 const Fx = lazy(() => import("./pages/Fx"));
 const Review = lazy(() => import("./pages/Review"));
@@ -138,6 +139,7 @@ export default function App() {
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/explore" element={<Explore />} />
                 <Route path="/benchmark" element={<Benchmark />} />
+                <Route path="/supplier-costs" element={<SupplierCosts />} />
                 <Route path="/fx" element={<Fx />} />
                 <Route path="/invoices" element={<Invoices />} />
                 {/* Static before dynamic: "trash" is a page, not an id. */}
