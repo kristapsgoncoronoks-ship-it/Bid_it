@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { CategoryPie, SpendChart, VendorBar } from "../components/Charts";
@@ -36,12 +36,95 @@ export default function Dashboard() {
         </p>
       </div>
 
+      <SetupChecklist />
+
       <NextActions />
 
       <QueryState query={dash} loading={<TilesSkeleton />} errorTitle="Couldn’t load your dashboard">
         {(d) => <DashboardBody d={d} />}
       </QueryState>
     </div>
+  );
+}
+
+interface OnboardingStep {
+  key: string;
+  label: string;
+  detail: string;
+  href: string;
+  done: boolean;
+}
+
+interface OnboardingOut {
+  steps: OnboardingStep[];
+  done_count: number;
+  complete: boolean;
+  dismissed: boolean;
+  can_dismiss: boolean;
+}
+
+/** Getting-started checklist (WO-P / R19): DERIVED server-side from rows that
+ * already exist — finish a step through its own screen and the card notices.
+ * Renders nothing once complete or dismissed (dismissal is org-wide,
+ * settings-authority only; the server says whether to offer the button). */
+function SetupChecklist() {
+  const qc = useQueryClient();
+  const card = useQuery<OnboardingOut>({
+    queryKey: ["onboarding"],
+    queryFn: async () => (await api.get("/dashboard/onboarding")).data,
+  });
+  const dismiss = useMutation({
+    mutationFn: async () => (await api.post("/dashboard/onboarding/dismiss")).data,
+    onSuccess: (d: OnboardingOut) => qc.setQueryData(["onboarding"], d),
+  });
+
+  const d = card.data;
+  if (!d || !Array.isArray(d.steps) || d.complete || d.dismissed) return null;
+
+  return (
+    <section className="card" aria-label="Getting started">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-600">Getting started</h2>
+          <p className="text-xs text-slate-500">
+            {d.done_count} of {d.steps.length} done — finish setting up your workspace.
+          </p>
+        </div>
+        {d.can_dismiss && (
+          <button
+            className="text-xs text-slate-400 hover:text-slate-600 hover:underline"
+            disabled={dismiss.isPending}
+            onClick={() => dismiss.mutate()}
+          >
+            Dismiss
+          </button>
+        )}
+      </div>
+      <ol className="space-y-2">
+        {d.steps.map((s) => (
+          <li key={s.key} className="flex items-start gap-3">
+            <span
+              aria-hidden
+              className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full text-xs font-bold ${
+                s.done ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-400"
+              }`}
+            >
+              {s.done ? "\u2713" : "\u00b7"}
+            </span>
+            {s.done ? (
+              <span className="text-sm text-slate-400 line-through">{s.label}</span>
+            ) : (
+              <span className="text-sm">
+                <Link className="font-medium text-brand-600 hover:underline" to={s.href}>
+                  {s.label}
+                </Link>
+                <span className="block text-xs text-slate-500">{s.detail}</span>
+              </span>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 

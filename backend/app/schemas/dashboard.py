@@ -85,3 +85,22 @@ class DashboardOut(BaseModel):
     payables: PayablesSection | None = None
     receivables: ReceivablesSection | None = None
     cash: CashSection | None = None
+
+
+class OnboardingStep(BaseModel):
+    key: str
+    label: str
+    detail: str
+    href: str
+    done: bool
+
+
+class OnboardingOut(BaseModel):
+    """WO-P (R19): the derived getting-started card + the caller's authority to
+    dismiss it (the SPA must not offer a button the API would 403)."""
+
+    steps: list[OnboardingStep]
+    done_count: int
+    complete: bool
+    dismissed: bool
+    can_dismiss: bool

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Date, Integer, Numeric, String
+from sqlalchemy import Boolean, Date, DateTime, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -33,6 +33,13 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # default constant; an admin types the current ECB main refinancing rate
     # here (ADR-0027 forbids fetching it ambiently).
     late_interest_base_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    # WO-P (R19): when an admin dismissed the getting-started checklist. NULL =
+    # never dismissed; the checklist itself is DERIVED (services/onboarding.py
+    # computes every step from rows that already exist) — this stamp is the one
+    # piece of state the derivation cannot reconstruct.
+    onboarding_dismissed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Commercial tenancy: subscription plan + lifecycle status.
     plan: Mapped[str] = mapped_column(String(20), default="trial", nullable=False)
