@@ -12,7 +12,9 @@ and the operating manual for the PII quarantine that enforces it
 ## Status — documented adaptation (2026-07-25)
 
 **The Fleet Fuel repository was deleted on 2026-07-25**, after an owner-held
-decommission archive was made. Consequences, recorded here so nobody
+decommission archive was made (deletion owner-confirmed 2026-08-26; Part F
+F.4 verification re-run the same day — no config/code references, PII scans
+clean over tree and full history). Consequences, recorded here so nobody
 re-derives them wrong:
 
 - **The deny-list is pending owner input.** WO-6 Step 1 ("read Fleet Fuel and

@@ -1,5 +1,13 @@
 # PART F — FLEET FUEL DECOMMISSION (RUN ONCE)
 
+> **STATUS: EXECUTED.** The repository was deleted (archive made 2026-07-25;
+> deletion owner-confirmed 2026-08-26). F.4 verification re-run 2026-08-26:
+> no CI/config/code references remain — documentation references only — and
+> the tree + full-history PII scans are clean. The deny-list still awaits the
+> owner's `identifiers_for_denylist.txt` from the decommission archive
+> (docs/transport/harvest-protocol.md). Kept verbatim below as the historical
+> runbook; do not run it again.
+
 > One-time runbook prompt. Execute AFTER WO-6 Step 1 (deny-list) has been built and AFTER
 > `docs/plan/*` is committed and pushed to Bid_it. Human-in-the-loop: Phase 3 is irreversible
 > and only the repository owner can perform it.

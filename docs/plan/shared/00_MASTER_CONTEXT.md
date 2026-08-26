@@ -196,7 +196,7 @@ Every work order that touches data or money adds tests for the applicable subset
 - **No business logic in a route module.**
 - **No new tenant-scoped table without an RLS policy in the same migration.**
 - **No claim of production-readiness without evidence.** "Done" means you pasted the commands you ran and their output. Never write "should work", "production-ready" or "fully tested" without the command output that proves it.
-- **No copying code, constants, fixtures or data from the retired Fleet Fuel system.** Its repository (`kristapsgoncoronoks-ship-it/fleet_fuel_system`) is scheduled for **deletion** (Part F) and contained real client PII. Its rules survive as specification in `docs/plan/BA_fleet_fuel.md` (R1–R76). If a clone, bundle or archive of it is ever encountered, rules may be read; bytes may not be copied.
+- **No copying code, constants, fixtures or data from the retired Fleet Fuel system.** Its repository (`kristapsgoncoronoks-ship-it/fleet_fuel_system`) has been **deleted** (Part F executed; owner-confirmed 2026-08-26) and contained real client PII. Its rules survive as specification in `docs/plan/BA_fleet_fuel.md` (R1–R76). If a clone, bundle or archive of it is ever encountered, rules may be read; bytes may not be copied.
 - **No secrets, real IBANs, real VAT numbers or real company names** in code, tests or fixtures. Fixtures are synthetic — realistic in *shape*, fictional in *content*.
 
 ## 11. Reporting format
