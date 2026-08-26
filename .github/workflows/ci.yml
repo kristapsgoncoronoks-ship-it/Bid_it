@@ -145,6 +145,10 @@ jobs:
       # must carry htmlFor or wrap its control — the sign-in fields shipped
       # with visual-only labels no screen reader could associate.
       - run: node scripts/check-labels.mjs
+      # First-load budget gate (scripts/check-bundle.mjs): the chart stack
+      # stays off first paint and the entry payload stays under budget — the
+      # critical path doubled once under Vite 8 without any test noticing.
+      - run: node scripts/check-bundle.mjs
 
   # Design-system end-to-end smoke tests (Playwright) over the /design showcase.
   # Runs in the version-matched Playwright container, so Chromium is preinstalled
