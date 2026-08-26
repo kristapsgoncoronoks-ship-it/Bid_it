@@ -142,8 +142,8 @@ export default function Invoices() {
 
       <div className="flex flex-wrap items-end gap-3">
         <div>
-          <label className="label">Search number</label>
-          <input
+          <label className="label" htmlFor="search-number">Search number</label>
+          <input id="search-number"
             className="input w-56"
             placeholder="INV-2026-…"
             value={q}
@@ -154,8 +154,8 @@ export default function Invoices() {
           />
         </div>
         <div>
-          <label className="label">Status</label>
-          <select
+          <label className="label" htmlFor="status">Status</label>
+          <select id="status"
             className="input w-40"
             value={status}
             onChange={(e) => {

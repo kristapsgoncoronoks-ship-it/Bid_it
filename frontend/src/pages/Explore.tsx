@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -55,12 +55,12 @@ export default function Explore() {
         <Picker label="Break by" value={dim1} onChange={setDim1} options={[["", "— none —"], ...(fields.data?.dimensions ?? []).filter((d) => d.key !== dim0).map((d) => [d.key, d.label] as [string, string])]} />
         <Picker label="Chart" value={chart} onChange={(v) => setChart(v as ChartType)} options={[["bar", "Bar"], ["line", "Line"], ["pie", "Pie"], ["stacked", "Stacked"], ["table", "Table"]]} />
         <div>
-          <label className="label">From</label>
-          <input type="date" className="input" value={start} onChange={(e) => setStart(e.target.value)} />
+          <label className="label" htmlFor="from">From</label>
+          <input id="from" type="date" className="input" value={start} onChange={(e) => setStart(e.target.value)} />
         </div>
         <div>
-          <label className="label">To</label>
-          <input type="date" className="input" value={end} onChange={(e) => setEnd(e.target.value)} />
+          <label className="label" htmlFor="to">To</label>
+          <input id="to" type="date" className="input" value={end} onChange={(e) => setEnd(e.target.value)} />
         </div>
       </div>
 
@@ -197,10 +197,11 @@ function DataTable({ result, fmt }: { result: ExploreResult; fmt: (v: number) =>
 function Picker({ label, value, onChange, options, className }: {
   label: string; value: string; onChange: (v: string) => void; options: [string, string][]; className?: string;
 }) {
+  const id = useId();
   return (
     <div className={className}>
-      <label className="label">{label}</label>
-      <select className="input" value={value} onChange={(e) => onChange(e.target.value)}>
+      <label className="label" htmlFor={id}>{label}</label>
+      <select id={id} className="input" value={value} onChange={(e) => onChange(e.target.value)}>
         {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>
     </div>

@@ -184,8 +184,8 @@ function AvailableExpenses({ enabled }: { enabled: boolean }) {
           {selected.size > 0 && (
             <div className="flex flex-wrap items-end gap-3">
               <div className="flex-1 min-w-[200px]">
-                <label className="label">Report title</label>
-                <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. May card expenses" />
+                <label className="label" htmlFor="report-title">Report title</label>
+                <input id="report-title" className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. May card expenses" />
               </div>
               <button className="btn-primary" disabled={createFrom.isPending} onClick={() => createFrom.mutate()}>
                 Create report from {selected.size} · {money(selectedTotal)}
@@ -281,12 +281,12 @@ function NewReport() {
       <h2 className="text-sm font-semibold text-slate-600">New expense report</h2>
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex-1 min-w-[200px]">
-          <label className="label">Title</label>
-          <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Berlin conference" />
+          <label className="label" htmlFor="title">Title</label>
+          <input id="title" className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Berlin conference" />
         </div>
         <div>
-          <label className="label">Currency</label>
-          <input className="input w-24 uppercase" maxLength={3} value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} />
+          <label className="label" htmlFor="currency">Currency</label>
+          <input id="currency" className="input w-24 uppercase" maxLength={3} value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} />
         </div>
       </div>
 

@@ -242,8 +242,8 @@ export default function ProjectDetail() {
             }}
           >
             <div className="grow">
-              <label className="label">Label</label>
-              <input
+              <label className="label" htmlFor="label">Label</label>
+              <input id="label"
                 className="input"
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
@@ -252,8 +252,8 @@ export default function ProjectDetail() {
               />
             </div>
             <div>
-              <label className="label">Category</label>
-              <select
+              <label className="label" htmlFor="category">Category</label>
+              <select id="category"
                 className="input"
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
@@ -266,8 +266,8 @@ export default function ProjectDetail() {
               </select>
             </div>
             <div>
-              <label className="label">Amount (EUR)</label>
-              <input
+              <label className="label" htmlFor="amount-eur">Amount (EUR)</label>
+              <input id="amount-eur"
                 className="input w-32"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
@@ -825,8 +825,8 @@ function OffersCard({
         }}
       >
         <div className="grow">
-          <label className="label">Title</label>
-          <input
+          <label className="label" htmlFor="title">Title</label>
+          <input id="title"
             className="input"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
@@ -834,8 +834,8 @@ function OffersCard({
           />
         </div>
         <div>
-          <label className="label">Amount (EUR)</label>
-          <input
+          <label className="label" htmlFor="amount-eur-2">Amount (EUR)</label>
+          <input id="amount-eur-2"
             className="input w-32"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
@@ -977,8 +977,8 @@ function PlanCard({ projectId, onError }: { projectId: string; onError: (m: stri
         }}
       >
         <div className="grow">
-          <label className="label">Instalment</label>
-          <input
+          <label className="label" htmlFor="instalment">Instalment</label>
+          <input id="instalment"
             className="input"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
@@ -987,8 +987,8 @@ function PlanCard({ projectId, onError }: { projectId: string; onError: (m: stri
           />
         </div>
         <div>
-          <label className="label">Amount (EUR)</label>
-          <input
+          <label className="label" htmlFor="amount-eur-3">Amount (EUR)</label>
+          <input id="amount-eur-3"
             className="input w-32"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}

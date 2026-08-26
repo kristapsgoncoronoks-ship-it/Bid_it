@@ -96,8 +96,8 @@ export default function Templates() {
           </h2>
           <div className="flex flex-wrap gap-2">
             <div className="grow">
-              <label className="label">Name</label>
-              <input
+              <label className="label" htmlFor="name">Name</label>
+              <input id="name"
                 className="input"
                 value={editing.name}
                 onChange={(e) => setEditing({ ...editing, name: e.target.value })}
@@ -105,8 +105,8 @@ export default function Templates() {
               />
             </div>
             <div>
-              <label className="label">Kind</label>
-              <select
+              <label className="label" htmlFor="kind">Kind</label>
+              <select id="kind"
                 className="input"
                 value={editing.kind}
                 disabled={!!editing.id || !!editing.source_platform_id}
@@ -121,8 +121,8 @@ export default function Templates() {
             </div>
           </div>
           <div>
-            <label className="label">Text</label>
-            <textarea
+            <label className="label" htmlFor="text">Text</label>
+            <textarea id="text"
               className="input min-h-72 font-mono text-xs"
               value={editing.body}
               onChange={(e) => setEditing({ ...editing, body: e.target.value })}

@@ -141,6 +141,10 @@ jobs:
       # violation seeded), and no spec file silently missing from test:e2e's
       # hand-kept list (five were).
       - run: node scripts/check-e2e.mjs
+      # A11y label gate (scripts/check-labels.mjs): every <label> in the SPA
+      # must carry htmlFor or wrap its control — the sign-in fields shipped
+      # with visual-only labels no screen reader could associate.
+      - run: node scripts/check-labels.mjs
 
   # Design-system end-to-end smoke tests (Playwright) over the /design showcase.
   # Runs in the version-matched Playwright container, so Chromium is preinstalled

@@ -52,22 +52,22 @@ export default function Login() {
             {mode === "register" && (
               <>
                 <div>
-                  <label className="label">Organization</label>
-                  <input className="input" value={orgName} onChange={(e) => setOrgName(e.target.value)} required />
+                  <label className="label" htmlFor="organization">Organization</label>
+                  <input id="organization" className="input" value={orgName} onChange={(e) => setOrgName(e.target.value)} required />
                 </div>
                 <div>
-                  <label className="label">Your name</label>
-                  <input className="input" value={name} onChange={(e) => setName(e.target.value)} required />
+                  <label className="label" htmlFor="your-name">Your name</label>
+                  <input id="your-name" className="input" value={name} onChange={(e) => setName(e.target.value)} required />
                 </div>
               </>
             )}
             <div>
-              <label className="label">Email</label>
-              <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              <label className="label" htmlFor="email">Email</label>
+              <input id="email" className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
             </div>
             <div>
-              <label className="label">Password</label>
-              <input
+              <label className="label" htmlFor="password">Password</label>
+              <input id="password"
                 className="input"
                 type="password"
                 value={password}
@@ -101,9 +101,10 @@ export default function Login() {
 
           {mode === "login" && (
             <div className="mt-5 border-t border-slate-100 pt-4">
-              <label className="label">Single sign-on</label>
+              <label className="label" htmlFor="sso-workspace">Single sign-on</label>
               <div className="flex items-center gap-2">
                 <input
+                  id="sso-workspace"
                   className="input flex-1"
                   placeholder="workspace ID (e.g. acme)"
                   value={ssoSlug}

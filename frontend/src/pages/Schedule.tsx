@@ -335,8 +335,8 @@ export default function Schedule() {
           </h2>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div>
-              <label className="label">Project</label>
-              <select
+              <label className="label" htmlFor="project">Project</label>
+              <select id="project"
                 className="input"
                 value={form.project_id}
                 onChange={(e) => setForm({ ...form, project_id: e.target.value })}
@@ -349,8 +349,8 @@ export default function Schedule() {
               </select>
             </div>
             <div>
-              <label className="label">Person</label>
-              <select
+              <label className="label" htmlFor="person">Person</label>
+              <select id="person"
                 className="input"
                 value={form.assignee_user_id}
                 onChange={(e) => setForm({ ...form, assignee_user_id: e.target.value })}
@@ -363,8 +363,8 @@ export default function Schedule() {
               </select>
             </div>
             <div>
-              <label className="label">Date</label>
-              <input
+              <label className="label" htmlFor="date">Date</label>
+              <input id="date"
                 type="date"
                 className="input"
                 value={form.date}
@@ -385,8 +385,8 @@ export default function Schedule() {
             {!form.all_day && (
               <>
                 <div>
-                  <label className="label">From</label>
-                  <input
+                  <label className="label" htmlFor="from">From</label>
+                  <input id="from"
                     type="time"
                     className="input"
                     value={form.start}
@@ -394,8 +394,8 @@ export default function Schedule() {
                   />
                 </div>
                 <div>
-                  <label className="label">To</label>
-                  <input
+                  <label className="label" htmlFor="to">To</label>
+                  <input id="to"
                     type="time"
                     className="input"
                     value={form.end}
@@ -406,8 +406,8 @@ export default function Schedule() {
             )}
           </div>
           <div>
-            <label className="label">Note</label>
-            <input
+            <label className="label" htmlFor="note">Note</label>
+            <input id="note"
               className="input"
               value={form.note}
               placeholder="Bring the signed contract"
@@ -415,8 +415,8 @@ export default function Schedule() {
             />
           </div>
           <div>
-            <label className="label">Customer arrival notice (this assignment)</label>
-            <select
+            <label className="label" htmlFor="customer-arrival-notice-this-assignment">Customer arrival notice (this assignment)</label>
+            <select id="customer-arrival-notice-this-assignment"
               className="input sm:w-72"
               value={form.client_notice}
               onChange={(e) => setForm({ ...form, client_notice: e.target.value })}

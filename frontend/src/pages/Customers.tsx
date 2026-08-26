@@ -188,7 +188,7 @@ function CustomerForm({ id, onClose }: { id: string | null; onClose: () => void 
 
 function L({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="block text-sm">
+    <label className="block text-sm">{/* a11y-label-exempt: wraps its control via children */}
       <span className="mb-1 block text-xs font-medium text-slate-500">{label}</span>
       {children}
     </label>

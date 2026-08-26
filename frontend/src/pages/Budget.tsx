@@ -51,8 +51,8 @@ export default function Budget() {
           </p>
         </div>
         <div>
-          <label className="label">Month</label>
-          <input type="month" className="input" value={month} onChange={(e) => setMonth(e.target.value)} />
+          <label className="label" htmlFor="month">Month</label>
+          <input id="month" type="month" className="input" value={month} onChange={(e) => setMonth(e.target.value)} />
         </div>
       </div>
 
@@ -112,12 +112,12 @@ export default function Budget() {
 
         <div className="flex flex-wrap items-end gap-2 border-t border-slate-200 px-4 py-3">
           <div className="flex-1 min-w-40">
-            <label className="label">New category</label>
-            <input className="input" placeholder="e.g. groceries" value={newCat} onChange={(e) => setNewCat(e.target.value)} />
+            <label className="label" htmlFor="new-category">New category</label>
+            <input id="new-category" className="input" placeholder="e.g. groceries" value={newCat} onChange={(e) => setNewCat(e.target.value)} />
           </div>
           <div className="w-32">
-            <label className="label">Monthly limit €</label>
-            <input className="input" type="number" min="0" step="0.01" value={newLimit} onChange={(e) => setNewLimit(e.target.value)} />
+            <label className="label" htmlFor="monthly-limit">Monthly limit €</label>
+            <input id="monthly-limit" className="input" type="number" min="0" step="0.01" value={newLimit} onChange={(e) => setNewLimit(e.target.value)} />
           </div>
           <button
             className="btn-primary"

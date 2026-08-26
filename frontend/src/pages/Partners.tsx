@@ -119,8 +119,8 @@ function NewPartner({ onCreated }: { onCreated: (id: string) => void }) {
       <input className="input" placeholder="Company name" value={name} onChange={(e) => setName(e.target.value)} />
       <input className="input" placeholder="Email (optional)" value={email} onChange={(e) => setEmail(e.target.value)} />
       <div>
-        <label className="label">Pre-invoicing workflow</label>
-        <select className="input" value={preset} onChange={(e) => setPreset(e.target.value)}>
+        <label className="label" htmlFor="pre-invoicing-workflow">Pre-invoicing workflow</label>
+        <select id="pre-invoicing-workflow" className="input" value={preset} onChange={(e) => setPreset(e.target.value)}>
           {PRESETS.map((pr) => <option key={pr.key} value={pr.key}>{pr.label}</option>)}
         </select>
       </div>
@@ -130,8 +130,8 @@ function NewPartner({ onCreated }: { onCreated: (id: string) => void }) {
       </label>
       {penaltyEnabled && (
         <div>
-          <label className="label">Late-payment interest (% p.a.)</label>
-          <input className="input" inputMode="decimal" value={penaltyRate} onChange={(e) => setPenaltyRate(e.target.value)} />
+          <label className="label" htmlFor="late-payment-interest-p-a">Late-payment interest (% p.a.)</label>
+          <input id="late-payment-interest-p-a" className="input" inputMode="decimal" value={penaltyRate} onChange={(e) => setPenaltyRate(e.target.value)} />
         </div>
       )}
       {error && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}

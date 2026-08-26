@@ -175,8 +175,9 @@ function SsoPanel() {
 
   const field = (k: string, label: string, type = "text", placeholder = "") => (
     <div>
-      <label className="label">{label}</label>
+      <label className="label" htmlFor={`sso-${k}`}>{label}</label>
       <input
+        id={`sso-${k}`}
         className="input" type={type} placeholder={placeholder}
         value={String(val(k) ?? "")}
         onChange={(e) => setForm((p) => ({ ...p, [k]: e.target.value }))}
@@ -200,8 +201,8 @@ function SsoPanel() {
         {field("client_secret", c?.has_client_secret ? "Client secret (set — leave blank to keep)" : "Client secret", "password")}
         {field("allowed_domain", "Restrict to email domain (optional)", "text", "example.com")}
         <div>
-          <label className="label">Default role for new users</label>
-          <select className="input" value={String(val("default_role", "user"))}
+          <label className="label" htmlFor="default-role-for-new-users">Default role for new users</label>
+          <select id="default-role-for-new-users" className="input" value={String(val("default_role", "user"))}
                   onChange={(e) => setForm((p) => ({ ...p, default_role: e.target.value }))}>
             <option value="user">user</option>
             <option value="processor">processor</option>
@@ -768,8 +769,8 @@ function LifecycleSettingsCard() {
       <div className="card space-y-3 p-4">
         <div className="flex flex-wrap items-end gap-2">
           <div>
-            <label className="label">Offer number prefix</label>
-            <input
+            <label className="label" htmlFor="offer-number-prefix">Offer number prefix</label>
+            <input id="offer-number-prefix"
               className="input"
               placeholder="OFF-"
               value={shownPrefix}
@@ -846,8 +847,8 @@ function ScheduleNoticesCard() {
       </div>
       <div className="card flex flex-wrap items-end gap-4 p-4">
         <div>
-          <label className="label">Team reminder (hours before)</label>
-          <input
+          <label className="label" htmlFor="team-reminder-hours-before">Team reminder (hours before)</label>
+          <input id="team-reminder-hours-before"
             className="input w-40"
             type="number"
             min={1}
@@ -871,8 +872,8 @@ function ScheduleNoticesCard() {
           Save reminder
         </Button>
         <div>
-          <label className="label">Customer arrival notice</label>
-          <select
+          <label className="label" htmlFor="customer-arrival-notice">Customer arrival notice</label>
+          <select id="customer-arrival-notice"
             className="input w-44"
             value={s.client_notice_hours == null ? "" : String(s.client_notice_hours)}
             disabled={save.isPending}

@@ -227,10 +227,11 @@ function IssuerEditor({
       <div className="card grid grid-cols-1 gap-4 sm:grid-cols-2">
         {FIELDS.map((f) => (
           <div key={f.key} className={f.half ? "" : "sm:col-span-2"}>
-            <label className="label">
+            <label className="label" htmlFor={`issuer-${f.key}`}>
               {f.label} {f.required && <span className="text-rose-500">*</span>}
             </label>
             <input
+              id={`issuer-${f.key}`}
               className="input"
               value={form[f.key] ?? ""}
               disabled={!isOwner}
@@ -239,8 +240,8 @@ function IssuerEditor({
           </div>
         ))}
         <div className="sm:col-span-2">
-          <label className="label">Payment instructions (shown on the invoice)</label>
-          <textarea
+          <label className="label" htmlFor="payment-instructions-shown-on-the-invoice">Payment instructions (shown on the invoice)</label>
+          <textarea id="payment-instructions-shown-on-the-invoice"
             className="input"
             rows={2}
             placeholder="e.g. Payment within 14 days; quote the invoice number as reference."
@@ -250,8 +251,8 @@ function IssuerEditor({
           />
         </div>
         <div className="sm:col-span-2">
-          <label className="label">Footer / notes</label>
-          <textarea
+          <label className="label" htmlFor="footer-notes">Footer / notes</label>
+          <textarea id="footer-notes"
             className="input"
             rows={2}
             value={form["notes"] ?? ""}

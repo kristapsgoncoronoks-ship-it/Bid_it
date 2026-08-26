@@ -50,8 +50,8 @@ export default function ForgotPassword() {
         className="space-y-3"
       >
         <div>
-          <label className="label">Email</label>
-          <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <label className="label" htmlFor="email">Email</label>
+          <input id="email" className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         </div>
         <button className="btn-primary w-full" disabled={request.isPending}>
           {request.isPending ? "Sending…" : "Send reset link"}

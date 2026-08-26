@@ -60,8 +60,8 @@ export default function ResetPassword() {
         className="mt-3 space-y-3"
       >
         <div>
-          <label className="label">New password</label>
-          <input
+          <label className="label" htmlFor="new-password">New password</label>
+          <input id="new-password"
             className="input"
             type="password"
             minLength={8}

@@ -66,12 +66,12 @@ export default function AcceptInvite() {
               </p>
               <form onSubmit={submit} className="space-y-3">
                 <div>
-                  <label className="label">Your name</label>
-                  <input className="input" value={name} onChange={(e) => setName(e.target.value)} required />
+                  <label className="label" htmlFor="your-name">Your name</label>
+                  <input id="your-name" className="input" value={name} onChange={(e) => setName(e.target.value)} required />
                 </div>
                 <div>
-                  <label className="label">Set a password</label>
-                  <input className="input" type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} required />
+                  <label className="label" htmlFor="set-a-password">Set a password</label>
+                  <input id="set-a-password" className="input" type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} required />
                 </div>
                 {error && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</div>}
                 <button className="btn-primary w-full" disabled={busy}>{busy ? "Joining…" : "Join workspace"}</button>

@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { KpiCard } from "../components/KpiCard";
 import { api, apiError } from "../lib/api";
 import { money, shortDate } from "../lib/format";
@@ -82,10 +82,12 @@ function Converter({ currencies }: { currencies: FxCurrencies["currencies"] }) {
   const options = currencies.length
     ? currencies
     : [{ code: "EUR", name: "Euro", ecb: true, rate: null, rate_date: null, indicative: false }];
-  const Select = ({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) => (
+  const Select = ({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) => {
+    const id = useId();
+    return (
     <div>
-      <label className="label">{label}</label>
-      <select className="input w-44" value={value} onChange={(e) => onChange(e.target.value)}>
+      <label className="label" htmlFor={id}>{label}</label>
+      <select id={id} className="input w-44" value={value} onChange={(e) => onChange(e.target.value)}>
         {options.map((c) => (
           <option key={c.code} value={c.code}>
             {c.code} — {c.name}{c.indicative && c.code !== "EUR" ? " (indic.)" : ""}
@@ -93,15 +95,16 @@ function Converter({ currencies }: { currencies: FxCurrencies["currencies"] }) {
         ))}
       </select>
     </div>
-  );
+    );
+  };
 
   return (
     <div className="card">
       <h2 className="mb-3 text-sm font-semibold text-slate-600">Currency converter</h2>
       <div className="flex flex-wrap items-end gap-3">
         <div>
-          <label className="label">Amount</label>
-          <input className="input w-32" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <label className="label" htmlFor="amount">Amount</label>
+          <input id="amount" className="input w-32" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </div>
         <Select value={from} onChange={setFrom} label="From" />
         <Select value={to} onChange={setTo} label="To" />

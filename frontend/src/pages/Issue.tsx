@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api, apiError, downloadFile, openFile } from "../lib/api";
 import { ConfirmDialog } from "../components/ui";
@@ -214,12 +214,12 @@ function BulkActions() {
   return (
     <div className="card flex w-full flex-wrap items-end gap-3">
       <div>
-        <label className="label">Period from</label>
-        <input type="date" className="input" value={from} onChange={(e) => setFrom(e.target.value)} />
+        <label className="label" htmlFor="period-from">Period from</label>
+        <input id="period-from" type="date" className="input" value={from} onChange={(e) => setFrom(e.target.value)} />
       </div>
       <div>
-        <label className="label">to</label>
-        <input type="date" className="input" value={to} onChange={(e) => setTo(e.target.value)} />
+        <label className="label" htmlFor="to">to</label>
+        <input id="to" type="date" className="input" value={to} onChange={(e) => setTo(e.target.value)} />
       </div>
       <button className="btn-ghost" disabled={zip.isPending} onClick={() => { setMsg(null); zip.mutate(); }}>
         {zip.isPending ? "Preparing…" : "Download PDFs (ZIP)"}
@@ -359,8 +359,9 @@ function VoidAction({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void })
           This permanently cancels the invoice — it stops being a live receivable and this
           cannot be undone.
         </p>
-        <label className="label mt-3 block">Reason (optional)</label>
+        <label className="label mt-3 block" htmlFor="void-reason">Reason (optional)</label>
         <input
+          id="void-reason"
           className="input"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
@@ -492,8 +493,9 @@ function DisputeActions({ inv, onDone }: { inv: IssuedInvoice; onDone: () => voi
           This marks the invoice as uncollectible bad debt — it stays in the audit trail but is
           removed from active receivables tracking.
         </p>
-        <label className="label mt-3 block">Reason (optional)</label>
+        <label className="label mt-3 block" htmlFor="writeoff-reason">Reason (optional)</label>
         <input
+          id="writeoff-reason"
           className="input"
           value={writeOffReason}
           onChange={(e) => setWriteOffReason(e.target.value)}
@@ -700,8 +702,8 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
 
       {(issuers.data?.length ?? 0) > 1 && (
         <div>
-          <label className="label">Issue from (company)</label>
-          <select className="input sm:w-1/2" value={issuerId} onChange={(e) => setIssuerId(e.target.value)}>
+          <label className="label" htmlFor="issue-from-company">Issue from (company)</label>
+          <select id="issue-from-company" className="input sm:w-1/2" value={issuerId} onChange={(e) => setIssuerId(e.target.value)}>
             <option value="">
               — Default{" "}
               {issuers.data?.find((i) => i.is_default)
@@ -724,8 +726,8 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
 
       {(projects.data?.length ?? 0) > 0 && (
         <div>
-          <label className="label">Project</label>
-          <select
+          <label className="label" htmlFor="project">Project</label>
+          <select id="project"
             className="input sm:w-1/2"
             value={projectId}
             onChange={(e) => setProjectId(e.target.value)}
@@ -747,8 +749,8 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
 
       {(partners.data?.length ?? 0) > 0 && (
         <div>
-          <label className="label">Partner (optional)</label>
-          <select className="input sm:w-1/2" value={partnerId} onChange={(e) => pickPartner(e.target.value)}>
+          <label className="label" htmlFor="partner-optional">Partner (optional)</label>
+          <select id="partner-optional" className="input sm:w-1/2" value={partnerId} onChange={(e) => pickPartner(e.target.value)}>
             <option value="">— One-off customer —</option>
             {partners.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
@@ -770,14 +772,14 @@ function NewInvoice({ onCreated, defaultPenalty }: { onCreated: () => void; defa
         <Field label="City" v={buyer.buyer_city} on={(v) => setBuyer({ ...buyer, buyer_city: v })} />
         <Field label="Country (ISO)" v={buyer.buyer_country} on={(v) => setBuyer({ ...buyer, buyer_country: v })} />
         <div>
-          <label className="label">VAT scheme</label>
-          <select className="input" value={scheme} onChange={(e) => setScheme(e.target.value as VatScheme)}>
+          <label className="label" htmlFor="vat-scheme">VAT scheme</label>
+          <select id="vat-scheme" className="input" value={scheme} onChange={(e) => setScheme(e.target.value as VatScheme)}>
             {SCHEMES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
         </div>
         <div>
-          <label className="label">Late-payment interest (% p.a.)</label>
-          <input
+          <label className="label" htmlFor="late-payment-interest-p-a">Late-payment interest (% p.a.)</label>
+          <input id="late-payment-interest-p-a"
             className="input" inputMode="decimal" value={penalty}
             placeholder={defaultPenalty ? `default ${Number(defaultPenalty)}%` : "none"}
             onChange={(e) => setPenalty(e.target.value)}
@@ -995,28 +997,28 @@ function NewRecurring({ onCreated }: { onCreated: () => void }) {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Field label="Schedule title" v={title} on={setTitle} span2 />
         <div>
-          <label className="label">Frequency</label>
-          <select className="input" value={frequency} onChange={(e) => setFrequency(e.target.value as RecurringFrequency)}>
+          <label className="label" htmlFor="frequency">Frequency</label>
+          <select id="frequency" className="input" value={frequency} onChange={(e) => setFrequency(e.target.value as RecurringFrequency)}>
             {FREQUENCIES.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
         </div>
         <Field label="Customer name" v={buyerName} on={setBuyerName} span2 />
         <Field label="Customer email" v={buyerEmail} on={setBuyerEmail} />
         <div>
-          <label className="label">Every N periods</label>
-          <input className="input" inputMode="numeric" value={interval} onChange={(e) => setInterval(e.target.value)} />
+          <label className="label" htmlFor="every-n-periods">Every N periods</label>
+          <input id="every-n-periods" className="input" inputMode="numeric" value={interval} onChange={(e) => setInterval(e.target.value)} />
         </div>
         <div>
-          <label className="label">Start date</label>
-          <input className="input" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          <label className="label" htmlFor="start-date">Start date</label>
+          <input id="start-date" className="input" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
         </div>
         <div>
-          <label className="label">End date (optional)</label>
-          <input className="input" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          <label className="label" htmlFor="end-date-optional">End date (optional)</label>
+          <input id="end-date-optional" className="input" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
         </div>
         <div>
-          <label className="label">VAT scheme</label>
-          <select className="input" value={scheme} onChange={(e) => setScheme(e.target.value as VatScheme)}>
+          <label className="label" htmlFor="vat-scheme-2">VAT scheme</label>
+          <select id="vat-scheme-2" className="input" value={scheme} onChange={(e) => setScheme(e.target.value as VatScheme)}>
             {SCHEMES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
         </div>
@@ -1070,10 +1072,11 @@ function NewRecurring({ onCreated }: { onCreated: () => void }) {
 }
 
 function Field({ label, v, on, span2 }: { label: string; v: string; on: (v: string) => void; span2?: boolean }) {
+  const id = useId();
   return (
     <div className={span2 ? "sm:col-span-2" : ""}>
-      <label className="label">{label}</label>
-      <input className="input" value={v} onChange={(e) => on(e.target.value)} />
+      <label className="label" htmlFor={id}>{label}</label>
+      <input id={id} className="input" value={v} onChange={(e) => on(e.target.value)} />
     </div>
   );
 }

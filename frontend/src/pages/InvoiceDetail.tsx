@@ -107,7 +107,7 @@ export default function InvoiceDetailPage() {
               </dl>
 
               <div className="mt-5">
-                <label className="label">Change status</label>
+                <div className="label">Change status</div>
                 <div className="flex gap-2">
                   {STATUSES.map((s) => (
                     <button
@@ -273,8 +273,9 @@ function APPayment({ inv, onPaid }: { inv: InvoiceDetail; onPaid: () => void }) 
       {payable ? (
         <div className="flex items-end gap-2">
           <div>
-            <label className="label">Record a payment ({inv.currency})</label>
+            <label className="label" htmlFor="record-payment">Record a payment ({inv.currency})</label>
             <input
+              id="record-payment"
               className={`${inputClass} w-40`}
               inputMode="decimal"
               placeholder="0.00"
@@ -360,8 +361,9 @@ function CostAllocation({ inv, onSaved }: { inv: InvoiceDetail; onSaved: () => v
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {keys.map((k) => (
           <div key={k}>
-            <label className="label">{DIMENSION_LABELS[k]}</label>
+            <label className="label" htmlFor={`dim-${k}`}>{DIMENSION_LABELS[k]}</label>
             <input
+              id={`dim-${k}`}
               className="input"
               value={draft[k]}
               placeholder="—"
@@ -447,8 +449,8 @@ function ProjectAllocation({ invoiceId, onSaved }: { invoiceId: string; onSaved:
       )}
       <div className="flex flex-wrap items-end gap-2">
         <div>
-          <label className="label">Project</label>
-          <select
+          <label className="label" htmlFor="project">Project</label>
+          <select id="project"
             className="input"
             value={projectId}
             onChange={(e) => {
