@@ -89,31 +89,7 @@ async function open(page: Page, opts: MockOpts = {}) {
       return route.fulfill(json({ kind: otherRestore[1], id: otherRestore[2], summary: {} }));
     }
     if (path.startsWith("/invoices/trash/other")) {
-      return route.fulfill(
-        json({
-          retention_days: 30,
-          items: [
-            {
-              kind: "expense_report",
-              label: "Expense report",
-              id: "rep-1",
-              summary: { title: "Overlap trip", employee: "Test User" },
-              deleted_at: "2026-08-20T10:00:00+00:00",
-              deleted_by: "owner@test.io",
-              days_left: 24,
-            },
-            {
-              kind: "recurring_schedule",
-              label: "Recurring schedule",
-              id: "rec-1",
-              summary: { title: "Monthly retainer", frequency: "monthly" },
-              deleted_at: "2026-08-21T10:00:00+00:00",
-              deleted_by: null,
-              days_left: 25,
-            },
-          ],
-        }),
-      );
+      return route.fulfill(json({ retention_days: 30, items: opts.otherItems ?? [] }));
     }
 
     const restore = path.match(/^\/invoices\/([^/]+)\/restore/);
@@ -233,7 +209,29 @@ test("the pager asks the server for the next page", async ({ page }) => {
 
 test("WO-M: the generic bin lists other entities and restores by kind", async ({ page }) => {
   const restored: string[] = [];
-  await open(page, { onOtherRestore: (r) => restored.push(r) });
+  await open(page, {
+    onOtherRestore: (r) => restored.push(r),
+    otherItems: [
+      {
+        kind: "expense_report",
+        label: "Expense report",
+        id: "rep-1",
+        summary: { title: "Overlap trip", employee: "Test User" },
+        deleted_at: "2026-08-20T10:00:00+00:00",
+        deleted_by: "owner@test.io",
+        days_left: 24,
+      },
+      {
+        kind: "recurring_schedule",
+        label: "Recurring schedule",
+        id: "rec-1",
+        summary: { title: "Monthly retainer", frequency: "monthly" },
+        deleted_at: "2026-08-21T10:00:00+00:00",
+        deleted_by: null,
+        days_left: 25,
+      },
+    ],
+  });
 
   await expect(page.getByRole("heading", { name: "Other deleted items" })).toBeVisible();
   await expect(page.getByText("Overlap trip", { exact: false })).toBeVisible();
