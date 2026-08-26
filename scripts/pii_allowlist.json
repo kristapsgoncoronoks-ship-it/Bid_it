@@ -228,6 +228,12 @@
       "kind": "vat_id",
       "justification": "Hand-fabricated decoy VAT id (all-nines synthetic body + a sequential '03' suffix, 10-digit Polish shape) planted by WO-69's adversarial test test_g3_2_bp_parse_entities_stay_empty_even_with_bp_looking_text_in_the_file to prove BPParser performs no entity scan. Never derived from any real registry or the Fleet Fuel archive.",
       "verified_by": "Claude (WO-69, 2026-08-04)"
+    },
+    {
+      "value": "EE123456789",
+      "kind": "vat_id",
+      "justification": "Sequential-digit placeholder VAT on the invented issuer 'Fictional Freight OÜ' (billing@fictional-freight.test) in a HISTORICAL blob of frontend/e2e/issue-destructive-actions.spec.ts (043dc7435b84); the current tree no longer contains it. Verifiably synthetic: 123456789 is not a valid Estonian KMKR check sequence and the fixture is explicitly fictional.",
+      "verified_by": "Claude (repo PII sweep, 2026-08-26)"
     }
   ]
 }
