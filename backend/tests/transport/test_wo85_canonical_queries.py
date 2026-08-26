@@ -178,6 +178,15 @@ def test_wo85_every_registry_query_has_a_real_consumer():
         for p in sorted(SERVICES.rglob("*.py"))
         if p.name != "queries.py"
     }
+    # One consumer lives OUTSIDE the transport package by design: WO-M's
+    # invoice-deletion refusal (`invoices.claim_backing_refusal`) must answer
+    # "does a frozen line of a filed claim resolve to this invoice?" and the
+    # whole point of the registry is that it asks through
+    # `queries.claims_backed_by_invoice` instead of forking the predicate.
+    # It is included in the scan, not exempted from it.
+    sources["services/invoices.py"] = (BACKEND / "app" / "services" / "invoices.py").read_text(
+        encoding="utf-8"
+    )
     orphans = []
     for name in queries.__all__:
         if name == "CANONICAL_MODELS":
