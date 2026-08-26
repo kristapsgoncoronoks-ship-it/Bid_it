@@ -1,5 +1,31 @@
 # TODO — Task Board
 
+## Second-arc queue committed — 2026-08-26
+
+The first arc (WO-A…WO-J + WO-G phase 2) is fully shipped, certified and
+merged to `main` (`04d0057`). A backlog sweep verified every unchecked item
+below against the code; the survivors are sequenced as the SECOND COMMITTED
+QUEUE in `docs/plan/DEVELOPMENT-PLAN-2026-08.md`:
+
+- **WO-K** AR legal trio — Art. 219 credit-note reference, statutory
+  late-payment interest (2011/7/EU), MT940 import.
+- **WO-L** Transport claim hygiene — §12 audited overcharge `ignored`,
+  §11 UNMATCHED supplier list, §13 partial claim rejection.
+- **WO-M** Recycle-bin extension (expenses/receipts/documents) + the
+  invoice→VAT-claim link with delete refusal.
+- **WO-N** Accessibility/form-label pass (Login first).
+- **WO-O** First-load performance + CI bundle-size tripwire.
+- **WO-P** Guided onboarding checklist (R19).
+- **WO-Q** Supplier reliability rating (design-first).
+- **WO-R** Load/perf harness (R15).
+
+Stale unchecked boxes in the eras below are superseded where they say the
+runners are dead, `main` cannot build or is behind, or the runbook needs
+regenerating — all resolved by 2026-08-26. Owner-side items (deploy, fee
+rate, real statement, restore drill, deny-list) remain live and are NOT
+code.
+
+
 Live board per the founder's charter (statuses: `Backlog` · `Planned` · `In Progress` · `Blocked` ·
 `Testing` · `Review` · `Completed`). Supersedes the 2026-07-27 audit snapshot preserved at the bottom
 of this file — every P0/P1/P2 item it listed as `Approved`/`Backlog` is now closed. This file is the

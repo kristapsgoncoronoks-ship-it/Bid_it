@@ -137,6 +137,81 @@ Estimated: 2 sessions. Sits last because E/H/I each enrich the trigger/
 action catalog; pull earlier if multiple WOs start hand-rolling bespoke
 "when X do Y" settings.
 
+## Committed queue — second arc (planned 2026-08-26)
+
+The first arc (WO-A…WO-J + WO-G phase 2) is fully shipped and certified;
+`main` carries it as of `04d0057`. This arc is built from the 2026-08-26
+backlog sweep: every item below was verified OPEN against the code (not
+just unchecked in TODO.md), needs NO owner decision, and is sequenced
+legal-exposure-first.
+
+**WO-K — AR legal-compliance trio.**
+(1) Art. 219: a credit note must print the corrected invoice's number —
+today `invoice_pdf.py` renders no reference; add the link field where the
+credit-note flow already knows its source invoice, render it on the PDF
+AND the EN 16931 CII XML, refuse issuing a credit note with no reference.
+(2) Statutory late-payment interest (Dir. 2011/7/EU): when no contractual
+`penalty_rate` is set, compute the statutory default — ECB reference rate
++ 8 pp, plus the Art. 6 €40 flat recovery cost — as an ADVISORY figure on
+overdue issued invoices (AR aging + invoice detail + dunning context);
+contractual rate always overrides; the existing penalty-invoicing
+machinery can consume it, never auto-issues. (3) MT940 bank-statement
+import beside CSV/camt.053, and fix the unsupported-format message that
+omits XML (which IS supported). Estimated: 1–2 sessions.
+
+**WO-L — Transport claim hygiene (the 2026-08-08 §11/§12/§13 smalls).**
+(1) §12: an explicit, audited `ignored` outcome on a detected overcharge
+claim-back — reversible, with a reason, so an operator's decision to drop
+one is a recorded event instead of an eternally-open row. (2) §11: the
+supplier candidate list on an `UNMATCHED` claim line (small, fully
+specified). (3) §13: partial rejection of a VAT claim — `status.py` names
+the decision-received/rejected transitions as unbuilt; implement
+amount-level partial outcomes with the fee interplay `fee.py`'s
+documented seam already reserves. Estimated: 1–2 sessions.
+
+**WO-M — Recycle-bin extension + the invoice→VAT-claim link.**
+Owner-approved 2026-08-15: extend the soft-delete bin (binned_at pattern,
+30-day purge already in DAILY_KINDS) to expenses, expense reports,
+receipts and standalone documents. Then the real invoice→VAT-claim link,
+and REFUSE deleting an invoice that backs a claim — today nothing knows.
+Estimated: 1–2 sessions.
+
+**WO-N — Accessibility & form-label pass.**
+`Login.tsx` labels are not programmatically associated (zero `htmlFor`);
+sweep the auth screens first, then the high-traffic forms; visible focus
+states; Playwright assertions so the association cannot silently regress.
+Estimated: 1 session.
+
+**WO-O — First-load performance.**
+The SPA's first-load payload roughly doubled under Vite 8 (recorded
+2026-08-08, still open). Measure, re-split (manualChunks / route-level),
+and land a bundle-size tripwire in CI so the next regression fails a
+check instead of a user. Estimated: 1 session.
+
+**WO-P — Guided onboarding checklist (R19).**
+A derived, dismissible setup card (issuer profile → modules → team →
+first customer/invoice) computed from state that already exists — no new
+tables. Closes the last "empty workspace, now what?" gap the demo seed
+papers over. Estimated: 1 session.
+
+**WO-Q — Supplier reliability rating (§12 criteria; DESIGN-FIRST).**
+The owner's criteria are recorded (overcharges, exchange-rate treatment,
+lines charged that were never agreed) but TODO.md itself says it needs a
+design pass: each criterion's contribution, the window, and a
+presentation that reads as EVIDENCE rather than a verdict on a
+counterparty. Deliverable 1 is the design doc; code only after.
+Estimated: 2 sessions including design.
+
+**WO-R — Load/perf test harness (R15).**
+A repeatable load harness (k6 or locust script over the seeded demo
+workspace, worker-tier only), a recorded baseline, and the p95 budgets
+the index-strategy rule keeps referring to. Estimated: 1 session.
+
+Not in this queue (stale, verified done): CI runners (alive since
+2026-08-25), `main` unbuildable/behind (merged current 2026-08-26),
+runbook regeneration (maintained), demo data (shipped). Decision-gated
+items stay fenced below.
+
 ## Owner-side track (parallel, not code)
 
 1. Finish the in-flight VPS deploy (`./scripts/vps-deploy.sh`).
