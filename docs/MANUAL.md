@@ -343,7 +343,13 @@ forever. Nothing piles up, by design.
   change compares the latest price with the weighted average of everything
   before it, and clicking any row draws its price history. Purchases in other
   currencies are flagged, never silently mixed in. When a supplier quietly
-  raises a price, this page is where it shows.
+  raises a price, this page is where it shows. The same page holds your
+  **agreed prices** — what a unit price *should* be, per supplier and item
+  (matched against invoice line descriptions, with a validity window). Lines
+  priced above the agreement are flagged on capture, listed in the
+  **Overcharges** worklist with the damage priced out ((paid − agreed) ×
+  quantity), and — if you turn on *Block overcharges* in Settings — refused
+  at submit until corrected.
 - **Benchmark, FX, Cash position, Budget** — supplier comparison, ECB-vs-paid
   FX markup, receivables/payables position, category budgets.
 - Exports are CSV/Excel/PDF, formula-injection-safe, with the basis (net, EUR)

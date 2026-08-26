@@ -118,6 +118,13 @@ export default function Settings() {
             disabled={!canEdit || update.isPending}
             onChange={(v) => update.mutate({ human_validation_enabled: v })}
           />
+          <SettingRow
+            title="Block overcharges"
+            desc="Refuse to submit a supplier invoice for approval when a line is priced above your agreed price for that supplier and item (set agreed prices on the Supplier costs page). Off = overcharges are flagged but never block."
+            checked={!!s?.overcharge_block_enabled}
+            disabled={!canEdit || update.isPending}
+            onChange={(v) => update.mutate({ overcharge_block_enabled: v })}
+          />
         </div>
         <p className="px-1 text-xs text-slate-400">
           With both on, AI findings are attached to help the reviewer, and the invoice still waits for a human.

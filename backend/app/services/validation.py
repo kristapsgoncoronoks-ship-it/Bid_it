@@ -105,6 +105,11 @@ RULES: tuple[Rule, ...] = (
     Rule("duplicate_cross_supplier", "advise", Decimal("0"), "document"),
     # fx_deviation: tolerance is a PERCENT deviation from the ECB rate, not EUR.
     Rule("fx_deviation", "advise", Decimal("3"), "header"),
+    # agreed_price_exceeded (WO-G phase 2): unit price above the supplier's
+    # agreed price. Registered "advise" — the submit gate escalates it to a
+    # refusal ONLY for orgs that opted into `overcharge_block_enabled`, so the
+    # static policy stays truthful for everyone else.
+    Rule("agreed_price_exceeded", "advise", Decimal("0.01"), "line"),
 )
 
 _BY_CODE: dict[str, Rule] = {r.code: r for r in RULES}
@@ -435,6 +440,12 @@ async def run_checks(db: AsyncSession, invoice: Invoice, today: date) -> list[Va
                         field="fx_rate",
                     )
                 )
+
+    # Agreed-price check (WO-G phase 2) — only bites where the tenant has
+    # recorded an agreement for this supplier × item.
+    from app.services import agreed_prices  # local import — agreed_prices imports us
+
+    f.extend(await agreed_prices.check_invoice(db, invoice, today))
 
     return ai_enrich(invoice, f)
 

@@ -197,6 +197,92 @@ async def get_supplier_cost_history(
     )
 
 
+# --- Supplier agreed prices + overcharge worklist (WO-G phase 2) -----------
+# Reads stay on the router's REPORT_READ; the two mutations ADDITIONALLY
+# require SETTINGS_MANAGE — the price list is org configuration, exactly like
+# the validation toggles it powers.
+
+from datetime import date as _date  # noqa: E402
+from decimal import Decimal as _Decimal  # noqa: E402
+
+from pydantic import BaseModel, Field  # noqa: E402
+
+from app.services import agreed_prices, audit  # noqa: E402
+
+_SETTINGS = [Depends(require_perm(authz.Permission.SETTINGS_MANAGE))]
+
+
+class AgreedPriceIn(BaseModel):
+    vendor_id: str
+    item: str = Field(min_length=1, max_length=500)
+    agreed_price: _Decimal = Field(gt=0)
+    currency: str = Field(default="EUR", min_length=3, max_length=3)
+    valid_from: _date | None = None
+    valid_to: _date | None = None
+    note: str | None = Field(default=None, max_length=500)
+
+
+@router.get("/supplier-costs/agreed")
+async def list_agreed_prices(current: CurrentUser, db: DbSession, vendor_id: str | None = None):
+    return await agreed_prices.list_prices(db, current.org_id, vendor_id=vendor_id)
+
+
+@router.put("/supplier-costs/agreed", dependencies=_SETTINGS)
+async def put_agreed_price(body: AgreedPriceIn, current: CurrentUser, db: DbSession):
+    try:
+        row = await agreed_prices.upsert(
+            db,
+            current.org_id,
+            vendor_id=body.vendor_id,
+            item=body.item,
+            agreed_price=body.agreed_price,
+            currency=body.currency,
+            valid_from=body.valid_from,
+            valid_to=body.valid_to,
+            note=body.note,
+            created_by=current.email,
+        )
+    except agreed_prices.NotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except agreed_prices.AgreedPriceError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    await audit.record(
+        db,
+        "supplier_costs.agreed_price_set",
+        target_type="supplier_agreed_price",
+        target_id=row.id,
+        meta={"vendor_id": row.vendor_id, "item": row.item, "price": str(row.agreed_price)},
+    )
+    await db.commit()
+    return {"id": row.id}
+
+
+@router.delete("/supplier-costs/agreed/{price_id}", dependencies=_SETTINGS)
+async def delete_agreed_price(price_id: str, current: CurrentUser, db: DbSession):
+    try:
+        row = await agreed_prices.remove(db, current.org_id, price_id)
+    except agreed_prices.NotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    await audit.record(
+        db,
+        "supplier_costs.agreed_price_delete",
+        target_type="supplier_agreed_price",
+        target_id=price_id,
+        meta={"vendor_id": row.vendor_id, "item": row.item},
+    )
+    await db.commit()
+    return {"deleted": price_id}
+
+
+@router.get("/supplier-costs/overcharges")
+async def get_overcharge_worklist(
+    current: CurrentUser,
+    db: DbSession,
+    window_days: int = Query(default=365, ge=30, le=1830),
+):
+    return await agreed_prices.overcharge_worklist(db, current.org_id, window_days=window_days)
+
+
 @router.get("/supplier-benchmark", response_model=SupplierBenchmarkListOut)
 async def get_supplier_benchmark(
     current: CurrentUser,

@@ -21,6 +21,7 @@ async def get_validation_settings(current: CurrentUser, db: DbSession, org: Curr
     return ValidationSettings(
         ai_validation_enabled=org.ai_validation_enabled,
         human_validation_enabled=org.human_validation_enabled,
+        overcharge_block_enabled=org.overcharge_block_enabled,
     )
 
 
@@ -32,10 +33,13 @@ async def update_validation_settings(
         org.ai_validation_enabled = body.ai_validation_enabled
     if body.human_validation_enabled is not None:
         org.human_validation_enabled = body.human_validation_enabled
+    if body.overcharge_block_enabled is not None:
+        org.overcharge_block_enabled = body.overcharge_block_enabled
     await db.commit()
     return ValidationSettings(
         ai_validation_enabled=org.ai_validation_enabled,
         human_validation_enabled=org.human_validation_enabled,
+        overcharge_block_enabled=org.overcharge_block_enabled,
     )
 
 

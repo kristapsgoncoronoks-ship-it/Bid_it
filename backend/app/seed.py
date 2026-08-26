@@ -940,10 +940,12 @@ async def _drive_ap_workflow(
     from app.schemas.approval import DecisionIn, SubmitIn, TransitionIn
     from app.schemas.payment_run import RunApprove, RunCreate, RunPay
 
+    org_row = await db.get(Organization, owner.org_id)
+    assert org_row is not None
     to_pay: list[Invoice] = []
     for inv in invoices:
         review = await invoice_review.submit(
-            inv.id, SubmitIn(version=inv.version), current=owner, db=db
+            inv.id, SubmitIn(version=inv.version), current=owner, db=db, org=org_row
         )
         review = await invoice_review.approve(
             inv.id, DecisionIn(version=review.version), current=owner, db=db

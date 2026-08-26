@@ -2751,6 +2751,43 @@ async def _p_automation(ctx: Ctx) -> None:
         )
 
 
+@probe("supplier_agreed_prices")
+async def _p_agreed_prices(ctx: Ctx) -> None:
+    """The agreed price list is org configuration that gates money movement:
+    one workspace's agreements (and its overcharge worklist) must be
+    invisible and unmanageable from the other."""
+    ids: dict[str, str] = {}
+    for org in (ctx.a, ctx.b):
+        v = await org.post("/api/v1/vendors", json={"name": "Overlap Supplies GmbH"})
+        assert v.status_code in (200, 201), v.text
+        r = await org.put(
+            "/api/v1/analytics/supplier-costs/agreed",
+            json={
+                "vendor_id": v.json()["id"],
+                "item": "Packing film roll",  # identical in both orgs — overlap by design
+                "agreed_price": "3.20",
+            },
+        )
+        assert r.status_code == 200, r.text
+        ids[org.name] = r.json()["id"]
+
+    for me, other in ((ctx.a, ctx.b), (ctx.b, ctx.a)):
+        listed = await me.get("/api/v1/analytics/supplier-costs/agreed")
+        assert listed.status_code == 200, listed.text
+        _assert_isolated(
+            "supplier_agreed_prices",
+            {ids[me.name]},
+            {ids[other.name]},
+            {row["id"] for row in listed.json()},
+        )
+        _assert_404(
+            await me.delete(f"/api/v1/analytics/supplier-costs/agreed/{ids[other.name]}"),
+            f"{me.name} delete {other.name}'s agreed price",
+        )
+        work = await me.get("/api/v1/analytics/supplier-costs/overcharges")
+        assert work.status_code == 200, work.text
+
+
 ALL_TABLES = sorted(m.__tablename__ for m in TENANT_MODELS)
 
 

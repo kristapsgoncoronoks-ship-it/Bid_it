@@ -18,11 +18,14 @@ class ValidationFinding(BaseModel):
 class ValidationSettings(BaseModel):
     ai_validation_enabled: bool
     human_validation_enabled: bool
+    # WO-G phase 2: refuse AP submit when a line exceeds the agreed price.
+    overcharge_block_enabled: bool
 
 
 class ValidationSettingsUpdate(BaseModel):
     ai_validation_enabled: bool | None = None
     human_validation_enabled: bool | None = None
+    overcharge_block_enabled: bool | None = None
 
 
 class ValidationDecision(BaseModel):

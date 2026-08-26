@@ -469,6 +469,7 @@ export interface ValidationFinding {
 export interface ValidationSettings {
   ai_validation_enabled: boolean;
   human_validation_enabled: boolean;
+  overcharge_block_enabled: boolean;
 }
 
 // Cost-allocation dimensions shared by invoices and expense items.

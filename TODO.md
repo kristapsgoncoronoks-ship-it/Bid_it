@@ -207,6 +207,17 @@ tenant table + FORCE RLS + parity probe in the same commit; 101 tables,
 94-model registry. Pay-in-portal awaits the payment-rail decision; e-sign
 stays the later seam.
 
+**Supplier cost control SHIPPED 2026-08-25 (WO-G phase 2):** agreed price
+lists per supplier × item (validity windows, latest-agreement-wins
+resolution, item identity = the phase-1 normalised description) in a new
+`supplier_agreed_prices` tenant table with FORCE RLS + parity probe in the
+same commit; `agreed_price_exceeded` joins the ONE validation registry
+(advisory on capture); the submit gate refuses overpriced invoices only
+for orgs that switch on Settings → "Block overcharges"; the `/supplier-
+costs` page gains the agreed-price manager and the overcharge worklist
+((paid − agreed) × qty, totalled). 105 tables, 98-model registry. Phase 3
+(external price data) stays decision-gated behind ADR-0027.
+
 **Admin automation rules SHIPPED 2026-08-25 (WO-J, researched —
 `docs/design/workflow-builder-research.md`):** the bounded trigger-
 condition-action engine: five query-derived triggers (stale offer, overdue

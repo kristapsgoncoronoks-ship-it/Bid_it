@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, sta
 from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession, require_perm
+from app.api.deps import CurrentOrg, CurrentUser, DbSession, require_perm
 from app.core import authz
 from app.core.dimensions import DIMENSION_KEYS
 from app.core.money import q2 as _q
@@ -53,8 +53,18 @@ from app.schemas.approval import (
     SubmitIn,
     TransitionIn,
 )
+from app.services import (
+    agreed_prices,
+    audit,
+    costing,
+    documents,
+    filesec,
+    fx,
+    mailer,
+    validation,
+    webhooks,
+)
 from app.services import approval_policy as ap
-from app.services import audit, costing, documents, filesec, fx, mailer, validation, webhooks
 from app.services import invoice_workflow as wf
 from app.services.vendors import get_or_create_vendor
 
@@ -348,7 +358,9 @@ async def edit_lines(invoice_id: str, body: LinesUpdate, current: CurrentUser, d
 
 
 @router.post("/invoices/{invoice_id}/submit", response_model=ReviewOut, dependencies=_WRITE)
-async def submit(invoice_id: str, body: SubmitIn, current: CurrentUser, db: DbSession):
+async def submit(
+    invoice_id: str, body: SubmitIn, current: CurrentUser, db: DbSession, org: CurrentOrg
+):
     """Submit a draft for approval: reconcile, evaluate the governing policy, and
     build the approval chain. Refuses an unbalanced invoice (AP control)."""
     inv = await _load(db, current.org_id, invoice_id)
@@ -362,6 +374,15 @@ async def submit(invoice_id: str, body: SubmitIn, current: CurrentUser, db: DbSe
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Invoice does not reconcile: " + "; ".join(f.message for f in recon.blocking),
         )
+    # WO-G phase 2: the org-opt-in overcharge gate. Advisory for everyone
+    # (run_checks surfaces the finding); a refusal only where the org chose it.
+    if org.overcharge_block_enabled:
+        over = await agreed_prices.check_invoice(db, inv)
+        if over:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "Exceeds agreed supplier prices: " + "; ".join(f.message for f in over),
+            )
     # Fresh chain (a resubmission after return/correction supersedes the old one).
     await db.execute(
         delete(ApprovalStep).where(

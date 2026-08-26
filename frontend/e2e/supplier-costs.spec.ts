@@ -29,7 +29,25 @@ const ROW = {
   pct_change: "20.0",
 };
 
-async function open(page: Page, opts: { onHistory?: (q: URLSearchParams) => void } = {}) {
+const AGREED = {
+  id: "ap-1",
+  vendor_id: "ven-1",
+  vendor_name: "Supply Co",
+  item: "copper pipe",
+  currency: "EUR",
+  agreed_price: "10.50",
+  valid_from: "2026-01-01",
+  valid_to: null,
+  note: null,
+};
+
+async function open(
+  page: Page,
+  opts: {
+    onHistory?: (q: URLSearchParams) => void;
+    onAgreedPut?: (b: Record<string, unknown>) => void;
+  } = {},
+) {
   await page.addInitScript(() => localStorage.setItem("invoiceiq_token", "e2e-token"));
 
   const json = (body: unknown, code = 200) => ({
@@ -100,6 +118,39 @@ async function open(page: Page, opts: { onHistory?: (q: URLSearchParams) => void
       );
     }
 
+    if (p === "/vendors")
+      return route.fulfill(json([{ id: "ven-1", name: "Supply Co" }]));
+    if (p === "/analytics/supplier-costs/agreed") {
+      if (route.request().method() === "PUT") {
+        opts.onAgreedPut?.(route.request().postDataJSON());
+        return route.fulfill(json({ id: "ap-new" }));
+      }
+      return route.fulfill(json([AGREED]));
+    }
+    if (p === "/analytics/supplier-costs/overcharges")
+      return route.fulfill(
+        json({
+          window_days: 365,
+          total_overcharge: "16.00",
+          rows: [
+            {
+              invoice_id: "inv-1",
+              invoice_number: "INV-77",
+              issue_date: "2026-08-01",
+              currency: "EUR",
+              vendor_id: "ven-1",
+              vendor_name: "Supply Co",
+              item: "copper pipe",
+              quantity: "40",
+              unit_price: "12.00",
+              agreed_price: "10.50",
+              delta_per_unit: "1.50",
+              overcharge: "60.00",
+            },
+          ],
+        }),
+      );
+
     return route.fulfill(json({ items: [], total: 0 }));
   });
 
@@ -130,6 +181,31 @@ test("clicking a mover loads that item's price history", async ({ page }) => {
   await expect.poll(() => queries.length).toBeGreaterThan(0);
   expect(queries[0].get("vendor_id")).toBe("ven-1");
   expect(queries[0].get("item")).toBe("copper pipe");
+});
+
+test("agreed prices render and the set-price form posts the exact payload", async ({ page }) => {
+  const puts: Record<string, unknown>[] = [];
+  await open(page, { onAgreedPut: (b) => puts.push(b) });
+
+  await expect(page.getByRole("heading", { name: "Agreed prices" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "10.50 EUR" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "open" })).toBeVisible();
+
+  await page.getByLabel("Agreed price supplier").selectOption("ven-1");
+  await page.getByLabel("Agreed price item").fill("Sealant tube");
+  await page.getByLabel("Agreed price value").fill("4.80");
+  await page.getByRole("button", { name: "Set agreed price" }).click();
+  await expect.poll(() => puts.length).toBe(1);
+  expect(puts[0]).toEqual({ vendor_id: "ven-1", item: "Sealant tube", agreed_price: "4.80" });
+});
+
+test("the overcharge worklist prices the damage", async ({ page }) => {
+  await open(page);
+  await expect(page.getByRole("heading", { name: "Overcharges" })).toBeVisible();
+  await expect(page.getByText("16.00 overcharged")).toBeVisible();
+  const row = page.locator("tr", { hasText: "INV-77" });
+  await expect(row.getByText("60.00")).toBeVisible();
+  await expect(row.getByText("10.50")).toBeVisible();
 });
 
 test("the supplier-costs copy is industry-neutral", async ({ page }) => {

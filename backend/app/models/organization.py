@@ -24,6 +24,9 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # AI = automated rule-based checks (LLM-pluggable); human = a review gate.
     ai_validation_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     human_validation_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # WO-G phase 2: refuse the AP submit when a line exceeds the supplier's
+    # agreed price. OFF = the finding stays advisory (design §2 question 2).
+    overcharge_block_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Commercial tenancy: subscription plan + lifecycle status.
     plan: Mapped[str] = mapped_column(String(20), default="trial", nullable=False)

@@ -23,6 +23,7 @@ from functools import lru_cache
 from sqlalchemy import event, select, text
 from sqlalchemy.orm import Session, with_loader_criteria
 
+from app.models.agreed_price import SupplierAgreedPrice
 from app.models.approval import ApprovalPolicy, ApprovalStep
 from app.models.archived_invoice import ArchivedInvoice
 from app.models.audit import AuditEvent
@@ -111,6 +112,7 @@ TENANT_MODELS = (
     AutomationRule,
     AutomationRuleVersion,
     AutomationRun,
+    SupplierAgreedPrice,
     ProjectDocument,
     ProjectCostEntry,
     InvoiceProjectSplit,

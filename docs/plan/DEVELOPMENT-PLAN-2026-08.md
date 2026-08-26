@@ -75,8 +75,17 @@ normalised description; qty-weighted trailing baseline; single-currency
 C1.7 scope), change detection with top movers, KPI cards, per-item
 price-history graph — `/supplier-costs` page, read models only, zero new
 tables/migrations, current engine (Postgres; settled in design doc §2b).
-Phase 2 (queued): agreed-price lists + validation-rule overcharge flag
-(advisory, org-configurable block) — the owner's "cost control" half.
+Phase 2 ✅ SHIPPED 2026-08-25: `supplier_agreed_prices` tenant table (FORCE
+RLS + parity probe in the same commit) — per supplier × item agreed unit
+price with a validity window, item identity = phase 1's normalised
+description; `agreed_price_exceeded` in the ONE validation rule registry
+(advisory finding on capture); the AP submit gate refuses an overpriced
+invoice only for orgs that opted into `organizations.
+overcharge_block_enabled` (Settings → "Block overcharges" — open question 2
+resolved as advisory-by-default); the overcharge worklist on
+`/supplier-costs` prices the damage ((paid − agreed) × qty). The owner's
+"cost control" half, complete. Phase 3 (external price data) stays
+decision-gated behind ADR-0027.
 
 **WO-H — CRM light (researched 2026-08-23, `docs/design/crm-module-research.md`). ✅ SHIPPED 2026-08-25.**
 Customer page (notes + DERIVED activity timeline over existing audited

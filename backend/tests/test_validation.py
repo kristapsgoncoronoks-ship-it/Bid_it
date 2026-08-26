@@ -39,7 +39,11 @@ async def _set_settings(auth_client, ai=None, human=None):
 @pytest.mark.asyncio
 async def test_defaults_off_status_none(auth_client):
     s = (await auth_client.get("/api/v1/settings/validation")).json()
-    assert s == {"ai_validation_enabled": False, "human_validation_enabled": False}
+    assert s == {
+        "ai_validation_enabled": False,
+        "human_validation_enabled": False,
+        "overcharge_block_enabled": False,
+    }
 
     inv = (await auth_client.post("/api/v1/invoices", json=_payload())).json()
     assert inv["validation_status"] == "none"
@@ -169,6 +173,7 @@ def test_rule_codes_snapshot():
     from app.services import validation
 
     assert sorted(r.code for r in validation.RULES) == [
+        "agreed_price_exceeded",
         "due_before_issue",
         "duplicate",
         "duplicate_cross_supplier",

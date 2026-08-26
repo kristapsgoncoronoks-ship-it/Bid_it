@@ -1,5 +1,6 @@
 """SQLAlchemy models. Import all so metadata/Alembic sees them."""
 
+from app.models.agreed_price import SupplierAgreedPrice
 from app.models.approval import ApprovalPolicy, ApprovalStep
 from app.models.archived_invoice import ArchivedInvoice
 from app.models.audit import AuditEvent
@@ -96,6 +97,7 @@ __all__ = [
     "AutomationRule",
     "AutomationRuleVersion",
     "AutomationRun",
+    "SupplierAgreedPrice",
     "Organization",
     "User",
     "UserRole",
