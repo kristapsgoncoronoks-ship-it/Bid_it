@@ -118,19 +118,21 @@ export function excludedCopy(reason: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Verbatim from `app/services/transport/overcharge.py::TRANSITIONS`, drawn as
- * `BA_fleet_fuel.md` §4.5 draws it: `detected → packaged → claimed →
- * {recovered, rejected, written_off}`. A state whose list is empty is TERMINAL.
- * No shortcut edge is invented — writing a claim-back off straight from
- * `detected` is not a move the service allows, so it is not a button here.
+ * Verbatim from `app/services/transport/overcharge.py::TRANSITIONS`: the
+ * harvested §4.5 chain `detected → packaged → claimed → {recovered,
+ * rejected, written_off}` PLUS the owner-decided §12 edges (2026-08-08,
+ * WO-L): detected/packaged can be explicitly IGNORED (a reason is required —
+ * the audit trail is the point), and an ignored claim-back reinstates to
+ * detected. A state whose list is empty is TERMINAL.
  */
 export const OVERCHARGE_TRANSITIONS: Record<string, string[]> = {
-  detected: ["packaged"],
-  packaged: ["claimed"],
+  detected: ["packaged", "ignored"],
+  packaged: ["claimed", "ignored"],
   claimed: ["recovered", "rejected", "written_off"],
   recovered: [],
   rejected: [],
   written_off: [],
+  ignored: ["detected"],
 };
 
 /** The one target state that carries a booked-cash amount. Every other target
@@ -154,6 +156,7 @@ export const OVERCHARGE_STATUS_TONE: Record<string, Tone> = {
   recovered: "success",
   rejected: "danger",
   written_off: "neutral",
+  ignored: "neutral",
 };
 
 export function statusTone(status: string): Tone {
@@ -170,7 +173,13 @@ export const OVERCHARGE_STATUS_COPY: Record<string, string> = {
   recovered: "The supplier credited us. This books into the recovered total.",
   rejected: "The supplier refused the claim-back.",
   written_off: "Closed without recovery.",
+  ignored:
+    "Explicitly not pursued — the reason is on the record, and it can be reconsidered.",
 };
+
+/** WO-L (§12): the one non-recovery target that REQUIRES a note — the server
+ * refuses `ignored` without a reason (`ignore_reason_required`). */
+export const IGNORED_STATE = "ignored";
 
 /** The two harvested breach flags (`contract_audit.FLAGS`), explained. The flag
  * string itself is what the server sent and is always rendered as-is. */

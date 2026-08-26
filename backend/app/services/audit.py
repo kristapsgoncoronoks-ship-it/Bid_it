@@ -149,6 +149,7 @@ class A:
     # explicit release — the ONLY function that ever removes a lock row.
     TRANSPORT_CLAIM_SUBMIT = "transport.claim_submit"
     TRANSPORT_CLAIM_WITHDRAW = "transport.claim_withdraw"
+    TRANSPORT_CLAIM_DECISION = "transport.claim_decision"
     # G2.4 (WO-52): note→invoice resolution + live claim-line construction.
     # NOTE_OVERRIDE_SET fires on both create and update of an admin-curated
     # override (C4/R16 — an override changes only the invoice ASSOCIATION,

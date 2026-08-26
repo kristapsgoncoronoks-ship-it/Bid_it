@@ -166,7 +166,18 @@ machinery can consume it, never auto-issues. (3) MT940 bank-statement
 import beside CSV/camt.053, and fix the unsupported-format message that
 omits XML (which IS supported). Estimated: 1–2 sessions.
 
-**WO-L — Transport claim hygiene (the 2026-08-08 §11/§12/§13 smalls).**
+**WO-L — Transport claim hygiene (the 2026-08-08 §11/§12/§13 smalls). ✅ SHIPPED 2026-08-26.**
+Shipped exactly as decided: `ignored` joins the overcharge chain (detected/
+packaged → ignored, reason REQUIRED and audited; ignored → detected
+reinstate; a sent demand keeps the harvested three outcomes; the WO-82 pin
+updated to the sanctioned edge set); UNMATCHED claim lines carry their
+distinct suppliers (set at build time, wire + SPA hint, never filable);
+`transport/decision.py` is the first writer past `submitted` —
+approved/rejected/partial, with partial stamping `rejected_at` on the named
+frozen lines and recomputing vat/fee on the surviving base at the FROZEN
+rate through `fee.compute_fee` (the documented seam, minimum floor
+included). One migration (CHECK widened + two line columns). Original
+scope kept below.
 (1) §12: an explicit, audited `ignored` outcome on a detected overcharge
 claim-back — reversible, with a reason, so an operator's decision to drop
 one is a recorded event instead of an eternally-open row. (2) §11: the

@@ -81,6 +81,19 @@ class ClaimLineOut(BaseModel):
     vat_local: Decimal | None = None
     currency: str | None = None
     frozen_at: datetime | None = None
+    # WO-L §13: set when the member state's decision rejected this line.
+    rejected_at: datetime | None = None
+    # WO-L §11 (option b): the suppliers behind an UNMATCHED bucket — a
+    # work-item hint, never a filable attribute. None on resolved lines.
+    unmatched_suppliers: list[str] | None = None
+
+
+class ClaimDecisionIn(BaseModel):
+    """WO-L §13: the member state's decision on a submitted claim."""
+
+    outcome: str  # approved | rejected | partial (validated in the service)
+    rejected_refs: list[str] | None = None
+    decision_date: date | None = None
 
 
 class ChecklistItemOut(BaseModel):

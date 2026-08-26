@@ -107,10 +107,13 @@ percentage and the minimum, nothing else, and until they are typed no claim can
 be filed.
 
 **§11 unmatched bucket — DECIDED: keep the line grain, carry the supplier
-list.** Buildable as specified. These lines are already refused at submit by
+list.** ✅ BUILT (WO-L, 2026-08-26): `vat_claim_lines.unmatched_suppliers`,
+set at build time, rendered as a work-item hint. These lines are already refused at submit by
 R3, so no filed document changes; the list serves the preparation surface.
 
-**§12 supplier overcharge — DECIDED, and WIDENED.** The answer given: an
+**§12 supplier overcharge — DECIDED, and WIDENED.** The ignore half is
+✅ BUILT (WO-L, 2026-08-26): audited `ignored` with a required reason +
+reinstate. The reliability rating remains design-gated (WO-Q). The answer given: an
 overcharge must be VISIBLE, and the operator decides whether to react or
 ignore it. That resolves the abandonment question — an explicit, audited
 `ignore` action, not a silent dead end. It also adds a NEW requirement not in
@@ -122,7 +125,9 @@ own order and a design pass: what each criterion contributes, over what window,
 and how a rating is presented so it reads as evidence rather than a verdict on
 a counterparty.
 
-**§13 drifted evidence — DECIDED in principle, scope needs confirming.** The
+**§13 drifted evidence — DECIDED in principle, scope needs confirming.**
+The VAT-claim half is ✅ BUILT (WO-L, 2026-08-26): the decision transition
+with amount-true partial rejection at the frozen fee rate. The
 answer given: *figures do not change after a claim is submitted; they change
 only on partial rejection, when some invoices in a claim are rejected.* Two
 consequences. (1) For the VAT claim this confirms the existing freeze and adds

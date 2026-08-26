@@ -114,6 +114,9 @@ export default function VatClaimDetailPage() {
   const [rows, setRows] = useState<VatSubmitInvoice[] | null>(null);
   const [waiverSupplier, setWaiverSupplier] = useState("");
   const [codeOpen, setCodeOpen] = useState(false);
+  const [decisionOpen, setDecisionOpen] = useState(false);
+  const [decisionOutcome, setDecisionOutcome] = useState("approved");
+  const [decisionRefs, setDecisionRefs] = useState<string[]>([]);
   const [codeForm, setCodeForm] = useState({ code: "", action_deadline: "" });
 
   const enabled = modules.isEnabled("transport");
@@ -266,6 +269,27 @@ export default function VatClaimDetailPage() {
     onSuccess: refresh,
     onError: onRefusal,
   });
+  // WO-L (§13): the member state's answer. Partial rejection names the
+  // rejected invoice refs; the server shrinks the frozen base and recomputes
+  // the fee at the FROZEN rate — the SPA only reports, never re-derives.
+  const recordDecision = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post(`/transport/claims/${id}/decision`, {
+          outcome: decisionOutcome,
+          ...(decisionOutcome === "partial" ? { rejected_refs: decisionRefs } : {}),
+        })
+      ).data,
+    onSuccess: () => {
+      setDecisionOpen(false);
+      setDecisionRefs([]);
+      refresh();
+    },
+    onError: (e) => {
+      setDecisionOpen(false);
+      onRefusal(e);
+    },
+  });
   const addWaiver = useMutation({
     mutationFn: async () =>
       (await api.post(`/transport/claims/${id}/waivers`, { supplier: waiverSupplier.trim() })).data,
@@ -383,6 +407,9 @@ export default function VatClaimDetailPage() {
             {canSubmit && isDraft && <Button onClick={openSubmit}>Submit claim</Button>}
             {canSubmit && !isDraft && (
               <>
+                {claim.data?.status === "submitted" && (
+                  <Button onClick={() => setDecisionOpen(true)}>Record decision</Button>
+                )}
                 <Button variant="secondary" onClick={() => setCodeOpen(true)}>
                   Set status code
                 </Button>
@@ -588,6 +615,16 @@ export default function VatClaimDetailPage() {
                                     {SYNTHETIC_HINT}
                                   </span>
                                 )}
+                                {line.unmatched_suppliers && line.unmatched_suppliers.length > 0 && (
+                                  <span className="block text-xs font-sans text-amber-600">
+                                    suppliers to chase: {line.unmatched_suppliers.join(", ")}
+                                  </span>
+                                )}
+                                {line.rejected_at && (
+                                  <span className="ml-2 inline-block">
+                                    <Badge tone="danger">rejected</Badge>
+                                  </span>
+                                )}
                               </td>
                               <td className="px-5 py-2">{line.goods_code ?? "—"}</td>
                               <td className="px-5 py-2 text-slate-500">
@@ -676,6 +713,68 @@ export default function VatClaimDetailPage() {
           </div>
         )}
       </QueryState>
+
+      <Modal
+        open={decisionOpen}
+        onClose={() => setDecisionOpen(false)}
+        title="Record the member state's decision"
+        description="Approved keeps every figure; rejected keeps them too (the frozen base stands). A partial rejection names the rejected invoices — the claim's base and fee shrink to what survived, at the fee rate frozen at filing."
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setDecisionOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              loading={recordDecision.isPending}
+              disabled={decisionOutcome === "partial" && decisionRefs.length === 0}
+              onClick={() => recordDecision.mutate()}
+            >
+              Record
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs text-slate-500">Outcome</span>
+            <select
+              className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
+              value={decisionOutcome}
+              onChange={(e) => setDecisionOutcome(e.target.value)}
+              aria-label="Decision outcome"
+            >
+              <option value="approved">Approved in full</option>
+              <option value="rejected">Rejected in full</option>
+              <option value="partial">Partially rejected</option>
+            </select>
+          </label>
+          {decisionOutcome === "partial" && (
+            <div>
+              <p className="mb-1 text-xs text-slate-500">
+                Rejected invoices (the rest of the claim stands):
+              </p>
+              <div className="max-h-40 space-y-1 overflow-y-auto">
+                {[...new Set((lines.data ?? []).filter((l) => l.frozen_at).map((l) => l.invoice_ref))].map(
+                  (ref) => (
+                    <label key={ref} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={decisionRefs.includes(ref)}
+                        onChange={(e) =>
+                          setDecisionRefs((prev) =>
+                            e.target.checked ? [...prev, ref] : prev.filter((r) => r !== ref),
+                          )
+                        }
+                      />
+                      <span className="font-mono text-xs">{ref}</span>
+                    </label>
+                  ),
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
 
       <Modal
         open={submitOpen}

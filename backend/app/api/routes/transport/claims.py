@@ -41,6 +41,8 @@ the real date.
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, Response
 
 from app.api.deps import CurrentUser, DbSession, require_perm
@@ -57,6 +59,7 @@ from app.schemas.transport_admin import (
 from app.schemas.transport_claim import (
     ChecklistItemOut,
     ClaimCreateIn,
+    ClaimDecisionIn,
     ClaimLineOut,
     ClaimOut,
     ClaimSubmitIn,
@@ -66,6 +69,7 @@ from app.services.transport import checklist as checklist_svc
 from app.services.transport import claim as claim_svc
 from app.services.transport import claim_lines as claim_lines_svc
 from app.services.transport import claim_pack as claim_pack_svc
+from app.services.transport import decision as decision_svc
 from app.services.transport import lock as lock_svc
 from app.services.transport import status as status_svc
 from app.services.transport import waiver as waiver_svc
@@ -126,6 +130,10 @@ def _line_out(line: VatRefundClaimLine) -> ClaimLineOut:
         vat_local=line.vat_local,
         currency=line.currency,
         frozen_at=line.frozen_at,
+        rejected_at=line.rejected_at,
+        unmatched_suppliers=(
+            json.loads(line.unmatched_suppliers) if line.unmatched_suppliers else None
+        ),
     )
 
 
@@ -219,6 +227,27 @@ async def withdraw_claim(claim_id: str, current: CurrentUser, db: DbSession):
     VAT_SUBMIT permission as submit: releasing invoice locks re-opens the
     invoices to other claims, the mirror image of the consequential act."""
     claim = await lock_svc.withdraw_claim(db, current.org_id, claim_id)
+    await db.commit()
+    return _claim_out(claim)
+
+
+@router.post("/{claim_id}/decision", response_model=ClaimOut, dependencies=_SUBMIT)
+async def record_claim_decision(
+    claim_id: str, body: ClaimDecisionIn, current: CurrentUser, db: DbSession
+):
+    """WO-L (§13): the member state's answer — approved / rejected / partial.
+    Partial marks the named frozen lines rejected and recomputes the frozen
+    figures on the surviving base at the FROZEN fee rate (fee.py's seam).
+    Same VAT_SUBMIT gate as submit/withdraw — recording an authority's
+    decision is the same class of consequential act."""
+    claim = await decision_svc.record_decision(
+        db,
+        current.org_id,
+        claim_id,
+        outcome=body.outcome,
+        rejected_refs=body.rejected_refs,
+        decision_date=body.decision_date,
+    )
     await db.commit()
     return _claim_out(claim)
 

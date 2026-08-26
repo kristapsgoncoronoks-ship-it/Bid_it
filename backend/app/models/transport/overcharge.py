@@ -82,7 +82,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 # `BA_fleet_fuel.md` §4.5 / R41, verbatim (snake_cased where the spec hyphenates
-# nothing — `written_off` is the spec's own spelling).
+# nothing — `written_off` is the spec's own spelling), PLUS `ignored` — not
+# harvested, but owner-DECIDED (docs/DECISIONS-NEEDED.md, 2026-08-08 §12):
+# "an overcharge must be VISIBLE, and the operator decides whether to react or
+# ignore it — an explicit, audited ignore action, not a silent dead end."
 OVERCHARGE_STATES = (
     "detected",
     "packaged",
@@ -90,6 +93,7 @@ OVERCHARGE_STATES = (
     "recovered",
     "rejected",
     "written_off",
+    "ignored",
 )
 _STATUS_CHECK = "status IN (" + ", ".join(f"'{s}'" for s in OVERCHARGE_STATES) + ")"
 

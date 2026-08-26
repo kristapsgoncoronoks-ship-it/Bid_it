@@ -56,6 +56,7 @@ across currencies without a recorded conversion").
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 from typing import Any
 
@@ -210,6 +211,10 @@ async def build_claim_lines(
                 "net_local": Decimal("0"),
                 "vat_local": Decimal("0"),
                 "currencies": set(),
+                # §11 (owner-decided, option b): the suppliers behind the
+                # bucket — persisted ONLY on UNMATCHED lines, as a work-item
+                # hint (never filable; R3 refuses synthetic lines regardless).
+                "suppliers": set(),
             },
         )
         bucket["net_eur"] = bucket["net_eur"] + txn.net_eur  # type: ignore[operator]
@@ -217,6 +222,7 @@ async def build_claim_lines(
         bucket["net_local"] = bucket["net_local"] + txn.net_local  # type: ignore[operator]
         bucket["vat_local"] = bucket["vat_local"] + txn.vat_local  # type: ignore[operator]
         bucket["currencies"].add(txn.currency)  # type: ignore[union-attr]
+        bucket["suppliers"].add(txn.supplier)  # type: ignore[union-attr]
 
     for (ref, product_group), bucket in groups.items():
         currencies = bucket["currencies"]
@@ -255,6 +261,11 @@ async def build_claim_lines(
             vat_local=q2(bucket["vat_local"]),  # type: ignore[arg-type]
             currency=next(iter(currencies)) if currencies else None,  # type: ignore[arg-type]
             goods_code=derive_goods_code(product_group),
+            unmatched_suppliers=(
+                json.dumps(sorted(bucket["suppliers"]))  # type: ignore[arg-type]
+                if ref == UNMATCHED
+                else None
+            ),
         )
         db.add(line)
         lines.append(line)

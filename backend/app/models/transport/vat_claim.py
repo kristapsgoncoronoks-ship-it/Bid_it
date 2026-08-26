@@ -228,3 +228,13 @@ class VatRefundClaimLine(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     # Stamped at materialization (submission) — NULL means "not yet frozen".
     frozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # WO-L (§13, owner-decided 2026-08-08): the partial-rejection stamp. Set
+    # when the member state's decision rejects THIS invoice's lines; the
+    # claim's frozen figures are recomputed on the reduced base at the FROZEN
+    # fee rate (fee.py's documented seam). NULL = the line stood.
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # WO-L (§11, owner-decided 2026-08-08, option b): the distinct suppliers
+    # behind an UNMATCHED bucket, JSON list, set at build time. A work-item
+    # hint for the operator — NEVER a filable attribute (R3 refuses every
+    # synthetic line at submit regardless). NULL on resolved lines.
+    unmatched_suppliers: Mapped[str | None] = mapped_column(Text, nullable=True)

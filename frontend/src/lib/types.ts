@@ -1715,6 +1715,11 @@ export interface VatClaimLine {
   vat_local: string | null;
   currency: string | null;
   frozen_at: string | null;
+  /** WO-L §13: set when the member state's decision rejected this line. */
+  rejected_at: string | null;
+  /** WO-L §11: the suppliers behind an UNMATCHED bucket — a work-item hint,
+   * never a filable attribute. Null on resolved lines. */
+  unmatched_suppliers: string[] | null;
 }
 
 export interface VatChecklistItem {

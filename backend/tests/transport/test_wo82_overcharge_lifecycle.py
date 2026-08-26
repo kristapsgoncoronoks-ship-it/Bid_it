@@ -172,13 +172,19 @@ async def test_wo82_opening_audits_the_frozen_figure(db_session):
 
 
 async def test_wo82_the_edge_set_is_exactly_the_harvested_chain(db_session):
+    # The harvested §4.5 chain PLUS the owner-decided §12 edges (2026-08-08,
+    # applied by WO-L): detected/packaged can be explicitly ignored (audited,
+    # reason required) and an ignored claim-back reinstates to detected. The
+    # `claimed` outcomes stay exactly the harvested three — this pin still
+    # exists so the NEXT edge also arrives by decision, never by drift.
     assert overcharge.TRANSITIONS == {
-        "detected": ("packaged",),
-        "packaged": ("claimed",),
+        "detected": ("packaged", "ignored"),
+        "packaged": ("claimed", "ignored"),
         "claimed": ("recovered", "rejected", "written_off"),
         "recovered": (),
         "rejected": (),
         "written_off": (),
+        "ignored": ("detected",),
     }
 
 

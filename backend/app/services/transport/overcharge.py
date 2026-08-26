@@ -99,16 +99,23 @@ from app.services import audit as audit_svc
 from app.services import modules
 from app.services.transport import contract_audit
 
-# `BA_fleet_fuel.md` §4.5 / R41, drawn literally. A state whose tuple is empty
-# is TERMINAL. `contract_audit` is not consulted after `detected` — the figure
-# is frozen at that point (see the module docstring).
+# `BA_fleet_fuel.md` §4.5 / R41, drawn literally, PLUS the owner-decided §12
+# edges (2026-08-08): a `detected` or `packaged` claim-back can be explicitly
+# IGNORED (audited, reason required — "not a silent dead end"), and an ignored
+# one can be reconsidered back to `detected` (documented interpretation: "we
+# never asked" is reversible right up until a demand is actually sent). The
+# harvested `claimed` outcomes stay exactly the three the spec draws — once a
+# demand went out, only the counterparty's answer moves it. A state whose
+# tuple is empty is TERMINAL. `contract_audit` is not consulted after
+# `detected` — the figure is frozen at that point (see the module docstring).
 TRANSITIONS: dict[str, tuple[str, ...]] = {
-    "detected": ("packaged",),
-    "packaged": ("claimed",),
+    "detected": ("packaged", "ignored"),
+    "packaged": ("claimed", "ignored"),
     "claimed": ("recovered", "rejected", "written_off"),
     "recovered": (),
     "rejected": (),
     "written_off": (),
+    "ignored": ("detected",),
 }
 
 # The state a claim-back is opened in — the first link of the harvested chain.
@@ -282,6 +289,13 @@ async def advance_claim(
             f"A '{row.status}' claim-back cannot move to '{to_status}'; from here it can go to: "
             f"{legal}",
             code="overcharge_transition_invalid",
+        )
+
+    # §12: ignoring is explicit and REASONED — the audit trail is the point.
+    if to_status == "ignored" and not (note or "").strip():
+        raise ValidationError(
+            "Ignoring a claim-back needs a reason (why this one is not being pursued)",
+            code="ignore_reason_required",
         )
 
     booked: Decimal | None = None

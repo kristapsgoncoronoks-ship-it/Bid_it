@@ -27,6 +27,7 @@ import {
   isDecimalShape,
   isPeriodShape,
   isTerminal,
+  IGNORED_STATE,
   overchargeActions,
   statusTone,
 } from "../lib/transportRecovery";
@@ -510,7 +511,11 @@ function ClaimBackPanel({
   };
 
   const amountNeeded = advancing?.to === RECOVERED_STATE;
-  const advanceReady = !amountNeeded || isDecimalShape(amount);
+  // §12 (WO-L): ignoring is explicit and REASONED — the server refuses an
+  // ignore without a note (`ignore_reason_required`), so the button waits.
+  const reasonNeeded = advancing?.to === IGNORED_STATE;
+  const advanceReady =
+    (!amountNeeded || isDecimalShape(amount)) && (!reasonNeeded || note.trim().length > 0);
 
   return (
     <div className="space-y-4">
@@ -701,8 +706,12 @@ function ClaimBackPanel({
               </p>
             )}
             <TextInput
-              label="Note"
-              hint="Optional — kept on the claim-back"
+              label={reasonNeeded ? "Reason" : "Note"}
+              hint={
+                reasonNeeded
+                  ? "Required — why this claim-back is not being pursued (kept on the audit record)"
+                  : "Optional — kept on the claim-back"
+              }
               value={note}
               onChange={(e) => setNote(e.target.value)}
             />

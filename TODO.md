@@ -10,8 +10,9 @@ QUEUE in `docs/plan/DEVELOPMENT-PLAN-2026-08.md`:
 - **WO-K** ✅ SHIPPED 2026-08-26 — Art. 219 credit-note reference (row +
   PDF + CII BT-25), advisory statutory late-payment figure (2011/7/EU,
   configurable reference rate), MT940 import with filesec gating.
-- **WO-L** Transport claim hygiene — §12 audited overcharge `ignored`,
-  §11 UNMATCHED supplier list, §13 partial claim rejection.
+- **WO-L** ✅ SHIPPED 2026-08-26 — §12 audited `ignored`/reinstate on
+  overcharge claim-backs, §11 supplier list on UNMATCHED lines, §13 the
+  decision transition incl. partial rejection at the frozen fee rate.
 - **WO-M** Recycle-bin extension (expenses/receipts/documents) + the
   invoice→VAT-claim link with delete refusal.
 - **WO-N** Accessibility/form-label pass (Login first).
