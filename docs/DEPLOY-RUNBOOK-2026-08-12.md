@@ -159,8 +159,11 @@ These ship in this release and are not fixed by it:
   **CLOSED 2026-08-26 by WO-N** — every SPA label is associated (htmlFor/id or
   wrapping), the `check-labels` CI gate keeps it that way, and
   `e2e/a11y-labels.spec.ts` pins the sign-in page through `getByLabel`.
-- **The SPA's first-load payload roughly doubled under Vite 8** (~329 kB →
-  ~773 kB critical path). Correctness is unaffected.
+- ~~**The SPA's first-load payload roughly doubled under Vite 8** (~329 kB →
+  ~773 kB critical path). Correctness is unaffected.~~ **CLOSED 2026-08-26 by
+  WO-O** — rolldown was hosting React inside the recharts chunk, dragging the
+  chart stack onto first paint; the codeSplitting fix brings first load to
+  415 kB raw / 122 kB gzip, and the `check-bundle` CI gate holds the ceiling.
 
 Each is tracked in `TODO.md`; the first four involve money and should be
 closed before the platform bills or reconciles for a real customer.

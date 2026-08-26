@@ -19,7 +19,9 @@ QUEUE in `docs/plan/DEVELOPMENT-PLAN-2026-08.md`:
 - **WO-N** ✅ SHIPPED 2026-08-26 — every SPA form label associated
   (htmlFor/id or wrapping), the `check-labels` CI gate, getByLabel e2e
   pins on the sign-in page; the 2026-08-12 known-broken entry is closed.
-- **WO-O** First-load performance + CI bundle-size tripwire.
+- **WO-O** ✅ SHIPPED 2026-08-26 — first paint drops the chart stack
+  (773 kB → 415 kB raw / 122 kB gzip), rolldown codeSplitting groups with
+  the recharts dependency closure, `check-bundle` CI ceiling.
 - **WO-P** Guided onboarding checklist (R19).
 - **WO-Q** Supplier reliability rating (design-first).
 - **WO-R** Load/perf harness (R15).
