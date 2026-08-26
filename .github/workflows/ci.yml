@@ -228,7 +228,10 @@ jobs:
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          # -4 everywhere: GitHub-hosted runners have NO outbound IPv6, so a
+          # host that resolves AAAA-first fails with "Network is unreachable"
+          # (run #477). ConnectTimeout keeps a dead host from eating minutes.
+          ssh-keyscan -4 -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
           echo "Deploying to $DEPLOY_HOST…"
-          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes \
-            "$DEPLOY_USER@$DEPLOY_HOST" deploy
+          ssh -4 -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o ConnectTimeout=20 "$DEPLOY_USER@$DEPLOY_HOST" deploy
