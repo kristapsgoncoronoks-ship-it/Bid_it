@@ -176,7 +176,9 @@ test("clicking a mover loads that item's price history", async ({ page }) => {
   const queries: URLSearchParams[] = [];
   await open(page, { onHistory: (q) => queries.push(q) });
 
-  await page.locator("tr", { hasText: "copper pipe" }).first().click();
+  // Only mover rows are clickable (cursor-pointer) — the agreed-prices table
+  // below also lists "copper pipe", so the selector must not race renders.
+  await page.locator("tr.cursor-pointer", { hasText: "copper pipe" }).click();
   await expect(page.getByRole("heading", { name: "Price history — copper pipe" })).toBeVisible();
   await expect.poll(() => queries.length).toBeGreaterThan(0);
   expect(queries[0].get("vendor_id")).toBe("ven-1");
