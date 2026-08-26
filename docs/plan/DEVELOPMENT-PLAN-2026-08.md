@@ -145,7 +145,14 @@ backlog sweep: every item below was verified OPEN against the code (not
 just unchecked in TODO.md), needs NO owner decision, and is sequenced
 legal-exposure-first.
 
-**WO-K — AR legal-compliance trio.**
+**WO-K — AR legal-compliance trio. ✅ SHIPPED 2026-08-26.**
+Shipped exactly as scoped: `corrected_invoice_number` snapshot at credit-note
+creation (backfilled in-migration), the PDF's labelled CORRECTS column, CII
+BT-25 `InvoiceReferencedDocument`; `services/late_interest.py` advisory
+computation on the issued detail + the reference-rate setting on the dunning
+screen (org column, `/settings/late-interest`); MT940 in
+`bank_statement.parse` with a filesec kind + content check, and the format
+message now names everything supported. Original scope kept below.
 (1) Art. 219: a credit note must print the corrected invoice's number —
 today `invoice_pdf.py` renders no reference; add the link field where the
 credit-note flow already knows its source invoice, render it on the PDF

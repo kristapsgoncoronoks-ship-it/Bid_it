@@ -162,3 +162,62 @@ async def update_schedule_settings(
         assignment_remind_hours=org.assignment_remind_hours,
         client_notice_hours=org.client_notice_hours,
     )
+
+
+# --------------------------------------------------------------------------- #
+# WO-K: the statutory late-interest reference rate (2011/7/EU). The figure the
+# advisory computation adds 8 pp to. NULL = the service's stated default; an
+# admin types the current ECB main refinancing rate here — ADR-0027 forbids
+# fetching it ambiently, and this number moves only with policy decisions.
+# --------------------------------------------------------------------------- #
+
+from decimal import Decimal  # noqa: E402
+
+from app.services.late_interest import (  # noqa: E402
+    DEFAULT_BASE_RATE_PP,
+    STATUTORY_MARGIN_PP,
+)
+
+
+class LateInterestSettings(BaseModel):
+    base_rate_pp: Decimal | None
+    default_base_rate_pp: Decimal
+    statutory_margin_pp: Decimal
+
+
+class LateInterestSettingsUpdate(BaseModel):
+    base_rate_pp: Decimal | None = Field(default=None, ge=0, le=25)
+    clear_base_rate: bool = False
+
+
+@router.get("/late-interest", response_model=LateInterestSettings)
+async def get_late_interest_settings(current: CurrentUser, db: DbSession, org: CurrentOrg):
+    return LateInterestSettings(
+        base_rate_pp=org.late_interest_base_rate,
+        default_base_rate_pp=DEFAULT_BASE_RATE_PP,
+        statutory_margin_pp=STATUTORY_MARGIN_PP,
+    )
+
+
+@router.put("/late-interest", response_model=LateInterestSettings)
+async def update_late_interest_settings(
+    body: LateInterestSettingsUpdate, current: CurrentUser, db: DbSession, org: CurrentOrg
+):
+    if body.clear_base_rate:
+        org.late_interest_base_rate = None
+    elif body.base_rate_pp is not None:
+        org.late_interest_base_rate = body.base_rate_pp
+    await audit.record(
+        db,
+        "settings.late_interest_update",
+        target_type="organization",
+        target_id=org.id,
+        meta={"base_rate_pp": str(org.late_interest_base_rate)},
+    )
+    await db.commit()
+    await db.refresh(org)
+    return LateInterestSettings(
+        base_rate_pp=org.late_interest_base_rate,
+        default_base_rate_pp=DEFAULT_BASE_RATE_PP,
+        statutory_margin_pp=STATUTORY_MARGIN_PP,
+    )

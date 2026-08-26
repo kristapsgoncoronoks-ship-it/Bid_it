@@ -110,9 +110,17 @@ export-once guarded, every export audited with its message id.
 - **Issue** (`Receivables → Issue`): line items, per-line VAT (four schemes,
   server-computed), customer from the customer master, optional **project** link
   (see §5 — this is how revenue reaches project profitability). Issued invoices
-  are **immutable**: corrections are credit notes, never edits.
+  are **immutable**: corrections are credit notes, never edits. Every credit
+  note names the invoice it corrects — on the row, on the PDF (a labelled
+  "CORRECTS" reference) and inside the e-invoice XML (Art. 219's unambiguous
+  reference, structural rather than editable text).
 - **Receipts & reconciliation**: record money received and allocate one receipt
-  across several invoices; import bank statements (CSV/camt.053) and reconcile.
+  across several invoices; import bank statements (CSV, camt.053 XML, or SWIFT
+  MT940) and reconcile.
+- Overdue EUR invoices with no contractual interest show an **advisory
+  statutory late-payment figure** (Directive 2011/7/EU: your configured
+  reference rate + 8 points, plus the fixed €40 recovery cost) — computed on
+  demand, never booked; the reference rate is set on the Dunning screen.
 - **Recurring** schedules, **dunning** reminder ladders, **partner document
   gates** (don't invoice a counterparty whose contract documents are missing),
   and **invoice reports** round out the loop.

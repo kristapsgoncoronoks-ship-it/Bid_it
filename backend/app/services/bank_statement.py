@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from app.services import pdf_ocr
@@ -368,6 +369,89 @@ def _parse_camt053(content: bytes, warnings: list[str]) -> list[Txn]:
 
 
 # --------------------------------------------------------------------------- #
+# MT940 path (SWIFT customer statement, the classic bank export; WO-K)
+# --------------------------------------------------------------------------- #
+
+#: :61: statement line — value date YYMMDD, optional entry date MMDD, D/C mark
+#: (with optional R prefix for reversals and optional funds code letter), amount
+#: with a comma decimal, transaction type, then references.
+_MT940_61 = re.compile(
+    r"^:61:(?P<val>\d{6})(?:\d{4})?(?P<dc>R?[DC])[A-Z]?(?P<amt>\d+,\d*)", re.IGNORECASE
+)
+
+
+def _looks_like_mt940(content: bytes) -> bool:
+    head = content[:2048]
+    return b":20:" in head and b":61:" in head
+
+
+def _parse_mt940(content: bytes, warnings: list[str]) -> list[Txn]:
+    """Parse the :61: lines (one per booked entry), taking each entry's :86:
+    information block as the description. Currency comes from the :60F:/:60M:
+    opening balance when present — MT940 states it once for the whole
+    statement, not per line. A reversal mark (RD/RC) flips the direction,
+    matching how camt.053 reversals are handled."""
+    try:
+        text = content.decode("utf-8", errors="replace")
+    except Exception as exc:  # pragma: no cover - decode with replace cannot raise
+        raise ValueError(f"Could not read the MT940 statement: {exc}") from exc
+
+    currency: str | None = None
+    m_open = re.search(r"^:60[FM]:[DC]\d{6}([A-Z]{3})", text, re.MULTILINE)
+    if m_open:
+        currency = m_open.group(1).upper()
+
+    out: list[Txn] = []
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        m = _MT940_61.match(lines[i].strip())
+        if not m:
+            i += 1
+            continue
+        try:
+            d = datetime.strptime(m.group("val"), "%y%m%d").date()
+        except ValueError:
+            warnings.append(f"Skipped an entry with an unreadable value date: {lines[i][:40]}")
+            i += 1
+            continue
+        amount = Decimal(m.group("amt").replace(",", ".")).quantize(_CENTS)
+        dc = m.group("dc").upper()
+        reversed_ = dc.startswith("R")
+        debit = dc.endswith("D")
+        if reversed_:
+            debit = not debit  # a reversed debit puts the money back
+        # The :86: information block (possibly multi-line) that follows is the
+        # human description; continuation lines run until the next :tag:.
+        desc_parts: list[str] = []
+        j = i + 1
+        while j < len(lines) and not lines[j].startswith(":"):
+            j += 1  # skip :61: sub-account continuation lines
+        if j < len(lines) and lines[j].startswith(":86:"):
+            desc_parts.append(lines[j][4:].strip())
+            j += 1
+            while j < len(lines) and not lines[j].startswith(":") and lines[j].strip() != "-":
+                desc_parts.append(lines[j].strip())
+                j += 1
+        description = " ".join(p for p in desc_parts if p) or "MT940 entry"
+        if reversed_:
+            description = f"[reversal] {description}"
+        out.append(
+            Txn(
+                date=d,
+                description=description[:500],
+                amount=amount,
+                direction="debit" if debit else "credit",
+                currency=currency,
+            )
+        )
+        i = max(j, i + 1)
+    if not out:
+        raise ValueError("No statement lines (:61:) found in the MT940 file.")
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # Public API
 # --------------------------------------------------------------------------- #
 def parse(filename: str, content: bytes) -> StatementResult:
@@ -381,6 +465,10 @@ def parse(filename: str, content: bytes) -> StatementResult:
         return StatementResult(
             method="camt.053", transactions=_parse_camt053(content, warnings), warnings=warnings
         )
+    if lower.endswith((".940", ".sta", ".mt940")) or _looks_like_mt940(content):
+        return StatementResult(
+            method="mt940", transactions=_parse_mt940(content, warnings), warnings=warnings
+        )
     if lower.endswith(".pdf"):
         text, method = pdf_ocr.extract_text(content)
         if not text:
@@ -391,4 +479,7 @@ def parse(filename: str, content: bytes) -> StatementResult:
         return StatementResult(
             method=method, transactions=_transactions_from_rows(rows, warnings), warnings=warnings
         )
-    raise ValueError("Unsupported file type. Upload a .pdf or .csv bank statement.")
+    raise ValueError(
+        "Unsupported file type. Upload a .pdf, .csv, camt.053 .xml, or MT940 "
+        "(.940/.sta) bank statement."
+    )

@@ -7,8 +7,9 @@ merged to `main` (`04d0057`). A backlog sweep verified every unchecked item
 below against the code; the survivors are sequenced as the SECOND COMMITTED
 QUEUE in `docs/plan/DEVELOPMENT-PLAN-2026-08.md`:
 
-- **WO-K** AR legal trio — Art. 219 credit-note reference, statutory
-  late-payment interest (2011/7/EU), MT940 import.
+- **WO-K** ✅ SHIPPED 2026-08-26 — Art. 219 credit-note reference (row +
+  PDF + CII BT-25), advisory statutory late-payment figure (2011/7/EU,
+  configurable reference rate), MT940 import with filesec gating.
 - **WO-L** Transport claim hygiene — §12 audited overcharge `ignored`,
   §11 UNMATCHED supplier list, §13 partial claim rejection.
 - **WO-M** Recycle-bin extension (expenses/receipts/documents) + the

@@ -96,6 +96,9 @@ export default function Issue() {
                     {inv.number ?? <span className="italic text-slate-400">Draft — unnumbered</span>}
                     {inv.kind === "penalty" && <span className="badge ml-2 bg-rose-100 text-rose-700">Penalty</span>}
                     {inv.doc_type === "credit_note" && <span className="badge ml-2 bg-violet-100 text-violet-700">Credit note</span>}
+                    {inv.doc_type === "credit_note" && inv.corrected_invoice_number && (
+                      <div className="text-xs text-slate-400">corrects {inv.corrected_invoice_number}</div>
+                    )}
                     {inv.doc_type !== "credit_note" && Number(inv.credited_total) > 0 && (
                       <div className="text-xs text-violet-500">−{money(inv.credited_total, inv.currency)} credited</div>
                     )}
@@ -115,6 +118,7 @@ export default function Issue() {
                       <div className="mt-0.5 text-xs text-rose-500">
                         {inv.days_overdue}d overdue
                         {Number(inv.penalty_accrued) > 0 && <> · +{money(inv.penalty_accrued, inv.currency)} interest</>}
+                        {Number(inv.penalty_accrued) === 0 && <LateInterestPeek id={inv.id} />}
                       </div>
                     )}
                     {inv.status !== "overdue" && Number(inv.outstanding) > 0 && Number(inv.amount_paid) > 0 && (
@@ -1128,5 +1132,50 @@ function PaymentAction({ inv, onDone }: { inv: IssuedInvoice; onDone: () => void
       </div>
       {error && <span className="text-xs text-rose-500">{error}</span>}
     </div>
+  );
+}
+
+interface LateInterestOut {
+  basis: "statutory" | "contractual" | "unavailable";
+  reason?: string;
+  rate_pp?: string;
+  interest_eur?: string;
+  recovery_cost_eur?: string | null;
+  total_eur?: string;
+}
+
+/** WO-K: the ADVISORY statutory late-payment figure (2011/7/EU) — fetched only
+ * when the user asks, computed server-side, never booked. Shown on overdue
+ * rows that carry no contractual interest of their own. */
+function LateInterestPeek({ id }: { id: string }) {
+  const [out, setOut] = useState<LateInterestOut | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const fetchIt = async () => {
+    setBusy(true);
+    try {
+      const detail = (await api.get(`/issued/${id}`)).data as { late_interest: LateInterestOut | null };
+      setOut(detail.late_interest ?? { basis: "unavailable", reason: "No figure applies." });
+    } catch {
+      setOut({ basis: "unavailable", reason: "Could not compute." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (out) {
+    if (out.basis === "statutory") {
+      return (
+        <span title={`Statutory (2011/7/EU): ${out.rate_pp}% p.a. interest ${out.interest_eur} + €${out.recovery_cost_eur} recovery cost. Advisory — nothing is booked.`}>
+          {" "}· statutory {out.total_eur} €
+        </span>
+      );
+    }
+    return <span title={out.reason ?? undefined}> · {out.reason ? "n/a" : `+${out.total_eur} €`}</span>;
+  }
+  return (
+    <button className="ml-1 underline decoration-dotted" disabled={busy} onClick={fetchIt}>
+      {busy ? "…" : "statutory interest?"}
+    </button>
   );
 }

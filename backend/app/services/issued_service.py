@@ -142,6 +142,7 @@ def build_credit_note(
         issuer_id=profile.id,
         doc_type="credit_note",
         corrected_invoice_id=original.id,
+        corrected_invoice_number=original.number,
         number=_next_credit_note_number(profile, issue_date),
         issue_date=issue_date,
         supply_date=original.supply_date,

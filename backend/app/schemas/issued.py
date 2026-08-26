@@ -89,6 +89,9 @@ class IssuedInvoiceOut(BaseModel):
     kind: str = "standard"  # standard | penalty
     doc_type: str = "invoice"  # invoice | credit_note
     corrected_invoice_id: str | None = None
+    # WO-K: Art. 219 reference snapshot (credit notes only) — on the LIST shape
+    # so the register can say which invoice a credit note corrects.
+    corrected_invoice_number: str | None = None
     credited_total: Decimal = Decimal("0")  # sum of credit notes applied to this invoice
     partner_id: str | None = None
     issue_date: date
@@ -228,6 +231,9 @@ class IssuedInvoiceDetail(IssuedInvoiceOut):
     buyer_country: str | None
     lines: list[IssuedLineOut]
     vat_breakdown: list[VatBucketOut] = []
+    # WO-K: the ADVISORY late-payment computation (overdue invoices only; see
+    # services/late_interest). Detail-only — it needs the org's configured rate.
+    late_interest: dict | None = None
 
 
 class IssuedInvoiceListOut(BaseModel):

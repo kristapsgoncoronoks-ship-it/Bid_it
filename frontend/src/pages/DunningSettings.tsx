@@ -153,6 +153,81 @@ export default function DunningSettingsPage() {
           </Button>
         </div>
       </Card>
+
+      <LateInterestCard />
     </div>
+  );
+}
+
+interface LateInterestSettings {
+  base_rate_pp: string | null;
+  default_base_rate_pp: string;
+  statutory_margin_pp: string;
+}
+
+/** WO-K: the reference rate behind the ADVISORY statutory late-payment figure
+ * (Dir. 2011/7/EU: this + 8 pp, plus the fixed €40 recovery cost). Typed by an
+ * admin because the platform makes no external calls to fetch it. */
+function LateInterestCard() {
+  const qc = useQueryClient();
+  const [rate, setRate] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+
+  const settings = useQuery<LateInterestSettings>({
+    queryKey: ["late-interest-settings"],
+    queryFn: async () => (await api.get("/settings/late-interest")).data,
+  });
+
+  const save = useMutation({
+    mutationFn: async () =>
+      (
+        await api.put(
+          "/settings/late-interest",
+          rate.trim() === "" ? { clear_base_rate: true } : { base_rate_pp: rate.trim() },
+        )
+      ).data as LateInterestSettings,
+    onSuccess: () => {
+      setErr(null);
+      qc.invalidateQueries({ queryKey: ["late-interest-settings"] });
+    },
+    onError: (e) => setErr(apiError(e)),
+  });
+
+  const s = settings.data;
+  return (
+    <Card>
+      <h2 className="mb-1 font-medium">Statutory late-payment interest</h2>
+      <p className="mb-3 text-sm text-slate-500">
+        Overdue invoices with no contractual rate show an advisory figure under
+        Directive 2011/7/EU: your central-bank reference rate plus{" "}
+        {s?.statutory_margin_pp ?? "8"} points, and the fixed €40 recovery cost.
+        Enter the current ECB main refinancing rate here — the platform never
+        fetches it for you. Leave empty to use the built-in default (
+        {s?.default_base_rate_pp ?? "…"}%).
+      </p>
+      {err && (
+        <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          {err}
+        </div>
+      )}
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          inputMode="decimal"
+          className="w-28 rounded-lg border border-slate-300 px-2 py-1 text-sm"
+          placeholder={s?.base_rate_pp ?? s?.default_base_rate_pp ?? ""}
+          value={rate}
+          onChange={(e) => setRate(e.target.value)}
+          aria-label="Reference rate percent"
+        />
+        <span className="text-sm text-slate-400">% p.a.</span>
+        <Button size="sm" loading={save.isPending} onClick={() => save.mutate()}>
+          Save rate
+        </Button>
+        {s?.base_rate_pp != null && (
+          <span className="text-xs text-slate-400">configured: {s.base_rate_pp}%</span>
+        )}
+      </div>
+    </Card>
   );
 }

@@ -107,6 +107,11 @@ class IssuedInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     corrected_invoice_id: Mapped[str | None] = mapped_column(
         GUID(), ForeignKey("issued_invoices.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Art. 219 (WO-K): the corrected invoice's NUMBER, snapshotted at credit-note
+    # creation so the "unambiguous reference to the initial invoice" survives on
+    # the document itself (PDF + CII BT-25) even if the row link is ever severed
+    # (the FK above is SET NULL on delete). Set only on doc_type='credit_note'.
+    corrected_invoice_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Recurring provenance (Phase INV-1): when generated from a schedule, the
     # schedule id + the occurrence's run date. The unique (org_id, recurring_id,
     # recurring_period) constraint makes generation cross-worker idempotent.

@@ -49,6 +49,11 @@ _EXT_KIND = {
     "png": "png",
     "jpg": "jpeg",
     "jpeg": "jpeg",
+    # MT940 SWIFT customer statements (WO-K): plain text under either
+    # conventional extension. Only the reconciliation import allows the kind.
+    "940": "mt940",
+    "sta": "mt940",
+    "mt940": "mt940",
 }
 
 # Binary signatures we NEVER accept, regardless of the claimed extension —
@@ -204,6 +209,15 @@ def validate(filename: str, content: bytes, allowed: frozenset[str] = INVOICE_KI
             content[:8192].decode("utf-8-sig")
         except UnicodeDecodeError:
             raise FileRejected("CSV is not valid UTF-8 text")
+    elif kind == "mt940":
+        # A SWIFT statement is plain text carrying the :20:/:61: tags — a
+        # renamed binary or script must not ride in on the extension.
+        if b"\x00" in content[:8192]:
+            raise FileRejected("MT940 appears to be a binary file")
+        if _looks_scripted(content):
+            raise FileRejected("File looks like HTML/script, not an MT940 statement")
+        if b":20:" not in content[:4096] or b":61:" not in content:
+            raise FileRejected("Not a valid MT940 statement (missing :20:/:61: tags)")
     return kind
 
 

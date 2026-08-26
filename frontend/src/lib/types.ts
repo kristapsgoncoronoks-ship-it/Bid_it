@@ -1327,6 +1327,7 @@ export interface IssuedInvoice {
   kind: "standard" | "penalty";
   doc_type: "invoice" | "credit_note";
   corrected_invoice_id: string | null;
+  corrected_invoice_number: string | null;
   credited_total: string;
   issuer_id: string | null;
   partner_id: string | null;

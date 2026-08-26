@@ -264,6 +264,14 @@ def build_pdf(
         values.append(Paragraph(due, bold))
     else:
         widths = [86.0, 48.0, 40.0]
+    # Art. 219 (WO-K): a credit note must carry an unambiguous reference to the
+    # invoice it corrects — a labelled column, not free-text in the note (which
+    # the issuer can edit away). Rendered from the snapshot taken at creation.
+    corrected_no = getattr(invoice, "corrected_invoice_number", None)
+    if is_credit and corrected_no:
+        labels.append("CORRECTS")
+        values.append(Paragraph(corrected_no, bold))
+        widths = [66.0, 34.0, 26.0, 24.0, 24.0] if due else [72.0, 40.0, 30.0, 32.0]
 
     meta = Table(
         [[Paragraph(t, lbl) for t in labels], values],

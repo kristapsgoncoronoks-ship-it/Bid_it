@@ -194,4 +194,12 @@ def build_cii(invoice, seller: dict, vat: VatResult) -> bytes:
     _t(summ, _ram("GrandTotalAmount"), _amt(vat.total))
     _t(summ, _ram("DuePayableAmount"), _amt(vat.total))
 
+    # BT-25 preceding-invoice reference (Art. 219, WO-K): on a credit note, name
+    # the corrected invoice. In CII schema order InvoiceReferencedDocument
+    # follows the monetary summation inside ApplicableHeaderTradeSettlement.
+    corrected_no = getattr(invoice, "corrected_invoice_number", None)
+    if is_credit and corrected_no:
+        ref = SubElement(hset, _ram("InvoiceReferencedDocument"))
+        _t(ref, _ram("IssuerAssignedID"), corrected_no)
+
     return b'<?xml version="1.0" encoding="UTF-8"?>\n' + tostring(root, encoding="utf-8")

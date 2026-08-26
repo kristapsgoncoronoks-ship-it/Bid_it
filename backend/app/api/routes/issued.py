@@ -12,7 +12,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession, require_perm
+from app.api.deps import CurrentOrg, CurrentUser, DbSession, require_perm
 from app.core import authz, money
 from app.core.csv_safety import sanitize_cell as _csv_safe
 from app.core.security_headers import content_disposition
@@ -63,6 +63,7 @@ from app.services import (
     issued_service,
     issued_status,
     issuer,
+    late_interest,
     mailer,
     modules,
     partners,
@@ -1413,5 +1414,9 @@ async def delete_issued_attachment(
 # Registered LAST: this single-segment dynamic route must not shadow the static
 # ones above (/export.zip, /emails, /reports/*).
 @router.get("/{invoice_id}", response_model=IssuedInvoiceDetail)
-async def get_issued(invoice_id: str, current: CurrentUser, db: DbSession):
-    return _detail(await _load(db, current.org_id, invoice_id))
+async def get_issued(invoice_id: str, current: CurrentUser, db: DbSession, org: CurrentOrg):
+    inv = await _load(db, current.org_id, invoice_id)
+    d = _detail(inv)
+    # WO-K: the advisory late-payment figure (2011/7/EU) — computed, never booked.
+    d.late_interest = late_interest.compute(inv, org)
+    return d

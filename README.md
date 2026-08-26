@@ -10,8 +10,8 @@ plug-in bounded context ([ADR-0023](./docs/architecture/adr/0023-platform-evolut
 zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 
 **Scale of the codebase (verified against this tree):** 105 database tables
-(114 Alembic revisions, single head), 61 model modules, 100 service modules,
-46 route modules, 66 SPA pages, 2793 collected backend tests, 8 CI jobs.
+(115 Alembic revisions, single head), 61 model modules, 101 service modules,
+46 route modules, 66 SPA pages, 2802 collected backend tests, 8 CI jobs.
 
 > **The specification lives in [`docs/`](./docs), not here.**
 > [`docs/architecture/adr/`](./docs/architecture/adr/README.md) (29 ADRs) and
@@ -41,7 +41,7 @@ zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
 - **Payments & settlement**: payment runs with **maker ≠ checker ≠ payer**,
   export-once-guarded SEPA pain.001 with a unique `MsgId` per generation and
   surfaced skipped payees; AP/AR settlement ledgers where **status is derived,
-  never stored**; bank statement import (CSV/camt.053/PDF) and advisory
+  never stored**; bank statement import (CSV/camt.053/MT940/PDF) and advisory
   reconciliation.
 - **Expenses**: reports with standard/mileage/per-diem items, receipt capture,
   bank-statement inbox, an 11-rule policy engine, approval chains, reimbursement
