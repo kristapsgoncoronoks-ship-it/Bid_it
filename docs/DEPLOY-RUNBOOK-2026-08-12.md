@@ -154,8 +154,11 @@ These ship in this release and are not fixed by it:
   ```
 
   Until this returns 200, `submit_claim` refuses every claim.
-- **The sign-in form's labels are not programmatically associated** with their
-  inputs (no `htmlFor`/`id`), so a screen reader announces unlabelled fields.
+- ~~**The sign-in form's labels are not programmatically associated** with their
+  inputs (no `htmlFor`/`id`), so a screen reader announces unlabelled fields.~~
+  **CLOSED 2026-08-26 by WO-N** — every SPA label is associated (htmlFor/id or
+  wrapping), the `check-labels` CI gate keeps it that way, and
+  `e2e/a11y-labels.spec.ts` pins the sign-in page through `getByLabel`.
 - **The SPA's first-load payload roughly doubled under Vite 8** (~329 kB →
   ~773 kB critical path). Correctness is unaffected.
 

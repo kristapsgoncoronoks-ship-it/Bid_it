@@ -16,7 +16,9 @@ QUEUE in `docs/plan/DEVELOPMENT-PLAN-2026-08.md`:
 - **WO-M** ✅ SHIPPED 2026-08-26 — the bin covers expense reports, inbox
   transactions, recurring schedules and attachments; filed-claim evidence
   refuses deletion via the real line link.
-- **WO-N** Accessibility/form-label pass (Login first).
+- **WO-N** ✅ SHIPPED 2026-08-26 — every SPA form label associated
+  (htmlFor/id or wrapping), the `check-labels` CI gate, getByLabel e2e
+  pins on the sign-in page; the 2026-08-12 known-broken entry is closed.
 - **WO-O** First-load performance + CI bundle-size tripwire.
 - **WO-P** Guided onboarding checklist (R19).
 - **WO-Q** Supplier reliability rating (design-first).
