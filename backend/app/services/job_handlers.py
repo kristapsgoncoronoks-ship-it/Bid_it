@@ -27,6 +27,7 @@ from app.services import (
     retention,
     webhooks,
 )
+from app.services import bin as bin_svc
 from app.services import invoices as invoice_service
 from app.services.transport import close as transport_close
 
@@ -113,7 +114,21 @@ async def _bin_purge(db, payload: dict, job: Job) -> dict:
             meta={"purged": result["purged"], "records": result["records"]},
         )
         await db.commit()
-    return {"held": result["held"], "purged": result["purged"]}
+    # WO-M: the generic bin (expense reports, inbox transactions, recurring
+    # schedules, attachments) empties on the same 30-day promise.
+    generic = await bin_svc.purge_expired(db, job.org_id)
+    if generic["purged"]:
+        await audit.record(
+            db,
+            "bin.purge",
+            org_id=job.org_id,
+            meta={"purged": generic["purged"], "records": generic["records"]},
+        )
+        await db.commit()
+    return {
+        "held": result["held"],
+        "purged": result["purged"] + generic["purged"],
+    }
 
 
 @jobs.handler(ARCHIVE_PURGE)

@@ -253,6 +253,11 @@ class IssuedInvoiceAttachment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     metadata + sha256 pointer. Tenant-scoped (own org_id + RLS)."""
 
     __tablename__ = "issued_invoice_attachments"
+
+    # WO-M: the recycle bin (owner decision 2026-08-15). Stamped instead of
+    # destroyed; hidden from every read by the ORM guard (SOFT_DELETE_MODELS).
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by: Mapped[str | None] = mapped_column(String(320), nullable=True)
     __table_args__ = (
         ForeignKeyConstraint(
             ["org_id", "invoice_id"],

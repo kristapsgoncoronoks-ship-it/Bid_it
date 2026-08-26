@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import GUID, Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -20,6 +20,12 @@ class RecurringInvoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """
 
     __tablename__ = "recurring_invoices"
+
+    # WO-M: the recycle bin (owner decision 2026-08-15 — "bin extends to all
+    # entities"). Stamped instead of destroyed; hidden from every read by the
+    # ORM guard (SOFT_DELETE_MODELS), restorable for BIN_RETENTION_DAYS.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by: Mapped[str | None] = mapped_column(String(320), nullable=True)
     # Worker sweep: find active schedules that are due.
     __table_args__ = (Index("ix_recurring_org_due", "org_id", "active", "next_run_date"),)
 

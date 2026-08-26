@@ -13,8 +13,9 @@ QUEUE in `docs/plan/DEVELOPMENT-PLAN-2026-08.md`:
 - **WO-L** ✅ SHIPPED 2026-08-26 — §12 audited `ignored`/reinstate on
   overcharge claim-backs, §11 supplier list on UNMATCHED lines, §13 the
   decision transition incl. partial rejection at the frozen fee rate.
-- **WO-M** Recycle-bin extension (expenses/receipts/documents) + the
-  invoice→VAT-claim link with delete refusal.
+- **WO-M** ✅ SHIPPED 2026-08-26 — the bin covers expense reports, inbox
+  transactions, recurring schedules and attachments; filed-claim evidence
+  refuses deletion via the real line link.
 - **WO-N** Accessibility/form-label pass (Login first).
 - **WO-O** First-load performance + CI bundle-size tripwire.
 - **WO-P** Guided onboarding checklist (R19).
@@ -413,12 +414,13 @@ by running it. The suite still catches a wrong shape, not a wrong figure.
       important of the two: three years is likely BELOW the Baltic statutory
       floor, so a client who does not extend loses records they were obliged to
       keep, and the notice is what makes that survivable.
-- [ ] **Extend the bin to other entities** (owner-approved). Expenses, expense
-      reports, issued-invoice attachments and recurring schedules are still
-      destroyed on click — one with no confirmation at all.
-- [ ] **Real invoice→VAT-claim link, then refuse those deletes**
-      (owner-approved). Today an invoice in a FILED claim can be bulk-deleted
-      with no warning; the only existing link is a heuristic string match.
+- [x] **Extend the bin to other entities** (owner-approved) — ✅ WO-M
+      2026-08-26: all four kinds stamp into the generic bin, restore from the
+      Trash screen, purge on the same 30-day promise.
+- [x] **Real invoice→VAT-claim link, then refuse those deletes**
+      (owner-approved) — ✅ WO-M 2026-08-26: `vat_claim_lines.invoice_id` +
+      claim status read through the canonical registry; hard 409 on single
+      delete, worded skip on bulk.
 
 **Owner decisions 2026-08-15**, recorded in `docs/DECISIONS-NEEDED.md`: purge
 stays on · bin extends to all entities · add the claim link then refuse ·

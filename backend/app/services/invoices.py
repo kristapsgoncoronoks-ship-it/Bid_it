@@ -151,6 +151,36 @@ def deletion_snapshot(inv: Invoice) -> DeletedSnapshot:
     )
 
 
+async def claim_backing_refusal(db: AsyncSession, org_id: str, invoice_id: str) -> str | None:
+    """WO-M (owner decision 2026-08-15: "add the claim link then refuse").
+
+    An invoice a FROZEN claim line resolved to, on a claim that is filed
+    (submitted/approved/paid) or adversely decided (rejected), is EVIDENCE —
+    a government filing references it. Deleting it is a hard refusal, not a
+    consent: no warning text makes destroying filed evidence acceptable. A
+    withdrawn claim released the invoice; a draft rebuilds its lines at will.
+    The real link is `vat_claim_lines.invoice_id` set at resolution — no
+    string heuristics — read through the canonical transport query registry."""
+    from app.services.transport import queries as transport_queries
+
+    claims = list(await db.scalars(transport_queries.claims_backed_by_invoice(org_id, invoice_id)))
+    if not claims:
+        return None
+    named = ", ".join(f"{c.refund_country} {c.ref_period} ({c.status})" for c in claims[:3])
+    more = "" if len(claims) <= 3 else f" and {len(claims) - 3} more"
+    return (
+        f"This invoice is frozen evidence behind a filed VAT refund claim: {named}{more}. "
+        "Deletion is refused while the claim stands — withdraw the claim first if you "
+        "really intend this."
+    )
+
+
+class ClaimEvidenceError(ConflictError):
+    """The invoice backs a filed VAT claim — deletion is refused, not consented."""
+
+    code = "invoice_backs_filed_claim"
+
+
 def _bin(inv: Invoice, actor: str | None) -> None:
     """Move ONE loaded invoice into the bin. The only place `deleted_at` is set,
     so "what does deleting actually do" has a single answer."""
@@ -190,6 +220,12 @@ async def delete_one(
     inv = await db.scalar(select(Invoice).where(Invoice.org_id == org_id, Invoice.id == invoice_id))
     if inv is None:
         raise NotFoundError("Invoice not found")
+
+    # WO-M: filed-claim evidence is a hard refusal BEFORE the consent ceremony —
+    # no acknowledgement makes destroying it acceptable.
+    refusal = await claim_backing_refusal(db, org_id, invoice_id)
+    if refusal is not None:
+        raise ClaimEvidenceError(refusal)
 
     consent: dict | None = None
     if deletion_consent.requires_consent(inv):
@@ -253,6 +289,13 @@ async def bulk_delete_drafts(
             # The SAME rule the single-delete route enforces — a skip here and a
             # 409 there are the same decision, worded identically.
             result.outcomes.append(bulk.Outcome(invoice_id, bulk.SKIPPED, refusal))
+            continue
+        # WO-M: a DRAFT AP invoice can still be frozen claim evidence (the
+        # resolver links lines regardless of workflow state) — same hard
+        # refusal as the single delete, surfaced as a skip.
+        claim_refusal = await claim_backing_refusal(db, org_id, invoice_id)
+        if claim_refusal:
+            result.outcomes.append(bulk.Outcome(invoice_id, bulk.SKIPPED, claim_refusal))
             continue
 
         snapshots.append(deletion_snapshot(inv))

@@ -11,6 +11,7 @@ from app.schemas.recurring import (
     RecurringUpdate,
 )
 from app.services import audit, issuer, modules, partners, recurring
+from app.services import bin as bin_svc
 
 # Mounted under the issuing module. Included BEFORE the `issued` router so
 # `/issued/recurring*` resolves here and never hits `/issued/{invoice_id}`.
@@ -122,5 +123,13 @@ async def delete_schedule(rec_id: str, current: CurrentUser, db: DbSession):
     rec = await recurring.get(db, current.org_id, rec_id)
     if rec is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Schedule not found")
-    await db.delete(rec)
+    # WO-M: binned, not destroyed — restorable from the Trash screen.
+    bin_svc.stamp(rec, current.email)
+    await audit.record(
+        db,
+        "recurring.schedule_binned",
+        target_type="recurring_invoice",
+        target_id=rec.id,
+        meta={"title": rec.title, "frequency": rec.frequency},
+    )
     await db.commit()

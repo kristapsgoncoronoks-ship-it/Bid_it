@@ -73,6 +73,7 @@ from app.services import (
     vendor_resolution,
     webhooks,
 )
+from app.services import bin as bin_svc
 from app.services import (
     invoices as invoice_service,
 )
@@ -828,6 +829,43 @@ async def list_binned_invoices(
         total=total,
         retention_days=invoice_service.BIN_RETENTION_DAYS,
     )
+
+
+@router.get(
+    "/trash/other",
+    dependencies=[Depends(require_perm(authz.Permission.INVOICE_DELETE))],
+)
+async def list_binned_other(current: CurrentUser, db: DbSession):
+    """WO-M: the generic bin — every non-invoice entity the owner extended the
+    bin to (expense reports, inbox transactions, recurring schedules, invoice
+    attachments), with days left on the same 30-day promise."""
+    return {
+        "items": await bin_svc.list_binned(db, current.org_id),
+        "retention_days": invoice_service.BIN_RETENTION_DAYS,
+    }
+
+
+@router.post(
+    "/trash/other/{kind}/{row_id}/restore",
+    dependencies=[Depends(require_perm(authz.Permission.INVOICE_RESTORE))],
+)
+async def restore_binned_other(kind: str, row_id: str, current: CurrentUser, db: DbSession):
+    """WO-M: bring a generic-bin record back. Same INVOICE_RESTORE gate as the
+    invoice restore — putting records back into the books is the consequential
+    half of the pair regardless of the record's kind."""
+    try:
+        out = await bin_svc.restore(db, current.org_id, kind, row_id)
+    except bin_svc.BinError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
+    await audit.record(
+        db,
+        "bin.restore",
+        target_type=kind,
+        target_id=row_id,
+        meta=out["summary"],
+    )
+    await db.commit()
+    return out
 
 
 @router.get("/{invoice_id}", response_model=InvoiceDetailOut)

@@ -187,7 +187,16 @@ the decision-received/rejected transitions as unbuilt; implement
 amount-level partial outcomes with the fee interplay `fee.py`'s
 documented seam already reserves. Estimated: 1–2 sessions.
 
-**WO-M — Recycle-bin extension + the invoice→VAT-claim link.**
+**WO-M — Recycle-bin extension + the invoice→VAT-claim link. ✅ SHIPPED 2026-08-26.**
+Shipped: `deleted_at/by` on expense reports, inbox transactions, recurring
+schedules and issued attachments (SOFT_DELETE_MODELS + one migration);
+deletes stamp + audit instead of destroy; the generic Trash listing/restore
+(`/invoices/trash/other`, INVOICE_RESTORE-gated) and the daily BIN_PURGE now
+empties both bins with what-was-destroyed audit meta. The claim link is
+real: `queries.claims_backed_by_invoice` (frozen line + submitted/approved/
+paid/rejected claim) makes deletion a HARD 409 `invoice_backs_filed_claim`
+before any consent, and the bulk path skips with the same words; a
+withdrawn claim releases the invoice. Original scope kept below.
 Owner-approved 2026-08-15: extend the soft-delete bin (binned_at pattern,
 30-day purge already in DAILY_KINDS) to expenses, expense reports,
 receipts and standalone documents. Then the real invoice→VAT-claim link,

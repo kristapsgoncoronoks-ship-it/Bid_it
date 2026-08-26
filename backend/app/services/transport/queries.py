@@ -117,7 +117,7 @@ from sqlalchemy import ColumnElement, Select, func, select
 
 from app.models.transport.excise_rate import VatExciseRate
 from app.models.transport.fuel_transaction import FuelTransaction
-from app.models.transport.vat_claim import VatRefundClaimLine
+from app.models.transport.vat_claim import VatRefundClaim, VatRefundClaimLine
 
 # The tables this registry is the single row-selection layer for. Exported so
 # the structural anti-forking test names them from one place rather than
@@ -434,8 +434,36 @@ def resolved_vat_claim_lines(
     )
 
 
+def claims_backed_by_invoice(org_id: str, invoice_id: str) -> Select[tuple[VatRefundClaim]]:
+    """The claims whose EVIDENCE this AP invoice is (WO-M, owner decision
+    2026-08-15: "add the claim link then refuse [those deletes]").
+
+    A claim is "backed" by an invoice when a FROZEN line resolved to it and
+    the claim's engine status still stands on that filed evidence —
+    `submitted`/`approved`/`paid` (the lock-holding set) plus `rejected`
+    (an adverse decision is still a filed record whose evidence must
+    survive). A `withdrawn` claim released its locks and a `draft`'s lines
+    rebuild at will, so neither blocks a delete."""
+    return (
+        select(VatRefundClaim)
+        .join(
+            VatRefundClaimLine,
+            (VatRefundClaimLine.org_id == VatRefundClaim.org_id)
+            & (VatRefundClaimLine.claim_id == VatRefundClaim.id),
+        )
+        .where(
+            VatRefundClaim.org_id == org_id,
+            VatRefundClaimLine.invoice_id == invoice_id,
+            VatRefundClaimLine.frozen_at.is_not(None),
+            VatRefundClaim.status.in_(("submitted", "approved", "paid", "rejected")),
+        )
+        .distinct()
+    )
+
+
 __all__ = [
     "CANONICAL_MODELS",
+    "claims_backed_by_invoice",
     "DIESEL",
     "NORMALIZED_INVOICE_REF",
     "claim_scope_transactions",

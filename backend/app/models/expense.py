@@ -67,6 +67,11 @@ class ExpenseReport(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     employee_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # WO-M: the recycle bin (owner decision 2026-08-15 — "bin extends to all
+    # entities"). Stamped instead of destroyed; hidden from every read by the
+    # ORM guard (SOFT_DELETE_MODELS), restorable for BIN_RETENTION_DAYS.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by: Mapped[str | None] = mapped_column(String(320), nullable=True)
 
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     # Width fits the longest workflow status ("marked_for_reimbursement" = 24).
@@ -238,6 +243,12 @@ class ExpenseTransaction(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     report, at which point it becomes an expense entry."""
 
     __tablename__ = "expense_transactions"
+
+    # WO-M: the recycle bin (owner decision 2026-08-15 — "bin extends to all
+    # entities"). Stamped instead of destroyed; hidden from every read by the
+    # ORM guard (SOFT_DELETE_MODELS), restorable for BIN_RETENTION_DAYS.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by: Mapped[str | None] = mapped_column(String(320), nullable=True)
     # The 'available expenses' inbox filters by (employee, status) together.
     __table_args__ = (Index("ix_exp_txn_employee_status", "employee_id", "status"),)
 

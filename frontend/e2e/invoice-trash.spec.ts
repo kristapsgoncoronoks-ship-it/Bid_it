@@ -83,6 +83,39 @@ async function open(page: Page, opts: MockOpts = {}) {
     if (path === "/auth/organizations") return route.fulfill(json([ORG]));
     if (path === "/modules") return route.fulfill(json([]));
 
+    const otherRestore = path.match(/^\/invoices\/trash\/other\/([^/]+)\/([^/]+)\/restore/);
+    if (otherRestore) {
+      opts.onOtherRestore?.(`${otherRestore[1]}:${otherRestore[2]}`);
+      return route.fulfill(json({ kind: otherRestore[1], id: otherRestore[2], summary: {} }));
+    }
+    if (path.startsWith("/invoices/trash/other")) {
+      return route.fulfill(
+        json({
+          retention_days: 30,
+          items: [
+            {
+              kind: "expense_report",
+              label: "Expense report",
+              id: "rep-1",
+              summary: { title: "Overlap trip", employee: "Test User" },
+              deleted_at: "2026-08-20T10:00:00+00:00",
+              deleted_by: "owner@test.io",
+              days_left: 24,
+            },
+            {
+              kind: "recurring_schedule",
+              label: "Recurring schedule",
+              id: "rec-1",
+              summary: { title: "Monthly retainer", frequency: "monthly" },
+              deleted_at: "2026-08-21T10:00:00+00:00",
+              deleted_by: null,
+              days_left: 25,
+            },
+          ],
+        }),
+      );
+    }
+
     const restore = path.match(/^\/invoices\/([^/]+)\/restore/);
     if (restore) {
       opts.onRestore?.(restore[1]);
@@ -195,4 +228,19 @@ test("the pager asks the server for the next page", async ({ page }) => {
   await page.getByRole("button", { name: "Next" }).click();
 
   await expect.poll(() => offsets).toContain("50");
+});
+
+
+test("WO-M: the generic bin lists other entities and restores by kind", async ({ page }) => {
+  const restored: string[] = [];
+  await open(page, { onOtherRestore: (r) => restored.push(r) });
+
+  await expect(page.getByRole("heading", { name: "Other deleted items" })).toBeVisible();
+  await expect(page.getByText("Overlap trip", { exact: false })).toBeVisible();
+  await expect(page.getByText("Monthly retainer", { exact: false })).toBeVisible();
+
+  const row = page.locator("tr", { hasText: "Overlap trip" });
+  await row.getByRole("button", { name: "Restore" }).click();
+  await expect.poll(() => restored.length).toBe(1);
+  expect(restored[0]).toBe("expense_report:rep-1");
 });

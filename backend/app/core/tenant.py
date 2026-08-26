@@ -289,7 +289,14 @@ def _scope_criteria(model, org: str):
 
 # Models carrying `deleted_at`. Keep in step with the migrations; the guard test
 # fails if a model grows the column without being registered here.
-SOFT_DELETE_MODELS = (Invoice,)
+SOFT_DELETE_MODELS = (
+    Invoice,
+    # WO-M (owner decision 2026-08-15 — the bin extends to all entities):
+    ExpenseReport,
+    ExpenseTransaction,
+    RecurringInvoice,
+    IssuedInvoiceAttachment,
+)
 
 _include_deleted: ContextVar[bool] = ContextVar("include_deleted", default=False)
 

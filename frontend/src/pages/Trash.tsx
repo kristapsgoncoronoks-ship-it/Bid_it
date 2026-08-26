@@ -220,6 +220,92 @@ export default function Trash() {
           </>
         )}
       </QueryState>
+
+      <OtherBinned mayRestore={mayRestore} />
+    </div>
+  );
+}
+
+interface OtherBinnedItem {
+  kind: string;
+  label: string;
+  id: string;
+  summary: Record<string, string | null>;
+  deleted_at: string;
+  deleted_by: string | null;
+  days_left: number;
+}
+
+/** WO-M: the generic bin — expense reports, inbox transactions, recurring
+ * schedules and invoice attachments live under the same 30-day promise. */
+function OtherBinned({ mayRestore }: { mayRestore: boolean }) {
+  const qc = useQueryClient();
+  const [err, setErr] = useState<string | null>(null);
+  const other = useQuery<{ items: OtherBinnedItem[]; retention_days: number }>({
+    queryKey: ["invoices", "trash", "other"],
+    queryFn: async () => (await api.get("/invoices/trash/other")).data,
+  });
+
+  const restore = useMutation({
+    mutationFn: async (i: OtherBinnedItem) =>
+      (await api.post(`/invoices/trash/other/${i.kind}/${i.id}/restore`)).data,
+    onSuccess: () => {
+      setErr(null);
+      qc.invalidateQueries({ queryKey: ["invoices", "trash", "other"] });
+    },
+    onError: (e) => setErr(apiError(e)),
+  });
+
+  const items = Array.isArray(other.data?.items) ? other.data.items : [];
+  if (items.length === 0 && !err) return null;
+
+  return (
+    <div className="card p-6">
+      <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
+        Other deleted items
+      </h2>
+      <p className="mb-3 text-xs text-slate-400">
+        Expense reports, inbox transactions, recurring schedules and invoice
+        attachments — same {other.data?.retention_days ?? 30}-day window, then gone.
+      </p>
+      {err && (
+        <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          {err}
+        </div>
+      )}
+      <table className="w-full text-sm">
+        <thead className="text-left text-xs uppercase tracking-wide text-slate-400">
+          <tr>
+            <th className="py-1">What</th>
+            <th className="py-1">Details</th>
+            <th className="py-1">Deleted by</th>
+            <th className="py-1 text-right">Days left</th>
+            <th className="py-1"></th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {items.map((i) => (
+            <tr key={`${i.kind}:${i.id}`}>
+              <td className="py-1.5 text-slate-700">{i.label}</td>
+              <td className="py-1.5 text-slate-500">
+                {Object.values(i.summary).filter(Boolean).join(" · ")}
+              </td>
+              <td className="py-1.5 text-xs text-slate-400">{i.deleted_by ?? "—"}</td>
+              <td className="py-1.5 text-right tabular-nums">{i.days_left}</td>
+              <td className="py-1.5 text-right">
+                <button
+                  className="btn-ghost text-sm"
+                  disabled={!mayRestore || restore.isPending}
+                  title={mayRestore ? undefined : "Only an admin or the owner can restore"}
+                  onClick={() => restore.mutate(i)}
+                >
+                  Restore
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

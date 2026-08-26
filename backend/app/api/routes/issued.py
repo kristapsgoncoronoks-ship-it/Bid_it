@@ -72,6 +72,7 @@ from app.services import (
     vat,
     webhooks,
 )
+from app.services import bin as bin_svc
 
 # Structural authorization (ADR-0024): every issuing route needs at least
 # ISSUED_READ (router-level); write/send routes declare the stricter
@@ -1406,7 +1407,15 @@ async def delete_issued_attachment(
     )
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment not found")
-    await db.delete(row)
+    # WO-M: binned, not destroyed — restorable from the Trash screen.
+    bin_svc.stamp(row, current.email)
+    await audit.record(
+        db,
+        "issued.attachment_binned",
+        target_type="issued_invoice_attachment",
+        target_id=row.id,
+        meta={"filename": row.filename, "invoice_id": row.invoice_id},
+    )
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

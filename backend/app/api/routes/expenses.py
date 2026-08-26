@@ -69,6 +69,7 @@ from app.services import (
     receipt_ocr,
     webhooks,
 )
+from app.services import bin as bin_svc
 
 # Structural authorization (ADR-0024): every expense route needs at least
 # EXPENSE_READ (router-level). Claimant actions (create/edit/submit/withdraw and
@@ -357,7 +358,15 @@ async def delete_transaction(txn_id: str, current: CurrentUser, db: DbSession):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Transaction not found")
     if t.status != "available":
         raise HTTPException(status.HTTP_409_CONFLICT, "Transaction is already on a report")
-    await db.delete(t)
+    # WO-M: binned, not destroyed — restorable from the Trash screen.
+    bin_svc.stamp(t, current.email)
+    await audit.record(
+        db,
+        "expense.transaction_binned",
+        target_type="expense_transaction",
+        target_id=t.id,
+        meta={"description": t.description, "amount": str(t.amount)},
+    )
     await db.commit()
 
 
@@ -959,7 +968,15 @@ async def delete_report(report_id: str, current: CurrentUser, db: DbSession):
     r = await _load(db, current.org_id, report_id)
     if r.employee_id != current.id or r.status != "draft":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only your own draft reports can be deleted")
-    await db.delete(r)
+    # WO-M: binned, not destroyed — restorable from the Trash screen.
+    bin_svc.stamp(r, current.email)
+    await audit.record(
+        db,
+        "expense.report_binned",
+        target_type="expense_report",
+        target_id=r.id,
+        meta={"title": r.title, "employee": r.employee_name},
+    )
     await db.commit()
 
 

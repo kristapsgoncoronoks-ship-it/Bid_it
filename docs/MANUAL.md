@@ -93,7 +93,11 @@ export-once guarded, every export audited with its message id.
 ### 2.5 Deleting, trash, and the archive
 
 - **Trash** (`Invoices → Trash`): deleting an invoice is a soft delete with a
-  consent step; trashed invoices can be restored.
+  consent step; trashed invoices can be restored. The same 30-day bin covers
+  expense reports, expense inbox lines, recurring schedules and invoice
+  attachments — nothing is destroyed on click any more. An invoice that backs
+  a filed VAT refund claim refuses deletion entirely until the claim is
+  withdrawn.
 - **Archive** (`Invoices → Archive`): archived invoices are kept for their full
   retention window (default 3 years) even if the live workspace changes plan.
   Before anything expires you get a **pre-expiry notice** with the option to
