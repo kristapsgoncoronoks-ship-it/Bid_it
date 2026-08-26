@@ -47,6 +47,15 @@ Two boundaries worth knowing:
 - **Segregation of duties** on money movement: the person who creates a payment
   run cannot approve it, and neither can mark it paid.
 
+### 1.3 The getting-started checklist
+
+A fresh workspace shows a **Getting started** card on the dashboard: company
+profile → modules → team → first customer → first invoice. Each step links to
+the screen that completes it, and the card notices by itself — it is computed
+from what already exists, so finishing a step anywhere ticks it here. An admin
+can **dismiss** the card for the whole workspace; it also disappears on its own
+once every step is done.
+
 ---
 
 ## 2. Payables — supplier invoices in
@@ -366,6 +375,36 @@ forever. Nothing piles up, by design.
   FX markup, receivables/payables position, category budgets.
 - Exports are CSV/Excel/PDF, formula-injection-safe, with the basis (net, EUR)
   stated on the file.
+
+---
+
+## 7b. VAT recovery (transport)
+
+An entitlement-gated vertical for foreign VAT refunds on fuel and road costs.
+The short tour — the full operating rules live in
+[`docs/transport/rules.md`](./transport/rules.md):
+
+- **Fuel-card statements in** — Eurowag, E100, Q8, DKV and TFC statements parse
+  into typed fuel transactions (idempotent; each network's money model handled
+  by its own parser behind one shared contract). A nine-rule capture review
+  gate blocks registration of a statement that does not reconcile, and a
+  human-typed tie-out must match the engine's own totals before a monthly
+  close completes.
+- **Claims** — per legal entity × refund country × period. Building a claim
+  groups eligible transactions into lines; an UNMATCHED line names the
+  suppliers behind it so you know who to chase. Submitting **freezes** every
+  line and the VAT base: what was filed is what stays on record. Article 17
+  minimums, period deadlines, document-presence gates and the adjustable
+  checklist all refuse a submission that would not survive the authority's own
+  checks.
+- **Decisions** — approved, rejected, or **partial**: a partial rejection
+  stamps the named lines and recomputes the refund and the fee on the
+  surviving base at the frozen rate. Withdrawing the claim is the only unlock.
+- **Overcharges (claim-backs)** — supplier prices above the agreed contract
+  terms become claim-back cases with the damage priced out; a case can be
+  ignored with a required, audited reason and reinstated later.
+- An invoice that backs a filed claim's frozen line **cannot be deleted** until
+  the claim is withdrawn (see §2.5).
 
 ---
 

@@ -249,6 +249,41 @@ copy.
 
 ---
 
+## 9b. Automation sweep (trigger → condition → action, WO-J)
+
+Admin-authored rules run on the same durable rails as everything else — no new
+infrastructure, no new mutation paths: every action a rule takes is an existing
+service call, so audit, permissions and idempotency come for free.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant SCH as Scheduler (daily sweep)
+  participant Q as jobs queue
+  participant ENG as automation engine
+  participant SVC as existing services<br/>(mailer · crm)
+  SCH->>Q: enqueue `automation.sweep` (per org)
+  Q->>ENG: run handler (tenant scope)
+  ENG->>ENG: load PUBLISHED rule versions only
+  loop each rule × matching record
+    ENG->>ENG: trigger match? conditions hold?<br/>fire policy (once-per-record / cooldown / every sweep)
+    alt would exceed 25 fires this sweep
+      ENG->>ENG: record run as THROTTLED (visible in run log)
+    else fires
+      ENG->>SVC: ordered actions (email self / email customer / CRM note)<br/>{{field}} tokens rendered from the record
+      ENG->>ENG: automation_runs row — what fired, on what, result
+    end
+  end
+```
+
+Guarantees: a rule executes only as a published, immutable version (revert =
+re-publish an old version as a new one); dry-run evaluates without side
+effects; the run log is the complete history; the recycle-bin purge and the
+onboarding checklist follow the same pattern — daily jobs and derived reads
+over existing rows, never a parallel write path.
+
+---
+
 ## 10. Data-flow invariants (must hold on every path)
 
 1. Tenant scope is set from the server-side user row before any query, and reset after the request.

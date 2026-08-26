@@ -1,6 +1,6 @@
 # InvoiceIQ — Architecture Overview
 
-> **Status:** v2.1 (post-build review; 2026-08-20 truth-up: project lifecycle & templates modules added — see domain-modules/data-model) · Owner: Tech Lead · Last updated: 2026-08-20
+> **Status:** v2.2 (2026-08-26 truth-up: field service & clients — schedule/ICS/arrival notices, CRM light, client portal —, automation rules, agreed prices, transport VAT-recovery hygiene, the generic recycle bin, and the derived onboarding checklist added across the set) · Owner: Tech Lead · Last updated: 2026-08-26
 > **Audience:** engineers, reviewers, future maintainers (5-year horizon).
 > **Companion docs:** [domain-modules](./domain-modules.md) · [data-flows](./data-flows.md) · [security-boundaries](./security-boundaries.md) · [deployment](./deployment.md) · [ADRs](./adr/)
 > **Product context:** [../product/product-requirements.md](../product/product-requirements.md)

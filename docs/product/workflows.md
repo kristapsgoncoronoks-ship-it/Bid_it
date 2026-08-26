@@ -177,4 +177,9 @@ and the adjustable final invoice. Design:
 | W6 Issuing loop | ✅ | issue + credit notes + recurring + reminders shipped |
 | W7 Automate & integrate | ✅ webhooks, 🟡 API ingest | webhooks + queue shipped |
 | W8 Govern | ✅ audit/jobs/metering, ✅ retention + legal hold + GDPR erasure + audit export | SSO (OIDC+SCIM) ✅, SAML scaffold 🟡; residency seam ✅ |
-| W9 Project lifecycle | ✅ phases 1–5a, 🟡 acceptance / final invoice | per-project P&L + close-freeze + offers + invoicing plan + document templates shipped |
+| W9 Project lifecycle | ✅ complete through close | per-project P&L + close-freeze + offers + invoicing plan + document templates + acceptance & adjustable final invoice (WO-D) shipped |
+| W10 Field service & clients | ✅ | schedule assignments + reminders + ICS feeds (WO-A/B), arrival notices (WO-E), job photos (WO-F), CRM light (WO-H), client portal (WO-I) |
+| W11 Automation | ✅ | admin rules — trigger→conditions→actions, immutable published versions, dry-run, run log (WO-J) |
+| W12 Transport VAT recovery | ✅ vertical | fuel-card ingest (5 networks) → gates/tie-out → monthly close → claims frozen at submit → decisions incl. partial (WO-49…85, WO-L); overcharge claim-backs with audited ignore |
+| W13 Cost control | ✅ | supplier price history + change detection (WO-G), agreed prices + overcharge block (WO-G2) |
+| W14 Recover & onboard | ✅ | product-wide 30-day recycle bin + claim-evidence deletion refusal (WO-M); derived getting-started checklist (WO-P) |

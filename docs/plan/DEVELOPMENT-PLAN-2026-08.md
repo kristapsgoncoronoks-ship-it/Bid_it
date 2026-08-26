@@ -203,23 +203,29 @@ receipts and standalone documents. Then the real invoice→VAT-claim link,
 and REFUSE deleting an invoice that backs a claim — today nothing knows.
 Estimated: 1–2 sessions.
 
-**WO-N — Accessibility & form-label pass.**
+**WO-N — Accessibility & form-label pass. ✅ SHIPPED 2026-08-26.**
 `Login.tsx` labels are not programmatically associated (zero `htmlFor`);
 sweep the auth screens first, then the high-traffic forms; visible focus
 states; Playwright assertions so the association cannot silently regress.
 Estimated: 1 session.
 
-**WO-O — First-load performance.**
+**WO-O — First-load performance. ✅ SHIPPED 2026-08-26.**
 The SPA's first-load payload roughly doubled under Vite 8 (recorded
 2026-08-08, still open). Measure, re-split (manualChunks / route-level),
 and land a bundle-size tripwire in CI so the next regression fails a
 check instead of a user. Estimated: 1 session.
 
-**WO-P — Guided onboarding checklist (R19).**
+**WO-P — Guided onboarding checklist (R19). ✅ SHIPPED 2026-08-26.**
 A derived, dismissible setup card (issuer profile → modules → team →
 first customer/invoice) computed from state that already exists — no new
 tables. Closes the last "empty workspace, now what?" gap the demo seed
 papers over. Estimated: 1 session.
+Shipped as planned: services/onboarding.py derives the five steps, the one
+persisted bit is `organizations.onboarding_dismissed_at` (e8f0a2b4c6d8),
+dismissal is SETTINGS_MANAGE-gated + audited, the dashboard card links each
+undone step to its screen. WO-N shipped as scripts/check-labels.mjs (CI) +
+htmlFor/id across 19 pages + getByLabel e2e; WO-O shipped as the rolldown
+codeSplitting fix (first load 773→415 kB) + scripts/check-bundle.mjs (CI).
 
 **WO-Q — Supplier reliability rating (§12 criteria; DESIGN-FIRST).**
 The owner's criteria are recorded (overcharges, exchange-rate treatment,

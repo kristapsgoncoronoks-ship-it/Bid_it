@@ -1,6 +1,6 @@
 # InvoiceIQ — Logical Data Model
 
-> **Status:** v2 (WO-10 truth-up: every build-state marker re-verified against `backend/app/models/`) · Owner: Data Architect · Last updated: 2026-07-26
+> **Status:** v2.1 (2026-08-26 truth-up: the field-service/CRM/portal, automation, agreed-price, transport VAT-recovery, recycle-bin and onboarding slices added; figures re-verified) · Owner: Data Architect · Last updated: 2026-08-26
 > Companion to [overview](./overview.md), [domain-modules](./domain-modules.md), [data-flows](./data-flows.md), [security-boundaries](./security-boundaries.md).
 >
 > This is the **complete target logical model** across all requested domains, with each domain honestly tagged by build state, followed by the design strategies (indexes, tenant isolation, retention, migration, seed, test-factory). We **design the whole model but implement it incrementally** — no empty tables without a working use case.
@@ -11,7 +11,7 @@
 
 ## 0. Approach — design complete, build incremental
 
-InvoiceIQ is **not greenfield**: 94 tables and 104 migrations (single head; figures re-verified 2026-08-20) already implement organizations, users/memberships, roles, suppliers (+ the protected-field change workflow), supplier + customer invoices, credit notes, payments/receipts/payment runs, expenses (+ approval chains and reimbursement batches), bank import/reconciliation, documents/versions/extraction provenance, audit, billing, SSO/SCIM, retention, and more, all under a defence-in-depth tenant guard + Postgres RLS + Decimal money. So this document does two things:
+InvoiceIQ is **not greenfield**: 105 tables and 118 migrations (single head; figures re-verified 2026-08-26) already implement organizations, users/memberships, roles, suppliers (+ the protected-field change workflow), supplier + customer invoices, credit notes, payments/receipts/payment runs, expenses (+ approval chains and reimbursement batches), bank import/reconciliation, documents/versions/extraction provenance, audit, billing, SSO/SCIM, retention, and more, all under a defence-in-depth tenant guard + Postgres RLS + Decimal money. So this document does two things:
 
 1. **Documents the complete target logical model** for every requested domain — including the ones already built (so the model is coherent end-to-end) and the ones not yet built (so the target is explicit).
 2. **Implements exactly one new vertical slice now** — **cost-allocation master data** (Departments, Cost centers, Projects) — because the code itself flagged it (`core/dimensions.py`: *"no master table yet … normalise later"*), it is foundational, and it lets us demonstrate every required data-principle without disturbing the working ledger.
@@ -66,6 +66,15 @@ InvoiceIQ is **not greenfield**: 94 tables and 104 migrations (single head; figu
 | 40 | Subscriptions | 🟡 | `organizations.plan`/`stripe_*` + `billing_payments`. **Target:** explicit `subscriptions`. |
 | 41 | Usage records | ✅ | `usage_counters` (`count`/`reported`) |
 | 42 | Feature entitlements | ✅ | `org_modules` (+ plan→module derivation) |
+
+| 43 | Transport VAT recovery | ✅ | the `vat_*`/`fuel_*` vertical: `fuel_transactions`, `vat_refund_claims`, `vat_claim_lines`, `vat_claimed_invoices` (one-invoice-one-submission lock), `vat_overcharge_claims`, `vat_checklist_rules`, `vat_supplier_contract_terms`, `vat_fee_rates`, `vat_receipt_controls`/`_waivers`, `supplier_vat_registrations`, `vat_excise_rates`, `fuel_tieout_expectations`, `vat_country_activations`, `fuel_extraction_baselines`, `vat_note_invoice_overrides`, `vat_off_invoice_rebates`, `vat_supplier_cadences`, `vat_customer_lifecycles` — lines + VAT base FROZEN at submit |
+| 44 | Automation rules | ✅ | `automation_rules`, `automation_rule_versions` (immutable, numbered), `automation_runs` |
+| 45 | Agreed prices | ✅ | `supplier_agreed_prices` (validity-windowed; matched at capture) |
+| 46 | Schedule & calendar | ✅ | `assignments`, `org_deadlines`, `calendar_feed_tokens` (ICS) |
+| 47 | CRM light + client portal | ✅ | `customer_notes`, `offer_stage_events`, `customer_portal_tokens` |
+| 48 | Next actions | ✅ | `action_dismissals` (the rest is derived per read) |
+| 49 | Generic recycle bin | ✅ | `deleted_at`/`deleted_by` on `invoices`, `expense_reports`, `expense_transactions`, `recurring_invoices`, `issued_invoice_attachments`; guard-level auto-hide via `SOFT_DELETE_MODELS`; daily audited purge |
+| 50 | Onboarding checklist | ✅ | DERIVED (no table); `organizations.onboarding_dismissed_at` is the one stamp |
 
 **Also built, beyond the list:** `processed_stripe_events` (billing idempotency ledger), `sso_connections` (SSO/SCIM/SAML), `sessions` (revocable auth sessions), `retention_policies` + `legal_holds`, `budget_targets`, `partner_documents`, `jobs`, `ecb_rates`, `bank_statements` + `bank_lines` (statement import + reconciliation), `dunning_policies`, `recurring_invoices`, `email_intakes` + `email_messages` (inbound address + outbound mail history), `expense_policies` + `expense_transactions` + `reimbursement_batches`, `plan_policies`, `archived_invoices` (the sealed post-trash archive), `capture_acknowledgements`, `capture_field_memory`, `inbound_channel_health`, `auth_tokens`, and the project-lifecycle set (§3.4): `invoice_project_splits`, `project_cost_entries`, `project_documents`, `project_offers`, `invoicing_plan_rows`, `org_templates` + the org-less `platform_templates`.
 

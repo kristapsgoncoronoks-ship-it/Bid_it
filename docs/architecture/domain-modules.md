@@ -83,6 +83,20 @@ graph TB
     BANK[Bank-statement recon]
   end
 
+  subgraph Field["Field service & clients"]
+    SCHED[Schedule + ICS feeds<br/>arrival notices]
+    CRM[CRM light<br/>notes · timeline · kanban]
+    PORTAL[Client portal<br/>magic links]
+  end
+
+  subgraph Trans["Transport VAT recovery (entitled)"]
+    FUEL[Fuel-card ingest<br/>5 network parsers]
+    CLAIM[Refund claims<br/>frozen at submit]
+    OVER[Overcharge claim-backs]
+  end
+
+  AUTO[Automation rules<br/>TCA engine]
+
   Intake --> Record
   Record --> Insight
   Record --> Money
@@ -101,6 +115,13 @@ graph TB
   Platform -.underpins.- AR
   Platform -.underpins.- Exp
   Platform -.underpins.- Ent
+  Field --> Proj
+  Trans --> Record
+  Trans --> Money
+  AUTO -.acts on.- AR
+  AUTO -.acts on.- Field
+  Platform -.underpins.- Trans
+  Platform -.underpins.- Field
 ```
 
 **Enterprise & Compliance** is a distinct band because these modules *govern* the
@@ -154,6 +175,15 @@ Legend: **Owns** = writes + schema authority. **Reads** = consumes read-only. Is
 | **VAT** | — (pure) | `vat` | — | Scheme handling + breakdown. |
 | **Expenses (post-MVP)** | `expense_reports`, `expense_items`, `expense_transactions`, `expense_comments` | `expenses`, `bank_statement` | fx, dimensions | Approval + reimbursement + recon. "Reclaimable VAT" (`/expenses/summary`, the PDF export) sums only `reclaimable_tax` items on reports past draft/rejected — ADR-0029/C1.8. |
 | **AP settlement (payment runs)** | `payment_runs`, `supplier_payments`, `reimbursement_batches` (with Expenses) | `payment_run`, `ap_payments`, `sepa`, `reimbursement` | invoices, vendors, issuer | Groups scheduled invoices, settles them via the append-only AP ledger, renders the pain.001 bank file. Carries the WO-9 settlement controls (below). |
+
+| **Schedule & calendar** | `assignments`, `org_deadlines`, `calendar_feed_tokens` | `schedule`, `calendar_feed` | projects, users | WO-A/B/E: day-week planning, reminder jobs, tokenised read-only ICS feeds; client arrival notices (per-org lead time + quiet hours) ride the same rows. |
+| **Next actions** | `action_dismissals` | `next_actions` | offers, invoices, captures, deadlines | WO-C: DERIVED work items — nothing stored but dismissals. |
+| **CRM light** | `customer_notes`, `offer_stage_events` | `crm` | customers, offers | WO-H: notes + lifecycle timeline + offer-kanban stage events. |
+| **Client portal** | `customer_portal_tokens` | `portal` | offers, issued, documents | WO-I: magic-link, read-mostly; the offer accept/decline decision is the one write. |
+| **Automation rules** | `automation_rules`, `automation_rule_versions`, `automation_runs` | `automation` | offers, invoices, customers, assignments | WO-J: trigger→conditions→ordered actions; publish = immutable numbered version (revert re-publishes); daily sweep, fire-once/cooldown policies, per-sweep throttle, dry-run, full run log. |
+| **Agreed prices** | `supplier_agreed_prices` | (with analytics services) | invoices, vendors | WO-G2: validity-windowed unit-price agreements matched against line descriptions; overcharge findings + optional hard submit block. |
+| **Transport VAT recovery** | `fuel_transactions`, `vat_refund_claims`, `vat_claim_lines`, `vat_claimed_invoices`, `vat_overcharge_claims`, `vat_checklist_rules`, `vat_supplier_contract_terms`, `vat_fee_rates`, `vat_receipt_controls`/`_waivers`, `supplier_vat_registrations`, `vat_excise_rates`, `fuel_tieout_expectations`, `vat_country_activations`, … | `app/services/transport/*` | invoices, issuer, fx | Entitlement-gated vertical (WO-49…WO-85 + WO-L). Lines + VAT base FREEZE at submit; decisions incl. partial rejection at the frozen fee rate; the canonical query registry (`transport/queries.py`) is the only sanctioned way to select over the canonical tables — an AST scan refuses forks (WO-85). |
+| **Onboarding** | (column `organizations.onboarding_dismissed_at`) | `onboarding` | issuer, modules, users/invitations, partners/customers, invoices/issued | WO-P: fully DERIVED checklist; the dismissal stamp is the only persisted bit. |
 
 ### Settlement controls (WO-9)
 
@@ -235,4 +265,8 @@ Everything else (auth, tenancy, invoices, money) stays in the core monolith. **W
 | Exports | `export` | `erp_export`, `saft` |
 | Enterprise SSO | `sso`, `scim`, `auth` (`/sso/*`) | `oidc`, `scim`, `saml`, `sso_config`, `core/keyvault` |
 | Compliance | `retention`, `privacy`, `audit` (`/export`) | `retention`, `privacy`, `audit_export` |
+| Field service & clients | `schedule`, `calendar_feed`, `customers` (notes/timeline), `portal` | `schedule`, `calendar_feed`, `crm`, `portal` |
+| Automation | `automation` | `automation` |
+| Transport | `transport/*` (claims, statements, overcharges, excise, admin) | `app/services/transport/*` |
+| Home & onboarding | `dashboard` (`/dashboard`, `/dashboard/onboarding[/dismiss]`), `next_actions` | `dashboard`, `onboarding`, `next_actions` |
 | Platform | `jobs`, `webhooks`, `modules`, `billing`, `platform`, `settings`, `audit`, `integrity` | `jobs`, `scheduler`, `queue_health`, `webhooks`, `mailer`, `plans`, `modules`, `audit`, `billing_provider`, `billing_usage`, `integrity` |

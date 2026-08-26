@@ -221,7 +221,9 @@ are in `docs/plan/plan-a/wo/WO-96-dependency-modernisation.md`.
 - [ ] SSO/SCIM/SAML completed against a real IdP (§1)
 - [ ] Data residency (§4), production key custody (§5), public API GA (§6)
 - [ ] SOC 2 / ISO 27001 path started (§7)
-- [ ] Load/perf harness (R15); onboarding wizard (R19)
+- [ ] Load/perf harness (R15)
+- [x] Onboarding wizard (R19) — shipped 2026-08-26 as the derived
+  getting-started checklist (WO-P)
 
 ---
 

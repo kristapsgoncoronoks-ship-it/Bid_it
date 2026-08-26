@@ -57,6 +57,35 @@ zero-setup dev/test) · React 19 + Vite + TypeScript + Tailwind SPA · Docker.
   adjustments). Industry-neutral by rule — industry nouns appear only in
   examples, never in schema or copy. Design:
   [`docs/design/project-profitability.md`](./docs/design/project-profitability.md).
+- **Transport VAT recovery** (entitlement-gated vertical): fuel-card statement
+  ingest behind one parser contract (Eurowag, E100, Q8, DKV, TFC — each
+  network's money model in its own parser), a nine-rule capture gate + a
+  human-typed tie-out, monthly close, claim build with frozen-at-submit lines
+  and VAT base, Art. 17 minimums / deadlines / document gates / adjustable
+  checklist, decisions incl. partial rejection at the frozen fee rate,
+  overcharge claim-backs with audited ignore, per-country supplier
+  registrations, and a canonical query registry the tests forbid forking.
+- **Field service & clients**: calendar assignments with reminders and ICS
+  phone feeds, client arrival notices (per-org lead time, quiet hours), mobile
+  job photos into project documents, CRM-light notes/timeline/offer kanban,
+  and a magic-link client portal (offer decisions, invoices, shared docs).
+- **Automation rules** (admin): trigger → conditions → ordered actions over
+  work that already exists (offer gone quiet, invoice overdue, work accepted,
+  visits done, customer dormant); immutable published versions with revert,
+  dry-run, per-record fire-once with cooldown/every-sweep policies, a
+  per-sweep throttle, and a full run log.
+- **Supplier cost analytics + agreed prices**: per supplier-and-item price
+  history with change detection; validity-windowed agreed price lists matched
+  at capture, an Overcharges worklist with the damage priced out, and an
+  optional hard block at submit.
+- **Recoverability**: deletes go through a 30-day recycle bin across the
+  product (invoices with a consent ceremony and purge-to-archive; expense
+  reports and inbox transactions, recurring schedules and attachments in a
+  generic bin); an invoice backing a filed VAT claim refuses deletion
+  outright; a daily audited purge empties both bins.
+- **Guided onboarding**: a derived getting-started checklist on the dashboard
+  (company profile → modules → team → first customer → first invoice),
+  computed from existing rows, org-wide dismissible by an admin.
 - **Money correctness**: `Decimal` ROUND_HALF_UP everywhere, server-recomputed
   totals, **one FX convention** (ECB units-per-EUR, divide; `fx_source` a closed
   enum; `unknown` → NULL, never a guess; no cross-currency sums without a
