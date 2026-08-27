@@ -123,7 +123,14 @@ and lines charged that were never agreed. This is G4.7's deferred "supplier
 reliability" board, now with its criteria specified by the owner. It needs its
 own order and a design pass: what each criterion contributes, over what window,
 and how a rating is presented so it reads as evidence rather than a verdict on
-a counterparty.
+a counterparty. **Design pass DONE 2026-08-27**
+([docs/design/supplier-reliability-rating.md](./design/supplier-reliability-rating.md)):
+rolling 12 months, derived-only (no new tables), three-value bands per
+criterion with disclosed thresholds, overall = worst band, ignored
+claim-backs still count as evidence. ONE question parked for the owner,
+non-blocking: may the rating appear on the claim-back demand letter /
+evidence packet? Recommendation NO (it would change the artifact's legal
+character); the build proceeds web-only either way.
 
 **§13 drifted evidence — DECIDED in principle, scope needs confirming.**
 The VAT-claim half is ✅ BUILT (WO-L, 2026-08-26): the decision transition
