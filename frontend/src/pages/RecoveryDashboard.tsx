@@ -149,7 +149,13 @@ function ReliabilityPanel() {
       loading={<Skeleton className="h-40 w-full" />}
       errorTitle="Couldn’t load supplier reliability"
     >
-      {(d) => (
+      {(d) =>
+        // A panel must never take the page down with it. This one is a
+        // SECONDARY read on a screen whose primary answer is the recovery
+        // portfolio, so a payload that is not the shape this build expects
+        // (an older server, a proxy, a mock) renders nothing at all rather
+        // than throwing through the whole route.
+        !d || !Array.isArray(d.suppliers) || !d.thresholds ? null : (
         <Card title="Supplier reliability">
           <p className="mb-1 text-xs text-slate-500">{d.framing}</p>
           <p className="mb-4 text-xs text-slate-400">
@@ -213,7 +219,8 @@ function ReliabilityPanel() {
             </ul>
           )}
         </Card>
-      )}
+        )
+      }
     </QueryState>
   );
 }
