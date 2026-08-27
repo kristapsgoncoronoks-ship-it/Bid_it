@@ -1,12 +1,30 @@
 import { test, expect } from "@playwright/test";
 
 /**
- * Visual-regression snapshots of the design system. First run creates baselines
- * (`npm run test:vr:update`); later runs fail on any unintended pixel change.
- * Targets the fixtures-only `/design` surface so snapshots are deterministic.
- *
- * Fonts/data are stable; Playwright freezes animations and hides the caret (see
+ * Visual-regression snapshots of the design system, over the fixtures-only
+ * `/design` surface. Playwright freezes animations and hides the caret (see
  * playwright.config.ts) so only genuine visual changes diff.
+ *
+ * THE BASELINES BELONG TO CI'S CONTAINER (WO-Y). They are produced by the
+ * `vr-baselines` workflow dispatch inside `mcr.microsoft.com/playwright`, which
+ * is the same container the `frontend-e2e` job checks them in. Running
+ * `npm run test:vr` on a dev machine will therefore FAIL, and not by a little:
+ * font rendering differs enough between environments to move 12,000-19,000
+ * pixels per snapshot.
+ *
+ * That is deliberate, and it is the trade this gate is worth. A pixel baseline
+ * can only match one environment; the choice is which one. CI is where the gate
+ * actually blocks a merge, so CI is where the reference lives. The measurement
+ * that settled it: those cross-environment differences land at ratios right
+ * around 0.02 — which is exactly what the old `maxDiffPixelRatio: 0.02` was set
+ * to. The tolerance had been sized to make baselines ALMOST portable, and a
+ * tolerance that large cannot also catch a real regression (one seeded here
+ * moved 10,681 pixels and passed).
+ *
+ * To change a design on purpose: make the change, dispatch CI with
+ * `refresh_vr_baselines: true` on your branch, and the refreshed PNGs are
+ * committed back to it for review. Locally, read the diff images the failing
+ * job uploads rather than re-baselining by hand.
  */
 
 // Wait for fonts + lazy chunk to settle before snapshotting.

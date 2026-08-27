@@ -147,7 +147,9 @@ make up / down / logs          # docker compose
 quarantine gate), `lint`, `backend` (SQLite suite), `postgres` (real-Postgres RLS
 + concurrency, `NOSUPERUSER` role), `frontend` (typecheck + build), `frontend-e2e`
 (Playwright design-system smoke **and, since WO-Y, the visual-regression
-snapshots**), `vr-baselines` (dispatch-only: regenerates those snapshots in the
+snapshots** — whose baselines are produced by, and belong to, that container:
+`npm run test:vr` on a dev machine is expected to fail, because font rendering
+moves 12,000–19,000 pixels per snapshot between environments), `vr-baselines` (dispatch-only: regenerates those snapshots in the
 same container that checks them, publishes them to the working branch it was
 dispatched from, and REFUSES to run on the default branch — a job that could
 rewrite a gate's own reference on `main` would let anyone bless a regression
